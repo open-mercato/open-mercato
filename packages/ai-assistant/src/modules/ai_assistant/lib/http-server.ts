@@ -1,13 +1,8 @@
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http'
-import { randomUUID } from 'node:crypto'
-import { Server } from '@modelcontextprotocol/sdk/server/index.js'
+import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js'
-import {
-  ListToolsRequestSchema,
-  CallToolRequestSchema,
-} from '@modelcontextprotocol/sdk/types.js'
-import { zodToJsonSchema } from 'zod-to-json-schema'
 import type { AwilixContainer } from 'awilix'
+import { z } from 'zod'
 import { getToolRegistry } from './tool-registry'
 import { executeTool } from './tool-executor'
 import { loadAllModuleTools } from './tool-loader'
@@ -21,23 +16,6 @@ export type McpHttpServerOptions = {
   config: McpServerConfig
   container: AwilixContainer
   port: number
-}
-
-/**
- * Active session data.
- */
-type SessionData = {
-  sessionId: string
-  keyId: string
-  keyName: string
-  tenantId: string | null
-  organizationId: string | null
-  userId: string
-  features: string[]
-  isSuperAdmin: boolean
-  transport: StreamableHTTPServerTransport
-  server: Server
-  createdAt: Date
 }
 
 /**
@@ -66,86 +44,76 @@ function hasRequiredFeatures(
 }
 
 /**
- * Create an MCP server instance for an authenticated session.
+ * Create a stateless MCP server instance for a single request.
  */
-function createSessionServer(
+function createMcpServerForRequest(
   config: McpServerConfig,
-  session: {
-    tenantId: string | null
-    organizationId: string | null
-    userId: string
-    features: string[]
-    isSuperAdmin: boolean
-  },
-  container: AwilixContainer
-): Server {
-  const server = new Server(
+  toolContext: McpToolContext
+): McpServer {
+  const server = new McpServer(
     { name: config.name, version: config.version },
     { capabilities: { tools: {} } }
   )
 
-  const toolContext: McpToolContext = {
-    tenantId: session.tenantId,
-    organizationId: session.organizationId,
-    userId: session.userId,
-    container,
-    userFeatures: session.features,
-    isSuperAdmin: session.isSuperAdmin,
+  const registry = getToolRegistry()
+  const tools = Array.from(registry.getTools().values())
+
+  // Filter tools based on user permissions
+  const accessibleTools = tools.filter((tool) =>
+    hasRequiredFeatures(tool.requiredFeatures, toolContext.userFeatures, toolContext.isSuperAdmin)
+  )
+
+  if (config.debug) {
+    console.error(
+      `[MCP HTTP] Registering ${accessibleTools.length}/${tools.length} tools (filtered by ACL)`
+    )
   }
 
-  server.setRequestHandler(ListToolsRequestSchema, async () => {
-    const registry = getToolRegistry()
-    const tools = Array.from(registry.getTools().values())
-
-    const accessibleTools = tools.filter((tool) =>
-      hasRequiredFeatures(tool.requiredFeatures, session.features, session.isSuperAdmin)
-    )
+  // Register each tool with the McpServer using the new registerTool API
+  for (const tool of accessibleTools) {
+    // Pass Zod schema directly - MCP SDK handles conversion internally
+    const inputSchema = tool.inputSchema as z.ZodType | undefined
 
     if (config.debug) {
-      console.error(
-        `[MCP HTTP] Listing ${accessibleTools.length}/${tools.length} tools (filtered by ACL)`
-      )
+      console.error(`[MCP HTTP] Registering tool: ${tool.name}`)
     }
 
-    return {
-      tools: accessibleTools.map((tool) => ({
-        name: tool.name,
+    server.registerTool(
+      tool.name,
+      {
         description: tool.description,
-        inputSchema: zodToJsonSchema(tool.inputSchema as any) as Record<string, unknown>,
-      })),
-    }
-  })
+        inputSchema,
+      },
+      async (args: Record<string, unknown>) => {
+        if (config.debug) {
+          console.error(`[MCP HTTP] Calling tool: ${tool.name}`, JSON.stringify(args))
+        }
 
-  server.setRequestHandler(CallToolRequestSchema, async (request) => {
-    const { name, arguments: args } = request.params
+        const result = await executeTool(tool.name, args, toolContext)
 
-    if (config.debug) {
-      console.error(`[MCP HTTP] Calling tool: ${name}`, JSON.stringify(args))
-    }
+        if (!result.success) {
+          return {
+            content: [
+              {
+                type: 'text' as const,
+                text: JSON.stringify({ error: result.error, code: result.errorCode }),
+              },
+            ],
+            isError: true,
+          }
+        }
 
-    const result = await executeTool(name, args ?? {}, toolContext)
-
-    if (!result.success) {
-      return {
-        content: [
-          {
-            type: 'text',
-            text: JSON.stringify({ error: result.error, code: result.errorCode }),
-          },
-        ],
-        isError: true,
+        return {
+          content: [
+            {
+              type: 'text' as const,
+              text: JSON.stringify(result.result, null, 2),
+            },
+          ],
+        }
       }
-    }
-
-    return {
-      content: [
-        {
-          type: 'text',
-          text: JSON.stringify(result.result, null, 2),
-        },
-      ],
-    }
-  })
+    )
+  }
 
   return server
 }
@@ -170,30 +138,29 @@ async function parseJsonBody(req: IncomingMessage): Promise<unknown> {
 }
 
 /**
- * Check if request is an MCP initialize request.
- */
-function isInitializeRequest(body: unknown): boolean {
-  if (!body || typeof body !== 'object') return false
-  const msg = body as Record<string, unknown>
-  return msg.method === 'initialize' && msg.jsonrpc === '2.0'
-}
-
-/**
- * Run MCP server with HTTP transport.
+ * Run MCP server with HTTP transport (stateless mode).
  *
- * The server authenticates requests using API keys from the x-api-key header
- * or Authorization: ApiKey header. Each authenticated session gets its own
- * MCP server instance with tools filtered by the API key's permissions.
+ * Each request creates a new MCP server instance and transport.
+ * The server authenticates requests using API keys from the x-api-key header.
  */
 export async function runMcpHttpServer(options: McpHttpServerOptions): Promise<void> {
   const { config, container, port } = options
 
   await loadAllModuleTools()
 
-  const sessions = new Map<string, SessionData>()
-
-  const server = createServer(async (req: IncomingMessage, res: ServerResponse) => {
+  const httpServer = createServer(async (req: IncomingMessage, res: ServerResponse) => {
     const url = new URL(req.url || '/', `http://localhost:${port}`)
+
+    // Health check endpoint
+    if (url.pathname === '/health') {
+      res.writeHead(200, { 'Content-Type': 'application/json' })
+      res.end(JSON.stringify({
+        status: 'ok',
+        tools: getToolRegistry().listToolNames().length,
+        timestamp: new Date().toISOString(),
+      }))
+      return
+    }
 
     if (url.pathname !== '/mcp') {
       res.writeHead(404, { 'Content-Type': 'application/json' })
@@ -201,164 +168,119 @@ export async function runMcpHttpServer(options: McpHttpServerOptions): Promise<v
       return
     }
 
+    // Extract headers
     const headers: Record<string, string | undefined> = {}
     for (const [key, value] of Object.entries(req.headers)) {
       headers[key] = Array.isArray(value) ? value[0] : value
     }
 
-    const sessionId = headers['mcp-session-id']
-
-    if (req.method === 'DELETE' && sessionId) {
-      const session = sessions.get(sessionId)
-      if (session) {
-        try {
-          await session.transport.close()
-          await session.server.close()
-        } catch {
-          // Ignore close errors
-        }
-        sessions.delete(sessionId)
-        if (config.debug) {
-          console.error(`[MCP HTTP] Session closed: ${sessionId}`)
-        }
-      }
-      res.writeHead(200)
-      res.end()
+    // Authenticate request
+    const apiKey = extractApiKeyFromHeaders(headers)
+    if (!apiKey) {
+      res.writeHead(401, { 'Content-Type': 'application/json' })
+      res.end(JSON.stringify({ error: 'API key required (x-api-key header)' }))
       return
     }
 
-    if (req.method === 'GET' && sessionId) {
-      const session = sessions.get(sessionId)
-      if (!session) {
-        res.writeHead(404, { 'Content-Type': 'application/json' })
-        res.end(JSON.stringify({ error: 'Session not found' }))
-        return
-      }
-      await session.transport.handleRequest(req, res)
+    const authResult = await authenticateMcpRequest(apiKey, container)
+    if (!authResult.success) {
+      res.writeHead(401, { 'Content-Type': 'application/json' })
+      res.end(JSON.stringify({ error: authResult.error }))
       return
     }
 
-    if (req.method === 'POST') {
-      let body: unknown
-      try {
-        body = await parseJsonBody(req)
-      } catch {
-        res.writeHead(400, { 'Content-Type': 'application/json' })
-        res.end(JSON.stringify({ error: 'Invalid JSON' }))
-        return
-      }
+    if (config.debug) {
+      console.error(`[MCP HTTP] Authenticated: ${authResult.keyName} (${req.method})`)
+    }
 
-      if (sessionId && sessions.has(sessionId)) {
-        const session = sessions.get(sessionId)!
-        await session.transport.handleRequest(req, res, body)
-        return
-      }
+    // Create tool context
+    const toolContext: McpToolContext = {
+      tenantId: authResult.tenantId,
+      organizationId: authResult.organizationId,
+      userId: authResult.userId,
+      container,
+      userFeatures: authResult.features,
+      isSuperAdmin: authResult.isSuperAdmin,
+    }
 
-      if (!isInitializeRequest(body)) {
-        res.writeHead(400, { 'Content-Type': 'application/json' })
-        res.end(JSON.stringify({ error: 'Session required or initialize first' }))
-        return
-      }
-
-      const apiKey = extractApiKeyFromHeaders(headers)
-      if (!apiKey) {
-        res.writeHead(401, { 'Content-Type': 'application/json' })
-        res.end(JSON.stringify({ error: 'API key required (x-api-key header)' }))
-        return
-      }
-
-      const authResult = await authenticateMcpRequest(apiKey, container)
-      if (!authResult.success) {
-        res.writeHead(401, { 'Content-Type': 'application/json' })
-        res.end(JSON.stringify({ error: authResult.error }))
-        return
-      }
-
-      const newSessionId = randomUUID()
-
+    try {
+      // Create stateless transport (no session ID generator = stateless)
       const transport = new StreamableHTTPServerTransport({
-        sessionIdGenerator: () => newSessionId,
+        sessionIdGenerator: undefined,
+        enableJsonResponse: req.method === 'POST',
       })
 
-      const mcpServer = createSessionServer(
-        config,
-        {
-          tenantId: authResult.tenantId,
-          organizationId: authResult.organizationId,
-          userId: authResult.userId,
-          features: authResult.features,
-          isSuperAdmin: authResult.isSuperAdmin,
-        },
-        container
-      )
-
-      const sessionData: SessionData = {
-        sessionId: newSessionId,
-        keyId: authResult.keyId,
-        keyName: authResult.keyName,
-        tenantId: authResult.tenantId,
-        organizationId: authResult.organizationId,
-        userId: authResult.userId,
-        features: authResult.features,
-        isSuperAdmin: authResult.isSuperAdmin,
-        transport,
-        server: mcpServer,
-        createdAt: new Date(),
-      }
-
-      sessions.set(newSessionId, sessionData)
-
-      transport.onclose = () => {
-        sessions.delete(newSessionId)
-        if (config.debug) {
-          console.error(`[MCP HTTP] Session closed (transport): ${newSessionId}`)
-        }
-      }
-
-      await mcpServer.connect(transport)
+      // Create new server for this request
+      const mcpServer = createMcpServerForRequest(config, toolContext)
 
       if (config.debug) {
-        console.error(`[MCP HTTP] New session: ${newSessionId} (key: ${authResult.keyName})`)
+        // Check registered tools on the server
+        const registeredTools = (mcpServer as any)._registeredTools || {}
+        console.error(`[MCP HTTP] Registered tools in McpServer:`, Object.keys(registeredTools))
+        console.error(`[MCP HTTP] Tool handlers initialized:`, (mcpServer as any)._toolHandlersInitialized)
       }
 
-      await transport.handleRequest(req, res, body)
-      return
-    }
+      // Connect server to transport
+      await mcpServer.connect(transport)
 
-    res.writeHead(405, { 'Content-Type': 'application/json' })
-    res.end(JSON.stringify({ error: 'Method not allowed' }))
+      // Handle the request
+      if (req.method === 'POST') {
+        const body = await parseJsonBody(req)
+        await transport.handleRequest(req, res, body)
+      } else {
+        await transport.handleRequest(req, res)
+      }
+
+      // Cleanup after response finishes
+      res.on('finish', () => {
+        transport.close()
+        mcpServer.close()
+        if (config.debug) {
+          console.error(`[MCP HTTP] Request completed, cleaned up`)
+        }
+      })
+    } catch (error) {
+      console.error('[MCP HTTP] Error handling request:', error)
+      if (!res.headersSent) {
+        res.writeHead(500, { 'Content-Type': 'application/json' })
+        res.end(
+          JSON.stringify({
+            jsonrpc: '2.0',
+            error: {
+              code: -32603,
+              message: `Internal server error: ${error instanceof Error ? error.message : String(error)}`,
+            },
+            id: null,
+          })
+        )
+      }
+    }
   })
 
   const toolCount = getToolRegistry().listToolNames().length
 
   console.error(`[MCP HTTP] Starting ${config.name} v${config.version}`)
   console.error(`[MCP HTTP] Endpoint: http://localhost:${port}/mcp`)
+  console.error(`[MCP HTTP] Health: http://localhost:${port}/health`)
   console.error(`[MCP HTTP] Tools registered: ${toolCount}`)
+  console.error(`[MCP HTTP] Mode: Stateless (new server per request)`)
   console.error(`[MCP HTTP] Authentication: API key required (x-api-key header)`)
 
-  server.listen(port, () => {
-    console.error(`[MCP HTTP] Server listening on port ${port}`)
-  })
+  // Return a Promise that keeps the process alive until shutdown
+  return new Promise<void>((resolve) => {
+    httpServer.listen(port, () => {
+      console.error(`[MCP HTTP] Server listening on port ${port}`)
+    })
 
-  const shutdown = async () => {
-    console.error('[MCP HTTP] Shutting down...')
-
-    for (const [sessionId, session] of sessions) {
-      try {
-        await session.transport.close()
-        await session.server.close()
-      } catch {
-        // Ignore close errors
-      }
-      sessions.delete(sessionId)
+    const shutdown = async () => {
+      console.error('[MCP HTTP] Shutting down...')
+      httpServer.close(() => {
+        console.error('[MCP HTTP] Server closed')
+        resolve()
+      })
     }
 
-    server.close(() => {
-      console.error('[MCP HTTP] Server closed')
-      process.exit(0)
-    })
-  }
-
-  process.on('SIGINT', shutdown)
-  process.on('SIGTERM', shutdown)
+    process.on('SIGINT', shutdown)
+    process.on('SIGTERM', shutdown)
+  })
 }
