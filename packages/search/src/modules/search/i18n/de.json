@@ -13,6 +13,8 @@
   "search.dialog.empty.none": "Keine Ergebnisse gefunden.",
   "search.dialog.score.title": "Relevanz-Score",
   "search.dialog.shortcuts.hint": "Drücke Cmd+K zum Umschalten. Enter zum Öffnen",
+  "search.dialog.noLink": "Kein Link",
+  "search.dialog.noLinkHint": "Keine search.ts Konfiguration für diesen Entitätstyp",
   "search.settings.statusTitle": "Status der Suche",
   "search.settings.statusEnabled": "Embedding-Anbieter konfiguriert. Semantische Suche ist verfügbar.",
   "search.settings.statusDisabled": "Embedding-Anbieter nicht konfiguriert. Semantische Suche ist deaktiviert.",
