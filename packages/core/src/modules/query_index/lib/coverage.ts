@@ -1,7 +1,6 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { Knex } from 'knex'
 import { resolveEntityTableName } from '@open-mercato/shared/lib/query/engine'
-import type { VectorIndexService } from '@open-mercato/search/vector'
 
 export type CoverageScope = {
   entityType: string
@@ -211,30 +210,9 @@ async function tableHasColumn(knex: Knex, table: string, column: string): Promis
   return present
 }
 
-type CoverageDependencies = {
-  vectorService?: VectorIndexService | null
-  resolve?: <T = any>(name: string) => T
-}
-
-function resolveVectorService(
-  deps: CoverageDependencies | undefined,
-): VectorIndexService | null {
-  if (!deps) return null
-  if (deps.vectorService !== undefined) return deps.vectorService ?? null
-  if (typeof deps.resolve === 'function') {
-    try {
-      return deps.resolve<VectorIndexService>('vectorIndexService') ?? null
-    } catch {
-      return null
-    }
-  }
-  return null
-}
-
 export async function refreshCoverageSnapshot(
   em: EntityManager,
   scope: CoverageScope,
-  deps?: CoverageDependencies,
 ): Promise<void> {
   const entityType = String(scope.entityType || '')
   if (!entityType) return
@@ -270,17 +248,19 @@ export async function refreshCoverageSnapshot(
   const indexRow = await indexQuery.first()
   const indexCount = toCount(indexRow?.count)
 
+  // Count vector entries directly from database
   let vectorCount: number | undefined
-  const vectorService = resolveVectorService(deps)
-  if (vectorService && typeof tenantId === 'string' && tenantId.length > 0) {
+  if (typeof tenantId === 'string' && tenantId.length > 0) {
     try {
-      const vectorScopeOrganization =
-        scope.organizationId === null ? undefined : scope.organizationId
-      vectorCount = await vectorService.countIndexEntries({
-        tenantId,
-        organizationId: vectorScopeOrganization,
-        entityId: entityType,
-      })
+      let vectorQuery = knex('vector_search')
+        .count({ count: 1 })
+        .where('entity_id', entityType)
+        .where('tenant_id', tenantId)
+      if (organizationId !== null) {
+        vectorQuery = vectorQuery.where('organization_id', organizationId)
+      }
+      const vectorRow = await vectorQuery.first()
+      vectorCount = toCount(vectorRow?.count)
     } catch (err) {
       console.warn('[query_index] Failed to resolve vector count for coverage snapshot', {
         entityType,

@@ -4,8 +4,8 @@ import { getAuthFromRequest } from '@/lib/auth/server'
 import { getEntityIds } from '@open-mercato/shared/lib/encryption/entityIds'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { readCoverageSnapshot, refreshCoverageSnapshot } from '../lib/coverage'
-import type { VectorIndexService } from '@open-mercato/search/vector'
 import type { FullTextSearchStrategy } from '@open-mercato/search/strategies'
+import type { SearchModuleConfig } from '@open-mercato/shared/modules/search'
 import type { OpenApiMethodDoc, OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { queryIndexTag, queryIndexErrorSchema, queryIndexStatusResponseSchema } from './openapi'
 import { flattenSystemEntityIds } from '@open-mercato/shared/lib/entities/system-entities'
@@ -70,18 +70,30 @@ export async function GET(req: Request) {
 
   let entityIds = generatedIds.slice()
 
-  let vectorService: VectorIndexService | null = null
+  // Resolve search module configs to determine vector-enabled entities
+  // Entities with buildSource defined are vector-search enabled
+  let searchModuleConfigs: SearchModuleConfig[] = []
   try {
-    vectorService = container.resolve('vectorIndexService') as VectorIndexService
+    searchModuleConfigs = container.resolve('searchModuleConfigs') as SearchModuleConfig[]
   } catch {
-    vectorService = null
+    // Search module configs not available
   }
 
-  let vectorEnabledEntities = new Set<string>()
-  if (vectorService && typeof vectorService.listEnabledEntities === 'function') {
-    try {
-      vectorEnabledEntities = new Set(vectorService.listEnabledEntities())
-    } catch {}
+  const vectorEnabledEntities = new Set<string>()
+  const fulltextEnabledEntities = new Set<string>()
+  for (const moduleConfig of searchModuleConfigs) {
+    for (const entity of moduleConfig.entities ?? []) {
+      if (entity.enabled !== false) {
+        // Vector: entities with buildSource defined
+        if (typeof entity.buildSource === 'function') {
+          vectorEnabledEntities.add(entity.entityId)
+        }
+        // Fulltext: entities with fieldPolicy defined
+        if (entity.fieldPolicy && typeof entity.fieldPolicy === 'object') {
+          fulltextEnabledEntities.add(entity.entityId)
+        }
+      }
+    }
   }
 
   // Resolve fulltext strategy for entity counts
@@ -290,7 +302,7 @@ export async function GET(req: Request) {
           : null
       const stale = !snapshot || !refreshedAt || (Date.now() - refreshedAt.getTime() > COVERAGE_STALE_MS)
       if (forceRefresh || stale) {
-        await refreshCoverageSnapshot(em, scope, { vectorService }).catch(() => undefined)
+        await refreshCoverageSnapshot(em, scope).catch(() => undefined)
         snapshot = await readCoverageSnapshot(knex, scope)
       }
       const finalRefreshed = snapshot?.refreshed_at instanceof Date
@@ -323,7 +335,7 @@ export async function GET(req: Request) {
     const indexCountNumber = normalizeCount(coverage?.indexedCount)
     const vectorEnabled = vectorEnabledEntities.has(eid)
     const vectorCountNumber = vectorEnabled ? normalizeCount((coverage as any)?.vectorIndexedCount ?? (coverage as any)?.vector_indexed_count) : null
-    const fulltextEnabled = fulltextEntityCounts !== null
+    const fulltextEnabled = fulltextEnabledEntities.has(eid)
     const fulltextCountNumber = fulltextEnabled ? (fulltextEntityCounts?.[eid] ?? 0) : null
     const ok = (() => {
       if (baseCountNumber == null || indexCountNumber == null) return false

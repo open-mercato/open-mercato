@@ -9,6 +9,7 @@ import { useT } from '@/lib/i18n/context'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Spinner } from '@open-mercato/ui/primitives/spinner'
+import { JsonDisplay } from '@open-mercato/ui/backend/JsonDisplay'
 
 type RuleExecutionLog = {
   id: string
@@ -251,38 +252,26 @@ export default function ExecutionLogDetailPage() {
 
           {/* Input Context */}
           {log.inputContext && (
-            <div className="rounded-lg border bg-card p-6">
-              <h2 className="text-lg font-semibold mb-4">
-                {t('business_rules.logs.detail.inputContext')}
-              </h2>
-              <pre className="text-sm text-foreground whitespace-pre-wrap font-mono bg-muted p-4 rounded overflow-x-auto">
-                {JSON.stringify(log.inputContext, null, 2)}
-              </pre>
-            </div>
+            <JsonDisplay
+              data={log.inputContext}
+              title={t('business_rules.logs.detail.inputContext')}
+            />
           )}
 
           {/* Output Context */}
           {log.outputContext && (
-            <div className="rounded-lg border bg-card p-6">
-              <h2 className="text-lg font-semibold mb-4">
-                {t('business_rules.logs.detail.outputContext')}
-              </h2>
-              <pre className="text-sm text-foreground whitespace-pre-wrap font-mono bg-muted p-4 rounded overflow-x-auto">
-                {JSON.stringify(log.outputContext, null, 2)}
-              </pre>
-            </div>
+            <JsonDisplay
+              data={log.outputContext}
+              title={t('business_rules.logs.detail.outputContext')}
+            />
           )}
 
           {/* Result Value */}
           {log.resultValue && (
-            <div className="rounded-lg border bg-card p-6">
-              <h2 className="text-lg font-semibold mb-4">
-                {t('business_rules.logs.detail.resultValue')}
-              </h2>
-              <pre className="text-sm text-foreground whitespace-pre-wrap font-mono bg-muted p-4 rounded overflow-x-auto">
-                {JSON.stringify(log.resultValue, null, 2)}
-              </pre>
-            </div>
+            <JsonDisplay
+              data={log.resultValue}
+              title={t('business_rules.logs.detail.resultValue')}
+            />
           )}
         </div>
       </PageBody>

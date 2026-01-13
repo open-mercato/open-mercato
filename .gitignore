@@ -23,6 +23,7 @@ node_modules
 # misc
 .DS_Store
 *.pem
+
 # Exception: Allow public CA certificates for SSL verification
 !certs/*.pem
 
@@ -89,6 +90,4 @@ newrelic_agent.log
 debug-storybook.log
 *storybook.log
 storybook-static
-.queue/events/queue.json
-.queue/events/state.json
 .queue/**

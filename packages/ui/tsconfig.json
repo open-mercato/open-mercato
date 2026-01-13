@@ -4,10 +4,5 @@
   "compilerOptions": {
     "noEmit": true
   },
-  "include": [
-    "src/**/*",
-    "tailwind.config.ts",
-    "../../jest.dom.setup.ts"
-  ]
+  "include": ["src/**/*", "tailwind.config.ts", "../../jest.dom.setup.ts"]
 }
- 

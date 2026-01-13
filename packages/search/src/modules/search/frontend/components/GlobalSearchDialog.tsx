@@ -2,7 +2,47 @@
 
 import * as React from 'react'
 import { useRouter } from 'next/navigation'
-import { Search, Loader2 } from 'lucide-react'
+import {
+  Search,
+  Loader2,
+  Zap,
+  User,
+  Users,
+  Building,
+  StickyNote,
+  Briefcase,
+  CheckSquare,
+  FileText,
+  Mail,
+  Phone,
+  Calendar,
+  Clock,
+  Star,
+  Tag,
+  Flag,
+  Heart,
+  Bookmark,
+  Package,
+  Truck,
+  ShoppingCart,
+  CreditCard,
+  DollarSign,
+  Target,
+  Award,
+  Trophy,
+  Rocket,
+  Lightbulb,
+  MessageSquare,
+  Bell,
+  Settings,
+  Globe,
+  MapPin,
+  Link,
+  Folder,
+  Database,
+  Activity,
+} from 'lucide-react'
+import type { LucideIcon } from 'lucide-react'
 import { Dialog, DialogContent } from '@open-mercato/ui/primitives/dialog'
 import { Input } from '@open-mercato/ui/primitives/input'
 import { Button } from '@open-mercato/ui/primitives/button'
@@ -35,6 +75,51 @@ function humanizeSegment(segment: string): string {
     .filter(Boolean)
     .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
     .join(' ')
+}
+
+const ICON_MAP: Record<string, LucideIcon> = {
+  bolt: Zap,
+  zap: Zap,
+  user: User,
+  users: Users,
+  building: Building,
+  'sticky-note': StickyNote,
+  briefcase: Briefcase,
+  'check-square': CheckSquare,
+  'file-text': FileText,
+  mail: Mail,
+  phone: Phone,
+  calendar: Calendar,
+  clock: Clock,
+  star: Star,
+  tag: Tag,
+  flag: Flag,
+  heart: Heart,
+  bookmark: Bookmark,
+  package: Package,
+  truck: Truck,
+  'shopping-cart': ShoppingCart,
+  'credit-card': CreditCard,
+  'dollar-sign': DollarSign,
+  target: Target,
+  award: Award,
+  trophy: Trophy,
+  rocket: Rocket,
+  lightbulb: Lightbulb,
+  'message-square': MessageSquare,
+  bell: Bell,
+  settings: Settings,
+  globe: Globe,
+  'map-pin': MapPin,
+  link: Link,
+  folder: Folder,
+  database: Database,
+  activity: Activity,
+}
+
+function resolveIcon(name?: string): LucideIcon | null {
+  if (!name) return null
+  return ICON_MAP[name.toLowerCase()] ?? null
 }
 
 function formatEntityId(entityId: string): string {
@@ -199,6 +284,10 @@ export function GlobalSearchDialog({
   // Check if vector search is enabled but not configured
   const showVectorWarning = !embeddingConfigured && enabledStrategies.includes('vector') && !error
 
+  // Check if selected result has a navigable link
+  const selectedResult = results[selectedIndex]
+  const selectedHasLink = selectedResult ? pickPrimaryLink(selectedResult) !== null : false
+
   return (
     <>
       <Button type="button" variant="ghost" size="sm" onClick={() => setOpen(true)} className="hidden sm:inline-flex items-center gap-2">
@@ -255,6 +344,8 @@ export function GlobalSearchDialog({
               {results.map((result, index) => {
                 const presenter = result.presenter
                 const isActive = index === selectedIndex
+                const hasLink = pickPrimaryLink(result) !== null
+                const Icon = presenter?.icon ? resolveIcon(presenter.icon) : null
                 return (
                   <li key={`${result.entityId}:${result.recordId}`}>
                     <button
@@ -265,16 +356,22 @@ export function GlobalSearchDialog({
                         'w-full rounded-lg px-4 py-3 text-left transition border',
                         isActive
                           ? 'border-primary bg-primary/10 text-foreground shadow-sm'
-                          : 'border-transparent hover:border-muted-foreground/30 hover:bg-muted/60'
+                          : 'border-transparent hover:border-muted-foreground/30 hover:bg-muted/60',
+                        !hasLink && 'opacity-60'
                       )}
                     >
                       <div className="flex items-start justify-between gap-4">
                         <div className="flex flex-col gap-1">
                           <div className="flex flex-wrap items-center gap-2">
-                            <span className="font-medium text-base whitespace-normal break-all">{presenter?.title ?? result.recordId}</span>
+                            <span className={cn('font-medium text-base whitespace-normal break-all', !hasLink && 'text-muted-foreground')}>{presenter?.title ?? result.recordId}</span>
                             <span className="rounded-full border border-muted-foreground/30 px-2 py-0.5 text-xs text-muted-foreground">
                               {formatEntityId(result.entityId)}
                             </span>
+                            {!hasLink && (
+                              <span className="rounded-full border border-amber-500/50 bg-amber-50 dark:bg-amber-900/20 px-2 py-0.5 text-xs text-amber-700 dark:text-amber-400">
+                                {t('search.dialog.noLink')}
+                              </span>
+                            )}
                           </div>
                           {presenter?.subtitle ? (
                             <div className="text-sm text-muted-foreground whitespace-normal break-words">{presenter.subtitle}</div>
@@ -297,9 +394,9 @@ export function GlobalSearchDialog({
                             </div>
                           ) : null}
                         </div>
-                        {presenter?.icon ? (
-                          <div className="flex flex-col items-end gap-2 text-xs text-muted-foreground">
-                            <span className="text-muted-foreground/80">{humanizeSegment(presenter.icon)}</span>
+                        {Icon ? (
+                          <div className="flex flex-col items-end gap-2">
+                            <Icon className="h-5 w-5 text-muted-foreground" />
                           </div>
                         ) : null}
                       </div>
@@ -310,7 +407,11 @@ export function GlobalSearchDialog({
             </ul>
           </div>
           <div className="flex items-center justify-between border-t px-4 py-3">
-            <span className="text-xs text-muted-foreground">{t('search.dialog.shortcuts.hint')}</span>
+            <span className="text-xs text-muted-foreground">
+              {selectedResult && !selectedHasLink
+                ? t('search.dialog.noLinkHint')
+                : t('search.dialog.shortcuts.hint')}
+            </span>
             <div className="flex items-center gap-2">
               <Button type="button" variant="ghost" size="sm" onClick={() => setOpen(false)}>
                 {t('search.dialog.actions.cancel')}
@@ -319,7 +420,7 @@ export function GlobalSearchDialog({
                 type="button"
                 size="sm"
                 onClick={() => openResult(results[selectedIndex])}
-                disabled={!results.length}
+                disabled={!results.length || !selectedHasLink}
               >
                 {t('search.dialog.actions.openSelected')}
               </Button>

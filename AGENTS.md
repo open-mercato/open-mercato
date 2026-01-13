@@ -283,6 +283,7 @@ formatResult: async (ctx: SearchBuildContext) => ({
 ```
 
 **Important:** For entities that only use token search (no fulltext/vector), you MUST define `formatResult` to display meaningful titles instead of raw UUIDs in Cmd+K results.
+Recommendation: when introducing new entities, add a search presenter (`formatResult` or `buildSource.presenter`) so results are human-friendly; see `packages/core/src/modules/customers/search.ts` for an example.
 
 ### Running Search Queue Workers
 For production with `QUEUE_STRATEGY=async`, start workers in separate processes:

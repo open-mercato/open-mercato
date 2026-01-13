@@ -102,9 +102,20 @@ export async function evaluateSingleRule(
 ): Promise<SingleRuleResult> {
   const startTime = Date.now()
 
+  console.log('[RULE EVAL] ========================================')
+  console.log('[RULE EVAL] Evaluating rule:', {
+    ruleId: rule.ruleId,
+    ruleName: rule.ruleName,
+    ruleType: rule.ruleType,
+    entityType: rule.entityType,
+    eventType: rule.eventType,
+  })
+  console.log('[RULE EVAL] Conditions:', JSON.stringify(rule.conditionExpression, null, 2))
+
   try {
     // Check if rule is enabled
     if (!rule.enabled) {
+      console.log('[RULE EVAL] ✗ Rule is disabled')
       return {
         rule,
         conditionsPassed: false,
@@ -116,6 +127,7 @@ export async function evaluateSingleRule(
 
     // Check effective date range
     if (!isRuleEffective(rule)) {
+      console.log('[RULE EVAL] ✗ Rule is not effective (outside date range)')
       return {
         rule,
         conditionsPassed: false,
@@ -130,6 +142,13 @@ export async function evaluateSingleRule(
 
     const evaluationTime = Date.now() - startTime
 
+    console.log('[RULE EVAL] Final result:', {
+      ruleId: rule.ruleId,
+      conditionsPassed: conditionsPassed ? '✓ PASS' : '✗ FAIL',
+      evaluationTime: `${evaluationTime}ms`,
+    })
+    console.log('[RULE EVAL] ========================================')
+
     return {
       rule,
       conditionsPassed,
@@ -139,6 +158,9 @@ export async function evaluateSingleRule(
   } catch (error) {
     const evaluationTime = Date.now() - startTime
     const errorMessage = error instanceof Error ? error.message : String(error)
+
+    console.log('[RULE EVAL] ✗ ERROR:', errorMessage)
+    console.log('[RULE EVAL] ========================================')
 
     return {
       rule,

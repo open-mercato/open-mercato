@@ -21,6 +21,7 @@ import type { Queue } from '@open-mercato/queue'
 import type { FulltextIndexJobPayload } from './queue/fulltext-indexing'
 import type { VectorIndexJobPayload } from './queue/vector-indexing'
 import type { EncryptionMapEntry } from './lib/field-policy'
+import type { TenantDataEncryptionService } from '@open-mercato/shared/lib/encryption/tenantDataEncryptionService'
 import { createPresenterEnricher } from './lib/presenter-enricher'
 
 /**
@@ -193,12 +194,20 @@ export function registerSearchModule(
     // QueryEngine not available, reindex will be disabled
   }
 
+  // Resolve encryption service for decrypting presenter data
+  let encryptionService: TenantDataEncryptionService | null = null
+  try {
+    encryptionService = container.resolve<TenantDataEncryptionService>('tenantEncryptionService')
+  } catch {
+    // Encryption service not available, presenters won't be decrypted
+  }
+
   // Create presenter enricher for database-based presenter resolution
   let presenterEnricher: PresenterEnricherFn | undefined
   try {
     const em = container.resolve<{ getConnection: () => { getKnex: () => Knex } }>('em')
     const knex = em.getConnection().getKnex()
-    presenterEnricher = createPresenterEnricher(knex, entityConfigMap, queryEngine)
+    presenterEnricher = createPresenterEnricher(knex, entityConfigMap, queryEngine, encryptionService)
   } catch {
     // knex not available, presenter enrichment disabled
   }

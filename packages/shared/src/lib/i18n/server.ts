@@ -45,7 +45,7 @@ export async function detectLocale(): Promise<Locale> {
   }
   try {
     const accept = (await headers()).get('accept-language') || ''
-    const match = locales.find(l => new RegExp(`(^|,)\s*${l}(-|;|,|$)`, 'i').test(accept))
+    const match = locales.find(l => new RegExp(`(^|,)\\s*${l}(-|;|,|$)`, 'i').test(accept))
     if (match) return match
   } catch {
     // headers() may not be available outside request context (e.g., in tests)

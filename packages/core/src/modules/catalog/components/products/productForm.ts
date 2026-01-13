@@ -1,6 +1,9 @@
 import { z } from 'zod'
+import { slugify } from '@open-mercato/shared/lib/slugify'
 import type { CatalogProductOptionSchema } from '../../data/types'
 import type { ProductMediaItem } from './ProductMediaManager'
+
+export { slugify }
 
 export type PriceKindSummary = {
   id: string
@@ -313,14 +316,6 @@ export const formatTaxRateLabel = (rate: TaxRateSummary): string => {
   }
   if (!extras.length) return rate.name
   return `${rate.name} • ${extras.join(' · ')}`
-}
-
-export const slugify = (input: string): string => {
-  return input
-    .toLowerCase()
-    .trim()
-    .replace(/[^a-z0-9\-]+/g, '-')
-    .replace(/^-+|-+$/g, '')
 }
 
 export function createLocalId(): string {
