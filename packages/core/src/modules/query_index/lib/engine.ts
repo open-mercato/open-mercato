@@ -1385,7 +1385,6 @@ export class HybridQueryEngine implements QueryEngine {
             organizationId,
             withDeleted,
           },
-          { vectorService: this.resolveVectorService() },
         )
       }
       const knex = this.getKnex()

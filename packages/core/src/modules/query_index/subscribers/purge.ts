@@ -36,7 +36,6 @@ export default async function handle(payload: any, ctx: { resolve: <T=any>(name:
           tenantId,
           withDeleted: false,
         },
-        { resolve: ctx.resolve },
       )
     } catch (refreshError) {
       await recordIndexerLog(
