@@ -141,6 +141,224 @@ const searchStatusTool: AiToolDefinition = {
   },
 }
 
+// =============================================================================
+// search.get - Retrieve full record details by entity type and ID
+// =============================================================================
+
+const searchGetTool: AiToolDefinition = {
+  name: 'search.get',
+  description:
+    'Retrieve full record details by entity type and record ID. Use this after search.query to get complete data for a specific record.',
+  inputSchema: z.object({
+    entityType: z
+      .string()
+      .describe('The entity type (e.g., "customers:customer_company_profile", "customers:customer_deal")'),
+    recordId: z.string().describe('The record ID (UUID)'),
+  }),
+  requiredFeatures: ['search.view'],
+  handler: async (input, ctx) => {
+    if (!ctx.tenantId) {
+      throw new Error('Tenant context is required')
+    }
+
+    const queryEngine = ctx.container.resolve<{
+      query: (entityId: string, options: any) => Promise<{ items: unknown[]; total: number }>
+    }>('queryEngine')
+
+    const result = await queryEngine.query(input.entityType, {
+      tenantId: ctx.tenantId,
+      organizationId: ctx.organizationId,
+      filters: { id: input.recordId },
+      includeCustomFields: true,
+      page: { page: 1, pageSize: 1 },
+    })
+
+    const record = result.items[0] as Record<string, unknown> | undefined
+    if (!record) {
+      return {
+        found: false,
+        entityType: input.entityType,
+        recordId: input.recordId,
+        error: 'Record not found',
+      }
+    }
+
+    // Extract custom fields
+    const customFields: Record<string, unknown> = {}
+    const standardFields: Record<string, unknown> = {}
+    for (const [key, value] of Object.entries(record)) {
+      if (key.startsWith('cf:') || key.startsWith('cf_')) {
+        customFields[key.replace(/^cf[:_]/, '')] = value
+      } else {
+        standardFields[key] = value
+      }
+    }
+
+    // Build URL based on entity type
+    let url: string | null = null
+    const id = record.id ?? record.entity_id ?? input.recordId
+    if (input.entityType.includes('person')) {
+      url = `/backend/customers/people/${id}`
+    } else if (input.entityType.includes('company')) {
+      url = `/backend/customers/companies/${id}`
+    } else if (input.entityType.includes('deal')) {
+      url = `/backend/customers/deals/${id}`
+    } else if (input.entityType.includes('activity')) {
+      const entityId = record.entity_id ?? record.entityId
+      url = entityId ? `/backend/customers/companies/${entityId}#activity-${id}` : null
+    }
+
+    return {
+      found: true,
+      entityType: input.entityType,
+      recordId: input.recordId,
+      record: standardFields,
+      customFields: Object.keys(customFields).length > 0 ? customFields : undefined,
+      url,
+    }
+  },
+}
+
+// =============================================================================
+// search.schema - Discover searchable entities and their fields
+// =============================================================================
+
+const searchSchemaTool: AiToolDefinition = {
+  name: 'search.schema',
+  description:
+    'Discover searchable entities and their fields. Use this to learn what data can be searched and what fields are available for filtering.',
+  inputSchema: z.object({
+    entityType: z
+      .string()
+      .optional()
+      .describe('Optional: Get schema for a specific entity type only'),
+  }),
+  requiredFeatures: ['search.view'],
+  handler: async (input, ctx) => {
+    const searchIndexer = ctx.container.resolve<{
+      getAllEntityConfigs: () => Array<{
+        entityId: string
+        enabled?: boolean
+        priority?: number
+        strategies?: string[]
+        fieldPolicy?: {
+          searchable?: string[]
+          hashOnly?: string[]
+          excluded?: string[]
+        }
+      }>
+    }>('searchIndexer')
+
+    const allConfigs = searchIndexer.getAllEntityConfigs()
+    const entities: Array<{
+      entityId: string
+      enabled: boolean
+      priority: number
+      strategies?: string[]
+      searchableFields?: string[]
+      hashOnlyFields?: string[]
+      excludedFields?: string[]
+    }> = []
+
+    for (const entityConfig of allConfigs) {
+      if (input.entityType && entityConfig.entityId !== input.entityType) {
+        continue
+      }
+
+      entities.push({
+        entityId: entityConfig.entityId,
+        enabled: entityConfig.enabled !== false,
+        priority: entityConfig.priority ?? 5,
+        strategies: entityConfig.strategies,
+        searchableFields: entityConfig.fieldPolicy?.searchable,
+        hashOnlyFields: entityConfig.fieldPolicy?.hashOnly,
+        excludedFields: entityConfig.fieldPolicy?.excluded,
+      })
+    }
+
+    if (input.entityType && entities.length === 0) {
+      return {
+        found: false,
+        entityType: input.entityType,
+        error: 'Entity type not configured for search',
+      }
+    }
+
+    return {
+      totalEntities: entities.length,
+      entities: entities.sort((a, b) => (b.priority ?? 0) - (a.priority ?? 0)),
+    }
+  },
+}
+
+// =============================================================================
+// search.aggregate - Get counts grouped by field values
+// =============================================================================
+
+const searchAggregateTool: AiToolDefinition = {
+  name: 'search.aggregate',
+  description:
+    'Get record counts grouped by a field value. Useful for analytics like "how many deals by stage?" or "customers by status".',
+  inputSchema: z.object({
+    entityType: z
+      .string()
+      .describe('The entity type to aggregate (e.g., "customers:customer_deal")'),
+    groupBy: z
+      .string()
+      .describe('The field to group by (e.g., "status", "industry", "pipeline_stage")'),
+    limit: z
+      .number()
+      .int()
+      .min(1)
+      .max(100)
+      .optional()
+      .default(20)
+      .describe('Maximum number of buckets to return (default: 20)'),
+  }),
+  requiredFeatures: ['search.view'],
+  handler: async (input, ctx) => {
+    if (!ctx.tenantId) {
+      throw new Error('Tenant context is required')
+    }
+
+    const queryEngine = ctx.container.resolve<{
+      query: (entityId: string, options: any) => Promise<{ items: unknown[]; total: number }>
+    }>('queryEngine')
+
+    // Fetch records and aggregate in memory
+    // Note: For large datasets, this should use database GROUP BY
+    const result = await queryEngine.query(input.entityType, {
+      tenantId: ctx.tenantId,
+      organizationId: ctx.organizationId,
+      page: { page: 1, pageSize: 1000 }, // Fetch up to 1000 for aggregation
+    })
+
+    const counts = new Map<string | null, number>()
+    for (const item of result.items as Record<string, unknown>[]) {
+      const value = item[input.groupBy]
+      const key = value === null || value === undefined ? null : String(value)
+      counts.set(key, (counts.get(key) ?? 0) + 1)
+    }
+
+    const total = result.items.length
+    const buckets = Array.from(counts.entries())
+      .map(([value, count]) => ({
+        value,
+        count,
+        percentage: Math.round((count / total) * 100 * 100) / 100,
+      }))
+      .sort((a, b) => b.count - a.count)
+      .slice(0, input.limit)
+
+    return {
+      entityType: input.entityType,
+      groupBy: input.groupBy,
+      total,
+      buckets,
+    }
+  },
+}
+
 const searchReindexTool: AiToolDefinition = {
   name: 'search.reindex',
   description:
@@ -237,6 +455,13 @@ const searchReindexTool: AiToolDefinition = {
  * All AI tools exported by the search module.
  * Discovered by ai-assistant module's generator.
  */
-export const aiTools = [searchQueryTool, searchStatusTool, searchReindexTool]
+export const aiTools = [
+  searchQueryTool,
+  searchStatusTool,
+  searchGetTool,
+  searchSchemaTool,
+  searchAggregateTool,
+  searchReindexTool,
+]
 
 export default aiTools

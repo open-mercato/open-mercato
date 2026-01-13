@@ -226,13 +226,20 @@ function deriveRequiredFeatures(commandId: string): string[] {
 
 /**
  * Build CommandRuntimeContext from McpToolContext.
+ * Note: When authenticated via API key, userId is "api_key:<uuid>" which is not
+ * a valid UUID for the actor_user_id column. We extract the API key UUID to use
+ * as the actor, since api_keys.id is a valid UUID that can be stored.
  */
 function buildCommandContext(ctx: McpToolContext): CommandRuntimeContext {
+  // API key auth uses "api_key:<uuid>" format - extract the UUID part
+  const isApiKeyAuth = ctx.userId?.startsWith('api_key:')
+  const actorId = isApiKeyAuth ? ctx.userId.slice('api_key:'.length) : ctx.userId
+
   return {
     container: ctx.container,
-    auth: ctx.userId
+    auth: ctx.tenantId
       ? {
-          sub: ctx.userId,
+          sub: actorId ?? undefined,
           tenantId: ctx.tenantId ?? undefined,
           orgId: ctx.organizationId ?? undefined,
         }

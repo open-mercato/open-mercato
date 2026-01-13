@@ -150,6 +150,13 @@ export class SearchIndexer {
   }
 
   /**
+   * Get all configured entity configs.
+   */
+  getAllEntityConfigs(): SearchEntityConfig[] {
+    return Array.from(this.entityConfigMap.values())
+  }
+
+  /**
    * Check if an entity is configured for search indexing.
    */
   isEntityEnabled(entityId: EntityId): boolean {
