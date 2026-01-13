@@ -1,9 +1,8 @@
 "use client"
 import { useState } from 'react'
-import Image from 'next/image'
 import Link from 'next/link'
 import { useRouter, useSearchParams } from 'next/navigation'
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
+import { Card, CardContent, CardHeader, CardDescription } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { useT } from '@/lib/i18n/context'
@@ -132,61 +131,72 @@ export default function LoginPage() {
   }
 
   return (
-    <div className="min-h-svh flex items-center justify-center p-4">
-      <Card className="w-full max-w-sm">
-        <CardHeader className="flex flex-col items-center gap-4 text-center p-10">
-          <Image alt={translate('auth.login.logoAlt', 'Open Mercato logo')} src="/open-mercato.svg" width={150} height={150} priority />
-          <h1 className="text-2xl font-semibold">{translate('auth.login.brandName', 'Open Mercato')}</h1>
-          <CardDescription>{translate('auth.login.subtitle', 'Access your workspace')}</CardDescription>
-        </CardHeader>
-        <CardContent>
-          <form className="grid gap-3" onSubmit={onSubmit} noValidate>
-            {!!translatedRoles.length && (
-              <div className="rounded-md border border-blue-200 bg-blue-50 px-3 py-2 text-center text-xs text-blue-900">
-                {translate(
-                  translatedRoles.length > 1 ? 'auth.login.requireRolesMessage' : 'auth.login.requireRoleMessage',
-                  translatedRoles.length > 1
-                    ? 'Access requires one of the following roles: {roles}'
-                    : 'Access requires role: {roles}',
-                  { roles: translatedRoles.join(', ') },
-                )}
+    <div className="min-h-svh w-full bg-gradient-to-br from-blue-50 via-white to-blue-100/50">
+      <div className="flex min-h-svh items-center justify-center p-4">
+        <Card className="w-full max-w-sm border-0 bg-white/80 shadow-xl backdrop-blur-sm">
+          <CardHeader className="flex flex-col items-center gap-4 text-center p-8">
+            <Link href="/" className="flex items-center gap-3">
+              <img
+                src="https://images.prismic.io/freight-tech-cms/aMEwrWGNHVfTO9Qd_FreightTech.orgsygnet.png?auto=format,compress"
+                alt={translate('auth.login.logoAlt', 'FreightTech.org logo')}
+                className="h-12 w-auto"
+              />
+              <span className="text-xl font-bold tracking-tight text-gray-900">FreightTech.org</span>
+            </Link>
+            <CardDescription className="text-gray-600">{translate('auth.login.subtitle', 'Sign in to your account')}</CardDescription>
+          </CardHeader>
+          <CardContent className="px-8 pb-8">
+            <form className="grid gap-3" onSubmit={onSubmit} noValidate>
+              {!!translatedRoles.length && (
+                <div className="rounded-md border border-blue-200 bg-blue-50 px-3 py-2 text-center text-xs text-blue-900">
+                  {translate(
+                    translatedRoles.length > 1 ? 'auth.login.requireRolesMessage' : 'auth.login.requireRoleMessage',
+                    translatedRoles.length > 1
+                      ? 'Access requires one of the following roles: {roles}'
+                      : 'Access requires role: {roles}',
+                    { roles: translatedRoles.join(', ') },
+                  )}
+                </div>
+              )}
+              {!!translatedFeatures.length && (
+                <div className="rounded-md border border-blue-200 bg-blue-50 px-3 py-2 text-center text-xs text-blue-900">
+                  {translate('auth.login.featureDenied', "You don't have access to this feature ({feature}). Please contact your administrator.", {
+                    feature: translatedFeatures.join(', '),
+                  })}
+                </div>
+              )}
+              {error && (
+                <div className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-center text-sm text-red-700" role="alert" aria-live="polite">
+                  {error}
+                </div>
+              )}
+              <div className="grid gap-1">
+                <Label htmlFor="email" className="text-gray-700">{t('auth.email')}</Label>
+                <Input id="email" name="email" type="email" required aria-invalid={!!error} className="border-gray-300 bg-white" />
               </div>
-            )}
-            {!!translatedFeatures.length && (
-              <div className="rounded-md border border-blue-200 bg-blue-50 px-3 py-2 text-center text-xs text-blue-900">
-                {translate('auth.login.featureDenied', "You don't have access to this feature ({feature}). Please contact your administrator.", {
-                  feature: translatedFeatures.join(', '),
-                })}
+              <div className="grid gap-1">
+                <Label htmlFor="password" className="text-gray-700">{t('auth.password')}</Label>
+                <Input id="password" name="password" type="password" required aria-invalid={!!error} className="border-gray-300 bg-white" />
               </div>
-            )}
-            {error && (
-              <div className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-center text-sm text-red-700" role="alert" aria-live="polite">
-                {error}
+              <label className="flex items-center gap-2 text-xs text-gray-500">
+                <input type="checkbox" name="remember" className="accent-gray-900" />
+                <span>{translate('auth.login.rememberMe', 'Remember me')}</span>
+              </label>
+              <button
+                disabled={submitting}
+                className="h-10 rounded-full bg-gray-900 text-white mt-2 font-medium hover:bg-gray-800 transition disabled:opacity-60"
+              >
+                {submitting ? translate('auth.login.loading', 'Loading...') : translate('auth.signIn', 'Sign in')}
+              </button>
+              <div className="text-xs text-gray-500 mt-2 text-center">
+                <Link className="hover:text-gray-700 hover:underline" href="/reset">
+                  {translate('auth.login.forgotPassword', 'Forgot password?')}
+                </Link>
               </div>
-            )}
-            <div className="grid gap-1">
-              <Label htmlFor="email">{t('auth.email')}</Label>
-              <Input id="email" name="email" type="email" required aria-invalid={!!error} />
-            </div>
-            <div className="grid gap-1">
-              <Label htmlFor="password">{t('auth.password')}</Label>
-              <Input id="password" name="password" type="password" required aria-invalid={!!error} />
-            </div>
-            <label className="flex items-center gap-2 text-xs text-muted-foreground">
-              <input type="checkbox" name="remember" className="accent-foreground" />
-              <span>{translate('auth.login.rememberMe', 'Remember me')}</span>
-            </label>
-            <button disabled={submitting} className="h-10 rounded-md bg-foreground text-background mt-2 hover:opacity-90 transition disabled:opacity-60">
-              {submitting ? translate('auth.login.loading', 'Loading...') : translate('auth.signIn', 'Sign in')}
-            </button>
-            <div className="text-xs text-muted-foreground mt-2">
-              <Link className="underline" href="/reset">
-                {translate('auth.login.forgotPassword', 'Forgot password?')}
-              </Link>
-            </div>
-          </form>
-        </CardContent>
-      </Card>
+            </form>
+          </CardContent>
+        </Card>
+      </div>
     </div>
   )
 }

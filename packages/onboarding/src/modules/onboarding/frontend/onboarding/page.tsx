@@ -1,6 +1,5 @@
 "use client"
 
-import Image from 'next/image'
 import { useState } from 'react'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
@@ -127,15 +126,20 @@ export default function OnboardingPage() {
   const disabled = submitting || state === 'success'
 
   return (
-    <div className="relative min-h-svh flex items-center justify-center bg-muted/40 px-4 pb-24">
-      <Card className="w-full max-w-lg shadow-lg">
-        <CardHeader className="flex flex-col gap-4 p-10 text-center">
+    <div className="min-h-svh w-full bg-gradient-to-br from-blue-50 via-white to-blue-100/50">
+      <div className="flex min-h-svh items-center justify-center px-4 py-12">
+        <Card className="w-full max-w-lg border-0 bg-white/80 shadow-xl backdrop-blur-sm">
+        <CardHeader className="flex flex-col items-center gap-4 px-10 pt-10 pb-4">
           <div className="flex flex-col items-center gap-3">
-            <Image alt="Open Mercato" src="/open-mercato.svg" width={120} height={120} priority />
-            <CardTitle className="text-2xl font-semibold">
-              {translate('onboarding.title', 'Create your Open Mercato workspace')}
+            <img
+              src="https://images.prismic.io/freight-tech-cms/aMEwrWGNHVfTO9Qd_FreightTech.orgsygnet.png?auto=format,compress"
+              alt="FreightTech.org logo"
+              className="h-24 w-auto"
+            />
+            <CardTitle className="text-2xl font-semibold flex justify-center">
+              {translate('onboarding.title', 'Create your workspace')}
             </CardTitle>
-            <CardDescription>
+            <CardDescription className="flex justify-center">
               {translate('onboarding.subtitle', 'Tell us a bit about you and we will set everything up.')}
             </CardDescription>
           </div>
@@ -291,7 +295,7 @@ export default function OnboardingPage() {
             <button
               type="submit"
               disabled={disabled}
-              className="mt-2 h-11 rounded-md bg-foreground text-background transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60"
+              className="mt-2 h-11 rounded-full bg-gray-900 text-white font-medium transition hover:bg-gray-800 disabled:cursor-not-allowed disabled:opacity-60"
             >
               {submitting
                 ? translate('onboarding.form.loading', 'Sending...')
@@ -299,7 +303,8 @@ export default function OnboardingPage() {
             </button>
           </form>
         </CardContent>
-      </Card>
+        </Card>
+      </div>
     </div>
   )
 }
