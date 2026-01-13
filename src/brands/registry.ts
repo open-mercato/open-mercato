@@ -27,10 +27,24 @@ const freighttechBrand: BrandConfig = {
   domains: ['freighttech.org', 'freighttech.localhost', 'openmercato.freighttech.org'],
 }
 
+const infBrand: BrandConfig = {
+  id: 'inf',
+  name: 'INF Shipping Solutions',
+  productName: 'INF',
+  logo: {
+    src: '/fms/inf-logo.svg',
+    width: 100,
+    height: 40,
+    alt: 'INF Shipping Solutions',
+  },
+  domains: ['inf.localhost', 'inf-shipping.com', 'openmercato.inf-shipping.com'],
+}
+
 // Register all brands here
 export const brands: BrandConfig[] = [
   openMercatoBrand,
   freighttechBrand,
+  infBrand,
 ]
 
 // Default brand when no domain matches

@@ -3,7 +3,7 @@ import { NextResponse } from 'next/server'
 import { extractDomain, getBrandByDomain, defaultBrand } from './brands'
 
 // Paths that should be rewritten to brand-specific versions
-const brandRewritePaths = ['/', '/login', '/reset', '/onboarding']
+const brandRewritePaths = ['/', '/login', '/reset', '/onboarding', '/free-quote']
 
 // Note: Do NOT import bootstrap here - middleware runs in Edge runtime
 // which cannot use Node.js modules like MikroORM. Bootstrap is called

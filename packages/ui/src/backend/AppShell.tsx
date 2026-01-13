@@ -14,11 +14,11 @@ import { useLocale, useT } from '@open-mercato/shared/lib/i18n/context'
 import { slugifySidebarId } from '@open-mercato/shared/modules/navigation/sidebarPreferences'
 
 // Brand logo configurations for conditional rendering
-const brandLogos: Record<string, { src: string; alt: string; name: string }> = {
+const brandLogos: Record<string, { src: string; alt: string; name: string; width?: number; height?: number }> = {
   freighttech: { src: '/fms/freighttech-logo.png', alt: 'FreightTech', name: 'FreightTech' },
-  // Add more brands here as needed
+  inf: { src: '/fms/inf-logo.svg', alt: 'INF Shipping Solutions', name: '', width: 90, height: 36 },
 }
-const defaultBrandLogo = { src: '/open-mercato.svg', alt: 'Open Mercato', name: 'Open Mercato' }
+const defaultBrandLogo = { src: '/open-mercato.svg', alt: 'Open Mercato', name: 'Open Mercato', width: 32, height: 32 }
 
 export type AppShellProps = {
   productName?: string
@@ -777,8 +777,8 @@ export function AppShell({ productName, email, brandId, groups, rightHeaderSlot,
           <div className={`flex items-center ${compact ? 'justify-center' : 'justify-between'} px-3 pt-3 mb-2`}>
             {!compact && (
               <Link href="/backend" className="flex items-center" aria-label={t('appShell.goToDashboard')}>
-                <Image src={brandLogo.src} alt={brandLogo.alt} width={32} height={32} className="mr-2" />
-                <div className="text-base font-semibold">{brandLogo.name}</div>
+                <Image src={brandLogo.src} alt={brandLogo.alt} width={brandLogo.width ?? 32} height={brandLogo.height ?? 32} className="mr-2" />
+                {brandLogo.name && <div className="text-base font-semibold">{brandLogo.name}</div>}
               </Link>
             )}
             {!isMobileVariant && (
@@ -1011,7 +1011,7 @@ export function AppShell({ productName, email, brandId, groups, rightHeaderSlot,
           <aside className="absolute left-0 top-0 h-full w-[260px] bg-background border-r p-3">
             <div className="mb-2 flex items-center justify-between">
               <Link href="/backend" className="flex items-center text-sm font-semibold" onClick={() => setMobileOpen(false)} aria-label={t('appShell.goToDashboard')}>
-                <Image src={brandLogo.src} alt={brandLogo.alt} width={28} height={28} className="mr-2" />
+                <Image src={brandLogo.src} alt={brandLogo.alt} width={brandLogo.width ?? 28} height={brandLogo.height ?? 28} className="mr-2" />
                 {brandLogo.name}
               </Link>
               <button className="rounded border px-2 py-1" onClick={() => setMobileOpen(false)} aria-label={t('appShell.closeMenu')}>✕</button>
