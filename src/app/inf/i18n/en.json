@@ -1,0 +1,53 @@
+{
+  "onboarding": {
+    "title": "Create your workspace",
+    "subtitle": "Tell us a bit about you and we will set everything up.",
+    "form": {
+      "email": "Work email",
+      "firstName": "First name",
+      "lastName": "Last name",
+      "organizationName": "Organization name",
+      "password": "Password",
+      "confirmPassword": "Confirm password",
+      "termsLabel": "I have read and accept the",
+      "termsLink": "terms of service",
+      "termsRequired": "Please accept the terms to continue.",
+      "submit": "Send verification email",
+      "loading": "Sending...",
+      "successTitle": "Check your inbox",
+      "successBody": "We sent a verification link to {email}. Confirm it within 24 hours to activate your workspace.",
+      "genericError": "Something went wrong. Please try again."
+    },
+    "errors": {
+      "emailInvalid": "Enter a valid work email.",
+      "firstNameRequired": "First name is required.",
+      "lastNameRequired": "Last name is required.",
+      "organizationNameRequired": "Organization name is required.",
+      "passwordRequired": "Password must be at least 6 characters.",
+      "passwordMismatch": "Passwords must match."
+    }
+  },
+  "auth": {
+    "email": "Email address",
+    "password": "Password",
+    "signIn": "Sign in",
+    "resetPassword": "Reset password",
+    "sendResetLink": "Send reset link",
+    "login": {
+      "subtitle": "Sign in to your account",
+      "rememberMe": "Remember me",
+      "forgotPassword": "Forgot password?",
+      "loading": "Loading...",
+      "errors": {
+        "invalidCredentials": "Invalid email or password",
+        "permissionDenied": "You do not have permission to access this area.",
+        "generic": "An error occurred. Please try again."
+      }
+    }
+  },
+  "app": {
+    "landing": {
+      "signIn": "Sign in"
+    }
+  }
+}
