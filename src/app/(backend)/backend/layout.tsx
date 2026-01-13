@@ -11,7 +11,6 @@ import { UserMenu } from '@open-mercato/ui/backend/UserMenu'
 import { GlobalSearchDialog } from '@open-mercato/search/modules/search/frontend'
 import OrganizationSwitcher from '@/components/OrganizationSwitcher'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
-import { I18nProvider } from '@open-mercato/shared/lib/i18n/context'
 import { createRequestContainer } from '@/lib/di/container'
 import {
   applySidebarPreference,
@@ -301,6 +300,7 @@ export default async function BackendLayout({ children, params }: { children: Re
   )
 
   const productName = translate('appShell.productName', 'Open Mercato')
+  const brandId = headerStore.get('x-brand-id') ?? undefined
   const injectionContext = {
     path,
     userId: auth?.sub ?? null,
@@ -311,24 +311,23 @@ export default async function BackendLayout({ children, params }: { children: Re
   return (
     <>
       <Script async src="https://w.appzi.io/w.js?token=TtIV6" strategy="afterInteractive" />
-      <I18nProvider locale={locale} dict={dict}>
-        <AppShell
-          key={path}
-          productName={productName}
-          email={auth?.email}
-          groups={groups}
-          currentTitle={currentTitle}
-          breadcrumb={breadcrumb}
-          sidebarCollapsedDefault={initialCollapsed}
-          rightHeaderSlot={rightHeaderContent}
-          adminNavApi="/api/auth/admin/nav"
-          version={APP_VERSION}
-        >
-          <PageInjectionBoundary path={path} context={injectionContext}>
-            {children}
-          </PageInjectionBoundary>
-        </AppShell>
-      </I18nProvider>
+      <AppShell
+        key={path}
+        productName={productName}
+        email={auth?.email}
+        brandId={brandId}
+        groups={groups}
+        currentTitle={currentTitle}
+        breadcrumb={breadcrumb}
+        sidebarCollapsedDefault={initialCollapsed}
+        rightHeaderSlot={rightHeaderContent}
+        adminNavApi="/api/auth/admin/nav"
+        version={APP_VERSION}
+      >
+        <PageInjectionBoundary path={path} context={injectionContext}>
+          {children}
+        </PageInjectionBoundary>
+      </AppShell>
     </>
   )
 }

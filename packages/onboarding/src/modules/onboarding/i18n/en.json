@@ -9,7 +9,7 @@
       "organizationName": "Organization name",
       "password": "Password",
       "confirmPassword": "Confirm password",
-      "termsLabel": "I have read and accept the terms of service",
+      "termsLabel": "I have read and accept the",
       "submit": "Send verification email",
       "loading": "Sending...",
       "successTitle": "Check your inbox",
