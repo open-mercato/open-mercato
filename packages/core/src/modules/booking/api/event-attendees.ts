@@ -10,6 +10,7 @@ import { bookingEventAttendeeCreateSchema, bookingEventAttendeeUpdateSchema } fr
 import { sanitizeSearchTerm } from './helpers'
 import { CustomerEntity } from '@open-mercato/core/modules/customers/data/entities'
 import { E } from '@/generated/entities.ids.generated'
+import { createBookingCrudOpenApi, createPagedListResponseSchema, defaultOkResponseSchema } from './openapi'
 
 const routeMetadata = {
   GET: { requireAuth: true, requireFeatures: ['booking.view'] },
@@ -231,3 +232,53 @@ export const GET = crud.GET
 export const POST = crud.POST
 export const PUT = crud.PUT
 export const DELETE = crud.DELETE
+
+const eventAttendeeListItemSchema = z.object({
+  id: z.string().uuid().nullable().optional(),
+  organization_id: z.string().uuid().nullable().optional(),
+  tenant_id: z.string().uuid().nullable().optional(),
+  event_id: z.string().uuid().nullable().optional(),
+  customer_id: z.string().uuid().nullable().optional(),
+  first_name: z.string().nullable().optional(),
+  last_name: z.string().nullable().optional(),
+  email: z.string().nullable().optional(),
+  phone: z.string().nullable().optional(),
+  address_line1: z.string().nullable().optional(),
+  address_line2: z.string().nullable().optional(),
+  city: z.string().nullable().optional(),
+  region: z.string().nullable().optional(),
+  postal_code: z.string().nullable().optional(),
+  country: z.string().nullable().optional(),
+  attendee_type: z.string().nullable().optional(),
+  external_ref: z.string().nullable().optional(),
+  tags: z.array(z.string()).optional(),
+  notes: z.string().nullable().optional(),
+  created_at: z.string().nullable().optional(),
+  updated_at: z.string().nullable().optional(),
+  eventTitle: z.string().nullable().optional(),
+  eventStartsAt: z.string().nullable().optional(),
+  eventEndsAt: z.string().nullable().optional(),
+  customerDisplayName: z.string().nullable().optional(),
+  customerKind: z.string().nullable().optional(),
+})
+
+export const openApi = createBookingCrudOpenApi({
+  resourceName: 'Event attendee',
+  pluralName: 'Event attendees',
+  querySchema: listSchema,
+  listResponseSchema: createPagedListResponseSchema(eventAttendeeListItemSchema),
+  create: {
+    schema: bookingEventAttendeeCreateSchema,
+    description: 'Registers an attendee for a booking event.',
+  },
+  update: {
+    schema: bookingEventAttendeeUpdateSchema,
+    responseSchema: defaultOkResponseSchema,
+    description: 'Updates an event attendee by id.',
+  },
+  del: {
+    schema: z.object({ id: z.string().uuid() }),
+    responseSchema: defaultOkResponseSchema,
+    description: 'Deletes an event attendee by id.',
+  },
+})

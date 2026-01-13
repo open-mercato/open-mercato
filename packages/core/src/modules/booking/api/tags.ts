@@ -7,6 +7,7 @@ import { slugifyTagLabel } from '@open-mercato/shared/lib/utils'
 import { parseScopedCommandInput } from '@open-mercato/shared/lib/api/scoped'
 import { BookingResourceTag } from '../data/entities'
 import { bookingResourceTagCreateSchema, bookingResourceTagUpdateSchema } from '../data/validators'
+import { createBookingCrudOpenApi, createPagedListResponseSchema, defaultOkResponseSchema } from './openapi'
 
 const rawBodySchema = z.object({}).passthrough()
 const createInputSchema = bookingResourceTagCreateSchema.extend({
@@ -111,3 +112,34 @@ export const GET = crud.GET
 export const POST = crud.POST
 export const PUT = crud.PUT
 export const DELETE = crud.DELETE
+
+const tagListItemSchema = z.object({
+  id: z.string().uuid().nullable().optional(),
+  slug: z.string().nullable().optional(),
+  label: z.string().nullable().optional(),
+  color: z.string().nullable().optional(),
+  description: z.string().nullable().optional(),
+  organization_id: z.string().uuid().nullable().optional(),
+  tenant_id: z.string().uuid().nullable().optional(),
+})
+
+export const openApi = createBookingCrudOpenApi({
+  resourceName: 'Resource tag',
+  pluralName: 'Resource tags',
+  querySchema: listSchema,
+  listResponseSchema: createPagedListResponseSchema(tagListItemSchema),
+  create: {
+    schema: createInputSchema,
+    description: 'Creates a tag for booking resources and services.',
+  },
+  update: {
+    schema: bookingResourceTagUpdateSchema,
+    responseSchema: defaultOkResponseSchema,
+    description: 'Updates a resource tag by id.',
+  },
+  del: {
+    schema: z.object({ id: z.string().uuid() }),
+    responseSchema: defaultOkResponseSchema,
+    description: 'Deletes a resource tag by id.',
+  },
+})
