@@ -165,6 +165,16 @@ export type ResultMergeConfig = {
 }
 
 /**
+ * Callback function to enrich search results with presenter data.
+ * Used to load presenter from database when not available from search strategy.
+ */
+export type PresenterEnricherFn = (
+  results: SearchResult[],
+  tenantId: string,
+  organizationId?: string | null,
+) => Promise<SearchResult[]>
+
+/**
  * Options for creating a SearchService instance.
  */
 export type SearchServiceOptions = {
@@ -176,6 +186,8 @@ export type SearchServiceOptions = {
   fallbackStrategy?: SearchStrategyId
   /** Configuration for merging results from multiple strategies */
   mergeConfig?: ResultMergeConfig
+  /** Callback to enrich results with presenter data from database */
+  presenterEnricher?: PresenterEnricherFn
 }
 
 // =============================================================================

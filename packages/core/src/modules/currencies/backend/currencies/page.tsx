@@ -26,6 +26,8 @@ type CurrencyRow = {
   isActive: boolean
   organizationId: string
   tenantId: string
+  createdAt: string
+  updatedAt: string
 }
 
 type ResponsePayload = {
@@ -177,6 +179,22 @@ export default function CurrenciesPage() {
         header: t('currencies.list.columns.active'),
         enableSorting: false,
         cell: ({ getValue }) => <BooleanIcon value={Boolean(getValue())} />,
+      },
+      {
+        accessorKey: 'createdAt',
+        header: t('currencies.list.columns.createdAt'),
+        cell: ({ row }) => {
+          const date = row.original.createdAt
+          return date ? new Date(date).toLocaleString() : '—'
+        },
+      },
+      {
+        accessorKey: 'updatedAt',
+        header: t('currencies.list.columns.updatedAt'),
+        cell: ({ row }) => {
+          const date = row.original.updatedAt
+          return date ? new Date(date).toLocaleString() : '—'
+        },
       },
     ],
     [t]

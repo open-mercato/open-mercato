@@ -9,6 +9,7 @@ import { BookingTeam, BookingTeamMember } from '../data/entities'
 import { bookingTeamCreateSchema, bookingTeamUpdateSchema } from '../data/validators'
 import { sanitizeSearchTerm, parseBooleanFlag } from './helpers'
 import { E } from '#generated/entities.ids.generated'
+import { createBookingCrudOpenApi, createPagedListResponseSchema, defaultOkResponseSchema } from './openapi'
 
 // Field constants for BookingTeam entity
 const F = {
@@ -178,3 +179,36 @@ export const GET = crud.GET
 export const POST = crud.POST
 export const PUT = crud.PUT
 export const DELETE = crud.DELETE
+
+const teamListItemSchema = z.object({
+  id: z.string().uuid().nullable().optional(),
+  organization_id: z.string().uuid().nullable().optional(),
+  tenant_id: z.string().uuid().nullable().optional(),
+  name: z.string().nullable().optional(),
+  description: z.string().nullable().optional(),
+  is_active: z.boolean().nullable().optional(),
+  created_at: z.string().nullable().optional(),
+  updated_at: z.string().nullable().optional(),
+  memberCount: z.number().nullable().optional(),
+})
+
+export const openApi = createBookingCrudOpenApi({
+  resourceName: 'Team',
+  pluralName: 'Teams',
+  querySchema: listSchema,
+  listResponseSchema: createPagedListResponseSchema(teamListItemSchema),
+  create: {
+    schema: bookingTeamCreateSchema,
+    description: 'Creates a booking team.',
+  },
+  update: {
+    schema: bookingTeamUpdateSchema,
+    responseSchema: defaultOkResponseSchema,
+    description: 'Updates a booking team by id.',
+  },
+  del: {
+    schema: z.object({ id: z.string().uuid() }),
+    responseSchema: defaultOkResponseSchema,
+    description: 'Deletes a booking team by id.',
+  },
+})

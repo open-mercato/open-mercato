@@ -1,5 +1,5 @@
 import { createQueue } from '../factory'
-import type { JobHandler, AsyncQueueOptions } from '../types'
+import type { JobHandler, AsyncQueueOptions, QueueStrategyType } from '../types'
 
 /**
  * Options for running a queue worker.
@@ -9,12 +9,16 @@ export type WorkerRunnerOptions<T = unknown> = {
   queueName: string
   /** Handler function to process each job */
   handler: JobHandler<T>
-  /** Redis connection options */
+  /** Redis connection options (only used for async strategy) */
   connection?: AsyncQueueOptions['connection']
   /** Number of concurrent jobs to process */
   concurrency?: number
   /** Whether to set up graceful shutdown handlers */
   gracefulShutdown?: boolean
+  /** If true, don't block - return immediately after starting processing (for multi-queue mode) */
+  background?: boolean
+  /** Queue strategy to use. Defaults to QUEUE_STRATEGY env var or 'local' */
+  strategy?: QueueStrategyType
 }
 
 /**
@@ -52,11 +56,17 @@ export async function runWorker<T = unknown>(
     connection,
     concurrency = 1,
     gracefulShutdown = true,
+    background = false,
+    strategy: strategyOption,
   } = options
 
-  console.log(`[worker] Starting worker for queue "${queueName}"...`)
+  // Determine queue strategy from option, env var, or default to 'local'
+  const strategy: QueueStrategyType = strategyOption
+    ?? (process.env.QUEUE_STRATEGY === 'async' ? 'async' : 'local')
 
-  const queue = createQueue<T>(queueName, 'async', {
+  console.log(`[worker] Starting worker for queue "${queueName}" (strategy: ${strategy})...`)
+
+  const queue = createQueue<T>(queueName, strategy, {
     connection,
     concurrency,
   })
@@ -83,9 +93,15 @@ export async function runWorker<T = unknown>(
   await queue.process(handler)
 
   console.log(`[worker] Worker running with concurrency ${concurrency}`)
+
+  if (background) {
+    // Return immediately for multi-queue mode
+    return
+  }
+
   console.log('[worker] Press Ctrl+C to stop')
 
-  // Keep the process alive
+  // Keep the process alive (single-queue mode)
   await new Promise(() => {
     // This promise never resolves, keeping the worker running
   })

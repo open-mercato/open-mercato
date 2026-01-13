@@ -23,6 +23,7 @@ export type {
   // Service configuration
   ResultMergeConfig,
   SearchServiceOptions,
+  PresenterEnricherFn,
 
   // Module configuration
   SearchBuildContext,

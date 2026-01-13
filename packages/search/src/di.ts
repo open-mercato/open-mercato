@@ -6,7 +6,14 @@ import { VectorSearchStrategy, type EmbeddingService } from './strategies/vector
 import { FullTextSearchStrategy } from './strategies/fulltext.strategy'
 import { createFulltextDriver } from './fulltext/drivers'
 import { SearchIndexer } from './indexer/search-indexer'
-import type { SearchStrategy, ResultMergeConfig, SearchModuleConfig, SearchFieldPolicy, SearchEntityConfig } from './types'
+import type {
+  SearchStrategy,
+  ResultMergeConfig,
+  SearchModuleConfig,
+  SearchFieldPolicy,
+  SearchEntityConfig,
+  PresenterEnricherFn,
+} from './types'
 import type { VectorDriver } from './vector/types'
 import type { QueryEngine } from '@open-mercato/shared/lib/query/types'
 import type { EntityId } from '@open-mercato/shared/modules/entities'
@@ -14,6 +21,7 @@ import type { Queue } from '@open-mercato/queue'
 import type { FulltextIndexJobPayload } from './queue/fulltext-indexing'
 import type { VectorIndexJobPayload } from './queue/vector-indexing'
 import type { EncryptionMapEntry } from './lib/field-policy'
+import { createPresenterEnricher } from './lib/presenter-enricher'
 
 /**
  * Check if encrypted fields should be excluded from search indexing.
@@ -177,6 +185,24 @@ export function registerSearchModule(
   // Determine default strategies based on what's available
   const defaultStrategies = options?.defaultStrategies ?? determineDefaultStrategies(strategies)
 
+  // Try to resolve queryEngine for reindex support and presenter enrichment
+  let queryEngine: QueryEngine | undefined
+  try {
+    queryEngine = container.resolve<QueryEngine>('queryEngine')
+  } catch {
+    // QueryEngine not available, reindex will be disabled
+  }
+
+  // Create presenter enricher for database-based presenter resolution
+  let presenterEnricher: PresenterEnricherFn | undefined
+  try {
+    const em = container.resolve<{ getConnection: () => { getKnex: () => Knex } }>('em')
+    const knex = em.getConnection().getKnex()
+    presenterEnricher = createPresenterEnricher(knex, entityConfigMap, queryEngine)
+  } catch {
+    // knex not available, presenter enrichment disabled
+  }
+
   // Create search service
   const searchService = new SearchService({
     strategies,
@@ -190,18 +216,11 @@ export function registerSearchModule(
         tokens: 0.8,
       },
     },
+    presenterEnricher,
   })
 
   // Create search indexer with module configs
   const moduleConfigs = options?.moduleConfigs ?? []
-
-  // Try to resolve queryEngine for reindex support
-  let queryEngine: QueryEngine | undefined
-  try {
-    queryEngine = container.resolve<QueryEngine>('queryEngine')
-  } catch {
-    // QueryEngine not available, reindex will be disabled
-  }
 
   // Try to resolve fulltextIndexQueue for queue-based reindexing
   let fulltextQueue: Queue<FulltextIndexJobPayload> | undefined

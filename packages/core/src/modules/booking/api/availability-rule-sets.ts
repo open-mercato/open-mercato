@@ -6,6 +6,7 @@ import { escapeLikePattern } from '@open-mercato/shared/lib/db/escapeLikePattern
 import { BookingAvailabilityRuleSet } from '../data/entities'
 import { bookingAvailabilityRuleSetCreateSchema, bookingAvailabilityRuleSetUpdateSchema } from '../data/validators'
 import { E } from '#generated/entities.ids.generated'
+import { createBookingCrudOpenApi, createPagedListResponseSchema, defaultOkResponseSchema } from './openapi'
 
 const routeMetadata = {
   GET: { requireAuth: true, requireFeatures: ['booking.view'] },
@@ -119,3 +120,35 @@ export const GET = crud.GET
 export const POST = crud.POST
 export const PUT = crud.PUT
 export const DELETE = crud.DELETE
+
+const availabilityRuleSetListItemSchema = z.object({
+  id: z.string().uuid().nullable().optional(),
+  organization_id: z.string().uuid().nullable().optional(),
+  tenant_id: z.string().uuid().nullable().optional(),
+  name: z.string().nullable().optional(),
+  description: z.string().nullable().optional(),
+  timezone: z.string().nullable().optional(),
+  created_at: z.string().nullable().optional(),
+  updated_at: z.string().nullable().optional(),
+})
+
+export const openApi = createBookingCrudOpenApi({
+  resourceName: 'Availability rule set',
+  pluralName: 'Availability rule sets',
+  querySchema: listSchema,
+  listResponseSchema: createPagedListResponseSchema(availabilityRuleSetListItemSchema),
+  create: {
+    schema: bookingAvailabilityRuleSetCreateSchema,
+    description: 'Creates a reusable availability rule set.',
+  },
+  update: {
+    schema: bookingAvailabilityRuleSetUpdateSchema,
+    responseSchema: defaultOkResponseSchema,
+    description: 'Updates an availability rule set by id.',
+  },
+  del: {
+    schema: z.object({ id: z.string().uuid() }),
+    responseSchema: defaultOkResponseSchema,
+    description: 'Deletes an availability rule set by id.',
+  },
+})

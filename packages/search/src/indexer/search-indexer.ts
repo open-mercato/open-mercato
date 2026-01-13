@@ -664,11 +664,13 @@ export class SearchIndexer {
         // Index to fulltext - either via queue or directly
         if (indexableRecords.length > 0) {
           if (params.useQueue && this.fulltextQueue) {
-            // Enqueue batch for background processing
+            // Enqueue batch for background processing - only pass minimal references
+            // Worker will load fresh data from entity_indexes table
             await this.fulltextQueue.enqueue({
               jobType: 'batch-index',
               tenantId: params.tenantId,
-              records: indexableRecords,
+              organizationId: params.organizationId,
+              records: indexableRecords.map((r) => ({ entityId: r.entityId, recordId: r.recordId })),
             })
             jobsEnqueued += 1
             totalProcessed += indexableRecords.length

@@ -1,5 +1,4 @@
 import { createQueue, type Queue } from '@open-mercato/queue'
-import type { IndexableRecord } from '../types'
 
 /**
  * Job types for fulltext indexing queue.
@@ -7,12 +6,24 @@ import type { IndexableRecord } from '../types'
 export type FulltextIndexJobType = 'batch-index' | 'delete' | 'purge'
 
 /**
+ * Minimal record reference for batch indexing.
+ * Only contains identifiers - actual data is loaded from entity_indexes in the worker.
+ * This keeps queue payloads small and ensures fresh data is indexed.
+ */
+export type FulltextBatchRecord = {
+  entityId: string
+  recordId: string
+}
+
+/**
  * Payload for batch indexing jobs.
+ * Contains only record references - worker loads full data from database.
  */
 export type FulltextBatchIndexPayload = {
   jobType: 'batch-index'
   tenantId: string
-  records: IndexableRecord[]
+  organizationId?: string | null
+  records: FulltextBatchRecord[]
 }
 
 /**

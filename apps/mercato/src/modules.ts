@@ -26,4 +26,5 @@ export const enabledModules: ModuleEntry[] = [
   { id: 'booking', from: '@open-mercato/core' },
   { id: 'search', from: '@open-mercato/search' },
   { id: 'currencies', from: '@open-mercato/core' },
+  { id: 'events', from: '@open-mercato/events' },
 ]

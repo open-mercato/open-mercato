@@ -117,8 +117,6 @@ describe('Queue definitions', () => {
           {
             entityId: 'test:entity',
             recordId: 'rec-1',
-            tenantId: 'tenant-123',
-            fields: { name: 'Test' },
           },
         ],
       }

@@ -4,7 +4,7 @@ import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { RateFetchingService } from './services/rateFetchingService'
 import { NBPProvider } from './services/providers/nbp'
 import { RaiffeisenPolandProvider } from './services/providers/raiffeisen'
-import { CurrencyFetchConfig } from './data/entities'
+import { Currency, CurrencyFetchConfig } from './data/entities'
 
 function parseArgs(args: string[]): Record<string, string | boolean> {
   const result: Record<string, string | boolean> = {}
@@ -57,7 +57,7 @@ const fetchRatesCommand: ModuleCli = {
     try {
       const em = container.resolve<EntityManager>('em')
       const fetchService = new RateFetchingService(em)
-      
+
       // Register providers
       fetchService.registerProvider(new NBPProvider())
       fetchService.registerProvider(new RaiffeisenPolandProvider())
@@ -192,4 +192,159 @@ const listProvidersCommand: ModuleCli = {
   },
 }
 
-export default [fetchRatesCommand, listProvidersCommand]
+const SEED_CURRENCIES = [
+  {
+    code: "USD",
+    name: "US Dollar",
+    decimalPlaces: 2,
+    symbol: "$",
+    decimalSeparator: '.',
+    thousandsSeparator: ",",
+    isBase: true,
+    isActive: true,
+  },
+  {
+    code: "EUR",
+    name: "Euro",
+    decimalPlaces: 2,
+    symbol: "€",
+    decimalSeparator: ',',
+    thousandsSeparator: ".",
+    isBase: false,
+    isActive: true,
+  },
+  {
+    code: "JPY",
+    name: "Japanese Yen",
+    decimalPlaces: 0,
+    symbol: "¥",
+    decimalSeparator: '.',
+    thousandsSeparator: ",",
+    isBase: false,
+    isActive: true,
+  },
+  {
+    code: "GBP",
+    name: "British Pound",
+    decimalPlaces: 2,
+    symbol: "£",
+    decimalSeparator: '.',
+    thousandsSeparator: ",",
+    isBase: false,
+    isActive: true,
+  },
+  {
+    code: "CHF",
+    name: "Swiss Franc",
+    decimalPlaces: 2,
+    symbol: "Fr",
+    decimalSeparator: '.',
+    thousandsSeparator: "'",
+    isBase: false,
+    isActive: true,
+  },
+  {
+    code: "CAD",
+    name: "Canadian Dollar",
+    decimalPlaces: 2,
+    symbol: "C$",
+    decimalSeparator: '.',
+    thousandsSeparator: ",",
+    isBase: false,
+    isActive: true,
+  },
+  {
+    code: "AUD",
+    name: "Australian Dollar",
+    decimalPlaces: 2,
+    symbol: "A$",
+    decimalSeparator: '.',
+    thousandsSeparator: ",",
+    isBase: false,
+    isActive: true,
+  },
+  {
+    code: "CNY",
+    name: "Chinese Yuan",
+    decimalPlaces: 2,
+    symbol: "¥",
+    decimalSeparator: '.',
+    thousandsSeparator: ",",
+    isBase: false,
+    isActive: true,
+  },
+  {
+    code: "CNH",
+    name: "Chinese Yuan (Offshore)",
+    decimalPlaces: 2,
+    symbol: "¥",
+    decimalSeparator: '.',
+    thousandsSeparator: ",",
+    isBase: false,
+    isActive: true,
+  },
+  {
+    code: "PLN",
+    name: "Polish Zloty",
+    decimalPlaces: 2,
+    symbol: "zł",
+    decimalSeparator: ',',
+    thousandsSeparator: " ",
+    isBase: false,
+    isActive: true,
+  },
+]
+
+const seed: ModuleCli = {
+  command: 'seed',
+  async run(rest) {
+    const args = parseArgs(rest)
+    const tenantId = String(args.tenantId ?? args.tenant ?? '')
+    const organizationId = String(args.organizationId ?? args.orgId ?? args.org ?? '')
+    if (!tenantId || !organizationId) {
+      console.error('Usage: mercato currencies seed --tenant <tenantId> --org <organizationId>')
+      return
+    }
+    const container = await createRequestContainer()
+    const em = (container.resolve('em') as EntityManager)
+
+    const existingEntries = await em.find(Currency, {
+      tenantId,
+      organizationId,
+    })
+    const existingMap = new Map<string, Currency>()
+    existingEntries.forEach((entry) => existingMap.set(entry.code, entry))
+
+    const seeded = await em.transactional(async (tem) => {
+      for (const curr of SEED_CURRENCIES) {
+        const current = existingMap.get(curr.code)
+        if (current) {
+          if (current.name !== curr.name) {
+            current.name = curr.name
+            current.updatedAt = new Date()
+            em.persist(current)
+          }
+          continue
+        }
+        const entry = em.create(Currency, {
+          tenantId,
+          organizationId,
+          ...curr,
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        })
+        em.persist(entry)
+      }
+
+      return true
+    })
+
+    if (seeded) {
+      console.log('Currencies seeded for organization', organizationId)
+    } else {
+      console.log('Currencies already present; skipping')
+    }
+  },
+}
+
+export default [seed, fetchRatesCommand, listProvidersCommand]

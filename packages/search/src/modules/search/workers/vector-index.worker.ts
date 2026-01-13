@@ -1,13 +1,25 @@
-import type { QueuedJob, JobContext } from '@open-mercato/queue'
-import type { VectorIndexJobPayload } from '../../../queue/vector-indexing'
+import type { QueuedJob, JobContext, WorkerMeta } from '@open-mercato/queue'
+import { VECTOR_INDEXING_QUEUE_NAME, type VectorIndexJobPayload } from '../../../queue/vector-indexing'
 import type { SearchIndexer } from '../../../indexer/search-indexer'
 import type { EmbeddingService } from '../../../vector'
+import type { EntityManager } from '@mikro-orm/postgresql'
+import type { Knex } from 'knex'
 import { recordIndexerError } from '@open-mercato/shared/lib/indexers/error-log'
 import { applyCoverageAdjustments, createCoverageAdjustments } from '@open-mercato/core/modules/query_index/lib/coverage'
 import { logVectorOperation } from '../../../vector/lib/vector-logs'
 import { resolveAutoIndexingEnabled } from '../lib/auto-indexing'
 import { resolveEmbeddingConfig } from '../lib/embedding-config'
 import { searchDebugWarn } from '../../../lib/debug'
+import { updateReindexProgress } from '../lib/reindex-lock'
+
+// Worker metadata for auto-discovery
+const DEFAULT_CONCURRENCY = 2
+const envConcurrency = process.env.WORKERS_VECTOR_INDEXING_CONCURRENCY
+
+export const metadata: WorkerMeta = {
+  queue: VECTOR_INDEXING_QUEUE_NAME,
+  concurrency: envConcurrency ? parseInt(envConcurrency, 10) : DEFAULT_CONCURRENCY,
+}
 
 type HandlerContext = { resolve: <T = unknown>(name: string) => T }
 
@@ -47,6 +59,15 @@ export async function handleVectorIndexJob(
       return
     }
 
+    // Get knex for heartbeat updates
+    let knex: Knex | null = null
+    try {
+      const em = ctx.resolve('em') as EntityManager
+      knex = (em.getConnection() as unknown as { getKnex: () => Knex }).getKnex()
+    } catch {
+      knex = null
+    }
+
     // Load saved embedding config to use the correct provider/model
     try {
       const embeddingConfig = await resolveEmbeddingConfig(ctx, { defaultValue: null })
@@ -82,6 +103,11 @@ export async function handleVectorIndexJob(
           error: error instanceof Error ? error.message : error,
         })
       }
+    }
+
+    // Update heartbeat to signal worker is still processing
+    if (knex && successCount > 0) {
+      await updateReindexProgress(knex, tenantId, 'vector', successCount, organizationId ?? null)
     }
 
     searchDebugWarn('vector-index.worker', 'Batch-index job completed', {
@@ -252,4 +278,15 @@ export async function handleVectorIndexJob(
     // Re-throw to let the queue handle retry logic
     throw error
   }
+}
+
+/**
+ * Default export for worker auto-discovery.
+ * Wraps handleVectorIndexJob to match the expected handler signature.
+ */
+export default async function handle(
+  job: QueuedJob<VectorIndexJobPayload>,
+  ctx: JobContext & HandlerContext
+): Promise<void> {
+  return handleVectorIndexJob(job, ctx, ctx)
 }

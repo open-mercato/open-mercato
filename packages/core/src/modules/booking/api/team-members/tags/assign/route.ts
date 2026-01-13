@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server'
+import { z } from 'zod'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/directory/utils/organizationScope'
@@ -7,6 +8,7 @@ import type { CommandRuntimeContext, CommandBus } from '@open-mercato/shared/lib
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { parseScopedCommandInput } from '@open-mercato/shared/lib/api/scoped'
+import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import {
   bookingTeamMemberTagAssignmentSchema,
   type BookingTeamMemberTagAssignmentInput,
@@ -69,4 +71,25 @@ export async function POST(req: Request) {
     console.error('booking.teamMembers.tags.assign failed', err)
     return NextResponse.json({ error: translate('booking.teamMembers.tags.updateError', 'Failed to update tags.') }, { status: 400 })
   }
+}
+
+export const openApi: OpenApiRouteDoc = {
+  tag: 'Booking',
+  summary: 'Assign team member tag',
+  methods: {
+    POST: {
+      summary: 'Assign team member tag',
+      description: 'Assigns a tag to a booking team member.',
+      requestBody: {
+        contentType: 'application/json',
+        schema: bookingTeamMemberTagAssignmentSchema,
+      },
+      responses: [
+        { status: 201, description: 'Tag assignment created', schema: z.object({ id: z.string().uuid().nullable() }) },
+        { status: 400, description: 'Invalid payload', schema: z.object({ error: z.string() }) },
+        { status: 401, description: 'Unauthorized', schema: z.object({ error: z.string() }) },
+        { status: 403, description: 'Forbidden', schema: z.object({ error: z.string() }) },
+      ],
+    },
+  },
 }

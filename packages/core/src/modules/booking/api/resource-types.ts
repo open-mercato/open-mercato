@@ -9,6 +9,7 @@ import { BookingResource, BookingResourceType } from '../data/entities'
 import { bookingResourceTypeCreateSchema, bookingResourceTypeUpdateSchema } from '../data/validators'
 import { sanitizeSearchTerm } from './helpers'
 import { E } from '#generated/entities.ids.generated'
+import { createBookingCrudOpenApi, createPagedListResponseSchema, defaultOkResponseSchema } from './openapi'
 
 // Field constants for BookingResourceType entity
 const F = {
@@ -178,3 +179,37 @@ export const GET = crud.GET
 export const POST = crud.POST
 export const PUT = crud.PUT
 export const DELETE = crud.DELETE
+
+const resourceTypeListItemSchema = z.object({
+  id: z.string().uuid().nullable().optional(),
+  organization_id: z.string().uuid().nullable().optional(),
+  tenant_id: z.string().uuid().nullable().optional(),
+  name: z.string().nullable().optional(),
+  description: z.string().nullable().optional(),
+  appearance_icon: z.string().nullable().optional(),
+  appearance_color: z.string().nullable().optional(),
+  created_at: z.string().nullable().optional(),
+  updated_at: z.string().nullable().optional(),
+  resourceCount: z.number().nullable().optional(),
+})
+
+export const openApi = createBookingCrudOpenApi({
+  resourceName: 'Resource type',
+  pluralName: 'Resource types',
+  querySchema: listSchema,
+  listResponseSchema: createPagedListResponseSchema(resourceTypeListItemSchema),
+  create: {
+    schema: bookingResourceTypeCreateSchema,
+    description: 'Creates a resource type for booking resources.',
+  },
+  update: {
+    schema: bookingResourceTypeUpdateSchema,
+    responseSchema: defaultOkResponseSchema,
+    description: 'Updates a resource type by id.',
+  },
+  del: {
+    schema: z.object({ id: z.string().uuid() }),
+    responseSchema: defaultOkResponseSchema,
+    description: 'Deletes a resource type by id.',
+  },
+})
