@@ -57,6 +57,10 @@ export type QueueStrategyType = 'local' | 'async'
 export type LocalQueueOptions = {
   /** Base directory for queue files. Defaults to '.queue' */
   baseDir?: string
+  /** Number of concurrent job processors. Defaults to 1 */
+  concurrency?: number
+  /** Polling interval in milliseconds for continuous processing. Defaults to 1000 */
+  pollInterval?: number
 }
 
 /**
