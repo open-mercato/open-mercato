@@ -13,6 +13,8 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import type { Knex } from 'knex'
 import type { EntityId } from '@open-mercato/shared/modules/entities'
 import type { QueryEngine } from '@open-mercato/shared/lib/query/types'
+import type { TenantDataEncryptionService } from '@open-mercato/shared/lib/encryption/tenantDataEncryptionService'
+import { decryptIndexDocForSearch } from '@open-mercato/shared/lib/encryption/indexDoc'
 import { recordIndexerLog } from '@/lib/indexers/status-log'
 import { recordIndexerError } from '@/lib/indexers/error-log'
 import { searchDebug, searchDebugWarn, searchError } from '../../../lib/debug'
@@ -44,6 +46,7 @@ async function loadRecordsFromDb(
   organizationId: string | null | undefined,
   searchIndexer: SearchIndexer,
   queryEngine?: QueryEngine,
+  encryptionService?: TenantDataEncryptionService | null,
 ): Promise<IndexableRecord[]> {
   if (records.length === 0) return []
 
@@ -80,8 +83,23 @@ async function loadRecordsFromDb(
       const rows = await query
       const config = searchIndexer.getEntityConfig(entityId as EntityId)
 
+      // DEK cache for efficient batch decryption
+      const dekCache = new Map<string | null, string | null>()
+
       for (const row of rows) {
-        const doc = row.doc as Record<string, unknown>
+        // Decrypt doc before building indexable - entity_indexes stores encrypted data
+        let doc = row.doc as Record<string, unknown>
+        try {
+          doc = await decryptIndexDocForSearch(
+            entityId,
+            doc,
+            { tenantId, organizationId: organizationId ?? null },
+            encryptionService ?? null,
+            dekCache,
+          )
+        } catch {
+          // Continue with original doc if decryption fails
+        }
         const indexable = await buildIndexableFromDoc(
           doc,
           entityId,
@@ -249,6 +267,14 @@ export async function handleFulltextIndexJob(
     searchDebugWarn('fulltext-index.worker', 'queryEngine not available')
   }
 
+  // Resolve encryption service for decrypting entity_indexes docs
+  let encryptionService: TenantDataEncryptionService | null = null
+  try {
+    encryptionService = ctx.resolve<TenantDataEncryptionService>('tenantEncryptionService')
+  } catch {
+    // Encryption service not available, docs won't be decrypted
+  }
+
   // Resolve fulltext strategy
   let fulltextStrategy: FullTextSearchStrategy | undefined
   try {
@@ -300,6 +326,7 @@ export async function handleFulltextIndexJob(
         organizationId,
         searchIndexer,
         queryEngine,
+        encryptionService,
       )
 
       if (indexableRecords.length === 0) {
