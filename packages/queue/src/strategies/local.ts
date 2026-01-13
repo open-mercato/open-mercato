@@ -19,6 +19,11 @@ const DEFAULT_POLL_INTERVAL = 1000
  * - `.queue/<name>/queue.json` - Array of queued jobs
  * - `.queue/<name>/state.json` - Processing state (last processed ID)
  *
+ * **Limitations:**
+ * - Jobs are processed sequentially (concurrency option is for logging/compatibility only)
+ * - Not suitable for production or multi-process environments
+ * - No retry mechanism for failed jobs
+ *
  * @template T - The payload type for jobs
  * @param name - Queue name (used for directory naming)
  * @param options - Local queue options
@@ -31,6 +36,7 @@ export function createLocalQueue<T = unknown>(
   const queueDir = path.join(baseDir, name)
   const queueFile = path.join(queueDir, 'queue.json')
   const stateFile = path.join(queueDir, 'state.json')
+  // Note: concurrency is stored for logging/compatibility but jobs are processed sequentially
   const concurrency = options?.concurrency ?? 1
   const pollInterval = options?.pollInterval ?? DEFAULT_POLL_INTERVAL
 
@@ -235,8 +241,15 @@ export function createLocalQueue<T = unknown>(
     }
     activeHandler = null
 
-    // Wait for any in-progress processing to complete
+    // Wait for any in-progress processing to complete (with timeout)
+    const SHUTDOWN_TIMEOUT = 5000
+    const startTime = Date.now()
+
     while (isProcessing) {
+      if (Date.now() - startTime > SHUTDOWN_TIMEOUT) {
+        console.warn(`[queue:${name}] Force closing after ${SHUTDOWN_TIMEOUT}ms timeout`)
+        break
+      }
       await new Promise((resolve) => setTimeout(resolve, 50))
     }
   }

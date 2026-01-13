@@ -1,12 +1,14 @@
 import { registerCliModules, getCliModules } from '@open-mercato/shared/modules/registry'
 import type { Module } from '@open-mercato/shared/modules/registry'
 import type { QueuedJob, JobContext } from '@open-mercato/queue'
-import handle, { metadata, EVENTS_QUEUE_NAME } from '../events.worker'
+import handle, { metadata, EVENTS_QUEUE_NAME, clearListenerCache } from '../events.worker'
 
-// Clear modules before each test
+// Clear modules and listener cache before each test
 function clearModules() {
   // Re-register with empty array to clear
   registerCliModules([])
+  // Clear the listener cache so tests don't affect each other
+  clearListenerCache()
 }
 
 describe('Events Worker', () => {
@@ -221,6 +223,89 @@ describe('Events Worker', () => {
       await handle(job, ctx)
 
       expect(called).toBe(true)
+    })
+
+    it('should isolate errors - continue processing other subscribers when one fails', async () => {
+      const subscriber1Calls: unknown[] = []
+      const subscriber2Calls: unknown[] = []
+
+      const mockModules: Module[] = [
+        {
+          id: 'module-a',
+          subscribers: [
+            {
+              id: 'a:failing-subscriber',
+              event: 'test.event',
+              handler: async () => {
+                subscriber1Calls.push('called')
+                throw new Error('Subscriber A failed')
+              },
+            },
+          ],
+        },
+        {
+          id: 'module-b',
+          subscribers: [
+            {
+              id: 'b:working-subscriber',
+              event: 'test.event',
+              handler: async (payload: unknown) => {
+                subscriber2Calls.push(payload)
+              },
+            },
+          ],
+        },
+      ]
+
+      registerCliModules(mockModules)
+
+      const job = createMockJob('test.event', { data: 'test' })
+      const ctx = createMockContext()
+
+      // Should not throw - partial failures are logged but don't fail the job
+      await expect(handle(job, ctx)).resolves.toBeUndefined()
+
+      // Both subscribers should have been called
+      expect(subscriber1Calls.length).toBe(1)
+      expect(subscriber2Calls.length).toBe(1)
+      expect(subscriber2Calls[0]).toEqual({ data: 'test' })
+    })
+
+    it('should throw when all subscribers fail', async () => {
+      const mockModules: Module[] = [
+        {
+          id: 'module-a',
+          subscribers: [
+            {
+              id: 'a:failing-subscriber',
+              event: 'test.event',
+              handler: async () => {
+                throw new Error('Subscriber A failed')
+              },
+            },
+          ],
+        },
+        {
+          id: 'module-b',
+          subscribers: [
+            {
+              id: 'b:failing-subscriber',
+              event: 'test.event',
+              handler: async () => {
+                throw new Error('Subscriber B failed')
+              },
+            },
+          ],
+        },
+      ]
+
+      registerCliModules(mockModules)
+
+      const job = createMockJob('test.event', { data: 'test' })
+      const ctx = createMockContext()
+
+      // Should throw when all subscribers fail
+      await expect(handle(job, ctx)).rejects.toThrow('All 2 subscriber(s) failed for event "test.event"')
     })
   })
 })
