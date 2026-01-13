@@ -323,6 +323,10 @@ export async function run(argv = process.argv) {
         await runModuleCommand(allModules, 'customers', 'seed-dictionaries', ['--tenant', tenantId, '--org', orgId])
         console.log('📚 ✅ Customer dictionaries seeded\n')
 
+        console.log('📚 Seeding currencies...')
+        await runModuleCommand(allModules, 'currencies', 'seed', ['--tenant', tenantId, '--org', orgId])
+        console.log('📚 ✅ Currencies seeded\n')
+
         console.log('📏 Seeding catalog units...')
         await runModuleCommand(allModules, 'catalog', 'seed-units', ['--tenant', tenantId, '--org', orgId])
         console.log('📏 ✅ Catalog units seeded\n')
