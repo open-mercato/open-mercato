@@ -25,9 +25,12 @@ jobs:
       - name: Install dependencies
         run: yarn install --frozen-lockfile
 
+      - name: Building packages
+        run: yarn build:packages
+
       - name: Prepare generated modules
-        run: yarn modules:prepare
-        
+        run: yarn generate
+
       - name: Checking types
         run: yarn typecheck
 
