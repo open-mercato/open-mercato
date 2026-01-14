@@ -11,12 +11,12 @@
       "persistent": true
     },
     "typecheck": {
-      "dependsOn": ["^build", "generate"],
+      "dependsOn": ["^build"],
       "cache": false,
       "outputs": []
     },
     "test": {
-      "dependsOn": ["^build", "generate"],
+      "dependsOn": ["^build"],
       "cache": false,
       "outputs": []
     },
