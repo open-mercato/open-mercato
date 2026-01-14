@@ -66,10 +66,12 @@ export async function generateApiClient(options: ApiClientOptions): Promise<Gene
   await ensureDir(generatedDir)
 
   // Dynamically import the modules from the generated file
+  // Use cache-busting query param to ensure we get fresh imports after registry generation
   const modulesGeneratedPath = path.join(resolver.getOutputDir(), 'modules.generated')
   let modules: any[]
   try {
-    const mod = await import(modulesGeneratedPath)
+    const cacheBuster = `?t=${Date.now()}`
+    const mod = await import(`${modulesGeneratedPath}${cacheBuster}`)
     modules = mod.modules || mod.default || []
   } catch (e) {
     result.errors.push(`Failed to import modules from ${modulesGeneratedPath}: ${(e as Error).message}`)

@@ -92,7 +92,8 @@ export const channelUpdateSchema = z
   })
   .merge(channelCreateSchema.omit({ code: true }).partial())
 
-export const shippingMethodCreateSchema = scoped.extend({
+// Base schema without refinements (used for .partial() in update schema)
+const shippingMethodBaseSchema = scoped.extend({
   name: z.string().trim().min(1).max(255),
   code: z
     .string()
@@ -111,7 +112,10 @@ export const shippingMethodCreateSchema = scoped.extend({
   isActive: z.boolean().optional(),
   providerSettings,
   metadata,
-}).superRefine((value, ctx) => {
+})
+
+// Refinement for provider settings validation
+const shippingMethodRefine = (value: { providerKey?: string; providerSettings?: Record<string, unknown> }, ctx: z.RefinementCtx) => {
   if (value.providerKey) {
     const provider = getShippingProvider(value.providerKey)
     const schema = provider?.settings?.schema
@@ -126,13 +130,16 @@ export const shippingMethodCreateSchema = scoped.extend({
       }
     }
   }
-})
+}
+
+export const shippingMethodCreateSchema = shippingMethodBaseSchema.superRefine(shippingMethodRefine)
 
 export const shippingMethodUpdateSchema = z
   .object({
     id: uuid(),
   })
-  .merge(shippingMethodCreateSchema.partial())
+  .merge(shippingMethodBaseSchema.partial())
+  .superRefine(shippingMethodRefine)
 
 export const deliveryWindowCreateSchema = scoped.extend({
   name: z.string().trim().min(1).max(255),
@@ -156,7 +163,8 @@ export const deliveryWindowUpdateSchema = z
   })
   .merge(deliveryWindowCreateSchema.partial())
 
-export const paymentMethodCreateSchema = scoped.extend({
+// Base schema without refinements (used for .partial() in update schema)
+const paymentMethodBaseSchema = scoped.extend({
   name: z.string().trim().min(1).max(255),
   code: z
     .string()
@@ -170,7 +178,10 @@ export const paymentMethodCreateSchema = scoped.extend({
   isActive: z.boolean().optional(),
   providerSettings,
   metadata,
-}).superRefine((value, ctx) => {
+})
+
+// Refinement for provider settings validation
+const paymentMethodRefine = (value: { providerKey?: string; providerSettings?: Record<string, unknown> }, ctx: z.RefinementCtx) => {
   if (value.providerKey) {
     const provider = getPaymentProvider(value.providerKey)
     const schema = provider?.settings?.schema
@@ -185,13 +196,16 @@ export const paymentMethodCreateSchema = scoped.extend({
       }
     }
   }
-})
+}
+
+export const paymentMethodCreateSchema = paymentMethodBaseSchema.superRefine(paymentMethodRefine)
 
 export const paymentMethodUpdateSchema = z
   .object({
     id: uuid(),
   })
-  .merge(paymentMethodCreateSchema.partial())
+  .merge(paymentMethodBaseSchema.partial())
+  .superRefine(paymentMethodRefine)
 
 export const salesTagCreateSchema = scoped.extend({
   slug: z
