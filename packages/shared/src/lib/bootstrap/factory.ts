@@ -4,6 +4,7 @@ import { registerDiRegistrars } from '../di/container'
 import { registerModules } from '../modules/registry'
 import { registerEntityIds } from '../encryption/entityIds'
 import { registerEntityFields } from '../encryption/entityFields'
+import { registerSearchModuleConfigs } from '../../modules/search'
 
 let _bootstrapped = false
 
@@ -42,7 +43,12 @@ export function createBootstrap(data: BootstrapData, options: BootstrapOptions =
       registerEntityFields(data.entityFieldsRegistry)
     }
 
-    // === 5-6. UI Widgets and Optional packages (async to avoid circular deps) ===
+    // === 5. Search module configs (for search service registration in DI) ===
+    if (data.searchModuleConfigs) {
+      registerSearchModuleConfigs(data.searchModuleConfigs)
+    }
+
+    // === 6-7. UI Widgets and Optional packages (async to avoid circular deps) ===
     // Store the promise so CLI context can await it
     _asyncRegistrationPromise = registerWidgetsAndOptionalPackages(data, options)
     void _asyncRegistrationPromise
@@ -78,18 +84,9 @@ async function registerWidgetsAndOptionalPackages(data: BootstrapData, options: 
     // UI packages may not be available in all contexts
   }
 
-  // Register search module (optional package)
-  if (!options.skipSearchConfigs && data.searchModuleConfigs?.length) {
-    try {
-      const searchDi = await import('@open-mercato/search/di')
-      // Note: SearchModule registration happens via module DI registrars.
-      // The moduleConfigs are passed to registerSearchModule when the DI container
-      // is set up. This async block just ensures the package is available.
-      void searchDi
-    } catch {
-      // Search package may not be installed
-    }
-  }
+  // Note: Search module configs are registered synchronously in the main bootstrap.
+  // The actual registerSearchModule() call happens in core/bootstrap.ts when the
+  // DI container is created, using getSearchModuleConfigs() from the global registry.
 
   // Note: CLI module registration is handled separately in CLI context
   // via bootstrapFromAppRoot in dynamicLoader. We don't import CLI here

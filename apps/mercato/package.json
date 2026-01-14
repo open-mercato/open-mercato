@@ -12,7 +12,8 @@
     "db:generate": "mercato db generate",
     "db:migrate": "mercato db migrate",
     "db:greenfield": "mercato db greenfield",
-    "initialize": "mercato init"
+    "initialize": "mercato init",
+    "reinstall": "mercato init --reinstall"
   },
   "dependencies": {
     "@open-mercato/core": "0.3.13",
@@ -25,7 +26,6 @@
     "@open-mercato/cache": "0.3.13",
     "@open-mercato/onboarding": "0.3.13",
     "@open-mercato/content": "0.3.13",
-    "@open-mercato/client": "0.3.13",
     "@ai-sdk/openai": "^2.0.80",
     "@mikro-orm/core": "^6.6.2",
     "@mikro-orm/migrations": "^6.6.2",

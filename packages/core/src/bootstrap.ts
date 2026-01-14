@@ -6,6 +6,7 @@ import { createKmsService } from '@open-mercato/shared/lib/encryption/kms'
 import { TenantDataEncryptionService } from '@open-mercato/shared/lib/encryption/tenantDataEncryptionService'
 import { registerTenantEncryptionSubscriber } from '@open-mercato/shared/lib/encryption/subscriber'
 import { isTenantDataEncryptionEnabled } from '@open-mercato/shared/lib/encryption/toggles'
+import { getSearchModuleConfigs } from '@open-mercato/shared/modules/search'
 import {
   registerSearchModule,
   createSearchIndexSubscriber,
@@ -87,13 +88,8 @@ export async function bootstrap(container: AwilixContainer) {
 
   // Register search module
   try {
-    let searchModuleConfigs: any[] = []
-    try {
-      const mod = await import('#generated/search.generated') as any
-      searchModuleConfigs = mod?.searchModuleConfigs ?? []
-    } catch {
-      // search.generated.ts may not exist yet
-    }
+    // Get configs from global registry (registered during app bootstrap)
+    const searchModuleConfigs = getSearchModuleConfigs()
     registerSearchModule(container as any, { moduleConfigs: searchModuleConfigs })
 
     // Register search event subscribers

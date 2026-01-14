@@ -3,18 +3,91 @@
   "version": "0.3.13",
   "private": true,
   "type": "module",
+  "main": "./dist/index.js",
   "exports": {
-    "./modules/*": "./src/modules/*",
-    "./strategies/*": "./src/strategies/*",
-    "./strategies": "./src/strategies/index.ts",
-    "./lib/*": "./src/lib/*",
-    "./indexer/*": "./src/indexer/*",
-    "./vector/*": "./src/vector/*",
-    "./fulltext/*": "./src/fulltext/*",
-    "./fulltext": "./src/fulltext/index.ts",
-    "./queue/*": "./src/queue/*",
-    "./types": "./src/types.ts",
-    ".": "./src/index.ts"
+    "./modules/search": {
+      "types": "./src/modules/search/index.ts",
+      "default": "./dist/modules/search/index.js"
+    },
+    "./modules/search/index": {
+      "types": "./src/modules/search/index.ts",
+      "default": "./dist/modules/search/index.js"
+    },
+    "./modules/search/di": {
+      "types": "./src/modules/search/di.ts",
+      "default": "./dist/modules/search/di.js"
+    },
+    "./modules/search/acl": {
+      "types": "./src/modules/search/acl.ts",
+      "default": "./dist/modules/search/acl.js"
+    },
+    "./modules/search/cli": {
+      "types": "./src/modules/search/cli.ts",
+      "default": "./dist/modules/search/cli.js"
+    },
+    "./modules/search/subscribers/*": {
+      "types": "./src/modules/search/subscribers/*.ts",
+      "default": "./dist/modules/search/subscribers/*.js"
+    },
+    "./modules/search/workers/*": {
+      "types": "./src/modules/search/workers/*.ts",
+      "default": "./dist/modules/search/workers/*.js"
+    },
+    "./modules/*": {
+      "types": "./src/modules/*",
+      "default": "./dist/modules/*"
+    },
+    "./strategies/*": {
+      "types": "./src/strategies/*",
+      "default": "./dist/strategies/*"
+    },
+    "./strategies": {
+      "types": "./src/strategies/index.ts",
+      "default": "./dist/strategies/index.js"
+    },
+    "./lib/*": {
+      "types": "./src/lib/*",
+      "default": "./dist/lib/*"
+    },
+    "./indexer/*": {
+      "types": "./src/indexer/*",
+      "default": "./dist/indexer/*"
+    },
+    "./indexer": {
+      "types": "./src/indexer/index.ts",
+      "default": "./dist/indexer/index.js"
+    },
+    "./vector/*": {
+      "types": "./src/vector/*",
+      "default": "./dist/vector/*"
+    },
+    "./fulltext/*": {
+      "types": "./src/fulltext/*",
+      "default": "./dist/fulltext/*"
+    },
+    "./fulltext": {
+      "types": "./src/fulltext/index.ts",
+      "default": "./dist/fulltext/index.js"
+    },
+    "./queue/*": {
+      "types": "./src/queue/*",
+      "default": "./dist/queue/*"
+    },
+    "./types": {
+      "types": "./src/types.ts",
+      "default": "./dist/types.js"
+    },
+    "./di": {
+      "types": "./src/di.ts",
+      "default": "./dist/di.js"
+    },
+    ".": {
+      "types": "./src/index.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "build": "node build.mjs"
   },
   "dependencies": {
     "@ai-sdk/amazon-bedrock": "^4.0.8",

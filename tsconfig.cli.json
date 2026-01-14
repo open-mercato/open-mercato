@@ -22,7 +22,6 @@
       "@open-mercato/cache/*": ["./packages/cache/src/*"],
       "@open-mercato/onboarding/*": ["./packages/onboarding/src/*"],
       "@open-mercato/content/*": ["./packages/content/src/*"],
-      "@open-mercato/client/*": ["./packages/client/src/*"],
       "#generated/*": ["./apps/mercato/.mercato/generated/*"]
     }
   },

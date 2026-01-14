@@ -146,7 +146,6 @@ mv .env.* apps/mercato/.env.*
     "@open-mercato/shared": "workspace:*",
     "@open-mercato/ui": "workspace:*",
     "@open-mercato/cli": "workspace:*",
-    "@open-mercato/client": "workspace:*",
     "@open-mercato/example": "workspace:*",
     "@open-mercato/onboarding": "workspace:*",
     "@open-mercato/vector": "workspace:*",

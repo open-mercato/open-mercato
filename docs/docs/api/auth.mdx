@@ -18,36 +18,6 @@ export ROLE_ID="<target role uuid>"
 
 Mint an API key following the [Managing API keys guide](../user-guide/api-keys) and replace the placeholders with real values before running any request.
 
-## Official TypeScript API client
-
-Open Mercato ships an official, fully typed SDK published as [`@open-mercato/client`](https://www.npmjs.com/package/@open-mercato/client). It wraps the generated OpenAPI schema so every request/response is type-safe across Node.js, Next.js, and browser runtimes.
-
-```bash
-npm install @open-mercato/client
-```
-
-```ts
-import { createOpenMercatoClient } from '@open-mercato/client'
-
-const client = createOpenMercatoClient({
-  baseUrl: process.env.OPEN_MERCATO_API_BASE_URL ?? `${process.env.APP_URL}/api`,
-  accessToken: async () => process.env.API_KEY,
-})
-
-const { data, error } = await client.GET('/auth/users', {
-  params: { query: { page: 1, pageSize: 20 } },
-})
-
-if (error) throw new Error(error.message ?? 'Request failed')
-console.log(data?.items)
-```
-
-- `baseUrl` is optional. When omitted the client tries environment variables (`OPEN_MERCATO_API_BASE_URL`, `NEXT_PUBLIC_API_BASE_URL`, `NEXT_PUBLIC_APP_URL`, `APP_URL`) and finally falls back to `http://localhost:3000/api`.
-- `accessToken` accepts either a raw API key (`omk_xxx.yyy`) or a JWT. The helper automatically prefixes values with `ApiKey` or `Bearer`, so you never have to manage headers manually.
-- Need retries, tracing, or logging? Pass `middleware` when calling `createOpenMercatoClient` to register `openapi-fetch` middlewares.
-
-See the companion example project at [open-mercato/api-client-example](https://github.com/open-mercato/api-client-example) for a complete Next.js walkthrough that demonstrates environment setup, token management, and CRUD flows using this SDK.
-
 ## Login
 
 **Endpoint:** `POST /login`  

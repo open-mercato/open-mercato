@@ -72,14 +72,14 @@ src/**/*.jsx
 packages/*/src/**/*.js
 packages/*/src/**/*.jsx
 .test-cache.json
-./data
-./.data
-data/*
 
 tmp/
 
 public/uploads/*
-storage/attachments/*
+apps/mercato/storage/attachments/*
+storage
+apps/mercato/data
+./data
 packages/client/src/generated/openapi.types.ts
 package-lock.json
 
@@ -89,4 +89,4 @@ package-lock.json
 packages/cache/node_modules/*
 newrelic_agent.log
 /generated/
-.queue/**
+.queue

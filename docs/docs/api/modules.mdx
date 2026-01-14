@@ -57,38 +57,6 @@ console.table(apiIndex)
 - Route-level `metadata` matches the per-method guards exported alongside the handler (`packages/shared/src/modules/registry.ts:188`), so you can surface RBAC hints in client SDKs.
 - The dispatcher in `src/app/api/[...slug]/route.ts` calls `findApi(modules, method, pathname)` to resolve the handler; your tooling can do the same for dry runs or static analysis.
 
-## Public TypeScript API client
-
-When you need to call Open Mercato APIs from an external script or integration, install the generated client:
-
-```bash
-npm install @open-mercato/client
-```
-
-```ts
-import { createOpenMercatoClient, type operations } from '@open-mercato/client'
-
-const client = createOpenMercatoClient({
-  baseUrl: process.env.OPEN_MERCATO_API_BASE_URL,
-  accessToken: () => process.env.OPEN_MERCATO_TOKEN,
-})
-
-const { data, error } = await client.GET('/customers/customers/people', {
-  params: { query: { page: 1, pageSize: 20 } },
-})
-
-if (error) throw new Error(error.message ?? 'Request failed')
-
-type ListPeopleResponse =
-  operations['customers_get_customers_customers_people']['responses']['200']['content']['application/json']
-```
-
-- `createOpenMercatoClient` automatically reuses the OpenAPI definition shipped with the repository, so each call is fully typed.
-- Omitting `baseUrl` falls back to `OPEN_MERCATO_API_BASE_URL`, `NEXT_PUBLIC_API_BASE_URL`, `NEXT_PUBLIC_APP_URL`, then `http://localhost:3000/api`.
-- Pass a string or async function to `accessToken`; it is normalized to `Authorization: Bearer ...` for every request.
-
-See the package README for more examples and links to the hosted API explorer.
-
 ## Features and ACL seeding
 
 Each module declares its feature flags in `<module>/acl.ts`. The generator hoists them into `module.features`, enabling tooling to seed default roles or audit coverage:

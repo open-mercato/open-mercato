@@ -16,13 +16,14 @@
     "test": "turbo run test",
     "start": "turbo run start --filter=@open-mercato/app",
     "generate": "turbo run generate --filter=@open-mercato/app",
+    "reinstall": "turbo run reinstall --filter=@open-mercato/app",
     "db:generate": "turbo run db:generate --filter=@open-mercato/app",
     "db:migrate": "turbo run db:migrate --filter=@open-mercato/app",
     "db:greenfield": "turbo run db:greenfield --filter=@open-mercato/app",
     "initialize": "turbo run initialize --filter=@open-mercato/app",
     "docs:dev": "turbo run dev --filter=@open-mercato/docs",
-    "clean:generated": "find . -type d \\( -name '.mercato' -o -name 'dist' -o -name '.turbo' \\) -not -path '*/node_modules/*' -exec rm -rf {} + 2>/dev/null; echo 'Cleaned generated files'",
-    "clean:packages": "find . -type d -name 'node_modules' -exec rm -rf {} + 2>/dev/null; echo 'Cleaned node_modules'",
+    "clean:generated": "./scripts/clean-generated.sh",
+    "clean:packages": "./scripts/clean-packages.sh",
     "clean": "yarn clean:generated && yarn clean:packages"
   },
   "dependencies": {
