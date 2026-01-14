@@ -18,7 +18,10 @@
       "types": "./src/generated-shims/entity-fields-registry.ts",
       "default": "./dist/generated-shims/entity-fields-registry.js"
     },
-    "#generated/entities/*": "./generated/entities/*/index.ts"
+    "#generated/entities/*": {
+      "types": "./generated/entities/*/index.ts",
+      "default": "./generated/entities/*/index.ts"
+    }
   },
   "exports": {
     ".": "./dist/index.js",
