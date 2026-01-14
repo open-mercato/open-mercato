@@ -88,7 +88,11 @@ async function buildAllModules(): Promise<Module[]> {
           const resolver = createResolver()
           const quiet = args.includes('--quiet') || args.includes('-q')
           console.log('Running all generators...')
-          await generateEntityIds({ resolver, quiet })
+          console.log('Resolver info:', { isMonorepo: resolver.isMonorepo(), outputDir: resolver.getOutputDir(), pkgOutputDir: resolver.getPackageOutputDir('@open-mercato/core') })
+          const entityIdsResult = await generateEntityIds({ resolver, quiet })
+          if (entityIdsResult.errors.length > 0) {
+            console.error('Entity IDs generator errors:', entityIdsResult.errors)
+          }
           await generateModuleRegistry({ resolver, quiet })
           await generateModuleRegistryCli({ resolver, quiet })
           await generateModuleEntities({ resolver, quiet })
