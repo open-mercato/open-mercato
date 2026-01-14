@@ -40,10 +40,10 @@ export const CHAT_PROVIDERS: Record<ChatProviderId, ChatProviderInfo> = {
   anthropic: {
     name: 'Anthropic',
     envKeyRequired: 'ANTHROPIC_API_KEY',
-    defaultModel: 'claude-sonnet-4-20250514',
+    defaultModel: 'claude-sonnet-4-5-20250929',
     models: [
+      { id: 'claude-sonnet-4-5-20250929', name: 'Claude Sonnet 4.5', contextWindow: 200000 },
       { id: 'claude-sonnet-4-20250514', name: 'Claude Sonnet 4', contextWindow: 200000 },
-      { id: 'claude-opus-4-20250514', name: 'Claude Opus 4', contextWindow: 200000 },
       { id: 'claude-3-5-sonnet-20241022', name: 'Claude 3.5 Sonnet', contextWindow: 200000 },
       { id: 'claude-3-5-haiku-20241022', name: 'Claude 3.5 Haiku', contextWindow: 200000 },
     ],

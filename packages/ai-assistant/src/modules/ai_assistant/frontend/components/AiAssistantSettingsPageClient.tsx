@@ -12,6 +12,7 @@ import {
   CommandPalette,
   useCommandPaletteContext,
 } from '../../../../frontend'
+import { McpServersSection } from './McpServersSection'
 
 // Types matching the API response
 type ChatProviderId = 'openai' | 'anthropic' | 'google'
@@ -369,6 +370,9 @@ function AiAssistantSettingsContent() {
           </div>
         </div>
       </div>
+
+      {/* MCP Servers Section */}
+      <McpServersSection />
     </div>
   )
 }

@@ -18,7 +18,7 @@ type ModuleAiTool = {
  * This is useful for AI to understand its current tenant/org scope.
  */
 const contextWhoamiTool: McpToolDefinition = {
-  name: 'context.whoami',
+  name: 'context_whoami',
   description:
     'Get the current authentication context including tenant ID, organization ID, user ID, and available features. Use this to understand your current scope before performing operations.',
   inputSchema: z.object({}),
@@ -63,7 +63,7 @@ export function loadModuleTools(moduleId: string, tools: ModuleAiTool[]): void {
 export async function loadAllModuleTools(): Promise<void> {
   // 0. Register built-in tools
   registerMcpTool(contextWhoamiTool, { moduleId: 'context' })
-  console.error('[MCP Tools] Registered built-in context.whoami tool')
+  console.error('[MCP Tools] Registered built-in context_whoami tool')
 
   // 1. Load manual ai-tools.ts files from modules
   const moduleToolPaths = [

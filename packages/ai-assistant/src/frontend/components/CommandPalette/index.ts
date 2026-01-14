@@ -8,3 +8,10 @@ export { ChatView } from './ChatView'
 export { MessageBubble } from './MessageBubble'
 export { ToolCallDisplay } from './ToolCallDisplay'
 export { KeyboardHints } from './KeyboardHints'
+
+// New Raycast-style components
+export { CommandHeader } from './CommandHeader'
+export { CommandFooter } from './CommandFooter'
+export { HomePage } from './HomePage'
+export { ToolChatPage } from './ToolChatPage'
+export { ToolCallConfirmation } from './ToolCallConfirmation'

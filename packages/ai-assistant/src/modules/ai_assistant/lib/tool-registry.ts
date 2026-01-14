@@ -69,13 +69,16 @@ export const toolRegistry = new ToolRegistryImpl()
 /**
  * Register an MCP tool from any module.
  *
+ * Note: Tool names must match the pattern ^[a-zA-Z0-9_-]{1,128}$
+ * (no dots allowed - use underscores instead).
+ *
  * @example
  * ```typescript
  * import { registerMcpTool } from '@open-mercato/ai-assistant/tools'
  * import { z } from 'zod'
  *
  * registerMcpTool({
- *   name: 'customers.search',
+ *   name: 'customers_search',
  *   description: 'Search for customers by name or email',
  *   inputSchema: z.object({
  *     query: z.string(),

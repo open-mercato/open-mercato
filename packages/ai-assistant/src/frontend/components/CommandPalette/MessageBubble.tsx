@@ -2,6 +2,7 @@
 
 import * as React from 'react'
 import { User, Bot } from 'lucide-react'
+import Markdown from 'react-markdown'
 import { cn } from '@open-mercato/shared/lib/utils'
 import type { ChatMessage } from '../../types'
 
@@ -36,7 +37,15 @@ export function MessageBubble({ message }: MessageBubbleProps) {
             : 'bg-muted text-foreground mr-12'
         )}
       >
-        <div className="whitespace-pre-wrap break-words">{message.content}</div>
+        {isUser ? (
+          <div className="whitespace-pre-wrap break-words">{message.content}</div>
+        ) : (
+          <div className="prose prose-sm dark:prose-invert max-w-none break-words [&>*:first-child]:mt-0 [&>*:last-child]:mb-0">
+            <Markdown>
+              {message.content}
+            </Markdown>
+          </div>
+        )}
       </div>
     </div>
   )

@@ -1,10 +1,11 @@
 import type { AwilixContainer } from 'awilix'
+import type { z } from 'zod'
 import { zodToJsonSchema } from 'zod-to-json-schema'
 import { getToolRegistry } from './tool-registry'
 import { executeTool } from './tool-executor'
 import { loadAllModuleTools } from './tool-loader'
 import { authenticateMcpRequest, type McpAuthSuccess } from './auth'
-import type { McpToolContext, McpClientInterface, ToolInfo, ToolResult } from './types'
+import type { McpToolContext, McpClientInterface, ToolInfo, ToolResult, McpToolDefinition } from './types'
 
 /**
  * Options for creating an in-process MCP client.
@@ -14,6 +15,32 @@ export type InProcessClientOptions = {
   apiKeySecret: string
   /** DI container */
   container: AwilixContainer
+}
+
+/**
+ * Options for creating an in-process MCP client with direct auth context.
+ * Used when the caller already has authenticated user context (e.g., from session).
+ */
+export type AuthContextOptions = {
+  /** DI container */
+  container: AwilixContainer
+  /** Pre-authenticated user context */
+  authContext: {
+    tenantId: string | null
+    organizationId: string | null
+    userId: string
+    userFeatures: string[]
+    isSuperAdmin: boolean
+  }
+}
+
+/**
+ * Tool info with raw Zod schema for AI SDK integration.
+ */
+export type ToolInfoWithSchema = {
+  name: string
+  description: string
+  inputSchema: z.ZodType<unknown>
 }
 
 /**
@@ -71,7 +98,7 @@ export class InProcessMcpClient implements McpClientInterface {
   }
 
   /**
-   * Create and authenticate an in-process client.
+   * Create and authenticate an in-process client using API key.
    */
   static async create(options: InProcessClientOptions): Promise<InProcessMcpClient> {
     const { apiKeySecret, container } = options
@@ -82,6 +109,28 @@ export class InProcessMcpClient implements McpClientInterface {
     }
 
     return new InProcessMcpClient(authResult, container)
+  }
+
+  /**
+   * Create an in-process client with pre-authenticated context.
+   * Use this when you already have user auth context (e.g., from session auth).
+   */
+  static async createWithAuthContext(options: AuthContextOptions): Promise<InProcessMcpClient> {
+    const { container, authContext } = options
+
+    // Create a synthetic auth result (no API key lookup needed)
+    const syntheticAuth: McpAuthSuccess = {
+      success: true,
+      keyId: 'session-auth',
+      keyName: 'Session Authentication',
+      tenantId: authContext.tenantId,
+      organizationId: authContext.organizationId,
+      userId: authContext.userId,
+      features: authContext.userFeatures,
+      isSuperAdmin: authContext.isSuperAdmin,
+    }
+
+    return new InProcessMcpClient(syntheticAuth, container)
   }
 
   /**
@@ -96,6 +145,7 @@ export class InProcessMcpClient implements McpClientInterface {
 
   /**
    * List available tools filtered by API key's permissions.
+   * Returns JSON Schema format (for MCP protocol compatibility).
    */
   async listTools(): Promise<ToolInfo[]> {
     await this.ensureToolsLoaded()
@@ -111,6 +161,27 @@ export class InProcessMcpClient implements McpClientInterface {
       name: tool.name,
       description: tool.description,
       inputSchema: zodToJsonSchema(tool.inputSchema as any) as Record<string, unknown>,
+    }))
+  }
+
+  /**
+   * List available tools with raw Zod schemas.
+   * Use this for AI SDK integration which requires Zod schemas.
+   */
+  async listToolsWithSchemas(): Promise<ToolInfoWithSchema[]> {
+    await this.ensureToolsLoaded()
+
+    const registry = getToolRegistry()
+    const tools = Array.from(registry.getTools().values())
+
+    const accessibleTools = tools.filter((tool) =>
+      hasRequiredFeatures(tool.requiredFeatures, this.auth.features, this.auth.isSuperAdmin)
+    )
+
+    return accessibleTools.map((tool) => ({
+      name: tool.name,
+      description: tool.description,
+      inputSchema: tool.inputSchema,
     }))
   }
 

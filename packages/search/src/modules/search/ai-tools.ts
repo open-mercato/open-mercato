@@ -8,7 +8,7 @@ import type { SearchResult, SearchStrategyId } from '@open-mercato/shared/module
  * and registered as MCP tools. The search module does not depend on ai-assistant.
  *
  * Tool Definition Format:
- * - name: Unique tool identifier (module.action format)
+ * - name: Unique tool identifier (module_action format, no dots allowed)
  * - description: Human-readable description for AI clients
  * - inputSchema: Zod schema for input validation
  * - requiredFeatures: ACL features required to execute
@@ -45,7 +45,7 @@ type AiToolDefinition = {
 // =============================================================================
 
 const searchQueryTool: AiToolDefinition = {
-  name: 'search.query',
+  name: 'search_query',
   description:
     'Search across all data in Open Mercato. Searches customers, products, orders, and other entities using hybrid search (full-text, semantic, and keyword matching).',
   inputSchema: z.object({
@@ -104,7 +104,7 @@ const searchQueryTool: AiToolDefinition = {
 }
 
 const searchStatusTool: AiToolDefinition = {
-  name: 'search.status',
+  name: 'search_status',
   description:
     'Get the current status of the search module, including available search strategies and their availability.',
   inputSchema: z.object({}),
@@ -146,9 +146,9 @@ const searchStatusTool: AiToolDefinition = {
 // =============================================================================
 
 const searchGetTool: AiToolDefinition = {
-  name: 'search.get',
+  name: 'search_get',
   description:
-    'Retrieve full record details by entity type and record ID. Use this after search.query to get complete data for a specific record.',
+    'Retrieve full record details by entity type and record ID. Use this after search_query to get complete data for a specific record.',
   inputSchema: z.object({
     entityType: z
       .string()
@@ -224,7 +224,7 @@ const searchGetTool: AiToolDefinition = {
 // =============================================================================
 
 const searchSchemaTool: AiToolDefinition = {
-  name: 'search.schema',
+  name: 'search_schema',
   description:
     'Discover searchable entities and their fields. Use this to learn what data can be searched and what fields are available for filtering.',
   inputSchema: z.object({
@@ -296,7 +296,7 @@ const searchSchemaTool: AiToolDefinition = {
 // =============================================================================
 
 const searchAggregateTool: AiToolDefinition = {
-  name: 'search.aggregate',
+  name: 'search_aggregate',
   description:
     'Get record counts grouped by a field value. Useful for analytics like "how many deals by stage?" or "customers by status".',
   inputSchema: z.object({
@@ -360,7 +360,7 @@ const searchAggregateTool: AiToolDefinition = {
 }
 
 const searchReindexTool: AiToolDefinition = {
-  name: 'search.reindex',
+  name: 'search_reindex',
   description:
     'Trigger a reindex operation for search data. This rebuilds the search index for the specified entity type or all entities.',
   inputSchema: z.object({

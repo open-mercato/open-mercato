@@ -74,15 +74,32 @@ function jsonSchemaToZod(jsonSchema: Record<string, unknown>): ZodType {
 }
 
 /**
+ * Cache for converted safe schemas to avoid repeated conversions per request.
+ */
+const safeSchemaCache = new Map<ZodType, ZodType>()
+
+/**
  * Convert a Zod schema to a safe Zod schema that has no Date types.
  * Uses JSON Schema as an intermediate format to handle all Zod v4 internal complexities.
+ * Results are cached to avoid repeated conversions.
  */
 function toSafeZodSchema(schema: ZodType): ZodType {
+  // Check cache first
+  const cached = safeSchemaCache.get(schema)
+  if (cached) {
+    return cached
+  }
+
   // First convert to JSON Schema (this handles Date types with unrepresentable: 'any')
   const jsonSchema = z.toJSONSchema(schema, { unrepresentable: 'any' }) as Record<string, unknown>
 
   // Then convert back to a simple Zod schema without Date types
-  return jsonSchemaToZod(jsonSchema)
+  const safeSchema = jsonSchemaToZod(jsonSchema)
+
+  // Cache the result
+  safeSchemaCache.set(schema, safeSchema)
+
+  return safeSchema
 }
 
 /**
@@ -221,12 +238,28 @@ function createMcpServerForRequest(
 }
 
 /**
- * Parse JSON body from request.
+ * Maximum request body size (1MB).
+ * Prevents memory exhaustion from oversized payloads.
+ */
+const MAX_BODY_SIZE = 1 * 1024 * 1024
+
+/**
+ * Parse JSON body from request with size limit.
  */
 async function parseJsonBody(req: IncomingMessage): Promise<unknown> {
   return new Promise((resolve, reject) => {
     const chunks: Buffer[] = []
-    req.on('data', (chunk) => chunks.push(chunk))
+    let totalSize = 0
+
+    req.on('data', (chunk: Buffer) => {
+      totalSize += chunk.length
+      if (totalSize > MAX_BODY_SIZE) {
+        req.destroy()
+        reject(new Error('Request payload too large'))
+        return
+      }
+      chunks.push(chunk)
+    })
     req.on('end', () => {
       try {
         const body = Buffer.concat(chunks).toString('utf-8')
@@ -344,6 +377,13 @@ export async function runMcpHttpServer(options: McpHttpServerOptions): Promise<v
     } catch (error) {
       console.error('[MCP HTTP] Error handling request:', error)
       if (!res.headersSent) {
+        // Handle payload too large error
+        if (error instanceof Error && error.message === 'Request payload too large') {
+          res.writeHead(413, { 'Content-Type': 'application/json' })
+          res.end(JSON.stringify({ error: 'Request payload too large (max 1MB)' }))
+          return
+        }
+
         res.writeHead(500, { 'Content-Type': 'application/json' })
         res.end(
           JSON.stringify({

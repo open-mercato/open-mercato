@@ -55,13 +55,13 @@
     "@ai-sdk/provider" "3.0.2"
     "@ai-sdk/provider-utils" "4.0.4"
 
-"@ai-sdk/anthropic@^1.2.12":
-  version "1.2.12"
-  resolved "https://registry.yarnpkg.com/@ai-sdk/anthropic/-/anthropic-1.2.12.tgz#80a4b2527c6bb120778fbc83da4af775aae953a5"
-  integrity sha512-YSzjlko7JvuiyQFmI9RN1tNZdEiZxc+6xld/0tq/VkJaHpEzGAb1yiNxxvmYVcjvfu/PcvCxAAYXmTYQQ63IHQ==
+"@ai-sdk/anthropic@^3.0.12":
+  version "3.0.12"
+  resolved "https://registry.yarnpkg.com/@ai-sdk/anthropic/-/anthropic-3.0.12.tgz#ea0ee64c5f4b1352b390c5bc16e31956ea69246f"
+  integrity sha512-1ygMQ2acJ9k+CPRuDiywtkuQwSdsZwAISgbRIayE3PF/Ct2b80c4iGS1CbycYMx+yswPyBMOuPTqebh9vvwMMg==
   dependencies:
-    "@ai-sdk/provider" "1.1.3"
-    "@ai-sdk/provider-utils" "2.2.8"
+    "@ai-sdk/provider" "3.0.2"
+    "@ai-sdk/provider-utils" "4.0.5"
 
 "@ai-sdk/cohere@^3.0.4":
   version "3.0.4"
@@ -79,6 +79,15 @@
     "@ai-sdk/provider" "2.0.0"
     "@ai-sdk/provider-utils" "3.0.18"
     "@vercel/oidc" "3.0.5"
+
+"@ai-sdk/gateway@3.0.13":
+  version "3.0.13"
+  resolved "https://registry.yarnpkg.com/@ai-sdk/gateway/-/gateway-3.0.13.tgz#3726b60ff411729a3bac8e5b0eeae17a34526d7c"
+  integrity sha512-g7nE4PFtngOZNZSy1lOPpkC+FAiHxqBJXqyRMEG7NUrEVZlz5goBdtHg1YgWRJIX776JTXAmbOI5JreAKVAsVA==
+  dependencies:
+    "@ai-sdk/provider" "3.0.2"
+    "@ai-sdk/provider-utils" "4.0.5"
+    "@vercel/oidc" "3.1.0"
 
 "@ai-sdk/gateway@3.0.9":
   version "3.0.9"
@@ -143,6 +152,15 @@
   version "4.0.4"
   resolved "https://registry.yarnpkg.com/@ai-sdk/provider-utils/-/provider-utils-4.0.4.tgz#b2f5af446f152be64124725677a900be615c8766"
   integrity sha512-VxhX0B/dWGbpNHxrKCWUAJKXIXV015J4e7qYjdIU9lLWeptk0KMLGcqkB4wFxff5Njqur8dt8wRi1MN9lZtDqg==
+  dependencies:
+    "@ai-sdk/provider" "3.0.2"
+    "@standard-schema/spec" "^1.1.0"
+    eventsource-parser "^3.0.6"
+
+"@ai-sdk/provider-utils@4.0.5":
+  version "4.0.5"
+  resolved "https://registry.yarnpkg.com/@ai-sdk/provider-utils/-/provider-utils-4.0.5.tgz#ab531c9f78ac30e33ba1f66ca6e901f6cf68fec9"
+  integrity sha512-Ow/X/SEkeExTTc1x+nYLB9ZHK2WUId8+9TlkamAx7Tl9vxU+cKzWx2dwjgMHeCN6twrgwkLrrtqckQeO4mxgVA==
   dependencies:
     "@ai-sdk/provider" "3.0.2"
     "@standard-schema/spec" "^1.1.0"
@@ -3760,6 +3778,16 @@ ai@^6.0.0:
     "@ai-sdk/gateway" "3.0.9"
     "@ai-sdk/provider" "3.0.2"
     "@ai-sdk/provider-utils" "4.0.4"
+    "@opentelemetry/api" "1.9.0"
+
+ai@^6.0.33:
+  version "6.0.33"
+  resolved "https://registry.yarnpkg.com/ai/-/ai-6.0.33.tgz#15b0f48ecfc5f9f9c5cfdfac28ee1b3c4d1efeb3"
+  integrity sha512-bVokbmy2E2QF6Efl+5hOJx5MRWoacZ/CZY/y1E+VcewknvGlgaiCzMu8Xgddz6ArFJjiMFNUPHKxAhIePE4rmg==
+  dependencies:
+    "@ai-sdk/gateway" "3.0.13"
+    "@ai-sdk/provider" "3.0.2"
+    "@ai-sdk/provider-utils" "4.0.5"
     "@opentelemetry/api" "1.9.0"
 
 ajv-draft-04@~1.0.0:
@@ -10768,10 +10796,32 @@ react-is@^18.3.1:
   resolved "https://registry.yarnpkg.com/react-is/-/react-is-18.3.1.tgz#e83557dc12eae63a99e003a46388b1dcbb44db7e"
   integrity sha512-/LLMVyas0ljjAtoYiPqYiL8VWXzUUdThrmU5+n20DZv+a+ClRoevUzw5JxU+Ieh5/c87ytoTBV9G1FiKfNJdmg==
 
+react-json-view-lite@^2.5.0:
+  version "2.5.0"
+  resolved "https://registry.yarnpkg.com/react-json-view-lite/-/react-json-view-lite-2.5.0.tgz#c7ff011c7cc80e9900abc7aa4916c6a5c6d6c1c6"
+  integrity sha512-tk7o7QG9oYyELWHL8xiMQ8x4WzjCzbWNyig3uexmkLb54r8jO0yH3WCWx8UZS0c49eSA4QUmG5caiRJ8fAn58g==
+
 react-lifecycles-compat@^3.0.4:
   version "3.0.4"
   resolved "https://registry.yarnpkg.com/react-lifecycles-compat/-/react-lifecycles-compat-3.0.4.tgz#4f1a273afdfc8f3488a8c516bfda78f872352362"
   integrity sha512-fBASbA6LnOU9dOU2eW7aQ8xmYBSXUIWr+UmF9b1efZBazGNO+rcXT/icdKnYm2pTwcRylVUYwW7H1PHfLekVzA==
+
+react-markdown@^10.1.0:
+  version "10.1.0"
+  resolved "https://registry.yarnpkg.com/react-markdown/-/react-markdown-10.1.0.tgz#e22bc20faddbc07605c15284255653c0f3bad5ca"
+  integrity sha512-qKxVopLT/TyA6BX3Ue5NwabOsAzm0Q7kAPwq6L+wWDwisYs7R8vZ0nRXqq6rkueboxpkjvLGU9fWifiX/ZZFxQ==
+  dependencies:
+    "@types/hast" "^3.0.0"
+    "@types/mdast" "^4.0.0"
+    devlop "^1.0.0"
+    hast-util-to-jsx-runtime "^2.0.0"
+    html-url-attributes "^3.0.0"
+    mdast-util-to-hast "^13.0.0"
+    remark-parse "^11.0.0"
+    remark-rehype "^11.0.0"
+    unified "^11.0.0"
+    unist-util-visit "^5.0.0"
+    vfile "^6.0.0"
 
 react-markdown@~9.0.1:
   version "9.0.3"

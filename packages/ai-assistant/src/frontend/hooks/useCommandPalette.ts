@@ -1,11 +1,27 @@
 'use client'
 
 import { useState, useCallback, useEffect, useMemo } from 'react'
-import type { CommandPaletteMode, CommandPaletteState, PageContext, SelectedEntity, ToolInfo, ToolExecutionResult, ToolCall, ChatMessage } from '../types'
-import { COMMAND_PALETTE_SHORTCUT, NATURAL_LANGUAGE_PATTERNS } from '../constants'
+import type {
+  CommandPaletteMode,
+  CommandPalettePage,
+  CommandPaletteState,
+  ConnectionStatus,
+  PalettePhase,
+  PageContext,
+  SelectedEntity,
+  ToolInfo,
+  ToolExecutionResult,
+  PendingToolCall,
+  ChatMessage,
+  RouteResult,
+  DebugEvent,
+  DebugEventType,
+} from '../types'
+import { COMMAND_PALETTE_SHORTCUT } from '../constants'
 import { filterTools } from '../utils/toolMatcher'
 import { useMcpTools } from './useMcpTools'
 import { useRecentActions } from './useRecentActions'
+import { useRecentTools } from './useRecentTools'
 
 interface UseCommandPaletteOptions {
   pageContext: PageContext | null
@@ -13,64 +29,183 @@ interface UseCommandPaletteOptions {
   disableKeyboardShortcut?: boolean
 }
 
-function determineMode(input: string, currentMode: CommandPaletteMode): CommandPaletteMode {
-  const trimmed = input.trim()
-
-  // Empty input stays in commands mode
-  if (!trimmed) return 'commands'
-
-  // Explicit command prefix (slash commands)
-  if (trimmed.startsWith('/')) return 'commands'
-
-  // Check for natural language patterns
-  for (const pattern of NATURAL_LANGUAGE_PATTERNS) {
-    if (pattern.test(trimmed)) return 'chat'
-  }
-
-  // If already in chat mode and continuing to type, stay in chat
-  if (currentMode === 'chat' && trimmed.length > 15) return 'chat'
-
-  return 'commands'
-}
-
 function generateId(): string {
   return Math.random().toString(36).substring(2, 15)
+}
+
+// Tools that are safe to auto-execute without user confirmation
+const SAFE_TOOL_PATTERNS = [
+  /^search_/,      // search_query, search_schema, search_get, search_aggregate, search_status
+  /^get_/,         // get_ operations are read-only
+  /^list_/,        // list_ operations are read-only
+  /^view_/,        // view_ operations are read-only
+  /^context_/,     // context_whoami etc.
+  /_get$/,         // tools ending with _get
+  /_list$/,        // tools ending with _list
+  /_status$/,      // tools ending with _status
+  /_schema$/,      // tools ending with _schema
+]
+
+// Tools that should always require confirmation
+const DANGEROUS_TOOL_PATTERNS = [
+  /^delete_/,
+  /^remove_/,
+  /_delete$/,
+  /_remove$/,
+  /^reindex_/,
+  /_reindex$/,
+]
+
+function isToolSafeToAutoExecute(toolName: string): boolean {
+  // First check if it's a dangerous tool
+  if (DANGEROUS_TOOL_PATTERNS.some(p => p.test(toolName))) {
+    return false
+  }
+  // Then check if it matches safe patterns
+  return SAFE_TOOL_PATTERNS.some(p => p.test(toolName))
+}
+
+function getToolPrompt(tool: ToolInfo): string {
+  const schema = tool.inputSchema
+  if (!schema || typeof schema !== 'object') {
+    return 'What would you like to do?'
+  }
+
+  const properties = (schema as { properties?: Record<string, unknown> }).properties
+  if (!properties || Object.keys(properties).length === 0) {
+    return 'This tool has no parameters. Ready to execute?'
+  }
+
+  const paramNames = Object.keys(properties).slice(0, 3)
+  return `Please provide the following: ${paramNames.join(', ')}.`
 }
 
 export function useCommandPalette(options: UseCommandPaletteOptions) {
   const { pageContext, selectedEntities = [], disableKeyboardShortcut = false } = options
 
-  // Core state
+  // Core state with phase-based navigation for intelligent routing
   const [state, setState] = useState<CommandPaletteState>({
     isOpen: false,
-    mode: 'commands',
+    phase: 'idle',
     inputValue: '',
     selectedIndex: 0,
     isLoading: false,
     isStreaming: false,
+    connectionStatus: 'disconnected',
+    // Legacy fields for backwards compatibility
+    page: 'home',
+    mode: 'commands',
   })
 
   // Tool-related hooks
   const { tools, isLoading: toolsLoading, executeTool: executeToolApi } = useMcpTools()
   const { recentActions, addRecentAction } = useRecentActions()
+  const { recentTools, saveRecentTool } = useRecentTools(tools)
 
-  // Chat state
+  // Selected tool for tool-chat page
+  const [selectedTool, setSelectedTool] = useState<ToolInfo | null>(null)
+
+  // Chat state for tool-chat page
   const [messages, setMessages] = useState<ChatMessage[]>([])
-  const [pendingToolCalls, setPendingToolCalls] = useState<ToolCall[]>([])
+  const [pendingToolCalls, setPendingToolCalls] = useState<PendingToolCall[]>([])
+
+  // Initial context from context_whoami - fetched when palette opens
+  const [initialContext, setInitialContext] = useState<{
+    tenantId: string | null
+    organizationId: string | null
+    userId: string
+    isSuperAdmin: boolean
+    features: string[]
+  } | null>(null)
+
+  // Available entity types from search_schema - fetched when palette opens
+  const [availableEntities, setAvailableEntities] = useState<Array<{
+    entityId: string
+    enabled: boolean
+  }> | null>(null)
+
+  // Debug mode state
+  const [debugEvents, setDebugEvents] = useState<DebugEvent[]>([])
+  const [showDebug, setShowDebug] = useState(false)
+
+  // Helper to add debug events
+  const addDebugEvent = useCallback((type: DebugEventType, data: unknown) => {
+    setDebugEvents((prev) => [
+      ...prev.slice(-999), // Keep last 1000 events
+      {
+        id: generateId(),
+        timestamp: new Date(),
+        type,
+        data,
+      },
+    ])
+  }, [])
+
+  const clearDebugEvents = useCallback(() => {
+    setDebugEvents([])
+  }, [])
+
+  // Update connection status when tools load
+  useEffect(() => {
+    if (toolsLoading) {
+      setState((prev) => ({ ...prev, connectionStatus: 'connecting' }))
+    } else if (tools.length > 0) {
+      setState((prev) => ({ ...prev, connectionStatus: 'connected' }))
+    } else {
+      setState((prev) => ({ ...prev, connectionStatus: 'disconnected' }))
+    }
+  }, [tools, toolsLoading])
+
+  // Fetch initial context and entity schema when palette opens and tools are available
+  useEffect(() => {
+    if (state.isOpen && tools.length > 0) {
+      // Fetch auth context if not already loaded
+      if (!initialContext) {
+        console.log('[CommandPalette] Fetching initial context via context_whoami...')
+        executeToolApi('context_whoami', {})
+          .then((result) => {
+            if (result.success && result.result) {
+              console.log('[CommandPalette] Got initial context:', result.result)
+              const ctx = result.result as {
+                tenantId: string | null
+                organizationId: string | null
+                userId: string
+                isSuperAdmin: boolean
+                features: string[]
+              }
+              setInitialContext(ctx)
+            }
+          })
+          .catch((err) => {
+            console.error('[CommandPalette] Failed to fetch initial context:', err)
+          })
+      }
+
+      // Fetch available entity types if not already loaded
+      if (!availableEntities) {
+        console.log('[CommandPalette] Fetching available entities via search_schema...')
+        executeToolApi('search_schema', {})
+          .then((result) => {
+            if (result.success && result.result) {
+              const schemaResult = result.result as { entities?: Array<{ entityId: string; enabled: boolean }> }
+              console.log('[CommandPalette] Got entity schema:', schemaResult.entities?.length, 'entities')
+              if (schemaResult.entities) {
+                setAvailableEntities(schemaResult.entities.filter(e => e.enabled))
+              }
+            }
+          })
+          .catch((err) => {
+            console.error('[CommandPalette] Failed to fetch entity schema:', err)
+          })
+      }
+    }
+  }, [state.isOpen, tools.length, initialContext, availableEntities, executeToolApi])
 
   // Filtered tools based on input
   const filteredTools = useMemo(() => {
     const query = state.inputValue.startsWith('/') ? state.inputValue.slice(1) : state.inputValue
     return filterTools(tools, query)
   }, [tools, state.inputValue])
-
-  // Update mode when input changes
-  useEffect(() => {
-    const newMode = determineMode(state.inputValue, state.mode)
-    if (newMode !== state.mode) {
-      setState((prev) => ({ ...prev, mode: newMode }))
-    }
-  }, [state.inputValue, state.mode])
 
   // Keyboard shortcut handler
   useEffect(() => {
@@ -83,31 +218,71 @@ export function useCommandPalette(options: UseCommandPaletteOptions) {
         event.key.toLowerCase() === COMMAND_PALETTE_SHORTCUT.key
       ) {
         event.preventDefault()
-        setState((prev) => ({
-          ...prev,
-          isOpen: !prev.isOpen,
-          inputValue: prev.isOpen ? '' : prev.inputValue,
-          mode: prev.isOpen ? 'commands' : prev.mode,
-          selectedIndex: 0,
-        }))
+        setState((prev) => {
+          if (prev.isOpen) {
+            // Closing - reset to idle
+            return {
+              ...prev,
+              isOpen: false,
+              phase: 'idle',
+              inputValue: '',
+              page: 'home',
+              selectedIndex: 0,
+              mode: 'commands',
+            }
+          } else {
+            // Opening
+            return {
+              ...prev,
+              isOpen: true,
+            }
+          }
+        })
+        // Reset selected tool when closing
+        if (state.isOpen) {
+          setSelectedTool(null)
+          setMessages([])
+          setPendingToolCalls([])
+        }
       }
 
-      // Close with Escape
+      // Escape - reset or close
       if (event.key === 'Escape' && state.isOpen) {
         event.preventDefault()
-        setState((prev) => ({
-          ...prev,
-          isOpen: false,
-          inputValue: '',
-          mode: 'commands',
-          selectedIndex: 0,
-        }))
+        if (state.phase !== 'idle') {
+          // Reset to idle
+          setState((prev) => ({
+            ...prev,
+            phase: 'idle',
+            inputValue: '',
+            page: 'home',
+            selectedIndex: 0,
+            mode: 'commands',
+          }))
+          setSelectedTool(null)
+          setMessages([])
+          setPendingToolCalls([])
+        } else {
+          // Close palette
+          setState((prev) => ({
+            ...prev,
+            isOpen: false,
+            phase: 'idle',
+            inputValue: '',
+            page: 'home',
+            selectedIndex: 0,
+            mode: 'commands',
+          }))
+          setSelectedTool(null)
+          setMessages([])
+          setPendingToolCalls([])
+        }
       }
     }
 
     window.addEventListener('keydown', handleKeyDown)
     return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [state.isOpen, disableKeyboardShortcut])
+  }, [state.isOpen, state.phase, state.inputValue, disableKeyboardShortcut])
 
   // Actions
   const open = useCallback(() => {
@@ -118,19 +293,43 @@ export function useCommandPalette(options: UseCommandPaletteOptions) {
     setState((prev) => ({
       ...prev,
       isOpen: false,
+      phase: 'idle',
       inputValue: '',
-      mode: 'commands',
+      page: 'home',
       selectedIndex: 0,
+      mode: 'commands',
     }))
+    setSelectedTool(null)
+    setMessages([])
+    setPendingToolCalls([])
+    // Don't reset initialContext - it stays valid for the session
   }, [])
 
-  const setIsOpen = useCallback((isOpen: boolean) => {
-    if (isOpen) {
-      open()
-    } else {
-      close()
-    }
-  }, [open, close])
+  // Reset to idle state (without closing)
+  const reset = useCallback(() => {
+    setState((prev) => ({
+      ...prev,
+      phase: 'idle',
+      inputValue: '',
+      page: 'home',
+      selectedIndex: 0,
+      mode: 'commands',
+    }))
+    setSelectedTool(null)
+    setMessages([])
+    setPendingToolCalls([])
+  }, [])
+
+  const setIsOpen = useCallback(
+    (isOpen: boolean) => {
+      if (isOpen) {
+        open()
+      } else {
+        close()
+      }
+    },
+    [open, close]
+  )
 
   const setMode = useCallback((mode: CommandPaletteMode) => {
     setState((prev) => ({ ...prev, mode }))
@@ -144,6 +343,346 @@ export function useCommandPalette(options: UseCommandPaletteOptions) {
     setState((prev) => ({ ...prev, selectedIndex: index }))
   }, [])
 
+  // Page navigation - go to tool chat
+  const goToToolChat = useCallback(
+    (tool: ToolInfo) => {
+      setSelectedTool(tool)
+      saveRecentTool(tool.name)
+
+      // Create initial assistant message
+      const initialMessage: ChatMessage = {
+        id: generateId(),
+        role: 'assistant',
+        content: `I'll help you with "${tool.name}". ${getToolPrompt(tool)}`,
+        createdAt: new Date(),
+      }
+      setMessages([initialMessage])
+      setPendingToolCalls([])
+
+      setState((prev) => ({
+        ...prev,
+        page: 'tool-chat',
+        inputValue: '',
+        selectedIndex: 0,
+        mode: 'chat',
+      }))
+    },
+    [saveRecentTool]
+  )
+
+  // Page navigation - go back (legacy, kept for compatibility)
+  const goBack = useCallback(() => {
+    if (state.phase !== 'idle') {
+      setState((prev) => ({
+        ...prev,
+        phase: 'idle',
+        page: 'home',
+        inputValue: '',
+        selectedIndex: 0,
+        mode: 'commands',
+      }))
+      setSelectedTool(null)
+      setMessages([])
+      setPendingToolCalls([])
+    }
+  }, [state.phase])
+
+  // Route query using fast model
+  const routeQuery = useCallback(
+    async (query: string): Promise<RouteResult> => {
+      const response = await fetch('/api/ai/route', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          query,
+          availableTools: tools.map((t) => ({
+            name: t.name,
+            description: t.description,
+          })),
+        }),
+      })
+
+      if (!response.ok) {
+        throw new Error(`Routing failed: ${response.status}`)
+      }
+
+      return response.json()
+    },
+    [tools]
+  )
+
+  // Start agentic chat - AI has access to all tools
+  const startAgenticChat = useCallback(
+    async (initialQuery: string) => {
+      console.log('[startAgenticChat] Starting with query:', initialQuery)
+
+      setState((prev) => ({
+        ...prev,
+        phase: 'chatting',
+        page: 'tool-chat',
+        inputValue: '',
+        mode: 'chat',
+      }))
+
+      // Send the initial query to the chat API
+      setState((prev) => ({ ...prev, isStreaming: true }))
+
+      try {
+        const userMessage: ChatMessage = {
+          id: generateId(),
+          role: 'user',
+          content: initialQuery,
+          createdAt: new Date(),
+        }
+        setMessages([userMessage])
+
+        console.log('[startAgenticChat] Sending request to /api/ai/chat with mode: agentic')
+        const response = await fetch('/api/ai/chat', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            messages: [{ role: 'user', content: initialQuery }],
+            context: pageContext,
+            authContext: initialContext,
+            availableEntities: availableEntities?.map(e => e.entityId),
+            mode: 'agentic',
+          }),
+        })
+
+        console.log('[startAgenticChat] Response status:', response.status, 'ok:', response.ok)
+
+        if (!response.ok) {
+          const errorText = await response.text()
+          console.error('[startAgenticChat] Error response body:', errorText)
+          throw new Error(`Chat request failed: ${response.status} - ${errorText}`)
+        }
+
+        // Process the SSE stream
+        const reader = response.body?.getReader()
+        if (!reader) {
+          throw new Error('No response body')
+        }
+
+        const decoder = new TextDecoder()
+        let assistantContent = ''
+        let buffer = ''
+        let chunkCount = 0
+
+        while (true) {
+          const { done, value } = await reader.read()
+          if (done) {
+            console.log('[startAgenticChat] Stream done after', chunkCount, 'chunks')
+            break
+          }
+
+          chunkCount++
+          const rawChunk = decoder.decode(value, { stream: true })
+          buffer += rawChunk
+          console.log('[startAgenticChat] Chunk', chunkCount, 'raw:', rawChunk.substring(0, 200))
+
+          const lines = buffer.split('\n')
+          buffer = lines.pop() || ''
+
+          for (const line of lines) {
+            console.log('[startAgenticChat] Processing line:', line.substring(0, 100))
+            if (line.startsWith('data: ')) {
+              const data = line.slice(6)
+              if (data === '[DONE]') {
+                console.log('[startAgenticChat] Received [DONE]')
+                continue
+              }
+
+              try {
+                const event = JSON.parse(data)
+                console.log('[startAgenticChat] Parsed event:', event.type, event)
+
+                // Track all events for debug panel
+                addDebugEvent(event.type as DebugEventType, event)
+
+                if (event.type === 'text') {
+                  assistantContent += event.content || ''
+                  console.log('[startAgenticChat] Text content now:', assistantContent.substring(0, 100))
+                  setMessages((prev) => {
+                    const existingAssistant = prev.find((m) => m.id === 'streaming')
+                    if (existingAssistant) {
+                      return prev.map((m) =>
+                        m.id === 'streaming' ? { ...m, content: assistantContent } : m
+                      )
+                    } else {
+                      return [
+                        ...prev,
+                        {
+                          id: 'streaming',
+                          role: 'assistant' as const,
+                          content: assistantContent,
+                          createdAt: new Date(),
+                        },
+                      ]
+                    }
+                  })
+                } else if (event.type === 'tool-call') {
+                  // Tool calls are executed SERVER-SIDE via the AI SDK's maxSteps feature
+                  // The AI will interpret the results and generate a human-friendly response
+                  // We only need to show a visual indicator for dangerous tools that need confirmation
+                  console.log('[startAgenticChat] Tool call event (executed server-side):', event.toolName)
+                  const toolName = event.toolName as string
+                  const toolArgs = event.args ?? {}
+
+                  // For dangerous tools, show a confirmation indicator (though server already executed)
+                  // This is mainly for UX feedback - in future, dangerous tools should require confirmation
+                  if (!isToolSafeToAutoExecute(toolName)) {
+                    console.log('[startAgenticChat] Dangerous tool was executed:', toolName)
+                    // Note: Server already executed this - just show visual feedback
+                    setPendingToolCalls((prev) => [
+                      ...prev,
+                      {
+                        id: event.id,
+                        toolName: toolName,
+                        args: toolArgs,
+                        status: 'completed' as const, // Already executed server-side
+                      },
+                    ])
+                  }
+                  // Safe tools: no action needed, server handled execution and AI interprets results
+                } else if (event.type === 'error') {
+                  console.error('[startAgenticChat] Error event:', event.error)
+                } else if (event.type === 'done') {
+                  console.log('[startAgenticChat] Done event received')
+                }
+              } catch (parseError) {
+                console.warn('[startAgenticChat] Failed to parse event:', data, parseError)
+              }
+            }
+          }
+        }
+
+        console.log('[startAgenticChat] Final assistant content:', assistantContent)
+        // Finalize the assistant message
+        setMessages((prev) => prev.map((m) => (m.id === 'streaming' ? { ...m, id: generateId() } : m)))
+      } catch (error) {
+        console.error('[startAgenticChat] Error:', error)
+        setMessages((prev) => [
+          ...prev,
+          {
+            id: generateId(),
+            role: 'assistant',
+            content: `Sorry, I encountered an error: ${error instanceof Error ? error.message : 'Unknown error'}`,
+            createdAt: new Date(),
+          },
+        ])
+      } finally {
+        setState((prev) => ({ ...prev, isStreaming: false }))
+      }
+    },
+    [pageContext, initialContext, availableEntities, executeToolApi, addDebugEvent]
+  )
+
+  // Start general chat (no specific tool)
+  const startGeneralChat = useCallback(
+    async (initialQuery: string) => {
+      setState((prev) => ({
+        ...prev,
+        phase: 'chatting',
+        page: 'tool-chat',
+        inputValue: '',
+        mode: 'chat',
+      }))
+
+      setState((prev) => ({ ...prev, isStreaming: true }))
+
+      try {
+        const userMessage: ChatMessage = {
+          id: generateId(),
+          role: 'user',
+          content: initialQuery,
+          createdAt: new Date(),
+        }
+        setMessages([userMessage])
+
+        const response = await fetch('/api/ai/chat', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            messages: [{ role: 'user', content: initialQuery }],
+            context: pageContext,
+            authContext: initialContext,
+            availableEntities: availableEntities?.map(e => e.entityId),
+            mode: 'default',
+          }),
+        })
+
+        if (!response.ok) {
+          throw new Error(`Chat request failed: ${response.status}`)
+        }
+
+        const reader = response.body?.getReader()
+        if (!reader) {
+          throw new Error('No response body')
+        }
+
+        const decoder = new TextDecoder()
+        let assistantContent = ''
+
+        while (true) {
+          const { done, value } = await reader.read()
+          if (done) break
+
+          const chunk = decoder.decode(value, { stream: true })
+          assistantContent += chunk
+
+          setMessages((prev) => {
+            const existingAssistant = prev.find((m) => m.id === 'streaming')
+            if (existingAssistant) {
+              return prev.map((m) =>
+                m.id === 'streaming' ? { ...m, content: assistantContent } : m
+              )
+            } else {
+              return [
+                ...prev,
+                {
+                  id: 'streaming',
+                  role: 'assistant' as const,
+                  content: assistantContent,
+                  createdAt: new Date(),
+                },
+              ]
+            }
+          })
+        }
+
+        setMessages((prev) => prev.map((m) => (m.id === 'streaming' ? { ...m, id: generateId() } : m)))
+      } catch (error) {
+        console.error('General chat error:', error)
+        setMessages((prev) => [
+          ...prev,
+          {
+            id: generateId(),
+            role: 'assistant',
+            content: 'Sorry, I encountered an error. Please try again.',
+            createdAt: new Date(),
+          },
+        ])
+      } finally {
+        setState((prev) => ({ ...prev, isStreaming: false }))
+      }
+    },
+    [pageContext, initialContext, availableEntities]
+  )
+
+  // Main submit handler - starts agentic chat with all tools available
+  const handleSubmit = useCallback(
+    async (query: string) => {
+      if (!query.trim()) return
+
+      console.log('[handleSubmit] Starting agentic chat with query:', query)
+
+      // Skip routing - go directly to agentic mode where AI has access to all tools
+      await startAgenticChat(query)
+    },
+    [startAgenticChat]
+  )
+
+  // Execute tool directly
   const executeTool = useCallback(
     async (toolName: string, args: Record<string, unknown> = {}): Promise<ToolExecutionResult> => {
       setState((prev) => ({ ...prev, isLoading: true }))
@@ -169,6 +708,278 @@ export function useCommandPalette(options: UseCommandPaletteOptions) {
     [executeToolApi, tools, addRecentAction]
   )
 
+  // Approve a pending tool call
+  const approveToolCall = useCallback(
+    async (toolCallId: string) => {
+      const toolCall = pendingToolCalls.find((tc) => tc.id === toolCallId)
+      if (!toolCall) return
+
+      // Update status to executing
+      setPendingToolCalls((prev) =>
+        prev.map((tc) => (tc.id === toolCallId ? { ...tc, status: 'executing' as const } : tc))
+      )
+
+      try {
+        // Execute the tool
+        const result = await executeToolApi(toolCall.toolName, toolCall.args)
+
+        // Update tool call with result
+        setPendingToolCalls((prev) =>
+          prev.map((tc) =>
+            tc.id === toolCallId
+              ? {
+                  ...tc,
+                  status: result.success ? ('completed' as const) : ('error' as const),
+                  result: result.result,
+                  error: result.error,
+                }
+              : tc
+          )
+        )
+
+        // Add to recent actions on success, show error on failure
+        // Don't add raw JSON - the AI will provide human-friendly interpretation
+        if (result.success) {
+          const tool = tools.find((t) => t.name === toolCall.toolName)
+          addRecentAction({
+            toolName: toolCall.toolName,
+            displayName: tool?.description || toolCall.toolName,
+            args: toolCall.args,
+          })
+          // Add a brief success indicator (optional - AI can interpret the result)
+          setMessages((prev) => [
+            ...prev,
+            {
+              id: generateId(),
+              role: 'assistant' as const,
+              content: `Done! The ${toolCall.toolName.replace(/_/g, ' ')} operation completed successfully.`,
+              createdAt: new Date(),
+            },
+          ])
+        } else {
+          setMessages((prev) => [
+            ...prev,
+            {
+              id: generateId(),
+              role: 'assistant' as const,
+              content: `I encountered an issue: ${result.error || 'Unknown error'}`,
+              createdAt: new Date(),
+            },
+          ])
+        }
+      } catch (error) {
+        setPendingToolCalls((prev) =>
+          prev.map((tc) =>
+            tc.id === toolCallId
+              ? {
+                  ...tc,
+                  status: 'error' as const,
+                  error: error instanceof Error ? error.message : 'Unknown error',
+                }
+              : tc
+          )
+        )
+      }
+    },
+    [pendingToolCalls, executeToolApi, tools, addRecentAction]
+  )
+
+  // Reject a pending tool call
+  const rejectToolCall = useCallback((toolCallId: string) => {
+    setPendingToolCalls((prev) =>
+      prev.map((tc) => (tc.id === toolCallId ? { ...tc, status: 'rejected' as const } : tc))
+    )
+
+    setMessages((prev) => [
+      ...prev,
+      {
+        id: generateId(),
+        role: 'assistant' as const,
+        content: 'Tool call cancelled. How else can I help?',
+        createdAt: new Date(),
+      },
+    ])
+  }, [])
+
+  // Send message in agentic chat (AI has access to all tools)
+  const sendAgenticMessage = useCallback(
+    async (content: string) => {
+      if (!content.trim()) return
+
+      // Add user message
+      const userMessage: ChatMessage = {
+        id: generateId(),
+        role: 'user',
+        content: content.trim(),
+        createdAt: new Date(),
+      }
+      setMessages((prev) => [...prev, userMessage])
+      setState((prev) => ({ ...prev, isStreaming: true }))
+
+      try {
+        // Send to chat API with agentic mode - all tools available
+        const response = await fetch('/api/ai/chat', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            messages: [...messages, userMessage].map((m) => ({
+              role: m.role,
+              content: m.content,
+            })),
+            context: pageContext,
+            authContext: initialContext,
+            availableEntities: availableEntities?.map(e => e.entityId),
+            mode: 'agentic',
+          }),
+        })
+
+        if (!response.ok) {
+          throw new Error(`Chat request failed: ${response.status}`)
+        }
+
+        // Read the streaming response
+        const reader = response.body?.getReader()
+        if (!reader) {
+          throw new Error('No response body')
+        }
+
+        const decoder = new TextDecoder()
+        let assistantContent = ''
+        let buffer = ''
+
+        while (true) {
+          const { done, value } = await reader.read()
+          if (done) break
+
+          buffer += decoder.decode(value, { stream: true })
+
+          // Process SSE events
+          const lines = buffer.split('\n')
+          buffer = lines.pop() || '' // Keep incomplete line in buffer
+
+          for (const line of lines) {
+            if (line.startsWith('data: ')) {
+              const data = line.slice(6)
+              if (data === '[DONE]') continue
+
+              try {
+                const event = JSON.parse(data)
+
+                // Track all events for debug panel
+                addDebugEvent(event.type as DebugEventType, event)
+
+                if (event.type === 'text') {
+                  assistantContent += event.content || ''
+                  // Update assistant message in real-time
+                  setMessages((prev) => {
+                    const existingAssistant = prev.find(
+                      (m) => m.role === 'assistant' && m.id === 'streaming'
+                    )
+                    if (existingAssistant) {
+                      return prev.map((m) =>
+                        m.id === 'streaming' ? { ...m, content: assistantContent } : m
+                      )
+                    } else {
+                      return [
+                        ...prev,
+                        {
+                          id: 'streaming',
+                          role: 'assistant' as const,
+                          content: assistantContent,
+                          createdAt: new Date(),
+                        },
+                      ]
+                    }
+                  })
+                } else if (event.type === 'tool-call') {
+                  // Tool calls are executed SERVER-SIDE via the AI SDK's maxSteps feature
+                  // The AI will interpret the results and generate a human-friendly response
+                  console.log('[sendAgenticMessage] Tool call event (executed server-side):', event.toolName)
+                  const toolName = event.toolName as string
+                  const toolArgs = event.args ?? {}
+
+                  // For dangerous tools, show visual feedback (server already executed)
+                  if (!isToolSafeToAutoExecute(toolName)) {
+                    console.log('[sendAgenticMessage] Dangerous tool was executed:', toolName)
+                    setPendingToolCalls((prev) => [
+                      ...prev,
+                      { id: event.id, toolName, args: toolArgs, status: 'completed' as const },
+                    ])
+                  }
+                  // Safe tools: no action needed, server handled execution
+                }
+              } catch {
+                // Plain text chunk (fallback for non-SSE responses)
+                assistantContent += data
+                setMessages((prev) => {
+                  const existingAssistant = prev.find(
+                    (m) => m.role === 'assistant' && m.id === 'streaming'
+                  )
+                  if (existingAssistant) {
+                    return prev.map((m) =>
+                      m.id === 'streaming' ? { ...m, content: assistantContent } : m
+                    )
+                  } else {
+                    return [
+                      ...prev,
+                      {
+                        id: 'streaming',
+                        role: 'assistant' as const,
+                        content: assistantContent,
+                        createdAt: new Date(),
+                      },
+                    ]
+                  }
+                })
+              }
+            } else if (line.trim() && !line.startsWith(':')) {
+              // Plain text (not SSE format)
+              assistantContent += line
+              setMessages((prev) => {
+                const existingAssistant = prev.find(
+                  (m) => m.role === 'assistant' && m.id === 'streaming'
+                )
+                if (existingAssistant) {
+                  return prev.map((m) =>
+                    m.id === 'streaming' ? { ...m, content: assistantContent } : m
+                  )
+                } else {
+                  return [
+                    ...prev,
+                    {
+                      id: 'streaming',
+                      role: 'assistant' as const,
+                      content: assistantContent,
+                      createdAt: new Date(),
+                    },
+                  ]
+                }
+              })
+            }
+          }
+        }
+
+        // Finalize the assistant message
+        setMessages((prev) => prev.map((m) => (m.id === 'streaming' ? { ...m, id: generateId() } : m)))
+      } catch (error) {
+        console.error('Tool chat error:', error)
+        setMessages((prev) => [
+          ...prev,
+          {
+            id: generateId(),
+            role: 'assistant',
+            content: 'Sorry, I encountered an error. Please try again.',
+            createdAt: new Date(),
+          },
+        ])
+      } finally {
+        setState((prev) => ({ ...prev, isStreaming: false }))
+      }
+    },
+    [messages, pageContext, initialContext, availableEntities, executeToolApi, addDebugEvent]
+  )
+
+  // Legacy sendMessage function (for backwards compatibility)
   const sendMessage = useCallback(
     async (content: string) => {
       if (!content.trim()) return
@@ -241,11 +1052,7 @@ export function useCommandPalette(options: UseCommandPaletteOptions) {
         }
 
         // Finalize the assistant message
-        setMessages((prev) =>
-          prev.map((m) =>
-            m.id === 'streaming' ? { ...m, id: generateId() } : m
-          )
-        )
+        setMessages((prev) => prev.map((m) => (m.id === 'streaming' ? { ...m, id: generateId() } : m)))
       } catch (error) {
         console.error('Chat error:', error)
         // Add error message
@@ -281,18 +1088,45 @@ export function useCommandPalette(options: UseCommandPaletteOptions) {
     tools,
     filteredTools,
     recentActions,
+    recentTools,
     messages,
     pendingToolCalls,
+    selectedTool,
+    initialContext,
+    availableEntities,
 
-    // Actions
+    // Navigation actions
     open,
     close,
     setIsOpen,
-    setMode,
     setInputValue,
     setSelectedIndex,
+
+    // Intelligent routing - submit natural language query
+    handleSubmit,
+    reset,
+
+    // Page navigation (legacy, kept for compatibility)
+    goToToolChat,
+    goBack,
+
+    // Tool execution
     executeTool,
+    approveToolCall,
+    rejectToolCall,
+
+    // Chat actions
     sendMessage,
+    sendAgenticMessage,
     clearMessages,
+
+    // Legacy compatibility
+    setMode,
+
+    // Debug mode
+    debugEvents,
+    showDebug,
+    setShowDebug,
+    clearDebugEvents,
   }
 }

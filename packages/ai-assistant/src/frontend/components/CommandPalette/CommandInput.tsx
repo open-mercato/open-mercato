@@ -11,9 +11,12 @@ interface CommandInputProps {
   onValueChange: (value: string) => void
   mode: CommandPaletteMode
   isLoading?: boolean
+  placeholder?: string
 }
 
-export function CommandInput({ value, onValueChange, mode, isLoading }: CommandInputProps) {
+export function CommandInput({ value, onValueChange, mode, isLoading, placeholder }: CommandInputProps) {
+  const defaultPlaceholder = mode === 'chat' ? 'Ask AI...' : 'Search commands or ask AI...'
+
   return (
     <div className="flex items-center gap-2 border-b px-4 py-3">
       <div className="flex items-center justify-center w-5 h-5 text-muted-foreground">
@@ -29,7 +32,7 @@ export function CommandInput({ value, onValueChange, mode, isLoading }: CommandI
       <Command.Input
         value={value}
         onValueChange={onValueChange}
-        placeholder={mode === 'chat' ? 'Ask AI...' : 'Search commands or ask AI...'}
+        placeholder={placeholder || defaultPlaceholder}
         className={cn(
           'flex-1 bg-transparent text-sm outline-none',
           'placeholder:text-muted-foreground'
