@@ -281,7 +281,7 @@ export const upgradeActions: UpgradeActionDefinition[] = [
             tem.create(RoleAcl, {
               role: adminRole,
               tenantId: normalizedTenantId,
-              featuresJson: ['search.view'],
+              featuresJson: ['search.*', 'feature_toggles.*', 'booking.*', 'currencies.*'],
               isSuperAdmin: false,
               createdAt: new Date(),
               updatedAt: new Date(),
@@ -292,8 +292,13 @@ export const upgradeActions: UpgradeActionDefinition[] = [
 
         for (const acl of roleAcls) {
           const features = Array.isArray(acl.featuresJson) ? [...acl.featuresJson] : []
-          if (features.includes('search.view')) continue
-          acl.featuresJson = [...features, 'search.view']
+          const nextFeatures = new Set(features)
+          nextFeatures.add('search.*')
+          nextFeatures.add('feature_toggles.*')
+          nextFeatures.add('booking.*')
+          nextFeatures.add('currencies.*')
+          if (nextFeatures.size === features.length) continue
+          acl.featuresJson = Array.from(nextFeatures)
           acl.updatedAt = new Date()
           touched = true
         }
