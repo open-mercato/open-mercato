@@ -1,5 +1,5 @@
 import type { ModuleCli } from '@/modules/registry'
-import type { EntityManager } from '@mikro-orm/core'
+import type { EntityManager } from '@mikro-orm/postgresql'
 import { createRequestContainer } from '@/lib/di/container'
 import { RateFetchingService } from './services/rateFetchingService'
 import { NBPProvider } from './services/providers/nbp'
