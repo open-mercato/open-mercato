@@ -1,13 +1,13 @@
 import type { CommandHandler } from '@open-mercato/shared/lib/commands'
 import type { EntityManager } from '@mikro-orm/postgresql'
-import { FeatureToggle, FeatureToggleOverride, FeatureToggleOverrideState } from '../data/entities'
+import { FeatureToggle, FeatureToggleOverride } from '../data/entities'
 import { ToggleCreateInput, toggleCreateSchema, ToggleUpdateInput, toggleUpdateSchema } from '../data/validators'
 import { resolveTranslations } from '@/lib/i18n/server'
 import { registerCommand } from '@open-mercato/shared/lib/commands'
 import { CrudHttpError } from '@/lib/crud/errors'
 import { buildChanges, requireId } from '@/lib/commands/helpers'
 import { extractUndoPayload } from '../../customers/commands/shared'
-import { invalidateIsEnabledCacheByIdentifierTag } from '../lib/feature-flag-check'
+import { FeatureTogglesService } from '../lib/feature-flag-check'
 
 type ToggleSnapshot = {
   id: string
@@ -15,15 +15,15 @@ type ToggleSnapshot = {
   name: string
   description: string | null
   category: string | null
-  defaultState: boolean
-  failMode: 'fail_open' | 'fail_closed'
+  type: 'boolean' | 'string' | 'number' | 'json'
+  defaultValue: any
 }
 
 type OverrideSnapshot = {
   id: string
   toggleId: string
   tenantId: string
-  state: FeatureToggleOverrideState
+  value?: any
 }
 
 type ToggleUndoPayload = {
@@ -41,8 +41,8 @@ async function loadToggleSnapshot(em: EntityManager, id: string): Promise<Toggle
     name: toggle.name,
     description: toggle.description ?? null,
     category: toggle.category ?? null,
-    defaultState: toggle.defaultState ?? false,
-    failMode: toggle.failMode ?? 'fail_closed',
+    type: toggle.type ?? 'boolean',
+    defaultValue: toggle.defaultValue ?? null,
   }
 }
 
@@ -52,7 +52,7 @@ async function loadOverrideSnapshots(em: EntityManager, toggleId: string): Promi
     id: o.id,
     toggleId: o.toggle.id,
     tenantId: o.tenantId,
-    state: o.state,
+    value: o.value,
   }))
 }
 
@@ -66,8 +66,8 @@ const createToggleCommand: CommandHandler<ToggleCreateInput, { toggleId: string 
       name: parsed.name,
       description: parsed.description,
       category: parsed.category,
-      defaultState: parsed.defaultState,
-      failMode: parsed.failMode,
+      type: parsed.type,
+      defaultValue: parsed.defaultValue,
     })
     em.persist(toggle)
     await em.flush()
@@ -106,7 +106,8 @@ const createToggleCommand: CommandHandler<ToggleCreateInput, { toggleId: string 
     if (toggle) {
       em.remove(toggle)
       await em.flush()
-      await invalidateIsEnabledCacheByIdentifierTag(toggle.identifier)
+      const featureTogglesService = ctx.container.resolve('featureTogglesService') as FeatureTogglesService
+      await featureTogglesService.invalidateIsEnabledCacheByIdentifierTag(toggle.identifier)
     }
   }
 }
@@ -128,10 +129,11 @@ const updateToggleCommand: CommandHandler<ToggleUpdateInput, { toggleId: string 
     toggle.name = parsed.name ?? toggle.name
     toggle.description = parsed.description ?? toggle.description
     toggle.category = parsed.category ?? toggle.category
-    toggle.defaultState = parsed.defaultState ?? toggle.defaultState
-    toggle.failMode = parsed.failMode ?? toggle.failMode
+    toggle.type = parsed.type ?? toggle.type
+    toggle.defaultValue = parsed.defaultValue ?? toggle.defaultValue
     await em.flush()
-    await invalidateIsEnabledCacheByIdentifierTag(toggle.identifier)
+    const featureTogglesService = ctx.container.resolve('featureTogglesService') as FeatureTogglesService
+    await featureTogglesService.invalidateIsEnabledCacheByIdentifierTag(toggle.identifier)
     return { toggleId: toggle.id }
   },
   buildLog: async ({ snapshots, ctx }) => {
@@ -150,8 +152,9 @@ const updateToggleCommand: CommandHandler<ToggleUpdateInput, { toggleId: string 
             'name',
             'description',
             'category',
-            'defaultState',
             'failMode',
+            'type',
+            'defaultValue',
           ]
         )
         : {}
@@ -184,8 +187,8 @@ const updateToggleCommand: CommandHandler<ToggleUpdateInput, { toggleId: string 
         name: before.name,
         description: before.description,
         category: before.category,
-        defaultState: before.defaultState,
-        failMode: before.failMode,
+        type: before.type,
+        defaultValue: before.defaultValue,
         createdAt: new Date(),
         updatedAt: new Date(),
       })
@@ -195,11 +198,10 @@ const updateToggleCommand: CommandHandler<ToggleUpdateInput, { toggleId: string 
       toggle.name = before.name
       toggle.description = before.description
       toggle.category = before.category
-      toggle.defaultState = before.defaultState
-      toggle.failMode = before.failMode
     }
     await em.flush()
-    await invalidateIsEnabledCacheByIdentifierTag(toggle.identifier)
+    const featureTogglesService = ctx.container.resolve('featureTogglesService') as FeatureTogglesService
+    await featureTogglesService.invalidateIsEnabledCacheByIdentifierTag(toggle.identifier)
   }
 }
 
@@ -218,7 +220,8 @@ const deleteToggleCommand: CommandHandler<{ body?: Record<string, unknown>; quer
     const em = (ctx.container.resolve('em') as EntityManager).fork()
     const toggle = await em.findOne(FeatureToggle, { id })
     if (!toggle) throw new CrudHttpError(404, { error: 'Feature toggle not found' })
-    await invalidateIsEnabledCacheByIdentifierTag(toggle.identifier)
+    const featureTogglesService = ctx.container.resolve('featureTogglesService') as FeatureTogglesService
+    await featureTogglesService.invalidateIsEnabledCacheByIdentifierTag(toggle.identifier)
 
     const overrides = await em.find(FeatureToggleOverride, { toggle: toggle.id })
     if (overrides.length > 0) {
@@ -264,8 +267,8 @@ const deleteToggleCommand: CommandHandler<{ body?: Record<string, unknown>; quer
         name: before.name,
         description: before.description,
         category: before.category,
-        defaultState: before.defaultState,
-        failMode: before.failMode,
+        type: before.type,
+        defaultValue: before.defaultValue,
         createdAt: new Date(),
         updatedAt: new Date(),
       })
@@ -276,7 +279,7 @@ const deleteToggleCommand: CommandHandler<{ body?: Record<string, unknown>; quer
           id: ov.id,
           toggle: toggle,
           tenantId: ov.tenantId,
-          state: ov.state,
+          value: ov.value ?? null,
         })
         em.persist(override)
       }
@@ -285,14 +288,9 @@ const deleteToggleCommand: CommandHandler<{ body?: Record<string, unknown>; quer
       toggle.name = before.name
       toggle.description = before.description
       toggle.category = before.category
-      toggle.defaultState = before.defaultState
-      toggle.failMode = before.failMode
-      toggle.description = before.description
-      toggle.category = before.category
-      toggle.defaultState = before.defaultState
-      toggle.failMode = before.failMode
     }
-    await invalidateIsEnabledCacheByIdentifierTag(toggle.identifier)
+    const featureTogglesService = ctx.container.resolve('featureTogglesService') as FeatureTogglesService
+    await featureTogglesService.invalidateIsEnabledCacheByIdentifierTag(toggle.identifier)
     await em.flush()
   },
 }

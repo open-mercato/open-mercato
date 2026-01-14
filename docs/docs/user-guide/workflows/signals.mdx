@@ -1,0 +1,325 @@
+---
+title: Signals
+description: Resume workflows with external events and triggers from other systems
+---
+
+# Signals
+
+Signals are external events that resume paused workflows. Use signals to integrate workflows with webhooks, payment gateways, external approvals, and other systems that notify you when something happens.
+
+## What Are Signals?
+
+A signal is a named event sent from outside the workflow engine to resume execution. Workflows can wait for signals at WAIT_FOR_SIGNAL steps, allowing them to pause until an external system confirms an action.
+
+**Key Concepts:**
+- Signals have a **name** (e.g., "payment-confirmed", "approval-granted")
+- Signals can carry a **payload** with data (e.g., transaction ID, approval details)
+- Workflows wait at WAIT_FOR_SIGNAL steps until the matching signal arrives
+- Signal payloads are merged into workflow context
+
+## Use Cases
+
+**Common Scenarios:**
+- **Payment Confirmation**: Wait for payment gateway webhook before fulfilling order
+- **External Approval**: Wait for approval from third-party system (ERP, procurement tool)
+- **Webhook Callbacks**: Pause until external API completes long-running task
+- **Multi-System Coordination**: Synchronize workflows across different platforms
+- **Human Approval via Email**: Send approval link, wait for recipient to click
+
+## WAIT_FOR_SIGNAL Step
+
+Configure a step to wait for a specific signal:
+
+```json
+{
+  "stepId": "wait-for-payment",
+  "stepName": "Wait for Payment Confirmation",
+  "stepType": "WAIT_FOR_SIGNAL",
+  "signalConfig": {
+    "signalName": "payment-confirmed",
+    "timeout": "7 days"
+  }
+}
+```
+
+**Configuration:**
+- `signalName`: The signal to wait for (must match exactly)
+- `timeout`: Maximum wait time (e.g., "7 days", "2 hours")
+
+When the workflow reaches this step:
+1. Workflow status becomes "WAITING_FOR_SIGNAL"
+2. Execution pauses until signal is received or timeout expires
+3. Signal payload is merged into workflow context
+4. Workflow resumes and advances to the next step
+
+## Sending Signals
+
+External systems send signals via the REST API:
+
+### API Endpoint
+
+```
+POST /api/workflows/instances/{instanceId}/signal
+```
+
+### Request Body
+
+```json
+{
+  "signalName": "payment-confirmed",
+  "payload": {
+    "transactionId": "txn_abc123",
+    "amount": 150.00,
+    "paidAt": "2024-01-15T10:30:00Z",
+    "paymentMethod": "credit_card"
+  }
+}
+```
+
+### Example: cURL
+
+```bash
+curl -X POST https://your-domain.com/api/workflows/instances/wf-inst-123/signal \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer YOUR_API_KEY" \
+  -d '{
+    "signalName": "payment-confirmed",
+    "payload": {
+      "transactionId": "txn_abc123",
+      "amount": 150.00
+    }
+  }'
+```
+
+### Example: TypeScript/JavaScript
+
+```typescript
+import { apiFetch } from '@open-mercato/ui/backend/utils/api'
+
+async function sendPaymentSignal(instanceId: string, transactionId: string) {
+  const response = await apiFetch(`/api/workflows/instances/${instanceId}/signal`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      signalName: 'payment-confirmed',
+      payload: {
+        transactionId,
+        amount: 150.00,
+        paidAt: new Date().toISOString()
+      }
+    })
+  })
+
+  if (!response.ok) {
+    throw new Error('Failed to send signal')
+  }
+
+  return await response.json()
+}
+```
+
+## Signal Payload
+
+Signal payloads are merged into the workflow context, making the data available to subsequent steps.
+
+**Before Signal:**
+```json
+{
+  "orderId": "order-123",
+  "customerId": "cust-456",
+  "amount": 150.00
+}
+```
+
+**Signal Sent:**
+```json
+{
+  "signalName": "payment-confirmed",
+  "payload": {
+    "transactionId": "txn_abc123",
+    "paidAt": "2024-01-15T10:30:00Z"
+  }
+}
+```
+
+**After Signal (Merged Context):**
+```json
+{
+  "orderId": "order-123",
+  "customerId": "cust-456",
+  "amount": 150.00,
+  "transactionId": "txn_abc123",
+  "paidAt": "2024-01-15T10:30:00Z"
+}
+```
+
+Access signal data in subsequent steps: `{{context.transactionId}}`
+
+## Correlation Keys
+
+Correlation keys help external systems identify which workflow instance to signal.
+
+**Setting Correlation Key:**
+
+When starting a workflow, provide a correlation key:
+
+```typescript
+POST /api/workflows/instances
+{
+  "workflowId": "order-fulfillment-v1",
+  "initialContext": {
+    "orderId": "order-123",
+    "customerId": "cust-456"
+  },
+  "correlationKey": "order-123"
+}
+```
+
+**Finding Instance by Correlation Key:**
+
+External systems can query workflows by correlation key:
+
+```typescript
+GET /api/workflows/instances?correlationKey=order-123
+```
+
+This returns the instance ID, which is used to send signals:
+
+```typescript
+POST /api/workflows/instances/{instanceId}/signal
+{
+  "signalName": "payment-confirmed",
+  "payload": { ... }
+}
+```
+
+**Use Cases:**
+- Map external order IDs to workflow instances
+- Handle webhook callbacks without storing instance IDs
+- Coordinate workflows with third-party systems
+
+## Example: Order Fulfillment with Payment Webhook
+
+Here's a complete workflow that waits for payment confirmation:
+
+**Workflow Steps:**
+1. **START** → Create order
+2. **Send Payment Link** (AUTOMATED) → Email payment link to customer
+3. **Wait for Payment** (WAIT_FOR_SIGNAL) → Wait for "payment-confirmed" signal
+4. **Fulfill Order** (AUTOMATED) → Ship items, send confirmation email
+5. **END** → Workflow complete
+
+**Step Configuration:**
+
+```json
+{
+  "stepId": "wait-for-payment",
+  "stepName": "Wait for Payment Confirmation",
+  "stepType": "WAIT_FOR_SIGNAL",
+  "signalConfig": {
+    "signalName": "payment-confirmed",
+    "timeout": "7 days"
+  }
+}
+```
+
+**Payment Gateway Webhook:**
+
+When payment is confirmed, the payment gateway calls your webhook endpoint:
+
+```typescript
+// Your webhook handler
+app.post('/webhooks/payment', async (req, res) => {
+  const { orderId, transactionId, amount } = req.body
+
+  // Find workflow instance by correlation key (orderId)
+  const instances = await fetch(
+    `/api/workflows/instances?correlationKey=${orderId}`
+  ).then(r => r.json())
+
+  if (instances.length === 0) {
+    return res.status(404).json({ error: 'Workflow not found' })
+  }
+
+  const instance = instances[0]
+
+  // Send signal to resume workflow
+  await fetch(`/api/workflows/instances/${instance.id}/signal`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      signalName: 'payment-confirmed',
+      payload: {
+        transactionId,
+        amount,
+        paidAt: new Date().toISOString()
+      }
+    })
+  })
+
+  res.status(200).json({ success: true })
+})
+```
+
+**Workflow Execution:**
+1. Customer places order → Workflow starts with `correlationKey: "order-123"`
+2. Workflow sends payment link → Customer receives email
+3. Workflow waits at WAIT_FOR_SIGNAL step
+4. Customer pays → Payment gateway calls webhook → Webhook sends signal
+5. Signal resumes workflow → Order is fulfilled
+
+## Timeout Handling
+
+If a signal is not received within the timeout period, the workflow can be configured to:
+
+- **Cancel**: End the workflow as failed
+- **Escalate**: Send notification or create a task
+- **Retry**: Reset the wait period
+- **Continue**: Move to an alternative step
+
+Configure timeout behavior with transitions:
+
+```json
+{
+  "transitionId": "timeout-to-cancelled",
+  "fromStepId": "wait-for-payment",
+  "toStepId": "end-cancelled",
+  "trigger": "timer",
+  "timerConfig": {
+    "duration": "7 days"
+  }
+}
+```
+
+## Best Practices
+
+### For Workflow Designers
+
+- Use descriptive signal names (e.g., "payment-confirmed", not "signal1")
+- Set realistic timeouts based on expected wait times
+- Always handle timeout scenarios with fallback transitions
+- Document the signal payload schema for external systems
+
+### For External Systems
+
+- Use correlation keys to identify workflow instances
+- Include all necessary data in the signal payload
+- Handle webhook retries and idempotency
+- Log signal sends for debugging
+
+### For Administrators
+
+- Monitor workflows stuck in WAITING_FOR_SIGNAL state
+- Review timeout configurations for long-waiting workflows
+- Ensure webhook endpoints are accessible and reliable
+
+## Next Steps
+
+- [**Create workflows**](./creating-workflows) with WAIT_FOR_SIGNAL steps
+- [**Configure timeouts**](./transitions#timer-timer-based) for signal waits
+- [**Monitor execution**](./monitoring) to debug signal handling
+
+**See Also:**
+- [**Step Types**](./step-types) - Learn about WAIT_FOR_SIGNAL steps
+- [**Framework Documentation**](/framework/workflows/services) - Send signals programmatically
+- [**Transitions**](./transitions) - Handle timeout scenarios

@@ -6,6 +6,7 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import fs from 'node:fs'
 import path from 'node:path'
 import { toggleCreateSchemaList } from './data/validators'
+import { parseBooleanToken } from '@open-mercato/shared/lib/boolean'
 
 type ParsedArgs = Record<string, string | boolean>
 
@@ -50,12 +51,37 @@ function booleanOption(args: ParsedArgs, ...keys: string[]): boolean | undefined
     if (raw === true) return true
     if (raw === false) return false
     if (typeof raw === 'string') {
-      const normalized = raw.trim().toLowerCase()
-      if (normalized === 'true' || normalized === '1' || normalized === '') return true
-      if (normalized === 'false' || normalized === '0') return false
+      const trimmed = raw.trim()
+      if (!trimmed) return true
+      const parsed = parseBooleanToken(trimmed)
+      if (parsed !== null) return parsed
     }
   }
   return undefined
+}
+
+function parseValue(type: string, value: string | undefined): any {
+  if (value === undefined) return undefined
+
+  switch (type) {
+    case 'boolean':
+      if (value === 'true' || value === '1') return true
+      if (value === 'false' || value === '0') return false
+      return Boolean(value)
+    case 'number':
+      const num = Number(value)
+      if (isNaN(num)) throw new Error(`Invalid number value: ${value}`)
+      return num
+    case 'json':
+      try {
+        return JSON.parse(value)
+      } catch (e) {
+        throw new Error(`Invalid JSON value: ${value}`)
+      }
+    case 'string':
+    default:
+      return value
+  }
 }
 
 function buildCommandContext(container: Awaited<ReturnType<typeof createRequestContainer>>): CommandRuntimeContext {
@@ -75,14 +101,26 @@ const createToggle: ModuleCli = {
     const args = parseArgs(rest)
     const identifier = stringOption(args, 'identifier', 'id')
     const name = stringOption(args, 'name')
+
     if (!identifier || !name) {
-      console.error('Usage: mercato feature_toggles toggle-create --identifier <id> --name <name> [--defaultState true|false] [--category <value>] [--description <value>] [--failMode fail_open|fail_closed]')
+      console.error('Usage: mercato feature_toggles toggle-create --identifier <id> --name <name> [--type boolean|string|number|json] [--defaultValue <value>] [--category <value>] [--description <value>]')
       return
     }
-    const defaultState = booleanOption(args, 'defaultState')
+
+    const type = stringOption(args, 'type') || 'boolean'
+    const defaultValueRaw = stringOption(args, 'defaultValue')
     const category = stringOption(args, 'category')
     const description = stringOption(args, 'description')
-    const failMode = stringOption(args, 'failMode')
+
+
+    let defaultValue: any = undefined
+    try {
+      defaultValue = parseValue(type, defaultValueRaw)
+    } catch (e: any) {
+      console.error(e.message)
+      return
+    }
+
     const container = await createRequestContainer()
     try {
       const commandBus = container.resolve('commandBus') as CommandBus
@@ -91,10 +129,11 @@ const createToggle: ModuleCli = {
         input: {
           identifier,
           name,
-          defaultState: defaultState ?? false,
+          type,
+          defaultValue: defaultValue,
           category: category ?? null,
           description: description ?? null,
-          failMode: failMode ?? undefined,
+
         },
         ctx,
       })
@@ -115,14 +154,10 @@ const updateToggle: ModuleCli = {
     const identifier = stringOption(args, 'identifier')
 
     if (!identifier) {
-      console.error('Usage: mercato feature_toggles toggle-update --identifier <id> [--name <name>] [--defaultState true|false] [--category <value>] [--description <value>] [--failMode fail_open|fail_closed]')
+      console.error('Usage: mercato feature_toggles toggle-update --identifier <id> [--name <name>] [--defaultValue <value>] [--category <value>] [--description <value>]')
       return
     }
-    const name = stringOption(args, 'name')
-    const defaultState = booleanOption(args, 'defaultState')
-    const category = stringOption(args, 'category')
-    const description = stringOption(args, 'description')
-    const failMode = stringOption(args, 'failMode')
+
     const container = await createRequestContainer()
     const em = container.resolve('em') as EntityManager
     const toggle = await em.findOne(FeatureToggle, { identifier })
@@ -130,6 +165,23 @@ const updateToggle: ModuleCli = {
       console.error('Feature toggle not found:', identifier)
       return
     }
+
+    const name = stringOption(args, 'name')
+    const defaultValueRaw = stringOption(args, 'defaultValue')
+    const category = stringOption(args, 'category')
+    const description = stringOption(args, 'description')
+
+
+    let defaultValue: any = undefined
+    if (defaultValueRaw !== undefined) {
+      try {
+        defaultValue = parseValue(toggle.type, defaultValueRaw)
+      } catch (e: any) {
+        console.error(e.message)
+        return
+      }
+    }
+
     const toggleId = toggle.id
     try {
       const commandBus = container.resolve('commandBus') as CommandBus
@@ -139,10 +191,10 @@ const updateToggle: ModuleCli = {
           ...(toggleId ? { id: toggleId } : {}),
           ...(identifier ? { identifier } : {}),
           ...(name ? { name } : {}),
-          ...(defaultState !== undefined ? { defaultState } : {}),
+          ...(defaultValue !== undefined ? { defaultValue } : {}),
           ...(category !== undefined ? { category } : {}),
           ...(description !== undefined ? { description } : {}),
-          ...(failMode !== undefined ? { failMode } : {}),
+
         },
         ctx,
       })
@@ -193,15 +245,16 @@ const deleteToggle: ModuleCli = {
   },
 }
 
-const setOverrideState: ModuleCli = {
-  command: 'override-set',
+const setOverrideValue: ModuleCli = {
+  command: 'override-set-value',
   async run(rest) {
     const args = parseArgs(rest)
     const identifier = stringOption(args, 'identifier')
     const tenantId = stringOption(args, 'tenantId', 'tenant', 'tenantId')
-    const state = stringOption(args, 'state', 'enabled', 'disabled', 'inherit')
-    if (!identifier || !tenantId || !state) {
-      console.error('Usage: mercato feature_toggles override-set --identifier <id> --tenantId <uuid> --state enabled|disabled|inherit')
+    const valueRaw = stringOption(args, 'value')
+
+    if (!identifier || !tenantId) {
+      console.error('Usage: mercato feature_toggles override-set-value --identifier <id> --tenantId <uuid> --value <value>')
       return
     }
     const container = await createRequestContainer()
@@ -211,7 +264,19 @@ const setOverrideState: ModuleCli = {
       console.error('Feature toggle not found:', identifier)
       return
     }
+
+    let value: any = undefined
+    if (valueRaw !== undefined) {
+      try {
+        value = parseValue(toggle.type, valueRaw)
+      } catch (e: any) {
+        console.error(e.message)
+        return
+      }
+    }
+
     const toggleId = toggle.id
+
     try {
       const commandBus = container.resolve('commandBus') as CommandBus
       const ctx = buildCommandContext(container)
@@ -219,11 +284,12 @@ const setOverrideState: ModuleCli = {
         input: {
           toggleId,
           tenantId,
-          state,
+          isOverride: true,
+          overrideValue: value,
         },
         ctx,
       })
-      console.log('✅ Feature toggle override updated:', identifier, "Tenant ID: " + tenantId, "State: " + state)
+      console.log('✅ Feature toggle override updated:', identifier, "Tenant ID: " + tenantId, "Value: " + (valueRaw || 'unchanged'))
     } finally {
       const disposable = container as unknown as { dispose?: () => Promise<void> }
       if (typeof disposable.dispose === 'function') {
@@ -242,6 +308,11 @@ const seedDefaults: ModuleCli = {
     const raw = fs.readFileSync(filePath, 'utf8')
     const parsedJson = JSON.parse(raw)
     const data = Array.isArray(parsedJson) ? parsedJson : parsedJson.toggles
+
+    // We can't strictly use toggleCreateSchemaList because it might validate types strictly, 
+    // but the input JSON from file might have raw values that need refinement if we were going via CLI args.
+    // However, since we are reading from JSON, we can assume the types match what zod expects for the literal types.
+    // Let's rely on the schema to validate the structure.
     const toggles = toggleCreateSchemaList.parse(data)
 
     const container = await createRequestContainer()
@@ -263,8 +334,9 @@ const seedDefaults: ModuleCli = {
           name: toggle.name,
           description: toggle.description ?? null,
           category: toggle.category ?? null,
-          defaultState: toggle.defaultState ?? false,
-          failMode: toggle.failMode ?? undefined,
+
+          type: toggle.type,
+          defaultValue: toggle.defaultValue,
         },
         ctx,
       })
@@ -275,4 +347,4 @@ const seedDefaults: ModuleCli = {
   },
 }
 
-export default [createToggle, updateToggle, deleteToggle, setOverrideState, seedDefaults]
+export default [createToggle, updateToggle, deleteToggle, setOverrideValue, seedDefaults]

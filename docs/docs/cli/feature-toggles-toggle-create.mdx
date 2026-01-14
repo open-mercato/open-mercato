@@ -18,10 +18,11 @@ yarn mercato feature_toggles toggle-create --identifier <id> --name <name> [opti
 | :--- | :--- | :--- | :--- |
 | `--identifier` | Unique identifier for the toggle (e.g., `new-feature`). | Yes | - |
 | `--name` | Human-readable name for the toggle. | Yes | - |
-| `--defaultState` | Initial state of the toggle (`true` or `false`). | No | `false` |
+| `--type` | Type of the toggle (`boolean`, `string`, `number`, `json`). | No | `boolean` |
+| `--defaultValue` | Initial value of the toggle. Must match the specified type. | No | `false` (for boolean) |
 | `--category` | Category to group the toggle under. | No | - |
 | `--description` | Description of what the toggle controls. | No | - |
-| `--failMode` | Behavior if the toggle check fails (`fail_open` or `fail_closed`). | No | - |
+
 
 ## Behavior
 

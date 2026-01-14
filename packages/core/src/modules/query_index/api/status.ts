@@ -1,10 +1,11 @@
 import { NextResponse } from 'next/server'
 import { createRequestContainer } from '@/lib/di/container'
 import { getAuthFromRequest } from '@/lib/auth/server'
-import { E as AllEntities } from '@/generated/entities.ids.generated'
+import { getEntityIds } from '@open-mercato/shared/lib/encryption/entityIds'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { readCoverageSnapshot, refreshCoverageSnapshot } from '../lib/coverage'
-import type { VectorIndexService } from '@open-mercato/vector'
+import type { FullTextSearchStrategy } from '@open-mercato/search/strategies'
+import type { SearchModuleConfig } from '@open-mercato/shared/modules/search'
 import type { OpenApiMethodDoc, OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { queryIndexTag, queryIndexErrorSchema, queryIndexStatusResponseSchema } from './openapi'
 import { flattenSystemEntityIds } from '@open-mercato/shared/lib/entities/system-entities'
@@ -61,7 +62,7 @@ export async function GET(req: Request) {
   const url = new URL(req.url)
   const forceRefresh = url.searchParams.has('refresh') && url.searchParams.get('refresh') !== '0'
 
-  const generatedIds = flattenSystemEntityIds(AllEntities as Record<string, Record<string, string>>)
+  const generatedIds = flattenSystemEntityIds(getEntityIds() as Record<string, Record<string, string>>)
   const generated = generatedIds.map((entityId) => ({ entityId, label: entityId }))
 
   const byId = new Map<string, { entityId: string; label: string }>()
@@ -69,18 +70,51 @@ export async function GET(req: Request) {
 
   let entityIds = generatedIds.slice()
 
-  let vectorService: VectorIndexService | null = null
+  // Resolve search module configs to determine vector-enabled entities
+  // Entities with buildSource defined are vector-search enabled
+  let searchModuleConfigs: SearchModuleConfig[] = []
   try {
-    vectorService = container.resolve('vectorIndexService') as VectorIndexService
+    searchModuleConfigs = container.resolve('searchModuleConfigs') as SearchModuleConfig[]
   } catch {
-    vectorService = null
+    // Search module configs not available
   }
 
-  let vectorEnabledEntities = new Set<string>()
-  if (vectorService && typeof vectorService.listEnabledEntities === 'function') {
+  const vectorEnabledEntities = new Set<string>()
+  const fulltextEnabledEntities = new Set<string>()
+  for (const moduleConfig of searchModuleConfigs) {
+    for (const entity of moduleConfig.entities ?? []) {
+      if (entity.enabled !== false) {
+        // Vector: entities with buildSource defined
+        if (typeof entity.buildSource === 'function') {
+          vectorEnabledEntities.add(entity.entityId)
+        }
+        // Fulltext: entities with fieldPolicy defined
+        if (entity.fieldPolicy && typeof entity.fieldPolicy === 'object') {
+          fulltextEnabledEntities.add(entity.entityId)
+        }
+      }
+    }
+  }
+
+  // Resolve fulltext strategy for entity counts
+  let fulltextStrategy: FullTextSearchStrategy | null = null
+  try {
+    const searchStrategies = container.resolve('searchStrategies') as unknown[]
+    fulltextStrategy = (searchStrategies?.find(
+      (s: unknown) => (s as { id?: string })?.id === 'fulltext',
+    ) as FullTextSearchStrategy) ?? null
+  } catch {
+    fulltextStrategy = null
+  }
+
+  // Fetch fulltext entity counts
+  let fulltextEntityCounts: Record<string, number> | null = null
+  if (fulltextStrategy) {
     try {
-      vectorEnabledEntities = new Set(vectorService.listEnabledEntities())
-    } catch {}
+      fulltextEntityCounts = await fulltextStrategy.getEntityCounts(tenantId)
+    } catch {
+      fulltextEntityCounts = null
+    }
   }
 
   // Limit to entities that have active custom field definitions in current scope
@@ -268,7 +302,7 @@ export async function GET(req: Request) {
           : null
       const stale = !snapshot || !refreshedAt || (Date.now() - refreshedAt.getTime() > COVERAGE_STALE_MS)
       if (forceRefresh || stale) {
-        await refreshCoverageSnapshot(em, scope, { vectorService }).catch(() => undefined)
+        await refreshCoverageSnapshot(em, scope).catch(() => undefined)
         snapshot = await readCoverageSnapshot(knex, scope)
       }
       const finalRefreshed = snapshot?.refreshed_at instanceof Date
@@ -301,6 +335,8 @@ export async function GET(req: Request) {
     const indexCountNumber = normalizeCount(coverage?.indexedCount)
     const vectorEnabled = vectorEnabledEntities.has(eid)
     const vectorCountNumber = vectorEnabled ? normalizeCount((coverage as any)?.vectorIndexedCount ?? (coverage as any)?.vector_indexed_count) : null
+    const fulltextEnabled = fulltextEnabledEntities.has(eid)
+    const fulltextCountNumber = fulltextEnabled ? (fulltextEntityCounts?.[eid] ?? 0) : null
     const ok = (() => {
       if (baseCountNumber == null || indexCountNumber == null) return false
       if (baseCountNumber !== indexCountNumber) return false
@@ -314,6 +350,8 @@ export async function GET(req: Request) {
       indexCount: indexCountNumber,
       vectorCount: vectorEnabled ? vectorCountNumber : null,
       vectorEnabled,
+      fulltextCount: fulltextCountNumber,
+      fulltextEnabled,
       ok,
       job,
       refreshedAt: refreshedAt ?? null,

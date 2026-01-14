@@ -45,20 +45,23 @@ export async function GET(_req: Request, ctx: { params?: { id?: string } }) {
     tenantId: auth.tenantId ?? null,
     query: { id: parse.data.id },
     accessType: 'read:item',
-    fields: ['id', 'identifier', 'name', 'description', 'category', 'default_state', 'fail_mode', 'created_at', 'updated_at']
+    fields: ['id', 'identifier', 'name', 'description', 'category', 'created_at', 'updated_at']
   })
 
-  return NextResponse.json({
+  const featureToggle: FeatureToggle = {
     id: toggle.id,
     identifier: toggle.identifier,
     name: toggle.name,
     description: toggle.description ?? null,
     category: toggle.category ?? null,
-    default_state: toggle.defaultState,
-    fail_mode: toggle.failMode,
-    created_at: toggle.createdAt?.toISOString(),
-    updated_at: toggle.updatedAt?.toISOString(),
-  })
+
+    type: toggle.type,
+    defaultValue: toggle.defaultValue,
+    createdAt: toggle.createdAt,
+    updatedAt: toggle.updatedAt,
+  }
+
+  return NextResponse.json(featureToggle)
 }
 
 const routeMetadata = {

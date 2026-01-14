@@ -1,0 +1,548 @@
+---
+title: Workflow Services
+description: Programmatic APIs for starting, controlling, and querying workflows
+---
+
+# Workflow Services
+
+This guide explains how to integrate workflows into your application programmatically using the REST API and TypeScript services.
+
+## Starting Workflows
+
+### REST API
+
+**Endpoint:**
+```
+POST /api/workflows/instances
+```
+
+**Request Body:**
+```typescript
+{
+  "workflowId": "purchase-approval-v1",
+  "initialContext": {
+    "orderId": "order-123",
+    "customerId": "cust-456",
+    "amount": 150.00,
+    "items": [
+      { "productId": "prod-1", "quantity": 2 }
+    ]
+  },
+  "correlationKey": "order-123"
+}
+```
+
+**Response:**
+```typescript
+{
+  "id": "wf-inst-abc123",
+  "workflowId": "purchase-approval-v1",
+  "version": 1,
+  "status": "RUNNING",
+  "currentStepId": "start",
+  "context": { ... },
+  "correlationKey": "order-123",
+  "startedAt": "2024-01-15T10:00:00Z"
+}
+```
+
+### TypeScript Example
+
+```typescript
+import { apiFetch } from '@open-mercato/ui/backend/utils/api'
+
+async function startApprovalWorkflow(orderId: string, amount: number) {
+  const response = await apiFetch('/api/workflows/instances', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      workflowId: 'purchase-approval-v1',
+      initialContext: {
+        orderId,
+        amount,
+        requesterEmail: 'user@example.com',
+        approverEmail: 'manager@example.com'
+      },
+      correlationKey: orderId
+    })
+  })
+
+  if (!response.ok) {
+    const error = await response.json()
+    throw new Error(`Failed to start workflow: ${error.message}`)
+  }
+
+  const instance = await response.json()
+  console.log(`Workflow started: ${instance.id}`)
+  return instance
+}
+```
+
+### Service Integration
+
+For server-side code, inject the workflow service via DI:
+
+```typescript
+import { inject, injectable } from 'awilix'
+import { WorkflowService } from '@/modules/workflows/lib/workflow-service'
+
+@injectable()
+export class OrderService {
+  constructor(
+    @inject('workflowService') private workflowService: WorkflowService
+  ) {}
+
+  async createOrder(orderData: any) {
+    // Create order in database
+    const order = await this.orderRepository.create(orderData)
+
+    // Start workflow
+    const instance = await this.workflowService.startWorkflow({
+      workflowId: 'order-fulfillment-v1',
+      initialContext: {
+        orderId: order.id,
+        customerId: order.customerId,
+        items: order.items
+      },
+      correlationKey: order.id
+    })
+
+    // Store instance ID on order
+    order.workflowInstanceId = instance.id
+    await this.orderRepository.save(order)
+
+    return order
+  }
+}
+```
+
+## Sending Signals
+
+### REST API
+
+**Endpoint:**
+```
+POST /api/workflows/instances/{instanceId}/signal
+```
+
+**Request Body:**
+```typescript
+{
+  "signalName": "payment-confirmed",
+  "payload": {
+    "transactionId": "txn_abc123",
+    "amount": 150.00,
+    "paidAt": "2024-01-15T10:30:00Z"
+  }
+}
+```
+
+**Response:**
+```typescript
+{
+  "success": true,
+  "instanceId": "wf-inst-abc123",
+  "signalReceived": "payment-confirmed",
+  "updatedContext": { ... }
+}
+```
+
+### TypeScript Example
+
+```typescript
+async function sendPaymentConfirmation(
+  instanceId: string,
+  transactionId: string,
+  amount: number
+) {
+  const response = await apiFetch(`/api/workflows/instances/${instanceId}/signal`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      signalName: 'payment-confirmed',
+      payload: {
+        transactionId,
+        amount,
+        paidAt: new Date().toISOString()
+      }
+    })
+  })
+
+  if (!response.ok) {
+    throw new Error('Failed to send signal')
+  }
+
+  return await response.json()
+}
+```
+
+### Webhook Integration
+
+Integrate signals with external webhooks:
+
+```typescript
+import { Router } from 'express'
+import { WorkflowService } from '@/modules/workflows/lib/workflow-service'
+
+const router = Router()
+
+router.post('/webhooks/stripe', async (req, res) => {
+  const { orderId, transactionId, amount, status } = req.body
+
+  if (status !== 'succeeded') {
+    return res.status(200).json({ received: true })
+  }
+
+  // Find workflow instance by correlation key
+  const instances = await fetch(
+    `/api/workflows/instances?correlationKey=${orderId}`
+  ).then(r => r.json())
+
+  if (instances.length === 0) {
+    return res.status(404).json({ error: 'Workflow not found' })
+  }
+
+  // Send signal to resume workflow
+  await fetch(`/api/workflows/instances/${instances[0].id}/signal`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      signalName: 'payment-confirmed',
+      payload: { transactionId, amount }
+    })
+  })
+
+  res.status(200).json({ received: true })
+})
+```
+
+## Querying Instances
+
+### List Instances
+
+**Endpoint:**
+```
+GET /api/workflows/instances?status=RUNNING&correlationKey=order-123
+```
+
+**Query Parameters:**
+- `status`: Filter by status (RUNNING, COMPLETED, FAILED, etc.)
+- `workflowId`: Filter by workflow definition
+- `correlationKey`: Filter by correlation key
+- `limit`, `offset`: Pagination
+
+**Response:**
+```typescript
+{
+  "instances": [
+    {
+      "id": "wf-inst-abc123",
+      "workflowId": "order-fulfillment-v1",
+      "status": "RUNNING",
+      "currentStepId": "wait-for-payment",
+      "correlationKey": "order-123",
+      "startedAt": "2024-01-15T10:00:00Z"
+    }
+  ],
+  "total": 1
+}
+```
+
+### Get Instance Details
+
+**Endpoint:**
+```
+GET /api/workflows/instances/{instanceId}
+```
+
+**Response:**
+```typescript
+{
+  "id": "wf-inst-abc123",
+  "workflowId": "order-fulfillment-v1",
+  "version": 1,
+  "status": "RUNNING",
+  "currentStepId": "wait-for-payment",
+  "context": {
+    "orderId": "order-123",
+    "customerId": "cust-456",
+    "amount": 150.00
+  },
+  "correlationKey": "order-123",
+  "startedAt": "2024-01-15T10:00:00Z",
+  "workflowInstance": {
+    "id": "wf-inst-abc123",
+    // ... additional details
+  }
+}
+```
+
+### TypeScript Example
+
+```typescript
+async function getOrderWorkflow(orderId: string) {
+  // Query by correlation key
+  const response = await apiFetch(
+    `/api/workflows/instances?correlationKey=${orderId}`
+  )
+
+  if (!response.ok) {
+    throw new Error('Failed to query workflows')
+  }
+
+  const { instances } = await response.json()
+
+  if (instances.length === 0) {
+    return null
+  }
+
+  // Get full details
+  const detailResponse = await apiFetch(
+    `/api/workflows/instances/${instances[0].id}`
+  )
+
+  return await detailResponse.json()
+}
+```
+
+## Completing Tasks
+
+### REST API
+
+**Endpoint:**
+```
+POST /api/workflows/tasks/{taskId}/complete
+```
+
+**Request Body:**
+```typescript
+{
+  "formData": {
+    "decision": "approve",
+    "comments": "Approved for budget 2024"
+  }
+}
+```
+
+**Response:**
+```typescript
+{
+  "success": true,
+  "taskId": "task-123",
+  "workflowInstanceId": "wf-inst-abc123",
+  "status": "COMPLETED"
+}
+```
+
+### TypeScript Example
+
+```typescript
+async function approveRequest(taskId: string, comments: string) {
+  const response = await apiFetch(`/api/workflows/tasks/${taskId}/complete`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      formData: {
+        decision: 'approve',
+        comments,
+        approvedAt: new Date().toISOString()
+      }
+    })
+  })
+
+  if (!response.ok) {
+    throw new Error('Failed to complete task')
+  }
+
+  return await response.json()
+}
+```
+
+## Event Listeners
+
+Subscribe to workflow events to react to state changes:
+
+### Using Event Subscribers
+
+Create a subscriber in `src/modules/your-module/subscribers/workflow-completed.ts`:
+
+```typescript
+import { WorkflowEvent } from '@/modules/workflows/data/entities'
+
+export default async function handleWorkflowCompleted(event: WorkflowEvent) {
+  console.log(`Workflow ${event.workflowInstanceId} completed`)
+
+  // Access workflow context from event
+  const { orderId, amount } = event.eventData
+
+  // Trigger follow-up actions
+  await sendCompletionEmail(orderId)
+  await updateOrderStatus(orderId, 'WORKFLOW_COMPLETED')
+}
+
+export const metadata = {
+  event: 'workflow.completed',
+  persistent: true
+}
+```
+
+### Event Types
+
+Subscribe to these events:
+
+- `workflow.started` - New workflow instance created
+- `workflow.completed` - Workflow finished successfully
+- `workflow.failed` - Workflow encountered error
+- `workflow.cancelled` - Workflow manually cancelled
+- `step.entered` - Workflow entered a step
+- `step.exited` - Workflow left a step
+- `user_task.created` - User task created
+- `user_task.completed` - User task completed
+- `signal.received` - External signal received
+
+## Context Access
+
+### Reading Context
+
+Get the current workflow context:
+
+```typescript
+const instance = await apiFetch(`/api/workflows/instances/${instanceId}`)
+  .then(r => r.json())
+
+console.log(instance.context)
+// { orderId: "order-123", amount: 150.00, ... }
+```
+
+### Updating Context
+
+Context is updated automatically through:
+- Activity outputs (merged under `activities.<activityId>.output`)
+- Signal payloads (merged at root level)
+- User task form data (merged at root level)
+
+For custom updates, use the service layer:
+
+```typescript
+await workflowService.updateContext(instanceId, {
+  customField: 'value',
+  updatedAt: new Date().toISOString()
+})
+```
+
+## Error Handling
+
+### API Errors
+
+Handle errors from API calls:
+
+```typescript
+import { apiFetch } from '@open-mercato/ui/backend/utils/api'
+
+async function safeStartWorkflow(workflowId: string, context: any) {
+  try {
+    const response = await apiFetch('/api/workflows/instances', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ workflowId, initialContext: context })
+    })
+
+    if (!response.ok) {
+      const error = await response.json()
+      console.error('Workflow start failed:', error.message)
+      return null
+    }
+
+    return await response.json()
+  } catch (error) {
+    console.error('Network error:', error)
+    return null
+  }
+}
+```
+
+### Retry and Compensation
+
+Configure retry policies in activity definitions:
+
+```typescript
+{
+  activityId: "call-payment-api",
+  activityType: "CALL_API",
+  retryPolicy: {
+    maxAttempts: 3,
+    backoff: "exponential"
+  },
+  compensate: true,
+  compensationActivity: {
+    activityType: "CALL_API",
+    config: { url: "https://api.example.com/refund" }
+  }
+}
+```
+
+## Service Interfaces
+
+### WorkflowService
+
+```typescript
+interface WorkflowService {
+  startWorkflow(params: {
+    workflowId: string
+    initialContext: any
+    correlationKey?: string
+  }): Promise<WorkflowInstance>
+
+  sendSignal(instanceId: string, params: {
+    signalName: string
+    payload?: any
+  }): Promise<void>
+
+  getInstance(instanceId: string): Promise<WorkflowInstance>
+
+  queryInstances(filters: {
+    status?: WorkflowStatus
+    workflowId?: string
+    correlationKey?: string
+  }): Promise<WorkflowInstance[]>
+
+  cancelInstance(instanceId: string): Promise<void>
+}
+```
+
+### WorkflowInstance
+
+```typescript
+interface WorkflowInstance {
+  id: string
+  workflowId: string
+  version: number
+  status: WorkflowStatus
+  currentStepId: string
+  context: Record<string, any>
+  correlationKey: string | null
+  startedAt: Date
+  completedAt: Date | null
+  updatedAt: Date
+}
+
+type WorkflowStatus =
+  | 'RUNNING'
+  | 'COMPLETED'
+  | 'FAILED'
+  | 'PAUSED'
+  | 'WAITING_FOR_SIGNAL'
+  | 'WAITING_FOR_ACTIVITIES'
+  | 'CANCELLED'
+```
+
+## Next Steps
+
+- [**Extend workflows**](./extending) with custom activities and step handlers
+- [**Test workflows**](./testing) programmatically
+- [**Review architecture**](./architecture) to understand the engine design
+
+**See Also:**
+- [**User Guide**](/user-guide/workflows/) - User-facing workflow documentation
+- [**Signals**](/user-guide/workflows/signals) - External signal integration
+- [**Activities**](/user-guide/workflows/activities) - Activity configuration

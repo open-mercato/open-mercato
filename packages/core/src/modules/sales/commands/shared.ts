@@ -2,6 +2,7 @@ import type { ActionLog } from '@open-mercato/core/modules/audit_logs/data/entit
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import type { CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
+export { ensureOrganizationScope } from '@open-mercato/shared/lib/commands/scope'
 
 type UndoEnvelope<T> = {
   undo?: T
@@ -13,13 +14,6 @@ type UndoEnvelope<T> = {
 export function ensureTenantScope(ctx: CommandRuntimeContext, tenantId: string): void {
   const currentTenant = ctx.auth?.tenantId ?? null
   if (currentTenant && currentTenant !== tenantId) {
-    throw new CrudHttpError(403, { error: 'Forbidden' })
-  }
-}
-
-export function ensureOrganizationScope(ctx: CommandRuntimeContext, organizationId: string): void {
-  const currentOrg = ctx.selectedOrganizationId ?? ctx.auth?.orgId ?? null
-  if (currentOrg && currentOrg !== organizationId) {
     throw new CrudHttpError(403, { error: 'Forbidden' })
   }
 }

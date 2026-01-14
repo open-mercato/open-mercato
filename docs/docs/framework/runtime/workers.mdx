@@ -1,0 +1,383 @@
+---
+title: Creating Workers
+description: Guide to creating background job workers for processing queue jobs in Open Mercato modules.
+---
+
+# Creating Workers
+
+Workers are background processes that handle asynchronous job processing. Open Mercato provides a worker discovery system that automatically registers workers defined in your modules.
+
+## Quick Start
+
+Create a worker by adding a `.worker.ts` file to your module's `workers/` directory:
+
+```typescript
+// src/modules/my-module/workers/my-queue.worker.ts
+import type { QueuedJob, JobContext, WorkerMeta } from '@open-mercato/queue'
+
+export const metadata: WorkerMeta = {
+  queue: 'my-queue',
+  concurrency: 2,
+}
+
+export default async function handle(
+  job: QueuedJob<{ message: string }>,
+  ctx: JobContext
+): Promise<void> {
+  console.log(`Processing job ${ctx.jobId}:`, job.payload.message)
+}
+```
+
+Run the worker:
+
+```bash
+# Run all workers (recommended)
+npm run dev
+
+# Or run specific queue
+yarn mercato queue worker my-queue
+```
+
+## File Structure
+
+Workers follow a strict naming convention for auto-discovery:
+
+```
+src/modules/<module>/workers/
+  └── <queue-name>.worker.ts
+
+# or in packages
+packages/<package>/src/modules/<module>/workers/
+  └── <queue-name>.worker.ts
+```
+
+The file name (minus `.worker.ts`) typically matches the queue name, though you can specify any queue name in the metadata.
+
+## Worker Anatomy
+
+Every worker file must export two things:
+
+### 1. Metadata Export
+
+```typescript
+import type { WorkerMeta } from '@open-mercato/queue'
+
+export const metadata: WorkerMeta = {
+  queue: 'my-queue',           // Required: queue name to process
+  id: 'my-module:my-worker',   // Optional: unique ID (auto-generated if omitted)
+  concurrency: 5,              // Optional: parallel job processing (default: 1)
+}
+```
+
+### 2. Default Handler Function
+
+```typescript
+import type { QueuedJob, JobContext } from '@open-mercato/queue'
+
+export default async function handle(
+  job: QueuedJob<MyPayloadType>,
+  ctx: JobContext
+): Promise<void> {
+  // Process the job
+}
+```
+
+## Job and Context Types
+
+### QueuedJob
+
+```typescript
+type QueuedJob<T> = {
+  id: string           // Unique job identifier
+  payload: T           // Your job data
+  createdAt: string    // ISO timestamp
+  metadata?: Record<string, unknown>
+}
+```
+
+### JobContext
+
+```typescript
+type JobContext = {
+  jobId: string        // Same as job.id
+  attemptNumber: number // 1-based retry count
+  queueName: string    // Queue being processed
+  resolve: <T>(name: string) => T // DI container access
+}
+```
+
+## Accessing Services via DI
+
+Use `ctx.resolve()` to access services from the dependency injection container:
+
+```typescript
+export default async function handle(
+  job: QueuedJob<{ userId: string }>,
+  ctx: JobContext & { resolve: <T>(name: string) => T }
+): Promise<void> {
+  // Resolve services from DI container
+  const emailService = ctx.resolve<EmailService>('emailService')
+  const userRepo = ctx.resolve<UserRepository>('userRepository')
+
+  const user = await userRepo.findById(job.payload.userId)
+  await emailService.sendWelcome(user.email)
+}
+```
+
+## Environment Variables
+
+### Per-Queue Concurrency
+
+Override default concurrency via environment variables:
+
+```bash
+# Format: WORKERS_<QUEUE_NAME_UPPERCASE>_CONCURRENCY
+WORKERS_EVENTS_CONCURRENCY=5
+WORKERS_EMAIL_NOTIFICATIONS_CONCURRENCY=2
+WORKERS_FULLTEXT_INDEXING_CONCURRENCY=10
+```
+
+Use dashes converted to underscores for queue names with hyphens.
+
+### Auto-Spawn Control
+
+```bash
+# Enable/disable automatic worker spawning (default: true)
+AUTO_SPAWN_WORKERS=true
+
+# Set to false to run workers separately
+AUTO_SPAWN_WORKERS=false
+```
+
+## Running Workers
+
+### Unified Entrypoint (Development Only)
+
+By default, `npm run dev` automatically spawns workers for all queues:
+
+```bash
+# Start app + all workers (development)
+npm run dev
+
+# Start app only (no workers)
+AUTO_SPAWN_WORKERS=false npm run dev
+```
+
+:::danger Production Warning
+**Never use auto-spawned workers in production.** The unified entrypoint is designed for development convenience only. In production:
+1. Set `AUTO_SPAWN_WORKERS=false` in your environment
+2. Run workers as separate processes using `npm run start:workers`
+
+This allows proper scaling, monitoring, and independent restarts of worker processes.
+:::
+
+### CLI Commands
+
+```bash
+# Run all discovered workers
+yarn mercato queue worker --all
+npm run start:workers
+
+# Run specific queue
+yarn mercato queue worker events
+yarn mercato queue worker fulltext-indexing --concurrency=10
+
+# Check queue status
+yarn mercato queue status events
+
+# Clear queue
+yarn mercato queue clear events
+```
+
+### Production Deployment
+
+For production, run workers separately for better scaling:
+
+```bash
+# Main app (disable auto-spawn)
+AUTO_SPAWN_WORKERS=false npm run start
+
+# Worker process (can run multiple)
+npm run start:workers
+
+# Or specific queues on different machines
+yarn mercato queue worker events --concurrency=10
+yarn mercato queue worker fulltext-indexing --concurrency=5
+```
+
+## Complete Example
+
+Here's a full example of a notification worker:
+
+```typescript
+// src/modules/notifications/workers/notifications.worker.ts
+import type { QueuedJob, JobContext, WorkerMeta } from '@open-mercato/queue'
+
+// Queue name constant for reuse
+export const NOTIFICATIONS_QUEUE = 'notifications'
+
+// Read concurrency from environment
+const envConcurrency = process.env.WORKERS_NOTIFICATIONS_CONCURRENCY
+const DEFAULT_CONCURRENCY = 3
+
+// Metadata for auto-discovery
+export const metadata: WorkerMeta = {
+  queue: NOTIFICATIONS_QUEUE,
+  concurrency: envConcurrency ? parseInt(envConcurrency, 10) : DEFAULT_CONCURRENCY,
+}
+
+// Job payload type
+type NotificationPayload = {
+  type: 'email' | 'sms' | 'push'
+  userId: string
+  template: string
+  data: Record<string, unknown>
+}
+
+// Extended context with DI access
+type HandlerContext = JobContext & {
+  resolve: <T>(name: string) => T
+}
+
+// Main handler function
+export default async function handle(
+  job: QueuedJob<NotificationPayload>,
+  ctx: HandlerContext
+): Promise<void> {
+  const { type, userId, template, data } = job.payload
+
+  console.log(`[notifications] Processing ${type} notification for user ${userId}`)
+
+  // Resolve services from DI
+  const notificationService = ctx.resolve<NotificationService>('notificationService')
+
+  try {
+    switch (type) {
+      case 'email':
+        await notificationService.sendEmail(userId, template, data)
+        break
+      case 'sms':
+        await notificationService.sendSms(userId, template, data)
+        break
+      case 'push':
+        await notificationService.sendPush(userId, template, data)
+        break
+    }
+
+    console.log(`[notifications] Successfully sent ${type} to user ${userId}`)
+  } catch (error) {
+    console.error(`[notifications] Failed to send ${type} to user ${userId}:`, error)
+    throw error // Re-throw to trigger retry
+  }
+}
+```
+
+## Enqueueing Jobs
+
+To add jobs to your queue, use the queue factory:
+
+```typescript
+import { createQueue } from '@open-mercato/queue'
+import { NOTIFICATIONS_QUEUE } from './workers/notifications.worker'
+
+// Get queue strategy from environment
+const strategy = process.env.QUEUE_STRATEGY === 'async' ? 'async' : 'local'
+
+const queue = createQueue<NotificationPayload>(NOTIFICATIONS_QUEUE, strategy, {
+  connection: { url: process.env.REDIS_URL },
+})
+
+// Enqueue a job
+await queue.enqueue({
+  type: 'email',
+  userId: '123',
+  template: 'welcome',
+  data: { name: 'John' },
+})
+```
+
+:::danger Production Warning
+**Never use the `local` queue strategy in production.** The local strategy is filesystem-based and:
+- Does not support distributed systems
+- Cannot handle concurrent access from multiple processes
+- Provides no high availability or persistence guarantees
+
+Always use `QUEUE_STRATEGY=async` with Redis in production environments.
+:::
+
+## Best Practices
+
+### 1. Make Handlers Idempotent
+
+Jobs may be retried on failure. Design handlers to be safely re-executed:
+
+```typescript
+export default async function handle(job, ctx) {
+  const { paymentId } = job.payload
+
+  // Check if already processed
+  const payment = await paymentRepo.findById(paymentId)
+  if (payment.status === 'completed') {
+    return // Skip - already processed
+  }
+
+  await processPayment(paymentId)
+}
+```
+
+### 2. Handle Errors Gracefully
+
+```typescript
+export default async function handle(job, ctx) {
+  try {
+    await processJob(job.payload)
+  } catch (error) {
+    if (error instanceof RetryableError) {
+      throw error // Will be retried
+    }
+
+    // Log and swallow non-retryable errors
+    console.error('Non-retryable error:', error)
+  }
+}
+```
+
+### 3. Use Appropriate Concurrency
+
+```typescript
+// CPU-bound: match CPU cores
+export const metadata: WorkerMeta = { queue: 'image-processing', concurrency: 4 }
+
+// I/O-bound: higher concurrency
+export const metadata: WorkerMeta = { queue: 'api-calls', concurrency: 20 }
+
+// Rate-limited APIs: lower concurrency
+export const metadata: WorkerMeta = { queue: 'email-sending', concurrency: 2 }
+```
+
+### 4. Log Progress
+
+```typescript
+export default async function handle(job, ctx) {
+  console.log(`[${ctx.queueName}] Starting job ${ctx.jobId} (attempt ${ctx.attemptNumber})`)
+
+  await processJob(job.payload)
+
+  console.log(`[${ctx.queueName}] Completed job ${ctx.jobId}`)
+}
+```
+
+## Built-in Workers
+
+Open Mercato includes these workers:
+
+| Module | Worker | Queue | Purpose |
+|--------|--------|-------|---------|
+| events | `events.worker.ts` | `events` | Dispatches persistent events to subscribers |
+| search | `fulltext-index.worker.ts` | `fulltext-indexing` | Indexes documents for Meilisearch |
+| search | `vector-index.worker.ts` | `vector-indexing` | Generates embeddings for vector search |
+
+## Related Documentation
+
+- [Queue & Workers Overview](../events/queue-workers.mdx) - Queue strategies and configuration
+- [Events System](../events/overview.mdx) - Event publishing and subscribers

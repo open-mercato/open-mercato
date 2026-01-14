@@ -3,7 +3,7 @@ import { z } from 'zod'
 import { createRequestContainer } from '@/lib/di/container'
 import { getAuthFromRequest } from '@/lib/auth/server'
 import { CustomEntity, CustomFieldDef } from '@open-mercato/core/modules/entities/data/entities'
-import { E as AllEntities } from '@/generated/entities.ids.generated'
+import { getEntityIds } from '@open-mercato/shared/lib/encryption/entityIds'
 import { upsertCustomEntitySchema } from '@open-mercato/core/modules/entities/data/validators'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { isSystemEntitySelectable } from '@open-mercato/shared/lib/entities/system-entities'
@@ -22,6 +22,7 @@ export async function GET(req: Request) {
   const em = resolve('em') as any
 
   // Generated entities from code
+  const AllEntities = getEntityIds()
   const generated: { entityId: string; source: 'code'; label: string }[] = []
   for (const modId of Object.keys(AllEntities)) {
     const entities = (AllEntities as any)[modId] as Record<string, string>

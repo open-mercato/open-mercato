@@ -1,8 +1,13 @@
 import type { Metadata } from 'next'
 import { Geist, Geist_Mono } from 'next/font/google'
 import './globals.css'
+import { bootstrap } from '@/bootstrap'
 import { I18nProvider } from '@/lib/i18n/context'
+
+// Bootstrap all package registrations at module load time
+bootstrap()
 import { ThemeProvider, FrontendLayout, QueryProvider, AuthFooter } from '@open-mercato/ui'
+import { ClientBootstrapProvider } from '@/components/ClientBootstrap'
 import { GlobalNoticeBars } from '@/components/GlobalNoticeBars'
 import { detectLocale, loadDictionary, resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 
@@ -39,12 +44,14 @@ export default async function RootLayout({
     <html lang={locale}>
       <body className={`${geistSans.variable} ${geistMono.variable} antialiased`} suppressHydrationWarning data-gramm="false">
         <I18nProvider locale={locale} dict={dict}>
-          <ThemeProvider>
-            <QueryProvider>
-              <FrontendLayout footer={<AuthFooter />}>{children}</FrontendLayout>
-              <GlobalNoticeBars demoModeEnabled={demoModeEnabled} />
-            </QueryProvider>
-          </ThemeProvider>
+          <ClientBootstrapProvider>
+            <ThemeProvider>
+              <QueryProvider>
+                <FrontendLayout footer={<AuthFooter />}>{children}</FrontendLayout>
+                <GlobalNoticeBars demoModeEnabled={demoModeEnabled} />
+              </QueryProvider>
+            </ThemeProvider>
+          </ClientBootstrapProvider>
         </I18nProvider>
       </body>
     </html>

@@ -6,10 +6,11 @@ import {
   PrimaryKey,
   Property,
   Unique,
+  JsonType,
 } from '@mikro-orm/core'
 
-export type FeatureToggleFailMode = 'fail_open' | 'fail_closed'
-export type FeatureToggleOverrideState = 'enabled' | 'disabled'
+
+export type FeatureToggleType = 'boolean' | 'string' | 'number' | 'json'
 
 @Entity({ tableName: 'feature_toggles' })
 @Unique({ name: 'feature_toggles_identifier_unique', properties: ['identifier'] })
@@ -33,11 +34,13 @@ export class FeatureToggle {
   @Property({ type: 'text', nullable: true })
   category?: string | null
 
-  @Property({ name: 'default_state', type: 'boolean' })
-  defaultState!: boolean
+  @Property({ name: 'default_value', type: 'jsonb' })
+  defaultValue!: JsonType
 
-  @Property({ name: 'fail_mode', type: 'text', default: 'fail_closed' })
-  failMode: FeatureToggleFailMode = 'fail_closed'
+  @Property({ name: 'type', type: 'text' })
+  type!: FeatureToggleType
+
+
 
   @Property({ name: 'created_at', type: Date, onCreate: () => new Date() })
   createdAt: Date = new Date()
@@ -68,12 +71,12 @@ export class FeatureToggleOverride {
   @Property({ name: 'tenant_id', type: 'uuid' })
   tenantId!: string
 
-  @Property({ type: 'text' })
-  state!: FeatureToggleOverrideState
-
   @Property({ name: 'created_at', type: Date, onCreate: () => new Date() })
   createdAt: Date = new Date()
 
   @Property({ name: 'updated_at', type: Date, onUpdate: () => new Date() })
   updatedAt: Date = new Date()
+
+  @Property({ name: 'value', type: 'jsonb' })
+  value!: JsonType
 }

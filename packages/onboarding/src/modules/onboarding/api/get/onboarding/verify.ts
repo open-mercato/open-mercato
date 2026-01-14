@@ -18,7 +18,8 @@ import { reindexEntity } from '@open-mercato/core/modules/query_index/lib/reinde
 import { purgeIndexScope } from '@open-mercato/core/modules/query_index/lib/purge'
 import { refreshCoverageSnapshot } from '@open-mercato/core/modules/query_index/lib/coverage'
 import { flattenSystemEntityIds } from '@open-mercato/shared/lib/entities/system-entities'
-import type { VectorIndexService } from '@open-mercato/vector'
+import { getEntityIds } from '@open-mercato/shared/lib/encryption/entityIds'
+import type { VectorIndexService } from '@open-mercato/search/vector'
 import type { OpenApiMethodDoc, OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 
 export const metadata = {
@@ -97,9 +98,7 @@ export async function GET(req: Request) {
       }
       const coverageRefreshKeys = new Set<string>()
       try {
-        const { E: allEntities } = await import('@/generated/entities.ids.generated') as {
-          E: Record<string, Record<string, string>>
-        }
+        const allEntities = getEntityIds()
         const entityIds = flattenSystemEntityIds(allEntities)
         for (const entityType of entityIds) {
           try {
@@ -146,7 +145,6 @@ export async function GET(req: Request) {
                 organizationId: orgScope,
                 withDeleted: false,
               },
-              { vectorService: vectorService ?? undefined },
             )
           } catch (error) {
             console.error('[onboarding.verify] failed to refresh coverage snapshot', {

@@ -1,0 +1,212 @@
+---
+title: Creating Workflows
+description: Step-by-step guide to building your first workflow in Open Mercato
+---
+
+# Creating Workflows
+
+This guide walks you through creating a workflow from scratch using the visual editor. By the end, you'll have a working approval workflow that routes requests through human reviewers.
+
+## Getting Started
+
+1. Navigate to the **Workflows** section in the backend interface
+2. Click **Create Workflow** or the **New Workflow** button
+3. Choose your editor:
+   - **Visual Editor**: Drag-and-drop interface with a graphical canvas (recommended for most users)
+   - **Form Editor**: Text-based configuration for advanced users
+
+For this guide, we'll use the Visual Editor.
+
+## Using the Visual Editor
+
+### 1. Add a START Step
+
+Every workflow begins with a START step:
+
+1. Click **START** in the step palette on the left
+2. A green node appears on the canvas
+3. This is your workflow's entry point—it automatically advances when the workflow starts
+
+### 2. Add a USER_TASK Step
+
+Next, add a step that requires human input:
+
+1. Click **USER TASK** in the step palette
+2. An amber node appears on the canvas
+3. Click the node to select it, then click **Edit** or double-click the node
+4. Configure the task:
+   - **Step Name**: "Approve Purchase Request"
+   - **Description**: "Review and approve or reject the purchase request"
+   - **Assigned to Role**: "Approvers" (or choose a specific user)
+   - **Form Key**: Optional identifier for a custom form
+   - **Allowed Actions**: "complete" and "cancel"
+
+> 💡 **Tip**: When assigning to a role, any user with that role can claim and complete the task.
+
+### 3. Connect the Steps
+
+Create a transition from START to your user task:
+
+1. Hover over the START node—small handles appear on its edges
+2. Click and drag from the handle to the USER_TASK node
+3. Release to create a connection (transition)
+4. The workflow will automatically move from START to the user task
+
+### 4. Add Decision Paths
+
+Let's add two END steps for "Approved" and "Rejected" outcomes:
+
+1. Click **END** in the step palette twice to add two END nodes
+2. Click the first END node and rename it to "Approved"
+3. Click the second END node and rename it to "Rejected"
+4. Connect the USER_TASK to both END nodes:
+   - Drag from the user task to "Approved"
+   - Drag from the user task to "Rejected"
+
+### 5. Configure Transitions
+
+Click each transition to configure when it should be taken:
+
+**Transition to "Approved":**
+1. Click the edge connecting USER_TASK to "Approved"
+2. In the properties panel, set:
+   - **Transition Name**: "Request Approved"
+   - **Trigger**: "manual" (requires user action)
+   - **Pre-Conditions**: Optional—add a rule like `context.decision === 'approve'`
+
+**Transition to "Rejected":**
+1. Click the edge connecting USER_TASK to "Rejected"
+2. Set:
+   - **Transition Name**: "Request Rejected"
+   - **Trigger**: "manual"
+   - **Pre-Conditions**: Optional—add a rule like `context.decision === 'reject'`
+
+### 6. Add Activities
+
+Let's send an email notification when the request is approved:
+
+1. Click the transition to "Approved"
+2. In the properties panel, find the **Activities** section
+3. Click **Add Activity**
+4. Configure the activity:
+   - **Activity Type**: "SEND_EMAIL"
+   - **Activity Name**: "Notify Requester"
+   - **Config**:
+     ```json
+     {
+       "to": "{{context.requesterEmail}}",
+       "subject": "Your request has been approved",
+       "body": "Your purchase request for {{context.itemName}} has been approved."
+     }
+     ```
+
+> 💡 **Tip**: Use `{{context.fieldName}}` to insert workflow data into activity configurations.
+
+[**Learn more about activities →**](./activities)
+
+### 7. Save and Enable the Workflow
+
+1. Click **Save** in the top toolbar
+2. Enter a **Workflow ID**: "purchase-approval-v1" (lowercase, hyphens allowed)
+3. Enter a **Workflow Name**: "Purchase Approval"
+4. Optionally add a **Description**: "Routes purchase requests through approvers"
+5. Set **Version**: 1
+6. Toggle **Is Active** to enable the workflow
+7. Click **Save Definition**
+
+Your workflow is now live and ready to accept new instances.
+
+## Using the Form Editor
+
+The form editor provides a JSON-based interface for defining workflows. It's useful for:
+
+- Copy-pasting workflow definitions
+- Version control and code reviews
+- Bulk editing multiple steps
+
+To use the form editor:
+
+1. Click the **Form Editor** tab
+2. Edit the JSON structure directly
+3. Follow the same schema as the visual editor generates
+4. Click **Save** to apply changes
+
+For most users, the visual editor is more intuitive. Switch to the form editor when you need precise control over the JSON structure.
+
+## Best Practices
+
+### Naming Conventions
+
+- **Step IDs**: Use lowercase with hyphens (e.g., `start`, `approve-request`, `send-notification`)
+- **Step Names**: Use clear, action-oriented labels (e.g., "Approve Purchase Request", not "Approval")
+- **Transition Names**: Describe the outcome (e.g., "Request Approved", "Payment Received")
+
+### Organizing Steps
+
+- Keep workflows linear when possible—avoid complex branching unless necessary
+- Group related steps visually by positioning them near each other
+- Use descriptive names so the workflow is self-documenting
+
+### Error Handling
+
+- Add timeout configurations to steps that might hang
+- Configure retry policies for activities that call external APIs
+- Use compensation activities to roll back changes on failure
+
+[**Learn more about compensation →**](/framework/workflows/architecture#compensation-saga-pattern)
+
+### Testing Workflows
+
+Before going live:
+
+1. Create a test instance with sample data
+2. Complete each step manually to verify behavior
+3. Check the execution timeline for errors
+4. Review email notifications and API calls in the monitoring view
+
+[**Learn more about monitoring →**](./monitoring)
+
+## Example: Simple Approval Workflow
+
+Here's the complete workflow we just built:
+
+**Steps:**
+1. **START** → Auto-advance to next step
+2. **Approve Purchase Request** (USER_TASK) → Wait for approver decision
+3. **Approved** (END) → Workflow complete, request approved
+4. **Rejected** (END) → Workflow complete, request rejected
+
+**Transitions:**
+- START → Approve Purchase Request (auto trigger)
+- Approve Purchase Request → Approved (manual, sends approval email)
+- Approve Purchase Request → Rejected (manual)
+
+**Context Data:**
+```json
+{
+  "itemName": "Laptop",
+  "amount": 1500,
+  "requesterEmail": "user@example.com",
+  "decision": "approve"
+}
+```
+
+When started, this workflow:
+1. Creates a task for any user with the "Approvers" role
+2. Waits for the approver to complete the task
+3. Sends an email if approved
+4. Ends the workflow
+
+## Next Steps
+
+Now that you've created your first workflow:
+
+- [**Explore step types**](./step-types) to learn about AUTOMATED, WAIT_FOR_SIGNAL, and SUB_WORKFLOW steps
+- [**Configure activities**](./activities) to send emails, call APIs, and integrate with external systems
+- [**Add conditions**](./transitions) to create complex branching logic
+- [**Monitor execution**](./monitoring) to debug and track workflow progress
+
+**See Also:**
+- [**User Tasks**](./user-tasks) - Deep dive into task assignment, forms, and escalation
+- [**Signals**](./signals) - Resume workflows with external triggers
+- [**Framework Documentation**](/framework/workflows/) - Programmatic workflow integration

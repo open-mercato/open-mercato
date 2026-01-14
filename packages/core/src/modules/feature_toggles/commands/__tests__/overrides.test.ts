@@ -52,12 +52,14 @@ describe('feature_toggles.overrides commands', () => {
                     }
                     return null
                 }),
-                resolve: jest.fn()
+                resolve: jest.fn(),
+                create: jest.fn((_ctor, data) => data),
             }
 
             const container = {
                 resolve: jest.fn((token: string) => {
                     if (token === 'em') return em
+                    if (token === 'featureTogglesService') return { invalidateIsEnabledCacheByKey }
                     return undefined
                 }),
             }
@@ -67,7 +69,7 @@ describe('feature_toggles.overrides commands', () => {
             const input = {
                 toggleId: 'a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11',
                 tenantId: 'b0eebc99-9c0b-4ef8-bb6d-6bb9bd380a22',
-                state: 'inherit',
+                isOverride: false,
             }
 
             const result = await changeStateCommand.execute(input, ctx)
@@ -96,7 +98,7 @@ describe('feature_toggles.overrides commands', () => {
                     identifier: 'test_feature',
                 },
                 tenantId: 'b0eebc99-9c0b-4ef8-bb6d-6bb9bd380a22',
-                state: 'enabled',
+                value: 'enabled',
             }
 
             const em = {
@@ -108,6 +110,7 @@ describe('feature_toggles.overrides commands', () => {
             const container = {
                 resolve: jest.fn((token: string) => {
                     if (token === 'em') return em
+                    if (token === 'featureTogglesService') return { invalidateIsEnabledCacheByKey }
                     return undefined
                 }),
             }
@@ -117,13 +120,13 @@ describe('feature_toggles.overrides commands', () => {
             const input = {
                 toggleId: 'a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11',
                 tenantId: 'b0eebc99-9c0b-4ef8-bb6d-6bb9bd380a22',
-                state: 'disabled',
+                overrideValue: 'disabled',
+                isOverride: true,
             }
 
             const result = await changeStateCommand.execute(input, ctx)
 
             expect(result).toEqual({ overrideToggleId: 'c0eebc99-9c0b-4ef8-bb6d-6bb9bd380a33' })
-            expect(existingOverride.state).toBe('disabled')
             expect(em.flush).toHaveBeenCalled()
             expect(invalidateIsEnabledCacheByKey).toHaveBeenCalledWith('test_feature', 'b0eebc99-9c0b-4ef8-bb6d-6bb9bd380a22')
         })
@@ -154,6 +157,7 @@ describe('feature_toggles.overrides commands', () => {
             const container = {
                 resolve: jest.fn((token: string) => {
                     if (token === 'em') return em
+                    if (token === 'featureTogglesService') return { invalidateIsEnabledCacheByKey }
                     return undefined
                 }),
             }
@@ -163,7 +167,8 @@ describe('feature_toggles.overrides commands', () => {
             const input = {
                 toggleId: 'a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11',
                 tenantId: 'b0eebc99-9c0b-4ef8-bb6d-6bb9bd380a22',
-                state: 'enabled',
+                overrideValue: 'enabled',
+                isOverride: true,
             }
 
             const result = await changeStateCommand.execute(input, ctx)
@@ -172,7 +177,7 @@ describe('feature_toggles.overrides commands', () => {
             expect(em.create).toHaveBeenCalledWith(expect.any(Function), {
                 toggle: 'a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11',
                 tenantId: 'b0eebc99-9c0b-4ef8-bb6d-6bb9bd380a22',
-                state: 'enabled'
+                value: 'enabled'
             })
             expect(em.flush).toHaveBeenCalled()
             expect(invalidateIsEnabledCacheByKey).toHaveBeenCalledWith('test_feature', 'b0eebc99-9c0b-4ef8-bb6d-6bb9bd380a22')

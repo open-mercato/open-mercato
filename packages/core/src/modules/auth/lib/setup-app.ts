@@ -140,86 +140,36 @@ export async function setupInitialTenant(
   const userSnapshots: Array<{ user: User; roles: string[]; created: boolean }> = []
 
   await em.transactional(async (tem) => {
-    if (existingUser) {
-      reusedExistingUser = true
-      tenantId = existingUser.tenantId ? String(existingUser.tenantId) : undefined
-      organizationId = existingUser.organizationId ? String(existingUser.organizationId) : undefined
-      const roleTenantId = normalizeTenantId(existingUser.tenantId ?? null) ?? null
+    if (!existingUser) return
+    reusedExistingUser = true
+    tenantId = existingUser.tenantId ? String(existingUser.tenantId) : undefined
+    organizationId = existingUser.organizationId ? String(existingUser.organizationId) : undefined
+    const roleTenantId = normalizeTenantId(existingUser.tenantId ?? null) ?? null
 
-      await ensureRolesInContext(tem, roleNames, roleTenantId)
-      await tem.flush()
-
-      const requiredRoleSet = new Set([...roleNames, ...primaryRoles])
-      const links = await findWithDecryption(
-        tem,
-        UserRole,
-        { user: existingUser },
-        { populate: ['role'] },
-        { tenantId: roleTenantId, organizationId: null },
-      )
-      const currentRoles = new Set(links.map((link) => link.role.name))
-      for (const roleName of requiredRoleSet) {
-        if (!currentRoles.has(roleName)) {
-          const role = await findRoleByNameOrFail(tem, roleName, roleTenantId)
-          tem.persist(tem.create(UserRole, { user: existingUser, role, createdAt: new Date() }))
-        }
-      }
-      await tem.flush()
-      const roles = Array.from(new Set([...currentRoles, ...roleNames]))
-      userSnapshots.push({ user: existingUser, roles, created: false })
-      return
-    }
-
-    const tenant = tem.create(Tenant, {
-      name: `${options.orgName} Tenant`,
-      isActive: true,
-      createdAt: new Date(),
-      updatedAt: new Date(),
-    })
-    tem.persist(tenant)
+    await ensureRolesInContext(tem, roleNames, roleTenantId)
     await tem.flush()
 
-    const organization = tem.create(Organization, {
-      name: options.orgName,
-      tenant,
-      isActive: true,
-      depth: 0,
-      ancestorIds: [],
-      childIds: [],
-      descendantIds: [],
-      createdAt: new Date(),
-      updatedAt: new Date(),
-    })
-    tem.persist(organization)
-    await tem.flush()
-
-    tenantId = String(tenant.id)
-    organizationId = String(organization.id)
-    const roleTenantId = tenantId
-
-    if (isTenantDataEncryptionEnabled()) {
-      try {
-        const kms = createKmsService()
-        if (kms.isHealthy()) {
-          if (isEncryptionDebugEnabled()) {
-            console.info('🔑 [encryption][setup] provisioning tenant DEK', { tenantId: String(tenant.id) })
-          }
-          await kms.createTenantDek(String(tenant.id))
-          if (isEncryptionDebugEnabled()) {
-            console.info('🔑 [encryption][setup] created tenant DEK during setup', { tenantId: String(tenant.id) })
-          }
-        } else {
-          if (isEncryptionDebugEnabled()) {
-            console.warn('⚠️ [encryption][setup] KMS not healthy, skipping tenant DEK creation', { tenantId: String(tenant.id) })
-          }
-        }
-      } catch (err) {
-        if (isEncryptionDebugEnabled()) {
-          console.warn('⚠️ [encryption][setup] Failed to create tenant DEK', err)
-        }
+    const requiredRoleSet = new Set([...roleNames, ...primaryRoles])
+    const links = await findWithDecryption(
+      tem,
+      UserRole,
+      { user: existingUser },
+      { populate: ['role'] },
+      { tenantId: roleTenantId, organizationId: null },
+    )
+    const currentRoles = new Set(links.map((link) => link.role.name))
+    for (const roleName of requiredRoleSet) {
+      if (!currentRoles.has(roleName)) {
+        const role = await findRoleByNameOrFail(tem, roleName, roleTenantId)
+        tem.persist(tem.create(UserRole, { user: existingUser, role, createdAt: new Date() }))
       }
     }
+    await tem.flush()
+    const roles = Array.from(new Set([...currentRoles, ...roleNames]))
+    userSnapshots.push({ user: existingUser, roles, created: false })
+  })
 
+  if (!existingUser) {
     const baseUsers: Array<{ email: string; roles: string[]; name?: string | null }> = [
       { email: primaryUser.email, roles: primaryRoles, name: resolvePrimaryName(primaryUser) },
     ]
@@ -231,75 +181,137 @@ export async function setupInitialTenant(
         baseUsers.push({ email: `employee@${domain}`, roles: ['employee'] })
       }
     }
-
     const passwordHash = await resolvePasswordHash(primaryUser)
-    await ensureRolesInContext(tem, roleNames, roleTenantId)
-    await tem.flush()
 
-    let encryptionService: TenantDataEncryptionService | null = null
-    if (isTenantDataEncryptionEnabled()) {
-      for (const spec of DEFAULT_ENCRYPTION_MAPS) {
-        const existing = await tem.findOne(EncryptionMap, { entityId: spec.entityId, tenantId: tenant.id, organizationId: organization.id, deletedAt: null })
-        if (!existing) {
-          tem.persist(tem.create(EncryptionMap, {
-            entityId: spec.entityId,
-            tenantId: tenant.id,
-            organizationId: organization.id,
-            fieldsJson: spec.fields,
-            isActive: true,
-            createdAt: new Date(),
-            updatedAt: new Date(),
-          }))
+    await em.transactional(async (tem) => {
+      const tenant = tem.create(Tenant, {
+        name: `${options.orgName} Tenant`,
+        isActive: true,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      })
+      tem.persist(tenant)
+      await tem.flush()
+
+      const organization = tem.create(Organization, {
+        name: options.orgName,
+        tenant,
+        isActive: true,
+        depth: 0,
+        ancestorIds: [],
+        childIds: [],
+        descendantIds: [],
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      })
+      tem.persist(organization)
+      await tem.flush()
+
+      tenantId = String(tenant.id)
+      organizationId = String(organization.id)
+      const roleTenantId = tenantId
+
+      if (isTenantDataEncryptionEnabled()) {
+        try {
+          const kms = createKmsService()
+          if (kms.isHealthy()) {
+            if (isEncryptionDebugEnabled()) {
+              console.info('🔑 [encryption][setup] provisioning tenant DEK', { tenantId: String(tenant.id) })
+            }
+            await kms.createTenantDek(String(tenant.id))
+            if (isEncryptionDebugEnabled()) {
+              console.info('🔑 [encryption][setup] created tenant DEK during setup', { tenantId: String(tenant.id) })
+            }
+          } else {
+            if (isEncryptionDebugEnabled()) {
+              console.warn('⚠️ [encryption][setup] KMS not healthy, skipping tenant DEK creation', { tenantId: String(tenant.id) })
+            }
+          }
+        } catch (err) {
+          if (isEncryptionDebugEnabled()) {
+            console.warn('⚠️ [encryption][setup] Failed to create tenant DEK', err)
+          }
+        }
+      }
+
+      await ensureRolesInContext(tem, roleNames, roleTenantId)
+      await tem.flush()
+
+      if (isTenantDataEncryptionEnabled()) {
+        for (const spec of DEFAULT_ENCRYPTION_MAPS) {
+          const existing = await tem.findOne(EncryptionMap, { entityId: spec.entityId, tenantId: tenant.id, organizationId: organization.id, deletedAt: null })
+          if (!existing) {
+            tem.persist(tem.create(EncryptionMap, {
+              entityId: spec.entityId,
+              tenantId: tenant.id,
+              organizationId: organization.id,
+              fieldsJson: spec.fields,
+              isActive: true,
+              createdAt: new Date(),
+              updatedAt: new Date(),
+            }))
+          } else {
+            existing.fieldsJson = spec.fields
+            existing.isActive = true
+          }
+        }
+        await tem.flush()
+      }
+    })
+
+    await em.transactional(async (tem) => {
+      if (!tenantId || !organizationId) return
+      const roleTenantId = tenantId
+      const encryptionService = isTenantDataEncryptionEnabled()
+        ? new TenantDataEncryptionService(tem as any, { kms: createKmsService() })
+        : null
+      if (encryptionService) {
+        await encryptionService.invalidateMap('auth:user', String(tenantId), String(organizationId))
+        await encryptionService.invalidateMap('auth:user', String(tenantId), null)
+      }
+
+      for (const base of baseUsers) {
+        let user = await tem.findOne(User, { email: base.email })
+        const confirm = primaryUser.confirm ?? true
+        const encryptedPayload = encryptionService
+          ? await encryptionService.encryptEntityPayload('auth:user', { email: base.email }, tenantId, organizationId)
+          : { email: base.email, emailHash: computeEmailHash(base.email) }
+        if (user) {
+          user.passwordHash = passwordHash
+          user.organizationId = organizationId
+          user.tenantId = tenantId
+          if (isTenantDataEncryptionEnabled()) {
+            user.email = encryptedPayload.email as any
+            user.emailHash = (encryptedPayload as any).emailHash ?? computeEmailHash(base.email)
+          }
+          if (base.name) user.name = base.name
+          if (confirm) user.isConfirmed = true
+          tem.persist(user)
+          userSnapshots.push({ user, roles: base.roles, created: false })
         } else {
-          existing.fieldsJson = spec.fields
-          existing.isActive = true
+          user = tem.create(User, {
+            email: (encryptedPayload as any).email ?? base.email,
+            emailHash: isTenantDataEncryptionEnabled() ? (encryptedPayload as any).emailHash ?? computeEmailHash(base.email) : undefined,
+            passwordHash,
+            organizationId,
+            tenantId,
+            name: base.name ?? undefined,
+            isConfirmed: confirm,
+            createdAt: new Date(),
+          })
+          tem.persist(user)
+          userSnapshots.push({ user, roles: base.roles, created: true })
         }
-      }
-      await tem.flush()
-      encryptionService = new TenantDataEncryptionService(tem as any, { kms: createKmsService() })
-    }
-
-    for (const base of baseUsers) {
-      let user = await tem.findOne(User, { email: base.email })
-      const confirm = primaryUser.confirm ?? true
-      const encryptedPayload = encryptionService
-        ? await encryptionService.encryptEntityPayload('auth:user', { email: base.email }, tenantId, organizationId)
-        : { email: base.email, emailHash: computeEmailHash(base.email) }
-      if (user) {
-        user.passwordHash = passwordHash
-        user.organizationId = organization.id
-        user.tenantId = tenant.id
-        if (isTenantDataEncryptionEnabled()) {
-          user.email = encryptedPayload.email as any
-          user.emailHash = (encryptedPayload as any).emailHash ?? computeEmailHash(base.email)
+        await tem.flush()
+        for (const roleName of base.roles) {
+          const role = await findRoleByNameOrFail(tem, roleName, roleTenantId)
+          const existingLink = await tem.findOne(UserRole, { user, role })
+          if (!existingLink) tem.persist(tem.create(UserRole, { user, role, createdAt: new Date() }))
         }
-        if (base.name) user.name = base.name
-        if (confirm) user.isConfirmed = true
-        tem.persist(user)
-        userSnapshots.push({ user, roles: base.roles, created: false })
-      } else {
-        user = tem.create(User, {
-          email: (encryptedPayload as any).email ?? base.email,
-          emailHash: isTenantDataEncryptionEnabled() ? (encryptedPayload as any).emailHash ?? computeEmailHash(base.email) : undefined,
-          passwordHash,
-          organizationId: organization.id,
-          tenantId: tenant.id,
-          name: base.name ?? undefined,
-          isConfirmed: confirm,
-          createdAt: new Date(),
-        })
-        tem.persist(user)
-        userSnapshots.push({ user, roles: base.roles, created: true })
+        await tem.flush()
       }
-      await tem.flush()
-      for (const roleName of base.roles) {
-        const role = await findRoleByNameOrFail(tem, roleName, roleTenantId)
-        const existingLink = await tem.findOne(UserRole, { user, role })
-        if (!existingLink) tem.persist(tem.create(UserRole, { user, role, createdAt: new Date() }))
-      }
-      await tem.flush()
-    }
-  })
+    })
+  }
 
   if (!tenantId || !organizationId) {
     throw new Error('SETUP_FAILED')
@@ -356,7 +368,9 @@ async function ensureDefaultRoleAcls(
       'attachments.view',
       'attachments.manage',
       'query_index.*',
+      'search.*',
       'vector.*',
+      'feature_toggles.*',
       'configs.system_status.view',
       'configs.cache.view',
       'configs.cache.manage',
@@ -384,6 +398,9 @@ async function ensureDefaultRoleAcls(
       'perspectives.use',
       'perspectives.role_defaults',
       'business_rules.*',
+      'workflows.*',
+      'booking.*',
+      'currencies.*',
     ]
     await ensureRoleAclFor(em, adminRole, tenantId, adminFeatures, { remove: ['directory.organizations.*', 'directory.tenants.*'] })
   }

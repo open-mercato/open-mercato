@@ -1,3 +1,5 @@
+import { slugify } from '@/lib/slugify'
+
 export const SIDEBAR_PREFERENCES_VERSION = 2
 
 export type SidebarPreferencesSettings = {
@@ -56,9 +58,5 @@ function normalizeStringArray(values: unknown): string[] {
 }
 
 export function slugifySidebarId(source: string): string {
-  return source
-    .trim()
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, '-')
-    .replace(/^-+|-+$/g, '') || 'group'
+  return slugify(source, { allowedChars: '' }) || 'group'
 }

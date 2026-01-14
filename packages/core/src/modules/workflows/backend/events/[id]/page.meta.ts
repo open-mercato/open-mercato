@@ -1,0 +1,11 @@
+export const metadata = {
+  requireAuth: true,
+  requireFeatures: ['workflows.view_logs'],
+  pageTitle: 'Event Details',
+  pageTitleKey: 'workflows.events.detail.title',
+  breadcrumb: [
+    { label: 'Workflows', labelKey: 'workflows.module.name', href: '/backend/workflows/definitions' },
+    { label: 'Events', labelKey: 'workflows.events.plural', href: '/backend/workflows/events' },
+    { label: 'Details', labelKey: 'common.details' },
+  ],
+}
