@@ -43,7 +43,15 @@ type GuardRuleSeed = {
 }
 
 function readExampleJson<T>(fileName: string): T {
-  const filePath = path.join(__dirname, '..', 'examples', fileName)
+  const candidates = [
+    path.join(__dirname, '..', 'examples', fileName),
+    path.join(process.cwd(), 'packages', 'core', 'src', 'modules', 'workflows', 'examples', fileName),
+    path.join(process.cwd(), 'src', 'modules', 'workflows', 'examples', fileName),
+  ]
+  const filePath = candidates.find((candidate) => fs.existsSync(candidate))
+  if (!filePath) {
+    throw new Error(`Missing workflow seed file: ${fileName}`)
+  }
   return JSON.parse(fs.readFileSync(filePath, 'utf8')) as T
 }
 

@@ -262,6 +262,7 @@ export const upgradeActions: UpgradeActionDefinition[] = [
     successKey: 'upgrades.v0313.success',
     loadingKey: 'upgrades.v0313.loading',
     async run({ container, em, tenantId, organizationId }) {
+      const normalizedTenantId = tenantId.trim()
       const scope = { tenantId, organizationId }
       await em.transactional(async (tem) => {
         await seedBookingCapacityUnits(tem, scope)
@@ -269,7 +270,40 @@ export const upgradeActions: UpgradeActionDefinition[] = [
         await seedBookingResourceExamples(tem, scope)
         await seedExampleCurrencies(tem, scope)
         await seedExampleWorkflows(tem, scope)
+
+        const adminRole = await tem.findOne(Role, { name: 'admin', tenantId: normalizedTenantId, deletedAt: null })
+        if (!adminRole) return
+
+        const roleAcls = await tem.find(RoleAcl, { role: adminRole, tenantId: normalizedTenantId, deletedAt: null })
+        let touched = false
+        if (!roleAcls.length) {
+          tem.persist(
+            tem.create(RoleAcl, {
+              role: adminRole,
+              tenantId: normalizedTenantId,
+              featuresJson: ['search.view'],
+              isSuperAdmin: false,
+              createdAt: new Date(),
+              updatedAt: new Date(),
+            }),
+          )
+          touched = true
+        }
+
+        for (const acl of roleAcls) {
+          const features = Array.isArray(acl.featuresJson) ? [...acl.featuresJson] : []
+          if (features.includes('search.view')) continue
+          acl.featuresJson = [...features, 'search.view']
+          acl.updatedAt = new Date()
+          touched = true
+        }
+
+        if (touched) {
+          await tem.flush()
+        }
       })
+      const rbac = container.resolve<RbacService>('rbacService')
+      await rbac.invalidateTenantCache(normalizedTenantId)
       const vectorService = resolveVectorService(container)
       await reindexModules(em, ['booking'], { tenantId, organizationId, vectorService })
     },
