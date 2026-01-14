@@ -1,0 +1,725 @@
+---
+title: Currencies and Exchange Rates
+description: Programmatic API for currency management, exchange rate fetching, and multi-provider rate operations.
+---
+
+# Currencies and Exchange Rates
+
+The currencies module provides comprehensive multi-currency and exchange rate management with automatic fetching from external providers. It's built on a flexible, extensible architecture that supports custom rate providers and multiple sourcing strategies.
+
+## Architecture Overview
+
+```
+┌─────────────────────────┐
+│  ExchangeRateService    │  ← High-level, business-focused API
+│  (Get rates with        │     - Database-first retrieval
+│   automatic fetching)   │     - Automatic provider fallback
+└───────────┬─────────────┘     - Daily fallback (up to 30 days)
+            │
+            ▼
+┌─────────────────────────┐
+│  RateFetchingService    │  ← Low-level, provider orchestration
+│  (Fetch and store)      │     - Manages provider lifecycle
+└───────────┬─────────────┘     - Batch processing
+            │                    - Error tracking
+            ▼
+┌─────────────────────────┐
+│   Rate Providers        │  ← External data sources
+│   (NBP, Raiffeisen,     │     - Pluggable architecture
+│    Custom providers)    │     - Standardized interface
+└─────────────────────────┘
+```
+
+## Database Schema
+
+### Currency Entity
+
+Stores currency metadata with multi-tenant scoping:
+
+```typescript
+@Entity()
+export class Currency {
+  @PrimaryKey()
+  id: string
+
+  @Property()
+  code: string // ISO 4217 code (e.g., "USD")
+
+  @Property()
+  name: string
+
+  @Property({ nullable: true })
+  symbol?: string
+
+  @Property({ default: 2 })
+  decimalPlaces: number
+
+  @Property({ nullable: true })
+  thousandSeparator?: string
+
+  @Property({ nullable: true })
+  decimalSeparator?: string
+
+  @Property({ default: false })
+  isBase: boolean // One base currency per organization
+
+  @Property()
+  tenantId: string
+
+  @Property()
+  organizationId: string
+
+  @Property()
+  isActive: boolean
+
+  @Property()
+  createdAt: Date
+
+  @Property({ onUpdate: () => new Date() })
+  updatedAt: Date
+}
+```
+
+Key indexes:
+- `(tenant_id, organization_id, code)` – Unique constraint, ensures one currency per code per org
+- `(tenant_id, organization_id, is_base)` – Fast base currency lookup
+- `(tenant_id, organization_id, is_active)` – Active currency queries
+
+### ExchangeRate Entity
+
+Stores directional exchange rates with source attribution:
+
+```typescript
+@Entity()
+export class ExchangeRate {
+  @PrimaryKey()
+  id: string
+
+  @Property()
+  fromCurrencyCode: string
+
+  @Property()
+  toCurrencyCode: string
+
+  @Property({ columnType: 'decimal(18,8)' })
+  rate: string // High precision decimal
+
+  @Property()
+  date: Date
+
+  @Property()
+  source: string // Provider identifier (e.g., "NBP", "Raiffeisen", "manual")
+
+  @Property({ nullable: true })
+  type?: 'buy' | 'sell' // Bank's perspective
+
+  @Property()
+  tenantId: string
+
+  @Property()
+  organizationId: string
+
+  @Property()
+  isActive: boolean
+
+  @Property()
+  createdAt: Date
+
+  @Property({ onUpdate: () => new Date() })
+  updatedAt: Date
+}
+```
+
+Key indexes:
+- `(tenant_id, organization_id, from_currency_code, to_currency_code, date, source)` – Fast pair lookups
+- `(tenant_id, organization_id, date)` – Date-based queries
+- `(tenant_id, organization_id, source)` – Provider-based filtering
+
+### CurrencyFetchConfig Entity
+
+Tracks provider configuration and sync status:
+
+```typescript
+@Entity()
+export class CurrencyFetchConfig {
+  @PrimaryKey()
+  id: string
+
+  @Property()
+  provider: string // Provider identifier
+
+  @Property({ default: true })
+  enabled: boolean
+
+  @Property({ nullable: true })
+  config?: any // JSON config for provider
+
+  @Property({ nullable: true })
+  lastSyncAt?: Date
+
+  @Property({ nullable: true })
+  lastSyncCount?: number
+
+  @Property()
+  tenantId: string
+
+  @Property()
+  organizationId: string
+
+  @Property()
+  createdAt: Date
+
+  @Property({ onUpdate: () => new Date() })
+  updatedAt: Date
+}
+```
+
+## Service Layer
+
+### ExchangeRateService
+
+High-level API for retrieving exchange rates with automatic fetching and fallback.
+
+#### Dependency Injection
+
+```typescript
+import type { ExchangeRateService } from '@open-mercato/modules/currencies/services/exchangeRateService'
+
+const exchangeRateService = container.resolve<ExchangeRateService>('exchangeRateService')
+```
+
+#### Single Rate Retrieval
+
+```typescript
+const result = await exchangeRateService.getRate({
+  fromCurrencyCode: 'USD',
+  toCurrencyCode: 'EUR',
+  date: new Date('2024-01-15'),
+  scope: {
+    tenantId: 'tenant-123',
+    organizationId: 'org-456',
+  },
+  options: {
+    maxDaysBack: 30,      // Look back up to 30 days (default)
+    autoFetch: true,      // Fetch from providers if not found (default)
+  },
+})
+
+// Result structure
+interface RateResult {
+  rates: Array<{
+    rate: string           // Decimal string (e.g., "1.12345678")
+    source: string         // Provider or "manual"
+    type?: 'buy' | 'sell'  // Optional rate type
+    date: Date             // Rate date
+  }>
+  actualDate: Date         // Date used (may be earlier than requested)
+  error?: Error            // Only in batch operations
+}
+
+if (result.rates.length > 0) {
+  const rate = parseFloat(result.rates[0].rate)
+  const convertedAmount = 100 * rate
+}
+```
+
+#### Batch Retrieval
+
+```typescript
+const results = await exchangeRateService.getRates({
+  pairs: [
+    { fromCurrencyCode: 'USD', toCurrencyCode: 'EUR' },
+    { fromCurrencyCode: 'GBP', toCurrencyCode: 'PLN' },
+    { fromCurrencyCode: 'EUR', toCurrencyCode: 'JPY' },
+  ],
+  date: new Date(),
+  scope: { tenantId, organizationId },
+})
+
+// Results is a Map<string, RateResult>
+for (const [key, result] of results.entries()) {
+  if (result.error) {
+    console.error(`Failed to get ${key}: ${result.error.message}`)
+  } else if (result.rates.length > 0) {
+    console.log(`${key}: ${result.rates[0].rate}`)
+  } else {
+    console.log(`${key}: No rates found`)
+  }
+}
+```
+
+#### Daily Fallback
+
+If a rate isn't found for the requested date, the service automatically:
+1. Checks the database
+2. Fetches from providers if `autoFetch=true`
+3. Recursively checks previous days (up to `maxDaysBack`)
+4. Returns `actualDate` to indicate which date was used
+
+#### Date Validation
+
+- **Allowed**: Today and all historical dates
+- **Rejected**: Future dates (throws error)
+
+```typescript
+// ✅ Valid
+await exchangeRateService.getRate({
+  fromCurrencyCode: 'USD',
+  toCurrencyCode: 'EUR',
+  date: new Date(), // Today
+  scope: { tenantId, organizationId },
+})
+
+// ❌ Throws error
+const tomorrow = new Date()
+tomorrow.setDate(tomorrow.getDate() + 1)
+await exchangeRateService.getRate({
+  fromCurrencyCode: 'USD',
+  toCurrencyCode: 'EUR',
+  date: tomorrow,
+  scope: { tenantId, organizationId },
+})
+```
+
+### RateFetchingService
+
+Lower-level service for fetching and storing rates from providers.
+
+#### Dependency Injection
+
+```typescript
+import type { RateFetchingService } from '@open-mercato/modules/currencies/services/rateFetchingService'
+
+const rateFetchingService = container.resolve<RateFetchingService>('rateFetchingService')
+```
+
+#### Fetch Rates
+
+```typescript
+const result = await rateFetchingService.fetchRatesForDate(
+  new Date('2024-01-15'),
+  { tenantId: 'tenant-123', organizationId: 'org-456' }
+)
+
+// Result structure
+interface FetchResult {
+  totalFetched: number
+  byProvider: Record<string, number>
+  errors: Array<{
+    provider: string
+    error: Error
+  }>
+}
+
+console.log(`Fetched ${result.totalFetched} rates`)
+console.log(`NBP: ${result.byProvider.NBP || 0}`)
+console.log(`Raiffeisen: ${result.byProvider.Raiffeisen || 0}`)
+```
+
+#### When to Use Each Service
+
+| Use Case | Service |
+|----------|---------|
+| Business logic needing rates | ExchangeRateService |
+| Currency conversions | ExchangeRateService |
+| Scheduled/batch fetching | RateFetchingService |
+| Admin operations | RateFetchingService |
+| Automatic fallback needed | ExchangeRateService |
+| Explicit control over fetching | RateFetchingService |
+
+## Rate Providers
+
+### Built-in Providers
+
+#### NBP (National Bank of Poland)
+
+```typescript
+import { NBPProvider } from '@open-mercato/modules/currencies/services/providers/nbp'
+
+const provider = new NBPProvider()
+```
+
+- **Currencies**: ~13 major currencies (USD, EUR, GBP, CHF, etc.)
+- **Rate types**: Bid (buy) and Ask (sell)
+- **Data source**: National Bank of Poland Table C
+- **Updates**: Daily, published by central bank
+- **API**: Public REST API
+
+#### Raiffeisen Bank Polska
+
+```typescript
+import { RaiffeisenProvider } from '@open-mercato/modules/currencies/services/providers/raiffeisen'
+
+const provider = new RaiffeisenProvider()
+```
+
+- **Currencies**: EUR, USD, CHF, GBP
+- **Rate types**: Buy and Sell
+- **Data source**: Web scraping from public rate tables
+- **Updates**: Multiple times per day (intraday rates)
+- **Method**: HTML parsing
+
+### Creating Custom Providers
+
+Implement the `RateProvider` interface:
+
+```typescript
+import type { RateProvider, RateProviderResult } from '@open-mercato/modules/currencies/services/providers/base'
+
+export class MyCustomProvider implements RateProvider {
+  name = 'MyProvider'
+
+  async fetchRates(
+    date: Date,
+    scope: { tenantId: string; organizationId: string }
+  ): Promise<RateProviderResult[]> {
+    // Fetch rates from your source
+    const rates = await this.fetchFromApi(date)
+
+    // Transform to standard format
+    return rates.map(r => ({
+      fromCurrencyCode: r.from,
+      toCurrencyCode: r.to,
+      rate: r.value.toString(),
+      source: this.name,
+      type: r.type, // 'buy', 'sell', or undefined
+    }))
+  }
+
+  private async fetchFromApi(date: Date) {
+    // Your implementation
+  }
+}
+```
+
+#### Register Custom Provider
+
+```typescript
+// In your module's di.ts
+import { asClass } from 'awilix'
+import type { AppContainer } from '@/lib/di/container'
+import { MyCustomProvider } from './providers/myCustomProvider'
+
+export function register(container: AppContainer) {
+  const rateFetchingService = container.resolve('rateFetchingService')
+
+  // Register your provider
+  rateFetchingService.registerProvider(new MyCustomProvider())
+}
+```
+
+## REST API
+
+### Currencies
+
+```
+GET    /api/currencies              List currencies
+POST   /api/currencies              Create currency
+PUT    /api/currencies/:id          Update currency
+DELETE /api/currencies/:id          Delete currency
+```
+
+Query parameters for GET:
+- `page`, `limit` – Pagination
+- `search` – Filter by code or name
+- `isActive` – Filter by active status
+- `isBase` – Filter base currency
+
+### Exchange Rates
+
+```
+GET    /api/exchange-rates          List rates
+POST   /api/exchange-rates          Create rate
+PUT    /api/exchange-rates/:id      Update rate
+DELETE /api/exchange-rates/:id      Delete rate
+```
+
+Query parameters for GET:
+- `page`, `limit` – Pagination
+- `fromCurrencyCode` – Filter by source currency
+- `toCurrencyCode` – Filter by target currency
+- `date` – Filter by date
+- `dateFrom`, `dateTo` – Date range
+- `source` – Filter by provider
+- `type` – Filter by rate type (buy/sell)
+
+### Fetch Configuration
+
+```
+GET    /api/fetch-configs           List provider configs
+POST   /api/fetch-configs           Enable provider
+PUT    /api/fetch-configs/:id       Update config
+DELETE /api/fetch-configs/:id       Delete config
+```
+
+### Trigger Manual Fetch
+
+```
+POST   /api/fetch-rates             Fetch rates for date/range
+```
+
+Request body:
+```json
+{
+  "date": "2024-01-15",
+  "dateFrom": "2024-01-01",  // Optional: for range
+  "dateTo": "2024-01-31"     // Optional: for range
+}
+```
+
+## CLI Commands
+
+### Fetch Rates
+
+```bash
+# Fetch for today
+yarn mercato currencies fetch-rates
+
+# Fetch for specific date
+yarn mercato currencies fetch-rates --date 2024-01-15
+
+# Fetch for date range
+yarn mercato currencies fetch-rates --from 2024-01-01 --to 2024-01-31
+```
+
+### List Providers
+
+```bash
+yarn mercato currencies list-providers
+```
+
+Shows all registered providers, their status, and available currencies.
+
+### Seed Example Currencies
+
+```bash
+yarn mercato currencies seed
+```
+
+Creates example currencies (USD, EUR, PLN, GBP) for testing.
+
+## Access Control (ACL)
+
+The module defines these features for RBAC:
+
+```typescript
+export const features = [
+  {
+    id: 'currencies.view',
+    label: 'View currencies',
+    description: 'Can view currency list and details',
+  },
+  {
+    id: 'currencies.manage',
+    label: 'Manage currencies',
+    description: 'Can create, update, and delete currencies',
+  },
+  {
+    id: 'currencies.rates.view',
+    label: 'View exchange rates',
+    description: 'Can view exchange rates',
+  },
+  {
+    id: 'currencies.rates.manage',
+    label: 'Manage exchange rates',
+    description: 'Can create, update, and delete exchange rates',
+  },
+  {
+    id: 'currencies.fetch.view',
+    label: 'View fetch configuration',
+    description: 'Can view provider configuration',
+  },
+  {
+    id: 'currencies.fetch.manage',
+    label: 'Manage fetch configuration',
+    description: 'Can configure rate providers',
+  },
+]
+```
+
+Use in API routes:
+
+```typescript
+export const GET = handler({
+  requireAuth: true,
+  requireFeatures: ['currencies.view'],
+  async handle(req, res) {
+    // Your handler
+  },
+})
+
+export const POST = handler({
+  requireAuth: true,
+  requireFeatures: ['currencies.manage'],
+  async handle(req, res) {
+    // Your handler
+  },
+})
+```
+
+## CQRS Commands
+
+The module uses command/query separation:
+
+```typescript
+import { createCurrency, updateCurrency, deleteCurrency } from '@open-mercato/modules/currencies/commands/currencies'
+import { createExchangeRate, updateExchangeRate, deleteExchangeRate } from '@open-mercato/modules/currencies/commands/exchange-rates'
+
+// Create currency
+await createCurrency(
+  {
+    code: 'USD',
+    name: 'US Dollar',
+    symbol: '$',
+    decimalPlaces: 2,
+    isBase: true,
+  },
+  { tenantId, organizationId },
+  container
+)
+
+// Create exchange rate
+await createExchangeRate(
+  {
+    fromCurrencyCode: 'USD',
+    toCurrencyCode: 'EUR',
+    rate: '0.92',
+    date: new Date(),
+    source: 'manual',
+    type: 'buy',
+  },
+  { tenantId, organizationId },
+  container
+)
+```
+
+## Data Validation
+
+All inputs are validated using Zod schemas:
+
+```typescript
+import { currencyCreateSchema, exchangeRateCreateSchema } from '@open-mercato/modules/currencies/data/validators'
+
+// Currency validation
+const currencyData = currencyCreateSchema.parse({
+  code: 'USD',
+  name: 'US Dollar',
+  symbol: '$',
+  // ...
+})
+
+// Exchange rate validation
+const rateData = exchangeRateCreateSchema.parse({
+  fromCurrencyCode: 'USD',
+  toCurrencyCode: 'EUR',
+  rate: '0.92',
+  // ...
+})
+```
+
+Key validation rules:
+- **Currency codes**: 3 uppercase letters (ISO 4217)
+- **Rate values**: Positive decimals, up to 8 decimal places
+- **Source**: 2-50 alphanumeric characters, hyphens, underscores
+- **Dates**: Truncated to minute precision
+
+## Example: Currency Conversion Utility
+
+```typescript
+import type { ExchangeRateService } from '@open-mercato/modules/currencies/services/exchangeRateService'
+
+export async function convertCurrency(
+  amount: number,
+  fromCode: string,
+  toCode: string,
+  date: Date,
+  scope: { tenantId: string; organizationId: string },
+  options?: {
+    preferredProvider?: string
+    rateType?: 'buy' | 'sell'
+  }
+): Promise<number | null> {
+  const exchangeRateService = container.resolve<ExchangeRateService>('exchangeRateService')
+
+  const result = await exchangeRateService.getRate({
+    fromCurrencyCode: fromCode,
+    toCurrencyCode: toCode,
+    date,
+    scope,
+  })
+
+  if (result.rates.length === 0) {
+    return null // No rate available
+  }
+
+  // Filter by preferences
+  let selectedRate = result.rates[0]
+
+  if (options?.preferredProvider) {
+    const providerRate = result.rates.find(r => r.source === options.preferredProvider)
+    if (providerRate) selectedRate = providerRate
+  }
+
+  if (options?.rateType) {
+    const typeRate = result.rates.find(r => r.type === options.rateType)
+    if (typeRate) selectedRate = typeRate
+  }
+
+  return amount * parseFloat(selectedRate.rate)
+}
+
+// Usage
+const eurAmount = await convertCurrency(
+  100,
+  'USD',
+  'EUR',
+  new Date(),
+  { tenantId: 'tenant-123', organizationId: 'org-456' },
+  { preferredProvider: 'NBP', rateType: 'sell' }
+)
+```
+
+## Module Configuration
+
+Enable in `src/modules.ts`:
+
+```typescript
+export const modules: ModuleConfig[] = [
+  // ... other modules
+  { id: 'currencies', from: '@open-mercato/core' },
+]
+```
+
+The module is fully self-contained:
+- Auto-discovered routes and pages
+- Automatic DI registration
+- Self-managed migrations
+- Isolated database schema
+- Multi-tenant by design
+
+## Migration Generation
+
+Generate migrations after schema changes:
+
+```bash
+npm run modules:prepare
+npm run db:generate
+```
+
+Migrations are written to:
+```
+packages/core/src/modules/currencies/migrations/
+```
+
+Apply migrations:
+
+```bash
+npm run db:migrate
+```
+
+## See Also
+
+- [Module authoring guide](./overview)
+- [Database entities reference](../database/entities)
+- [RBAC & access control](../rbac/overview)
+- [API development guide](../api/api-development-guide)
