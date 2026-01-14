@@ -1,11 +1,7 @@
 {
   "name": "@open-mercato/client",
-<<<<<<< HEAD
-  "version": "0.3.11",
-=======
   "version": "0.3.13",
   "private": false,
->>>>>>> develop
   "type": "module",
   "main": "dist/index.js",
   "module": "dist/index.js",
