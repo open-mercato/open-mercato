@@ -99,6 +99,8 @@ export function FilterOverlay({
     [filters]
   )
   const lastLoadedSignatureRef = React.useRef<string | null>(null)
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const stableFilters = React.useMemo(() => filters, [filtersSignature])
 
   // Load dynamic options for filters that request it
   const [dynamicOptions, setDynamicOptions] = React.useState<Record<string, FilterOption[]>>({})
@@ -143,6 +145,28 @@ export function FilterOverlay({
     setValues({})
     onClear?.()
   }
+
+  const tagLoaders = React.useMemo(() => {
+    const map = new Map<string, (q?: string) => Promise<Array<string | TagsInputOption>>>()
+    for (const f of stableFilters) {
+      if (f.type === 'tags' && typeof f.loadOptions === 'function') {
+        const fieldId = f.id
+        const load = f.loadOptions as (query?: string) => Promise<FilterOption[]>
+        map.set(fieldId, async (q?: string) => {
+          const query = (q ?? '').trim()
+          if (!query.length) return []
+          try {
+            const opts = await load(query)
+            setDynamicOptions((prev) => ({ ...prev, [fieldId]: opts }))
+            return opts.map((o) => ({ value: o.value, label: o.label, description: o.description ?? null }))
+          } catch {
+            return []
+          }
+        })
+      }
+    }
+    return map
+  }, [stableFilters])
 
   return (
     <>
@@ -243,21 +267,7 @@ export function FilterOverlay({
                     const optionMap = new Map<string, FilterOption>()
                     staticOptions.forEach((opt) => optionMap.set(opt.value, opt))
                     dynamic.forEach((opt) => optionMap.set(opt.value, opt))
-                    const loadSuggestions = (f as any).loadOptions
-                      ? async (q?: string) => {
-                          try {
-                            const opts = await (f as any).loadOptions(q ?? '')
-                            setDynamicOptions((prev) => ({ ...prev, [f.id]: opts }))
-                            return opts.map((o: FilterOption) => ({
-                              value: o.value,
-                              label: o.label,
-                              description: o.description,
-                            }))
-                          } catch {
-                            return []
-                          }
-                        }
-                      : undefined
+                    const loadSuggestions = tagLoaders.get(f.id)
                     const resolveTagLabel = f.formatValue
                       ? (val: string) => f.formatValue!(val)
                       : (val: string) => optionMap.get(val)?.label ?? val
