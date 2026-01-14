@@ -6,6 +6,12 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import type { FilterQuery } from '@mikro-orm/core'
 import { getAuthFromRequest } from '@/lib/auth/server'
 import { createRequestContainer } from '@/lib/di/container'
+import { exchangeRateCreateSchema, exchangeRateUpdateSchema } from '../../data/validators'
+import {
+  createCurrenciesCrudOpenApi,
+  createPagedListResponseSchema,
+  defaultOkResponseSchema,
+} from '../openapi'
 
 const routeMetadata = {
   GET: { requireAuth: true, requireFeatures: ['currencies.rates.view'] },
@@ -169,3 +175,39 @@ export async function GET(req: Request) {
 export const POST = crud.POST
 export const PUT = crud.PUT
 export const DELETE = crud.DELETE
+
+const exchangeRateListItemSchema = z.object({
+  id: z.string().uuid(),
+  fromCurrencyCode: z.string(),
+  toCurrencyCode: z.string(),
+  rate: z.string(),
+  date: z.string(),
+  source: z.string(),
+  type: z.string().nullable(),
+  isActive: z.boolean(),
+  createdAt: z.string().nullable(),
+  updatedAt: z.string().nullable(),
+  organizationId: z.string().uuid(),
+  tenantId: z.string().uuid(),
+})
+
+export const openApi = createCurrenciesCrudOpenApi({
+  resourceName: 'ExchangeRate',
+  pluralName: 'ExchangeRates',
+  querySchema: listQuerySchema,
+  listResponseSchema: createPagedListResponseSchema(exchangeRateListItemSchema),
+  create: {
+    schema: exchangeRateCreateSchema,
+    description: 'Creates a new exchange rate.',
+  },
+  update: {
+    schema: exchangeRateUpdateSchema,
+    responseSchema: defaultOkResponseSchema,
+    description: 'Updates an existing exchange rate by id.',
+  },
+  del: {
+    schema: z.object({ id: z.string().uuid() }),
+    responseSchema: defaultOkResponseSchema,
+    description: 'Deletes an exchange rate by id.',
+  },
+})

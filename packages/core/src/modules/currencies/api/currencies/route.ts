@@ -6,6 +6,12 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import type { FilterQuery } from '@mikro-orm/core'
 import { getAuthFromRequest } from '@/lib/auth/server'
 import { createRequestContainer } from '@/lib/di/container'
+import { currencyCreateSchema, currencyUpdateSchema } from '../../data/validators'
+import {
+  createCurrenciesCrudOpenApi,
+  createPagedListResponseSchema,
+  defaultOkResponseSchema,
+} from '../openapi'
 
 const routeMetadata = {
   GET: { requireAuth: true, requireFeatures: ['currencies.view'] },
@@ -170,3 +176,40 @@ export async function GET(req: Request) {
 export const POST = crud.POST
 export const PUT = crud.PUT
 export const DELETE = crud.DELETE
+
+const currencyListItemSchema = z.object({
+  id: z.uuid(),
+  code: z.string(),
+  name: z.string(),
+  symbol: z.string().nullable(),
+  decimalPlaces: z.number(),
+  thousandsSeparator: z.string().nullable(),
+  decimalSeparator: z.string().nullable(),
+  isBase: z.boolean(),
+  isActive: z.boolean(),
+  createdAt: z.string().nullable(),
+  updatedAt: z.string().nullable(),
+  organizationId: z.uuid(),
+  tenantId: z.uuid(),
+})
+
+export const openApi = createCurrenciesCrudOpenApi({
+  resourceName: 'Currency',
+  pluralName: 'Currencies',
+  querySchema: listQuerySchema,
+  listResponseSchema: createPagedListResponseSchema(currencyListItemSchema),
+  create: {
+    schema: currencyCreateSchema,
+    description: 'Creates a new currency.',
+  },
+  update: {
+    schema: currencyUpdateSchema,
+    responseSchema: defaultOkResponseSchema,
+    description: 'Updates an existing currency by id.',
+  },
+  del: {
+    schema: z.object({ id: z.string().uuid() }),
+    responseSchema: defaultOkResponseSchema,
+    description: 'Deletes a currency by id.',
+  },
+})
