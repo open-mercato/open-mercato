@@ -53,7 +53,7 @@
     "@mikro-orm/core": "^6.6.2",
     "@mikro-orm/migrations": "^6.6.2",
     "@mikro-orm/postgresql": "^6.6.2",
-    "@open-mercato/shared": "0.3.13",
+    "@open-mercato/shared": "workspace:*",
     "pg": "^8.16.3",
     "typescript": "^5.9.3"
   }

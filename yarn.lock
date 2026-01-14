@@ -114,15 +114,15 @@ __metadata:
   languageName: node
   linkType: hard
 
-"@ai-sdk/google@npm:^1.2.6":
-  version: 1.2.22
-  resolution: "@ai-sdk/google@npm:1.2.22"
+"@ai-sdk/google@npm:^2.0.0":
+  version: 2.0.52
+  resolution: "@ai-sdk/google@npm:2.0.52"
   dependencies:
-    "@ai-sdk/provider": "npm:1.1.3"
-    "@ai-sdk/provider-utils": "npm:2.2.8"
+    "@ai-sdk/provider": "npm:2.0.1"
+    "@ai-sdk/provider-utils": "npm:3.0.20"
   peerDependencies:
-    zod: ^3.0.0
-  checksum: 10/a00d74dcd37d190642a16e767085c0dc83aa44e06b81f28318fab6fa8eba398197bcb5c2da6d5b188981fefc7e2b61729a5bea595338d42d8e939c73cc29dbaf
+    zod: ^3.25.76 || ^4.1.8
+  checksum: 10/0057bb8307392a693a586b028bb69a0d06673f91685e39bc0f02c2493efd2240321967358cff55ddbdbb05b4d86faa06fcaba7a8d00e70a1825ec63cfc834baf
   languageName: node
   linkType: hard
 
@@ -162,19 +162,6 @@ __metadata:
   languageName: node
   linkType: hard
 
-"@ai-sdk/provider-utils@npm:2.2.8":
-  version: 2.2.8
-  resolution: "@ai-sdk/provider-utils@npm:2.2.8"
-  dependencies:
-    "@ai-sdk/provider": "npm:1.1.3"
-    nanoid: "npm:^3.3.8"
-    secure-json-parse: "npm:^2.7.0"
-  peerDependencies:
-    zod: ^3.23.8
-  checksum: 10/3aa8fce97c78d1c78e0c35e82425d4634957dfd16d5d8228994eef5ada71b9d5a1b0b9c2edb81db8cca106d90607c1798970e2e5ec74730cb8058bd7d900144a
-  languageName: node
-  linkType: hard
-
 "@ai-sdk/provider-utils@npm:3.0.20":
   version: 3.0.20
   resolution: "@ai-sdk/provider-utils@npm:3.0.20"
@@ -198,15 +185,6 @@ __metadata:
   peerDependencies:
     zod: ^3.25.76 || ^4.1.8
   checksum: 10/25c10662c25100414d6452440d0c9083bbd1e95be40aec52dc23f7d95e41fa6fe7d001236cef797343852eab9b1fcc4e6ad68921db3fcb3b000da99ba946f86c
-  languageName: node
-  linkType: hard
-
-"@ai-sdk/provider@npm:1.1.3":
-  version: 1.1.3
-  resolution: "@ai-sdk/provider@npm:1.1.3"
-  dependencies:
-    json-schema: "npm:^0.4.0"
-  checksum: 10/b094ca2f08001d4d34a0dcdf9fbe1b6eeedeaf0cf1568ce148d67b04333fd959cca60f888a24522b6d74114eabbc469f762d290d08096adec992a3c6de23756a
   languageName: node
   linkType: hard
 
@@ -5720,16 +5698,16 @@ __metadata:
     "@mikro-orm/core": "npm:^6.6.2"
     "@mikro-orm/migrations": "npm:^6.6.2"
     "@mikro-orm/postgresql": "npm:^6.6.2"
-    "@open-mercato/cache": "npm:0.3.13"
-    "@open-mercato/cli": "npm:0.3.13"
-    "@open-mercato/content": "npm:0.3.13"
-    "@open-mercato/core": "npm:0.3.13"
-    "@open-mercato/events": "npm:0.3.13"
-    "@open-mercato/onboarding": "npm:0.3.13"
-    "@open-mercato/queue": "npm:0.3.13"
-    "@open-mercato/search": "npm:0.3.13"
-    "@open-mercato/shared": "npm:0.3.13"
-    "@open-mercato/ui": "npm:0.3.13"
+    "@open-mercato/cache": "workspace:*"
+    "@open-mercato/cli": "workspace:*"
+    "@open-mercato/content": "workspace:*"
+    "@open-mercato/core": "workspace:*"
+    "@open-mercato/events": "workspace:*"
+    "@open-mercato/onboarding": "workspace:*"
+    "@open-mercato/queue": "workspace:*"
+    "@open-mercato/search": "workspace:*"
+    "@open-mercato/shared": "workspace:*"
+    "@open-mercato/ui": "workspace:*"
     "@radix-ui/react-checkbox": "npm:^1.3.3"
     "@radix-ui/react-dialog": "npm:^1.0.5"
     "@radix-ui/react-label": "npm:^2.1.8"
@@ -5754,6 +5732,7 @@ __metadata:
     class-variance-authority: "npm:^0.7.1"
     clsx: "npm:^2.1.1"
     dotenv: "npm:^17.2.3"
+    eslint: "npm:^9.0.0"
     eslint-config-next: "npm:16.0.7"
     ioredis: "npm:^5.8.2"
     lucide-react: "npm:^0.556.0"
@@ -5762,6 +5741,7 @@ __metadata:
     pdf2pic: "npm:^3.2.0"
     pg: "npm:^8.16.3"
     react: "npm:19.2.1"
+    react-big-calendar: "npm:^1.19.4"
     react-dom: "npm:19.2.1"
     react-email: "npm:^5.0.6"
     remark-gfm: "npm:^4.0.1"
@@ -5782,14 +5762,14 @@ __metadata:
   languageName: unknown
   linkType: soft
 
-"@open-mercato/cache@npm:0.3.13, @open-mercato/cache@workspace:packages/cache":
+"@open-mercato/cache@workspace:*, @open-mercato/cache@workspace:packages/cache":
   version: 0.0.0-use.local
   resolution: "@open-mercato/cache@workspace:packages/cache"
   dependencies:
     "@types/better-sqlite3": "npm:^7.6.0"
     "@types/node": "npm:^20.0.0"
   peerDependencies:
-    better-sqlite3: ^9.0.0
+    better-sqlite3: ">=9.0.0"
     ioredis: ^5.0.0
   peerDependenciesMeta:
     better-sqlite3:
@@ -5799,14 +5779,14 @@ __metadata:
   languageName: unknown
   linkType: soft
 
-"@open-mercato/cli@npm:0.3.13, @open-mercato/cli@workspace:packages/cli":
+"@open-mercato/cli@workspace:*, @open-mercato/cli@workspace:packages/cli":
   version: 0.0.0-use.local
   resolution: "@open-mercato/cli@workspace:packages/cli"
   dependencies:
     "@mikro-orm/core": "npm:^6.6.2"
     "@mikro-orm/migrations": "npm:^6.6.2"
     "@mikro-orm/postgresql": "npm:^6.6.2"
-    "@open-mercato/shared": "npm:0.3.13"
+    "@open-mercato/shared": "workspace:*"
     pg: "npm:^8.16.3"
     typescript: "npm:^5.9.3"
   bin:
@@ -5814,40 +5794,41 @@ __metadata:
   languageName: unknown
   linkType: soft
 
-"@open-mercato/content@npm:0.3.13, @open-mercato/content@workspace:packages/content":
+"@open-mercato/content@workspace:*, @open-mercato/content@workspace:packages/content":
   version: 0.0.0-use.local
   resolution: "@open-mercato/content@workspace:packages/content"
   dependencies:
-    "@open-mercato/shared": "npm:0.3.13"
+    "@open-mercato/shared": "workspace:*"
   languageName: unknown
   linkType: soft
 
-"@open-mercato/core@npm:0.3.13, @open-mercato/core@workspace:packages/core":
+"@open-mercato/core@workspace:*, @open-mercato/core@workspace:packages/core":
   version: 0.0.0-use.local
   resolution: "@open-mercato/core@workspace:packages/core"
   dependencies:
-    "@open-mercato/shared": "npm:0.3.13"
+    "@open-mercato/shared": "workspace:*"
+    date-fns: "npm:^4.1.0"
     date-fns-tz: "npm:^3.2.0"
   languageName: unknown
   linkType: soft
 
-"@open-mercato/events@npm:0.3.13, @open-mercato/events@workspace:packages/events":
+"@open-mercato/events@workspace:*, @open-mercato/events@workspace:packages/events":
   version: 0.0.0-use.local
   resolution: "@open-mercato/events@workspace:packages/events"
   dependencies:
-    "@open-mercato/queue": "npm:0.3.13"
+    "@open-mercato/queue": "workspace:*"
   languageName: unknown
   linkType: soft
 
-"@open-mercato/onboarding@npm:0.3.13, @open-mercato/onboarding@workspace:packages/onboarding":
+"@open-mercato/onboarding@workspace:*, @open-mercato/onboarding@workspace:packages/onboarding":
   version: 0.0.0-use.local
   resolution: "@open-mercato/onboarding@workspace:packages/onboarding"
   dependencies:
-    "@open-mercato/shared": "npm:0.3.13"
+    "@open-mercato/shared": "workspace:*"
   languageName: unknown
   linkType: soft
 
-"@open-mercato/queue@npm:0.3.13, @open-mercato/queue@workspace:packages/queue":
+"@open-mercato/queue@workspace:*, @open-mercato/queue@workspace:packages/queue":
   version: 0.0.0-use.local
   resolution: "@open-mercato/queue@workspace:packages/queue"
   dependencies:
@@ -5860,19 +5841,20 @@ __metadata:
   languageName: unknown
   linkType: soft
 
-"@open-mercato/search@npm:0.3.13, @open-mercato/search@workspace:packages/search":
+"@open-mercato/search@workspace:*, @open-mercato/search@workspace:packages/search":
   version: 0.0.0-use.local
   resolution: "@open-mercato/search@workspace:packages/search"
   dependencies:
     "@ai-sdk/amazon-bedrock": "npm:^4.0.8"
     "@ai-sdk/cohere": "npm:^3.0.4"
-    "@ai-sdk/google": "npm:^1.2.6"
+    "@ai-sdk/google": "npm:^2.0.0"
     "@ai-sdk/mistral": "npm:^3.0.5"
     "@ai-sdk/openai": "npm:^3.0.5"
     ai: "npm:^6.0.0"
     ai-sdk-ollama: "npm:^3.0.1"
     meilisearch: "npm:^0.55.0"
     pg: "npm:^8.16.3"
+    zod: "npm:^4.0.0"
   peerDependencies:
     "@open-mercato/core": "workspace:*"
     "@open-mercato/queue": "workspace:*"
@@ -5880,20 +5862,22 @@ __metadata:
   languageName: unknown
   linkType: soft
 
-"@open-mercato/shared@npm:0.3.13, @open-mercato/shared@workspace:packages/shared":
+"@open-mercato/shared@workspace:*, @open-mercato/shared@workspace:packages/shared":
   version: 0.0.0-use.local
   resolution: "@open-mercato/shared@workspace:packages/shared"
   languageName: unknown
   linkType: soft
 
-"@open-mercato/ui@npm:0.3.13, @open-mercato/ui@workspace:packages/ui":
+"@open-mercato/ui@workspace:*, @open-mercato/ui@workspace:packages/ui":
   version: 0.0.0-use.local
   resolution: "@open-mercato/ui@workspace:packages/ui"
   dependencies:
-    "@open-mercato/shared": "npm:0.3.13"
+    "@open-mercato/shared": "workspace:*"
     "@radix-ui/react-tooltip": "npm:^1.2.8"
     date-fns: "npm:^4.1.0"
+    react: "npm:>=18.0.0"
     react-big-calendar: "npm:^1.19.4"
+    react-dom: "npm:>=18.0.0"
   languageName: unknown
   linkType: soft
 
@@ -8949,7 +8933,7 @@ __metadata:
   languageName: node
   linkType: hard
 
-"@types/react@npm:*, @types/react@npm:>=16.9.11, @types/react@npm:^19.2.7":
+"@types/react@npm:*, @types/react@npm:>=16.9.11, @types/react@npm:^19.0.0, @types/react@npm:^19.2.7":
   version: 19.2.8
   resolution: "@types/react@npm:19.2.8"
   dependencies:
@@ -14040,7 +14024,7 @@ __metadata:
   languageName: node
   linkType: hard
 
-"eslint@npm:^9.39.1":
+"eslint@npm:^9.0.0, eslint@npm:^9.39.1":
   version: 9.39.2
   resolution: "eslint@npm:9.39.2"
   dependencies:
@@ -20049,7 +20033,7 @@ __metadata:
   languageName: node
   linkType: hard
 
-"nanoid@npm:^3.3.11, nanoid@npm:^3.3.6, nanoid@npm:^3.3.8":
+"nanoid@npm:^3.3.11, nanoid@npm:^3.3.6":
   version: 3.3.11
   resolution: "nanoid@npm:3.3.11"
   bin:
@@ -20820,7 +20804,9 @@ __metadata:
     "@tanstack/react-table": "npm:^8.20.5"
     "@types/better-sqlite3": "npm:^7.6.11"
     "@types/jest": "npm:^30.0.0"
+    "@types/node": "npm:^20.0.0"
     "@types/pg": "npm:^8.16.0"
+    "@types/react": "npm:^19.0.0"
     "@types/react-big-calendar": "npm:^1.16.3"
     "@types/semver": "npm:^7.7.1"
     "@uiw/react-markdown-preview": "npm:^5.1.5"
@@ -23046,6 +23032,17 @@ __metadata:
   languageName: node
   linkType: hard
 
+"react-dom@npm:>=18.0.0":
+  version: 19.2.3
+  resolution: "react-dom@npm:19.2.3"
+  dependencies:
+    scheduler: "npm:^0.27.0"
+  peerDependencies:
+    react: ^19.2.3
+  checksum: 10/5780f6d4c8e8ece09f82c5500ba2d55e01c30b5273f9281734d7d3b65013cd1fa52ec4e4436e5248c0a9e5bc340836044051168bbad8d7eac4d33ee6c2a867a1
+  languageName: node
+  linkType: hard
+
 "react-dom@npm:^18.2.0":
   version: 18.3.1
   resolution: "react-dom@npm:18.3.1"
@@ -23311,6 +23308,13 @@ __metadata:
   version: 19.2.1
   resolution: "react@npm:19.2.1"
   checksum: 10/7c7ab0f40b98e87e1466bea8c28564c5f3c384506cbda93d24788d32b40bf6059c991687c7e90a396b11f09223a779a81b1188af9acd839aaa0a672987c13107
+  languageName: node
+  linkType: hard
+
+"react@npm:>=18.0.0":
+  version: 19.2.3
+  resolution: "react@npm:19.2.3"
+  checksum: 10/d16b7f35c0d35a56f63d9d1693819762e4abc479c57dd6310298920bed3820fcec7e17a99d44983416d8f5049143ea45b8005d3ab8324bae8973224400502b08
   languageName: node
   linkType: hard
 
@@ -24320,13 +24324,6 @@ __metadata:
     extend-shallow: "npm:^2.0.1"
     kind-of: "npm:^6.0.0"
   checksum: 10/cedfda3a9238f66942d92531fe043dd134702a462cdc9e254cd6aa418c66ca0d229900e4da78ffd1a07051e7b239251c4dc4748e9d1c76bf41a37bff7a478556
-  languageName: node
-  linkType: hard
-
-"secure-json-parse@npm:^2.7.0":
-  version: 2.7.0
-  resolution: "secure-json-parse@npm:2.7.0"
-  checksum: 10/974386587060b6fc5b1ac06481b2f9dbbb0d63c860cc73dc7533f27835fdb67b0ef08762dbfef25625c15bc0a0c366899e00076cb0d556af06b71e22f1dede4c
   languageName: node
   linkType: hard
 

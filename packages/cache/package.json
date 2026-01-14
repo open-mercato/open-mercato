@@ -40,7 +40,7 @@
     "invalidation"
   ],
   "peerDependencies": {
-    "better-sqlite3": "^9.0.0",
+    "better-sqlite3": ">=9.0.0",
     "ioredis": "^5.0.0"
   },
   "peerDependenciesMeta": {

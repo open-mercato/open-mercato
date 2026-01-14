@@ -210,7 +210,8 @@
     }
   },
   "dependencies": {
-    "@open-mercato/shared": "0.3.13",
+    "@open-mercato/shared": "workspace:*",
+    "date-fns": "^4.1.0",
     "date-fns-tz": "^3.2.0"
   }
 }

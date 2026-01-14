@@ -30,6 +30,6 @@
     }
   },
   "dependencies": {
-    "@open-mercato/queue": "0.3.13"
+    "@open-mercato/queue": "workspace:*"
   }
 }
