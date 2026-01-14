@@ -186,6 +186,12 @@ function INFLoginContent() {
               >
                 {submitting ? translate('auth.login.loading', 'Loading...') : translate('auth.signIn', 'Sign in')}
               </button>
+              <Link
+                href="/inf/onboarding"
+                className="h-10 rounded-full border border-[#E67E5E] text-[#E67E5E] font-medium hover:bg-[#E67E5E] hover:text-white transition flex items-center justify-center"
+              >
+                {translate('auth.signUp', 'Sign up')}
+              </Link>
               <div className="text-xs text-gray-500 mt-2 text-center">
                 <Link className="hover:text-gray-300 hover:underline" href="/reset">
                   {translate('auth.login.forgotPassword', 'Forgot password?')}

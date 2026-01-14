@@ -1,0 +1,271 @@
+{
+  "onboarding": {
+    "title": "Utwórz konto",
+    "subtitle": "Wypełnij formularz, a my zajmiemy się resztą.",
+    "heroTitle": "Dołącz do INF Shipping",
+    "heroSubtitle": "Stwórz konto i zacznij korzystać z naszych usług transportowych i logistycznych",
+    "alreadyHaveAccount": "Masz już konto?",
+    "signInLink": "Zaloguj się",
+    "trustIndicators": {
+      "security": {
+        "title": "Bezpieczeństwo danych",
+        "description": "Twoje dane są chronione zgodnie z RODO"
+      },
+      "fast": {
+        "title": "Szybka rejestracja",
+        "description": "Założenie konta zajmuje tylko 2 minuty"
+      },
+      "support": {
+        "title": "Wsparcie 24/7",
+        "description": "Nasz zespół jest dostępny dla Ciebie"
+      }
+    },
+    "form": {
+      "email": "Adres e-mail",
+      "firstName": "Imię",
+      "lastName": "Nazwisko",
+      "organizationName": "Nazwa firmy",
+      "password": "Hasło",
+      "confirmPassword": "Potwierdź hasło",
+      "termsLabel": "Przeczytałem i akceptuję",
+      "termsLink": "regulamin i politykę prywatności",
+      "termsRequired": "Proszę zaakceptować regulamin.",
+      "submit": "Utwórz konto",
+      "loading": "Wysyłanie...",
+      "successTitle": "Sprawdź swoją skrzynkę",
+      "successBody": "Wysłaliśmy link weryfikacyjny na {email}. Potwierdź go w ciągu 24 godzin, aby aktywować konto.",
+      "genericError": "Coś poszło nie tak. Spróbuj ponownie."
+    },
+    "errors": {
+      "emailInvalid": "Wprowadź poprawny adres e-mail.",
+      "firstNameRequired": "Imię jest wymagane.",
+      "lastNameRequired": "Nazwisko jest wymagane.",
+      "organizationNameRequired": "Nazwa firmy jest wymagana.",
+      "passwordRequired": "Hasło musi mieć co najmniej 6 znaków.",
+      "passwordMismatch": "Hasła muszą być takie same."
+    }
+  },
+  "auth": {
+    "email": "Adres e-mail",
+    "password": "Hasło",
+    "signIn": "Zaloguj się",
+    "signUp": "Zarejestruj się",
+    "resetPassword": "Resetuj hasło",
+    "sendResetLink": "Wyślij link resetujący",
+    "backToLogin": "Powrót do logowania",
+    "resetSent": "Jeśli konto z tym adresem e-mail istnieje, wysłaliśmy link do resetowania. Sprawdź swoją skrzynkę.",
+    "login": {
+      "subtitle": "Zaloguj się do swojego konta",
+      "rememberMe": "Zapamiętaj mnie",
+      "forgotPassword": "Zapomniałeś hasła?",
+      "loading": "Ładowanie...",
+      "errors": {
+        "invalidCredentials": "Nieprawidłowy e-mail lub hasło",
+        "permissionDenied": "Nie masz uprawnień do tej strony.",
+        "generic": "Wystąpił błąd. Spróbuj ponownie."
+      }
+    }
+  },
+  "nav": {
+    "services": "Usługi",
+    "aboutUs": "O nas",
+    "sourcing": "Sourcing",
+    "contact": "Kontakt",
+    "login": "Logowanie",
+    "getFreeQuote": "Odbierz darmową wycenę"
+  },
+  "hero": {
+    "title": "Usługi transportowe",
+    "subtitle": "nieskończone możliwości",
+    "subtitleHighlight": "w najniższych cenach",
+    "description": "Dostarczamy rozwiązania logistyczne wzmacniające Twój biznes. Ty rozwijaj swój biznes – logistyką zajmiemy się my. Nadawaj, śledź i zarządzaj zleceniami w łatwy i przystępny sposób!",
+    "checkOffer": "Sprawdź naszą ofertę",
+    "getFreeQuote": "Odbierz darmową wycenę"
+  },
+  "tagline": {
+    "title": "Tworzymy dla Ciebie transport krajowy i międzynarodowy",
+    "titleHighlight": "bez granic",
+    "fast": "Szybko",
+    "convenient": "Wygodnie",
+    "onYourTerms": "Na Twoich warunkach",
+    "alwaysAvailable": "24/7",
+    "slogan1": "Nieskończone możliwości",
+    "slogan2": "w najniższych cenach"
+  },
+  "services": {
+    "title": "Kompleksowe usługi transportowe & logistyczne",
+    "subtitle": "Oferujemy pełny zakres usług transportowych i logistycznych.",
+    "description": "Twoja satysfakcja i zadowolenie to nasz priorytet! Zawsze wiesz, gdzie znajduje się Twój transport oraz masz kontakt z dedykowanym opiekunem, a na nasze wsparcie możesz liczyć 24/7.",
+    "seaTransport": {
+      "title": "Transport morski",
+      "description1": "Realizujemy transport morski – kontenerowy i drobnicowy – do ponad 100 krajów na całym świecie.",
+      "description2": "Zadbamy o pełną koordynację Twojego transportu – od załadunku w porcie początkowym po wyładunek w porcie docelowym."
+    },
+    "airTransport": {
+      "title": "Transport lotniczy",
+      "description1": "Elastyczna, szybka i bezpieczna metoda organizacji transportu – nawet dla towarów o wysokiej wartości.",
+      "description2": "Działamy zarówno na zasadach door-to-door, jak i airport-to-airport."
+    },
+    "roadTransport": {
+      "title": "Transport drogowy",
+      "description1": "Zrealizujemy transport dowolnego ładunku pod każdy wskazany adres w całej Europie – od pełnych kontenerów po mniejsze partie (FTL/LTL).",
+      "description2": "Transport ciężarowy z wykorzystaniem szerokiej floty pojazdów – do przewozu towarów każdego rodzaju."
+    },
+    "railTransport": {
+      "title": "Transport kolejowy",
+      "description1": "Elastyczne usługi transportowe towarów i alternatywa dla transportu morskiego.",
+      "description2": "Zapewniamy transport towarów pomiędzy Azją a Europą – od jednego kartonu po cały pociąg."
+    },
+    "warehousing": {
+      "title": "Magazynowanie towarów",
+      "description1": "Oferujemy usługi magazynowania w trakcie transportu towarów.",
+      "description2": "Wszystko w nowoczesnych centrach magazynowych na terenie kraju i całego świata."
+    },
+    "customsAgency": {
+      "title": "Agencja celna",
+      "description1": "Potrzebujesz partnera, który świadczy usługi transportowe i jednocześnie usługi celne?",
+      "description2": "Zapewniamy bezproblemową obsługę nawet najbardziej skomplikowanych przesyłek na całym świecie oraz na terenie Unii Europejskiej."
+    },
+    "learnMore": "Dowiedz się więcej"
+  },
+  "whyChooseUs": {
+    "title": "Dlaczego",
+    "titleHighlight": "INF Shipping Solutions",
+    "titleEnd": "to najlepszy wybór dla Twojego biznesu?",
+    "subtitle": "Ponieważ będziemy dla Ciebie partnerem, na którym możesz polegać w każdej sytuacji.",
+    "description": "Łączymy wieloletnie doświadczenie z nowoczesnymi rozwiązaniami, a oferowane przez nas usługi spedycyjne spełniają najwyższe międzynarodowe standardy. Chcesz dowiedzieć się więcej i przekonać, dlaczego warto wybrać właśnie nas?",
+    "infIs": "INF Shipping Solutions to:",
+    "benefits": {
+      "comfort": {
+        "title": "Pełny komfort i bezpieczeństwo",
+        "description1": "Po złożeniu zlecenia możesz odetchnąć z ulgą – Twój transport jest w dobrych rękach.",
+        "description2": "Gwarantujemy skuteczną realizację, bez konieczności ciągłego nadzoru. Dostajesz \"święty spokój\" oraz pewność, że Twój towar dotrze na czas, bez żadnych komplikacji i w nienaruszonym stanie."
+      },
+      "trust": {
+        "title": "Zaufanie i doświadczenie",
+        "description1": "Zaufanie buduje się poprzez skuteczność. My budujemy je dzięki solidnym i terminowym realizacjom.",
+        "description2": "Każdy transport towarów to dla nas priorytet, a nasi doświadczeni specjaliści dbają o wszystkie szczegóły – zanim Ty zdążysz o nich nawet pomyśleć."
+      },
+      "individual": {
+        "title": "Usługi transportu z indywidualnym podejściem",
+        "description1": "Każdy biznes jest inny, dlatego skupiamy się na rozwiązaniach dostosowanych do Twoich unikalnych potrzeb. Transport ekspresowy, transport materiałów budowlanych, przewóz mebli lub z wielu lokalizacji do jednego miejsca? Żaden problem!",
+        "description2": "Bez względu na to czy potrzebujesz szybkiej dostawy lokalnej, czy kompleksowej logistyki międzynarodowej – stworzymy plan, który sprosta Twoim najbardziej wymagającym oczekiwaniom."
+      },
+      "technology": {
+        "title": "Nowoczesna technologia",
+        "description1": "Dzięki zaawansowanym systemom monitorowania przesyłek masz pełną kontrolę nad transportem swoich towarów w czasie rzeczywistym.",
+        "description2": "Nasza logistyka opiera się na innowacyjnych narzędziach, które zapewniają bezpieczeństwo i optymalizację kosztów w Twojej firmie."
+      },
+      "global": {
+        "title": "Globalny transport towarów",
+        "description1": "INF Shipping Solutions działa na całym świecie, co daje nam przewagę w organizowaniu transportów międzynarodowych.",
+        "description2": "Naszą mocną stroną jest rozbudowana sieć partnerów, dzięki której zapewniamy szybką i sprawną realizację Twoich dostaw w każdym zakątku globu."
+      },
+      "ecology": {
+        "title": "Ekologia i zrównoważony rozwój",
+        "description1": "Wierzymy, że odpowiedzialność za przyszłość naszej planety spoczywa na nas wszystkich.",
+        "description2": "Korzystając z naszych usług, możesz mieć pewność, że stosowane przez nas rozwiązania transportowe są zgodne z najwyższymi standardami ekologicznymi, a my nieustannie pracujemy nad minimalizacją naszego śladu węglowego."
+      }
+    }
+  },
+  "testimonials": {
+    "title": "Co mówią nasi klienci?",
+    "subtitle": "Nie jesteś i nigdy nie będziesz kolejnym wierszem w naszym Excelu!",
+    "description": "Stawiamy na partnerskie relacje! Dbamy o stały rozwój Twojego biznesu, niższe koszty logistyczne, a przede wszystkim spokój, który zyskujesz dzięki przejrzystym warunkom i wygodnemu panelowi do zarządzania transportem.",
+    "items": [
+      {
+        "name": "Beata Tymczewska",
+        "company": "MultiMasz",
+        "content": "INF Shipping Solutions to gwarancja bezpieczeństwa i profesjonalizmu. Korzystamy z ich usług transportu morskiego i kolejowego już od kilku lat, a ich elastyczność oraz zaangażowanie w obsługę klienta nigdy nas nie zawiodły."
+      },
+      {
+        "name": "Paulina Kita",
+        "company": "TitanX",
+        "content": "INF zachwyca świetną organizacją i troską o klienta, oferując usługi na najwyższym poziomie. Dzięki ich zaangażowaniu każdy etap przebiega sprawnie, na bieżąco dostaję aktualizacje dotyczące wysyłki i to wszystko w przyjaznej atmosferze. Zawsze uśmiechnięci i chętni do pomocy!"
+      },
+      {
+        "name": "Mei Yang",
+        "company": "Elim",
+        "content": "Dzięki INF Shipping Solutions nasz eksport na Daleki Wschód przebiega bezproblemowo. Ich usługi frachtowe to prawdziwy profesjonalizm — szybki czas realizacji, konkurencyjne stawki i świetne wsparcie logistyczne."
+      }
+    ]
+  },
+  "cta": {
+    "title": "Dołącz do naszych zadowolonych klientów",
+    "description": "Porozmawiajmy o Twoim kolejnym transporcie. Przekonaj się na własnej skórze, jak może wyglądać nasza współpraca.",
+    "button": "Wyceń swój kolejny transport",
+    "mainTitle": "Usługi transportowe i logistyczne w najniższej cenie",
+    "mainDescription": "Odzyskaj spokój związany z transportem Twoich towarów. Skontaktuj się z nami i otrzymaj darmową wycenę już dziś!",
+    "mainButton": "Odbierz darmową wycenę"
+  },
+  "workWithUs": {
+    "title": "Pracuj z nami",
+    "description1": "Stawiamy na współpracę z ludźmi pełnymi pasji i wierzącymi, że droga, którą podążają wiedzie na sam szczyt.",
+    "description2": "Najlepsze firmy tworzą najlepsi pracownicy, dlatego rekrutacja w INF jest zawsze otwarta – czekamy na Ciebie!",
+    "button": "Aplikuj teraz"
+  },
+  "freeQuote": {
+    "title": "Darmowa wycena transportu",
+    "subtitle": "Chcesz szybko i sprawnie poznać koszty swojego transportu? Wypełnij poniższy formularz i odbierz darmową wycenę kosztów transportu.",
+    "step1": {
+      "title": "Wybierz rodzaj transportu",
+      "description": "Wybierz rodzaj transportu, który Cię interesuje"
+    },
+    "step2": {
+      "title": "Miejsce odbioru",
+      "description": "Wprowadź lokalizację odbioru przesyłki",
+      "label": "Miejsce odbioru",
+      "placeholder": "np. Warszawa, Polska"
+    },
+    "step3": {
+      "title": "Miejsce dostawy",
+      "description": "Wprowadź lokalizację dostawy przesyłki",
+      "label": "Miejsce dostawy",
+      "placeholder": "np. Berlin, Niemcy"
+    },
+    "step4": {
+      "title": "Dane kontaktowe",
+      "description": "Wprowadź dane kontaktowe, abyśmy mogli przesłać wycenę",
+      "firstName": "Imię",
+      "lastName": "Nazwisko",
+      "phone": "Numer telefonu",
+      "email": "Adres e-mail"
+    },
+    "transportTypes": {
+      "sea": "Morski",
+      "road": "Drogowy",
+      "rail": "Kolejowy",
+      "air": "Lotniczy"
+    },
+    "buttons": {
+      "back": "Wstecz",
+      "next": "Dalej",
+      "submit": "Wyślij"
+    },
+    "success": {
+      "title": "Dziękujemy!",
+      "description": "Twoje zapytanie o wycenę zostało przesłane pomyślnie. Skontaktujemy się z Tobą w ciągu 24 godzin.",
+      "backHome": "Powrót do strony głównej"
+    }
+  },
+  "footer": {
+    "companyInfo": "Dane firmowe",
+    "quickContact": "Szybki kontakt",
+    "hotline": "Infolinia",
+    "menu": "Menu",
+    "copyright": "Wszelkie prawa zastrzeżone.",
+    "privacyPolicy": "Polityka prywatności",
+    "language": "Język"
+  },
+  "common": {
+    "required": "*",
+    "loading": "Ładowanie...",
+    "error": "Błąd",
+    "success": "Sukces",
+    "cancel": "Anuluj",
+    "save": "Zapisz",
+    "delete": "Usuń",
+    "edit": "Edytuj",
+    "close": "Zamknij"
+  }
+}

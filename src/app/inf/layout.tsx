@@ -4,9 +4,11 @@ import type { Metadata } from 'next'
 
 // Import INF translations
 import en from './i18n/en.json'
+import pl from './i18n/pl.json'
 
 const infTranslations: Record<string, Record<string, unknown>> = {
   en,
+  pl,
 }
 
 // Flatten nested object to dot-notation keys
