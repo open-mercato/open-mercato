@@ -37,7 +37,7 @@ const infBrand: BrandConfig = {
     height: 40,
     alt: 'INF Shipping Solutions',
   },
-  domains: ['inf.localhost', 'inf-shipping.com', 'openmercato.inf-shipping.com'],
+  domains: ['inf.localhost', 'inf.freighttech.org'],
 }
 
 // Register all brands here
