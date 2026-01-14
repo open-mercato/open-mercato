@@ -20,7 +20,8 @@
 /out/
 
 # production
-/build
+build
+.docusaurus
 
 # misc
 .DS_Store
@@ -78,8 +79,7 @@ tmp/
 public/uploads/*
 apps/mercato/storage/attachments/*
 storage
-apps/mercato/data
-./data
+data
 packages/client/src/generated/openapi.types.ts
 package-lock.json
 
