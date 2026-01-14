@@ -4,6 +4,7 @@ import * as React from 'react'
 import { Cog, GripVertical, Pencil, Plus, Trash2 } from 'lucide-react'
 import { CUSTOM_FIELD_KINDS } from '@open-mercato/shared/modules/entities/kinds'
 import { FieldRegistry } from '../fields/registry'
+import { slugify } from '@open-mercato/shared/lib/slugify'
 import {
   Dialog,
   DialogContent,
@@ -97,9 +98,7 @@ const FIELDSET_ICON_OPTIONS = [
 ]
 
 function slugifyFieldsetCode(value: string): string {
-  return value
-    .toLowerCase()
-    .replace(/[^a-z0-9_\-]/g, '')
+  return slugify(value, { replacement: '', allowedChars: '_-' })
 }
 
 function ensureUniqueFieldsetCode(base: string, existing: FieldsetConfig[]): string {

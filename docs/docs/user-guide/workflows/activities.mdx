@@ -1,0 +1,372 @@
+---
+title: Workflow Activities
+description: Configure automated actions that execute during workflow steps and transitions
+---
+
+# Workflow Activities
+
+Activities are the "verbs" of workflows—they're automated actions that execute during steps or transitions. Use activities to send emails, call APIs, update records, and integrate with external systems.
+
+## What Are Activities?
+
+An activity is a discrete unit of work performed by the workflow engine. While steps define the structure of your workflow, activities define what actually happens at each stage.
+
+**Key Points:**
+- Activities run automatically—no human intervention required
+- They can execute during AUTOMATED steps or on transitions
+- Each activity has a type (e.g., SEND_EMAIL, CALL_API) and configuration
+- Activities can run synchronously (workflow waits) or asynchronously (workflow continues)
+
+## Activity Types
+
+| Activity Type | Purpose | Common Use Cases |
+|---------------|---------|------------------|
+| **SEND_EMAIL** | Send email notifications | Approval requests, status updates, alerts |
+| **CALL_API** | Make HTTP requests to external systems | Payment processing, inventory checks, CRM updates |
+| **EMIT_EVENT** | Publish domain events | Trigger other workflows, update dashboards, log actions |
+| **UPDATE_ENTITY** | Modify database records | Update order status, mark tasks complete, change flags |
+| **CALL_WEBHOOK** | Generic webhook calls | Integrate with Zapier, Slack, custom services |
+| **EXECUTE_FUNCTION** | Run custom JavaScript/TypeScript code | Custom business logic, complex transformations |
+
+## Configuring Activities
+
+### SEND_EMAIL
+
+Send email notifications with dynamic content from workflow context.
+
+**Configuration:**
+
+```json
+{
+  "activityId": "send-approval-email",
+  "activityName": "Send Approval Request Email",
+  "activityType": "SEND_EMAIL",
+  "config": {
+    "to": "{{context.approverEmail}}",
+    "cc": "{{context.requesterEmail}}",
+    "subject": "Approval Required: {{context.requestTitle}}",
+    "body": "A new request requires your approval.\n\nRequest: {{context.requestTitle}}\nAmount: ${{context.amount}}\nRequester: {{context.requesterName}}\n\nPlease review and approve or reject this request.",
+    "templateKey": "approval-request"
+  }
+}
+```
+
+**Parameters:**
+- `to`: Recipient email address (supports variables)
+- `cc`, `bcc`: Optional carbon copy recipients
+- `subject`: Email subject line
+- `body`: Email body (plain text or HTML)
+- `templateKey`: Optional reference to email template
+
+### CALL_API
+
+Make HTTP requests to external APIs for integration with third-party systems.
+
+**Configuration:**
+
+```json
+{
+  "activityId": "charge-payment",
+  "activityName": "Charge Payment via Stripe",
+  "activityType": "CALL_API",
+  "config": {
+    "url": "https://api.stripe.com/v1/charges",
+    "method": "POST",
+    "headers": {
+      "Authorization": "Bearer {{env.STRIPE_SECRET_KEY}}",
+      "Content-Type": "application/json"
+    },
+    "body": {
+      "amount": "{{context.amountCents}}",
+      "currency": "usd",
+      "source": "{{context.paymentToken}}",
+      "description": "Order {{context.orderId}}"
+    }
+  },
+  "async": true,
+  "timeout": "30s",
+  "retryPolicy": {
+    "maxAttempts": 3,
+    "backoff": "exponential"
+  }
+}
+```
+
+**Parameters:**
+- `url`: API endpoint (supports variable interpolation)
+- `method`: HTTP method (GET, POST, PUT, DELETE, PATCH)
+- `headers`: Request headers (authentication, content type, etc.)
+- `body`: Request body (object or string)
+
+**Response Handling:**
+
+API responses are saved to workflow context under `activities.<activityId>.output`:
+
+```json
+{
+  "activities": {
+    "charge-payment": {
+      "output": {
+        "id": "ch_123",
+        "status": "succeeded",
+        "amount": 5000
+      }
+    }
+  }
+}
+```
+
+Access response data in subsequent steps: `{{activities.charge-payment.output.id}}`
+
+### EMIT_EVENT
+
+Publish domain events to trigger other workflows or update application state.
+
+**Configuration:**
+
+```json
+{
+  "activityId": "emit-order-placed",
+  "activityName": "Emit Order Placed Event",
+  "activityType": "EMIT_EVENT",
+  "config": {
+    "eventType": "order.placed",
+    "payload": {
+      "orderId": "{{context.orderId}}",
+      "customerId": "{{context.customerId}}",
+      "amount": "{{context.totalAmount}}",
+      "items": "{{context.items}}"
+    }
+  }
+}
+```
+
+**Parameters:**
+- `eventType`: Event name (convention: `module.action`)
+- `payload`: Event data (any JSON object)
+
+### UPDATE_ENTITY
+
+Update database records directly from the workflow.
+
+**Configuration:**
+
+```json
+{
+  "activityId": "update-order-status",
+  "activityName": "Mark Order as Shipped",
+  "activityType": "UPDATE_ENTITY",
+  "config": {
+    "entityType": "SalesOrder",
+    "entityId": "{{context.orderId}}",
+    "updates": {
+      "status": "SHIPPED",
+      "shippedAt": "{{now}}",
+      "trackingNumber": "{{context.trackingNumber}}"
+    }
+  }
+}
+```
+
+**Parameters:**
+- `entityType`: Database entity name
+- `entityId`: Record ID to update
+- `updates`: Fields and values to change
+
+### CALL_WEBHOOK
+
+Generic webhook calls for integrations with Zapier, Slack, or custom services.
+
+**Configuration:**
+
+```json
+{
+  "activityId": "notify-slack",
+  "activityName": "Post to Slack",
+  "activityType": "CALL_WEBHOOK",
+  "config": {
+    "url": "{{env.SLACK_WEBHOOK_URL}}",
+    "method": "POST",
+    "body": {
+      "text": "New order received: {{context.orderId}} for ${{context.totalAmount}}"
+    }
+  }
+}
+```
+
+### EXECUTE_FUNCTION
+
+Run custom JavaScript or TypeScript functions for complex business logic.
+
+**Configuration:**
+
+```json
+{
+  "activityId": "calculate-discount",
+  "activityName": "Calculate Volume Discount",
+  "activityType": "EXECUTE_FUNCTION",
+  "config": {
+    "functionName": "calculateVolumeDiscount",
+    "arguments": {
+      "quantity": "{{context.quantity}}",
+      "unitPrice": "{{context.unitPrice}}",
+      "customerTier": "{{context.customerTier}}"
+    }
+  }
+}
+```
+
+## Execution Modes
+
+### Synchronous (Default)
+
+The workflow waits for the activity to complete before continuing.
+
+```json
+{
+  "async": false
+}
+```
+
+**Use When:**
+- Activity completes quickly (< 5 seconds)
+- Subsequent steps need the activity result
+- Order of execution matters
+
+### Asynchronous
+
+The workflow continues immediately while the activity runs in the background.
+
+```json
+{
+  "async": true,
+  "timeout": "5m"
+}
+```
+
+**Use When:**
+- Activity takes a long time (API calls, heavy computation)
+- Workflow doesn't need immediate results
+- Processing can happen in parallel
+
+> 💡 **Tip**: Long-running API calls should be async to avoid blocking the workflow.
+
+## Retry Policies
+
+Configure automatic retries for activities that might fail temporarily (network errors, rate limits).
+
+```json
+{
+  "retryPolicy": {
+    "maxAttempts": 3,
+    "backoff": "exponential",
+    "retryableErrors": ["NETWORK_ERROR", "TIMEOUT", "RATE_LIMIT"]
+  }
+}
+```
+
+**Parameters:**
+- `maxAttempts`: Maximum retry attempts (default: 0, no retries)
+- `backoff`: Retry delay strategy (`fixed`, `exponential`, `linear`)
+- `retryableErrors`: Only retry on specific error types
+
+**Backoff Strategies:**
+- **Fixed**: Same delay between retries (e.g., 5s, 5s, 5s)
+- **Exponential**: Increasing delay (e.g., 2s, 4s, 8s)
+- **Linear**: Linearly increasing delay (e.g., 5s, 10s, 15s)
+
+## Variable Interpolation
+
+Use `{{variable}}` syntax to inject workflow data into activity configurations.
+
+**Available Variables:**
+
+- `{{context.fieldName}}` - Workflow context data
+- `{{workflow.instanceId}}` - Current workflow instance ID
+- `{{workflow.definitionId}}` - Workflow definition ID
+- `{{workflow.version}}` - Workflow version number
+- `{{activities.activityId.output.field}}` - Output from previous activities
+- `{{env.ENV_VAR}}` - Environment variables
+- `{{now}}` - Current timestamp
+- `{{user.id}}` - Current user ID (if available)
+
+**Example:**
+
+```json
+{
+  "config": {
+    "to": "{{context.customerEmail}}",
+    "subject": "Order {{context.orderId}} Confirmation",
+    "body": "Thank you for your order, {{context.customerName}}! Your order will arrive by {{context.estimatedDelivery}}."
+  }
+}
+```
+
+## Common Patterns
+
+### Send Approval Email on Transition
+
+Configure an activity on the transition from an AUTOMATED step to a USER_TASK:
+
+```json
+{
+  "fromStepId": "start",
+  "toStepId": "approve-request",
+  "activities": [
+    {
+      "activityType": "SEND_EMAIL",
+      "config": {
+        "to": "{{context.approverEmail}}",
+        "subject": "Approval Required",
+        "body": "Please review the request."
+      }
+    }
+  ]
+}
+```
+
+### Call External API and Use Response
+
+Call an API, then use the response in subsequent steps:
+
+```json
+{
+  "activityId": "get-inventory",
+  "activityType": "CALL_API",
+  "config": {
+    "url": "https://inventory.example.com/check/{{context.productId}}"
+  }
+}
+```
+
+Access the response: `{{activities.get-inventory.output.quantityAvailable}}`
+
+### Update Record After Approval
+
+Update a database record when a task is completed:
+
+```json
+{
+  "activityId": "mark-approved",
+  "activityType": "UPDATE_ENTITY",
+  "config": {
+    "entityType": "PurchaseRequest",
+    "entityId": "{{context.requestId}}",
+    "updates": {
+      "status": "APPROVED",
+      "approvedBy": "{{user.id}}",
+      "approvedAt": "{{now}}"
+    }
+  }
+}
+```
+
+## Next Steps
+
+- [**Configure transitions**](./transitions) to add conditional logic between steps
+- [**Set up signals**](./signals) to resume workflows from external triggers
+- [**Monitor execution**](./monitoring) to debug activity failures and track performance
+
+**See Also:**
+- [**Step Types**](./step-types) - Learn about AUTOMATED steps
+- [**Framework Documentation**](/framework/workflows/extending) - Create custom activity types

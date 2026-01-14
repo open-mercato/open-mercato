@@ -1,6 +1,7 @@
 @import "tailwindcss";
 @import "tw-animate-css";
 @import "react-big-calendar/lib/css/react-big-calendar.css";
+@import "@xyflow/react/dist/style.css";
 
 /*
 Include workspace packages in Tailwind content scanning
@@ -157,4 +158,20 @@ TODO: Fix that latter to have reference by the package names
 
 .schedule-calendar .rbc-time-content {
   font-size: 0.8125rem;
+}
+
+/* Flash message animations */
+@keyframes slide-in {
+    from {
+        transform: translateX(100%);
+        opacity: 0;
+    }
+    to {
+        transform: translateX(0);
+        opacity: 1;
+    }
+}
+
+.animate-slide-in {
+    animation: slide-in 0.3s ease-out;
 }

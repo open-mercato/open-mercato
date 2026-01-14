@@ -1,0 +1,127 @@
+---
+title: Manage currencies and exchange rates
+description: Configure multi-currency support, manage exchange rates, and automate rate fetching from external providers.
+---
+
+The currencies module enables multi-currency operations across your organization, with automatic exchange rate fetching from trusted financial providers and flexible manual rate management.
+
+![Currencies screen](/screenshots/open-mercato-currencies-all-results.png)
+
+## 1. Create and manage currencies
+
+- Navigate to **Backend → Currencies** and click **Add currency**.
+- Enter the ISO 4217 currency code (3-letter uppercase, e.g., USD, EUR, PLN).
+- Provide the currency name, symbol, and formatting preferences (decimal places, thousand and decimal separators).
+- Mark one currency as your **base currency**—this is the default currency in your system.
+- Save the currency. It becomes immediately available across the system for pricing, orders, and rate conversions.
+
+Each organization can maintain its own set of active currencies, scoped to your tenant for complete isolation.
+
+## 2. Manage exchange rates
+
+Exchange rates can be added manually or fetched automatically from configured providers.
+
+### Manual rate entry
+
+1. Navigate to **Backend → Exchange Rates** and click **Add exchange rate**.
+2. Select the source and target currencies (e.g., USD → EUR).
+3. Enter the exchange rate value with up to 8 decimal places for precision.
+4. Choose the date for this rate—historical rates are fully supported.
+5. Optionally specify the rate type:
+   - **Buy**: Rate when the bank buys the foreign currency (you sell it to them)
+   - **Sell**: Rate when the bank sells the foreign currency (you buy it from them)
+   - Leave empty for general-purpose rates
+6. Set the source identifier (e.g., "manual", "accounting-system", or your provider name).
+7. Save the rate. It's immediately available for conversions and calculations.
+
+You can maintain multiple rates for the same currency pair and date from different sources. The system returns all available rates, allowing you to choose which one to use in your business logic.
+
+### Viewing rate history
+
+The exchange rates list shows all rates with filtering by:
+- Currency pair
+- Date range
+- Source (provider name or "manual")
+- Rate type (buy, sell, or unspecified)
+
+This gives you full audit trail and historical data for compliance and reporting.
+
+## 3. Configure automatic rate fetching
+
+Open Mercato includes built-in providers that fetch exchange rates automatically.
+
+### Available providers
+
+1. **NBP (National Bank of Poland)**
+   - Fetches ~13 currencies with bid (buy) and ask (sell) rates
+   - Uses official Polish central bank data
+   - Daily updates from Table C
+
+2. **Raiffeisen Bank Polska**
+   - Fetches 4 major currencies: EUR, USD, CHF, GBP
+   - Provides intraday buy and sell rates
+   - Web-scraped from public rate tables
+
+### Enable a provider
+
+1. Navigate to **Backend → Settings → Currency Fetch Configuration**.
+2. Click **Enable provider** and select NBP or Raiffeisen.
+3. Configure the sync schedule (time of day when rates should be fetched).
+4. Save the configuration.
+
+The provider will automatically fetch rates at the scheduled time each day. Last sync status and count are displayed in the configuration list.
+
+### Manual rate fetching
+
+Need rates immediately? You can trigger a manual fetch:
+- Use the **Fetch now** button in the UI to pull rates for today
+- Or use the CLI: `yarn mercato currencies fetch-rates` (see CLI section below)
+
+## 4. Working with exchange rates in your workflow
+
+Once currencies and rates are configured, the system automatically:
+- Stores rates in the database for fast lookups
+- Provides API access for currency conversions
+- Falls back to previous days if a rate is missing (up to 30 days)
+- Returns all available rates from different providers for comparison
+
+Your application code can retrieve rates via the REST API or the service layer (see Framework documentation for programmatic access).
+
+### Rate selection strategies
+
+When multiple providers return rates for the same currency pair, you can:
+- Use a specific provider (e.g., always use NBP for official rates)
+- Calculate the average across providers
+- Choose the best rate (lowest/highest depending on your needs)
+- Display all rates to users for manual selection
+
+## 5. Currency formatting
+
+Each currency includes formatting rules that control how amounts are displayed:
+- **Decimal places**: How many digits after the decimal point (e.g., 2 for USD)
+- **Thousand separator**: Character for grouping thousands (e.g., "," for 1,000)
+- **Decimal separator**: Character for decimals (e.g., "." for 100.50)
+
+These settings ensure consistent, locale-appropriate formatting across invoices, quotes, and order displays.
+
+## 6. Access control
+
+The currencies module provides granular permissions:
+- `currencies.view` – View currencies and their settings
+- `currencies.manage` – Create, update, and delete currencies
+- `currencies.rates.view` – View exchange rates
+- `currencies.rates.manage` – Manage exchange rates manually
+- `currencies.fetch.view` – View fetch configuration
+- `currencies.fetch.manage` – Configure automatic rate providers
+
+Assign these permissions to roles based on your organizational needs—accountants might need full access while sales teams only need view permissions.
+
+## 7. Multi-tenant isolation
+
+All currencies and exchange rates are scoped to your tenant and organization:
+- Each organization maintains its own currency list and base currency
+- Exchange rates are isolated per organization
+- Provider configurations are tenant-specific
+- No data leaks between tenants or organizations
+
+This ensures complete data privacy and allows different business units to use different currency strategies.

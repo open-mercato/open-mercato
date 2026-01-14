@@ -398,6 +398,7 @@ async function ensureDefaultRoleAcls(
       'perspectives.use',
       'perspectives.role_defaults',
       'business_rules.*',
+      'workflows.*',
       'booking.*',
       'currencies.*',
     ]

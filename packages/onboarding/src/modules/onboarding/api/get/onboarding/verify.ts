@@ -143,7 +143,6 @@ export async function GET(req: Request) {
                 organizationId: orgScope,
                 withDeleted: false,
               },
-              { vectorService: vectorService ?? undefined },
             )
           } catch (error) {
             console.error('[onboarding.verify] failed to refresh coverage snapshot', {

@@ -62,6 +62,7 @@ export class VectorSearchStrategy implements SearchStrategy {
   }
 
   async search(query: string, options: SearchOptions): Promise<SearchResult[]> {
+    await this.ensureReady()
     const embedding = await this.embeddingService.createEmbedding(query)
 
     // Build filter - only include organizationId if it's a real value
@@ -104,6 +105,7 @@ export class VectorSearchStrategy implements SearchStrategy {
   }
 
   async index(record: IndexableRecord): Promise<void> {
+    await this.ensureReady()
     // Use text from buildSource if available, otherwise fall back to generic extraction
     const textContent = record.text
       ? (Array.isArray(record.text) ? record.text.join('\n') : record.text)
@@ -133,10 +135,12 @@ export class VectorSearchStrategy implements SearchStrategy {
   }
 
   async delete(entityId: EntityId, recordId: string, tenantId: string): Promise<void> {
+    await this.ensureReady()
     await this.vectorDriver.delete(entityId, recordId, tenantId)
   }
 
   async purge(entityId: EntityId, tenantId: string): Promise<void> {
+    await this.ensureReady()
     if (this.vectorDriver.purge) {
       await this.vectorDriver.purge(entityId, tenantId)
     }

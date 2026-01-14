@@ -1,0 +1,143 @@
+---
+title: Workflows Framework
+description: Programmatic integration and extension of the workflow engine
+---
+
+# Workflows Framework
+
+This section provides technical documentation for developers who want to integrate workflows into their applications, extend the engine with custom functionality, or understand the underlying architecture.
+
+## For Developers
+
+### Getting Started
+
+- [**Architecture**](./architecture) - Understand the workflow engine design, event sourcing, and state machine model
+- [**Services**](./services) - Integrate workflows via REST API and TypeScript services
+- [**Testing**](./testing) - Write unit and integration tests for workflow implementations
+
+### Advanced Topics
+
+- [**Extending**](./extending) - Create custom activities, step handlers, and signal processors
+
+## Quick Links
+
+### Integration Guides
+
+Start workflows, send signals, and complete tasks programmatically:
+
+- [**Starting Workflows**](./services#starting-workflows) - Create workflow instances via API
+- [**Sending Signals**](./services#sending-signals) - Resume workflows with external events
+- [**Completing Tasks**](./services#completing-tasks) - Complete user tasks programmatically
+- [**Event Listeners**](./services#event-listeners) - Subscribe to workflow events
+
+### Extension Points
+
+Extend the workflow engine with custom functionality:
+
+- [**Custom Activities**](./extending#creating-custom-activity-types) - Add new activity types
+- [**Custom Step Handlers**](./extending#custom-step-handlers) - Implement new step types
+- [**Custom Signal Processors**](./extending#custom-signal-processors) - Process signals with custom logic
+
+### Architecture Deep Dive
+
+Understand how the workflow engine works:
+
+- [**Core Components**](./architecture#core-components) - Definitions, instances, executor
+- [**Execution Flow**](./architecture#execution-flow) - How workflows progress through steps
+- [**Event Sourcing**](./architecture#event-sourcing) - Complete audit trail
+- [**Compensation**](./architecture#compensation-saga-pattern) - Saga pattern for rollback
+- [**Async Activities**](./architecture#async-activities) - Queue-based execution
+
+## Example: Starting a Workflow
+
+```typescript
+import { apiFetch } from '@open-mercato/ui/backend/utils/api'
+
+async function startApprovalWorkflow(orderId: string, amount: number) {
+  const response = await apiFetch('/api/workflows/instances', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      workflowId: 'purchase-approval-v1',
+      initialContext: {
+        orderId,
+        amount,
+        requesterEmail: 'user@example.com',
+        approverEmail: 'manager@example.com'
+      },
+      correlationKey: orderId
+    })
+  })
+
+  if (!response.ok) {
+    throw new Error('Failed to start workflow')
+  }
+
+  return await response.json()
+}
+```
+
+## Example: Custom Activity
+
+```typescript
+import { ActivityDefinition, ActivityExecutionContext, ActivityResult } from '../types'
+
+export async function executeSendSmsActivity(
+  definition: ActivityDefinition,
+  context: ActivityExecutionContext
+): Promise<ActivityResult> {
+  const { to, message } = definition.config
+
+  try {
+    const smsService = context.container.resolve('smsService')
+    const result = await smsService.send({ to, message })
+
+    return {
+      success: true,
+      output: { messageId: result.messageId }
+    }
+  } catch (error: any) {
+    return {
+      success: false,
+      error: error.message,
+      retryable: true
+    }
+  }
+}
+```
+
+## User Documentation
+
+For non-technical users and business users, see the [**User Guide**](/user-guide/workflows/).
+
+## API Reference
+
+### REST Endpoints
+
+- `POST /api/workflows/instances` - Start workflow
+- `POST /api/workflows/instances/{id}/signal` - Send signal
+- `GET /api/workflows/instances/{id}` - Get instance details
+- `GET /api/workflows/instances` - List instances
+- `POST /api/workflows/tasks/{id}/complete` - Complete task
+
+### Service Interfaces
+
+- `WorkflowService` - Core workflow operations
+- `WorkflowExecutor` - State machine execution
+- `ActivityExecutor` - Activity execution
+- `TaskService` - User task management
+
+[**View full API documentation →**](./services)
+
+## Next Steps
+
+1. **Understand the Architecture**: Read the [**architecture guide**](./architecture) to learn how the engine works
+2. **Integrate via API**: Follow the [**services guide**](./services) to start workflows programmatically
+3. **Extend the Engine**: Use the [**extending guide**](./extending) to add custom functionality
+4. **Test Your Implementation**: Follow the [**testing guide**](./testing) to write comprehensive tests
+
+## See Also
+
+- [**User Guide**](/user-guide/workflows/) - Documentation for end users
+- [**Business Rules Architecture**](/framework/business-rules/architecture) - Integrate business rules with workflows
+- [**API Reference**](./services) - Complete API documentation

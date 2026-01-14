@@ -1,0 +1,595 @@
+---
+title: Extending Workflows
+description: Create custom activities, step handlers, and signal processors
+---
+
+# Extending Workflows
+
+The workflow engine is designed for extensibility. This guide shows how to create custom activity types, implement new step handlers, and build custom signal processors.
+
+## Creating Custom Activity Types
+
+Custom activities allow you to extend the workflow engine with domain-specific actions.
+
+### 1. Define the Activity Executor
+
+Create a new file in `src/modules/workflows/lib/activities/`:
+
+```typescript
+// src/modules/workflows/lib/activities/send-sms.ts
+import { ActivityDefinition, ActivityExecutionContext, ActivityResult } from '../types'
+import { SmsService } from '@/modules/notifications/lib/sms-service'
+
+export async function executeSendSmsActivity(
+  definition: ActivityDefinition,
+  context: ActivityExecutionContext
+): Promise<ActivityResult> {
+  const { to, message } = definition.config
+
+  // Variable interpolation
+  const interpolatedTo = interpolateVariables(to, context.workflowContext)
+  const interpolatedMessage = interpolateVariables(message, context.workflowContext)
+
+  try {
+    // Inject SMS service via DI
+    const smsService = context.container.resolve<SmsService>('smsService')
+
+    // Send SMS
+    const result = await smsService.send({
+      to: interpolatedTo,
+      message: interpolatedMessage
+    })
+
+    return {
+      success: true,
+      output: {
+        messageId: result.messageId,
+        sentAt: new Date().toISOString(),
+        to: interpolatedTo
+      }
+    }
+  } catch (error: any) {
+    return {
+      success: false,
+      error: error.message,
+      retryable: error.code === 'NETWORK_ERROR'
+    }
+  }
+}
+
+function interpolateVariables(template: string, context: any): string {
+  return template.replace(/\{\{(.+?)\}\}/g, (match, path) => {
+    const value = path.split('.').reduce((obj: any, key: string) => obj?.[key], context)
+    return value !== undefined ? String(value) : match
+  })
+}
+```
+
+### 2. Register the Activity Executor
+
+Add your executor to the activity registry:
+
+```typescript
+// src/modules/workflows/lib/activity-executor.ts
+import { executeSendSmsActivity } from './activities/send-sms'
+import { executeSendEmailActivity } from './activities/send-email'
+import { executeCallApiActivity } from './activities/call-api'
+
+export const activityExecutors = {
+  SEND_EMAIL: executeSendEmailActivity,
+  CALL_API: executeCallApiActivity,
+  SEND_SMS: executeSendSmsActivity, // Register custom activity
+  EMIT_EVENT: executeEmitEventActivity,
+  UPDATE_ENTITY: executeUpdateEntityActivity,
+  CALL_WEBHOOK: executeCallWebhookActivity,
+  EXECUTE_FUNCTION: executeExecuteFunctionActivity
+}
+
+export async function executeActivity(
+  definition: ActivityDefinition,
+  context: ActivityExecutionContext
+): Promise<ActivityResult> {
+  const executor = activityExecutors[definition.activityType]
+
+  if (!executor) {
+    throw new Error(`Unknown activity type: ${definition.activityType}`)
+  }
+
+  return await executor(definition, context)
+}
+```
+
+### 3. Use the Custom Activity
+
+Now you can use the custom activity in workflow definitions:
+
+```json
+{
+  "activityId": "notify-customer",
+  "activityName": "Send SMS Notification",
+  "activityType": "SEND_SMS",
+  "config": {
+    "to": "{{context.customerPhone}}",
+    "message": "Your order {{context.orderId}} has been shipped!"
+  }
+}
+```
+
+### Async Activity Support
+
+For long-running activities, support async execution:
+
+```typescript
+export async function executeSendSmsActivity(
+  definition: ActivityDefinition,
+  context: ActivityExecutionContext
+): Promise<ActivityResult> {
+  // Check if activity should run async
+  if (definition.async) {
+    // Enqueue for background processing
+    await context.queue.add('send-sms', {
+      activityId: definition.activityId,
+      workflowInstanceId: context.workflowInstanceId,
+      to: definition.config.to,
+      message: definition.config.message
+    })
+
+    return {
+      success: true,
+      output: { status: 'QUEUED' }
+    }
+  }
+
+  // Synchronous execution
+  // ...
+}
+```
+
+## Custom Step Handlers
+
+Implement custom step types by creating step handlers.
+
+### 1. Define the Step Handler
+
+```typescript
+// src/modules/workflows/lib/step-handlers/approval-matrix.ts
+import { StepDefinition, StepExecutionContext, StepResult } from '../types'
+
+export async function executeApprovalMatrixStep(
+  definition: StepDefinition,
+  context: StepExecutionContext
+): Promise<StepResult> {
+  const { amount, requesterLevel } = context.workflowContext
+
+  // Determine required approvers based on amount and level
+  const approvers = determineApprovers(amount, requesterLevel)
+
+  // Create tasks for all required approvers
+  const tasks = await Promise.all(
+    approvers.map(approverId =>
+      context.taskService.createTask({
+        workflowInstanceId: context.workflowInstanceId,
+        stepInstanceId: context.stepInstanceId,
+        taskName: `Approve Request - $${amount}`,
+        assignedTo: approverId,
+        formSchema: [
+          {
+            fieldName: 'decision',
+            fieldType: 'select',
+            options: ['approve', 'reject'],
+            required: true
+          }
+        ]
+      })
+    )
+  )
+
+  return {
+    success: true,
+    output: {
+      tasksCreated: tasks.length,
+      approvers
+    },
+    waitForCompletion: true // Step waits for tasks to complete
+  }
+}
+
+function determineApprovers(amount: number, requesterLevel: string): string[] {
+  if (amount > 100000) {
+    return ['cfo-user-id', 'ceo-user-id'] // Dual approval
+  } else if (amount > 10000) {
+    return ['director-user-id']
+  } else {
+    return ['manager-user-id']
+  }
+}
+```
+
+### 2. Register the Step Handler
+
+```typescript
+// src/modules/workflows/lib/step-executor.ts
+import { executeApprovalMatrixStep } from './step-handlers/approval-matrix'
+
+export const stepHandlers = {
+  START: executeStartStep,
+  END: executeEndStep,
+  USER_TASK: executeUserTaskStep,
+  AUTOMATED: executeAutomatedStep,
+  WAIT_FOR_SIGNAL: executeWaitForSignalStep,
+  SUB_WORKFLOW: executeSubWorkflowStep,
+  APPROVAL_MATRIX: executeApprovalMatrixStep // Custom step type
+}
+
+export async function executeStep(
+  definition: StepDefinition,
+  context: StepExecutionContext
+): Promise<StepResult> {
+  const handler = stepHandlers[definition.stepType]
+
+  if (!handler) {
+    throw new Error(`Unknown step type: ${definition.stepType}`)
+  }
+
+  return await handler(definition, context)
+}
+```
+
+### 3. Use the Custom Step
+
+```json
+{
+  "stepId": "approval-matrix",
+  "stepName": "Multi-Level Approval",
+  "stepType": "APPROVAL_MATRIX",
+  "config": {
+    "approvalLevels": {
+      "manager": 10000,
+      "director": 100000,
+      "executive": 1000000
+    }
+  }
+}
+```
+
+## Custom Signal Processors
+
+Process signals with custom logic before merging into workflow context.
+
+### 1. Define the Signal Processor
+
+```typescript
+// src/modules/workflows/lib/signal-processors/payment-confirmed.ts
+import { SignalPayload, ProcessedSignal } from '../types'
+
+export async function processPaymentConfirmedSignal(
+  signalName: string,
+  payload: SignalPayload,
+  workflowContext: any
+): Promise<ProcessedSignal> {
+  // Validate payload
+  if (!payload.transactionId || !payload.amount) {
+    throw new Error('Invalid payment confirmation payload')
+  }
+
+  // Enrich payload with additional data
+  const paymentDetails = await fetchPaymentDetails(payload.transactionId)
+
+  // Transform payload before merging into context
+  return {
+    transactionId: payload.transactionId,
+    paidAmount: payload.amount,
+    paymentMethod: paymentDetails.method,
+    paymentVerified: paymentDetails.status === 'verified',
+    processedAt: new Date().toISOString()
+  }
+}
+
+async function fetchPaymentDetails(transactionId: string): Promise<any> {
+  // Call payment gateway API to verify transaction
+  const response = await fetch(`https://payment-gateway.com/transactions/${transactionId}`)
+  return await response.json()
+}
+```
+
+### 2. Register the Signal Processor
+
+```typescript
+// src/modules/workflows/lib/signal-handler.ts
+import { processPaymentConfirmedSignal } from './signal-processors/payment-confirmed'
+
+export const signalProcessors: Record<string, SignalProcessor> = {
+  'payment-confirmed': processPaymentConfirmedSignal,
+  'approval-granted': processApprovalGrantedSignal,
+  // Add more processors as needed
+}
+
+export async function processSignal(
+  signalName: string,
+  payload: any,
+  workflowContext: any
+): Promise<any> {
+  const processor = signalProcessors[signalName]
+
+  if (processor) {
+    // Use custom processor
+    return await processor(signalName, payload, workflowContext)
+  }
+
+  // Default: return payload as-is
+  return payload
+}
+```
+
+## Business Rules Integration
+
+Integrate business rules for transition conditions.
+
+### 1. Reference Business Rules in Transitions
+
+```json
+{
+  "transitionId": "review-to-approved",
+  "fromStepId": "review",
+  "toStepId": "approved",
+  "trigger": "manual",
+  "preConditions": [
+    {
+      "ruleId": "approval-required",
+      "ruleReference": "purchase.requires-manager-approval"
+    }
+  ]
+}
+```
+
+### 2. Evaluate Business Rules
+
+```typescript
+// src/modules/workflows/lib/condition-evaluator.ts
+import { BusinessRulesService } from '@/modules/business-rules/lib/business-rules-service'
+
+export async function evaluateConditions(
+  conditions: Condition[],
+  context: any,
+  container: any
+): Promise<boolean> {
+  for (const condition of conditions) {
+    if (condition.ruleReference) {
+      // Evaluate business rule
+      const rulesService = container.resolve<BusinessRulesService>('businessRulesService')
+      const result = await rulesService.evaluate(condition.ruleReference, context)
+
+      if (!result.passed) {
+        return false
+      }
+    } else if (condition.expression) {
+      // Evaluate inline expression
+      const result = evaluateExpression(condition.expression, context)
+
+      if (!result) {
+        return false
+      }
+    }
+  }
+
+  return true
+}
+
+function evaluateExpression(expression: string, context: any): boolean {
+  // Simple expression evaluator (use a library like expr-eval for production)
+  try {
+    const fn = new Function('context', `return ${expression}`)
+    return fn(context)
+  } catch (error) {
+    console.error('Expression evaluation failed:', error)
+    return false
+  }
+}
+```
+
+## Testing Custom Implementations
+
+### Unit Tests
+
+Test activity executors in isolation:
+
+```typescript
+// src/modules/workflows/lib/activities/send-sms.test.ts
+import { executeSendSmsActivity } from './send-sms'
+import { mock, MockProxy } from 'jest-mock-extended'
+import { SmsService } from '@/modules/notifications/lib/sms-service'
+
+describe('executeSendSmsActivity', () => {
+  let smsService: MockProxy<SmsService>
+
+  beforeEach(() => {
+    smsService = mock<SmsService>()
+  })
+
+  it('should send SMS with interpolated variables', async () => {
+    const definition = {
+      activityId: 'send-sms',
+      activityType: 'SEND_SMS',
+      config: {
+        to: '{{context.customerPhone}}',
+        message: 'Order {{context.orderId}} shipped!'
+      }
+    }
+
+    const context = {
+      workflowContext: {
+        customerPhone: '+1234567890',
+        orderId: 'order-123'
+      },
+      container: {
+        resolve: (name: string) => {
+          if (name === 'smsService') return smsService
+        }
+      }
+    }
+
+    smsService.send.mockResolvedValue({ messageId: 'msg-123' })
+
+    const result = await executeSendSmsActivity(definition, context as any)
+
+    expect(result.success).toBe(true)
+    expect(result.output?.messageId).toBe('msg-123')
+    expect(smsService.send).toHaveBeenCalledWith({
+      to: '+1234567890',
+      message: 'Order order-123 shipped!'
+    })
+  })
+
+  it('should handle errors gracefully', async () => {
+    const definition = {
+      activityId: 'send-sms',
+      activityType: 'SEND_SMS',
+      config: { to: '+1234567890', message: 'Test' }
+    }
+
+    const context = {
+      workflowContext: {},
+      container: {
+        resolve: () => smsService
+      }
+    }
+
+    smsService.send.mockRejectedValue(new Error('Network error'))
+
+    const result = await executeSendSmsActivity(definition, context as any)
+
+    expect(result.success).toBe(false)
+    expect(result.error).toContain('Network error')
+  })
+})
+```
+
+### Integration Tests
+
+Test workflows end-to-end:
+
+```typescript
+// src/modules/workflows/__tests__/custom-activity.integration.test.ts
+import { WorkflowService } from '../lib/workflow-service'
+import { createTestContainer } from '@/test/test-container'
+
+describe('Workflow with custom SEND_SMS activity', () => {
+  let workflowService: WorkflowService
+  let container: any
+
+  beforeAll(async () => {
+    container = await createTestContainer()
+    workflowService = container.resolve('workflowService')
+  })
+
+  it('should execute workflow with SEND_SMS activity', async () => {
+    // Start workflow
+    const instance = await workflowService.startWorkflow({
+      workflowId: 'notification-workflow-v1',
+      initialContext: {
+        customerPhone: '+1234567890',
+        orderId: 'order-123'
+      }
+    })
+
+    // Wait for completion
+    await waitForWorkflowCompletion(instance.id)
+
+    // Verify workflow completed
+    const updatedInstance = await workflowService.getInstance(instance.id)
+    expect(updatedInstance.status).toBe('COMPLETED')
+
+    // Verify SMS was sent (check activity output)
+    expect(updatedInstance.context.activities['send-sms'].output.messageId).toBeDefined()
+  })
+})
+```
+
+## Example: Custom "SEND_SMS" Activity
+
+Complete implementation:
+
+```typescript
+// src/modules/workflows/lib/activities/send-sms.ts
+import { ActivityDefinition, ActivityExecutionContext, ActivityResult } from '../types'
+import { SmsService } from '@/modules/notifications/lib/sms-service'
+
+export async function executeSendSmsActivity(
+  definition: ActivityDefinition,
+  context: ActivityExecutionContext
+): Promise<ActivityResult> {
+  const { to, message } = definition.config
+
+  // Interpolate variables
+  const interpolatedTo = interpolateVariables(to, context.workflowContext)
+  const interpolatedMessage = interpolateVariables(message, context.workflowContext)
+
+  try {
+    const smsService = context.container.resolve<SmsService>('smsService')
+
+    const result = await smsService.send({
+      to: interpolatedTo,
+      message: interpolatedMessage
+    })
+
+    return {
+      success: true,
+      output: {
+        messageId: result.messageId,
+        sentAt: new Date().toISOString(),
+        to: interpolatedTo
+      }
+    }
+  } catch (error: any) {
+    return {
+      success: false,
+      error: error.message,
+      retryable: error.code === 'NETWORK_ERROR' || error.code === 'TIMEOUT'
+    }
+  }
+}
+
+function interpolateVariables(template: string, context: any): string {
+  return template.replace(/\{\{(.+?)\}\}/g, (match, path) => {
+    const value = path.split('.').reduce((obj: any, key: string) => obj?.[key], context)
+    return value !== undefined ? String(value) : match
+  })
+}
+```
+
+## Best Practices
+
+### For Custom Activities
+
+- Always return `ActivityResult` with `success` and `output`/`error`
+- Mark network/transient errors as `retryable: true`
+- Use dependency injection (DI) for services
+- Validate configuration early and fail fast
+- Support both sync and async execution
+
+### For Custom Step Handlers
+
+- Emit events for state changes
+- Support timeout configuration
+- Handle errors gracefully and return meaningful messages
+- Persist step state for resumability
+- Use DI for services and dependencies
+
+### For Signal Processors
+
+- Validate payload structure
+- Enrich payloads with additional data if needed
+- Transform payloads into consistent format
+- Handle errors without failing the workflow
+- Log processing for debugging
+
+## Next Steps
+
+- [**Test workflows**](./testing) with custom implementations
+- [**Review architecture**](./architecture) to understand integration points
+- [**Use services**](./services) to integrate workflows programmatically
+
+**See Also:**
+- [**Activities**](/user-guide/workflows/activities) - Activity configuration reference
+- [**Step Types**](/user-guide/workflows/step-types) - Built-in step types
+- [**Architecture**](./architecture) - Engine design and extension points

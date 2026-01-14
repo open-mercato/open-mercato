@@ -23,6 +23,7 @@ export const enabledModules: ModuleEntry[] = [
   { id: 'api_docs', from: '@open-mercato/core' },
   { id: 'business_rules', from: '@open-mercato/core' },
   { id: 'feature_toggles', from: '@open-mercato/core' },
+  { id: 'workflows', from: '@open-mercato/core' },
   { id: 'booking', from: '@open-mercato/core' },
   { id: 'search', from: '@open-mercato/search' },
   { id: 'currencies', from: '@open-mercato/core' },

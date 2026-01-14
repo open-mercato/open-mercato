@@ -137,7 +137,14 @@ export class AccessLogService {
         context: undefined,
       }
     }
-    const toNullableUuid = (value: unknown) => (typeof value === 'string' && value.length > 0 ? value : null)
+    const toNullableUuid = (value: unknown) => {
+      if (typeof value !== 'string' || value.length === 0) return null
+      // Extract UUID from "api_key:<uuid>" format (used by workflow authentication)
+      if (value.startsWith('api_key:')) {
+        return value.slice('api_key:'.length)
+      }
+      return value
+    }
     const fields = Array.isArray(input.fields)
       ? input.fields.filter((f): f is string => typeof f === 'string' && f.length > 0)
       : undefined

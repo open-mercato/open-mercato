@@ -54,13 +54,16 @@ const candidateClassNames = (rawName: string): string[] => {
 }
 
 export function resolveEntityTableName(em: EntityManager | undefined, entity: EntityId): string {
-  if (entityTableCache.has(entity)) return entityTableCache.get(entity)!
+  if (entityTableCache.has(entity)) {
+    return entityTableCache.get(entity)!
+  }
   const parts = String(entity || '').split(':')
   const rawName = (parts[1] && parts[1].trim().length > 0) ? parts[1] : (parts[0] || '').trim()
   const metadata = (em as any)?.getMetadata?.()
 
   if (metadata && rawName) {
-    for (const candidate of candidateClassNames(rawName)) {
+    const candidates = candidateClassNames(rawName)
+    for (const candidate of candidates) {
       try {
         const meta = metadata.find?.(candidate)
         if (meta?.tableName) {

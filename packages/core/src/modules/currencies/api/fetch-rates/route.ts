@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import type { EntityManager } from '@mikro-orm/core'
+import { z } from 'zod'
+import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { RateFetchingService } from '../../services/rateFetchingService'
@@ -28,7 +30,7 @@ export async function POST(req: NextRequest) {
     } catch {
       return NextResponse.json({ error: 'Invalid JSON' }, { status: 400 })
     }
-    
+
     const { date, providers } = body
 
     const fetchDate = date ? new Date(date) : new Date()
@@ -58,7 +60,7 @@ export async function POST(req: NextRequest) {
       if (config) {
         const providerData = result.byProvider[providerSource]
         const providerErrors = providerData?.errors || []
-        
+
         config.lastSyncAt = new Date()
         config.lastSyncCount = providerData?.count || 0
         config.lastSyncStatus =
@@ -71,7 +73,7 @@ export async function POST(req: NextRequest) {
         em.persist(config)
       }
     }
-    
+
     // Flush all config updates at once
     await em.flush()
 
@@ -89,4 +91,51 @@ export async function POST(req: NextRequest) {
   } finally {
     await (container as any).dispose?.()
   }
+}
+
+const fetchRatesRequestSchema = z.object({
+  date: z.string().datetime().optional(),
+  providers: z.array(z.string()).optional(),
+})
+
+const fetchRatesResponseSchema = z.object({
+  totalFetched: z.number(),
+  byProvider: z.record(
+    z.string(),
+    z.object({
+      count: z.number(),
+      errors: z.array(z.string()).optional(),
+    })
+  ),
+  errors: z.array(z.string()),
+})
+
+const errorSchema = z.object({ error: z.string() })
+
+export const openApi: OpenApiRouteDoc = {
+  summary: 'Fetch currency rates',
+  description: 'Trigger on-demand fetching of currency exchange rates from configured providers.',
+  methods: {
+    POST: {
+      operationId: 'fetchCurrencyRates',
+      summary: 'Fetch currency rates',
+      description: 'Fetches currency exchange rates from configured providers for a specific date.',
+      requestBody: {
+        schema: fetchRatesRequestSchema,
+        contentType: 'application/json',
+      },
+      responses: [
+        {
+          status: 200,
+          description: 'Currency rates fetched successfully',
+          schema: fetchRatesResponseSchema,
+        },
+      ],
+      errors: [
+        { status: 400, description: 'Bad request', schema: errorSchema },
+        { status: 401, description: 'Unauthorized', schema: errorSchema },
+        { status: 500, description: 'Internal server error', schema: fetchRatesResponseSchema },
+      ],
+    },
+  },
 }

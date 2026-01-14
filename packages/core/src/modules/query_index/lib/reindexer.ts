@@ -478,7 +478,6 @@ export async function reindexEntity(
           organizationId: scope.organizationId,
           withDeleted: false,
         },
-        { vectorService },
       )
     }
   } finally {
