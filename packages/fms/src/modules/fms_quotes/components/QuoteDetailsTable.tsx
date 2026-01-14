@@ -76,17 +76,31 @@ function dynamicTableToApi(config: PerspectiveConfig): PerspectiveSettings {
   }
 }
 
+type ClientRef = {
+  id: string
+  name: string
+  shortName?: string | null
+}
+
+type PortRef = {
+  id: string
+  locode?: string | null
+  name: string
+  city?: string | null
+  country?: string | null
+}
+
 type Quote = {
   id: string
   quoteNumber?: string | null
-  clientName?: string | null
+  client?: ClientRef | null
   containerCount?: number | null
   status: FmsQuoteStatus
   direction?: string | null
   incoterm?: string | null
   cargoType?: string | null
-  originPortCode?: string | null
-  destinationPortCode?: string | null
+  originPorts?: PortRef[]
+  destinationPorts?: PortRef[]
   validUntil?: string | null
   currencyCode: string
   createdAt: string
@@ -120,9 +134,10 @@ const COLUMNS: ColumnDef[] = [
     width: 150,
   },
   {
-    data: 'clientName',
+    data: 'clientDisplay',
     title: 'Client',
     type: 'text',
+    readOnly: true,
     width: 150,
   },
   {
@@ -154,16 +169,18 @@ const COLUMNS: ColumnDef[] = [
     width: 100,
   },
   {
-    data: 'originPortCode',
-    title: 'Origin Port',
+    data: 'originPortsDisplay',
+    title: 'Origin Ports',
     type: 'text',
-    width: 120,
+    readOnly: true,
+    width: 200,
   },
   {
-    data: 'destinationPortCode',
-    title: 'Dest. Port',
+    data: 'destinationPortsDisplay',
+    title: 'Dest. Ports',
     type: 'text',
-    width: 120,
+    readOnly: true,
+    width: 200,
   },
   {
     data: 'containerCount',
@@ -206,6 +223,22 @@ const COLUMNS: ColumnDef[] = [
     },
   },
 ]
+
+// Helper functions for formatting nested objects
+function formatPorts(ports: PortRef[] | null | undefined): string {
+  if (!ports || ports.length === 0) return ''
+  return ports
+    .map((port) => {
+      const parts = [port.locode, port.name].filter(Boolean)
+      return parts.join(' - ')
+    })
+    .join(', ')
+}
+
+function formatClient(client: ClientRef | null | undefined): string {
+  if (!client) return ''
+  return client.name
+}
 
 // All column keys
 const ALL_COLUMN_KEYS = COLUMNS.map(c => c.data)
@@ -362,13 +395,13 @@ export function QuoteDetailsTable({ quote, onFieldSave }: QuoteDetailsTableProps
     return [{
       id: quote.id,
       quoteNumber: quote.quoteNumber ?? '',
-      clientName: quote.clientName ?? '',
+      clientDisplay: formatClient(quote.client),
       status: quote.status,
       direction: quote.direction ?? '',
       cargoType: quote.cargoType ?? '',
       incoterm: quote.incoterm ?? '',
-      originPortCode: quote.originPortCode ?? '',
-      destinationPortCode: quote.destinationPortCode ?? '',
+      originPortsDisplay: formatPorts(quote.originPorts),
+      destinationPortsDisplay: formatPorts(quote.destinationPorts),
       containerCount: quote.containerCount ?? '',
       currencyCode: quote.currencyCode,
       validUntil: quote.validUntil ? quote.validUntil.split('T')[0] : '',

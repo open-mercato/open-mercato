@@ -17,6 +17,7 @@ import { getAuthFromRequest } from '@/lib/auth/server'
 import { createRequestContainer } from '@/lib/di/container'
 import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/directory/utils/organizationScope'
 import type { EntityManager } from '@mikro-orm/postgresql'
+import { E } from '@open-mercato/fms/generated/entities.ids.generated'
 
 const rawBodySchema = z.object({}).passthrough()
 
@@ -84,6 +85,7 @@ const crud = makeCrudRoute({
     tenantField: 'tenantId',
     softDeleteField: 'deletedAt',
   },
+  indexer: { entityType: E.contractors.contractor },
   list: {
     schema: listSchema,
     fields: [

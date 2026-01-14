@@ -33,14 +33,14 @@ const decimal = (opts?: { min?: number; max?: number }) => {
 // Quote schemas - all fields optional for flexible inline editing
 export const fmsQuoteCreateSchema = scoped.extend({
   quoteNumber: z.string().trim().max(50).optional(),
-  clientName: z.string().trim().max(255).optional(),
+  clientId: uuid().optional().nullable(),
   containerCount: z.coerce.number().int().min(1).optional().nullable(),
   status: z.enum(FMS_QUOTE_STATUSES).optional(),
   direction: z.enum(FMS_DIRECTIONS).optional(),
   incoterm: z.enum(FMS_INCOTERMS).optional(),
   cargoType: z.enum(FMS_CARGO_TYPES).optional(),
-  originPortCode: z.string().trim().max(10).optional(),
-  destinationPortCode: z.string().trim().max(10).optional(),
+  originPortIds: z.array(uuid()).optional().nullable(),
+  destinationPortIds: z.array(uuid()).optional().nullable(),
   validUntil: z.coerce.date().optional().nullable(),
   currencyCode: currencyCode.optional(),
   notes: z.string().trim().max(2000).optional(),

@@ -3,6 +3,7 @@ import { makeCrudRoute } from '@open-mercato/shared/lib/crud/factory'
 import { FmsLocation } from '../../data/entities'
 import { createTerminalSchema, updateTerminalSchema } from '../../data/validators'
 import { escapeLikePattern } from '@open-mercato/shared/lib/db/escapeLikePattern'
+import { E } from '@open-mercato/fms/generated/entities.ids.generated'
 
 const listSchema = z
   .object({
@@ -53,6 +54,7 @@ const crud = makeCrudRoute({
     tenantField: 'tenantId',
     softDeleteField: 'deletedAt',
   },
+  indexer: { entityType: E.fms_locations.fms_location },
   list: {
     schema: listSchema,
     fields: [

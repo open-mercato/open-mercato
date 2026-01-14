@@ -12,8 +12,10 @@ import {
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Label } from '@open-mercato/ui/primitives/label'
 import { Input } from '@open-mercato/ui/primitives/input'
+import { ComboboxInput, type ComboboxOption } from '@open-mercato/ui/backend/inputs'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
+import { MultiPortSelect, type SelectedPort } from './MultiPortSelect'
 
 export type QuoteDrawerProps = {
   open: boolean
@@ -21,28 +23,66 @@ export type QuoteDrawerProps = {
   onCreated?: (quoteId: string, navigateToDetail: boolean) => void
 }
 
+type SearchResultItem = {
+  entityId: string
+  recordId: string
+  score: number
+  source: string
+  presenter?: {
+    title: string
+    subtitle?: string
+    icon?: string
+    badge?: string
+  }
+  url?: string
+}
+
+type SearchResponse = {
+  results: SearchResultItem[]
+  strategiesUsed: string[]
+  timing: number
+  query: string
+  limit: number
+}
+
 type FormData = {
-  clientName: string
-  originPortCode: string
-  destinationPortCode: string
+  clientId: string
+  originPorts: SelectedPort[]
+  destinationPorts: SelectedPort[]
   containerCount: string
 }
 
 export function QuoteDrawer({ open, onOpenChange, onCreated }: QuoteDrawerProps) {
   const [isSubmitting, setIsSubmitting] = React.useState(false)
   const [formData, setFormData] = React.useState<FormData>({
-    clientName: '',
-    originPortCode: '',
-    destinationPortCode: '',
+    clientId: '',
+    originPorts: [],
+    destinationPorts: [],
     containerCount: '',
   })
   const [errors, setErrors] = React.useState<Partial<Record<keyof FormData, string>>>({})
 
+  const loadContractors = React.useCallback(async (query?: string): Promise<ComboboxOption[]> => {
+    if (!query || query.trim().length === 0) return []
+    const params = new URLSearchParams({
+      q: query.trim(),
+      limit: '20',
+      entityTypes: 'contractors:contractor',
+    })
+    const response = await apiCall<SearchResponse>(`/api/search/search?${params}`)
+    if (!response.ok || !response.result?.results) return []
+    return response.result.results.map((item) => ({
+      value: item.recordId,
+      label: item.presenter?.title ?? '',
+      description: item.presenter?.subtitle || null,
+    }))
+  }, [])
+
   const resetForm = React.useCallback(() => {
     setFormData({
-      clientName: '',
-      originPortCode: '',
-      destinationPortCode: '',
+      clientId: '',
+      originPorts: [],
+      destinationPorts: [],
       containerCount: '',
     })
     setErrors({})
@@ -60,14 +100,14 @@ export function QuoteDrawer({ open, onOpenChange, onCreated }: QuoteDrawerProps)
 
   const validate = React.useCallback(() => {
     const newErrors: Partial<Record<keyof FormData, string>> = {}
-    if (!formData.clientName.trim()) {
-      newErrors.clientName = 'Client is required'
+    if (!formData.clientId.trim()) {
+      newErrors.clientId = 'Client is required'
     }
-    if (!formData.originPortCode.trim()) {
-      newErrors.originPortCode = 'Origin port is required'
+    if (formData.originPorts.length === 0) {
+      newErrors.originPorts = 'At least one origin port is required'
     }
-    if (!formData.destinationPortCode.trim()) {
-      newErrors.destinationPortCode = 'Destination port is required'
+    if (formData.destinationPorts.length === 0) {
+      newErrors.destinationPorts = 'At least one destination port is required'
     }
     if (formData.containerCount && isNaN(parseInt(formData.containerCount, 10))) {
       newErrors.containerCount = 'Must be a number'
@@ -83,9 +123,9 @@ export function QuoteDrawer({ open, onOpenChange, onCreated }: QuoteDrawerProps)
       setIsSubmitting(true)
       try {
         const payload: Record<string, unknown> = {
-          clientName: formData.clientName.trim(),
-          originPortCode: formData.originPortCode.trim().toUpperCase(),
-          destinationPortCode: formData.destinationPortCode.trim().toUpperCase(),
+          clientId: formData.clientId.trim() || null,
+          originPortIds: formData.originPorts.map((p) => p.id),
+          destinationPortIds: formData.destinationPorts.map((p) => p.id),
           status: 'draft',
         }
 
@@ -143,56 +183,41 @@ export function QuoteDrawer({ open, onOpenChange, onCreated }: QuoteDrawerProps)
 
           <div className="mt-6 space-y-6">
             <div className="space-y-2">
-              <Label htmlFor="clientName" className="text-sm font-medium">
+              <Label htmlFor="clientId" className="text-sm font-medium">
                 Client <span className="text-red-500">*</span>
               </Label>
-              <Input
-                id="clientName"
-                placeholder="Enter client name"
-                value={formData.clientName}
-                onChange={(e) =>
-                  setFormData((prev) => ({ ...prev, clientName: e.target.value }))
-                }
-                className={errors.clientName ? 'border-red-500' : ''}
+              <ComboboxInput
+                value={formData.clientId}
+                onChange={(next) => setFormData((prev) => ({ ...prev, clientId: next }))}
+                placeholder="Search for contractor..."
+                loadSuggestions={loadContractors}
+                allowCustomValues={false}
               />
-              {errors.clientName && <p className="text-sm text-red-500">{errors.clientName}</p>}
+              {errors.clientId && <p className="text-sm text-red-500">{errors.clientId}</p>}
             </div>
 
             <div className="space-y-2">
-              <Label htmlFor="originPortCode" className="text-sm font-medium">
-                Origin Port <span className="text-red-500">*</span>
+              <Label htmlFor="originPorts" className="text-sm font-medium">
+                Origin Ports <span className="text-red-500">*</span>
               </Label>
-              <Input
-                id="originPortCode"
-                placeholder="e.g. CNSHA"
-                value={formData.originPortCode}
-                onChange={(e) =>
-                  setFormData((prev) => ({ ...prev, originPortCode: e.target.value.toUpperCase() }))
-                }
-                maxLength={10}
-                className={errors.originPortCode ? 'border-red-500' : ''}
+              <MultiPortSelect
+                value={formData.originPorts}
+                onChange={(ports) => setFormData((prev) => ({ ...prev, originPorts: ports }))}
+                placeholder="Search for ports..."
               />
-              {errors.originPortCode && <p className="text-sm text-red-500">{errors.originPortCode}</p>}
+              {errors.originPorts && <p className="text-sm text-red-500">{errors.originPorts}</p>}
             </div>
 
             <div className="space-y-2">
-              <Label htmlFor="destinationPortCode" className="text-sm font-medium">
-                Destination Port <span className="text-red-500">*</span>
+              <Label htmlFor="destinationPorts" className="text-sm font-medium">
+                Destination Ports <span className="text-red-500">*</span>
               </Label>
-              <Input
-                id="destinationPortCode"
-                placeholder="e.g. NLRTM"
-                value={formData.destinationPortCode}
-                onChange={(e) =>
-                  setFormData((prev) => ({
-                    ...prev,
-                    destinationPortCode: e.target.value.toUpperCase(),
-                  }))
-                }
-                maxLength={10}
-                className={errors.destinationPortCode ? 'border-red-500' : ''}
+              <MultiPortSelect
+                value={formData.destinationPorts}
+                onChange={(ports) => setFormData((prev) => ({ ...prev, destinationPorts: ports }))}
+                placeholder="Search for ports..."
               />
-              {errors.destinationPortCode && <p className="text-sm text-red-500">{errors.destinationPortCode}</p>}
+              {errors.destinationPorts && <p className="text-sm text-red-500">{errors.destinationPorts}</p>}
             </div>
 
             <div className="space-y-2">

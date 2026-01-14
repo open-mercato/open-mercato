@@ -2,6 +2,7 @@ import {
   Collection,
   Entity,
   Index,
+  ManyToMany,
   ManyToOne,
   OneToMany,
   PrimaryKey,
@@ -19,6 +20,8 @@ import type {
   FmsContainerType,
   FmsCargoType,
 } from './types'
+import { Contractor } from '../../contractors/data/entities'
+import { FmsLocation } from '../../fms_locations/data/entities'
 
 @Entity({ tableName: 'fms_quotes' })
 @Index({ name: 'fms_quotes_org_tenant_idx', properties: ['organizationId', 'tenantId'] })
@@ -36,8 +39,8 @@ export class FmsQuote {
   @Property({ name: 'quote_number', type: 'text', nullable: true })
   quoteNumber?: string | null
 
-  @Property({ name: 'client_name', type: 'text', nullable: true })
-  clientName?: string | null
+  @ManyToOne(() => Contractor, { fieldName: 'client_id', nullable: true })
+  client?: Contractor | null
 
   @Property({ name: 'container_count', type: 'integer', nullable: true })
   containerCount?: number | null
@@ -54,11 +57,19 @@ export class FmsQuote {
   @Property({ name: 'cargo_type', type: 'text', nullable: true })
   cargoType?: FmsCargoType | null
 
-  @Property({ name: 'origin_port_code', type: 'text', nullable: true })
-  originPortCode?: string | null
+  @ManyToMany(() => FmsLocation, undefined, {
+    pivotTable: 'fms_quote_origin_ports',
+    joinColumn: 'quote_id',
+    inverseJoinColumn: 'location_id',
+  })
+  originPorts = new Collection<FmsLocation>(this)
 
-  @Property({ name: 'destination_port_code', type: 'text', nullable: true })
-  destinationPortCode?: string | null
+  @ManyToMany(() => FmsLocation, undefined, {
+    pivotTable: 'fms_quote_destination_ports',
+    joinColumn: 'quote_id',
+    inverseJoinColumn: 'location_id',
+  })
+  destinationPorts = new Collection<FmsLocation>(this)
 
   @Property({ name: 'valid_until', type: Date, nullable: true })
   validUntil?: Date | null

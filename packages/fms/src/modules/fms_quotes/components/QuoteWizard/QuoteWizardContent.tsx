@@ -125,9 +125,9 @@ export function QuoteWizardContent({ quoteId, onClose }: QuoteWizardContentProps
           <Badge variant={quote.status === 'draft' ? 'secondary' : 'default'}>
             {quote.status.toUpperCase()}
           </Badge>
-          {quote.originPortCode && quote.destinationPortCode && (
+          {quote.originPorts && quote.originPorts.length > 0 && quote.destinationPorts && quote.destinationPorts.length > 0 && (
             <span className="text-muted-foreground">
-              {quote.originPortCode} → {quote.destinationPortCode}
+              {quote.originPorts.map(p => p.locode || p.name).join(', ')} → {quote.destinationPorts.map(p => p.locode || p.name).join(', ')}
             </span>
           )}
         </div>
@@ -231,8 +231,8 @@ export function QuoteWizardContent({ quoteId, onClose }: QuoteWizardContentProps
         {contextPanelOpen && (
           <QuoteWizardContextPanel
             clientName={quote.clientName}
-            originPort={quote.originPortCode}
-            destinationPort={quote.destinationPortCode}
+            originPorts={quote.originPorts}
+            destinationPorts={quote.destinationPorts}
           />
         )}
       </div>

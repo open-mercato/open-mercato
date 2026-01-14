@@ -6,6 +6,14 @@ import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { useQuoteLines } from './useQuoteLines'
 import { useCalculations, calculateQuoteTotals, type QuoteLine } from './useCalculations'
 
+export type PortRef = {
+  id: string
+  locode?: string | null
+  name: string
+  city?: string | null
+  country?: string | null
+}
+
 export type Quote = {
   id: string
   quoteNumber?: string | null
@@ -15,8 +23,8 @@ export type Quote = {
   direction?: string | null
   incoterm?: string | null
   cargoType?: string | null
-  originPortCode?: string | null
-  destinationPortCode?: string | null
+  originPorts?: PortRef[]
+  destinationPorts?: PortRef[]
   validUntil?: string | null
   currencyCode: string
   notes?: string | null

@@ -1,5 +1,6 @@
 import { registerCommand } from '@open-mercato/shared/lib/commands'
 import type { CommandHandler, CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
+import { ensureOrganizationScope } from '@open-mercato/shared/lib/commands/scope'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import {
@@ -33,13 +34,6 @@ function ensureTenantScope(ctx: CommandRuntimeContext, tenantId: string): void {
   const auth = ctx.auth
   if (!auth || !auth.tenantId || auth.tenantId !== tenantId) {
     throw new CrudHttpError(403, { error: 'Tenant scope mismatch' })
-  }
-}
-
-function ensureOrganizationScope(ctx: CommandRuntimeContext, organizationId: string): void {
-  const auth = ctx.auth
-  if (!auth || !auth.organizationId || auth.organizationId !== organizationId) {
-    throw new CrudHttpError(403, { error: 'Organization scope mismatch' })
   }
 }
 
