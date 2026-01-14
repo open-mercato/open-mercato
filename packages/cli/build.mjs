@@ -24,6 +24,8 @@ const addJsExtension = {
           (match, path) => {
             // Skip paths that already have an extension (including .ts for generated code templates)
             if (path.endsWith('.js') || path.endsWith('.json') || path.endsWith('.ts')) return match
+            // Skip paths containing template literal placeholders (code generation templates)
+            if (path.includes('${')) return match
             // Check if it's a directory with index.js
             const resolvedPath = join(fileDir, path)
             if (existsSync(resolvedPath) && existsSync(join(resolvedPath, 'index.js'))) {
@@ -37,6 +39,8 @@ const addJsExtension = {
           (match, path) => {
             // Skip paths that already have an extension (including .ts for generated code templates)
             if (path.endsWith('.js') || path.endsWith('.json') || path.endsWith('.ts')) return match
+            // Skip paths containing template literal placeholders (code generation templates)
+            if (path.includes('${')) return match
             // Check if it's a directory with index.js
             const resolvedPath = join(fileDir, path)
             if (existsSync(resolvedPath) && existsSync(join(resolvedPath, 'index.js'))) {

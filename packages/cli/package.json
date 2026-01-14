@@ -19,19 +19,27 @@
       "default": "./dist/*.js"
     },
     "./*": {
-      "types": ["./src/*.ts"],
+      "types": [
+        "./src/*.ts"
+      ],
       "default": "./dist/*.js"
     },
     "./*/*": {
-      "types": ["./src/*/*.ts"],
+      "types": [
+        "./src/*/*.ts"
+      ],
       "default": "./dist/*/*.js"
     },
     "./*/*/*": {
-      "types": ["./src/*/*/*.ts"],
+      "types": [
+        "./src/*/*/*.ts"
+      ],
       "default": "./dist/*/*/*.js"
     },
     "./*/*/*/*": {
-      "types": ["./src/*/*/*/*.ts"],
+      "types": [
+        "./src/*/*/*/*.ts"
+      ],
       "default": "./dist/*/*/*/*.js"
     }
   },

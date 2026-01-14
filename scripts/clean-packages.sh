@@ -21,6 +21,7 @@ find . -name '*.tsbuildinfo' -not -path '*/node_modules/*' -exec rm -f {} + 2>/d
 
 # Also clean yarn/npm lock caches if needed
 rm -rf .yarn/cache 2>/dev/null || true
+rm -f .yarn/install-state.gz 2>/dev/null || true
 
 echo "Done! All node_modules, dist, and .tsbuildinfo files removed."
 echo "Run 'yarn install' to reinstall dependencies."

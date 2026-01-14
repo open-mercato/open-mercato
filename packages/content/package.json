@@ -19,27 +19,42 @@
     },
     "./*.json": "./src/*.json",
     "./*": {
-      "types": ["./src/*.ts", "./src/*.tsx"],
+      "types": [
+        "./src/*.ts",
+        "./src/*.tsx"
+      ],
       "default": "./dist/*.js"
     },
     "./*/*.json": "./src/*/*.json",
     "./*/*": {
-      "types": ["./src/*/*.ts", "./src/*/*.tsx"],
+      "types": [
+        "./src/*/*.ts",
+        "./src/*/*.tsx"
+      ],
       "default": "./dist/*/*.js"
     },
     "./*/*/*.json": "./src/*/*/*.json",
     "./*/*/*": {
-      "types": ["./src/*/*/*.ts", "./src/*/*/*.tsx"],
+      "types": [
+        "./src/*/*/*.ts",
+        "./src/*/*/*.tsx"
+      ],
       "default": "./dist/*/*/*.js"
     },
     "./*/*/*/*.json": "./src/*/*/*/*.json",
     "./*/*/*/*": {
-      "types": ["./src/*/*/*/*.ts", "./src/*/*/*/*.tsx"],
+      "types": [
+        "./src/*/*/*/*.ts",
+        "./src/*/*/*/*.tsx"
+      ],
       "default": "./dist/*/*/*/*.js"
     },
     "./*/*/*/*/*.json": "./src/*/*/*/*/*.json",
     "./*/*/*/*/*": {
-      "types": ["./src/*/*/*/*/*.ts", "./src/*/*/*/*/*.tsx"],
+      "types": [
+        "./src/*/*/*/*/*.ts",
+        "./src/*/*/*/*/*.tsx"
+      ],
       "default": "./dist/*/*/*/*/*.js"
     }
   },

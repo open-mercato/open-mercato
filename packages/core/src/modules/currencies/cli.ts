@@ -1,4 +1,4 @@
-import type { ModuleCli } from '@/modules/registry'
+import type { ModuleCli } from '@open-mercato/shared/modules/registry'
 import type { EntityManager } from '@mikro-orm/core'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { RateFetchingService } from './services/rateFetchingService'

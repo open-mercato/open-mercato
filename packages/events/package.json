@@ -8,17 +8,24 @@
     "build": "node build.mjs"
   },
   "exports": {
-    ".": "./dist/index.js",
+    ".": {
+      "types": "./src/index.ts",
+      "default": "./dist/index.js"
+    },
     "./*.ts": {
       "types": "./src/*.ts",
       "default": "./dist/*.js"
     },
     "./*": {
-      "types": ["./src/*.ts"],
+      "types": [
+        "./src/*.ts"
+      ],
       "default": "./dist/*.js"
     },
     "./*/*": {
-      "types": ["./src/*/*.ts"],
+      "types": [
+        "./src/*/*.ts"
+      ],
       "default": "./dist/*/*.js"
     }
   },

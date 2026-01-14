@@ -8,7 +8,10 @@
     "build": "node build.mjs"
   },
   "exports": {
-    ".": "./dist/index.js",
+    ".": {
+      "types": "./src/index.ts",
+      "default": "./dist/index.js"
+    },
     "./backend/schedule": {
       "types": "./src/backend/schedule/index.ts",
       "default": "./dist/backend/schedule/index.js"
@@ -42,19 +45,31 @@
       "default": "./dist/*.js"
     },
     "./*": {
-      "types": ["./src/*.ts", "./src/*.tsx"],
+      "types": [
+        "./src/*.ts",
+        "./src/*.tsx"
+      ],
       "default": "./dist/*.js"
     },
     "./*/*": {
-      "types": ["./src/*/*.ts", "./src/*/*.tsx"],
+      "types": [
+        "./src/*/*.ts",
+        "./src/*/*.tsx"
+      ],
       "default": "./dist/*/*.js"
     },
     "./*/*/*": {
-      "types": ["./src/*/*/*.ts", "./src/*/*/*.tsx"],
+      "types": [
+        "./src/*/*/*.ts",
+        "./src/*/*/*.tsx"
+      ],
       "default": "./dist/*/*/*.js"
     },
     "./*/*/*/*": {
-      "types": ["./src/*/*/*/*.ts", "./src/*/*/*/*.tsx"],
+      "types": [
+        "./src/*/*/*/*.ts",
+        "./src/*/*/*/*.tsx"
+      ],
       "default": "./dist/*/*/*/*.js"
     }
   },

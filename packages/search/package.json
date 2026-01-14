@@ -5,6 +5,10 @@
   "type": "module",
   "main": "./dist/index.js",
   "exports": {
+    ".": {
+      "types": "./src/index.ts",
+      "default": "./dist/index.js"
+    },
     "./modules/search": {
       "types": "./src/modules/search/index.ts",
       "default": "./dist/modules/search/index.js"
@@ -25,53 +29,26 @@
       "types": "./src/modules/search/cli.ts",
       "default": "./dist/modules/search/cli.js"
     },
-    "./modules/search/subscribers/*": {
-      "types": "./src/modules/search/subscribers/*.ts",
-      "default": "./dist/modules/search/subscribers/*.js"
+    "./modules/search/frontend": {
+      "types": "./src/modules/search/frontend/index.ts",
+      "default": "./dist/modules/search/frontend/index.js"
     },
-    "./modules/search/workers/*": {
-      "types": "./src/modules/search/workers/*.ts",
-      "default": "./dist/modules/search/workers/*.js"
-    },
-    "./modules/*": {
-      "types": "./src/modules/*",
-      "default": "./dist/modules/*"
-    },
-    "./strategies/*": {
-      "types": "./src/strategies/*",
-      "default": "./dist/strategies/*"
-    },
+    "./modules/search/i18n/*": "./src/modules/search/i18n/*",
     "./strategies": {
       "types": "./src/strategies/index.ts",
       "default": "./dist/strategies/index.js"
-    },
-    "./lib/*": {
-      "types": "./src/lib/*",
-      "default": "./dist/lib/*"
-    },
-    "./indexer/*": {
-      "types": "./src/indexer/*",
-      "default": "./dist/indexer/*"
     },
     "./indexer": {
       "types": "./src/indexer/index.ts",
       "default": "./dist/indexer/index.js"
     },
-    "./vector/*": {
-      "types": "./src/vector/*",
-      "default": "./dist/vector/*"
-    },
-    "./fulltext/*": {
-      "types": "./src/fulltext/*",
-      "default": "./dist/fulltext/*"
+    "./vector": {
+      "types": "./src/vector/index.ts",
+      "default": "./dist/vector/index.js"
     },
     "./fulltext": {
       "types": "./src/fulltext/index.ts",
       "default": "./dist/fulltext/index.js"
-    },
-    "./queue/*": {
-      "types": "./src/queue/*",
-      "default": "./dist/queue/*"
     },
     "./types": {
       "types": "./src/types.ts",
@@ -81,9 +58,54 @@
       "types": "./src/di.ts",
       "default": "./dist/di.js"
     },
-    ".": {
-      "types": "./src/index.ts",
-      "default": "./dist/index.js"
+    "./*": {
+      "types": [
+        "./src/*.ts",
+        "./src/*.tsx"
+      ],
+      "default": "./dist/*.js"
+    },
+    "./*/*": {
+      "types": [
+        "./src/*/*.ts",
+        "./src/*/*.tsx"
+      ],
+      "default": "./dist/*/*.js"
+    },
+    "./*/*/*": {
+      "types": [
+        "./src/*/*/*.ts",
+        "./src/*/*/*.tsx"
+      ],
+      "default": "./dist/*/*/*.js"
+    },
+    "./*/*/*/*": {
+      "types": [
+        "./src/*/*/*/*.ts",
+        "./src/*/*/*/*.tsx"
+      ],
+      "default": "./dist/*/*/*/*.js"
+    },
+    "./*/*/*/*/*": {
+      "types": [
+        "./src/*/*/*/*/*.ts",
+        "./src/*/*/*/*/*.tsx"
+      ],
+      "default": "./dist/*/*/*/*/*.js"
+    },
+    "./*/*/*/*/*/*": {
+      "types": [
+        "./src/*/*/*/*/*/*.ts",
+        "./src/*/*/*/*/*/*.tsx"
+      ],
+      "default": "./dist/*/*/*/*/*/*.js"
+    },
+    "./*/*/*/*/*/*/*": {
+      "types": [
+        "./src/*/*/*/*/*/*/*.ts",
+        "./src/*/*/*/*/*/*/*.tsx"
+      ],
+      "default": "./dist/*/*/*/*/*/*/*.js"
     }
   },
   "scripts": {
@@ -101,8 +123,8 @@
     "pg": "^8.16.3"
   },
   "peerDependencies": {
-    "@open-mercato/shared": "workspace:*",
     "@open-mercato/core": "workspace:*",
-    "@open-mercato/queue": "workspace:*"
+    "@open-mercato/queue": "workspace:*",
+    "@open-mercato/shared": "workspace:*"
   }
 }

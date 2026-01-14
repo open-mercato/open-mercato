@@ -2,7 +2,7 @@
   "name": "open-mercato",
   "version": "0.3.13",
   "private": true,
-  "packageManager": "yarn@1.22.22",
+  "packageManager": "yarn@4.6.0",
   "workspaces": [
     "apps/*",
     "packages/*"
@@ -10,7 +10,7 @@
   "scripts": {
     "dev": "turbo run dev --filter=@open-mercato/app",
     "build": "turbo run build",
-    "build:packages": "turbo run build --filter=./packages/*",
+    "build:packages": "turbo run build --filter='./packages/*'",
     "lint": "turbo run lint",
     "typecheck": "turbo run typecheck",
     "test": "turbo run test",
@@ -88,6 +88,10 @@
     "tsx": "^4.21.0",
     "turbo": "^2.3.3",
     "typescript": "^5.9.3"
+  },
+  "resolutions": {
+    "pg": "8.16.3",
+    "zod": "4.1.13"
   },
   "release": {
     "branches": [

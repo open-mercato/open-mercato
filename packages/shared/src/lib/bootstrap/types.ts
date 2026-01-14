@@ -16,7 +16,7 @@ export interface InjectionTableEntry {
 export interface BootstrapData {
   modules: Module[]
   entities: OrmEntity[]
-  diRegistrars: DiRegistrar[]
+  diRegistrars: (DiRegistrar | undefined)[]
   entityIds: EntityIds
   entityFieldsRegistry?: EntityFieldsRegistry
   dashboardWidgetEntries: ModuleDashboardWidgetEntry[]

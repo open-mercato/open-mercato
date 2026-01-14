@@ -16,14 +16,16 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 25
-          cache: yarn
+          node-version: 20
+
+      - name: Enable Corepack
+        run: corepack enable
 
       - name: Install markitdown CLI
         run: python3 -m pip install --upgrade pip markitdown
 
       - name: Install dependencies
-        run: yarn install --frozen-lockfile
+        run: yarn install --immutable
 
       - name: Building packages
         run: yarn build:packages
