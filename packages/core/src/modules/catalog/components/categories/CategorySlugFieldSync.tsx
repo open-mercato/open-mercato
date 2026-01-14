@@ -2,7 +2,7 @@
 
 import * as React from 'react'
 import type { CrudFormGroupComponentProps } from '@open-mercato/ui/backend/CrudForm'
-import { slugify } from '../products/productForm'
+import { slugify } from '@open-mercato/shared/lib/slugify'
 
 const readString = (value: unknown): string => {
   if (typeof value === 'string') return value
@@ -46,4 +46,3 @@ export function CategorySlugFieldSync({ values, setValue }: CrudFormGroupCompone
 
   return null
 }
-

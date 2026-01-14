@@ -11,6 +11,7 @@ import { createApiKeySchema } from '../../data/validators'
 import { generateApiKeySecret, hashApiKey } from '../../services/apiKeyService'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { enforceTenantSelection, resolveIsSuperAdmin } from '@open-mercato/core/modules/auth/lib/tenantAccess'
+import { escapeLikePattern } from '@open-mercato/shared/lib/db/escapeLikePattern'
 
 type ApiKeyCrudCtx = CrudCtx & {
   __apiKeySecret?: { secret: string; prefix: string }
@@ -80,10 +81,6 @@ function json(payload: unknown, init: ResponseInit = { status: 200 }) {
     ...init,
     headers: { 'content-type': 'application/json', ...(init.headers || {}) },
   })
-}
-
-function sanitizeSearchValue(value: string) {
-  return value.replace(/[%_]/g, '\\$&')
 }
 
 const crud = makeCrudRoute<
@@ -161,7 +158,7 @@ const crud = makeCrudRoute<
         qb.andWhere({ organizationId: auth.orgId })
       }
       if (search) {
-        const pattern = `%${sanitizeSearchValue(search)}%`
+        const pattern = `%${escapeLikePattern(search)}%`
         qb.andWhere({
           $or: [
             { name: { $ilike: pattern } },

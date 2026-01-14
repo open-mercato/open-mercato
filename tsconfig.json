@@ -81,11 +81,11 @@
       "@open-mercato/onboarding/generated/*": [
         "./packages/onboarding/generated/*"
       ],
-      "@open-mercato/vector": [
-        "./packages/vector/src/index.ts"
+      "@open-mercato/search": [
+        "./packages/search/src/index.ts"
       ],
-      "@open-mercato/vector/*": [
-        "./packages/vector/src/*"
+      "@open-mercato/search/*": [
+        "./packages/search/src/*"
       ],
       "@open-mercato/cli/*": [
         "./packages/cli/src/*"

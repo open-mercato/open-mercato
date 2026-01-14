@@ -75,6 +75,11 @@ export default async function handle(payload: any, ctx: { resolve: <T=any>(name:
         })
       } catch {}
     }
+    // Emit search delete event
+    try {
+      const bus = ctx.resolve<any>('eventBus')
+      await bus.emitEvent('search.delete_record', { entityId: entityType, recordId, organizationId, tenantId })
+    } catch {}
   } catch (error) {
     await recordIndexerError(
       { em },

@@ -1,6 +1,7 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { AttachmentPartition } from '../data/entities'
 import { resolveDefaultAttachmentOcrEnabled } from './ocrConfig'
+import { parseBooleanToken } from '@open-mercato/shared/lib/boolean'
 import { E } from '@open-mercato/core/generated/entities.ids.generated'
 
 export type AttachmentPartitionSeed = {
@@ -64,7 +65,8 @@ export function sanitizePartitionCode(input: string): string {
 }
 
 export function isPartitionSettingsLocked(): boolean {
-  const demoModeEnabled = process.env.DEMO_MODE !== 'false'
-  const onboardingEnabled = process.env.SELF_SERVICE_ONBOARDING_ENABLED === 'true'
+  const demoModeParsed = parseBooleanToken(process.env.DEMO_MODE ?? '')
+  const demoModeEnabled = demoModeParsed === false ? false : true
+  const onboardingEnabled = parseBooleanToken(process.env.SELF_SERVICE_ONBOARDING_ENABLED ?? '') === true
   return demoModeEnabled || onboardingEnabled
 }

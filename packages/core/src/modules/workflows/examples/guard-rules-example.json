@@ -1,0 +1,194 @@
+[
+  {
+    "ruleId": "workflow_checkout_cart_not_empty",
+    "ruleName": "Cart Must Not Be Empty",
+    "description": "Guard rule that blocks checkout if cart has no items",
+    "ruleType": "GUARD",
+    "ruleCategory": "checkout_validation",
+    "entityType": "workflow:checkout_simple_v1:transition",
+    "eventType": "pre_transition",
+    "conditionExpression": {
+      "operator": "AND",
+      "rules": [
+        {
+          "field": "workflowContext.cart.items",
+          "operator": "IS_NOT_EMPTY",
+          "value": null
+        },
+        {
+          "field": "workflowContext.cart.itemCount",
+          "operator": ">",
+          "value": "0"
+        }
+      ]
+    },
+    "failureActions": [
+      {
+        "type": "BLOCK_TRANSITION",
+        "config": {
+          "message": "Cart is empty. Please add items before checkout."
+        }
+      },
+      {
+        "type": "LOG_MESSAGE",
+        "config": {
+          "level": "warning",
+          "message": "Checkout blocked: Empty cart"
+        }
+      }
+    ],
+    "enabled": true,
+    "priority": 100
+  },
+  {
+    "ruleId": "workflow_checkout_inventory_available",
+    "ruleName": "Inventory Must Be Available",
+    "description": "Guard rule that checks if all items are in stock",
+    "ruleType": "GUARD",
+    "ruleCategory": "checkout_validation",
+    "entityType": "workflow:checkout_simple_v1:transition_seed",
+    "eventType": "pre_transition",
+    "conditionExpression": {
+      "field": "workflowContext.inventory.available",
+      "operator": "=",
+      "value": true
+    },
+    "failureActions": [
+      {
+        "type": "BLOCK_TRANSITION",
+        "config": {
+          "message": "Some items are out of stock. Please update your cart."
+        }
+      }
+    ],
+    "enabled": true,
+    "priority": 90
+  },
+  {
+    "ruleId": "workflow_checkout_minimum_order",
+    "ruleName": "Minimum Order Amount",
+    "description": "Guard rule that enforces minimum order amount of $10",
+    "ruleType": "GUARD",
+    "ruleCategory": "checkout_validation",
+    "entityType": "workflow:checkout_simple_v1:transition_seed",
+    "eventType": "pre_transition",
+    "conditionExpression": {
+      "field": "workflowContext.cart.total",
+      "operator": ">=",
+      "value": 10.0
+    },
+    "failureActions": [
+      {
+        "type": "BLOCK_TRANSITION",
+        "config": {
+          "message": "Minimum order amount is $10.00. Your cart total: ${{data.workflowContext.cart.total}}"
+        }
+      }
+    ],
+    "enabled": true,
+    "priority": 95
+  },
+  {
+    "ruleId": "workflow_checkout_payment_valid",
+    "ruleName": "Payment Method Must Be Valid",
+    "description": "Guard rule for payment step - checks payment method is set",
+    "ruleType": "GUARD",
+    "ruleCategory": "payment_validation",
+    "entityType": "workflow:checkout_simple_v1:transition_seed",
+    "eventType": "pre_transition",
+    "conditionExpression": {
+      "operator": "AND",
+      "conditions": [
+        {
+          "field": "data.fromStepId",
+          "operator": "=",
+          "value": "payment_processing"
+        },
+        {
+          "field": "data.workflowContext.payment.methodId",
+          "operator": "IS_NOT_EMPTY"
+        }
+      ]
+    },
+    "failureActions": [
+      {
+        "type": "BLOCK_TRANSITION",
+        "config": {
+          "message": "Payment method is required"
+        }
+      }
+    ],
+    "enabled": true,
+    "priority": 100
+  },
+  {
+    "ruleId": "workflow_checkout_customer_info_complete",
+    "ruleName": "Customer Info Must Be Complete",
+    "description": "Guard rule that checks customer has email and shipping address",
+    "ruleType": "GUARD",
+    "ruleCategory": "checkout_validation",
+    "entityType": "workflow:checkout_simple_v1:transition_seed",
+    "eventType": "pre_transition",
+    "conditionExpression": {
+      "operator": "AND",
+      "conditions": [
+        {
+          "field": "data.workflowContext.customer.email",
+          "operator": "IS_NOT_EMPTY"
+        },
+        {
+          "field": "data.workflowContext.customer.shippingAddress.street",
+          "operator": "IS_NOT_EMPTY"
+        },
+        {
+          "field": "data.workflowContext.customer.shippingAddress.city",
+          "operator": "IS_NOT_EMPTY"
+        }
+      ]
+    },
+    "failureActions": [
+      {
+        "type": "BLOCK_TRANSITION",
+        "config": {
+          "message": "Customer information is incomplete. Please provide email and shipping address."
+        }
+      }
+    ],
+    "enabled": true,
+    "priority": 100
+  },
+  {
+    "ruleId": "workflow_checkout_business_hours",
+    "ruleName": "Orders Only During Business Hours",
+    "description": "Guard rule that only allows orders between 9 AM and 5 PM",
+    "ruleType": "GUARD",
+    "ruleCategory": "business_logic",
+    "entityType": "workflow:checkout_simple_v1:transition_seed",
+    "eventType": "pre_transition",
+    "conditionExpression": {
+      "operator": "AND",
+      "conditions": [
+        {
+          "field": "{{now.hour}}",
+          "operator": ">=",
+          "value": 9
+        },
+        {
+          "field": "{{now.hour}}",
+          "operator": "<=",
+          "value": 17
+        }
+      ]
+    },
+    "failureActions": [
+      {
+        "type": "BLOCK_TRANSITION",
+        "config": {
+          "message": "Orders can only be placed during business hours (9 AM - 5 PM)"
+        }
+      }
+    ],
+    "enabled": false,
+    "priority": 50
+  }
+]

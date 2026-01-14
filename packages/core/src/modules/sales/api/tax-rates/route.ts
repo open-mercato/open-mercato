@@ -8,6 +8,8 @@ import { taxRateCreateSchema, taxRateUpdateSchema } from '../../data/validators'
 import { parseScopedCommandInput, resolveCrudRecordId } from '../utils'
 import { E } from '@open-mercato/core/generated/entities.ids.generated'
 import * as F from '@open-mercato/core/generated/entities/sales_tax_rate'
+import { escapeLikePattern } from '@open-mercato/shared/lib/db/escapeLikePattern'
+import { parseBooleanToken } from '@open-mercato/shared/lib/boolean'
 
 const rawBodySchema = z.object({}).passthrough()
 
@@ -75,7 +77,7 @@ const taxRateDeleteSchema = z.object({
 function buildFilters(query: z.infer<typeof listSchema>): Record<string, unknown> {
   const filters: Record<string, unknown> = {}
   if (query.search && query.search.trim().length > 0) {
-    const term = `%${query.search.trim().replace(/%/g, '\\%')}%`
+    const term = `%${escapeLikePattern(query.search.trim())}%`
     filters.$or = [
       { name: { $ilike: term } },
       { code: { $ilike: term } },
@@ -94,8 +96,8 @@ function buildFilters(query: z.infer<typeof listSchema>): Record<string, unknown
   if (query.channelId) {
     filters.channel_id = query.channelId
   }
-  if (query.isCompound === 'true') filters.is_compound = true
-  if (query.isCompound === 'false') filters.is_compound = false
+  const isCompound = parseBooleanToken(query.isCompound)
+  if (isCompound !== null) filters.is_compound = isCompound
   return filters
 }
 

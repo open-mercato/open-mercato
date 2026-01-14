@@ -3,8 +3,8 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import type { CacheStrategy } from '@open-mercato/cache/types'
 import type { CustomFieldDefinition, CustomFieldSet, CustomEntitySpec } from '@open-mercato/shared/modules/entities'
 import { Tenant } from '@open-mercato/core/modules/directory/data/entities'
-import { modules } from '@/generated/modules.generated'
-import { E as GeneratedEntities } from '@/generated/entities.ids.generated'
+import { getModules } from '@open-mercato/shared/lib/i18n/server'
+import { getEntityIds } from '@open-mercato/shared/lib/encryption/entityIds'
 import { ensureCustomFieldDefinitions } from './field-definitions'
 import { upsertCustomEntity, type UpsertCustomEntityResult } from './register'
 
@@ -73,6 +73,7 @@ function computeChecksum(payload: unknown): string {
 
 function systemEntityIds(): Set<string> {
   const ids = new Set<string>()
+  const GeneratedEntities = getEntityIds()
   for (const moduleEntities of Object.values(GeneratedEntities)) {
     for (const id of Object.values(moduleEntities as Record<string, string>)) {
       ids.add(id)
@@ -83,6 +84,7 @@ function systemEntityIds(): Set<string> {
 
 function buildAggregatedConfigs(): AggregatedEntityConfig[] {
   const map = new Map<string, AggregatedEntityConfig>()
+  const modules = getModules()
   for (const mod of modules) {
     const moduleId = mod.id
     const entitySpecs = ((mod as any).customEntities as CustomEntitySpec[] | undefined) ?? []

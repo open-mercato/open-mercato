@@ -7,7 +7,7 @@ import { upsertIndexBatch, type AnyRow } from './batch'
 import { refreshCoverageSnapshot, writeCoverageCounts, applyCoverageAdjustments } from './coverage'
 import { prepareJob, updateJobProgress, finalizeJob, type JobScope } from './jobs'
 import { purgeOrphans } from './stale'
-import type { VectorIndexService } from '@open-mercato/vector'
+import type { VectorIndexService } from '@open-mercato/search/vector'
 import { isSearchDebugEnabled } from './search-tokens'
 
 export type ReindexJobOptions = {
@@ -478,7 +478,6 @@ export async function reindexEntity(
           organizationId: scope.organizationId,
           withDeleted: false,
         },
-        { vectorService },
       )
     }
   } finally {

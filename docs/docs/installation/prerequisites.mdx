@@ -27,6 +27,28 @@ REDIS_URL=redis://localhost:6379
 
 The pgvector extension is automatically installed in all databases, enabling vector search features out of the box.
 
+### Embedding Provider API Keys (optional)
+
+Vector search requires at least one embedding provider. Configure the API key(s) for your preferred provider(s):
+
+```bash
+# OpenAI (default provider)
+OPENAI_API_KEY=sk-...
+
+# Or use alternative providers:
+GOOGLE_GENERATIVE_AI_API_KEY=AIza...   # Google Generative AI
+MISTRAL_API_KEY=...                     # Mistral
+COHERE_API_KEY=...                      # Cohere
+AWS_ACCESS_KEY_ID=AKIA...               # Amazon Bedrock (requires all three)
+AWS_SECRET_ACCESS_KEY=...
+AWS_REGION=us-east-1
+
+# Ollama runs locally without API keys
+OLLAMA_BASE_URL=http://localhost:11434  # Optional, defaults to localhost
+```
+
+You can configure multiple providers and switch between them in **Backend → Configuration → Vector Search**. See the [Vector Search API reference](/api/vector) for details.
+
 Need a refresher on what each environment toggle controls? Review the [System status variables](../framework/operations/system-status#managing-variables) directory for descriptions and defaults before you customize additional flags.
 
 The docs site you are reading lives in `/docs` and has its own dependencies. Install them independently (`pnpm install` or `npm install`) when you want to build or preview the documentation.

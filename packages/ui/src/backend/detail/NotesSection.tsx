@@ -9,6 +9,7 @@ import type { IconOption } from '@open-mercato/core/modules/dictionaries/compone
 import { ArrowUpRightSquare, FileCode, Loader2, Palette, Pencil, Trash2 } from 'lucide-react'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { flash } from '../FlashMessages'
+import { SwitchableMarkdownInput } from '../inputs/SwitchableMarkdownInput'
 import { ErrorMessage } from './ErrorMessage'
 import { LoadingMessage } from './LoadingMessage'
 import { TabEmptyState } from './TabEmptyState'
@@ -63,23 +64,6 @@ export type NotesDataAdapter<C = unknown> = {
 
 type RenderIconFn = (icon: string, className?: string) => React.ReactNode
 type RenderColorFn = (color: string, className?: string) => React.ReactNode
-
-type UiMarkdownEditorProps = {
-  value?: string
-  height?: number
-  onChange?: (value?: string) => void
-  previewOptions?: { remarkPlugins?: unknown[] }
-}
-
-const UiMarkdownEditor = dynamic(() => import('@uiw/react-md-editor'), {
-  ssr: false,
-  loading: () => (
-    <LoadingMessage
-      label="Loading editor…"
-      className="min-h-[220px] justify-center"
-    />
-  ),
-}) as unknown as React.ComponentType<UiMarkdownEditorProps>
 
 type MarkdownPreviewProps = { children: string; className?: string; remarkPlugins?: PluggableList }
 
@@ -1011,30 +995,18 @@ export function NotesSection<C = unknown>({
                 ) : null}
               </div>
             ) : null}
-            {isMarkdownEnabled && !disableMarkdown ? (
-              <div className="w-full rounded-lg border border-muted-foreground/20 bg-background p-2">
-                <div data-color-mode="light" className="w-full">
-                  <UiMarkdownEditor
-                    value={draftBody}
-                    height={220}
-                    onChange={(value) => setDraftBody(typeof value === 'string' ? value : '')}
-                    previewOptions={{ remarkPlugins: markdownPlugins }}
-                  />
-                </div>
-              </div>
-            ) : (
-              <textarea
-                id="new-note"
-                ref={textareaRef}
-                rows={1}
-                className="w-full resize-none overflow-hidden rounded-lg border border-muted-foreground/20 bg-background px-3 py-2 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
-                placeholder={t('customers.people.detail.notes.placeholder')}
-                value={draftBody}
-                onChange={(event) => setDraftBody(event.target.value)}
-                onInput={(event) => adjustTextareaSize(event.currentTarget)}
-                disabled={isSubmitting || isLoading || !hasEntity}
-              />
-            )}
+            <SwitchableMarkdownInput
+              value={draftBody}
+              onChange={setDraftBody}
+              isMarkdownEnabled={isMarkdownEnabled}
+              disableMarkdown={disableMarkdown}
+              rows={1}
+              placeholder={t('customers.people.detail.notes.placeholder')}
+              textareaRef={textareaRef}
+              onTextareaInput={(event) => adjustTextareaSize(event.currentTarget)}
+              disabled={isSubmitting || isLoading || !hasEntity}
+              remarkPlugins={markdownPlugins}
+            />
             {composerHasAppearance ? (
               <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-dashed border-muted-foreground/40 px-3 py-2">
                 <div className="flex flex-wrap items-center gap-3 text-sm">
@@ -1176,31 +1148,18 @@ export function NotesSection<C = unknown>({
                 </div>
                 {isEditingContent ? (
                   <div className="space-y-2" onKeyDown={handleContentEditorKeyDown}>
-                    {isMarkdownEnabled && !disableMarkdown ? (
-                      <div className="w-full rounded-md border border-muted-foreground/20 bg-background p-2">
-                        <div data-color-mode="light" className="w-full">
-                          <UiMarkdownEditor
-                            value={contentEditor.value}
-                            height={220}
-                            onChange={(value) =>
-                              setContentEditor((prev) => ({ ...prev, value: typeof value === 'string' ? value : '' }))
-                            }
-                            previewOptions={{ remarkPlugins: markdownPlugins }}
-                          />
-                        </div>
-                      </div>
-                    ) : (
-                      <textarea
-                        ref={contentTextareaRef}
-                        value={contentEditor.value}
-                        onChange={(event) => {
-                          setContentEditor((prev) => ({ ...prev, value: event.target.value }))
-                          adjustTextareaSize(event.currentTarget)
-                        }}
-                        rows={3}
-                        className="w-full resize-none overflow-hidden rounded-md border border-border px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
-                      />
-                    )}
+                    <SwitchableMarkdownInput
+                      value={contentEditor.value}
+                      onChange={(nextValue) => setContentEditor((prev) => ({ ...prev, value: nextValue }))}
+                      isMarkdownEnabled={isMarkdownEnabled}
+                      disableMarkdown={disableMarkdown}
+                      rows={3}
+                      textareaRef={contentTextareaRef}
+                      onTextareaInput={(event) => adjustTextareaSize(event.currentTarget)}
+                      textareaClassName="w-full resize-none overflow-hidden rounded-md border border-border px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+                      editorWrapperClassName="w-full rounded-md border border-muted-foreground/20 bg-background p-2"
+                      remarkPlugins={markdownPlugins}
+                    />
                     {contentError ? <p className="text-xs text-red-600">{contentError}</p> : null}
                     <div className="flex flex-wrap items-center gap-2">
                       <Button type="button" size="sm" onClick={handleContentSave} disabled={contentSavingId === note.id}>

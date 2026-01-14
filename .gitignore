@@ -88,4 +88,8 @@ package-lock.json
 packages/cache/node_modules/*
 newrelic_agent.log
 /generated/
+<<<<<<< HEAD
 .queue/**
+=======
+.queue/**
+>>>>>>> develop

@@ -6,6 +6,13 @@ import { createKmsService } from '@open-mercato/shared/lib/encryption/kms'
 import { TenantDataEncryptionService } from '@open-mercato/shared/lib/encryption/tenantDataEncryptionService'
 import { registerTenantEncryptionSubscriber } from '@open-mercato/shared/lib/encryption/subscriber'
 import { isTenantDataEncryptionEnabled } from '@open-mercato/shared/lib/encryption/toggles'
+import {
+  registerSearchModule,
+  createSearchIndexSubscriber,
+  createSearchDeleteSubscriber,
+  searchIndexMetadata,
+  searchDeleteMetadata,
+} from '@open-mercato/search'
 import type { EntityManager } from '@mikro-orm/postgresql'
 
 export async function bootstrap(container: AwilixContainer) {
@@ -46,8 +53,8 @@ export async function bootstrap(container: AwilixContainer) {
   try {
     let loadedModules: any[] = []
     try {
-      const mod = await import('@/generated/modules.generated') as any
-      loadedModules = Array.isArray(mod?.modules) ? mod.modules : []
+      const { getModules } = await import('@open-mercato/shared/lib/i18n/server')
+      loadedModules = getModules()
     } catch {}
     const subs = loadedModules.flatMap((m) => m.subscribers || [])
     if (subs.length) (container.resolve as any)('eventBus').registerModuleSubscribers(subs)
@@ -76,5 +83,45 @@ export async function bootstrap(container: AwilixContainer) {
     }
   } catch (err) {
     console.warn('[encryption] Failed to initialize tenant encryption service:', (err as Error)?.message || err)
+  }
+
+  // Register search module
+  try {
+    let searchModuleConfigs: any[] = []
+    try {
+      const mod = await import('@/generated/search.generated') as any
+      searchModuleConfigs = mod?.searchModuleConfigs ?? []
+    } catch {
+      // search.generated.ts may not exist yet
+    }
+    registerSearchModule(container as any, { moduleConfigs: searchModuleConfigs })
+
+    // Register searchModuleConfigs in container so status API can access vector-enabled entities
+    container.register({
+      searchModuleConfigs: asValue(searchModuleConfigs),
+    })
+
+    // Register search event subscribers
+    try {
+      const searchIndexer = container.resolve('searchIndexer') as any
+      if (searchIndexer && eventBus) {
+        eventBus.registerModuleSubscribers([
+          {
+            event: searchIndexMetadata.event,
+            persistent: searchIndexMetadata.persistent,
+            handler: createSearchIndexSubscriber(searchIndexer),
+          },
+          {
+            event: searchDeleteMetadata.event,
+            persistent: searchDeleteMetadata.persistent,
+            handler: createSearchDeleteSubscriber(searchIndexer),
+          },
+        ])
+      }
+    } catch {
+      // searchIndexer may not be available
+    }
+  } catch (err) {
+    console.warn('[search] Failed to register search module:', (err as Error)?.message || err)
   }
 }

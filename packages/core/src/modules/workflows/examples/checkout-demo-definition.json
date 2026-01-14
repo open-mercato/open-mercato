@@ -1,0 +1,480 @@
+{
+  "workflowId": "checkout_simple_v1",
+  "workflowName": "Checkout with Payment Webhook",
+  "description": "Realistic checkout workflow with signal-based payment confirmation: validate cart, initiate payment, wait for webhook, send confirmation",
+  "version": 1,
+  "enabled": true,
+  "metadata": {
+    "category": "E-commerce",
+    "tags": ["checkout", "demo", "payments", "signals", "webhooks"],
+    "icon": "ShoppingCart"
+  },
+  "definition": {
+    "steps": [
+      {
+        "stepId": "start",
+        "stepName": "Start",
+        "stepType": "START",
+        "description": "Checkout process initiated"
+      },
+      {
+        "stepId": "cart_validation",
+        "stepName": "Cart Validation",
+        "stepType": "AUTOMATED",
+        "description": "Validate cart has items and inventory is available",
+        "timeout": "PT10S"
+      },
+      {
+        "stepId": "customer_info",
+        "stepName": "Customer Information",
+        "stepType": "USER_TASK",
+        "description": "Collect customer shipping and contact information",
+        "userTaskConfig": {
+          "formSchema": {
+            "type": "object",
+            "properties": {
+              "fullName": {
+                "type": "string",
+                "title": "Full Name",
+                "description": "Customer's full legal name"
+              },
+              "email": {
+                "type": "string",
+                "format": "email",
+                "title": "Email Address",
+                "description": "Email for order confirmation"
+              },
+              "phone": {
+                "type": "string",
+                "title": "Phone Number",
+                "description": "Contact number for delivery"
+              },
+              "comment": {
+                "type": "string",
+                "title": "Order Comment",
+                "maxLength": 500,
+                "description": "Special instructions or notes for this order"
+              }
+            },
+            "required": ["fullName", "email"]
+          },
+          "slaDuration": "PT24H"
+        }
+      },
+      {
+        "stepId": "payment_initiation",
+        "stepName": "Initiate Payment",
+        "stepType": "AUTOMATED",
+        "description": "Send payment request to payment provider",
+        "timeout": "PT10S"
+      },
+      {
+        "stepId": "wait_payment_confirmation",
+        "stepName": "Wait for Payment Confirmation",
+        "stepType": "WAIT_FOR_SIGNAL",
+        "description": "Waiting for payment provider webhook confirmation",
+        "signalConfig": {
+          "signalName": "payment_confirmed",
+          "timeout": "PT5M"
+        }
+      },
+      {
+        "stepId": "order_confirmation",
+        "stepName": "Order Confirmation",
+        "stepType": "AUTOMATED",
+        "description": "Create order record and send confirmation",
+        "timeout": "PT15S"
+      },
+      {
+        "stepId": "end",
+        "stepName": "Complete",
+        "stepType": "END",
+        "description": "Checkout completed successfully"
+      }
+    ],
+    "transitions": [
+      {
+        "transitionId": "start_to_cart",
+        "transitionName": "Initialize Checkout",
+        "fromStepId": "start",
+        "toStepId": "cart_validation",
+        "trigger": "auto",
+        "priority": 100,
+        "activities": [
+          {
+            "activityId": "log_checkout_start",
+            "activityName": "Log Checkout Start",
+            "activityType": "EMIT_EVENT",
+            "config": {
+              "eventName": "checkout.started",
+              "payload": {
+                "customerId": "{{context.customerId}}",
+                "cartId": "{{context.cartId}}",
+                "currency": "{{context.currency}}",
+                "timestamp": "{{now}}"
+              }
+            },
+            "async": false
+          }
+        ]
+      },
+      {
+        "transitionId": "cart_to_customer_info",
+        "transitionName": "Collect Customer Information",
+        "fromStepId": "cart_validation",
+        "toStepId": "customer_info",
+        "trigger": "auto",
+        "priority": 100,
+        "preConditions": [
+          {
+            "ruleId": "cart_not_empty",
+            "required": true
+          },
+          {
+            "ruleId": "inventory_available",
+            "required": true
+          }
+        ],
+        "activities": [
+          {
+            "activityId": "validate_cart_items",
+            "activityName": "Validate Cart Items",
+            "activityType": "EMIT_EVENT",
+            "config": {
+              "eventName": "checkout.cart_validation_started",
+              "payload": {
+                "customerId": "{{context.customerId}}",
+                "cartId": "{{context.cartId}}",
+                "currency": "{{context.currency}}",
+                "cart": {
+                  "id": "{{context.cartId}}",
+                  "currency": "{{context.currency}}",
+                  "subtotal": 100.00,
+                  "tax": 8.50,
+                  "shipping": 12.00,
+                  "total": 120.50,
+                  "itemCount": 2,
+                  "items": [
+                    {
+                      "kind": "product",
+                      "name": "Demo Product 1",
+                      "quantity": 1,
+                      "currencyCode": "{{context.currency}}",
+                      "unitPriceGross": 50.00,
+                      "totalGrossAmount": 50.00
+                    },
+                    {
+                      "kind": "product",
+                      "name": "Demo Product 2",
+                      "quantity": 2,
+                      "currencyCode": "{{context.currency}}",
+                      "unitPriceGross": 25.00,
+                      "totalGrossAmount": 50.00
+                    }
+                  ]
+                },
+                "customer": {
+                  "id": "{{context.customerId}}"
+                },
+                "payment": {
+                  "id": "demo-payment-001",
+                  "methodId": "demo-payment-method"
+                }
+              }
+            },
+            "async": false
+          },
+          {
+            "activityId": "reserve_inventory",
+            "activityName": "Reserve Inventory",
+            "activityType": "CALL_WEBHOOK",
+            "config": {
+              "url": "{{env.INVENTORY_SERVICE_URL}}/api/inventory/reserve",
+              "method": "POST",
+              "headers": {
+                "Authorization": "Bearer {{env.SERVICE_TOKEN}}",
+                "Content-Type": "application/json"
+              },
+              "body": {
+                "cartId": "{{context.cart.id}}",
+                "items": "{{context.cart.items}}",
+                "expiresIn": "PT10M"
+              }
+            },
+            "timeout": "PT10S",
+            "async": false,
+            "retryPolicy": {
+              "maxAttempts": 1,
+              "initialIntervalMs": 2000,
+              "backoffCoefficient": 2,
+              "maxIntervalMs": 10000
+            },
+            "compensationActivity": {
+              "activityId": "release_reservation_compensation",
+              "activityName": "Release Inventory Reservation (Compensation)",
+              "activityType": "CALL_WEBHOOK",
+              "config": {
+                "url": "{{env.INVENTORY_SERVICE_URL}}/api/inventory/release",
+                "method": "POST",
+                "headers": {
+                  "Authorization": "Bearer {{env.SERVICE_TOKEN}}",
+                  "Content-Type": "application/json"
+                },
+                "body": {
+                  "reservationId": "{{activity.reserve_inventory.reservationId}}",
+                  "reason": "payment_failed"
+                }
+              },
+              "timeout": "PT10S"
+            }
+          },
+          {
+            "activityId": "emit_cart_validated",
+            "activityName": "Emit Cart Validated Event",
+            "activityType": "EMIT_EVENT",
+            "config": {
+              "eventName": "checkout.cart_validated",
+              "payload": {
+                "cartId": "{{context.cart.id}}",
+                "total": "{{context.cart.total}}",
+                "itemCount": "{{context.cart.itemCount}}"
+              }
+            },
+            "async": false
+          }
+        ]
+      },
+      {
+        "transitionId": "customer_info_to_payment",
+        "transitionName": "Initiate Payment",
+        "fromStepId": "customer_info",
+        "toStepId": "payment_initiation",
+        "trigger": "auto",
+        "priority": 100,
+        "activities": [
+          {
+            "activityId": "charge_payment",
+            "activityName": "Charge Payment Method",
+            "activityType": "CALL_WEBHOOK",
+            "config": {
+              "url": "{{env.PAYMENT_SERVICE_URL}}/api/payments/charge",
+              "method": "POST",
+              "headers": {
+                "Authorization": "Bearer {{env.SERVICE_TOKEN}}",
+                "Content-Type": "application/json",
+                "Idempotency-Key": "{{workflow.instanceId}}"
+              },
+              "body": {
+                "amount": "{{context.cart.total}}",
+                "currency": "{{context.cart.currency}}",
+                "paymentMethodId": "{{context.payment.methodId}}",
+                "customerId": "{{context.customer.id}}",
+                "metadata": {
+                  "cartId": "{{context.cart.id}}",
+                  "workflowInstanceId": "{{workflow.instanceId}}"
+                }
+              }
+            },
+            "timeout": "PT30S",
+            "async": false,
+            "retryPolicy": {
+              "maxAttempts": 1,
+              "initialIntervalMs": 3000,
+              "backoffCoefficient": 2,
+              "maxIntervalMs": 15000
+            },
+            "compensationActivity": {
+              "activityId": "refund_payment",
+              "activityName": "Refund Payment (Compensation)",
+              "activityType": "CALL_WEBHOOK",
+              "config": {
+                "url": "{{env.PAYMENT_SERVICE_URL}}/api/payments/refund",
+                "method": "POST",
+                "headers": {
+                  "Authorization": "Bearer {{env.SERVICE_TOKEN}}",
+                  "Content-Type": "application/json",
+                  "Idempotency-Key": "{{workflow.instanceId}}-refund"
+                },
+                "body": {
+                  "transactionId": "{{activity.charge_payment.transactionId}}",
+                  "amount": "{{context.cart.total}}",
+                  "reason": "order_failed",
+                  "metadata": {
+                    "workflowInstanceId": "{{workflow.instanceId}}"
+                  }
+                }
+              },
+              "timeout": "PT30S"
+            }
+          },
+          {
+            "activityId": "log_payment_initiated",
+            "activityName": "Log Payment Initiated",
+            "activityType": "EMIT_EVENT",
+            "config": {
+              "eventName": "checkout.payment_initiated",
+              "payload": {
+                "cartId": "{{context.cart.id}}",
+                "paymentId": "{{context.payment.id}}",
+                "amount": "{{context.cart.total}}",
+                "transactionId": "{{activity.charge_payment.transactionId}}"
+              }
+            },
+            "async": false
+          }
+        ]
+      },
+      {
+        "transitionId": "payment_to_wait_confirmation",
+        "transitionName": "Wait for Confirmation",
+        "fromStepId": "payment_initiation",
+        "toStepId": "wait_payment_confirmation",
+        "trigger": "auto",
+        "priority": 100
+      },
+      {
+        "transitionId": "confirmation_to_order",
+        "transitionName": "Payment Confirmed",
+        "fromStepId": "wait_payment_confirmation",
+        "toStepId": "order_confirmation",
+        "trigger": "auto",
+        "priority": 100,
+        "activities": [
+          {
+            "activityId": "update_payment_status",
+            "activityName": "Update Payment Status",
+            "activityType": "EMIT_EVENT",
+            "config": {
+              "eventName": "checkout.payment_status_updated",
+              "payload": {
+                "paymentId": "{{context.payment.id}}",
+                "status": "completed",
+                "transactionId": "{{activity.charge_payment.transactionId}}",
+                "completedAt": "{{now}}"
+              }
+            },
+            "timeout": "PT5S",
+            "async": false
+          },
+          {
+            "activityId": "emit_payment_success",
+            "activityName": "Emit Payment Success Event",
+            "activityType": "EMIT_EVENT",
+            "config": {
+              "eventName": "checkout.payment_completed",
+              "payload": {
+                "cartId": "{{context.cart.id}}",
+                "paymentId": "{{context.payment.id}}",
+                "transactionId": "{{context.payment.transactionId}}",
+                "amount": "{{context.cart.total}}"
+              }
+            },
+            "async": false
+          }
+        ]
+      },
+      {
+        "transitionId": "confirmation_to_end",
+        "transitionName": "Finalize Order",
+        "fromStepId": "order_confirmation",
+        "toStepId": "end",
+        "trigger": "auto",
+        "priority": 100,
+        "activities": [
+          {
+            "activityId": "create_order",
+            "activityName": "Create Order Record",
+            "activityType": "CALL_API",
+            "config": {
+              "endpoint": "/api/sales/orders",
+              "method": "POST",
+              "body": {
+                "customerEntityId": "{{context.customer.id}}",
+                "currencyCode": "{{context.cart.currency}}",
+                "placedAt": "{{now}}",
+                "grandTotalGrossAmount": "{{context.cart.total}}",
+                "subtotalGrossAmount": "{{context.cart.subtotal}}",
+                "taxTotalAmount": "{{context.cart.tax}}",
+                "shippingGrossAmount": "{{context.cart.shipping}}",
+                "lineItemCount": "{{context.cart.itemCount}}",
+                "comments": "{{context.comment}}",
+                "metadata": {
+                  "cartId": "{{context.cart.id}}",
+                  "paymentId": "{{context.payment.id}}",
+                  "workflowInstanceId": "{{workflow.instanceId}}",
+                  "workflowId": "{{workflow.workflowId}}",
+                  "tenantId": "{{workflow.tenantId}}",
+                  "source": "workflow_checkout"
+                }
+              },
+              "validateTenantMatch": true
+            },
+            "timeout": "PT10S",
+            "async": false,
+            "retryPolicy": {
+              "maxAttempts": 3,
+              "initialIntervalMs": 2000,
+              "backoffCoefficient": 2,
+              "maxIntervalMs": 10000
+            },
+            "compensationActivity": {
+              "activityId": "cancel_order",
+              "activityName": "Cancel Order (Compensation)",
+              "activityType": "CALL_API",
+              "config": {
+                "endpoint": "/api/sales/orders/{{activity.create_order.body.id}}",
+                "method": "DELETE"
+              },
+              "timeout": "PT10S"
+            }
+          },
+          {
+            "activityId": "send_confirmation_email",
+            "activityName": "Send Order Confirmation Email",
+            "activityType": "SEND_EMAIL",
+            "config": {
+              "to": "{{context.customer.email}}",
+              "subject": "Order Confirmation - Order #{{context.create_order_result.body.number}}",
+              "template": "order_confirmation",
+              "data": {
+                "customerName": "{{context.customer.name}}",
+                "orderNumber": "{{context.create_order_result.body.number}}",
+                "orderDate": "{{now}}",
+                "items": "{{context.cart.items}}",
+                "subtotal": "{{context.cart.subtotal}}",
+                "tax": "{{context.cart.tax}}",
+                "shipping": "{{context.cart.shipping}}",
+                "total": "{{context.cart.total}}",
+                "comment": "{{context.comment}}"
+              }
+            },
+            "timeout": "PT15S",
+            "async": true,
+            "retryPolicy": {
+              "maxAttempts": 3,
+              "initialIntervalMs": 2000,
+              "backoffCoefficient": 2,
+              "maxIntervalMs": 20000
+            }
+          },
+          {
+            "activityId": "emit_order_completed",
+            "activityName": "Emit Order Completed Event",
+            "activityType": "EMIT_EVENT",
+            "config": {
+              "eventName": "checkout.completed",
+              "payload": {
+                "orderId": "{{context.create_order_result.body.id}}",
+                "orderNumber": "{{context.create_order_result.body.number}}",
+                "customerId": "{{context.customer.id}}",
+                "total": "{{context.cart.total}}",
+                "timestamp": "{{now}}"
+              }
+            },
+            "async": false
+          }
+        ]
+      }
+    ]
+  }
+}

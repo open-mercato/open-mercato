@@ -1,7 +1,7 @@
 {
   "customers~sales": {
     "nav": {
-      "group": "Sales"
+      "group": "Vertrieb"
     }
   },
   "sales": {
@@ -57,80 +57,80 @@
       }
     },
     "nav": {
-      "group": "Sales",
-      "channels": "Channels"
+      "group": "Vertrieb",
+      "channels": "Vertriebskanäle"
     },
     "channels": {
       "nav": {
-        "title": "Sales channels"
+        "title": "Vertriebskanäle"
       },
       "table": {
         "name": "Name",
         "code": "Code",
-        "offers": "Product offers",
-        "active": "Active",
-        "updated": "Updated",
-        "search": "Search channels…",
-        "refresh": "Refresh",
-        "empty": "No channels yet.",
+        "offers": "Produktangebote",
+        "active": "Aktiv",
+        "updated": "Aktualisiert",
+        "search": "Kanäle suchen…",
+        "refresh": "Aktualisieren",
+        "empty": "Noch keine Kanäle.",
         "errors": {
-          "load": "Failed to load channels.",
-          "delete": "Failed to delete channel."
+          "load": "Kanäle konnten nicht geladen werden.",
+          "delete": "Kanal konnte nicht gelöscht werden."
         },
         "messages": {
-          "deleted": "Channel deleted."
+          "deleted": "Kanal gelöscht."
         },
         "actions": {
-          "edit": "Edit",
-          "delete": "Delete"
+          "edit": "Bearbeiten",
+          "delete": "Löschen"
         },
-        "subtitle": "Organize catalog offers per marketplace or storefront."
+        "subtitle": "Verwalte Katalogangebote nach Marktplatz oder Verkaufskanal."
       },
       "actions": {
-        "create": "Add channel"
+        "create": "Kanal hinzufügen"
       },
       "form": {
         "tabs": {
-          "settings": "Settings",
-          "offers": "Offers"
+          "settings": "Einstellungen",
+          "offers": "Angebote"
         },
         "groups": {
-          "general": "General",
-          "contact": "Contact",
-          "address": "Location"
+          "general": "Allgemein",
+          "contact": "Kontakt",
+          "address": "Standort"
         },
-        "name": "Channel name",
+        "name": "Kanalname",
         "code": "Code",
-        "description": "Description",
-        "websiteUrl": "Website URL",
-        "contactEmail": "Contact email",
-        "contactPhone": "Contact phone",
-        "status": "Status entry ID",
-        "address1": "Address line 1",
-        "address2": "Address line 2",
-        "city": "City",
-        "region": "State / region",
-        "postalCode": "Postal code",
-        "country": "Country",
-        "latitude": "Latitude",
-        "longitude": "Longitude",
-        "isActive": "Active",
-        "createTitle": "Create sales channel",
-        "createSubmit": "Create channel",
-        "editTitle": "Edit channel",
-        "updateSubmit": "Save changes",
-        "createSuccess": "Channel created.",
-        "loading": "Loading channel…",
+        "description": "Beschreibung",
+        "websiteUrl": "Website-URL",
+        "contactEmail": "Kontakt-E-Mail",
+        "contactPhone": "Kontakttelefon",
+        "status": "Status-Eintrag-ID",
+        "address1": "Adresszeile 1",
+        "address2": "Adresszeile 2",
+        "city": "Stadt",
+        "region": "Bundesland / Region",
+        "postalCode": "Postleitzahl",
+        "country": "Land",
+        "latitude": "Breitengrad",
+        "longitude": "Längengrad",
+        "isActive": "Aktiv",
+        "createTitle": "Vertriebskanal erstellen",
+        "createSubmit": "Kanal erstellen",
+        "editTitle": "Kanal bearbeiten",
+        "updateSubmit": "Änderungen speichern",
+        "createSuccess": "Kanal erstellt.",
+        "loading": "Kanal wird geladen…",
         "errors": {
-          "create": "Failed to create channel.",
-          "update": "Failed to save channel.",
-          "delete": "Failed to delete channel.",
-          "load": "Failed to load channel."
+          "create": "Kanal konnte nicht erstellt werden.",
+          "update": "Kanal konnte nicht gespeichert werden.",
+          "delete": "Kanal konnte nicht gelöscht werden.",
+          "load": "Kanal konnte nicht geladen werden."
         },
         "messages": {
-          "created": "Channel created.",
-          "updated": "Channel updated.",
-          "deleted": "Channel deleted."
+          "created": "Kanal erstellt.",
+          "updated": "Kanal aktualisiert.",
+          "deleted": "Kanal gelöscht."
         }
       },
       "offers": {
@@ -141,52 +141,52 @@
           "channelsPlaceholder": "Nach Kanälen filtern…",
           "channelsLoadError": "Kanäle konnten nicht geladen werden"
         },
-        "heading": "Offers for {{name}}",
-        "subtitle": "Override product presentation and pricing per channel.",
+        "heading": "Angebote für {{name}}",
+        "subtitle": "Überschreibe Produktpräsentation und Preise pro Kanal.",
         "actions": {
-          "create": "Add offer",
-          "edit": "Edit",
-          "delete": "Delete"
+          "create": "Angebot hinzufügen",
+          "edit": "Bearbeiten",
+          "delete": "Löschen"
         },
         "errors": {
-          "load": "Failed to load offers.",
-          "delete": "Failed to delete offer.",
-          "loadOffer": "Failed to load offer.",
-          "save": "Failed to save offer.",
+          "load": "Angebote konnten nicht geladen werden.",
+          "delete": "Angebot konnte nicht gelöscht werden.",
+          "loadOffer": "Angebot konnte nicht geladen werden.",
+          "save": "Angebot konnte nicht gespeichert werden.",
           "duplicateProduct": "Dieses Produkt hat bereits ein Angebot in diesem Kanal.",
-          "requiredFields": "Choose a channel and product.",
+          "requiredFields": "Wähle einen Kanal und ein Produkt.",
           "priceKindRequired": "Wähle für jede Preisüberschreibung eine Preisart.",
           "priceKindDuplicate": "Jede Preisart kann nur einmal überschrieben werden.",
-          "removePrice": "Failed to remove price override."
+          "removePrice": "Preisüberschreibung konnte nicht entfernt werden."
         },
         "messages": {
-          "deleted": "Offer deleted.",
-          "saved": "Offer saved."
+          "deleted": "Angebot gelöscht.",
+          "saved": "Angebot gespeichert."
         },
         "table": {
-          "offer": "Offer",
-          "pricing": "Prices",
-          "prices": "Price overrides",
-          "active": "Active",
-          "updated": "Updated",
-          "search": "Search offers…",
-          "refresh": "Refresh",
-          "empty": "No offers for this channel yet.",
+          "offer": "Angebot",
+          "pricing": "Preise",
+          "prices": "Preisüberschreibungen",
+          "active": "Aktiv",
+          "updated": "Aktualisiert",
+          "search": "Angebote suchen…",
+          "refresh": "Aktualisieren",
+          "empty": "Noch keine Angebote für diesen Kanal.",
           "emptyAll": "Noch keine Angebote vorhanden.",
-          "noOverrides": "No overrides",
-          "price": "Price",
+          "noOverrides": "Keine Überschreibungen",
+          "price": "Preis",
           "channelPrice": "Ursprünglicher Produktpreis {{price}}",
-          "emptyProduct": "Unlinked product",
+          "emptyProduct": "Nicht verknüpftes Produkt",
           "channel": "Kanal",
           "channelUnassigned": "Nicht zugewiesen"
         },
         "form": {
-          "createTitle": "Create offer",
-          "editTitle": "Edit offer",
-          "createSubmit": "Create offer",
-          "updateSubmit": "Save changes",
-          "loading": "Loading offer…",
-          "channel": "Channel",
+          "createTitle": "Angebot erstellen",
+          "editTitle": "Angebot bearbeiten",
+          "createSubmit": "Angebot erstellen",
+          "updateSubmit": "Änderungen speichern",
+          "loading": "Angebot wird geladen…",
+          "channel": "Kanal",
           "channelDetails": "Details",
           "channelPlaceholder": "Kanal auswählen",
           "product": "Produkt",
@@ -215,20 +215,20 @@
           "mediaHelp": "Bestimme, welches Vorschaubild im Kanal angezeigt wird.",
           "mediaInherit": "Produktstandard verwenden",
           "mediaSelected": "Aktiv",
-          "title": "Title",
-          "description": "Description",
-          "active": "Active",
+          "title": "Titel",
+          "description": "Beschreibung",
+          "active": "Aktiv",
           "variantsTitle": "Varianten",
           "variantsEmpty": "Keine Varianten für dieses Produkt.",
           "tabs": {
-            "offers": "Offers"
+            "offers": "Angebote"
           },
           "groups": {
-            "associations": "Associations",
-            "content": "Content",
-            "pricing": "Price overrides"
+            "associations": "Verknüpfungen",
+            "content": "Inhalt",
+            "pricing": "Preisüberschreibungen"
           },
-          "mediaSelectProduct": "Select a product to load its media."
+          "mediaSelectProduct": "Wähle ein Produkt, um seine Medien zu laden."
         },
         "pricing": {
           "help": "Lege Überschreibungen pro Preistyp fest, sobald das Angebot aktiv ist.",
@@ -243,9 +243,9 @@
           "overrideHint": "Überschreibungen haben Vorrang vor dem ursprünglichen Produktpreis.",
           "allKindsUsed": "Für jede Preisart existiert bereits eine Überschreibung.",
           "noKindsAvailable": "Definiere zuerst eine Preisart, bevor du Überschreibungen hinzufügst.",
-          "includingTax": "Including tax",
-          "excludingTax": "Excluding tax",
-          "emptyFallback": "Using {price} from the product until you add overrides."
+          "includingTax": "Inkl. MwSt.",
+          "excludingTax": "Exkl. MwSt.",
+          "emptyFallback": "Bis du Überschreibungen hinzufügst, wird {price} vom Produkt verwendet."
         }
       }
     },
@@ -641,45 +641,45 @@
     },
     "documents": {
       "list": {
-        "ordersTitle": "Sales orders",
-        "quotesTitle": "Sales quotes",
-        "subtitle": "Review documents with customer context, totals, and channels.",
+        "ordersTitle": "Verkaufsaufträge",
+        "quotesTitle": "Verkaufsangebote",
+        "subtitle": "Dokumente mit Kundenkontext, Summen und Kanälen prüfen.",
         "search": {
-          "orders": "Search orders…",
-          "quotes": "Search quotes…"
+          "orders": "Aufträge suchen…",
+          "quotes": "Angebote suchen…"
         },
         "filters": {
-          "channel": "Channel",
-          "date": "Date",
-          "itemsMin": "Min items",
-          "itemsMax": "Max items",
-          "totalNetMin": "Min total (net)",
-          "totalNetMax": "Max total (net)",
-          "totalGrossMin": "Min total (gross)",
-          "totalGrossMax": "Max total (gross)",
-          "customer": "Customer id",
-          "customerPlaceholder": "Customer id",
+          "channel": "Kanal",
+          "date": "Datum",
+          "itemsMin": "Min. Positionen",
+          "itemsMax": "Max. Positionen",
+          "totalNetMin": "Min. Summe (netto)",
+          "totalNetMax": "Max. Summe (netto)",
+          "totalGrossMin": "Min. Summe (brutto)",
+          "totalGrossMax": "Max. Summe (brutto)",
+          "customer": "Kunden-ID",
+          "customerPlaceholder": "Kunden-ID",
           "tags": "Tags"
         },
         "errors": {
-          "load": "Failed to load documents."
+          "load": "Dokumente konnten nicht geladen werden."
         },
         "table": {
-          "order": "Order",
-          "quote": "Quote",
-          "customer": "Customer",
-          "noCustomer": "No customer",
-          "noEmail": "No email",
-          "channel": "Channel",
-          "unassigned": "Unassigned",
-          "items": "Items",
-          "totalNet": "Total (net)",
-          "totalGross": "Total (gross)",
-          "date": "Date",
-          "refresh": "Refresh",
-          "emptyOrders": "No orders yet.",
-          "emptyQuotes": "No quotes yet.",
-          "open": "Open",
+          "order": "Auftrag",
+          "quote": "Angebot",
+          "customer": "Kunde",
+          "noCustomer": "Kein Kunde",
+          "noEmail": "Keine E-Mail",
+          "channel": "Kanal",
+          "unassigned": "Nicht zugewiesen",
+          "items": "Positionen",
+          "totalNet": "Summe (netto)",
+          "totalGross": "Summe (brutto)",
+          "date": "Datum",
+          "refresh": "Aktualisieren",
+          "emptyOrders": "Noch keine Aufträge.",
+          "emptyQuotes": "Noch keine Angebote.",
+          "open": "Öffnen",
           "deleteOrder": "Bestellung löschen",
           "deleteQuote": "Angebot löschen",
           "deleteOrderConfirm": "Diesen Auftrag löschen? Sendungen, Zahlungen, Adressen, Kommentare und Positionen werden entfernt.",
@@ -703,7 +703,9 @@
         "channel.loading": "Kanäle werden geladen…",
         "channel.empty": "Keine Kanäle gefunden.",
         "channel.selected": "Ausgewählter Kanal: {{id}}",
-        "kind": "Document type",
+        "kind": "Dokumenttyp",
+        "kind.quote": "Angebot",
+        "kind.order": "Bestellung",
         "customer": {
           "quick": {
             "error": "Failed to create customer.",
@@ -727,6 +729,7 @@
         "email": "Kunden-E-Mail",
         "email.placeholder": "E-Mail für dieses Dokument",
         "email.selectCustomer": "Kunden auswählen",
+        "email.alreadySelected": "Ausgewählter Kunde",
         "currency.placeholder": "Währung auswählen",
         "currency.add": "Währung hinzufügen",
         "currency.prompt": "Währungscode",
@@ -772,17 +775,17 @@
         "success": "Verkaufsdokument erstellt.",
         "nextStep": "Nach dem Erstellen fügst du Positionen, Preise und Versanddetails hinzu.",
         "shipping": {
-          "hint": "Select an address or define a new one."
+          "hint": "Wählen Sie eine Adresse aus oder definieren Sie eine neue."
         },
         "billing": {
-          "hint": "Select an address or define a new one."
+          "hint": "Wählen Sie eine Adresse aus oder definieren Sie eine neue."
         },
-        "kind.hint": "Please select which kind of sales document you want to create. When creating Quotes - it's kind of Shopping cart or Request for negotiation and could be converted to regular order later",
-        "number": "Document number",
-        "numberLoading": "Generating…",
-        "numberRefresh": "Generate",
-        "numberHintOrder": "Format applies to orders and uses the configured counter.",
-        "numberHintQuote": "Format applies to quotes and uses the configured counter.",
+        "kind.hint": "Wählen Sie den Dokumenttyp. Ein Angebot ist wie ein Warenkorb oder eine Angebotsanfrage und kann später in eine Bestellung umgewandelt werden.",
+        "number": "Dokumentnummer",
+        "numberLoading": "Wird generiert…",
+        "numberRefresh": "Generieren",
+        "numberHintOrder": "Format für Bestellungen, verwendet den konfigurierten Zähler.",
+        "numberHintQuote": "Format für Angebote, verwendet den konfigurierten Zähler.",
         "errors": {
           "numberGenerate": "Could not generate a document number.",
           "numberRequired": "Document number is required."
@@ -805,6 +808,7 @@
         "reference": "Reference",
         "method": "Method",
         "status": "Status",
+        "statusPlaceholder": "Status auswählen",
         "amount": "Amount",
         "receivedAt": "Received at",
         "createdAt": "Created",
@@ -1200,6 +1204,7 @@
         "empty.payments.description": "Track received payments to keep outstanding balances up to date.",
         "empty.adjustments.title": "Noch keine Anpassungen.",
         "empty.adjustments.description": "Füge Rabatte, Gebühren oder Steuern zu diesem Dokument hinzu.",
+        "empty.generic": "Hier gibt es noch nichts anzuzeigen.",
         "status.placeholder": "Status auswählen",
         "status.dialogTitle": "Status hinzufügen",
         "status.valueLabel": "Wert",
@@ -1360,6 +1365,8 @@
         "available": "{{count}} verfügbar",
         "shippedOn": "Versandt am {{date}}",
         "deliveredOn": "Zugestellt am {{date}}",
+        "status": "Sendungsstatus",
+        "statusPlaceholder": "Sendungsstatus auswählen",
         "statusMissing": "Status ausstehend",
         "addressSnapshot": "Adress-Snapshot gespeichert.",
         "attachAddress": "Adress-Snapshot anhängen",
@@ -1485,5 +1492,27 @@
   "sales.orders.status_change.note": "Status geändert von {from} auf {to} durch {actor}.",
   "sales.orders.status_change.actor_unknown": "Unbekannter Benutzer",
   "sales.orders.status_change.actor_api_key": "API-Schlüssel {name}",
-  "sales.orders.status_change.empty": "nicht gesetzt"
+  "sales.orders.status_change.empty": "nicht gesetzt",
+  "sales.search.badge.channel": "Kanal",
+  "sales.search.badge.order": "Bestellung",
+  "sales.search.badge.quote": "Angebot",
+  "sales.search.badge.orderLine": "Bestellposition",
+  "sales.search.badge.quoteLine": "Angebotsposition",
+  "sales.search.badge.orderAdjustment": "Bestellanpassung",
+  "sales.search.badge.quoteAdjustment": "Angebotsanpassung",
+  "sales.search.badge.shipment": "Sendung",
+  "sales.search.badge.shipmentItem": "Sendungsposition",
+  "sales.search.badge.invoice": "Rechnung",
+  "sales.search.badge.invoiceLine": "Rechnungsposition",
+  "sales.search.badge.creditMemo": "Gutschrift",
+  "sales.search.badge.creditMemoLine": "Gutschriftsposition",
+  "sales.search.badge.payment": "Zahlung",
+  "sales.search.badge.paymentAllocation": "Zahlungszuordnung",
+  "sales.search.badge.note": "Notiz",
+  "sales.search.badge.address": "Adresse",
+  "sales.search.badge.shippingMethod": "Versandart",
+  "sales.search.badge.deliveryWindow": "Lieferfenster",
+  "sales.search.badge.paymentMethod": "Zahlungsart",
+  "sales.search.badge.taxRate": "Steuersatz",
+  "sales.search.badge.documentTag": "Dokumenten-Tag"
 }

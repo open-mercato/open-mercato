@@ -84,6 +84,7 @@ export type CrudBuiltinField = CrudFieldBase & {
     | 'select'
     | 'number'
     | 'date'
+    | 'datetime-local'
     | 'tags'
     | 'richtext'
     | 'relation'
@@ -1489,9 +1490,9 @@ export function CrudForm<TValues extends Record<string, unknown>>({
         nodes.push(
           <div key={g.id} className="rounded-lg border bg-card px-4 py-3 space-y-3">
             {g.title ? (
-              <div className="text-sm font-medium">{g.title}</div>
+              <div className="text-sm font-medium">{t(g.title, g.title)}</div>
             ) : null}
-            {g.description ? <div className="text-xs text-muted-foreground">{g.description}</div> : null}
+            {g.description ? <div className="text-xs text-muted-foreground">{t(g.description, g.description)}</div> : null}
             {componentNode ? (
               <div>{componentNode}</div>
             ) : null}
@@ -2260,7 +2261,7 @@ const FieldControl = React.memo(function FieldControlImpl({
 
   return (
     <div className={rootClassName} data-crud-field-id={field.id}>
-      {field.type !== 'checkbox' ? (
+      {field.type !== 'checkbox' && field.label.trim().length > 0 ? (
         <label className="block text-sm font-medium">
           {field.label}
           {field.required ? <span className="text-red-600"> *</span> : null}
@@ -2289,6 +2290,17 @@ const FieldControl = React.memo(function FieldControlImpl({
       {field.type === 'date' && (
         <input
           type="date"
+          className="w-full h-9 rounded border px-2 text-sm"
+          value={typeof value === 'string' ? value : ''}
+          onChange={(e) => setValue(field.id, e.target.value || undefined)}
+          autoFocus={autoFocusField}
+          data-crud-focus-target=""
+          disabled={disabled}
+        />
+      )}
+      {field.type === 'datetime-local' && (
+        <input
+          type="datetime-local"
           className="w-full h-9 rounded border px-2 text-sm"
           value={typeof value === 'string' ? value : ''}
           onChange={(e) => setValue(field.id, e.target.value || undefined)}
@@ -2480,5 +2492,7 @@ const FieldControl = React.memo(function FieldControlImpl({
   prev.wrapperClassName === next.wrapperClassName &&
   prev.entityIdForField === next.entityIdForField &&
   prev.recordId === next.recordId &&
-  (prev.field.type !== 'custom' || prev.values === next.values)
+  (prev.field.type !== 'custom' ||
+    (prev.values === next.values &&
+      prev.field.component === (next.field as CrudCustomField).component))
 )

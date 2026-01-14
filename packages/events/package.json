@@ -1,6 +1,6 @@
 {
   "name": "@open-mercato/events",
-  "version": "0.3.11",
+  "version": "0.3.13",
   "private": true,
   "main": "src/index.ts",
   "type": "module",

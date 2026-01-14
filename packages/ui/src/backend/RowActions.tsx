@@ -10,7 +10,8 @@ export type RowActionItem = {
   destructive?: boolean
 }
 
-export function RowActions({ items }: { items: RowActionItem[] }) {
+export function RowActions({ items = [] }: { items?: RowActionItem[] }) {
+  if (items.length === 0) return null
   const t = useT()
   const [open, setOpen] = React.useState(false)
   const btnRef = React.useRef<HTMLButtonElement>(null)
