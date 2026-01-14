@@ -5,6 +5,7 @@ import { getAuthFromRequest } from '@/lib/auth/server'
 import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/directory/utils/organizationScope'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { FmsQuote } from '../../data/entities'
+import { FmsLocation } from '../../../fms_locations/data/entities'
 import { fmsQuoteUpdateSchema } from '../../data/validators'
 
 // Schema for PUT body - id comes from URL params, not body
@@ -67,11 +68,53 @@ export async function GET(req: Request, ctx: { params?: { id?: string } }) {
     ...scopeFilters,
   }
 
-  const quote = await em.findOne(FmsQuote, filters)
+  const quote = await em.findOne(FmsQuote, filters, {
+    populate: ['client', 'originPorts', 'destinationPorts'],
+  })
 
   if (!quote) return NextResponse.json({ error: 'Quote not found' }, { status: 404 })
 
-  return NextResponse.json(quote)
+  // Transform the response to include related entity data
+  const response = {
+    id: quote.id,
+    organizationId: quote.organizationId,
+    tenantId: quote.tenantId,
+    quoteNumber: quote.quoteNumber,
+    client: quote.client
+      ? {
+          id: quote.client.id,
+          name: quote.client.name,
+          shortName: quote.client.shortName ?? null,
+        }
+      : null,
+    containerCount: quote.containerCount,
+    status: quote.status,
+    direction: quote.direction,
+    incoterm: quote.incoterm,
+    cargoType: quote.cargoType,
+    originPorts: quote.originPorts.getItems().map((port) => ({
+      id: port.id,
+      locode: port.locode ?? null,
+      name: port.name,
+      city: port.city ?? null,
+      country: port.country ?? null,
+    })),
+    destinationPorts: quote.destinationPorts.getItems().map((port) => ({
+      id: port.id,
+      locode: port.locode ?? null,
+      name: port.name,
+      city: port.city ?? null,
+      country: port.country ?? null,
+    })),
+    validUntil: quote.validUntil,
+    currencyCode: quote.currencyCode,
+    notes: quote.notes,
+    createdAt: quote.createdAt,
+    updatedAt: quote.updatedAt,
+    deletedAt: quote.deletedAt,
+  }
+
+  return NextResponse.json(response)
 }
 
 export async function PUT(req: Request, ctx: { params?: { id?: string } }) {
@@ -98,7 +141,9 @@ export async function PUT(req: Request, ctx: { params?: { id?: string } }) {
     ...scopeFilters,
   }
 
-  const quote = await em.findOne(FmsQuote, filters)
+  const quote = await em.findOne(FmsQuote, filters, {
+    populate: ['originPorts', 'destinationPorts'],
+  })
 
   if (!quote) return NextResponse.json({ error: 'Quote not found' }, { status: 404 })
 
@@ -106,23 +151,82 @@ export async function PUT(req: Request, ctx: { params?: { id?: string } }) {
 
   // Map camelCase input to entity fields
   if (data.quoteNumber !== undefined) quote.quoteNumber = data.quoteNumber
-  if (data.clientName !== undefined) quote.clientName = data.clientName
+  if (data.clientId !== undefined) quote.client = data.clientId as any
   if (data.containerCount !== undefined) quote.containerCount = data.containerCount
   if (data.status !== undefined) quote.status = data.status
   if (data.direction !== undefined) quote.direction = data.direction
   if (data.incoterm !== undefined) quote.incoterm = data.incoterm
   if (data.cargoType !== undefined) quote.cargoType = data.cargoType
-  if (data.originPortCode !== undefined) quote.originPortCode = data.originPortCode
-  if (data.destinationPortCode !== undefined) quote.destinationPortCode = data.destinationPortCode
   if (data.validUntil !== undefined) quote.validUntil = data.validUntil ? new Date(data.validUntil) : null
   if (data.currencyCode !== undefined) quote.currencyCode = data.currencyCode
   if (data.notes !== undefined) quote.notes = data.notes
+
+  // Handle origin ports collection
+  if (data.originPortIds !== undefined) {
+    if (Array.isArray(data.originPortIds) && data.originPortIds.length > 0) {
+      const originPorts = await em.find(FmsLocation, { id: { $in: data.originPortIds } })
+      quote.originPorts.set(originPorts)
+    } else {
+      quote.originPorts.removeAll()
+    }
+  }
+
+  // Handle destination ports collection
+  if (data.destinationPortIds !== undefined) {
+    if (Array.isArray(data.destinationPortIds) && data.destinationPortIds.length > 0) {
+      const destinationPorts = await em.find(FmsLocation, { id: { $in: data.destinationPortIds } })
+      quote.destinationPorts.set(destinationPorts)
+    } else {
+      quote.destinationPorts.removeAll()
+    }
+  }
 
   quote.updatedAt = new Date()
 
   await em.flush()
 
-  return NextResponse.json(quote)
+  // Return populated response
+  await em.populate(quote, ['client', 'originPorts', 'destinationPorts'])
+
+  const response = {
+    id: quote.id,
+    organizationId: quote.organizationId,
+    tenantId: quote.tenantId,
+    quoteNumber: quote.quoteNumber,
+    client: quote.client
+      ? {
+          id: quote.client.id,
+          name: quote.client.name,
+          shortName: quote.client.shortName ?? null,
+        }
+      : null,
+    containerCount: quote.containerCount,
+    status: quote.status,
+    direction: quote.direction,
+    incoterm: quote.incoterm,
+    cargoType: quote.cargoType,
+    originPorts: quote.originPorts.getItems().map((port) => ({
+      id: port.id,
+      locode: port.locode ?? null,
+      name: port.name,
+      city: port.city ?? null,
+      country: port.country ?? null,
+    })),
+    destinationPorts: quote.destinationPorts.getItems().map((port) => ({
+      id: port.id,
+      locode: port.locode ?? null,
+      name: port.name,
+      city: port.city ?? null,
+      country: port.country ?? null,
+    })),
+    validUntil: quote.validUntil,
+    currencyCode: quote.currencyCode,
+    notes: quote.notes,
+    createdAt: quote.createdAt,
+    updatedAt: quote.updatedAt,
+  }
+
+  return NextResponse.json(response)
 }
 
 export async function DELETE(req: Request, ctx: { params?: { id?: string } }) {

@@ -12,7 +12,7 @@ import {
 } from '../../data/types'
 
 const QUOTE_DISPLAY_HINTS: DisplayHints = {
-  hiddenFields: ['offers'],
+  hiddenFields: ['offers', 'lines'],
 
   readOnlyFields: ['createdAt', 'updatedAt'],
 
@@ -27,6 +27,30 @@ const QUOTE_DISPLAY_HINTS: DisplayHints = {
     incoterm: [...FMS_INCOTERMS],
     cargoType: [...FMS_CARGO_TYPES],
   },
+
+  additionalColumns: [
+    {
+      data: 'client.name',
+      title: 'Client',
+      width: 150,
+      type: 'text',
+      readOnly: true,
+    },
+    {
+      data: 'originPortsDisplay',
+      title: 'Origin Ports',
+      width: 150,
+      type: 'text',
+      readOnly: true,
+    },
+    {
+      data: 'destinationPortsDisplay',
+      title: 'Dest. Ports',
+      width: 150,
+      type: 'text',
+      readOnly: true,
+    },
+  ],
 }
 
 export async function GET(request: NextRequest) {

@@ -2,7 +2,8 @@ import { z } from 'zod'
 import { makeCrudRoute } from '@open-mercato/shared/lib/crud/factory'
 import { FmsQuote } from '../data/entities'
 import { fmsQuoteCreateSchema, fmsQuoteUpdateSchema } from '../data/validators'
-import { escapeLikePattern } from '@open-mercato/shared/lib/db/escapeLikePattern'
+import type { SearchService } from '@open-mercato/search'
+import { E } from '@open-mercato/fms/generated/entities.ids.generated'
 
 const listSchema = z
   .object({
@@ -26,17 +27,35 @@ const routeMetadata = {
 
 export const metadata = routeMetadata
 
-function buildSearchFilters(query: z.infer<typeof listSchema>): Record<string, unknown> {
+async function buildSearchFilters(
+  query: z.infer<typeof listSchema>,
+  ctx: { container: { resolve: (key: string) => unknown }; auth?: { tenantId?: string } | null }
+): Promise<Record<string, unknown>> {
   const filters: Record<string, unknown> = {}
+  const tenantId = ctx.auth?.tenantId
 
-  if (query.q && query.q.trim().length > 0) {
-    const term = `%${escapeLikePattern(query.q.trim())}%`
-    filters.$or = [
-      { quote_number: { $ilike: term } },
-      { origin_port_code: { $ilike: term } },
-      { destination_port_code: { $ilike: term } },
-      { notes: { $ilike: term } },
-    ]
+  if (query.q && query.q.trim().length > 0 && tenantId) {
+    try {
+      const searchService = ctx.container.resolve('searchService') as SearchService | undefined
+
+      if (searchService) {
+        const results = await searchService.search(query.q.trim(), {
+          tenantId,
+          organizationId: null,
+          limit: 100,
+          strategies: ['fulltext'],
+          entityTypes: ['fms_quotes:fms_quote'],
+        })
+
+        if (results.length > 0) {
+          filters.id = { $in: results.map((r) => r.recordId) }
+        } else {
+          filters.id = { $in: ['00000000-0000-0000-0000-000000000000'] }
+        }
+      }
+    } catch (error) {
+      console.error('[fms_quotes:search] Search service error:', error)
+    }
   }
 
   if (query.status) {
@@ -65,6 +84,7 @@ const crud = makeCrudRoute({
   },
   list: {
     schema: listSchema,
+    entityId: E.fms_quotes.fms_quote,
     fields: [
       'id',
       'quote_number',
@@ -91,7 +111,7 @@ const crud = makeCrudRoute({
       createdAt: 'created_at',
       updatedAt: 'updated_at',
     },
-    buildFilters: async (query) => buildSearchFilters(query),
+    buildFilters: async (query, ctx) => buildSearchFilters(query, ctx),
     transformItem: (item: any) => ({
       id: item.id,
       quote_number: item.quote_number ?? null,

@@ -7,6 +7,7 @@ import {
   TableEvents,
   dispatch,
   useEventHandlers,
+  createMultiSelectEntitySearchEditor,
 } from '@open-mercato/ui/backend/dynamic-table'
 import type {
   CellEditSaveEvent,
@@ -14,8 +15,10 @@ import type {
   CellSaveSuccessEvent,
   CellSaveErrorEvent,
   ColumnDef,
+  MultiSelectSelectedItem,
 } from '@open-mercato/ui/backend/dynamic-table'
-import type { Quote } from './hooks/useQuoteWizard'
+import { Badge } from '@open-mercato/ui/primitives/badge'
+import type { Quote, PortRef } from './hooks/useQuoteWizard'
 
 type QuoteWizardHeaderProps = {
   quote: Quote
@@ -40,6 +43,41 @@ const CURRENCY_OPTIONS = [
 export function QuoteWizardHeader({ quote, onChange }: QuoteWizardHeaderProps) {
   const tableRef = useRef<HTMLDivElement>(null)
 
+  // Port multi-select editor config
+  const portEditorConfig = useMemo(() => ({
+    entityType: 'fms_locations:fms_location',
+    extractValue: (r: { recordId: string }) => r.recordId,
+    extractLabel: (r: { presenter?: { title?: string } }) => r.presenter?.title || '',
+    extractItem: (r: { recordId: string; presenter?: { title?: string }; fields?: Record<string, unknown> }) => ({
+      id: r.recordId,
+      label: r.presenter?.title || '',
+      locode: r.fields?.locode as string | undefined,
+      name: r.fields?.name as string | undefined,
+    }),
+    placeholder: 'Search ports...',
+    minQueryLength: 2,
+  }), [])
+
+  // Port renderer
+  const portRenderer = useCallback((value: unknown) => {
+    const ports = Array.isArray(value) ? value : []
+    if (ports.length === 0) {
+      return <span className="text-gray-400">-</span>
+    }
+    return (
+      <span className="flex gap-1 overflow-hidden">
+        {ports.map((port: PortRef | MultiSelectSelectedItem) => {
+          const portAny = port as PortRef & { label?: string }
+          return (
+            <Badge key={port.id} variant="outline" className="text-xs">
+              {portAny.locode || portAny.label || portAny.name || port.id}
+            </Badge>
+          )
+        })}
+      </span>
+    )
+  }, [])
+
   const columns = useMemo((): ColumnDef[] => [
     {
       data: 'clientName',
@@ -61,16 +99,18 @@ export function QuoteWizardHeader({ quote, onChange }: QuoteWizardHeaderProps) {
       source: DIRECTION_OPTIONS.map(o => o.label),
     },
     {
-      data: 'originPortCode',
+      data: 'originPorts',
       title: 'Origin',
-      width: 100,
-      type: 'text',
+      width: 180,
+      renderer: portRenderer,
+      editor: createMultiSelectEntitySearchEditor(portEditorConfig),
     },
     {
-      data: 'destinationPortCode',
+      data: 'destinationPorts',
       title: 'Destination',
-      width: 100,
-      type: 'text',
+      width: 180,
+      renderer: portRenderer,
+      editor: createMultiSelectEntitySearchEditor(portEditorConfig),
     },
     {
       data: 'currencyCode',
@@ -79,19 +119,28 @@ export function QuoteWizardHeader({ quote, onChange }: QuoteWizardHeaderProps) {
       type: 'dropdown',
       source: CURRENCY_OPTIONS.map(o => o.label),
     },
-  ], [])
+  ], [portEditorConfig, portRenderer])
 
   const tableData = useMemo(() => [{
     id: quote.id,
     clientName: quote.clientName || '',
     quoteNumber: quote.quoteNumber || '',
     direction: DIRECTION_OPTIONS.find(o => o.value === quote.direction)?.label || 'Select',
-    originPortCode: quote.originPortCode || '',
-    destinationPortCode: quote.destinationPortCode || '',
+    originPorts: quote.originPorts || [],
+    destinationPorts: quote.destinationPorts || [],
     currencyCode: quote.currencyCode || 'USD',
   }], [quote])
 
   const handleCellChange = useCallback((field: string, value: unknown) => {
+    // Handle multi-select ports - send IDs array to API
+    if (field === 'originPorts' || field === 'destinationPorts') {
+      const idsField = field === 'originPorts' ? 'originPortIds' : 'destinationPortIds'
+      const ports = Array.isArray(value) ? value : []
+      const ids = ports.map((p: PortRef | MultiSelectSelectedItem) => p.id)
+      onChange({ [idsField]: ids })
+      return
+    }
+
     let finalValue = value
 
     // Handle direction dropdown
@@ -100,17 +149,18 @@ export function QuoteWizardHeader({ quote, onChange }: QuoteWizardHeaderProps) {
       finalValue = option?.value || null
     }
 
-    // Handle port codes - uppercase
-    if (field === 'originPortCode' || field === 'destinationPortCode') {
-      finalValue = typeof value === 'string' ? value.toUpperCase() : value
-    }
-
     onChange({ [field]: finalValue })
   }, [onChange])
 
   useEventHandlers(
     {
       [TableEvents.CELL_EDIT_SAVE]: async (payload: CellEditSaveEvent) => {
+        console.log('[QuoteWizardHeader] CELL_EDIT_SAVE received:', {
+          prop: payload.prop,
+          newValue: payload.newValue,
+          oldValue: payload.oldValue,
+        })
+
         dispatch(tableRef.current as HTMLElement, TableEvents.CELL_SAVE_START, {
           rowIndex: payload.rowIndex,
           colIndex: payload.colIndex,

@@ -2,18 +2,22 @@
 
 import * as React from 'react'
 import { FileText, TrendingUp, Package } from 'lucide-react'
+import type { PortRef } from './hooks/useQuoteWizard'
 
 type QuoteWizardContextPanelProps = {
   clientName?: string | null
-  originPort?: string | null
-  destinationPort?: string | null
+  originPorts?: PortRef[]
+  destinationPorts?: PortRef[]
 }
 
 export function QuoteWizardContextPanel({
   clientName,
-  originPort,
-  destinationPort,
+  originPorts,
+  destinationPorts,
 }: QuoteWizardContextPanelProps) {
+  const hasRoute = originPorts && originPorts.length > 0 && destinationPorts && destinationPorts.length > 0
+  const originDisplay = originPorts?.map(p => p.locode || p.name).join(', ') || ''
+  const destinationDisplay = destinationPorts?.map(p => p.locode || p.name).join(', ') || ''
   return (
     <div className="w-80 border-l bg-muted/20 flex flex-col">
       <div className="p-4 border-b">
@@ -37,12 +41,12 @@ export function QuoteWizardContextPanel({
         )}
 
         {/* Route Pricing Insights */}
-        {originPort && destinationPort && (
+        {hasRoute && (
           <section>
             <div className="flex items-center gap-2 mb-2">
               <TrendingUp className="h-4 w-4 text-muted-foreground" />
               <h3 className="text-xs font-medium uppercase text-muted-foreground">
-                Route: {originPort} → {destinationPort}
+                Route: {originDisplay} → {destinationDisplay}
               </h3>
             </div>
             <div className="text-sm text-muted-foreground italic">

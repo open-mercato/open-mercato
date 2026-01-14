@@ -19,6 +19,7 @@ export interface DisplayHints {
   readOnlyFields?: string[]
   customRenderers?: Record<string, string>
   dropdownSources?: Record<string, string[]>
+  additionalColumns?: TableColumnConfig[]
 }
 
 function mapPropertyTypeToColumnType(property: any): TableColumnType {
@@ -154,6 +155,11 @@ export function generateTableConfig(
     }
 
     columns.push(column)
+  }
+
+  // Add any additional columns (e.g., for relations)
+  if (hints.additionalColumns) {
+    columns.push(...hints.additionalColumns)
   }
 
   return columns

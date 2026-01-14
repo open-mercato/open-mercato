@@ -33,6 +33,8 @@ export function createCellHandlers(
   idColumnName: string
 ) {
   const handleCellSave = (row: number, col: number, newValue: any, clearEditing: boolean = true) => {
+    console.log('[handleCellSave] called:', { row, col, newValue, clearEditing });
+
     const rowData = store.getRowData(row);
     const colConfig = columns[col];
     const fieldKey = colConfig?.data;
@@ -40,8 +42,21 @@ export function createCellHandlers(
     // Get old value from rowData using field key (handles reordered columns)
     const oldValue = rowData?.[fieldKey];
 
-    // Skip if value unchanged
-    if (String(oldValue ?? '') === String(newValue ?? '')) {
+    console.log('[handleCellSave] comparing:', {
+      fieldKey,
+      oldValue,
+      newValue,
+      oldJson: JSON.stringify(oldValue),
+      newJson: JSON.stringify(newValue),
+    });
+
+    // Skip if value unchanged - use JSON.stringify for arrays/objects comparison
+    const isUnchanged = Array.isArray(oldValue) || Array.isArray(newValue)
+      ? JSON.stringify(oldValue) === JSON.stringify(newValue)
+      : String(oldValue ?? '') === String(newValue ?? '');
+
+    if (isUnchanged) {
+      console.log('[handleCellSave] value unchanged, skipping');
       if (clearEditing) {
         store.clearEditing();
       }

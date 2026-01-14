@@ -51,15 +51,30 @@ import { QuoteDrawer } from '../../components/QuoteDrawer'
 import { QuotePreviewDrawer } from '../../components/QuotePreviewDrawer'
 import { QuoteWizardDrawer } from '../../components/QuoteWizard'
 
+interface ClientRef {
+  id: string
+  name: string
+  shortName?: string | null
+}
+
+interface PortRef {
+  id: string
+  locode?: string | null
+  name: string
+  city?: string | null
+  country?: string | null
+}
+
 interface FmsQuoteRow {
   id: string
   quoteNumber: string
+  client?: ClientRef | null
   status: string
   direction: string
   incoterm?: string | null
   cargoType: string
-  originPortCode?: string | null
-  destinationPortCode?: string | null
+  originPorts?: PortRef[]
+  destinationPorts?: PortRef[]
   validUntil?: string | null
   currencyCode: string
   notes?: string | null
@@ -233,6 +248,25 @@ export default function FmsQuotesPage() {
         const value = quote[key as keyof FmsQuoteRow]
         camelCaseObject[camelKey] = value
       })
+
+      // Compute display strings for ports arrays
+      if (quote.originPorts && Array.isArray(quote.originPorts)) {
+        camelCaseObject.originPortsDisplay = quote.originPorts
+          .map((p) => p.locode || p.name)
+          .filter(Boolean)
+          .join(', ')
+      } else {
+        camelCaseObject.originPortsDisplay = ''
+      }
+
+      if (quote.destinationPorts && Array.isArray(quote.destinationPorts)) {
+        camelCaseObject.destinationPortsDisplay = quote.destinationPorts
+          .map((p) => p.locode || p.name)
+          .filter(Boolean)
+          .join(', ')
+      } else {
+        camelCaseObject.destinationPortsDisplay = ''
+      }
 
       return camelCaseObject
     })

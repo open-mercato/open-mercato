@@ -579,6 +579,428 @@ export const BooleanEditor: React.FC<BaseEditorProps> = ({
     );
 };
 
+// Types for EntitySearchEditor
+export type SearchResult = {
+    entityId: string;
+    recordId: string;
+    presenter: {
+        title: string;
+        subtitle?: string;
+        icon?: string;
+        badge?: string;
+    };
+    fields?: Record<string, unknown>;
+};
+
+export type SelectedItem = {
+    id: string;
+    label: string;
+    [key: string]: unknown;
+};
+
+export type EntitySearchEditorConfig = {
+    entityType: string;
+    extractValue: (result: SearchResult) => string;
+    extractLabel: (result: SearchResult) => string;
+    extractItem?: (result: SearchResult) => SelectedItem;
+    formatOption?: (result: SearchResult) => {
+        primary: string;
+        secondary?: string;
+    };
+    placeholder?: string;
+    minQueryLength?: number;
+    debounceMs?: number;
+    noResultsText?: string;
+    searchingText?: string;
+    searchUrl?: string;
+    searchStrategy?: string;
+    searchLimit?: number;
+    maxItems?: number;
+};
+
+interface EntitySearchEditorProps extends Omit<BaseEditorProps, 'value' | 'onChange' | 'onSave'> {
+    value: SelectedItem[] | string[] | null | undefined;
+    onChange: (newValue: SelectedItem[]) => void;
+    onSave: (newValue?: SelectedItem[], clearEditing?: boolean) => void;
+    config: EntitySearchEditorConfig;
+}
+
+function normalizeValue(value: SelectedItem[] | string[] | null | undefined): SelectedItem[] {
+    if (!value || !Array.isArray(value)) return [];
+    if (value.length > 0 && typeof value[0] === 'string') {
+        return (value as string[]).map(id => ({ id, label: id }));
+    }
+    return value as SelectedItem[];
+}
+
+function defaultFormatOption(result: SearchResult): { primary: string; secondary?: string } {
+    return {
+        primary: result.presenter.title,
+        secondary: result.presenter.subtitle,
+    };
+}
+
+// MULTI-SELECT ENTITY SEARCH EDITOR - Multi-select with async search (follows DateEditor pattern)
+export const MultiSelectEntitySearchEditor: React.FC<EntitySearchEditorProps> = ({
+    value,
+    onChange,
+    onSave,
+    onCancel,
+    config,
+    inputRef,
+}) => {
+    const {
+        entityType,
+        extractValue,
+        extractLabel,
+        extractItem,
+        formatOption = defaultFormatOption,
+        placeholder = 'Search...',
+        minQueryLength = 2,
+        debounceMs = 300,
+        noResultsText = 'No results found',
+        searchingText = 'Searching...',
+        searchUrl = '/api/search/search',
+        searchStrategy = 'meilisearch',
+        searchLimit = 20,
+        maxItems,
+    } = config;
+
+    const [selected, setSelected] = useState<SelectedItem[]>(() => normalizeValue(value));
+    const [showDropdown, setShowDropdown] = useState(true);
+    const [searchQuery, setSearchQuery] = useState('');
+    const [debouncedQuery, setDebouncedQuery] = useState('');
+    const [results, setResults] = useState<SearchResult[]>([]);
+    const [isLoading, setIsLoading] = useState(false);
+    const [highlightedIndex, setHighlightedIndex] = useState(0);
+    const [position, setPosition] = useState({ top: 0, left: 0, width: 0 });
+
+    const cellRef = useRef<HTMLDivElement>(null);
+    const textareaRef = useRef<HTMLTextAreaElement>(null);
+    const dropdownRef = useRef<HTMLDivElement>(null);
+    const abortControllerRef = useRef<AbortController | null>(null);
+    const isClickingDropdownRef = useRef(false);
+
+    // Keep ref in sync for click-outside handler (like DateEditor's textValueRef pattern)
+    const selectedRef = useRef<SelectedItem[]>(selected);
+    useEffect(() => {
+        selectedRef.current = selected;
+    }, [selected]);
+
+    // Focus textarea on mount
+    useEffect(() => {
+        setTimeout(() => textareaRef.current?.focus(), 0);
+    }, []);
+
+    // Debounce search query
+    useEffect(() => {
+        const timer = setTimeout(() => {
+            setDebouncedQuery(searchQuery);
+        }, debounceMs);
+        return () => clearTimeout(timer);
+    }, [searchQuery, debounceMs]);
+
+    // Fetch results from search API
+    useEffect(() => {
+        if (debouncedQuery.length < minQueryLength) {
+            setResults([]);
+            return;
+        }
+
+        if (abortControllerRef.current) {
+            abortControllerRef.current.abort();
+        }
+
+        const controller = new AbortController();
+        abortControllerRef.current = controller;
+
+        const fetchResults = async () => {
+            setIsLoading(true);
+            try {
+                const params = new URLSearchParams({
+                    q: debouncedQuery,
+                    strategies: searchStrategy,
+                    entityTypes: entityType,
+                    limit: String(searchLimit),
+                });
+
+                const response = await fetch(`${searchUrl}?${params.toString()}`, {
+                    signal: controller.signal,
+                });
+
+                if (!response.ok) throw new Error('Search failed');
+
+                const data = await response.json();
+                setResults(data.results || []);
+                setHighlightedIndex(0);
+            } catch (error) {
+                if ((error as Error).name !== 'AbortError') {
+                    console.error('Entity search error:', error);
+                    setResults([]);
+                }
+            } finally {
+                setIsLoading(false);
+            }
+        };
+
+        fetchResults();
+        return () => controller.abort();
+    }, [debouncedQuery, entityType, minQueryLength, searchUrl, searchStrategy, searchLimit]);
+
+    // Filter out already selected items
+    const selectedIds = new Set(selected.map(s => s.id));
+    const filteredResults = results.filter(r => !selectedIds.has(extractValue(r)));
+
+    // Calculate position (like DateEditor)
+    useEffect(() => {
+        if (cellRef.current) {
+            const pos = calculatePopupPosition(cellRef);
+            setPosition(pos);
+        }
+
+        const updatePosition = () => {
+            if (cellRef.current && showDropdown) {
+                const pos = calculatePopupPosition(cellRef);
+                setPosition(pos);
+            }
+        };
+
+        window.addEventListener('scroll', updatePosition, true);
+        window.addEventListener('resize', updatePosition);
+
+        return () => {
+            window.removeEventListener('scroll', updatePosition, true);
+            window.removeEventListener('resize', updatePosition);
+        };
+    }, [showDropdown]);
+
+    // Click-outside handler (like DropdownEditor - uses isClickingDropdownRef pattern)
+    useEffect(() => {
+        const handleClickOutside = (e: MouseEvent) => {
+            // Skip if clicking on dropdown - the dropdown's onMouseDown will handle selection
+            if (isClickingDropdownRef.current) return;
+
+            const target = e.target as Node;
+            const isOutsideCell = cellRef.current && !cellRef.current.contains(target);
+            const isOutsideDropdown = !dropdownRef.current || !dropdownRef.current.contains(target);
+
+            if (isOutsideCell && isOutsideDropdown) {
+                setShowDropdown(false);
+                onSave(selectedRef.current, true);
+            }
+        };
+
+        document.addEventListener('mousedown', handleClickOutside);
+        return () => document.removeEventListener('mousedown', handleClickOutside);
+    }, [onSave]);
+
+    const handleSelectItem = (result: SearchResult) => {
+        if (maxItems && selected.length >= maxItems) return;
+
+        const newItem: SelectedItem = extractItem
+            ? extractItem(result)
+            : { id: extractValue(result), label: extractLabel(result) };
+
+        const newSelected = [...selected, newItem];
+        setSelected(newSelected);
+        onChange(newSelected);
+        setSearchQuery('');
+        setResults([]);
+        textareaRef.current?.focus();
+    };
+
+    const handleRemoveItem = (id: string) => {
+        const newSelected = selected.filter(s => s.id !== id);
+        setSelected(newSelected);
+        onChange(newSelected);
+    };
+
+    const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+        if (e.key === 'Enter' && !e.shiftKey) {
+            e.preventDefault();
+            if (filteredResults.length > 0 && highlightedIndex < filteredResults.length) {
+                handleSelectItem(filteredResults[highlightedIndex]);
+            } else if (searchQuery === '') {
+                setShowDropdown(false);
+                onSave(selectedRef.current, false);
+            }
+        } else if (e.key === 'Escape') {
+            e.preventDefault();
+            setShowDropdown(false);
+            onCancel();
+        } else if (e.key === 'ArrowDown') {
+            e.preventDefault();
+            setHighlightedIndex(prev =>
+                prev < filteredResults.length - 1 ? prev + 1 : prev
+            );
+        } else if (e.key === 'ArrowUp') {
+            e.preventDefault();
+            setHighlightedIndex(prev => prev > 0 ? prev - 1 : 0);
+        } else if (e.key === 'Backspace' && searchQuery === '' && selected.length > 0) {
+            const newSelected = selected.slice(0, -1);
+            setSelected(newSelected);
+            onChange(newSelected);
+        } else if (e.key === 'Tab') {
+            setShowDropdown(false);
+            onSave(selectedRef.current, false);
+        }
+    };
+
+    const handleTextChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
+        setSearchQuery(e.target.value);
+    };
+
+    const showResults = searchQuery.length >= minQueryLength || isLoading;
+
+    return (
+        <>
+            {/* Cell content: textarea only for typing search query */}
+            <div
+                ref={cellRef}
+                className="hot-cell-editor flex items-center min-h-[28px] px-1 py-0.5"
+            >
+                <textarea
+                    ref={(el) => {
+                        textareaRef.current = el;
+                        if (inputRef) {
+                            (inputRef as React.MutableRefObject<any>).current = el;
+                        }
+                    }}
+                    value={searchQuery}
+                    onChange={handleTextChange}
+                    onKeyDown={handleKeyDown}
+                    onBlur={() => {
+                        // EMPTY - Don't save on blur, click-outside handles it (like DateEditor)
+                    }}
+                    placeholder={placeholder}
+                    className="flex-1 min-w-[60px] outline-none bg-transparent text-sm resize-none"
+                    style={{ border: 'none', height: '20px' }}
+                    rows={1}
+                />
+            </div>
+
+            {/* Dropdown with selected items at top + search results */}
+            {showDropdown && (
+                <EditorPortal>
+                    <div
+                        ref={dropdownRef}
+                        className="hot-editor-popup hot-dropdown-popup"
+                        style={{
+                            position: 'absolute',
+                            top: `${position.top}px`,
+                            left: `${position.left}px`,
+                            width: `${Math.max(position.width, 280)}px`,
+                            maxHeight: `${POPUP_MAX_HEIGHT}px`,
+                            overflowY: 'auto',
+                            zIndex: 10000,
+                            pointerEvents: 'auto',
+                        }}
+                        onMouseDown={(e) => {
+                            e.stopPropagation();
+                            isClickingDropdownRef.current = true;
+                        }}
+                        onMouseUp={() => {
+                            isClickingDropdownRef.current = false;
+                        }}
+                    >
+                        {/* Selected items at top of dropdown */}
+                        {selected.length > 0 && (
+                            <div className="flex flex-wrap gap-1 px-3 py-2 border-b border-gray-200 bg-gray-50">
+                                {selected.map((item) => {
+                                    // Fallback: label > locode > name > id
+                                    const itemAny = item as SelectedItem & { locode?: string; name?: string };
+                                    const displayLabel = item.label || itemAny.locode || itemAny.name || item.id;
+                                    return (
+                                    <span
+                                        key={item.id}
+                                        className="inline-flex items-center gap-1 px-2 py-1 bg-blue-100 text-blue-800 rounded text-xs"
+                                    >
+                                        {displayLabel}
+                                        <button
+                                            type="button"
+                                            onMouseDown={(e) => {
+                                                e.preventDefault();
+                                                e.stopPropagation();
+                                                handleRemoveItem(item.id);
+                                            }}
+                                            className="hover:bg-blue-200 rounded p-0.5"
+                                            style={{ cursor: 'pointer' }}
+                                        >
+                                            ×
+                                        </button>
+                                    </span>
+                                    );
+                                })}
+                            </div>
+                        )}
+
+                        {isLoading ? (
+                            <div className="flex items-center gap-2 px-3 py-2 text-sm text-gray-500">
+                                <span className="animate-spin">⏳</span>
+                                {searchingText}
+                            </div>
+                        ) : showResults && filteredResults.length === 0 ? (
+                            <div className="px-3 py-2 text-sm text-gray-500">
+                                {noResultsText}
+                            </div>
+                        ) : showResults ? (
+                            filteredResults.map((result, index) => {
+                                const { primary, secondary } = formatOption(result);
+                                const isHighlighted = index === highlightedIndex;
+
+                                return (
+                                    <div
+                                        key={result.recordId}
+                                        className={`flex items-center gap-2 px-3 py-2 ${
+                                            isHighlighted ? 'bg-blue-50' : 'hover:bg-gray-50'
+                                        }`}
+                                        style={{ cursor: 'pointer' }}
+                                        onMouseDown={(e) => {
+                                            e.preventDefault();
+                                            handleSelectItem(result);
+                                        }}
+                                        onMouseEnter={() => setHighlightedIndex(index)}
+                                    >
+                                        <div className="flex-1 min-w-0">
+                                            <div className="text-sm font-medium truncate">{primary}</div>
+                                            {secondary && (
+                                                <div className="text-xs text-gray-500 truncate">{secondary}</div>
+                                            )}
+                                        </div>
+                                    </div>
+                                );
+                            })
+                        ) : (
+                            <div className="px-3 py-2 text-sm text-gray-400">
+                                Type to search...
+                            </div>
+                        )}
+                    </div>
+                </EditorPortal>
+            )}
+        </>
+    );
+};
+
+// Factory function to create MultiSelectEntitySearchEditor
+export function createMultiSelectEntitySearchEditor(config: EntitySearchEditorConfig) {
+    return (
+        value: unknown,
+        onChange: (v: unknown) => void,
+        onSave: (v?: unknown, clearEditing?: boolean) => void,
+        onCancel: () => void,
+    ) => (
+        <MultiSelectEntitySearchEditor
+            config={config}
+            value={value as SelectedItem[] | string[] | null | undefined}
+            onChange={(newValue) => onChange(newValue)}
+            onSave={(newValue, clearEditing) => onSave(newValue, clearEditing)}
+            onCancel={onCancel}
+            col={{}}
+        />
+    );
+}
+
 // EDITOR FACTORY
 export const getCellEditor = (
     col: any,

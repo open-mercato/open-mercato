@@ -12,17 +12,31 @@ import {
   type FmsCargoType,
 } from '../data/types'
 
+type ClientRef = {
+  id: string
+  name: string
+  shortName?: string | null
+}
+
+type PortRef = {
+  id: string
+  locode?: string | null
+  name: string
+  city?: string | null
+  country?: string | null
+}
+
 type Quote = {
   id: string
   quoteNumber?: string | null
-  clientName?: string | null
+  client?: ClientRef | null
   containerCount?: number | null
   status: FmsQuoteStatus
   direction?: string | null
   incoterm?: string | null
   cargoType?: string | null
-  originPortCode?: string | null
-  destinationPortCode?: string | null
+  originPorts?: PortRef[]
+  destinationPorts?: PortRef[]
   validUntil?: string | null
   currencyCode: string
   createdAt: string
@@ -60,17 +74,31 @@ const CARGO_TYPE_OPTIONS = [
 
 const FIELDS: FieldConfig[] = [
   { key: 'quoteNumber', label: 'Quote Number', type: 'text', placeholder: 'Q-2024-001' },
-  { key: 'clientName', label: 'Client', type: 'text', placeholder: 'Enter client name' },
   { key: 'status', label: 'Status', type: 'select', options: STATUS_OPTIONS },
   { key: 'direction', label: 'Direction', type: 'select', options: DIRECTION_OPTIONS },
   { key: 'cargoType', label: 'Cargo Type', type: 'select', options: CARGO_TYPE_OPTIONS },
   { key: 'incoterm', label: 'Incoterm', type: 'select', options: INCOTERM_OPTIONS },
-  { key: 'originPortCode', label: 'Origin Port', type: 'text', placeholder: 'CNSHA' },
-  { key: 'destinationPortCode', label: 'Destination Port', type: 'text', placeholder: 'NLRTM' },
   { key: 'containerCount', label: 'Containers', type: 'number', placeholder: '10' },
   { key: 'currencyCode', label: 'Currency', type: 'text', placeholder: 'USD' },
   { key: 'validUntil', label: 'Valid Until', type: 'date' },
 ]
+
+// Helper to format multiple ports display
+function formatPorts(ports: PortRef[] | null | undefined): string {
+  if (!ports || ports.length === 0) return ''
+  return ports
+    .map((port) => {
+      const parts = [port.locode, port.name].filter(Boolean)
+      return parts.join(' - ')
+    })
+    .join(', ')
+}
+
+// Helper to format client display
+function formatClient(client: ClientRef | null | undefined): string {
+  if (!client) return ''
+  return client.name
+}
 
 function InlineField({
   label,
@@ -217,10 +245,14 @@ function InlineField({
 }
 
 export function QuoteBasicInfo({ quote, onFieldSave }: QuoteBasicInfoProps) {
+  const clientDisplay = formatClient(quote.client)
+  const originDisplay = formatPorts(quote.originPorts)
+  const destinationDisplay = formatPorts(quote.destinationPorts)
+
   return (
     <div className="grid grid-cols-1 md:grid-cols-2 gap-x-8">
       <div>
-        {FIELDS.slice(0, 6).map((field) => (
+        {FIELDS.slice(0, 4).map((field) => (
           <InlineField
             key={field.key}
             label={field.label}
@@ -232,9 +264,30 @@ export function QuoteBasicInfo({ quote, onFieldSave }: QuoteBasicInfoProps) {
             onSave={onFieldSave}
           />
         ))}
+        {/* Client - read-only relation display */}
+        <div className="flex items-center justify-between py-2 border-b border-gray-100">
+          <span className="text-xs font-semibold text-gray-600 w-32">Client</span>
+          <span className="text-xs text-gray-900">
+            {clientDisplay || <span className="text-gray-400">-</span>}
+          </span>
+        </div>
+        {/* Origin Ports - read-only relation display */}
+        <div className="flex items-center justify-between py-2 border-b border-gray-100">
+          <span className="text-xs font-semibold text-gray-600 w-32">Origin Ports</span>
+          <span className="text-xs text-gray-900 text-right flex-1 ml-4">
+            {originDisplay || <span className="text-gray-400">-</span>}
+          </span>
+        </div>
       </div>
       <div>
-        {FIELDS.slice(6).map((field) => (
+        {/* Destination Ports - read-only relation display */}
+        <div className="flex items-center justify-between py-2 border-b border-gray-100">
+          <span className="text-xs font-semibold text-gray-600 w-32">Destination Ports</span>
+          <span className="text-xs text-gray-900 text-right flex-1 ml-4">
+            {destinationDisplay || <span className="text-gray-400">-</span>}
+          </span>
+        </div>
+        {FIELDS.slice(4).map((field) => (
           <InlineField
             key={field.key}
             label={field.label}
