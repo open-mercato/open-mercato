@@ -33,6 +33,15 @@ jobs:
       - name: Prepare generated modules
         run: yarn generate
 
+      - name: Debug - check generated files
+        run: |
+          echo "=== Checking packages/core/generated ==="
+          ls -la packages/core/generated/ || echo "Directory does not exist"
+          echo "=== Checking packages/core/generated/entities ==="
+          ls -la packages/core/generated/entities/ | head -20 || echo "Directory does not exist"
+          echo "=== Checking symlink status ==="
+          ls -la node_modules/@open-mercato/core || echo "Not found"
+
       - name: Checking types
         run: yarn typecheck
 
