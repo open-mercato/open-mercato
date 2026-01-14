@@ -1,34 +1,24 @@
-/**
- * Workflows Module - Access Control Features
- *
- * Defines all RBAC features provided by the workflows module.
- */
+const moduleId = 'workflows'
 
-const workflowFeatures = [
-  // Workflow Definitions
-  'workflows.definitions.view', // View workflow definitions
-  'workflows.definitions.create', // Create new workflow definitions
-  'workflows.definitions.edit', // Edit workflow definitions
-  'workflows.definitions.delete', // Delete workflow definitions
-
-  // Workflow Instances
-  'workflows.instances.view', // View workflow instances
-  'workflows.instances.create', // Start new workflow instances
-  'workflows.instances.cancel', // Cancel running instances
-  'workflows.instances.retry', // Retry failed instances
-  'workflows.instances.signal', // Send signal to workflow instance
-
-  // User Tasks
-  'workflows.tasks.view', // View user tasks
-  'workflows.tasks.claim', // Claim tasks from role queue
-  'workflows.tasks.complete', // Complete assigned tasks
-
-  // Signals
-  'workflows.signals.send', // Send signals by correlation key
-
-  // Logs and Events
-  'workflows.events.view', // View execution history and events
+export const features = [
+  { id: 'workflows.view', title: 'View workflows', module: moduleId },
+  { id: 'workflows.manage', title: 'Manage workflows', module: moduleId },
+  { id: 'workflows.view_logs', title: 'View workflow logs', module: moduleId },
+  { id: 'workflows.view_tasks', title: 'View workflow tasks', module: moduleId },
+  { id: 'workflows.definitions.view', title: 'View workflow definitions', module: moduleId },
+  { id: 'workflows.definitions.create', title: 'Create workflow definitions', module: moduleId },
+  { id: 'workflows.definitions.edit', title: 'Edit workflow definitions', module: moduleId },
+  { id: 'workflows.definitions.delete', title: 'Delete workflow definitions', module: moduleId },
+  { id: 'workflows.instances.view', title: 'View workflow instances', module: moduleId },
+  { id: 'workflows.instances.create', title: 'Start workflow instances', module: moduleId },
+  { id: 'workflows.instances.cancel', title: 'Cancel workflow instances', module: moduleId },
+  { id: 'workflows.instances.retry', title: 'Retry workflow instances', module: moduleId },
+  { id: 'workflows.instances.signal', title: 'Signal workflow instances', module: moduleId },
+  { id: 'workflows.tasks.view', title: 'View user tasks', module: moduleId },
+  { id: 'workflows.tasks.claim', title: 'Claim workflow tasks', module: moduleId },
+  { id: 'workflows.tasks.complete', title: 'Complete workflow tasks', module: moduleId },
+  { id: 'workflows.signals.send', title: 'Send workflow signals', module: moduleId },
+  { id: 'workflows.events.view', title: 'View workflow events', module: moduleId },
 ]
 
-export const features = workflowFeatures
-export default workflowFeatures
+export default features

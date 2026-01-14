@@ -6,6 +6,13 @@ import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacS
 import { reindexModules } from '@open-mercato/core/modules/configs/lib/reindex-helpers'
 import { installExampleCatalogData, type CatalogSeedScope } from '@open-mercato/core/modules/catalog/lib/seeds'
 import { seedSalesExamples } from '@open-mercato/core/modules/sales/seed/examples'
+import {
+  seedBookingAvailabilityRuleSetDefaults,
+  seedBookingCapacityUnits,
+  seedBookingResourceExamples,
+} from '@open-mercato/core/modules/booking/lib/seeds'
+import { seedExampleCurrencies } from '@open-mercato/core/modules/currencies/lib/seeds'
+import { seedExampleWorkflows } from '@open-mercato/core/modules/workflows/lib/seeds'
 import { collectCrudCacheStats, purgeCrudCacheSegment } from '@open-mercato/shared/lib/crud/cache-stats'
 import { isCrudCacheEnabled, resolveCrudCache } from '@open-mercato/shared/lib/crud/cache'
 import * as semver from 'semver'
@@ -245,6 +252,26 @@ export const upgradeActions: UpgradeActionDefinition[] = [
       if (vectorService) {
         await vectorService.reindexAll({ tenantId: normalizedTenantId, organizationId: normalizedOrgId, purgeFirst: false })
       }
+    },
+  },
+  {
+    id: 'configs.upgrades.examples.booking_currencies_workflows',
+    version: '0.3.13',
+    messageKey: 'upgrades.v0313.message',
+    ctaKey: 'upgrades.v0313.cta',
+    successKey: 'upgrades.v0313.success',
+    loadingKey: 'upgrades.v0313.loading',
+    async run({ container, em, tenantId, organizationId }) {
+      const scope = { tenantId, organizationId }
+      await em.transactional(async (tem) => {
+        await seedBookingCapacityUnits(tem, scope)
+        await seedBookingAvailabilityRuleSetDefaults(tem, scope)
+        await seedBookingResourceExamples(tem, scope)
+        await seedExampleCurrencies(tem, scope)
+        await seedExampleWorkflows(tem, scope)
+      })
+      const vectorService = resolveVectorService(container)
+      await reindexModules(em, ['booking'], { tenantId, organizationId, vectorService })
     },
   },
 ]

@@ -4,7 +4,8 @@ import { createRequestContainer } from '@/lib/di/container'
 import { RateFetchingService } from './services/rateFetchingService'
 import { NBPProvider } from './services/providers/nbp'
 import { RaiffeisenPolandProvider } from './services/providers/raiffeisen'
-import { Currency, CurrencyFetchConfig } from './data/entities'
+import { CurrencyFetchConfig } from './data/entities'
+import { seedExampleCurrencies } from './lib/seeds'
 
 function parseArgs(args: string[]): Record<string, string | boolean> {
   const result: Record<string, string | boolean> = {}
@@ -192,109 +193,6 @@ const listProvidersCommand: ModuleCli = {
   },
 }
 
-const SEED_CURRENCIES = [
-  {
-    code: "USD",
-    name: "US Dollar",
-    decimalPlaces: 2,
-    symbol: "$",
-    decimalSeparator: '.',
-    thousandsSeparator: ",",
-    isBase: true,
-    isActive: true,
-  },
-  {
-    code: "EUR",
-    name: "Euro",
-    decimalPlaces: 2,
-    symbol: "€",
-    decimalSeparator: ',',
-    thousandsSeparator: ".",
-    isBase: false,
-    isActive: true,
-  },
-  {
-    code: "JPY",
-    name: "Japanese Yen",
-    decimalPlaces: 0,
-    symbol: "¥",
-    decimalSeparator: '.',
-    thousandsSeparator: ",",
-    isBase: false,
-    isActive: true,
-  },
-  {
-    code: "GBP",
-    name: "British Pound",
-    decimalPlaces: 2,
-    symbol: "£",
-    decimalSeparator: '.',
-    thousandsSeparator: ",",
-    isBase: false,
-    isActive: true,
-  },
-  {
-    code: "CHF",
-    name: "Swiss Franc",
-    decimalPlaces: 2,
-    symbol: "Fr",
-    decimalSeparator: '.',
-    thousandsSeparator: "'",
-    isBase: false,
-    isActive: true,
-  },
-  {
-    code: "CAD",
-    name: "Canadian Dollar",
-    decimalPlaces: 2,
-    symbol: "C$",
-    decimalSeparator: '.',
-    thousandsSeparator: ",",
-    isBase: false,
-    isActive: true,
-  },
-  {
-    code: "AUD",
-    name: "Australian Dollar",
-    decimalPlaces: 2,
-    symbol: "A$",
-    decimalSeparator: '.',
-    thousandsSeparator: ",",
-    isBase: false,
-    isActive: true,
-  },
-  {
-    code: "CNY",
-    name: "Chinese Yuan",
-    decimalPlaces: 2,
-    symbol: "¥",
-    decimalSeparator: '.',
-    thousandsSeparator: ",",
-    isBase: false,
-    isActive: true,
-  },
-  {
-    code: "CNH",
-    name: "Chinese Yuan (Offshore)",
-    decimalPlaces: 2,
-    symbol: "¥",
-    decimalSeparator: '.',
-    thousandsSeparator: ",",
-    isBase: false,
-    isActive: true,
-  },
-  {
-    code: "PLN",
-    name: "Polish Zloty",
-    decimalPlaces: 2,
-    symbol: "zł",
-    decimalSeparator: ',',
-    thousandsSeparator: " ",
-    isBase: false,
-    isActive: true,
-  },
-]
-
 const seed: ModuleCli = {
   command: 'seed',
   async run(rest) {
@@ -308,42 +206,11 @@ const seed: ModuleCli = {
     const container = await createRequestContainer()
     const em = (container.resolve('em') as EntityManager)
 
-    const existingEntries = await em.find(Currency, {
-      tenantId,
-      organizationId,
-    })
-    const existingMap = new Map<string, Currency>()
-    existingEntries.forEach((entry) => existingMap.set(entry.code, entry))
-
     const seeded = await em.transactional(async (tem) => {
-      for (const curr of SEED_CURRENCIES) {
-        const current = existingMap.get(curr.code)
-        if (current) {
-          if (current.name !== curr.name) {
-            current.name = curr.name
-            current.updatedAt = new Date()
-            em.persist(current)
-          }
-          continue
-        }
-        const entry = em.create(Currency, {
-          tenantId,
-          organizationId,
-          ...curr,
-          createdAt: new Date(),
-          updatedAt: new Date(),
-        })
-        em.persist(entry)
-      }
-
-      return true
+      return seedExampleCurrencies(tem, { tenantId, organizationId })
     })
 
-    if (seeded) {
-      console.log('Currencies seeded for organization', organizationId)
-    } else {
-      console.log('Currencies already present; skipping')
-    }
+    console.log(seeded ? 'Currencies seeded for organization' : 'Currencies already present; skipping', organizationId)
   },
 }
 
