@@ -6,7 +6,8 @@
   "main": "./dist/index.js",
   "scripts": {
     "build": "node build.mjs",
-    "test": "jest --passWithNoTests --config ../../jest.config.cjs"
+    "test": "jest --passWithNoTests --config ../../jest.config.cjs",
+    "typecheck": "tsc --noEmit"
   },
   "imports": {
     "#generated/entities.ids.generated": {

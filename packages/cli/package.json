@@ -48,7 +48,8 @@
   },
   "scripts": {
     "build": "node build.mjs",
-    "test": "jest --passWithNoTests --config ../../jest.config.cjs"
+    "test": "jest --passWithNoTests --config ../../jest.config.cjs",
+    "typecheck": "tsc --noEmit"
   },
   "dependencies": {
     "@mikro-orm/core": "^6.6.2",

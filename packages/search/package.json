@@ -110,7 +110,8 @@
   },
   "scripts": {
     "build": "node build.mjs",
-    "test": "jest --passWithNoTests --config ../../jest.config.cjs"
+    "test": "jest --passWithNoTests --config ../../jest.config.cjs",
+    "typecheck": "tsc --noEmit"
   },
   "dependencies": {
     "@ai-sdk/amazon-bedrock": "^4.0.8",

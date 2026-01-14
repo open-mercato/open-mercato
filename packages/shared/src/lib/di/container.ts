@@ -61,6 +61,7 @@ export async function createRequestContainer(): Promise<AppContainer> {
   // App-level DI override (last chance)
   // This import path resolves only in the app context, not in packages
   try {
+    // @ts-ignore - @/di only exists in app context, not in packages
     const appDi = await import('@/di') as any
     if (appDi?.register) {
       try {

@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createRequestContainer } from '@/lib/di/container'
-import { getAuthFromRequest } from '@/lib/auth/server'
+import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
+import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/directory/utils/organizationScope'
 import { z } from 'zod'
 import { sendSignalByCorrelationKey } from '../../lib/signal-handler'

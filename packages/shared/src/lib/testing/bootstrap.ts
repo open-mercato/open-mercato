@@ -56,22 +56,22 @@ export async function bootstrapTest(options: TestBootstrapOptions = {}): Promise
 
   if (modules !== undefined) {
     // Import lazily to avoid circular dependencies
-    const { registerModules } = await import('../../modules/registry.js')
+    const { registerModules } = await import('../modules/registry.js')
     registerModules(modules)
   }
 
   if (entityIds !== undefined) {
-    const { registerEntityIds } = await import('../../encryption/entityIds.js')
+    const { registerEntityIds } = await import('../encryption/entityIds.js')
     registerEntityIds(entityIds)
   }
 
   if (ormEntities !== undefined) {
-    const { registerOrmEntities } = await import('../../db/mikro.js')
+    const { registerOrmEntities } = await import('../db/mikro.js')
     registerOrmEntities(ormEntities)
   }
 
   if (diRegistrars !== undefined) {
-    const { registerDiRegistrars } = await import('../../di/container.js')
+    const { registerDiRegistrars } = await import('../di/container.js')
     registerDiRegistrars(diRegistrars)
   }
 
