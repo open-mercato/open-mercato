@@ -762,6 +762,15 @@ export type InvoiceCreateInput = z.infer<typeof invoiceCreateSchema>
 export type InvoiceUpdateInput = z.infer<typeof invoiceUpdateSchema>
 export type CreditMemoCreateInput = z.infer<typeof creditMemoCreateSchema>
 export type CreditMemoUpdateInput = z.infer<typeof creditMemoUpdateSchema>
+export const quoteSendSchema = z.object({
+  quoteId: z.string().uuid(),
+  validForDays: z.coerce.number().int().min(1).max(365).default(14),
+})
+
+export const quoteAcceptSchema = z.object({
+  token: z.string().uuid(),
+})
+
 export type PaymentCreateInput = z.infer<typeof paymentCreateSchema>
 export type PaymentUpdateInput = z.infer<typeof paymentUpdateSchema>
 export type NoteCreateInput = z.infer<typeof noteCreateSchema>
@@ -771,3 +780,5 @@ export type SalesTagUpdateInput = z.infer<typeof salesTagUpdateSchema>
 export type DocumentAddressCreateInput = z.infer<typeof documentAddressCreateSchema>
 export type DocumentAddressUpdateInput = z.infer<typeof documentAddressUpdateSchema>
 export type DocumentAddressDeleteInput = z.infer<typeof documentAddressDeleteSchema>
+export type QuoteSendInput = z.infer<typeof quoteSendSchema>
+export type QuoteAcceptInput = z.infer<typeof quoteAcceptSchema>

@@ -1,11 +1,10 @@
 {
   "name": "@open-mercato/client",
   "version": "0.3.11",
-  "private": false,
   "type": "module",
   "main": "dist/index.js",
   "module": "dist/index.js",
-"types": "dist/index.d.ts",
+  "types": "dist/index.d.ts",
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",
