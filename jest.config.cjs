@@ -5,6 +5,7 @@ module.exports = {
   watchman: false,
   moduleFileExtensions: ['ts', 'tsx', 'js', 'jsx', 'json'],
   moduleNameMapper: {
+    '^#generated/(.*)$': '<rootDir>/packages/core/generated/$1',
     '^@/generated/(.*)$': '<rootDir>/generated/$1',
     '^@/lib/(.*)$': '<rootDir>/packages/shared/src/lib/$1',
     '^@/types/(.*)$': '<rootDir>/packages/shared/src/types/$1',
@@ -23,7 +24,9 @@ module.exports = {
     '^@open-mercato/search/(.*)$': '<rootDir>/packages/search/src/$1',
     '^@open-mercato/search$': '<rootDir>/packages/search/src/index.ts',
     '^@open-mercato/shared/(.*)$': '<rootDir>/packages/shared/src/$1',
-    '^@/(.*)$': '<rootDir>/src/$1',
+    '^@/\\.mercato/generated/(.*)$': '<rootDir>/apps/mercato/.mercato/generated/$1',
+    '^@/generated/(.*)$': '<rootDir>/apps/mercato/.mercato/generated/$1',
+    '^@/(.*)$': '<rootDir>/apps/mercato/src/$1',
     '^@tests/(.*)$': '<rootDir>/tests/$1',
   },
   transform: {

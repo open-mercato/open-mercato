@@ -8,6 +8,7 @@
     "start": "NODE_OPTIONS='-r newrelic' next start",
     "lint": "next lint",
     "typecheck": "tsc --noEmit",
+    "test": "jest --passWithNoTests --config ../../jest.config.cjs",
     "generate": "mercato generate",
     "db:generate": "mercato db generate",
     "db:migrate": "mercato db migrate",

@@ -15,6 +15,7 @@
       "outputs": []
     },
     "test": {
+      "cache": false,
       "outputs": []
     },
     "lint": {

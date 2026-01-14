@@ -6,7 +6,7 @@
   "main": "./dist/index.js",
   "scripts": {
     "build": "node build.mjs",
-    "test": "jest"
+    "test": "jest --passWithNoTests --config ../../jest.config.cjs"
   },
   "exports": {
     ".": {

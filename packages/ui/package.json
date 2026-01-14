@@ -5,7 +5,8 @@
   "type": "module",
   "main": "./dist/index.js",
   "scripts": {
-    "build": "node build.mjs"
+    "build": "node build.mjs",
+    "test": "jest --passWithNoTests --config ../../jest.config.cjs"
   },
   "exports": {
     ".": {
@@ -77,8 +78,10 @@
     "@open-mercato/shared": "workspace:*",
     "@radix-ui/react-tooltip": "^1.2.8",
     "date-fns": "^4.1.0",
+    "react-big-calendar": "^1.19.4"
+  },
+  "peerDependencies": {
     "react": ">=18.0.0",
-    "react-big-calendar": "^1.19.4",
     "react-dom": ">=18.0.0"
   }
 }

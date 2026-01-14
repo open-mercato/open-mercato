@@ -5,7 +5,8 @@
   "type": "module",
   "main": "./dist/index.js",
   "scripts": {
-    "build": "node build.mjs"
+    "build": "node build.mjs",
+    "test": "jest --passWithNoTests --config ../../jest.config.cjs"
   },
   "imports": {
     "#generated/entities.ids.generated": {

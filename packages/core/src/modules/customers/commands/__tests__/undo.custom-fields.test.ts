@@ -1077,8 +1077,8 @@ describe('customers commands undo custom fields', () => {
   })
 
   it('todos.create undo removes link and calls example undo', async () => {
+    // example package no longer exists, so we just register a mock handler
     const originalHandler = commandRegistry.get('example.todos.create') as CommandHandler | null
-    expect(originalHandler).toBeTruthy()
     const tenantId = TEST_TENANT_ID
     const organizationId = TEST_ORG_ID
     const entityId = TEST_ENTITY_ID
