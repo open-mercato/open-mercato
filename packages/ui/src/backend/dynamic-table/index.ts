@@ -46,3 +46,14 @@ export type {
   SearchResult as EntitySearchResult,
   DynamicTableEditorFn,
 } from './components/EntitySearchEditor';
+
+// Multi-select entity search editor (new, follows DateEditor pattern)
+export {
+  MultiSelectEntitySearchEditor,
+  createMultiSelectEntitySearchEditor,
+} from './components/editors';
+export type {
+  EntitySearchEditorConfig as MultiSelectEntitySearchEditorConfig,
+  SelectedItem as MultiSelectEntitySelectedItem,
+  SelectedItem as MultiSelectSelectedItem,
+} from './components/editors';
