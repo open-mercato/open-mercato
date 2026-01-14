@@ -55,24 +55,33 @@ describe('Memory Cache Strategy', () => {
   })
 
   describe('TTL and expiration', () => {
+    beforeEach(() => {
+      jest.useFakeTimers()
+      jest.setSystemTime(new Date('2025-01-01T00:00:00.000Z'))
+    })
+
+    afterEach(() => {
+      jest.useRealTimers()
+    })
+
     it('should expire after TTL', async () => {
       await cache.set('key1', 'value1', { ttl: 100 }) // 100ms
       expect(await cache.get('key1')).toBe('value1')
 
-      await new Promise((resolve) => setTimeout(resolve, 150))
+      await jest.advanceTimersByTimeAsync(150)
       expect(await cache.get('key1')).toBeNull()
       expect(await cache.has('key1')).toBe(false)
     })
 
     it('should not expire without TTL', async () => {
       await cache.set('key1', 'value1')
-      await new Promise((resolve) => setTimeout(resolve, 100))
+      await jest.advanceTimersByTimeAsync(100)
       expect(await cache.get('key1')).toBe('value1')
     })
 
     it('should return expired value if returnExpired is true', async () => {
       await cache.set('key1', 'value1', { ttl: 50 })
-      await new Promise((resolve) => setTimeout(resolve, 100))
+      await jest.advanceTimersByTimeAsync(100)
       const value = await cache.get('key1', { returnExpired: true })
       expect(value).toBe('value1')
     })
@@ -82,7 +91,7 @@ describe('Memory Cache Strategy', () => {
       await cacheWithTtl.set('key1', 'value1') // Should use default TTL
       expect(await cacheWithTtl.get('key1')).toBe('value1')
 
-      await new Promise((resolve) => setTimeout(resolve, 150))
+      await jest.advanceTimersByTimeAsync(150)
       expect(await cacheWithTtl.get('key1')).toBeNull()
     })
 
@@ -90,10 +99,10 @@ describe('Memory Cache Strategy', () => {
       const cacheWithTtl = createMemoryStrategy({ defaultTtl: 100 })
       await cacheWithTtl.set('key1', 'value1', { ttl: 200 })
 
-      await new Promise((resolve) => setTimeout(resolve, 150))
+      await jest.advanceTimersByTimeAsync(150)
       expect(await cacheWithTtl.get('key1')).toBe('value1') // Still valid
 
-      await new Promise((resolve) => setTimeout(resolve, 100))
+      await jest.advanceTimersByTimeAsync(100)
       expect(await cacheWithTtl.get('key1')).toBeNull() // Now expired
     })
   })
@@ -242,4 +251,3 @@ describe('Memory Cache Strategy', () => {
     })
   })
 })
-

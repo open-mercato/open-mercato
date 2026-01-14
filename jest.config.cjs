@@ -8,6 +8,7 @@ module.exports = {
     '^@/generated/(.*)$': '<rootDir>/generated/$1',
     '^@/lib/(.*)$': '<rootDir>/packages/shared/src/lib/$1',
     '^@/types/(.*)$': '<rootDir>/packages/shared/src/types/$1',
+    '^@/modules/dsl$': '<rootDir>/packages/shared/src/modules/dsl.ts',
     '^@/modules/registry$': '<rootDir>/packages/shared/src/modules/registry.ts',
     '^@open-mercato/core/generated/(.*)$': '<rootDir>/packages/core/generated/$1',
     '^@open-mercato/core/(.*)$': '<rootDir>/packages/core/src/$1',
