@@ -339,6 +339,10 @@ export async function run(argv = process.argv) {
         await runModuleCommand(allModules, 'booking', 'seed-availability-rulesets', ['--tenant', tenantId, '--org', orgId])
         console.log('🗓️  ✅ Booking availability schedules seeded\n')
 
+        console.log('👷 Seeding contractor role types...')
+        await runModuleCommand(allModules, 'contractors', 'seed-role-types', ['--tenant', tenantId, '--org', orgId])
+        console.log('👷 ✅ Contractor role types seeded\n')
+
         const parsedEncryption = parseBooleanToken(process.env.TENANT_DATA_ENCRYPTION ?? 'yes')
         const encryptionEnabled = parsedEncryption === null ? true : parsedEncryption
         if (encryptionEnabled) {

@@ -17,6 +17,7 @@ import {
   type ContractorUpdateInput,
   type ContractorCreateWithRelationsInput,
 } from '../data/validators'
+import {ensureOrganizationScope} from '@open-mercato/shared/lib/commands/scope'
 
 type ScopedContractorCreateInput = ContractorCreateInput & {
   organizationId: string
@@ -33,13 +34,6 @@ function ensureTenantScope(ctx: CommandRuntimeContext, tenantId: string): void {
   const auth = ctx.auth
   if (!auth || !auth.tenantId || auth.tenantId !== tenantId) {
     throw new CrudHttpError(403, { error: 'Tenant scope mismatch' })
-  }
-}
-
-function ensureOrganizationScope(ctx: CommandRuntimeContext, organizationId: string): void {
-  const auth = ctx.auth
-  if (!auth || !auth.organizationId || auth.organizationId !== organizationId) {
-    throw new CrudHttpError(403, { error: 'Organization scope mismatch' })
   }
 }
 
