@@ -14,6 +14,28 @@
       "title": "Catálogo de productos",
       "description": "Administra productos reutilizables, variantes y precios para los documentos de ventas."
     },
+    "search": {
+      "badge": {
+        "product": "Producto",
+        "variant": "Variante",
+        "category": "Categoría",
+        "offer": "Oferta de canal",
+        "tag": "Etiqueta",
+        "priceKind": "Tipo de precio",
+        "optionSchema": "Esquema de opciones"
+      },
+      "status": {
+        "inactive": "Inactivo"
+      },
+      "variant": {
+        "default": "Predeterminado"
+      },
+      "priceKind": {
+        "includingTax": "Incl. impuestos",
+        "excludingTax": "Excl. impuestos",
+        "promotion": "Promoción"
+      }
+    },
     "categories": {
       "page": {
         "title": "Categorías"
