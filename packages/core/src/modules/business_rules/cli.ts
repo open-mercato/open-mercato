@@ -1,5 +1,5 @@
-import type { ModuleCli } from '@/modules/registry'
-import { createRequestContainer } from '@/lib/di/container'
+import type { ModuleCli } from '@open-mercato/shared/modules/registry'
+import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { BusinessRule } from './data/entities'
 import * as fs from 'fs'
@@ -25,7 +25,7 @@ function parseArgs(args: string[]) {
  */
 const seedGuardRules: ModuleCli = {
   command: 'seed-guard-rules',
-  async run(rest) {
+  async run(rest: string[]) {
     const args = parseArgs(rest)
     const tenantId = String(args.tenantId ?? args.tenant ?? args.t ?? '')
     const organizationId = String(args.organizationId ?? args.orgId ?? args.org ?? args.o ?? '')
