@@ -1,19 +1,15 @@
 'use client'
 
-import { Node } from '@xyflow/react'
-import { useState, useEffect } from 'react'
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@open-mercato/ui/primitives/dialog'
-import { Button } from '@open-mercato/ui/primitives/button'
-import { Input } from '@open-mercato/ui/primitives/input'
-import { Textarea } from '@open-mercato/ui/primitives/textarea'
-import { Label } from '@open-mercato/ui/primitives/label'
-import { Badge } from '@open-mercato/ui/primitives/badge'
-import { Separator } from '@open-mercato/ui/primitives/separator'
-import { Alert, AlertDescription } from '@open-mercato/ui/primitives/alert'
-import { cn } from '@open-mercato/shared/lib/utils'
-import { Trash2, ChevronDown, Info, Plus } from 'lucide-react'
-import { sanitizeId, validateId } from '../lib/graph-utils'
-import { WorkflowSelector, WorkflowDefinition } from './WorkflowSelector'
+import {Node} from '@xyflow/react'
+import {useEffect, useState} from 'react'
+import {Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle} from '@open-mercato/ui/primitives/dialog'
+import {Button} from '@open-mercato/ui/primitives/button'
+import {Badge} from '@open-mercato/ui/primitives/badge'
+import {Alert, AlertDescription} from '@open-mercato/ui/primitives/alert'
+import {ChevronDown, Info, Plus, Trash2} from 'lucide-react'
+import {sanitizeId} from '../lib/graph-utils'
+import {WorkflowDefinition, WorkflowSelector} from './WorkflowSelector'
+import {JsonBuilder} from '@open-mercato/ui/backend/JsonBuilder'
 
 export interface NodeEditDialogProps {
   node: Node | null
@@ -52,7 +48,7 @@ export function NodeEditDialog({ node, isOpen, onClose, onSave, onDelete }: Node
   const [activityId, setActivityId] = useState('')
   const [timeout, setTimeout] = useState('')
   const [showAdvanced, setShowAdvanced] = useState(false)
-  const [advancedConfig, setAdvancedConfig] = useState('')
+  const [advancedConfig, setAdvancedConfig] = useState<Record<string, any>>({})
   const [formFields, setFormFields] = useState<FormField[]>([])
   const [expandedFields, setExpandedFields] = useState<Set<number>>(new Set())
   const [isJsonSchemaFormat, setIsJsonSchemaFormat] = useState(false)
@@ -236,7 +232,7 @@ export function NodeEditDialog({ node, isOpen, onClose, onSave, onDelete }: Node
       if (nodeData?.retryPolicy) {
         advancedFields.retryPolicy = nodeData.retryPolicy
       }
-      setAdvancedConfig(Object.keys(advancedFields).length > 0 ? JSON.stringify(advancedFields, null, 2) : '')
+      setAdvancedConfig(advancedFields)
       setExpandedFields(new Set())
     }
   }, [node, isOpen])
@@ -389,15 +385,9 @@ export function NodeEditDialog({ node, isOpen, onClose, onSave, onDelete }: Node
       updates.activities = stepActivities
     }
 
-    // Parse advanced config (JSON)
-    if (advancedConfig.trim()) {
-      try {
-        const parsed = JSON.parse(advancedConfig)
-        Object.assign(updates, parsed)
-      } catch (error) {
-        alert('Invalid JSON in Advanced Configuration. Please check your syntax.')
-        return
-      }
+    // Merge advanced config
+    if (advancedConfig && Object.keys(advancedConfig).length > 0) {
+      Object.assign(updates, advancedConfig)
     }
 
     onSave(sanitizedId, updates)
@@ -1031,20 +1021,13 @@ export function NodeEditDialog({ node, isOpen, onClose, onSave, onDelete }: Node
                                   <label className="block text-xs font-medium text-gray-700 mb-1">
                                     Configuration (JSON)
                                   </label>
-                                  <textarea
-                                    value={JSON.stringify(activity.config || {}, null, 2)}
-                                    onChange={(e) => {
-                                      try {
-                                        const updated = [...stepActivities]
-                                        updated[index].config = JSON.parse(e.target.value)
-                                        setStepActivities(updated)
-                                      } catch (err) {
-                                        // Invalid JSON - ignore
-                                      }
+                                  <JsonBuilder
+                                    value={activity.config || {}}
+                                    onChange={(config) => {
+                                      const updated = [...stepActivities]
+                                      updated[index].config = config
+                                      setStepActivities(updated)
                                     }}
-                                    rows={6}
-                                    className="w-full px-2 py-1.5 border border-gray-300 rounded text-xs font-mono focus:ring-1 focus:ring-blue-500"
-                                    placeholder='{ "endpoint": "/api/...", "method": "POST" }'
                                   />
                                   <p className="text-xs text-gray-500 mt-1">
                                     Activity-specific configuration. Supports variable interpolation: {`{{context.field}}`}, {`{{workflow.instanceId}}`}
@@ -1345,12 +1328,9 @@ export function NodeEditDialog({ node, isOpen, onClose, onSave, onDelete }: Node
                 </button>
                 {showAdvanced && (
                   <div className="mt-3">
-                    <textarea
+                    <JsonBuilder
                       value={advancedConfig}
-                      onChange={(e) => setAdvancedConfig(e.target.value)}
-                      placeholder='{"userTaskConfig": {"formSchema": {...}}, "retryPolicy": {...}}'
-                      rows={8}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg text-xs font-mono focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                      onChange={setAdvancedConfig}
                     />
                     <p className="text-xs text-gray-500 mt-1">
                       Add custom fields like userTaskConfig, retryPolicy, or other step-specific configuration
