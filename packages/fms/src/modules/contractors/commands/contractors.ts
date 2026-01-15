@@ -18,7 +18,6 @@ import {
   type ContractorUpdateInput,
   type ContractorCreateWithRelationsInput,
 } from '../data/validators'
-import {ensureOrganizationScope} from '@open-mercato/shared/lib/commands/scope'
 
 type ScopedContractorCreateInput = ContractorCreateInput & {
   organizationId: string

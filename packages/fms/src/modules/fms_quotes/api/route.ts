@@ -4,6 +4,7 @@ import { FmsQuote } from '../data/entities'
 import { fmsQuoteCreateSchema, fmsQuoteUpdateSchema } from '../data/validators'
 import type { SearchService } from '@open-mercato/search'
 import { E } from '@open-mercato/fms/generated/entities.ids.generated'
+import { AuthContext } from '@/lib/auth/server'
 
 const listSchema = z
   .object({
@@ -29,7 +30,7 @@ export const metadata = routeMetadata
 
 async function buildSearchFilters(
   query: z.infer<typeof listSchema>,
-  ctx: { container: { resolve: (key: string) => unknown }; auth?: { tenantId?: string } | null }
+  ctx: { container: { resolve: (key: string) => unknown }; auth?: AuthContext | null }
 ): Promise<Record<string, unknown>> {
   const filters: Record<string, unknown> = {}
   const tenantId = ctx.auth?.tenantId
@@ -144,14 +145,14 @@ const crud = makeCrudRoute({
     schema: fmsQuoteUpdateSchema.partial(),
     applyToEntity: (entity, input) => {
       if (input.quoteNumber !== undefined) entity.quoteNumber = input.quoteNumber
-      if (input.clientName !== undefined) entity.clientName = input.clientName
+      if (input.clientId !== undefined) entity.clientName = input.clientId
       if (input.containerCount !== undefined) entity.containerCount = input.containerCount
       if (input.status !== undefined) entity.status = input.status
       if (input.direction !== undefined) entity.direction = input.direction
       if (input.incoterm !== undefined) entity.incoterm = input.incoterm
       if (input.cargoType !== undefined) entity.cargoType = input.cargoType
-      if (input.originPortCode !== undefined) entity.originPortCode = input.originPortCode
-      if (input.destinationPortCode !== undefined) entity.destinationPortCode = input.destinationPortCode
+      if (input.originPortIds !== undefined) entity.originPortCode = input.originPortIds
+      if (input.destinationPortIds !== undefined) entity.destinationPortCode = input.destinationPortIds
       if (input.validUntil !== undefined) entity.validUntil = input.validUntil
       if (input.currencyCode !== undefined) entity.currencyCode = input.currencyCode
       if (input.notes !== undefined) entity.notes = input.notes
