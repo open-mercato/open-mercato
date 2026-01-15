@@ -680,6 +680,8 @@ describe('RbacService', () => {
     })
 
     it('should respect cache TTL and refetch after expiration', async () => {
+      jest.useFakeTimers()
+      jest.setSystemTime(new Date('2025-01-01T00:00:00.000Z'))
       const shortTtlCache = createMemoryStrategy()
       const shortTtlService = new RbacService(em as any, shortTtlCache)
       shortTtlService.setCacheTtl(100) // 100ms TTL
@@ -698,13 +700,16 @@ describe('RbacService', () => {
       await shortTtlService.loadAcl(baseUser.id!, { tenantId: null, organizationId: null })
       expect(em.findOne).toHaveBeenCalledTimes(callsAfterFirst) // Still cached
 
-      await new Promise(resolve => setTimeout(resolve, 150)) // Wait for cache to expire
+      await jest.advanceTimersByTimeAsync(150) // Wait for cache to expire
 
       await shortTtlService.loadAcl(baseUser.id!, { tenantId: null, organizationId: null })
       expect(em.findOne).toHaveBeenCalledTimes(callsAfterFirst + 2) // Refetched (user + ACL queries)
+      jest.useRealTimers()
     })
 
     it('should use custom TTL when configured via setCacheTtl', async () => {
+      jest.useFakeTimers()
+      jest.setSystemTime(new Date('2025-01-01T00:00:00.000Z'))
       const customTtlCache = createMemoryStrategy()
       const customTtlService = new RbacService(em as any, customTtlCache)
       customTtlService.setCacheTtl(50) // 50ms TTL
@@ -721,14 +726,15 @@ describe('RbacService', () => {
       const callsAfterFirst = em.findOne.mock.calls.length
 
       // Should still be cached at 40ms
-      await new Promise(resolve => setTimeout(resolve, 40))
+      await jest.advanceTimersByTimeAsync(40)
       await customTtlService.loadAcl(baseUser.id!, { tenantId: null, organizationId: null })
       expect(em.findOne).toHaveBeenCalledTimes(callsAfterFirst)
 
       // Should expire after 60ms total
-      await new Promise(resolve => setTimeout(resolve, 25))
+      await jest.advanceTimersByTimeAsync(25)
       await customTtlService.loadAcl(baseUser.id!, { tenantId: null, organizationId: null })
       expect(em.findOne).toHaveBeenCalledTimes(callsAfterFirst + 2)
+      jest.useRealTimers()
     })
 
     it('should cache empty ACL results for unknown users', async () => {

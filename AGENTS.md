@@ -18,6 +18,31 @@ This repository is designed for extensibility. Agents should leverage the module
   - Prefer colocated `page.meta.ts`, `<name>.meta.ts`, or folder `meta.ts`.
   - Alternatively, server components may `export const metadata` from the page file itself.
 - API under `src/modules/<module>/api/<method>/<path>.ts` → `/api/<path>` dispatched by method
+  - **OpenAPI Specifications**: All API route files MUST export an `openApi` object to document request/response schemas for automatic API documentation generation. This ensures consistent API documentation across all modules.
+    - For CRUD routes, create an `openapi.ts` helper file in your module's `api/` directory following the pattern from `packages/core/src/modules/catalog/api/openapi.ts`
+    - Export `openApi` from each route file with schemas for all HTTP methods (GET, POST, PUT, DELETE)
+    - Use Zod schemas for request bodies, query parameters, and response shapes
+    - Example structure:
+      ```typescript
+      // src/modules/<module>/api/openapi.ts
+      import { createCrudOpenApiFactory } from '@open-mercato/shared/lib/openapi/crud'
+
+      export const buildModuleCrudOpenApi = createCrudOpenApiFactory({
+        defaultTag: 'ModuleName',
+        // ... other config
+      })
+
+      // src/modules/<module>/api/<resource>/route.ts
+      export const openApi = buildModuleCrudOpenApi({
+        resourceName: 'Resource',
+        querySchema: listQuerySchema,
+        listResponseSchema: createPagedListResponseSchema(itemSchema),
+        create: { schema: createSchema, description: '...' },
+        update: { schema: updateSchema, responseSchema: okSchema, description: '...' },
+        del: { schema: deleteSchema, responseSchema: okSchema, description: '...' },
+      })
+      ```
+    - For non-CRUD routes, manually define the `openApi` object with full HTTP method specifications
 - Subscribers under `src/modules/<module>/subscribers/*.ts` exporting default handler and `metadata` with `{ event: string, persistent?: boolean, id?: string }`
 - Workers under `src/modules/<module>/workers/*.ts` exporting default handler and `metadata` with `{ queue: string, id?: string, concurrency?: number }`
 - Optional CLI at `src/modules/<module>/cli.ts` default export

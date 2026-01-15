@@ -26,6 +26,7 @@ const sidebars: SidebarsConfig = {
         "user-guide/encryption",
         "user-guide/user-custom-fields",
         "user-guide/dictionaries",
+        "user-guide/currencies",
         "user-guide/user-entities",
         "user-guide/system-status",
         "user-guide/products-and-sales-channels",
@@ -201,6 +202,7 @@ const sidebars: SidebarsConfig = {
           items: [
             "framework/modules/overview",
             "framework/modules/routes-and-pages",
+            "framework/modules/currencies",
             "framework/modules/sales-providers",
             "framework/modules/sales-calculations",
           ],
