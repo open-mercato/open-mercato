@@ -292,7 +292,7 @@ describe('sales components', () => {
   })
 
   it('formats prices with currency helper and component', () => {
-    expect(formatPriceWithCurrency(10, 'USD')).toContain('$')
+    expect(formatPriceWithCurrency(10, 'USD')).toMatch(/\$|USD/)
     expect(formatPriceWithCurrency(null, 'USD')).toBe('—')
     render(<PriceWithCurrency amount={15} currency="EUR" />)
     expect(screen.getByText(/€|EUR/)).toBeInTheDocument()

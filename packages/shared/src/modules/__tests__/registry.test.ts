@@ -264,7 +264,7 @@ describe('CLI Modules Registry', () => {
 
 describe('Module type with workers', () => {
   it('should allow workers property on Module', () => {
-    const module: Module = {
+    const testModule: Module = {
       id: 'test-module',
       workers: [
         {
@@ -276,13 +276,13 @@ describe('Module type with workers', () => {
       ],
     }
 
-    expect(module.workers).toBeDefined()
-    expect(module.workers?.length).toBe(1)
-    expect(module.workers?.[0].queue).toBe('test-queue')
+    expect(testModule.workers).toBeDefined()
+    expect(testModule.workers?.length).toBe(1)
+    expect(testModule.workers?.[0].queue).toBe('test-queue')
   })
 
   it('should allow subscribers property on Module', () => {
-    const module: Module = {
+    const testModule: Module = {
       id: 'test-module',
       subscribers: [
         {
@@ -293,8 +293,8 @@ describe('Module type with workers', () => {
       ],
     }
 
-    expect(module.subscribers).toBeDefined()
-    expect(module.subscribers?.length).toBe(1)
-    expect(module.subscribers?.[0].event).toBe('user.created')
+    expect(testModule.subscribers).toBeDefined()
+    expect(testModule.subscribers?.length).toBe(1)
+    expect(testModule.subscribers?.[0].event).toBe('user.created')
   })
 })

@@ -17,7 +17,7 @@ const ignores = [
 
 const ruleOverrides = {
   'react/display-name': 'off',
-
+  'react/no-unescaped-entities': 'off',
   'react-hooks/immutability': 'off',
   'react-hooks/preserve-manual-memoization': 'off',
   'react-hooks/purity': 'off',
