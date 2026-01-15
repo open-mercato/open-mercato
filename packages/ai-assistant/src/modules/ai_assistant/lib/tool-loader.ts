@@ -89,37 +89,45 @@ export async function loadAllModuleTools(): Promise<void> {
     }
   }
 
-  // 2. Load command-derived tools
-  try {
-    const { loadCommandTools } = await import('./command-tools')
-    const commandToolCount = await loadCommandTools()
-    if (commandToolCount > 0) {
-      console.error(`[MCP Tools] Loaded ${commandToolCount} tools from commands`)
-    }
-  } catch (error) {
-    console.error('[MCP Tools] Could not load command tools:', error)
-  }
+  // MVP: Skip other tool loaders to keep tool count under 128 for OpenCode compatibility
+  // TODO: Re-enable these once tool filtering/selection is implemented
+  const LOAD_ALL_TOOLS = process.env.MCP_LOAD_ALL_TOOLS === 'true'
 
-  // 3. Load CLI tools via AST parsing (superadmin only)
-  try {
-    const { loadCliTools } = await import('./cli-tool-loader')
-    const cliToolCount = await loadCliTools()
-    if (cliToolCount > 0) {
-      console.error(`[MCP Tools] Loaded ${cliToolCount} CLI tools (superadmin only)`)
+  if (LOAD_ALL_TOOLS) {
+    // 2. Load command-derived tools
+    try {
+      const { loadCommandTools } = await import('./command-tools')
+      const commandToolCount = await loadCommandTools()
+      if (commandToolCount > 0) {
+        console.error(`[MCP Tools] Loaded ${commandToolCount} tools from commands`)
+      }
+    } catch (error) {
+      console.error('[MCP Tools] Could not load command tools:', error)
     }
-  } catch (error) {
-    console.error('[MCP Tools] Could not load CLI tools:', error)
-  }
 
-  // 4. Load OpenAPI tools (fills gaps not covered by commands - mainly GET/list endpoints)
-  try {
-    const { loadOpenApiTools } = await import('./openapi-tool-loader')
-    const openApiToolCount = await loadOpenApiTools()
-    if (openApiToolCount > 0) {
-      console.error(`[MCP Tools] Loaded ${openApiToolCount} OpenAPI tools`)
+    // 3. Load CLI tools via AST parsing (superadmin only)
+    try {
+      const { loadCliTools } = await import('./cli-tool-loader')
+      const cliToolCount = await loadCliTools()
+      if (cliToolCount > 0) {
+        console.error(`[MCP Tools] Loaded ${cliToolCount} CLI tools (superadmin only)`)
+      }
+    } catch (error) {
+      console.error('[MCP Tools] Could not load CLI tools:', error)
     }
-  } catch (error) {
-    console.error('[MCP Tools] Could not load OpenAPI tools:', error)
+
+    // 4. Load OpenAPI tools (fills gaps not covered by commands - mainly GET/list endpoints)
+    try {
+      const { loadOpenApiTools } = await import('./openapi-tool-loader')
+      const openApiToolCount = await loadOpenApiTools()
+      if (openApiToolCount > 0) {
+        console.error(`[MCP Tools] Loaded ${openApiToolCount} OpenAPI tools`)
+      }
+    } catch (error) {
+      console.error('[MCP Tools] Could not load OpenAPI tools:', error)
+    }
+  } else {
+    console.error('[MCP Tools] MVP mode: Only search tools loaded (set MCP_LOAD_ALL_TOOLS=true for all tools)')
   }
 }
 

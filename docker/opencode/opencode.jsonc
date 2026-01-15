@@ -1,0 +1,32 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "provider": {
+    "anthropic": {}
+  },
+  "model": "anthropic/claude-sonnet-4-20250514",
+  "tools": {
+    "write": false,
+    "bash": false,
+    "edit": false,
+    "read": false,
+    "glob": false,
+    "grep": false,
+    "todoread": false,
+    "todowrite": false
+  },
+  "mcp": {
+    "open-mercato": {
+      "type": "remote",
+      "url": "http://host.docker.internal:3001/mcp",
+      "headers": {
+        "x-api-key": "omk_b7f8c314.4833b86760904fdec6dfc09cd4a4cbd155c5ca8375f54239"
+      },
+      "enabled": true
+    }
+  },
+  "permission": "allow",
+  "server": {
+    "port": 4096,
+    "hostname": "0.0.0.0"
+  }
+}

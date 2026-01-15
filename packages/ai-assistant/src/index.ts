@@ -43,5 +43,26 @@ export { executeTool } from './modules/ai_assistant/lib/tool-executor'
 // MCP server
 export { createMcpServer, runMcpServer } from './modules/ai_assistant/lib/mcp-server'
 
+// OpenCode client
+export {
+  OpenCodeClient,
+  createOpenCodeClient,
+  type OpenCodeClientConfig,
+  type OpenCodeSession,
+  type OpenCodeMessage,
+  type OpenCodeHealth,
+  type OpenCodeMcpStatus,
+} from './modules/ai_assistant/lib/opencode-client'
+
+// OpenCode route handlers
+export {
+  handleOpenCodeMessage,
+  handleOpenCodeHealth,
+  extractTextFromResponse,
+  type OpenCodeTestRequest,
+  type OpenCodeTestResponse,
+  type OpenCodeHealthResponse,
+} from './modules/ai_assistant/lib/opencode-handlers'
+
 // Module metadata
 export { metadata, features } from './modules/ai_assistant'
