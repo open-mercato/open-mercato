@@ -11,6 +11,7 @@
     "modules:ids": "tsx --tsconfig tsconfig.cli.json mercato-cli.ts generate entity-ids",
     "client:generate": "tsx --tsconfig tsconfig.cli.json mercato-cli.ts generate api-client",
     "modules:prepare": "tsx --tsconfig tsconfig.cli.json mercato-cli.ts generate",
+    "generate:cli-tools": "tsx packages/ai-assistant/src/modules/ai_assistant/lib/cli-tools-generator.ts",
     "dev": "tsx scripts/start.ts dev",
     "dev:app": "next dev",
     "predev": "npm run modules:prepare",

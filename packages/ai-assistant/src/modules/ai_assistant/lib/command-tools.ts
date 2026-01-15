@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { glob } from 'glob'
 import { commandRegistry } from '@open-mercato/shared/lib/commands/registry'
 import { CommandBus } from '@open-mercato/shared/lib/commands/command-bus'
 import type { CommandRuntimeContext } from '@open-mercato/shared/lib/commands/types'
@@ -7,34 +8,31 @@ import { registerMcpTool } from './tool-registry'
 
 /**
  * Import all command modules to trigger registration.
- * This must be done before reading from commandRegistry.
+ * Dynamically discovers command modules by scanning the filesystem.
  */
 async function ensureCommandsRegistered(): Promise<void> {
-  const commandModules = [
-    '@open-mercato/core/modules/customers/commands',
-    '@open-mercato/core/modules/catalog/commands',
-    '@open-mercato/core/modules/sales/commands',
-    '@open-mercato/core/modules/booking/commands',
-    '@open-mercato/core/modules/auth/commands',
-    '@open-mercato/core/modules/dictionaries/commands',
-    '@open-mercato/core/modules/directory/commands',
-    '@open-mercato/core/modules/currencies/commands',
-    '@open-mercato/core/modules/feature_toggles/commands',
-  ]
+  const pattern = 'packages/*/src/modules/*/commands/index.ts'
+  const matches = await glob(pattern)
 
-  for (const modulePath of commandModules) {
+  let loadedCount = 0
+  for (const match of matches) {
+    // Convert filesystem path to package import path
+    // packages/core/src/modules/customers/commands/index.ts -> @open-mercato/core/modules/customers/commands
+    const pathMatch = match.match(/^packages\/([^/]+)\/src\/modules\/([^/]+)\/commands/)
+    if (!pathMatch) continue
+
+    const [, packageName, moduleName] = pathMatch
+    const importPath = `@open-mercato/${packageName}/modules/${moduleName}/commands`
+
     try {
-      await import(modulePath)
-      console.log(`[Command Tools] Loaded commands from ${modulePath}`)
-    } catch (error) {
-      // Module might not have commands - this is not an error
-      if (error instanceof Error && error.message.includes('Cannot find module')) {
-        console.log(`[Command Tools] No commands module at ${modulePath}`)
-      } else {
-        console.error(`[Command Tools] Could not import ${modulePath}:`, error)
-      }
+      await import(importPath)
+      loadedCount++
+    } catch {
+      // Silently skip modules that fail to import
     }
   }
+
+  console.log(`[Command Tools] Discovered and loaded ${loadedCount} command modules`)
 }
 
 /**

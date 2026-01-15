@@ -97,4 +97,15 @@ export async function loadAllModuleTools(): Promise<void> {
   } catch (error) {
     console.error('[MCP Tools] Could not load command tools:', error)
   }
+
+  // 3. Load CLI tools via AST parsing (superadmin only)
+  try {
+    const { loadCliTools } = await import('./cli-tool-loader')
+    const cliToolCount = await loadCliTools()
+    if (cliToolCount > 0) {
+      console.error(`[MCP Tools] Loaded ${cliToolCount} CLI tools (superadmin only)`)
+    }
+  } catch (error) {
+    console.error('[MCP Tools] Could not load CLI tools:', error)
+  }
 }

@@ -16,7 +16,7 @@ import {
   type BookingAvailabilityRuleSetUpdateInput,
 } from '../data/validators'
 import { ensureOrganizationScope, ensureTenantScope, extractUndoPayload } from './shared'
-import { E } from '@/generated/entities.ids.generated'
+import { E } from '@open-mercato/core/generated/entities.ids.generated'
 
 const availabilityRuleSetCrudIndexer: CrudIndexerConfig<BookingAvailabilityRuleSet> = {
   entityType: E.booking.booking_availability_rule_set,

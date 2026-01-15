@@ -23,6 +23,8 @@ module.exports = {
     '^@open-mercato/queue$': '<rootDir>/packages/queue/src/index.ts',
     '^@open-mercato/search/(.*)$': '<rootDir>/packages/search/src/$1',
     '^@open-mercato/search$': '<rootDir>/packages/search/src/index.ts',
+    '^@open-mercato/ai-assistant/(.*)$': '<rootDir>/packages/ai-assistant/src/$1',
+    '^@open-mercato/ai-assistant$': '<rootDir>/packages/ai-assistant/src/index.ts',
     '^@open-mercato/shared/(.*)$': '<rootDir>/packages/shared/src/$1',
     '^@/(.*)$': '<rootDir>/src/$1',
     '^@tests/(.*)$': '<rootDir>/tests/$1',

@@ -16,7 +16,7 @@ import {
 } from '../data/validators'
 import { ensureOrganizationScope, ensureTenantScope, extractUndoPayload } from './shared'
 import { CustomerEntity } from '@open-mercato/core/modules/customers/data/entities'
-import { E } from '@/generated/entities.ids.generated'
+import { E } from '@open-mercato/core/generated/entities.ids.generated'
 
 const attendeeCrudIndexer: CrudIndexerConfig<BookingEventAttendee> = {
   entityType: E.booking.booking_event_attendee,

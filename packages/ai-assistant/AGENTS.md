@@ -445,6 +445,84 @@ export function convertMcpToolsToAiSdk(
 
 ## Changelog
 
+### 2026-01 - CLI Tools Fix & Organization-Scoped API Keys
+
+**Problem**: CLI tools executed through MCP server failed with "ORM entities not registered" error due to tsx/esbuild module duplication.
+
+**Root Cause**: When mixing dynamic imports (`await import()`) with static imports, tsx loads the same file as multiple separate module instances. This is a known issue: [tsx Issue #499](https://github.com/privatenumber/tsx/issues/499). The bootstrap code registered entities in Module Instance A, but cli-tool-loader.ts read from Module Instance B.
+
+**Solution** (in `lib/cli-tool-loader.ts`):
+1. Use **static imports** for registration functions (same module instances as tool handlers)
+2. **Dynamically import only the DATA** (entities, diRegistrars arrays from generated files)
+3. Call registration functions directly in `ensureBootstrapInThisContext()`
+
+```typescript
+// Static imports ensure we use the SAME module instances
+import { getDiRegistrars, registerDiRegistrars } from '@open-mercato/shared/lib/di/container'
+import { registerOrmEntities, getOrmEntities } from '@open-mercato/shared/lib/db/mikro'
+
+async function ensureBootstrapInThisContext(): Promise<void> {
+  try {
+    getOrmEntities()
+    getDiRegistrars()
+    return // Already available
+  } catch {
+    // Not available, need to register from generated files
+  }
+  // ... import generated data and register
+}
+```
+
+**Console Output Capture**: CLI tools now capture `console.log/error/warn/info` output and return it in the MCP response instead of printing to server console.
+
+**Organization-Scoped API Keys**: CLI seed commands require `organizationId`. API keys can be:
+- **Tenant-wide** (`organizationId = null`) - Full tenant access, system integrations
+- **Organization-scoped** (`organizationId = UUID`) - Limited to specific organization
+
+To create an organization-scoped API key for MCP:
+```bash
+yarn mercato api_keys add \
+  --name "MCP Assistant (Org Name)" \
+  --tenantId <tenant-uuid> \
+  --organizationId <org-uuid> \
+  --roles <superadmin-role-uuid>
+```
+
+Then update `.mcp.json` with the new key and restart Claude Code (not just `/mcp` reconnect).
+
+**Files Modified**:
+- `lib/cli-tool-loader.ts` - Bootstrap fix + output capture
+- `@open-mercato/shared/lib/di/container.ts` - globalThis pattern for DI registrars
+
+#### Testing Plan for CLI Tools & Organization-Scoped API Key
+
+**Pre-requisites**:
+1. Restart Claude Code completely (not just `/mcp` reconnect) to load new API key
+2. MCP HTTP server running: `yarn mercato ai_assistant mcp:serve-http --port 3001`
+
+**Tests**:
+
+| Test | Action | Expected Result | Pass Criteria |
+|------|--------|-----------------|---------------|
+| 1 | `context_whoami` | `organizationId` not null, new key ID | Verify org-scoped key is active |
+| 2 | `cli_auth_list_orgs` | `success: true`, output has org list | CLI execution works |
+| 3 | `cli_auth_list_users` | `success: true`, output has user list | DB/ORM access works |
+| 4 | `cli_currencies_seed` | `success: true`, currencies seeded | Seed with org context works |
+| 5 | `cli_customers_seed_dictionaries` | `success: true`, dictionaries seeded | Multiple seeds work |
+| 6 | `search_status` | Returns search module status | Non-CLI tools work |
+| 7 | `customers_companies_create` with `{"displayName": "Test"}` | Company created, returns ID | Write operations work |
+| 8 | `customers_companies_delete` with ID from test 7 | Company deleted | Delete operations work |
+
+**Failure Troubleshooting**:
+
+| Symptom | Likely Cause | Fix |
+|---------|--------------|-----|
+| `organizationId: null` in whoami | Old API key still in use | Fully restart Claude Code |
+| "ORM entities not registered" | Bootstrap not called | Check `ensureBootstrapInThisContext()` |
+| "Connection refused" | MCP server not running | Start server on port 3001 |
+| Empty output in CLI tools | Console capture not working | Check `captureConsoleOutput()` |
+| "Missing organizationId" | API key not org-scoped | Verify key has organizationId set |
+
 ### 2025-01 - Zod 4 Schema Handling & Debug Panel
 
 - Fixed "Date cannot be represented in JSON Schema" error with Zod 4
@@ -464,3 +542,167 @@ export function convertMcpToolsToAiSdk(
 - Added `tool-assist-confirm` chat mode for tool-specific conversations
 - Added connection status indicator
 - Tools now require user confirmation before execution
+
+---
+
+## Future Development: AI Agent Authorization & Impersonation
+
+> **Status**: Planned - Not yet implemented
+
+This section documents the planned architecture for enhanced AI authorization with proper impersonation, audit trails, and rate limiting.
+
+### Problem Statement
+
+When an AI agent executes actions on behalf of a user, the system must:
+1. **Impersonate correctly** - Act with the user's permissions, not more
+2. **Distinguish actors** - Know when "AI did X" vs "User did X"
+3. **Audit comprehensively** - Track all AI actions for compliance
+4. **Enforce constraints** - Limit AI's scope when appropriate
+5. **Maintain security** - Prevent privilege escalation or cross-tenant access
+
+### Current Gaps
+
+| Gap | Risk | Impact |
+|-----|------|--------|
+| No actor distinction | Can't tell user vs AI actions | Audit/compliance failure |
+| No AI session tracking | No correlation of AI actions | Debugging impossible |
+| No operation limits | AI can make unlimited calls | Resource exhaustion |
+| No scoped permissions | AI has full user permissions | Over-privilege risk |
+| No audit events | AI actions not logged | Compliance violation |
+
+### Proposed Architecture: Actor + Subject Model
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                    ENHANCED AUTHORIZATION MODEL                  │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                  │
+│  ┌──────────────┐         ┌──────────────┐                      │
+│  │    ACTOR     │         │   SUBJECT    │                      │
+│  │  (Who's      │         │  (On whose   │                      │
+│  │   acting)    │         │   behalf)    │                      │
+│  └──────────────┘         └──────────────┘                      │
+│        │                        │                                │
+│        ▼                        ▼                                │
+│  ┌──────────────────────────────────────────────┐               │
+│  │              EXECUTION CONTEXT                │               │
+│  │                                               │               │
+│  │  actor: { type, id, sessionId }              │               │
+│  │  subject: { userId, tenantId, features }     │               │
+│  │  constraints: { mode, limits, blocklist }    │               │
+│  │  audit: { conversationId, requestId }        │               │
+│  └──────────────────────────────────────────────┘               │
+│                        │                                         │
+│                        ▼                                         │
+│              ┌─────────────────┐                                │
+│              │  TOOL EXECUTOR  │                                │
+│              │  with Audit     │                                │
+│              └─────────────────┘                                │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+### Key Types (Planned)
+
+```typescript
+/** Actor performing the action */
+interface ExecutionActor {
+  type: 'user' | 'ai-assistant' | 'api-key' | 'system'
+  id: string
+  sessionId: string | null
+  metadata?: {
+    conversationId?: string
+    model?: string
+    provider?: string
+  }
+}
+
+/** Subject whose permissions are used */
+interface ExecutionSubject {
+  userId: string
+  tenantId: string | null
+  organizationId: string | null
+  features: string[]
+  isSuperAdmin: boolean
+}
+
+/** Constraints on what actor can do */
+interface ExecutionConstraints {
+  mode: 'read-only' | 'standard' | 'full'
+  maxToolCalls?: number
+  maxMutations?: number
+  requireConfirmationFor?: string[]
+  blockedTools?: string[]
+  expiresAt?: Date
+}
+
+/** Enhanced execution context */
+interface AiExecutionContext {
+  actor: ExecutionActor
+  subject: ExecutionSubject
+  constraints: ExecutionConstraints
+  container: AwilixContainer
+  counters: { toolCalls: number; mutations: number; startedAt: Date }
+}
+
+/** Audit event for compliance */
+interface AiAuditEvent {
+  eventType: 'tool-call' | 'tool-result' | 'confirmation-required' | 'error' | 'session-start' | 'session-end'
+  timestamp: Date
+  actor: ExecutionActor
+  subject: Pick<ExecutionSubject, 'userId' | 'tenantId' | 'organizationId'>
+  tool?: { name: string; args: Record<string, unknown>; result?: unknown; durationMs?: number }
+  conversationId: string
+  requestId: string
+}
+```
+
+### Permission Tiers (Planned)
+
+| Tier | Tool Calls | Mutations | Confirmation Required | Use Case |
+|------|------------|-----------|----------------------|----------|
+| Read-Only | 100 | 0 | N/A | Viewers, analysts |
+| Standard | 50 | 10 | delete, remove, reindex | Regular users |
+| Elevated | 100 | 25 | delete, remove | Managers |
+| Unrestricted | ∞ | ∞ | None | Super admins |
+
+Tier is auto-resolved from user's ACL features.
+
+### Services to Implement
+
+1. **AiSessionManager** (`lib/ai-session.ts`)
+   - `createSession(auth, acl, options)` - Create AI session with constraints
+   - `recordToolCall(sessionId, toolName, isMutation)` - Track and enforce limits
+   - `endSession(sessionId, reason)` - Cleanup
+
+2. **AiAuditService** (`lib/ai-audit.ts`)
+   - `record(event)` - Log audit event
+   - `query(params)` - Search audit log
+   - `getSummary(params)` - Statistics
+
+3. **executeToolWithContext** (`lib/tool-executor.ts`)
+   - Enhanced executor with limits, audit, and confirmation flow
+
+### Security Properties
+
+1. **Downgrade only** - Constraints can be stricter than user permissions, never looser
+2. **Tenant immutability** - tenantId cannot change during session
+3. **Rate limiting** - Prevents runaway AI from exhausting resources
+4. **Full audit trail** - Every tool call logged with actor, subject, timing
+
+### Files to Create/Modify
+
+| File | Action | Description |
+|------|--------|-------------|
+| `lib/types.ts` | Modify | Add ExecutionActor, ExecutionSubject, etc. |
+| `lib/ai-session.ts` | Create | AiSessionManager class |
+| `lib/ai-audit.ts` | Create | AiAuditService class |
+| `lib/permission-tiers.ts` | Create | Tier definitions |
+| `lib/tool-executor.ts` | Modify | Add executeToolWithContext |
+| `/api/ai/chat/route.ts` | Modify | Create session, use execution context |
+
+### Open Design Questions
+
+1. **Audit storage**: Database table vs Event stream vs External service
+2. **Session persistence**: In-memory vs Redis vs Database
+3. **Tier assignment**: Automatic from features vs Explicit admin setting
+4. **Confirmation UX**: Modal dialog vs Inline vs Approval queue

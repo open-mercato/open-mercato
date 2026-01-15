@@ -16,7 +16,7 @@ import {
   type BookingResourceTypeUpdateInput,
 } from '../data/validators'
 import { ensureOrganizationScope, ensureTenantScope, extractUndoPayload } from './shared'
-import { E } from '@/generated/entities.ids.generated'
+import { E } from '@open-mercato/core/generated/entities.ids.generated'
 
 const resourceTypeCrudIndexer: CrudIndexerConfig<BookingResourceType> = {
   entityType: E.booking.booking_resource_type,

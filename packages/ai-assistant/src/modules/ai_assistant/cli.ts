@@ -1,5 +1,46 @@
 import type { ModuleCli } from '@open-mercato/shared/modules/registry'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
+import { fileURLToPath } from 'node:url'
+import { dirname, resolve } from 'node:path'
+import { pathToFileURL } from 'node:url'
+
+/**
+ * Ensure app bootstrap is called before creating DI container.
+ * Uses import.meta.url for runtime path resolution since @/ alias
+ * doesn't work with dynamic imports (TypeScript path aliases are
+ * compile-time only, not available to Node.js at runtime).
+ */
+async function ensureBootstrap(): Promise<void> {
+  // First check if DI is already available
+  try {
+    const { getDiRegistrars } = await import('@open-mercato/shared/lib/di/container')
+    getDiRegistrars()
+    return // DI already available
+  } catch {
+    // DI not available, need to bootstrap
+  }
+
+  // Construct absolute path to bootstrap using import.meta.url
+  try {
+    const __filename = fileURLToPath(import.meta.url)
+    const __dirname = dirname(__filename)
+    // From packages/ai-assistant/src/modules/ai_assistant/cli.ts
+    // to src/bootstrap: ai_assistant → modules → src → ai-assistant → packages → root
+    // That's 5 levels up to project root, then into src/bootstrap
+    const bootstrapPath = resolve(__dirname, '../../../../../src/bootstrap.ts')
+
+    // Dynamic import using file URL
+    const bootstrapUrl = pathToFileURL(bootstrapPath).href
+    const { bootstrap, isBootstrapped } = await import(bootstrapUrl)
+
+    if (!isBootstrapped()) {
+      bootstrap()
+    }
+  } catch (error) {
+    console.error('[MCP] Bootstrap failed:', error instanceof Error ? error.message : error)
+    // Continue - some contexts may not have bootstrap available
+  }
+}
 
 function parseArgs(rest: string[]): Record<string, string | boolean> {
   const args: Record<string, string | boolean> = {}
@@ -51,6 +92,7 @@ const mcpServe: ModuleCli = {
       return
     }
 
+    await ensureBootstrap()
     const container = await createRequestContainer()
 
     const { runMcpServer } = await import('./lib/mcp-server')
@@ -105,6 +147,7 @@ const mcpServeHttp: ModuleCli = {
       return
     }
 
+    await ensureBootstrap()
     const container = await createRequestContainer()
 
     const { runMcpHttpServer } = await import('./lib/http-server')

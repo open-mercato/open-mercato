@@ -17,7 +17,7 @@ import {
   type BookingTeamMemberUpdateInput,
 } from '../data/validators'
 import { ensureOrganizationScope, ensureTenantScope, extractUndoPayload } from './shared'
-import { E } from '@/generated/entities.ids.generated'
+import { E } from '@open-mercato/core/generated/entities.ids.generated'
 
 const teamMemberCrudIndexer: CrudIndexerConfig<BookingTeamMember> = {
   entityType: E.booking.booking_team_member,
