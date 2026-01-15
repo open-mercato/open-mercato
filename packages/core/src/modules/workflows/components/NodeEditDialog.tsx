@@ -1,19 +1,15 @@
 'use client'
 
-import { Node } from '@xyflow/react'
-import { useState, useEffect } from 'react'
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@open-mercato/ui/primitives/dialog'
-import { Button } from '@open-mercato/ui/primitives/button'
-import { Input } from '@open-mercato/ui/primitives/input'
-import { Textarea } from '@open-mercato/ui/primitives/textarea'
-import { Label } from '@open-mercato/ui/primitives/label'
-import { Badge } from '@open-mercato/ui/primitives/badge'
-import { Separator } from '@open-mercato/ui/primitives/separator'
-import { Alert, AlertDescription } from '@open-mercato/ui/primitives/alert'
-import { cn } from '@open-mercato/shared/lib/utils'
-import { Trash2, ChevronDown, Info, Plus } from 'lucide-react'
-import { sanitizeId, validateId } from '../lib/graph-utils'
-import { WorkflowSelector, WorkflowDefinition } from './WorkflowSelector'
+import {Node} from '@xyflow/react'
+import {useEffect, useState} from 'react'
+import {Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle} from '@open-mercato/ui/primitives/dialog'
+import {Button} from '@open-mercato/ui/primitives/button'
+import {Badge} from '@open-mercato/ui/primitives/badge'
+import {Alert, AlertDescription} from '@open-mercato/ui/primitives/alert'
+import {ChevronDown, Info, Plus, Trash2} from 'lucide-react'
+import {sanitizeId} from '../lib/graph-utils'
+import {WorkflowDefinition, WorkflowSelector} from './WorkflowSelector'
+import {JsonBuilder} from '@open-mercato/ui/backend/JsonBuilder'
 
 export interface NodeEditDialogProps {
   node: Node | null
@@ -52,7 +48,7 @@ export function NodeEditDialog({ node, isOpen, onClose, onSave, onDelete }: Node
   const [activityId, setActivityId] = useState('')
   const [timeout, setTimeout] = useState('')
   const [showAdvanced, setShowAdvanced] = useState(false)
-  const [advancedConfig, setAdvancedConfig] = useState('')
+  const [advancedConfig, setAdvancedConfig] = useState<Record<string, any>>({})
   const [formFields, setFormFields] = useState<FormField[]>([])
   const [expandedFields, setExpandedFields] = useState<Set<number>>(new Set())
   const [isJsonSchemaFormat, setIsJsonSchemaFormat] = useState(false)
@@ -236,7 +232,7 @@ export function NodeEditDialog({ node, isOpen, onClose, onSave, onDelete }: Node
       if (nodeData?.retryPolicy) {
         advancedFields.retryPolicy = nodeData.retryPolicy
       }
-      setAdvancedConfig(Object.keys(advancedFields).length > 0 ? JSON.stringify(advancedFields, null, 2) : '')
+      setAdvancedConfig(advancedFields)
       setExpandedFields(new Set())
     }
   }, [node, isOpen])
@@ -389,15 +385,9 @@ export function NodeEditDialog({ node, isOpen, onClose, onSave, onDelete }: Node
       updates.activities = stepActivities
     }
 
-    // Parse advanced config (JSON)
-    if (advancedConfig.trim()) {
-      try {
-        const parsed = JSON.parse(advancedConfig)
-        Object.assign(updates, parsed)
-      } catch (error) {
-        alert('Invalid JSON in Advanced Configuration. Please check your syntax.')
-        return
-      }
+    // Merge advanced config
+    if (advancedConfig && Object.keys(advancedConfig).length > 0) {
+      Object.assign(updates, advancedConfig)
     }
 
     onSave(sanitizedId, updates)
@@ -474,7 +464,7 @@ export function NodeEditDialog({ node, isOpen, onClose, onSave, onDelete }: Node
             <div className="space-y-4">
               {/* Step Name */}
               <div>
-                <label className="block text-sm font-medium text-foreground mb-1">
+                <label className="block text-sm font-medium text-gray-700 mb-1">
                   Step Name *
                 </label>
                 <input
@@ -482,17 +472,17 @@ export function NodeEditDialog({ node, isOpen, onClose, onSave, onDelete }: Node
                   value={stepName}
                   onChange={(e) => setStepName(e.target.value)}
                   placeholder="Enter step name"
-                  className="w-full px-3 py-2 border border-border rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                   autoFocus
                 />
-                <p className="text-xs text-muted-foreground mt-1">
+                <p className="text-xs text-gray-500 mt-1">
                   Display name shown on the step
                 </p>
               </div>
 
               {/* Description */}
               <div>
-                <label className="block text-sm font-medium text-foreground mb-1">
+                <label className="block text-sm font-medium text-gray-700 mb-1">
                   Description
                 </label>
                 <textarea
@@ -500,16 +490,16 @@ export function NodeEditDialog({ node, isOpen, onClose, onSave, onDelete }: Node
                   onChange={(e) => setDescription(e.target.value)}
                   placeholder="Optional description"
                   rows={3}
-                  className="w-full px-3 py-2 border border-border rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                 />
-                <p className="text-xs text-muted-foreground mt-1">
+                <p className="text-xs text-gray-500 mt-1">
                   Additional context about this step
                 </p>
               </div>
 
               {/* Timeout */}
               <div>
-                <label className="block text-sm font-medium text-foreground mb-1">
+                <label className="block text-sm font-medium text-gray-700 mb-1">
                   Timeout
                 </label>
                 <input
@@ -517,9 +507,9 @@ export function NodeEditDialog({ node, isOpen, onClose, onSave, onDelete }: Node
                   value={timeout}
                   onChange={(e) => setTimeout(e.target.value)}
                   placeholder="PT30S or 30000"
-                  className="w-full px-3 py-2 border border-border rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                 />
-                <p className="text-xs text-muted-foreground mt-1">
+                <p className="text-xs text-gray-500 mt-1">
                   ISO 8601 duration (e.g., PT30S) or milliseconds (e.g., 30000)
                 </p>
               </div>
@@ -527,14 +517,14 @@ export function NodeEditDialog({ node, isOpen, onClose, onSave, onDelete }: Node
               {/* User Task Configuration */}
               {node.type === 'userTask' && (
                 <>
-                  <div className="border-t border-border pt-4 mt-4">
-                    <h3 className="text-sm font-semibold text-foreground mb-3">
+                  <div className="border-t border-gray-200 pt-4 mt-4">
+                    <h3 className="text-sm font-semibold text-gray-900 mb-3">
                       User Task Configuration
                     </h3>
                   </div>
 
                   <div>
-                    <label className="block text-sm font-medium text-foreground mb-1">
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
                       Assigned To (User ID)
                     </label>
                     <input
@@ -542,15 +532,15 @@ export function NodeEditDialog({ node, isOpen, onClose, onSave, onDelete }: Node
                       value={assignedTo}
                       onChange={(e) => setAssignedTo(e.target.value)}
                       placeholder="user123"
-                      className="w-full px-3 py-2 border border-border rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                     />
-                    <p className="text-xs text-muted-foreground mt-1">
+                    <p className="text-xs text-gray-500 mt-1">
                       Specific user ID to assign this task to
                     </p>
                   </div>
 
                   <div>
-                    <label className="block text-sm font-medium text-foreground mb-1">
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
                       Assigned To Roles
                     </label>
                     <input
@@ -558,15 +548,15 @@ export function NodeEditDialog({ node, isOpen, onClose, onSave, onDelete }: Node
                       value={assignedToRoles}
                       onChange={(e) => setAssignedToRoles(e.target.value)}
                       placeholder="Manager, Reviewer"
-                      className="w-full px-3 py-2 border border-border rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                     />
-                    <p className="text-xs text-muted-foreground mt-1">
+                    <p className="text-xs text-gray-500 mt-1">
                       Comma-separated list of roles (e.g., "Manager, Reviewer")
                     </p>
                   </div>
 
                   <div>
-                    <label className="block text-sm font-medium text-foreground mb-1">
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
                       Form Key
                     </label>
                     <input
@@ -574,21 +564,21 @@ export function NodeEditDialog({ node, isOpen, onClose, onSave, onDelete }: Node
                       value={formKey}
                       onChange={(e) => setFormKey(e.target.value)}
                       placeholder="approval_form"
-                      className="w-full px-3 py-2 border border-border rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                     />
-                    <p className="text-xs text-muted-foreground mt-1">
+                    <p className="text-xs text-gray-500 mt-1">
                       Identifier for the form to display to users
                     </p>
                   </div>
 
                   {/* Form Schema Builder */}
-                  <div className="border-t border-border pt-4 mt-4">
+                  <div className="border-t border-gray-200 pt-4 mt-4">
                     <div className="flex items-center justify-between mb-3">
                       <div>
-                        <h3 className="text-sm font-semibold text-foreground">
+                        <h3 className="text-sm font-semibold text-gray-900">
                           Form Fields ({formFields.length})
                         </h3>
-                        <p className="text-xs text-muted-foreground mt-0.5">
+                        <p className="text-xs text-gray-500 mt-0.5">
                           Define the form structure for this user task
                         </p>
                       </div>
@@ -615,7 +605,7 @@ export function NodeEditDialog({ node, isOpen, onClose, onSave, onDelete }: Node
                     )}
 
                     {formFields.length === 0 && (
-                      <div className="p-4 text-center text-sm text-muted-foreground bg-muted rounded-lg border border-border">
+                      <div className="p-4 text-center text-sm text-gray-500 bg-gray-50 rounded-lg border border-gray-200">
                         No form fields defined. Click "Add Field" to create one.
                       </div>
                     )}
@@ -624,15 +614,15 @@ export function NodeEditDialog({ node, isOpen, onClose, onSave, onDelete }: Node
                       {formFields.map((field, index) => {
                         const isExpanded = expandedFields.has(index)
                         return (
-                          <div key={index} className="border border-border rounded-lg bg-muted">
+                          <div key={index} className="border border-gray-200 rounded-lg bg-gray-50">
                             <button
                               type="button"
                               onClick={() => toggleFieldExpanded(index)}
-                              className="w-full px-4 py-3 text-left flex items-center justify-between hover:bg-muted transition-colors rounded-t-lg"
+                              className="w-full px-4 py-3 text-left flex items-center justify-between hover:bg-gray-100 transition-colors rounded-t-lg"
                             >
                               <div className="flex-1">
                                 <div className="flex items-center gap-2">
-                                  <span className="text-sm font-semibold text-foreground">
+                                  <span className="text-sm font-semibold text-gray-900">
                                     {field.label || field.name}
                                   </span>
                                   <Badge variant="secondary" className="text-xs">
@@ -644,50 +634,50 @@ export function NodeEditDialog({ node, isOpen, onClose, onSave, onDelete }: Node
                                     </Badge>
                                   )}
                                 </div>
-                                <p className="text-xs text-muted-foreground mt-1">
-                                  Field name: <code className="bg-card px-1 rounded">{field.name}</code>
+                                <p className="text-xs text-gray-600 mt-1">
+                                  Field name: <code className="bg-white px-1 rounded">{field.name}</code>
                                 </p>
                               </div>
                               <ChevronDown
-                                className={`w-5 h-5 text-muted-foreground transition-transform ${isExpanded ? 'rotate-180' : ''}`}
+                                className={`w-5 h-5 text-gray-400 transition-transform ${isExpanded ? 'rotate-180' : ''}`}
                               />
                             </button>
 
                             {isExpanded && (
-                              <div className="px-4 pb-4 space-y-3 border-t border-border bg-card">
+                              <div className="px-4 pb-4 space-y-3 border-t border-gray-200 bg-white">
                                 {/* Field Name */}
                                 <div className="pt-3">
-                                  <label className="block text-xs font-medium text-foreground mb-1">Field Name *</label>
+                                  <label className="block text-xs font-medium text-gray-700 mb-1">Field Name *</label>
                                   <input
                                     type="text"
                                     value={field.name}
                                     onChange={(e) => updateFormField(index, 'name', e.target.value)}
-                                    className="w-full px-2 py-1.5 border border-border rounded text-xs focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
+                                    className="w-full px-2 py-1.5 border border-gray-300 rounded text-xs focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
                                     placeholder="field_name"
                                   />
-                                  <p className="text-xs text-muted-foreground mt-0.5">Unique identifier for this field</p>
+                                  <p className="text-xs text-gray-500 mt-0.5">Unique identifier for this field</p>
                                 </div>
 
                                 {/* Field Label */}
                                 <div>
-                                  <label className="block text-xs font-medium text-foreground mb-1">Field Label *</label>
+                                  <label className="block text-xs font-medium text-gray-700 mb-1">Field Label *</label>
                                   <input
                                     type="text"
                                     value={field.label}
                                     onChange={(e) => updateFormField(index, 'label', e.target.value)}
-                                    className="w-full px-2 py-1.5 border border-border rounded text-xs focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
+                                    className="w-full px-2 py-1.5 border border-gray-300 rounded text-xs focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
                                     placeholder="Field Label"
                                   />
-                                  <p className="text-xs text-muted-foreground mt-0.5">Display label shown to users</p>
+                                  <p className="text-xs text-gray-500 mt-0.5">Display label shown to users</p>
                                 </div>
 
                                 {/* Field Type */}
                                 <div>
-                                  <label className="block text-xs font-medium text-foreground mb-1">Field Type *</label>
+                                  <label className="block text-xs font-medium text-gray-700 mb-1">Field Type *</label>
                                   <select
                                     value={field.type}
                                     onChange={(e) => updateFormField(index, 'type', e.target.value)}
-                                    className="w-full px-2 py-1.5 border border-border rounded text-xs focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
+                                    className="w-full px-2 py-1.5 border border-gray-300 rounded text-xs focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
                                   >
                                     <option value="text">Text</option>
                                     <option value="number">Number</option>
@@ -706,24 +696,24 @@ export function NodeEditDialog({ node, isOpen, onClose, onSave, onDelete }: Node
 
                                 {/* Placeholder */}
                                 <div>
-                                  <label className="block text-xs font-medium text-foreground mb-1">Placeholder</label>
+                                  <label className="block text-xs font-medium text-gray-700 mb-1">Placeholder</label>
                                   <input
                                     type="text"
                                     value={field.placeholder || ''}
                                     onChange={(e) => updateFormField(index, 'placeholder', e.target.value)}
-                                    className="w-full px-2 py-1.5 border border-border rounded text-xs focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
+                                    className="w-full px-2 py-1.5 border border-gray-300 rounded text-xs focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
                                     placeholder="Enter placeholder text..."
                                   />
                                 </div>
 
                                 {/* Default Value */}
                                 <div>
-                                  <label className="block text-xs font-medium text-foreground mb-1">Default Value</label>
+                                  <label className="block text-xs font-medium text-gray-700 mb-1">Default Value</label>
                                   <input
                                     type="text"
                                     value={field.defaultValue || ''}
                                     onChange={(e) => updateFormField(index, 'defaultValue', e.target.value)}
-                                    className="w-full px-2 py-1.5 border border-border rounded text-xs focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
+                                    className="w-full px-2 py-1.5 border border-gray-300 rounded text-xs focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
                                     placeholder="Default value..."
                                   />
                                 </div>
@@ -731,33 +721,33 @@ export function NodeEditDialog({ node, isOpen, onClose, onSave, onDelete }: Node
                                 {/* Options (for select/radio) */}
                                 {(field.type === 'select' || field.type === 'radio') && (
                                   <div>
-                                    <label className="block text-xs font-medium text-foreground mb-1">Options (comma-separated)</label>
+                                    <label className="block text-xs font-medium text-gray-700 mb-1">Options (comma-separated)</label>
                                     <input
                                       type="text"
                                       value={field.options?.join(', ') || ''}
                                       onChange={(e) => updateFormField(index, 'options', e.target.value.split(',').map(o => o.trim()).filter(Boolean))}
-                                      className="w-full px-2 py-1.5 border border-border rounded text-xs focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
+                                      className="w-full px-2 py-1.5 border border-gray-300 rounded text-xs focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
                                       placeholder="Option 1, Option 2, Option 3"
                                     />
-                                    <p className="text-xs text-muted-foreground mt-0.5">Comma-separated list of options</p>
+                                    <p className="text-xs text-gray-500 mt-0.5">Comma-separated list of options</p>
                                   </div>
                                 )}
 
                                 {/* Required Checkbox */}
                                 <div>
-                                  <label className="flex items-center gap-2 text-xs font-medium text-foreground">
+                                  <label className="flex items-center gap-2 text-xs font-medium text-gray-700">
                                     <input
                                       type="checkbox"
                                       checked={field.required}
                                       onChange={(e) => updateFormField(index, 'required', e.target.checked)}
-                                      className="rounded border-border text-blue-600 focus:ring-blue-500"
+                                      className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
                                     />
                                     Required field
                                   </label>
                                 </div>
 
                                 {/* Delete Button */}
-                                <div className="border-t border-border pt-3">
+                                <div className="border-t border-gray-200 pt-3">
                                   <Button
                                     type="button"
                                     variant="destructive"
@@ -781,13 +771,13 @@ export function NodeEditDialog({ node, isOpen, onClose, onSave, onDelete }: Node
               {/* Automated Step Activities */}
               {node.type === 'automated' && (
                 <>
-                  <div className="border-t border-border pt-4 mt-4">
+                  <div className="border-t border-gray-200 pt-4 mt-4">
                     <div className="flex items-center justify-between mb-3">
                       <div>
-                        <h3 className="text-sm font-semibold text-foreground">
+                        <h3 className="text-sm font-semibold text-gray-900">
                           Step Activities ({stepActivities.length})
                         </h3>
-                        <p className="text-xs text-muted-foreground mt-0.5">
+                        <p className="text-xs text-gray-500 mt-0.5">
                           Activities to execute when this step runs
                         </p>
                       </div>
@@ -813,7 +803,7 @@ export function NodeEditDialog({ node, isOpen, onClose, onSave, onDelete }: Node
                     </div>
 
                     {stepActivities.length === 0 && (
-                      <div className="p-4 text-center text-sm text-muted-foreground bg-muted rounded-lg border border-border">
+                      <div className="p-4 text-center text-sm text-gray-500 bg-gray-50 rounded-lg border border-gray-200">
                         No activities defined. Click "Add Activity" to create one.
                       </div>
                     )}
@@ -822,7 +812,7 @@ export function NodeEditDialog({ node, isOpen, onClose, onSave, onDelete }: Node
                       {stepActivities.map((activity, index) => {
                         const isExpanded = expandedStepActivities.has(index)
                         return (
-                          <div key={index} className="border border-border rounded-lg bg-muted">
+                          <div key={index} className="border border-gray-200 rounded-lg bg-gray-50">
                             {/* Activity Header (Collapsed) */}
                             <button
                               type="button"
@@ -835,11 +825,11 @@ export function NodeEditDialog({ node, isOpen, onClose, onSave, onDelete }: Node
                                 }
                                 setExpandedStepActivities(newExpanded)
                               }}
-                              className="w-full px-4 py-3 text-left flex items-center justify-between hover:bg-muted transition-colors rounded-t-lg"
+                              className="w-full px-4 py-3 text-left flex items-center justify-between hover:bg-gray-100 transition-colors rounded-t-lg"
                             >
                               <div className="flex-1">
                                 <div className="flex items-center gap-2">
-                                  <span className="text-sm font-semibold text-foreground">
+                                  <span className="text-sm font-semibold text-gray-900">
                                     {activity.activityName || activity.activityId || `Activity ${index + 1}`}
                                   </span>
                                   <Badge variant="secondary" className="text-xs">
@@ -851,21 +841,21 @@ export function NodeEditDialog({ node, isOpen, onClose, onSave, onDelete }: Node
                                     </Badge>
                                   )}
                                 </div>
-                                <p className="text-xs text-muted-foreground mt-1">
-                                  ID: <code className="bg-card px-1 rounded">{activity.activityId}</code>
+                                <p className="text-xs text-gray-600 mt-1">
+                                  ID: <code className="bg-white px-1 rounded">{activity.activityId}</code>
                                 </p>
                               </div>
                               <ChevronDown
-                                className={`w-5 h-5 text-muted-foreground transition-transform ${isExpanded ? 'rotate-180' : ''}`}
+                                className={`w-5 h-5 text-gray-400 transition-transform ${isExpanded ? 'rotate-180' : ''}`}
                               />
                             </button>
 
                             {/* Activity Body (Expanded) */}
                             {isExpanded && (
-                              <div className="px-4 pb-4 space-y-3 border-t border-border bg-card">
+                              <div className="px-4 pb-4 space-y-3 border-t border-gray-200 bg-white">
                                 {/* Activity ID */}
                                 <div className="pt-3">
-                                  <label className="block text-xs font-medium text-foreground mb-1">
+                                  <label className="block text-xs font-medium text-gray-700 mb-1">
                                     Activity ID *
                                   </label>
                                   <input
@@ -876,14 +866,14 @@ export function NodeEditDialog({ node, isOpen, onClose, onSave, onDelete }: Node
                                       updated[index].activityId = e.target.value
                                       setStepActivities(updated)
                                     }}
-                                    className="w-full px-2 py-1.5 border border-border rounded text-xs focus:ring-1 focus:ring-blue-500"
+                                    className="w-full px-2 py-1.5 border border-gray-300 rounded text-xs focus:ring-1 focus:ring-blue-500"
                                     placeholder="send_email"
                                   />
                                 </div>
 
                                 {/* Activity Name */}
                                 <div>
-                                  <label className="block text-xs font-medium text-foreground mb-1">
+                                  <label className="block text-xs font-medium text-gray-700 mb-1">
                                     Activity Name *
                                   </label>
                                   <input
@@ -894,14 +884,14 @@ export function NodeEditDialog({ node, isOpen, onClose, onSave, onDelete }: Node
                                       updated[index].activityName = e.target.value
                                       setStepActivities(updated)
                                     }}
-                                    className="w-full px-2 py-1.5 border border-border rounded text-xs focus:ring-1 focus:ring-blue-500"
+                                    className="w-full px-2 py-1.5 border border-gray-300 rounded text-xs focus:ring-1 focus:ring-blue-500"
                                     placeholder="Send Welcome Email"
                                   />
                                 </div>
 
                                 {/* Activity Type */}
                                 <div>
-                                  <label className="block text-xs font-medium text-foreground mb-1">
+                                  <label className="block text-xs font-medium text-gray-700 mb-1">
                                     Activity Type *
                                   </label>
                                   <select
@@ -911,7 +901,7 @@ export function NodeEditDialog({ node, isOpen, onClose, onSave, onDelete }: Node
                                       updated[index].activityType = e.target.value
                                       setStepActivities(updated)
                                     }}
-                                    className="w-full px-2 py-1.5 border border-border rounded text-xs focus:ring-1 focus:ring-blue-500"
+                                    className="w-full px-2 py-1.5 border border-gray-300 rounded text-xs focus:ring-1 focus:ring-blue-500"
                                   >
                                     <option value="SEND_EMAIL">Send Email</option>
                                     <option value="CALL_API">Call API</option>
@@ -924,7 +914,7 @@ export function NodeEditDialog({ node, isOpen, onClose, onSave, onDelete }: Node
 
                                 {/* Timeout */}
                                 <div>
-                                  <label className="block text-xs font-medium text-foreground mb-1">
+                                  <label className="block text-xs font-medium text-gray-700 mb-1">
                                     Timeout
                                   </label>
                                   <input
@@ -935,20 +925,20 @@ export function NodeEditDialog({ node, isOpen, onClose, onSave, onDelete }: Node
                                       updated[index].timeoutMs = e.target.value ? parseInt(e.target.value) : undefined
                                       setStepActivities(updated)
                                     }}
-                                    className="w-full px-2 py-1.5 border border-border rounded text-xs focus:ring-1 focus:ring-blue-500"
+                                    className="w-full px-2 py-1.5 border border-gray-300 rounded text-xs focus:ring-1 focus:ring-blue-500"
                                     placeholder="30000"
                                   />
-                                  <p className="text-xs text-muted-foreground mt-1">Timeout in milliseconds (e.g., 30000 = 30 seconds)</p>
+                                  <p className="text-xs text-gray-500 mt-1">Timeout in milliseconds (e.g., 30000 = 30 seconds)</p>
                                 </div>
 
                                 {/* Retry Policy Grid */}
-                                <div className="border border-border rounded-lg p-3 bg-muted">
-                                  <label className="block text-xs font-semibold text-foreground mb-2">
+                                <div className="border border-gray-200 rounded-lg p-3 bg-gray-50">
+                                  <label className="block text-xs font-semibold text-gray-700 mb-2">
                                     Retry Policy
                                   </label>
                                   <div className="grid grid-cols-2 gap-2">
                                     <div>
-                                      <label className="block text-xs text-muted-foreground mb-1">Max Attempts</label>
+                                      <label className="block text-xs text-gray-600 mb-1">Max Attempts</label>
                                       <input
                                         type="number"
                                         value={activity.retryPolicy?.maxAttempts || 1}
@@ -960,11 +950,11 @@ export function NodeEditDialog({ node, isOpen, onClose, onSave, onDelete }: Node
                                         }}
                                         min="1"
                                         max="10"
-                                        className="w-full px-2 py-1 border border-border rounded text-xs"
+                                        className="w-full px-2 py-1 border border-gray-300 rounded text-xs"
                                       />
                                     </div>
                                     <div>
-                                      <label className="block text-xs text-muted-foreground mb-1">Initial Interval (ms)</label>
+                                      <label className="block text-xs text-gray-600 mb-1">Initial Interval (ms)</label>
                                       <input
                                         type="number"
                                         value={activity.retryPolicy?.initialIntervalMs || 1000}
@@ -974,11 +964,11 @@ export function NodeEditDialog({ node, isOpen, onClose, onSave, onDelete }: Node
                                           updated[index].retryPolicy.initialIntervalMs = parseInt(e.target.value) || 1000
                                           setStepActivities(updated)
                                         }}
-                                        className="w-full px-2 py-1 border border-border rounded text-xs"
+                                        className="w-full px-2 py-1 border border-gray-300 rounded text-xs"
                                       />
                                     </div>
                                     <div>
-                                      <label className="block text-xs text-muted-foreground mb-1">Backoff Coefficient</label>
+                                      <label className="block text-xs text-gray-600 mb-1">Backoff Coefficient</label>
                                       <input
                                         type="number"
                                         step="0.1"
@@ -989,11 +979,11 @@ export function NodeEditDialog({ node, isOpen, onClose, onSave, onDelete }: Node
                                           updated[index].retryPolicy.backoffCoefficient = parseFloat(e.target.value) || 2
                                           setStepActivities(updated)
                                         }}
-                                        className="w-full px-2 py-1 border border-border rounded text-xs"
+                                        className="w-full px-2 py-1 border border-gray-300 rounded text-xs"
                                       />
                                     </div>
                                     <div>
-                                      <label className="block text-xs text-muted-foreground mb-1">Max Interval (ms)</label>
+                                      <label className="block text-xs text-gray-600 mb-1">Max Interval (ms)</label>
                                       <input
                                         type="number"
                                         value={activity.retryPolicy?.maxIntervalMs || 60000}
@@ -1003,7 +993,7 @@ export function NodeEditDialog({ node, isOpen, onClose, onSave, onDelete }: Node
                                           updated[index].retryPolicy.maxIntervalMs = parseInt(e.target.value) || 60000
                                           setStepActivities(updated)
                                         }}
-                                        className="w-full px-2 py-1 border border-border rounded text-xs"
+                                        className="w-full px-2 py-1 border border-gray-300 rounded text-xs"
                                       />
                                     </div>
                                   </div>
@@ -1020,39 +1010,32 @@ export function NodeEditDialog({ node, isOpen, onClose, onSave, onDelete }: Node
                                         updated[index].async = e.target.checked
                                         setStepActivities(updated)
                                       }}
-                                      className="w-4 h-4 text-blue-600 border-border rounded focus:ring-blue-500"
+                                      className="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
                                     />
-                                    <span className="text-xs text-foreground">Execute Asynchronously</span>
+                                    <span className="text-xs text-gray-700">Execute Asynchronously</span>
                                   </label>
                                 </div>
 
                                 {/* Activity Config JSON */}
                                 <div>
-                                  <label className="block text-xs font-medium text-foreground mb-1">
+                                  <label className="block text-xs font-medium text-gray-700 mb-1">
                                     Configuration (JSON)
                                   </label>
-                                  <textarea
-                                    value={JSON.stringify(activity.config || {}, null, 2)}
-                                    onChange={(e) => {
-                                      try {
-                                        const updated = [...stepActivities]
-                                        updated[index].config = JSON.parse(e.target.value)
-                                        setStepActivities(updated)
-                                      } catch (err) {
-                                        // Invalid JSON - ignore
-                                      }
+                                  <JsonBuilder
+                                    value={activity.config || {}}
+                                    onChange={(config) => {
+                                      const updated = [...stepActivities]
+                                      updated[index].config = config
+                                      setStepActivities(updated)
                                     }}
-                                    rows={6}
-                                    className="w-full px-2 py-1.5 border border-border rounded text-xs font-mono focus:ring-1 focus:ring-blue-500"
-                                    placeholder='{ "endpoint": "/api/...", "method": "POST" }'
                                   />
-                                  <p className="text-xs text-muted-foreground mt-1">
+                                  <p className="text-xs text-gray-500 mt-1">
                                     Activity-specific configuration. Supports variable interpolation: {`{{context.field}}`}, {`{{workflow.instanceId}}`}
                                   </p>
                                 </div>
 
                                 {/* Delete Button */}
-                                <div className="pt-3 border-t border-border">
+                                <div className="pt-3 border-t border-gray-100">
                                   <Button
                                     type="button"
                                     variant="destructive"
@@ -1081,14 +1064,14 @@ export function NodeEditDialog({ node, isOpen, onClose, onSave, onDelete }: Node
               {/* Sub-Workflow Configuration (Phase 8) */}
               {node.type === 'subWorkflow' && (
                 <>
-                  <div className="border-t border-border pt-4 mt-4">
-                    <h3 className="text-sm font-semibold text-foreground mb-3">
+                  <div className="border-t border-gray-200 pt-4 mt-4">
+                    <h3 className="text-sm font-semibold text-gray-900 mb-3">
                       Sub-Workflow Configuration
                     </h3>
                   </div>
 
                   <div>
-                    <label className="block text-sm font-medium text-foreground mb-1">
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
                       Workflow to Invoke *
                     </label>
                     <div className="flex gap-2">
@@ -1097,7 +1080,7 @@ export function NodeEditDialog({ node, isOpen, onClose, onSave, onDelete }: Node
                         value={subWorkflowId}
                         onChange={(e) => setSubWorkflowId(e.target.value)}
                         placeholder="child-workflow"
-                        className="flex-1 px-3 py-2 border border-border rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                        className="flex-1 px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                         readOnly
                       />
                       <Button
@@ -1108,13 +1091,13 @@ export function NodeEditDialog({ node, isOpen, onClose, onSave, onDelete }: Node
                         Browse...
                       </Button>
                     </div>
-                    <p className="text-xs text-muted-foreground mt-1">
+                    <p className="text-xs text-gray-500 mt-1">
                       Workflow ID of the sub-workflow to invoke
                     </p>
                   </div>
 
                   <div>
-                    <label className="block text-sm font-medium text-foreground mb-1">
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
                       Version
                     </label>
                     <input
@@ -1122,21 +1105,21 @@ export function NodeEditDialog({ node, isOpen, onClose, onSave, onDelete }: Node
                       value={subWorkflowVersion}
                       onChange={(e) => setSubWorkflowVersion(e.target.value)}
                       placeholder="Latest version"
-                      className="w-full px-3 py-2 border border-border rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                     />
-                    <p className="text-xs text-muted-foreground mt-1">
+                    <p className="text-xs text-gray-500 mt-1">
                       Specific version to invoke (leave empty for latest)
                     </p>
                   </div>
 
                   {/* Input Mapping */}
-                  <div className="border-t border-border pt-4 mt-4">
+                  <div className="border-t border-gray-200 pt-4 mt-4">
                     <div className="flex items-center justify-between mb-3">
                       <div>
-                        <h4 className="text-sm font-semibold text-foreground">
+                        <h4 className="text-sm font-semibold text-gray-900">
                           Input Mapping ({inputMappings.length})
                         </h4>
-                        <p className="text-xs text-muted-foreground mt-0.5">
+                        <p className="text-xs text-gray-500 mt-0.5">
                           Map data from parent workflow to child workflow context
                         </p>
                       </div>
@@ -1151,7 +1134,7 @@ export function NodeEditDialog({ node, isOpen, onClose, onSave, onDelete }: Node
                     </div>
 
                     {inputMappings.length === 0 ? (
-                      <p className="text-sm text-muted-foreground italic">
+                      <p className="text-sm text-gray-500 italic">
                         No input mappings. Entire parent context will be passed to child.
                       </p>
                     ) : (
@@ -1168,11 +1151,11 @@ export function NodeEditDialog({ node, isOpen, onClose, onSave, onDelete }: Node
                                   setInputMappings(newMappings)
                                 }}
                                 placeholder="childKey"
-                                className="w-full px-2 py-1.5 border border-border rounded text-sm focus:ring-2 focus:ring-blue-500"
+                                className="w-full px-2 py-1.5 border border-gray-300 rounded text-sm focus:ring-2 focus:ring-blue-500"
                               />
-                              <p className="text-xs text-muted-foreground mt-0.5">Target key in child context</p>
+                              <p className="text-xs text-gray-500 mt-0.5">Target key in child context</p>
                             </div>
-                            <span className="text-muted-foreground mt-2">→</span>
+                            <span className="text-gray-400 mt-2">→</span>
                             <div className="flex-1">
                               <input
                                 type="text"
@@ -1183,9 +1166,9 @@ export function NodeEditDialog({ node, isOpen, onClose, onSave, onDelete }: Node
                                   setInputMappings(newMappings)
                                 }}
                                 placeholder="parent.field.path"
-                                className="w-full px-2 py-1.5 border border-border rounded text-sm focus:ring-2 focus:ring-blue-500"
+                                className="w-full px-2 py-1.5 border border-gray-300 rounded text-sm focus:ring-2 focus:ring-blue-500"
                               />
-                              <p className="text-xs text-muted-foreground mt-0.5">Source path in parent context</p>
+                              <p className="text-xs text-gray-500 mt-0.5">Source path in parent context</p>
                             </div>
                             <Button
                               type="button"
@@ -1205,13 +1188,13 @@ export function NodeEditDialog({ node, isOpen, onClose, onSave, onDelete }: Node
                   </div>
 
                   {/* Output Mapping */}
-                  <div className="border-t border-border pt-4 mt-4">
+                  <div className="border-t border-gray-200 pt-4 mt-4">
                     <div className="flex items-center justify-between mb-3">
                       <div>
-                        <h4 className="text-sm font-semibold text-foreground">
+                        <h4 className="text-sm font-semibold text-gray-900">
                           Output Mapping ({outputMappings.length})
                         </h4>
-                        <p className="text-xs text-muted-foreground mt-0.5">
+                        <p className="text-xs text-gray-500 mt-0.5">
                           Map data from child workflow back to parent context
                         </p>
                       </div>
@@ -1226,7 +1209,7 @@ export function NodeEditDialog({ node, isOpen, onClose, onSave, onDelete }: Node
                     </div>
 
                     {outputMappings.length === 0 ? (
-                      <p className="text-sm text-muted-foreground italic">
+                      <p className="text-sm text-gray-500 italic">
                         No output mappings. Entire child context will be returned to parent.
                       </p>
                     ) : (
@@ -1243,11 +1226,11 @@ export function NodeEditDialog({ node, isOpen, onClose, onSave, onDelete }: Node
                                   setOutputMappings(newMappings)
                                 }}
                                 placeholder="parentKey"
-                                className="w-full px-2 py-1.5 border border-border rounded text-sm focus:ring-2 focus:ring-blue-500"
+                                className="w-full px-2 py-1.5 border border-gray-300 rounded text-sm focus:ring-2 focus:ring-blue-500"
                               />
-                              <p className="text-xs text-muted-foreground mt-0.5">Target key in parent context</p>
+                              <p className="text-xs text-gray-500 mt-0.5">Target key in parent context</p>
                             </div>
-                            <span className="text-muted-foreground mt-2">←</span>
+                            <span className="text-gray-400 mt-2">←</span>
                             <div className="flex-1">
                               <input
                                 type="text"
@@ -1258,9 +1241,9 @@ export function NodeEditDialog({ node, isOpen, onClose, onSave, onDelete }: Node
                                   setOutputMappings(newMappings)
                                 }}
                                 placeholder="child.result.path"
-                                className="w-full px-2 py-1.5 border border-border rounded text-sm focus:ring-2 focus:ring-blue-500"
+                                className="w-full px-2 py-1.5 border border-gray-300 rounded text-sm focus:ring-2 focus:ring-blue-500"
                               />
-                              <p className="text-xs text-muted-foreground mt-0.5">Source path in child context</p>
+                              <p className="text-xs text-gray-500 mt-0.5">Source path in child context</p>
                             </div>
                             <Button
                               type="button"
@@ -1284,14 +1267,14 @@ export function NodeEditDialog({ node, isOpen, onClose, onSave, onDelete }: Node
               {/* Wait for Signal Configuration */}
               {node.type === 'waitForSignal' && (
                 <>
-                  <div className="border-t border-border pt-4 mt-4">
-                    <h3 className="text-sm font-semibold text-foreground mb-3">
+                  <div className="border-t border-gray-200 pt-4 mt-4">
+                    <h3 className="text-sm font-semibold text-gray-900 mb-3">
                       Signal Configuration
                     </h3>
                   </div>
 
                   <div>
-                    <label className="block text-sm font-medium text-foreground mb-1">
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
                       Signal Name *
                     </label>
                     <input
@@ -1299,15 +1282,15 @@ export function NodeEditDialog({ node, isOpen, onClose, onSave, onDelete }: Node
                       value={signalName}
                       onChange={(e) => setSignalName(e.target.value)}
                       placeholder="payment_confirmed"
-                      className="w-full px-3 py-2 border border-border rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                     />
-                    <p className="text-xs text-muted-foreground mt-1">
+                    <p className="text-xs text-gray-500 mt-1">
                       Name of the signal to wait for (e.g., payment_confirmed, approval_received)
                     </p>
                   </div>
 
                   <div>
-                    <label className="block text-sm font-medium text-foreground mb-1">
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
                       Timeout
                     </label>
                     <input
@@ -1315,9 +1298,9 @@ export function NodeEditDialog({ node, isOpen, onClose, onSave, onDelete }: Node
                       value={signalTimeout}
                       onChange={(e) => setSignalTimeout(e.target.value)}
                       placeholder="PT5M"
-                      className="w-full px-3 py-2 border border-border rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                     />
-                    <p className="text-xs text-muted-foreground mt-1">
+                    <p className="text-xs text-gray-500 mt-1">
                       ISO 8601 duration (e.g., PT5M for 5 minutes, PT1H for 1 hour, PT30S for 30 seconds)
                     </p>
                   </div>
@@ -1325,13 +1308,13 @@ export function NodeEditDialog({ node, isOpen, onClose, onSave, onDelete }: Node
               )}
 
               {/* Advanced Configuration */}
-              <div className="border-t border-border pt-4 mt-4">
+              <div className="border-t border-gray-200 pt-4 mt-4">
                 <button
                   type="button"
                   onClick={() => setShowAdvanced(!showAdvanced)}
                   className="flex items-center justify-between w-full text-left"
                 >
-                  <h3 className="text-sm font-semibold text-foreground">
+                  <h3 className="text-sm font-semibold text-gray-900">
                     Advanced Configuration (JSON)
                   </h3>
                   <svg
@@ -1345,14 +1328,11 @@ export function NodeEditDialog({ node, isOpen, onClose, onSave, onDelete }: Node
                 </button>
                 {showAdvanced && (
                   <div className="mt-3">
-                    <textarea
+                    <JsonBuilder
                       value={advancedConfig}
-                      onChange={(e) => setAdvancedConfig(e.target.value)}
-                      placeholder='{"userTaskConfig": {"formSchema": {...}}, "retryPolicy": {...}}'
-                      rows={8}
-                      className="w-full px-3 py-2 border border-border rounded-lg text-xs font-mono focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                      onChange={setAdvancedConfig}
                     />
-                    <p className="text-xs text-muted-foreground mt-1">
+                    <p className="text-xs text-gray-500 mt-1">
                       Add custom fields like userTaskConfig, retryPolicy, or other step-specific configuration
                     </p>
                   </div>

@@ -301,6 +301,7 @@ All module paths below use `src/modules/<module>/` as a shorthand. In practice:
 - New CRUD forms should use `CrudForm` wired to CRUD factory/commands APIs and be shared between create/edit flows.
 - Prefer reusing components from the shared `packages/ui` package before introducing new UI primitives.
 - For new `DataTable` columns, set `meta.truncate` and `meta.maxWidth` in the column config when you need specific truncation behavior; only rely on defaults when those are not set.
+- When you create new UI check reusable components before creating UI from scratch @.ai/spec/ui-reusable-components.md
 
 ### Type Safety Addendum
 - Centralize reusable types and constants (e.g., custom field kinds) in `packages/shared` and import them everywhere to avoid drift.
