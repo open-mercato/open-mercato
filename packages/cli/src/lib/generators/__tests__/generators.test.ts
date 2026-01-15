@@ -7,30 +7,30 @@ import type { GeneratorResult } from '../../utils'
 describe('generators', () => {
   describe('generator exports', () => {
     it('should export generateEntityIds', async () => {
-      const module = await import('../entity-ids')
-      expect(typeof module.generateEntityIds).toBe('function')
+      const mod = await import('../entity-ids')
+      expect(typeof mod.generateEntityIds).toBe('function')
     })
 
     it('should export generateModuleRegistry', async () => {
-      const module = await import('../module-registry')
-      expect(typeof module.generateModuleRegistry).toBe('function')
+      const mod = await import('../module-registry')
+      expect(typeof mod.generateModuleRegistry).toBe('function')
     })
 
     it('should export generateModuleEntities', async () => {
-      const module = await import('../module-entities')
-      expect(typeof module.generateModuleEntities).toBe('function')
+      const mod = await import('../module-entities')
+      expect(typeof mod.generateModuleEntities).toBe('function')
     })
 
     it('should export generateModuleDi', async () => {
-      const module = await import('../module-di')
-      expect(typeof module.generateModuleDi).toBe('function')
+      const mod = await import('../module-di')
+      expect(typeof mod.generateModuleDi).toBe('function')
     })
 
     // Note: api-client uses openapi-typescript which is ESM-only
     // and doesn't work with Jest's CommonJS environment
     it.skip('should export generateApiClient', async () => {
-      const module = await import('../api-client')
-      expect(typeof module.generateApiClient).toBe('function')
+      const mod = await import('../api-client')
+      expect(typeof mod.generateApiClient).toBe('function')
     })
   })
 

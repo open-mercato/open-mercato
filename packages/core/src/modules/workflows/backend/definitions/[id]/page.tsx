@@ -2,6 +2,7 @@
 
 import * as React from 'react'
 import { useRouter, useParams } from 'next/navigation'
+import Link from 'next/link'
 import { useQuery } from '@tanstack/react-query'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { CrudForm } from '@open-mercato/ui/backend/CrudForm'
@@ -98,7 +99,7 @@ export default function EditWorkflowDefinitionPage() {
           <div className="flex h-[50vh] flex-col items-center justify-center gap-2 text-muted-foreground">
             <p>{t('workflows.errors.loadFailed')}</p>
             <Button asChild variant="outline">
-              <a href="/backend/definitions">{t('workflows.backToList')}</a>
+              <Link href="/backend/definitions">{t('workflows.backToList')}</Link>
             </Button>
           </div>
         </PageBody>

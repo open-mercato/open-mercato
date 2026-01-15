@@ -3,7 +3,7 @@ import { JsonBuilder } from "@open-mercato/ui/backend/JsonBuilder";
 import { useT } from '@/lib/i18n/context'
 
 
-export function renderDefaultValueCreateComponent(props: CrudCustomFieldRenderProps) {
+export function RenderDefaultValueCreateComponent(props: CrudCustomFieldRenderProps) {
     const t = useT()
     const selectedType = props.values?.type as string;
 
@@ -120,7 +120,7 @@ export function createFieldDefinitions(
             id: 'defaultValue',
             label: '',
             type: 'custom',
-            component: renderDefaultValueCreateComponent,
+            component: RenderDefaultValueCreateComponent,
             description: t('feature_toggles.form.fields.defaultValue.description'),
         },
     ]

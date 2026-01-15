@@ -18,7 +18,6 @@ import {
   type ContractorUpdateInput,
   type ContractorCreateWithRelationsInput,
 } from '../data/validators'
-
 type ScopedContractorCreateInput = ContractorCreateInput & {
   organizationId: string
   tenantId: string
