@@ -1,4 +1,5 @@
 import { spawn, ChildProcess } from 'child_process'
+import path from 'node:path'
 
 const processes: ChildProcess[] = []
 
@@ -20,25 +21,32 @@ async function main() {
 
   console.log(`[start] Starting Open Mercato in ${mode} mode...`)
 
+  // Resolve local binaries from node_modules/.bin to avoid relying on global npx
+  const isWin = process.platform === 'win32'
+  const bin = (name: string) =>
+    path.resolve(process.cwd(), 'node_modules', '.bin', isWin ? `${name}.cmd` : name)
+
   // Start Next.js app
-  const nextCommand = mode === 'dev' ? ['next', 'dev'] : ['next', 'start']
-  const nextProcess = spawn('npx', nextCommand, {
+  const nextBin = bin('next')
+  const nextArgs = mode === 'dev' ? ['dev'] : ['start']
+  const nextProcess = spawn(nextBin, nextArgs, {
     stdio: 'inherit',
     env: process.env,
+    shell: isWin,
+    windowsVerbatimArguments: !isWin,
   })
   processes.push(nextProcess)
 
   // Start workers (enabled by default, disable with AUTO_SPAWN_WORKERS=false)
   if (autoSpawnWorkers) {
     console.log('[start] Starting workers for all queues...')
-    const workerProcess = spawn(
-      'npx',
-      ['tsx', '--tsconfig', 'tsconfig.cli.json', 'mercato-cli.ts', 'queue', 'worker', '--all'],
-      {
-        stdio: 'inherit',
-        env: process.env,
-      }
-    )
+    const tsxBin = bin('tsx')
+    const workerProcess = spawn(tsxBin, ['--tsconfig', 'tsconfig.cli.json', 'mercato-cli.ts', 'queue', 'worker', '--all'], {
+      stdio: 'inherit',
+      env: process.env,
+      shell: isWin,
+      windowsVerbatimArguments: !isWin,
+    })
     processes.push(workerProcess)
   }
 
