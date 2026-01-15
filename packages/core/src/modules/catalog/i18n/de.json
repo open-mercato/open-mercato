@@ -14,6 +14,28 @@
       "title": "Produktkatalog",
       "description": "Verwalte wiederverwendbare Produkte, Varianten und Preise für Vertriebsdokumente."
     },
+    "search": {
+      "badge": {
+        "product": "Produkt",
+        "variant": "Variante",
+        "category": "Kategorie",
+        "offer": "Kanalangebot",
+        "tag": "Schlagwort",
+        "priceKind": "Preisart",
+        "optionSchema": "Optionsschema"
+      },
+      "status": {
+        "inactive": "Inaktiv"
+      },
+      "variant": {
+        "default": "Standard"
+      },
+      "priceKind": {
+        "includingTax": "Inkl. MwSt.",
+        "excludingTax": "Exkl. MwSt.",
+        "promotion": "Aktion"
+      }
+    },
     "categories": {
       "page": {
         "title": "Kategorien"

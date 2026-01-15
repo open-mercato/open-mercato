@@ -9,6 +9,53 @@
       "title": "Gestión de ventas",
       "description": "Cotizaciones, pedidos, cumplimiento, facturación y pagos conectados al catálogo de productos."
     },
+    "quotes": {
+      "send": {
+        "action": "Enviar al cliente",
+        "title": "Enviar cotización al cliente",
+        "description": "El correo se enviará a:",
+        "noEmail": "Sin correo",
+        "validForDays": "Válida por (días)",
+        "cancel": "Cancelar",
+        "submit": "Enviar cotización",
+        "success": "Cotización enviada.",
+        "failed": "No se pudo enviar la cotización.",
+        "canceled": "No se pueden enviar cotizaciones canceladas.",
+        "missingEmail": "Se requiere el correo del cliente para enviar una cotización."
+      },
+      "email": {
+        "subject": "Cotización {quoteNumber}"
+      },
+      "public": {
+        "pageTitle": "Cotización",
+        "notFound": "Cotización no encontrada.",
+        "failed": "No se pudo cargar la cotización.",
+        "loading": "Cargando cotización…",
+        "expired": "Esta cotización ha expirado.",
+        "expiredMessage": "Por favor contacte al vendedor para solicitar una cotización actualizada.",
+        "validUntil": "Válida hasta {date}",
+        "noValidityDate": "Sin fecha de validez",
+        "items": "Artículos",
+        "item": "Artículo",
+        "qty": "Cant.: {quantity}",
+        "totals": "Totales",
+        "subtotalGross": "Subtotal (bruto)",
+        "discount": "Descuento",
+        "tax": "Impuesto",
+        "total": "Total",
+        "acceptButton": "Aceptar cotización",
+        "acceptedTitle": "Cotización aceptada",
+        "acceptedMessage": "Pedido creado: {orderNumber}",
+        "acceptFailed": "No se pudo aceptar la cotización."
+      },
+      "accept": {
+        "notFound": "Cotización no encontrada.",
+        "expired": "Esta cotización ha expirado.",
+        "invalidStatus": "Esta cotización no puede aceptarse en su estado actual.",
+        "failed": "No se pudo aceptar la cotización.",
+        "adminSubject": "Cotización {quoteNumber} aceptada → Pedido {orderNumber}"
+      }
+    },
     "nav": {
       "group": "Ventas",
       "channels": "Canales de ventas"
