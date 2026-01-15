@@ -1,6 +1,5 @@
 import path from 'node:path'
 import fs from 'node:fs'
-import { createRequire } from 'node:module'
 
 export type ModuleEntry = {
   id: string
@@ -63,14 +62,33 @@ function pkgRootFor(rootDir: string, from?: string, isMonorepo = true): string {
   return path.resolve(rootDir, 'packages/core')
 }
 
+function parseModulesFromSource(source: string): ModuleEntry[] {
+  // Parse the enabledModules array from TypeScript source
+  // This is more reliable than trying to require() a .ts file
+  const match = source.match(/export\s+const\s+enabledModules[^=]*=\s*\[([\s\S]*?)\]/)
+  if (!match) return []
+
+  const arrayContent = match[1]
+  const modules: ModuleEntry[] = []
+
+  // Match each object in the array: { id: '...', from: '...' }
+  const objectRegex = /\{\s*id:\s*['"]([^'"]+)['"]\s*(?:,\s*from:\s*['"]([^'"]+)['"])?\s*\}/g
+  let objMatch
+  while ((objMatch = objectRegex.exec(arrayContent)) !== null) {
+    const [, id, from] = objMatch
+    modules.push({ id, from: from || '@open-mercato/core' })
+  }
+
+  return modules
+}
+
 function loadEnabledModulesFromConfig(appDir: string): ModuleEntry[] {
-  const require = createRequire(import.meta.url)
   const cfgPath = path.resolve(appDir, 'src/modules.ts')
   if (fs.existsSync(cfgPath)) {
     try {
-      const mod = require(cfgPath)
-      const list = (mod.enabledModules || mod.default || []) as ModuleEntry[]
-      if (Array.isArray(list) && list.length) return list
+      const source = fs.readFileSync(cfgPath, 'utf8')
+      const list = parseModulesFromSource(source)
+      if (list.length) return list
     } catch {
       // Fall through to fallback
     }
