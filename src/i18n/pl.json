@@ -101,6 +101,7 @@
   "dashboard.widget.editSettings": "Edytuj ustawienia",
   "dashboard.widget.refresh": "Odśwież widżet",
   "dashboard.widget.remove": "Usuń widżet",
+  "dashboard.widget.size": "Rozmiar widżetu",
   "dashboard.widgets.customers.dashboard.todos.title": "Zadania klientów",
   "dashboard.widgets.customers.dashboard.todos.description": "Przeglądaj najnowsze zadania powiązane z rekordami klientów i przechodź bezpośrednio do szczegółów.",
   "dashboard.widgets.customers.dashboard.newCustomers.title": "Nowi klienci",
