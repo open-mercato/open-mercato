@@ -1667,25 +1667,6 @@
           "primary": false,
           "nullable": true,
           "mappedType": "uuid"
-        },
-        "acceptance_token": {
-          "name": "acceptance_token",
-          "type": "text",
-          "unsigned": false,
-          "autoincrement": false,
-          "primary": false,
-          "nullable": true,
-          "mappedType": "text"
-        },
-        "sent_at": {
-          "name": "sent_at",
-          "type": "timestamptz",
-          "unsigned": false,
-          "autoincrement": false,
-          "primary": false,
-          "nullable": true,
-          "length": 6,
-          "mappedType": "datetime"
         }
       },
       "name": "sales_quotes",
@@ -1713,16 +1694,6 @@
           "constraint": false,
           "primary": false,
           "unique": false
-        },
-        {
-          "keyName": "sales_quotes_acceptance_token_unique",
-          "columnNames": [
-            "acceptance_token"
-          ],
-          "composite": false,
-          "constraint": true,
-          "primary": false,
-          "unique": true
         },
         {
           "keyName": "sales_quotes_number_unique",

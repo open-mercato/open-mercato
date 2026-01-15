@@ -4,6 +4,7 @@
 # - generated/ folders in packages
 # - .turbo cache folders
 # - .next build folders
+# - migrations folders in dist directories
 
 set -e
 
@@ -26,4 +27,7 @@ find . -type d -name '.turbo' -not -path '*/node_modules/*' -exec rm -rf {} + 2>
 # Clean .next build folders
 find . -type d -name '.next' -not -path '*/node_modules/*' -exec rm -rf {} + 2>/dev/null || true
 
-echo "Done! Cleaned: .mercato, generated/, .turbo, .next"
+# Clean dist folders
+find . -type d -path 'dist' -not -path '*/node_modules/*' -exec rm -rf {} + 2>/dev/null || true
+
+echo "Done! Cleaned: .mercato, generated/, .turbo, .next, dist/"
