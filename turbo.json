@@ -27,6 +27,10 @@
     "reinstall": {
       "cache": false,
       "outputs": []
+    },
+    "initialize": {
+      "cache": false,
+      "outputs": []
     }
   }
 }
