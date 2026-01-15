@@ -7,9 +7,10 @@ import {
 import { zodToJsonSchema } from 'zod-to-json-schema'
 import { getToolRegistry } from './tool-registry'
 import { executeTool } from './tool-executor'
-import { loadAllModuleTools } from './tool-loader'
+import { loadAllModuleTools, indexToolsForSearch } from './tool-loader'
 import { authenticateMcpRequest } from './auth'
 import type { McpServerOptions, McpToolContext } from './types'
+import type { SearchService } from '@open-mercato/search/service'
 
 /**
  * Check if user has required features for a tool.
@@ -184,6 +185,15 @@ export async function createMcpServer(options: McpServerOptions): Promise<Server
 export async function runMcpServer(options: McpServerOptions): Promise<void> {
   // Load tools from all modules before starting
   await loadAllModuleTools()
+
+  // Index tools for hybrid search discovery (if search service available)
+  try {
+    const searchService = options.container.resolve('searchService') as SearchService
+    await indexToolsForSearch(searchService)
+  } catch (error) {
+    // Search service might not be configured - discovery will use fallback
+    console.error('[MCP Server] Tool search indexing skipped (search service not available)')
+  }
 
   const server = await createMcpServer(options)
   const transport = new StdioServerTransport()

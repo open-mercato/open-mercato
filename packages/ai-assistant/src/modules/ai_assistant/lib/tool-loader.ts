@@ -1,6 +1,8 @@
 import { z } from 'zod'
-import { registerMcpTool } from './tool-registry'
+import type { SearchService } from '@open-mercato/search/service'
+import { registerMcpTool, getToolRegistry } from './tool-registry'
 import type { McpToolDefinition, McpToolContext } from './types'
+import { ToolSearchService } from './tool-search'
 
 /**
  * Module tool definition as exported from ai-tools.ts files.
@@ -119,4 +121,53 @@ export async function loadAllModuleTools(): Promise<void> {
   } catch (error) {
     console.error('[MCP Tools] Could not load OpenAPI tools:', error)
   }
+}
+
+/**
+ * Index all registered tools for hybrid search discovery.
+ * This should be called after loadAllModuleTools() when the search service is available.
+ *
+ * @param searchService - The search service from DI container
+ * @param force - Force re-indexing even if checksums match
+ * @returns Indexing result with statistics
+ */
+export async function indexToolsForSearch(
+  searchService: SearchService,
+  force = false
+): Promise<{
+  indexed: number
+  skipped: number
+  strategies: string[]
+  checksum: string
+}> {
+  const registry = getToolRegistry()
+  const toolSearchService = new ToolSearchService(searchService, registry)
+
+  try {
+    const result = await toolSearchService.indexTools(force)
+
+    console.error(`[MCP Tools] Indexed ${result.indexed} tools for search`)
+    console.error(`[MCP Tools] Search strategies available: ${result.strategies.join(', ')}`)
+
+    if (result.skipped > 0) {
+      console.error(`[MCP Tools] Skipped ${result.skipped} tools (unchanged)`)
+    }
+
+    return result
+  } catch (error) {
+    console.error('[MCP Tools] Failed to index tools for search:', error)
+    throw error
+  }
+}
+
+/**
+ * Create a ToolSearchService instance for tool discovery.
+ * Use this to get a configured service for discovering relevant tools.
+ *
+ * @param searchService - The search service from DI container
+ * @returns Configured ToolSearchService
+ */
+export function createToolSearchService(searchService: SearchService): ToolSearchService {
+  const registry = getToolRegistry()
+  return new ToolSearchService(searchService, registry)
 }

@@ -13,6 +13,10 @@ import {
 } from '@open-mercato/ai-assistant/modules/ai_assistant/lib/chat-config'
 import { InProcessMcpClient } from '@open-mercato/ai-assistant/modules/ai_assistant/lib/in-process-client'
 import { convertMcpToolsToAiSdk } from '@open-mercato/ai-assistant/modules/ai_assistant/lib/mcp-tool-adapter'
+import { createToolSearchService } from '@open-mercato/ai-assistant/modules/ai_assistant/lib/tool-loader'
+import { discoverTools } from '@open-mercato/ai-assistant/modules/ai_assistant/lib/tool-discovery'
+import { getToolRegistry } from '@open-mercato/ai-assistant/modules/ai_assistant/lib/tool-registry'
+import type { SearchService } from '@open-mercato/search/service'
 
 bootstrap()
 
@@ -245,17 +249,82 @@ export async function POST(req: NextRequest) {
       },
     })
 
-    // Get available tools and convert to AI SDK format
-    const mcpTools = await mcpClient.listToolsWithSchemas()
-    const aiTools = convertMcpToolsToAiSdk(mcpClient, mcpTools)
+    // Get ALL available tools from MCP
+    const allMcpTools = await mcpClient.listToolsWithSchemas()
+
+    // Use tool discovery to find relevant tools for the user's query
+    let filteredMcpTools = allMcpTools
+    let discoveryInfo: { tools: string[]; strategies: string[]; quality: string; timing?: number } | null = null
+
+    try {
+      // Get user's last message for discovery
+      const lastUserMessage = messages.filter((m) => m.role === 'user').pop()?.content ?? ''
+
+      if (lastUserMessage) {
+        // Try to resolve search service for hybrid search
+        const searchService = container.resolve<SearchService>('searchService')
+        const toolSearchService = createToolSearchService(searchService)
+        const toolRegistry = getToolRegistry()
+
+        // Create tool context for discovery
+        const toolContext = {
+          tenantId: auth.tenantId ?? null,
+          organizationId: auth.orgId ?? null,
+          userId: auth.sub,
+          container,
+          userFeatures: acl.features,
+          isSuperAdmin: acl.isSuperAdmin,
+          apiKeySecret: undefined,
+        }
+
+        // Discover relevant tools using hybrid search
+        const discovery = await discoverTools(
+          lastUserMessage,
+          toolContext,
+          toolSearchService,
+          toolRegistry,
+          { limit: 15, includeEssential: true }
+        )
+
+        discoveryInfo = {
+          tools: discovery.tools,
+          strategies: discovery.strategies,
+          quality: discovery.quality,
+          timing: discovery.timing,
+        }
+
+        // Filter tools to only include discovered ones
+        const discoveredToolSet = new Set(discovery.tools)
+        filteredMcpTools = allMcpTools.filter((tool) => discoveredToolSet.has(tool.name))
+
+        console.log(
+          `[AI Chat] Tool discovery: ${filteredMcpTools.length}/${allMcpTools.length} tools selected`,
+          `via ${discovery.strategies.join(',')}`,
+          `quality: ${discovery.quality}`,
+          `(${discovery.timing}ms)`
+        )
+      }
+    } catch (error) {
+      // If discovery fails, fall back to all tools
+      console.error('[AI Chat] Tool discovery failed, using all tools:', error)
+      filteredMcpTools = allMcpTools
+    }
+
+    // Convert filtered tools to AI SDK format
+    const aiTools = convertMcpToolsToAiSdk(mcpClient, filteredMcpTools)
     const hasTools = Object.keys(aiTools).length > 0
 
     // Create model client based on config
     const model = createModelClient(config.providerId, config.model)
 
-    // Build system prompt - always with all tools available
+    // Build system prompt with discovered tools
     const systemPrompt = buildSystemPrompt(context ?? null, availableEntities ?? null, hasTools)
-    console.log('[AI Chat] System prompt length:', systemPrompt.length, 'tools:', Object.keys(aiTools).length)
+    console.log(
+      '[AI Chat] System prompt length:', systemPrompt.length,
+      'tools:', Object.keys(aiTools).length,
+      'total available:', allMcpTools.length,
+      discoveryInfo ? `discovery: ${discoveryInfo.quality}` : 'discovery: disabled'
+    )
 
     // Agentic mode - SSE streaming with all tools available
     if (mode === 'agentic') {
