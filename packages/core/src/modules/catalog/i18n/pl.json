@@ -14,6 +14,28 @@
       "title": "Katalog produktów",
       "description": "Zarządzaj produktami, wariantami i cennikami wykorzystywanymi w sprzedaży."
     },
+    "search": {
+      "badge": {
+        "product": "Produkt",
+        "variant": "Wariant",
+        "category": "Kategoria",
+        "offer": "Oferta kanału",
+        "tag": "Tag",
+        "priceKind": "Rodzaj ceny",
+        "optionSchema": "Schemat opcji"
+      },
+      "status": {
+        "inactive": "Nieaktywny"
+      },
+      "variant": {
+        "default": "Domyślny"
+      },
+      "priceKind": {
+        "includingTax": "Z VAT",
+        "excludingTax": "Bez VAT",
+        "promotion": "Promocja"
+      }
+    },
     "categories": {
       "page": {
         "title": "Kategorie"
