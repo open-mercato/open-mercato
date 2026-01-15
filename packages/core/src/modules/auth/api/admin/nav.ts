@@ -10,6 +10,7 @@ import { CustomEntity } from '@open-mercato/core/modules/entities/data/entities'
 import { slugifySidebarId } from '@open-mercato/shared/modules/navigation/sidebarPreferences'
 import { applySidebarPreference, loadFirstRoleSidebarPreference, loadSidebarPreference } from '../../services/sidebarPreferencesService'
 import { Role } from '../../data/entities'
+import { getBrandById, getBrandByDomain } from '@/brands'
 
 export const metadata = {
   GET: { requireAuth: true },
@@ -304,8 +305,46 @@ export async function GET(req: Request) {
 
   const withPreference = applySidebarPreference(baseForUser, preference)
 
+  // Apply brand-level filtering for hidden modules and groups
+  // Try x-brand-id header first (set by proxy), fall back to host header detection
+  const brandIdHeader = req.headers.get('x-brand-id')
+  const host = req.headers.get('host') ?? req.headers.get('x-forwarded-host') ?? ''
+  const brandConfig = brandIdHeader
+    ? getBrandById(brandIdHeader)
+    : host
+      ? getBrandByDomain(host.split(':')[0])
+      : undefined
+  const hiddenGroups = new Set(brandConfig?.layout?.sidebar?.hiddenGroups ?? [])
+  const hiddenModules = new Set(brandConfig?.layout?.sidebar?.hiddenModules ?? [])
+
+  const filterItemsByModule = <T extends { href: string; children?: T[] }>(items: T[]): T[] => {
+    if (hiddenModules.size === 0) return items
+    return items
+      .filter((item) => {
+        const pathParts = item.href.split('/').filter(Boolean)
+        const pathSegment = pathParts[1]
+        if (!pathSegment) return true
+        // Check both raw path segment and normalized version (hyphens -> underscores)
+        // This allows users to specify either 'docs' or 'api_docs' in hiddenModules
+        const normalizedSegment = pathSegment.replace(/-/g, '_')
+        return !hiddenModules.has(pathSegment) && !hiddenModules.has(normalizedSegment)
+      })
+      .map((item) => ({
+        ...item,
+        children: item.children ? filterItemsByModule(item.children) : undefined,
+      }))
+  }
+
+  const brandFilteredGroups = withPreference
+    .filter((group) => !hiddenGroups.has(group.id))
+    .map((group) => ({
+      ...group,
+      items: filterItemsByModule(group.items as SidebarItemNode[]),
+    }))
+    .filter((group) => group.items.length > 0)
+
   const payload = {
-    groups: withPreference.map((group) => ({
+    groups: brandFilteredGroups.map((group) => ({
       id: group.id,
       name: group.name,
       defaultName: group.defaultName,

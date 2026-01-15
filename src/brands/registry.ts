@@ -25,6 +25,34 @@ const freighttechBrand: BrandConfig = {
     alt: 'FreightTech',
   },
   domains: ['freighttech.org', 'freighttech.localhost', 'openmercato.freighttech.org'],
+  theme: {
+    colors: {
+      // Blue-tinted theme for FreightTech
+      primary: 'oklch(0.45 0.15 250)',
+      primaryForeground: 'oklch(0.98 0 0)',
+      accent: 'oklch(0.94 0.03 250)',
+      accentForeground: 'oklch(0.25 0.05 250)',
+      // Sidebar with subtle blue tint
+      sidebar: 'oklch(0.97 0.01 250)',
+      sidebarForeground: 'oklch(0.20 0.02 250)',
+      sidebarPrimary: 'oklch(0.45 0.15 250)',
+      sidebarPrimaryForeground: 'oklch(0.98 0 0)',
+      sidebarAccent: 'oklch(0.92 0.03 250)',
+      sidebarAccentForeground: 'oklch(0.25 0.05 250)',
+    },
+  },
+  layout: {
+    sidebar: {
+      // Example: Hide specific modules for FreightTech brand
+      hiddenModules: ['audit_logs', 'docs', 'example'],
+      hiddenGroups: ['catalog.nav.group', 'entities.nav.group', 'booking.nav.group', 'customers~sales.nav.group'],
+    },
+    navbar: {
+      // Example: Hide elements from navbar
+      // hideSearch: false,
+      hideOrgSwitcher: false,
+    },
+  },
 }
 
 const infBrand: BrandConfig = {
