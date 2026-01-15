@@ -203,12 +203,7 @@ export async function run(argv = process.argv) {
         console.log('✅ Database cleared. Proceeding with fresh initialization...\n')
       }
 
-      // Step 1: Install dependencies
-      console.log('📦 Installing dependencies...')
-      execSync('yarn install', { stdio: 'inherit' })
-      console.log('✅ Dependencies installed\n')
-
-      // Step 2: Run generators directly (no process spawn)
+      // Step 1: Run generators directly (no process spawn)
       console.log('🔧 Preparing modules (registry, entities, DI)...')
       const { createResolver } = await import('./lib/resolver')
       const { generateEntityIds, generateModuleRegistry, generateModuleRegistryCli, generateModuleEntities, generateModuleDi } = await import('./lib/generators')

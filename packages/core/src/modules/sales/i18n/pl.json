@@ -54,6 +54,17 @@
         "invalidStatus": "Nie można zaakceptować oferty w jej obecnym statusie.",
         "failed": "Nie udało się zaakceptować oferty.",
         "adminSubject": "Oferta {quoteNumber} zaakceptowana → Zamówienie {orderNumber}"
+      },
+      "list": {
+        "title": "Oferty"
+      },
+      "detail": {
+        "title": "Szczegóły oferty"
+      },
+      "form": {
+        "general": "Ogólne",
+        "lines": "Pozycje",
+        "notes": "Notatki"
       }
     },
     "nav": {
@@ -270,19 +281,6 @@
         "shipments": "Wysyłki",
         "invoices": "Faktury",
         "payments": "Płatności",
-        "notes": "Notatki"
-      }
-    },
-    "quotes": {
-      "list": {
-        "title": "Oferty"
-      },
-      "detail": {
-        "title": "Szczegóły oferty"
-      },
-      "form": {
-        "general": "Ogólne",
-        "lines": "Pozycje",
         "notes": "Notatki"
       }
     },
