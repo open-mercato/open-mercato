@@ -20,7 +20,7 @@
     "cmdk": "^1.0.0",
     "framer-motion": "^11.0.0",
     "react-json-view-lite": "^2.5.0",
-    "react-markdown": "^10.1.0",
+    "react-markdown": "^9.0.0",
     "zod-to-json-schema": "^3.25.1"
   },
   "peerDependencies": {

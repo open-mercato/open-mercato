@@ -96,6 +96,7 @@ export interface CommandPaletteState {
 
 export interface CommandPaletteContextValue {
   state: CommandPaletteState
+  isThinking: boolean
   pageContext: PageContext | null
   selectedEntities: SelectedEntity[]
   tools: ToolInfo[]
@@ -147,6 +148,10 @@ export interface CommandPaletteContextValue {
   showDebug: boolean
   setShowDebug: (show: boolean) => void
   clearDebugEvents: () => void
+
+  // OpenCode question handling
+  pendingQuestion: OpenCodeQuestion | null
+  answerQuestion: (answer: number) => Promise<void>
 }
 
 export interface ChatApiRequest {
@@ -198,7 +203,18 @@ export interface StreamEvent {
 }
 
 // Debug event types for debugging the AI chat
-export type DebugEventType = 'tool-call' | 'tool-result' | 'text' | 'error' | 'done' | 'message' | 'connection'
+export type DebugEventType =
+  | 'thinking'
+  | 'tool-call'
+  | 'tool-result'
+  | 'text'
+  | 'error'
+  | 'done'
+  | 'message'
+  | 'connection'
+  | 'metadata'
+  | 'debug'
+  | 'question'
 
 export interface DebugEvent {
   id: string
@@ -206,3 +222,36 @@ export interface DebugEvent {
   type: DebugEventType
   data: unknown
 }
+
+// Question option from OpenCode
+export interface OpenCodeQuestionOption {
+  label: string
+  description: string
+}
+
+// Question from OpenCode requiring user confirmation
+export interface OpenCodeQuestion {
+  id: string
+  sessionID: string
+  questions: Array<{
+    question: string
+    header: string
+    options: OpenCodeQuestionOption[]
+  }>
+  tool: {
+    messageID: string
+    callID: string
+  }
+}
+
+// SSE event types from chat API (OpenCode integration)
+export type ChatSSEEvent =
+  | { type: 'thinking' }
+  | { type: 'text'; content: string }
+  | { type: 'tool-call'; id: string; toolName: string; args: unknown }
+  | { type: 'tool-result'; id: string; result: unknown }
+  | { type: 'question'; question: OpenCodeQuestion }
+  | { type: 'metadata'; model?: string; provider?: string; tokens?: { input: number; output: number }; timing?: { created: number; completed?: number }; durationMs?: number }
+  | { type: 'debug'; partType: string; data: unknown }
+  | { type: 'done'; sessionId?: string }
+  | { type: 'error'; error: string }

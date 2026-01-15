@@ -40,8 +40,23 @@ export {
 // Tool executor
 export { executeTool } from './modules/ai_assistant/lib/tool-executor'
 
-// MCP server
+// MCP server (stdio)
 export { createMcpServer, runMcpServer } from './modules/ai_assistant/lib/mcp-server'
+
+// MCP HTTP server
+export { runMcpHttpServer, type McpHttpServerOptions } from './modules/ai_assistant/lib/http-server'
+
+// MCP auth
+export {
+  authenticateMcpRequest,
+  extractApiKeyFromHeaders,
+  type McpAuthResult,
+  type McpAuthSuccess,
+  type McpAuthFailure,
+} from './modules/ai_assistant/lib/auth'
+
+// Tool loader
+export { loadAllModuleTools, indexToolsForSearch } from './modules/ai_assistant/lib/tool-loader'
 
 // OpenCode client
 export {
@@ -58,10 +73,19 @@ export {
 export {
   handleOpenCodeMessage,
   handleOpenCodeHealth,
+  handleOpenCodeMessageStreaming,
+  handleOpenCodeAnswer,
+  getPendingQuestions,
   extractTextFromResponse,
+  extractAllPartsFromResponse,
+  extractMetadataFromResponse,
   type OpenCodeTestRequest,
   type OpenCodeTestResponse,
   type OpenCodeHealthResponse,
+  type OpenCodeResponsePart,
+  type OpenCodeResponseMetadata,
+  type OpenCodeStreamEvent,
+  type OpenCodeQuestion,
 } from './modules/ai_assistant/lib/opencode-handlers'
 
 // Module metadata

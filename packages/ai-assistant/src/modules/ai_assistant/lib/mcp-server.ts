@@ -186,13 +186,22 @@ export async function runMcpServer(options: McpServerOptions): Promise<void> {
   // Load tools from all modules before starting
   await loadAllModuleTools()
 
-  // Index tools for hybrid search discovery (if search service available)
+  // Index tools and API endpoints for hybrid search discovery (if search service available)
   try {
     const searchService = options.container.resolve('searchService') as SearchService
+
+    // Index MCP tools
     await indexToolsForSearch(searchService)
+
+    // Index API endpoints for api_discover
+    const { indexApiEndpoints } = await import('./api-endpoint-index')
+    const endpointCount = await indexApiEndpoints(searchService)
+    if (endpointCount > 0) {
+      console.error(`[MCP Server] Indexed ${endpointCount} API endpoints for hybrid search`)
+    }
   } catch (error) {
     // Search service might not be configured - discovery will use fallback
-    console.error('[MCP Server] Tool search indexing skipped (search service not available)')
+    console.error('[MCP Server] Search indexing skipped (search service not available)')
   }
 
   const server = await createMcpServer(options)

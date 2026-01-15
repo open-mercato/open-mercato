@@ -8,7 +8,7 @@ import { cn } from '@open-mercato/shared/lib/utils'
 export interface DebugEvent {
   id: string
   timestamp: Date
-  type: 'tool-call' | 'tool-result' | 'text' | 'error' | 'done' | 'message' | 'connection'
+  type: 'thinking' | 'tool-call' | 'tool-result' | 'text' | 'error' | 'done' | 'message' | 'connection' | 'metadata' | 'debug' | 'question'
   data: unknown
 }
 
@@ -114,6 +114,7 @@ const customDarkStyles: Record<string, string> = {
 function DebugEventRow({ event }: { event: DebugEvent }) {
   const [expanded, setExpanded] = React.useState(false)
   const typeColors: Record<string, string> = {
+    'thinking': 'text-orange-400',
     'tool-call': 'text-blue-400',
     'tool-result': 'text-green-400',
     'text': 'text-gray-300',
@@ -121,6 +122,9 @@ function DebugEventRow({ event }: { event: DebugEvent }) {
     'done': 'text-purple-400',
     'message': 'text-yellow-400',
     'connection': 'text-cyan-400',
+    'metadata': 'text-teal-400',
+    'debug': 'text-gray-500',
+    'question': 'text-amber-400',
   }
 
   const formatTime = (date: Date) => {
@@ -157,7 +161,7 @@ function DebugEventRow({ event }: { event: DebugEvent }) {
       {expanded && (
         <div className="bg-gray-800 rounded p-2 mt-1 overflow-x-auto max-h-[300px] overflow-y-auto">
           <JsonView
-            data={parsedData}
+            data={parsedData as object}
             style={customDarkStyles}
             shouldExpandNode={(level) => level < 2}
           />
@@ -170,16 +174,21 @@ function DebugEventRow({ event }: { event: DebugEvent }) {
 function getEventPreview(event: DebugEvent): string {
   const data = event.data as Record<string, unknown>
 
+  if (event.type === 'thinking') {
+    return 'Agent is processing...'
+  }
   if (event.type === 'tool-call') {
-    return data?.toolName as string || ''
+    const toolName = data?.toolName as string || 'unknown'
+    const args = data?.args
+    const argsPreview = args ? JSON.stringify(args).substring(0, 40) : ''
+    return `${toolName}(${argsPreview}${argsPreview.length >= 40 ? '...' : ''})`
   }
   if (event.type === 'tool-result') {
-    const toolName = data?.toolName as string || ''
     const result = data?.result
     const resultPreview = typeof result === 'string'
       ? result.substring(0, 50)
       : JSON.stringify(result)?.substring(0, 50)
-    return `${toolName} → ${resultPreview}...`
+    return `→ ${resultPreview}${resultPreview && resultPreview.length >= 50 ? '...' : ''}`
   }
   if (event.type === 'text') {
     const content = data?.content as string || ''
@@ -195,6 +204,25 @@ function getEventPreview(event: DebugEvent): string {
   }
   if (event.type === 'connection') {
     return data?.status as string || ''
+  }
+  if (event.type === 'metadata') {
+    const model = data?.model as string || ''
+    const tokens = data?.tokens as { input?: number; output?: number } | undefined
+    const durationMs = data?.durationMs as number | undefined
+    const parts: string[] = []
+    if (model) parts.push(model)
+    if (tokens) parts.push(`${tokens.input || 0}→${tokens.output || 0} tokens`)
+    if (durationMs) parts.push(`${(durationMs / 1000).toFixed(1)}s`)
+    return parts.join(' | ') || 'No metadata'
+  }
+  if (event.type === 'debug') {
+    const partType = data?.partType as string || 'unknown'
+    return `Unknown part: ${partType}`
+  }
+  if (event.type === 'question') {
+    const question = data?.question as { questions?: Array<{ question: string }> } | undefined
+    const questionText = question?.questions?.[0]?.question || 'Confirmation required'
+    return questionText.substring(0, 50) + (questionText.length > 50 ? '...' : '')
   }
   return ''
 }

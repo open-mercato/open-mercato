@@ -32,7 +32,8 @@
     "typecheck": "bash scripts/typecheck.sh",
     "test": "jest --passWithNoTests",
     "test:watch": "jest --watch",
-    "docs:dev": "npm run --prefix docs dev"
+    "docs:dev": "npm run --prefix docs dev",
+    "mcp:serve": "tsx --tsconfig tsconfig.cli.json mercato-cli.ts ai_assistant mcp:serve-http --port 3001 --debug"
   },
   "dependencies": {
     "@ai-sdk/openai": "^2.0.80",

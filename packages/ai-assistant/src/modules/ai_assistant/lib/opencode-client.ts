@@ -71,6 +71,38 @@ export type OpenCodeMcpStatus = Record<
   }
 >
 
+export type OpenCodeQuestionOption = {
+  label: string
+  description: string
+}
+
+export type OpenCodeQuestion = {
+  id: string
+  sessionID: string
+  questions: Array<{
+    question: string
+    header: string
+    options: OpenCodeQuestionOption[]
+  }>
+  tool: {
+    messageID: string
+    callID: string
+  }
+}
+
+/**
+ * SSE Event from OpenCode event stream.
+ */
+export type OpenCodeSSEEvent = {
+  type: string
+  properties: Record<string, unknown>
+}
+
+/**
+ * Callback for SSE events.
+ */
+export type OpenCodeSSECallback = (event: OpenCodeSSEEvent) => void
+
 /**
  * Client for OpenCode server API.
  */
@@ -88,6 +120,67 @@ export class OpenCodeClient {
       const credentials = Buffer.from(`opencode:${config.password}`).toString('base64')
       this.headers['Authorization'] = `Basic ${credentials}`
     }
+  }
+
+  /**
+   * Subscribe to SSE event stream for real-time updates.
+   * Returns an abort function to stop the stream.
+   */
+  subscribeToEvents(
+    onEvent: OpenCodeSSECallback,
+    onError?: (error: Error) => void
+  ): () => void {
+    const controller = new AbortController()
+
+    const connect = async () => {
+      try {
+        const res = await fetch(`${this.baseUrl}/event`, {
+          headers: {
+            ...this.headers,
+            Accept: 'text/event-stream',
+          },
+          signal: controller.signal,
+        })
+
+        if (!res.ok || !res.body) {
+          throw new Error(`SSE connection failed: ${res.status}`)
+        }
+
+        const reader = res.body.getReader()
+        const decoder = new TextDecoder()
+        let buffer = ''
+
+        while (true) {
+          const { done, value } = await reader.read()
+          if (done) break
+
+          buffer += decoder.decode(value, { stream: true })
+
+          // Process complete SSE messages
+          const lines = buffer.split('\n')
+          buffer = lines.pop() || '' // Keep incomplete line in buffer
+
+          for (const line of lines) {
+            if (line.startsWith('data: ')) {
+              try {
+                const data = JSON.parse(line.slice(6))
+                onEvent(data)
+              } catch {
+                // Ignore parse errors
+              }
+            }
+          }
+        }
+      } catch (error) {
+        if ((error as Error).name !== 'AbortError') {
+          onError?.(error as Error)
+        }
+      }
+    }
+
+    connect()
+
+    return () => controller.abort()
   }
 
   /**
@@ -210,6 +303,57 @@ export class OpenCodeClient {
 
     if (!res.ok) {
       throw new Error(`Failed to get config: ${res.status}`)
+    }
+
+    return res.json()
+  }
+
+  /**
+   * Get pending questions that need user response.
+   */
+  async getPendingQuestions(): Promise<OpenCodeQuestion[]> {
+    const res = await fetch(`${this.baseUrl}/question`, {
+      headers: this.headers,
+    })
+
+    if (!res.ok) {
+      throw new Error(`Failed to get questions: ${res.status}`)
+    }
+
+    return res.json()
+  }
+
+  /**
+   * Answer a pending question.
+   */
+  async answerQuestion(questionId: string, answer: number): Promise<void> {
+    const res = await fetch(`${this.baseUrl}/question/${questionId}`, {
+      method: 'POST',
+      headers: this.headers,
+      body: JSON.stringify({ answer }),
+    })
+
+    if (!res.ok) {
+      throw new Error(`Failed to answer question: ${res.status}`)
+    }
+  }
+
+  /**
+   * Get session status (idle, busy, waiting for question).
+   */
+  async getSessionStatus(sessionId: string): Promise<{ status: string; questionId?: string }> {
+    const res = await fetch(`${this.baseUrl}/session/${sessionId}/status`, {
+      headers: this.headers,
+    })
+
+    if (!res.ok) {
+      // If status endpoint doesn't exist, try to infer from questions
+      const questions = await this.getPendingQuestions()
+      const sessionQuestion = questions.find((q) => q.sessionID === sessionId)
+      if (sessionQuestion) {
+        return { status: 'waiting', questionId: sessionQuestion.id }
+      }
+      return { status: 'unknown' }
     }
 
     return res.json()

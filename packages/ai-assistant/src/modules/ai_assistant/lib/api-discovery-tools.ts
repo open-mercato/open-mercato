@@ -38,10 +38,22 @@ function registerApiDiscoverTool(): void {
   registerMcpTool(
     {
       name: 'api_discover',
-      description: `Find relevant API endpoints based on a natural language query.
-Returns matching endpoints with their methods, paths, and descriptions.
-Use this to discover what APIs are available before calling api_execute.
-Example queries: "customer endpoints", "create order", "list products", "delete user"`,
+      description: `Find API endpoints in Open Mercato by keyword or action.
+
+CAPABILITIES: This tool searches 400+ endpoints that can CREATE, READ, UPDATE, and DELETE
+data across all modules (customers, products, orders, shipments, invoices, etc.).
+
+SEARCH: Uses hybrid search (fulltext + vector) for best results. You can filter by HTTP method.
+
+EXAMPLES:
+- "customer endpoints" - Find all customer-related APIs
+- "create order" - Find endpoint to create new orders
+- "delete product" - Find endpoint to delete products (confirm with user before executing!)
+- "update company name" - Find endpoint to modify companies
+- "search customers" - Find search/list endpoints
+
+Returns: method, path, description, and operationId for each match.
+Use operationId with api_schema to get detailed parameter info before calling api_execute.`,
       inputSchema: z.object({
         query: z
           .string()
@@ -103,21 +115,38 @@ function registerApiExecuteTool(): void {
   registerMcpTool(
     {
       name: 'api_execute',
-      description: `Execute an API endpoint. Use api_discover first to find the right endpoint.
-Supports GET, POST, PUT, PATCH, DELETE methods.
-Path parameters should be replaced in the path (e.g., /customers/{id} -> /customers/123).
-Query parameters and request body are passed separately.`,
+      description: `Execute an API call to CREATE, READ, UPDATE, or DELETE data in Open Mercato.
+
+WARNING: This tool can MODIFY and DELETE data. Be careful with mutations!
+
+METHODS:
+- GET: Read/search data (safe, no confirmation needed)
+- POST: Create new records (confirm data with user first)
+- PUT/PATCH: Update existing records (confirm changes with user)
+- DELETE: Remove records permanently (ALWAYS confirm with user before executing!)
+
+WORKFLOW:
+1. First use api_discover to find the right endpoint
+2. Use api_schema to understand required parameters
+3. For POST/PUT/PATCH/DELETE: Confirm with user what will be changed
+4. Execute the call with proper parameters
+
+PARAMETERS:
+- method: HTTP method (GET, POST, PUT, PATCH, DELETE)
+- path: API path with parameters replaced (e.g., /customers/companies/123)
+- query: Query parameters as key-value object (for GET requests and filtering)
+- body: Request body for POST/PUT/PATCH (object with required fields)`,
       inputSchema: z.object({
         method: z.enum(['GET', 'POST', 'PUT', 'PATCH', 'DELETE']).describe('HTTP method'),
         path: z
           .string()
           .describe('API path with parameters replaced (e.g., /customers/123, /orders)'),
         query: z
-          .record(z.string())
+          .record(z.string(), z.string())
           .optional()
           .describe('Query parameters as key-value pairs'),
         body: z
-          .record(z.unknown())
+          .record(z.string(), z.unknown())
           .optional()
           .describe('Request body for POST/PUT/PATCH requests'),
       }),
@@ -217,9 +246,18 @@ function registerApiSchemaTool(): void {
   registerMcpTool(
     {
       name: 'api_schema',
-      description: `Get detailed input/output schema for a specific API endpoint.
-Use the operationId from api_discover results.
-Returns full parameter descriptions and request body schema.`,
+      description: `Get detailed schema for an API endpoint before executing it.
+
+IMPORTANT: Always check the schema before calling POST, PUT, PATCH, or DELETE endpoints
+to understand what parameters are required.
+
+USAGE:
+- Use the operationId from api_discover results
+- Returns: path parameters, query parameters, and request body schema
+- Shows which fields are required vs optional
+- Includes field types and descriptions
+
+This helps you construct the correct api_execute call with all required data.`,
       inputSchema: z.object({
         operationId: z.string().describe('Operation ID from api_discover results'),
       }),

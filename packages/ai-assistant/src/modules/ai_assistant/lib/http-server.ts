@@ -39,6 +39,17 @@ function jsonSchemaToZod(jsonSchema: Record<string, unknown>): ZodType {
   if (type === 'object') {
     const properties = jsonSchema.properties as Record<string, Record<string, unknown>> | undefined
     const required = (jsonSchema.required as string[]) || []
+    const additionalProperties = jsonSchema.additionalProperties
+
+    // Handle z.record() - objects with additionalProperties but no fixed properties
+    if (additionalProperties && (!properties || Object.keys(properties).length === 0)) {
+      // This is a record/dictionary type - allow any properties
+      if (typeof additionalProperties === 'object') {
+        return z.record(z.string(), jsonSchemaToZod(additionalProperties as Record<string, unknown>))
+      }
+      // additionalProperties: true means any value
+      return z.record(z.string(), z.unknown())
+    }
 
     if (properties) {
       const shape: Record<string, ZodType> = {}
@@ -50,7 +61,16 @@ function jsonSchemaToZod(jsonSchema: Record<string, unknown>): ZodType {
         }
         shape[key] = fieldSchema
       }
+      // If additionalProperties is allowed, use passthrough
+      if (additionalProperties) {
+        return z.object(shape).passthrough()
+      }
       return z.object(shape)
+    }
+
+    // Empty object with additionalProperties - treat as record
+    if (additionalProperties) {
+      return z.record(z.string(), z.unknown())
     }
     return z.object({})
   }
@@ -194,12 +214,13 @@ function createMcpServerForRequest(
           description: tool.description,
           inputSchema: safeSchema,
         },
-        async (args: Record<string, unknown>) => {
+        async (args: unknown) => {
+          const toolArgs = (args ?? {}) as Record<string, unknown>
           if (config.debug) {
-            console.error(`[MCP HTTP] Calling tool: ${tool.name}`, JSON.stringify(args))
+            console.error(`[MCP HTTP] Calling tool: ${tool.name}`, JSON.stringify(toolArgs))
           }
 
-          const result = await executeTool(tool.name, args, toolContext)
+          const result = await executeTool(tool.name, toolArgs, toolContext)
 
           if (!result.success) {
             return {
@@ -284,13 +305,22 @@ export async function runMcpHttpServer(options: McpHttpServerOptions): Promise<v
 
   await loadAllModuleTools()
 
-  // Index tools for hybrid search discovery (if search service available)
+  // Index tools and API endpoints for hybrid search discovery (if search service available)
   try {
     const searchService = container.resolve('searchService') as SearchService
+
+    // Index MCP tools
     await indexToolsForSearch(searchService)
+
+    // Index API endpoints for api_discover
+    const { indexApiEndpoints } = await import('./api-endpoint-index')
+    const endpointCount = await indexApiEndpoints(searchService)
+    if (endpointCount > 0) {
+      console.error(`[MCP HTTP] Indexed ${endpointCount} API endpoints for hybrid search`)
+    }
   } catch (error) {
     // Search service might not be configured - discovery will use fallback
-    console.error('[MCP HTTP] Tool search indexing skipped (search service not available)')
+    console.error('[MCP HTTP] Search indexing skipped (search service not available):', error)
   }
 
   const httpServer = createServer(async (req: IncomingMessage, res: ServerResponse) => {

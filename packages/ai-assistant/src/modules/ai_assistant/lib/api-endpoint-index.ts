@@ -7,6 +7,14 @@
 import { buildOpenApiDocument, sanitizeOpenApiDocument } from '@open-mercato/shared/lib/openapi'
 import type { OpenApiDocument } from '@open-mercato/shared/lib/openapi'
 import type { SearchService } from '@open-mercato/search/service'
+import type { IndexableRecord } from '@open-mercato/search/types'
+import {
+  API_ENDPOINT_ENTITY_ID,
+  GLOBAL_TENANT_ID,
+  API_ENDPOINT_SEARCH_CONFIG,
+  endpointToIndexableRecord,
+  computeEndpointsChecksum,
+} from './api-endpoint-index-config'
 
 /**
  * Indexed API endpoint structure
@@ -35,8 +43,9 @@ export interface ApiParameter {
 
 /**
  * Entity type for API endpoints in search index
+ * @deprecated Use API_ENDPOINT_ENTITY_ID from api-endpoint-index-config.ts
  */
-export const API_ENDPOINT_ENTITY = 'api_endpoint'
+export const API_ENDPOINT_ENTITY = API_ENDPOINT_ENTITY_ID
 
 /**
  * In-memory cache of parsed endpoints (avoid re-parsing on each request)
@@ -194,9 +203,22 @@ function extractRequestBodySchema(
 }
 
 /**
- * Index endpoints for search discovery
+ * Checksum from last indexing operation
  */
-export async function indexApiEndpoints(searchService: SearchService): Promise<number> {
+let lastIndexChecksum: string | null = null
+
+/**
+ * Index endpoints for search discovery using hybrid search strategies.
+ * Uses checksum-based change detection to avoid unnecessary re-indexing.
+ *
+ * @param searchService - The search service to use for indexing
+ * @param force - Force re-indexing even if checksum hasn't changed
+ * @returns Number of endpoints indexed
+ */
+export async function indexApiEndpoints(
+  searchService: SearchService,
+  force = false
+): Promise<number> {
   const endpoints = await getApiEndpoints()
 
   if (endpoints.length === 0) {
@@ -204,26 +226,27 @@ export async function indexApiEndpoints(searchService: SearchService): Promise<n
     return 0
   }
 
-  // Convert to indexable records
-  const records = endpoints.map((endpoint) => ({
-    id: endpoint.id,
-    entityType: API_ENDPOINT_ENTITY,
-    tenantId: '__global__', // API endpoints are global
-    organizationId: null,
-    content: buildSearchableContent(endpoint),
-    metadata: {
-      method: endpoint.method,
-      path: endpoint.path,
-      tags: endpoint.tags,
-      requiredFeatures: endpoint.requiredFeatures,
-      deprecated: endpoint.deprecated,
-    },
-  }))
+  // Compute checksum to detect changes
+  const checksum = computeEndpointsChecksum(
+    endpoints.map((e) => ({ operationId: e.operationId, method: e.method, path: e.path }))
+  )
+
+  // Skip if checksum matches and not forced
+  if (!force && lastIndexChecksum === checksum) {
+    console.error(`[API Index] Skipping indexing - ${endpoints.length} endpoints unchanged`)
+    return 0
+  }
+
+  // Convert to indexable records using the proper format
+  const records: IndexableRecord[] = endpoints.map((endpoint) =>
+    endpointToIndexableRecord(endpoint)
+  )
 
   try {
-    // Use fulltext strategy only for now (most reliable)
-    await searchService.bulkIndex(API_ENDPOINT_ENTITY, records as any)
-    console.error(`[API Index] Indexed ${records.length} endpoints for search`)
+    // Bulk index using all available strategies (fulltext + vector)
+    await searchService.bulkIndex(records)
+    lastIndexChecksum = checksum
+    console.error(`[API Index] Indexed ${records.length} API endpoints for hybrid search`)
     return records.length
   } catch (error) {
     console.error('[API Index] Failed to index endpoints:', error)
@@ -249,24 +272,75 @@ function buildSearchableContent(endpoint: ApiEndpoint): string {
 }
 
 /**
- * Search endpoints using hybrid search
+ * Search endpoints using hybrid search (fulltext + vector).
+ * Falls back to in-memory search if search service is not available.
  */
 export async function searchEndpoints(
-  searchService: SearchService,
+  searchService: SearchService | null,
   query: string,
   options: { limit?: number; method?: string } = {}
 ): Promise<ApiEndpoint[]> {
-  const { limit = 10, method } = options
+  const { limit = API_ENDPOINT_SEARCH_CONFIG.defaultLimit, method } = options
 
-  // Get all endpoints (from cache)
-  const allEndpoints = await getApiEndpoints()
+  // Ensure endpoints are loaded
+  await getApiEndpoints()
 
-  // Simple text matching for now
-  // TODO: Use searchService.search() when entity type is properly configured
+  // Try hybrid search first if search service is available
+  if (searchService) {
+    try {
+      // Use hybrid search (fulltext + vector)
+      const results = await searchService.search(query, {
+        tenantId: GLOBAL_TENANT_ID,
+        organizationId: null,
+        entityTypes: [API_ENDPOINT_ENTITY_ID],
+        limit: limit * 2, // Get extra to account for filtering
+      })
+
+      // Map search results back to ApiEndpoint objects
+      const endpoints: ApiEndpoint[] = []
+      for (const result of results) {
+        if (endpoints.length >= limit) break
+
+        const endpoint = endpointsByOperationId?.get(result.recordId)
+        if (endpoint) {
+          // Apply method filter if not handled by search
+          if (method && endpoint.method !== method.toUpperCase()) continue
+          endpoints.push(endpoint)
+        }
+      }
+
+      if (endpoints.length > 0) {
+        return endpoints
+      }
+
+      // Fall through to fallback if no results from hybrid search
+      console.error('[API Index] No hybrid search results, falling back to in-memory search')
+    } catch (error) {
+      console.error('[API Index] Hybrid search failed, falling back to in-memory:', error)
+    }
+  }
+
+  // Fallback: Simple in-memory text matching
+  return searchEndpointsFallback(query, { limit, method })
+}
+
+/**
+ * Fallback in-memory search when hybrid search is not available.
+ */
+function searchEndpointsFallback(
+  query: string,
+  options: { limit?: number; method?: string } = {}
+): ApiEndpoint[] {
+  const { limit = API_ENDPOINT_SEARCH_CONFIG.defaultLimit, method } = options
+
+  if (!endpointsCache) {
+    return []
+  }
+
   const queryLower = query.toLowerCase()
   const queryTerms = queryLower.split(/\s+/).filter(Boolean)
 
-  let matches = allEndpoints.filter((endpoint) => {
+  let matches = endpointsCache.filter((endpoint) => {
     const content = buildSearchableContent(endpoint).toLowerCase()
     return queryTerms.some((term) => content.includes(term))
   })

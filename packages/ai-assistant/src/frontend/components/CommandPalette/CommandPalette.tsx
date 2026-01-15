@@ -42,6 +42,7 @@ function RoutingIndicator() {
 export function CommandPalette() {
   const {
     state,
+    isThinking,
     messages,
     pendingToolCalls,
     selectedTool,
@@ -56,6 +57,8 @@ export function CommandPalette() {
     showDebug,
     setShowDebug,
     clearDebugEvents,
+    pendingQuestion,
+    answerQuestion,
   } = useCommandPaletteContext()
 
   const {
@@ -159,9 +162,12 @@ export function CommandPalette() {
                   messages={messages}
                   pendingToolCalls={pendingToolCalls}
                   isStreaming={isStreaming}
+                  isThinking={isThinking}
                   onSendMessage={sendAgenticMessage}
                   onApproveToolCall={approveToolCall}
                   onRejectToolCall={rejectToolCall}
+                  pendingQuestion={pendingQuestion}
+                  onAnswerQuestion={answerQuestion}
                 />
               )}
             </div>

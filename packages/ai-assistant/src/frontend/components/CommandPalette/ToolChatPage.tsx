@@ -5,7 +5,7 @@ import { useRef, useEffect, useState } from 'react'
 import { Send, Loader2 } from 'lucide-react'
 import { cn } from '@open-mercato/shared/lib/utils'
 import { Button } from '@open-mercato/ui/primitives/button'
-import type { ToolInfo, ChatMessage, PendingToolCall } from '../../types'
+import type { ToolInfo, ChatMessage, PendingToolCall, OpenCodeQuestion } from '../../types'
 import { MessageBubble } from './MessageBubble'
 import { ToolCallConfirmation } from './ToolCallConfirmation'
 
@@ -14,9 +14,12 @@ interface ToolChatPageProps {
   messages: ChatMessage[]
   pendingToolCalls: PendingToolCall[]
   isStreaming: boolean
+  isThinking?: boolean
   onSendMessage: (content: string) => Promise<void>
   onApproveToolCall: (toolCallId: string) => Promise<void>
   onRejectToolCall: (toolCallId: string) => void
+  pendingQuestion?: OpenCodeQuestion | null
+  onAnswerQuestion?: (answer: number) => Promise<void>
 }
 
 export function ToolChatPage({
@@ -24,9 +27,12 @@ export function ToolChatPage({
   messages,
   pendingToolCalls,
   isStreaming,
+  isThinking = false,
   onSendMessage,
   onApproveToolCall,
   onRejectToolCall,
+  pendingQuestion,
+  onAnswerQuestion,
 }: ToolChatPageProps) {
   const scrollRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLInputElement>(null)
@@ -87,11 +93,45 @@ export function ToolChatPage({
             />
           ))}
 
-        {/* Streaming indicator */}
-        {isStreaming && messages[messages.length - 1]?.role !== 'assistant' && (
+        {/* OpenCode confirmation question */}
+        {pendingQuestion && pendingQuestion.questions[0] && (
+          <div className="p-4 bg-amber-500/10 border border-amber-500/30 rounded-lg space-y-3">
+            <div className="flex items-center gap-2 text-amber-600 dark:text-amber-400 text-sm font-medium">
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+              </svg>
+              <span>{pendingQuestion.questions[0].header || 'Confirmation Required'}</span>
+            </div>
+            <p className="text-sm">{pendingQuestion.questions[0].question}</p>
+            <div className="flex gap-2 flex-wrap">
+              {pendingQuestion.questions[0].options.map((option, index) => (
+                <Button
+                  key={index}
+                  variant={index === 0 ? 'default' : 'outline'}
+                  size="sm"
+                  onClick={() => onAnswerQuestion?.(index)}
+                  disabled={isStreaming}
+                >
+                  {option.label}
+                </Button>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* Thinking indicator - OpenCode is processing */}
+        {isThinking && !pendingQuestion && (
+          <div className="flex items-center gap-2 py-3 px-3 bg-muted/50 rounded-lg text-muted-foreground text-sm">
+            <Loader2 className="h-4 w-4 animate-spin" />
+            <span>Agent is working...</span>
+          </div>
+        )}
+
+        {/* Streaming indicator - fallback for non-thinking streaming */}
+        {isStreaming && !isThinking && !pendingQuestion && messages[messages.length - 1]?.role !== 'assistant' && (
           <div className="flex items-center gap-2 py-2 text-muted-foreground text-sm">
             <Loader2 className="h-4 w-4 animate-spin" />
-            <span>AI is thinking...</span>
+            <span>AI is responding...</span>
           </div>
         )}
       </div>

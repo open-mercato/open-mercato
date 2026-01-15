@@ -16,6 +16,7 @@ import type {
   RouteResult,
   DebugEvent,
   DebugEventType,
+  OpenCodeQuestion,
 } from '../types'
 import { COMMAND_PALETTE_SHORTCUT } from '../constants'
 import { filterTools } from '../utils/toolMatcher'
@@ -127,6 +128,13 @@ export function useCommandPalette(options: UseCommandPaletteOptions) {
   // Debug mode state
   const [debugEvents, setDebugEvents] = useState<DebugEvent[]>([])
   const [showDebug, setShowDebug] = useState(false)
+
+  // OpenCode session state for conversation persistence
+  const [opencodeSessionId, setOpencodeSessionId] = useState<string | null>(null)
+  const [isThinking, setIsThinking] = useState(false)
+
+  // Pending question from OpenCode requiring user confirmation
+  const [pendingQuestion, setPendingQuestion] = useState<OpenCodeQuestion | null>(null)
 
   // Helper to add debug events
   const addDebugEvent = useCallback((type: DebugEventType, data: unknown) => {
@@ -801,7 +809,7 @@ export function useCommandPalette(options: UseCommandPaletteOptions) {
     ])
   }, [])
 
-  // Send message in agentic chat (AI has access to all tools)
+  // Send message in agentic chat (via OpenCode agent)
   const sendAgenticMessage = useCallback(
     async (content: string) => {
       if (!content.trim()) return
@@ -815,9 +823,10 @@ export function useCommandPalette(options: UseCommandPaletteOptions) {
       }
       setMessages((prev) => [...prev, userMessage])
       setState((prev) => ({ ...prev, isStreaming: true }))
+      setIsThinking(true)
 
       try {
-        // Send to chat API with agentic mode - all tools available
+        // Send to chat API with OpenCode session for context persistence
         const response = await fetch('/api/ai/chat', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -826,10 +835,7 @@ export function useCommandPalette(options: UseCommandPaletteOptions) {
               role: m.role,
               content: m.content,
             })),
-            context: pageContext,
-            authContext: initialContext,
-            availableEntities: availableEntities?.map(e => e.entityId),
-            mode: 'agentic',
+            sessionId: opencodeSessionId,
           }),
         })
 
@@ -868,7 +874,12 @@ export function useCommandPalette(options: UseCommandPaletteOptions) {
                 // Track all events for debug panel
                 addDebugEvent(event.type as DebugEventType, event)
 
-                if (event.type === 'text') {
+                if (event.type === 'thinking') {
+                  // OpenCode is processing - keep thinking state active
+                  setIsThinking(true)
+                } else if (event.type === 'text') {
+                  // Text received - no longer thinking
+                  setIsThinking(false)
                   assistantContent += event.content || ''
                   // Update assistant message in real-time
                   setMessages((prev) => {
@@ -891,6 +902,24 @@ export function useCommandPalette(options: UseCommandPaletteOptions) {
                       ]
                     }
                   })
+                } else if (event.type === 'done') {
+                  // Stream complete - save session ID for conversation persistence
+                  setIsThinking(false)
+                  if (event.sessionId) {
+                    setOpencodeSessionId(event.sessionId)
+                  }
+                } else if (event.type === 'error') {
+                  // Handle error event
+                  setIsThinking(false)
+                  setMessages((prev) => [
+                    ...prev,
+                    {
+                      id: generateId(),
+                      role: 'assistant' as const,
+                      content: `Error: ${event.error || 'Unknown error occurred'}`,
+                      createdAt: new Date(),
+                    },
+                  ])
                 } else if (event.type === 'tool-call') {
                   // Tool calls are executed SERVER-SIDE via the AI SDK's maxSteps feature
                   // The AI will interpret the results and generate a human-friendly response
@@ -907,6 +936,11 @@ export function useCommandPalette(options: UseCommandPaletteOptions) {
                     ])
                   }
                   // Safe tools: no action needed, server handled execution
+                } else if (event.type === 'question') {
+                  // OpenCode is asking for confirmation
+                  console.log('[sendAgenticMessage] Question event:', event.question)
+                  setIsThinking(false)
+                  setPendingQuestion(event.question as OpenCodeQuestion)
                 }
               } catch {
                 // Plain text chunk (fallback for non-SSE responses)
@@ -974,9 +1008,151 @@ export function useCommandPalette(options: UseCommandPaletteOptions) {
         ])
       } finally {
         setState((prev) => ({ ...prev, isStreaming: false }))
+        setIsThinking(false)
       }
     },
-    [messages, pageContext, initialContext, availableEntities, executeToolApi, addDebugEvent]
+    [messages, opencodeSessionId, addDebugEvent]
+  )
+
+  // Answer a pending OpenCode question
+  const answerQuestion = useCallback(
+    async (answer: number) => {
+      if (!pendingQuestion) return
+
+      console.log('[answerQuestion] Answering question:', pendingQuestion.id, 'with:', answer)
+
+      // Clear the pending question
+      const questionId = pendingQuestion.id
+      setPendingQuestion(null)
+      setState((prev) => ({ ...prev, isStreaming: true }))
+      setIsThinking(true)
+
+      // Add visual feedback of the answer
+      const selectedOption = pendingQuestion.questions[0]?.options[answer]
+      setMessages((prev) => [
+        ...prev,
+        {
+          id: generateId(),
+          role: 'user' as const,
+          content: `[Confirmed: ${selectedOption?.label || 'Yes'}]`,
+          createdAt: new Date(),
+        },
+      ])
+
+      try {
+        // Send answer to backend
+        const response = await fetch('/api/ai/chat', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            answerQuestion: {
+              questionId,
+              answer,
+            },
+          }),
+        })
+
+        if (!response.ok) {
+          throw new Error(`Answer request failed: ${response.status}`)
+        }
+
+        // Process the response stream (may have more questions or final result)
+        const reader = response.body?.getReader()
+        if (!reader) {
+          throw new Error('No response body')
+        }
+
+        const decoder = new TextDecoder()
+        let assistantContent = ''
+        let buffer = ''
+
+        while (true) {
+          const { done, value } = await reader.read()
+          if (done) break
+
+          buffer += decoder.decode(value, { stream: true })
+
+          const lines = buffer.split('\n')
+          buffer = lines.pop() || ''
+
+          for (const line of lines) {
+            if (line.startsWith('data: ')) {
+              const data = line.slice(6)
+              if (data === '[DONE]') continue
+
+              try {
+                const event = JSON.parse(data)
+                addDebugEvent(event.type as DebugEventType, event)
+
+                if (event.type === 'thinking') {
+                  setIsThinking(true)
+                } else if (event.type === 'text') {
+                  setIsThinking(false)
+                  assistantContent += event.content || ''
+                  setMessages((prev) => {
+                    const existingAssistant = prev.find((m) => m.id === 'streaming')
+                    if (existingAssistant) {
+                      return prev.map((m) =>
+                        m.id === 'streaming' ? { ...m, content: assistantContent } : m
+                      )
+                    } else {
+                      return [
+                        ...prev,
+                        {
+                          id: 'streaming',
+                          role: 'assistant' as const,
+                          content: assistantContent,
+                          createdAt: new Date(),
+                        },
+                      ]
+                    }
+                  })
+                } else if (event.type === 'question') {
+                  setIsThinking(false)
+                  setPendingQuestion(event.question as OpenCodeQuestion)
+                } else if (event.type === 'done') {
+                  setIsThinking(false)
+                  if (event.sessionId) {
+                    setOpencodeSessionId(event.sessionId)
+                  }
+                } else if (event.type === 'error') {
+                  setIsThinking(false)
+                  setMessages((prev) => [
+                    ...prev,
+                    {
+                      id: generateId(),
+                      role: 'assistant' as const,
+                      content: `Error: ${event.error || 'Unknown error'}`,
+                      createdAt: new Date(),
+                    },
+                  ])
+                }
+              } catch {
+                // Ignore parse errors
+              }
+            }
+          }
+        }
+
+        // Finalize the assistant message
+        setMessages((prev) => prev.map((m) => (m.id === 'streaming' ? { ...m, id: generateId() } : m)))
+      } catch (error) {
+        console.error('[answerQuestion] Error:', error)
+        setMessages((prev) => [
+          ...prev,
+          {
+            id: generateId(),
+            role: 'assistant' as const,
+            content: `Error: ${error instanceof Error ? error.message : 'Failed to process answer'}`,
+            createdAt: new Date(),
+          },
+        ])
+      } finally {
+        setState((prev) => ({ ...prev, isStreaming: false }))
+        setIsThinking(false)
+      }
+    },
+    [pendingQuestion, addDebugEvent]
   )
 
   // Legacy sendMessage function (for backwards compatibility)
@@ -1083,6 +1259,7 @@ export function useCommandPalette(options: UseCommandPaletteOptions) {
       ...state,
       isLoading: state.isLoading || toolsLoading,
     },
+    isThinking,
     pageContext,
     selectedEntities,
     tools,
@@ -1128,5 +1305,9 @@ export function useCommandPalette(options: UseCommandPaletteOptions) {
     showDebug,
     setShowDebug,
     clearDebugEvents,
+
+    // OpenCode question handling
+    pendingQuestion,
+    answerQuestion,
   }
 }
