@@ -13,7 +13,7 @@ Open Mercato uses [Awilix](https://github.com/jeffijoe/awilix) to assemble servi
 
 ```ts title="packages/core/src/modules/auth/di.ts"
 import { asClass } from 'awilix';
-import type { AppContainer } from '@/lib/di/container';
+import type { AppContainer } from '@open-mercato/shared/lib/di/container';
 import { AuthService } from './services/auth-service';
 
 export function register(container: AppContainer) {

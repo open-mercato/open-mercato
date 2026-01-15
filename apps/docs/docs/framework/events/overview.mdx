@@ -65,7 +65,7 @@ await bus.emitEvent('order.created', { id: 123, total: 42 }, { persistent: true 
 Modules can register subscribers in `di.ts`:
 
 ```
-import type { AppContainer } from '@/lib/di/container'
+import type { AppContainer } from '@open-mercato/shared/lib/di/container'
 
 export function register(container: AppContainer) {
   const bus = container.resolve<any>('eventBus')

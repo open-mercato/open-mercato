@@ -176,7 +176,7 @@ Path parameter `:key` accepts `currency`, `currencies`, `unit`, `units`, or `mea
 ## Running catalog commands
 
 ```ts
-import { createRequestContainer } from '@/lib/di/container'
+import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { CommandBus } from '@open-mercato/shared/lib/commands'
 
 const container = await createRequestContainer()
@@ -289,7 +289,7 @@ You can override/extend the calculation pipeline via the event bus:
 Example hook (run from any module bootstrap/registrar):
 
 ```ts
-import { createRequestContainer } from '@/lib/di/container'
+import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 
 const container = await createRequestContainer()
 const eventBus = container.resolve('eventBus')

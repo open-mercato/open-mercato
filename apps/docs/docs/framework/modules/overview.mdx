@@ -25,7 +25,7 @@ This app supports modular features delivered as either:
 Create `@open-mercato/core/modules/<module>/index.ts` exporting `metadata` (or override via `src/modules/<module>/index.ts`):
 
 ```ts
-import type { ModuleInfo } from '@/modules/registry'
+import type { ModuleInfo } from '@open-mercato/shared/modules/registry'
 
 export const metadata: ModuleInfo = {
   name: '<module-id>',
@@ -47,7 +47,7 @@ Create `@open-mercato/core/modules/<module>/di.ts` exporting `register(container
 
 ```ts
 import { asClass, asValue } from 'awilix'
-import type { AppContainer } from '@/lib/di/container'
+import type { AppContainer } from '@open-mercato/shared/lib/di/container'
 
 export function register(container: AppContainer) {
   // container.register({ myService: asClass(MyService).scoped() })
@@ -178,7 +178,7 @@ Notes:
 - Module dictionaries: `src/modules/<module>/i18n/<locale>.json`.
 - The generator auto-imports module JSON and adds them to `Module.translations`.
 - Layout merges base + all module dictionaries for the current locale and provides:
-  - `useT()` hook for client components (`@/lib/i18n/context`).
+  - `useT()` hook for client components (`@open-mercato/shared/lib/i18n/context`).
   - `loadDictionary(locale)` for server components (`@open-mercato/shared/lib/i18n/server`).
   - `resolveTranslations()` to fetch locale/dictionary plus ready-to-use translators.
   - `createTranslator(dict)` to build a reusable translator from a dictionary.
@@ -188,7 +188,7 @@ Notes:
 Client usage:
 ```tsx
 "use client"
-import { useT } from '@/lib/i18n/context'
+import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { translateWithFallback } from '@open-mercato/shared/lib/i18n/translate'
 
 export default function MyComponent() {
@@ -234,7 +234,7 @@ This ensures that:
 - Client code must always scope queries by `tenant_id` and `organization_id`.
 
 ## Listing and Overriding
-- List loaded modules and their metadata via `modulesInfo` exported from `@/modules/registry` or `@/modules/generated`.
+- List loaded modules and their metadata via `modulesInfo` exported from `@open-mercato/shared/modules/registry` or your app's generated modules file.
 - Override services/entities/components by registering replacements in your module `di.ts`. The container loads core defaults first, then applies registrars from each module in order, allowing overrides.
 
 ## Enabling Modules

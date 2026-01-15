@@ -39,7 +39,7 @@ The rule engine (`lib/rule-engine.ts`) orchestrates the entire rule execution pr
 Main entry point for executing business rules.
 
 ```typescript
-import { executeRules } from '@/modules/business_rules/lib/rule-engine'
+import { executeRules } from '@open-mercato/core/modules/business_rules/lib/rule-engine'
 
 const result = await executeRules(em, {
   entityType: 'WorkOrder',
@@ -107,7 +107,7 @@ const result = await executeRules(em, {
 Discovers rules that apply to the given context.
 
 ```typescript
-import { findApplicableRules } from '@/modules/business_rules/lib/rule-engine'
+import { findApplicableRules } from '@open-mercato/core/modules/business_rules/lib/rule-engine'
 
 const rules = await findApplicableRules(em, {
   entityType: 'WorkOrder',
@@ -138,7 +138,7 @@ The rule evaluator (`lib/rule-evaluator.ts`) evaluates rule conditions against e
 Evaluates a rule's conditions against provided data.
 
 ```typescript
-import { evaluateConditions } from '@/modules/business_rules/lib/rule-evaluator'
+import { evaluateConditions } from '@open-mercato/core/modules/business_rules/lib/rule-evaluator'
 
 const result = await evaluateConditions(
   {
@@ -247,7 +247,7 @@ The action executor (`lib/action-executor.ts`) executes rule actions when condit
 Executes a list of actions with the given context.
 
 ```typescript
-import { executeActions } from '@/modules/business_rules/lib/action-executor'
+import { executeActions } from '@open-mercato/core/modules/business_rules/lib/action-executor'
 
 const result = await executeActions(
   [
@@ -437,7 +437,7 @@ The value resolver (`lib/value-resolver.ts`) resolves field values and interpola
 Resolves a field path from an object.
 
 ```typescript
-import { resolveValue } from '@/modules/business_rules/lib/value-resolver'
+import { resolveValue } from '@open-mercato/core/modules/business_rules/lib/value-resolver'
 
 const data = {
   customer: {
@@ -477,7 +477,7 @@ Certain field paths resolve to dynamic values:
 Replaces `{{field}}` placeholders in strings.
 
 ```typescript
-import { interpolate } from '@/modules/business_rules/lib/value-resolver'
+import { interpolate } from '@open-mercato/core/modules/business_rules/lib/value-resolver'
 
 const template = 'Order {{orderId}} for {{customer.name}} total: {{total}}'
 const data = {
@@ -541,7 +541,7 @@ Extend the action executor to support custom actions:
 
 ```typescript
 // In your module's di.ts
-import { registerActionHandler } from '@/modules/business_rules/lib/action-executor'
+import { registerActionHandler } from '@open-mercato/core/modules/business_rules/lib/action-executor'
 
 registerActionHandler('CUSTOM_ACTION', async (config, context, em) => {
   // Your custom logic
@@ -558,7 +558,7 @@ Add custom operators to the evaluator:
 
 ```typescript
 // In your module's di.ts
-import { registerOperator } from '@/modules/business_rules/lib/rule-evaluator'
+import { registerOperator } from '@open-mercato/core/modules/business_rules/lib/rule-evaluator'
 
 registerOperator('CUSTOM_OP', (actualValue, expectedValue) => {
   // Your comparison logic
@@ -648,7 +648,7 @@ Test individual services in isolation:
 
 ```typescript
 // Test rule evaluator
-import { evaluateConditions } from '@/modules/business_rules/lib/rule-evaluator'
+import { evaluateConditions } from '@open-mercato/core/modules/business_rules/lib/rule-evaluator'
 
 describe('Rule Evaluator', () => {
   it('should evaluate AND conditions', async () => {

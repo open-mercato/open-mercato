@@ -55,7 +55,7 @@ The Event Bus publishes:
 Example module hook:
 
 ```ts
-import { createRequestContainer } from '@/lib/di/container'
+import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 
 const container = await createRequestContainer()
 const eventBus = container.resolve('eventBus')

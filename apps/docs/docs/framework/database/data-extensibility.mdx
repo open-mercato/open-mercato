@@ -17,7 +17,7 @@ This doc outlines how modules extend each other’s data (without forking schema
 - Declare the link in `src/modules/<module>/data/extensions.ts` using a small DSL (Medusa-like):
 
 ```ts
-import { defineLink, entityId, linkable } from '@/modules/dsl'
+import { defineLink, entityId, linkable } from '@open-mercato/shared/modules/dsl'
 
 // Option A: refer using explicit entityId()
 export default [
@@ -80,7 +80,7 @@ export const entities = [
 
 ### Declaring fields via DSL (legacy) — deprecated
 ```ts
-import { defineFields, entityId, cf } from '@/modules/dsl'
+import { defineFields, entityId, cf } from '@open-mercato/shared/modules/dsl'
 
 export default [
   defineFields(entityId('directory','organization'), [
@@ -152,7 +152,7 @@ Registering from DI (on boot)
 
 ```ts
 // src/modules/<module>/di.ts
-import type { AppContainer } from '@/lib/di/container'
+import type { AppContainer } from '@open-mercato/shared/lib/di/container'
 import { upsertCustomEntity } from '@open-mercato/core/modules/entities/lib/register'
 
 let registered = false

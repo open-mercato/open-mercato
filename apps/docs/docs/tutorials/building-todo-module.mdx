@@ -135,7 +135,7 @@ Note: `customFieldFiltersEntityId` has been renamed to `entityId`.
 When a user changes the active organization from the global switcher, the app emits a browser event so client components can immediately refetch their data without waiting for a full page reload. Instead of wiring the event manually, reach for the hooks in `@/lib/frontend/useOrganizationScope`:
 
 ```ts
-import { useOrganizationScopeVersion } from '@/lib/frontend/useOrganizationScope'
+import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
 import { useQuery } from '@tanstack/react-query'
 
 export function TodosTable() {

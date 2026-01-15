@@ -44,7 +44,7 @@ export default async function register(_, ctx) {
 
 ```ts title="src/modules/pricing/di.ts"
 import { registerCatalogPricingResolver } from '@open-mercato/core/src/modules/catalog/lib/pricing'
-import type { AppContainer } from '@/lib/di/container'
+import type { AppContainer } from '@open-mercato/shared/lib/di/container'
 
 export function register(_: AppContainer) {
   registerCatalogPricingResolver((rows, ctx) => {
@@ -69,7 +69,7 @@ import {
   registerSalesTotalsCalculator,
   type SalesTotalsCalculationHook,
 } from '@open-mercato/core/src/modules/sales/lib/calculations'
-import type { AppContainer } from '@/lib/di/container'
+import type { AppContainer } from '@open-mercato/shared/lib/di/container'
 
 const addEnvironmentalFee: SalesTotalsCalculationHook = async ({ current, context }) => {
   if (context.countryCode !== 'SE') return current
@@ -145,7 +145,7 @@ When an external engine must own the calculation, replace the DI token in your m
 
 ```ts title="src/modules/taxes/di.ts"
 import { asFunction } from 'awilix'
-import type { AppContainer } from '@/lib/di/container'
+import type { AppContainer } from '@open-mercato/shared/lib/di/container'
 import type { TaxCalculationService, CalculateTaxInput, TaxCalculationResult } from '@open-mercato/core/src/modules/sales/services/taxCalculationService'
 
 class ExternalTaxService implements TaxCalculationService {

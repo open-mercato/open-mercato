@@ -103,8 +103,8 @@ API routes are located in `src/modules/<module>/api/<path>/route.ts` and are aut
 ```typescript
 // src/modules/example/api/todos/route.ts
 import { NextResponse } from 'next/server'
-import { createRequestContainer } from '@/lib/di/container'
-import { getAuthFromCookies } from '@/lib/auth/server'
+import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
+import { getAuthFromCookies } from '@open-mercato/shared/lib/auth/server'
 
 export async function GET(request: Request) {
   try {
@@ -223,7 +223,7 @@ export async function GET(request: Request) {
 In page components:
 
 ```typescript
-import { getAuthFromCookies } from '@/lib/auth/server'
+import { getAuthFromCookies } from '@open-mercato/shared/lib/auth/server'
 
 export default async function ProtectedPage() {
   const auth = await getAuthFromCookies()
@@ -423,8 +423,8 @@ export const metadata = {
 **API Route:**
 ```typescript
 // src/modules/example/api/todos/route.ts
-import { createRequestContainer } from '@/lib/di/container'
-import { getAuthFromCookies } from '@/lib/auth/server'
+import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
+import { getAuthFromCookies } from '@open-mercato/shared/lib/auth/server'
 import { E } from '@open-mercato/example/datamodel/entities'
 import type { QueryEngine } from '@open-mercato/shared/lib/query/types'
 
