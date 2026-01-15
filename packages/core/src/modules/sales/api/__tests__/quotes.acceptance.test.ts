@@ -15,11 +15,11 @@ const mockEm = {
   flush: jest.fn(),
 }
 
-jest.mock('@/lib/auth/server', () => ({
+jest.mock('@open-mercato/shared/lib/auth/server', () => ({
   getAuthFromRequest: jest.fn(),
 }))
 
-jest.mock('@/lib/di/container', () => ({
+jest.mock('@open-mercato/shared/lib/di/container', () => ({
   createRequestContainer: jest.fn(async () => ({
     resolve: (token: string) => {
       if (token === 'commandBus') return mockCommandBus
@@ -56,7 +56,7 @@ describe('quote send + accept flow', () => {
   beforeEach(async () => {
     jest.clearAllMocks()
     mockEm.fork.mockReturnValue(mockEm)
-    const { getAuthFromRequest } = await import('@/lib/auth/server')
+    const { getAuthFromRequest } = await import('@open-mercato/shared/lib/auth/server')
     const { resolveOrganizationScopeForRequest } = await import('@open-mercato/core/modules/directory/utils/organizationScope')
     ;(getAuthFromRequest as jest.Mock).mockResolvedValue({
       sub: 'user-1',
