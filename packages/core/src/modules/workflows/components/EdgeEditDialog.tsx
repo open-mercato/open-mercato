@@ -1,18 +1,23 @@
 'use client'
 
-import { Edge } from '@xyflow/react'
-import { useState, useEffect } from 'react'
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@open-mercato/ui/primitives/dialog'
-import { Button } from '@open-mercato/ui/primitives/button'
-import { Input } from '@open-mercato/ui/primitives/input'
-import { Textarea } from '@open-mercato/ui/primitives/textarea'
-import { Label } from '@open-mercato/ui/primitives/label'
-import { Badge } from '@open-mercato/ui/primitives/badge'
-import { Separator } from '@open-mercato/ui/primitives/separator'
-import { Alert, AlertDescription } from '@open-mercato/ui/primitives/alert'
-import { cn } from '@open-mercato/shared/lib/utils'
-import { ChevronDown, Plus, Trash2, X, Info } from 'lucide-react'
-import { BusinessRulesSelector, type BusinessRule } from './BusinessRulesSelector'
+import {Edge} from '@xyflow/react'
+import {useEffect, useState} from 'react'
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle
+} from '@open-mercato/ui/primitives/dialog'
+import {Button} from '@open-mercato/ui/primitives/button'
+import {Input} from '@open-mercato/ui/primitives/input'
+import {Label} from '@open-mercato/ui/primitives/label'
+import {Badge} from '@open-mercato/ui/primitives/badge'
+import {Separator} from '@open-mercato/ui/primitives/separator'
+import {Plus, Trash2} from 'lucide-react'
+import {type BusinessRule, BusinessRulesSelector} from './BusinessRulesSelector'
+import {JsonBuilder} from '@open-mercato/ui/backend/JsonBuilder'
 
 export interface EdgeEditDialogProps {
   edge: Edge | null
@@ -46,7 +51,7 @@ export function EdgeEditDialog({ edge, isOpen, onClose, onSave, onDelete }: Edge
   const [preConditions, setPreConditions] = useState<TransitionCondition[]>([])
   const [postConditions, setPostConditions] = useState<TransitionCondition[]>([])
   const [showAdvanced, setShowAdvanced] = useState(false)
-  const [advancedConfig, setAdvancedConfig] = useState('')
+  const [advancedConfig, setAdvancedConfig] = useState<Record<string, any>>({})
   const [activities, setActivities] = useState<any[]>([])
   const [expandedActivities, setExpandedActivities] = useState<Set<number>>(new Set())
   const [expandedPreConditions, setExpandedPreConditions] = useState<Set<number>>(new Set())
@@ -112,7 +117,7 @@ export function EdgeEditDialog({ edge, isOpen, onClose, onSave, onDelete }: Edge
       if (edgeData?.activities && edgeData.activities.length > 0) {
         advancedFields.activities = edgeData.activities
       }
-      setAdvancedConfig(Object.keys(advancedFields).length > 0 ? JSON.stringify(advancedFields, null, 2) : '')
+      setAdvancedConfig(advancedFields)
       setExpandedActivities(new Set())
       setExpandedPreConditions(new Set())
       setExpandedPostConditions(new Set())
@@ -176,17 +181,6 @@ export function EdgeEditDialog({ edge, isOpen, onClose, onSave, onDelete }: Edge
       },
     }
     setActivities(updated)
-  }
-
-  const updateActivityConfig = (index: number, configJson: string) => {
-    try {
-      const config = JSON.parse(configJson)
-      const updated = [...activities]
-      updated[index] = { ...updated[index], config }
-      setActivities(updated)
-    } catch (error) {
-      // Invalid JSON, don't update
-    }
   }
 
   // Business Rules Management
@@ -279,15 +273,9 @@ export function EdgeEditDialog({ edge, isOpen, onClose, onSave, onDelete }: Edge
       activities: activities.length > 0 ? activities : undefined,
     }
 
-    // Parse advanced config (JSON)
-    if (advancedConfig.trim()) {
-      try {
-        const parsed = JSON.parse(advancedConfig)
-        Object.assign(updates, parsed)
-      } catch (error) {
-        alert('Invalid JSON in Advanced Configuration. Please check your syntax.')
-        return
-      }
+    // Merge advanced config
+    if (advancedConfig && Object.keys(advancedConfig).length > 0) {
+      Object.assign(updates, advancedConfig)
     }
 
     onSave(edge.id, updates)
@@ -742,7 +730,7 @@ export function EdgeEditDialog({ edge, isOpen, onClose, onSave, onDelete }: Edge
 
               {activities.length === 0 && (
                 <div className="p-4 text-center text-sm text-gray-500 bg-gray-50 rounded-lg border border-gray-200">
-                  No activities defined. Click "Add Activity" to create one.
+                  No activities defined. Click &#34;Add Activity&#34; to create one.
                 </div>
               )}
 
@@ -924,12 +912,13 @@ export function EdgeEditDialog({ edge, isOpen, onClose, onSave, onDelete }: Edge
                           {/* Configuration */}
                           <div className="border-t border-gray-200 pt-3">
                             <label className="block text-xs font-medium text-gray-700 mb-1">Configuration (JSON)</label>
-                            <textarea
-                              value={JSON.stringify(activity.config || {}, null, 2)}
-                              onChange={(e) => updateActivityConfig(index, e.target.value)}
-                              rows={6}
-                              className="w-full px-2 py-1.5 border border-gray-300 rounded text-xs font-mono focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
-                              placeholder='{}'
+                            <JsonBuilder
+                              value={activity.config || {}}
+                              onChange={(config) => {
+                                const updated = [...activities]
+                                updated[index] = { ...updated[index], config }
+                                setActivities(updated)
+                              }}
                             />
                             <p className="text-xs text-gray-500 mt-0.5">Activity-specific configuration as JSON</p>
                           </div>
@@ -975,12 +964,9 @@ export function EdgeEditDialog({ edge, isOpen, onClose, onSave, onDelete }: Edge
               </button>
               {showAdvanced && (
                 <div className="mt-3">
-                  <textarea
+                  <JsonBuilder
                     value={advancedConfig}
-                    onChange={(e) => setAdvancedConfig(e.target.value)}
-                    placeholder='{"activities": [{"activityId": "...", "activityType": "CALL_API", "config": {...}}]}'
-                    rows={10}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg text-xs font-mono focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                    onChange={setAdvancedConfig}
                   />
                   <p className="text-xs text-gray-500 mt-1">
                     Add complex configuration like activities array with CALL_API, SEND_EMAIL, EXECUTE_FUNCTION, etc.
