@@ -815,6 +815,7 @@ export class SalesDocumentSequence {
 @Index({ name: 'sales_quotes_scope_idx', properties: ['organizationId', 'tenantId'] })
 @Index({ name: 'sales_quotes_status_idx', properties: ['organizationId', 'tenantId', 'status'] })
 @Unique({ name: 'sales_quotes_number_unique', properties: ['organizationId', 'tenantId', 'quoteNumber'] })
+@Unique({ name: 'sales_quotes_acceptance_token_unique', properties: ['acceptanceToken'] })
 export class SalesQuote {
   @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
   id!: string
@@ -962,6 +963,12 @@ export class SalesQuote {
 
   @Property({ name: 'converted_order_id', type: 'uuid', nullable: true })
   convertedOrderId?: string | null
+
+  @Property({ name: 'acceptance_token', type: 'text', nullable: true })
+  acceptanceToken?: string | null
+
+  @Property({ name: 'sent_at', type: Date, nullable: true })
+  sentAt?: Date | null
 
   @OneToMany(() => SalesQuoteLine, (line) => line.quote)
   lines = new Collection<SalesQuoteLine>(this)

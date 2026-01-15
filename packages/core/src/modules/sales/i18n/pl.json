@@ -9,6 +9,53 @@
       "title": "Sprzedaż",
       "description": "Oferty, zamówienia, realizacja, fakturowanie i płatności powiązane z katalogiem produktów."
     },
+    "quotes": {
+      "send": {
+        "action": "Wyślij do klienta",
+        "title": "Wyślij ofertę do klienta",
+        "description": "E-mail zostanie wysłany na:",
+        "noEmail": "Brak e-maila",
+        "validForDays": "Ważne przez (dni)",
+        "cancel": "Anuluj",
+        "submit": "Wyślij ofertę",
+        "success": "Oferta wysłana.",
+        "failed": "Nie udało się wysłać oferty.",
+        "canceled": "Anulowanych ofert nie można wysłać.",
+        "missingEmail": "Do wysłania oferty wymagany jest e-mail klienta."
+      },
+      "email": {
+        "subject": "Oferta {quoteNumber}"
+      },
+      "public": {
+        "pageTitle": "Oferta",
+        "notFound": "Nie znaleziono oferty.",
+        "failed": "Nie udało się wczytać oferty.",
+        "loading": "Wczytywanie oferty…",
+        "expired": "Ta oferta wygasła.",
+        "expiredMessage": "Skontaktuj się ze sprzedawcą, aby otrzymać zaktualizowaną ofertę.",
+        "validUntil": "Ważna do {date}",
+        "noValidityDate": "Brak daty ważności",
+        "items": "Pozycje",
+        "item": "Pozycja",
+        "qty": "Ilość: {quantity}",
+        "totals": "Sumy",
+        "subtotalGross": "Suma częściowa (brutto)",
+        "discount": "Rabat",
+        "tax": "Podatek",
+        "total": "Suma",
+        "acceptButton": "Zaakceptuj ofertę",
+        "acceptedTitle": "Oferta zaakceptowana",
+        "acceptedMessage": "Utworzono zamówienie: {orderNumber}",
+        "acceptFailed": "Nie udało się zaakceptować oferty."
+      },
+      "accept": {
+        "notFound": "Nie znaleziono oferty.",
+        "expired": "Ta oferta wygasła.",
+        "invalidStatus": "Nie można zaakceptować oferty w jej obecnym statusie.",
+        "failed": "Nie udało się zaakceptować oferty.",
+        "adminSubject": "Oferta {quoteNumber} zaakceptowana → Zamówienie {orderNumber}"
+      }
+    },
     "nav": {
       "group": "Sprzedaż",
       "channels": "Kanały sprzedaży"

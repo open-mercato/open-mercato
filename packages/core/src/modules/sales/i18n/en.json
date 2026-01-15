@@ -9,6 +9,53 @@
       "title": "Sales Management",
       "description": "Quotes, orders, fulfillment, invoicing, and payments connected to the product catalog."
     },
+    "quotes": {
+      "send": {
+        "action": "Send to customer",
+        "title": "Send quote to customer",
+        "description": "Email will be sent to:",
+        "noEmail": "No email",
+        "validForDays": "Valid for (days)",
+        "cancel": "Cancel",
+        "submit": "Send quote",
+        "success": "Quote sent.",
+        "failed": "Failed to send quote.",
+        "canceled": "Canceled quotes cannot be sent.",
+        "missingEmail": "Customer email is required to send a quote."
+      },
+      "email": {
+        "subject": "Quote {quoteNumber}"
+      },
+      "public": {
+        "pageTitle": "Quote",
+        "notFound": "Quote not found.",
+        "failed": "Failed to load quote.",
+        "loading": "Loading quote…",
+        "expired": "This quote has expired.",
+        "expiredMessage": "Please contact the seller to request an updated quote.",
+        "validUntil": "Valid until {date}",
+        "noValidityDate": "No validity date",
+        "items": "Items",
+        "item": "Item",
+        "qty": "Qty: {quantity}",
+        "totals": "Totals",
+        "subtotalGross": "Subtotal (gross)",
+        "discount": "Discount",
+        "tax": "Tax",
+        "total": "Total",
+        "acceptButton": "Accept quote",
+        "acceptedTitle": "Quote accepted",
+        "acceptedMessage": "Order created: {orderNumber}",
+        "acceptFailed": "Failed to accept quote."
+      },
+      "accept": {
+        "notFound": "Quote not found.",
+        "expired": "This quote has expired.",
+        "invalidStatus": "This quote cannot be accepted in its current status.",
+        "failed": "Failed to accept quote.",
+        "adminSubject": "Quote {quoteNumber} accepted → Order {orderNumber}"
+      }
+    },
     "nav": {
       "group": "Sales",
       "channels": "Channels"
