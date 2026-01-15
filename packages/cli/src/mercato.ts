@@ -76,49 +76,6 @@ async function buildAllModules(): Promise<Module[]> {
 
   const all = modules.slice()
 
-  // Built-in CLI module: generate
-  all.push({
-    id: 'generate',
-    cli: [
-      {
-        command: 'all',
-        run: async (args: string[]) => {
-          const { createResolver } = await import('./lib/resolver')
-          const { generateEntityIds, generateModuleRegistry, generateModuleRegistryCli, generateModuleEntities, generateModuleDi } = await import('./lib/generators')
-          const resolver = createResolver()
-          const quiet = args.includes('--quiet') || args.includes('-q')
-          console.log('Running all generators...')
-          console.log('Resolver info:', { isMonorepo: resolver.isMonorepo(), outputDir: resolver.getOutputDir(), pkgOutputDir: resolver.getPackageOutputDir('@open-mercato/core') })
-          const entityIdsResult = await generateEntityIds({ resolver, quiet })
-          if (entityIdsResult.errors.length > 0) {
-            console.error('Entity IDs generator errors:', entityIdsResult.errors)
-          }
-          await generateModuleRegistry({ resolver, quiet })
-          await generateModuleRegistryCli({ resolver, quiet })
-          await generateModuleEntities({ resolver, quiet })
-          await generateModuleDi({ resolver, quiet })
-          console.log('All generators completed.')
-        },
-      },
-    ],
-  } as any)
-
-  // Built-in CLI module: db
-  all.push({
-    id: 'db',
-    cli: [
-      {
-        command: 'migrate',
-        run: async () => {
-          const { createResolver } = await import('./lib/resolver')
-          const { dbMigrate } = await import('./lib/db')
-          const resolver = createResolver()
-          await dbMigrate(resolver)
-        },
-      },
-    ],
-  } as any)
-
   if (appCli.length) all.push({ id: 'app', cli: appCli } as any)
 
   return all
@@ -856,7 +813,21 @@ export async function run(argv = process.argv) {
           const quiet = args.includes('--quiet') || args.includes('-q')
 
           console.log('Running all generators...')
-          await generateEntityIds({ resolver, quiet })
+          console.log('[DEBUG] Resolver info:', {
+            isMonorepo: resolver.isMonorepo(),
+            rootDir: resolver.getRootDir(),
+            appDir: resolver.getAppDir(),
+            outputDir: resolver.getOutputDir(),
+            coreOutputDir: resolver.getPackageOutputDir('@open-mercato/core'),
+          })
+          const entityIdsResult = await generateEntityIds({ resolver, quiet })
+          if (entityIdsResult.errors.length > 0) {
+            console.error('[DEBUG] Entity IDs generator errors:', entityIdsResult.errors)
+          }
+          console.log('[DEBUG] Entity IDs result:', {
+            filesWritten: entityIdsResult.filesWritten,
+            filesUnchanged: entityIdsResult.filesUnchanged,
+          })
           await generateModuleRegistry({ resolver, quiet })
           await generateModuleRegistryCli({ resolver, quiet })
           await generateModuleEntities({ resolver, quiet })
