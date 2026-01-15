@@ -1,0 +1,50 @@
+# Open Mercato Architecture
+
+**Modular, multi-tenant platform where modules are the unit of UI + API + data + DI + events — wired together by generated registries.**
+
+## Build-time -> Runtime
+
+Modules (packages + app overrides) provide:
+- Pages (`frontend/*`, `backend/*`)
+- APIs (`api/<method>/*`)
+- DB entities, DI registrars, subscribers, widgets, i18n
+
+Generators (`yarn modules:prepare`) scan enabled modules and emit:
+- `modules.generated.ts`, `entities.generated.ts`, `di.generated.ts`
+- Widget registries and module metadata
+
+Runtime (Next.js App Router) loads registries to:
+- Route pages and API requests
+- Bootstrap ORM entities + DI
+- Enforce auth/RBAC via metadata
+- Run services (query engine, data engine) and trigger events/subscribers
+
+## Core runtime components
+
+- Next.js App Router: frontend + backend apps, plus a catch-all API router
+- Awilix DI (request-scoped): container per request; modules extend/override via `di.ts`
+- PostgreSQL + MikroORM: per-module entities/migrations (no global schema)
+- Query Engine + Data Engine: fast reads + coordinated writes and side effects
+- Events + Subscribers/Workers: writes emit domain events, subscribers react
+- Custom Entities & Fields (EAV): runtime-defined schemas/fields stored as JSONB
+
+## Extensibility
+
+- Overlay overrides: `src/modules/<module>/...` overrides package modules without forking
+- Enable/disable modules via `src/modules.ts` (module manifest)
+- Injection widgets: cross-module UI extension without tight coupling
+- Strict tenant/org scoping: propagated through services, routes, and query helpers
+
+<div class="jump-links">
+  <span>Jump to:</span>
+  <a href="#slide-open-mercato-architecture">Architecture Diagram</a>
+  <a href="#slide-module-anatomy-and-auto-discovery">Module Anatomy</a>
+  <a href="#slide-request-flow-and-commands">Request Flow</a>
+  <a href="#slide-data-model-and-extensibility">Data Model</a>
+  <a href="#slide-search-indexing-and-events">Search + Events</a>
+  <a href="#slide-runtime-boot-and-guardrails">Runtime Boot</a>
+</div>
+
+:::notes
+Open Mercato is built around modules — each module can ship backend pages, frontend pages, APIs, validation, database entities, DI wiring, and event subscribers. At build time, we run generators that scan enabled modules (including app-level overrides) and produce registries like modules.generated.ts, entities.generated.ts, and di.generated.ts. At runtime, Next.js uses those registries to route pages and API calls, while a request-scoped Awilix container assembles services and lets modules override behavior cleanly. Data lives in Postgres via MikroORM with per-module schemas/migrations, plus a custom entities/fields layer for runtime-defined models. Finally, writes emit events and subscribers handle side effects like indexing or workflows. The result is a platform that’s both extensible and production-guardrailed.
+:::

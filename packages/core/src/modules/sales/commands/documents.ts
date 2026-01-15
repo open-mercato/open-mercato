@@ -85,6 +85,7 @@ import {
   type SalesDocumentCalculationResult,
 } from '../lib/types'
 import { resolveDictionaryEntryValue } from '../lib/dictionaries'
+import { resolveStatusEntryIdByValue } from '../lib/statusHelpers'
 import { SalesDocumentNumberGenerator } from '../services/salesDocumentNumberGenerator'
 import { loadSalesSettings } from './settings'
 
@@ -2230,6 +2231,7 @@ function ensureOrderScope(ctx: Parameters<typeof ensureTenantScope>[0], organiza
   ensureOrganizationScope(ctx, organizationId)
 }
 
+
 function normalizeTagIds(tags?: Array<string | null | undefined>): string[] {
   if (!Array.isArray(tags)) return []
   const set = new Set<string>()
@@ -3239,6 +3241,11 @@ const updateQuoteCommand: CommandHandler<DocumentUpdateInput, { quote: SalesQuot
     const quote = await em.findOne(SalesQuote, { id: parsed.id, deletedAt: null })
     if (!quote) throw new CrudHttpError(404, { error: 'Sales quote not found' })
     ensureQuoteScope(ctx, quote.organizationId, quote.tenantId)
+    const shouldInvalidateSentToken = (quote.status ?? null) === 'sent'
+    if (shouldInvalidateSentToken) {
+      quote.acceptanceToken = null
+      quote.sentAt = null
+    }
     const shouldRecalculateTotals =
       parsed.shippingMethodId !== undefined ||
       parsed.shippingMethodSnapshot !== undefined ||
@@ -3248,6 +3255,14 @@ const updateQuoteCommand: CommandHandler<DocumentUpdateInput, { quote: SalesQuot
       parsed.paymentMethodCode !== undefined ||
       parsed.currencyCode !== undefined
     await applyDocumentUpdate({ kind: 'quote', entity: quote, input: parsed, em })
+    if (shouldInvalidateSentToken) {
+      quote.status = 'draft'
+      quote.statusEntryId = await resolveStatusEntryIdByValue(em, {
+        tenantId: quote.tenantId,
+        organizationId: quote.organizationId,
+        value: 'draft',
+      })
+    }
     if (shouldRecalculateTotals) {
       const [existingLines, adjustments] = await Promise.all([
         em.find(SalesQuoteLine, { quote }, { orderBy: { lineNumber: 'asc' } }),

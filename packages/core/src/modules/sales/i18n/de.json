@@ -9,6 +9,53 @@
       "title": "Vertriebsmanagement",
       "description": "Angebote, Aufträge, Fulfillment, Rechnungsstellung und Zahlungen verbunden mit dem Produktkatalog."
     },
+    "quotes": {
+      "send": {
+        "action": "An Kunden senden",
+        "title": "Angebot an Kunden senden",
+        "description": "E-Mail wird gesendet an:",
+        "noEmail": "Keine E-Mail",
+        "validForDays": "Gültig für (Tage)",
+        "cancel": "Abbrechen",
+        "submit": "Angebot senden",
+        "success": "Angebot gesendet.",
+        "failed": "Angebot konnte nicht gesendet werden.",
+        "canceled": "Stornierte Angebote können nicht gesendet werden.",
+        "missingEmail": "Zum Senden eines Angebots ist eine Kunden-E-Mail erforderlich."
+      },
+      "email": {
+        "subject": "Angebot {quoteNumber}"
+      },
+      "public": {
+        "pageTitle": "Angebot",
+        "notFound": "Angebot nicht gefunden.",
+        "failed": "Angebot konnte nicht geladen werden.",
+        "loading": "Angebot wird geladen…",
+        "expired": "Dieses Angebot ist abgelaufen.",
+        "expiredMessage": "Bitte kontaktieren Sie den Verkäufer für ein aktualisiertes Angebot.",
+        "validUntil": "Gültig bis {date}",
+        "noValidityDate": "Kein Gültigkeitsdatum",
+        "items": "Positionen",
+        "item": "Position",
+        "qty": "Menge: {quantity}",
+        "totals": "Summen",
+        "subtotalGross": "Zwischensumme (brutto)",
+        "discount": "Rabatt",
+        "tax": "Steuer",
+        "total": "Gesamt",
+        "acceptButton": "Angebot annehmen",
+        "acceptedTitle": "Angebot angenommen",
+        "acceptedMessage": "Auftrag erstellt: {orderNumber}",
+        "acceptFailed": "Angebot konnte nicht angenommen werden."
+      },
+      "accept": {
+        "notFound": "Angebot nicht gefunden.",
+        "expired": "Dieses Angebot ist abgelaufen.",
+        "invalidStatus": "Dieses Angebot kann in seinem aktuellen Status nicht angenommen werden.",
+        "failed": "Angebot konnte nicht angenommen werden.",
+        "adminSubject": "Angebot {quoteNumber} angenommen → Auftrag {orderNumber}"
+      }
+    },
     "nav": {
       "group": "Vertrieb",
       "channels": "Vertriebskanäle"
