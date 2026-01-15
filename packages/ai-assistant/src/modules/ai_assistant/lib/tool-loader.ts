@@ -108,4 +108,15 @@ export async function loadAllModuleTools(): Promise<void> {
   } catch (error) {
     console.error('[MCP Tools] Could not load CLI tools:', error)
   }
+
+  // 4. Load OpenAPI tools (fills gaps not covered by commands - mainly GET/list endpoints)
+  try {
+    const { loadOpenApiTools } = await import('./openapi-tool-loader')
+    const openApiToolCount = await loadOpenApiTools()
+    if (openApiToolCount > 0) {
+      console.error(`[MCP Tools] Loaded ${openApiToolCount} OpenAPI tools`)
+    }
+  } catch (error) {
+    console.error('[MCP Tools] Could not load OpenAPI tools:', error)
+  }
 }

@@ -336,6 +336,7 @@ export async function runMcpHttpServer(options: McpHttpServerOptions): Promise<v
       container,
       userFeatures: authResult.features,
       isSuperAdmin: authResult.isSuperAdmin,
+      apiKeySecret: apiKey,
     }
 
     try {

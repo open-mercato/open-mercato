@@ -104,6 +104,7 @@ export async function createMcpServer(options: McpServerOptions): Promise<Server
     container,
     userFeatures,
     isSuperAdmin,
+    apiKeySecret,
   }
 
   const server = new Server(

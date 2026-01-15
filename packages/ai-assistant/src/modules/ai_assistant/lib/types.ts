@@ -12,6 +12,8 @@ export interface McpToolContext {
   container: AwilixContainer
   userFeatures: string[]
   isSuperAdmin: boolean
+  /** API key secret for authenticating HTTP requests to internal APIs */
+  apiKeySecret?: string
 }
 
 /**
