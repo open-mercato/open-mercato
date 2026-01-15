@@ -6,7 +6,7 @@
   "main": "./dist/index.js",
   "scripts": {
     "build": "node build.mjs",
-    "test": "jest --passWithNoTests --config ../../jest.config.cjs",
+    "test": "jest --config jest.config.cjs",
     "typecheck": "tsc --noEmit"
   },
   "exports": {
@@ -75,5 +75,10 @@
       ],
       "default": "./dist/*/*/*/*.js"
     }
+  },
+  "devDependencies": {
+    "@types/jest": "^30.0.0",
+    "jest": "^30.2.0",
+    "ts-jest": "^29.4.6"
   }
 }

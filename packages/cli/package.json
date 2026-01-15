@@ -48,7 +48,7 @@
   },
   "scripts": {
     "build": "node build.mjs",
-    "test": "jest --passWithNoTests --config ../../jest.config.cjs",
+    "test": "jest --config jest.config.cjs",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
@@ -58,5 +58,10 @@
     "@open-mercato/shared": "workspace:*",
     "pg": "^8.16.3",
     "typescript": "^5.9.3"
+  },
+  "devDependencies": {
+    "@types/jest": "^30.0.0",
+    "jest": "^30.2.0",
+    "ts-jest": "^29.4.6"
   }
 }

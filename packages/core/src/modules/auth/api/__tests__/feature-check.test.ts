@@ -2,13 +2,13 @@
 import { POST } from '@open-mercato/core/modules/auth/api/feature-check'
 
 // Mock auth
-jest.mock('@/lib/auth/server', () => ({
+jest.mock('@open-mercato/shared/lib/auth/server', () => ({
   getAuthFromRequest: jest.fn(),
 }))
 
 // Mock DI
 const mockRbac = { userHasAllFeatures: jest.fn() }
-jest.mock('@/lib/di/container', () => ({
+jest.mock('@open-mercato/shared/lib/di/container', () => ({
   createRequestContainer: async () => ({ resolve: (k: string) => (k === 'rbacService' ? mockRbac : null) }),
 }))
 

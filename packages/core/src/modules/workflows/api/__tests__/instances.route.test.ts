@@ -14,11 +14,11 @@ import { WorkflowInstance, WorkflowDefinition, WorkflowEvent } from '../../data/
 import * as workflowExecutor from '../../lib/workflow-executor'
 
 // Mock dependencies
-jest.mock('@/lib/di/container', () => ({
+jest.mock('@open-mercato/shared/lib/di/container', () => ({
   createRequestContainer: jest.fn(),
 }))
 
-jest.mock('@/lib/auth/server', () => ({
+jest.mock('@open-mercato/shared/lib/auth/server', () => ({
   getAuthFromRequest: jest.fn(),
 }))
 
@@ -82,10 +82,10 @@ describe('Workflow Instances API', () => {
       }),
     }
 
-    const { createRequestContainer } = require('@/lib/di/container')
+    const { createRequestContainer } = require('@open-mercato/shared/lib/di/container')
     createRequestContainer.mockResolvedValue(mockContainer)
 
-    const { getAuthFromRequest } = require('@/lib/auth/server')
+    const { getAuthFromRequest } = require('@open-mercato/shared/lib/auth/server')
     getAuthFromRequest.mockResolvedValue({
       sub: testUserId,
       tenantId: testTenantId,
@@ -220,7 +220,7 @@ describe('Workflow Instances API', () => {
     })
 
     test('should return 401 when not authenticated', async () => {
-      const { getAuthFromRequest } = require('@/lib/auth/server')
+      const { getAuthFromRequest } = require('@open-mercato/shared/lib/auth/server')
       getAuthFromRequest.mockResolvedValue(null)
 
       const request = new NextRequest('http://localhost/api/workflows/instances')
@@ -416,7 +416,7 @@ describe('Workflow Instances API', () => {
     })
 
     test('should return 401 when not authenticated', async () => {
-      const { getAuthFromRequest } = require('@/lib/auth/server')
+      const { getAuthFromRequest } = require('@open-mercato/shared/lib/auth/server')
       getAuthFromRequest.mockResolvedValue(null)
 
       const request = new NextRequest('http://localhost/api/workflows/instances', {
@@ -504,7 +504,7 @@ describe('Workflow Instances API', () => {
     })
 
     test('should return 401 when not authenticated', async () => {
-      const { getAuthFromRequest } = require('@/lib/auth/server')
+      const { getAuthFromRequest } = require('@open-mercato/shared/lib/auth/server')
       getAuthFromRequest.mockResolvedValue(null)
 
       const request = new NextRequest(`http://localhost/api/workflows/instances/${testInstanceId}`)

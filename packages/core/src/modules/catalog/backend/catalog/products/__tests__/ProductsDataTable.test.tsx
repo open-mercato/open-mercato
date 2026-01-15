@@ -84,11 +84,11 @@ jest.mock('@open-mercato/ui/backend/ValueIcons', () => ({
   ),
 }))
 
-jest.mock('@/lib/frontend/useOrganizationScope', () => ({
+jest.mock('@open-mercato/shared/lib/frontend/useOrganizationScope', () => ({
   useOrganizationScopeVersion: jest.fn(),
 }))
 
-jest.mock('@/lib/i18n/context', () => ({
+jest.mock('@open-mercato/shared/lib/i18n/context', () => ({
   useT: () => mockTranslate,
 }))
 

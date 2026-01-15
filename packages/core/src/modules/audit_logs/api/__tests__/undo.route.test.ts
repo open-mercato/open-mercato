@@ -9,11 +9,11 @@ const mockLogs = {
 }
 const mockCommandBus = { undo: jest.fn() }
 
-jest.mock('@/lib/auth/server', () => ({
+jest.mock('@open-mercato/shared/lib/auth/server', () => ({
   getAuthFromRequest: jest.fn(),
 }))
 
-jest.mock('@/lib/di/container', () => ({
+jest.mock('@open-mercato/shared/lib/di/container', () => ({
   createRequestContainer: jest.fn(async () => ({
     resolve: (token: string) => {
       if (token === 'rbacService') return mockRbac

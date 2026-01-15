@@ -16,11 +16,11 @@ const mockEm = {
   findOne: jest.fn(async () => ({ id: 'ce-1', entityId: 'example:custom' })),
 }
 
-jest.mock('@/lib/di/container', () => ({
+jest.mock('@open-mercato/shared/lib/di/container', () => ({
   createRequestContainer: async () => ({ resolve: (k: string) => (k === 'queryEngine' ? mockQE : mockEm) }),
 }))
 
-jest.mock('@/lib/auth/server', () => ({ getAuthFromRequest: () => ({ orgId: 'org', tenantId: 't1', roles: ['admin'] }) }))
+jest.mock('@open-mercato/shared/lib/auth/server', () => ({ getAuthFromRequest: () => ({ orgId: 'org', tenantId: 't1', roles: ['admin'] }) }))
 
 describe('GET /api/entities/records for custom entities', () => {
   beforeEach(() => { jest.clearAllMocks() })

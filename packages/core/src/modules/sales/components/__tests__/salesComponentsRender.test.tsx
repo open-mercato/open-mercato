@@ -254,12 +254,12 @@ jest.mock('@open-mercato/shared/lib/frontend/useOrganizationScope', () => ({
   useOrganizationScopeDetail: () => ({ organizationId: 'org', tenantId: 'tenant' }),
 }))
 
-jest.mock('@/lib/frontend/useOrganizationScope', () => ({
+jest.mock('@open-mercato/shared/lib/frontend/useOrganizationScope', () => ({
   useOrganizationScopeVersion: () => 1,
   useOrganizationScopeDetail: () => ({ organizationId: 'org', tenantId: 'tenant' }),
 }))
 
-jest.mock('@/lib/i18n/context', () => {
+jest.mock('@open-mercato/shared/lib/i18n/context', () => {
   const translate = (key: string, fallback?: string, vars?: Record<string, unknown>) => {
     const base = (fallback ?? key) as string
     if (vars) {

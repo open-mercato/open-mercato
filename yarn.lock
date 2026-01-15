@@ -5719,6 +5719,7 @@ __metadata:
     "@testing-library/dom": "npm:^10.4.0"
     "@testing-library/jest-dom": "npm:^6.9.1"
     "@testing-library/react": "npm:^16.2.0"
+    "@types/jest": "npm:^30.0.0"
     "@types/node": "npm:^24.10.1"
     "@types/react": "npm:^19.2.7"
     "@types/react-dom": "npm:^19.2.3"
@@ -5735,6 +5736,7 @@ __metadata:
     eslint: "npm:^9.0.0"
     eslint-config-next: "npm:16.0.7"
     ioredis: "npm:^5.8.2"
+    jest: "npm:^30.2.0"
     lucide-react: "npm:^0.556.0"
     newrelic: "npm:^13.7.0"
     next: "npm:16.0.10"
@@ -5749,6 +5751,7 @@ __metadata:
     semver: "npm:^7.7.3"
     tailwind-merge: "npm:^3.4.0"
     tailwindcss: "npm:^4.1.17"
+    ts-jest: "npm:^29.4.6"
     tw-animate-css: "npm:^1.4.0"
     typescript: "npm:^5.9.3"
     zod: "npm:^4.1.13"
@@ -5767,7 +5770,10 @@ __metadata:
   resolution: "@open-mercato/cache@workspace:packages/cache"
   dependencies:
     "@types/better-sqlite3": "npm:^7.6.0"
+    "@types/jest": "npm:^30.0.0"
     "@types/node": "npm:^20.0.0"
+    jest: "npm:^30.2.0"
+    ts-jest: "npm:^29.4.6"
   peerDependencies:
     better-sqlite3: ">=9.0.0"
     ioredis: ^5.0.0
@@ -5787,7 +5793,10 @@ __metadata:
     "@mikro-orm/migrations": "npm:^6.6.2"
     "@mikro-orm/postgresql": "npm:^6.6.2"
     "@open-mercato/shared": "workspace:*"
+    "@types/jest": "npm:^30.0.0"
+    jest: "npm:^30.2.0"
     pg: "npm:^8.16.3"
+    ts-jest: "npm:^29.4.6"
     typescript: "npm:^5.9.3"
   bin:
     mercato: ./bin/mercato
@@ -5799,6 +5808,9 @@ __metadata:
   resolution: "@open-mercato/content@workspace:packages/content"
   dependencies:
     "@open-mercato/shared": "workspace:*"
+    "@types/jest": "npm:^30.0.0"
+    jest: "npm:^30.2.0"
+    ts-jest: "npm:^29.4.6"
   languageName: unknown
   linkType: soft
 
@@ -5807,8 +5819,15 @@ __metadata:
   resolution: "@open-mercato/core@workspace:packages/core"
   dependencies:
     "@open-mercato/shared": "workspace:*"
+    "@testing-library/dom": "npm:^10.4.1"
+    "@testing-library/jest-dom": "npm:^6.9.1"
+    "@testing-library/react": "npm:^16.3.1"
+    "@types/jest": "npm:^30.0.0"
     date-fns: "npm:^4.1.0"
     date-fns-tz: "npm:^3.2.0"
+    jest: "npm:^30.2.0"
+    jest-environment-jsdom: "npm:^30.2.0"
+    ts-jest: "npm:^29.4.6"
   languageName: unknown
   linkType: soft
 
@@ -5817,6 +5836,9 @@ __metadata:
   resolution: "@open-mercato/events@workspace:packages/events"
   dependencies:
     "@open-mercato/queue": "workspace:*"
+    "@types/jest": "npm:^30.0.0"
+    jest: "npm:^30.2.0"
+    ts-jest: "npm:^29.4.6"
   languageName: unknown
   linkType: soft
 
@@ -5825,6 +5847,9 @@ __metadata:
   resolution: "@open-mercato/onboarding@workspace:packages/onboarding"
   dependencies:
     "@open-mercato/shared": "workspace:*"
+    "@types/jest": "npm:^30.0.0"
+    jest: "npm:^30.2.0"
+    ts-jest: "npm:^29.4.6"
   languageName: unknown
   linkType: soft
 
@@ -5832,7 +5857,10 @@ __metadata:
   version: 0.0.0-use.local
   resolution: "@open-mercato/queue@workspace:packages/queue"
   dependencies:
+    "@types/jest": "npm:^30.0.0"
     "@types/node": "npm:^20.0.0"
+    jest: "npm:^30.2.0"
+    ts-jest: "npm:^29.4.6"
   peerDependencies:
     bullmq: ^5.0.0
   peerDependenciesMeta:
@@ -5850,10 +5878,13 @@ __metadata:
     "@ai-sdk/google": "npm:^2.0.0"
     "@ai-sdk/mistral": "npm:^3.0.5"
     "@ai-sdk/openai": "npm:^3.0.5"
+    "@types/jest": "npm:^30.0.0"
     ai: "npm:^6.0.0"
     ai-sdk-ollama: "npm:^3.0.1"
+    jest: "npm:^30.2.0"
     meilisearch: "npm:^0.55.0"
     pg: "npm:^8.16.3"
+    ts-jest: "npm:^29.4.6"
     zod: "npm:^4.0.0"
   peerDependencies:
     "@open-mercato/core": "workspace:*"
@@ -5865,6 +5896,10 @@ __metadata:
 "@open-mercato/shared@workspace:*, @open-mercato/shared@workspace:packages/shared":
   version: 0.0.0-use.local
   resolution: "@open-mercato/shared@workspace:packages/shared"
+  dependencies:
+    "@types/jest": "npm:^30.0.0"
+    jest: "npm:^30.2.0"
+    ts-jest: "npm:^29.4.6"
   languageName: unknown
   linkType: soft
 
@@ -5874,8 +5909,15 @@ __metadata:
   dependencies:
     "@open-mercato/shared": "workspace:*"
     "@radix-ui/react-tooltip": "npm:^1.2.8"
+    "@testing-library/dom": "npm:^10.4.1"
+    "@testing-library/jest-dom": "npm:^6.9.1"
+    "@testing-library/react": "npm:^16.3.1"
+    "@types/jest": "npm:^30.0.0"
     date-fns: "npm:^4.1.0"
+    jest: "npm:^30.2.0"
+    jest-environment-jsdom: "npm:^30.2.0"
     react-big-calendar: "npm:^1.19.4"
+    ts-jest: "npm:^29.4.6"
   peerDependencies:
     react: ">=18.0.0"
     react-dom: ">=18.0.0"
@@ -8036,7 +8078,7 @@ __metadata:
   languageName: node
   linkType: hard
 
-"@testing-library/dom@npm:^10.4.0":
+"@testing-library/dom@npm:^10.4.0, @testing-library/dom@npm:^10.4.1":
   version: 10.4.1
   resolution: "@testing-library/dom@npm:10.4.1"
   dependencies:
@@ -8066,7 +8108,7 @@ __metadata:
   languageName: node
   linkType: hard
 
-"@testing-library/react@npm:^16.2.0":
+"@testing-library/react@npm:^16.2.0, @testing-library/react@npm:^16.3.1":
   version: 16.3.1
   resolution: "@testing-library/react@npm:16.3.1"
   dependencies:
