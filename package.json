@@ -8,9 +8,8 @@
     "packages/*"
   ],
   "scripts": {
-    "mercato": "cd apps/mercato && yarn mercato",
     "dev": "turbo run dev --filter=@open-mercato/app",
-    "build": "turbo run build",
+    "build:app": "turbo run build --filter=@open-mercato/app",
     "build:packages": "turbo run build --filter='./packages/*'",
     "lint": "turbo run lint",
     "typecheck": "turbo run typecheck",
