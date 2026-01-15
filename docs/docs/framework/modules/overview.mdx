@@ -7,22 +7,22 @@ description: Understand how modules are discovered, overridden, and registered a
 
 This app supports modular features delivered as either:
 - Core modules published as `@open-mercato/core` (monorepo package)
- - App-level overrides under `src/modules/*` (take precedence)
+- App-level overrides under `apps/mercato/src/modules/*` (take precedence)
 - External npm packages that export the same interface
 
 ## Conventions
-- Modules: plural snake_case folder and `id` (special cases: `auth`, `example`).
+- Modules: plural snake_case folder and `id` (special cases: `auth`).
 - JS/TS: camelCase for variables and fields.
 - Database: snake_case for tables and columns; table names plural.
 - Folders: snake_case.
 
 ## Module Interface
-- Enable modules in `src/modules.ts`.
-– Generators auto-discover pages/APIs/DI/i18n/features/custom-entities for enabled modules using overlay resolution (app overrides > core).
+- Enable modules in `apps/mercato/src/modules.ts`.
+- Generators auto-discover pages/APIs/DI/i18n/features/custom-entities for enabled modules using overlay resolution (app overrides > core).
 - Provide optional metadata and DI registrar to integrate with the container and module listing.
 
 ### Metadata (index.ts)
-Create `@open-mercato/core/modules/<module>/index.ts` exporting `metadata` (or override via `src/modules/<module>/index.ts`):
+Create `@open-mercato/core/modules/<module>/index.ts` exporting `metadata` (or override via `apps/mercato/src/modules/<module>/index.ts`):
 
 ```ts
 import type { ModuleInfo } from '@/modules/registry'
@@ -43,7 +43,7 @@ export const metadata: ModuleInfo = {
 Generators expose `modulesInfo` for listing.
 
 ### Dependency Injection (di.ts)
-Create `@open-mercato/core/modules/<module>/di.ts` exporting `register(container)` to add/override services and components. To override/extend, add `src/modules/<module>/di.ts`.
+Create `@open-mercato/core/modules/<module>/di.ts` exporting `register(container)` to add/override services and components. To override/extend, add `apps/mercato/src/modules/<module>/di.ts`.
 
 ```ts
 import { asClass, asValue } from 'awilix'
@@ -57,17 +57,17 @@ export function register(container: AppContainer) {
 
 ### Routes (Auto-discovery + Overrides)
 - Put default pages under `@open-mercato/core/modules/<module>`.
-- Override any page by placing a file at the same relative path in `src/modules/<module>`.
-  - Frontend: `src/modules/<module>/frontend/<path>.tsx` → overrides `/<path>`
-  - Backend: `src/modules/<module>/backend/<path>.tsx` → overrides `/backend/<path>`
-  - Special case: `.../backend/page.tsx` → serves `/backend/<module>`
+- Override any page by placing a file at the same relative path in `apps/mercato/src/modules/<module>`.
+  - Frontend: `apps/mercato/src/modules/<module>/frontend/<path>.tsx` -> overrides `/<path>`
+  - Backend: `apps/mercato/src/modules/<module>/backend/<path>.tsx` -> overrides `/backend/<path>`
+  - Special case: `.../backend/page.tsx` -> serves `/backend/<module>`
 - The app provides catch-all dispatchers:
-  - Frontend: `src/app/(frontend)/[[...slug]]/page.tsx`
-  - Backend: `src/app/(backend)/backend/[[...slug]]/page.tsx`
+  - Frontend: `apps/mercato/src/app/(frontend)/[[...slug]]/page.tsx`
+  - Backend: `apps/mercato/src/app/(backend)/backend/[[...slug]]/page.tsx`
 
 ### Widget Injection (Centralized Registry)
 - Modules can inject UI into shared hosts without forking code (e.g., add cards/tabs to `CrudForm` or `DataTable`).
-- Declare widgets under `src/modules/<module>/widgets/injection/**/widget.ts(x)` plus a mapper `widgets/injection-table.ts` that ties spot ids to widget ids.
+- Declare widgets under `apps/mercato/src/modules/<module>/widgets/injection/**/widget.ts(x)` plus a mapper `widgets/injection-table.ts` that ties spot ids to widget ids.
 - Generators auto-discover both widgets and injection tables and build the runtime registry, so modules stay self-contained.
 - Prefer widget injection for cross-module UX instead of direct imports—hosts surface consistent spot ids (`crud-form:<entityId>`, `data-table:<tableId>[:header|:footer]`, `admin.page:<path>:before|after`).
 - See [Widget injection](../widget-injection.md) for spot catalogs, event hooks, and examples.
@@ -98,25 +98,25 @@ export function register(container: AppContainer) {
 Precedence: if a `*.meta.ts` file is present it is used; otherwise, the generator will look for `export const metadata` in the page module (server-only).
 
 #### Override Example
-- Package page: `@open-mercato/example/modules/example/frontend/blog/[id]/page.tsx`
-- App override: `src/modules/example/frontend/blog/[id]/page.tsx`
+- Package page: `@open-mercato/core/modules/auth/frontend/login.tsx`
+- App override: `apps/mercato/src/modules/auth/frontend/login.tsx`
   - If present, the app file is used instead of the package file.
   - Remove the app file to fall back to the package implementation.
 
 ### API Endpoints (Auto-discovery + Overrides)
 - Implement defaults under `@open-mercato/core/modules/<module>/api/...`.
-- Override by adding `src/modules/<module>/api/...`.
-- The app exposes a catch-all API route in `src/app/api/[...slug]/route.ts` and dispatches by method + path.
+- Override by adding `apps/mercato/src/modules/<module>/api/...`.
+- The app exposes a catch-all API route in `apps/mercato/src/app/api/[...slug]/route.ts` and dispatches by method + path.
   - Per-method metadata supports `requireAuth`, `requireRoles`, and `requireFeatures`.
 
 ### Database Schema and Migrations (MikroORM)
 - Place entities in `@open-mercato/core/modules/<module>/data/entities.ts` (fallbacks: `db/entities.ts` or `schema.ts`) and review the [entities reference](../database/entities) for conventions and helpers.
 - To extend another module's entity, prefer a separate extension entity in your module and declare the link in `data/extensions.ts` (see Data Extensibility doc). Avoid mutating core entities to stay upgrade-safe.
-- If absolutely necessary to override entire entities, add `src/modules/<module>/data/entities.override.ts`.
-- Generate combined module registry and entities: `npm run modules:prepare`.
-- Generate migrations for enabled modules: `npm run db:generate` → writes into each module's package: `packages/<pkg>/src/modules/<module>/migrations` (falls back to `src/modules/<module>/migrations` only for app-local modules).
-- Apply migrations for enabled modules: `npm run db:migrate`.
-- Clean up migrations and snapshots for fresh start: `npm run db:greenfield` → removes all existing migration files and snapshots from all modules.
+- If absolutely necessary to override entire entities, add `apps/mercato/src/modules/<module>/data/entities.override.ts`.
+- Generate combined module registry and entities: `yarn generate`.
+- Generate migrations for enabled modules: `yarn db:generate` -> writes into each module's package: `packages/<pkg>/src/modules/<module>/migrations` (falls back to `apps/mercato/src/modules/<module>/migrations` only for app-local modules).
+- Apply migrations for enabled modules: `yarn db:migrate`.
+- Clean up migrations and snapshots for fresh start: `yarn db:greenfield` -> removes all existing migration files and snapshots from all modules.
 
 See also:
 - [Entities reference](../database/entities)
@@ -128,18 +128,18 @@ See also:
 
 ### EBAC Events & Subscribers
 - Emit EBAC events through the event bus using `eventBus.emitEvent` as documented in the [events & subscribers guide](../events/overview).
-- Register module subscribers under `src/modules/<module>/subscribers/*.ts`; each file exports a default handler and metadata described in the [file structure section](../events/overview#file-structure).
+- Register module subscribers under `apps/mercato/src/modules/<module>/subscribers/*.ts`; each file exports a default handler and metadata described in the [file structure section](../events/overview#file-structure).
 - Persistent subscribers are replayable; see [CRUD events](../events/overview#crud-events) for the standard lifecycle triggers generated by CRUD handlers.
 
 ### Declaring Custom Entities and Fields in ce.ts (data/fields.ts deprecated)
 - Place a module-level `ce.ts` exporting `entities`. Each item can include optional `fields`.
 - The generator will merge `entities[].fields` into `customFieldSets` so `yarn mercato entities install` seeds them.
-- Example (`src/modules/example/ce.ts`):
+- Example (`packages/my-module/src/modules/my_module/ce.ts`):
 
 ```ts
 export const entities = [
   {
-    id: 'example:calendar_entity',
+    id: 'my_module:calendar_entity',
     label: 'Calendar Entity',
     showInSidebar: true,
     fields: [
@@ -158,24 +158,24 @@ Notes:
 - The installer (`yarn mercato entities install`) processes every tenant by default and skips system entities automatically. Use `--tenant <id>`, `--global`, or `--no-global` to control the scope, and `--dry-run` / `--force` when testing.
 
 ### Validation (zod)
-- Put validators alongside entities in `src/modules/<module>/data/validators.ts`.
+- Put validators alongside entities in `apps/mercato/src/modules/<module>/data/validators.ts` or `packages/<pkg>/src/modules/<module>/data/validators.ts`.
 - Create focused schemas (e.g., `userLoginSchema`, `tenantCreateSchema`).
 - Import and reuse validators across APIs/CLI/forms to keep behavior consistent.
 - Derive types as needed: `type Input = z.infer<typeof userLoginSchema>`.
 
 ### CLI
-- Optional: add `src/modules/<module>/cli.ts` default export `(argv) => void|Promise<void>`.
-- The root CLI `mercato` dispatches to module CLIs: `npm run mercato -- <module> ...`.
+- Optional: add `packages/<pkg>/src/modules/<module>/cli.ts` default export `(argv) => void|Promise<void>`.
+- The root CLI `mercato` dispatches to module CLIs: `yarn mercato <module> ...`.
 
 ## Adding an External Module
 1. Install the npm package (must be ESM compatible) into `node_modules`.
-2. Expose a pseudo-tree under `src/modules/<module>` via a postinstall script or a wrapper package; or copy its files into `src/modules/<module>`.
+2. Expose a pseudo-tree under `apps/mercato/src/modules/<module>` via a postinstall script or a wrapper package; or copy its files into `apps/mercato/src/modules/<module>`.
 3. Ensure it ships its MikroORM entities under `/db/entities.ts` so migrations generate.
-4. Run `npm run modules:prepare` to refresh the registry, entities, and DI.
+4. Run `yarn generate` to refresh the registry, entities, and DI.
 
 ## Translations (i18n)
-- Base app dictionaries: `src/i18n/<locale>.json` (e.g., `en`, `pl`).
-- Module dictionaries: `src/modules/<module>/i18n/<locale>.json`.
+- Base app dictionaries: `apps/mercato/src/i18n/<locale>.json` (e.g., `en`, `pl`).
+- Module dictionaries: `packages/<pkg>/src/modules/<module>/i18n/<locale>.json`.
 - The generator auto-imports module JSON and adds them to `Module.translations`.
 - Layout merges base + all module dictionaries for the current locale and provides:
   - `useT()` hook for client components (`@/lib/i18n/context`).
@@ -193,7 +193,7 @@ import { translateWithFallback } from '@open-mercato/shared/lib/i18n/translate'
 
 export default function MyComponent() {
   const t = useT()
-  const heading = translateWithFallback(t, 'example.moduleTitle', 'Example module')
+  const heading = translateWithFallback(t, 'my_module.moduleTitle', 'My Module')
   return <h1>{heading}</h1>
 }
 ```
@@ -238,13 +238,13 @@ This ensures that:
 - Override services/entities/components by registering replacements in your module `di.ts`. The container loads core defaults first, then applies registrars from each module in order, allowing overrides.
 
 ## Enabling Modules
-- Edit `src/modules.ts` and list modules to load, e.g.:
-  - `{ id: 'auth', from: '@open-mercato/core' }`, `{ id: 'directory', from: '@open-mercato/core' }`, `{ id: 'example', from: '@open-mercato/example' }`.
+- Edit `apps/mercato/src/modules.ts` and list modules to load, e.g.:
+  - `{ id: 'auth', from: '@open-mercato/core' }`, `{ id: 'directory', from: '@open-mercato/core' }`, `{ id: 'customers', from: '@open-mercato/core' }`.
 - Generators and migrations only include these modules.
 
 ## Monorepo, Overrides, and Module Config
-- Core modules live in `@open-mercato/core` and example in `@open-mercato/example`.
-- App-level overrides live under `src/modules/<module>/...` and take precedence over package files with the same relative path.
-- Enable modules explicitly in `src/modules.ts`.
-- Generators (`modules:prepare`) and migrations (`db:*`) only include enabled modules.
-- Migrations are written under `src/modules/<module>/migrations` to avoid mutating packages.
+- Core modules live in `@open-mercato/core`, search in `@open-mercato/search`, events in `@open-mercato/events`, etc.
+- App-level overrides live under `apps/mercato/src/modules/<module>/...` and take precedence over package files with the same relative path.
+- Enable modules explicitly in `apps/mercato/src/modules.ts`.
+- Generators (`yarn generate`) and migrations (`yarn db:*`) only include enabled modules.
+- Migrations are written under `packages/<pkg>/src/modules/<module>/migrations` for package modules, or `apps/mercato/src/modules/<module>/migrations` for app-local modules.

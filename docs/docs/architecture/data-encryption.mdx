@@ -113,6 +113,6 @@ flowchart TD
 ## Operational notes
 
 - Keep `TENANT_DATA_ENCRYPTION=yes` by default. Set `TENANT_DATA_ENCRYPTION=no` only for local dev or when KMS is down during incident response.
-- Run `npm run db:generate` after updating entities to align migrations with schema changes (email hash, map storage).
+- Run `yarn db:generate` after updating entities to align migrations with schema changes (email hash, map storage).
 - For multi-node setups, back the cache with Redis to avoid per-node misses when definitions change.
 - Avoid encrypting fields used for joins or range queries; prefer hashing for equality lookups (e.g., email) and keep unencrypted derived columns only when strictly necessary.

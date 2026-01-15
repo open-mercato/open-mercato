@@ -25,14 +25,14 @@ At build time, module generators collect every page, API handler, entity, subscr
 Key principles:
 
 - **Isomorphic modules** – a module exports everything it needs (UI, APIs, DI, migrations) so it can run in isolation or inside larger solutions.
-- **Overlay overrides** – files under `src/modules/<module>/...` override their package counterparts, letting apps customize behaviour without forking the package.
-- **Generated glue** – tasks like `npm run modules:prepare` regenerate registries so runtime always reflects the filesystem.
+- **Overlay overrides** – files under `apps/mercato/src/modules/<module>/...` override their package counterparts, letting apps customize behaviour without forking the package.
+- **Generated glue** – tasks like `yarn generate` regenerate registries so runtime always reflects the filesystem.
 
 ## Modular architecture at a glance
 
-- Modules are declared in `packages/<pkg>/src/modules/<module>` (package-supplied) or `src/modules/<module>` (app overrides).
-- The application bootstraps modules from `src/modules.ts`. Removing an entry disables the module; adding a new entry enables a custom package.
-- Generators (`yarn modules:prepare`) scan all enabled modules, merge overrides, and emit registries that drive routing, DI, entities, dashboards, and CLI discovery.
+- Modules are declared in `packages/<pkg>/src/modules/<module>` (package-supplied) or `apps/mercato/src/modules/<module>` (app overrides).
+- The application bootstraps modules from `apps/mercato/src/modules.ts`. Removing an entry disables the module; adding a new entry enables a custom package.
+- Generators (`yarn generate`) scan all enabled modules, merge overrides, and emit registries that drive routing, DI, entities, dashboards, and CLI discovery.
 
 ### Module building blocks
 
@@ -91,16 +91,16 @@ flowchart TD
 ```mermaid
 flowchart LR
     subgraph App
-        SRC["src/app/*<br/>pages/layouts"]
-        SM["src/modules/*<br/>overrides"]
-        MT["src/modules.ts<br/>module toggle"]
+        SRC["apps/mercato/src/app/*<br/>pages/layouts"]
+        SM["apps/mercato/src/modules/*<br/>overrides"]
+        MT["apps/mercato/src/modules.ts<br/>module toggle"]
     end
     subgraph Packages
         CORE["@open-mercato/core<br/>modules"]
         EXTRA["Custom packages<br/>@open-mercato/*"]
     end
     SRC --> Router["Frontend & backend routers"]
-    SM --> Generator["yarn modules:prepare"]
+    SM --> Generator["yarn generate"]
     CORE --> Generator
     EXTRA --> Generator
     MT --> Generator
@@ -108,15 +108,15 @@ flowchart LR
     Registry --> Runtime["Runtime (routes, APIs, DI)"]
 ```
 
-- **`src/app`** – Override or add pages/layouts without touching package sources.
-- **`src/modules`** – Provide module-level overrides (backend/frontend pages, APIs, entities, i18n). Files here take precedence over package files with the same relative path.
-- **`src/modules.ts`** – Acts as a manifest: enabling/disabling modules reconfigures the application without code changes.
+- **`apps/mercato/src/app`** – Override or add pages/layouts without touching package sources.
+- **`apps/mercato/src/modules`** – Provide module-level overrides (backend/frontend pages, APIs, entities, i18n). Files here take precedence over package files with the same relative path.
+- **`apps/mercato/src/modules.ts`** – Acts as a manifest: enabling/disabling modules reconfigures the application without code changes.
 - **Generated registries** – Link together app overrides and package modules. They power auto-discovery for routing, APIs, DI, dashboard widgets, subscribers, and CLI commands.
 
 ### Extension points
 
-- **Application reconfiguration** – Swap modules in `src/modules.ts`, override routers in `src/app`, or adjust DI via `src/lib`.
-- **Modules** – Ship new modules in `packages/<your-package>` or override core behaviour in `src/modules/<module>`.
+- **Application reconfiguration** – Swap modules in `apps/mercato/src/modules.ts`, override routers in `apps/mercato/src/app`, or adjust DI via `apps/mercato/src/lib`.
+- **Modules** – Ship new modules in `packages/<your-package>` or override core behaviour in `apps/mercato/src/modules/<module>`.
 - **Custom entities & fields** – Define runtime-managed schemas in `ce.ts` or through the admin UI, then seed them with `yarn mercato entities install`.
 - **Entity links** – Use `data/extensions.ts` with `defineLink()` to relate module entities without violating module isolation.
 

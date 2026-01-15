@@ -1,22 +1,46 @@
 ---
-title: mercato example hello
-sidebar_label: example hello
-description: Sanity-check command that verifies the example module CLI is wired correctly.
+title: Module CLI commands
+sidebar_label: Module CLI commands
+description: How modules can expose custom CLI commands through the mercato CLI.
 ---
 
-`yarn mercato example hello` simply prints `Hello from example module!`. Use it to confirm the `mercato` CLI can locate and execute module-specific commands.
+Modules can register custom CLI commands that are automatically discovered and made available through the `mercato` CLI. This allows you to extend the CLI with module-specific functionality.
 
-## Usage
+## How it works
+
+1. Create a `cli/` directory in your module (e.g., `packages/<pkg>/src/modules/<module>/cli/`)
+2. Export command handlers following the CLI command structure
+3. Run `yarn generate` to update the CLI registry
+4. Your commands become available as `yarn mercato <module> <command>`
+
+## Example: Creating a custom CLI command
+
+```ts title="packages/inventory/src/modules/inventory/cli/sync.ts"
+import type { CliCommandHandler } from '@open-mercato/shared/cli';
+
+export const metadata = {
+  command: 'sync',
+  description: 'Synchronize inventory data from external sources',
+};
+
+export default async function handler(args: string[], ctx: CliContext) {
+  console.log('Syncing inventory...');
+  // Your sync logic here
+}
+```
+
+After running `yarn generate`, the command becomes available:
 
 ```bash
-yarn mercato example hello
+yarn mercato inventory sync
 ```
 
-Expected output:
+## Verifying CLI registration
 
-```
-🧩 Open Mercato CLI
-Hello from example module!
-```
+If your command does not appear, ensure:
 
-If you see an error such as `Module "example" has no CLI commands`, ensure `modules:prepare` was run and the example module is enabled in the module registry.
+1. `yarn generate` has been run after adding the command
+2. The module is enabled in `apps/mercato/src/modules.ts`
+3. The command file exports both `metadata` and a default handler function
+
+For more details on CLI command structure, see the [CLI development guide](./overview).
