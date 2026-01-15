@@ -813,28 +813,7 @@ export async function run(argv = process.argv) {
           const quiet = args.includes('--quiet') || args.includes('-q')
 
           console.log('Running all generators...')
-          const loadedModules = resolver.loadEnabledModules()
-          console.log('[DEBUG] Resolver info:', {
-            isMonorepo: resolver.isMonorepo(),
-            rootDir: resolver.getRootDir(),
-            appDir: resolver.getAppDir(),
-            outputDir: resolver.getOutputDir(),
-            coreOutputDir: resolver.getPackageOutputDir('@open-mercato/core'),
-            modulesLoaded: loadedModules.length,
-            modulesByFrom: loadedModules.reduce((acc, m) => {
-              const from = m.from || '@open-mercato/core'
-              acc[from] = (acc[from] || 0) + 1
-              return acc
-            }, {} as Record<string, number>),
-          })
-          const entityIdsResult = await generateEntityIds({ resolver, quiet })
-          if (entityIdsResult.errors.length > 0) {
-            console.error('[DEBUG] Entity IDs generator errors:', entityIdsResult.errors)
-          }
-          console.log('[DEBUG] Entity IDs result:', {
-            filesWritten: entityIdsResult.filesWritten,
-            filesUnchanged: entityIdsResult.filesUnchanged,
-          })
+          await generateEntityIds({ resolver, quiet })
           await generateModuleRegistry({ resolver, quiet })
           await generateModuleRegistryCli({ resolver, quiet })
           await generateModuleEntities({ resolver, quiet })
