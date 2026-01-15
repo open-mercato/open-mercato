@@ -36,16 +36,16 @@
 flowchart LR
   subgraph Clients
     B[Browser Admin UI]
-    F[Frontend app / mobile]
+    F[Frontend app or mobile]
     I[Integrations]
   end
 
-  subgraph AppNode[App nodes (scale horizontally)]
+  subgraph AppNode[App nodes]
     NX[Next.js runtime<br/>UI and API]
   end
 
-  subgraph Workers[Worker nodes (optional)]
-    W1[Queue workers<br/>search indexing, async jobs]
+  subgraph Workers[Worker nodes]
+    W1[Queue workers<br/>search indexing and async jobs]
   end
 
   PG[(PostgreSQL<br/>pgvector optional)]
