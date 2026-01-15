@@ -3,9 +3,9 @@
   "version": "0.3.13",
   "private": true,
   "scripts": {
-    "dev": "next dev --turbopack",
+    "dev": "mercato server dev",
     "build": "next build",
-    "start": "NODE_OPTIONS='-r newrelic' next start",
+    "start": "NODE_OPTIONS='-r newrelic' mercato server start",
     "lint": "next lint",
     "typecheck": "tsc --noEmit",
     "test": "jest --passWithNoTests --config ../../jest.config.cjs",

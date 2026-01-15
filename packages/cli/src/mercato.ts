@@ -8,6 +8,7 @@ import type { Module } from '@open-mercato/shared/modules/registry'
 import { getCliModules, hasCliModules, registerCliModules } from './registry'
 export { getCliModules, hasCliModules, registerCliModules }
 import { parseBooleanToken } from '@open-mercato/shared/lib/boolean'
+import type { ChildProcess } from 'node:child_process'
 import path from 'node:path'
 import fs from 'node:fs'
 
@@ -890,6 +891,143 @@ export async function run(argv = process.argv) {
           const resolver = createResolver()
           const yes = args.includes('--yes') || args.includes('-y')
           await dbGreenfield(resolver, { yes })
+        },
+      },
+    ],
+  } as any)
+
+  // Built-in CLI module: server (runs Next.js + workers)
+  all.push({
+    id: 'server',
+    cli: [
+      {
+        command: 'dev',
+        run: async () => {
+          const { spawn } = await import('child_process')
+          const path = await import('path')
+          const { createResolver } = await import('./lib/resolver')
+          const resolver = createResolver()
+          const appDir = resolver.getAppDir()
+
+          // In monorepo, packages are hoisted to root; in standalone, they're in app's node_modules
+          const nodeModulesBase = resolver.isMonorepo() ? resolver.getRootDir() : appDir
+
+          const processes: ChildProcess[] = []
+          const autoSpawnWorkers = process.env.AUTO_SPAWN_WORKERS !== 'false'
+
+          function cleanup() {
+            console.log('[server] Shutting down...')
+            for (const proc of processes) {
+              if (!proc.killed) {
+                proc.kill('SIGTERM')
+              }
+            }
+          }
+
+          process.on('SIGTERM', cleanup)
+          process.on('SIGINT', cleanup)
+
+          console.log('[server] Starting Open Mercato in dev mode...')
+
+          // Resolve paths relative to where node_modules are located
+          const nextBin = path.join(nodeModulesBase, 'node_modules/next/dist/bin/next')
+          const mercatoBin = path.join(nodeModulesBase, 'node_modules/@open-mercato/cli/bin/mercato')
+
+          // Start Next.js dev
+          const nextProcess = spawn('node', [nextBin, 'dev', '--turbopack'], {
+            stdio: 'inherit',
+            env: process.env,
+            cwd: appDir,
+          })
+          processes.push(nextProcess)
+
+          // Start workers if enabled
+          if (autoSpawnWorkers) {
+            console.log('[server] Starting workers for all queues...')
+            const workerProcess = spawn('node', [mercatoBin, 'queue', 'worker', '--all'], {
+              stdio: 'inherit',
+              env: process.env,
+              cwd: appDir,
+            })
+            processes.push(workerProcess)
+          }
+
+          // Wait for any process to exit
+          await Promise.race(
+            processes.map(
+              (proc) =>
+                new Promise<void>((resolve) => {
+                  proc.on('exit', () => resolve())
+                })
+            )
+          )
+
+          cleanup()
+        },
+      },
+      {
+        command: 'start',
+        run: async () => {
+          const { spawn } = await import('child_process')
+          const path = await import('path')
+          const { createResolver } = await import('./lib/resolver')
+          const resolver = createResolver()
+          const appDir = resolver.getAppDir()
+
+          // In monorepo, packages are hoisted to root; in standalone, they're in app's node_modules
+          const nodeModulesBase = resolver.isMonorepo() ? resolver.getRootDir() : appDir
+
+          const processes: ChildProcess[] = []
+          const autoSpawnWorkers = process.env.AUTO_SPAWN_WORKERS !== 'false'
+
+          function cleanup() {
+            console.log('[server] Shutting down...')
+            for (const proc of processes) {
+              if (!proc.killed) {
+                proc.kill('SIGTERM')
+              }
+            }
+          }
+
+          process.on('SIGTERM', cleanup)
+          process.on('SIGINT', cleanup)
+
+          console.log('[server] Starting Open Mercato in production mode...')
+
+          // Resolve paths relative to where node_modules are located
+          const nextBin = path.join(nodeModulesBase, 'node_modules/next/dist/bin/next')
+          const mercatoBin = path.join(nodeModulesBase, 'node_modules/@open-mercato/cli/bin/mercato')
+
+          // Start Next.js production server
+          const nextProcess = spawn('node', [nextBin, 'start'], {
+            stdio: 'inherit',
+            env: process.env,
+            cwd: appDir,
+          })
+          processes.push(nextProcess)
+
+          // Start workers if enabled
+          if (autoSpawnWorkers) {
+            console.log('[server] Starting workers for all queues...')
+            const workerProcess = spawn('node', [mercatoBin, 'queue', 'worker', '--all'], {
+              stdio: 'inherit',
+              env: process.env,
+              cwd: appDir,
+            })
+            processes.push(workerProcess)
+          }
+
+          // Wait for any process to exit
+          await Promise.race(
+            processes.map(
+              (proc) =>
+                new Promise<void>((resolve) => {
+                  proc.on('exit', () => resolve())
+                })
+            )
+          )
+
+          cleanup()
         },
       },
     ],
