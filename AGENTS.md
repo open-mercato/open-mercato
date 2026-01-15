@@ -305,3 +305,214 @@ yarn mercato search query -q "term" --tenant <id>  # Test search
 ```
 
 See `packages/search/src/modules/search/README.md` for full documentation.
+
+## Brand Customization
+
+The platform supports multi-tenant/white-label branding with per-brand theme colors, sidebar module visibility, and navbar customization. Brands are detected by domain and configured statically in `src/brands/`.
+
+### Architecture Overview
+
+| Component | Location | Purpose |
+|-----------|----------|---------|
+| Brand Types | `src/brands/types.ts` | TypeScript interfaces for brand configuration |
+| Brand Registry | `src/brands/registry.ts` | Brand definitions with domain mappings |
+| Domain Detection | `src/proxy.ts` | Middleware that sets `x-brand-id` header |
+| Theme Provider | `packages/ui/src/theme/ThemeProvider.tsx` | Injects CSS variables for brand colors |
+| Backend Layout | `src/app/(backend)/backend/layout.tsx` | Applies theme and filters sidebar |
+| Nav API | `packages/core/src/modules/auth/api/admin/nav.ts` | Client-side nav refresh with brand filtering |
+
+### Brand Configuration Structure
+
+```typescript
+// src/brands/types.ts
+interface BrandConfig {
+  id: string                    // Unique identifier (e.g., 'freighttech')
+  name: string                  // Display name
+  productName: string           // Shown in sidebar header
+  logo: { src, width, height, alt }
+  domains: string[]             // Domains mapped to this brand
+
+  theme?: {
+    colors?: {
+      // Main colors
+      background?: string
+      foreground?: string
+      primary?: string
+      primaryForeground?: string
+      accent?: string
+      accentForeground?: string
+      // Sidebar colors
+      sidebar?: string
+      sidebarForeground?: string
+      sidebarPrimary?: string
+      sidebarAccent?: string
+      // ... more color options
+    }
+  }
+
+  layout?: {
+    sidebar?: {
+      hiddenModules?: string[]   // URL path segments to hide
+      hiddenGroups?: string[]    // Navigation group IDs to hide
+    }
+    navbar?: {
+      hideSearch?: boolean       // Hide global search
+      hideOrgSwitcher?: boolean  // Hide organization switcher
+    }
+  }
+}
+```
+
+### How to Add/Modify a Brand
+
+1. **Edit `src/brands/registry.ts`** to add or modify brand configuration:
+
+```typescript
+const myBrand: BrandConfig = {
+  id: 'mybrand',
+  name: 'My Brand',
+  productName: 'My Product',
+  logo: {
+    src: '/mybrand-logo.png',
+    width: 32,
+    height: 32,
+    alt: 'My Brand',
+  },
+  domains: ['mybrand.com', 'mybrand.localhost'],
+  theme: {
+    colors: {
+      primary: 'oklch(0.45 0.15 250)',        // Blue primary
+      sidebar: 'oklch(0.97 0.01 250)',        // Light blue sidebar
+      sidebarPrimary: 'oklch(0.45 0.15 250)',
+    },
+  },
+  layout: {
+    sidebar: {
+      hiddenModules: ['audit_logs', 'docs'],
+      hiddenGroups: ['entities.nav.group'],
+    },
+    navbar: {
+      hideOrgSwitcher: true,
+    },
+  },
+}
+
+// Add to brands array
+export const brands: BrandConfig[] = [
+  openMercatoBrand,
+  freighttechBrand,
+  myBrand,  // Add here
+]
+```
+
+2. **Add logo file** to `public/` directory
+
+3. **Test** by accessing the app via the configured domain
+
+### Available Hidden Modules (`hiddenModules`)
+
+Use the **URL path segment** (not module ID) in the `hiddenModules` array:
+
+| URL Path | Module ID | Description |
+|----------|-----------|-------------|
+| `dashboards` | `dashboards` | Main dashboard |
+| `users` | `auth` | User management |
+| `roles` | `auth` | Role management |
+| `api-keys` | `api_keys` | API key management |
+| `directory` | `directory` | Organizations, Tenants |
+| `customers` | `customers` | CRM (Companies, People, Deals) |
+| `catalog` | `catalog` | Product catalog |
+| `sales` | `sales` | Sales management |
+| `entities` | `entities` | Data Designer |
+| `audit-logs` | `audit_logs` | Audit logging |
+| `docs` | `api_docs` | API documentation |
+| `booking` | `booking` | Booking/Scheduling |
+| `business-rules` | `business_rules` | Business rules engine |
+| `workflows` | `workflows` | Workflows |
+| `feature-toggles` | `feature_toggles` | Feature flags |
+| `currencies` | `currencies` | Currencies & Exchange rates |
+| `dictionaries` | `dictionaries` | Dictionaries |
+| `attachments` | `attachments` | File attachments |
+| `content` | `content` | Content management |
+| `shipments` | `shipments` | Shipments |
+| `fms-tracking` | `fms_tracking` | FMS Tracking |
+| `contractors` | `contractors` | FMS Contractors |
+| `fms-quotes` | `fms_quotes` | FMS Quotes |
+| `fms-locations` | `fms_locations` | FMS Locations |
+| `fms-products` | `fms_products` | FMS Products |
+| `example` | `example` | Example module |
+
+**Note:** URL paths use hyphens (`audit-logs`), module IDs use underscores (`audit_logs`). The filtering normalizes both, so you can use either format.
+
+### Available Hidden Groups (`hiddenGroups`)
+
+| Group ID | Display Name | Contains |
+|----------|--------------|----------|
+| `customers.nav.group` | Customers | Companies, People, Deals |
+| `catalog.nav.group` | Catalog | Products, Categories |
+| `customers~sales.nav.group` | Sales | Quotes, Orders, Channels |
+| `entities.nav.group` | Data Designer | System Entities, User Entities, Query Indexes |
+| `directory.nav.group` | Directory | Organizations, Tenants |
+| `customers.storage.nav.group` | Storage | Attachments |
+| `auth.nav.group` | Auth | Users, Roles, API Keys |
+| `booking.nav.group` | Booking | Resources, Services, Teams |
+| `currencies.nav.group` | Currencies | Currencies, Exchange Rates |
+| `rules.nav.group` | Business Rules | Rules, Rule Sets |
+
+### Theme Colors (CSS Variables)
+
+Colors are applied as CSS custom properties. Use any valid CSS color format (hex, rgb, oklch, etc.):
+
+| Property | CSS Variable | Description |
+|----------|--------------|-------------|
+| `background` | `--background` | Main background |
+| `foreground` | `--foreground` | Main text color |
+| `primary` | `--primary` | Primary action color |
+| `primaryForeground` | `--primary-foreground` | Text on primary |
+| `accent` | `--accent` | Accent/highlight color |
+| `accentForeground` | `--accent-foreground` | Text on accent |
+| `sidebar` | `--sidebar` | Sidebar background |
+| `sidebarForeground` | `--sidebar-foreground` | Sidebar text |
+| `sidebarPrimary` | `--sidebar-primary` | Sidebar active item |
+| `sidebarAccent` | `--sidebar-accent` | Sidebar hover state |
+| `border` | `--border` | Border color |
+| `card` | `--card` | Card background |
+| `muted` | `--muted` | Muted backgrounds |
+| `mutedForeground` | `--muted-foreground` | Muted text |
+
+### Example: FreightTech Brand Configuration
+
+```typescript
+const freighttechBrand: BrandConfig = {
+  id: 'freighttech',
+  name: 'FreightTech',
+  productName: 'FreightTech',
+  logo: {
+    src: '/fms/freighttech-logo.png',
+    width: 32,
+    height: 32,
+    alt: 'FreightTech',
+  },
+  domains: ['freighttech.org', 'freighttech.localhost'],
+  theme: {
+    colors: {
+      primary: 'oklch(0.45 0.15 250)',
+      primaryForeground: 'oklch(0.98 0 0)',
+      accent: 'oklch(0.94 0.03 250)',
+      sidebar: 'oklch(0.97 0.01 250)',
+      sidebarForeground: 'oklch(0.20 0.02 250)',
+      sidebarPrimary: 'oklch(0.45 0.15 250)',
+      sidebarAccent: 'oklch(0.92 0.03 250)',
+    },
+  },
+  layout: {
+    sidebar: {
+      hiddenModules: ['audit_logs', 'docs', 'example'],
+      hiddenGroups: ['entities.nav.group', 'booking.nav.group'],
+    },
+    navbar: {
+      hideOrgSwitcher: true,
+    },
+  },
+}
+```

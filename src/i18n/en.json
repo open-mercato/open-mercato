@@ -101,6 +101,7 @@
   "dashboard.widget.editSettings": "Edit settings",
   "dashboard.widget.refresh": "Refresh widget",
   "dashboard.widget.remove": "Remove widget",
+  "dashboard.widget.size": "Widget size",
   "dashboard.widgets.customers.dashboard.todos.title": "Customer Tasks",
   "dashboard.widgets.customers.dashboard.todos.description": "Review the latest tasks linked to customers and jump directly to their records.",
   "dashboard.widgets.customers.dashboard.newCustomers.title": "New Customers",

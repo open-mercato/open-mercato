@@ -8,4 +8,11 @@ export {
 } from './registry'
 
 // Types
-export type { BrandConfig } from './types'
+export type {
+  BrandConfig,
+  BrandTheme,
+  BrandThemeColors,
+  BrandLayout,
+  BrandSidebarLayout,
+  BrandNavbarLayout,
+} from './types'

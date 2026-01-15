@@ -101,6 +101,7 @@
   "dashboard.widget.editSettings": "Einstellungen bearbeiten",
   "dashboard.widget.refresh": "Widget aktualisieren",
   "dashboard.widget.remove": "Widget entfernen",
+  "dashboard.widget.size": "Widget-Größe",
   "dashboard.widgets.customers.dashboard.todos.title": "Kundenaufgaben",
   "dashboard.widgets.customers.dashboard.todos.description": "Behalte die neuesten Aufgaben zu deinen Kunden im Blick und springe direkt in deren Datensätze.",
   "dashboard.widgets.customers.dashboard.newCustomers.title": "Neue Kunden",
