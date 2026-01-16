@@ -36,6 +36,7 @@ export async function POST(req: NextRequest) {
       answerQuestion?: {
         questionId: string
         answer: number
+        sessionId: string
       }
     }
 
@@ -43,44 +44,49 @@ export async function POST(req: NextRequest) {
     const encoder = new TextEncoder()
     const stream = new TransformStream()
     const writer = stream.writable.getWriter()
+    let writerClosed = false
 
     const writeSSE = async (event: OpenCodeStreamEvent | { type: string; [key: string]: unknown }) => {
-      const jsonStr = JSON.stringify(event)
-      await writer.write(encoder.encode(`data: ${jsonStr}\n\n`))
+      if (writerClosed) return // Guard against writes after close
+      try {
+        const jsonStr = JSON.stringify(event)
+        await writer.write(encoder.encode(`data: ${jsonStr}\n\n`))
+      } catch (err) {
+        // Writer may have been closed by client disconnect
+        console.warn('[AI Chat] Failed to write SSE event:', event.type)
+      }
     }
 
-    // Handle question answer
+    const closeWriter = async () => {
+      if (writerClosed) return
+      writerClosed = true
+      try {
+        await writer.close()
+      } catch {
+        // Already closed
+      }
+    }
+
+    // Handle question answer - simple JSON response, not SSE
+    // The original SSE stream continues and will receive the follow-up response
     if (answerQuestion) {
-      ;(async () => {
-        try {
-          console.log('[AI Chat] Answering question:', answerQuestion.questionId, 'with', answerQuestion.answer)
+      try {
+        console.log('[AI Chat] Answering question:', answerQuestion.questionId, 'with', answerQuestion.answer, 'session:', answerQuestion.sessionId)
 
-          await handleOpenCodeAnswer(
-            answerQuestion.questionId,
-            answerQuestion.answer,
-            async (event) => {
-              console.log('[AI Chat] Answer event:', event.type)
-              await writeSSE(event)
-            }
-          )
-        } catch (error) {
-          console.error('[AI Chat] Answer error:', error)
-          await writeSSE({
-            type: 'error',
-            error: error instanceof Error ? error.message : 'Failed to answer question',
-          })
-        } finally {
-          await writer.close()
-        }
-      })()
+        // Import the client directly to send the answer
+        const { createOpenCodeClient } = await import('@open-mercato/ai-assistant')
+        const client = createOpenCodeClient()
+        await client.answerQuestion(answerQuestion.questionId, answerQuestion.answer)
 
-      return new Response(stream.readable, {
-        headers: {
-          'Content-Type': 'text/event-stream',
-          'Cache-Control': 'no-cache',
-          Connection: 'keep-alive',
-        },
-      })
+        console.log('[AI Chat] Answer sent successfully')
+        return NextResponse.json({ success: true })
+      } catch (error) {
+        console.error('[AI Chat] Answer error:', error)
+        return NextResponse.json(
+          { error: error instanceof Error ? error.message : 'Failed to answer question' },
+          { status: 500 }
+        )
+      }
     }
 
     // Handle regular message
@@ -120,7 +126,7 @@ export async function POST(req: NextRequest) {
           error: error instanceof Error ? error.message : 'OpenCode request failed',
         })
       } finally {
-        await writer.close()
+        await closeWriter()
       }
     })()
 

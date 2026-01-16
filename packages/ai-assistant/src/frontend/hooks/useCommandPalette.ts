@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useCallback, useEffect, useMemo } from 'react'
+import { useState, useCallback, useEffect, useMemo, useRef } from 'react'
 import type {
   CommandPaletteMode,
   CommandPalettePage,
@@ -135,6 +135,15 @@ export function useCommandPalette(options: UseCommandPaletteOptions) {
 
   // Pending question from OpenCode requiring user confirmation
   const [pendingQuestion, setPendingQuestion] = useState<OpenCodeQuestion | null>(null)
+
+  // Track answered question IDs to prevent re-showing them
+  const answeredQuestionIds = useRef<Set<string>>(new Set())
+
+  // Flag to indicate the next text event should start a new message (after answering question)
+  const shouldStartNewMessage = useRef<boolean>(false)
+
+  // AbortController for current streaming request - allows canceling when answering questions
+  const currentStreamController = useRef<AbortController | null>(null)
 
   // Helper to add debug events
   const addDebugEvent = useCallback((type: DebugEventType, data: unknown) => {
@@ -444,6 +453,11 @@ export function useCommandPalette(options: UseCommandPaletteOptions) {
         }
         setMessages([userMessage])
 
+        // Create abort controller for this stream
+        currentStreamController.current?.abort()
+        const controller = new AbortController()
+        currentStreamController.current = controller
+
         console.log('[startAgenticChat] Sending request to /api/ai/chat with mode: agentic')
         const response = await fetch('/api/ai/chat', {
           method: 'POST',
@@ -455,6 +469,7 @@ export function useCommandPalette(options: UseCommandPaletteOptions) {
             availableEntities: availableEntities?.map(e => e.entityId),
             mode: 'agentic',
           }),
+          signal: controller.signal,
         })
 
         console.log('[startAgenticChat] Response status:', response.status, 'ok:', response.ok)
@@ -508,6 +523,17 @@ export function useCommandPalette(options: UseCommandPaletteOptions) {
                 addDebugEvent(event.type as DebugEventType, event)
 
                 if (event.type === 'text') {
+                  // Text received - no longer thinking
+                  setIsThinking(false)
+
+                  // Check if we need to start a new message (e.g., after answering a question)
+                  if (shouldStartNewMessage.current) {
+                    shouldStartNewMessage.current = false
+                    // Finalize the current streaming message and reset content
+                    setMessages((prev) => prev.map((m) => (m.id === 'streaming' ? { ...m, id: generateId() } : m)))
+                    assistantContent = '' // Reset for new message
+                  }
+
                   assistantContent += event.content || ''
                   console.log('[startAgenticChat] Text content now:', assistantContent.substring(0, 100))
                   setMessages((prev) => {
@@ -555,7 +581,29 @@ export function useCommandPalette(options: UseCommandPaletteOptions) {
                 } else if (event.type === 'error') {
                   console.error('[startAgenticChat] Error event:', event.error)
                 } else if (event.type === 'done') {
-                  console.log('[startAgenticChat] Done event received')
+                  console.log('[startAgenticChat] Done event received, sessionId:', event.sessionId)
+                  setIsThinking(false)
+                  setState((prev) => ({ ...prev, isStreaming: false }))
+                  // Save session ID for conversation continuity
+                  if (event.sessionId) {
+                    setOpencodeSessionId(event.sessionId)
+                  }
+                } else if (event.type === 'question') {
+                  // OpenCode is asking for confirmation
+                  const question = event.question as OpenCodeQuestion
+                  // Skip if already answered
+                  if (answeredQuestionIds.current.has(question.id)) {
+                    console.log('[startAgenticChat] Skipping already-answered question:', question.id)
+                  } else {
+                    console.log('[startAgenticChat] Question event:', question.id)
+                    setIsThinking(false)
+                    setState((prev) => ({ ...prev, isStreaming: false }))
+                    setPendingQuestion(question)
+                    // Save session ID for conversation continuity
+                    if (question.sessionID) {
+                      setOpencodeSessionId(question.sessionID)
+                    }
+                  }
                 }
               } catch (parseError) {
                 console.warn('[startAgenticChat] Failed to parse event:', data, parseError)
@@ -568,6 +616,11 @@ export function useCommandPalette(options: UseCommandPaletteOptions) {
         // Finalize the assistant message
         setMessages((prev) => prev.map((m) => (m.id === 'streaming' ? { ...m, id: generateId() } : m)))
       } catch (error) {
+        // Ignore AbortError - this happens when we intentionally cancel the stream (e.g., answering a question)
+        if (error instanceof Error && error.name === 'AbortError') {
+          console.log('[startAgenticChat] Stream aborted (intentional)')
+          return
+        }
         console.error('[startAgenticChat] Error:', error)
         setMessages((prev) => [
           ...prev,
@@ -878,6 +931,14 @@ export function useCommandPalette(options: UseCommandPaletteOptions) {
                   // OpenCode is processing - keep thinking state active
                   setIsThinking(true)
                 } else if (event.type === 'text') {
+                  // Check if we need to start a new message (e.g., after answering a question)
+                  if (shouldStartNewMessage.current) {
+                    shouldStartNewMessage.current = false
+                    // Finalize the current streaming message and reset content
+                    setMessages((prev) => prev.map((m) => (m.id === 'streaming' ? { ...m, id: generateId() } : m)))
+                    assistantContent = '' // Reset for new message
+                  }
+
                   // Text received - no longer thinking
                   setIsThinking(false)
                   assistantContent += event.content || ''
@@ -905,6 +966,7 @@ export function useCommandPalette(options: UseCommandPaletteOptions) {
                 } else if (event.type === 'done') {
                   // Stream complete - save session ID for conversation persistence
                   setIsThinking(false)
+                  setState((prev) => ({ ...prev, isStreaming: false }))
                   if (event.sessionId) {
                     setOpencodeSessionId(event.sessionId)
                   }
@@ -938,9 +1000,16 @@ export function useCommandPalette(options: UseCommandPaletteOptions) {
                   // Safe tools: no action needed, server handled execution
                 } else if (event.type === 'question') {
                   // OpenCode is asking for confirmation
-                  console.log('[sendAgenticMessage] Question event:', event.question)
-                  setIsThinking(false)
-                  setPendingQuestion(event.question as OpenCodeQuestion)
+                  const question = event.question as OpenCodeQuestion
+                  // Skip if already answered
+                  if (answeredQuestionIds.current.has(question.id)) {
+                    console.log('[sendAgenticMessage] Skipping already-answered question:', question.id)
+                  } else {
+                    console.log('[sendAgenticMessage] Question event:', question.id)
+                    setIsThinking(false)
+                    setState((prev) => ({ ...prev, isStreaming: false }))
+                    setPendingQuestion(question)
+                  }
                 }
               } catch {
                 // Plain text chunk (fallback for non-SSE responses)
@@ -1015,16 +1084,22 @@ export function useCommandPalette(options: UseCommandPaletteOptions) {
   )
 
   // Answer a pending OpenCode question
+  // The original SSE stream continues running and will receive the follow-up response
   const answerQuestion = useCallback(
     async (answer: number) => {
       if (!pendingQuestion) return
 
       console.log('[answerQuestion] Answering question:', pendingQuestion.id, 'with:', answer)
 
-      // Clear the pending question
+      // Mark question as answered BEFORE sending - prevents duplicate display
       const questionId = pendingQuestion.id
+      answeredQuestionIds.current.add(questionId)
+
+      // Signal that the next text event should start a NEW message (not update the old one)
+      shouldStartNewMessage.current = true
+
+      // Clear the pending question UI and show thinking state
       setPendingQuestion(null)
-      setState((prev) => ({ ...prev, isStreaming: true }))
       setIsThinking(true)
 
       // Add visual feedback of the answer
@@ -1040,7 +1115,8 @@ export function useCommandPalette(options: UseCommandPaletteOptions) {
       ])
 
       try {
-        // Send answer to backend
+        // Send answer as simple POST - the original SSE stream will receive the follow-up
+        const sessionId = pendingQuestion.sessionID
         const response = await fetch('/api/ai/chat', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -1048,111 +1124,34 @@ export function useCommandPalette(options: UseCommandPaletteOptions) {
             answerQuestion: {
               questionId,
               answer,
+              sessionId,
             },
           }),
         })
 
         if (!response.ok) {
-          throw new Error(`Answer request failed: ${response.status}`)
+          const errorData = await response.json().catch(() => ({}))
+          throw new Error(errorData.error || `Answer request failed: ${response.status}`)
         }
 
-        // Process the response stream (may have more questions or final result)
-        const reader = response.body?.getReader()
-        if (!reader) {
-          throw new Error('No response body')
-        }
-
-        const decoder = new TextDecoder()
-        let assistantContent = ''
-        let buffer = ''
-
-        while (true) {
-          const { done, value } = await reader.read()
-          if (done) break
-
-          buffer += decoder.decode(value, { stream: true })
-
-          const lines = buffer.split('\n')
-          buffer = lines.pop() || ''
-
-          for (const line of lines) {
-            if (line.startsWith('data: ')) {
-              const data = line.slice(6)
-              if (data === '[DONE]') continue
-
-              try {
-                const event = JSON.parse(data)
-                addDebugEvent(event.type as DebugEventType, event)
-
-                if (event.type === 'thinking') {
-                  setIsThinking(true)
-                } else if (event.type === 'text') {
-                  setIsThinking(false)
-                  assistantContent += event.content || ''
-                  setMessages((prev) => {
-                    const existingAssistant = prev.find((m) => m.id === 'streaming')
-                    if (existingAssistant) {
-                      return prev.map((m) =>
-                        m.id === 'streaming' ? { ...m, content: assistantContent } : m
-                      )
-                    } else {
-                      return [
-                        ...prev,
-                        {
-                          id: 'streaming',
-                          role: 'assistant' as const,
-                          content: assistantContent,
-                          createdAt: new Date(),
-                        },
-                      ]
-                    }
-                  })
-                } else if (event.type === 'question') {
-                  setIsThinking(false)
-                  setPendingQuestion(event.question as OpenCodeQuestion)
-                } else if (event.type === 'done') {
-                  setIsThinking(false)
-                  if (event.sessionId) {
-                    setOpencodeSessionId(event.sessionId)
-                  }
-                } else if (event.type === 'error') {
-                  setIsThinking(false)
-                  setMessages((prev) => [
-                    ...prev,
-                    {
-                      id: generateId(),
-                      role: 'assistant' as const,
-                      content: `Error: ${event.error || 'Unknown error'}`,
-                      createdAt: new Date(),
-                    },
-                  ])
-                }
-              } catch {
-                // Ignore parse errors
-              }
-            }
-          }
-        }
-
-        // Finalize the assistant message
-        setMessages((prev) => prev.map((m) => (m.id === 'streaming' ? { ...m, id: generateId() } : m)))
+        // Answer sent successfully - the original stream will handle the response
+        console.log('[answerQuestion] Answer sent, original stream will receive response')
+        // Note: isThinking stays true until the original stream sends 'done' or more 'text'
       } catch (error) {
         console.error('[answerQuestion] Error:', error)
+        setIsThinking(false)
         setMessages((prev) => [
           ...prev,
           {
             id: generateId(),
             role: 'assistant' as const,
-            content: `Error: ${error instanceof Error ? error.message : 'Failed to process answer'}`,
+            content: `Error: ${error instanceof Error ? error.message : 'Failed to send answer'}`,
             createdAt: new Date(),
           },
         ])
-      } finally {
-        setState((prev) => ({ ...prev, isStreaming: false }))
-        setIsThinking(false)
       }
     },
-    [pendingQuestion, addDebugEvent]
+    [pendingQuestion]
   )
 
   // Legacy sendMessage function (for backwards compatibility)

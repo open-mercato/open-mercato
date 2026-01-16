@@ -325,38 +325,93 @@ export class OpenCodeClient {
 
   /**
    * Answer a pending question.
+   * OpenCode expects: POST /question/{requestID}/reply with { answers: [["label"]] }
+   * Each answer is an array of selected option labels (for multi-select support).
    */
-  async answerQuestion(questionId: string, answer: number): Promise<void> {
-    const res = await fetch(`${this.baseUrl}/question/${questionId}`, {
+  async answerQuestion(questionId: string, answerIndex: number): Promise<void> {
+    // First get the question to find the selected option label
+    const questions = await this.getPendingQuestions()
+    const question = questions.find((q) => q.id === questionId)
+
+    if (!question) {
+      throw new Error(`Question ${questionId} not found`)
+    }
+
+    // Build answers array - each question's answer is an array of selected labels
+    const answers: string[][] = []
+    for (const q of question.questions) {
+      const selectedOption = q.options[answerIndex]
+      if (selectedOption) {
+        // Each answer is an array of selected labels (supports multi-select)
+        answers.push([selectedOption.label])
+      }
+    }
+
+    const body = { answers }
+
+    console.log('[OpenCode Client] Answering question', questionId, 'with body:', JSON.stringify(body))
+
+    const res = await fetch(`${this.baseUrl}/question/${questionId}/reply`, {
       method: 'POST',
       headers: this.headers,
-      body: JSON.stringify({ answer }),
+      body: JSON.stringify(body),
+    })
+
+    const responseText = await res.text()
+    console.log('[OpenCode Client] Answer response:', res.status, responseText.substring(0, 200))
+
+    if (!res.ok) {
+      throw new Error(`Failed to answer question: ${res.status} - ${responseText}`)
+    }
+  }
+
+  /**
+   * Reject a pending question.
+   */
+  async rejectQuestion(questionId: string): Promise<void> {
+    console.log('[OpenCode Client] Rejecting question', questionId)
+
+    const res = await fetch(`${this.baseUrl}/question/${questionId}/reject`, {
+      method: 'POST',
+      headers: this.headers,
     })
 
     if (!res.ok) {
-      throw new Error(`Failed to answer question: ${res.status}`)
+      const responseText = await res.text()
+      throw new Error(`Failed to reject question: ${res.status} - ${responseText}`)
     }
   }
 
   /**
    * Get session status (idle, busy, waiting for question).
+   * Falls back to inferring status from pending questions if endpoint doesn't exist.
    */
   async getSessionStatus(sessionId: string): Promise<{ status: string; questionId?: string }> {
-    const res = await fetch(`${this.baseUrl}/session/${sessionId}/status`, {
-      headers: this.headers,
-    })
+    try {
+      const res = await fetch(`${this.baseUrl}/session/${sessionId}/status`, {
+        headers: this.headers,
+      })
 
-    if (!res.ok) {
-      // If status endpoint doesn't exist, try to infer from questions
-      const questions = await this.getPendingQuestions()
-      const sessionQuestion = questions.find((q) => q.sessionID === sessionId)
-      if (sessionQuestion) {
-        return { status: 'waiting', questionId: sessionQuestion.id }
+      if (res.ok) {
+        const contentType = res.headers.get('content-type')
+        if (contentType && contentType.includes('application/json')) {
+          return res.json()
+        }
       }
-      return { status: 'unknown' }
+    } catch {
+      // Endpoint doesn't exist or network error - fall through to inference
     }
 
-    return res.json()
+    // Fall back to inferring status from pending questions
+    // Note: We can't tell if OpenCode is busy without the status endpoint
+    // Return 'unknown' to let SSE events determine actual state
+    const questions = await this.getPendingQuestions()
+    const sessionQuestion = questions.find((q) => q.sessionID === sessionId)
+    if (sessionQuestion) {
+      return { status: 'waiting', questionId: sessionQuestion.id }
+    }
+    // Don't assume idle - we can't know without SSE events
+    return { status: 'unknown' }
   }
 }
 
