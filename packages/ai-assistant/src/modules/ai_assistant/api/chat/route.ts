@@ -2,9 +2,13 @@ import { NextResponse, type NextRequest } from 'next/server'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import {
   handleOpenCodeMessageStreaming,
-  handleOpenCodeAnswer,
   type OpenCodeStreamEvent,
-} from '@open-mercato/ai-assistant'
+} from '../../lib/opencode-handlers'
+import { createOpenCodeClient } from '../../lib/opencode-client'
+
+export const metadata = {
+  POST: { requireAuth: true, requireFeatures: ['ai_assistant.view'] },
+}
 
 /**
  * Chat endpoint that routes messages to OpenCode agent.
@@ -74,7 +78,6 @@ export async function POST(req: NextRequest) {
         console.log('[AI Chat] Answering question:', answerQuestion.questionId, 'with', answerQuestion.answer, 'session:', answerQuestion.sessionId)
 
         // Import the client directly to send the answer
-        const { createOpenCodeClient } = await import('@open-mercato/ai-assistant')
         const client = createOpenCodeClient()
         await client.answerQuestion(answerQuestion.questionId, answerQuestion.answer)
 

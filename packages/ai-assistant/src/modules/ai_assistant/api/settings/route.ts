@@ -9,7 +9,7 @@ import {
   CHAT_PROVIDERS,
   type ChatProviderId,
   type ChatProviderConfig,
-} from '@open-mercato/ai-assistant/modules/ai_assistant/lib/chat-config'
+} from '../../lib/chat-config'
 
 export const metadata = {
   GET: { requireAuth: true, requireFeatures: ['ai_assistant.view'] },

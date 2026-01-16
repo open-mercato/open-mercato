@@ -7,7 +7,7 @@ import {
   updateMcpServerConfig,
   deleteMcpServerConfig,
   validateMcpServerConfig,
-} from '@open-mercato/ai-assistant/modules/ai_assistant/lib/mcp-server-config'
+} from '../../../lib/mcp-server-config'
 
 export const metadata = {
   GET: { requireAuth: true, requireFeatures: ['ai_assistant.mcp_servers.view'] },
@@ -30,7 +30,7 @@ type RouteParams = {
 }
 
 /**
- * GET /api/ai/mcp-servers/:id
+ * GET /api/ai_assistant/mcp-servers/:id
  * Get a single MCP server configuration.
  */
 export async function GET(req: NextRequest, { params }: RouteParams) {
@@ -57,7 +57,7 @@ export async function GET(req: NextRequest, { params }: RouteParams) {
 }
 
 /**
- * PUT /api/ai/mcp-servers/:id
+ * PUT /api/ai_assistant/mcp-servers/:id
  * Update an MCP server configuration.
  */
 export async function PUT(req: NextRequest, { params }: RouteParams) {
@@ -107,8 +107,17 @@ export async function PUT(req: NextRequest, { params }: RouteParams) {
       )
     }
 
+    // Transform null values to undefined for the update function
+    const cleanUpdates = {
+      ...updates,
+      url: updates.url === null ? undefined : updates.url,
+      command: updates.command === null ? undefined : updates.command,
+      args: updates.args === null ? undefined : updates.args,
+      apiKeyId: updates.apiKeyId === null ? undefined : updates.apiKeyId,
+    }
+
     // Update configuration
-    const updatedConfig = await updateMcpServerConfig(container, id, updates)
+    const updatedConfig = await updateMcpServerConfig(container, id, cleanUpdates)
 
     return NextResponse.json({
       success: true,
@@ -121,7 +130,7 @@ export async function PUT(req: NextRequest, { params }: RouteParams) {
 }
 
 /**
- * DELETE /api/ai/mcp-servers/:id
+ * DELETE /api/ai_assistant/mcp-servers/:id
  * Delete an MCP server configuration.
  */
 export async function DELETE(req: NextRequest, { params }: RouteParams) {

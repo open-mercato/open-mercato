@@ -79,7 +79,7 @@ function AiAssistantSettingsContent() {
       setLoading(true)
       setError(null)
       try {
-        const response = await fetch('/api/ai/settings')
+        const response = await fetch('/api/ai_assistant/settings')
         if (!response.ok) {
           throw new Error('Failed to fetch settings')
         }
@@ -126,7 +126,7 @@ function AiAssistantSettingsContent() {
 
     setSaving(true)
     try {
-      const response = await fetch('/api/ai/settings', {
+      const response = await fetch('/api/ai_assistant/settings', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({

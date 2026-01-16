@@ -1,13 +1,14 @@
 import { NextResponse, type NextRequest } from 'next/server'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@/lib/di/container'
-import { bootstrap } from '@/bootstrap'
-import { executeTool } from '@open-mercato/ai-assistant/modules/ai_assistant/lib/tool-executor'
-import { loadAllModuleTools } from '@open-mercato/ai-assistant/modules/ai_assistant/lib/tool-loader'
+import { executeTool } from '../../../lib/tool-executor'
+import { loadAllModuleTools } from '../../../lib/tool-loader'
 import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
-import type { McpToolContext } from '@open-mercato/ai-assistant/types'
+import type { McpToolContext } from '../../../lib/types'
 
-bootstrap()
+export const metadata = {
+  POST: { requireAuth: true, requireFeatures: ['ai_assistant.view'] },
+}
 
 export async function POST(req: NextRequest) {
   const auth = await getAuthFromRequest(req)

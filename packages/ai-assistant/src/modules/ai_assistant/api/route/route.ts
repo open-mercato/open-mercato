@@ -1,21 +1,22 @@
 import { NextResponse, type NextRequest } from 'next/server'
-import { generateObject } from '@open-mercato/ai-assistant/modules/ai_assistant/lib/ai-sdk'
+import { generateObject } from '../../lib/ai-sdk'
 import {
   createOpenAI,
   createAnthropic,
   createGoogleGenerativeAI,
-} from '@open-mercato/ai-assistant/modules/ai_assistant/lib/ai-sdk'
+} from '../../lib/ai-sdk'
 import { z } from 'zod'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@/lib/di/container'
-import { bootstrap } from '@/bootstrap'
 import {
   resolveChatConfig,
   isProviderConfigured,
   type ChatProviderId,
-} from '@open-mercato/ai-assistant/modules/ai_assistant/lib/chat-config'
+} from '../../lib/chat-config'
 
-bootstrap()
+export const metadata = {
+  POST: { requireAuth: true, requireFeatures: ['ai_assistant.view'] },
+}
 
 const RouteResultSchema = z.object({
   intent: z.enum(['tool', 'general_chat']),

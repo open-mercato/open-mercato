@@ -2,7 +2,12 @@ import { NextResponse, type NextRequest } from 'next/server'
 import {
   handleOpenCodeMessage,
   handleOpenCodeHealth,
-} from '@open-mercato/ai-assistant'
+} from '../../../lib/opencode-handlers'
+
+export const metadata = {
+  POST: { requireAuth: true, requireFeatures: ['ai_assistant.view'] },
+  GET: { requireAuth: true, requireFeatures: ['ai_assistant.view'] },
+}
 
 /**
  * Test endpoint for OpenCode integration.

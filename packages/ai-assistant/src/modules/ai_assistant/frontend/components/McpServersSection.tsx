@@ -65,7 +65,7 @@ export function McpServersSection() {
     setLoading(true)
     setError(null)
     try {
-      const response = await fetch('/api/ai/mcp-servers')
+      const response = await fetch('/api/ai_assistant/mcp-servers')
       if (!response.ok) {
         throw new Error('Failed to fetch MCP servers')
       }
@@ -146,8 +146,8 @@ export function McpServersSection() {
       }
 
       const url = editingServer
-        ? `/api/ai/mcp-servers/${editingServer.id}`
-        : '/api/ai/mcp-servers'
+        ? `/api/ai_assistant/mcp-servers/${editingServer.id}`
+        : '/api/ai_assistant/mcp-servers'
 
       const response = await fetch(url, {
         method: editingServer ? 'PUT' : 'POST',
@@ -174,7 +174,7 @@ export function McpServersSection() {
   // Toggle server enabled state
   const toggleEnabled = async (server: McpServerConfig) => {
     try {
-      const response = await fetch(`/api/ai/mcp-servers/${server.id}`, {
+      const response = await fetch(`/api/ai_assistant/mcp-servers/${server.id}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ enabled: !server.enabled }),
@@ -198,7 +198,7 @@ export function McpServersSection() {
     }
 
     try {
-      const response = await fetch(`/api/ai/mcp-servers/${server.id}`, {
+      const response = await fetch(`/api/ai_assistant/mcp-servers/${server.id}`, {
         method: 'DELETE',
       })
 
@@ -470,3 +470,5 @@ export function McpServersSection() {
     </div>
   )
 }
+
+export default McpServersSection

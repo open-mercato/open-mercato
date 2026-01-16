@@ -2,12 +2,13 @@ import { NextResponse, type NextRequest } from 'next/server'
 import { zodToJsonSchema } from 'zod-to-json-schema'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@/lib/di/container'
-import { bootstrap } from '@/bootstrap'
-import { getToolRegistry } from '@open-mercato/ai-assistant/tools'
-import { loadAllModuleTools } from '@open-mercato/ai-assistant/modules/ai_assistant/lib/tool-loader'
+import { getToolRegistry } from '../../lib/tool-registry'
+import { loadAllModuleTools } from '../../lib/tool-loader'
 import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
 
-bootstrap()
+export const metadata = {
+  GET: { requireAuth: true, requireFeatures: ['ai_assistant.view'] },
+}
 
 function hasRequiredFeatures(
   requiredFeatures: string[] | undefined,

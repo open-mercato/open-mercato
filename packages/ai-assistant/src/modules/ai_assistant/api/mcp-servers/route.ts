@@ -7,7 +7,7 @@ import {
   saveMcpServerConfig,
   validateMcpServerConfig,
   type McpServerConfig,
-} from '@open-mercato/ai-assistant/modules/ai_assistant/lib/mcp-server-config'
+} from '../../lib/mcp-server-config'
 
 export const metadata = {
   GET: { requireAuth: true, requireFeatures: ['ai_assistant.mcp_servers.view'] },
@@ -29,7 +29,7 @@ type McpServersResponse = {
 }
 
 /**
- * GET /api/ai/mcp-servers
+ * GET /api/ai_assistant/mcp-servers
  * List all MCP server configurations.
  */
 export async function GET(req: NextRequest) {
@@ -55,7 +55,7 @@ export async function GET(req: NextRequest) {
 }
 
 /**
- * POST /api/ai/mcp-servers
+ * POST /api/ai_assistant/mcp-servers
  * Create a new MCP server configuration.
  */
 export async function POST(req: NextRequest) {

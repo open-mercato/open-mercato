@@ -12,7 +12,7 @@ export function useMcpTools() {
     setIsLoading(true)
     setError(null)
     try {
-      const response = await fetch('/api/ai/tools')
+      const response = await fetch('/api/ai_assistant/tools')
       if (!response.ok) {
         throw new Error(`Failed to fetch tools: ${response.status}`)
       }
@@ -29,7 +29,7 @@ export function useMcpTools() {
   const executeTool = useCallback(
     async (toolName: string, args: Record<string, unknown> = {}): Promise<ToolExecutionResult> => {
       try {
-        const response = await fetch('/api/ai/tools/execute', {
+        const response = await fetch('/api/ai_assistant/tools/execute', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ toolName, args }),

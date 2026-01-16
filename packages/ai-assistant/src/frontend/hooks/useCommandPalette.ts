@@ -409,7 +409,7 @@ export function useCommandPalette(options: UseCommandPaletteOptions) {
   // Route query using fast model
   const routeQuery = useCallback(
     async (query: string): Promise<RouteResult> => {
-      const response = await fetch('/api/ai/route', {
+      const response = await fetch('/api/ai_assistant/route', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -460,8 +460,8 @@ export function useCommandPalette(options: UseCommandPaletteOptions) {
         const controller = new AbortController()
         currentStreamController.current = controller
 
-        console.log('[startAgenticChat] Sending request to /api/ai/chat with mode: agentic')
-        const response = await fetch('/api/ai/chat', {
+        console.log('[startAgenticChat] Sending request to /api/ai_assistant/chat with mode: agentic')
+        const response = await fetch('/api/ai_assistant/chat', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -674,7 +674,7 @@ export function useCommandPalette(options: UseCommandPaletteOptions) {
         }
         setMessages([userMessage])
 
-        const response = await fetch('/api/ai/chat', {
+        const response = await fetch('/api/ai_assistant/chat', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -894,7 +894,7 @@ export function useCommandPalette(options: UseCommandPaletteOptions) {
 
       try {
         // Send to chat API with OpenCode session for context persistence
-        const response = await fetch('/api/ai/chat', {
+        const response = await fetch('/api/ai_assistant/chat', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -1143,7 +1143,7 @@ export function useCommandPalette(options: UseCommandPaletteOptions) {
       try {
         // Send answer as simple POST - the original SSE stream will receive the follow-up
         const sessionId = pendingQuestion.sessionID
-        const response = await fetch('/api/ai/chat', {
+        const response = await fetch('/api/ai_assistant/chat', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -1197,7 +1197,7 @@ export function useCommandPalette(options: UseCommandPaletteOptions) {
 
       try {
         // Send to chat API
-        const response = await fetch('/api/ai/chat', {
+        const response = await fetch('/api/ai_assistant/chat', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
