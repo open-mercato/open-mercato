@@ -312,7 +312,7 @@ The widget injection system is integrated into the module code generator:
 1. Widgets in `src/modules/<module>/widgets/injection/**/widget.ts(x)` are auto-discovered
 2. Injection tables in `src/modules/<module>/widgets/injection-table.ts` are auto-loaded
 3. Generated registry files are created in `generated/injection-widgets.generated.ts`
-4. Run `npm run modules:prepare` to regenerate
+4. Run `yarn generate` to regenerate
 
 ## Best Practices
 
@@ -330,7 +330,7 @@ The widget injection system is integrated into the module code generator:
 
 1. Check that the widget is in the correct directory structure
 2. Verify the injection table maps the spot ID correctly
-3. Run `npm run modules:prepare` to regenerate
+3. Run `yarn generate` to regenerate
 4. Check browser console for loading errors
 
 ### Events not firing

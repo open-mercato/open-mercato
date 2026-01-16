@@ -1,5 +1,5 @@
-import { recordIndexerError } from '@/lib/indexers/error-log'
-import { recordIndexerLog } from '@/lib/indexers/status-log'
+import { recordIndexerError } from '@open-mercato/shared/lib/indexers/error-log'
+import { recordIndexerLog } from '@open-mercato/shared/lib/indexers/status-log'
 import type { SearchIndexer } from '../../../indexer/search-indexer'
 import type { EmbeddingService } from '../../../vector'
 import { writeCoverageCounts } from '@open-mercato/core/modules/query_index/lib/coverage'

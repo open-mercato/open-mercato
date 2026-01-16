@@ -11,11 +11,11 @@ const mockDataEngine = {
   updateCustomEntityRecord: jest.fn(async () => undefined),
 }
 
-jest.mock('@/lib/di/container', () => ({
+jest.mock('@open-mercato/shared/lib/di/container', () => ({
   createRequestContainer: async () => ({ resolve: (k: string) => (k === 'em' ? mockEm : mockDataEngine) }),
 }))
 
-jest.mock('@/lib/auth/server', () => ({ getAuthFromRequest: () => ({ orgId: 'org', tenantId: 't1', roles: ['admin'] }) }))
+jest.mock('@open-mercato/shared/lib/auth/server', () => ({ getAuthFromRequest: () => ({ orgId: 'org', tenantId: 't1', roles: ['admin'] }) }))
 
 describe('Records API validation (custom fields)', () => {
   beforeEach(() => { jest.clearAllMocks() })

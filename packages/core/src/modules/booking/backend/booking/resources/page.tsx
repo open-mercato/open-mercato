@@ -15,8 +15,8 @@ import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import type { FilterDef, FilterOption, FilterValues } from '@open-mercato/ui/backend/FilterOverlay'
 import type { TagOption } from '@open-mercato/ui/backend/detail'
 import { renderDictionaryColor, renderDictionaryIcon } from '@open-mercato/core/modules/dictionaries/components/dictionaryAppearance'
-import { useOrganizationScopeVersion } from '@/lib/frontend/useOrganizationScope'
-import { useT } from '@/lib/i18n/context'
+import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
+import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { Pencil } from 'lucide-react'
 
 const PAGE_SIZE = 20

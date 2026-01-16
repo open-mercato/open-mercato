@@ -9,9 +9,9 @@ import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { LookupSelect, type LookupSelectItem } from '@open-mercato/ui/backend/inputs'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { TagsSection, type TagOption, type TagsSectionLabels } from '@open-mercato/ui/backend/detail'
-import { E } from '@open-mercato/core/generated/entities.ids.generated'
-import { useT } from '@/lib/i18n/context'
-import { useOrganizationScopeVersion } from '@/lib/frontend/useOrganizationScope'
+import { E } from '#generated/entities.ids.generated'
+import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
 import { Plus } from 'lucide-react'
 
 const DEFAULT_PAGE_SIZE = 100

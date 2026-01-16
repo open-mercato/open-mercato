@@ -67,6 +67,17 @@
           "cta": "Bestellung ansehen",
           "footer": "Open Mercato"
         }
+      },
+      "list": {
+        "title": "Angebote"
+      },
+      "detail": {
+        "title": "Angebotsdetails"
+      },
+      "form": {
+        "general": "Allgemein",
+        "lines": "Positionen",
+        "notes": "Notizen"
       }
     },
     "nav": {
@@ -283,19 +294,6 @@
         "shipments": "Sendungen",
         "invoices": "Rechnungen",
         "payments": "Zahlungen",
-        "notes": "Notizen"
-      }
-    },
-    "quotes": {
-      "list": {
-        "title": "Angebote"
-      },
-      "detail": {
-        "title": "Angebotsdetails"
-      },
-      "form": {
-        "general": "Allgemein",
-        "lines": "Positionen",
         "notes": "Notizen"
       }
     },

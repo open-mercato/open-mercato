@@ -1,0 +1,39 @@
+---
+title: Orders and quotes
+description: Browse, filter, and act on every sales order or quote. Learn how statuses, totals, and tabs work across the workspace.
+sidebar_label: Orders and quotes
+---
+
+The Sales workspace keeps orders and quotes together so operators can monitor every document, drill into detail, and take actions like payments, shipments, or adjustments without leaving the record. Access is guarded by `sales.orders.view` / `sales.orders.manage` and `sales.quotes.view` / `sales.quotes.manage`.
+
+![Order detail overview](/screenshots/open-mercato-orders-order-details.png)
+
+## Understand the detail workspace
+
+- **Header** shows document number, status badge, delete control, and customer summary (with email and channel).
+- **Tabs** keep related actions close: Comments, Addresses, Items, Shipments, Payments, Adjustments. Each tab reuses the same document context so totals stay synced.
+- **Status + currency** can be edited inline (feature-guarded). Status changes trigger guardrails (see Settings).
+- **Totals** section surfaces key amounts (net, gross, outstanding) with a “Show details” drill-down.
+
+![Totals breakdown](/screenshots/open-mercato-orders-order-totals.png)
+
+## Quote vs order
+
+- **Quotes** behave like pre-orders or negotiation drafts. They can later be converted into an order (with numbering following the configured sequence).
+- **Orders** are confirmed sales documents that drive shipments, payments, and fulfillment.
+- Both share the same tabs and totals engine; status dictionaries keep them distinct.
+
+## Inline actions
+
+- **Add payment** to record a capture, authorization, or refund. Keyboard: `Cmd/Ctrl + Enter` saves, `Escape` cancels.
+- **Add shipment** to allocate items, set carrier, tracking, and optional shipping adjustments.
+- **Add adjustment** for shipping fees, surcharges, discounts, or tax overrides that hit totals immediately.
+- **Addresses** tab lets you manage billing/shipping and respect “Same as shipping”.
+
+![Shipments tab](/screenshots/open-mercato-orders-order-shipments.png)
+
+## Permissions
+
+- View requires `sales.orders.view` or `sales.quotes.view`.
+- Edits (status, payments, shipments, adjustments) require `sales.orders.manage` or `sales.quotes.manage`, plus `sales.payments.manage` / `sales.shipments.manage` for those tabs.
+

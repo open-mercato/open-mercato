@@ -4,12 +4,12 @@
 
 import * as React from 'react'
 import { screen, waitFor } from '@testing-library/react'
-import { renderWithProviders } from '../../../../../../tests/helpers/renderWithProviders'
+import { renderWithProviders } from '@open-mercato/shared/lib/testing/renderWithProviders'
 import { DashboardScreen } from '../DashboardScreen'
-import { apiCall } from '../../utils/apiCall'
+import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { loadDashboardWidgetModule } from '../widgetRegistry'
 
-jest.mock('../../utils/apiCall', () => ({
+jest.mock('@open-mercato/ui/backend/utils/apiCall', () => ({
   apiCall: jest.fn(),
 }))
 
@@ -62,11 +62,15 @@ const widgetResponse = {
   },
 }
 
+function MockWidget() {
+  return <div>Widget body</div>
+}
+
 describe('DashboardScreen', () => {
   beforeEach(() => {
     jest.resetAllMocks()
     ;(loadDashboardWidgetModule as jest.Mock).mockResolvedValue({
-      Widget: () => <div>Widget body</div>,
+      Widget: MockWidget,
       hydrateSettings: (value: unknown) => value,
       dehydrateSettings: (value: unknown) => value,
     })
@@ -82,10 +86,10 @@ describe('DashboardScreen', () => {
 
     renderWithProviders(<DashboardScreen />, { dict })
 
-    await waitFor(() => {
-      expect(screen.getByText('Widget Foo')).toBeInTheDocument()
-      expect(screen.getByText('Widget body')).toBeInTheDocument()
-    })
+    // Wait for the layout to load first
+    expect(await screen.findByText('Widget Foo')).toBeInTheDocument()
+    // Then wait for the widget module to load
+    expect(await screen.findByText('Widget body')).toBeInTheDocument()
   })
 
   it('shows an error when the layout request fails', async () => {

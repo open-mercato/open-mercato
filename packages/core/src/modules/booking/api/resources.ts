@@ -7,9 +7,30 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import { BookingResource, BookingResourceTagAssignment, BookingResourceTag } from '../data/entities'
 import { bookingResourceCreateSchema, bookingResourceUpdateSchema } from '../data/validators'
 import { sanitizeSearchTerm, parseBooleanFlag } from './helpers'
-import { E } from '@/generated/entities.ids.generated'
-import * as F from '@/generated/entities/booking_resource'
+import { E } from '#generated/entities.ids.generated'
 import { createBookingCrudOpenApi, createPagedListResponseSchema, defaultOkResponseSchema } from './openapi'
+
+// Field constants for BookingResource entity
+const F = {
+  id: "id",
+  tenant_id: "tenant_id",
+  organization_id: "organization_id",
+  resource_type_id: "resource_type_id",
+  name: "name",
+  description: "description",
+  capacity: "capacity",
+  capacity_unit_value: "capacity_unit_value",
+  capacity_unit_name: "capacity_unit_name",
+  capacity_unit_color: "capacity_unit_color",
+  capacity_unit_icon: "capacity_unit_icon",
+  appearance_icon: "appearance_icon",
+  appearance_color: "appearance_color",
+  is_active: "is_active",
+  availability_rule_set_id: "availability_rule_set_id",
+  created_at: "created_at",
+  updated_at: "updated_at",
+  deleted_at: "deleted_at",
+} as const
 
 const routeMetadata = {
   GET: { requireAuth: true, requireFeatures: ['booking.view'] },

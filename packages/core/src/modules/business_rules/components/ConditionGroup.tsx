@@ -7,7 +7,7 @@ import { ConditionRow } from './ConditionRow'
 import type { GroupCondition, ConditionExpression, SimpleCondition } from './utils/conditionValidation'
 import type { LogicalOperator } from './../data/validators'
 import { isGroupCondition, getLogicalOperators } from './utils/conditionValidation'
-import { useT } from '@/lib/i18n/context'
+import { useT } from '@open-mercato/shared/lib/i18n/context'
 
 export type ConditionGroupProps = {
   group: GroupCondition

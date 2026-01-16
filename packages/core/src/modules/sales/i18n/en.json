@@ -67,6 +67,17 @@
           "cta": "View order",
           "footer": "Open Mercato"
         }
+      },
+      "list": {
+        "title": "Quotes"
+      },
+      "detail": {
+        "title": "Quote details"
+      },
+      "form": {
+        "general": "General",
+        "lines": "Line Items",
+        "notes": "Notes"
       }
     },
     "nav": {
@@ -283,19 +294,6 @@
         "shipments": "Shipments",
         "invoices": "Invoices",
         "payments": "Payments",
-        "notes": "Notes"
-      }
-    },
-    "quotes": {
-      "list": {
-        "title": "Quotes"
-      },
-      "detail": {
-        "title": "Quote details"
-      },
-      "form": {
-        "general": "General",
-        "lines": "Line Items",
         "notes": "Notes"
       }
     },

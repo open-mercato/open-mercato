@@ -1,5 +1,5 @@
 import { z, type ZodTypeAny } from 'zod'
-import type { Module, ModuleApi, ModuleApiLegacy, ModuleApiRouteFile, HttpMethod } from '@/modules/registry'
+import type { Module, ModuleApi, ModuleApiLegacy, ModuleApiRouteFile, HttpMethod } from '@open-mercato/shared/modules/registry'
 import type {
   OpenApiDocument,
   OpenApiDocumentOptions,

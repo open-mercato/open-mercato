@@ -4,8 +4,8 @@ import * as React from 'react'
 import { z } from 'zod'
 import Link from 'next/link'
 import { Check, Pencil, Plus, Settings } from 'lucide-react'
-import { useT } from '@/lib/i18n/context'
-import { useOrganizationScopeVersion } from '@/lib/frontend/useOrganizationScope'
+import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
 import { Button } from '@open-mercato/ui/primitives/button'
 import {
   Dialog,

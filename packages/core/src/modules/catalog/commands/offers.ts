@@ -24,7 +24,7 @@ import {
   requireProduct,
 } from './shared'
 import { loadCustomFieldSnapshot, buildCustomFieldResetMap } from '@open-mercato/shared/lib/commands/customFieldSnapshots'
-import { E } from '@open-mercato/core/generated/entities.ids.generated'
+import { E } from '#generated/entities.ids.generated'
 
 type OfferSnapshot = {
   id: string

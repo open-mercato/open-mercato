@@ -60,7 +60,7 @@ export function register(container: AppContainer) {
 
 ## 3. Define entities and migrations
 
-Create `data/entities.ts` with MikroORM definitions and run `npm run modules:prepare && npm run db:generate` to emit migrations. Remember to include `organization_id`, `tenant_id`, and soft-delete columns when appropriate.
+Create `data/entities.ts` with MikroORM definitions and run `yarn generate && yarn db:generate` to emit migrations. Remember to include `organization_id`, `tenant_id`, and soft-delete columns when appropriate.
 
 ## 4. Build CRUD APIs and admin UI
 
@@ -73,4 +73,4 @@ Create `data/entities.ts` with MikroORM definitions and run `npm run modules:pre
 - Place dashboards under `widgets/dashboard/stock/widget.ts` to surface KPIs.
 - React to inventory events in `subscribers/stock-adjusted.ts` by emitting notifications or syncing external systems.
 
-Finally, enable the module in `src/modules.ts`, re-run `npm run modules:prepare`, and restart the dev server. You have a fully fledged module with end-to-end functionality ready for production.
+Finally, enable the module in `apps/mercato/src/modules.ts`, re-run `yarn generate`, and restart the dev server. You have a fully fledged module with end-to-end functionality ready for production.

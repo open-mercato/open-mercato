@@ -11,8 +11,8 @@ import { readApiResultOrThrow, apiCall } from '@open-mercato/ui/backend/utils/ap
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Loader2, Search, Image as ImageIcon, Trash2 } from 'lucide-react'
-import { useT } from '@/lib/i18n/context'
-import { E } from '@open-mercato/core/generated/entities.ids.generated'
+import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { E } from '#generated/entities.ids.generated'
 import { buildAttachmentImageUrl, slugifyAttachmentFileName } from '@open-mercato/core/modules/attachments/lib/imageUrls'
 import { cn } from '@open-mercato/shared/lib/utils'
 

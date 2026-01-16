@@ -5,7 +5,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@open-mercato/
 import type { ActivityFormBaseValues, ActivityFormSubmitPayload } from './ActivityForm'
 import { ActivityForm } from './ActivityForm'
 import type { DictionarySelectLabels } from '@open-mercato/core/modules/dictionaries/components/DictionaryEntrySelect'
-import { useT } from '@/lib/i18n/context'
+import { useT } from '@open-mercato/shared/lib/i18n/context'
 
 type DictionaryOption = {
   value: string

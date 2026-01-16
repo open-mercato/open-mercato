@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server'
-import { getAuthFromRequest } from '@/lib/auth/server'
+import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
-import { createRequestContainer } from '@/lib/di/container'
+import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { sidebarPreferencesInputSchema } from '../../../data/validators'
 import {
   loadRoleSidebarPreferences,

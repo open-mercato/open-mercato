@@ -5,7 +5,7 @@ import { Button } from '@open-mercato/ui/primitives/button'
 import { Plus, ChevronUp, ChevronDown, X } from 'lucide-react'
 import { useQuery } from '@tanstack/react-query'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
-import { useT } from '@/lib/i18n/context'
+import { useT } from '@open-mercato/shared/lib/i18n/context'
 
 type Member = {
   id: string

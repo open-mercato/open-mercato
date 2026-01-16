@@ -1,9 +1,9 @@
 import { NextResponse } from 'next/server'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { toAbsoluteUrl } from '@open-mercato/shared/lib/url'
-import { createRequestContainer } from '@/lib/di/container'
+import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { AuthService } from '@open-mercato/core/modules/auth/services/authService'
-import { signJwt } from '@/lib/auth/jwt'
+import { signJwt } from '@open-mercato/shared/lib/auth/jwt'
 import { z } from 'zod'
 
 function parseCookie(req: Request, name: string): string | null {

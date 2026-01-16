@@ -4,9 +4,25 @@ import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { resolveCrudRecordId, parseScopedCommandInput } from '@open-mercato/shared/lib/api/scoped'
 import { BookingAvailabilityRule } from '../data/entities'
 import { bookingAvailabilityRuleCreateSchema, bookingAvailabilityRuleUpdateSchema } from '../data/validators'
-import { E } from '@/generated/entities.ids.generated'
-import * as F from '@/generated/entities/booking_availability_rule'
+import { E } from '#generated/entities.ids.generated'
 import { createBookingCrudOpenApi, createPagedListResponseSchema, defaultOkResponseSchema } from './openapi'
+
+// Field constants for BookingAvailabilityRule entity
+const F = {
+  id: "id",
+  tenant_id: "tenant_id",
+  organization_id: "organization_id",
+  subject_type: "subject_type",
+  subject_id: "subject_id",
+  timezone: "timezone",
+  rrule: "rrule",
+  exdates: "exdates",
+  kind: "kind",
+  note: "note",
+  created_at: "created_at",
+  updated_at: "updated_at",
+  deleted_at: "deleted_at",
+} as const
 
 const routeMetadata = {
   GET: { requireAuth: true, requireFeatures: ['booking.view'] },

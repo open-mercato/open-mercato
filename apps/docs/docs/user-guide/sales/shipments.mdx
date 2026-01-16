@@ -1,0 +1,34 @@
+---
+title: Shipments
+description: Create shipments with carriers, tracking, and per-shipment adjustments while updating item fulfillment states.
+sidebar_label: Shipments
+---
+
+Shipments track fulfillment against orders. Each shipment can apply shipping costs, set tracking, and update item statuses. Access requires `sales.shipments.manage` plus order manage rights.
+
+![Add shipment dialog](/screenshots/open-mercato-orders-order-add-shipment.png)
+
+## Create a shipment
+
+1) Open the **Shipments** tab on an order; click **Add shipment**.  
+2) Set **shipping method** (from Sales settings) and **shipment status** (dictionary-driven).  
+3) Pick a **ship to** address or add a new one.  
+4) Select **items to ship** and quantities.  
+5) Optionally add a **shipping cost adjustment** so totals include carrier charges.  
+6) Add notes and tracking numbers.  
+7) Save with `Cmd/Ctrl + Enter`; `Escape` cancels.
+
+![Shipments tab list](/screenshots/open-mercato-orders-order-shipments.png)
+
+## How shipments interact with items
+
+- Item-level statuses move when quantities ship; statuses come from the Order line statuses dictionary.
+- Multiple shipments can fulfill one order; remaining quantities stay pending.
+- Shipping adjustments post to the Adjustments tab and recalc totals.
+
+## Tips
+
+- Keep **shipment statuses** tidy (pending, packed, shipped, delivered, returned) to mirror warehouse workflows.
+- Use notes for packing instructions; tracking supports multiple numbers (comma-separated).
+- Add shipping cost adjustments per shipment to keep margins accurate.
+

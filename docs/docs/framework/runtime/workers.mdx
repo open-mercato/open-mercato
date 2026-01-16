@@ -32,7 +32,7 @@ Run the worker:
 
 ```bash
 # Run all workers (recommended)
-npm run dev
+yarn dev
 
 # Or run specific queue
 yarn mercato queue worker my-queue
@@ -153,20 +153,20 @@ AUTO_SPAWN_WORKERS=false
 
 ### Unified Entrypoint (Development Only)
 
-By default, `npm run dev` automatically spawns workers for all queues:
+By default, `yarn dev` automatically spawns workers for all queues:
 
 ```bash
 # Start app + all workers (development)
-npm run dev
+yarn dev
 
 # Start app only (no workers)
-AUTO_SPAWN_WORKERS=false npm run dev
+AUTO_SPAWN_WORKERS=false yarn dev
 ```
 
 :::danger Production Warning
 **Never use auto-spawned workers in production.** The unified entrypoint is designed for development convenience only. In production:
 1. Set `AUTO_SPAWN_WORKERS=false` in your environment
-2. Run workers as separate processes using `npm run start:workers`
+2. Run workers as separate processes using `yarn start:workers`
 
 This allows proper scaling, monitoring, and independent restarts of worker processes.
 :::
@@ -176,7 +176,7 @@ This allows proper scaling, monitoring, and independent restarts of worker proce
 ```bash
 # Run all discovered workers
 yarn mercato queue worker --all
-npm run start:workers
+yarn start:workers
 
 # Run specific queue
 yarn mercato queue worker events
@@ -195,10 +195,10 @@ For production, run workers separately for better scaling:
 
 ```bash
 # Main app (disable auto-spawn)
-AUTO_SPAWN_WORKERS=false npm run start
+AUTO_SPAWN_WORKERS=false yarn start
 
 # Worker process (can run multiple)
-npm run start:workers
+yarn start:workers
 
 # Or specific queues on different machines
 yarn mercato queue worker events --concurrency=10

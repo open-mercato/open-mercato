@@ -3,7 +3,7 @@
 import * as React from 'react'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@open-mercato/ui/primitives/dialog'
 import { DealForm, type DealFormBaseValues, type DealFormSubmitPayload } from './DealForm'
-import { useT } from '@/lib/i18n/context'
+import { useT } from '@open-mercato/shared/lib/i18n/context'
 
 export type DealDialogProps = {
   open: boolean

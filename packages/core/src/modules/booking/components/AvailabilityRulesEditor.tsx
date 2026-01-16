@@ -12,7 +12,7 @@ import { createCrud, deleteCrud, updateCrud } from '@open-mercato/ui/backend/uti
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { Spinner } from '@open-mercato/ui/primitives/spinner'
 import { ComboboxInput } from '@open-mercato/ui/backend/inputs'
-import { useT } from '@/lib/i18n/context'
+import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { parseAvailabilityRuleWindow } from '@open-mercato/core/modules/booking/lib/resourceSchedule'
 import { CrudForm, type CrudField } from '@open-mercato/ui/backend/CrudForm'
 import { Calendar, Clock, List, PencilLine, Plus, Trash2 } from 'lucide-react'

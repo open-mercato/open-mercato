@@ -18,7 +18,7 @@ import {
 } from '../data/validators'
 import { ensureOrganizationScope, ensureTenantScope, extractUndoPayload } from './shared'
 import { BOOKING_CAPACITY_UNIT_DICTIONARY_KEY } from '../lib/capacityUnits'
-import { E } from '@/generated/entities.ids.generated'
+import { E } from '#generated/entities.ids.generated'
 
 const resourceCrudIndexer: CrudIndexerConfig<BookingResource> = {
   entityType: E.booking.booking_resource,

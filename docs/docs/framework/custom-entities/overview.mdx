@@ -11,7 +11,7 @@ Beyond module-defined MikroORM entities, Open Mercato ships an Entities module t
 - Fields support core types (`text`, `textarea`, `integer`, `float`, `boolean`, `date`, `select`, `relation`, `attachment`) and you can add more via the [field registry](../admin-ui/field-registry).
 - Generators compile definitions into `modules.generated.ts` so runtime registries know which modules supply which custom entities.
 
-```ts title="src/modules/example/ce.ts"
+```ts title="packages/<pkg>/src/modules/example/ce.ts"
 import { defineFields, cf } from '@open-mercato/modules/dsl';
 
 export const entities = [

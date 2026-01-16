@@ -3,7 +3,7 @@
 import * as React from 'react'
 import { Loader2, Search, X } from 'lucide-react'
 import { Button } from '../../primitives/button'
-import { cn } from '@/lib/utils'
+import { cn } from '@open-mercato/shared/lib/utils'
 
 export type LookupSelectItem = {
   id: string

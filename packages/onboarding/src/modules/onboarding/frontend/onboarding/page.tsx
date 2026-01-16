@@ -2,11 +2,11 @@
 
 import Image from 'next/image'
 import { useState } from 'react'
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
-import { Input } from '@/components/ui/input'
-import { Label } from '@/components/ui/label'
-import { Checkbox } from '@/components/ui/checkbox'
-import { useT, useLocale } from '@/lib/i18n/context'
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@open-mercato/ui/primitives/card'
+import { Input } from '@open-mercato/ui/primitives/input'
+import { Label } from '@open-mercato/ui/primitives/label'
+import { Checkbox } from '@open-mercato/ui/primitives/checkbox'
+import { useT, useLocale } from '@open-mercato/shared/lib/i18n/context'
 import { translateWithFallback } from '@open-mercato/shared/lib/i18n/translate'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { onboardingStartSchema } from '@open-mercato/onboarding/modules/onboarding/data/validators'
@@ -266,7 +266,7 @@ export default function OnboardingPage() {
                 id="terms"
                 checked={termsAccepted}
                 disabled={disabled}
-                onCheckedChange={(value) => {
+                onCheckedChange={(value: boolean | 'indeterminate') => {
                   setTermsAccepted(value === true)
                   if (value === true) {
                     setFieldErrors((prev) => {

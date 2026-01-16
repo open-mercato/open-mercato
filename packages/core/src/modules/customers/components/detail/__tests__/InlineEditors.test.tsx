@@ -80,7 +80,7 @@ jest.mock('@open-mercato/core/modules/dictionaries/components/AppearanceSelector
   AppearanceSelector: ({ children }: { children?: React.ReactNode }) => <div>{children}</div>,
 }))
 
-jest.mock('@/lib/i18n/context', () => ({
+jest.mock('@open-mercato/shared/lib/i18n/context', () => ({
   useT: () => (key: string, fallback?: string) => fallback ?? key,
 }))
 

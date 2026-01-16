@@ -1,0 +1,45 @@
+---
+title: mercato feature_toggles seed-defaults
+sidebar_label: seed-defaults
+description: Seeds default feature toggles from a JSON file.
+---
+
+`yarn mercato feature_toggles seed-defaults` seeds the system with default feature toggles defined in a JSON file.
+
+## Usage
+
+```bash
+yarn mercato feature_toggles seed-defaults [--filePath <path>]
+```
+
+## Options
+
+| Option | Description | Required | Default |
+| :--- | :--- | :--- | :--- |
+| `--filePath` | Path to the JSON file containing default toggles. | No | `packages/core/src/modules/feature_toggles/defaults.json` |
+
+## Behavior
+
+- Reads the specified JSON file.
+- Checks if each toggle already exists in the database.
+- If a toggle does not exist, it creates it using the properties defined in the JSON file.
+- Skips toggles that already exist.
+- Output summary: `✅ Feature toggle defaults seeded (created: <count>, skipped: <count>)`.
+
+## Example JSON File
+
+```json
+{
+  "toggles": [
+    {
+      "identifier": "feature_toggles_ui",
+      "name": "Feature Toggles UI",
+      "description": "Enable the feature toggles admin UI.",
+      "category": "feature_toggles",
+      "type": "boolean",
+      "defaultValue": true,
+      "failMode": "fail_closed"
+    }
+  ]
+}
+```

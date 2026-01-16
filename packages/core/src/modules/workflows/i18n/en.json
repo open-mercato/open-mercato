@@ -186,7 +186,7 @@
         "executionTimeline": "Execution Timeline",
         "executionHistory": "Event Log"
       },
-      "status": {
+      "statuses": {
         "RUNNING": "Running",
         "WAITING_FOR_ACTIVITIES": "Waiting for Activities",
         "PAUSED": "Paused",
@@ -353,6 +353,74 @@
         "assignmentRule": "Assignment Rule",
         "slaDuration": "SLA Duration",
         "escalationRules": "Escalation Rules"
+      },
+      "list": {
+        "title": "User Tasks"
+      },
+      "fields": {
+        "taskName": "Task Name",
+        "status": "Status",
+        "assignment": "Assignment",
+        "dueDate": "Due Date",
+        "createdAt": "Created At"
+      },
+      "status": {
+        "PENDING": "Pending",
+        "IN_PROGRESS": "In Progress",
+        "COMPLETED": "Completed",
+        "CANCELLED": "Cancelled"
+      },
+      "filters": {
+        "status": "Status",
+        "view": "View",
+        "myTasks": "My Tasks",
+        "allTasks": "All Tasks",
+        "overdue": "Overdue",
+        "overdueOnly": "Overdue Only",
+        "workflowInstanceId": "Workflow Instance ID",
+        "workflowInstanceIdPlaceholder": "Filter by workflow instance..."
+      },
+      "actions": {
+        "viewDetails": "View Details",
+        "claim": "Claim Task",
+        "complete": "Complete Task"
+      },
+      "confirm": {
+        "claim": "Are you sure you want to claim task '{{name}}'?"
+      },
+      "messages": {
+        "claimed": "Task claimed successfully",
+        "claimFailed": "Failed to claim task",
+        "completed": "Task completed successfully",
+        "completeFailed": "Failed to complete task",
+        "loadFailed": "Failed to load user tasks"
+      },
+      "roles": "Roles",
+      "detail": {
+        "loading": "Loading task...",
+        "notFound": "Task not found",
+        "backToList": "Back to Tasks",
+        "overdueWarning": "⚠ This task is overdue!",
+        "cannotComplete": "This task has already been completed or cancelled and cannot be modified.",
+        "noFormSchema": "This task has no form to complete. You can add optional comments and submit.",
+        "assignedTo": "Assigned To",
+        "workflowInstance": "Workflow Instance",
+        "comments": "Comments",
+        "optional": "optional",
+        "commentsPlaceholder": "Add any comments or notes about this task...",
+        "completeTask": "Complete Task",
+        "submitting": "Submitting...",
+        "sections": {
+          "taskInfo": "Task Information",
+          "form": "Task Form",
+          "submittedData": "Submitted Data"
+        },
+        "form": {
+          "selectOption": "-- Select an option --"
+        },
+        "validation": {
+          "requiredField": "Required field is missing: {{field}}"
+        }
       }
     },
     "signals": {
@@ -565,78 +633,6 @@
       "updateFailed": "Failed to update workflow",
       "loadFailed": "Failed to load workflows",
       "duplicateNotYetImplemented": "Duplicate functionality is not yet implemented"
-    },
-    "tasks": {
-      "list": {
-        "title": "User Tasks"
-      },
-      "fields": {
-        "taskName": "Task Name",
-        "status": "Status",
-        "assignment": "Assignment",
-        "dueDate": "Due Date",
-        "createdAt": "Created At"
-      },
-      "status": {
-        "PENDING": "Pending",
-        "IN_PROGRESS": "In Progress",
-        "COMPLETED": "Completed",
-        "CANCELLED": "Cancelled"
-      },
-      "filters": {
-        "status": "Status",
-        "view": "View",
-        "myTasks": "My Tasks",
-        "allTasks": "All Tasks",
-        "overdue": "Overdue",
-        "overdueOnly": "Overdue Only",
-        "workflowInstanceId": "Workflow Instance ID",
-        "workflowInstanceIdPlaceholder": "Filter by workflow instance..."
-      },
-      "actions": {
-        "viewDetails": "View Details",
-        "claim": "Claim Task",
-        "complete": "Complete Task"
-      },
-      "confirm": {
-        "claim": "Are you sure you want to claim task '{{name}}'?"
-      },
-      "messages": {
-        "claimed": "Task claimed successfully",
-        "claimFailed": "Failed to claim task",
-        "completed": "Task completed successfully",
-        "completeFailed": "Failed to complete task",
-        "loadFailed": "Failed to load user tasks"
-      },
-      "overdue": "⚠ OVERDUE",
-      "claimedBy": "Claimed by",
-      "roles": "Roles",
-      "detail": {
-        "loading": "Loading task...",
-        "notFound": "Task not found",
-        "backToList": "Back to Tasks",
-        "overdueWarning": "⚠ This task is overdue!",
-        "cannotComplete": "This task has already been completed or cancelled and cannot be modified.",
-        "noFormSchema": "This task has no form to complete. You can add optional comments and submit.",
-        "assignedTo": "Assigned To",
-        "workflowInstance": "Workflow Instance",
-        "comments": "Comments",
-        "optional": "optional",
-        "commentsPlaceholder": "Add any comments or notes about this task...",
-        "completeTask": "Complete Task",
-        "submitting": "Submitting...",
-        "sections": {
-          "taskInfo": "Task Information",
-          "form": "Task Form",
-          "submittedData": "Submitted Data"
-        },
-        "form": {
-          "selectOption": "-- Select an option --"
-        },
-        "validation": {
-          "requiredField": "Required field is missing: {{field}}"
-        }
-      }
     }
   },
   "common": {

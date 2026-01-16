@@ -1,0 +1,86 @@
+---
+title: Create the data structures
+description: Model MikroORM entities, validators, and migrations for the Inventory module.
+---
+
+# Step 3: Create the data structures
+
+Inventory data lives in a module-scoped MikroORM entity. Keep multi-tenancy in mind by including both `tenant_id` and `organization_id`.
+
+## 1. Define the entity
+
+```bash
+mkdir -p packages/inventory/src/modules/inventory/data
+touch packages/inventory/src/modules/inventory/data/entities.ts
+touch packages/inventory/src/modules/inventory/data/validators.ts
+```
+
+```ts title="data/entities.ts"
+import { Entity, Property, PrimaryKey } from '@mikro-orm/core';
+import { v4 as uuid } from 'uuid';
+
+@Entity({ tableName: 'inventory_items' })
+export class InventoryItemEntity {
+  @PrimaryKey({ columnType: 'uuid' })
+  id = uuid();
+
+  @Property({ columnType: 'uuid' })
+  tenant_id!: string;
+
+  @Property({ columnType: 'uuid' })
+  organization_id!: string;
+
+  @Property()
+  sku!: string;
+
+  @Property()
+  name!: string;
+
+  @Property({ columnType: 'integer' })
+  quantity!: number;
+
+  @Property({ columnType: 'text', nullable: true })
+  location?: string;
+
+  @Property({ columnType: 'timestamptz', defaultRaw: 'now()' })
+  created_at: Date = new Date();
+
+  @Property({ columnType: 'timestamptz', defaultRaw: 'now()', onUpdate: () => new Date() })
+  updated_at: Date = new Date();
+
+  @Property({ columnType: 'timestamptz', nullable: true })
+  deleted_at?: Date | null;
+}
+```
+
+Each column follows the multi-tenant conventions: `tenant_id`, `organization_id`, timestamps, and `deleted_at` for soft deletes.
+
+## 2. Add validators
+
+```ts title="data/validators.ts"
+import { z } from 'zod';
+
+export const upsertInventoryItemSchema = z.object({
+  tenantId: z.string().uuid(),
+  organizationId: z.string().uuid(),
+  sku: z.string().min(1).max(64),
+  name: z.string().min(1).max(128),
+  quantity: z.number().int().min(0),
+  location: z.string().max(128).optional(),
+});
+
+export type UpsertInventoryItemInput = z.infer<typeof upsertInventoryItemSchema>;
+```
+
+Use the same schema for create and update flows—call it from API handlers, CLI commands, and forms to guarantee consistent validation.
+
+## 3. Generate migrations
+
+Register the entity in `packages/inventory/tsconfig.json` (or rely on path aliases already defined for the package), then run:
+
+```bash
+yarn modules:prepare
+yarn db:generate
+```
+
+Migrations appear under `packages/inventory/src/modules/inventory/migrations`. Commit them alongside your entity. When you run `yarn db:migrate`, the new table will be created across environments.

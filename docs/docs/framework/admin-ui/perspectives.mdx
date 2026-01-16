@@ -69,10 +69,10 @@ The `DataTable` component keeps a lightweight snapshot in `localStorage` so subs
 `/api/perspectives/{tableId}/roles/{roleId}`
 : `DELETE` removes a role default. Requires `perspectives.role_defaults`.
 
-All endpoints live in the `perspectives` module and are included automatically by `npm run modules:prepare`.
+All endpoints live in the `perspectives` module and are included automatically by `yarn generate`.
 
 ## Troubleshooting
 
-- If you see *“Perspectives API is not available yet”*, run `npm run modules:prepare` and restart the dev server so the new module routes are generated.
+- If you see *"Perspectives API is not available yet"*, run `yarn generate` and restart the dev server so the new module routes are generated.
 - Validation errors such as *“Invalid key in record”* usually mean a consumer is sending unsanitized column ids; use the `sanitizePerspectiveSettings` helper before invoking the API directly.
 - Role changes do not retroactively update personal perspectives. Ask users to refresh or delete their saved view after a major schema change.

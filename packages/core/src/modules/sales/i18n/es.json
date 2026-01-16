@@ -67,6 +67,17 @@
           "cta": "Ver pedido",
           "footer": "Open Mercato"
         }
+      },
+      "list": {
+        "title": "Cotizaciones"
+      },
+      "detail": {
+        "title": "Detalles de la cotización"
+      },
+      "form": {
+        "general": "General",
+        "lines": "Líneas",
+        "notes": "Notas"
       }
     },
     "nav": {
@@ -283,19 +294,6 @@
         "shipments": "Envíos",
         "invoices": "Facturas",
         "payments": "Pagos",
-        "notes": "Notas"
-      }
-    },
-    "quotes": {
-      "list": {
-        "title": "Cotizaciones"
-      },
-      "detail": {
-        "title": "Detalles de la cotización"
-      },
-      "form": {
-        "general": "General",
-        "lines": "Líneas",
         "notes": "Notas"
       }
     },

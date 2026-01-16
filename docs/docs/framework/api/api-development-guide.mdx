@@ -18,7 +18,7 @@ graph TB
     end
 
     subgraph "Module Layer"
-        Route["src/modules/<module>/api/<path>/route.ts"]
+        Route["packages/<pkg>/src/modules/<module>/api/<path>/route.ts"]
         CRUD["CRUD Factory"]
         Commands["Command Bus"]
         QueryEngine["Query Engine"]
@@ -70,7 +70,7 @@ The CRUD factory (`makeCrudRoute`) is the primary tool for creating REST APIs. I
 
 #### Basic CRUD Factory Usage
 
-```ts title="src/modules/example/api/todos/route.ts"
+```ts title="packages/<pkg>/src/modules/example/api/todos/route.ts"
 import { z } from "zod";
 import { makeCrudRoute } from "@open-mercato/shared/lib/crud/factory";
 import { TodoEntity } from "../../data/entities";
@@ -131,7 +131,7 @@ Commands encapsulate business logic for mutations (Create, Update, Delete). They
 
 #### Command Structure
 
-```ts title="src/modules/example/commands/todos.ts"
+```ts title="packages/<pkg>/src/modules/example/commands/todos.ts"
 import { registerCommand } from "@open-mercato/shared/lib/commands";
 import type { CommandHandler } from "@open-mercato/shared/lib/commands";
 import {
@@ -362,7 +362,7 @@ export const openApi = createTodosCrudOpenApi({
 
 Create MikroORM entities and validators:
 
-```ts title="src/modules/example/data/entities.ts"
+```ts title="packages/<pkg>/src/modules/example/data/entities.ts"
 import { Entity, Property } from "@mikro-orm/postgresql";
 
 @Entity({ tableName: "todos" })
@@ -393,7 +393,7 @@ export class TodoEntity {
 }
 ```
 
-```ts title="src/modules/example/data/validators.ts"
+```ts title="packages/<pkg>/src/modules/example/data/validators.ts"
 import { z } from "zod";
 
 export const todoCreateSchema = z.object({
@@ -413,7 +413,7 @@ export const todoUpdateSchema = todoCreateSchema.partial().extend({
 
 Implement business logic with commands:
 
-```ts title="src/modules/example/commands/todos.ts"
+```ts title="packages/<pkg>/src/modules/example/commands/todos.ts"
 // Create, Update, Delete commands with snapshots and undo support
 ```
 
@@ -421,7 +421,7 @@ Implement business logic with commands:
 
 Use CRUD factory to wire everything together:
 
-```ts title="src/modules/example/api/todos/route.ts"
+```ts title="packages/<pkg>/src/modules/example/api/todos/route.ts"
 // Full CRUD route with query engine, custom fields, commands
 ```
 
@@ -429,7 +429,7 @@ Use CRUD factory to wire everything together:
 
 Define custom entities in `ce.ts`:
 
-```ts title="src/modules/example/ce.ts"
+```ts title="packages/<pkg>/src/modules/example/ce.ts"
 export const entities = [
   {
     id: E.example.todo,
@@ -450,7 +450,7 @@ export const entities = [
 
 Define module features in `acl.ts`:
 
-```ts title="src/modules/example/acl.ts"
+```ts title="packages/<pkg>/src/modules/example/acl.ts"
 export const features = [
   "example.todos.view",
   "example.todos.create",
@@ -463,13 +463,13 @@ export const features = [
 
 ```bash
 # Generate module registry
-npm run modules:prepare
+yarn generate
 
 # Run tests
-npm test
+yarn test
 
 # Generate database migrations
-npm run db:generate
+yarn db:generate
 ```
 
 ## Advanced Patterns
@@ -478,7 +478,7 @@ npm run db:generate
 
 For non-CRUD operations:
 
-```ts title="src/modules/example/api/todos/bulk-update/route.ts"
+```ts title="packages/<pkg>/src/modules/example/api/todos/bulk-update/route.ts"
 export async function POST(request: Request, { auth }: RequestContext) {
   const container = await createRequestContainer();
   const commandBus = container.resolve("commandBus");

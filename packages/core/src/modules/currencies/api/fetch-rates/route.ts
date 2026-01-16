@@ -2,8 +2,8 @@ import { NextRequest, NextResponse } from 'next/server'
 import type { EntityManager } from '@mikro-orm/core'
 import { z } from 'zod'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
-import { createRequestContainer } from '@/lib/di/container'
-import { getAuthFromRequest } from '@/lib/auth/server'
+import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
+import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { RateFetchingService } from '../../services/rateFetchingService'
 import { CurrencyFetchConfig } from '../../data/entities'
 
@@ -30,7 +30,7 @@ export async function POST(req: NextRequest) {
     } catch {
       return NextResponse.json({ error: 'Invalid JSON' }, { status: 400 })
     }
-    
+
     const { date, providers } = body
 
     const fetchDate = date ? new Date(date) : new Date()
@@ -60,7 +60,7 @@ export async function POST(req: NextRequest) {
       if (config) {
         const providerData = result.byProvider[providerSource]
         const providerErrors = providerData?.errors || []
-        
+
         config.lastSyncAt = new Date()
         config.lastSyncCount = providerData?.count || 0
         config.lastSyncStatus =
@@ -73,7 +73,7 @@ export async function POST(req: NextRequest) {
         em.persist(config)
       }
     }
-    
+
     // Flush all config updates at once
     await em.flush()
 

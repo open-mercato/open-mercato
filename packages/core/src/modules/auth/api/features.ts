@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server'
 import { z } from 'zod'
 import type { OpenApiMethodDoc, OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
-import { getAuthFromRequest } from '@/lib/auth/server'
+import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { getModules } from '@open-mercato/shared/lib/i18n/server'
 
 export const metadata = {

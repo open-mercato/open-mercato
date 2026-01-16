@@ -1,4 +1,4 @@
-import type { CustomFieldSet, EntityId } from '@/modules/entities'
+import type { CustomFieldSet, EntityId } from '@open-mercato/shared/modules/entities'
 import type { EntityManager } from '@mikro-orm/core'
 import { CustomFieldDef, CustomFieldValue } from '@open-mercato/core/modules/entities/data/entities'
 import type { WhereValue } from '@open-mercato/shared/lib/query/types'

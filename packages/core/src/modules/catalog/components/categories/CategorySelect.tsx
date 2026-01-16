@@ -1,7 +1,7 @@
 "use client"
 import * as React from 'react'
 import { readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
-import { useT } from '@/lib/i18n/context'
+import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { formatCategoryTreeLabel, type CategoryTreeNode } from '../../lib/categoryTree'
 
 export type CategorySelectProps = {

@@ -33,12 +33,12 @@ describe('PackageResolver', () => {
       expect(pkgBase).toContain('packages/core/src/modules/customers')
     })
 
-    it('should construct correct example module path in monorepo', () => {
+    it('should construct correct onboarding module path in monorepo', () => {
       const rootDir = '/test/project'
-      const moduleId = 'example'
-      const pkgName = 'example'
+      const moduleId = 'onboarding'
+      const pkgName = 'onboarding'
       const pkgBase = path.resolve(rootDir, `packages/${pkgName}/src/modules`, moduleId)
-      expect(pkgBase).toContain('packages/example/src/modules/example')
+      expect(pkgBase).toContain('packages/onboarding/src/modules/onboarding')
     })
 
     it('should construct correct app module path', () => {
@@ -63,11 +63,11 @@ describe('PackageResolver', () => {
       expect(importPath).toBe('@open-mercato/core/modules/customers')
     })
 
-    it('should construct correct example package import path', () => {
-      const moduleId = 'example'
-      const packageName = '@open-mercato/example'
+    it('should construct correct onboarding package import path', () => {
+      const moduleId = 'onboarding'
+      const packageName = '@open-mercato/onboarding'
       const importPath = `${packageName}/modules/${moduleId}`
-      expect(importPath).toBe('@open-mercato/example/modules/example')
+      expect(importPath).toBe('@open-mercato/onboarding/modules/onboarding')
     })
   })
 

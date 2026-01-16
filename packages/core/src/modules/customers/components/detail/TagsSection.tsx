@@ -6,7 +6,7 @@ import {
   type TagsSectionLabels,
   type TagOption,
 } from '@open-mercato/ui/backend/detail'
-import { useT } from '@/lib/i18n/context'
+import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { apiCallOrThrow, readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { slugifyTagLabel } from '@open-mercato/shared/lib/utils'
