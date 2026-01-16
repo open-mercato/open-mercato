@@ -150,9 +150,11 @@ Yarn 4 is now required. Ensure you have Yarn 4+ installed before proceeding.
 ```bash
 git clone https://github.com/open-mercato/open-mercato.git
 cd open-mercato
+git checkout develop
 yarn install
 yarn build:packages
 yarn generate
+yarn initialize # or yarn reinstall
 yarn dev
 ```
 
