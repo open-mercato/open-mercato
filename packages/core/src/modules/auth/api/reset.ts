@@ -5,6 +5,7 @@ import { createRequestContainer } from '@/lib/di/container'
 import { AuthService } from '@open-mercato/core/modules/auth/services/authService'
 import { sendEmail } from '@/lib/email/send'
 import ResetPasswordEmail from '@open-mercato/core/modules/auth/emails/ResetPasswordEmail'
+import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { z } from 'zod'
 
 // validation via requestPasswordResetSchema
@@ -22,7 +23,18 @@ export async function POST(req: Request) {
   const url = new URL(req.url)
   const base = process.env.APP_URL || `${url.protocol}//${url.host}`
   const resetUrl = `${base}/reset/${token}`
-  await sendEmail({ to: user.email, subject: 'Reset your password', react: ResetPasswordEmail({ resetUrl }) })
+
+  const { translate } = await resolveTranslations()
+  const subject = translate('auth.email.resetPassword.subject', 'Reset your password')
+  const copy = {
+    preview: translate('auth.email.resetPassword.preview', 'Reset your password'),
+    title: translate('auth.email.resetPassword.title', 'Reset your password'),
+    body: translate('auth.email.resetPassword.body', 'Click the link below to set a new password. This link will expire in 60 minutes.'),
+    cta: translate('auth.email.resetPassword.cta', 'Set a new password'),
+    hint: translate('auth.email.resetPassword.hint', "If you didn't request this, you can safely ignore this email."),
+  }
+
+  await sendEmail({ to: user.email, subject, react: ResetPasswordEmail({ resetUrl, copy }) })
   return NextResponse.json({ ok: true })
 }
 

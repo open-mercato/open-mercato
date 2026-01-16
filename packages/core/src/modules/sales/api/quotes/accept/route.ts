@@ -77,13 +77,25 @@ export async function POST(req: Request) {
       try {
         const appUrl = process.env.APP_URL || ''
         const orderUrl = appUrl ? `${appUrl.replace(/\/$/, '')}/backend/sales/orders/${orderId}` : `/backend/sales/orders/${orderId}`
+
+        const copy = {
+          preview: translate('sales.quotes.accept.adminEmail.preview', 'Quote {quoteNumber} accepted', { quoteNumber: quote.quoteNumber }),
+          heading: translate('sales.quotes.accept.adminEmail.heading', 'Quote {quoteNumber} accepted', { quoteNumber: quote.quoteNumber }),
+          body: translate('sales.quotes.accept.adminEmail.body', 'The customer accepted quote {quoteNumber}. An order has been created: {orderNumber}.', {
+            quoteNumber: quote.quoteNumber,
+            orderNumber,
+          }),
+          cta: translate('sales.quotes.accept.adminEmail.cta', 'View order'),
+          footer: translate('sales.quotes.accept.adminEmail.footer', 'Open Mercato'),
+        }
+
         await sendEmail({
           to: adminEmail,
           subject: translate('sales.quotes.accept.adminSubject', 'Quote {quoteNumber} accepted → Order {orderNumber}', {
             quoteNumber: quote.quoteNumber,
             orderNumber,
           }),
-          react: QuoteAcceptedAdminEmail({ quoteNumber: quote.quoteNumber, orderNumber, orderUrl }),
+          react: QuoteAcceptedAdminEmail({ orderUrl, copy }),
         })
       } catch (err) {
         console.error('sales.quotes.accept.adminEmail failed', err)

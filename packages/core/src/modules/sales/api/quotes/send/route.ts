@@ -4,7 +4,7 @@ import { createRequestContainer } from '@/lib/di/container'
 import { getAuthFromRequest } from '@/lib/auth/server'
 import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/directory/utils/organizationScope'
 import type { CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
-import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
+import { resolveTranslations, detectLocale } from '@open-mercato/shared/lib/i18n/server'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import type { EntityManager } from '@mikro-orm/postgresql'
@@ -114,16 +114,29 @@ export async function POST(req: Request) {
     const appUrl = process.env.APP_URL || ''
     const url = appUrl ? `${appUrl.replace(/\/$/, '')}/quote/${quote.acceptanceToken}` : `/quote/${quote.acceptanceToken}`
 
+    const locale = await detectLocale()
+    const validUntilFormatted = validUntil.toLocaleDateString(locale, {
+      year: 'numeric',
+      month: 'long',
+      day: 'numeric',
+    })
+
+    const copy = {
+      preview: translate('sales.quotes.email.preview', 'Quote {quoteNumber} is ready for review', { quoteNumber: quote.quoteNumber }),
+      heading: translate('sales.quotes.email.heading', 'Quote {quoteNumber}', { quoteNumber: quote.quoteNumber }),
+      total: translate('sales.quotes.email.total', 'Total: {amount} {currency}', {
+        amount: quote.grandTotalGrossAmount ?? quote.grandTotalNetAmount ?? '0',
+        currency: quote.currencyCode,
+      }),
+      validUntil: translate('sales.quotes.email.validUntil', 'Valid until: {date}', { date: validUntilFormatted }),
+      cta: translate('sales.quotes.email.cta', 'View quote'),
+      footer: translate('sales.quotes.email.footer', 'Open Mercato'),
+    }
+
     await sendEmail({
       to: email,
       subject: translate('sales.quotes.email.subject', 'Quote {quoteNumber}', { quoteNumber: quote.quoteNumber }),
-      react: QuoteSentEmail({
-        quoteNumber: quote.quoteNumber,
-        totalAmount: quote.grandTotalGrossAmount ?? quote.grandTotalNetAmount ?? '0',
-        currencyCode: quote.currencyCode,
-        validUntil,
-        url,
-      }),
+      react: QuoteSentEmail({ url, copy }),
     })
 
     return NextResponse.json({ ok: true })

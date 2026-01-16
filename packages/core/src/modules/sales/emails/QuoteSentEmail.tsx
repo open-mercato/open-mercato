@@ -1,24 +1,27 @@
 import React from 'react'
 import { Html, Head, Preview, Body, Container, Heading, Text, Section, Button, Hr } from '@react-email/components'
 
-export type QuoteSentEmailProps = {
-  quoteNumber: string
-  totalAmount: string
-  currencyCode: string
-  validUntil: Date
-  url: string
+export type QuoteSentEmailCopy = {
+  preview: string
+  heading: string
+  total: string
+  validUntil: string
+  cta: string
+  footer: string
 }
 
-export function QuoteSentEmail({ quoteNumber, totalAmount, currencyCode, validUntil, url }: QuoteSentEmailProps) {
-  const preview = `Quote ${quoteNumber} is ready for review`
-  const validUntilText = validUntil.toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' })
+export type QuoteSentEmailProps = {
+  url: string
+  copy: QuoteSentEmailCopy
+}
 
+export function QuoteSentEmail({ url, copy }: QuoteSentEmailProps) {
   return (
     <Html>
       <Head>
-        <title>Quote {quoteNumber}</title>
+        <title>{copy.heading}</title>
       </Head>
-      <Preview>{preview}</Preview>
+      <Preview>{copy.preview}</Preview>
       <Body style={{ backgroundColor: '#f1f5f9', fontFamily: 'Helvetica, Arial, sans-serif', padding: '24px 0' }}>
         <Container
           style={{
@@ -29,11 +32,9 @@ export function QuoteSentEmail({ quoteNumber, totalAmount, currencyCode, validUn
             maxWidth: '520px',
           }}
         >
-          <Heading style={{ fontSize: '24px', fontWeight: 600, margin: '0 0 16px' }}>Quote {quoteNumber}</Heading>
-          <Text style={{ fontSize: '16px', color: '#334155', marginBottom: '12px' }}>
-            Total: {totalAmount} {currencyCode}
-          </Text>
-          <Text style={{ fontSize: '16px', color: '#334155', marginBottom: '16px' }}>Valid until: {validUntilText}</Text>
+          <Heading style={{ fontSize: '24px', fontWeight: 600, margin: '0 0 16px' }}>{copy.heading}</Heading>
+          <Text style={{ fontSize: '16px', color: '#334155', marginBottom: '12px' }}>{copy.total}</Text>
+          <Text style={{ fontSize: '16px', color: '#334155', marginBottom: '16px' }}>{copy.validUntil}</Text>
           <Section style={{ textAlign: 'center', margin: '28px 0' }}>
             <Button
               href={url}
@@ -47,15 +48,13 @@ export function QuoteSentEmail({ quoteNumber, totalAmount, currencyCode, validUn
                 display: 'inline-block',
               }}
             >
-              View quote
+              {copy.cta}
             </Button>
           </Section>
           <Hr style={{ borderColor: '#e2e8f0', margin: '24px 0' }} />
-          <Text style={{ fontSize: '12px', color: '#94a3b8' }}>Open Mercato · Sales</Text>
+          <Text style={{ fontSize: '12px', color: '#94a3b8' }}>{copy.footer}</Text>
         </Container>
       </Body>
     </Html>
   )
 }
-
-

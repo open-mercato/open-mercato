@@ -1,20 +1,26 @@
 import React from 'react'
 import { Html, Head, Preview, Body, Container, Heading, Text, Section, Button, Hr } from '@react-email/components'
 
-export type QuoteAcceptedAdminEmailProps = {
-  quoteNumber: string
-  orderNumber: string
-  orderUrl: string
+export type QuoteAcceptedAdminEmailCopy = {
+  preview: string
+  heading: string
+  body: string
+  cta: string
+  footer: string
 }
 
-export function QuoteAcceptedAdminEmail({ quoteNumber, orderNumber, orderUrl }: QuoteAcceptedAdminEmailProps) {
-  const preview = `Quote ${quoteNumber} accepted`
+export type QuoteAcceptedAdminEmailProps = {
+  orderUrl: string
+  copy: QuoteAcceptedAdminEmailCopy
+}
+
+export function QuoteAcceptedAdminEmail({ orderUrl, copy }: QuoteAcceptedAdminEmailProps) {
   return (
     <Html>
       <Head>
-        <title>Quote accepted</title>
+        <title>{copy.heading}</title>
       </Head>
-      <Preview>{preview}</Preview>
+      <Preview>{copy.preview}</Preview>
       <Body style={{ backgroundColor: '#f1f5f9', fontFamily: 'Helvetica, Arial, sans-serif', padding: '24px 0' }}>
         <Container
           style={{
@@ -25,12 +31,8 @@ export function QuoteAcceptedAdminEmail({ quoteNumber, orderNumber, orderUrl }: 
             maxWidth: '520px',
           }}
         >
-          <Heading style={{ fontSize: '22px', fontWeight: 600, margin: '0 0 16px' }}>
-            Quote {quoteNumber} accepted
-          </Heading>
-          <Text style={{ fontSize: '16px', color: '#334155', marginBottom: '16px' }}>
-            The customer accepted quote {quoteNumber}. An order has been created: {orderNumber}.
-          </Text>
+          <Heading style={{ fontSize: '22px', fontWeight: 600, margin: '0 0 16px' }}>{copy.heading}</Heading>
+          <Text style={{ fontSize: '16px', color: '#334155', marginBottom: '16px' }}>{copy.body}</Text>
           <Section style={{ textAlign: 'center', margin: '28px 0' }}>
             <Button
               href={orderUrl}
@@ -44,15 +46,13 @@ export function QuoteAcceptedAdminEmail({ quoteNumber, orderNumber, orderUrl }: 
                 display: 'inline-block',
               }}
             >
-              View order
+              {copy.cta}
             </Button>
           </Section>
           <Hr style={{ borderColor: '#e2e8f0', margin: '24px 0' }} />
-          <Text style={{ fontSize: '12px', color: '#94a3b8' }}>Open Mercato · Sales</Text>
+          <Text style={{ fontSize: '12px', color: '#94a3b8' }}>{copy.footer}</Text>
         </Container>
       </Body>
     </Html>
   )
 }
-
-
