@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react'
-import type { OpenApiRouteDoc, OpenApiMethodDoc } from '@/lib/openapi/types'
+import type { OpenApiRouteDoc, OpenApiMethodDoc } from '@open-mercato/shared/lib/openapi/types'
 import type { DashboardWidgetModule } from './dashboard/widgets'
 import type { InjectionWidgetModule, ModuleInjectionTable } from './widgets/injection'
 

@@ -54,6 +54,17 @@
         "invalidStatus": "Dieses Angebot kann in seinem aktuellen Status nicht angenommen werden.",
         "failed": "Angebot konnte nicht angenommen werden.",
         "adminSubject": "Angebot {quoteNumber} angenommen → Auftrag {orderNumber}"
+      },
+      "list": {
+        "title": "Angebote"
+      },
+      "detail": {
+        "title": "Angebotsdetails"
+      },
+      "form": {
+        "general": "Allgemein",
+        "lines": "Positionen",
+        "notes": "Notizen"
       }
     },
     "nav": {
@@ -270,19 +281,6 @@
         "shipments": "Sendungen",
         "invoices": "Rechnungen",
         "payments": "Zahlungen",
-        "notes": "Notizen"
-      }
-    },
-    "quotes": {
-      "list": {
-        "title": "Angebote"
-      },
-      "detail": {
-        "title": "Angebotsdetails"
-      },
-      "form": {
-        "general": "Allgemein",
-        "lines": "Positionen",
         "notes": "Notizen"
       }
     },

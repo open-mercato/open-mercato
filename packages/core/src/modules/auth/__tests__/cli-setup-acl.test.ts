@@ -14,7 +14,7 @@ const find = jest.fn(async () => [])
 const persist = jest.fn()
 const flush = jest.fn()
 
-jest.mock('@/lib/di/container', () => ({
+jest.mock('@open-mercato/shared/lib/di/container', () => ({
   createRequestContainer: async () => ({ resolve: (_: string) => {
     const baseEm = { persistAndFlush, findOne, findOneOrFail, create, find, persist, flush }
     return {

@@ -14,11 +14,11 @@ import {
 import { WorkflowDefinition, WorkflowInstance } from '../../data/entities'
 
 // Mock dependencies
-jest.mock('@/lib/di/container', () => ({
+jest.mock('@open-mercato/shared/lib/di/container', () => ({
   createRequestContainer: jest.fn(),
 }))
 
-jest.mock('@/lib/auth/server', () => ({
+jest.mock('@open-mercato/shared/lib/auth/server', () => ({
   getAuthFromRequest: jest.fn(),
 }))
 
@@ -67,10 +67,10 @@ describe('Workflow Definitions API', () => {
       }),
     }
 
-    const { createRequestContainer } = require('@/lib/di/container')
+    const { createRequestContainer } = require('@open-mercato/shared/lib/di/container')
     createRequestContainer.mockResolvedValue(mockContainer)
 
-    const { getAuthFromRequest } = require('@/lib/auth/server')
+    const { getAuthFromRequest } = require('@open-mercato/shared/lib/auth/server')
     getAuthFromRequest.mockResolvedValue({
       sub: testUserId,
       tenantId: testTenantId,
@@ -283,7 +283,7 @@ describe('Workflow Definitions API', () => {
     })
 
     test('should check create permission', async () => {
-      const { createRequestContainer } = require('@/lib/di/container')
+      const { createRequestContainer } = require('@open-mercato/shared/lib/di/container')
       const localRbacService = {
         userHasAllFeatures: jest.fn().mockResolvedValue(false),
       }
@@ -500,7 +500,7 @@ describe('Workflow Definitions API', () => {
     })
 
     test('should check edit permission', async () => {
-      const { createRequestContainer } = require('@/lib/di/container')
+      const { createRequestContainer } = require('@open-mercato/shared/lib/di/container')
       const localRbacService = {
         userHasAllFeatures: jest.fn().mockResolvedValue(false),
       }
@@ -614,7 +614,7 @@ describe('Workflow Definitions API', () => {
     })
 
     test('should check delete permission', async () => {
-      const { createRequestContainer } = require('@/lib/di/container')
+      const { createRequestContainer } = require('@open-mercato/shared/lib/di/container')
       const localRbacService = {
         userHasAllFeatures: jest.fn().mockResolvedValue(false),
       }

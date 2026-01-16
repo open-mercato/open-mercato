@@ -12,7 +12,7 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { loadCustomFieldSnapshot, buildCustomFieldResetMap } from '@open-mercato/shared/lib/commands/customFieldSnapshots'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
-import { E } from '@open-mercato/core/generated/entities.ids.generated'
+import { E } from '#generated/entities.ids.generated'
 import type { CrudEventsConfig, CrudIndexerConfig } from '@open-mercato/shared/lib/crud/types'
 import type { DataEngine } from '@open-mercato/shared/lib/data/engine'
 import {

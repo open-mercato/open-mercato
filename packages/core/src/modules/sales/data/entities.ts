@@ -809,6 +809,9 @@ export class SalesDocumentSequence {
 
   @Property({ name: 'updated_at', type: Date, onUpdate: () => new Date() })
   updatedAt: Date = new Date()
+
+  @Property({ name: 'deleted_at', type: Date, nullable: true })
+  deletedAt?: Date | null
 }
 
 @Entity({ tableName: 'sales_quotes' })
@@ -1152,6 +1155,9 @@ export class SalesQuoteAdjustment {
 
   @Property({ name: 'updated_at', type: Date, onUpdate: () => new Date() })
   updatedAt: Date = new Date()
+
+  @Property({ name: 'deleted_at', type: Date, nullable: true })
+  deletedAt?: Date | null
 }
 
 @Entity({ tableName: 'sales_shipments' })
@@ -1668,6 +1674,9 @@ export class SalesNote {
 
   @Property({ name: 'updated_at', type: Date, onUpdate: () => new Date() })
   updatedAt: Date = new Date()
+
+  @Property({ name: 'deleted_at', type: Date, nullable: true })
+  deletedAt?: Date | null
 }
 
 @Entity({ tableName: 'sales_document_addresses' })

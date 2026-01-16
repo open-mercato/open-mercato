@@ -8,9 +8,23 @@ import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { BookingTeam, BookingTeamMember, BookingTeamRole } from '../data/entities'
 import { bookingTeamRoleCreateSchema, bookingTeamRoleUpdateSchema } from '../data/validators'
 import { sanitizeSearchTerm } from './helpers'
-import { E } from '@/generated/entities.ids.generated'
-import * as F from '@/generated/entities/booking_team_role'
+import { E } from '#generated/entities.ids.generated'
 import { createBookingCrudOpenApi, createPagedListResponseSchema, defaultOkResponseSchema } from './openapi'
+
+// Field constants for BookingTeamRole entity
+const F = {
+  id: "id",
+  tenant_id: "tenant_id",
+  organization_id: "organization_id",
+  team_id: "team_id",
+  name: "name",
+  description: "description",
+  appearance_icon: "appearance_icon",
+  appearance_color: "appearance_color",
+  created_at: "created_at",
+  updated_at: "updated_at",
+  deleted_at: "deleted_at",
+} as const
 
 const routeMetadata = {
   GET: { requireAuth: true, requireFeatures: ['booking.view'] },

@@ -1,4 +1,4 @@
-import { E } from '@open-mercato/core/generated/entities.ids.generated'
+import { E } from '#generated/entities.ids.generated'
 import type { CrudEventsConfig, CrudIndexerConfig } from '@open-mercato/shared/lib/crud/types'
 import type { Attachment } from '../data/entities'
 

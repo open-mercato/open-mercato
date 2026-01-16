@@ -6,7 +6,7 @@ import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { createCrud } from '@open-mercato/ui/backend/utils/crud'
 import { collectCustomFieldValues } from '@open-mercato/ui/backend/utils/customFieldValues'
 import { createCrudFormError } from '@open-mercato/ui/backend/utils/serverErrors'
-import { useT } from '@/lib/i18n/context'
+import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { BOOKING_RESOURCE_FIELDSET_DEFAULT } from '@open-mercato/core/modules/booking/lib/resourceCustomFields'
 import { BookingResourceForm, useBookingResourceFormConfig } from '@open-mercato/core/modules/booking/components/ResourceCrudForm'
 

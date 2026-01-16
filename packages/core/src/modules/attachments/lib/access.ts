@@ -1,4 +1,4 @@
-import type { AuthContext } from '@/lib/auth/server'
+import type { AuthContext } from '@open-mercato/shared/lib/auth/server'
 import type { Attachment, AttachmentPartition } from '../data/entities'
 
 export function isSuperAdminAuth(auth: AuthContext | null | undefined): boolean {

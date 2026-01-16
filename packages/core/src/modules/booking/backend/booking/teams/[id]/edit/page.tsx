@@ -12,10 +12,10 @@ import { RowActions } from '@open-mercato/ui/backend/RowActions'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { BooleanIcon } from '@open-mercato/ui/backend/ValueIcons'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
-import { useT } from '@/lib/i18n/context'
+import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { TeamForm, type TeamFormValues, buildTeamPayload } from '@open-mercato/core/modules/booking/components/TeamForm'
 import { extractCustomFieldEntries } from '@open-mercato/shared/lib/crud/custom-fields-client'
-import { useOrganizationScopeVersion } from '@/lib/frontend/useOrganizationScope'
+import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
 import { Plus } from 'lucide-react'
 
 const TEAM_MEMBERS_PAGE_SIZE = 50

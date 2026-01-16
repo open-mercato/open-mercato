@@ -528,6 +528,16 @@
           "nullable": false,
           "length": 6,
           "mappedType": "datetime"
+        },
+        "deleted_at": {
+          "name": "deleted_at",
+          "type": "timestamptz",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": true,
+          "length": 6,
+          "mappedType": "datetime"
         }
       },
       "name": "sales_document_sequences",
@@ -2377,6 +2387,16 @@
           "autoincrement": false,
           "primary": false,
           "nullable": false,
+          "length": 6,
+          "mappedType": "datetime"
+        },
+        "deleted_at": {
+          "name": "deleted_at",
+          "type": "timestamptz",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": true,
           "length": 6,
           "mappedType": "datetime"
         }
@@ -4656,6 +4676,16 @@
           "autoincrement": false,
           "primary": false,
           "nullable": false,
+          "length": 6,
+          "mappedType": "datetime"
+        },
+        "deleted_at": {
+          "name": "deleted_at",
+          "type": "timestamptz",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": true,
           "length": 6,
           "mappedType": "datetime"
         }

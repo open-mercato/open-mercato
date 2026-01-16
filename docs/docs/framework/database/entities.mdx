@@ -47,8 +47,8 @@ When one module needs to extend another’s entity, create a dedicated extension
 
 ## Migrations
 
-- Run `npm run db:generate` to emit per-module migrations inside `src/modules/<module>/migrations` (or `packages/<pkg>/src/modules/...`).
-- Apply migrations with `npm run db:migrate`—the runner executes modules in dependency order.
+- Run `yarn db:generate` to emit per-module migrations inside `apps/mercato/src/modules/<module>/migrations` (or `packages/<pkg>/src/modules/...`).
+- Apply migrations with `yarn db:migrate`—the runner executes modules in dependency order.
 - Prefer additive migrations; never drop columns without a brownout plan. Store irreversible scripts separately.
 
 By keeping schema logic within modules and using extension entities, teams can evolve their domain models independently without breaking other packages.

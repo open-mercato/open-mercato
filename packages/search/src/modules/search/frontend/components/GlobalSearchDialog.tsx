@@ -48,7 +48,7 @@ import { Input } from '@open-mercato/ui/primitives/input'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { cn } from '@open-mercato/shared/lib/utils'
 import type { SearchResult, SearchResultLink, SearchStrategyId } from '@open-mercato/shared/modules/search'
-import { useT } from '@/lib/i18n/context'
+import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { fetchGlobalSearchResults } from '../utils'
 
 const MIN_QUERY_LENGTH = 2

@@ -5,7 +5,7 @@ import { resolveCrudRecordId, parseScopedCommandInput } from '@open-mercato/shar
 import { escapeLikePattern } from '@open-mercato/shared/lib/db/escapeLikePattern'
 import { BookingAvailabilityRuleSet } from '../data/entities'
 import { bookingAvailabilityRuleSetCreateSchema, bookingAvailabilityRuleSetUpdateSchema } from '../data/validators'
-import { E } from '@/generated/entities.ids.generated'
+import { E } from '#generated/entities.ids.generated'
 import { createBookingCrudOpenApi, createPagedListResponseSchema, defaultOkResponseSchema } from './openapi'
 
 const routeMetadata = {

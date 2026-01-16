@@ -14,8 +14,8 @@ import {
   createDictionaryMap,
   normalizeDictionaryEntries,
 } from '@open-mercato/core/modules/dictionaries/components/dictionaryAppearance'
-import { useT } from '@/lib/i18n/context'
-import { useOrganizationScopeDetail } from '@/lib/frontend/useOrganizationScope'
+import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { useOrganizationScopeDetail } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
 import { emitSalesDocumentTotalsRefresh } from '@open-mercato/core/modules/sales/lib/frontend/documentTotalsEvents'
 import { LineItemDialog } from './LineItemDialog'
 import type { SalesLineRecord } from './lineItemTypes'

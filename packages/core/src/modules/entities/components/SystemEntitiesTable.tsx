@@ -6,7 +6,7 @@ import { DataTable } from '@open-mercato/ui/backend/DataTable'
 import { RowActions } from '@open-mercato/ui/backend/RowActions'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
-import { useOrganizationScopeVersion } from '@/lib/frontend/useOrganizationScope'
+import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
 
 type EntityRow = {
   entityId: string

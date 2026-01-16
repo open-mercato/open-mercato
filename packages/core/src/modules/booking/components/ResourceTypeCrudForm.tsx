@@ -4,9 +4,9 @@ import * as React from 'react'
 import { CrudForm, type CrudField, type CrudFormGroup } from '@open-mercato/ui/backend/CrudForm'
 import { collectCustomFieldValues } from '@open-mercato/ui/backend/utils/customFieldValues'
 import { normalizeCustomFieldValues } from '@open-mercato/shared/lib/custom-fields/normalize'
-import { E } from '@open-mercato/core/generated/entities.ids.generated'
+import { E } from '#generated/entities.ids.generated'
 import { AppearanceSelector } from '@open-mercato/core/modules/dictionaries/components/AppearanceSelector'
-import { useT } from '@/lib/i18n/context'
+import { useT } from '@open-mercato/shared/lib/i18n/context'
 
 export type ResourceTypeFormValues = {
   id?: string

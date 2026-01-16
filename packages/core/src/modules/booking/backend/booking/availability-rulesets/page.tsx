@@ -15,8 +15,8 @@ import { readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 import { deleteCrud } from '@open-mercato/ui/backend/utils/crud'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { normalizeCrudServerError } from '@open-mercato/ui/backend/utils/serverErrors'
-import { useOrganizationScopeVersion } from '@/lib/frontend/useOrganizationScope'
-import { useT } from '@/lib/i18n/context'
+import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
+import { useT } from '@open-mercato/shared/lib/i18n/context'
 
 const PAGE_SIZE = 50
 const MARKDOWN_PLUGINS: PluggableList = [remarkGfm]

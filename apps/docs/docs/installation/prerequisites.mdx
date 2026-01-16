@@ -1,0 +1,54 @@
+---
+title: Prerequisites
+description: Tools and services required before installing Open Mercato locally.
+---
+
+Before cloning the repository make sure the following tools are installed:
+
+- **Node.js 20.18+** – aligns with the runtime requirements. Use `nvm`/`fnm` to switch versions if needed.
+- **Yarn (via Corepack)** – enable it once per machine:
+  ```bash
+  corepack enable
+  corepack prepare yarn@stable --activate
+  ```
+- **Docker & Docker Compose** – required for running PostgreSQL with pgvector and Redis.
+- **OpenSSL** – handy for generating random secrets while configuring `.env`.
+- **GraphicsMagick, Ghostscript, and Poppler** (optional) – required for LLM-based OCR on PDFs:
+  - **macOS**: `brew install graphicsmagick ghostscript poppler`
+  - **Ubuntu/Debian**: `sudo apt-get install graphicsmagick ghostscript poppler-utils`
+
+Copy `.env.example` to `.env` and configure at least:
+
+```bash
+DATABASE_URL=postgres://postgres:postgres@localhost:5432/open-mercato
+JWT_SECRET=$(openssl rand -hex 32)
+REDIS_URL=redis://localhost:6379
+```
+
+The pgvector extension is automatically installed in all databases, enabling vector search features out of the box.
+
+### Embedding Provider API Keys (optional)
+
+Vector search requires at least one embedding provider. Configure the API key(s) for your preferred provider(s):
+
+```bash
+# OpenAI (default provider)
+OPENAI_API_KEY=sk-...
+
+# Or use alternative providers:
+GOOGLE_GENERATIVE_AI_API_KEY=AIza...   # Google Generative AI
+MISTRAL_API_KEY=...                     # Mistral
+COHERE_API_KEY=...                      # Cohere
+AWS_ACCESS_KEY_ID=AKIA...               # Amazon Bedrock (requires all three)
+AWS_SECRET_ACCESS_KEY=...
+AWS_REGION=us-east-1
+
+# Ollama runs locally without API keys
+OLLAMA_BASE_URL=http://localhost:11434  # Optional, defaults to localhost
+```
+
+You can configure multiple providers and switch between them in **Backend → Configuration → Vector Search**. See the [Vector Search guide](/user-guide/vector-search) for details.
+
+Need a refresher on what each environment toggle controls? Review the [System status variables](../framework/operations/system-status#managing-variables) directory for descriptions and defaults before you customize additional flags.
+
+The docs site you are reading lives in `/docs` and has its own dependencies. Install them independently (`pnpm install` or `npm install`) when you want to build or preview the documentation.

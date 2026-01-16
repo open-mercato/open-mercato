@@ -298,3 +298,28 @@ export type SearchDeletePayload = {
   recordId: string
   tenantId: string
 }
+
+// =============================================================================
+// Global Registry for Search Module Configs
+// =============================================================================
+
+let _searchModuleConfigs: SearchModuleConfig[] | null = null
+
+/**
+ * Register search module configurations globally.
+ * Called during app bootstrap with configs from search.generated.ts.
+ */
+export function registerSearchModuleConfigs(configs: SearchModuleConfig[]): void {
+  if (_searchModuleConfigs !== null && process.env.NODE_ENV === 'development') {
+    console.debug('[Bootstrap] Search module configs re-registered (this may occur during HMR)')
+  }
+  _searchModuleConfigs = configs
+}
+
+/**
+ * Get registered search module configurations.
+ * Returns empty array if not registered (search module may not be enabled).
+ */
+export function getSearchModuleConfigs(): SearchModuleConfig[] {
+  return _searchModuleConfigs ?? []
+}

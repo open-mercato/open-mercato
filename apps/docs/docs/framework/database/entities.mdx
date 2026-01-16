@@ -1,0 +1,54 @@
+---
+title: Entities and migrations
+description: Structure MikroORM entities per module and keep migrations tenant-safe.
+---
+
+Each module owns its MikroORM entities under `data/entities.ts`. Entities must follow the naming conventions documented in the repository root: plural snake_case tables, UUID primary keys, timestamp columns, and optional `organization_id` / `tenant_id` foreign keys.
+
+## Authoring entities
+
+```ts title="data/entities.ts"
+import { Entity, PrimaryKey, Property } from '@mikro-orm/core';
+
+@Entity({ tableName: 'inventory_items' })
+export class InventoryItem {
+  @PrimaryKey({ type: 'uuid' })
+  id!: string;
+
+  @Property()
+  sku!: string;
+
+  @Property()
+  name!: string;
+
+  @Property({ nullable: true })
+  organization_id?: string | null;
+
+  @Property({ defaultRaw: 'now()' })
+  created_at!: Date;
+
+  @Property({ defaultRaw: 'now()', onUpdate: () => new Date() })
+  updated_at!: Date;
+
+  @Property({ nullable: true })
+  deleted_at?: Date | null;
+}
+```
+
+Guidelines:
+
+- **No cross-module relations** – reference other modules via foreign key IDs rather than MikroORM relations.
+- **Soft deletes** – add `deleted_at timestamptz null`; the query engine excludes deleted records automatically.
+- **Indexes** – declare them in the entity decorator or migrations as needed.
+
+## Extensions
+
+When one module needs to extend another’s entity, create a dedicated extension entity inside the extending module and declare the link in `data/extensions.ts`. See [Extending data entities](./data-extensibility) for details.
+
+## Migrations
+
+- Run `npm run db:generate` to emit per-module migrations inside `src/modules/<module>/migrations` (or `packages/<pkg>/src/modules/...`).
+- Apply migrations with `npm run db:migrate`—the runner executes modules in dependency order.
+- Prefer additive migrations; never drop columns without a brownout plan. Store irreversible scripts separately.
+
+By keeping schema logic within modules and using extension entities, teams can evolve their domain models independently without breaking other packages.

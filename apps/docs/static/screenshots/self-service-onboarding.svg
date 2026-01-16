@@ -1,0 +1,35 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 720 420" width="720" height="420">
+  <defs>
+    <linearGradient id="bg" x1="0" x2="0" y1="0" y2="1">
+      <stop offset="0%" stop-color="#f8fafc" />
+      <stop offset="100%" stop-color="#e2f1e9" />
+    </linearGradient>
+    <style>
+      .card { fill: #ffffff; stroke: #cbd5f5; stroke-width: 1.5; }
+      .header { fill: #064e3b; font-family: 'Inter', 'Segoe UI', sans-serif; font-weight: 600; font-size: 28px; }
+      .subheader { fill: #0f172a; font-family: 'Inter', 'Segoe UI', sans-serif; font-size: 16px; }
+      .label { fill: #64748b; font-family: 'Inter', sans-serif; font-size: 14px; }
+      .input { fill: #f1f5f9; stroke: #d0d7e8; stroke-width: 1.2; rx: 6; ry: 6; }
+      .button { fill: #047857; rx: 8; ry: 8; }
+      .button-text { fill: #ffffff; font-family: 'Inter', sans-serif; font-size: 16px; font-weight: 600; }
+    </style>
+  </defs>
+  <rect width="720" height="420" fill="url(#bg)" />
+  <rect x="140" y="60" width="440" height="300" class="card" filter="url(#shadow)" rx="16"/>
+  <text x="180" y="120" class="header">Create your workspace</text>
+  <text x="180" y="146" class="subheader">Visitors can launch a demo tenant in minutes.</text>
+
+  <text x="180" y="182" class="label">Work email</text>
+  <rect x="180" y="190" width="380" height="36" class="input" />
+
+  <text x="180" y="236" class="label">First name</text>
+  <rect x="180" y="244" width="180" height="36" class="input" />
+  <text x="380" y="236" class="label">Last name</text>
+  <rect x="380" y="244" width="180" height="36" class="input" />
+
+  <text x="180" y="290" class="label">Organization name</text>
+  <rect x="180" y="298" width="380" height="36" class="input" />
+
+  <rect x="260" y="350" width="220" height="44" class="button" />
+  <text x="276" y="378" class="button-text">Send verification email</text>
+</svg>

@@ -1,7 +1,7 @@
 "use client"
 
 import * as React from 'react'
-import { useT } from '@/lib/i18n/context'
+import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { Label } from '@open-mercato/ui/primitives/label'
 import { Input } from '@open-mercato/ui/primitives/input'
 import { Switch } from '@open-mercato/ui/primitives/switch'
@@ -10,7 +10,7 @@ import { MetadataEditor } from './MetadataEditor'
 import type { PriceKindSummary, TaxRateSummary } from './productForm'
 import { formatTaxRateLabel } from './productForm'
 import type { OptionDefinition, VariantFormValues, VariantPriceDraft } from './variantForm'
-import { E } from '@open-mercato/core/generated/entities.ids.generated'
+import { E } from '#generated/entities.ids.generated'
 
 type VariantBuilderProps = {
   values: VariantFormValues

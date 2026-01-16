@@ -116,40 +116,68 @@ Open Mercato ships with tenant-scoped, field-level data encryption so PII and se
 Architecture in two lines: Vault/KMS (or a derived-key fallback) issues per-tenant DEKs and caches them so performance stays snappy; AES-GCM wrappers sit in the ORM lifecycle, storing ciphertext at rest while CRUD and APIs keep working with plaintext. Read the docs to dive deeper: [docs.openmercato.com/user-guide/encryption](https://docs.openmercato.com/user-guide/encryption).
 
 
+## Migration Guide
+
+We have migrated Open Mercato to a monorepo structure. If you're upgrading from a previous version, please note the following changes:
+
+### File Structure
+
+The codebase is now organized into:
+- `packages/` - Shared libraries and modules (`@open-mercato/core`, `@open-mercato/ui`, `@open-mercato/shared`, `@open-mercato/cli`, `@open-mercato/cache`, `@open-mercato/events`, `@open-mercato/queue`, `@open-mercato/content`, `@open-mercato/onboarding`, `@open-mercato/search`)
+- `apps/` - Applications (main app in `apps/mercato`, docs in `apps/docs`)
+
+### Import Aliases
+
+Import aliases have changed from path-based to package-based imports:
+- **Before:** `@/lib/...`, `@/components/...`, `@/modules/...`
+- **After:** `@open-mercato/shared/lib/...`, `@open-mercato/ui/components/...`, `@open-mercato/core/modules/...`, etc.
+
+### Environment Variables
+
+The `.env` file now must live in `apps/mercato` instead of the project root.
+
+### Package Manager
+
+Yarn 4 is now required. Ensure you have Yarn 4+ installed before proceeding.
+
+
 ## Getting Started
 
-Follow these steps after the prerequisites are in place:
+### Quick Start (Monorepo)
 
-1. **Clone the repository**
-   ```bash
-   git clone https://github.com/open-mercato/open-mercato.git
-   cd open-mercato
-   ```
+**Prerequisites:** Yarn 4+
 
-2. **Install workspace dependencies**
-   ```bash
-   yarn install
-   ```
+```bash
+git clone https://github.com/open-mercato/open-mercato.git
+cd open-mercato
+yarn install
+yarn build:packages
+yarn generate
+yarn dev
+```
 
-3. **Bootstrap everything with one command**
-   ```bash
-   yarn mercato init
-   ```
-   This script prepares module registries, generates/applies migrations, seeds default roles, provisions an admin user, and loads sample CRM data (companies, people, deals, activities, todos) unless you pass `--no-examples`. Add `--stresstest` to preload a high-volume dataset (6,000 contacts by default) complete with additional companies, pipeline deals, activities, and timeline notes — all with custom fields populated. Override the volume with `-n <amount>` or `--count=<amount>`, and append `--lite` to skip the heavier extras when you just need raw contacts. A progress bar keeps you updated while the stress-test data is generated.
+### Quick Start (Legacy)
 
-4. **Launch the app**
-   ```bash
-   yarn dev
-   ```
-   Navigate to `http://localhost:3000/backend` and sign in with the credentials printed by `yarn mercato init`.
-   If you plan to use the self-service onboarding flow or send transactional emails, opt-in by setting the following environment variables in your `.env` file before starting the server (the onboarding toggle defaults to `false`):
-   ```env
-   RESEND_API_KEY=your_resend_api_key
-   APP_URL=http://localhost:3000
-   EMAIL_FROM=no-reply@your-domain.com
-   SELF_SERVICE_ONBOARDING_ENABLED=true
-   ADMIN_EMAIL=ops@your-domain.com
-   ```
+```bash
+git clone https://github.com/open-mercato/open-mercato.git
+cd open-mercato
+yarn install
+yarn mercato init
+yarn dev
+```
+
+This script prepares module registries, generates/applies migrations, seeds default roles, provisions an admin user, and loads sample CRM data (companies, people, deals, activities, todos) unless you pass `--no-examples`. Add `--stresstest` to preload a high-volume dataset (6,000 contacts by default) complete with additional companies, pipeline deals, activities, and timeline notes — all with custom fields populated. Override the volume with `-n <amount>` or `--count=<amount>`, and append `--lite` to skip the heavier extras when you just need raw contacts. A progress bar keeps you updated while the stress-test data is generated.
+
+Navigate to `http://localhost:3000/backend` and sign in with the credentials printed by `yarn mercato init`.
+
+If you plan to use the self-service onboarding flow or send transactional emails, opt-in by setting the following environment variables in your `.env` file before starting the server (the onboarding toggle defaults to `false`):
+```env
+RESEND_API_KEY=your_resend_api_key
+APP_URL=http://localhost:3000
+EMAIL_FROM=no-reply@your-domain.com
+SELF_SERVICE_ONBOARDING_ENABLED=true
+ADMIN_EMAIL=ops@your-domain.com
+```
 
 💡 Need a clean slate? Run `yarn mercato init --reinstall`. It wipes module migrations and **drops the database**, so only use it when you intentionally want to reset everything. Prefer `yarn mercato init --no-examples` if you simply want to skip demo CRM data while keeping core roles and users. Reach for `yarn mercato init --stresstest` (optionally with `-n 12000`) when you want to benchmark full CRM flows with thousands of contacts, companies, deals, activities, and notes — or `yarn mercato init --stresstest --lite` when you mainly need raw contact volume at high throughput.
 

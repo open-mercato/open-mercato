@@ -1,5 +1,5 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
-import { recordIndexerLog } from '@/lib/indexers/status-log'
+import { recordIndexerLog } from '@open-mercato/shared/lib/indexers/status-log'
 import type { VectorIndexOperationResult } from '../services/vector-index.service'
 
 type LogArgs = {

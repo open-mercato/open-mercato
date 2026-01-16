@@ -1,4 +1,4 @@
-import type { EntityId } from '@/modules/entities'
+import type { EntityId } from '@open-mercato/shared/modules/entities'
 import type { Profiler } from '../profiler'
 
 export type FilterOp = 'eq' | 'ne' | 'gt' | 'gte' | 'lt' | 'lte' | 'in' | 'nin' | 'like' | 'ilike' | 'exists'

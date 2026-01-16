@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server'
-import { createRequestContainer } from '@/lib/di/container'
+import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { Tenant } from '@open-mercato/core/modules/directory/data/entities'
 import type { CommandBus } from '@open-mercato/shared/lib/commands'

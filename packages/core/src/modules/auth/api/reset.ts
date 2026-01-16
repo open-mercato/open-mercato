@@ -1,9 +1,9 @@
 import { requestPasswordResetSchema } from '@open-mercato/core/modules/auth/data/validators'
 import { NextResponse } from 'next/server'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
-import { createRequestContainer } from '@/lib/di/container'
+import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { AuthService } from '@open-mercato/core/modules/auth/services/authService'
-import { sendEmail } from '@/lib/email/send'
+import { sendEmail } from '@open-mercato/shared/lib/email/send'
 import ResetPasswordEmail from '@open-mercato/core/modules/auth/emails/ResetPasswordEmail'
 import { z } from 'zod'
 

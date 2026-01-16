@@ -11,8 +11,8 @@ import { Button } from '@open-mercato/ui/primitives/button'
 import { BooleanIcon } from '@open-mercato/ui/backend/ValueIcons'
 import { apiCall, apiCallOrThrow, readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
-import { useOrganizationScopeVersion } from '@/lib/frontend/useOrganizationScope'
-import { useT } from '@/lib/i18n/context'
+import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
+import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { formatCategoryTreeLabel } from '../../lib/categoryTree'
 
 type CategoryRow = {

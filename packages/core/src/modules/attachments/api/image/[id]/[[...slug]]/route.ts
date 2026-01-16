@@ -1,8 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server'
 import sharp from 'sharp'
 import { z } from 'zod'
-import { getAuthFromRequest } from '@/lib/auth/server'
-import { createRequestContainer } from '@/lib/di/container'
+import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
+import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { Attachment, AttachmentPartition } from '@open-mercato/core/modules/attachments/data/entities'
 import { resolveAttachmentAbsolutePath } from '@open-mercato/core/modules/attachments/lib/storage'
 import {

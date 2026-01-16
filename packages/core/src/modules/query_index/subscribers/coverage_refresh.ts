@@ -1,5 +1,5 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
-import { recordIndexerError } from '@/lib/indexers/error-log'
+import { recordIndexerError } from '@open-mercato/shared/lib/indexers/error-log'
 import { refreshCoverageSnapshot } from '../lib/coverage'
 
 export const metadata = { event: 'query_index.coverage.refresh', persistent: false }

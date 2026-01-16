@@ -681,7 +681,7 @@ const eurAmount = await convertCurrency(
 
 ## Module Configuration
 
-Enable in `src/modules.ts`:
+Enable in `apps/mercato/src/modules.ts`:
 
 ```typescript
 export const modules: ModuleConfig[] = [
@@ -702,8 +702,8 @@ The module is fully self-contained:
 Generate migrations after schema changes:
 
 ```bash
-npm run modules:prepare
-npm run db:generate
+yarn generate
+yarn db:generate
 ```
 
 Migrations are written to:
@@ -714,7 +714,7 @@ packages/core/src/modules/currencies/migrations/
 Apply migrations:
 
 ```bash
-npm run db:migrate
+yarn db:migrate
 ```
 
 ## See Also

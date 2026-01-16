@@ -54,6 +54,17 @@
         "invalidStatus": "Esta cotización no puede aceptarse en su estado actual.",
         "failed": "No se pudo aceptar la cotización.",
         "adminSubject": "Cotización {quoteNumber} aceptada → Pedido {orderNumber}"
+      },
+      "list": {
+        "title": "Cotizaciones"
+      },
+      "detail": {
+        "title": "Detalles de la cotización"
+      },
+      "form": {
+        "general": "General",
+        "lines": "Líneas",
+        "notes": "Notas"
       }
     },
     "nav": {
@@ -270,19 +281,6 @@
         "shipments": "Envíos",
         "invoices": "Facturas",
         "payments": "Pagos",
-        "notes": "Notas"
-      }
-    },
-    "quotes": {
-      "list": {
-        "title": "Cotizaciones"
-      },
-      "detail": {
-        "title": "Detalles de la cotización"
-      },
-      "form": {
-        "general": "General",
-        "lines": "Líneas",
         "notes": "Notas"
       }
     },

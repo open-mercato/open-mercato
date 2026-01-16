@@ -4,8 +4,8 @@ import { makeCrudRoute } from '@open-mercato/shared/lib/crud/factory'
 import { ExchangeRate } from '../../data/entities'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { FilterQuery } from '@mikro-orm/core'
-import { getAuthFromRequest } from '@/lib/auth/server'
-import { createRequestContainer } from '@/lib/di/container'
+import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
+import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { exchangeRateCreateSchema, exchangeRateUpdateSchema } from '../../data/validators'
 import {
   createCurrenciesCrudOpenApi,

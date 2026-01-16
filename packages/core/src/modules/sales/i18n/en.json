@@ -54,6 +54,17 @@
         "invalidStatus": "This quote cannot be accepted in its current status.",
         "failed": "Failed to accept quote.",
         "adminSubject": "Quote {quoteNumber} accepted → Order {orderNumber}"
+      },
+      "list": {
+        "title": "Quotes"
+      },
+      "detail": {
+        "title": "Quote details"
+      },
+      "form": {
+        "general": "General",
+        "lines": "Line Items",
+        "notes": "Notes"
       }
     },
     "nav": {
@@ -270,19 +281,6 @@
         "shipments": "Shipments",
         "invoices": "Invoices",
         "payments": "Payments",
-        "notes": "Notes"
-      }
-    },
-    "quotes": {
-      "list": {
-        "title": "Quotes"
-      },
-      "detail": {
-        "title": "Quote details"
-      },
-      "form": {
-        "general": "General",
-        "lines": "Line Items",
         "notes": "Notes"
       }
     },

@@ -1,8 +1,8 @@
 "use client"
 import { useId, useTransition } from 'react'
-import { useLocale, useT } from '@/lib/i18n/context'
+import { useLocale, useT } from '@open-mercato/shared/lib/i18n/context'
 import { useRouter } from 'next/navigation'
-import { locales, type Locale } from '@/lib/i18n/config'
+import { locales, type Locale } from '@open-mercato/shared/lib/i18n/config'
 
 export function LanguageSwitcher() {
   const current = useLocale()

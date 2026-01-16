@@ -1,6 +1,6 @@
 import './commands/users'
 import './commands/roles'
-import type { ModuleInfo } from '@/modules/registry'
+import type { ModuleInfo } from '@open-mercato/shared/modules/registry'
 
 export const metadata: ModuleInfo = {
   name: 'auth',

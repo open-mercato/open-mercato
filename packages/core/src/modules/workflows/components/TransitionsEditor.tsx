@@ -6,7 +6,7 @@ import { Input } from '@open-mercato/ui/primitives/input'
 import { Label } from '@open-mercato/ui/primitives/label'
 import { Textarea } from '@open-mercato/ui/primitives/textarea'
 import { Trash2, Plus, ChevronUp, ChevronDown } from 'lucide-react'
-import { useT } from '@/lib/i18n/context'
+import { useT } from '@open-mercato/shared/lib/i18n/context'
 
 interface Activity {
   activityId: string

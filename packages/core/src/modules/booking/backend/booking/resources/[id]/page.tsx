@@ -9,7 +9,7 @@ import { createCrudFormError } from '@open-mercato/ui/backend/utils/serverErrors
 import { updateCrud, deleteCrud } from '@open-mercato/ui/backend/utils/crud'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { type TagOption } from '@open-mercato/ui/backend/detail'
-import { useT } from '@/lib/i18n/context'
+import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { buildResourceScheduleItems } from '@open-mercato/core/modules/booking/lib/resourceSchedule'
 import { BOOKING_RESOURCE_FIELDSET_DEFAULT } from '@open-mercato/core/modules/booking/lib/resourceCustomFields'
 import type { AvailabilityBookedEvent, AvailabilityScheduleItemBuilder } from '@open-mercato/core/modules/booking/components/AvailabilityRulesEditor'

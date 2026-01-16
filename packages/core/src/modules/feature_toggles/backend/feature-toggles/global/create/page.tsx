@@ -3,7 +3,7 @@ import { Page, PageBody } from "@open-mercato/ui/backend/Page";
 import { CrudForm } from "@open-mercato/ui/backend/CrudForm";
 import { createCrud } from "@open-mercato/ui/backend/utils/crud";
 import { useRouter } from "next/navigation";
-import { useT } from "@/lib/i18n/context";
+import { useT } from "@open-mercato/shared/lib/i18n/context";
 import { createFormGroups, createFieldDefinitions } from "../../../../components/formConfig";
 
 export default function CreateFeatureTogglePage() {

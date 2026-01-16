@@ -2,7 +2,7 @@
 
 import * as React from 'react'
 import type { CrudField, CrudFormGroup } from '@open-mercato/ui/backend/CrudForm'
-import { useT } from '@/lib/i18n/context'
+import { useT } from '@open-mercato/shared/lib/i18n/context'
 
 export type ChannelFormValues = {
   name: string

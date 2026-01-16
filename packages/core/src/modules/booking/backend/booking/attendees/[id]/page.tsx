@@ -9,7 +9,7 @@ import { extractCustomFieldEntries } from '@open-mercato/shared/lib/crud/custom-
 import { updateCrud, deleteCrud } from '@open-mercato/ui/backend/utils/crud'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import type { LookupSelectItem } from '@open-mercato/ui/backend/inputs'
-import { useT } from '@/lib/i18n/context'
+import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { AttendeeCrudForm, type AttendeeFormValues } from '@open-mercato/core/modules/booking/components/AttendeeCrudForm'
 
 type AttendeeRecord = {
