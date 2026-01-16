@@ -220,8 +220,11 @@ function getEventPreview(event: DebugEvent): string {
     return `Unknown part: ${partType}`
   }
   if (event.type === 'question') {
-    const question = data?.question as { questions?: Array<{ question: string }> } | undefined
-    const questionText = question?.questions?.[0]?.question || 'Confirmation required'
+    // Use the enriched questionText field if available (added by frontend)
+    const questionText = (data?.questionText as string)
+      || (data?.question as { questions?: Array<{ question: string }> })?.questions?.[0]?.question
+      || (data?.header as string)
+      || 'Confirmation required'
     return questionText.substring(0, 50) + (questionText.length > 50 ? '...' : '')
   }
   return ''

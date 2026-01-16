@@ -394,6 +394,305 @@ type SSEEvent =
   | { type: 'done' }
 ```
 
+---
+
+## OpenCode Integration
+
+The AI Assistant uses **OpenCode** as the AI agent backend. OpenCode is a headless AI coding agent that connects to our MCP server for tool access.
+
+### System Architecture with OpenCode
+
+```mermaid
+graph TB
+    subgraph "Browser"
+        UI[Chat UI]
+        Hook[useCommandPalette.ts]
+    end
+
+    subgraph "Next.js Server"
+        Route["/api/ai/chat"]
+        Handlers[opencode-handlers.ts]
+        Client[opencode-client.ts]
+    end
+
+    subgraph "OpenCode Server :4096"
+        OC[OpenCode Agent]
+        SSE[SSE /event endpoint]
+        Sessions[Session Manager]
+        Questions[Question Manager]
+    end
+
+    subgraph "MCP Server :4099"
+        MCP[MCP Tools]
+        Tools[api_discover<br/>api_execute<br/>search_query]
+    end
+
+    UI -->|"HTTP POST"| Route
+    Route -->|"SSE Stream"| UI
+    Route --> Handlers
+    Handlers --> Client
+    Client -->|"REST API"| OC
+    Client <-->|"SSE Subscribe"| SSE
+    OC <-->|"MCP Protocol"| MCP
+    MCP --> Tools
+```
+
+### Complete Message Flow
+
+```mermaid
+sequenceDiagram
+    participant U as User
+    participant UI as ToolChatPage
+    participant Hook as useCommandPalette
+    participant API as /api/ai/chat
+    participant H as opencode-handlers
+    participant C as opencode-client
+    participant OC as OpenCode :4096
+
+    Note over U,OC: 1. User Sends Message
+    U->>UI: Types "Create company Acme Inc"
+    UI->>Hook: onSendMessage()
+    Hook->>Hook: setMessages([...prev, userMsg])
+    Hook->>Hook: setIsStreaming(true)
+    Hook->>API: POST {messages: [...]}
+
+    Note over API,OC: 2. Backend Sets Up SSE
+    API->>H: handleOpenCodeMessageStreaming()
+    H->>C: subscribeToEvents(callback)
+    C->>OC: GET /event (SSE stream)
+    H->>C: createSession() or getSession()
+    C->>OC: POST /session
+    H->>C: sendMessage(sessionId, message)
+    C->>OC: POST /session/{id}/message
+
+    Note over OC: 3. OpenCode Processes
+    OC->>OC: AI analyzes request
+    OC->>OC: Calls MCP tools
+
+    Note over H,UI: 4. Stream Text Response
+    OC-->>C: SSE: message.part.updated (text)
+    C-->>H: callback({type, properties})
+    H-->>API: onEvent({type: 'text', content})
+    API-->>Hook: SSE data: {type: 'text'}
+    Hook->>Hook: Update streaming message
+    Hook-->>UI: Re-render with new text
+```
+
+### Question/Answer Flow (Confirmations)
+
+When OpenCode needs user confirmation (e.g., before creating/updating/deleting data):
+
+```mermaid
+sequenceDiagram
+    participant U as User
+    participant UI as ToolChatPage
+    participant Hook as useCommandPalette
+    participant API as /api/ai/chat
+    participant H as opencode-handlers
+    participant C as opencode-client
+    participant OC as OpenCode
+
+    Note over OC: AI decides to create record
+    OC->>OC: Calls AskUserQuestion tool
+
+    Note over OC,UI: 5. Question Event
+    OC-->>C: SSE: question.asked
+    C-->>H: callback({type: 'question.asked'})
+    H->>C: getPendingQuestions()
+    C->>OC: GET /question
+    OC-->>C: [{id, questions, options}]
+    H-->>API: onEvent({type: 'question', question})
+    API-->>Hook: SSE data: {type: 'question'}
+    Hook->>Hook: setPendingQuestion(question)
+    Hook->>Hook: setIsStreaming(false)
+    UI->>U: Show question with buttons
+
+    Note over U,OC: 6. User Answers
+    U->>UI: Clicks "Yes, create it"
+    UI->>Hook: answerQuestion(0)
+    Hook->>Hook: shouldStartNewMessage = true
+    Hook->>Hook: setIsThinking(true)
+    Hook->>Hook: Add "[Confirmed]" message
+    Hook->>API: POST {answerQuestion: {questionId, answer}}
+    API->>C: answerQuestion(questionId, 0)
+    C->>OC: POST /question/{id}/reply
+    Note right of C: Body: {"answers": [["Yes, create it"]]}
+    API-->>Hook: {success: true}
+
+    Note over OC,UI: 7. Continuation After Answer
+    OC->>OC: Continues processing
+    OC-->>C: SSE: message.part.updated (text)
+    C-->>H: callback({type, properties})
+    H-->>API: onEvent({type: 'text', content})
+    API-->>Hook: SSE data: {type: 'text'}
+    Hook->>Hook: Check shouldStartNewMessage
+    Hook->>Hook: Finalize old msg, create NEW msg
+    Hook->>Hook: setIsThinking(false)
+    UI->>U: Show new response
+
+    Note over OC,UI: 8. Completion
+    OC-->>C: SSE: session.status = idle
+    H-->>API: onEvent({type: 'done'})
+    API-->>Hook: SSE data: {type: 'done'}
+    Hook->>Hook: setIsStreaming(false)
+```
+
+### OpenCode SSE Events
+
+Events received from OpenCode's `/event` endpoint:
+
+```mermaid
+graph LR
+    subgraph "Session Events"
+        SE1[session.status]
+        SE2[session.created]
+    end
+
+    subgraph "Message Events"
+        ME1[message.updated]
+        ME2[message.part.updated]
+    end
+
+    subgraph "Question Events"
+        QE1[question.asked]
+    end
+
+    subgraph "Handlers"
+        H1[Update isThinking]
+        H2[Emit text/tool-call]
+        H3[Emit question]
+        H4[Emit done]
+    end
+
+    SE1 -->|busy| H1
+    SE1 -->|idle| H4
+    SE1 -->|waiting| H3
+    ME2 -->|text delta| H2
+    ME2 -->|tool_use| H2
+    QE1 --> H3
+```
+
+### Key State Variables
+
+| Variable | Type | Purpose |
+|----------|------|---------|
+| `messages` | `ChatMessage[]` | All chat messages |
+| `isStreaming` | `boolean` | API request in progress |
+| `isThinking` | `boolean` | OpenCode is processing |
+| `pendingQuestion` | `OpenCodeQuestion \| null` | Question awaiting answer |
+| `opencodeSessionId` | `string \| null` | Persists conversation |
+| `shouldStartNewMessage` | `Ref<boolean>` | Create new msg after answer |
+| `answeredQuestionIds` | `Ref<Set<string>>` | Prevent duplicate questions |
+
+### Message State Machine
+
+```mermaid
+stateDiagram-v2
+    [*] --> Empty: Initial
+
+    Empty --> Streaming: First text event
+    Streaming --> Streaming: More text events
+    Streaming --> Finalized: Stream ends / Question asked
+
+    Finalized --> NewStreaming: Text after question answer
+    NewStreaming --> NewStreaming: More text events
+    NewStreaming --> Finalized: Stream ends
+
+    note right of Streaming: id = 'streaming'
+    note right of Finalized: id = generateId()
+```
+
+### OpenCode API Reference
+
+| Endpoint | Method | Purpose |
+|----------|--------|---------|
+| `/event` | GET | SSE event stream |
+| `/session` | POST | Create new session |
+| `/session/{id}` | GET | Get session |
+| `/session/{id}/message` | POST | Send message |
+| `/question` | GET | List pending questions |
+| `/question/{id}/reply` | POST | Answer question |
+| `/question/{id}/reject` | POST | Reject question |
+| `/global/health` | GET | Health check |
+| `/mcp` | GET | MCP connection status |
+
+### Answer Question Format
+
+```typescript
+// POST /question/{requestID}/reply
+{
+  "answers": [
+    ["selected label"]  // Array of selected option labels
+  ]
+}
+
+// Example - single selection
+{ "answers": [["Yes, create it"]] }
+
+// Example - multi-selection (if supported)
+{ "answers": [["Option A", "Option B"]] }
+
+// Example - multiple questions
+{
+  "answers": [
+    ["Answer to Q1"],
+    ["Answer to Q2"]
+  ]
+}
+```
+
+### Debugging Tips
+
+#### Enable Debug Panel
+Click "Debug" in the chat footer to see all SSE events in real-time.
+
+#### Console Log Prefixes
+- `[startAgenticChat]` - Initial chat setup
+- `[sendAgenticMessage]` - Follow-up messages
+- `[answerQuestion]` - Question answering
+- `[OpenCode SSE]` - Backend SSE processing
+- `[OpenCode Client]` - API client calls
+- `[AI Chat]` - API route handling
+
+#### Common Issues
+
+| Issue | Cause | Solution |
+|-------|-------|----------|
+| Loader stays on | `isThinking` not reset | Ensure text events call `setIsThinking(false)` |
+| Text appends to old msg | Same content variable | Check `shouldStartNewMessage` flag |
+| Question not answered | Wrong endpoint/format | Use `/question/{id}/reply` with `{"answers": [["label"]]}` |
+| Duplicate questions | Same question emitted | Track in `answeredQuestionIds` ref |
+| Stream never ends | Heartbeat not triggering | Check session status polling |
+
+### Extending the System
+
+#### Adding New SSE Event Handlers
+
+1. Update type in `opencode-handlers.ts`:
+```typescript
+export type OpenCodeStreamEvent =
+  | { type: 'thinking' }
+  | { type: 'text'; content: string }
+  | { type: 'your-new-event'; data: YourType }  // Add here
+  | ...
+```
+
+2. Handle in SSE switch statement:
+```typescript
+switch (type) {
+  case 'your.new.event':
+    await onEvent({ type: 'your-new-event', data: properties })
+    break
+}
+```
+
+3. Process in frontend hook:
+```typescript
+if (event.type === 'your-new-event') {
+  // Handle in UI
+}
+```
+
 ## License
 
 Proprietary - Open Mercato

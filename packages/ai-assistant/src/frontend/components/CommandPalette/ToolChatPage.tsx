@@ -3,6 +3,8 @@
 import * as React from 'react'
 import { useRef, useEffect, useState } from 'react'
 import { Send, Loader2 } from 'lucide-react'
+import Markdown from 'react-markdown'
+import remarkGfm from 'remark-gfm'
 import { cn } from '@open-mercato/shared/lib/utils'
 import { Button } from '@open-mercato/ui/primitives/button'
 import type { ToolInfo, ChatMessage, PendingToolCall, OpenCodeQuestion } from '../../types'
@@ -64,6 +66,15 @@ export function ToolChatPage({
     if (e.key === 'Escape') {
       e.stopPropagation()
     }
+    // Submit on Enter (not Shift+Enter for multiline)
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault()
+      if (inputValue.trim() && !isStreaming) {
+        const content = inputValue
+        setInputValue('')
+        onSendMessage(content)
+      }
+    }
   }
 
   return (
@@ -102,7 +113,11 @@ export function ToolChatPage({
               </svg>
               <span>{pendingQuestion.questions[0].header || 'Confirmation Required'}</span>
             </div>
-            <p className="text-sm">{pendingQuestion.questions[0].question}</p>
+            <div className="text-sm prose prose-sm dark:prose-invert max-w-none [&>*:first-child]:mt-0 [&>*:last-child]:mb-0 [&_p]:my-1 [&_strong]:font-semibold">
+              <Markdown remarkPlugins={[remarkGfm]}>
+                {pendingQuestion.questions[0].question}
+              </Markdown>
+            </div>
             <div className="flex gap-2 flex-wrap">
               {pendingQuestion.questions[0].options.map((option, index) => (
                 <Button
@@ -137,13 +152,14 @@ export function ToolChatPage({
       </div>
 
       {/* Input area */}
-      <form onSubmit={handleSubmit} onKeyDown={handleKeyDown} className="border-t p-3">
+      <form onSubmit={handleSubmit} className="border-t p-3">
         <div className="flex items-center gap-2">
           <input
             ref={inputRef}
             type="text"
             value={inputValue}
             onChange={(e) => setInputValue(e.target.value)}
+            onKeyDown={handleKeyDown}
             placeholder="Describe what you want to do..."
             className={cn(
               'flex-1 bg-muted rounded-lg px-4 py-2 text-sm outline-none',

@@ -147,13 +147,15 @@ export function useCommandPalette(options: UseCommandPaletteOptions) {
 
   // Helper to add debug events
   const addDebugEvent = useCallback((type: DebugEventType, data: unknown) => {
+    // Deep clone the data to capture state at this moment (prevents mutation issues)
+    const clonedData = JSON.parse(JSON.stringify(data))
     setDebugEvents((prev) => [
       ...prev.slice(-999), // Keep last 1000 events
       {
         id: generateId(),
         timestamp: new Date(),
         type,
-        data,
+        data: clonedData,
       },
     ])
   }, [])
@@ -519,8 +521,10 @@ export function useCommandPalette(options: UseCommandPaletteOptions) {
                 const event = JSON.parse(data)
                 console.log('[startAgenticChat] Parsed event:', event.type, event)
 
-                // Track all events for debug panel
-                addDebugEvent(event.type as DebugEventType, event)
+                // Track all events for debug panel (except question - handled separately with enriched data)
+                if (event.type !== 'question') {
+                  addDebugEvent(event.type as DebugEventType, event)
+                }
 
                 if (event.type === 'text') {
                   // Text received - no longer thinking
@@ -595,7 +599,7 @@ export function useCommandPalette(options: UseCommandPaletteOptions) {
                   if (answeredQuestionIds.current.has(question.id)) {
                     console.log('[startAgenticChat] Skipping already-answered question:', question.id)
                   } else {
-                    console.log('[startAgenticChat] Question event:', question.id)
+                    console.log('[startAgenticChat] Question event:', question.id, 'questions:', question.questions)
                     setIsThinking(false)
                     setState((prev) => ({ ...prev, isStreaming: false }))
                     setPendingQuestion(question)
@@ -603,6 +607,16 @@ export function useCommandPalette(options: UseCommandPaletteOptions) {
                     if (question.sessionID) {
                       setOpencodeSessionId(question.sessionID)
                     }
+                    // Add enriched debug event with question details visible at top level
+                    addDebugEvent('question', {
+                      type: 'question',
+                      questionId: question.id,
+                      sessionID: question.sessionID,
+                      questionText: question.questions?.[0]?.question || 'No question text',
+                      header: question.questions?.[0]?.header || 'Confirmation',
+                      options: question.questions?.[0]?.options?.map(o => o.label) || [],
+                      fullQuestion: question,
+                    })
                   }
                 }
               } catch (parseError) {
@@ -924,8 +938,10 @@ export function useCommandPalette(options: UseCommandPaletteOptions) {
               try {
                 const event = JSON.parse(data)
 
-                // Track all events for debug panel
-                addDebugEvent(event.type as DebugEventType, event)
+                // Track all events for debug panel (except question - handled separately with enriched data)
+                if (event.type !== 'question') {
+                  addDebugEvent(event.type as DebugEventType, event)
+                }
 
                 if (event.type === 'thinking') {
                   // OpenCode is processing - keep thinking state active
@@ -1005,10 +1021,20 @@ export function useCommandPalette(options: UseCommandPaletteOptions) {
                   if (answeredQuestionIds.current.has(question.id)) {
                     console.log('[sendAgenticMessage] Skipping already-answered question:', question.id)
                   } else {
-                    console.log('[sendAgenticMessage] Question event:', question.id)
+                    console.log('[sendAgenticMessage] Question event:', question.id, 'questions:', question.questions)
                     setIsThinking(false)
                     setState((prev) => ({ ...prev, isStreaming: false }))
                     setPendingQuestion(question)
+                    // Add enriched debug event with question details visible at top level
+                    addDebugEvent('question', {
+                      type: 'question',
+                      questionId: question.id,
+                      sessionID: question.sessionID,
+                      questionText: question.questions?.[0]?.question || 'No question text',
+                      header: question.questions?.[0]?.header || 'Confirmation',
+                      options: question.questions?.[0]?.options?.map(o => o.label) || [],
+                      fullQuestion: question,
+                    })
                   }
                 }
               } catch {
