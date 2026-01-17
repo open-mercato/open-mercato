@@ -35,7 +35,7 @@ export function WorkflowNodeCard({
     <div
       className={`
         w-[280px] rounded-xl border-2
-        ${isEditMode ? 'bg-white border-gray-200' : `${colors.bg} ${colors.border}`}
+        ${isEditMode ? 'bg-card border-border' : `${colors.bg} ${colors.border}`}
         transition-all duration-200 relative
         ${
           selected
@@ -58,7 +58,7 @@ export function WorkflowNodeCard({
             {title}
           </h3>
           {description && (
-            <p className="mt-1 text-sm text-gray-600 line-clamp-2">
+            <p className="mt-1 text-sm text-muted-foreground line-clamp-2">
               {description}
             </p>
           )}

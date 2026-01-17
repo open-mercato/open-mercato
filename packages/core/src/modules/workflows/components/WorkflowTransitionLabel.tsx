@@ -15,8 +15,8 @@ export function WorkflowTransitionLabel({
     <div
       className={`
         px-2 py-1 text-xs font-medium
-        bg-white border rounded
-        ${state === 'completed' ? 'border-emerald-300 text-emerald-700' : 'border-gray-300 text-gray-600'}
+        bg-card border rounded
+        ${state === 'completed' ? 'border-emerald-300 text-emerald-700' : 'border-border text-muted-foreground'}
       `}
     >
       {label}

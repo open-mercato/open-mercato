@@ -7,6 +7,7 @@ import { FlashMessages } from './FlashMessages'
 import { usePathname } from 'next/navigation'
 import { apiCall } from './utils/apiCall'
 import { LanguageSwitcher } from '../frontend/LanguageSwitcher'
+import { ThemeToggle } from '../theme/ThemeToggle'
 import { LastOperationBanner } from './operations/LastOperationBanner'
 import { UpgradeActionBanner } from './upgrades/UpgradeActionBanner'
 import { PartialIndexBanner } from './indexes/PartialIndexBanner'
@@ -940,13 +941,12 @@ export function AppShell({ productName, email, groups, rightHeaderSlot, children
             })()}
           </div>
           <div className="flex items-center gap-2 text-sm w-full lg:w-auto lg:justify-end">
+            <ThemeToggle />
+            <Separator className="w-px h-5 mx-1" />
             {rightHeaderSlot ? (
               rightHeaderSlot
             ) : (
-              <>
-                <Separator className="w-px h-5 mx-1" />
-                <span className="opacity-80">{email || t('appShell.userFallback')}</span>
-              </>
+              <span className="opacity-80">{email || t('appShell.userFallback')}</span>
             )}
           </div>
         </header>

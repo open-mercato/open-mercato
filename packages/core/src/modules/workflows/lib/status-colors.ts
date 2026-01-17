@@ -23,10 +23,10 @@ export const STATUS_COLORS = {
     hex: '#eab308',
   },
   not_started: {
-    bg: 'bg-gray-100',
-    border: 'border-gray-300',
-    text: 'text-gray-900',
-    icon: 'text-gray-600',
+    bg: 'bg-muted',
+    border: 'border-border',
+    text: 'text-foreground',
+    icon: 'text-muted-foreground',
     hex: '#6b7280',
   },
 } as const
@@ -41,7 +41,7 @@ export const EDGE_COLORS = {
   },
   pending: {
     stroke: '#9ca3af',
-    strokeClass: 'stroke-gray-400',
+    strokeClass: 'stroke-muted-foreground',
     dashed: true,
   },
 } as const

@@ -141,7 +141,7 @@ export default function ExecutionLogsPage() {
       case 'ERROR':
         return 'bg-red-100 text-red-800'
       default:
-        return 'bg-gray-100 text-gray-800'
+        return 'bg-muted text-foreground'
     }
   }
 
@@ -169,12 +169,12 @@ export default function ExecutionLogsPage() {
               {row.original.rule.ruleName}
             </Link>
           ) : (
-            <span className="text-gray-500 text-sm">
+            <span className="text-muted-foreground text-sm">
               {t('business_rules.logs.ruleDeleted')}
             </span>
           )}
           {row.original.rule && (
-            <div className="text-xs text-gray-500 mt-0.5">
+            <div className="text-xs text-muted-foreground mt-0.5">
               {row.original.rule.ruleType}
             </div>
           )}
@@ -188,7 +188,7 @@ export default function ExecutionLogsPage() {
         <div className="text-sm">
           <div className="font-medium">{row.original.entityType}</div>
           {row.original.entityId && (
-            <div className="text-xs text-gray-500 truncate max-w-[200px]" title={row.original.entityId}>
+            <div className="text-xs text-muted-foreground truncate max-w-[200px]" title={row.original.entityId}>
               {row.original.entityId}
             </div>
           )}
@@ -214,7 +214,7 @@ export default function ExecutionLogsPage() {
       header: t('business_rules.logs.fields.executionTime'),
       accessorKey: 'executionTimeMs',
       cell: ({ row }) => (
-        <div className="text-sm text-gray-700">
+        <div className="text-sm text-muted-foreground">
           {row.original.executionTimeMs}ms
         </div>
       ),

@@ -14,6 +14,10 @@
       "types": "./src/index.ts",
       "default": "./dist/index.js"
     },
+    "./theme": {
+      "types": "./src/theme/index.ts",
+      "default": "./dist/theme/index.js"
+    },
     "./backend/schedule": {
       "types": "./src/backend/schedule/index.ts",
       "default": "./dist/backend/schedule/index.js"

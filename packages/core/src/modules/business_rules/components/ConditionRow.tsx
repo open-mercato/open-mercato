@@ -65,11 +65,11 @@ export function ConditionRow({ condition, onChange, onDelete, error }: Condition
   const fieldError = condition.field && !isValidFieldPath(condition.field)
 
   return (
-    <div className="flex items-start gap-2 p-3 bg-gray-50 rounded border border-gray-200">
+    <div className="flex items-start gap-2 p-3 bg-muted rounded border border-border">
       <div className="flex-1 grid grid-cols-1 md:grid-cols-3 gap-2">
         {/* Field Input */}
         <div>
-          <label className="block text-xs font-medium text-gray-700 mb-1">
+          <label className="block text-xs font-medium text-foreground mb-1">
             {t('business_rules.components.conditionRow.field')}
           </label>
           <input
@@ -77,8 +77,8 @@ export function ConditionRow({ condition, onChange, onDelete, error }: Condition
             value={condition.field || ''}
             onChange={handleFieldChange}
             placeholder={t('business_rules.components.conditionRow.field.placeholder')}
-            className={`w-full px-2 py-1.5 text-sm border rounded focus:outline-none focus:ring-2 focus:ring-blue-500 ${
-              fieldError ? 'border-red-500' : 'border-gray-300'
+            className={`w-full px-2 py-1.5 text-sm border rounded bg-background focus:outline-none focus:ring-2 focus:ring-blue-500 ${
+              fieldError ? 'border-red-500' : 'border-border'
             }`}
           />
           {fieldError && (
@@ -90,13 +90,13 @@ export function ConditionRow({ condition, onChange, onDelete, error }: Condition
 
         {/* Operator Select */}
         <div>
-          <label className="block text-xs font-medium text-gray-700 mb-1">
+          <label className="block text-xs font-medium text-foreground mb-1">
             {t('business_rules.components.conditionRow.operator')}
           </label>
           <select
             value={condition.operator || '='}
             onChange={handleOperatorChange}
-            className="w-full px-2 py-1.5 text-sm border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
+            className="w-full px-2 py-1.5 text-sm border border-border rounded bg-background focus:outline-none focus:ring-2 focus:ring-blue-500"
           >
             {operators.map((op) => (
               <option key={op.value} value={op.value}>
@@ -110,7 +110,7 @@ export function ConditionRow({ condition, onChange, onDelete, error }: Condition
         {operatorNeedsValue && (
           <div>
             <div className="flex items-center justify-between mb-1">
-              <label className="block text-xs font-medium text-gray-700">
+              <label className="block text-xs font-medium text-foreground">
                 {useFieldComparison
                   ? t('business_rules.components.conditionRow.compareToField')
                   : t('business_rules.components.conditionRow.value')
@@ -119,7 +119,7 @@ export function ConditionRow({ condition, onChange, onDelete, error }: Condition
               <button
                 type="button"
                 onClick={toggleFieldComparison}
-                className="text-xs text-blue-600 hover:text-blue-800"
+                className="text-xs text-blue-600 hover:text-blue-800 dark:text-blue-400 dark:hover:text-blue-300"
                 title={t('business_rules.components.conditionRow.toggleFieldComparison')}
               >
                 {useFieldComparison
@@ -144,9 +144,9 @@ export function ConditionRow({ condition, onChange, onDelete, error }: Condition
                 ? t('business_rules.components.conditionRow.field.comparisonPlaceholder')
                 : t('business_rules.components.conditionRow.value.placeholder')
               }
-              className="w-full px-2 py-1.5 text-sm border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
+              className="w-full px-2 py-1.5 text-sm border border-border rounded bg-background focus:outline-none focus:ring-2 focus:ring-blue-500"
             />
-            <p className="text-xs text-gray-500 mt-0.5">
+            <p className="text-xs text-muted-foreground mt-0.5">
               {useFieldComparison
                 ? t('business_rules.components.conditionRow.field.comparisonHelp')
                 : t('business_rules.components.conditionRow.value.help')
@@ -160,7 +160,7 @@ export function ConditionRow({ condition, onChange, onDelete, error }: Condition
       <button
         type="button"
         onClick={onDelete}
-        className="p-1.5 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded transition-colors"
+        className="p-1.5 text-muted-foreground hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20 rounded transition-colors"
         title={t('business_rules.components.conditionRow.deleteCondition')}
       >
         <X className="w-4 h-4" />

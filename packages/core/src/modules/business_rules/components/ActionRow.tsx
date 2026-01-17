@@ -59,7 +59,7 @@ export function ActionRow({
     if (field === 'recipients' && action.type === 'NOTIFY') {
       return (
         <div key={field} className="grid grid-cols-4 gap-2 items-start">
-          <label className="text-xs font-medium text-gray-700 col-span-1">
+          <label className="text-xs font-medium text-foreground col-span-1">
             {t('business_rules.components.actionRow.config.recipients')} {required && <span className="text-red-500">{t('business_rules.components.actionRow.actionType.required')}</span>}
           </label>
           <input
@@ -67,10 +67,10 @@ export function ActionRow({
             value={value}
             onChange={(e) => handleConfigChange(field, e.target.value.split(',').map((s) => s.trim()))}
             placeholder={t('business_rules.components.actionRow.config.recipients.placeholder')}
-            className="col-span-3 px-2 py-1.5 text-sm border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
+            className="col-span-3 px-2 py-1.5 text-sm border border-border rounded bg-background focus:outline-none focus:ring-2 focus:ring-blue-500"
           />
           <div className="col-span-4 col-start-2">
-            <p className="text-xs text-gray-500">{t('business_rules.components.actionRow.config.recipients.help')}</p>
+            <p className="text-xs text-muted-foreground">{t('business_rules.components.actionRow.config.recipients.help')}</p>
           </div>
         </div>
       )
@@ -79,11 +79,11 @@ export function ActionRow({
     if (field === 'level' && action.type === 'LOG') {
       return (
         <div key={field} className="grid grid-cols-4 gap-2 items-center">
-          <label className="text-xs font-medium text-gray-700 col-span-1">{t('business_rules.components.actionRow.config.level')}</label>
+          <label className="text-xs font-medium text-foreground col-span-1">{t('business_rules.components.actionRow.config.level')}</label>
           <select
             value={value || 'info'}
             onChange={(e) => handleConfigChange(field, e.target.value)}
-            className="col-span-3 px-2 py-1.5 text-sm border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
+            className="col-span-3 px-2 py-1.5 text-sm border border-border rounded bg-background focus:outline-none focus:ring-2 focus:ring-blue-500"
           >
             <option value="info">{t('business_rules.components.actionRow.config.level.info')}</option>
             <option value="warn">{t('business_rules.components.actionRow.config.level.warn')}</option>
@@ -97,11 +97,11 @@ export function ActionRow({
     if (field === 'method' && action.type === 'CALL_WEBHOOK') {
       return (
         <div key={field} className="grid grid-cols-4 gap-2 items-center">
-          <label className="text-xs font-medium text-gray-700 col-span-1">{t('business_rules.components.actionRow.config.method')}</label>
+          <label className="text-xs font-medium text-foreground col-span-1">{t('business_rules.components.actionRow.config.method')}</label>
           <select
             value={value || 'POST'}
             onChange={(e) => handleConfigChange(field, e.target.value)}
-            className="col-span-3 px-2 py-1.5 text-sm border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
+            className="col-span-3 px-2 py-1.5 text-sm border border-border rounded bg-background focus:outline-none focus:ring-2 focus:ring-blue-500"
           >
             <option value="GET">GET</option>
             <option value="POST">POST</option>
@@ -116,7 +116,7 @@ export function ActionRow({
     if (field === 'message') {
       return (
         <div key={field} className="grid grid-cols-4 gap-2 items-start">
-          <label className="text-xs font-medium text-gray-700 col-span-1">
+          <label className="text-xs font-medium text-foreground col-span-1">
             {t('business_rules.components.actionRow.config.message')} {required && <span className="text-red-500">{t('business_rules.components.actionRow.actionType.required')}</span>}
           </label>
           <textarea
@@ -124,10 +124,10 @@ export function ActionRow({
             onChange={(e) => handleConfigChange(field, e.target.value)}
             placeholder={t('business_rules.components.actionRow.config.message.placeholder')}
             rows={2}
-            className="col-span-3 px-2 py-1.5 text-sm border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
+            className="col-span-3 px-2 py-1.5 text-sm border border-border rounded bg-background focus:outline-none focus:ring-2 focus:ring-blue-500"
           />
           <div className="col-span-4 col-start-2">
-            <p className="text-xs text-gray-500">{t('business_rules.components.actionRow.config.message.help')}</p>
+            <p className="text-xs text-muted-foreground">{t('business_rules.components.actionRow.config.message.help')}</p>
           </div>
         </div>
       )
@@ -136,7 +136,7 @@ export function ActionRow({
     // Default text input
     return (
       <div key={field} className="grid grid-cols-4 gap-2 items-center">
-        <label className="text-xs font-medium text-gray-700 col-span-1">
+        <label className="text-xs font-medium text-foreground col-span-1">
           {field} {required && <span className="text-red-500">{t('business_rules.components.actionRow.actionType.required')}</span>}
         </label>
         <input
@@ -144,24 +144,24 @@ export function ActionRow({
           value={value}
           onChange={(e) => handleConfigChange(field, e.target.value)}
           placeholder={t('business_rules.components.actionRow.config.field.placeholder', { field })}
-          className="col-span-3 px-2 py-1.5 text-sm border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
+          className="col-span-3 px-2 py-1.5 text-sm border border-border rounded bg-background focus:outline-none focus:ring-2 focus:ring-blue-500"
         />
       </div>
     )
   }
 
   return (
-    <div className="flex items-start gap-2 p-3 bg-gray-50 rounded border border-gray-200">
+    <div className="flex items-start gap-2 p-3 bg-muted rounded border border-border">
       <div className="flex-1 space-y-2">
         {/* Action Type */}
         <div className="grid grid-cols-4 gap-2 items-center">
-          <label className="text-xs font-medium text-gray-700 col-span-1">
+          <label className="text-xs font-medium text-foreground col-span-1">
             {t('business_rules.components.actionRow.actionType')} <span className="text-red-500">{t('business_rules.components.actionRow.actionType.required')}</span>
           </label>
           <select
             value={action.type || ''}
             onChange={handleTypeChange}
-            className="col-span-3 px-2 py-1.5 text-sm border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500 font-medium"
+            className="col-span-3 px-2 py-1.5 text-sm border border-border rounded bg-background focus:outline-none focus:ring-2 focus:ring-blue-500 font-medium"
           >
             <option value="">{t('business_rules.components.actionRow.actionType.placeholder')}</option>
             {actionTypes.map((type) => (
@@ -195,7 +195,7 @@ export function ActionRow({
             type="button"
             onClick={() => onMoveUp(index)}
             disabled={!canMoveUp}
-            className="p-1 text-gray-400 hover:text-gray-600 hover:bg-gray-200 rounded transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
+            className="p-1 text-muted-foreground hover:text-foreground hover:bg-muted rounded transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
             title={t('business_rules.components.actionRow.moveUp')}
           >
             <ChevronUp className="w-4 h-4" />
@@ -206,7 +206,7 @@ export function ActionRow({
             type="button"
             onClick={() => onMoveDown(index)}
             disabled={!canMoveDown}
-            className="p-1 text-gray-400 hover:text-gray-600 hover:bg-gray-200 rounded transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
+            className="p-1 text-muted-foreground hover:text-foreground hover:bg-muted rounded transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
             title={t('business_rules.components.actionRow.moveDown')}
           >
             <ChevronDown className="w-4 h-4" />
@@ -215,7 +215,7 @@ export function ActionRow({
         <button
           type="button"
           onClick={() => onDelete(index)}
-          className="p-1 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded transition-colors"
+          className="p-1 text-muted-foreground hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20 rounded transition-colors"
           title={t('business_rules.components.actionRow.delete')}
         >
           <X className="w-4 h-4" />

@@ -97,13 +97,13 @@ export default function WorkflowInstanceDetailPage({ params }: { params?: { id?:
       case 'FAILED':
         return 'bg-red-100 text-red-800'
       case 'CANCELLED':
-        return 'bg-gray-100 text-gray-800'
+        return 'bg-muted text-foreground dark:bg-muted dark:text-foreground'
       case 'COMPENSATING':
         return 'bg-orange-100 text-orange-800'
       case 'COMPENSATED':
         return 'bg-purple-100 text-purple-800'
       default:
-        return 'bg-gray-100 text-gray-600'
+        return 'bg-muted text-muted-foreground'
     }
   }
 
@@ -117,11 +117,11 @@ export default function WorkflowInstanceDetailPage({ params }: { params?: { id?:
     } else if (eventType.includes('FAILED') || eventType.includes('REJECTED')) {
       return 'bg-red-100 text-red-800'
     } else if (eventType.includes('CANCELLED')) {
-      return 'bg-gray-100 text-gray-800'
+      return 'bg-muted text-foreground dark:bg-muted dark:text-foreground'
     } else if (eventType.includes('PAUSED')) {
       return 'bg-yellow-100 text-yellow-800'
     } else {
-      return 'bg-gray-100 text-gray-700'
+      return 'bg-muted text-foreground'
     }
   }
 
@@ -516,7 +516,7 @@ export default function WorkflowInstanceDetailPage({ params }: { params?: { id?:
           )}
           {!definitionLoading && workflowDefinition && graphNodes.length > 0 && (
             <div className="rounded-lg border bg-card p-6">
-              <h2 className="text-lg font-semibold text-gray-900 mb-4">
+              <h2 className="text-lg font-semibold text-foreground mb-4">
                 {t('workflows.instances.sections.visualFlow') || 'Visual Workflow Flow'}
               </h2>
 
@@ -576,7 +576,7 @@ export default function WorkflowInstanceDetailPage({ params }: { params?: { id?:
                         .filter(e => e.eventType.includes('COMPENSATION') || e.eventType.includes('Compensation'))
                         .reverse()
                         .map((event) => (
-                          <div key={event.id} className="flex items-start gap-2 p-2 bg-white rounded border border-orange-200">
+                          <div key={event.id} className="flex items-start gap-2 p-2 bg-card rounded border border-orange-200">
                             <span
                               className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${getEventTypeBadgeClass(
                                 event.eventType

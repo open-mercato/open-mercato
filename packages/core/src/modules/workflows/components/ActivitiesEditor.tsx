@@ -107,14 +107,14 @@ export function ActivitiesEditor({ value = [], onChange, error }: ActivitiesEdit
       </div>
 
       {value.length === 0 && (
-        <div className="p-6 text-center text-muted-foreground border rounded-md bg-gray-50">
+        <div className="p-6 text-center text-muted-foreground border rounded-md bg-muted">
           {t('workflows.form.noActivities')}
         </div>
       )}
 
       <div className="space-y-3">
         {value.map((activity, index) => (
-          <div key={index} className="p-4 border rounded-md bg-white shadow-sm border-l-4 border-l-green-500">
+          <div key={index} className="p-4 border rounded-md bg-card shadow-sm border-l-4 border-l-green-500">
             <div className="space-y-3">
               <div className="flex items-start justify-between gap-2">
                 <div className="flex-1 grid grid-cols-2 gap-3">

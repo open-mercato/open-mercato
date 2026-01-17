@@ -180,14 +180,14 @@ export function TransitionsEditor({ value = [], onChange, steps = [], error }: T
       </div>
 
       {value.length === 0 && (
-        <div className="p-6 text-center text-muted-foreground border rounded-md bg-gray-50">
+        <div className="p-6 text-center text-muted-foreground border rounded-md bg-muted">
           {t('workflows.form.noTransitions')}
         </div>
       )}
 
       <div className="space-y-3">
         {value.map((transition, index) => (
-          <div key={index} className="p-4 border rounded-md bg-white shadow-sm border-l-4 border-l-blue-500">
+          <div key={index} className="p-4 border rounded-md bg-card shadow-sm border-l-4 border-l-blue-500">
             <div className="space-y-3">
               <div className="flex items-start justify-between gap-2">
                 <div className="flex-1 grid grid-cols-2 gap-3">
@@ -258,7 +258,7 @@ export function TransitionsEditor({ value = [], onChange, steps = [], error }: T
                     id={`transition-${index}-from`}
                     value={transition.fromStepId}
                     onChange={(e) => updateTransition(index, 'fromStepId', e.target.value)}
-                    className="mt-1 w-full px-3 py-2 border border-gray-300 rounded-md text-sm"
+                    className="mt-1 w-full px-3 py-2 border border-border rounded-md text-sm"
                   >
                     <option value="">{t('workflows.form.selectStep')}</option>
                     {steps.map((step: any) => (
@@ -276,7 +276,7 @@ export function TransitionsEditor({ value = [], onChange, steps = [], error }: T
                     id={`transition-${index}-to`}
                     value={transition.toStepId}
                     onChange={(e) => updateTransition(index, 'toStepId', e.target.value)}
-                    className="mt-1 w-full px-3 py-2 border border-gray-300 rounded-md text-sm"
+                    className="mt-1 w-full px-3 py-2 border border-border rounded-md text-sm"
                   >
                     <option value="">{t('workflows.form.selectStep')}</option>
                     {steps.map((step: any) => (
@@ -294,7 +294,7 @@ export function TransitionsEditor({ value = [], onChange, steps = [], error }: T
                     id={`transition-${index}-trigger`}
                     value={transition.trigger}
                     onChange={(e) => updateTransition(index, 'trigger', e.target.value)}
-                    className="mt-1 w-full px-3 py-2 border border-gray-300 rounded-md text-sm"
+                    className="mt-1 w-full px-3 py-2 border border-border rounded-md text-sm"
                   >
                     {TRIGGER_TYPES.map((type) => (
                       <option key={type.value} value={type.value}>
@@ -332,9 +332,9 @@ export function TransitionsEditor({ value = [], onChange, steps = [], error }: T
                 </div>
               </div>
 
-              <div className="mt-4 pl-4 border-l-2 border-gray-200">
+              <div className="mt-4 pl-4 border-l-2 border-border">
                 <div className="flex items-center justify-between mb-3">
-                  <Label className="text-xs font-semibold text-gray-700">
+                  <Label className="text-xs font-semibold text-foreground">
                     {t('workflows.transitions.activities')}
                   </Label>
                   <Button
@@ -349,14 +349,14 @@ export function TransitionsEditor({ value = [], onChange, steps = [], error }: T
                 </div>
 
                 {(transition.activities || []).length === 0 && (
-                  <div className="p-3 text-center text-xs text-muted-foreground border rounded-md bg-gray-50">
+                  <div className="p-3 text-center text-xs text-muted-foreground border rounded-md bg-muted">
                     {t('workflows.form.noActivitiesInTransition')}
                   </div>
                 )}
 
                 <div className="space-y-2">
                   {(transition.activities || []).map((activity, activityIndex) => (
-                    <div key={activityIndex} className="p-3 border rounded-md bg-gray-50 shadow-sm border-l-4 border-l-green-500">
+                    <div key={activityIndex} className="p-3 border rounded-md bg-muted shadow-sm border-l-4 border-l-green-500">
                       <div className="space-y-2">
                         <div className="flex items-start justify-between gap-2">
                           <div className="flex-1 grid grid-cols-2 gap-2">
@@ -427,7 +427,7 @@ export function TransitionsEditor({ value = [], onChange, steps = [], error }: T
                               id={`activity-${index}-${activityIndex}-type`}
                               value={activity.activityType}
                               onChange={(e) => updateActivity(index, activityIndex, 'activityType', e.target.value)}
-                              className="mt-1 w-full px-2 py-1 border border-gray-300 rounded-md text-xs h-8"
+                              className="mt-1 w-full px-2 py-1 border border-border rounded-md text-xs h-8"
                             >
                               {ACTIVITY_TYPES.map((type) => (
                                 <option key={type.value} value={type.value}>

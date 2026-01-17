@@ -539,7 +539,7 @@ export default function VisualEditorPage() {
       <Page className="h-screen flex items-center justify-center">
         <div className="text-center">
           <div className="inline-block animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
-          <p className="mt-4 text-gray-600">Loading workflow definition...</p>
+          <p className="mt-4 text-muted-foreground">Loading workflow definition...</p>
         </div>
       </Page>
     )
@@ -548,7 +548,7 @@ export default function VisualEditorPage() {
   return (
     <Page className="h-screen flex flex-col">
       {/* Page Header */}
-      <div className="border-b border-gray-200 bg-white px-6 py-4">
+      <div className="border-b border-border bg-card px-6 py-4">
         <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
           <div className="flex flex-wrap items-center gap-3">
             <Link
@@ -597,7 +597,7 @@ export default function VisualEditorPage() {
             >
               Clear
             </Button>
-            <div className="w-px h-6 bg-gray-300"></div>
+            <div className="w-px h-6 bg-border"></div>
             <Button
               variant="outline"
               size="sm"
@@ -627,13 +627,13 @@ export default function VisualEditorPage() {
 
       {/* Workflow Metadata Form */}
       {showMetadata && (
-        <div className="bg-white border-b border-gray-200 px-6 py-4">
+        <div className="bg-card border-b border-border px-6 py-4">
           <div className="rounded-lg border bg-card p-4">
             <h2 className="text-sm font-semibold uppercase text-muted-foreground mb-4">Workflow Metadata</h2>
             <div className="grid grid-cols-3 gap-4">
             {/* Workflow ID */}
             <div>
-              <label className="block text-xs font-medium text-gray-700 mb-1">
+              <label className="block text-xs font-medium text-foreground mb-1">
                 Workflow ID *
               </label>
               <input
@@ -642,16 +642,16 @@ export default function VisualEditorPage() {
                 onChange={(e) => setWorkflowId(e.target.value)}
                 placeholder="checkout_workflow"
                 disabled={!!definitionId}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 disabled:bg-gray-100 disabled:cursor-not-allowed"
+                className="w-full px-3 py-2 border border-border rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 disabled:bg-muted disabled:cursor-not-allowed"
               />
-              <p className="text-xs text-gray-500 mt-1">
+              <p className="text-xs text-muted-foreground mt-1">
                 {definitionId ? 'Cannot be changed when editing' : 'Lowercase, numbers, hyphens, underscores'}
               </p>
             </div>
 
             {/* Workflow Name */}
             <div>
-              <label className="block text-xs font-medium text-gray-700 mb-1">
+              <label className="block text-xs font-medium text-foreground mb-1">
                 Workflow Name *
               </label>
               <input
@@ -659,13 +659,13 @@ export default function VisualEditorPage() {
                 value={workflowName}
                 onChange={(e) => setWorkflowName(e.target.value)}
                 placeholder="Checkout Process"
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                className="w-full px-3 py-2 border border-border rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
               />
             </div>
 
             {/* Category */}
             <div>
-              <label className="block text-xs font-medium text-gray-700 mb-1">
+              <label className="block text-xs font-medium text-foreground mb-1">
                 Category
               </label>
               <input
@@ -673,13 +673,13 @@ export default function VisualEditorPage() {
                 value={category}
                 onChange={(e) => setCategory(e.target.value)}
                 placeholder="E-Commerce"
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                className="w-full px-3 py-2 border border-border rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
               />
             </div>
 
             {/* Description */}
             <div className="col-span-3">
-              <label className="block text-xs font-medium text-gray-700 mb-1">
+              <label className="block text-xs font-medium text-foreground mb-1">
                 Description
               </label>
               <textarea
@@ -687,13 +687,13 @@ export default function VisualEditorPage() {
                 onChange={(e) => setDescription(e.target.value)}
                 placeholder="Describe the purpose of this workflow..."
                 rows={2}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                className="w-full px-3 py-2 border border-border rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
               />
             </div>
 
             {/* Version */}
             <div>
-              <label className="block text-xs font-medium text-gray-700 mb-1">
+              <label className="block text-xs font-medium text-foreground mb-1">
                 Version *
               </label>
               <input
@@ -702,16 +702,16 @@ export default function VisualEditorPage() {
                 onChange={(e) => setVersion(parseInt(e.target.value) || 1)}
                 min="1"
                 disabled={!!definitionId}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 disabled:bg-gray-100 disabled:cursor-not-allowed"
+                className="w-full px-3 py-2 border border-border rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 disabled:bg-muted disabled:cursor-not-allowed"
               />
-              <p className="text-xs text-gray-500 mt-1">
+              <p className="text-xs text-muted-foreground mt-1">
                 Version number (increment for major changes)
               </p>
             </div>
 
             {/* Enabled */}
             <div>
-              <label className="block text-xs font-medium text-gray-700 mb-1">
+              <label className="block text-xs font-medium text-foreground mb-1">
                 Enabled
               </label>
               <label className="flex items-center gap-2 cursor-pointer mt-2">
@@ -719,15 +719,15 @@ export default function VisualEditorPage() {
                   type="checkbox"
                   checked={enabled}
                   onChange={(e) => setEnabled(e.target.checked)}
-                  className="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
+                  className="w-4 h-4 text-blue-600 border-border rounded focus:ring-blue-500"
                 />
-                <span className="text-sm text-gray-700">Only enabled workflows can be started</span>
+                <span className="text-sm text-foreground">Only enabled workflows can be started</span>
               </label>
             </div>
 
             {/* Tags */}
             <div>
-              <label className="block text-xs font-medium text-gray-700 mb-1">
+              <label className="block text-xs font-medium text-foreground mb-1">
                 Tags
               </label>
               <TagsInput
@@ -735,14 +735,14 @@ export default function VisualEditorPage() {
                 onChange={setTags}
                 placeholder={t('workflows.form.placeholders.tags')}
               />
-              <p className="text-xs text-gray-500 mt-1">
+              <p className="text-xs text-muted-foreground mt-1">
                 {t('workflows.form.descriptions.tags')}
               </p>
             </div>
 
             {/* Icon */}
             <div>
-              <label className="block text-xs font-medium text-gray-700 mb-1">
+              <label className="block text-xs font-medium text-foreground mb-1">
                 Icon
               </label>
               <input
@@ -750,41 +750,41 @@ export default function VisualEditorPage() {
                 value={icon}
                 onChange={(e) => setIcon(e.target.value)}
                 placeholder="ShoppingCart"
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                className="w-full px-3 py-2 border border-border rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
               />
-              <p className="text-xs text-gray-500 mt-1">
+              <p className="text-xs text-muted-foreground mt-1">
                 Icon name for visual identification
               </p>
             </div>
 
             {/* Effective From */}
             <div>
-              <label className="block text-xs font-medium text-gray-700 mb-1">
+              <label className="block text-xs font-medium text-foreground mb-1">
                 Effective From
               </label>
               <input
                 type="date"
                 value={effectiveFrom}
                 onChange={(e) => setEffectiveFrom(e.target.value)}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                className="w-full px-3 py-2 border border-border rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
               />
-              <p className="text-xs text-gray-500 mt-1">
+              <p className="text-xs text-muted-foreground mt-1">
                 Workflow becomes active from this date
               </p>
             </div>
 
             {/* Effective To */}
             <div>
-              <label className="block text-xs font-medium text-gray-700 mb-1">
+              <label className="block text-xs font-medium text-foreground mb-1">
                 Effective To
               </label>
               <input
                 type="date"
                 value={effectiveTo}
                 onChange={(e) => setEffectiveTo(e.target.value)}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                className="w-full px-3 py-2 border border-border rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
               />
-              <p className="text-xs text-gray-500 mt-1">
+              <p className="text-xs text-muted-foreground mt-1">
                 Workflow deactivates after this date
               </p>
             </div>
@@ -796,7 +796,7 @@ export default function VisualEditorPage() {
       {/* Main Content: Sidebar + Canvas */}
       <PageBody className="flex-1 flex overflow-hidden">
         {/* Left Sidebar - Step Palette */}
-        <div className="w-88 bg-white border-r border-gray-200 p-6 overflow-y-auto">
+        <div className="w-88 bg-card border-r border-border p-6 overflow-y-auto">
           <div className="rounded-lg border bg-card p-4">
             <h2 className="text-sm font-semibold uppercase text-muted-foreground mb-2">Step Palette</h2>
             <p className="text-xs text-muted-foreground mb-4">
@@ -807,7 +807,7 @@ export default function VisualEditorPage() {
             {/* START Step */}
             <button
               onClick={() => handleAddNode('start')}
-              className="w-full text-left px-4 py-3 bg-white border-2 border-gray-200 rounded-xl hover:shadow-md hover:border-gray-300 transition-all cursor-pointer group relative"
+              className="w-full text-left px-4 py-3 bg-card border-2 border-border rounded-xl hover:shadow-md hover:border-border transition-all cursor-pointer group relative"
             >
               <div className={`absolute top-2 right-2 ${NODE_TYPE_COLORS.start} opacity-60 group-hover:opacity-100 transition-opacity`}>
                 {(() => {
@@ -815,14 +815,14 @@ export default function VisualEditorPage() {
                   return <Icon className="w-4 h-4" />
                 })()}
               </div>
-              <div className="text-sm font-semibold text-gray-900">{NODE_TYPE_LABELS.start.title}</div>
-              <div className="text-xs text-gray-500 mt-0.5">{NODE_TYPE_LABELS.start.description}</div>
+              <div className="text-sm font-semibold text-foreground">{NODE_TYPE_LABELS.start.title}</div>
+              <div className="text-xs text-muted-foreground mt-0.5">{NODE_TYPE_LABELS.start.description}</div>
             </button>
 
             {/* USER_TASK Step */}
             <button
               onClick={() => handleAddNode('userTask')}
-              className="w-full text-left px-4 py-3 bg-white border-2 border-gray-200 rounded-xl hover:shadow-md hover:border-gray-300 transition-all cursor-pointer group relative"
+              className="w-full text-left px-4 py-3 bg-card border-2 border-border rounded-xl hover:shadow-md hover:border-border transition-all cursor-pointer group relative"
             >
               <div className={`absolute top-2 right-2 ${NODE_TYPE_COLORS.userTask} opacity-60 group-hover:opacity-100 transition-opacity`}>
                 {(() => {
@@ -830,14 +830,14 @@ export default function VisualEditorPage() {
                   return <Icon className="w-4 h-4" />
                 })()}
               </div>
-              <div className="text-sm font-semibold text-gray-900">{NODE_TYPE_LABELS.userTask.title}</div>
-              <div className="text-xs text-gray-500 mt-0.5">{NODE_TYPE_LABELS.userTask.description}</div>
+              <div className="text-sm font-semibold text-foreground">{NODE_TYPE_LABELS.userTask.title}</div>
+              <div className="text-xs text-muted-foreground mt-0.5">{NODE_TYPE_LABELS.userTask.description}</div>
             </button>
 
             {/* AUTOMATED Step */}
             <button
               onClick={() => handleAddNode('automated')}
-              className="w-full text-left px-4 py-3 bg-white border-2 border-gray-200 rounded-xl hover:shadow-md hover:border-gray-300 transition-all cursor-pointer group relative"
+              className="w-full text-left px-4 py-3 bg-card border-2 border-border rounded-xl hover:shadow-md hover:border-border transition-all cursor-pointer group relative"
             >
               <div className={`absolute top-2 right-2 ${NODE_TYPE_COLORS.automated} opacity-60 group-hover:opacity-100 transition-opacity`}>
                 {(() => {
@@ -845,14 +845,14 @@ export default function VisualEditorPage() {
                   return <Icon className="w-4 h-4" />
                 })()}
               </div>
-              <div className="text-sm font-semibold text-gray-900">{NODE_TYPE_LABELS.automated.title}</div>
-              <div className="text-xs text-gray-500 mt-0.5">{NODE_TYPE_LABELS.automated.description}</div>
+              <div className="text-sm font-semibold text-foreground">{NODE_TYPE_LABELS.automated.title}</div>
+              <div className="text-xs text-muted-foreground mt-0.5">{NODE_TYPE_LABELS.automated.description}</div>
             </button>
 
             {/* WAIT_FOR_SIGNAL Step */}
             <button
               onClick={() => handleAddNode('waitForSignal')}
-              className="w-full text-left px-4 py-3 bg-white border-2 border-gray-200 rounded-xl hover:shadow-md hover:border-gray-300 transition-all cursor-pointer group relative"
+              className="w-full text-left px-4 py-3 bg-card border-2 border-border rounded-xl hover:shadow-md hover:border-border transition-all cursor-pointer group relative"
             >
               <div className={`absolute top-2 right-2 ${NODE_TYPE_COLORS.waitForSignal} opacity-60 group-hover:opacity-100 transition-opacity`}>
                 {(() => {
@@ -860,14 +860,14 @@ export default function VisualEditorPage() {
                   return <Icon className="w-4 h-4" />
                 })()}
               </div>
-              <div className="text-sm font-semibold text-gray-900">{NODE_TYPE_LABELS.waitForSignal.title}</div>
-              <div className="text-xs text-gray-500 mt-0.5">{NODE_TYPE_LABELS.waitForSignal.description}</div>
+              <div className="text-sm font-semibold text-foreground">{NODE_TYPE_LABELS.waitForSignal.title}</div>
+              <div className="text-xs text-muted-foreground mt-0.5">{NODE_TYPE_LABELS.waitForSignal.description}</div>
             </button>
 
             {/* SUB_WORKFLOW Step */}
             <button
               onClick={() => handleAddNode('subWorkflow')}
-              className="w-full text-left px-4 py-3 bg-white border-2 border-gray-200 rounded-xl hover:shadow-md hover:border-gray-300 transition-all cursor-pointer group relative"
+              className="w-full text-left px-4 py-3 bg-card border-2 border-border rounded-xl hover:shadow-md hover:border-border transition-all cursor-pointer group relative"
             >
               <div className={`absolute top-2 right-2 ${NODE_TYPE_COLORS.subWorkflow} opacity-60 group-hover:opacity-100 transition-opacity`}>
                 {(() => {
@@ -875,14 +875,14 @@ export default function VisualEditorPage() {
                   return <Icon className="w-4 h-4" />
                 })()}
               </div>
-              <div className="text-sm font-semibold text-gray-900">{NODE_TYPE_LABELS.subWorkflow.title}</div>
-              <div className="text-xs text-gray-500 mt-0.5">{NODE_TYPE_LABELS.subWorkflow.description}</div>
+              <div className="text-sm font-semibold text-foreground">{NODE_TYPE_LABELS.subWorkflow.title}</div>
+              <div className="text-xs text-muted-foreground mt-0.5">{NODE_TYPE_LABELS.subWorkflow.description}</div>
             </button>
 
             {/* END Step */}
             <button
               onClick={() => handleAddNode('end')}
-              className="w-full text-left px-4 py-3 bg-white border-2 border-gray-200 rounded-xl hover:shadow-md hover:border-gray-300 transition-all cursor-pointer group relative"
+              className="w-full text-left px-4 py-3 bg-card border-2 border-border rounded-xl hover:shadow-md hover:border-border transition-all cursor-pointer group relative"
             >
               <div className={`absolute top-2 right-2 ${NODE_TYPE_COLORS.end} opacity-60 group-hover:opacity-100 transition-opacity`}>
                 {(() => {
@@ -890,8 +890,8 @@ export default function VisualEditorPage() {
                   return <Icon className="w-4 h-4" />
                 })()}
               </div>
-              <div className="text-sm font-semibold text-gray-900">{NODE_TYPE_LABELS.end.title}</div>
-              <div className="text-xs text-gray-500 mt-0.5">{NODE_TYPE_LABELS.end.description}</div>
+              <div className="text-sm font-semibold text-foreground">{NODE_TYPE_LABELS.end.title}</div>
+              <div className="text-xs text-muted-foreground mt-0.5">{NODE_TYPE_LABELS.end.description}</div>
             </button>
           </div>
 
@@ -932,13 +932,13 @@ export default function VisualEditorPage() {
           {nodes.length === 0 && (
             <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
               <div className="text-center">
-                <h2 className="text-xl font-semibold text-gray-900 mb-2">
+                <h2 className="text-xl font-semibold text-foreground mb-2">
                   Start Building Your Workflow
                 </h2>
-                <p className="text-gray-600 mb-4">
+                <p className="text-muted-foreground mb-4">
                   Click a step type from the palette to add it to the canvas
                 </p>
-                <div className="text-sm text-gray-500">
+                <div className="text-sm text-muted-foreground">
                   or{' '}
                   <button
                     onClick={handleLoadExample}
@@ -990,13 +990,13 @@ export default function VisualEditorPage() {
                     {message.message}
                   </p>
                   {message.nodeId && (
-                    <p className="text-xs text-gray-600 mt-1">
-                      Step: <code className="bg-gray-100 px-1 rounded">{message.nodeId}</code>
+                    <p className="text-xs text-muted-foreground mt-1">
+                      Step: <code className="bg-muted px-1 rounded">{message.nodeId}</code>
                     </p>
                   )}
                   {message.edgeId && (
-                    <p className="text-xs text-gray-600 mt-1">
-                      Transition: <code className="bg-gray-100 px-1 rounded">{message.edgeId}</code>
+                    <p className="text-xs text-muted-foreground mt-1">
+                      Transition: <code className="bg-muted px-1 rounded">{message.edgeId}</code>
                     </p>
                   )}
                 </div>

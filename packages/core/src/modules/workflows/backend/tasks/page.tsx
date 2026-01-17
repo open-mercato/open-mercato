@@ -135,9 +135,9 @@ export default function UserTasksListPage() {
       case 'COMPLETED':
         return 'bg-green-100 text-green-800'
       case 'CANCELLED':
-        return 'bg-gray-100 text-gray-800'
+        return 'bg-muted text-foreground'
       default:
-        return 'bg-gray-100 text-gray-600'
+        return 'bg-muted text-muted-foreground'
     }
   }
 

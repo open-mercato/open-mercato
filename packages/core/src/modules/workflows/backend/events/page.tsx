@@ -128,9 +128,9 @@ export default function WorkflowEventsPage() {
     if (eventType.includes('STARTED')) return 'bg-blue-100 text-blue-800'
     if (eventType.includes('COMPLETED')) return 'bg-green-100 text-green-800'
     if (eventType.includes('FAILED') || eventType.includes('REJECTED')) return 'bg-red-100 text-red-800'
-    if (eventType.includes('CANCELLED')) return 'bg-gray-100 text-gray-800'
+    if (eventType.includes('CANCELLED')) return 'bg-muted text-foreground'
     if (eventType.includes('ENTERED') || eventType.includes('EXITED')) return 'bg-purple-100 text-purple-800'
-    return 'bg-gray-100 text-gray-800'
+    return 'bg-muted text-foreground'
   }
 
   const columns: ColumnDef<WorkflowEvent>[] = [
@@ -171,12 +171,12 @@ export default function WorkflowEventsPage() {
               >
                 {row.original.workflowInstance.workflowName}
               </Link>
-              <div className="text-xs text-gray-500 mt-0.5">
+              <div className="text-xs text-muted-foreground mt-0.5">
                 {row.original.workflowInstance.workflowId}
               </div>
             </>
           ) : (
-            <span className="text-gray-500 text-sm">
+            <span className="text-muted-foreground text-sm">
               {t('workflows.events.workflowNotFound')}
             </span>
           )}
@@ -211,7 +211,7 @@ export default function WorkflowEventsPage() {
                   ? 'bg-blue-100 text-blue-800'
                   : row.original.workflowInstance.status === 'FAILED'
                   ? 'bg-red-100 text-red-800'
-                  : 'bg-gray-100 text-gray-800'
+                  : 'bg-muted text-foreground'
               }`}
             >
               {row.original.workflowInstance.status}
@@ -225,7 +225,7 @@ export default function WorkflowEventsPage() {
       header: t('workflows.events.fields.userId'),
       accessorKey: 'userId',
       cell: ({ row }) => (
-        <div className="text-sm text-gray-700 font-mono text-xs">
+        <div className="text-sm text-muted-foreground font-mono text-xs">
           {row.original.userId ? row.original.userId.substring(0, 8) + '...' : '-'}
         </div>
       ),
@@ -234,7 +234,7 @@ export default function WorkflowEventsPage() {
       id: 'eventData',
       header: t('workflows.events.fields.eventData'),
       cell: ({ row }) => (
-        <div className="text-xs text-gray-600 max-w-xs truncate">
+        <div className="text-xs text-muted-foreground max-w-xs truncate">
           {JSON.stringify(row.original.eventData).substring(0, 50)}...
         </div>
       ),

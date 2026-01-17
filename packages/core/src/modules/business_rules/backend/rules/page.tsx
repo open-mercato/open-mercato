@@ -193,7 +193,7 @@ export default function RulesListPage() {
         <div>
           <div className="font-medium">{row.original.ruleName}</div>
           {row.original.description && (
-            <div className="text-xs text-gray-500 line-clamp-1">
+            <div className="text-xs text-muted-foreground line-clamp-1">
               {row.original.description}
             </div>
           )}
@@ -212,7 +212,7 @@ export default function RulesListPage() {
           ACTION: 'bg-green-100 text-green-800',
           ASSIGNMENT: 'bg-purple-100 text-purple-800',
         }
-        const color = typeColors[row.original.ruleType] || 'bg-gray-100 text-gray-800'
+        const color = typeColors[row.original.ruleType] || 'bg-muted text-foreground'
         return (
           <span className={`inline-flex items-center px-2 py-1 rounded text-xs font-medium ${color}`}>
             {row.original.ruleType}
@@ -240,8 +240,8 @@ export default function RulesListPage() {
           onClick={() => handleToggleEnabled(row.original.id, row.original.enabled)}
           className={`inline-flex items-center px-2 py-1 rounded text-xs font-medium cursor-pointer ${
             row.original.enabled
-              ? 'bg-green-100 text-green-800 hover:bg-green-200'
-              : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+              ? 'bg-green-100 text-green-800 hover:bg-green-200 dark:bg-green-900 dark:text-green-300 dark:hover:bg-green-800'
+              : 'bg-muted text-muted-foreground hover:bg-muted/80'
           }`}
           title={t('business_rules.actions.toggleEnabled')}
         >

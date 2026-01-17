@@ -80,7 +80,7 @@ export function JsonBuilder({
     }
 
     return (
-        <div className="space-y-4 border rounded-md p-4 bg-white">
+        <div className="space-y-4 border rounded-md p-4 bg-card">
             <div className="flex items-center space-x-2 border-b pb-2 mb-2">
                 <button
                     type="button"
@@ -88,8 +88,8 @@ export function JsonBuilder({
                     className={cn(
                         "flex items-center gap-2 px-3 py-1.5 text-sm font-medium rounded-md transition-colors",
                         mode === 'raw'
-                            ? "bg-slate-100 text-slate-900"
-                            : "text-slate-500 hover:text-slate-700 hover:bg-slate-50"
+                            ? "bg-muted text-foreground"
+                            : "text-muted-foreground hover:text-foreground hover:bg-muted"
                     )}
                 >
                     <Code className="w-4 h-4" />
@@ -101,8 +101,8 @@ export function JsonBuilder({
                     className={cn(
                         "flex items-center gap-2 px-3 py-1.5 text-sm font-medium rounded-md transition-colors",
                         mode === 'builder'
-                            ? "bg-slate-100 text-slate-900"
-                            : "text-slate-500 hover:text-slate-700 hover:bg-slate-50"
+                            ? "bg-muted text-foreground"
+                            : "text-muted-foreground hover:text-foreground hover:bg-muted"
                     )}
                 >
                     <LayoutList className="w-4 h-4" />
@@ -139,7 +139,7 @@ export function JsonBuilder({
                             isRoot
                         />
                     ) : (
-                        <div className="text-gray-500 italic p-4 text-center">
+                        <div className="text-muted-foreground italic p-4 text-center">
                             Value is not an object or array. Switch to Raw to edit.
                         </div>
                     )}
@@ -222,11 +222,11 @@ function JsonNode({ data, onChange, onDelete, readOnly, label, isRoot }: JsonNod
     }
 
     return (
-        <div className={cn("pl-0", !isRoot && "pl-4 border-l border-gray-200 ml-1")}>
+        <div className={cn("pl-0", !isRoot && "pl-4 border-l border-border ml-1")}>
             <div className="flex items-start gap-2 py-1 group">
 
                 {isContainer && (
-                    <button type="button" onClick={() => setCollapsed(!collapsed)} className="mt-1 text-gray-400 hover:text-gray-700">
+                    <button type="button" onClick={() => setCollapsed(!collapsed)} className="mt-1 text-muted-foreground hover:text-foreground">
                         {collapsed ? <ChevronRight className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
                     </button>
                 )}
@@ -234,10 +234,10 @@ function JsonNode({ data, onChange, onDelete, readOnly, label, isRoot }: JsonNod
 
                 {label !== undefined && !isRoot && (
                     <div className="flex items-center gap-1">
-                        <span className="text-xs text-gray-500 font-mono">
+                        <span className="text-xs text-muted-foreground font-mono">
                             {label}
                         </span>
-                        <span className="text-gray-400 text-xs">:</span>
+                        <span className="text-muted-foreground text-xs">:</span>
                     </div>
                 )}
 
@@ -247,7 +247,7 @@ function JsonNode({ data, onChange, onDelete, readOnly, label, isRoot }: JsonNod
                         <select
                             value={type}
                             onChange={(e) => handleTypeChange(e.target.value as JsonNodeType)}
-                            className="text-xs border rounded px-1 py-0.5 bg-gray-50 text-gray-600 focus:ring-1 focus:ring-blue-500"
+                            className="text-xs border rounded px-1 py-0.5 bg-muted text-foreground focus:ring-1 focus:ring-blue-500"
                         >
                             <option value="string">String</option>
                             <option value="number">Number</option>
@@ -286,9 +286,9 @@ function JsonNode({ data, onChange, onDelete, readOnly, label, isRoot }: JsonNod
                             <option value="false">false</option>
                         </select>
                     )}
-                    {type === 'null' && <span className="text-xs text-gray-400">null</span>}
+                    {type === 'null' && <span className="text-xs text-muted-foreground">null</span>}
                     {isContainer && (
-                        <span className="text-xs text-gray-400">
+                        <span className="text-xs text-muted-foreground">
                             {type === 'object' ? `{ ${Object.keys(data).length} items }` : `[ ${data.length} items ]`}
                         </span>
                     )}
@@ -297,7 +297,7 @@ function JsonNode({ data, onChange, onDelete, readOnly, label, isRoot }: JsonNod
                         <button
                             type="button"
                             onClick={onDelete}
-                            className="text-gray-400 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity"
+                            className="text-muted-foreground hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity"
                             title="Remove item"
                         >
                             <Trash2 className="w-3.5 h-3.5" />
