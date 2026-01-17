@@ -22,6 +22,7 @@ import { WorkflowTransitionEdge } from './WorkflowTransitionEdge'
 import { STATUS_COLORS } from '../lib/status-colors'
 import { Alert, AlertDescription } from '@open-mercato/ui/primitives/alert'
 import { Edit3 } from 'lucide-react'
+import { useTheme } from '@open-mercato/ui/theme'
 
 // NOTE: ReactFlow styles should be imported in the page that uses this component
 // or in a global CSS file. Import: '@xyflow/react/dist/style.css'
@@ -63,6 +64,11 @@ export function WorkflowGraph({
   // Use ReactFlow hooks for node and edge state management
   const [nodes, setNodes, onNodesChange] = useNodesState(initialNodes)
   const [edges, setEdges, onEdgesChange] = useEdgesState(initialEdges)
+
+  // Get theme for dark mode support
+  const { resolvedTheme } = useTheme()
+  const isDark = resolvedTheme === 'dark'
+  const backgroundDotColor = isDark ? '#374151' : '#e5e7eb'
 
   // Sync internal state when external state changes (e.g., when parent adds nodes)
   useEffect(() => {
@@ -181,7 +187,7 @@ export function WorkflowGraph({
           variant={BackgroundVariant.Dots}
           gap={16}
           size={1}
-          color="#e5e7eb"
+          color={backgroundDotColor}
         />
 
         {/* Zoom and pan controls */}
@@ -190,6 +196,7 @@ export function WorkflowGraph({
           showFitView={true}
           showInteractive={false}
           position="top-right"
+          className="!bg-card !border-border !shadow-md [&>button]:!bg-card [&>button]:!border-border [&>button]:!fill-foreground [&>button:hover]:!bg-muted"
         />
 
         {/* Mini-map for navigation in large workflows */}
@@ -200,13 +207,9 @@ export function WorkflowGraph({
             const status = (node.data?.status || 'not_started') as keyof typeof STATUS_COLORS
             return STATUS_COLORS[status]?.hex || STATUS_COLORS.not_started.hex
           }}
-          maskColor="rgba(0, 0, 0, 0.05)"
+          maskColor="rgba(0, 0, 0, 0.1)"
           position="bottom-left"
-          style={{
-            backgroundColor: '#f9fafb',
-            border: '1px solid #e5e7eb',
-            borderRadius: '8px',
-          }}
+          className="!bg-card !border !border-border !rounded-lg"
         />
 
         {/* Info panel */}
