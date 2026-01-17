@@ -165,7 +165,7 @@ export async function POST(req: NextRequest) {
           userRoles: userRoleIds,
           tenantId: auth.tenantId,
           organizationId: auth.orgId,
-          ttlMinutes: 30,
+          ttlMinutes: 120,
         })
 
         console.log('[AI Chat] Created ephemeral session key:', sessionToken)

@@ -318,14 +318,14 @@ function createMcpServerForRequest(
             if (sessionContext) {
               effectiveContext = sessionContext
             } else {
-              // Invalid session token - reject the request
+              // Session token expired - return user-friendly error for AI to relay
               return {
                 content: [
                   {
                     type: 'text' as const,
                     text: JSON.stringify({
-                      error: 'Invalid or expired session token',
-                      code: 'UNAUTHORIZED',
+                      error: 'Your chat session has expired. Please close and reopen the chat window to continue.',
+                      code: 'SESSION_EXPIRED',
                     }),
                   },
                 ],

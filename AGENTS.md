@@ -305,3 +305,17 @@ yarn mercato search query -q "term" --tenant <id>  # Test search
 ```
 
 See `packages/search/src/modules/search/README.md` for full documentation.
+
+## AI Assistant Module
+
+### Session Management
+- Chat sessions use ephemeral API keys that inherit the user's permissions.
+- Session tokens are created when a new chat starts and expire after **2 hours** of inactivity.
+- When a session expires, tool calls return a `SESSION_EXPIRED` error with a user-friendly message.
+- The AI will receive: `"Your chat session has expired. Please close and reopen the chat window to continue."`
+- The AI should relay this message naturally to the user without mentioning technical details like tokens.
+
+### Key Files
+- Session creation: `packages/ai-assistant/src/modules/ai_assistant/api/chat/route.ts`
+- Session validation: `packages/ai-assistant/src/modules/ai_assistant/lib/http-server.ts`
+- API key service: `packages/core/src/modules/api_keys/services/apiKeyService.ts`
