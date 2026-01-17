@@ -11,6 +11,7 @@ import { quoteAcceptSchema } from '../../../data/validators'
 import { sendEmail } from '@open-mercato/shared/lib/email/send'
 import { resolveStatusEntryIdByValue } from '../../../lib/statusHelpers'
 import { QuoteAcceptedAdminEmail } from '../../../emails/QuoteAcceptedAdminEmail'
+import { logSalesStatusChange } from '../../../lib/statusHistory'
 
 type ConvertToOrderResult = {
   result?: { orderId?: string } | null
@@ -44,6 +45,8 @@ export async function POST(req: Request) {
       })
     }
 
+    const previousStatus = quote.status ?? null
+    const previousStatusEntryId = quote.statusEntryId ?? null
     // Mark accepted before conversion so the created order inherits the confirmed status.
     quote.status = 'confirmed'
     quote.statusEntryId = await resolveStatusEntryIdByValue(em, {
@@ -55,7 +58,6 @@ export async function POST(req: Request) {
     em.persist(quote)
     await em.flush()
 
-    const commandBus = container.resolve('commandBus') as CommandBus
     const ctx: CommandRuntimeContext = {
       container,
       auth: null,
@@ -64,7 +66,22 @@ export async function POST(req: Request) {
       organizationIds: [quote.organizationId],
       request: req,
     }
+    await logSalesStatusChange({
+      ctx,
+      documentKind: 'quote',
+      documentId: quote.id,
+      organizationId: quote.organizationId,
+      tenantId: quote.tenantId,
+      previousStatus,
+      nextStatus: quote.status ?? null,
+      previousStatusEntryId,
+      nextStatusEntryId: quote.statusEntryId ?? null,
+      actionLabelKey: 'sales.audit.quotes.accept',
+      actionLabelFallback: 'Accept quote',
+      commandId: 'sales.quotes.accept',
+    })
 
+    const commandBus = container.resolve('commandBus') as CommandBus
     const result = (await commandBus.execute('sales.quotes.convert_to_order', { input: { quoteId: quote.id }, ctx })) as ConvertToOrderResult | null
     const orderId = result?.result?.orderId ?? result?.orderId ?? quote.id
 

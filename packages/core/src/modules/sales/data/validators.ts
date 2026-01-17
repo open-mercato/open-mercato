@@ -748,6 +748,17 @@ export const documentNumberRequestSchema = scoped.extend({
 
 export type DocumentNumberRequestInput = z.infer<typeof documentNumberRequestSchema>
 
+export const documentHistoryQuerySchema = z.object({
+  kind: z.enum(['order', 'quote']),
+  id: uuid(),
+  types: z.array(z.enum(['status', 'action', 'comment'])).optional(),
+  limit: z.coerce.number().int().min(1).max(100).default(50),
+  before: z.coerce.date().optional(),
+  after: z.coerce.date().optional(),
+})
+
+export type DocumentHistoryQueryInput = z.infer<typeof documentHistoryQuerySchema>
+
 export type ChannelCreateInput = z.infer<typeof channelCreateSchema>
 export type ChannelUpdateInput = z.infer<typeof channelUpdateSchema>
 export type ShippingMethodCreateInput = z.infer<typeof shippingMethodCreateSchema>
@@ -796,3 +807,4 @@ export type DocumentAddressUpdateInput = z.infer<typeof documentAddressUpdateSch
 export type DocumentAddressDeleteInput = z.infer<typeof documentAddressDeleteSchema>
 export type QuoteSendInput = z.infer<typeof quoteSendSchema>
 export type QuoteAcceptInput = z.infer<typeof quoteAcceptSchema>
+export type DocumentHistoryQuery = z.infer<typeof documentHistoryQuerySchema>

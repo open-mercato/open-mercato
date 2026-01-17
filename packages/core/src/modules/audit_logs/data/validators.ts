@@ -32,6 +32,8 @@ export const actionLogListSchema = z.object({
   tenantId: uuid.optional(),
   organizationId: uuid.optional(),
   actorUserId: uuid.optional(),
+  resourceKind: z.string().min(1).optional(),
+  resourceId: z.string().min(1).optional(),
   undoableOnly: z.boolean().optional(),
   limit: z.number().int().positive().max(200).default(50),
   before: z.date().optional(),

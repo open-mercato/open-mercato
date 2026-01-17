@@ -33,6 +33,7 @@ import { resolveDictionaryEntryValue } from '../lib/dictionaries'
 import type { DataEngine } from '@open-mercato/shared/lib/data/engine'
 import { emitCrudSideEffects } from '@open-mercato/shared/lib/commands/helpers'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { logSalesStatusChange } from '../lib/statusHistory'
 
 const ADDRESS_SNAPSHOT_KEY = 'shipmentAddressSnapshot'
 
@@ -473,6 +474,8 @@ const createShipmentCommand: CommandHandler<ShipmentCreateInput, { shipmentId: s
         values: normalizeCustomFieldsInput(input.customFields),
       })
     }
+    const previousOrderStatus = input.documentStatusEntryId !== undefined ? (order.status ?? null) : null
+    const previousOrderStatusEntryId = input.documentStatusEntryId !== undefined ? (order.statusEntryId ?? null) : null
     if (input.documentStatusEntryId !== undefined) {
       const orderStatus = await resolveDictionaryEntryValue(em, input.documentStatusEntryId ?? null)
       if (input.documentStatusEntryId && !orderStatus) {
@@ -500,6 +503,22 @@ const createShipmentCommand: CommandHandler<ShipmentCreateInput, { shipmentId: s
     await em.flush()
     await recomputeFulfilledQuantities(em, order)
     await em.flush()
+    if (input.documentStatusEntryId !== undefined) {
+      await logSalesStatusChange({
+        ctx,
+        documentKind: 'order',
+        documentId: order.id,
+        organizationId: order.organizationId,
+        tenantId: order.tenantId,
+        previousStatus: previousOrderStatus,
+        nextStatus: order.status ?? null,
+        previousStatusEntryId: previousOrderStatusEntryId,
+        nextStatusEntryId: order.statusEntryId ?? null,
+        actionLabelKey: 'sales.audit.orders.status_change',
+        actionLabelFallback: 'Change order status',
+        commandId: 'sales.orders.status_change',
+      })
+    }
     return { shipmentId: shipment.id }
   },
   captureAfter: async (_input, result, ctx) => {
@@ -649,6 +668,8 @@ const updateShipmentCommand: CommandHandler<ShipmentUpdateInput, { shipmentId: s
         values: normalizeCustomFieldsInput(input.customFields),
       })
     }
+    const previousOrderStatus = input.documentStatusEntryId !== undefined ? (order.status ?? null) : null
+    const previousOrderStatusEntryId = input.documentStatusEntryId !== undefined ? (order.statusEntryId ?? null) : null
     if (input.documentStatusEntryId !== undefined) {
       const orderStatus = await resolveDictionaryEntryValue(em, input.documentStatusEntryId ?? null)
       if (input.documentStatusEntryId && !orderStatus) {
@@ -700,6 +721,22 @@ const updateShipmentCommand: CommandHandler<ShipmentUpdateInput, { shipmentId: s
     await em.flush()
     await recomputeFulfilledQuantities(em, order)
     await em.flush()
+    if (input.documentStatusEntryId !== undefined) {
+      await logSalesStatusChange({
+        ctx,
+        documentKind: 'order',
+        documentId: order.id,
+        organizationId: order.organizationId,
+        tenantId: order.tenantId,
+        previousStatus: previousOrderStatus,
+        nextStatus: order.status ?? null,
+        previousStatusEntryId: previousOrderStatusEntryId,
+        nextStatusEntryId: order.statusEntryId ?? null,
+        actionLabelKey: 'sales.audit.orders.status_change',
+        actionLabelFallback: 'Change order status',
+        commandId: 'sales.orders.status_change',
+      })
+    }
     return { shipmentId: shipment.id }
   },
   captureAfter: async (_input, result, ctx) => {

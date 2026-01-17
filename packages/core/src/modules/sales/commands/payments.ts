@@ -35,6 +35,7 @@ import { invalidateCrudCache } from '@open-mercato/shared/lib/crud/cache'
 import { emitCrudSideEffects } from '@open-mercato/shared/lib/commands/helpers'
 import type { DataEngine } from '@open-mercato/shared/lib/data/engine'
 import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { logSalesStatusChange } from '../lib/statusHistory'
 
 export type PaymentAllocationSnapshot = {
   id: string
@@ -333,6 +334,8 @@ const createPaymentCommand: CommandHandler<
       ensureSameScope(method, input.organizationId, input.tenantId)
       paymentMethod = method
     }
+    const previousOrderStatus = input.documentStatusEntryId !== undefined ? (order.status ?? null) : null
+    const previousOrderStatusEntryId = input.documentStatusEntryId !== undefined ? (order.statusEntryId ?? null) : null
     if (input.documentStatusEntryId !== undefined) {
       const orderStatus = await resolveDictionaryEntryValue(em, input.documentStatusEntryId ?? null)
       if (input.documentStatusEntryId && !orderStatus) {
@@ -422,6 +425,22 @@ const createPaymentCommand: CommandHandler<
     const totals = await recomputeOrderPaymentTotals(em, order)
     await em.flush()
     await invalidateOrderCache(ctx.container, order, ctx.auth?.tenantId ?? null)
+    if (input.documentStatusEntryId !== undefined) {
+      await logSalesStatusChange({
+        ctx,
+        documentKind: 'order',
+        documentId: order.id,
+        organizationId: order.organizationId,
+        tenantId: order.tenantId,
+        previousStatus: previousOrderStatus,
+        nextStatus: order.status ?? null,
+        previousStatusEntryId: previousOrderStatusEntryId,
+        nextStatusEntryId: order.statusEntryId ?? null,
+        actionLabelKey: 'sales.audit.orders.status_change',
+        actionLabelFallback: 'Change order status',
+        commandId: 'sales.orders.status_change',
+      })
+    }
     return { paymentId: payment.id, orderTotals: totals }
   },
   captureAfter: async (_input, result, ctx) => {
@@ -552,10 +571,20 @@ const updatePaymentCommand: CommandHandler<
       }
     }
     const currentOrder = payment.order as SalesOrder | null
+    let orderStatusLog: {
+      order: SalesOrder
+      previousStatus: string | null
+      previousStatusEntryId: string | null
+    } | null = null
     if ((input.documentStatusEntryId !== undefined || input.lineStatusEntryId !== undefined) && !currentOrder) {
       throw new CrudHttpError(400, { error: translate('sales.payments.order_required', 'Order is required for payments.') })
     }
     if (currentOrder && input.documentStatusEntryId !== undefined) {
+      orderStatusLog = {
+        order: currentOrder,
+        previousStatus: currentOrder.status ?? null,
+        previousStatusEntryId: currentOrder.statusEntryId ?? null,
+      }
       const orderStatus = await resolveDictionaryEntryValue(em, input.documentStatusEntryId ?? null)
       if (input.documentStatusEntryId && !orderStatus) {
         throw new CrudHttpError(400, {
@@ -655,6 +684,23 @@ const updatePaymentCommand: CommandHandler<
       totals = await recomputeOrderPaymentTotals(em, nextOrder)
       await em.flush()
       await invalidateOrderCache(ctx.container, nextOrder, ctx.auth?.tenantId ?? null)
+      if (orderStatusLog && orderStatusLog.order.id === nextOrder.id) {
+        await logSalesStatusChange({
+          ctx,
+          documentKind: 'order',
+          documentId: nextOrder.id,
+          organizationId: nextOrder.organizationId,
+          tenantId: nextOrder.tenantId,
+          previousStatus: orderStatusLog.previousStatus,
+          nextStatus: nextOrder.status ?? null,
+          previousStatusEntryId: orderStatusLog.previousStatusEntryId,
+          nextStatusEntryId: nextOrder.statusEntryId ?? null,
+          actionLabelKey: 'sales.audit.orders.status_change',
+          actionLabelFallback: 'Change order status',
+          commandId: 'sales.orders.status_change',
+        })
+        orderStatusLog = null
+      }
     }
     if (previousOrder && (!nextOrder || previousOrder.id !== nextOrder.id)) {
       await recomputeOrderPaymentTotals(em, previousOrder)
