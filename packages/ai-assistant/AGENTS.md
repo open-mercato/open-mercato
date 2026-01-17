@@ -291,9 +291,69 @@ interface CommandPaletteContextValue {
 
 ## Running the Stack
 
+### MCP Server Modes
+
+The module provides two MCP HTTP server modes:
+
+#### Development Server (`yarn mcp:dev`)
+
+For local development and Claude Code integration. Authenticates once using an API key - no session tokens required.
+
+```bash
+# Reads API key from .mcp.json headers.x-api-key or OPEN_MERCATO_API_KEY env
+yarn mcp:dev
+```
+
+**Key characteristics:**
+- API key authentication at startup (no per-request session tokens)
+- Tools filtered by API key permissions once
+- Ideal for Claude Code, MCP Inspector, local testing
+- Configuration via `.mcp.json`:
+  ```json
+  {
+    "mcpServers": {
+      "open-mercato": {
+        "type": "http",
+        "url": "http://localhost:3001/mcp",
+        "headers": {
+          "x-api-key": "omk_your_key_here"
+        }
+      }
+    }
+  }
+  ```
+
+#### Production Server (`yarn mcp:serve`)
+
+For web-based AI chat. Requires two-tier auth: server API key + user session tokens.
+
+```bash
+# Requires MCP_SERVER_API_KEY in .env
+yarn mcp:serve
+```
+
+**Key characteristics:**
+- Server-level auth via `x-api-key` header (validated against `MCP_SERVER_API_KEY`)
+- User-level auth via `_sessionToken` parameter in each tool call
+- Per-request permission checks based on user's session
+- 2-hour session token TTL
+
+#### Comparison
+
+| Feature | Dev (`mcp:dev`) | Production (`mcp:serve`) |
+|---------|-----------------|-------------------------|
+| Auth | API key only | API key + session tokens |
+| Permission check | Once at startup | Per tool call |
+| Session tokens | Not required | Required |
+| Use case | Claude Code, dev | Web AI chat |
+
 ### 1. Start MCP Server
 ```bash
-yarn mercato ai_assistant mcp:serve-http --port 3001
+# For development/Claude Code:
+yarn mcp:dev
+
+# For production/web chat:
+yarn mcp:serve
 ```
 
 ### 2. Start OpenCode (Docker)
@@ -306,7 +366,7 @@ docker start opencode-mvp
 ```bash
 # MCP health
 curl http://localhost:3001/health
-# {"status":"ok","tools":10}
+# {"status":"ok","mode":"development","tools":10}
 
 # OpenCode health
 curl http://localhost:4096/global/health

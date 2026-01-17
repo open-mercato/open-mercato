@@ -308,6 +308,58 @@ See `packages/search/src/modules/search/README.md` for full documentation.
 
 ## AI Assistant Module
 
+### MCP Server Modes
+
+The AI Assistant provides two MCP HTTP server modes:
+
+#### Development Server (`yarn mcp:dev`)
+For local development and Claude Code integration. Authenticates once at startup using an API key - no session tokens required per request.
+
+```bash
+# Reads API key from .mcp.json headers.x-api-key or OPEN_MERCATO_API_KEY env
+yarn mcp:dev
+```
+
+**Configuration (`.mcp.json`):**
+```json
+{
+  "mcpServers": {
+    "open-mercato": {
+      "type": "http",
+      "url": "http://localhost:3001/mcp",
+      "headers": {
+        "x-api-key": "omk_your_api_key_here"
+      }
+    }
+  }
+}
+```
+
+**Environment variables:**
+- `OPEN_MERCATO_API_KEY` - API key (alternative to .mcp.json)
+- `MCP_DEV_PORT` - Port (default: 3001)
+- `MCP_DEBUG` - Enable debug logging (`true`/`false`)
+
+#### Production Server (`yarn mcp:serve`)
+For web-based AI chat. Requires two-tier authentication: server API key + user session tokens.
+
+```bash
+# Requires MCP_SERVER_API_KEY in .env
+yarn mcp:serve
+```
+
+**Environment variables:**
+- `MCP_SERVER_API_KEY` - Required. Static API key for server-level auth.
+
+#### Comparison
+
+| Feature | Dev (`mcp:dev`) | Production (`mcp:serve`) |
+|---------|-----------------|-------------------------|
+| Auth | API key only | API key + session tokens |
+| Permission check | Once at startup | Per tool call |
+| Session tokens | Not required | Required (`_sessionToken`) |
+| Use case | Claude Code, local dev | Web AI chat interface |
+
 ### Session Management
 - Chat sessions use ephemeral API keys that inherit the user's permissions.
 - Session tokens are created when a new chat starts and expire after **2 hours** of inactivity.
@@ -315,7 +367,26 @@ See `packages/search/src/modules/search/README.md` for full documentation.
 - The AI will receive: `"Your chat session has expired. Please close and reopen the chat window to continue."`
 - The AI should relay this message naturally to the user without mentioning technical details like tokens.
 
+### MCP CLI Commands
+
+```bash
+# Run development server (Claude Code / local dev)
+yarn mcp:dev
+
+# Run production server (web AI chat)
+yarn mcp:serve
+
+# List all available MCP tools
+yarn mercato ai_assistant mcp:list-tools
+
+# List tools with descriptions
+yarn mercato ai_assistant mcp:list-tools --verbose
+```
+
 ### Key Files
+- Dev server: `packages/ai-assistant/src/modules/ai_assistant/lib/mcp-dev-server.ts`
+- Production server: `packages/ai-assistant/src/modules/ai_assistant/lib/http-server.ts`
 - Session creation: `packages/ai-assistant/src/modules/ai_assistant/api/chat/route.ts`
 - Session validation: `packages/ai-assistant/src/modules/ai_assistant/lib/http-server.ts`
 - API key service: `packages/core/src/modules/api_keys/services/apiKeyService.ts`
+- CLI commands: `packages/ai-assistant/src/modules/ai_assistant/cli.ts`

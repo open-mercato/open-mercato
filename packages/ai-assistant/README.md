@@ -312,7 +312,7 @@ graph LR
 Set the required environment variables:
 
 ```bash
-# MCP Server Authentication (required for AI chat)
+# MCP Server Authentication (required for production server)
 MCP_SERVER_API_KEY=your-secure-server-key-here
 
 # OpenCode URL (default: http://localhost:4096)
@@ -320,6 +320,106 @@ OPENCODE_URL=http://localhost:4096
 ```
 
 > **Note:** The `MCP_SERVER_API_KEY` must also be configured in OpenCode's `opencode.jsonc` as the `x-api-key` header. OpenCode handles AI provider configuration internally - see the OpenCode documentation for provider setup.
+
+---
+
+## MCP Server Modes
+
+The module provides two MCP HTTP server modes for different use cases:
+
+### Development Server (`yarn mcp:dev`)
+
+A simplified HTTP server for local development and Claude Code integration. Authenticates once at startup using an API key and grants full access to all tools without requiring session tokens per request.
+
+**Features:**
+- HTTP transport on port 3001 (configurable via `MCP_DEV_PORT`)
+- Direct API key authentication (no session tokens needed)
+- Tools filtered by API key permissions at startup
+- Ideal for Claude Code, local testing, and development
+
+**Configuration (`.mcp.json`):**
+```json
+{
+  "mcpServers": {
+    "open-mercato": {
+      "type": "http",
+      "url": "http://localhost:3001/mcp",
+      "headers": {
+        "x-api-key": "omk_your_api_key_here"
+      }
+    }
+  }
+}
+```
+
+**Running:**
+```bash
+# Option 1: API key from .mcp.json headers.x-api-key
+yarn mcp:dev
+
+# Option 2: API key from environment variable
+OPEN_MERCATO_API_KEY=omk_xxx yarn mcp:dev
+
+# Option 3: Custom port
+MCP_DEV_PORT=3002 yarn mcp:dev
+
+# Enable debug logging
+MCP_DEBUG=true yarn mcp:dev
+```
+
+**Endpoints:**
+- `POST http://localhost:3001/mcp` - MCP protocol endpoint
+- `GET http://localhost:3001/health` - Health check
+
+### Production Server (`yarn mcp:serve`)
+
+A stateless HTTP server designed for production use with the web-based AI chat interface. Requires two-tier authentication: server-level API key + user-level session tokens.
+
+**Features:**
+- HTTP transport on port 3001
+- Two-tier authentication:
+  1. Server-level: `x-api-key` header validated against `MCP_SERVER_API_KEY`
+  2. User-level: `_sessionToken` parameter in each tool call
+- Per-request permission checks based on user's session
+- Supports ephemeral session tokens with 2-hour TTL
+
+**Environment Variables:**
+```bash
+# Required: Static API key for server-level auth
+MCP_SERVER_API_KEY=your-secure-server-key-here
+```
+
+**Running:**
+```bash
+yarn mcp:serve
+```
+
+**How it works:**
+1. AI chat UI creates a session token for the logged-in user
+2. OpenCode connects with static `MCP_SERVER_API_KEY`
+3. Each tool call includes `_sessionToken` in arguments
+4. MCP server resolves user permissions from session token
+5. Tool executes with user's ACL context
+
+### Comparison
+
+| Feature | Dev Server (`mcp:dev`) | Production Server (`mcp:serve`) |
+|---------|------------------------|--------------------------------|
+| Authentication | API key only | API key + session tokens |
+| Permission Check | Once at startup | Per tool call |
+| Session Tokens | Not required | Required (`_sessionToken`) |
+| Use Case | Claude Code, local dev | Web AI chat interface |
+| User Context | From API key | From session token |
+
+### CLI Commands
+
+```bash
+# List all available MCP tools
+yarn mercato ai_assistant mcp:list-tools
+
+# List tools with descriptions
+yarn mercato ai_assistant mcp:list-tools --verbose
+```
 
 ### 2. Register a Tool
 

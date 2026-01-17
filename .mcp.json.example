@@ -1,0 +1,12 @@
+{
+  "mcpServers": {
+    "open-mercato": {
+      "type": "stdio",
+      "command": "yarn",
+      "args": ["mcp:dev"],
+      "env": {
+        "OPEN_MERCATO_API_KEY": "${OPEN_MERCATO_API_KEY}"
+      }
+    }
+  }
+}
