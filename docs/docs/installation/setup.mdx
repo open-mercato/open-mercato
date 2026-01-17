@@ -17,7 +17,7 @@ cd open-mercato
 git checkout develop
 ```
 
-Continue with the setup steps below.
+Continue with the develop setup steps below.
 
 ### Legacy main branch
 
@@ -29,12 +29,14 @@ git checkout main
 
 Use this only if you need to match a legacy environment. The develop branch is the preferred path for new work.
 
+## Develop setup steps (recommended)
+
 Follow these steps after the [prerequisites](./prerequisites) are in place:
 
-1. **Clone the repository**
+1. **Use the develop branch**
    ```bash
-   git clone https://github.com/open-mercato/open-mercato.git
    cd open-mercato
+   git checkout develop
    ```
 2. **Start Docker services**
    ```bash
@@ -57,11 +59,49 @@ Follow these steps after the [prerequisites](./prerequisites) are in place:
    REDIS_URL=redis://localhost:6379
    ```
    If you prefer a separate events Redis, set `EVENTS_REDIS_URL` instead of `REDIS_URL`.
-5. **Bootstrap everything with one command**
+5. **Build packages and generate registries**
+   ```bash
+   yarn build:packages
+   yarn generate
+   ```
+6. **Bootstrap data**
+   ```bash
+   yarn initialize
+   ```
+   This script prepares module registries, generates/applies migrations, seeds default roles, provisions an admin user, and loads demo CRM data (companies, people, deals, activities, todos). Add `--no-examples` if you prefer to skip the demo content while keeping core identities, `--stresstest` (optionally with `-n <count>`) to preload thousands of synthetic contacts, companies, deals, activities, and notes, or combine `--stresstest --lite` for high-volume contacts without the heavier extras when you need raw throughput.
+7. **Launch the app**
+   ```bash
+   yarn dev
+   ```
+   Navigate to `http://localhost:3000/backend` and sign in with the credentials printed by `yarn initialize`.
+
+## Legacy main setup steps
+
+Use these steps only for the `main` branch.
+
+1. **Start Docker services**
+   ```bash
+   docker compose up -d
+   ```
+2. **Install workspace dependencies**
+   ```bash
+   yarn install
+   ```
+3. **Copy the environment template**
+   ```bash
+   cp apps/mercato/.env.example apps/mercato/.env
+   ```
+   Make sure these required variables are set in `apps/mercato/.env` before continuing:
+   ```env
+   DATABASE_URL=postgres://postgres:postgres@localhost:5432/open-mercato
+   JWT_SECRET=change-me-dev-secret
+   REDIS_URL=redis://localhost:6379
+   ```
+   If you prefer a separate events Redis, set `EVENTS_REDIS_URL` instead of `REDIS_URL`.
+4. **Bootstrap everything with one command**
    ```bash
    yarn mercato init
    ```
-   This script prepares module registries, generates/applies migrations, seeds default roles, provisions an admin user, and loads demo CRM data (companies, people, deals, activities, todos). Add `--no-examples` if you prefer to skip the demo content while keeping core identities, `--stresstest` (optionally with `-n <count>`) to preload thousands of synthetic contacts, companies, deals, activities, and notes, or combine `--stresstest --lite` for high-volume contacts without the heavier extras when you need raw throughput.
 5. **Launch the app**
    ```bash
    yarn dev
