@@ -4,6 +4,7 @@ import * as React from 'react'
 import { Building2, Mail, MousePointerClick, Pencil, Users } from 'lucide-react'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { cn } from '@open-mercato/shared/lib/utils'
+import { useT } from '@open-mercato/shared/lib/i18n/context'
 
 type DocumentCustomerCardProps = {
   label?: string
@@ -24,6 +25,7 @@ export function DocumentCustomerCard({
   onSelectCustomer,
   className,
 }: DocumentCustomerCardProps) {
+  const t = useT()
   const Icon = kind === 'person' ? Users : Building2
   const interactiveProps = onSelectCustomer
     ? {
@@ -63,7 +65,7 @@ export function DocumentCustomerCard({
               {name ? (
                 <p className="text-sm font-medium leading-tight text-foreground">{name}</p>
               ) : (
-                <p className="text-sm text-muted-foreground">No customer assigned</p>
+                <p className="text-sm text-muted-foreground">{t('sales.documents.detail.customerSnapshot.noCustomer')}</p>
               )}
               {email ? (
                 <p className="flex w-full items-center gap-1 text-xs text-muted-foreground min-w-0">
@@ -92,7 +94,7 @@ export function DocumentCustomerCard({
             disabled={!onEditSnapshot}
           >
             <Pencil className="h-4 w-4" aria-hidden />
-            <span className="sr-only">Edit customer snapshot</span>
+            <span className="sr-only">{t('sales.documents.detail.customerSnapshot.edit')}</span>
           </Button>
           <Button
             type="button"
@@ -109,7 +111,7 @@ export function DocumentCustomerCard({
             disabled={!onSelectCustomer}
           >
             <MousePointerClick className="h-4 w-4" aria-hidden />
-            <span className="sr-only">Select customer</span>
+            <span className="sr-only">{t('sales.documents.detail.customerSnapshot.select')}</span>
           </Button>
         </div>
       </div>

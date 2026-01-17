@@ -4,6 +4,7 @@ import * as React from 'react'
 import { apiCallOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Spinner } from '@open-mercato/ui/primitives/spinner'
+import { useT } from '@open-mercato/shared/lib/i18n/context'
 
 type PublicQuoteResponse = {
   quote: {
@@ -33,6 +34,7 @@ type PublicQuoteResponse = {
 }
 
 export default function QuotePublicPage({ params }: { params: { token: string } }) {
+  const t = useT()
   const token = params?.token
   const [loading, setLoading] = React.useState(true)
   const [accepting, setAccepting] = React.useState(false)
@@ -55,7 +57,7 @@ export default function QuotePublicPage({ params }: { params: { token: string } 
       } catch (err) {
         console.error('sales.quotes.public.load', err)
         if (!mounted) return
-        setError('Failed to load quote.')
+        setError(t('sales.quotes.public.failed'))
       } finally {
         if (mounted) setLoading(false)
       }
@@ -64,7 +66,7 @@ export default function QuotePublicPage({ params }: { params: { token: string } 
     return () => {
       mounted = false
     }
-  }, [token])
+  }, [token, t])
 
   const handleAccept = React.useCallback(async () => {
     if (!token) return
@@ -79,18 +81,18 @@ export default function QuotePublicPage({ params }: { params: { token: string } 
       setAcceptedOrder(call.result ?? null)
     } catch (err) {
       console.error('sales.quotes.accept', err)
-      setError('Failed to accept quote.')
+      setError(t('sales.quotes.public.acceptFailed'))
     } finally {
       setAccepting(false)
     }
-  }, [token])
+  }, [token, t])
 
   if (loading) {
     return (
       <main className="mx-auto max-w-3xl p-6">
         <p className="flex items-center gap-2 text-sm text-muted-foreground">
           <Spinner className="h-4 w-4 animate-spin" />
-          Loading quote…
+          {t('sales.quotes.public.loading')}
         </p>
       </main>
     )
@@ -99,8 +101,8 @@ export default function QuotePublicPage({ params }: { params: { token: string } 
   if (error || !data) {
     return (
       <main className="mx-auto max-w-3xl p-6 space-y-2">
-        <h1 className="text-2xl font-semibold">Quote</h1>
-        <p className="text-sm text-destructive">{error ?? 'Quote not found.'}</p>
+        <h1 className="text-2xl font-semibold">{t('sales.quotes.public.pageTitle')}</h1>
+        <p className="text-sm text-destructive">{error ?? t('sales.quotes.public.notFound')}</p>
       </main>
     )
   }
@@ -108,8 +110,8 @@ export default function QuotePublicPage({ params }: { params: { token: string } 
   if (acceptedOrder) {
     return (
       <main className="mx-auto max-w-3xl p-6 space-y-2">
-        <h1 className="text-2xl font-semibold">Quote accepted</h1>
-        <p className="text-sm text-muted-foreground">Order created: {acceptedOrder.orderNumber}</p>
+        <h1 className="text-2xl font-semibold">{t('sales.quotes.public.acceptedTitle')}</h1>
+        <p className="text-sm text-muted-foreground">{t('sales.quotes.public.acceptedMessage', { orderNumber: acceptedOrder.orderNumber })}</p>
       </main>
     )
   }
@@ -117,29 +119,29 @@ export default function QuotePublicPage({ params }: { params: { token: string } 
   return (
     <main className="mx-auto max-w-3xl p-6 space-y-6">
       <header className="space-y-1">
-        <h1 className="text-2xl font-semibold">Quote {data.quote.quoteNumber}</h1>
+        <h1 className="text-2xl font-semibold">{t('sales.quotes.public.pageTitle')} {data.quote.quoteNumber}</h1>
         <p className="text-sm text-muted-foreground">
-          {data.quote.validUntil ? `Valid until ${new Date(data.quote.validUntil).toLocaleDateString()}` : 'No validity date'}
+          {data.quote.validUntil ? t('sales.quotes.public.validUntil', { date: new Date(data.quote.validUntil).toLocaleDateString() }) : t('sales.quotes.public.noValidityDate')}
         </p>
       </header>
 
       {data.isExpired ? (
         <section className="rounded-lg border p-4">
-          <p className="font-medium">This quote has expired.</p>
-          <p className="text-sm text-muted-foreground">Please contact the seller to request an updated quote.</p>
+          <p className="font-medium">{t('sales.quotes.public.expired')}</p>
+          <p className="text-sm text-muted-foreground">{t('sales.quotes.public.expiredMessage')}</p>
         </section>
       ) : null}
 
       <section className="rounded-lg border p-4 space-y-3">
-        <h2 className="font-medium">Items</h2>
+        <h2 className="font-medium">{t('sales.quotes.public.items')}</h2>
         <div className="space-y-2">
           {data.lines.map((line) => (
             <div key={`${line.lineNumber ?? 'x'}-${line.name ?? ''}`} className="flex items-start justify-between gap-4">
               <div className="min-w-0">
-                <p className="font-medium truncate">{line.name ?? 'Item'}</p>
+                <p className="font-medium truncate">{line.name ?? t('sales.quotes.public.item')}</p>
                 {line.description ? <p className="text-sm text-muted-foreground">{line.description}</p> : null}
                 <p className="text-sm text-muted-foreground">
-                  Qty: {line.quantity}
+                  {t('sales.quotes.public.qty', { quantity: line.quantity })}
                   {line.quantityUnit ? ` ${line.quantityUnit}` : ''}
                 </p>
               </div>
@@ -154,27 +156,27 @@ export default function QuotePublicPage({ params }: { params: { token: string } 
       </section>
 
       <section className="rounded-lg border p-4 space-y-2">
-        <h2 className="font-medium">Totals</h2>
+        <h2 className="font-medium">{t('sales.quotes.public.totals')}</h2>
         <div className="flex items-center justify-between text-sm">
-          <span>Subtotal (gross)</span>
+          <span>{t('sales.quotes.public.subtotalGross')}</span>
           <span>
             {data.quote.subtotalGrossAmount} {data.quote.currencyCode}
           </span>
         </div>
         <div className="flex items-center justify-between text-sm">
-          <span>Discount</span>
+          <span>{t('sales.quotes.public.discount')}</span>
           <span>
             {data.quote.discountTotalAmount} {data.quote.currencyCode}
           </span>
         </div>
         <div className="flex items-center justify-between text-sm">
-          <span>Tax</span>
+          <span>{t('sales.quotes.public.tax')}</span>
           <span>
             {data.quote.taxTotalAmount} {data.quote.currencyCode}
           </span>
         </div>
         <div className="flex items-center justify-between font-medium">
-          <span>Total</span>
+          <span>{t('sales.quotes.public.total')}</span>
           <span>
             {data.quote.grandTotalGrossAmount} {data.quote.currencyCode}
           </span>
@@ -186,7 +188,7 @@ export default function QuotePublicPage({ params }: { params: { token: string } 
           {error ? <p className="text-sm text-destructive">{error}</p> : null}
           <Button onClick={() => void handleAccept()} disabled={accepting}>
             {accepting ? <Spinner className="mr-2 h-4 w-4 animate-spin" /> : null}
-            Accept quote
+            {t('sales.quotes.public.acceptButton')}
           </Button>
         </div>
       ) : null}
