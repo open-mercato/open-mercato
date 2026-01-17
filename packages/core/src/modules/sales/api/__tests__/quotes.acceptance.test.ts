@@ -34,6 +34,7 @@ jest.mock('@open-mercato/shared/lib/i18n/server', () => ({
   resolveTranslations: jest.fn().mockResolvedValue({
     translate: (_key: string, fallback?: string) => fallback ?? _key,
   }),
+  detectLocale: jest.fn().mockResolvedValue('en'),
 }))
 
 jest.mock('@open-mercato/shared/lib/email/send', () => ({

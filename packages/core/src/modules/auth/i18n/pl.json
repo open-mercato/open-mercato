@@ -89,5 +89,11 @@
   "auth.users.widgets.loading": "Ładowanie widżetów…",
   "auth.users.widgets.mode.inherit": "Dziedzicz z ról",
   "auth.users.widgets.mode.override": "Zastąp dla tego użytkownika",
-  "auth.users.widgets.mode.hint": "Nowi użytkownicy dziedziczą widżety z przypisanych ról. Zastąp wybór, aby wskazać własny zestaw."
+  "auth.users.widgets.mode.hint": "Nowi użytkownicy dziedziczą widżety z przypisanych ról. Zastąp wybór, aby wskazać własny zestaw.",
+  "auth.email.resetPassword.subject": "Zresetuj swoje hasło",
+  "auth.email.resetPassword.preview": "Zresetuj swoje hasło",
+  "auth.email.resetPassword.title": "Zresetuj swoje hasło",
+  "auth.email.resetPassword.body": "Kliknij poniższy link, aby ustawić nowe hasło. Link wygaśnie za 60 minut.",
+  "auth.email.resetPassword.cta": "Ustaw nowe hasło",
+  "auth.email.resetPassword.hint": "Jeśli nie prosiłeś o tę wiadomość, możesz ją bezpiecznie zignorować."
 }

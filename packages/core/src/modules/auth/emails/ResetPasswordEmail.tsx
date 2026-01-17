@@ -1,22 +1,33 @@
 import * as React from 'react'
 import { Html, Head, Preview, Body, Container, Text, Section, Link } from '@react-email/components'
 
-export function ResetPasswordEmail({ resetUrl }: { resetUrl: string }) {
+export type ResetPasswordEmailCopy = {
+  preview: string
+  title: string
+  body: string
+  cta: string
+  hint: string
+}
+
+export type ResetPasswordEmailProps = {
+  resetUrl: string
+  copy: ResetPasswordEmailCopy
+}
+
+export function ResetPasswordEmail({ resetUrl, copy }: ResetPasswordEmailProps) {
   return (
     <Html>
       <Head />
-      <Preview>Reset your password</Preview>
+      <Preview>{copy.preview}</Preview>
       <Body style={body}>
         <Container style={container}>
           <Section style={section}>
-            <Text style={title}>Reset your password</Text>
-            <Text style={paragraph}>
-              Click the link below to set a new password. This link will expire in 60 minutes.
-            </Text>
+            <Text style={title}>{copy.title}</Text>
+            <Text style={paragraph}>{copy.body}</Text>
             <Text>
-              <Link href={resetUrl} style={button}>Set a new password</Link>
+              <Link href={resetUrl} style={button}>{copy.cta}</Link>
             </Text>
-            <Text style={hint}>If you didn’t request this, you can safely ignore this email.</Text>
+            <Text style={hint}>{copy.hint}</Text>
           </Section>
         </Container>
       </Body>
@@ -33,4 +44,3 @@ const button: React.CSSProperties = { display: 'inline-block', backgroundColor: 
 const hint: React.CSSProperties = { fontSize: 12, color: '#6b7280', marginTop: 16 }
 
 export default ResetPasswordEmail
-

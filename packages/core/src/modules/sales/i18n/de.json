@@ -24,7 +24,13 @@
         "missingEmail": "Zum Senden eines Angebots ist eine Kunden-E-Mail erforderlich."
       },
       "email": {
-        "subject": "Angebot {quoteNumber}"
+        "subject": "Angebot {quoteNumber}",
+        "preview": "Angebot {quoteNumber} ist zur Prüfung bereit",
+        "heading": "Angebot {quoteNumber}",
+        "total": "Gesamt: {amount} {currency}",
+        "validUntil": "Gültig bis: {date}",
+        "cta": "Angebot ansehen",
+        "footer": "Open Mercato"
       },
       "public": {
         "pageTitle": "Angebot",
@@ -53,7 +59,14 @@
         "expired": "Dieses Angebot ist abgelaufen.",
         "invalidStatus": "Dieses Angebot kann in seinem aktuellen Status nicht angenommen werden.",
         "failed": "Angebot konnte nicht angenommen werden.",
-        "adminSubject": "Angebot {quoteNumber} angenommen → Auftrag {orderNumber}"
+        "adminSubject": "Angebot {quoteNumber} angenommen → Auftrag {orderNumber}",
+        "adminEmail": {
+          "preview": "Angebot {quoteNumber} angenommen",
+          "heading": "Angebot {quoteNumber} angenommen",
+          "body": "Der Kunde hat das Angebot {quoteNumber} angenommen. Eine Bestellung wurde erstellt: {orderNumber}.",
+          "cta": "Bestellung ansehen",
+          "footer": "Open Mercato"
+        }
       },
       "list": {
         "title": "Angebote"

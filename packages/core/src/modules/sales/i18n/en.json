@@ -24,7 +24,13 @@
         "missingEmail": "Customer email is required to send a quote."
       },
       "email": {
-        "subject": "Quote {quoteNumber}"
+        "subject": "Quote {quoteNumber}",
+        "preview": "Quote {quoteNumber} is ready for review",
+        "heading": "Quote {quoteNumber}",
+        "total": "Total: {amount} {currency}",
+        "validUntil": "Valid until: {date}",
+        "cta": "View quote",
+        "footer": "Open Mercato"
       },
       "public": {
         "pageTitle": "Quote",
@@ -53,7 +59,14 @@
         "expired": "This quote has expired.",
         "invalidStatus": "This quote cannot be accepted in its current status.",
         "failed": "Failed to accept quote.",
-        "adminSubject": "Quote {quoteNumber} accepted → Order {orderNumber}"
+        "adminSubject": "Quote {quoteNumber} accepted → Order {orderNumber}",
+        "adminEmail": {
+          "preview": "Quote {quoteNumber} accepted",
+          "heading": "Quote {quoteNumber} accepted",
+          "body": "The customer accepted quote {quoteNumber}. An order has been created: {orderNumber}.",
+          "cta": "View order",
+          "footer": "Open Mercato"
+        }
       },
       "list": {
         "title": "Quotes"

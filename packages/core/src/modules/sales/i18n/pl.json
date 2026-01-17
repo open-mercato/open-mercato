@@ -24,7 +24,13 @@
         "missingEmail": "Do wysłania oferty wymagany jest e-mail klienta."
       },
       "email": {
-        "subject": "Oferta {quoteNumber}"
+        "subject": "Oferta {quoteNumber}",
+        "preview": "Oferta {quoteNumber} jest gotowa do przeglądu",
+        "heading": "Oferta {quoteNumber}",
+        "total": "Suma: {amount} {currency}",
+        "validUntil": "Ważna do: {date}",
+        "cta": "Zobacz ofertę",
+        "footer": "Open Mercato"
       },
       "public": {
         "pageTitle": "Oferta",
@@ -53,7 +59,14 @@
         "expired": "Ta oferta wygasła.",
         "invalidStatus": "Nie można zaakceptować oferty w jej obecnym statusie.",
         "failed": "Nie udało się zaakceptować oferty.",
-        "adminSubject": "Oferta {quoteNumber} zaakceptowana → Zamówienie {orderNumber}"
+        "adminSubject": "Oferta {quoteNumber} zaakceptowana → Zamówienie {orderNumber}",
+        "adminEmail": {
+          "preview": "Oferta {quoteNumber} zaakceptowana",
+          "heading": "Oferta {quoteNumber} zaakceptowana",
+          "body": "Klient zaakceptował ofertę {quoteNumber}. Utworzono zamówienie: {orderNumber}.",
+          "cta": "Zobacz zamówienie",
+          "footer": "Open Mercato"
+        }
       },
       "list": {
         "title": "Oferty"

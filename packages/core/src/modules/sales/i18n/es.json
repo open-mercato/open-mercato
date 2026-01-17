@@ -24,7 +24,13 @@
         "missingEmail": "Se requiere el correo del cliente para enviar una cotización."
       },
       "email": {
-        "subject": "Cotización {quoteNumber}"
+        "subject": "Cotización {quoteNumber}",
+        "preview": "La cotización {quoteNumber} está lista para revisión",
+        "heading": "Cotización {quoteNumber}",
+        "total": "Total: {amount} {currency}",
+        "validUntil": "Válida hasta: {date}",
+        "cta": "Ver cotización",
+        "footer": "Open Mercato"
       },
       "public": {
         "pageTitle": "Cotización",
@@ -53,7 +59,14 @@
         "expired": "Esta cotización ha expirado.",
         "invalidStatus": "Esta cotización no puede aceptarse en su estado actual.",
         "failed": "No se pudo aceptar la cotización.",
-        "adminSubject": "Cotización {quoteNumber} aceptada → Pedido {orderNumber}"
+        "adminSubject": "Cotización {quoteNumber} aceptada → Pedido {orderNumber}",
+        "adminEmail": {
+          "preview": "Cotización {quoteNumber} aceptada",
+          "heading": "Cotización {quoteNumber} aceptada",
+          "body": "El cliente aceptó la cotización {quoteNumber}. Se ha creado un pedido: {orderNumber}.",
+          "cta": "Ver pedido",
+          "footer": "Open Mercato"
+        }
       },
       "list": {
         "title": "Cotizaciones"
