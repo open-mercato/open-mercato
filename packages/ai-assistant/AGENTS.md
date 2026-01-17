@@ -29,7 +29,7 @@ The `ai-assistant` module provides AI-powered assistance capabilities for Open M
 │                                    │                                         │
 │                                    ▼                                         │
 │  ┌─────────────────────────────────────────────────────────────────────┐    │
-│  │                    POST /api/ai/chat (SSE)                           │    │
+│  │                      POST /api/chat (SSE)                             │    │
 │  │  • Receives user message                                             │    │
 │  │  • Emits 'thinking' event immediately                                │    │
 │  │  • Calls OpenCode → waits for response                               │    │
@@ -182,7 +182,7 @@ The `api_discover` tool combines both for comprehensive results.
 User types in Command Palette
         │
         ▼
-POST /api/ai/chat { messages, sessionId }
+POST /api/chat { messages, sessionId }
         │
         ├── Emit SSE: { type: 'thinking' }
         │
@@ -226,11 +226,11 @@ const result2 = await handleOpenCodeMessage({
 
 | Route | Method | Description |
 |-------|--------|-------------|
-| `/api/ai/chat` | POST | Chat with OpenCode agent (SSE stream) |
-| `/api/ai/tools` | GET | List available tools |
-| `/api/ai/tools/execute` | POST | Execute a specific tool directly |
-| `/api/ai/settings` | GET/POST | AI provider configuration |
-| `/api/ai/mcp-servers` | GET/POST | External MCP server management |
+| `/api/chat` | POST | Chat with OpenCode agent (SSE stream) |
+| `/api/tools` | GET | List available tools |
+| `/api/tools/execute` | POST | Execute a specific tool directly |
+| `/api/settings` | GET/POST | AI provider configuration |
+| `/api/mcp-servers` | GET/POST | External MCP server management |
 
 ### Chat API Request/Response
 
@@ -600,7 +600,7 @@ type DebugEventType =
 - Removed direct AI provider integration
 
 **Files modified**:
-- `src/app/api/ai/chat/route.ts` - Complete rewrite to use OpenCode
+- `src/modules/ai_assistant/api/chat/route.ts` - Complete rewrite to use OpenCode
 - `src/frontend/hooks/useCommandPalette.ts` - Added session state, thinking indicator
 - `src/frontend/components/CommandPalette/ToolChatPage.tsx` - Added thinking UI
 - `src/frontend/types.ts` - Added ChatSSEEvent, isThinking
