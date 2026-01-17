@@ -183,12 +183,12 @@ export default function WorkflowDefinitionsListPage() {
         <div>
           <div className="font-medium">{row.original.workflowName}</div>
           {row.original.description && (
-            <div className="text-xs text-gray-500 line-clamp-1">
+            <div className="text-xs text-muted-foreground line-clamp-1">
               {row.original.description}
             </div>
           )}
           {row.original.metadata?.category && (
-            <div className="text-xs text-gray-400 mt-0.5">
+            <div className="text-xs text-muted-foreground mt-0.5">
               {row.original.metadata.category}
             </div>
           )}
@@ -200,7 +200,7 @@ export default function WorkflowDefinitionsListPage() {
       header: t('workflows.fields.version'),
       accessorKey: 'version',
       cell: ({ row }) => (
-        <span className="inline-flex items-center px-2 py-1 rounded text-xs font-mono bg-gray-100 text-gray-800">
+        <span className="inline-flex items-center px-2 py-1 rounded text-xs font-mono bg-muted text-foreground">
           v{row.original.version}
         </span>
       ),
@@ -214,8 +214,8 @@ export default function WorkflowDefinitionsListPage() {
           onClick={() => handleToggleEnabled(row.original.id, row.original.enabled)}
           className={`inline-flex items-center px-2 py-1 rounded text-xs font-medium cursor-pointer ${
             row.original.enabled
-              ? 'bg-green-100 text-green-800 hover:bg-green-200'
-              : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+              ? 'bg-green-100 text-green-800 hover:bg-green-200 dark:bg-green-900 dark:text-green-300 dark:hover:bg-green-800'
+              : 'bg-muted text-muted-foreground hover:bg-muted/80'
           }`}
           title={t('workflows.actions.toggleEnabled')}
         >
@@ -228,7 +228,7 @@ export default function WorkflowDefinitionsListPage() {
       header: t('workflows.fields.tags'),
       cell: ({ row }) => {
         const tags = row.original.metadata?.tags || []
-        if (tags.length === 0) return <span className="text-gray-400">-</span>
+        if (tags.length === 0) return <span className="text-muted-foreground">-</span>
         return (
           <div className="flex flex-wrap gap-1">
             {tags.slice(0, 2).map((tag, idx) => (
@@ -237,7 +237,7 @@ export default function WorkflowDefinitionsListPage() {
               </span>
             ))}
             {tags.length > 2 && (
-              <span className="inline-flex items-center px-1.5 py-0.5 rounded text-xs bg-gray-100 text-gray-600">
+              <span className="inline-flex items-center px-1.5 py-0.5 rounded text-xs bg-muted text-muted-foreground">
                 +{tags.length - 2}
               </span>
             )}
@@ -251,7 +251,7 @@ export default function WorkflowDefinitionsListPage() {
       accessorKey: 'createdAt',
       cell: ({ row }) => {
         const date = new Date(row.original.createdAt)
-        return <span className="text-sm text-gray-600">{date.toLocaleDateString()}</span>
+        return <span className="text-sm text-muted-foreground">{date.toLocaleDateString()}</span>
       },
     },
     {

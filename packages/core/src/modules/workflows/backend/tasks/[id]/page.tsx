@@ -309,13 +309,13 @@ export default function UserTaskDetailPage({ params }: { params: { id: string } 
       case 'PENDING':
         return 'bg-yellow-100 text-yellow-800'
       case 'IN_PROGRESS':
-        return 'bg-blue-100 text-blue-800'
+        return 'bg-blue-100 text-blue-800 dark:text-blue-200'
       case 'COMPLETED':
         return 'bg-green-100 text-green-800'
       case 'CANCELLED':
-        return 'bg-gray-100 text-gray-800'
+        return 'bg-muted text-foreground dark:bg-muted dark:text-foreground'
       default:
-        return 'bg-gray-100 text-gray-600'
+        return 'bg-muted text-muted-foreground'
     }
   }
 
@@ -439,8 +439,8 @@ export default function UserTaskDetailPage({ params }: { params: { id: string } 
           </div>
 
           {!isCompletable && (
-            <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
-              <p className="text-sm text-blue-800">
+            <div className="bg-blue-50 dark:bg-blue-950/50 border border-blue-200 dark:border-blue-800 rounded-lg p-4">
+              <p className="text-sm text-blue-800 dark:text-blue-200">
                 {t('workflows.tasks.detail.cannotComplete')}
               </p>
             </div>
@@ -462,8 +462,8 @@ export default function UserTaskDetailPage({ params }: { params: { id: string } 
                 )}
 
                 {!task.formSchema?.properties && (
-                  <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
-                    <p className="text-sm text-blue-800">
+                  <div className="bg-blue-50 dark:bg-blue-950/50 border border-blue-200 dark:border-blue-800 rounded-lg p-4">
+                    <p className="text-sm text-blue-800 dark:text-blue-200">
                       {t('workflows.tasks.detail.noFormSchema')}
                     </p>
                   </div>

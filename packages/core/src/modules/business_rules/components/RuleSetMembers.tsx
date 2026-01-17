@@ -88,7 +88,7 @@ export function RuleSetMembers({ members, onAdd, onUpdate, onRemove }: RuleSetMe
     <div className="space-y-4">
       {/* Members List */}
       {members.length === 0 ? (
-        <div className="text-center py-8 text-gray-500">
+        <div className="text-center py-8 text-muted-foreground">
           <p>{t('business_rules.sets.members.empty')}</p>
         </div>
       ) : (
@@ -96,14 +96,14 @@ export function RuleSetMembers({ members, onAdd, onUpdate, onRemove }: RuleSetMe
           {members.map((member, index) => (
             <div
               key={member.id}
-              className="flex items-center gap-3 p-3 bg-gray-50 rounded border border-gray-200"
+              className="flex items-center gap-3 p-3 bg-muted rounded border border-border"
             >
               {/* Order Controls */}
               <div className="flex flex-col gap-1">
                 <button
                   onClick={() => handleMoveUp(member, index)}
                   disabled={index === 0}
-                  className="p-1 text-gray-400 hover:text-gray-600 hover:bg-gray-200 rounded transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
+                  className="p-1 text-muted-foreground hover:text-foreground hover:bg-muted rounded transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
                   title={t('common.moveUp')}
                 >
                   <ChevronUp className="w-4 h-4" />
@@ -111,7 +111,7 @@ export function RuleSetMembers({ members, onAdd, onUpdate, onRemove }: RuleSetMe
                 <button
                   onClick={() => handleMoveDown(member, index)}
                   disabled={index === members.length - 1}
-                  className="p-1 text-gray-400 hover:text-gray-600 hover:bg-gray-200 rounded transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
+                  className="p-1 text-muted-foreground hover:text-foreground hover:bg-muted rounded transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
                   title={t('common.moveDown')}
                 >
                   <ChevronDown className="w-4 h-4" />
@@ -119,18 +119,18 @@ export function RuleSetMembers({ members, onAdd, onUpdate, onRemove }: RuleSetMe
               </div>
 
               {/* Sequence Number */}
-              <div className="flex items-center justify-center w-8 h-8 bg-blue-100 text-blue-700 rounded font-mono text-sm font-medium">
+              <div className="flex items-center justify-center w-8 h-8 bg-blue-100 text-blue-700 rounded font-mono text-sm font-medium dark:bg-blue-900 dark:text-blue-300">
                 {member.sequence}
               </div>
 
               {/* Rule Info */}
               <div className="flex-1">
                 <div className="font-medium">{member.ruleName}</div>
-                <div className="text-xs text-gray-500 font-mono">{member.ruleId}</div>
+                <div className="text-xs text-muted-foreground font-mono">{member.ruleId}</div>
               </div>
 
               {/* Rule Type Badge */}
-              <div className="px-2 py-1 bg-gray-200 text-gray-700 text-xs rounded font-medium">
+              <div className="px-2 py-1 bg-muted text-muted-foreground text-xs rounded font-medium">
                 {member.ruleType}
               </div>
 
@@ -139,8 +139,8 @@ export function RuleSetMembers({ members, onAdd, onUpdate, onRemove }: RuleSetMe
                 onClick={() => handleToggleEnabled(member)}
                 className={`px-2 py-1 rounded text-xs font-medium cursor-pointer ${
                   member.enabled
-                    ? 'bg-green-100 text-green-800 hover:bg-green-200'
-                    : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                    ? 'bg-green-100 text-green-800 hover:bg-green-200 dark:bg-green-900 dark:text-green-300 dark:hover:bg-green-800'
+                    : 'bg-muted text-muted-foreground hover:bg-muted/80'
                 }`}
                 title={t('business_rules.sets.members.actions.toggleEnabled')}
               >
@@ -150,7 +150,7 @@ export function RuleSetMembers({ members, onAdd, onUpdate, onRemove }: RuleSetMe
               {/* Remove Button */}
               <button
                 onClick={() => onRemove(member.id, member.ruleName)}
-                className="p-1.5 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded transition-colors"
+                className="p-1.5 text-muted-foreground hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20 rounded transition-colors"
                 title={t('common.remove')}
               >
                 <X className="w-4 h-4" />
@@ -162,16 +162,16 @@ export function RuleSetMembers({ members, onAdd, onUpdate, onRemove }: RuleSetMe
 
       {/* Add Rule Form */}
       {showAddForm ? (
-        <div className="p-4 bg-blue-50 border border-blue-200 rounded space-y-3">
+        <div className="p-4 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded space-y-3">
           <div className="flex items-end gap-3">
             <div className="flex-1">
-              <label className="block text-sm font-medium text-gray-700 mb-1">
+              <label className="block text-sm font-medium text-foreground mb-1">
                 {t('business_rules.sets.members.form.selectRule')}
               </label>
               <select
                 value={selectedRuleId}
                 onChange={(e) => setSelectedRuleId(e.target.value)}
-                className="w-full px-3 py-2 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
+                className="w-full px-3 py-2 border border-border rounded bg-background focus:outline-none focus:ring-2 focus:ring-blue-500"
               >
                 <option value="">{t('business_rules.sets.members.form.selectRulePlaceholder')}</option>
                 {rulesNotInSet.map((rule) => (
@@ -183,7 +183,7 @@ export function RuleSetMembers({ members, onAdd, onUpdate, onRemove }: RuleSetMe
             </div>
 
             <div className="w-32">
-              <label className="block text-sm font-medium text-gray-700 mb-1">
+              <label className="block text-sm font-medium text-foreground mb-1">
                 {t('business_rules.sets.members.form.sequence')}
               </label>
               <input
@@ -191,7 +191,7 @@ export function RuleSetMembers({ members, onAdd, onUpdate, onRemove }: RuleSetMe
                 value={sequence}
                 onChange={(e) => setSequence(parseInt(e.target.value) || 0)}
                 min={0}
-                className="w-full px-3 py-2 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
+                className="w-full px-3 py-2 border border-border rounded bg-background focus:outline-none focus:ring-2 focus:ring-blue-500"
               />
             </div>
           </div>
@@ -221,7 +221,7 @@ export function RuleSetMembers({ members, onAdd, onUpdate, onRemove }: RuleSetMe
       )}
 
       {/* Help Text */}
-      <div className="text-xs text-gray-500 space-y-1">
+      <div className="text-xs text-muted-foreground space-y-1">
         <p>
           <strong>{t('business_rules.sets.members.help.ordering')}:</strong>{' '}
           {t('business_rules.sets.members.help.orderingDescription')}

@@ -145,21 +145,21 @@ export default function GraphTestPage() {
   const [edges, setEdges] = useState(initialEdges)
 
   return (
-    <div className="min-h-screen bg-gray-50 p-8">
+    <div className="min-h-screen bg-muted p-8">
       <div className="max-w-7xl mx-auto">
         {/* Header */}
         <div className="mb-8">
-          <h1 className="text-3xl font-bold text-gray-900 mb-2">
+          <h1 className="text-3xl font-bold text-foreground mb-2">
             Workflow Graph Test
           </h1>
-          <p className="text-gray-600">
+          <p className="text-muted-foreground">
             Testing ReactFlow integration with sample checkout workflow
           </p>
         </div>
 
         {/* Controls */}
-        <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6 mb-6">
-          <h2 className="text-lg font-semibold text-gray-900 mb-4">
+        <div className="bg-card rounded-lg shadow-sm border border-border p-6 mb-6">
+          <h2 className="text-lg font-semibold text-foreground mb-4">
             Graph Controls
           </h2>
           <div className="flex items-center gap-4">
@@ -168,9 +168,9 @@ export default function GraphTestPage() {
                 type="checkbox"
                 checked={editable}
                 onChange={(e) => setEditable(e.target.checked)}
-                className="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
+                className="w-4 h-4 text-blue-600 border-border rounded focus:ring-blue-500"
               />
-              <span className="text-sm font-medium text-gray-700">
+              <span className="text-sm font-medium text-foreground">
                 Enable Edit Mode
               </span>
             </label>
@@ -182,17 +182,17 @@ export default function GraphTestPage() {
                 setNodes(initialNodes)
                 setEdges(initialEdges)
               }}
-              className="px-4 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 text-sm font-medium"
+              className="px-4 py-2 bg-muted text-foreground rounded-lg hover:bg-muted/80 text-sm font-medium"
             >
               Reset Graph
             </button>
           </div>
 
-          <div className="mt-4 p-4 bg-blue-50 border border-blue-200 rounded-lg">
-            <p className="text-sm text-blue-800">
+          <div className="mt-4 p-4 bg-blue-50 dark:bg-blue-950/50 border border-blue-200 dark:border-blue-800 rounded-lg">
+            <p className="text-sm text-blue-800 dark:text-blue-200">
               <strong>Features to test:</strong>
             </p>
-            <ul className="mt-2 text-sm text-blue-700 space-y-1 list-disc list-inside">
+            <ul className="mt-2 text-sm text-blue-700 dark:text-blue-300 space-y-1 list-disc list-inside">
               <li>Pan: Click and drag the background</li>
               <li>Zoom: Use mouse wheel or controls (top-right)</li>
               <li>Fit View: Click the "fit" button to center all nodes</li>
@@ -203,8 +203,8 @@ export default function GraphTestPage() {
         </div>
 
         {/* Graph */}
-        <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
-          <h2 className="text-lg font-semibold text-gray-900 mb-4">
+        <div className="bg-card rounded-lg shadow-sm border border-border p-6">
+          <h2 className="text-lg font-semibold text-foreground mb-4">
             Checkout Workflow Visualization
           </h2>
 
@@ -252,14 +252,14 @@ export default function GraphTestPage() {
 
         {/* Node Info */}
         <div className="mt-6 grid grid-cols-1 md:grid-cols-2 gap-6">
-          <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
-            <h3 className="text-lg font-semibold text-gray-900 mb-4">
+          <div className="bg-card rounded-lg shadow-sm border border-border p-6">
+            <h3 className="text-lg font-semibold text-foreground mb-4">
               Node Types (Enhanced Design)
             </h3>
             <div className="space-y-3">
               <div className="flex items-center gap-3">
                 <div
-                  className="w-12 h-12 rounded-lg flex-shrink-0 border border-l-4 bg-white"
+                  className="w-12 h-12 rounded-lg flex-shrink-0 border border-l-4 bg-card"
                   style={{
                     borderColor: '#E5E7EB',
                     borderLeftColor: '#10B981',
@@ -267,15 +267,15 @@ export default function GraphTestPage() {
                   }}
                 ></div>
                 <div>
-                  <div className="font-medium text-gray-900">START</div>
-                  <div className="text-sm text-gray-500">
+                  <div className="font-medium text-foreground">START</div>
+                  <div className="text-sm text-muted-foreground">
                     White bg • Emerald accent (#10B981)
                   </div>
                 </div>
               </div>
               <div className="flex items-center gap-3">
                 <div
-                  className="w-12 h-12 rounded-lg flex-shrink-0 border border-l-4 bg-white"
+                  className="w-12 h-12 rounded-lg flex-shrink-0 border border-l-4 bg-card"
                   style={{
                     borderColor: '#E5E7EB',
                     borderLeftColor: '#6B7280',
@@ -283,15 +283,15 @@ export default function GraphTestPage() {
                   }}
                 ></div>
                 <div>
-                  <div className="font-medium text-gray-900">AUTOMATED</div>
-                  <div className="text-sm text-gray-500">
+                  <div className="font-medium text-foreground">AUTOMATED</div>
+                  <div className="text-sm text-muted-foreground">
                     White bg • Gray accent (#6B7280)
                   </div>
                 </div>
               </div>
               <div className="flex items-center gap-3">
                 <div
-                  className="w-12 h-12 rounded-lg flex-shrink-0 border border-l-4 bg-white"
+                  className="w-12 h-12 rounded-lg flex-shrink-0 border border-l-4 bg-card"
                   style={{
                     borderColor: '#E5E7EB',
                     borderLeftColor: '#F59E0B',
@@ -299,15 +299,15 @@ export default function GraphTestPage() {
                   }}
                 ></div>
                 <div>
-                  <div className="font-medium text-gray-900">USER_TASK</div>
-                  <div className="text-sm text-gray-500">
+                  <div className="font-medium text-foreground">USER_TASK</div>
+                  <div className="text-sm text-muted-foreground">
                     White bg • Amber accent (#F59E0B)
                   </div>
                 </div>
               </div>
               <div className="flex items-center gap-3">
                 <div
-                  className="w-12 h-12 rounded-lg flex-shrink-0 border border-l-4 bg-white"
+                  className="w-12 h-12 rounded-lg flex-shrink-0 border border-l-4 bg-card"
                   style={{
                     borderColor: '#E5E7EB',
                     borderLeftColor: '#374151',
@@ -315,19 +315,19 @@ export default function GraphTestPage() {
                   }}
                 ></div>
                 <div>
-                  <div className="font-medium text-gray-900">END</div>
-                  <div className="text-sm text-gray-500">
+                  <div className="font-medium text-foreground">END</div>
+                  <div className="text-sm text-muted-foreground">
                     White bg • Gray accent (#374151)
                   </div>
                 </div>
               </div>
             </div>
 
-            <div className="mt-4 pt-4 border-t border-gray-100">
-              <h4 className="text-sm font-semibold text-gray-900 mb-2">Status Indicators</h4>
-              <div className="space-y-2 text-xs text-gray-600">
+            <div className="mt-4 pt-4 border-t border-border">
+              <h4 className="text-sm font-semibold text-foreground mb-2">Status Indicators</h4>
+              <div className="space-y-2 text-xs text-muted-foreground">
                 <div className="flex items-center gap-2">
-                  <div className="w-4 h-4 rounded-full border-2 border-gray-300"></div>
+                  <div className="w-4 h-4 rounded-full border-2 border-border"></div>
                   <span>Pending (empty circle)</span>
                 </div>
                 <div className="flex items-center gap-2">
@@ -346,22 +346,22 @@ export default function GraphTestPage() {
             </div>
           </div>
 
-          <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
-            <h3 className="text-lg font-semibold text-gray-900 mb-4">
+          <div className="bg-card rounded-lg shadow-sm border border-border p-6">
+            <h3 className="text-lg font-semibold text-foreground mb-4">
               Current Graph Stats
             </h3>
             <div className="space-y-2 text-sm">
               <div className="flex justify-between">
-                <span className="text-gray-600">Total Nodes:</span>
-                <span className="font-medium text-gray-900">{nodes.length}</span>
+                <span className="text-muted-foreground">Total Nodes:</span>
+                <span className="font-medium text-foreground">{nodes.length}</span>
               </div>
               <div className="flex justify-between">
-                <span className="text-gray-600">Total Edges:</span>
-                <span className="font-medium text-gray-900">{edges.length}</span>
+                <span className="text-muted-foreground">Total Edges:</span>
+                <span className="font-medium text-foreground">{edges.length}</span>
               </div>
               <div className="flex justify-between">
-                <span className="text-gray-600">Mode:</span>
-                <span className="font-medium text-gray-900">
+                <span className="text-muted-foreground">Mode:</span>
+                <span className="font-medium text-foreground">
                   {editable ? 'Editable' : 'Read-only'}
                 </span>
               </div>

@@ -212,8 +212,8 @@ export function WorkflowGraph({
         {/* Info panel */}
         {!editable && (
           <Panel position="top-left" style={{ margin: 10 }}>
-            <div className="bg-white rounded-lg shadow-sm border border-gray-200 px-4 py-2">
-              <p className="text-sm text-gray-600 font-medium">
+            <div className="bg-card rounded-lg shadow-sm border border-border px-4 py-2">
+              <p className="text-sm text-muted-foreground font-medium">
                 Workflow Visualization
               </p>
             </div>

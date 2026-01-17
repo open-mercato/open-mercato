@@ -19,11 +19,11 @@ export type ConditionGroupProps = {
 }
 
 const DEPTH_COLORS = [
-  'border-blue-300 bg-blue-50',
-  'border-green-300 bg-green-50',
-  'border-purple-300 bg-purple-50',
-  'border-orange-300 bg-orange-50',
-  'border-pink-300 bg-pink-50',
+  'border-blue-300 bg-blue-50 dark:border-blue-700 dark:bg-blue-950/50',
+  'border-green-300 bg-green-50 dark:border-green-700 dark:bg-green-950/50',
+  'border-purple-300 bg-purple-50 dark:border-purple-700 dark:bg-purple-950/50',
+  'border-orange-300 bg-orange-50 dark:border-orange-700 dark:bg-orange-950/50',
+  'border-pink-300 bg-pink-50 dark:border-pink-700 dark:bg-pink-950/50',
 ]
 
 export function ConditionGroup({ group, onChange, onDelete, depth, maxDepth = 5, entityType }: ConditionGroupProps) {
@@ -101,13 +101,13 @@ export function ConditionGroup({ group, onChange, onDelete, depth, maxDepth = 5,
     >
       {/* Group Header */}
       <div className="flex items-center gap-2 mb-3">
-        <span className="text-xs font-medium text-gray-600">
+        <span className="text-xs font-medium text-muted-foreground">
           {t('business_rules.components.conditionGroup.group', { depth: depth + 1 })}
         </span>
         <select
           value={group.operator}
           onChange={handleOperatorChange}
-          className="px-3 py-1.5 text-sm font-semibold border border-gray-300 rounded bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+          className="px-3 py-1.5 text-sm font-semibold border border-border rounded bg-card focus:outline-none focus:ring-2 focus:ring-blue-500"
         >
           {logicalOperators.map((op) => (
             <option key={op.value} value={op.value}>
@@ -116,7 +116,7 @@ export function ConditionGroup({ group, onChange, onDelete, depth, maxDepth = 5,
           ))}
         </select>
 
-        <span className="text-xs text-gray-500">
+        <span className="text-xs text-muted-foreground">
           ({t('business_rules.components.conditionGroup.ruleCount', { count: group.rules.length })})
         </span>
 
@@ -124,7 +124,7 @@ export function ConditionGroup({ group, onChange, onDelete, depth, maxDepth = 5,
           <button
             type="button"
             onClick={onDelete}
-            className="ml-auto p-1 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded transition-colors"
+            className="ml-auto p-1 text-muted-foreground hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20 rounded transition-colors"
             title={t('business_rules.components.conditionGroup.deleteGroup')}
           >
             <X className="w-4 h-4" />

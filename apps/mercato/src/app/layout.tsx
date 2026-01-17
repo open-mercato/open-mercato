@@ -41,7 +41,24 @@ export default async function RootLayout({
   const dict = await loadDictionary(locale)
   const demoModeEnabled = process.env.DEMO_MODE !== 'false'
   return (
-    <html lang={locale}>
+    <html lang={locale} suppressHydrationWarning>
+      <head>
+        <script
+          dangerouslySetInnerHTML={{
+            __html: `
+              (function() {
+                try {
+                  var stored = localStorage.getItem('om-theme');
+                  var theme = stored === 'dark' ? 'dark'
+                    : stored === 'light' ? 'light'
+                    : window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+                  if (theme === 'dark') document.documentElement.classList.add('dark');
+                } catch (e) {}
+              })();
+            `,
+          }}
+        />
+      </head>
       <body className={`${geistSans.variable} ${geistMono.variable} antialiased`} suppressHydrationWarning data-gramm="false">
         <I18nProvider locale={locale} dict={dict}>
           <ClientBootstrapProvider>
