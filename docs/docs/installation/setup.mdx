@@ -20,7 +20,18 @@ Follow these steps after the [prerequisites](./prerequisites) are in place:
    ```bash
    yarn install
    ```
-4. **Bootstrap everything with one command**
+4. **Copy the environment template**
+   ```bash
+   cp apps/mercato/.env.example apps/mercato/.env
+   ```
+   Make sure these required variables are set in `apps/mercato/.env` before continuing:
+   ```env
+   DATABASE_URL=postgres://postgres:postgres@localhost:5432/open-mercato
+   JWT_SECRET=change-me-dev-secret
+   REDIS_URL=redis://localhost:6379
+   ```
+   If you prefer a separate events Redis, set `EVENTS_REDIS_URL` instead of `REDIS_URL`.
+5. **Bootstrap everything with one command**
    ```bash
    yarn mercato init
    ```

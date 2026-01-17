@@ -135,6 +135,12 @@ Import aliases have changed from path-based to package-based imports:
 ### Environment Variables
 
 The `.env` file now must live in `apps/mercato` instead of the project root.
+The fastest way to start is to copy the example file:
+
+```bash
+cp apps/mercato/.env.example apps/mercato/.env
+```
+At minimum, set `DATABASE_URL`, `JWT_SECRET`, and `REDIS_URL` (or `EVENTS_REDIS_URL`) before bootstrapping.
 
 ### Package Manager
 
@@ -142,6 +148,12 @@ Yarn 4 is now required. Ensure you have Yarn 4+ installed before proceeding.
 
 
 ## Getting Started
+
+
+This is a quickest way to get Open Mercato up and running on your localhost / server - ready for testing / demoing or for `Core development`!
+
+[![Watch on YouTube](https://img.youtube.com/vi/OsalmbiWQ-I/maxresdefault.jpg)](https://youtu.be/OsalmbiWQ-I)
+
 
 ### Quick Start (Monorepo)
 
@@ -152,6 +164,10 @@ git clone https://github.com/open-mercato/open-mercato.git
 cd open-mercato
 git checkout develop
 yarn install
+
+cp apps/mercato/.env.example apps/mercato/.env # EDIT this file to set up your specific files
+#At minimum, set `DATABASE_URL`, `JWT_SECRET`, and `REDIS_URL` (or `EVENTS_REDIS_URL`) before bootstrapping.
+
 yarn build:packages
 yarn generate
 yarn initialize # or yarn reinstall
@@ -164,6 +180,7 @@ yarn dev
 git clone https://github.com/open-mercato/open-mercato.git
 cd open-mercato
 yarn install
+cp apps/mercato/.env.example apps/mercato/.env
 yarn mercato init
 yarn dev
 ```
