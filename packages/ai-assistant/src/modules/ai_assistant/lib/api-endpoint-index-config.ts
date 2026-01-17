@@ -12,10 +12,11 @@ import type { ApiEndpoint } from './api-endpoint-index'
 export const API_ENDPOINT_ENTITY_ID = 'ai_assistant:api_endpoint' as const
 
 /**
- * Synthetic tenant ID for global endpoints.
- * API endpoints are not tenant-scoped, but the search system requires a tenant.
+ * Tenant ID for global endpoints.
+ * API endpoints are not tenant-scoped, so we use a special "system" UUID.
+ * This is the nil UUID (all zeros) reserved for system-wide resources.
  */
-export const GLOBAL_TENANT_ID = '__global__' as const
+export const GLOBAL_TENANT_ID = '00000000-0000-0000-0000-000000000000'
 
 /**
  * Default configuration for API endpoint search.

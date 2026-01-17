@@ -1,31 +1,6 @@
 import type { McpToolContext, ToolExecutionResult } from './types'
 import { getToolRegistry } from './tool-registry'
-
-/**
- * Check if user has required features for a tool.
- */
-function hasRequiredFeatures(
-  requiredFeatures: string[],
-  userFeatures: string[],
-  isSuperAdmin: boolean
-): boolean {
-  if (isSuperAdmin) return true
-  if (!requiredFeatures.length) return true
-
-  return requiredFeatures.every((required) => {
-    if (userFeatures.includes(required)) return true
-    if (userFeatures.includes('*')) return true
-
-    // Check wildcard patterns (e.g., 'customers.*' grants 'customers.people.view')
-    return userFeatures.some((feature) => {
-      if (feature.endsWith('.*')) {
-        const prefix = feature.slice(0, -2)
-        return required.startsWith(prefix + '.')
-      }
-      return false
-    })
-  })
-}
+import { hasRequiredFeatures } from './auth'
 
 /**
  * Execute a tool with full context and ACL checks.

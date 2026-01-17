@@ -40,6 +40,10 @@ export type OpenCodeHealthResponse = {
     version: string
   }
   mcp?: Record<string, { status: string; error?: string }>
+  search?: {
+    available: boolean
+    driver: string | null // 'meilisearch' or null
+  }
   url: string
   message?: string
 }
@@ -82,6 +86,26 @@ export async function handleOpenCodeHealth(): Promise<OpenCodeHealthResponse> {
   const client = getClient()
   const url = process.env.OPENCODE_URL ?? 'http://localhost:4096'
 
+  // Check search service availability
+  let searchStatus: { available: boolean; driver: string | null } = {
+    available: false,
+    driver: null,
+  }
+  try {
+    const { createRequestContainer } = await import('@/lib/di/container')
+    const container = await createRequestContainer()
+    const searchService = container.resolve<{
+      isStrategyAvailable: (strategy: string) => boolean
+    }>('searchService')
+    const available = searchService.isStrategyAvailable('fulltext')
+    searchStatus = {
+      available,
+      driver: available ? 'meilisearch' : null,
+    }
+  } catch {
+    // Search service not available
+  }
+
   try {
     const [health, mcp] = await Promise.all([client.health(), client.mcpStatus()])
 
@@ -89,11 +113,13 @@ export async function handleOpenCodeHealth(): Promise<OpenCodeHealthResponse> {
       status: 'ok',
       opencode: health,
       mcp,
+      search: searchStatus,
       url,
     }
   } catch (error) {
     return {
       status: 'error',
+      search: searchStatus,
       message: error instanceof Error ? error.message : 'OpenCode not reachable',
       url,
     }
@@ -270,11 +296,9 @@ export async function handleOpenCodeMessageStreaming(
           try {
             // Check actual session status before completing
             const status = await client.getSessionStatus(targetSessionId)
-            console.log('[OpenCode SSE] Heartbeat: idle for', Math.round(idleTime / 1000), 's, session status:', status.status)
 
             if (status.status === 'busy') {
-              // Session is still busy - don't complete, just log and wait
-              console.log('[OpenCode SSE] Heartbeat: Session still busy, waiting...')
+              // Session is still busy - wait
               return
             }
 
@@ -283,7 +307,6 @@ export async function handleOpenCodeMessageStreaming(
               const questions = await client.getPendingQuestions()
               const sessionQuestion = questions.find((q) => q.id === status.questionId)
               if (sessionQuestion) {
-                console.log('[OpenCode SSE] Heartbeat: Found pending question:', status.questionId)
                 await onEvent({ type: 'question', question: sessionQuestion })
                 lastActivityTime = Date.now() // Reset timer after emitting question
                 return
@@ -295,16 +318,13 @@ export async function handleOpenCodeMessageStreaming(
             const sessionQuestion = questions.find((q) => q.sessionID === targetSessionId)
 
             if (sessionQuestion) {
-              console.log('[OpenCode SSE] Heartbeat: Found pending question for session')
               await onEvent({ type: 'question', question: sessionQuestion })
               lastActivityTime = Date.now() // Reset timer after emitting question
             } else if (status.status === 'idle') {
               // Session is explicitly idle and no questions - complete
-              console.log('[OpenCode SSE] Heartbeat: Session idle, no questions - completing. Emitting done event...')
               resolved = true
               try {
                 await onEvent({ type: 'done', sessionId: targetSessionId })
-                console.log('[OpenCode SSE] Heartbeat: Done event emitted successfully')
               } catch (err) {
                 console.error('[OpenCode SSE] Heartbeat: Failed to emit done event:', err)
               }
@@ -312,11 +332,8 @@ export async function handleOpenCodeMessageStreaming(
               clearTimeout(timeout)
               unsubscribe?.()
               resolve()
-            } else {
-              // Status is 'unknown' or something else - we can't determine if done
-              // Wait for SSE events to tell us the actual state
-              console.log('[OpenCode SSE] Heartbeat: Status unknown, waiting for SSE events...')
             }
+            // Status is 'unknown' or something else - wait for SSE events
           } catch (err) {
             console.error('[OpenCode SSE] Heartbeat error:', err)
           }
@@ -331,11 +348,6 @@ export async function handleOpenCodeMessageStreaming(
             // Update activity timestamp for heartbeat
             lastActivityTime = Date.now()
 
-            // Log question events before filtering
-            if (type === 'question.asked') {
-              console.log('[OpenCode SSE] Received question.asked event (before filter):', JSON.stringify(properties))
-            }
-
             // Filter events for our session
             const eventSessionId =
               (properties.sessionID as string) ||
@@ -346,16 +358,12 @@ export async function handleOpenCodeMessageStreaming(
               (properties.status as { sessionID?: string })?.sessionID
 
             if (eventSessionId && eventSessionId !== targetSessionId) {
-              if (type === 'question.asked') {
-                console.log('[OpenCode SSE] Question event filtered out. Event session:', eventSessionId, 'Target:', targetSessionId)
-              }
               return // Ignore events from other sessions
             }
 
             switch (type) {
               case 'question.asked': {
                 // OpenCode is asking a question - use the data directly from the SSE event
-                console.log('[OpenCode SSE] Question asked event received:', JSON.stringify(properties))
                 await onEvent({ type: 'debug', partType: 'question-asked', data: properties })
 
                 // The question data is in properties.question (from SSE event)
@@ -363,19 +371,14 @@ export async function handleOpenCodeMessageStreaming(
                 const questionFromEvent = properties.question as OpenCodeQuestion | undefined
 
                 if (questionFromEvent && questionFromEvent.sessionID === targetSessionId) {
-                  console.log('[OpenCode SSE] Using question from event:', questionFromEvent.id)
                   await onEvent({ type: 'question', question: questionFromEvent })
                 } else {
                   // Fallback to fetching from API if event doesn't have full question
                   const questions = await client.getPendingQuestions()
-                  console.log('[OpenCode SSE] Pending questions from API:', questions.length)
                   const sessionQuestion = questions.find((q) => q.sessionID === targetSessionId)
 
                   if (sessionQuestion) {
-                    console.log('[OpenCode SSE] Found session question from API:', sessionQuestion.id)
                     await onEvent({ type: 'question', question: sessionQuestion })
-                  } else {
-                    console.log('[OpenCode SSE] No matching question for session:', targetSessionId)
                   }
                 }
                 break
@@ -383,7 +386,6 @@ export async function handleOpenCodeMessageStreaming(
 
               case 'session.status': {
                 const status = properties.status as { type: string; questionId?: string }
-                console.log('[OpenCode SSE] Session status:', status?.type, 'wasBusy:', wasBusy, 'questionId:', status?.questionId)
 
                 if (status?.type === 'busy') {
                   wasBusy = true
@@ -393,22 +395,16 @@ export async function handleOpenCodeMessageStreaming(
                   }
                 } else if (status?.type === 'waiting' && !resolved) {
                   // Session is waiting for user to answer a question
-                  // Note: session.status events don't include full question data, so we must fetch
-                  console.log('[OpenCode SSE] Session waiting for answer, fetching question...')
                   const questions = await client.getPendingQuestions()
                   const sessionQuestion = status.questionId
                     ? questions.find((q) => q.id === status.questionId)
                     : questions.find((q) => q.sessionID === targetSessionId)
 
                   if (sessionQuestion) {
-                    // Log what we got from API
-                    console.log('[OpenCode SSE] Found question from waiting status:', sessionQuestion.id,
-                      'questions array length:', sessionQuestion.questions?.length || 0)
                     await onEvent({ type: 'question', question: sessionQuestion })
                     lastActivityTime = Date.now()
                   }
                 } else if (status?.type === 'idle' && wasBusy && !resolved) {
-                  console.log('[OpenCode SSE] Session went idle, checking for questions...')
                   // Session went from busy to idle - check if there are pending questions
                   const endTime = Date.now()
 
@@ -429,7 +425,6 @@ export async function handleOpenCodeMessageStreaming(
 
                   if (sessionQuestion) {
                     // Question found - emit it but keep stream open for answer
-                    console.log('[OpenCode SSE] Found pending question, keeping stream open')
                     await onEvent({ type: 'question', question: sessionQuestion })
                     // Reset activity time so heartbeat doesn't close prematurely
                     lastActivityTime = Date.now()
@@ -437,36 +432,30 @@ export async function handleOpenCodeMessageStreaming(
                   } else {
                     // No questions found - but give OpenCode a moment to register one
                     // (race condition prevention)
-                    console.log('[OpenCode SSE] No questions found, checking again in 2s...')
                     setTimeout(async () => {
                       try {
                         if (resolved) {
-                          console.log('[OpenCode SSE] 2s timeout: Already resolved, skipping')
                           return
                         }
 
                         // Check one more time for questions
-                        console.log('[OpenCode SSE] 2s timeout: Checking for late questions...')
                         const finalQuestions = await client.getPendingQuestions()
                         const finalQuestion = finalQuestions.find((q) => q.sessionID === targetSessionId)
 
                         if (finalQuestion) {
-                          console.log('[OpenCode SSE] Found late question:', finalQuestion.id)
                           await onEvent({ type: 'question', question: finalQuestion })
                           lastActivityTime = Date.now()
                         } else {
                           // Truly idle - complete the stream
-                          console.log('[OpenCode SSE] Confirmed idle, completing stream. Emitting done event...')
                           resolved = true
                           await onEvent({ type: 'done', sessionId: targetSessionId })
-                          console.log('[OpenCode SSE] Done event emitted successfully')
                           cleanup()
                           clearTimeout(timeout)
                           unsubscribe?.()
                           resolve()
                         }
                       } catch (err) {
-                        console.error('[OpenCode SSE] Error in 2s timeout callback:', err)
+                        console.error('[OpenCode SSE] Error in timeout callback:', err)
                         // Still try to complete even if there was an error
                         if (!resolved) {
                           resolved = true
@@ -616,8 +605,6 @@ export async function handleOpenCodeAnswer(
   const client = getClient()
 
   try {
-    console.log('[OpenCode Answer] Answering question:', questionId, 'with:', answer, 'for session:', sessionId)
-
     // Answer the question
     await client.answerQuestion(questionId, answer)
     await onEvent({ type: 'thinking' })
@@ -633,18 +620,15 @@ export async function handleOpenCodeAnswer(
 
       // Check session status - most reliable way to know if processing is done
       const status = await client.getSessionStatus(sessionId)
-      console.log('[OpenCode Answer] Poll attempt', attempt + 1, '- session status:', status.status, 'questionId:', status.questionId, 'sameWait:', sameQuestionWaitCount)
 
       if (status.status === 'idle' || status.status === 'unknown') {
         // Session is idle or unknown - processing complete
-        console.log('[OpenCode Answer] Session', status.status, '- completing')
         await onEvent({ type: 'done', sessionId })
         return
       }
 
       if (status.status === 'waiting' && status.questionId && status.questionId !== questionId) {
         // A new question appeared - fetch and emit it
-        console.log('[OpenCode Answer] New question detected:', status.questionId)
         const allQuestions = await client.getPendingQuestions()
         const newQuestion = allQuestions.find((q) => q.id === status.questionId)
         if (newQuestion) {
@@ -658,7 +642,6 @@ export async function handleOpenCodeAnswer(
         sameQuestionWaitCount++
         if (sameQuestionWaitCount >= maxSameQuestionWait) {
           // OpenCode didn't properly clear the question - assume answered and complete
-          console.log('[OpenCode Answer] Same question for', sameQuestionWaitCount, 'attempts - assuming complete')
           await onEvent({ type: 'done', sessionId })
           return
         }
@@ -671,7 +654,6 @@ export async function handleOpenCodeAnswer(
     }
 
     // Timeout - assume complete
-    console.log('[OpenCode Answer] Polling timeout, assuming complete')
     await onEvent({ type: 'done', sessionId })
   } catch (error) {
     console.error('[OpenCode Answer] Error:', error)

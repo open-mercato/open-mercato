@@ -29,7 +29,7 @@ export type {
 } from './types'
 
 // Utils
-export { filterTools, groupToolsByModule, humanizeToolName, buildSystemPrompt } from './utils'
+export { filterTools, groupToolsByModule, humanizeToolName } from './utils'
 
 // Constants
 export {

@@ -4,32 +4,11 @@ import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@/lib/di/container'
 import { getToolRegistry } from '../../lib/tool-registry'
 import { loadAllModuleTools } from '../../lib/tool-loader'
+import { hasRequiredFeatures } from '../../lib/auth'
 import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
 
 export const metadata = {
   GET: { requireAuth: true, requireFeatures: ['ai_assistant.view'] },
-}
-
-function hasRequiredFeatures(
-  requiredFeatures: string[] | undefined,
-  userFeatures: string[],
-  isSuperAdmin: boolean
-): boolean {
-  if (isSuperAdmin) return true
-  if (!requiredFeatures?.length) return true
-
-  return requiredFeatures.every((required) => {
-    if (userFeatures.includes(required)) return true
-    if (userFeatures.includes('*')) return true
-
-    return userFeatures.some((feature) => {
-      if (feature.endsWith('.*')) {
-        const prefix = feature.slice(0, -2)
-        return required.startsWith(prefix + '.')
-      }
-      return false
-    })
-  })
 }
 
 export async function GET(req: NextRequest) {

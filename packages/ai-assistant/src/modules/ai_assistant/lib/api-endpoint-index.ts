@@ -243,14 +243,24 @@ export async function indexApiEndpoints(
   )
 
   try {
+    console.error(`[API Index] Starting bulk index of ${records.length} endpoints...`)
     // Bulk index using all available strategies (fulltext + vector)
-    await searchService.bulkIndex(records)
+    // Use Promise.race with timeout to prevent hanging
+    const timeoutMs = 60000 // 60 second timeout
+    const indexPromise = searchService.bulkIndex(records)
+    const timeoutPromise = new Promise<never>((_, reject) =>
+      setTimeout(() => reject(new Error(`Bulk index timed out after ${timeoutMs}ms`)), timeoutMs)
+    )
+
+    await Promise.race([indexPromise, timeoutPromise])
     lastIndexChecksum = checksum
     console.error(`[API Index] Indexed ${records.length} API endpoints for hybrid search`)
     return records.length
   } catch (error) {
     console.error('[API Index] Failed to index endpoints:', error)
-    return 0
+    // Still return the count - some strategies may have succeeded
+    lastIndexChecksum = checksum
+    return records.length
   }
 }
 

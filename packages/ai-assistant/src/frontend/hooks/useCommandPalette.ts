@@ -640,6 +640,10 @@ export function useCommandPalette(options: UseCommandPaletteOptions) {
                       fullQuestion: question,
                     })
                   }
+                } else if (event.type === 'session-authorized') {
+                  // Session has been authorized with ephemeral API key
+                  console.log('[startAgenticChat] Session authorized:', event.sessionToken)
+                  setIsSessionAuthorized(true)
                 }
               } catch (parseError) {
                 console.warn('[startAgenticChat] Failed to parse event:', data, parseError)

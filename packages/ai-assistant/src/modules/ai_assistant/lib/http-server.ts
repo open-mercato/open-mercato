@@ -7,124 +7,12 @@ import { z, type ZodType } from 'zod'
 import { getToolRegistry } from './tool-registry'
 import { executeTool } from './tool-executor'
 import { loadAllModuleTools, indexToolsForSearch } from './tool-loader'
-import { authenticateMcpRequest, extractApiKeyFromHeaders } from './auth'
+import { authenticateMcpRequest, extractApiKeyFromHeaders, hasRequiredFeatures } from './auth'
+import { jsonSchemaToZod, toSafeZodSchema } from './schema-utils'
 import type { McpServerConfig, McpToolContext } from './types'
 import type { SearchService } from '@open-mercato/search/service'
 import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
 import { findApiKeyBySessionToken } from '@open-mercato/core/modules/api_keys/services/apiKeyService'
-
-/**
- * Convert a JSON Schema to a simple Zod schema.
- * This creates a schema that the MCP SDK can convert back to JSON Schema without errors.
- */
-function jsonSchemaToZod(jsonSchema: Record<string, unknown>): ZodType {
-  const type = jsonSchema.type as string | undefined
-
-  if (type === 'string') {
-    return z.string()
-  }
-  if (type === 'number' || type === 'integer') {
-    return z.number()
-  }
-  if (type === 'boolean') {
-    return z.boolean()
-  }
-  if (type === 'null') {
-    return z.null()
-  }
-  if (type === 'array') {
-    const items = jsonSchema.items as Record<string, unknown> | undefined
-    if (items) {
-      return z.array(jsonSchemaToZod(items))
-    }
-    return z.array(z.unknown())
-  }
-  if (type === 'object') {
-    const properties = jsonSchema.properties as Record<string, Record<string, unknown>> | undefined
-    const required = (jsonSchema.required as string[]) || []
-    const additionalProperties = jsonSchema.additionalProperties
-
-    // Handle z.record() - objects with additionalProperties but no fixed properties
-    if (additionalProperties && (!properties || Object.keys(properties).length === 0)) {
-      // This is a record/dictionary type - allow any properties
-      if (typeof additionalProperties === 'object') {
-        return z.record(z.string(), jsonSchemaToZod(additionalProperties as Record<string, unknown>))
-      }
-      // additionalProperties: true means any value
-      return z.record(z.string(), z.unknown())
-    }
-
-    if (properties) {
-      const shape: Record<string, ZodType> = {}
-      for (const [key, propSchema] of Object.entries(properties)) {
-        let fieldSchema = jsonSchemaToZod(propSchema)
-        // Make field optional if not in required array
-        if (!required.includes(key)) {
-          fieldSchema = fieldSchema.optional()
-        }
-        shape[key] = fieldSchema
-      }
-      // If additionalProperties is allowed, use passthrough
-      if (additionalProperties) {
-        return z.object(shape).passthrough()
-      }
-      return z.object(shape)
-    }
-
-    // Empty object with additionalProperties - treat as record
-    if (additionalProperties) {
-      return z.record(z.string(), z.unknown())
-    }
-    return z.object({})
-  }
-
-  // Handle union types (anyOf, oneOf)
-  const anyOf = jsonSchema.anyOf as Record<string, unknown>[] | undefined
-  const oneOf = jsonSchema.oneOf as Record<string, unknown>[] | undefined
-  const unionTypes = anyOf || oneOf
-  if (unionTypes && unionTypes.length >= 2) {
-    const schemas = unionTypes.map(s => jsonSchemaToZod(s))
-    return z.union(schemas as [ZodType, ZodType, ...ZodType[]])
-  }
-
-  // Handle enum
-  const enumValues = jsonSchema.enum as string[] | undefined
-  if (enumValues && enumValues.length > 0) {
-    return z.enum(enumValues as [string, ...string[]])
-  }
-
-  // Fallback for empty schemas (like Date converted with unrepresentable: 'any')
-  return z.unknown()
-}
-
-/**
- * Cache for converted safe schemas to avoid repeated conversions per request.
- */
-const safeSchemaCache = new Map<ZodType, ZodType>()
-
-/**
- * Convert a Zod schema to a safe Zod schema that has no Date types.
- * Uses JSON Schema as an intermediate format to handle all Zod v4 internal complexities.
- * Results are cached to avoid repeated conversions.
- */
-function toSafeZodSchema(schema: ZodType): ZodType {
-  // Check cache first
-  const cached = safeSchemaCache.get(schema)
-  if (cached) {
-    return cached
-  }
-
-  // First convert to JSON Schema (this handles Date types with unrepresentable: 'any')
-  const jsonSchema = z.toJSONSchema(schema, { unrepresentable: 'any' }) as Record<string, unknown>
-
-  // Then convert back to a simple Zod schema without Date types
-  const safeSchema = jsonSchemaToZod(jsonSchema)
-
-  // Cache the result
-  safeSchemaCache.set(schema, safeSchema)
-
-  return safeSchema
-}
 
 /**
  * Options for the HTTP MCP server.
@@ -135,31 +23,6 @@ export type McpHttpServerOptions = {
   port: number
   /** Static API key for server-level authentication (from env MCP_SERVER_API_KEY) */
   serverApiKey?: string
-}
-
-/**
- * Check if user has required features for a tool.
- */
-function hasRequiredFeatures(
-  requiredFeatures: string[] | undefined,
-  userFeatures: string[],
-  isSuperAdmin: boolean
-): boolean {
-  if (isSuperAdmin) return true
-  if (!requiredFeatures?.length) return true
-
-  return requiredFeatures.every((required) => {
-    if (userFeatures.includes(required)) return true
-    if (userFeatures.includes('*')) return true
-
-    return userFeatures.some((feature) => {
-      if (feature.endsWith('.*')) {
-        const prefix = feature.slice(0, -2)
-        return required.startsWith(prefix + '.')
-      }
-      return false
-    })
-  })
 }
 
 /**
@@ -269,7 +132,9 @@ function createMcpServerForRequest(
         jsonSchema.properties = properties
 
         // Convert back to Zod with passthrough to allow extra properties
-        safeSchema = jsonSchemaToZod(jsonSchema).passthrough()
+        const converted = jsonSchemaToZod(jsonSchema)
+        // Use type assertion since we know it's an object schema (we added properties above)
+        safeSchema = (converted as z.ZodObject<any>).passthrough()
       } catch (error) {
         if (config.debug) {
           console.error(

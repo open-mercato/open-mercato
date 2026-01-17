@@ -8,34 +8,9 @@ import { zodToJsonSchema } from 'zod-to-json-schema'
 import { getToolRegistry } from './tool-registry'
 import { executeTool } from './tool-executor'
 import { loadAllModuleTools, indexToolsForSearch } from './tool-loader'
-import { authenticateMcpRequest } from './auth'
+import { authenticateMcpRequest, hasRequiredFeatures } from './auth'
 import type { McpServerOptions, McpToolContext } from './types'
 import type { SearchService } from '@open-mercato/search/service'
-
-/**
- * Check if user has required features for a tool.
- */
-function hasRequiredFeatures(
-  requiredFeatures: string[] | undefined,
-  userFeatures: string[],
-  isSuperAdmin: boolean
-): boolean {
-  if (isSuperAdmin) return true
-  if (!requiredFeatures?.length) return true
-
-  return requiredFeatures.every((required) => {
-    if (userFeatures.includes(required)) return true
-    if (userFeatures.includes('*')) return true
-
-    return userFeatures.some((feature) => {
-      if (feature.endsWith('.*')) {
-        const prefix = feature.slice(0, -2)
-        return required.startsWith(prefix + '.')
-      }
-      return false
-    })
-  })
-}
 
 /**
  * Create and configure an MCP server instance.

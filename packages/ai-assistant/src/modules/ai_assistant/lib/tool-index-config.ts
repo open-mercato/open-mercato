@@ -12,10 +12,11 @@ import type { McpToolDefinition } from './types'
 export const TOOL_ENTITY_ID = 'ai_assistant:mcp_tool' as const
 
 /**
- * Synthetic tenant ID for global tools.
- * Tools are not tenant-scoped, but the search system requires a tenant.
+ * Tenant ID for global tools.
+ * Tools are not tenant-scoped, so we use a special "system" UUID.
+ * This is the nil UUID (all zeros) reserved for system-wide resources.
  */
-export const GLOBAL_TENANT_ID = '__global__' as const
+export const GLOBAL_TENANT_ID = '00000000-0000-0000-0000-000000000000'
 
 /**
  * Essential tools that should always be available regardless of search results.

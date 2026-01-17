@@ -8,7 +8,7 @@ import { cn } from '@open-mercato/shared/lib/utils'
 export interface DebugEvent {
   id: string
   timestamp: Date
-  type: 'thinking' | 'tool-call' | 'tool-result' | 'text' | 'error' | 'done' | 'message' | 'connection' | 'metadata' | 'debug' | 'question'
+  type: 'thinking' | 'tool-call' | 'tool-result' | 'text' | 'error' | 'done' | 'message' | 'connection' | 'metadata' | 'debug' | 'question' | 'session-authorized'
   data: unknown
 }
 

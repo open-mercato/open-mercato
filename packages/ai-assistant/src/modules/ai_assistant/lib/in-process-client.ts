@@ -4,7 +4,7 @@ import { zodToJsonSchema } from 'zod-to-json-schema'
 import { getToolRegistry } from './tool-registry'
 import { executeTool } from './tool-executor'
 import { loadAllModuleTools } from './tool-loader'
-import { authenticateMcpRequest, type McpAuthSuccess } from './auth'
+import { authenticateMcpRequest, hasRequiredFeatures, type McpAuthSuccess } from './auth'
 import type { McpToolContext, McpClientInterface, ToolInfo, ToolResult, McpToolDefinition } from './types'
 
 /**
@@ -41,31 +41,6 @@ export type ToolInfoWithSchema = {
   name: string
   description: string
   inputSchema: z.ZodType<unknown>
-}
-
-/**
- * Check if user has required features for a tool.
- */
-function hasRequiredFeatures(
-  requiredFeatures: string[] | undefined,
-  userFeatures: string[],
-  isSuperAdmin: boolean
-): boolean {
-  if (isSuperAdmin) return true
-  if (!requiredFeatures?.length) return true
-
-  return requiredFeatures.every((required) => {
-    if (userFeatures.includes(required)) return true
-    if (userFeatures.includes('*')) return true
-
-    return userFeatures.some((feature) => {
-      if (feature.endsWith('.*')) {
-        const prefix = feature.slice(0, -2)
-        return required.startsWith(prefix + '.')
-      }
-      return false
-    })
-  })
 }
 
 /**

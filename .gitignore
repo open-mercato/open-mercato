@@ -89,3 +89,6 @@ packages/cache/node_modules/*
 newrelic_agent.log
 /generated/
 .queue/**
+
+# OpenCode local config (generated at runtime, may contain secrets)
+docker/opencode/opencode.jsonc

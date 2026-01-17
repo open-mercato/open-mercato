@@ -20,7 +20,7 @@
       "type": "remote",
       "url": "http://host.docker.internal:3001/mcp",
       "headers": {
-        "x-api-key": "omk_b7f8c314.4833b86760904fdec6dfc09cd4a4cbd155c5ca8375f54239"
+        "x-api-key": "YOUR_MCP_SERVER_API_KEY_HERE"
       },
       "enabled": true
     }

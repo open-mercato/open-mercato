@@ -7,7 +7,7 @@ AI-powered assistance capabilities for Open Mercato, featuring a Raycast-style c
 - **Command Palette** - Raycast-style single dialog interface (Cmd+K)
 - **Agentic AI Chat** - AI that can use tools to perform actions
 - **MCP Server** - Exposes tools from all modules to external AI clients
-- **Multi-Provider Support** - OpenAI, Anthropic, Google AI
+- **OpenCode Backend** - AI processing via OpenCode with MCP tool integration
 - **Tool Auto-Discovery** - Automatically registers tools from all modules
 - **ACL-Based Access Control** - Tools filtered by user permissions
 
@@ -22,9 +22,9 @@ graph TB
     end
 
     subgraph API["Next.js API Routes"]
-        ChatAPI["/api/ai/chat"]
-        ToolsAPI["/api/ai/tools"]
-        SettingsAPI["/api/ai/settings"]
+        ChatAPI["/api/chat"]
+        ToolsAPI["/api/tools"]
+        SettingsAPI["/api/settings"]
     end
 
     subgraph AIAssistant["AI Assistant Module"]
@@ -34,10 +34,8 @@ graph TB
         Config[Chat Config]
     end
 
-    subgraph Providers["AI Providers"]
-        OpenAI[OpenAI]
-        Anthropic[Anthropic]
-        Google[Google AI]
+    subgraph Providers["AI Backend"]
+        OpenCode[OpenCode Agent]
     end
 
     subgraph Modules["Application Modules"]
@@ -54,7 +52,7 @@ graph TB
     Config --> Providers
     MCP --> Registry
     MCP --> Adapter
-    Adapter --> Providers
+    Adapter --> OpenCode
 
     Modules --> Registry
 ```
@@ -66,7 +64,7 @@ sequenceDiagram
     actor User
     participant CP as Command Palette
     participant Hook as useCommandPalette
-    participant API as /api/ai/chat
+    participant API as /api/chat
     participant AI as AI Provider
     participant Tools as Tool Registry
 
@@ -78,7 +76,7 @@ sequenceDiagram
     CP->>Hook: handleSubmit(query)
     Hook->>Hook: Set phase to 'chatting'
 
-    Hook->>API: POST /api/ai/chat (agentic mode)
+    Hook->>API: POST /api/chat (agentic mode)
     API->>Tools: listToolsWithSchemas()
     Tools-->>API: Available tools
     API->>AI: streamText with tools
@@ -139,7 +137,7 @@ flowchart TD
 ```mermaid
 sequenceDiagram
     participant Client as Frontend
-    participant Server as /api/ai/chat
+    participant Server as /api/chat
     participant AI as AI Provider
     participant Tool as Tool Handler
 
@@ -298,14 +296,14 @@ graph LR
 
 ## API Routes
 
-| Route                      | Method         | Description                             |
-| -------------------------- | -------------- | --------------------------------------- |
-| `/api/ai/chat`             | POST           | Streaming chat with AI (supports modes) |
-| `/api/ai/tools`            | GET            | List all available tools                |
-| `/api/ai/tools/execute`    | POST           | Execute a specific tool                 |
-| `/api/ai/settings`         | GET/POST       | AI provider configuration               |
-| `/api/ai/mcp-servers`      | GET/POST       | External MCP server list/create         |
-| `/api/ai/mcp-servers/[id]` | GET/PUT/DELETE | Single MCP server operations            |
+| Route                  | Method         | Description                             |
+| ---------------------- | -------------- | --------------------------------------- |
+| `/api/chat`            | POST           | Streaming chat with AI (supports modes) |
+| `/api/tools`           | GET            | List all available tools                |
+| `/api/tools/execute`   | POST           | Execute a specific tool                 |
+| `/api/settings`        | GET/POST       | AI provider configuration               |
+| `/api/mcp-servers`     | GET/POST       | External MCP server list/create         |
+| `/api/mcp-servers/[id]`| GET/PUT/DELETE | Single MCP server operations            |
 
 ## Quick Start
 
@@ -314,16 +312,14 @@ graph LR
 Set the required environment variables:
 
 ```bash
-# AI Provider (at least one required)
-OPENAI_API_KEY=sk-...
-ANTHROPIC_API_KEY=sk-ant-...
-GOOGLE_GENERATIVE_AI_API_KEY=...
-
 # MCP Server Authentication (required for AI chat)
 MCP_SERVER_API_KEY=your-secure-server-key-here
+
+# OpenCode URL (default: http://localhost:4096)
+OPENCODE_URL=http://localhost:4096
 ```
 
-> **Note:** The `MCP_SERVER_API_KEY` must also be configured in OpenCode's `opencode.jsonc` as the `x-api-key` header. See [Authentication & Authorization](#authentication--authorization) for details.
+> **Note:** The `MCP_SERVER_API_KEY` must also be configured in OpenCode's `opencode.jsonc` as the `x-api-key` header. OpenCode handles AI provider configuration internally - see the OpenCode documentation for provider setup.
 
 ### 2. Register a Tool
 
@@ -416,7 +412,7 @@ graph TB
     end
 
     subgraph "Next.js Server"
-        Route["/api/ai/chat"]
+        Route["/api/chat"]
         Handlers[opencode-handlers.ts]
         Client[opencode-client.ts]
     end
@@ -450,7 +446,7 @@ sequenceDiagram
     participant U as User
     participant UI as ToolChatPage
     participant Hook as useCommandPalette
-    participant API as /api/ai/chat
+    participant API as /api/chat
     participant H as opencode-handlers
     participant C as opencode-client
     participant OC as OpenCode :4096
@@ -493,7 +489,7 @@ sequenceDiagram
     participant U as User
     participant UI as ToolChatPage
     participant Hook as useCommandPalette
-    participant API as /api/ai/chat
+    participant API as /api/chat
     participant H as opencode-handlers
     participant C as opencode-client
     participant OC as OpenCode
@@ -686,7 +682,7 @@ graph TB
     end
 
     subgraph "Next.js Server"
-        API["/api/ai/chat"]
+        API["/api/chat"]
         Auth[Auth Context]
         EphKey[Ephemeral Key Generator]
     end
@@ -746,13 +742,13 @@ Each chat session creates an ephemeral API key that inherits the user's permissi
 ```mermaid
 sequenceDiagram
     participant U as User
-    participant API as /api/ai/chat
+    participant API as /api/chat
     participant DB as Database
     participant OC as OpenCode
     participant MCP as MCP Server
 
     Note over U,MCP: New Chat Session
-    U->>API: POST /api/ai/chat (first message)
+    U->>API: POST /api/chat (first message)
     API->>API: Get user's role IDs
     API->>DB: createSessionApiKey({<br/>  sessionToken,<br/>  userId,<br/>  userRoles,<br/>  ttlMinutes: 30<br/>})
     DB-->>API: Ephemeral key created
@@ -788,12 +784,10 @@ sequenceDiagram
 
 ### Environment Variables
 
-| Variable                       | Required | Description                                    |
-| ------------------------------ | -------- | ---------------------------------------------- |
-| `MCP_SERVER_API_KEY`           | Yes      | Static key for server-level MCP authentication |
-| `ANTHROPIC_API_KEY`            | One of   | Anthropic Claude API key                       |
-| `OPENAI_API_KEY`               | these    | OpenAI API key                                 |
-| `GOOGLE_GENERATIVE_AI_API_KEY` | required | Google AI API key                              |
+| Variable             | Required | Description                                    |
+| -------------------- | -------- | ---------------------------------------------- |
+| `MCP_SERVER_API_KEY` | Yes      | Static key for server-level MCP authentication |
+| `OPENCODE_URL`       | No       | OpenCode server URL (default: localhost:4096)  |
 
 ### API Key Entity Extension
 

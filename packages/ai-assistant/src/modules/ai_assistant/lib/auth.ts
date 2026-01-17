@@ -111,6 +111,43 @@ export async function authenticateMcpRequest(
 }
 
 /**
+ * Check if user has the required features for a resource.
+ *
+ * Supports:
+ * - Super admin bypass (always returns true)
+ * - Direct feature match (e.g., 'customers.view')
+ * - Global wildcard ('*' grants all features)
+ * - Prefix wildcard (e.g., 'customers.*' grants 'customers.people.view')
+ *
+ * @param requiredFeatures - List of features required for access
+ * @param userFeatures - List of features the user has
+ * @param isSuperAdmin - Whether the user is a super admin
+ * @returns True if user has access
+ */
+export function hasRequiredFeatures(
+  requiredFeatures: string[] | undefined,
+  userFeatures: string[],
+  isSuperAdmin: boolean
+): boolean {
+  if (isSuperAdmin) return true
+  if (!requiredFeatures?.length) return true
+
+  return requiredFeatures.every((required) => {
+    if (userFeatures.includes(required)) return true
+    if (userFeatures.includes('*')) return true
+
+    // Check wildcard patterns (e.g., 'customers.*' grants 'customers.people.view')
+    return userFeatures.some((feature) => {
+      if (feature.endsWith('.*')) {
+        const prefix = feature.slice(0, -2)
+        return required.startsWith(prefix + '.')
+      }
+      return false
+    })
+  })
+}
+
+/**
  * Extract API key from HTTP request headers.
  *
  * Supports two header formats:

@@ -723,6 +723,303 @@ console.log('[AI Chat] DIAGNOSTIC - Request received:', {
 | "Unauthorized" error | Missing/invalid API key | Check x-api-key in opencode.json |
 | Tools not found | Endpoint not in OpenAPI | Regenerate OpenAPI spec |
 | Context lost between messages | Session ID not persisted | See "Session Management Deep Dive" above |
+| "Session expired" errors | Session token TTL exceeded | Close and reopen chat (creates new 2-hour token) |
+| Tools fail with UNAUTHORIZED | Missing _sessionToken | Verify AI is passing token in tool args |
+
+---
+
+## Two-Tier Authentication Architecture
+
+The MCP HTTP server implements two distinct authentication layers:
+
+### Tier 1: Server-Level Authentication
+
+**Purpose**: Validates that requests come from an authorized AI agent (e.g., OpenCode)
+
+```
+Request → Check x-api-key header → Compare with MCP_SERVER_API_KEY env var
+```
+
+| Aspect | Details |
+|--------|---------|
+| **Header** | `x-api-key` |
+| **Value** | Static API key from `MCP_SERVER_API_KEY` environment variable |
+| **Configured In** | `opencode.json` or `opencode.jsonc` |
+| **Validation** | Direct string comparison |
+| **Result** | Grants access to call MCP endpoints (but no user permissions) |
+
+**Code reference**: `packages/ai-assistant/src/modules/ai_assistant/lib/http-server.ts:370-391`
+
+### Tier 2: User-Level Authentication (Session Tokens)
+
+**Purpose**: Identifies the actual user and loads their permissions for each tool call
+
+```
+Tool call → Extract _sessionToken → Lookup in DB → Load ACL → Check permissions
+```
+
+| Aspect | Details |
+|--------|---------|
+| **Parameter** | `_sessionToken` in tool call args |
+| **Format** | `sess_{32 hex chars}` (e.g., `sess_a1b2c3d4e5f6...`) |
+| **TTL** | 120 minutes (2 hours) |
+| **Storage** | `api_keys` table |
+| **Lookup** | `findApiKeyBySessionToken()` |
+| **ACL** | `rbacService.loadAcl()` |
+
+**Code references**:
+- Session creation: `packages/ai-assistant/src/modules/ai_assistant/api/chat/route.ts:133-157`
+- Token lookup: `packages/core/src/modules/api_keys/services/apiKeyService.ts:143-158`
+- Context resolution: `packages/ai-assistant/src/modules/ai_assistant/lib/http-server.ts:32-88`
+
+---
+
+## Session Token System
+
+### Token Generation
+
+```typescript
+// packages/core/src/modules/api_keys/services/apiKeyService.ts:99-101
+export function generateSessionToken(): string {
+  return `sess_${randomBytes(16).toString('hex')}`
+}
+// Result: "sess_a1b2c3d4e5f6g7h8i9j0k1l2m3n4o5p6"
+```
+
+### Token Storage (api_keys table)
+
+Session tokens create ephemeral API keys with additional columns:
+
+| Column | Type | Description |
+|--------|------|-------------|
+| `sessionToken` | string | The `sess_xxx` token for lookup |
+| `sessionUserId` | string | ID of the user this session represents |
+| `rolesJson` | string[] | User's role IDs (inherited from user) |
+| `tenantId` | string | Tenant scope |
+| `organizationId` | string | Organization scope |
+| `expiresAt` | Date | TTL (default: 120 minutes from creation) |
+
+### Token Injection Into Messages
+
+When a new chat session starts, the backend injects a system instruction:
+
+```typescript
+// packages/ai-assistant/src/modules/ai_assistant/api/chat/route.ts:161-164
+let messageToSend = lastUserMessage
+if (sessionToken) {
+  messageToSend = `[SYSTEM: Your session token is "${sessionToken}". You MUST include "_sessionToken": "${sessionToken}" in EVERY tool call argument object. Without this, tools will fail with authorization errors.]\n\n${lastUserMessage}`
+}
+```
+
+This ensures the AI agent (Claude via OpenCode) includes the token in all tool calls.
+
+### Token in Tool Calls
+
+The MCP server schema transformation injects `_sessionToken` into every tool:
+
+```typescript
+// packages/ai-assistant/src/modules/ai_assistant/lib/http-server.ts:128-131
+properties._sessionToken = {
+  type: 'string',
+  description: 'Session authorization token (REQUIRED for all tool calls)',
+}
+```
+
+AI sees this parameter and includes it:
+
+```json
+{
+  "method": "tools/call",
+  "params": {
+    "name": "api_execute",
+    "arguments": {
+      "_sessionToken": "sess_a1b2c3d4...",
+      "method": "GET",
+      "path": "/customers/companies"
+    }
+  }
+}
+```
+
+---
+
+## Session Context Resolution
+
+When a tool call arrives with `_sessionToken`:
+
+### Step 1: Extract Token
+
+```typescript
+// http-server.ts:169-170
+const sessionToken = toolArgs._sessionToken as string | undefined
+delete toolArgs._sessionToken // Remove before passing to handler
+```
+
+### Step 2: Lookup Session Key
+
+```typescript
+// http-server.ts:42 → apiKeyService.ts:143-158
+const sessionKey = await findApiKeyBySessionToken(em, sessionToken)
+// Returns null if: not found, deleted, or expired
+```
+
+### Step 3: Load ACL
+
+```typescript
+// http-server.ts:59-62
+const acl = await rbacService.loadAcl(`api_key:${sessionKey.id}`, {
+  tenantId: sessionKey.tenantId ?? null,
+  organizationId: sessionKey.organizationId ?? null,
+})
+```
+
+### Step 4: Build User Context
+
+```typescript
+// http-server.ts:73-81
+return {
+  tenantId: sessionKey.tenantId ?? null,
+  organizationId: sessionKey.organizationId ?? null,
+  userId: sessionKey.sessionUserId,
+  container: baseContext.container,
+  userFeatures: acl.features,
+  isSuperAdmin: acl.isSuperAdmin,
+  apiKeySecret: baseContext.apiKeySecret,
+}
+```
+
+### Step 5: Check Tool Permissions
+
+```typescript
+// http-server.ts:219-238 → auth.ts:127-148
+if (tool.requiredFeatures?.length) {
+  const hasAccess = hasRequiredFeatures(
+    tool.requiredFeatures,
+    effectiveContext.userFeatures,
+    effectiveContext.isSuperAdmin
+  )
+  if (!hasAccess) {
+    return { error: `Insufficient permissions. Required: ${tool.requiredFeatures.join(', ')}` }
+  }
+}
+```
+
+---
+
+## Updated SSE Events
+
+### Full Event Types
+
+```typescript
+// packages/ai-assistant/src/modules/ai_assistant/lib/opencode-handlers.ts:218-227
+export type OpenCodeStreamEvent =
+  | { type: 'thinking' }
+  | { type: 'text'; content: string }
+  | { type: 'tool-call'; id: string; toolName: string; args: unknown }
+  | { type: 'tool-result'; id: string; result: unknown }
+  | { type: 'question'; question: OpenCodeQuestion }
+  | { type: 'metadata'; model?: string; provider?: string; tokens?: { input: number; output: number }; durationMs?: number }
+  | { type: 'debug'; partType: string; data: unknown }
+  | { type: 'done'; sessionId: string }
+  | { type: 'error'; error: string }
+```
+
+### Additional Events from Chat API
+
+| Event | Emitted By | Purpose |
+|-------|------------|---------|
+| `session-authorized` | `chat/route.ts:170-175` | Confirms session token created for new chat |
+
+### Debug Events (partType values)
+
+| partType | Description |
+|----------|-------------|
+| `question-asked` | OpenCode asking a confirmation question |
+| `message-completed` | Assistant message with token counts |
+| `step-start` | Agentic step beginning |
+| `step-finish` | Agentic step complete |
+
+---
+
+## MCP HTTP Server Details
+
+### Stateless Request Model
+
+Each HTTP request creates a fresh MCP server instance:
+
+```typescript
+// http-server.ts:95-278
+function createMcpServerForRequest(config, toolContext): McpServer {
+  const server = new McpServer(
+    { name: config.name, version: config.version },
+    { capabilities: { tools: {} } }
+  )
+  // Register all tools (ACL checked per-call)
+  // ...
+  return server
+}
+```
+
+**Benefits**:
+- No session state to manage
+- Clean isolation between requests
+- Scales horizontally
+
+### Schema Transformation
+
+Tool schemas are transformed to include `_sessionToken`:
+
+1. **Convert** Zod schema → JSON Schema (`z.toJSONSchema()`)
+2. **Inject** `_sessionToken` property into `properties`
+3. **Convert** JSON Schema → Zod with `.passthrough()`
+4. **Result**: AI agent sees token as available parameter
+
+```typescript
+// http-server.ts:121-155
+const jsonSchema = z.toJSONSchema(tool.inputSchema, { unrepresentable: 'any' })
+const properties = jsonSchema.properties ?? {}
+properties._sessionToken = {
+  type: 'string',
+  description: 'Session authorization token (REQUIRED for all tool calls)',
+}
+jsonSchema.properties = properties
+const converted = jsonSchemaToZod(jsonSchema)
+safeSchema = (converted as z.ZodObject<any>).passthrough()
+```
+
+### Per-Tool ACL Checks
+
+Each tool call validates permissions using the session's ACL:
+
+```typescript
+// http-server.ts:219-239
+if (tool.requiredFeatures?.length) {
+  const hasAccess = hasRequiredFeatures(
+    tool.requiredFeatures,
+    effectiveContext.userFeatures,
+    effectiveContext.isSuperAdmin
+  )
+  if (!hasAccess) {
+    return {
+      content: [{ type: 'text', text: JSON.stringify({
+        error: `Insufficient permissions for tool "${tool.name}". Required: ${tool.requiredFeatures.join(', ')}`,
+        code: 'UNAUTHORIZED'
+      })}],
+      isError: true
+    }
+  }
+}
+```
+
+### Error Responses
+
+| Code | Message | Cause |
+|------|---------|-------|
+| `SESSION_EXPIRED` | "Your chat session has expired..." | Token TTL exceeded (>2 hours) |
+| `UNAUTHORIZED` | "Session token required" | No `_sessionToken` in args |
+| `UNAUTHORIZED` | "Insufficient permissions" | User lacks required features |
+
+---
 
 ## Future Development
 

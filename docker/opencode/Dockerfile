@@ -23,11 +23,15 @@ WORKDIR /home/opencode
 # Create config directory
 RUN mkdir -p /home/opencode/.config/opencode
 
-# Copy configuration and instructions
-COPY --chown=opencode:opencode opencode.jsonc /home/opencode/.config/opencode/opencode.jsonc
+# Copy instructions (config is generated at runtime by entrypoint)
 COPY --chown=opencode:opencode AGENTS.md /home/opencode/.config/opencode/AGENTS.md
+COPY --chown=opencode:opencode entrypoint.sh /home/opencode/entrypoint.sh
+
+USER root
+RUN chmod +x /home/opencode/entrypoint.sh
+USER opencode
 
 EXPOSE 4096
 
-# Run OpenCode in server mode with verbose logging
-CMD ["opencode", "serve", "--hostname", "0.0.0.0", "--print-logs", "--log-level", "DEBUG"]
+# Use entrypoint to generate config dynamically
+ENTRYPOINT ["/home/opencode/entrypoint.sh"]
