@@ -513,14 +513,15 @@
           "unique": false
         },
         {
-          "keyName": "exchange_rates_pair_datetime_source_unique",
+          "keyName": "exchange_rates_pair_datetime_source_type_unique",
           "columnNames": [
             "organization_id",
             "tenant_id",
             "from_currency_code",
             "to_currency_code",
             "date",
-            "source"
+            "source",
+            "type"
           ],
           "composite": true,
           "constraint": true,

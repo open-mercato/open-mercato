@@ -196,11 +196,12 @@ export const renderMultilineMarkdownDisplay: InlineMultilineDisplayRenderer = ({
     return <span className="text-muted-foreground">{emptyLabel}</span>
   }
   return (
-    <div className="text-sm text-foreground [&>*]:mb-2 [&>*:last-child]:mb-0 [&_ul]:ml-4 [&_ul]:list-disc [&_ol]:ml-4 [&_ol]:list-decimal [&_code]:rounded [&_code]:bg-muted [&_code]:px-1 [&_code]:py-0.5 [&_pre]:rounded-md [&_pre]:bg-muted [&_pre]:p-3 [&_pre]:text-xs">
-      <ReactMarkdown remarkPlugins={MARKDOWN_PREVIEW_PLUGINS}>
-        {raw}
-      </ReactMarkdown>
-    </div>
+    <ReactMarkdown
+      remarkPlugins={MARKDOWN_PREVIEW_PLUGINS}
+      className="text-sm text-foreground [&>*]:mb-2 [&>*:last-child]:mb-0 [&_ul]:ml-4 [&_ul]:list-disc [&_ol]:ml-4 [&_ol]:list-decimal [&_code]:rounded [&_code]:bg-muted [&_code]:px-1 [&_code]:py-0.5 [&_pre]:rounded-md [&_pre]:bg-muted [&_pre]:p-3 [&_pre]:text-xs"
+    >
+      {raw}
+    </ReactMarkdown>
   )
 }
 
