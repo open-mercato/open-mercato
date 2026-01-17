@@ -25,9 +25,10 @@ async function ensureBootstrap(): Promise<void> {
     const __filename = fileURLToPath(import.meta.url)
     const __dirname = dirname(__filename)
     // From packages/ai-assistant/src/modules/ai_assistant/cli.ts
-    // to src/bootstrap: ai_assistant → modules → src → ai-assistant → packages → root
-    // That's 5 levels up to project root, then into src/bootstrap
-    const bootstrapPath = resolve(__dirname, '../../../../../src/bootstrap.ts')
+    // to apps/mercato/src/bootstrap.ts:
+    // ai_assistant → modules → src → ai-assistant → packages → root (6 levels)
+    // then into apps/mercato/src/bootstrap.ts
+    const bootstrapPath = resolve(__dirname, '../../../../../../apps/mercato/src/bootstrap.ts')
 
     // Dynamic import using file URL
     const bootstrapUrl = pathToFileURL(bootstrapPath).href

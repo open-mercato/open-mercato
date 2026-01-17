@@ -3,13 +3,81 @@
   "version": "0.3.13",
   "private": true,
   "type": "module",
+  "main": "./dist/index.js",
+  "scripts": {
+    "build": "node build.mjs",
+    "mcp:dev": "mercato ai_assistant mcp:dev"
+  },
   "exports": {
-    "./modules/*": "./src/modules/*",
-    "./tools": "./src/modules/ai_assistant/lib/tool-registry.ts",
-    "./types": "./src/modules/ai_assistant/lib/types.ts",
-    "./ai-sdk": "./src/modules/ai_assistant/lib/ai-sdk.ts",
-    "./frontend": "./src/frontend/index.ts",
-    ".": "./src/index.ts"
+    ".": "./dist/index.js",
+    "./modules/ai_assistant": {
+      "types": "./src/modules/ai_assistant/index.ts",
+      "default": "./dist/modules/ai_assistant/index.js"
+    },
+    "./tools": {
+      "types": "./src/modules/ai_assistant/lib/tool-registry.ts",
+      "default": "./dist/modules/ai_assistant/lib/tool-registry.js"
+    },
+    "./types": {
+      "types": "./src/modules/ai_assistant/lib/types.ts",
+      "default": "./dist/modules/ai_assistant/lib/types.js"
+    },
+    "./ai-sdk": {
+      "types": "./src/modules/ai_assistant/lib/ai-sdk.ts",
+      "default": "./dist/modules/ai_assistant/lib/ai-sdk.js"
+    },
+    "./frontend": {
+      "types": "./src/frontend/index.ts",
+      "default": "./dist/frontend/index.js"
+    },
+    "./*.ts": {
+      "types": "./src/*.ts",
+      "default": "./dist/*.js"
+    },
+    "./*.tsx": {
+      "types": "./src/*.tsx",
+      "default": "./dist/*.js"
+    },
+    "./*.json": "./src/*.json",
+    "./*": {
+      "types": [
+        "./src/*.ts",
+        "./src/*.tsx"
+      ],
+      "default": "./dist/*.js"
+    },
+    "./*/*.json": "./src/*/*.json",
+    "./*/*": {
+      "types": [
+        "./src/*/*.ts",
+        "./src/*/*.tsx"
+      ],
+      "default": "./dist/*/*.js"
+    },
+    "./*/*/*.json": "./src/*/*/*.json",
+    "./*/*/*": {
+      "types": [
+        "./src/*/*/*.ts",
+        "./src/*/*/*.tsx"
+      ],
+      "default": "./dist/*/*/*.js"
+    },
+    "./*/*/*/*.json": "./src/*/*/*/*.json",
+    "./*/*/*/*": {
+      "types": [
+        "./src/*/*/*/*.ts",
+        "./src/*/*/*/*.tsx"
+      ],
+      "default": "./dist/*/*/*/*.js"
+    },
+    "./*/*/*/*/*.json": "./src/*/*/*/*/*.json",
+    "./*/*/*/*/*": {
+      "types": [
+        "./src/*/*/*/*/*.ts",
+        "./src/*/*/*/*/*.tsx"
+      ],
+      "default": "./dist/*/*/*/*/*.js"
+    }
   },
   "dependencies": {
     "@ai-sdk/anthropic": "^3.0.12",
@@ -27,5 +95,9 @@
     "@open-mercato/shared": "workspace:*",
     "@open-mercato/ui": "workspace:*",
     "zod": "^3.23.0"
+  },
+  "devDependencies": {
+    "@open-mercato/cli": "workspace:*",
+    "tsx": "^4.21.0"
   }
 }

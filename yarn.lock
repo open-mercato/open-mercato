@@ -5812,7 +5812,7 @@ __metadata:
   languageName: node
   linkType: hard
 
-"@open-mercato/ai-assistant@workspace:packages/ai-assistant":
+"@open-mercato/ai-assistant@workspace:*, @open-mercato/ai-assistant@workspace:packages/ai-assistant":
   version: 0.0.0-use.local
   resolution: "@open-mercato/ai-assistant@workspace:packages/ai-assistant"
   dependencies:
@@ -5820,6 +5820,7 @@ __metadata:
     "@ai-sdk/google": "npm:^1.2.6"
     "@ai-sdk/openai": "npm:^3.0.5"
     "@modelcontextprotocol/sdk": "npm:^1.25.2"
+    "@open-mercato/cli": "workspace:*"
     ai: "npm:^6.0.33"
     cmdk: "npm:^1.0.0"
     framer-motion: "npm:^11.0.0"
@@ -5841,6 +5842,7 @@ __metadata:
     "@mikro-orm/core": "npm:^6.6.2"
     "@mikro-orm/migrations": "npm:^6.6.2"
     "@mikro-orm/postgresql": "npm:^6.6.2"
+    "@open-mercato/ai-assistant": "workspace:*"
     "@open-mercato/cache": "workspace:*"
     "@open-mercato/cli": "workspace:*"
     "@open-mercato/content": "workspace:*"

@@ -4,7 +4,6 @@
  * Parses OpenAPI spec and indexes endpoints for discovery via hybrid search.
  */
 
-import { buildOpenApiDocument, sanitizeOpenApiDocument } from '@open-mercato/shared/lib/openapi'
 import type { OpenApiDocument } from '@open-mercato/shared/lib/openapi'
 import type { SearchService } from '@open-mercato/search/service'
 import type { IndexableRecord } from '@open-mercato/search/types'
@@ -77,33 +76,34 @@ export async function getEndpointByOperationId(operationId: string): Promise<Api
 
 /**
  * Parse OpenAPI spec into indexable endpoints
+ * Fetches the OpenAPI spec from the running app's /api/docs/openapi endpoint
  */
 async function parseApiEndpoints(): Promise<ApiEndpoint[]> {
-  // Import modules dynamically to avoid circular dependencies
-  let modules: unknown
-  try {
-    const modulesImport = await import('@/generated/modules.generated')
-    modules = modulesImport.modules
-  } catch (error) {
-    console.error('[API Index] Could not import modules.generated:', error)
-    return []
-  }
-
   const baseUrl =
     process.env.NEXT_PUBLIC_API_BASE_URL ||
     process.env.NEXT_PUBLIC_APP_URL ||
     process.env.APP_URL ||
     'http://localhost:3000'
 
-  const rawDoc = buildOpenApiDocument(modules as any, {
-    title: 'Open Mercato API',
-    version: '1.0.0',
-    servers: [{ url: baseUrl }],
-    baseUrlForExamples: baseUrl,
-  })
-  const doc = sanitizeOpenApiDocument(rawDoc) as OpenApiDocument
+  const openApiUrl = `${baseUrl}/api/docs/openapi`
 
-  return extractEndpoints(doc)
+  try {
+    console.error(`[API Index] Fetching OpenAPI spec from ${openApiUrl}...`)
+    const response = await fetch(openApiUrl)
+
+    if (!response.ok) {
+      console.error(`[API Index] Failed to fetch OpenAPI spec: ${response.status} ${response.statusText}`)
+      return []
+    }
+
+    const doc = (await response.json()) as OpenApiDocument
+    console.error(`[API Index] Successfully fetched OpenAPI spec`)
+    return extractEndpoints(doc)
+  } catch (error) {
+    console.error('[API Index] Could not fetch OpenAPI spec:', error instanceof Error ? error.message : error)
+    console.error('[API Index] Make sure the app is running at', baseUrl)
+    return []
+  }
 }
 
 /**
