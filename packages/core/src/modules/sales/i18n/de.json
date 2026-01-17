@@ -1241,6 +1241,7 @@
         "channel": "Channel",
         "tabs": {
           "comments": "Comments",
+          "history": "Verlauf",
           "addresses": "Addresses",
           "items": "Items",
           "shipments": "Shipments",
@@ -1259,6 +1260,28 @@
         "customerRef.placeholder": "Customer PO or note",
         "email.placeholder": "Add email",
         "externalRef.placeholder": "Add external reference"
+      },
+      "history": {
+        "loading": "Verlauf wird geladen…",
+        "error": "Dokumentenverlauf konnte nicht geladen werden.",
+        "retry": "Erneut versuchen",
+        "empty": "Noch keine Verlaufseinträge.",
+        "select": "Wählen Sie ein Ereignis aus, um Details zu sehen.",
+        "filter": {
+          "all": "Alle",
+          "status": "Status",
+          "actions": "Aktionen",
+          "comments": "Kommentare"
+        },
+        "status_changed": "Status geändert von {from} zu {to}",
+        "status_change": "Statusänderung",
+        "status_empty": "nicht gesetzt",
+        "by_actor": "von {actor}",
+        "by_api_key": "von API-Schlüssel: {name}",
+        "by_system": "vom System",
+        "comment": "Kommentar",
+        "comment_empty": "Kein Kommentartext vorhanden.",
+        "action": "Aktivität"
       },
       "adjustments": {
         "title": "Anpassungen",
@@ -1466,6 +1489,7 @@
   "sales.audit.orders.create": "Bestellung erstellen",
   "sales.audit.orders.delete": "Bestellung löschen",
   "sales.audit.orders.update": "Bestellung aktualisieren",
+  "sales.audit.orders.status_change": "Bestellstatus ändern",
   "sales.audit.orders.lines.upsert": "Bestellposition aktualisieren",
   "sales.audit.orders.lines.delete": "Bestellposition löschen",
   "sales.audit.orders.adjustments.upsert": "Auftragsanpassung aktualisieren",
@@ -1473,6 +1497,8 @@
   "sales.audit.quotes.create": "Angebot erstellen",
   "sales.audit.quotes.delete": "Angebot löschen",
   "sales.audit.quotes.update": "Angebot aktualisieren",
+  "sales.audit.quotes.send": "Angebot senden",
+  "sales.audit.quotes.accept": "Angebot annehmen",
   "sales.audit.quotes.lines.upsert": "Angebotsposition aktualisieren",
   "sales.audit.quotes.lines.delete": "Angebotsposition löschen",
   "sales.audit.quotes.adjustments.upsert": "Angebotsanpassung aktualisieren",
@@ -1491,6 +1517,7 @@
   "sales.orders.status_change.actor_unknown": "Unbekannter Benutzer",
   "sales.orders.status_change.actor_api_key": "API-Schlüssel {name}",
   "sales.orders.status_change.empty": "nicht gesetzt",
+  "sales.quotes.status_change.note": "Status geändert von {from} auf {to} durch {actor}.",
   "sales.search.badge.channel": "Kanal",
   "sales.search.badge.order": "Bestellung",
   "sales.search.badge.quote": "Angebot",

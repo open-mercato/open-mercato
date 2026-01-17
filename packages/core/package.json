@@ -41,6 +41,10 @@
       "types": "./src/modules/sales/commands/index.ts",
       "default": "./dist/modules/sales/commands/index.js"
     },
+    "./modules/sales/api/document-history/route": {
+      "types": "./src/modules/sales/api/document-history/route.ts",
+      "default": "./dist/modules/sales/api/document-history/route.js"
+    },
     "./modules/catalog": {
       "types": "./src/modules/catalog/index.ts",
       "default": "./dist/modules/catalog/index.js"

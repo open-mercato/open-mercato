@@ -1238,6 +1238,7 @@
         "channel": "Channel",
         "tabs": {
           "comments": "Comments",
+          "history": "Historial",
           "addresses": "Addresses",
           "items": "Items",
           "shipments": "Shipments",
@@ -1256,6 +1257,28 @@
         "customerRef.placeholder": "Customer PO or note",
         "email.placeholder": "Add email",
         "externalRef.placeholder": "Add external reference"
+      },
+      "history": {
+        "loading": "Cargando historial…",
+        "error": "No se pudo cargar el historial del documento.",
+        "retry": "Reintentar",
+        "empty": "Todavía no hay entradas en el historial.",
+        "select": "Seleccione un evento para ver los detalles.",
+        "filter": {
+          "all": "Todo",
+          "status": "Estado",
+          "actions": "Acciones",
+          "comments": "Comentarios"
+        },
+        "status_changed": "Estado cambiado de {from} a {to}",
+        "status_change": "Cambio de estado",
+        "status_empty": "sin establecer",
+        "by_actor": "por {actor}",
+        "by_api_key": "por clave API: {name}",
+        "by_system": "por el sistema",
+        "comment": "Comentario",
+        "comment_empty": "No hay texto de comentario.",
+        "action": "Actividad"
       },
       "adjustments": {
         "title": "Ajustes",
@@ -1448,6 +1471,7 @@
   "sales.orders.adjustments.delete": "Eliminar ajuste de pedido",
   "sales.audit.orders.create": "Crear pedido de ventas",
   "sales.audit.orders.delete": "Eliminar pedido de ventas",
+  "sales.audit.orders.status_change": "Cambiar estado del pedido",
   "sales.audit.orders.lines.upsert": "Actualizar línea de pedido",
   "sales.audit.orders.lines.delete": "Eliminar línea de pedido",
   "sales.audit.orders.update": "Actualizar pedido de ventas",
@@ -1458,6 +1482,8 @@
   "sales.audit.quotes.lines.upsert": "Actualizar línea de cotización",
   "sales.audit.quotes.lines.delete": "Eliminar línea de cotización",
   "sales.audit.quotes.update": "Actualizar cotización",
+  "sales.audit.quotes.send": "Enviar cotización",
+  "sales.audit.quotes.accept": "Aceptar cotización",
   "sales.audit.quotes.adjustments.upsert": "Actualizar ajuste de cotización",
   "sales.audit.quotes.adjustments.delete": "Eliminar ajuste de cotización",
   "sales.audit.shipments.create": "Crear envío",
@@ -1474,6 +1500,7 @@
   "sales.orders.status_change.actor_unknown": "Usuario desconocido",
   "sales.orders.status_change.actor_api_key": "Clave API {name}",
   "sales.orders.status_change.empty": "sin definir",
+  "sales.quotes.status_change.note": "Estado cambiado de {from} a {to} por {actor}.",
   "sales.search.badge.channel": "Canal",
   "sales.search.badge.order": "Pedido",
   "sales.search.badge.quote": "Cotización",

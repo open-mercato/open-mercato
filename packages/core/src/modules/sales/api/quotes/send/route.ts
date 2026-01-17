@@ -15,6 +15,7 @@ import { quoteSendSchema } from '../../../data/validators'
 import { sendEmail } from '@open-mercato/shared/lib/email/send'
 import { resolveStatusEntryIdByValue } from '../../../lib/statusHelpers'
 import { QuoteSentEmail } from '../../../emails/QuoteSentEmail'
+import { logSalesStatusChange } from '../../../lib/statusHistory'
 
 export const metadata = {
   POST: { requireAuth: true, requireFeatures: ['sales.quotes.manage'] },
@@ -98,6 +99,8 @@ export async function POST(req: Request) {
     const validUntil = new Date(now)
     validUntil.setUTCDate(validUntil.getUTCDate() + input.validForDays)
 
+    const previousStatus = quote.status ?? null
+    const previousStatusEntryId = quote.statusEntryId ?? null
     quote.validUntil = validUntil
     quote.acceptanceToken = crypto.randomUUID()
     quote.sentAt = now
@@ -110,6 +113,20 @@ export async function POST(req: Request) {
     quote.updatedAt = now
     em.persist(quote)
     await em.flush()
+    await logSalesStatusChange({
+      ctx,
+      documentKind: 'quote',
+      documentId: quote.id,
+      organizationId: quote.organizationId,
+      tenantId: quote.tenantId,
+      previousStatus,
+      nextStatus: quote.status ?? null,
+      previousStatusEntryId,
+      nextStatusEntryId: quote.statusEntryId ?? null,
+      actionLabelKey: 'sales.audit.quotes.send',
+      actionLabelFallback: 'Send quote',
+      commandId: 'sales.quotes.send',
+    })
 
     const appUrl = process.env.APP_URL || ''
     const url = appUrl ? `${appUrl.replace(/\/$/, '')}/quote/${quote.acceptanceToken}` : `/quote/${quote.acceptanceToken}`
@@ -160,5 +177,4 @@ export const openApi: OpenApiRouteDoc = {
     },
   },
 }
-
 

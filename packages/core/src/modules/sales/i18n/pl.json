@@ -1245,6 +1245,7 @@
         "channel": "Channel",
         "tabs": {
           "comments": "Comments",
+          "history": "Historia",
           "addresses": "Addresses",
           "items": "Items",
           "shipments": "Shipments",
@@ -1263,6 +1264,28 @@
         "customerRef.placeholder": "Customer PO or note",
         "email.placeholder": "Add email",
         "externalRef.placeholder": "Add external reference"
+      },
+      "history": {
+        "loading": "Ladowanie historii…",
+        "error": "Nie udalo sie zaladowac historii dokumentu.",
+        "retry": "Ponow",
+        "empty": "Brak wpisow historii.",
+        "select": "Wybierz zdarzenie, aby zobaczyc szczegoly.",
+        "filter": {
+          "all": "Wszystkie",
+          "status": "Status",
+          "actions": "Akcje",
+          "comments": "Komentarze"
+        },
+        "status_changed": "Status zmieniony z {from} na {to}",
+        "status_change": "Zmiana statusu",
+        "status_empty": "brak",
+        "by_actor": "przez {actor}",
+        "by_api_key": "przez klucz API: {name}",
+        "by_system": "przez system",
+        "comment": "Komentarz",
+        "comment_empty": "Brak tresci komentarza.",
+        "action": "Aktywnosc"
       },
       "adjustments": {
         "title": "Korekty",
@@ -1464,6 +1487,7 @@
   "sales.audit.orders.create": "Utwórz zamówienie sprzedaży",
   "sales.audit.orders.delete": "Usuń zamówienie sprzedaży",
   "sales.audit.orders.update": "Aktualizuj zamówienie sprzedaży",
+  "sales.audit.orders.status_change": "Zmień status zamówienia",
   "sales.audit.orders.lines.upsert": "Zaktualizuj pozycję zamówienia",
   "sales.audit.orders.lines.delete": "Usuń pozycję zamówienia",
   "sales.audit.orders.adjustments.upsert": "Zaktualizuj korektę zamówienia",
@@ -1471,6 +1495,8 @@
   "sales.audit.quotes.create": "Utwórz ofertę",
   "sales.audit.quotes.delete": "Usuń ofertę",
   "sales.audit.quotes.update": "Aktualizuj ofertę",
+  "sales.audit.quotes.send": "Wyślij ofertę",
+  "sales.audit.quotes.accept": "Zaakceptuj ofertę",
   "sales.audit.quotes.lines.upsert": "Zaktualizuj pozycję oferty",
   "sales.audit.quotes.lines.delete": "Usuń pozycję oferty",
   "sales.audit.quotes.adjustments.upsert": "Zaktualizuj korektę oferty",
@@ -1489,6 +1515,7 @@
   "sales.orders.status_change.actor_unknown": "Nieznany użytkownik",
   "sales.orders.status_change.actor_api_key": "Klucz API {name}",
   "sales.orders.status_change.empty": "brak",
+  "sales.quotes.status_change.note": "Status zmieniony z {from} na {to} przez {actor}.",
   "sales.search.badge.channel": "Kanał",
   "sales.search.badge.order": "Zamówienie",
   "sales.search.badge.quote": "Oferta",

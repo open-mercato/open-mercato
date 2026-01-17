@@ -1243,6 +1243,7 @@
         "channel": "Channel",
         "tabs": {
           "comments": "Comments",
+          "history": "History",
           "addresses": "Addresses",
           "items": "Items",
           "shipments": "Shipments",
@@ -1261,6 +1262,28 @@
         "customerRef.placeholder": "Customer PO or note",
         "email.placeholder": "Add email",
         "externalRef.placeholder": "Add external reference"
+      },
+      "history": {
+        "loading": "Loading history…",
+        "error": "Failed to load document history.",
+        "retry": "Retry",
+        "empty": "No history entries yet.",
+        "select": "Select an event to see details.",
+        "filter": {
+          "all": "All",
+          "status": "Status",
+          "actions": "Actions",
+          "comments": "Comments"
+        },
+        "status_changed": "Status changed from {from} to {to}",
+        "status_change": "Status change",
+        "status_empty": "unset",
+        "by_actor": "by {actor}",
+        "by_api_key": "by API key: {name}",
+        "by_system": "by system",
+        "comment": "Comment",
+        "comment_empty": "No comment text provided.",
+        "action": "Activity"
       },
       "adjustments": {
         "title": "Adjustments",
@@ -1448,6 +1471,7 @@
   "sales.audit.orders.create": "Create sales order",
   "sales.audit.orders.delete": "Delete sales order",
   "sales.audit.orders.update": "Update sales order",
+  "sales.audit.orders.status_change": "Change order status",
   "sales.audit.orders.lines.upsert": "Update order line",
   "sales.audit.orders.lines.delete": "Delete order line",
   "sales.audit.orders.adjustments.upsert": "Update order adjustment",
@@ -1455,6 +1479,8 @@
   "sales.audit.quotes.create": "Create sales quote",
   "sales.audit.quotes.delete": "Delete sales quote",
   "sales.audit.quotes.update": "Update sales quote",
+  "sales.audit.quotes.send": "Send quote",
+  "sales.audit.quotes.accept": "Accept quote",
   "sales.audit.quotes.lines.upsert": "Update quote line",
   "sales.audit.quotes.lines.delete": "Delete quote line",
   "sales.audit.quotes.adjustments.upsert": "Update quote adjustment",
@@ -1473,6 +1499,7 @@
   "sales.orders.status_change.actor_unknown": "Unknown user",
   "sales.orders.status_change.actor_api_key": "API key {name}",
   "sales.orders.status_change.empty": "unset",
+  "sales.quotes.status_change.note": "Status changed from {from} to {to} by {actor}.",
   "sales.search.badge.channel": "Channel",
   "sales.search.badge.order": "Order",
   "sales.search.badge.quote": "Quote",

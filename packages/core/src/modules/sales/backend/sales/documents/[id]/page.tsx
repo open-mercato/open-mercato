@@ -54,6 +54,7 @@ import type { CommentSummary, SectionAction } from '@open-mercato/ui/backend/det
 import { ICON_SUGGESTIONS } from '@open-mercato/core/modules/customers/lib/dictionaries'
 import { readMarkdownPreferenceCookie, writeMarkdownPreferenceCookie } from '@open-mercato/core/modules/customers/lib/markdownPreference'
 import { InjectionSpot, useInjectionWidgets } from '@open-mercato/ui/backend/injection/InjectionSpot'
+import { SalesDocumentHistorySection } from '@open-mercato/core/modules/sales/components/documents/HistorySection'
 
 function CurrencyInlineEditor({
   label,
@@ -3730,6 +3731,7 @@ export default function SalesDocumentDetailPage({
     () => {
       const tabs: Array<{ id: string; label: string }> = [
         { id: 'comments', label: t('sales.documents.detail.tabs.comments', 'Comments') },
+        { id: 'history', label: t('sales.documents.detail.tabs.history', 'History') },
         { id: 'addresses', label: t('sales.documents.detail.tabs.addresses', 'Addresses') },
         { id: 'items', label: t('sales.documents.detail.tabs.items', 'Items') },
       ]
@@ -3912,6 +3914,14 @@ export default function SalesDocumentDetailPage({
           iconSuggestions={ICON_SUGGESTIONS}
           readMarkdownPreference={readMarkdownPreferenceCookie}
           writeMarkdownPreference={writeMarkdownPreferenceCookie}
+        />
+      )
+    }
+    if (activeTab === 'history') {
+      return (
+        <SalesDocumentHistorySection
+          documentId={record.id}
+          kind={kind}
         />
       )
     }
