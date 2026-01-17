@@ -1,4 +1,4 @@
-import type { AppContainer } from '@/lib/di/container'
+import type { AppContainer } from '@open-mercato/shared/lib/di/container'
 
 export function register(container: AppContainer) {
   // CRM module services will be registered in later phases.

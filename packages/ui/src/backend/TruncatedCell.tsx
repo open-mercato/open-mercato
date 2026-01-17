@@ -2,7 +2,7 @@
 
 import * as React from 'react'
 import { SimpleTooltip } from '../primitives/tooltip'
-import { cn } from '@/lib/utils'
+import { cn } from '@open-mercato/shared/lib/utils'
 
 export type TruncatedCellProps = {
   children: React.ReactNode

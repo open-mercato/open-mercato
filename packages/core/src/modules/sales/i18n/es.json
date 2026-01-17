@@ -9,6 +9,77 @@
       "title": "Gestión de ventas",
       "description": "Cotizaciones, pedidos, cumplimiento, facturación y pagos conectados al catálogo de productos."
     },
+    "quotes": {
+      "send": {
+        "action": "Enviar al cliente",
+        "title": "Enviar cotización al cliente",
+        "description": "El correo se enviará a:",
+        "noEmail": "Sin correo",
+        "validForDays": "Válida por (días)",
+        "cancel": "Cancelar",
+        "submit": "Enviar cotización",
+        "success": "Cotización enviada.",
+        "failed": "No se pudo enviar la cotización.",
+        "canceled": "No se pueden enviar cotizaciones canceladas.",
+        "missingEmail": "Se requiere el correo del cliente para enviar una cotización."
+      },
+      "email": {
+        "subject": "Cotización {quoteNumber}",
+        "preview": "La cotización {quoteNumber} está lista para revisión",
+        "heading": "Cotización {quoteNumber}",
+        "total": "Total: {amount} {currency}",
+        "validUntil": "Válida hasta: {date}",
+        "cta": "Ver cotización",
+        "footer": "Open Mercato"
+      },
+      "public": {
+        "pageTitle": "Cotización",
+        "notFound": "Cotización no encontrada.",
+        "failed": "No se pudo cargar la cotización.",
+        "loading": "Cargando cotización…",
+        "expired": "Esta cotización ha expirado.",
+        "expiredMessage": "Por favor contacte al vendedor para solicitar una cotización actualizada.",
+        "validUntil": "Válida hasta {date}",
+        "noValidityDate": "Sin fecha de validez",
+        "items": "Artículos",
+        "item": "Artículo",
+        "qty": "Cant.: {quantity}",
+        "totals": "Totales",
+        "subtotalGross": "Subtotal (bruto)",
+        "discount": "Descuento",
+        "tax": "Impuesto",
+        "total": "Total",
+        "acceptButton": "Aceptar cotización",
+        "acceptedTitle": "Cotización aceptada",
+        "acceptedMessage": "Pedido creado: {orderNumber}",
+        "acceptFailed": "No se pudo aceptar la cotización."
+      },
+      "accept": {
+        "notFound": "Cotización no encontrada.",
+        "expired": "Esta cotización ha expirado.",
+        "invalidStatus": "Esta cotización no puede aceptarse en su estado actual.",
+        "failed": "No se pudo aceptar la cotización.",
+        "adminSubject": "Cotización {quoteNumber} aceptada → Pedido {orderNumber}",
+        "adminEmail": {
+          "preview": "Cotización {quoteNumber} aceptada",
+          "heading": "Cotización {quoteNumber} aceptada",
+          "body": "El cliente aceptó la cotización {quoteNumber}. Se ha creado un pedido: {orderNumber}.",
+          "cta": "Ver pedido",
+          "footer": "Open Mercato"
+        }
+      },
+      "list": {
+        "title": "Cotizaciones"
+      },
+      "detail": {
+        "title": "Detalles de la cotización"
+      },
+      "form": {
+        "general": "General",
+        "lines": "Líneas",
+        "notes": "Notas"
+      }
+    },
     "nav": {
       "group": "Ventas",
       "channels": "Canales de ventas"
@@ -223,19 +294,6 @@
         "shipments": "Envíos",
         "invoices": "Facturas",
         "payments": "Pagos",
-        "notes": "Notas"
-      }
-    },
-    "quotes": {
-      "list": {
-        "title": "Cotizaciones"
-      },
-      "detail": {
-        "title": "Detalles de la cotización"
-      },
-      "form": {
-        "general": "General",
-        "lines": "Líneas",
         "notes": "Notas"
       }
     },
@@ -1428,5 +1486,27 @@
   "sales.orders.status_change.note": "Estado cambiado de {from} a {to} por {actor}.",
   "sales.orders.status_change.actor_unknown": "Usuario desconocido",
   "sales.orders.status_change.actor_api_key": "Clave API {name}",
-  "sales.orders.status_change.empty": "sin definir"
+  "sales.orders.status_change.empty": "sin definir",
+  "sales.search.badge.channel": "Canal",
+  "sales.search.badge.order": "Pedido",
+  "sales.search.badge.quote": "Cotización",
+  "sales.search.badge.orderLine": "Línea de pedido",
+  "sales.search.badge.quoteLine": "Línea de cotización",
+  "sales.search.badge.orderAdjustment": "Ajuste de pedido",
+  "sales.search.badge.quoteAdjustment": "Ajuste de cotización",
+  "sales.search.badge.shipment": "Envío",
+  "sales.search.badge.shipmentItem": "Línea de envío",
+  "sales.search.badge.invoice": "Factura",
+  "sales.search.badge.invoiceLine": "Línea de factura",
+  "sales.search.badge.creditMemo": "Nota de crédito",
+  "sales.search.badge.creditMemoLine": "Línea de nota de crédito",
+  "sales.search.badge.payment": "Pago",
+  "sales.search.badge.paymentAllocation": "Asignación de pago",
+  "sales.search.badge.note": "Nota",
+  "sales.search.badge.address": "Dirección",
+  "sales.search.badge.shippingMethod": "Método de envío",
+  "sales.search.badge.deliveryWindow": "Ventana de entrega",
+  "sales.search.badge.paymentMethod": "Método de pago",
+  "sales.search.badge.taxRate": "Tasa de impuesto",
+  "sales.search.badge.documentTag": "Etiqueta de documento"
 }

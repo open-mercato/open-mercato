@@ -1,0 +1,220 @@
+---
+title: Attachments
+description: REST endpoints for uploading files, managing metadata, and serving attachment media.
+---
+
+import OpenApiExplorerBanner from '@site/src/components/OpenApiExplorerBanner';
+
+<OpenApiExplorerBanner />
+
+All examples assume the environment variables defined in [REST API Overview](./overview):
+
+```bash
+export BASE_URL="http://localhost:3000/api"
+export API_KEY="<paste your API key secret here>"
+export ORG_ID="<organization uuid in scope>"
+export TENANT_ID="<tenant uuid in scope>"
+export RECORD_ID="<entity record id you want to attach files to>"
+```
+
+- Pass `X-Api-Key: $API_KEY` on every request. API-key calls must always include `organizationId` and `tenantId` in payloads.
+- Required features: `attachments.view` for read-only endpoints, `attachments.manage` for uploads, updates, transfers, partitions, and deletes.
+- Custom fields can be written with either `cf_<slug>` keys or a `customFields` object. Multipart uploads accept a JSON string for `customFields`.
+
+## OCR / text extraction
+
+Open Mercato supports two OCR methods for extracting text from attachments:
+
+1. **LLM-based OCR** (recommended) – uses OpenAI's GPT-4o vision capabilities for images and PDFs
+2. **markitdown** – fallback for non-image/PDF files (text, Office, Outlook)
+
+### LLM-based OCR (images and PDFs)
+
+**System Dependencies**
+
+The LLM OCR feature requires system packages for PDF processing:
+
+- **macOS**: `brew install graphicsmagick ghostscript poppler`
+- **Ubuntu/Debian**: `sudo apt-get install graphicsmagick ghostscript poppler-utils`
+- **Docker**: Add to Dockerfile:
+  ```dockerfile
+  RUN apt-get update && apt-get install -y graphicsmagick ghostscript poppler-utils
+  ```
+
+**Environment Variables**
+
+Configure LLM-based OCR with the following variables in your `.env`:
+
+```bash
+# Required for LLM-based OCR
+OPENAI_API_KEY=your_openai_api_key_here
+
+# Optional: OCR model selection (default: gpt-4o)
+# Supported models: gpt-4o, gpt-4o-mini
+OCR_MODEL=gpt-4o
+
+# Optional: Custom prompt for text extraction
+# OCR_DEFAULT_PROMPT="Extract all text content from this image..."
+
+# Optional: Enable/disable OCR by default for new partitions (default: true)
+# OPENMERCATO_DEFAULT_ATTACHMENT_OCR_ENABLED=true
+```
+
+**How it works**
+
+- **Images** (PNG, JPG, GIF, BMP, WebP, TIFF): Sent directly to GPT-4o for text extraction
+- **PDFs**: Converted to images page-by-page using pdf2pic (requires graphicsmagick + ghostscript), then each page is processed via GPT-4o
+- **Processing**: Asynchronous – uploads return immediately, content is populated in the background
+- **Model selection**: Per-partition model override available in partition settings UI
+- **Extracted text**: Stored in `Attachment.content` field and shown in the metadata dialog
+- **Fallback**: Non-image/PDF files use markitdown for text extraction
+
+### markitdown (non-image/PDF files)
+
+Prerequisite: the `markitdown` CLI must be on `PATH`. Easiest install:
+
+```bash
+curl -LsSf https://astral.sh/uv/install.sh | sh           # install uv
+uv tool install markitdown                               # install the CLI
+markitdown --help                                        # verify it works
+```
+
+How it works:
+
+- Non-image/PDF files (text, Office, Outlook) are passed to `markitdown` after upload if the partition opts in.
+- The extracted text is stored on the attachment record and shown in the metadata dialog; empty output is ignored.
+
+### Configuration
+
+- The default opt-in is controlled by `OPENMERCATO_DEFAULT_ATTACHMENT_OCR_ENABLED=true|false`.
+- Each partition has a `requiresOcr` flag; disable it to skip extraction for that partition.
+- Partition-specific model selection is available in the partition settings UI for LLM-based OCR.
+
+## Attachments per record
+
+### List attachments — `GET /attachments?entityId=<id>&recordId=<id>`
+
+**Feature:** `attachments.view`
+
+Returns files assigned to a specific entity record, ordered newest first.
+
+```bash
+curl -X GET "$BASE_URL/attachments?entityId=catalog:catalog_product&recordId=$RECORD_ID" \
+  -H "X-Api-Key: $API_KEY" \
+  -H "Accept: application/json"
+```
+
+The payload includes `id`, `fileName`, `fileSize`, `createdAt`, `partitionCode`, `url`, `thumbnailUrl`, `tags`, and `assignments`.
+
+### Upload attachment — `POST /attachments` (multipart)
+
+**Feature:** `attachments.manage`
+
+Fields:
+
+- `entityId` and `recordId` — required.
+- `file` — required binary part.
+- Optional: `fieldKey` (validates max size/extension + partition overrides from custom-field definitions), `partitionCode` override, `tags` (JSON string array), `assignments` (JSON string array of `{ type, id, href?, label? }`), `customFields` JSON map.
+
+```bash
+curl -X POST "$BASE_URL/attachments" \
+  -H "X-Api-Key: $API_KEY" \
+  -F "entityId=catalog:catalog_product" \
+  -F "recordId=$RECORD_ID" \
+  -F "file=@./hero.jpg" \
+  -F "tags=[\"hero\",\"web\"]"
+```
+
+Response contains the stored item plus a prebuilt `thumbnailUrl` (`/api/attachments/image/{id}`).
+
+### Delete attachment — `DELETE /attachments?id=<uuid>`
+
+**Feature:** `attachments.manage`
+
+```bash
+curl -X DELETE "$BASE_URL/attachments?id=$ATTACHMENT_ID" \
+  -H "X-Api-Key: $API_KEY"
+```
+
+Deletes the record, purges cached thumbnails, and removes the stored asset.
+
+## Attachment library
+
+Use the library endpoints to browse or edit attachments across entities.
+
+### Search library — `GET /attachments/library`
+
+**Feature:** `attachments.view`
+
+Query parameters: `page` (default `1`), `pageSize` (max `100`), `search` (file name substring), `partition`, `tags` (comma separated), `sortField` (`fileName`, `fileSize`, `createdAt`), `sortDir`.
+
+```bash
+curl -X GET "$BASE_URL/attachments/library?page=1&pageSize=20&tags=hero" \
+  -H "X-Api-Key: $API_KEY"
+```
+
+Response includes paginated items, available partitions, and discovered tag list.
+
+### Retrieve attachment — `GET /attachments/library/{id}`
+
+**Feature:** `attachments.view`
+
+Returns metadata for a single attachment: base fields, tags, assignments (enriched with labels/links when possible), partition label, and any custom field values.
+
+### Update metadata — `PATCH /attachments/library/{id}`
+
+**Feature:** `attachments.manage`
+
+Body accepts `tags` (array), `assignments` (array of `{ type, id, href?, label? }`), plus optional custom-field keys (`cf_<slug>` or `customFields`). Returns the updated tags/assignments/custom fields.
+
+### Delete attachment — `DELETE /attachments/library/{id}`
+
+**Feature:** `attachments.manage`
+
+Removes the attachment and its stored file.
+
+## Transfer attachments between records
+
+**Endpoint:** `POST /attachments/transfer`  
+**Feature:** `attachments.manage`
+
+Move multiple attachments within the same entity to a new record id.
+
+```bash
+curl -X POST "$BASE_URL/attachments/transfer" \
+  -H "X-Api-Key: $API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "entityId": "catalog:catalog_product",
+    "attachmentIds": ["'$ATTACHMENT_ID'"],
+    "fromRecordId": "old-record-id",
+    "toRecordId": "new-record-id"
+  }'
+```
+
+Assignments pointing at `fromRecordId` are rewritten to `toRecordId`.
+
+## Storage partitions
+
+Partition endpoints let you route uploads to different buckets or visibility tiers.
+
+- List partitions — `GET /attachments/partitions` (`attachments.manage`)  
+  Ensures default partitions exist and returns `code`, `title`, `description`, `isPublic`, `requiresOcr`, `envKey`.
+- Create partition — `POST /attachments/partitions` (`attachments.manage`)  
+  Body: `code`, `title`, optional `description`, `isPublic`, `requiresOcr`. Fails when the environment locks partition management (demo/onboarding).
+- Update partition — `PUT /attachments/partitions` (`attachments.manage`)  
+  Body: `id`, `code` (immutable), `title`, optional `description`, `isPublic`, `requiresOcr`.
+- Delete partition — `DELETE /attachments/partitions?id=<uuid>` (`attachments.manage`)  
+  Default partitions cannot be removed; partitions in use return `409`.
+
+## File delivery and imaging
+
+These routes stream files and thumbnails. Access depends on partition visibility:
+
+- Public partitions: no token required unless `requireAuthForPublic` is enabled server-side.
+- Private partitions: require auth; scope must match attachment `organizationId`/`tenantId` or be a superadmin.
+
+- Download original file — `GET /attachments/file/{id}`  
+  Add `?download=1` to force a download response. Respects partition cache headers.
+- Serve/rescale image — `GET /attachments/image/{id}/{slug?}?width=<n>&height=<n>&cropType=cover|contain`  
+  Returns a resized image (Sharp) and caches thumbnails per size. Omit `width`/`height` to stream the original image type while keeping access controls in place.

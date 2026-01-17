@@ -1,0 +1,76 @@
+---
+title: Tutorial - authoring your first module
+description: Create a production-ready module with entities, APIs, admin pages, and dashboards.
+---
+
+This guide extends the [first app tutorial](./first-app) by taking a blank module from concept to shipped feature set. You will:
+
+- Scaffold a new package-scoped module.
+- Register features, dependency injection, and access control.
+- Build MikroORM entities with migrations.
+- Compose CRUD APIs and admin pages backed by forms and grids.
+- Ship dashboard widgets and event subscribers to complete the experience.
+
+:::info Looking for inspiration?
+The `packages/example` workspace ships a full `example` module that exercises most of the platform features and extensibility points. Browse it as a reference implementation before starting your own module to see how everything connects end to end.
+:::
+
+## 1. Scaffold the module
+
+```bash
+mkdir -p packages/inventory/src/modules/inventory_items
+touch packages/inventory/src/modules/inventory_items/{index.ts,acl.ts,di.ts}
+```
+
+Populate the module metadata and features:
+
+```ts title="packages/inventory/src/modules/inventory_items/index.ts"
+import type { ModuleInfo } from '@open-mercato/shared/modules/registry';
+
+export const metadata: ModuleInfo = {
+  id: 'inventory_items',
+  title: 'Inventory Items',
+  version: '0.1.0',
+  description: 'Track stock levels and product availability.',
+};
+```
+
+```ts title="packages/inventory/src/modules/inventory_items/acl.ts"
+export const features = [
+  'inventory_items.view',
+  'inventory_items.create',
+  'inventory_items.edit',
+  'inventory_items.delete',
+];
+```
+
+## 2. Wire dependency injection
+
+```ts title="packages/inventory/src/modules/inventory_items/di.ts"
+import { asClass } from 'awilix';
+import type { AppContainer } from '@open-mercato/shared/lib/di/container';
+import { InventoryService } from './services/inventory-service';
+
+export function register(container: AppContainer) {
+  container.register({
+    inventoryService: asClass(InventoryService).scoped(),
+  });
+}
+```
+
+## 3. Define entities and migrations
+
+Create `data/entities.ts` with MikroORM definitions and run `npm run modules:prepare && npm run db:generate` to emit migrations. Remember to include `organization_id`, `tenant_id`, and soft-delete columns when appropriate.
+
+## 4. Build CRUD APIs and admin UI
+
+- Use the [CRUD factory](../framework/api/crud-factory) to expose list and mutation endpoints under `api/items/route.ts`.
+- Add backend pages under `backend/items/page.tsx` and `backend/items/create/page.tsx` with `CrudForm` and `DataGrid`.
+- Gate pages with metadata requiring the features defined earlier.
+
+## 5. Add dashboards and subscribers
+
+- Place dashboards under `widgets/dashboard/stock/widget.ts` to surface KPIs.
+- React to inventory events in `subscribers/stock-adjusted.ts` by emitting notifications or syncing external systems.
+
+Finally, enable the module in `src/modules.ts`, re-run `npm run modules:prepare`, and restart the dev server. You have a fully fledged module with end-to-end functionality ready for production.

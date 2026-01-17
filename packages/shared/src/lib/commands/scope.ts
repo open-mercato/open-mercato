@@ -46,6 +46,11 @@ function logScopeViolation(
 }
 
 export function ensureOrganizationScope(ctx: CommandRuntimeContext, organizationId: string): void {
+  // Superadmins with global org access can operate on any organization's records
+  if (ctx.auth?.isSuperAdmin === true || ctx.organizationScope?.allowedIds === null) {
+    return
+  }
+
   const currentOrg = ctx.selectedOrganizationId ?? ctx.auth?.orgId ?? null
   if (currentOrg && currentOrg !== organizationId) {
     logScopeViolation(ctx, organizationId, currentOrg)

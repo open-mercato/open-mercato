@@ -6,8 +6,8 @@ import { Button } from '@open-mercato/ui/primitives/button'
 import { Switch } from '@open-mercato/ui/primitives/switch'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
-import { useOrganizationScopeVersion } from '@/lib/frontend/useOrganizationScope'
-import { useT } from '@/lib/i18n/context'
+import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
+import { useT } from '@open-mercato/shared/lib/i18n/context'
 
 import { Badge } from '@open-mercato/ui/primitives/badge'
 

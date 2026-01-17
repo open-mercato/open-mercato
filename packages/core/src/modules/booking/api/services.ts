@@ -4,9 +4,25 @@ import { makeCrudRoute } from '@open-mercato/shared/lib/crud/factory'
 import { escapeLikePattern } from '@open-mercato/shared/lib/db/escapeLikePattern'
 import { BookingService, BookingServiceTagAssignment, BookingResourceTag } from '../data/entities'
 import { sanitizeSearchTerm, parseBooleanFlag } from './helpers'
-import { E } from '@/generated/entities.ids.generated'
-import * as F from '@/generated/entities/booking_service'
+import { E } from '#generated/entities.ids.generated'
 import { createBookingCrudOpenApi, createPagedListResponseSchema } from './openapi'
+
+// Field constants for BookingService entity
+const F = {
+  id: "id",
+  tenant_id: "tenant_id",
+  organization_id: "organization_id",
+  name: "name",
+  description: "description",
+  duration_minutes: "duration_minutes",
+  capacity_model: "capacity_model",
+  max_attendees: "max_attendees",
+  tags: "tags",
+  is_active: "is_active",
+  created_at: "created_at",
+  updated_at: "updated_at",
+  deleted_at: "deleted_at",
+} as const
 
 const routeMetadata = {
   GET: { requireAuth: true, requireFeatures: ['booking.view'] },

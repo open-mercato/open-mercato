@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { createCrud } from '@open-mercato/ui/backend/utils/crud'
-import { useT } from '@/lib/i18n/context'
+import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { DealForm, type DealFormSubmitPayload } from '../../../../components/detail/DealForm'
 import { useCurrencyDictionary } from '../../../../components/detail/hooks/useCurrencyDictionary'
 

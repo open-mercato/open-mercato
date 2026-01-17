@@ -1,0 +1,133 @@
+---
+title: Query engine
+description: Fetch base entities, extensions, and custom fields through a single typed API.
+---
+
+# Query Engine
+
+The query layer provides a consistent API to fetch data across base entities, module extensions, and custom fields. It is available via DI as `queryEngine`.
+
+When the optional hybrid JSONB index is enabled and populated for a given entity, queries are routed through the index automatically; otherwise the engine falls back to a join-based plan. See [JSONB indexing layer](./query-index) for the index design, backfill CLI, and performance tips.
+
+## Why
+- Build generic list/detail APIs and UI that work for any entity.
+- Centralize filtering, pagination, sorting, and selected fields.
+- Safely join module-defined extensions and EAV custom fields.
+
+## Usage (DI)
+
+```ts
+import type { AppContainer } from '@open-mercato/shared/lib/di/container'
+import { E } from '@open-mercato/core/datamodel/entities'
+import { id, email, name } from '@open-mercato/core/datamodel/entities/user'
+import type { QueryEngine } from '@open-mercato/shared/lib/query/types'
+import { SortDir } from '@open-mercato/shared/lib/query/types'
+
+export async function listUsers(container: AppContainer) {
+  const query = container.resolve<QueryEngine>('queryEngine')
+  return await query.query(E.auth.user, {
+    fields: [id, email, name, 'cf:vip'],
+    includeExtensions: true, // joins registered extensions
+    includeCustomFields: true, // auto-discovers keys via custom_field_defs (tenant-scoped only)
+    // Filters: array syntax (legacy)
+    filters: [
+      { field: 'cf:vip', op: 'eq', value: true },
+      { field: email, op: 'ilike', value: '%@acme.com' },
+    ],
+    sort: [{ field: email, dir: SortDir.Asc }],
+    page: { page: 1, pageSize: 25 },
+    // REQUIRED: tenant scope
+    tenantId: 'uuid-string-here',
+    // OPTIONAL: for base entities and virtual entities
+    organizationId: 'uuid-string-here',
+  })
+}
+```
+
+## Model
+- `entity`: an `EntityId` string of the form `<module>:<entity>`; used to resolve the base table and registered extensions.
+- `fields`: base columns and/or custom fields prefixed as `cf:<key>`. Prefer importing base columns from `@open-mercato/<pkg>/datamodel/entities/<entity>` (e.g., `import { id, email } from '@open-mercato/core/datamodel/entities/user'`).
+- `includeExtensions`: `true` to include all linked extension entities; or `string[]` of extension entity ids.
+- `includeCustomFields`: `true` to include all CFs; or `string[]` of keys.
+- `filters`: support base fields and `cf:<key>`.
+  - Array syntax: `{ field, op, value }`.
+  - Object syntax (Mongo/Medusa style):
+    ```ts
+    filters: {
+      title: { $ne: null },
+      email: { $ilike: '%@acme.com' },
+      'cf:vip': true, // shorthand for $eq
+    }
+    ```
+  - Aliases: for filters, you may also use `cf_<key>` (e.g., `cf_priority`), which is treated the same as `cf:<key>`.
+  - Both syntaxes can be mixed, the engine normalizes them internally.
+- `sort`: base fields and `cf:<key>`. Use generated field constants and `SortDir` (e.g., `{ field: email, dir: SortDir.Asc }`).
+- `page`: paging options.
+- `tenantId`: required. All queries must include tenant scope.
+- `organizationId`: optional. Applied in addition to `tenantId` for base entities and virtual entities.
+- `withDeleted`: include soft-deleted rows when `true`. By default, when a base table has a `deleted_at` column, queries exclude rows where `deleted_at` is not null.
+
+## Typing filters
+
+You can get compile-time help for `filters` by using the generic `Where` type from `@open-mercato/shared/lib/query/types`:
+
+```ts
+import type { Where } from '@open-mercato/shared/lib/query/types'
+
+// Define a field→type map for your query
+type UserFields = {
+  id: string
+  email: string
+  name: string | null
+  created_at: Date
+  'cf:vip': boolean
+}
+
+const filters: Where<UserFields> = {
+  email: { $ilike: '%@acme.com' },
+  name: { $ne: null },
+  'cf:vip': true,
+}
+
+await query.query(E.auth.user, { filters })
+```
+
+If you don’t provide the generic, `filters` falls back to a permissive shape.
+
+## Custom fields integration
+
+- Specify custom fields in the `fields` array using the `cf:` prefix (for example, `cf:priority`). They will be projected directly into the result objects.
+- Include custom fields in filters and sorts the same way: `{ field: 'cf:priority', op: 'eq', value: 'High' }`.
+- Because custom fields are scoped per tenant, all queries must supply `tenantId`. Organization filters are optional but recommended for back-office pages.
+- Use the `defineFields` DSL in your module’s `ce.ts` so that generators surface field metadata to UIs. Custom fields created through the admin UI appear automatically once they are published.
+
+## Implementation notes
+- `BasicQueryEngine` and `HybridQueryEngine` require `tenantId`.
+- Custom fields are tenant-scoped only: discovery and joins filter by `tenant_id`; `organization_id` is not applied for CFs.
+- Custom (virtual) entity data is filtered by `tenant_id` and, if provided, additionally by `organization_id`.
+- Base entities apply `tenant_id` (required) and optional `organization_id` when the column exists. When the base table exposes `deleted_at`, rows with a non-null value are excluded unless `withDeleted: true` is passed.
+- When we iterate:
+  - Read `modules.generated.ts` to discover `entityExtensions` and join them.
+  - Join `custom_field_values` to surface `cf:*` fields and filter/sort them efficiently; aggregate when multiple values exist.
+  - Provide per-entity adapters if conventions differ from table naming.
+
+## Encryption-aware finds
+
+When you fetch data via MikroORM outside of the query engine, use the decryption helpers so encrypted columns are decoded with the right tenant/org scope:
+
+```ts
+import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { User } from './data/entities'
+
+const users = await findWithDecryption(em, User, { tenant_id: tenantId }, undefined, {
+  tenantId,
+  organizationId,
+})
+
+const user = await findOneWithDecryption(em, User, { id: userId }, undefined, {
+  tenantId,
+  organizationId,
+})
+```
+
+These helpers no-op when encryption is disabled but ensure encrypted relations that lack explicit scopes are decrypted safely. Prefer them over raw `em.find` / `em.findOne` for direct reads.

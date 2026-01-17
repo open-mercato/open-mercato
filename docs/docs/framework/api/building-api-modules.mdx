@@ -59,7 +59,7 @@ interface Task {
 
 ### 2.1 Define MikroORM Entities
 
-```ts title="src/modules/tasks/data/entities.ts"
+```ts title="packages/<pkg>/src/modules/tasks/data/entities.ts"
 import {
   Entity,
   Property,
@@ -163,7 +163,7 @@ export class TaskTagAssignmentEntity {
 
 ### 2.2 Create Zod Validators
 
-```ts title="src/modules/tasks/data/validators.ts"
+```ts title="packages/<pkg>/src/modules/tasks/data/validators.ts"
 import { z } from "zod";
 
 // Base schemas
@@ -204,7 +204,7 @@ export const commentCreateSchema = z.object({
 
 ### 3.1 Task Creation Command
 
-```ts title="src/modules/tasks/commands/tasks.ts"
+```ts title="packages/<pkg>/src/modules/tasks/commands/tasks.ts"
 import { registerCommand } from "@open-mercato/shared/lib/commands";
 import type { CommandHandler } from "@open-mercato/shared/lib/commands";
 import {
@@ -421,7 +421,7 @@ const updateTaskCommand: CommandHandler<TaskUpdateInput, { taskId: string }> = {
 
 ### 3.3 Register Commands
 
-```ts title="src/modules/tasks/commands/index.ts"
+```ts title="packages/<pkg>/src/modules/tasks/commands/index.ts"
 import "./tasks";
 import "./comments";
 ```
@@ -430,7 +430,7 @@ import "./comments";
 
 ### 4.1 Main Tasks Route
 
-```ts title="src/modules/tasks/api/tasks/route.ts"
+```ts title="packages/<pkg>/src/modules/tasks/api/tasks/route.ts"
 import { z } from "zod";
 import { makeCrudRoute } from "@open-mercato/shared/lib/crud/factory";
 import { TaskEntity } from "../../data/entities";
@@ -624,7 +624,7 @@ export const { GET, POST, PUT, DELETE } = crud;
 
 ### 4.2 OpenAPI Specification
 
-```ts title="src/modules/tasks/api/openapi.ts"
+```ts title="packages/<pkg>/src/modules/tasks/api/openapi.ts"
 import { z } from "zod";
 import type { ZodTypeAny } from "zod";
 import type { OpenApiRouteDoc } from "@open-mercato/shared/lib/openapi";
@@ -729,7 +729,7 @@ export const openApi = createTasksCrudOpenApi({
 
 ### 5.1 Define Custom Entities
 
-```ts title="src/modules/tasks/ce.ts"
+```ts title="packages/<pkg>/src/modules/tasks/ce.ts"
 import { E } from "@open-mercato/core/generated/entities.ids.generated";
 
 export const entities = [
@@ -775,7 +775,7 @@ export const entities = [
 
 ### 6.1 Define Module Features
 
-```ts title="src/modules/tasks/acl.ts"
+```ts title="packages/<pkg>/src/modules/tasks/acl.ts"
 export const features = [
   "tasks.tasks.view",
   "tasks.tasks.create",
@@ -790,7 +790,7 @@ export const features = [
 
 ### 6.2 Update Module Metadata
 
-```ts title="src/modules/tasks/index.ts"
+```ts title="packages/<pkg>/src/modules/tasks/index.ts"
 export const metadata = {
   name: "Tasks",
   description: "Task management and tracking",
@@ -804,22 +804,22 @@ export const metadata = {
 
 ```bash
 # Generate module registry and entity IDs
-npm run modules:prepare
+yarn generate
 ```
 
 ### 7.2 Generate Database Migrations
 
 ```bash
 # Generate migrations for new entities
-npm run db:generate
+yarn db:generate
 
 # Apply migrations
-npm run db:migrate
+yarn db:migrate
 ```
 
 ### 7.3 Run Tests
 
-```ts title="src/modules/tasks/api/__tests__/tasks.test.ts"
+```ts title="packages/<pkg>/src/modules/tasks/api/__tests__/tasks.test.ts"
 import { describe, it, expect } from "vitest";
 import { createTestContext } from "@open-mercato/shared/lib/test";
 import { executeCommand } from "@open-mercato/shared/lib/commands";
@@ -884,10 +884,10 @@ describe("tasks API", () => {
 
 ```bash
 # Run API tests
-npm test -- src/modules/tasks/api
+yarn test -- src/modules/tasks/api
 
 # Test OpenAPI generation
-npm run openapi:generate
+yarn openapi:generate
 ```
 
 ## Step 8: Deploy and Monitor
@@ -896,7 +896,7 @@ npm run openapi:generate
 
 ```bash
 # Build the application
-npm run build
+yarn build
 
 # Deploy to staging/production
 # ... deployment commands ...
@@ -906,7 +906,7 @@ npm run build
 
 ```bash
 # Enable profiling
-OM_PROFILE=tasks.* npm run dev
+OM_PROFILE=tasks.* yarn dev
 
 # Check for slow queries
 # Monitor API response times
@@ -966,13 +966,13 @@ ensureTenantScope(ctx, entity.tenantId);
 
 ```bash
 # Enable detailed logging
-DEBUG=crud:* npm run dev
+DEBUG=crud:* yarn dev
 
 # Check module registry
-npm run modules:prepare --verbose
+yarn generate --verbose
 
 # Validate migrations
-npm run db:migrate --dry-run
+yarn db:migrate --dry-run
 ```
 
 This workflow provides a complete guide to creating robust, scalable APIs in open-mercato with all the necessary components working together.

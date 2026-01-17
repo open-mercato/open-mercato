@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server'
 import { z } from 'zod'
-import { getAuthFromRequest } from '@/lib/auth/server'
-import { createRequestContainer } from '@/lib/di/container'
+import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
+import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { perspectiveSaveSchema } from '@open-mercato/core/modules/perspectives/data/validators'
 import {
   loadPerspectivesState,

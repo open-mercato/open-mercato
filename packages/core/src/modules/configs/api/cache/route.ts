@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server'
-import { getAuthFromRequest } from '@/lib/auth/server'
-import { createRequestContainer } from '@/lib/di/container'
+import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
+import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { runWithCacheTenant, type CacheStrategy } from '@open-mercato/cache'
 import { collectCrudCacheStats, purgeCrudCacheSegment } from '@open-mercato/shared/lib/crud/cache-stats'

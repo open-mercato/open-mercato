@@ -1,0 +1,71 @@
+---
+title: Manage dictionaries
+description: Configure reusable value lists for your tenants and connect them to custom fields across the admin experience.
+---
+
+Dictionaries centralize the enums you reuse across teams—think lifecycle stages, contact sources, or address types. Each tenant can curate its own values, and the UI, APIs, and custom fields stay in sync automatically.
+
+![Dictionary overview screen](/screenshots/open-mercato-dictionaries-manage.png)
+
+## 1. Create a dictionary
+
+- Navigate to **Backend → Data → Dictionaries** and click **New dictionary**.
+- Enter the internal key (snake_case), display name, and optional description. Keys stay stable; users see the display name.
+- Save the dictionary. It becomes immediately available to scoped tenants and the automation APIs.
+
+Need to seed dictionaries in code? Export them from a module command—for example `packages/core/src/modules/customers/commands/people.ts` shows how to batch-create entries—or wire them into your deployment scripts.
+
+## 2. Add tenant-specific entries
+
+Each dictionary stores values per organization and tenant. To populate them:
+
+1. Select the dictionary from the grid.
+2. Use **Add entry** to define the human-readable value plus optional metadata.
+3. Mark favorites or defaults if your workflow needs a pre-selected option.
+
+![Editing dictionary entries](/screenshots/open-mercato-dictionary-entry.png)
+
+Entries can be imported via API as well—see `/api/dictionaries/{id}/entries`.
+
+## 3. Plug dictionaries into custom fields
+
+Custom fields can draw options from any dictionary, ensuring both CRUD forms and APIs reuse the same value list.
+
+![Configuring a dictionary-backed custom field](/screenshots/open-mercato-custom-fields-based-on-dictionaries.png)
+
+- Open **Backend → Entities** and edit the entity you want to extend.
+- Add a new custom field, choose the **Dictionary** type, and pick the dictionary you just configured.
+- Decide whether users may create new dictionary entries inline (`Allow inline create`) when filling forms.
+- Save and run `yarn mercato entities install --tenant <tenantId>` so definitions sync with your tenants.
+
+Prefer defining fields in code? Use the DSL helper:
+
+```ts title="packages/compliance/src/modules/compliance/ce.ts"
+import { defineFields, cf, entityId } from '@open-mercato/modules/dsl';
+
+export const entities = [
+  defineFields(
+    entityId('auth', 'user'),
+    [
+      cf.dictionary('lifecycle_stage', 'customers:lifecycle-stages', {
+        label: 'Lifecycle stage',
+        formEditable: true,
+        filterable: true,
+      }),
+    ],
+    'compliance'
+  ),
+];
+```
+
+Replace `'customers:lifecycle-stages'` with the `<module>:<dictionary>` identifier you maintain. Inline creation is enabled by default in code; pass `{ dictionaryInlineCreate: false }` to lock the list down.
+
+## 4. Surface values in the admin UI and APIs
+
+- CRUD forms automatically render dictionary-backed selectors in the **Custom data** group once the installer runs.
+- List filters expose dictionary values without extra wiring, and detail pages resolve the display labels.
+- API payloads work the same as other custom fields: send `cf_<key>` with the entry ID, and the data engine persists it.
+
+![Customer profile showing dictionary-driven fields](/screenshots/open-mercato-customer-dictionaries.png)
+
+With dictionaries plus custom fields, each tenant curates its own controlled vocabularies while sharing a single module codebase.

@@ -9,7 +9,7 @@ import { deleteCrud, buildCrudExportUrl } from '@open-mercato/ui/backend/utils/c
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useCustomFieldDefs } from '@open-mercato/ui/backend/utils/customFieldDefs'
 import { applyCustomFieldVisibility } from '@open-mercato/ui/backend/utils/customFieldColumns'
-import { useOrganizationScopeVersion } from '@/lib/frontend/useOrganizationScope'
+import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
 
 const mockTranslate = (key: string, fallback?: string) => fallback ?? key
 
@@ -84,11 +84,11 @@ jest.mock('@open-mercato/ui/backend/ValueIcons', () => ({
   ),
 }))
 
-jest.mock('@/lib/frontend/useOrganizationScope', () => ({
+jest.mock('@open-mercato/shared/lib/frontend/useOrganizationScope', () => ({
   useOrganizationScopeVersion: jest.fn(),
 }))
 
-jest.mock('@/lib/i18n/context', () => ({
+jest.mock('@open-mercato/shared/lib/i18n/context', () => ({
   useT: () => mockTranslate,
 }))
 

@@ -528,6 +528,16 @@
           "nullable": false,
           "length": 6,
           "mappedType": "datetime"
+        },
+        "deleted_at": {
+          "name": "deleted_at",
+          "type": "timestamptz",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": true,
+          "length": 6,
+          "mappedType": "datetime"
         }
       },
       "name": "sales_document_sequences",
@@ -1667,6 +1677,25 @@
           "primary": false,
           "nullable": true,
           "mappedType": "uuid"
+        },
+        "acceptance_token": {
+          "name": "acceptance_token",
+          "type": "text",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": true,
+          "mappedType": "text"
+        },
+        "sent_at": {
+          "name": "sent_at",
+          "type": "timestamptz",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": true,
+          "length": 6,
+          "mappedType": "datetime"
         }
       },
       "name": "sales_quotes",
@@ -1694,6 +1723,16 @@
           "constraint": false,
           "primary": false,
           "unique": false
+        },
+        {
+          "keyName": "sales_quotes_acceptance_token_unique",
+          "columnNames": [
+            "acceptance_token"
+          ],
+          "composite": false,
+          "constraint": true,
+          "primary": false,
+          "unique": true
         },
         {
           "keyName": "sales_quotes_number_unique",
@@ -1730,7 +1769,6 @@
             "id"
           ],
           "referencedTableName": "public.sales_shipping_methods",
-          "createForeignKeyConstraint": true,
           "deleteRule": "set null",
           "updateRule": "cascade"
         },
@@ -1744,7 +1782,6 @@
             "id"
           ],
           "referencedTableName": "public.sales_delivery_windows",
-          "createForeignKeyConstraint": true,
           "deleteRule": "set null",
           "updateRule": "cascade"
         },
@@ -1758,7 +1795,6 @@
             "id"
           ],
           "referencedTableName": "public.sales_payment_methods",
-          "createForeignKeyConstraint": true,
           "deleteRule": "set null",
           "updateRule": "cascade"
         },
@@ -1772,7 +1808,6 @@
             "id"
           ],
           "referencedTableName": "public.sales_channels",
-          "createForeignKeyConstraint": true,
           "deleteRule": "set null",
           "updateRule": "cascade"
         }
@@ -2162,7 +2197,6 @@
             "id"
           ],
           "referencedTableName": "public.sales_quotes",
-          "createForeignKeyConstraint": true,
           "updateRule": "cascade"
         }
       },
@@ -2355,6 +2389,16 @@
           "nullable": false,
           "length": 6,
           "mappedType": "datetime"
+        },
+        "deleted_at": {
+          "name": "deleted_at",
+          "type": "timestamptz",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": true,
+          "length": 6,
+          "mappedType": "datetime"
         }
       },
       "name": "sales_quote_adjustments",
@@ -2395,7 +2439,6 @@
             "id"
           ],
           "referencedTableName": "public.sales_quotes",
-          "createForeignKeyConstraint": true,
           "updateRule": "cascade"
         },
         "sales_quote_adjustments_quote_line_id_foreign": {
@@ -2408,7 +2451,6 @@
             "id"
           ],
           "referencedTableName": "public.sales_quote_lines",
-          "createForeignKeyConstraint": true,
           "deleteRule": "set null",
           "updateRule": "cascade"
         }
@@ -3119,7 +3161,6 @@
             "id"
           ],
           "referencedTableName": "public.sales_channels",
-          "createForeignKeyConstraint": true,
           "deleteRule": "set null",
           "updateRule": "cascade"
         },
@@ -3133,7 +3174,6 @@
             "id"
           ],
           "referencedTableName": "public.sales_shipping_methods",
-          "createForeignKeyConstraint": true,
           "deleteRule": "set null",
           "updateRule": "cascade"
         },
@@ -3147,7 +3187,6 @@
             "id"
           ],
           "referencedTableName": "public.sales_delivery_windows",
-          "createForeignKeyConstraint": true,
           "deleteRule": "set null",
           "updateRule": "cascade"
         },
@@ -3161,7 +3200,6 @@
             "id"
           ],
           "referencedTableName": "public.sales_payment_methods",
-          "createForeignKeyConstraint": true,
           "deleteRule": "set null",
           "updateRule": "cascade"
         }
@@ -3440,7 +3478,6 @@
             "id"
           ],
           "referencedTableName": "public.sales_orders",
-          "createForeignKeyConstraint": true,
           "updateRule": "cascade"
         }
       },
@@ -3685,7 +3722,6 @@
             "id"
           ],
           "referencedTableName": "public.sales_orders",
-          "createForeignKeyConstraint": true,
           "deleteRule": "set null",
           "updateRule": "cascade"
         },
@@ -3699,7 +3735,6 @@
             "id"
           ],
           "referencedTableName": "public.sales_payment_methods",
-          "createForeignKeyConstraint": true,
           "deleteRule": "set null",
           "updateRule": "cascade"
         }
@@ -4137,7 +4172,6 @@
             "id"
           ],
           "referencedTableName": "public.sales_orders",
-          "createForeignKeyConstraint": true,
           "updateRule": "cascade"
         }
       },
@@ -4251,7 +4285,6 @@
             "id"
           ],
           "referencedTableName": "public.sales_shipments",
-          "createForeignKeyConstraint": true,
           "updateRule": "cascade"
         },
         "sales_shipment_items_order_line_id_foreign": {
@@ -4264,7 +4297,6 @@
             "id"
           ],
           "referencedTableName": "public.sales_order_lines",
-          "createForeignKeyConstraint": true,
           "updateRule": "cascade"
         }
       },
@@ -4507,7 +4539,6 @@
             "id"
           ],
           "referencedTableName": "public.sales_orders",
-          "createForeignKeyConstraint": true,
           "updateRule": "cascade"
         },
         "sales_order_adjustments_order_line_id_foreign": {
@@ -4520,7 +4551,6 @@
             "id"
           ],
           "referencedTableName": "public.sales_order_lines",
-          "createForeignKeyConstraint": true,
           "deleteRule": "set null",
           "updateRule": "cascade"
         }
@@ -4648,6 +4678,16 @@
           "nullable": false,
           "length": 6,
           "mappedType": "datetime"
+        },
+        "deleted_at": {
+          "name": "deleted_at",
+          "type": "timestamptz",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": true,
+          "length": 6,
+          "mappedType": "datetime"
         }
       },
       "name": "sales_notes",
@@ -4687,7 +4727,6 @@
             "id"
           ],
           "referencedTableName": "public.sales_orders",
-          "createForeignKeyConstraint": true,
           "deleteRule": "set null",
           "updateRule": "cascade"
         },
@@ -4701,7 +4740,6 @@
             "id"
           ],
           "referencedTableName": "public.sales_quotes",
-          "createForeignKeyConstraint": true,
           "deleteRule": "set null",
           "updateRule": "cascade"
         }
@@ -5010,7 +5048,6 @@
             "id"
           ],
           "referencedTableName": "public.sales_orders",
-          "createForeignKeyConstraint": true,
           "deleteRule": "set null",
           "updateRule": "cascade"
         }
@@ -5143,7 +5180,6 @@
             "id"
           ],
           "referencedTableName": "public.sales_payments",
-          "createForeignKeyConstraint": true,
           "updateRule": "cascade"
         },
         "sales_payment_allocations_order_id_foreign": {
@@ -5156,7 +5192,6 @@
             "id"
           ],
           "referencedTableName": "public.sales_orders",
-          "createForeignKeyConstraint": true,
           "deleteRule": "set null",
           "updateRule": "cascade"
         },
@@ -5170,7 +5205,6 @@
             "id"
           ],
           "referencedTableName": "public.sales_invoices",
-          "createForeignKeyConstraint": true,
           "deleteRule": "set null",
           "updateRule": "cascade"
         }
@@ -5428,7 +5462,6 @@
             "id"
           ],
           "referencedTableName": "public.sales_invoices",
-          "createForeignKeyConstraint": true,
           "updateRule": "cascade"
         },
         "sales_invoice_lines_order_line_id_foreign": {
@@ -5441,7 +5474,6 @@
             "id"
           ],
           "referencedTableName": "public.sales_order_lines",
-          "createForeignKeyConstraint": true,
           "deleteRule": "set null",
           "updateRule": "cascade"
         }
@@ -5593,7 +5625,6 @@
             "id"
           ],
           "referencedTableName": "public.sales_document_tags",
-          "createForeignKeyConstraint": true,
           "updateRule": "cascade"
         },
         "sales_document_tag_assignments_order_id_foreign": {
@@ -5606,7 +5637,6 @@
             "id"
           ],
           "referencedTableName": "public.sales_orders",
-          "createForeignKeyConstraint": true,
           "deleteRule": "set null",
           "updateRule": "cascade"
         },
@@ -5620,7 +5650,6 @@
             "id"
           ],
           "referencedTableName": "public.sales_quotes",
-          "createForeignKeyConstraint": true,
           "deleteRule": "set null",
           "updateRule": "cascade"
         }
@@ -5887,7 +5916,6 @@
             "id"
           ],
           "referencedTableName": "public.sales_orders",
-          "createForeignKeyConstraint": true,
           "deleteRule": "set null",
           "updateRule": "cascade"
         },
@@ -5901,7 +5929,6 @@
             "id"
           ],
           "referencedTableName": "public.sales_quotes",
-          "createForeignKeyConstraint": true,
           "deleteRule": "set null",
           "updateRule": "cascade"
         }
@@ -6173,7 +6200,6 @@
             "id"
           ],
           "referencedTableName": "public.sales_orders",
-          "createForeignKeyConstraint": true,
           "deleteRule": "set null",
           "updateRule": "cascade"
         },
@@ -6187,7 +6213,6 @@
             "id"
           ],
           "referencedTableName": "public.sales_invoices",
-          "createForeignKeyConstraint": true,
           "deleteRule": "set null",
           "updateRule": "cascade"
         }
@@ -6411,7 +6436,6 @@
             "id"
           ],
           "referencedTableName": "public.sales_credit_memos",
-          "createForeignKeyConstraint": true,
           "updateRule": "cascade"
         },
         "sales_credit_memo_lines_order_line_id_foreign": {
@@ -6424,7 +6448,6 @@
             "id"
           ],
           "referencedTableName": "public.sales_order_lines",
-          "createForeignKeyConstraint": true,
           "deleteRule": "set null",
           "updateRule": "cascade"
         }

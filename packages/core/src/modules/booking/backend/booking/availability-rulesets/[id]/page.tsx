@@ -10,7 +10,7 @@ import { normalizeCrudServerError } from '@open-mercato/ui/backend/utils/serverE
 import { AvailabilityRulesEditor, type AvailabilityScheduleItemBuilder } from '@open-mercato/core/modules/booking/components/AvailabilityRulesEditor'
 import { parseAvailabilityRuleWindow } from '@open-mercato/core/modules/booking/lib/resourceSchedule'
 import { extractCustomFieldEntries } from '@open-mercato/shared/lib/crud/custom-fields-client'
-import { useT } from '@/lib/i18n/context'
+import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { AvailabilityRuleSetForm, buildAvailabilityRuleSetPayload, type AvailabilityRuleSetFormValues } from '@open-mercato/core/modules/booking/components/AvailabilityRuleSetForm'
 
 const DAY_MS = 24 * 60 * 60 * 1000

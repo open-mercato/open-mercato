@@ -1,7 +1,7 @@
 import { makeCrudRoute, type CrudCtx } from '@open-mercato/shared/lib/crud/factory'
 import { z } from 'zod'
 import { FeatureToggle } from '../../data/entities'
-import { E } from '@open-mercato/core/generated/entities.ids.generated'
+import { E } from '#generated/entities.ids.generated'
 import { escapeLikePattern } from '@open-mercato/shared/lib/db/escapeLikePattern'
 import { toggleTypeSchema } from '../../data/validators'
 

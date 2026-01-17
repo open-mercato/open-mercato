@@ -129,7 +129,7 @@ jest.mock('@open-mercato/core/modules/customers/components/detail/hooks/useCurre
   useCurrencyDictionary: () => ({ data: { entries: [] }, refetch: jest.fn().mockResolvedValue({ entries: [] }) }),
 }))
 
-jest.mock('@/lib/i18n/context', () => {
+jest.mock('@open-mercato/shared/lib/i18n/context', () => {
   const translate = (key: string, fallback?: string, vars?: Record<string, unknown>) => {
     const base = (fallback ?? key) as string
     if (vars) {
@@ -142,7 +142,7 @@ jest.mock('@/lib/i18n/context', () => {
   }
 })
 
-jest.mock('@/lib/frontend/useOrganizationScope', () => ({
+jest.mock('@open-mercato/shared/lib/frontend/useOrganizationScope', () => ({
   useOrganizationScopeVersion: () => 1,
 }))
 

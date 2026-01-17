@@ -8,9 +8,21 @@ import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { BookingTeam, BookingTeamMember } from '../data/entities'
 import { bookingTeamCreateSchema, bookingTeamUpdateSchema } from '../data/validators'
 import { sanitizeSearchTerm, parseBooleanFlag } from './helpers'
-import { E } from '@/generated/entities.ids.generated'
-import * as F from '@/generated/entities/booking_team'
+import { E } from '#generated/entities.ids.generated'
 import { createBookingCrudOpenApi, createPagedListResponseSchema, defaultOkResponseSchema } from './openapi'
+
+// Field constants for BookingTeam entity
+const F = {
+  id: 'id',
+  tenant_id: 'tenant_id',
+  organization_id: 'organization_id',
+  name: 'name',
+  description: 'description',
+  is_active: 'is_active',
+  created_at: 'created_at',
+  updated_at: 'updated_at',
+  deleted_at: 'deleted_at',
+} as const
 
 const routeMetadata = {
   GET: { requireAuth: true, requireFeatures: ['booking.view'] },

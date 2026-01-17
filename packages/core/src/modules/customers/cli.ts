@@ -1,6 +1,6 @@
-import type { ModuleCli } from '@/modules/registry'
-import { createRequestContainer, type AppContainer } from '@/lib/di/container'
-import { cf } from '@/modules/dsl'
+import type { ModuleCli } from '@open-mercato/shared/modules/registry'
+import { createRequestContainer, type AppContainer } from '@open-mercato/shared/lib/di/container'
+import { cf } from '@open-mercato/shared/modules/dsl'
 import { randomUUID } from 'crypto'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { Dictionary, DictionaryEntry, type DictionaryManagerVisibility } from '@open-mercato/core/modules/dictionaries/data/entities'
@@ -8,9 +8,7 @@ import { installCustomEntitiesFromModules } from '@open-mercato/core/modules/ent
 import type { CacheStrategy } from '@open-mercato/cache/types'
 import { ensureCustomFieldDefinitions } from '@open-mercato/core/modules/entities/lib/field-definitions'
 import { DefaultDataEngine, type DataEngine } from '@open-mercato/shared/lib/data/engine'
-import { Todo } from '@open-mercato/example/modules/example/data/entities'
-import { E as CoreEntities } from '@open-mercato/core/generated/entities.ids.generated'
-import { E as ExampleEntities } from '@open-mercato/example/generated/entities.ids.generated'
+import { E as CoreEntities } from '#generated/entities.ids.generated'
 import { createProgressBar } from '@open-mercato/shared/lib/cli/progress'
 import { buildIndexDocument, type IndexCustomFieldValue } from '@open-mercato/core/modules/query_index/lib/document'
 import { parseBooleanToken } from '@open-mercato/shared/lib/boolean'
@@ -24,7 +22,6 @@ import {
   CustomerActivity,
   CustomerAddress,
   CustomerComment,
-  CustomerTodoLink,
 } from './data/entities'
 import { ensureDictionaryEntry } from './commands/shared'
 
@@ -187,30 +184,6 @@ type ExampleNote = {
   occurredAt?: string
   icon?: string
   color?: string
-}
-
-type ExampleTodoTarget = {
-  type: 'company' | 'person'
-  slug: string
-}
-
-type ExampleTodoFollowUp = {
-  at: string
-  name: string
-  icon?: string
-  color?: string
-}
-
-type ExampleTodoSeed = {
-  title: string
-  isDone?: boolean
-  priority: number
-  severity: 'low' | 'medium' | 'high'
-  blocked?: boolean
-  labels: string[]
-  createdAt: string
-  target: ExampleTodoTarget
-  followUp?: ExampleTodoFollowUp
 }
 
 type ExampleDeal = {
@@ -856,79 +829,6 @@ const CUSTOMER_EXAMPLES: ExampleCompany[] = [
         color: '#0ea5e9',
       },
     ],
-  },
-]
-
-const CUSTOMER_TODO_SEEDS: ExampleTodoSeed[] = [
-  {
-    title: 'Schedule Q3 performance review with Brightside Solar HOA board',
-    priority: 4,
-    severity: 'medium',
-    blocked: false,
-    labels: ['brightside', 'retention'],
-    createdAt: isoDaysFromNow(-12, { hour: 18, minute: 30 }),
-    target: { type: 'company', slug: 'brightside-solar' },
-    followUp: {
-      at: isoDaysFromNow(14, { hour: 16 }),
-      name: 'Brightside quarterly performance review',
-      icon: 'lucide:calendar-clock',
-      color: '#2563eb',
-    },
-  },
-  {
-    title: 'Send expansion ROI model to Harborview leadership team',
-    priority: 5,
-    severity: 'high',
-    blocked: false,
-    labels: ['harborview', 'expansion'],
-    createdAt: isoDaysFromNow(-9, { hour: 14, minute: 5 }),
-    target: { type: 'company', slug: 'harborview-analytics' },
-    followUp: {
-      at: isoDaysFromNow(21, { hour: 15, minute: 30 }),
-      name: 'ROI model review with Harborview COO',
-      icon: 'lucide:bar-chart-3',
-      color: '#22c55e',
-    },
-  },
-  {
-    title: 'Share Wanderstay sustainability materials with Naomi Harris',
-    priority: 3,
-    severity: 'medium',
-    blocked: false,
-    labels: ['copperleaf', 'sustainability'],
-    createdAt: isoDaysFromNow(-11, { hour: 13, minute: 20 }),
-    target: { type: 'person', slug: 'naomi-harris' },
-    followUp: {
-      at: isoDaysFromNow(10, { hour: 20 }),
-      name: 'Discuss Wanderstay sustainability concepts',
-      icon: 'lucide:clipboard-list',
-      color: '#f97316',
-    },
-  },
-  {
-    title: 'Confirm Cedar Creek retreat feedback call',
-    priority: 2,
-    severity: 'low',
-    blocked: false,
-    labels: ['copperleaf', 'postmortem'],
-    createdAt: isoDaysFromNow(-60, { hour: 17, minute: 45 }),
-    target: { type: 'company', slug: 'copperleaf-design' },
-    isDone: true,
-  },
-  {
-    title: 'Prep Harborview upsell workshop agenda for Lena Ortiz',
-    priority: 3,
-    severity: 'medium',
-    blocked: false,
-    labels: ['harborview', 'workshop'],
-    createdAt: isoDaysFromNow(-8, { hour: 12, minute: 10 }),
-    target: { type: 'person', slug: 'lena-ortiz' },
-    followUp: {
-      at: isoDaysFromNow(16, { hour: 14 }),
-      name: 'Harborview expansion workshop dry run',
-      icon: 'lucide:users',
-      color: '#a855f7',
-    },
   },
 ]
 
@@ -1745,74 +1645,6 @@ async function seedCustomerExamples(
       await assign()
     } catch (err) {
       console.warn('[customers.cli] Failed to set custom fields for seeded record', err)
-    }
-  }
-
-  const todoSeedsWithTargets: Array<{ seed: ExampleTodoSeed; todo: Todo; target: CustomerEntity | undefined }> = []
-
-  for (const seed of CUSTOMER_TODO_SEEDS) {
-    const createdAt = new Date(seed.createdAt)
-    const todo = em.create(Todo, {
-      title: seed.title,
-      isDone: seed.isDone ?? false,
-      organizationId,
-      tenantId,
-      createdAt,
-      updatedAt: createdAt,
-    })
-    em.persist(todo)
-
-    const target =
-      seed.target.type === 'company'
-        ? companyEntities.get(seed.target.slug)
-        : personEntities.get(seed.target.slug)
-    todoSeedsWithTargets.push({ seed, todo, target })
-  }
-
-  await em.flush()
-
-  for (const { seed, todo, target } of todoSeedsWithTargets) {
-    if (!target) continue
-    const link = em.create(CustomerTodoLink, {
-      organizationId,
-      tenantId,
-      todoId: todo.id,
-      todoSource: 'example:todo',
-      entity: target,
-      createdAt: new Date(seed.createdAt),
-    })
-    em.persist(link)
-
-    if (seed.followUp) {
-      const followUpAt = new Date(seed.followUp.at)
-      if (!Number.isNaN(followUpAt.getTime())) {
-        target.nextInteractionAt = followUpAt
-      }
-      target.nextInteractionName = seed.followUp.name
-      target.nextInteractionIcon = seed.followUp.icon ?? 'lucide:calendar'
-      target.nextInteractionColor = seed.followUp.color ?? '#2563eb'
-      target.nextInteractionRefId = todo.id
-    }
-  }
-
-  await em.flush()
-
-  for (const { seed, todo } of todoSeedsWithTargets) {
-    try {
-      await dataEngine.setCustomFields({
-        entityId: ExampleEntities.example.todo,
-        recordId: todo.id,
-        organizationId,
-        tenantId,
-        values: {
-          priority: seed.priority,
-          severity: seed.severity,
-          blocked: seed.blocked ?? false,
-          labels: seed.labels,
-        },
-      })
-    } catch (err) {
-      console.warn('[customers.cli] Failed to set custom fields for seeded todo', err)
     }
   }
 

@@ -6,7 +6,7 @@ import { Plus, Code } from 'lucide-react'
 import { ConditionGroup } from './ConditionGroup'
 import type { GroupCondition, ConditionExpression } from './utils/conditionValidation'
 import { validateConditionExpression } from './utils/conditionValidation'
-import { useT } from '@/lib/i18n/context'
+import { useT } from '@open-mercato/shared/lib/i18n/context'
 
 export type ConditionBuilderProps = {
   value: GroupCondition | null | undefined

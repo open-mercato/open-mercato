@@ -50,9 +50,9 @@ export function register(_: AppContainer) {
 
 ## 2. Enable the module
 
-Open `src/modules.ts` and reference the new package:
+Open `apps/mercato/src/modules.ts` and reference the new package:
 
-```ts title="src/modules.ts"
+```ts title="apps/mercato/src/modules.ts"
 import { defineModules } from '@open-mercato/shared/modules';
 
 export default defineModules([
@@ -66,7 +66,7 @@ export default defineModules([
 Run the generators so the new module is included in the registry:
 
 ```bash
-yarn modules:prepare
+yarn generate
 ```
 
 ## 3. Add the first page
@@ -106,4 +106,4 @@ export const metadata: PageMetadata = {
 
 Restart the dev server (or wait for hot reload) and open `/backend`. You should now see an **Inventory** link in the sidebar that leads to the placeholder page.
 
-> ℹ️ Override packaged pages by creating a file under `src/modules/<module>/backend`. Because your inventory module lives in a package you control, you can edit it directly. Core modules from `@open-mercato/core` can be replaced by adding files under `src/modules/auth`, `src/modules/directory`, etc.
+> Override packaged pages by creating a file under `apps/mercato/src/modules/<module>/backend`. Because your inventory module lives in a package you control, you can edit it directly. Core modules from `@open-mercato/core` can be replaced by adding files under `apps/mercato/src/modules/auth`, `apps/mercato/src/modules/directory`, etc.

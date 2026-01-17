@@ -7,7 +7,7 @@ description: Common terms you will encounter while developing on Open Mercato.
 | --- | --- |
 | **Module** | Self-contained package delivering pages, APIs, entities, subscribers, and DI registrations. Resides under `packages/*/src/modules/<module>` or `src/modules/<module>`. |
 | **Overlay** | App-level override for a module file. Any file in `src/modules/<module>` replaces the package implementation with the same relative path. |
-| **Generator** | Script invoked by `npm run modules:prepare` that scans modules and emits `modules.generated.ts`, `entities.generated.ts`, and `di.generated.ts`. |
+| **Generator** | Script invoked by `yarn generate` that scans modules and emits `modules.generated.ts`, `entities.generated.ts`, and `di.generated.ts`. |
 | **Query Engine** | Service that retrieves records and custom fields via a unified API. Lives inside the DI container as `queryEngine`. |
 | **Data Engine** | Service that persists writes (especially custom fields) and emits events after successful operations. |
 | **Custom Entity** | Runtime-defined entity managed by the entities module, often backed by EAV tables. |

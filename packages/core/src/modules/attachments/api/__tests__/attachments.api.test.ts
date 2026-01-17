@@ -33,7 +33,7 @@ const mockDataEngine = {
   flushOrmEntityChanges: jest.fn(async () => {}),
 }
 
-jest.mock('@/lib/di/container', () => ({
+jest.mock('@open-mercato/shared/lib/di/container', () => ({
   createRequestContainer: async () => ({
     resolve: (k: string) => {
       if (k === 'em') return mockEm
@@ -43,7 +43,7 @@ jest.mock('@/lib/di/container', () => ({
   }),
 }))
 
-jest.mock('@/lib/auth/server', () => ({ getAuthFromRequest: () => ({ orgId: 'org', tenantId: 't1', roles: ['admin'] }) }))
+jest.mock('@open-mercato/shared/lib/auth/server', () => ({ getAuthFromRequest: () => ({ orgId: 'org', tenantId: 't1', roles: ['admin'] }) }))
 
 // Avoid touching disk
 import { promises as fsp } from 'fs'

@@ -1,8 +1,8 @@
 import { NextResponse } from 'next/server'
 import { z } from 'zod'
 import type { OpenApiMethodDoc, OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
-import { createRequestContainer } from '@/lib/di/container'
-import { getAuthFromRequest } from '@/lib/auth/server'
+import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
+import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 
 export const metadata = {
   POST: { requireAuth: true },

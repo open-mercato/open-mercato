@@ -1,5 +1,5 @@
 import { asClass } from 'awilix'
-import type { AppContainer } from '@/lib/di/container'
+import type { AppContainer } from '@open-mercato/shared/lib/di/container'
 import { AuthService } from '@open-mercato/core/modules/auth/services/authService'
 import { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
 

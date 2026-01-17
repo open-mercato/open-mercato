@@ -6,9 +6,9 @@ import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { createCrud } from '@open-mercato/ui/backend/utils/crud'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
-import { useT } from '@/lib/i18n/context'
+import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { TeamRoleForm, type TeamRoleFormValues, type TeamRoleOption, buildTeamRolePayload } from '@open-mercato/core/modules/booking/components/TeamRoleForm'
-import { useOrganizationScopeVersion } from '@/lib/frontend/useOrganizationScope'
+import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
 
 type TeamsResponse = {
   items?: Array<{ id?: string; name?: string }>

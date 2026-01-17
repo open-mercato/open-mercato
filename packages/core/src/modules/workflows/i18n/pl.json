@@ -186,7 +186,7 @@
         "executionTimeline": "Oś Czasu Wykonania",
         "executionHistory": "Dziennik Zdarzeń"
       },
-      "status": {
+      "statuses": {
         "RUNNING": "W Toku",
         "PAUSED": "Wstrzymany",
         "COMPLETED": "Ukończony",
@@ -352,6 +352,74 @@
         "assignmentRule": "Reguła Przypisania",
         "slaDuration": "Czas SLA",
         "escalationRules": "Reguły Eskalacji"
+      },
+      "list": {
+        "title": "Zadania użytkowników"
+      },
+      "fields": {
+        "taskName": "Nazwa zadania",
+        "status": "Status",
+        "assignment": "Przypisanie",
+        "dueDate": "Termin",
+        "createdAt": "Data utworzenia"
+      },
+      "status": {
+        "PENDING": "Oczekujące",
+        "IN_PROGRESS": "W trakcie",
+        "COMPLETED": "Zakończone",
+        "CANCELLED": "Anulowane"
+      },
+      "filters": {
+        "status": "Status",
+        "view": "Widok",
+        "myTasks": "Moje zadania",
+        "allTasks": "Wszystkie zadania",
+        "overdue": "Przeterminowane",
+        "overdueOnly": "Tylko przeterminowane",
+        "workflowInstanceId": "ID instancji przepływu",
+        "workflowInstanceIdPlaceholder": "Filtruj po ID instancji..."
+      },
+      "actions": {
+        "viewDetails": "Zobacz szczegóły",
+        "claim": "Przejmij zadanie",
+        "complete": "Zakończ zadanie"
+      },
+      "confirm": {
+        "claim": "Czy na pewno chcesz przejąć zadanie '{{name}}'?"
+      },
+      "messages": {
+        "claimed": "Zadanie przejęte pomyślnie",
+        "claimFailed": "Nie udało się przejąć zadania",
+        "completed": "Zadanie zakończone pomyślnie",
+        "completeFailed": "Nie udało się zakończyć zadania",
+        "loadFailed": "Nie udało się załadować zadań użytkowników"
+      },
+      "roles": "Role",
+      "detail": {
+        "loading": "Ładowanie zadania...",
+        "notFound": "Zadanie nie znalezione",
+        "backToList": "Powrót do zadań",
+        "overdueWarning": "⚠ To zadanie jest przeterminowane!",
+        "cannotComplete": "To zadanie zostało już zakończone lub anulowane i nie może być modyfikowane.",
+        "noFormSchema": "To zadanie nie ma formularza do wypełnienia. Możesz dodać opcjonalne komentarze i wysłać.",
+        "assignedTo": "Przypisane do",
+        "workflowInstance": "Instancja przepływu",
+        "comments": "Komentarze",
+        "optional": "opcjonalne",
+        "commentsPlaceholder": "Dodaj komentarze lub notatki dotyczące tego zadania...",
+        "completeTask": "Zakończ zadanie",
+        "submitting": "Wysyłanie...",
+        "sections": {
+          "taskInfo": "Informacje o zadaniu",
+          "form": "Formularz zadania",
+          "submittedData": "Wysłane dane"
+        },
+        "form": {
+          "selectOption": "-- Wybierz opcję --"
+        },
+        "validation": {
+          "requiredField": "Brakuje wymaganego pola: {{field}}"
+        }
       }
     },
     "events": {
@@ -460,78 +528,6 @@
       "updateFailed": "Nie udało się zaktualizować przepływu",
       "loadFailed": "Nie udało się załadować przepływów",
       "duplicateNotYetImplemented": "Funkcja duplikowania nie jest jeszcze zaimplementowana"
-    },
-    "tasks": {
-      "list": {
-        "title": "Zadania użytkowników"
-      },
-      "fields": {
-        "taskName": "Nazwa zadania",
-        "status": "Status",
-        "assignment": "Przypisanie",
-        "dueDate": "Termin",
-        "createdAt": "Data utworzenia"
-      },
-      "status": {
-        "PENDING": "Oczekujące",
-        "IN_PROGRESS": "W trakcie",
-        "COMPLETED": "Zakończone",
-        "CANCELLED": "Anulowane"
-      },
-      "filters": {
-        "status": "Status",
-        "view": "Widok",
-        "myTasks": "Moje zadania",
-        "allTasks": "Wszystkie zadania",
-        "overdue": "Przeterminowane",
-        "overdueOnly": "Tylko przeterminowane",
-        "workflowInstanceId": "ID instancji przepływu",
-        "workflowInstanceIdPlaceholder": "Filtruj po ID instancji..."
-      },
-      "actions": {
-        "viewDetails": "Zobacz szczegóły",
-        "claim": "Przejmij zadanie",
-        "complete": "Zakończ zadanie"
-      },
-      "confirm": {
-        "claim": "Czy na pewno chcesz przejąć zadanie '{{name}}'?"
-      },
-      "messages": {
-        "claimed": "Zadanie przejęte pomyślnie",
-        "claimFailed": "Nie udało się przejąć zadania",
-        "completed": "Zadanie zakończone pomyślnie",
-        "completeFailed": "Nie udało się zakończyć zadania",
-        "loadFailed": "Nie udało się załadować zadań użytkowników"
-      },
-      "overdue": "⚠ PRZETERMINOWANE",
-      "claimedBy": "Przejęte przez",
-      "roles": "Role",
-      "detail": {
-        "loading": "Ładowanie zadania...",
-        "notFound": "Zadanie nie znalezione",
-        "backToList": "Powrót do zadań",
-        "overdueWarning": "⚠ To zadanie jest przeterminowane!",
-        "cannotComplete": "To zadanie zostało już zakończone lub anulowane i nie może być modyfikowane.",
-        "noFormSchema": "To zadanie nie ma formularza do wypełnienia. Możesz dodać opcjonalne komentarze i wysłać.",
-        "assignedTo": "Przypisane do",
-        "workflowInstance": "Instancja przepływu",
-        "comments": "Komentarze",
-        "optional": "opcjonalne",
-        "commentsPlaceholder": "Dodaj komentarze lub notatki dotyczące tego zadania...",
-        "completeTask": "Zakończ zadanie",
-        "submitting": "Wysyłanie...",
-        "sections": {
-          "taskInfo": "Informacje o zadaniu",
-          "form": "Formularz zadania",
-          "submittedData": "Wysłane dane"
-        },
-        "form": {
-          "selectOption": "-- Wybierz opcję --"
-        },
-        "validation": {
-          "requiredField": "Brakuje wymaganego pola: {{field}}"
-        }
-      }
     }
   },
   "common": {

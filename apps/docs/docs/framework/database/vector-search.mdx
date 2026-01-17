@@ -1,0 +1,219 @@
+---
+title: Vector Search Module
+description: Configure vector-aware entities, drivers, and runtime services.
+---
+
+The `vector` module centralises embeddings and similarity search for enabled entities. It complements the JSON-based query index by storing dense vectors in a configurable backend (pgvector by default) and exposes shared helpers for frontends and APIs.
+
+## Encryption notes
+
+- The JSONB query index (`entity_indexes.doc`) is stored encrypted at rest (same ciphertext values as base tables/custom fields).
+- `VectorIndexService` fetches records via the Query Engine, which decrypts entity fields and `cf:*` custom fields on read before embeddings/checksums are computed.
+- Vector result metadata stored in `vector_search` (`result_title`, `result_subtitle`, `result_icon`) is encrypted at rest by default and decrypted only when returning hits/list entries to the UI.
+- **Embeddings themselves are not encrypted**: the pgvector driver stores the raw numeric vector in `vector_search.embedding` exactly as returned by the embedding model. This means a database leak could expose information indirectly encoded in the vector (reconstruction/inference attacks are non-trivial, but possible in some settings).
+- This keeps encryption/decryption logic centralized and avoids storing plaintext chunks in the query index table or vector index storage; treat embeddings as sensitive and prefer redacting/transforming inputs in `buildSource` for high-sensitivity data.
+
+## Module anatomy
+
+- **Package**: `@open-mercato/vector`
+- **Module id**: `vector`
+- **Generated hooks**: the DI graph registers `vectorIndexService`, `vectorEmbeddingService`, and driver instances at boot.
+- **Subscribers**: the module listens to `query_index.upsert_one` and `query_index.delete_one` events so existing CRUD flows automatically trigger vector reindexing.
+
+```ts title="packages/vector/src/modules/vector/di.ts"
+export function register(container: AppContainer) {
+  const embeddingService = new EmbeddingService()
+  const drivers = [createPgVectorDriver(), createChromaDbDriver(), createQdrantDriver()]
+  const indexService = new VectorIndexService({
+    drivers,
+    embeddingService,
+    queryEngine: container.resolve('queryEngine'),
+    moduleConfigs: vectorModuleConfigs,
+    containerResolver: () => container,
+  })
+
+  container.register({
+    vectorEmbeddingService: asValue(embeddingService),
+    vectorDrivers: asValue(drivers),
+    vectorIndexService: asValue(indexService),
+  })
+}
+```
+
+## Declaring searchable entities
+
+Modules opt in by exporting `vectorConfig` from `src/modules/<module>/vector.ts`.
+
+```ts title="packages/core/src/modules/customers/vector.ts"
+import type { VectorModuleConfig } from '@open-mercato/shared/modules/vector'
+
+export const vectorConfig: VectorModuleConfig = {
+  defaultDriverId: 'pgvector',
+  entities: [
+    {
+      entityId: 'customers:customer_entity',
+      formatResult: ({ record }) => ({
+        title: record.display_name,
+        subtitle: record.kind === 'person' ? record.primary_email : record.description,
+      }),
+      resolveUrl: ({ record }) => record.kind === 'person'
+        ? `/backend/customers/people/${record.id}`
+        : `/backend/customers/companies/${record.id}`,
+    },
+    {
+      entityId: 'customers:customer_comment',
+      buildSource: async (ctx) => {
+        const parent = await loadCustomerEntity(ctx, ctx.record.entity_id)
+        return {
+          input: [`Customer: ${parent?.display_name ?? ''}`, `Note: ${ctx.record.body}`],
+          presenter: {
+            title: parent?.display_name ?? 'Customer note',
+            subtitle: ctx.record.body,
+          },
+        }
+      },
+      resolveUrl: async (ctx) => {
+        const parent = await loadCustomerEntity(ctx, ctx.record.entity_id)
+        return parent ? `/backend/customers/companies/${parent.id}#notes` : null
+      },
+    },
+  ],
+}
+```
+
+Key callbacks:
+
+- `buildSource` returns the text chunks that will be embedded, plus optional presenter metadata and checksum source. Shorthand fields fall back to the raw record and custom fields.
+- `formatResult`, `resolveUrl`, and `resolveLinks` shape the runtime payload sent to front-end consumers (command palette, Data Designer, custom UIs).
+
+## Drivers & migrations
+
+Drivers implement a small interface (`ensureReady`, `upsert`, `delete`, `query`, `getChecksum`, `purge`). The pgvector driver ships with an embedded migration that creates the `vector_search` table and IVFFLAT index with cosine distance.
+
+Driver migrations run on first use via `ensureReady`. Each driver can maintain its own migration log (`vector_search_migrations` for pgvector) without depending on MikroORM.
+
+## Reindexing
+
+`VectorIndexService` exposes three entry points:
+
+- `indexRecord` – upserts a single record, used by event subscribers.
+- `deleteRecord` – removes a record when the base row disappears.
+- `reindexEntity` / `reindexAll` – batch operations invoked via the REST API or CLI to bootstrap historic data.
+
+Whenever the checksum computed from the record, custom fields, and optional `checksumSource` stays unchanged, the service skips re-embedding, preventing redundant OpenAI calls.
+
+## Frontend helpers
+
+The package exports `VectorSearchDialog` (global command palette) and `VectorSearchTable` (Data Designer page). Both rely on the shared `/api/vector/search` endpoint and the `fetchVectorResults()` helper from `frontend/utils.ts` which wraps `apiCall` with a typed response. A module CLI (`yarn mercato vector reindex ...`) mirrors the REST endpoint to kick off bulk reindexing from scripts or CI.
+
+You can reuse `fetchVectorResults` in custom UIs to embed vector search in specialized workflows.
+
+## Runtime configuration
+
+- Vector-specific preferences live in the shared `configs` module (`module_id = 'vector'`).
+- `vector.auto_index_enabled` determines whether query index events trigger automatic vector reindexing.
+- Toggle the setting in **Backend → Configuration → Vector Search**; the page talks to `/api/vector/settings` so custom dashboards can reuse the same endpoint.
+- Setting the environment flag `DISABLE_VECTOR_SEARCH_AUTOINDEXING=1` forces the toggle off and disables updates from the UI/API.
+- `yarn mercato configs restore-defaults` (automatically executed by `mercato init`) seeds default values and respects the environment override above.
+
+## Multi-Provider Embedding Support
+
+The vector module supports multiple embedding providers through the [Vercel AI SDK](https://sdk.vercel.ai/docs/ai-sdk-core/embeddings). You can switch providers via the settings page or API without code changes.
+
+### Supported Providers
+
+| Provider | Models | Default Dimension | Environment Variable |
+|----------|--------|-------------------|---------------------|
+| **OpenAI** (default) | `text-embedding-3-small`, `text-embedding-3-large` | 1536, 3072 | `OPENAI_API_KEY` |
+| **Google** | `text-embedding-004`, `embedding-001` | 768 | `GOOGLE_GENERATIVE_AI_API_KEY` |
+| **Mistral** | `mistral-embed` | 1024 | `MISTRAL_API_KEY` |
+| **Cohere** | `embed-english-v3.0`, `embed-multilingual-v3.0` | 1024 | `COHERE_API_KEY` |
+| **Amazon Bedrock** | `amazon.titan-embed-text-v2:0`, `cohere.embed-english-v3` | 1024 | `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_REGION` |
+| **Ollama** (local) | `nomic-embed-text`, `mxbai-embed-large`, `all-minilm` | 768, 1024, 384 | `OLLAMA_BASE_URL` (optional, defaults to `http://localhost:11434`) |
+
+### Provider Configuration
+
+Set the appropriate environment variable for your chosen provider. Only providers with valid credentials will appear as available options in the settings page.
+
+```bash
+# OpenAI (default)
+OPENAI_API_KEY=sk-...
+
+# Google Generative AI
+GOOGLE_GENERATIVE_AI_API_KEY=AIza...
+
+# Mistral
+MISTRAL_API_KEY=...
+
+# Cohere
+COHERE_API_KEY=...
+
+# Amazon Bedrock
+AWS_ACCESS_KEY_ID=AKIA...
+AWS_SECRET_ACCESS_KEY=...
+AWS_REGION=us-east-1
+
+# Ollama (local/self-hosted)
+OLLAMA_BASE_URL=http://localhost:11434
+```
+
+### Changing Providers
+
+Navigate to **Backend → Configuration → Vector Search** to change the embedding provider or model. The settings page displays:
+
+- Current provider and model configuration
+- Available (configured) providers based on environment variables
+- Current indexed dimension vs. selected model dimension
+
+**Warning**: Changing the embedding provider or model triggers a **full reindex** because:
+
+1. Different models produce embeddings with different dimensions
+2. Embeddings from different models are not comparable (mixing them would yield meaningless similarity scores)
+3. The pgvector table must be recreated with the new dimension
+
+When you confirm a provider/model change:
+
+1. All existing vector embeddings are deleted
+2. The `vector_search` table is dropped and recreated with the new dimension
+3. All indexed records must be re-embedded using the new model
+
+Vector search will be unavailable until reindexing completes.
+
+### Programmatic Configuration
+
+You can also configure the embedding provider via the settings API:
+
+```ts
+// Get current configuration
+const response = await fetch('/api/vector/settings')
+const { embeddingConfig, configuredProviders, indexedDimension, reindexRequired } = await response.json()
+
+// Update provider (triggers reindex if dimensions differ)
+await fetch('/api/vector/settings', {
+  method: 'POST',
+  headers: { 'Content-Type': 'application/json' },
+  body: JSON.stringify({
+    embeddingConfig: {
+      providerId: 'google',
+      model: 'text-embedding-004',
+      dimension: 768,
+    },
+  }),
+})
+```
+
+### Dimension Handling
+
+Each embedding model produces vectors of a specific dimension. The pgvector driver stores the current dimension and detects mismatches:
+
+- `indexedDimension`: The dimension of the current `vector_search` table
+- `reindexRequired`: `true` when the configured dimension differs from the indexed dimension
+
+The system prevents inserting embeddings with mismatched dimensions. If a mismatch is detected, you must either:
+
+1. Change the configuration back to match the indexed dimension, or
+2. Trigger a reindex to recreate the table with the new dimension
+
+### Backward Compatibility
+
+If no explicit embedding configuration exists, the system defaults to OpenAI with `text-embedding-3-small` (1536 dimensions). Existing installations continue working without configuration changes.

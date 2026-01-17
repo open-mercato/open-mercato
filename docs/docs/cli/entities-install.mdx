@@ -55,4 +55,4 @@ yarn mercato entities install --global
 
 - **Conflicting flags** – the command prints `Cannot combine --global with --no-global` and exits when incompatible options are supplied.
 - **Cache issues** – if Redis is unavailable the sync still succeeds; you may need to flush caches manually.
-- **No changes reported** – ensure modules export `entities` arrays or `ce.ts` metadata and that `modules:prepare` has been run recently.
+- **No changes reported** – ensure modules export `entities` arrays or `ce.ts` metadata and that `yarn generate` has been run recently.

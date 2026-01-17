@@ -126,7 +126,17 @@ export function ensureDir(filePath: string): void {
   fs.mkdirSync(path.dirname(filePath), { recursive: true })
 }
 
-const ALLOWED_RIMRAF_PATTERNS = ['/generated/', '/dist/', '/.mercato/', '/entities/']
+// Allowed path substrings for safe deletion. Include both POSIX and Windows separators.
+const ALLOWED_RIMRAF_PATTERNS = [
+  '/generated/',
+  '/dist/',
+  '/.mercato/',
+  '/entities/',
+  '\\generated\\',
+  '\\dist\\',
+  '\\.mercato\\',
+  '\\entities\\',
+]
 
 export function rimrafDir(dir: string, opts?: { allowedPatterns?: string[] }): void {
   if (!fs.existsSync(dir)) return
@@ -135,7 +145,13 @@ export function rimrafDir(dir: string, opts?: { allowedPatterns?: string[] }): v
   const resolved = path.resolve(dir)
   const allowed = opts?.allowedPatterns ?? ALLOWED_RIMRAF_PATTERNS
 
-  if (!allowed.some((pattern) => resolved.includes(pattern))) {
+  // Normalize resolved path to support matching against both POSIX and Windows patterns
+  const normalized = {
+    posix: resolved.replace(/\\/g, '/'),
+    win: resolved.replace(/\//g, '\\'),
+  }
+
+  if (!allowed.some((pattern) => normalized.posix.includes(pattern) || normalized.win.includes(pattern))) {
     throw new Error(`Refusing to delete directory outside allowed paths: ${resolved}. Allowed patterns: ${allowed.join(', ')}`)
   }
 

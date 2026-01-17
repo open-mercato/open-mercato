@@ -10,8 +10,8 @@ import { fetchRoleOptions } from '@open-mercato/core/modules/auth/backend/users/
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { useRouter } from 'next/navigation'
-import { useOrganizationScopeDetail, useOrganizationScopeVersion } from '@/lib/frontend/useOrganizationScope'
-import { useT } from '@/lib/i18n/context'
+import { useOrganizationScopeDetail, useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
+import { useT } from '@open-mercato/shared/lib/i18n/context'
 
 type FormValues = {
   name: string

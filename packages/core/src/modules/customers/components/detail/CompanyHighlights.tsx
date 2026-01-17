@@ -4,7 +4,7 @@ import * as React from 'react'
 import Link from 'next/link'
 import { Loader2, Trash2 } from 'lucide-react'
 import { Button } from '@open-mercato/ui/primitives/button'
-import { useT } from '@/lib/i18n/context'
+import { useT } from '@open-mercato/shared/lib/i18n/context'
 import {
   InlineTextEditor,
   InlineDictionaryEditor,

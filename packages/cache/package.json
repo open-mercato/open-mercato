@@ -2,11 +2,34 @@
   "name": "@open-mercato/cache",
   "version": "0.3.13",
   "description": "Multi-strategy cache service with tag-based invalidation support",
-  "main": "dist/index.js",
-  "private": false,
-  "types": "dist/index.d.ts",
+  "type": "module",
+  "main": "./dist/index.js",
   "scripts": {
-    "test": "jest"
+    "build": "node build.mjs",
+    "test": "jest --config jest.config.cjs",
+    "typecheck": "tsc --noEmit"
+  },
+  "exports": {
+    ".": {
+      "types": "./src/index.ts",
+      "default": "./dist/index.js"
+    },
+    "./types": {
+      "types": "./src/types.ts",
+      "default": "./dist/types.js"
+    },
+    "./*": {
+      "types": [
+        "./src/*.ts"
+      ],
+      "default": "./dist/*.js"
+    },
+    "./*/*": {
+      "types": [
+        "./src/*/*.ts"
+      ],
+      "default": "./dist/*/*.js"
+    }
   },
   "keywords": [
     "cache",
@@ -18,20 +41,23 @@
     "invalidation"
   ],
   "peerDependencies": {
-    "ioredis": "^5.0.0",
-    "better-sqlite3": "^9.0.0"
+    "better-sqlite3": ">=9.0.0",
+    "ioredis": "^5.0.0"
   },
   "peerDependenciesMeta": {
-    "ioredis": {
+    "better-sqlite3": {
       "optional": true
     },
-    "better-sqlite3": {
+    "ioredis": {
       "optional": true
     }
   },
   "devDependencies": {
     "@types/better-sqlite3": "^7.6.0",
-    "@types/node": "^20.0.0"
+    "@types/jest": "^30.0.0",
+    "@types/node": "^20.0.0",
+    "jest": "^30.2.0",
+    "ts-jest": "^29.4.6"
   },
   "publishConfig": {
     "access": "public"

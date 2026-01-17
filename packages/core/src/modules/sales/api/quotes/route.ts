@@ -1,6 +1,6 @@
 import { makeCrudRoute } from '@open-mercato/shared/lib/crud/factory'
 import { SalesQuote } from '../../data/entities'
-import { E } from '@open-mercato/core/generated/entities.ids.generated'
+import { E } from '#generated/entities.ids.generated'
 import { buildDocumentCrudOptions, buildDocumentOpenApi } from '../documents/factory'
 
 const crud = makeCrudRoute(

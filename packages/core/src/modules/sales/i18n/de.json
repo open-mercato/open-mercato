@@ -9,6 +9,77 @@
       "title": "Vertriebsmanagement",
       "description": "Angebote, Aufträge, Fulfillment, Rechnungsstellung und Zahlungen verbunden mit dem Produktkatalog."
     },
+    "quotes": {
+      "send": {
+        "action": "An Kunden senden",
+        "title": "Angebot an Kunden senden",
+        "description": "E-Mail wird gesendet an:",
+        "noEmail": "Keine E-Mail",
+        "validForDays": "Gültig für (Tage)",
+        "cancel": "Abbrechen",
+        "submit": "Angebot senden",
+        "success": "Angebot gesendet.",
+        "failed": "Angebot konnte nicht gesendet werden.",
+        "canceled": "Stornierte Angebote können nicht gesendet werden.",
+        "missingEmail": "Zum Senden eines Angebots ist eine Kunden-E-Mail erforderlich."
+      },
+      "email": {
+        "subject": "Angebot {quoteNumber}",
+        "preview": "Angebot {quoteNumber} ist zur Prüfung bereit",
+        "heading": "Angebot {quoteNumber}",
+        "total": "Gesamt: {amount} {currency}",
+        "validUntil": "Gültig bis: {date}",
+        "cta": "Angebot ansehen",
+        "footer": "Open Mercato"
+      },
+      "public": {
+        "pageTitle": "Angebot",
+        "notFound": "Angebot nicht gefunden.",
+        "failed": "Angebot konnte nicht geladen werden.",
+        "loading": "Angebot wird geladen…",
+        "expired": "Dieses Angebot ist abgelaufen.",
+        "expiredMessage": "Bitte kontaktieren Sie den Verkäufer für ein aktualisiertes Angebot.",
+        "validUntil": "Gültig bis {date}",
+        "noValidityDate": "Kein Gültigkeitsdatum",
+        "items": "Positionen",
+        "item": "Position",
+        "qty": "Menge: {quantity}",
+        "totals": "Summen",
+        "subtotalGross": "Zwischensumme (brutto)",
+        "discount": "Rabatt",
+        "tax": "Steuer",
+        "total": "Gesamt",
+        "acceptButton": "Angebot annehmen",
+        "acceptedTitle": "Angebot angenommen",
+        "acceptedMessage": "Auftrag erstellt: {orderNumber}",
+        "acceptFailed": "Angebot konnte nicht angenommen werden."
+      },
+      "accept": {
+        "notFound": "Angebot nicht gefunden.",
+        "expired": "Dieses Angebot ist abgelaufen.",
+        "invalidStatus": "Dieses Angebot kann in seinem aktuellen Status nicht angenommen werden.",
+        "failed": "Angebot konnte nicht angenommen werden.",
+        "adminSubject": "Angebot {quoteNumber} angenommen → Auftrag {orderNumber}",
+        "adminEmail": {
+          "preview": "Angebot {quoteNumber} angenommen",
+          "heading": "Angebot {quoteNumber} angenommen",
+          "body": "Der Kunde hat das Angebot {quoteNumber} angenommen. Eine Bestellung wurde erstellt: {orderNumber}.",
+          "cta": "Bestellung ansehen",
+          "footer": "Open Mercato"
+        }
+      },
+      "list": {
+        "title": "Angebote"
+      },
+      "detail": {
+        "title": "Angebotsdetails"
+      },
+      "form": {
+        "general": "Allgemein",
+        "lines": "Positionen",
+        "notes": "Notizen"
+      }
+    },
     "nav": {
       "group": "Vertrieb",
       "channels": "Vertriebskanäle"
@@ -223,19 +294,6 @@
         "shipments": "Sendungen",
         "invoices": "Rechnungen",
         "payments": "Zahlungen",
-        "notes": "Notizen"
-      }
-    },
-    "quotes": {
-      "list": {
-        "title": "Angebote"
-      },
-      "detail": {
-        "title": "Angebotsdetails"
-      },
-      "form": {
-        "general": "Allgemein",
-        "lines": "Positionen",
         "notes": "Notizen"
       }
     },
@@ -1445,5 +1503,27 @@
   "sales.orders.status_change.note": "Status geändert von {from} auf {to} durch {actor}.",
   "sales.orders.status_change.actor_unknown": "Unbekannter Benutzer",
   "sales.orders.status_change.actor_api_key": "API-Schlüssel {name}",
-  "sales.orders.status_change.empty": "nicht gesetzt"
+  "sales.orders.status_change.empty": "nicht gesetzt",
+  "sales.search.badge.channel": "Kanal",
+  "sales.search.badge.order": "Bestellung",
+  "sales.search.badge.quote": "Angebot",
+  "sales.search.badge.orderLine": "Bestellposition",
+  "sales.search.badge.quoteLine": "Angebotsposition",
+  "sales.search.badge.orderAdjustment": "Bestellanpassung",
+  "sales.search.badge.quoteAdjustment": "Angebotsanpassung",
+  "sales.search.badge.shipment": "Sendung",
+  "sales.search.badge.shipmentItem": "Sendungsposition",
+  "sales.search.badge.invoice": "Rechnung",
+  "sales.search.badge.invoiceLine": "Rechnungsposition",
+  "sales.search.badge.creditMemo": "Gutschrift",
+  "sales.search.badge.creditMemoLine": "Gutschriftsposition",
+  "sales.search.badge.payment": "Zahlung",
+  "sales.search.badge.paymentAllocation": "Zahlungszuordnung",
+  "sales.search.badge.note": "Notiz",
+  "sales.search.badge.address": "Adresse",
+  "sales.search.badge.shippingMethod": "Versandart",
+  "sales.search.badge.deliveryWindow": "Lieferfenster",
+  "sales.search.badge.paymentMethod": "Zahlungsart",
+  "sales.search.badge.taxRate": "Steuersatz",
+  "sales.search.badge.documentTag": "Dokumenten-Tag"
 }

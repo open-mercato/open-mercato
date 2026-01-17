@@ -1,7 +1,7 @@
 import { asFunction } from 'awilix'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { EventBus } from '@open-mercato/events'
-import type { AppContainer } from '@/lib/di/container'
+import type { AppContainer } from '@open-mercato/shared/lib/di/container'
 import { DefaultSalesCalculationService } from './services/salesCalculationService'
 import { DefaultTaxCalculationService } from './services/taxCalculationService'
 import { SalesDocumentNumberGenerator } from './services/salesDocumentNumberGenerator'

@@ -41,7 +41,7 @@ jest.mock('@open-mercato/shared/lib/encryption/tenantDataEncryptionService', () 
   })),
 }))
 
-jest.mock('@/lib/di/container', () => ({
+jest.mock('@open-mercato/shared/lib/di/container', () => ({
   createRequestContainer: async () => ({
     resolve: () => ({
       getConnection: () => ({ execute }),

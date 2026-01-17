@@ -2,7 +2,7 @@
 
 import * as React from 'react'
 import type { ScheduleItem, ScheduleRange, ScheduleSlot } from './types'
-import { cn } from '@/lib/utils'
+import { cn } from '@open-mercato/shared/lib/utils'
 import { Badge } from '../../primitives/badge'
 import { Button } from '../../primitives/button'
 import { useT } from '@open-mercato/shared/lib/i18n/context'

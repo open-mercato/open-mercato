@@ -11,8 +11,8 @@ import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import type { FilterDef, FilterOption, FilterValues } from '@open-mercato/ui/backend/FilterOverlay'
 import type { TagOption } from '@open-mercato/ui/backend/detail'
-import { useOrganizationScopeVersion } from '@/lib/frontend/useOrganizationScope'
-import { useT } from '@/lib/i18n/context'
+import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
+import { useT } from '@open-mercato/shared/lib/i18n/context'
 
 const PAGE_SIZE = 20
 const isTestEnv = typeof process !== 'undefined' && process.env.NODE_ENV === 'test'

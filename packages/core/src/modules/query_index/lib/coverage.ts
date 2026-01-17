@@ -250,7 +250,8 @@ export async function refreshCoverageSnapshot(
 
   // Count vector entries directly from database
   let vectorCount: number | undefined
-  if (typeof tenantId === 'string' && tenantId.length > 0) {
+  const hasVectorTable = await tableHasColumn(knex, 'vector_search', 'entity_id')
+  if (hasVectorTable && typeof tenantId === 'string' && tenantId.length > 0) {
     try {
       let vectorQuery = knex('vector_search')
         .count({ count: 1 })

@@ -20,13 +20,14 @@ import { Button } from '@open-mercato/ui/primitives/button'
 import { Badge } from '@open-mercato/ui/primitives/badge'
 import { Spinner } from '@open-mercato/ui/primitives/spinner'
 import { Input } from '@open-mercato/ui/primitives/input'
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@open-mercato/ui/primitives/dialog'
 import { Building2, CreditCard, Mail, Pencil, Plus, Store, Trash2, Truck, UserRound, Wand2, X } from 'lucide-react'
 import Link from 'next/link'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { apiCall, apiCallOrThrow, readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 import { collectCustomFieldValues } from '@open-mercato/ui/backend/utils/customFieldValues'
 import { mapCrudServerErrorToFormErrors } from '@open-mercato/ui/backend/utils/serverErrors'
-import { useT } from '@/lib/i18n/context'
+import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { cn } from '@open-mercato/shared/lib/utils'
 import { DocumentCustomerCard } from '@open-mercato/core/modules/sales/components/DocumentCustomerCard'
 import { SalesDocumentAddressesSection } from '@open-mercato/core/modules/sales/components/documents/AddressesSection'
@@ -36,13 +37,13 @@ import { SalesDocumentAdjustmentsSection } from '@open-mercato/core/modules/sale
 import type { AdjustmentRowData } from '@open-mercato/core/modules/sales/components/documents/AdjustmentDialog'
 import { SalesShipmentsSection } from '@open-mercato/core/modules/sales/components/documents/ShipmentsSection'
 import { DocumentTotals } from '@open-mercato/core/modules/sales/components/documents/DocumentTotals'
-import { E } from '@open-mercato/core/generated/entities.ids.generated'
+import { E } from '#generated/entities.ids.generated'
 import type { DictionarySelectLabels } from '@open-mercato/core/modules/dictionaries/components/DictionaryEntrySelect'
 import { useCurrencyDictionary } from '@open-mercato/core/modules/customers/components/detail/hooks/useCurrencyDictionary'
 import type { SalesAdjustmentKind } from '@open-mercato/core/modules/sales/data/entities'
 import { DictionaryValue, createDictionaryMap, renderDictionaryColor, renderDictionaryIcon, type DictionaryMap } from '@open-mercato/core/modules/dictionaries/components/dictionaryAppearance'
 import { DictionaryEntrySelect } from '@open-mercato/core/modules/dictionaries/components/DictionaryEntrySelect'
-import { useOrganizationScopeVersion } from '@/lib/frontend/useOrganizationScope'
+import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
 import { useEmailDuplicateCheck } from '@open-mercato/core/modules/customers/backend/hooks/useEmailDuplicateCheck'
 import { NotesSection, mapCommentSummary, type NotesDataAdapter } from '@open-mercato/ui/backend/detail'
 import {
@@ -1852,6 +1853,9 @@ export default function SalesDocumentDetailPage({
   const [generating, setGenerating] = React.useState(false)
   const [converting, setConverting] = React.useState(false)
   const [deleting, setDeleting] = React.useState(false)
+  const [sending, setSending] = React.useState(false)
+  const [sendOpen, setSendOpen] = React.useState(false)
+  const [validForDays, setValidForDays] = React.useState(14)
   const [numberEditing, setNumberEditing] = React.useState(false)
   const [currencyError, setCurrencyError] = React.useState<string | null>(null)
   const [hasItems, setHasItems] = React.useState(false)
@@ -2609,6 +2613,12 @@ export default function SalesDocumentDetailPage({
       ),
     [statusOptions]
   )
+  const statusOptionsForEditor = React.useMemo(() => {
+    if (kind === 'order') {
+      return statusOptions.filter((option) => option.value !== 'sent')
+    }
+    return statusOptions
+  }, [kind, statusOptions])
   const number = record?.orderNumber ?? record?.quoteNumber ?? record?.id
   const customerSnapshot = (record?.customerSnapshot ?? null) as CustomerSnapshot | null
   const billingSnapshot = (record?.billingAddressSnapshot ?? null) as AddressSnapshot | null
@@ -3436,6 +3446,28 @@ export default function SalesDocumentDetailPage({
       setConverting(false)
     }
   }, [kind, record, router, t])
+
+  const handleSendQuote = React.useCallback(async () => {
+    if (!record || kind !== 'quote') return
+    setSending(true)
+    try {
+      await apiCallOrThrow('/api/sales/quotes/send', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ quoteId: record.id, validForDays }),
+      })
+      flash(t('sales.quotes.send.success', 'Quote sent.'), 'success')
+      setSendOpen(false)
+      // Reload the document to reflect status changes.
+      const updated = await fetchDocumentByKind(record.id, 'quote')
+      if (updated) setRecord(updated)
+    } catch (err) {
+      console.error('sales.quotes.send', err)
+      flash(t('sales.quotes.send.failed', 'Failed to send quote.'), 'error')
+    } finally {
+      setSending(false)
+    }
+  }, [fetchDocumentByKind, flash, kind, record, t, validForDays])
 
   const handleDelete = React.useCallback(async () => {
     if (!record) return
@@ -4274,6 +4306,17 @@ export default function SalesDocumentDetailPage({
                 {t('sales.documents.detail.convertToOrder', 'Convert to order')}
               </Button>
             ) : null}
+            {kind === 'quote' ? (
+              <Button
+                type="button"
+                size="sm"
+                onClick={() => setSendOpen(true)}
+                disabled={!contactEmail || sending}
+              >
+                {sending ? <Spinner className="mr-2 h-4 w-4 animate-spin" /> : null}
+                {t('sales.quotes.send.action', 'Send to customer')}
+              </Button>
+            ) : null}
             <Button
               type="button"
               variant="outline"
@@ -4374,7 +4417,7 @@ export default function SalesDocumentDetailPage({
                   label={card.title}
                   value={card.value}
                   emptyLabel={card.emptyLabel ?? t('sales.documents.detail.empty', 'Not set')}
-                  options={statusOptions}
+                  options={statusOptionsForEditor}
                   onSave={handleUpdateStatus}
                   onLoadOptions={loadStatuses}
                   labels={statusLabels}
@@ -4531,6 +4574,49 @@ export default function SalesDocumentDetailPage({
           />
         </div>
       </PageBody>
+
+      <Dialog open={sendOpen} onOpenChange={setSendOpen}>
+        <DialogContent
+          onKeyDown={(event) => {
+            if (event.key === 'Escape') {
+              event.preventDefault()
+              setSendOpen(false)
+              return
+            }
+            if (event.key === 'Enter' && (event.metaKey || event.ctrlKey)) {
+              event.preventDefault()
+              if (!sending) void handleSendQuote()
+            }
+          }}
+        >
+          <DialogHeader>
+            <DialogTitle>{t('sales.quotes.send.title', 'Send quote to customer')}</DialogTitle>
+            <DialogDescription>
+              {t('sales.quotes.send.description', 'Email will be sent to:')} {contactEmail ?? t('sales.quotes.send.noEmail', 'No email')}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-2">
+            <label className="text-sm font-medium">{t('sales.quotes.send.validForDays', 'Valid for (days)')}</label>
+            <Input
+              type="number"
+              min={1}
+              max={365}
+              value={validForDays}
+              onChange={(e) => setValidForDays(Number(e.target.value || 14))}
+              disabled={sending}
+            />
+          </div>
+          <DialogFooter>
+            <Button variant="secondary" onClick={() => setSendOpen(false)} disabled={sending}>
+              {t('sales.quotes.send.cancel', 'Cancel')}
+            </Button>
+            <Button onClick={() => void handleSendQuote()} disabled={sending || !contactEmail}>
+              {sending ? <Spinner className="mr-2 h-4 w-4 animate-spin" /> : null}
+              {t('sales.quotes.send.submit', 'Send quote')}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </Page>
   )
 }

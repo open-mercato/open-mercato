@@ -7,8 +7,8 @@ import { CrudForm, type CrudFormGroup, type CrudFieldOption } from '@open-mercat
 import { createCrud } from '@open-mercato/ui/backend/utils/crud'
 import { createCrudFormError } from '@open-mercato/ui/backend/utils/serverErrors'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
-import { useT } from '@/lib/i18n/context'
-import { useOrganizationScopeDetail } from '@/lib/frontend/useOrganizationScope'
+import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { useOrganizationScopeDetail } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 
 type CurrencyOption = {

@@ -9,6 +9,77 @@
       "title": "Sales Management",
       "description": "Quotes, orders, fulfillment, invoicing, and payments connected to the product catalog."
     },
+    "quotes": {
+      "send": {
+        "action": "Send to customer",
+        "title": "Send quote to customer",
+        "description": "Email will be sent to:",
+        "noEmail": "No email",
+        "validForDays": "Valid for (days)",
+        "cancel": "Cancel",
+        "submit": "Send quote",
+        "success": "Quote sent.",
+        "failed": "Failed to send quote.",
+        "canceled": "Canceled quotes cannot be sent.",
+        "missingEmail": "Customer email is required to send a quote."
+      },
+      "email": {
+        "subject": "Quote {quoteNumber}",
+        "preview": "Quote {quoteNumber} is ready for review",
+        "heading": "Quote {quoteNumber}",
+        "total": "Total: {amount} {currency}",
+        "validUntil": "Valid until: {date}",
+        "cta": "View quote",
+        "footer": "Open Mercato"
+      },
+      "public": {
+        "pageTitle": "Quote",
+        "notFound": "Quote not found.",
+        "failed": "Failed to load quote.",
+        "loading": "Loading quote…",
+        "expired": "This quote has expired.",
+        "expiredMessage": "Please contact the seller to request an updated quote.",
+        "validUntil": "Valid until {date}",
+        "noValidityDate": "No validity date",
+        "items": "Items",
+        "item": "Item",
+        "qty": "Qty: {quantity}",
+        "totals": "Totals",
+        "subtotalGross": "Subtotal (gross)",
+        "discount": "Discount",
+        "tax": "Tax",
+        "total": "Total",
+        "acceptButton": "Accept quote",
+        "acceptedTitle": "Quote accepted",
+        "acceptedMessage": "Order created: {orderNumber}",
+        "acceptFailed": "Failed to accept quote."
+      },
+      "accept": {
+        "notFound": "Quote not found.",
+        "expired": "This quote has expired.",
+        "invalidStatus": "This quote cannot be accepted in its current status.",
+        "failed": "Failed to accept quote.",
+        "adminSubject": "Quote {quoteNumber} accepted → Order {orderNumber}",
+        "adminEmail": {
+          "preview": "Quote {quoteNumber} accepted",
+          "heading": "Quote {quoteNumber} accepted",
+          "body": "The customer accepted quote {quoteNumber}. An order has been created: {orderNumber}.",
+          "cta": "View order",
+          "footer": "Open Mercato"
+        }
+      },
+      "list": {
+        "title": "Quotes"
+      },
+      "detail": {
+        "title": "Quote details"
+      },
+      "form": {
+        "general": "General",
+        "lines": "Line Items",
+        "notes": "Notes"
+      }
+    },
     "nav": {
       "group": "Sales",
       "channels": "Channels"
@@ -223,19 +294,6 @@
         "shipments": "Shipments",
         "invoices": "Invoices",
         "payments": "Payments",
-        "notes": "Notes"
-      }
-    },
-    "quotes": {
-      "list": {
-        "title": "Quotes"
-      },
-      "detail": {
-        "title": "Quote details"
-      },
-      "form": {
-        "general": "General",
-        "lines": "Line Items",
         "notes": "Notes"
       }
     },
@@ -1427,5 +1485,27 @@
   "sales.orders.status_change.note": "Status changed from {from} to {to} by {actor}.",
   "sales.orders.status_change.actor_unknown": "Unknown user",
   "sales.orders.status_change.actor_api_key": "API key {name}",
-  "sales.orders.status_change.empty": "unset"
+  "sales.orders.status_change.empty": "unset",
+  "sales.search.badge.channel": "Channel",
+  "sales.search.badge.order": "Order",
+  "sales.search.badge.quote": "Quote",
+  "sales.search.badge.orderLine": "Order line",
+  "sales.search.badge.quoteLine": "Quote line",
+  "sales.search.badge.orderAdjustment": "Order adjustment",
+  "sales.search.badge.quoteAdjustment": "Quote adjustment",
+  "sales.search.badge.shipment": "Shipment",
+  "sales.search.badge.shipmentItem": "Shipment item",
+  "sales.search.badge.invoice": "Invoice",
+  "sales.search.badge.invoiceLine": "Invoice line",
+  "sales.search.badge.creditMemo": "Credit memo",
+  "sales.search.badge.creditMemoLine": "Credit memo line",
+  "sales.search.badge.payment": "Payment",
+  "sales.search.badge.paymentAllocation": "Payment allocation",
+  "sales.search.badge.note": "Note",
+  "sales.search.badge.address": "Address",
+  "sales.search.badge.shippingMethod": "Shipping method",
+  "sales.search.badge.deliveryWindow": "Delivery window",
+  "sales.search.badge.paymentMethod": "Payment method",
+  "sales.search.badge.taxRate": "Tax rate",
+  "sales.search.badge.documentTag": "Document tag"
 }

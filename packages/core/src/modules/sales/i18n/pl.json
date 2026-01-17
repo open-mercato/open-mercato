@@ -9,6 +9,77 @@
       "title": "Sprzedaż",
       "description": "Oferty, zamówienia, realizacja, fakturowanie i płatności powiązane z katalogiem produktów."
     },
+    "quotes": {
+      "send": {
+        "action": "Wyślij do klienta",
+        "title": "Wyślij ofertę do klienta",
+        "description": "E-mail zostanie wysłany na:",
+        "noEmail": "Brak e-maila",
+        "validForDays": "Ważne przez (dni)",
+        "cancel": "Anuluj",
+        "submit": "Wyślij ofertę",
+        "success": "Oferta wysłana.",
+        "failed": "Nie udało się wysłać oferty.",
+        "canceled": "Anulowanych ofert nie można wysłać.",
+        "missingEmail": "Do wysłania oferty wymagany jest e-mail klienta."
+      },
+      "email": {
+        "subject": "Oferta {quoteNumber}",
+        "preview": "Oferta {quoteNumber} jest gotowa do przeglądu",
+        "heading": "Oferta {quoteNumber}",
+        "total": "Suma: {amount} {currency}",
+        "validUntil": "Ważna do: {date}",
+        "cta": "Zobacz ofertę",
+        "footer": "Open Mercato"
+      },
+      "public": {
+        "pageTitle": "Oferta",
+        "notFound": "Nie znaleziono oferty.",
+        "failed": "Nie udało się wczytać oferty.",
+        "loading": "Wczytywanie oferty…",
+        "expired": "Ta oferta wygasła.",
+        "expiredMessage": "Skontaktuj się ze sprzedawcą, aby otrzymać zaktualizowaną ofertę.",
+        "validUntil": "Ważna do {date}",
+        "noValidityDate": "Brak daty ważności",
+        "items": "Pozycje",
+        "item": "Pozycja",
+        "qty": "Ilość: {quantity}",
+        "totals": "Sumy",
+        "subtotalGross": "Suma częściowa (brutto)",
+        "discount": "Rabat",
+        "tax": "Podatek",
+        "total": "Suma",
+        "acceptButton": "Zaakceptuj ofertę",
+        "acceptedTitle": "Oferta zaakceptowana",
+        "acceptedMessage": "Utworzono zamówienie: {orderNumber}",
+        "acceptFailed": "Nie udało się zaakceptować oferty."
+      },
+      "accept": {
+        "notFound": "Nie znaleziono oferty.",
+        "expired": "Ta oferta wygasła.",
+        "invalidStatus": "Nie można zaakceptować oferty w jej obecnym statusie.",
+        "failed": "Nie udało się zaakceptować oferty.",
+        "adminSubject": "Oferta {quoteNumber} zaakceptowana → Zamówienie {orderNumber}",
+        "adminEmail": {
+          "preview": "Oferta {quoteNumber} zaakceptowana",
+          "heading": "Oferta {quoteNumber} zaakceptowana",
+          "body": "Klient zaakceptował ofertę {quoteNumber}. Utworzono zamówienie: {orderNumber}.",
+          "cta": "Zobacz zamówienie",
+          "footer": "Open Mercato"
+        }
+      },
+      "list": {
+        "title": "Oferty"
+      },
+      "detail": {
+        "title": "Szczegóły oferty"
+      },
+      "form": {
+        "general": "Ogólne",
+        "lines": "Pozycje",
+        "notes": "Notatki"
+      }
+    },
     "nav": {
       "group": "Sprzedaż",
       "channels": "Kanały sprzedaży"
@@ -223,19 +294,6 @@
         "shipments": "Wysyłki",
         "invoices": "Faktury",
         "payments": "Płatności",
-        "notes": "Notatki"
-      }
-    },
-    "quotes": {
-      "list": {
-        "title": "Oferty"
-      },
-      "detail": {
-        "title": "Szczegóły oferty"
-      },
-      "form": {
-        "general": "Ogólne",
-        "lines": "Pozycje",
         "notes": "Notatki"
       }
     },
@@ -1443,5 +1501,27 @@
   "sales.orders.status_change.note": "Status zmieniony z {from} na {to} przez {actor}.",
   "sales.orders.status_change.actor_unknown": "Nieznany użytkownik",
   "sales.orders.status_change.actor_api_key": "Klucz API {name}",
-  "sales.orders.status_change.empty": "brak"
+  "sales.orders.status_change.empty": "brak",
+  "sales.search.badge.channel": "Kanał",
+  "sales.search.badge.order": "Zamówienie",
+  "sales.search.badge.quote": "Oferta",
+  "sales.search.badge.orderLine": "Pozycja zamówienia",
+  "sales.search.badge.quoteLine": "Pozycja oferty",
+  "sales.search.badge.orderAdjustment": "Korekta zamówienia",
+  "sales.search.badge.quoteAdjustment": "Korekta oferty",
+  "sales.search.badge.shipment": "Wysyłka",
+  "sales.search.badge.shipmentItem": "Pozycja wysyłki",
+  "sales.search.badge.invoice": "Faktura",
+  "sales.search.badge.invoiceLine": "Pozycja faktury",
+  "sales.search.badge.creditMemo": "Nota kredytowa",
+  "sales.search.badge.creditMemoLine": "Pozycja noty kredytowej",
+  "sales.search.badge.payment": "Płatność",
+  "sales.search.badge.paymentAllocation": "Alokacja płatności",
+  "sales.search.badge.note": "Notatka",
+  "sales.search.badge.address": "Adres",
+  "sales.search.badge.shippingMethod": "Metoda wysyłki",
+  "sales.search.badge.deliveryWindow": "Okno dostawy",
+  "sales.search.badge.paymentMethod": "Metoda płatności",
+  "sales.search.badge.taxRate": "Stawka podatku",
+  "sales.search.badge.documentTag": "Tag dokumentu"
 }

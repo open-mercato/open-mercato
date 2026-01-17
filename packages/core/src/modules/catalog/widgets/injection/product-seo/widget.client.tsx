@@ -2,7 +2,7 @@
 import * as React from 'react'
 import type { InjectionWidgetComponentProps } from '@open-mercato/shared/modules/widgets/injection'
 import { subscribeProductSeoValidation } from './state'
-import { useT } from '@/lib/i18n/context'
+import { useT } from '@open-mercato/shared/lib/i18n/context'
 
 type SeoData = {
   title?: string | null
