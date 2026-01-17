@@ -4212,7 +4212,6 @@ const convertQuoteToOrderCommand: CommandHandler<
         await em.nativeDelete(SalesPaymentAllocation, { order: orderId })
         await em.nativeDelete(SalesPayment, { order: orderId })
         await em.nativeDelete(SalesDocumentAddress, { documentId: orderId, documentKind: 'order' })
-        await em.nativeDelete(SalesNote, { contextType: 'order', contextId: orderId })
         await em.nativeDelete(SalesDocumentTagAssignment, { documentId: orderId, documentKind: 'order' })
         await em.nativeDelete(SalesOrderAdjustment, { order: orderId })
         await em.nativeDelete(SalesOrderLine, { order: orderId })
@@ -4222,6 +4221,10 @@ const convertQuoteToOrderCommand: CommandHandler<
       if (orderLineIds.length) {
         await em.nativeDelete(CustomFieldValue, { entityId: E.sales.sales_order_line, recordId: { $in: orderLineIds } as any })
       }
+    }
+    const noteIds = quoteSnapshot.notes.map((note) => note.id)
+    if (noteIds.length) {
+      await em.nativeDelete(SalesNote, { id: { $in: noteIds } })
     }
     await restoreQuoteGraph(em, quoteSnapshot)
     await em.flush()
