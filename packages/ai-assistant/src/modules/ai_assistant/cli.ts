@@ -164,6 +164,15 @@ const mcpServeHttp: ModuleCli = {
   },
 }
 
+const mcpDev: ModuleCli = {
+  command: 'mcp:dev',
+  async run() {
+    await ensureBootstrap()
+    const { runMcpDevServer } = await import('./lib/mcp-dev-server')
+    await runMcpDevServer()
+  },
+}
+
 const listTools: ModuleCli = {
   command: 'mcp:list-tools',
   async run(rest) {
@@ -220,4 +229,4 @@ const listTools: ModuleCli = {
   },
 }
 
-export default [mcpServe, mcpServeHttp, listTools]
+export default [mcpServe, mcpServeHttp, mcpDev, listTools]
