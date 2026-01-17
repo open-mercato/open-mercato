@@ -97,6 +97,7 @@ export interface CommandPaletteState {
 export interface CommandPaletteContextValue {
   state: CommandPaletteState
   isThinking: boolean
+  isSessionAuthorized: boolean
   pageContext: PageContext | null
   selectedEntities: SelectedEntity[]
   tools: ToolInfo[]
@@ -215,6 +216,7 @@ export type DebugEventType =
   | 'metadata'
   | 'debug'
   | 'question'
+  | 'session-authorized'
 
 export interface DebugEvent {
   id: string
@@ -255,3 +257,4 @@ export type ChatSSEEvent =
   | { type: 'debug'; partType: string; data: unknown }
   | { type: 'done'; sessionId?: string }
   | { type: 'error'; error: string }
+  | { type: 'session-authorized'; sessionToken?: string }

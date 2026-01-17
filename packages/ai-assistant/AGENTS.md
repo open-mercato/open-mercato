@@ -506,6 +506,28 @@ type DebugEventType =
 
 ## Changelog
 
+### 2026-01-17 - Session Persistence Fix
+
+**Bug fixed**: Chat context lost between messages (AI asked "Who is 'his'?" instead of remembering Taylor).
+
+**Root causes**:
+1. **Promise.race bug**: `handleOpenCodeMessageStreaming` used `Promise.race([eventPromise, sendPromise])` which resolved when HTTP completed, before SSE could emit `done` event with sessionId.
+2. **React stale closure**: `handleSubmit` callback captured initial `null` sessionId value.
+
+**Fixes applied**:
+- `opencode-handlers.ts`: Removed Promise.race, await only SSE eventPromise
+- `useCommandPalette.ts`: Added `opencodeSessionIdRef` (ref) alongside state to avoid stale closures
+
+**Files modified**:
+- `src/modules/ai_assistant/lib/opencode-handlers.ts` - Fixed Promise.race completion bug
+- `src/frontend/hooks/useCommandPalette.ts` - Added ref pattern for sessionId
+
+**Diagnostic logging added** (can be removed after verification):
+- `[handleSubmit] DIAGNOSTIC` - Session check before routing
+- `[sendAgenticMessage] DIAGNOSTIC` - Request payload before fetch
+- `[startAgenticChat] DIAGNOSTIC` - Done event handling
+- `[AI Chat] DIAGNOSTIC` - Backend request received
+
 ### 2026-01 - OpenCode Integration
 
 **Major change**: Replaced Vercel AI SDK with OpenCode as the AI backend.
@@ -554,6 +576,143 @@ See git history for earlier changes including:
 
 ---
 
+## Session Management Deep Dive
+
+### Architecture Overview
+
+The session flow spans multiple layers:
+
+```
+Frontend (useCommandPalette.ts)
+    ↓ sessionId in request body
+Backend (route.ts)
+    ↓ sessionId passed to handler
+OpenCode Handler (opencode-handlers.ts)
+    ↓ client.getSession(sessionId) or createSession()
+OpenCode Client (opencode-client.ts)
+    ↓ GET /session/{id} or POST /session
+OpenCode Server (Docker :4096)
+    → Maintains conversation context
+```
+
+### Session ID Flow
+
+1. **First message**: No sessionId → `startAgenticChat()` creates new session
+2. **OpenCode responds**: SSE stream emits `{ type: 'done', sessionId: 'ses_xxx' }`
+3. **Frontend stores**: `opencodeSessionIdRef.current = sessionId`
+4. **Subsequent messages**: `sendAgenticMessage()` includes sessionId in request body
+5. **Backend receives**: Uses existing session instead of creating new one
+
+### Critical: React Refs vs State for Session ID
+
+**Problem**: Using `useState` alone for sessionId causes stale closure issues in callbacks.
+
+```typescript
+// BAD: Stale closure - callback captures initial null value
+const [sessionId, setSessionId] = useState<string | null>(null)
+const handleSubmit = useCallback(async (query) => {
+  if (sessionId) {  // Always null in closure!
+    await continueSession(query)
+  }
+}, [sessionId])  // Even with dependency, timing issues persist
+```
+
+**Solution**: Use both state (for React reactivity) AND ref (for callbacks):
+
+```typescript
+// GOOD: Ref always has current value
+const [opencodeSessionId, setOpencodeSessionId] = useState<string | null>(null)
+const opencodeSessionIdRef = useRef<string | null>(null)
+
+const updateOpencodeSessionId = useCallback((id: string | null) => {
+  opencodeSessionIdRef.current = id  // Update ref first
+  setOpencodeSessionId(id)           // Then state for React
+}, [])
+
+const handleSubmit = useCallback(async (query) => {
+  if (opencodeSessionIdRef.current) {  // Ref has latest value!
+    await continueSession(query)
+  }
+}, [])  // No dependency needed - ref is always current
+```
+
+### SSE Stream Completion Bug (Fixed 2026-01)
+
+**Problem**: `done` event with sessionId was never emitted to frontend.
+
+**Root Cause**: In `opencode-handlers.ts`, the code used `Promise.race()`:
+
+```typescript
+// BUG: sendPromise resolves before SSE emits session.status: idle
+await Promise.race([eventPromise, sendPromise.catch(err => Promise.reject(err))])
+```
+
+When `sendMessage()` HTTP call completed, `Promise.race` resolved immediately, BEFORE the SSE handler could receive the `session.status: idle` event and emit `done`.
+
+**Fix**: Only wait for SSE completion, catch send errors separately:
+
+```typescript
+// FIXED: SSE determines completion, not HTTP response
+client.sendMessage(session.id, message, { model }).catch((err) => {
+  console.error('[OpenCode] Send error (SSE should handle):', err)
+})
+await eventPromise  // Only SSE determines completion
+```
+
+### OpenCode SSE Event Flow
+
+OpenCode emits events via Server-Sent Events. The completion flow:
+
+1. `session.status: busy` - Processing started
+2. `message.part.updated` - Text chunks, tool calls, tool results
+3. `message.updated` - Message completed (with tokens, timing)
+4. `session.status: idle` - Processing complete → emit `done` event
+
+**Key insight**: The `session.status: idle` event triggers `done`, not HTTP completion.
+
+### Debugging Session Issues
+
+Add diagnostic logging to trace session flow:
+
+```typescript
+// Frontend: useCommandPalette.ts
+console.log('[handleSubmit] DIAGNOSTIC - Session check:', {
+  refValue: opencodeSessionIdRef.current,
+  willContinue: !!opencodeSessionIdRef.current,
+})
+
+// Backend: route.ts
+console.log('[AI Chat] DIAGNOSTIC - Request received:', {
+  hasSessionId: !!sessionId,
+  sessionId: sessionId ? sessionId.substring(0, 20) + '...' : null,
+})
+```
+
+**What to check**:
+1. First message: `refValue: null, willContinue: false` ✓
+2. After first response: Look for `Done event` with sessionId
+3. Second message: `refValue: 'ses_xxx', willContinue: true` ✓
+4. Backend: `hasSessionId: true` ✓
+
+### Common Session Problems
+
+| Symptom | Likely Cause | Fix |
+|---------|--------------|-----|
+| Second message loses context | sessionId not stored | Check `done` event has sessionId |
+| `refValue: null` on second message | Stale closure | Use ref pattern (see above) |
+| Backend `hasSessionId: false` | Request serialization issue | Check JSON.stringify includes sessionId |
+| `done` event never emitted | Promise.race bug | See SSE completion fix above |
+| Multiple `session-authorized` events | Creating new session each time | sessionId not passed to backend |
+
+### Testing Session Persistence
+
+1. Open browser console (F12)
+2. Open AI Assistant (Cmd+K)
+3. Send: "find customer Taylor"
+4. Check console for `Done event` with sessionId
+5. Send: "find his related companies"
+6. Check: `willContinue: true` and AI knows about Taylor
+
 ## Troubleshooting
 
 | Symptom | Likely Cause | Fix |
@@ -563,6 +722,7 @@ See git history for earlier changes including:
 | Empty response | OpenCode not connected to MCP | Check `curl http://localhost:4096/mcp` |
 | "Unauthorized" error | Missing/invalid API key | Check x-api-key in opencode.json |
 | Tools not found | Endpoint not in OpenAPI | Regenerate OpenAPI spec |
+| Context lost between messages | Session ID not persisted | See "Session Management Deep Dive" above |
 
 ## Future Development
 

@@ -130,8 +130,11 @@ export function useCommandPalette(options: UseCommandPaletteOptions) {
   const [showDebug, setShowDebug] = useState(false)
 
   // OpenCode session state for conversation persistence
+  // Use both state (for React reactivity) and ref (to avoid stale closures in callbacks)
   const [opencodeSessionId, setOpencodeSessionId] = useState<string | null>(null)
+  const opencodeSessionIdRef = useRef<string | null>(null)
   const [isThinking, setIsThinking] = useState(false)
+  const [isSessionAuthorized, setIsSessionAuthorized] = useState(false)
 
   // Pending question from OpenCode requiring user confirmation
   const [pendingQuestion, setPendingQuestion] = useState<OpenCodeQuestion | null>(null)
@@ -144,6 +147,13 @@ export function useCommandPalette(options: UseCommandPaletteOptions) {
 
   // AbortController for current streaming request - allows canceling when answering questions
   const currentStreamController = useRef<AbortController | null>(null)
+
+  // Wrapper to update both state and ref for opencodeSessionId
+  // This ensures the ref is always in sync and callbacks get the latest value
+  const updateOpencodeSessionId = useCallback((id: string | null) => {
+    opencodeSessionIdRef.current = id
+    setOpencodeSessionId(id)
+  }, [])
 
   // Helper to add debug events
   const addDebugEvent = useCallback((type: DebugEventType, data: unknown) => {
@@ -321,8 +331,10 @@ export function useCommandPalette(options: UseCommandPaletteOptions) {
     setSelectedTool(null)
     setMessages([])
     setPendingToolCalls([])
+    updateOpencodeSessionId(null)
+    setIsSessionAuthorized(false)
     // Don't reset initialContext - it stays valid for the session
-  }, [])
+  }, [updateOpencodeSessionId])
 
   // Reset to idle state (without closing)
   const reset = useCallback(() => {
@@ -337,7 +349,9 @@ export function useCommandPalette(options: UseCommandPaletteOptions) {
     setSelectedTool(null)
     setMessages([])
     setPendingToolCalls([])
-  }, [])
+    updateOpencodeSessionId(null)
+    setIsSessionAuthorized(false)
+  }, [updateOpencodeSessionId])
 
   const setIsOpen = useCallback(
     (isOpen: boolean) => {
@@ -586,11 +600,19 @@ export function useCommandPalette(options: UseCommandPaletteOptions) {
                   console.error('[startAgenticChat] Error event:', event.error)
                 } else if (event.type === 'done') {
                   console.log('[startAgenticChat] Done event received, sessionId:', event.sessionId)
+                  // DIAGNOSTIC: Log done event details
+                  console.log('[startAgenticChat] DIAGNOSTIC - Done event:', {
+                    eventSessionId: event.sessionId,
+                    currentRefValue: opencodeSessionIdRef.current,
+                    willUpdate: !!event.sessionId,
+                  })
                   setIsThinking(false)
                   setState((prev) => ({ ...prev, isStreaming: false }))
                   // Save session ID for conversation continuity
                   if (event.sessionId) {
-                    setOpencodeSessionId(event.sessionId)
+                    updateOpencodeSessionId(event.sessionId)
+                    // DIAGNOSTIC: Verify ref was updated
+                    console.log('[startAgenticChat] DIAGNOSTIC - After update, ref value:', opencodeSessionIdRef.current)
                   }
                 } else if (event.type === 'question') {
                   // OpenCode is asking for confirmation
@@ -605,7 +627,7 @@ export function useCommandPalette(options: UseCommandPaletteOptions) {
                     setPendingQuestion(question)
                     // Save session ID for conversation continuity
                     if (question.sessionID) {
-                      setOpencodeSessionId(question.sessionID)
+                      updateOpencodeSessionId(question.sessionID)
                     }
                     // Add enriched debug event with question details visible at top level
                     addDebugEvent('question', {
@@ -649,7 +671,7 @@ export function useCommandPalette(options: UseCommandPaletteOptions) {
         setState((prev) => ({ ...prev, isStreaming: false }))
       }
     },
-    [pageContext, initialContext, availableEntities, executeToolApi, addDebugEvent]
+    [pageContext, initialContext, availableEntities, executeToolApi, addDebugEvent, updateOpencodeSessionId]
   )
 
   // Start general chat (no specific tool)
@@ -742,19 +764,6 @@ export function useCommandPalette(options: UseCommandPaletteOptions) {
       }
     },
     [pageContext, initialContext, availableEntities]
-  )
-
-  // Main submit handler - starts agentic chat with all tools available
-  const handleSubmit = useCallback(
-    async (query: string) => {
-      if (!query.trim()) return
-
-      console.log('[handleSubmit] Starting agentic chat with query:', query)
-
-      // Skip routing - go directly to agentic mode where AI has access to all tools
-      await startAgenticChat(query)
-    },
-    [startAgenticChat]
   )
 
   // Execute tool directly
@@ -893,6 +902,13 @@ export function useCommandPalette(options: UseCommandPaletteOptions) {
       setIsThinking(true)
 
       try {
+        // DIAGNOSTIC: Log what we're about to send
+        console.log('[sendAgenticMessage] DIAGNOSTIC - About to send request:', {
+          sessionId: opencodeSessionIdRef.current,
+          messagesLength: messages.length + 1,
+          lastMessageContent: userMessage.content.substring(0, 50) + '...',
+        })
+
         // Send to chat API with OpenCode session for context persistence
         const response = await fetch('/api/ai_assistant/chat', {
           method: 'POST',
@@ -902,7 +918,7 @@ export function useCommandPalette(options: UseCommandPaletteOptions) {
               role: m.role,
               content: m.content,
             })),
-            sessionId: opencodeSessionId,
+            sessionId: opencodeSessionIdRef.current,
           }),
         })
 
@@ -946,6 +962,10 @@ export function useCommandPalette(options: UseCommandPaletteOptions) {
                 if (event.type === 'thinking') {
                   // OpenCode is processing - keep thinking state active
                   setIsThinking(true)
+                } else if (event.type === 'session-authorized') {
+                  // Session has been authorized with ephemeral API key
+                  console.log('[sendAgenticMessage] Session authorized:', event.sessionToken)
+                  setIsSessionAuthorized(true)
                 } else if (event.type === 'text') {
                   // Check if we need to start a new message (e.g., after answering a question)
                   if (shouldStartNewMessage.current) {
@@ -984,7 +1004,7 @@ export function useCommandPalette(options: UseCommandPaletteOptions) {
                   setIsThinking(false)
                   setState((prev) => ({ ...prev, isStreaming: false }))
                   if (event.sessionId) {
-                    setOpencodeSessionId(event.sessionId)
+                    updateOpencodeSessionId(event.sessionId)
                   }
                 } else if (event.type === 'error') {
                   // Handle error event
@@ -1106,7 +1126,33 @@ export function useCommandPalette(options: UseCommandPaletteOptions) {
         setIsThinking(false)
       }
     },
-    [messages, opencodeSessionId, addDebugEvent]
+    [messages, addDebugEvent, updateOpencodeSessionId]
+  )
+
+  // Main submit handler - starts agentic chat or continues existing session
+  const handleSubmit = useCallback(
+    async (query: string) => {
+      if (!query.trim()) return
+
+      // DIAGNOSTIC: Log session check
+      console.log('[handleSubmit] DIAGNOSTIC - Session check:', {
+        refValue: opencodeSessionIdRef.current,
+        willContinue: !!opencodeSessionIdRef.current,
+        query: query.substring(0, 50) + '...',
+      })
+
+      // If we have an existing session, continue the conversation
+      // Use ref to get latest value (avoids stale closure issues)
+      if (opencodeSessionIdRef.current) {
+        console.log('[handleSubmit] Continuing session with query:', query, 'sessionId:', opencodeSessionIdRef.current)
+        await sendAgenticMessage(query)
+      } else {
+        console.log('[handleSubmit] Starting new agentic chat with query:', query)
+        // Start new agentic session where AI has access to all tools
+        await startAgenticChat(query)
+      }
+    },
+    [startAgenticChat, sendAgenticMessage]
   )
 
   // Answer a pending OpenCode question
@@ -1285,6 +1331,7 @@ export function useCommandPalette(options: UseCommandPaletteOptions) {
       isLoading: state.isLoading || toolsLoading,
     },
     isThinking,
+    isSessionAuthorized,
     pageContext,
     selectedEntities,
     tools,

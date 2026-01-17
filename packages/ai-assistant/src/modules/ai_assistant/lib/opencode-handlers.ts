@@ -300,9 +300,14 @@ export async function handleOpenCodeMessageStreaming(
               lastActivityTime = Date.now() // Reset timer after emitting question
             } else if (status.status === 'idle') {
               // Session is explicitly idle and no questions - complete
-              console.log('[OpenCode SSE] Heartbeat: Session idle, no questions - completing')
+              console.log('[OpenCode SSE] Heartbeat: Session idle, no questions - completing. Emitting done event...')
               resolved = true
-              await onEvent({ type: 'done', sessionId: targetSessionId })
+              try {
+                await onEvent({ type: 'done', sessionId: targetSessionId })
+                console.log('[OpenCode SSE] Heartbeat: Done event emitted successfully')
+              } catch (err) {
+                console.error('[OpenCode SSE] Heartbeat: Failed to emit done event:', err)
+              }
               cleanup()
               clearTimeout(timeout)
               unsubscribe?.()
@@ -434,25 +439,47 @@ export async function handleOpenCodeMessageStreaming(
                     // (race condition prevention)
                     console.log('[OpenCode SSE] No questions found, checking again in 2s...')
                     setTimeout(async () => {
-                      if (resolved) return
+                      try {
+                        if (resolved) {
+                          console.log('[OpenCode SSE] 2s timeout: Already resolved, skipping')
+                          return
+                        }
 
-                      // Check one more time for questions
-                      const finalQuestions = await client.getPendingQuestions()
-                      const finalQuestion = finalQuestions.find((q) => q.sessionID === targetSessionId)
+                        // Check one more time for questions
+                        console.log('[OpenCode SSE] 2s timeout: Checking for late questions...')
+                        const finalQuestions = await client.getPendingQuestions()
+                        const finalQuestion = finalQuestions.find((q) => q.sessionID === targetSessionId)
 
-                      if (finalQuestion) {
-                        console.log('[OpenCode SSE] Found late question:', finalQuestion.id)
-                        await onEvent({ type: 'question', question: finalQuestion })
-                        lastActivityTime = Date.now()
-                      } else {
-                        // Truly idle - complete the stream
-                        console.log('[OpenCode SSE] Confirmed idle, completing stream')
-                        resolved = true
-                        await onEvent({ type: 'done', sessionId: targetSessionId })
-                        cleanup()
-                        clearTimeout(timeout)
-                        unsubscribe?.()
-                        resolve()
+                        if (finalQuestion) {
+                          console.log('[OpenCode SSE] Found late question:', finalQuestion.id)
+                          await onEvent({ type: 'question', question: finalQuestion })
+                          lastActivityTime = Date.now()
+                        } else {
+                          // Truly idle - complete the stream
+                          console.log('[OpenCode SSE] Confirmed idle, completing stream. Emitting done event...')
+                          resolved = true
+                          await onEvent({ type: 'done', sessionId: targetSessionId })
+                          console.log('[OpenCode SSE] Done event emitted successfully')
+                          cleanup()
+                          clearTimeout(timeout)
+                          unsubscribe?.()
+                          resolve()
+                        }
+                      } catch (err) {
+                        console.error('[OpenCode SSE] Error in 2s timeout callback:', err)
+                        // Still try to complete even if there was an error
+                        if (!resolved) {
+                          resolved = true
+                          try {
+                            await onEvent({ type: 'done', sessionId: targetSessionId })
+                          } catch (e2) {
+                            console.error('[OpenCode SSE] Failed to emit done event:', e2)
+                          }
+                          cleanup()
+                          clearTimeout(timeout)
+                          unsubscribe?.()
+                          resolve()
+                        }
                       }
                     }, 2000)
                   }
@@ -559,11 +586,15 @@ export async function handleOpenCodeMessageStreaming(
       )
     })
 
-    // Send message (don't await - let SSE handle the response)
-    const sendPromise = client.sendMessage(session.id, message, { model })
+    // Send message (don't await - let SSE handle the response via events)
+    // We only catch errors here - successful completion is signaled via SSE session.status: idle
+    client.sendMessage(session.id, message, { model }).catch((err) => {
+      // Log send errors - SSE should also receive an error event
+      console.error('[OpenCode] Send error (SSE should handle):', err)
+    })
 
-    // Wait for either SSE completion or send error
-    await Promise.race([eventPromise, sendPromise.catch((err) => Promise.reject(err))])
+    // Wait for SSE to indicate completion (session.status: idle or error)
+    await eventPromise
   } catch (error) {
     await onEvent({
       type: 'error',

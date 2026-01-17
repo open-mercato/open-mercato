@@ -43,6 +43,7 @@ export function CommandPalette() {
   const {
     state,
     isThinking,
+    isSessionAuthorized,
     messages,
     pendingToolCalls,
     selectedTool,
@@ -176,6 +177,7 @@ export function CommandPalette() {
             <CommandFooter
               phase={phase}
               connectionStatus={connectionStatus}
+              isSessionAuthorized={isSessionAuthorized}
               showDebug={showDebug}
               onToggleDebug={() => setShowDebug(!showDebug)}
             />

@@ -262,10 +262,10 @@ graph TD
 
 ## Chat Modes
 
-| Mode | Description | Tool Execution | Use Case |
-|------|-------------|----------------|----------|
+| Mode      | Description                | Tool Execution         | Use Case            |
+| --------- | -------------------------- | ---------------------- | ------------------- |
 | `agentic` | AI has access to all tools | Server-side, automatic | Main chat interface |
-| `default` | Simple text streaming | N/A | Fallback mode |
+| `default` | Simple text streaming      | N/A                    | Fallback mode       |
 
 ## Tool Safety Classification
 
@@ -298,26 +298,32 @@ graph LR
 
 ## API Routes
 
-| Route | Method | Description |
-|-------|--------|-------------|
-| `/api/ai/chat` | POST | Streaming chat with AI (supports modes) |
-| `/api/ai/tools` | GET | List all available tools |
-| `/api/ai/tools/execute` | POST | Execute a specific tool |
-| `/api/ai/settings` | GET/POST | AI provider configuration |
-| `/api/ai/mcp-servers` | GET/POST | External MCP server list/create |
-| `/api/ai/mcp-servers/[id]` | GET/PUT/DELETE | Single MCP server operations |
+| Route                      | Method         | Description                             |
+| -------------------------- | -------------- | --------------------------------------- |
+| `/api/ai/chat`             | POST           | Streaming chat with AI (supports modes) |
+| `/api/ai/tools`            | GET            | List all available tools                |
+| `/api/ai/tools/execute`    | POST           | Execute a specific tool                 |
+| `/api/ai/settings`         | GET/POST       | AI provider configuration               |
+| `/api/ai/mcp-servers`      | GET/POST       | External MCP server list/create         |
+| `/api/ai/mcp-servers/[id]` | GET/PUT/DELETE | Single MCP server operations            |
 
 ## Quick Start
 
-### 1. Configure AI Provider
+### 1. Configure Environment Variables
 
-Set one of these environment variables:
+Set the required environment variables:
 
 ```bash
+# AI Provider (at least one required)
 OPENAI_API_KEY=sk-...
 ANTHROPIC_API_KEY=sk-ant-...
 GOOGLE_GENERATIVE_AI_API_KEY=...
+
+# MCP Server Authentication (required for AI chat)
+MCP_SERVER_API_KEY=your-secure-server-key-here
 ```
+
+> **Note:** The `MCP_SERVER_API_KEY` must also be configured in OpenCode's `opencode.jsonc` as the `x-api-key` header. See [Authentication & Authorization](#authentication--authorization) for details.
 
 ### 2. Register a Tool
 
@@ -574,15 +580,15 @@ graph LR
 
 ### Key State Variables
 
-| Variable | Type | Purpose |
-|----------|------|---------|
-| `messages` | `ChatMessage[]` | All chat messages |
-| `isStreaming` | `boolean` | API request in progress |
-| `isThinking` | `boolean` | OpenCode is processing |
-| `pendingQuestion` | `OpenCodeQuestion \| null` | Question awaiting answer |
-| `opencodeSessionId` | `string \| null` | Persists conversation |
-| `shouldStartNewMessage` | `Ref<boolean>` | Create new msg after answer |
-| `answeredQuestionIds` | `Ref<Set<string>>` | Prevent duplicate questions |
+| Variable                | Type                       | Purpose                     |
+| ----------------------- | -------------------------- | --------------------------- |
+| `messages`              | `ChatMessage[]`            | All chat messages           |
+| `isStreaming`           | `boolean`                  | API request in progress     |
+| `isThinking`            | `boolean`                  | OpenCode is processing      |
+| `pendingQuestion`       | `OpenCodeQuestion \| null` | Question awaiting answer    |
+| `opencodeSessionId`     | `string \| null`           | Persists conversation       |
+| `shouldStartNewMessage` | `Ref<boolean>`             | Create new msg after answer |
+| `answeredQuestionIds`   | `Ref<Set<string>>`         | Prevent duplicate questions |
 
 ### Message State Machine
 
@@ -604,17 +610,17 @@ stateDiagram-v2
 
 ### OpenCode API Reference
 
-| Endpoint | Method | Purpose |
-|----------|--------|---------|
-| `/event` | GET | SSE event stream |
-| `/session` | POST | Create new session |
-| `/session/{id}` | GET | Get session |
-| `/session/{id}/message` | POST | Send message |
-| `/question` | GET | List pending questions |
-| `/question/{id}/reply` | POST | Answer question |
-| `/question/{id}/reject` | POST | Reject question |
-| `/global/health` | GET | Health check |
-| `/mcp` | GET | MCP connection status |
+| Endpoint                | Method | Purpose                |
+| ----------------------- | ------ | ---------------------- |
+| `/event`                | GET    | SSE event stream       |
+| `/session`              | POST   | Create new session     |
+| `/session/{id}`         | GET    | Get session            |
+| `/session/{id}/message` | POST   | Send message           |
+| `/question`             | GET    | List pending questions |
+| `/question/{id}/reply`  | POST   | Answer question        |
+| `/question/{id}/reject` | POST   | Reject question        |
+| `/global/health`        | GET    | Health check           |
+| `/mcp`                  | GET    | MCP connection status  |
 
 ### Answer Question Format
 
@@ -656,13 +662,216 @@ Click "Debug" in the chat footer to see all SSE events in real-time.
 
 #### Common Issues
 
-| Issue | Cause | Solution |
-|-------|-------|----------|
-| Loader stays on | `isThinking` not reset | Ensure text events call `setIsThinking(false)` |
-| Text appends to old msg | Same content variable | Check `shouldStartNewMessage` flag |
-| Question not answered | Wrong endpoint/format | Use `/question/{id}/reply` with `{"answers": [["label"]]}` |
-| Duplicate questions | Same question emitted | Track in `answeredQuestionIds` ref |
-| Stream never ends | Heartbeat not triggering | Check session status polling |
+| Issue                   | Cause                    | Solution                                                   |
+| ----------------------- | ------------------------ | ---------------------------------------------------------- |
+| Loader stays on         | `isThinking` not reset   | Ensure text events call `setIsThinking(false)`             |
+| Text appends to old msg | Same content variable    | Check `shouldStartNewMessage` flag                         |
+| Question not answered   | Wrong endpoint/format    | Use `/question/{id}/reply` with `{"answers": [["label"]]}` |
+| Duplicate questions     | Same question emitted    | Track in `answeredQuestionIds` ref                         |
+| Stream never ends       | Heartbeat not triggering | Check session status polling                               |
+
+---
+
+## Authentication & Authorization
+
+The AI Assistant implements a two-tier authentication system for secure tool execution:
+
+### Architecture Overview
+
+```mermaid
+graph TB
+    subgraph "Browser"
+        User[User Session]
+        Chat[Chat Interface]
+    end
+
+    subgraph "Next.js Server"
+        API["/api/ai/chat"]
+        Auth[Auth Context]
+        EphKey[Ephemeral Key Generator]
+    end
+
+    subgraph "OpenCode :4096"
+        OC[OpenCode Agent]
+        MCPClient[MCP Client]
+    end
+
+    subgraph "MCP Server :4099"
+        ServerAuth[Server-Level Auth<br/>MCP_SERVER_API_KEY]
+        UserAuth[User-Level Auth<br/>Session Token]
+        Tools[Tool Registry]
+    end
+
+    User -->|JWT Cookie| API
+    API --> Auth
+    Auth --> EphKey
+    EphKey -->|Create session key| API
+    API -->|Session token in message| OC
+    OC -->|Static x-api-key| MCPClient
+    MCPClient -->|x-api-key header| ServerAuth
+    MCPClient -->|_sessionToken param| UserAuth
+    ServerAuth --> UserAuth
+    UserAuth --> Tools
+```
+
+### Two-Tier Authentication
+
+#### Tier 1: Server-Level Authentication
+
+The MCP server validates that requests come from a trusted source (OpenCode) using a static API key.
+
+```bash
+# .env
+MCP_SERVER_API_KEY=your-secure-server-key-here
+```
+
+**OpenCode Configuration (`opencode.jsonc`):**
+```jsonc
+{
+  "mcp": {
+    "open-mercato": {
+      "url": "http://host.docker.internal:3001/mcp",
+      "headers": {
+        "x-api-key": "your-secure-server-key-here"
+      }
+    }
+  }
+}
+```
+
+#### Tier 2: User-Level Authorization (Session Tokens)
+
+Each chat session creates an ephemeral API key that inherits the user's permissions.
+
+```mermaid
+sequenceDiagram
+    participant U as User
+    participant API as /api/ai/chat
+    participant DB as Database
+    participant OC as OpenCode
+    participant MCP as MCP Server
+
+    Note over U,MCP: New Chat Session
+    U->>API: POST /api/ai/chat (first message)
+    API->>API: Get user's role IDs
+    API->>DB: createSessionApiKey({<br/>  sessionToken,<br/>  userId,<br/>  userRoles,<br/>  ttlMinutes: 30<br/>})
+    DB-->>API: Ephemeral key created
+    API->>OC: Message with [Session Authorization: sess_xxx]
+
+    Note over OC,MCP: Tool Execution
+    OC->>MCP: Tool call with _sessionToken: "sess_xxx"
+    MCP->>MCP: Validate MCP_SERVER_API_KEY (Tier 1)
+    MCP->>DB: findApiKeyBySessionToken()
+    DB-->>MCP: Session key with user's roles
+    MCP->>MCP: Load ACL from session key
+    MCP->>MCP: Check tool permissions
+    MCP-->>OC: Tool result
+```
+
+### Session Token Flow
+
+1. **Session Creation**: When a new chat starts, the API creates an ephemeral key:
+   - Inherits user's role IDs from their JWT
+   - Expires after 30 minutes (TTL)
+   - Linked to user via `sessionUserId`
+
+2. **Token Injection**: Session token is prepended to the user's message:
+   ```
+   [Session Authorization: sess_abc123def456...]
+
+   User's actual message here
+   ```
+
+3. **AI Instruction**: OpenCode is instructed (via AGENTS.md) to include `_sessionToken` in all tool calls
+
+4. **Tool Execution**: MCP server extracts token, resolves permissions, executes with user context
+
+### Environment Variables
+
+| Variable                       | Required | Description                                    |
+| ------------------------------ | -------- | ---------------------------------------------- |
+| `MCP_SERVER_API_KEY`           | Yes      | Static key for server-level MCP authentication |
+| `ANTHROPIC_API_KEY`            | One of   | Anthropic Claude API key                       |
+| `OPENAI_API_KEY`               | these    | OpenAI API key                                 |
+| `GOOGLE_GENERATIVE_AI_API_KEY` | required | Google AI API key                              |
+
+### API Key Entity Extension
+
+The `api_keys` table includes session-specific fields:
+
+```typescript
+// packages/core/src/modules/api_keys/data/entities.ts
+@Entity({ tableName: 'api_keys' })
+export class ApiKey {
+  // ... existing fields ...
+
+  /** Session token for ephemeral session-scoped keys (used by AI chat) */
+  @Property({ name: 'session_token', type: 'text', nullable: true })
+  sessionToken?: string | null
+
+  /** User ID who owns this session (for ephemeral keys) */
+  @Property({ name: 'session_user_id', type: 'uuid', nullable: true })
+  sessionUserId?: string | null
+}
+```
+
+### Session Key Service Functions
+
+```typescript
+// packages/core/src/modules/api_keys/services/apiKeyService.ts
+
+// Generate a unique session token
+generateSessionToken(): string  // Returns: "sess_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+
+// Create an ephemeral API key for a chat session
+createSessionApiKey(em, {
+  sessionToken: string,
+  userId: string,
+  userRoles: string[],      // Role IDs (not names)
+  tenantId?: string | null,
+  organizationId?: string | null,
+  ttlMinutes?: number       // Default: 30
+}): Promise<{ keyId, secret, sessionToken }>
+
+// Look up a session key
+findApiKeyBySessionToken(em, sessionToken): Promise<ApiKey | null>
+
+// Delete a session key
+deleteSessionApiKey(em, sessionToken): Promise<void>
+```
+
+### Security Considerations
+
+1. **Token Expiration**: Session keys auto-expire after 30 minutes
+2. **User Binding**: Keys are bound to specific users via `sessionUserId`
+3. **Role Inheritance**: Ephemeral keys inherit user's role IDs, not role names
+4. **Soft Delete**: Keys are soft-deleted, maintaining audit trail
+5. **No Secret Storage**: API key secrets are never stored; only hashed values
+
+### Debugging Authentication Issues
+
+| Symptom                              | Likely Cause                      | Solution                           |
+| ------------------------------------ | --------------------------------- | ---------------------------------- |
+| "MCP server not properly configured" | `MCP_SERVER_API_KEY` not set      | Add to `.env`                      |
+| "Invalid API key"                    | Wrong key in OpenCode config      | Match `opencode.jsonc` with `.env` |
+| "Session token required"             | AI didn't include `_sessionToken` | Check AGENTS.md instructions       |
+| "Invalid or expired session token"   | Token expired or not found        | Start new chat session             |
+| "Insufficient permissions"           | User lacks required features      | Check user's role assignments      |
+
+### AGENTS.md Instructions
+
+The AI is instructed to include session tokens via `docker/opencode/AGENTS.md`:
+
+```markdown
+## Session Authorization
+
+**CRITICAL:** Every conversation includes a session authorization token in the format:
+[Session Authorization: sess_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx]
+
+**You MUST include this token in EVERY tool call** as the `_sessionToken` parameter.
+```
+
+---
 
 ### Extending the System
 
@@ -696,3 +905,419 @@ if (event.type === 'your-new-event') {
 ## License
 
 Proprietary - Open Mercato
+
+
+# OpenCode API Documentation
+
+API documentation for OpenCode server (v0.0.3)
+
+## Base URL
+
+```
+http://localhost:4096
+```
+
+## Authentication
+
+Set credentials via environment variables:
+- `OPENCODE_SERVER_PASSWORD` - Enable HTTP basic auth
+- `OPENCODE_SERVER_USERNAME` - Username (defaults to "opencode")
+
+## Core Endpoints
+
+### Sessions
+
+**Create Session**
+```http
+POST /session?directory=/path/to/project
+Content-Type: application/json
+
+{
+  "title": "My Session",
+  "parentID": "ses_...",  // optional - for forking
+  "permission": []        // optional - permission rules
+}
+```
+
+**List Sessions**
+```http
+GET /session?directory=/path&limit=50&roots=true&search=query
+```
+
+Query parameters:
+- `directory` - Filter by project directory
+- `roots` - Only return root sessions (no parentID)
+- `start` - Filter by timestamp (ms since epoch)
+- `search` - Filter by title (case-insensitive)
+- `limit` - Max results
+
+**Get Session**
+```http
+GET /session/{sessionID}?directory=/path
+```
+
+**Send Message**
+```http
+POST /session/{sessionID}/message
+Content-Type: application/json
+
+{
+  "parts": [
+    { "type": "text", "text": "Your prompt here" },
+    { "type": "file", "mime": "image/png", "url": "..." }
+  ],
+  "model": {
+    "providerID": "anthropic",
+    "modelID": "claude-sonnet-4"
+  },
+  "agent": "build"  // optional
+}
+```
+
+**Get Messages**
+```http
+GET /session/{sessionID}/message?limit=100
+```
+
+**Fork Session**
+```http
+POST /session/{sessionID}/fork
+Content-Type: application/json
+
+{
+  "messageID": "msg_..."  // fork from this message
+}
+```
+
+**Abort Session**
+```http
+POST /session/{sessionID}/abort
+```
+
+**Delete Session**
+```http
+DELETE /session/{sessionID}
+```
+
+### Files & Search
+
+**Read File**
+```http
+GET /file/content?path=/relative/path&directory=/project
+```
+
+**List Directory**
+```http
+GET /file?path=/relative/path&directory=/project
+```
+
+**Search Text (ripgrep)**
+```http
+GET /find?pattern=search_term&directory=/project
+```
+
+Returns matches with line numbers and context.
+
+**Find Files**
+```http
+GET /find/file?query=filename&type=file&limit=200&directory=/project
+```
+
+**Find Symbols (LSP)**
+```http
+GET /find/symbol?query=functionName&directory=/project
+```
+
+**File Status (git)**
+```http
+GET /file/status?directory=/project
+```
+
+### Configuration
+
+**Get Config**
+```http
+GET /config?directory=/project
+```
+
+**Update Config**
+```http
+PATCH /config?directory=/project
+Content-Type: application/json
+
+{
+  "theme": "catppuccin-mocha",
+  "model": "anthropic/claude-sonnet-4"
+}
+```
+
+### Providers & Models
+
+**List Providers**
+```http
+GET /provider?directory=/project
+```
+
+Returns all available providers, connected providers, and default models.
+
+**List Agents**
+```http
+GET /agent?directory=/project
+```
+
+**List Commands**
+```http
+GET /command?directory=/project
+```
+
+### Events (Server-Sent Events)
+
+**Subscribe to Events**
+```http
+GET /event?directory=/project
+```
+
+Returns SSE stream with events:
+- `message.updated` - Message created/updated
+- `message.part.updated` - Streaming message parts (with delta)
+- `session.created` / `session.updated` / `session.deleted`
+- `session.status` - Session state changes (idle/busy/retry)
+- `permission.asked` / `permission.replied`
+- `question.asked` / `question.replied`
+- `file.edited` - File modifications
+- `pty.created` / `pty.updated` / `pty.exited`
+
+**Global Events**
+```http
+GET /global/event
+```
+
+Events from all instances (includes `directory` field).
+
+### Permissions & Questions
+
+**List Pending Permissions**
+```http
+GET /permission?directory=/project
+```
+
+**Reply to Permission**
+```http
+POST /permission/{requestID}/reply
+Content-Type: application/json
+
+{
+  "reply": "once" | "always" | "reject",
+  "message": "Optional explanation"
+}
+```
+
+**List Pending Questions**
+```http
+GET /question?directory=/project
+```
+
+**Reply to Question**
+```http
+POST /question/{requestID}/reply
+Content-Type: application/json
+
+{
+  "answers": [
+    ["selected_option_label"],  // for each question
+    ["option1", "option2"]      // multiple if allowed
+  ]
+}
+```
+
+**Reject Question**
+```http
+POST /question/{requestID}/reject
+```
+
+### PTY (Pseudo-Terminal)
+
+**Create PTY**
+```http
+POST /pty?directory=/project
+Content-Type: application/json
+
+{
+  "command": "bash",
+  "args": ["-l"],
+  "cwd": "/path",
+  "title": "Terminal",
+  "env": { "KEY": "value" }
+}
+```
+
+**Connect to PTY (WebSocket)**
+```http
+GET /pty/{ptyID}/connect?directory=/project
+```
+
+Upgrades to WebSocket for bidirectional PTY communication.
+
+**List PTYs**
+```http
+GET /pty?directory=/project
+```
+
+**Delete PTY**
+```http
+DELETE /pty/{ptyID}?directory=/project
+```
+
+### MCP Servers
+
+**Get MCP Status**
+```http
+GET /mcp?directory=/project
+```
+
+**Add MCP Server**
+```http
+POST /mcp?directory=/project
+Content-Type: application/json
+
+{
+  "name": "server-name",
+  "config": {
+    "type": "local",
+    "command": ["node", "server.js"],
+    "environment": { "KEY": "value" }
+  }
+}
+```
+
+**Connect/Disconnect**
+```http
+POST /mcp/{name}/connect?directory=/project
+POST /mcp/{name}/disconnect?directory=/project
+```
+
+**MCP OAuth Flow**
+```http
+POST /mcp/{name}/auth
+POST /mcp/{name}/auth/callback
+DELETE /mcp/{name}/auth
+```
+
+### Project & Path
+
+**Get Current Project**
+```http
+GET /project/current?directory=/project
+```
+
+**Get Paths**
+```http
+GET /path?directory=/project
+```
+
+Returns home, state, config, worktree, and directory paths.
+
+**Get VCS Info**
+```http
+GET /vcs?directory=/project
+```
+
+Returns current git branch.
+
+### Health & Status
+
+**Health Check**
+```http
+GET /global/health
+```
+
+```json
+{
+  "healthy": true,
+  "version": "0.0.3"
+}
+```
+
+## Common Patterns
+
+### Creating and Using a Session
+
+```javascript
+// 1. Create session
+const session = await fetch('http://localhost:4096/session', {
+  method: 'POST',
+  headers: { 'Content-Type': 'application/json' },
+  body: JSON.stringify({ title: 'My Chat' })
+}).then(r => r.json())
+
+// 2. Send message
+const response = await fetch(`http://localhost:4096/session/${session.id}/message`, {
+  method: 'POST',
+  headers: { 'Content-Type': 'application/json' },
+  body: JSON.stringify({
+    parts: [{ type: 'text', text: 'Hello!' }],
+    model: { providerID: 'anthropic', modelID: 'claude-sonnet-4' }
+  })
+}).then(r => r.json())
+
+// 3. Listen to streaming events
+const eventSource = new EventSource('http://localhost:4096/event')
+eventSource.addEventListener('message.part.updated', (e) => {
+  const event = JSON.parse(e.data)
+  if (event.properties.part.sessionID === session.id) {
+    console.log('Delta:', event.properties.delta)
+  }
+})
+```
+
+### Handling Streaming Responses
+
+Messages stream via SSE. Listen for:
+1. `message.updated` - Initial message creation
+2. `message.part.updated` - Incremental text deltas
+3. `session.idle` - Response complete
+
+```javascript
+eventSource.addEventListener('message.part.updated', (e) => {
+  const { part, delta } = JSON.parse(e.data).properties
+  if (part.type === 'text' && delta) {
+    appendText(delta)  // Append incremental text
+  }
+})
+```
+
+## Error Responses
+
+**400 Bad Request**
+```json
+{
+  "success": false,
+  "data": {},
+  "errors": [{ "field": "message" }]
+}
+```
+
+**404 Not Found**
+```json
+{
+  "name": "NotFoundError",
+  "data": { "message": "Session not found" }
+}
+```
+
+## Rate Limits & Timeouts
+
+- Default timeout: 300000ms (5 minutes)
+- Override per provider in config: `provider.{id}.options.timeout`
+- Set to `false` to disable timeout
+
+## Notes
+
+- All session/message IDs follow patterns: `ses_...`, `msg_...`, `prt_...`
+- The `directory` query parameter is optional but recommended for multi-project setups
+- Event streams use `text/event-stream` content type
+- File attachments use base64-encoded URLs or file paths
+
+## Full OpenAPI Spec
+
+Available at: `http://localhost:4096/doc`

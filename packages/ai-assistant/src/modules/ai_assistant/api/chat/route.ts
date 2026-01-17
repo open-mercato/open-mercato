@@ -5,9 +5,40 @@ import {
   type OpenCodeStreamEvent,
 } from '../../lib/opencode-handlers'
 import { createOpenCodeClient } from '../../lib/opencode-client'
+import { createRequestContainer } from '@/lib/di/container'
+import type { EntityManager } from '@mikro-orm/postgresql'
+import {
+  generateSessionToken,
+  createSessionApiKey,
+} from '@open-mercato/core/modules/api_keys/services/apiKeyService'
+import { UserRole } from '@open-mercato/core/modules/auth/data/entities'
+import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 
 export const metadata = {
   POST: { requireAuth: true, requireFeatures: ['ai_assistant.view'] },
+}
+
+/**
+ * Get user's role IDs from the database.
+ */
+async function getUserRoleIds(
+  em: EntityManager,
+  userId: string,
+  tenantId: string | null
+): Promise<string[]> {
+  if (!tenantId) return []
+
+  const links = await findWithDecryption(
+    em,
+    UserRole,
+    { user: userId as any, role: { tenantId } } as any,
+    { populate: ['role'] },
+    { tenantId, organizationId: null },
+  )
+  const linkList = Array.isArray(links) ? links : []
+  return linkList
+    .map((l) => (l.role as any)?.id)
+    .filter((id): id is string => typeof id === 'string' && id.length > 0)
 }
 
 /**
@@ -43,6 +74,14 @@ export async function POST(req: NextRequest) {
         sessionId: string
       }
     }
+
+    // DIAGNOSTIC: Log what we received
+    console.log('[AI Chat] DIAGNOSTIC - Request received:', {
+      hasSessionId: !!sessionId,
+      sessionId: sessionId ? sessionId.substring(0, 20) + '...' : null,
+      messageCount: messages?.length ?? 0,
+      isAnswerQuestion: !!answerQuestion,
+    })
 
     // Create SSE stream for frontend compatibility
     const encoder = new TextEncoder()
@@ -103,25 +142,84 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'No user message found' }, { status: 400 })
     }
 
-    // Process in background
-    ;(async () => {
+    // For new sessions, create an ephemeral API key that inherits user permissions
+    let sessionToken: string | null = null
+    // DIAGNOSTIC: Log session decision
+    console.log('[AI Chat] DIAGNOSTIC - Session decision:', {
+      hasExistingSessionId: !!sessionId,
+      willCreateNewSession: !sessionId,
+    })
+    if (!sessionId) {
       try {
-        // Emit thinking event immediately for UX feedback
-        await writeSSE({ type: 'thinking' })
+        const container = await createRequestContainer()
+        const em = container.resolve<EntityManager>('em')
 
-        console.log('[AI Chat] Sending to OpenCode:', lastUserMessage.substring(0, 100))
+        // Get user's role IDs from database
+        const userRoleIds = await getUserRoleIds(em, auth.sub, auth.tenantId)
+
+        // Generate session token and create ephemeral key
+        sessionToken = generateSessionToken()
+        await createSessionApiKey(em, {
+          sessionToken,
+          userId: auth.sub,
+          userRoles: userRoleIds,
+          tenantId: auth.tenantId,
+          organizationId: auth.orgId,
+          ttlMinutes: 30,
+        })
+
+        console.log('[AI Chat] Created ephemeral session key:', sessionToken)
+        // Note: session-authorized event will be emitted in async block after Response is returned
+      } catch (error) {
+        console.error('[AI Chat] Failed to create session key:', error)
+        // Continue without session key - tools will use static API key auth
+      }
+    }
+
+    // Build the message to send to OpenCode
+    // If we have a session token, prepend explicit instructions for the AI to include it in tool calls
+    let messageToSend = lastUserMessage
+    if (sessionToken) {
+      messageToSend = `[SYSTEM: Your session token is "${sessionToken}". You MUST include "_sessionToken": "${sessionToken}" in EVERY tool call argument object. Without this, tools will fail with authorization errors.]\n\n${lastUserMessage}`
+    }
+
+    console.log('[AI Chat] About to start async processing, messageToSend length:', messageToSend.length)
+
+    // Process in background - starts AFTER Response is returned so there's a reader for the stream
+    ;(async () => {
+      console.log('[AI Chat] Async IIFE started')
+      try {
+        // Emit session-authorized event first (if we have a token)
+        if (sessionToken) {
+          console.log('[AI Chat] Writing session-authorized event...')
+          await writeSSE({
+            type: 'session-authorized',
+            sessionToken: sessionToken.slice(0, 12) + '...',
+          })
+          console.log('[AI Chat] session-authorized event written')
+        }
+
+        // Emit thinking event for UX feedback
+        console.log('[AI Chat] Writing thinking event...')
+        await writeSSE({ type: 'thinking' })
+        console.log('[AI Chat] Thinking event written')
+
+        console.log('[AI Chat] Sending to OpenCode:', messageToSend.substring(0, 100))
 
         // Use streaming handler that supports questions
+        console.log('[AI Chat] Calling handleOpenCodeMessageStreaming...')
         await handleOpenCodeMessageStreaming(
           {
-            message: lastUserMessage,
+            message: messageToSend,
             sessionId,
           },
           async (event) => {
-            console.log('[AI Chat] Event:', event.type)
+            console.log('[AI Chat] Event received:', event.type, event.type === 'done' ? `sessionId=${(event as { sessionId?: string }).sessionId}` : '')
             await writeSSE(event)
+            console.log('[AI Chat] Event written to stream:', event.type)
           }
         )
+        console.log('[AI Chat] handleOpenCodeMessageStreaming completed')
       } catch (error) {
         console.error('[AI Chat] OpenCode error:', error)
         await writeSSE({
@@ -129,10 +227,13 @@ export async function POST(req: NextRequest) {
           error: error instanceof Error ? error.message : 'OpenCode request failed',
         })
       } finally {
+        console.log('[AI Chat] Finally block: closing writer...')
         await closeWriter()
+        console.log('[AI Chat] Writer closed')
       }
     })()
 
+    console.log('[AI Chat] Returning Response with SSE stream')
     return new Response(stream.readable, {
       headers: {
         'Content-Type': 'text/event-stream',

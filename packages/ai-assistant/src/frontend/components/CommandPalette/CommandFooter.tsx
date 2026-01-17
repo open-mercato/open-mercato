@@ -1,13 +1,14 @@
 'use client'
 
 import * as React from 'react'
-import { Code } from 'lucide-react'
+import { Code, ShieldCheck } from 'lucide-react'
 import { cn } from '@open-mercato/shared/lib/utils'
 import type { PalettePhase, ConnectionStatus } from '../../types'
 
 interface CommandFooterProps {
   phase: PalettePhase
   connectionStatus: ConnectionStatus
+  isSessionAuthorized?: boolean
   showDebug?: boolean
   onToggleDebug?: () => void
 }
@@ -51,6 +52,7 @@ function KeyboardShortcut({ keys }: { keys: string[] }) {
 export function CommandFooter({
   phase,
   connectionStatus,
+  isSessionAuthorized = false,
   showDebug = false,
   onToggleDebug,
 }: CommandFooterProps) {
@@ -70,6 +72,14 @@ export function CommandFooter({
     <div className="relative flex items-center justify-between px-3 py-2 border-t bg-muted/20 text-xs">
       <div className="flex items-center gap-3">
         <ConnectionIndicator status={connectionStatus} />
+
+        {/* Session authorization indicator */}
+        {isSessionAuthorized && (
+          <div className="flex items-center gap-1 text-xs text-emerald-600 dark:text-emerald-400">
+            <ShieldCheck className="h-3 w-3" />
+            <span>Authorized</span>
+          </div>
+        )}
 
         {/* Debug toggle button */}
         {onToggleDebug && (
