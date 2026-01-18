@@ -59,8 +59,17 @@ export async function generateModuleEntities(options: ModuleEntitiesOptions): Pr
     const importName = `E_${toVar(modId)}_${n++}`
     const sub = path.basename(found.base) // 'data' or 'db'
     const fromApp = found.base.startsWith(roots.appBase)
-    const baseImport = fromApp ? imp.appBase : imp.pkgBase
-    const relImport = `${baseImport}/${sub}/${found.file.replace(/\.ts$/, '')}`
+    const isAppModule = entry.from === '@app'
+    // For @app modules, use relative path to ensure it works both in Next.js and Node.js CLI context
+    // From .mercato/generated/, the relative path to src/modules/ is ../src/modules/
+    let relImport: string
+    if (isAppModule && fromApp) {
+      // From .mercato/generated/, go up two levels (../..) to reach the app root, then into src/modules/
+      relImport = `../../src/modules/${modId}/${sub}/${found.file.replace(/\.ts$/, '')}`
+    } else {
+      const baseImport = fromApp ? imp.appBase : imp.pkgBase
+      relImport = `${baseImport}/${sub}/${found.file.replace(/\.ts$/, '')}`
+    }
     imports.push(`import * as ${importName} from '${relImport}'`)
     entitySources.push({ importName, moduleId: modId })
   }
