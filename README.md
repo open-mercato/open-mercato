@@ -125,6 +125,14 @@ The codebase is now organized into:
 - `packages/` - Shared libraries and modules (`@open-mercato/core`, `@open-mercato/ui`, `@open-mercato/shared`, `@open-mercato/cli`, `@open-mercato/cache`, `@open-mercato/events`, `@open-mercato/queue`, `@open-mercato/content`, `@open-mercato/onboarding`, `@open-mercato/search`)
 - `apps/` - Applications (main app in `apps/mercato`, docs in `apps/docs`)
 
+**Important note on storage:** The storage folder has been moved to the `apps/mercato` folder as well. If you instance has got any attachments uploaded, please make sure you run:
+
+```bash
+mv storage apps/mercato/storage
+```
+
+... from the root Open Mercato folder.
+
 ### Import Aliases
 
 Import aliases have changed from path-based to package-based imports:
@@ -239,7 +247,7 @@ Open Mercato is proudly supported by [Catch The Tornado](https://catchthetornado
 
 <div align="center">
   <a href="https://catchthetornado.com/">
-    <img src="./public/catch-the-tornado-logo.png" alt="Catch The Tornado logo" width="96" />
+    <img src="./apps/mercato/public/catch-the-tornado-logo.png" alt="Catch The Tornado logo" width="96" />
   </a>
 </div>
 
