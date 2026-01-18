@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="./public/open-mercato.svg" alt="Open Mercato logo" width="120" />
+  <img src="docs/static/img/open-mercato.svg" alt="Open Mercato logo" width="120" />
 </p>
 
 # Open Mercato
