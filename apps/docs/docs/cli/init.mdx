@@ -41,10 +41,10 @@ Ensure `DATABASE_URL` points to the Postgres instance you want to initialize bef
 9. If organization and tenant IDs are detected:
    - Seeds customer dictionaries (`customers seed-dictionaries`).
    - Seeds catalog units (`catalog seed-units`).
-   - Seeds booking capacity units and availability schedules.
+   - Seeds availability schedules.
    - Seeds encryption defaults (if `TENANT_DATA_ENCRYPTION` is enabled).
    - Seeds catalog price kinds, tax rates, sales statuses, adjustment kinds, shipping methods, and payment methods.
-   - Unless `--no-examples` is present, seeds demo CRM data (`customers seed-examples`), catalog examples, sales examples, booking resource examples, and example Todos (`example seed-todos`).
+   - Unless `--no-examples` is present, seeds demo CRM data (`customers seed-examples`), catalog examples, sales examples, and example Todos (`example seed-todos`).
    - When `--stresstest` is present, seeds synthetic contacts, companies, deals, activities, and notes with custom fields (and a progress bar) via `customers seed-stresstest`. Add `--lite` to focus on raw contacts without the heavier extras.
    - Enables default dashboard widgets (`dashboards seed-defaults`).
    - Triggers vector search reindex and query index reindex.

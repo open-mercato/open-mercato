@@ -314,10 +314,10 @@
         "title": "Vertriebskanäle"
       },
       "errors": {
-        "unauthorized": "Unauthorized",
-        "organization_required": "Organization context is required.",
-        "load_failed": "Failed to load sales settings",
-        "save_failed": "Failed to save sales settings"
+        "unauthorized": "Nicht autorisiert",
+        "organization_required": "Organisationskontext ist erforderlich.",
+        "load_failed": "Verkaufseinstellungen konnten nicht geladen werden",
+        "save_failed": "Verkaufseinstellungen konnten nicht gespeichert werden"
       }
     },
     "configuration": {
@@ -554,25 +554,25 @@
         }
       },
       "orderEditing": {
-        "title": "Order editing guards",
-        "description": "Control when customers and addresses can be changed on an order.",
-        "customerLabel": "Customer can be changed at",
-        "addressLabel": "Addresses can be changed at",
-        "allowAny": "Allow at any status",
-        "anyStatus": "Allowed at any status",
-        "pickStatuses": "Select statuses that allow this change",
-        "note": "Changing the customer clears assigned addresses to avoid mixing contact data.",
+        "title": "Bearbeitungsschutz",
+        "description": "Steuern Sie, wann Kunden und Adressen in einer Bestellung geändert werden können.",
+        "customerLabel": "Kunde kann geändert werden bei",
+        "addressLabel": "Adressen können geändert werden bei",
+        "allowAny": "Bei jedem Status erlauben",
+        "anyStatus": "Bei jedem Status erlaubt",
+        "pickStatuses": "Wählen Sie Status, bei denen diese Änderung erlaubt ist",
+        "note": "Das Ändern des Kunden löscht zugewiesene Adressen, um Kontaktdaten nicht zu vermischen.",
         "actions": {
-          "refresh": "Refresh",
-          "save": "Save settings",
-          "refreshing": "Refreshing…"
+          "refresh": "Aktualisieren",
+          "save": "Einstellungen speichern",
+          "refreshing": "Aktualisieren…"
         },
         "errors": {
-          "load": "Failed to load order editing settings.",
-          "save": "Failed to save order editing settings."
+          "load": "Einstellungen für Bestellbearbeitung konnten nicht geladen werden.",
+          "save": "Einstellungen für Bestellbearbeitung konnten nicht gespeichert werden."
         },
         "success": {
-          "save": "Order editing settings saved."
+          "save": "Einstellungen für Bestellbearbeitung gespeichert."
         }
       },
       "taxRates": {
@@ -622,31 +622,31 @@
         }
       },
       "numbering": {
-        "title": "Document numbers",
-        "description": "Control numbering for sales orders and quotes.",
+        "title": "Dokumentnummern",
+        "description": "Nummerierung für Verkaufsaufträge und Angebote steuern.",
         "actions": {
-          "save": "Save settings",
-          "reset": "Reset changes",
-          "refresh": "Refresh",
-          "refreshing": "Refreshing…",
-          "saving": "Saving…"
+          "save": "Einstellungen speichern",
+          "reset": "Änderungen zurücksetzen",
+          "refresh": "Aktualisieren",
+          "refreshing": "Aktualisieren…",
+          "saving": "Speichern…"
         },
-        "orderFormat": "Order number format",
-        "quoteFormat": "Quote number format",
-        "orderNext": "Next order sequence",
-        "quoteNext": "Next quote sequence",
-        "orderHint": "Example: ORDER/{yyyy}/{seq:5}",
-        "quoteHint": "Example: QUOTE/{yy}/{mm}/{seq:4}",
-        "sequenceHint": "Applied on the next generated number for this type.",
-        "sequenceHintQuote": "Resets the quote counter for the next document.",
-        "tokensTitle": "Available tokens",
-        "tokensHint": "Combine tokens to shape your identifiers, e.g. ORDER/{yyyy}/{seq:5}.",
+        "orderFormat": "Bestellnummernformat",
+        "quoteFormat": "Angebotsnummernformat",
+        "orderNext": "Nächste Bestellsequenz",
+        "quoteNext": "Nächste Angebotssequenz",
+        "orderHint": "Beispiel: ORDER/{yyyy}/{seq:5}",
+        "quoteHint": "Beispiel: QUOTE/{yy}/{mm}/{seq:4}",
+        "sequenceHint": "Wird bei der nächsten generierten Nummer für diesen Typ angewendet.",
+        "sequenceHintQuote": "Setzt den Angebotszähler für das nächste Dokument zurück.",
+        "tokensTitle": "Verfügbare Token",
+        "tokensHint": "Kombinieren Sie Token, um Ihre Kennungen zu gestalten, z. B. ORDER/{yyyy}/{seq:5}.",
         "errors": {
-          "load": "Failed to load numbering settings.",
-          "save": "Failed to save numbering settings."
+          "load": "Nummerierungseinstellungen konnten nicht geladen werden.",
+          "save": "Nummerierungseinstellungen konnten nicht gespeichert werden."
         },
         "messages": {
-          "saved": "Numbering settings saved."
+          "saved": "Nummerierungseinstellungen gespeichert."
         }
       }
     },
@@ -719,10 +719,10 @@
         "kind.order": "Bestellung",
         "customer": {
           "quick": {
-            "error": "Failed to create customer.",
-            "personSuccess": "Customer created.",
-            "companySuccess": "Customer created.",
-            "dialogDescription": "Add a person without leaving this form."
+            "error": "Kunde konnte nicht erstellt werden.",
+            "personSuccess": "Kunde erstellt.",
+            "companySuccess": "Unternehmen erstellt.",
+            "dialogDescription": "Person hinzufügen, ohne dieses Formular zu verlassen."
           }
         },
         "customer.placeholder": "Kunden suchen…",
@@ -798,42 +798,42 @@
         "numberHintOrder": "Format für Bestellungen, verwendet den konfigurierten Zähler.",
         "numberHintQuote": "Format für Angebote, verwendet den konfigurierten Zähler.",
         "errors": {
-          "numberGenerate": "Could not generate a document number.",
-          "numberRequired": "Document number is required."
+          "numberGenerate": "Dokumentnummer konnte nicht generiert werden.",
+          "numberRequired": "Dokumentnummer ist erforderlich."
         }
       },
       "payments": {
-        "add": "Add payment",
-        "loading": "Loading payments…",
-        "errorLoad": "Failed to load payments.",
-        "errorSave": "Failed to save payment.",
-        "scopeMissing": "Select an organization and tenant before deleting payments.",
-        "created": "Payment recorded.",
-        "edit": "Edit payment",
-        "delete": "Delete payment",
-        "deleted": "Payment deleted.",
-        "errorDelete": "Failed to delete payment.",
-        "retry": "Retry",
-        "amountRequired": "Enter a positive amount.",
-        "currencyRequired": "Currency is required.",
-        "reference": "Reference",
-        "method": "Method",
+        "add": "Zahlung hinzufügen",
+        "loading": "Zahlungen werden geladen…",
+        "errorLoad": "Zahlungen konnten nicht geladen werden.",
+        "errorSave": "Zahlung konnte nicht gespeichert werden.",
+        "scopeMissing": "Wählen Sie Organisation und Mandant vor dem Löschen von Zahlungen.",
+        "created": "Zahlung erfasst.",
+        "edit": "Zahlung bearbeiten",
+        "delete": "Zahlung löschen",
+        "deleted": "Zahlung gelöscht.",
+        "errorDelete": "Zahlung konnte nicht gelöscht werden.",
+        "retry": "Erneut versuchen",
+        "amountRequired": "Geben Sie einen positiven Betrag ein.",
+        "currencyRequired": "Währung ist erforderlich.",
+        "reference": "Referenz",
+        "method": "Methode",
         "status": "Status",
         "statusPlaceholder": "Status auswählen",
-        "amount": "Amount",
-        "receivedAt": "Received at",
-        "createdAt": "Created",
-        "emptyTitle": "No payments yet.",
-        "emptyDescription": "Track received payments to keep outstanding balances up to date.",
-        "loadingMethods": "Loading payment methods…",
-        "methodsEmpty": "No payment methods",
-        "methodSelected": "Selected method: {{id}}",
-        "methodPlaceholder": "Search payment method",
-        "currency": "Currency",
-        "referencePlaceholder": "External reference or note",
-        "saveShortcut": "Save ⌘⏎ / Ctrl+Enter",
+        "amount": "Betrag",
+        "receivedAt": "Empfangen am",
+        "createdAt": "Erstellt",
+        "emptyTitle": "Noch keine Zahlungen.",
+        "emptyDescription": "Erfassen Sie eingegangene Zahlungen, um offene Salden aktuell zu halten.",
+        "loadingMethods": "Zahlungsmethoden werden geladen…",
+        "methodsEmpty": "Keine Zahlungsmethoden",
+        "methodSelected": "Ausgewählte Methode: {{id}}",
+        "methodPlaceholder": "Zahlungsmethode suchen",
+        "currency": "Währung",
+        "referencePlaceholder": "Externe Referenz oder Notiz",
+        "saveShortcut": "Speichern ⌘⏎ / Strg+Enter",
         "form": {
-          "title": "Payment details"
+          "title": "Zahlungsdetails"
         }
       },
       "items": {
@@ -867,53 +867,53 @@
           "actions": "Aktionen",
           "gross": "brutto",
           "statusEmpty": "Kein Status",
-          "net": "net"
+          "net": "netto"
         },
         "priceScope": {
-          "channel": "Channel",
-          "offer": "Offer",
-          "variant": "Variant",
-          "customerGroup": "Customer group",
-          "customer": "Customer",
-          "userGroup": "User group",
-          "user": "User",
-          "quantity": "Quantity",
-          "schedule": "Scheduled"
+          "channel": "Kanal",
+          "offer": "Angebot",
+          "variant": "Variante",
+          "customerGroup": "Kundengruppe",
+          "customer": "Kunde",
+          "userGroup": "Benutzergruppe",
+          "user": "Benutzer",
+          "quantity": "Menge",
+          "schedule": "Geplant"
         },
-        "priceGross": "Gross",
-        "priceNet": "Net",
-        "errorScope": "Organization and tenant are required.",
-        "errorCurrency": "Currency is required.",
-        "errorSave": "Failed to save line.",
-        "product": "Product",
-        "productSearch": "Search product",
-        "selectedProduct": "Selected {{id}}",
-        "variant": "Variant",
-        "variantSearch": "Search variant",
-        "selectedVariant": "Selected {{id}}",
-        "price": "Price",
-        "priceSearch": "Select price",
-        "unitPrice": "Unit price",
-        "quantity": "Quantity",
+        "priceGross": "Brutto",
+        "priceNet": "Netto",
+        "errorScope": "Organisation und Mandant sind erforderlich.",
+        "errorCurrency": "Währung ist erforderlich.",
+        "errorSave": "Position konnte nicht gespeichert werden.",
+        "product": "Produkt",
+        "productSearch": "Produkt suchen",
+        "selectedProduct": "Ausgewählt {{id}}",
+        "variant": "Variante",
+        "variantSearch": "Variante suchen",
+        "selectedVariant": "Ausgewählt {{id}}",
+        "price": "Preis",
+        "priceSearch": "Preis auswählen",
+        "unitPrice": "Stückpreis",
+        "quantity": "Menge",
         "name": "Name",
-        "namePlaceholder": "Optional line name",
-        "editTitle": "Edit line",
-        "addTitle": "Add line",
-        "save": "Save changes",
-        "addLine": "Add item",
-        "loading": "Loading items…",
-        "errorLoad": "Failed to load items.",
-        "add": "Add item",
-        "errorDelete": "Failed to delete line.",
-        "deleted": "Line removed.",
-        "empty": "No items yet.",
-        "subtitle": "Add products and configure pricing for this document.",
-        "untitled": "Untitled",
-        "title": "Items",
-        "errorDeleteShipped": "You cannot delete a line that has shipped items.",
-        "created": "Line added.",
-        "updated": "Line updated.",
-        "cancel": "Cancel"
+        "namePlaceholder": "Optionaler Positionsname",
+        "editTitle": "Position bearbeiten",
+        "addTitle": "Position hinzufügen",
+        "save": "Änderungen speichern",
+        "addLine": "Position hinzufügen",
+        "loading": "Positionen werden geladen…",
+        "errorLoad": "Positionen konnten nicht geladen werden.",
+        "add": "Position hinzufügen",
+        "errorDelete": "Position konnte nicht gelöscht werden.",
+        "deleted": "Position entfernt.",
+        "empty": "Noch keine Positionen.",
+        "subtitle": "Produkte und Preise für dieses Dokument hinzufügen.",
+        "untitled": "Ohne Titel",
+        "title": "Positionen",
+        "errorDeleteShipped": "Positionen mit versandten Artikeln können nicht gelöscht werden.",
+        "created": "Position hinzugefügt.",
+        "updated": "Position aktualisiert.",
+        "cancel": "Abbrechen"
       },
       "detail": {
         "title": "Verkaufsdokument",
@@ -930,7 +930,10 @@
         "customer.empty": "Nicht verknüpft",
         "customerSnapshot": {
           "hint": "Bearbeiten Sie den Snapshot, der in diesem Dokument gespeichert ist.",
-          "kind": "Kundentyp"
+          "kind": "Kundentyp",
+          "edit": "Kundendaten bearbeiten",
+          "select": "Kunde auswählen",
+          "noCustomer": "Kein Kunde zugewiesen"
         },
         "currency": "Währung",
         "currencyInvalid": "Der Währungscode muss aus 3 Buchstaben bestehen.",
@@ -961,7 +964,7 @@
           "empty": "Keine Zahlungsmethoden gefunden.",
           "selected": "Ausgewählte Zahlungsmethode: {{id}}"
         },
-        "empty": "Not set",
+        "empty": "Nicht gesetzt",
         "items": {
           "wip": "Der Positioneneditor kommt in der nächsten Iteration.",
           "deleteConfirm": "Diese Position löschen?",
@@ -986,50 +989,50 @@
             "actions": "Aktionen",
             "gross": "brutto",
             "statusEmpty": "Kein Status",
-            "net": "net"
+            "net": "netto"
           },
-          "title": "Items",
-          "subtitle": "Add products and prices to this document.",
-          "add": "Add item",
-          "loading": "Loading items…",
-          "empty": "No items yet.",
-          "errorLoad": "Failed to load items.",
-          "errorSave": "Failed to save line.",
-          "errorDelete": "Failed to delete line.",
-          "errorDeleteShipped": "You cannot delete a line that has shipped items.",
-          "created": "Line added.",
-          "updated": "Line updated.",
-          "deleted": "Line removed.",
-          "addTitle": "Add line",
-          "editTitle": "Edit line",
-          "product": "Product",
-          "productSearch": "Search product",
-          "selectedProduct": "Selected {{id}}",
-          "variant": "Variant",
-          "variantSearch": "Search variant",
-          "price": "Price",
-          "priceSearch": "Select price",
-          "priceGross": "Gross",
-          "priceNet": "Net",
+          "title": "Positionen",
+          "subtitle": "Produkte und Preise zu diesem Dokument hinzufügen.",
+          "add": "Position hinzufügen",
+          "loading": "Positionen werden geladen…",
+          "empty": "Noch keine Positionen.",
+          "errorLoad": "Positionen konnten nicht geladen werden.",
+          "errorSave": "Position konnte nicht gespeichert werden.",
+          "errorDelete": "Position konnte nicht gelöscht werden.",
+          "errorDeleteShipped": "Positionen mit versandten Artikeln können nicht gelöscht werden.",
+          "created": "Position hinzugefügt.",
+          "updated": "Position aktualisiert.",
+          "deleted": "Position entfernt.",
+          "addTitle": "Position hinzufügen",
+          "editTitle": "Position bearbeiten",
+          "product": "Produkt",
+          "productSearch": "Produkt suchen",
+          "selectedProduct": "Ausgewählt {{id}}",
+          "variant": "Variante",
+          "variantSearch": "Variante suchen",
+          "price": "Preis",
+          "priceSearch": "Preis auswählen",
+          "priceGross": "Brutto",
+          "priceNet": "Netto",
           "priceScope": {
-            "channel": "Channel",
-            "offer": "Offer",
-            "variant": "Variant",
-            "customerGroup": "Customer group",
-            "customer": "Customer",
-            "userGroup": "User group",
-            "user": "User",
-            "quantity": "Quantity",
-            "schedule": "Scheduled"
+            "channel": "Kanal",
+            "offer": "Angebot",
+            "variant": "Variante",
+            "customerGroup": "Kundengruppe",
+            "customer": "Kunde",
+            "userGroup": "Benutzergruppe",
+            "user": "Benutzer",
+            "quantity": "Menge",
+            "schedule": "Geplant"
           },
-          "unitPrice": "Unit price",
-          "quantity": "Quantity",
+          "unitPrice": "Stückpreis",
+          "quantity": "Menge",
           "name": "Name",
-          "namePlaceholder": "Optional line name",
-          "cancel": "Cancel",
-          "addLine": "Add item",
-          "save": "Save changes",
-          "untitled": "Untitled"
+          "namePlaceholder": "Optionaler Positionsname",
+          "cancel": "Abbrechen",
+          "addLine": "Position hinzufügen",
+          "save": "Änderungen speichern",
+          "untitled": "Ohne Titel"
         },
         "status": "Status",
         "shipments": {
@@ -1147,7 +1150,7 @@
             "surcharge": "Zuschlag",
             "custom": "Benutzerdefiniert"
           },
-          "kind": "Kind"
+          "kind": "Typ"
         },
         "shipping": "Lieferadresse",
         "billing": "Rechnungsadresse",
@@ -1165,15 +1168,15 @@
           "removed": "Adresse wurde entfernt.",
           "update": "Adressen aktualisieren",
           "delete": "Adresse entfernen",
-          "deleteConfirm": "This will permanently remove this address from the document. This cannot be undone. Continue?",
-          "line1Required": "Add address line 1 to continue.",
-          "itemLabel": "Address",
-          "edit": "Edit address",
-          "save": "Save address",
-          "blocked": "Addresses cannot be changed for the current status."
+          "deleteConfirm": "Diese Adresse wird dauerhaft aus dem Dokument entfernt. Dies kann nicht rückgängig gemacht werden. Fortfahren?",
+          "line1Required": "Fügen Sie Adresszeile 1 hinzu, um fortzufahren.",
+          "itemLabel": "Adresse",
+          "edit": "Adresse bearbeiten",
+          "save": "Adresse speichern",
+          "blocked": "Adressen können für den aktuellen Status nicht geändert werden."
         },
-        "customerChangeConfirm": "Change the customer? Existing shipping and billing addresses will be unassigned.",
-        "customerBlocked": "Customer cannot be changed for the current status.",
+        "customerChangeConfirm": "Kunden ändern? Bestehende Liefer- und Rechnungsadressen werden aufgehoben.",
+        "customerBlocked": "Kunde kann für den aktuellen Status nicht geändert werden.",
         "timestamps": "Zeitpunkte",
         "created": "Erstellt",
         "updated": "Aktualisiert",
@@ -1192,15 +1195,19 @@
           "grandTotalGross": "Gesamtsumme (brutto)",
           "paidTotal": "Bezahlt",
           "refundedTotal": "Erstattet",
-          "outstandingTotal": "Offen"
+          "outstandingTotal": "Offen",
+          "showingAll": "Alle Summen anzeigen",
+          "showingKey": "Wichtige Summen · {count} weitere",
+          "hideDetails": "Details ausblenden",
+          "showDetails": "Details anzeigen"
         },
         "inline": {
           "save": "Speichern ⌘⏎ / Strg+Enter"
         },
-        "inlineError": "Unable to update document.",
-        "customData": "Custom data",
-        "customDataLoading": "Loading custom data…",
-        "customDataDefine": "Define custom fields first.",
+        "inlineError": "Dokument konnte nicht aktualisiert werden.",
+        "customData": "Benutzerdefinierte Daten",
+        "customDataLoading": "Benutzerdefinierte Daten werden geladen…",
+        "customDataDefine": "Definieren Sie zuerst benutzerdefinierte Felder.",
         "tags": "Tags",
         "statusInvalid": "Ausgewählter Status wurde nicht gefunden.",
         "channelInvalid": "Ausgewählter Kanal wurde nicht gefunden.",
@@ -1212,7 +1219,7 @@
         "empty.shipments.title": "Noch keine Sendungen.",
         "empty.shipments.description": "Füge diesem Dokument Sendungen hinzu, damit Benutzer die Bestellung nachverfolgen können.",
         "empty.payments.title": "Noch keine Zahlungen.",
-        "empty.payments.description": "Track received payments to keep outstanding balances up to date.",
+        "empty.payments.description": "Erfassen Sie eingegangene Zahlungen, um offene Salden aktuell zu halten.",
         "empty.adjustments.title": "Noch keine Anpassungen.",
         "empty.adjustments.description": "Füge Rabatte, Gebühren oder Steuern zu diesem Dokument hinzu.",
         "empty.generic": "Hier gibt es noch nichts anzuzeigen.",
@@ -1230,48 +1237,48 @@
         "status.errorSave": "Status konnte nicht gespeichert werden.",
         "status.loading": "Lade Status…",
         "status.manage": "Status verwalten",
-        "tags.loading": "Loading tags…",
-        "tags.loadError": "Failed to load tags.",
-        "tags.createError": "Failed to create tag.",
-        "tags.updateError": "Failed to update tags.",
-        "tags.labelRequired": "Tag name is required.",
-        "tags.saveShortcut": "Save ⌘⏎ / Ctrl+Enter",
-        "tags.cancelShortcut": "Cancel (Esc)",
-        "tags.success": "Tags updated.",
-        "tags.placeholder": "No tags yet. Add labels to keep documents organized.",
-        "numberGenerated": "New number generated.",
-        "numberGenerateError": "Could not generate number.",
+        "tags.loading": "Tags werden geladen…",
+        "tags.loadError": "Tags konnten nicht geladen werden.",
+        "tags.createError": "Tag konnte nicht erstellt werden.",
+        "tags.updateError": "Tags konnten nicht aktualisiert werden.",
+        "tags.labelRequired": "Tag-Name ist erforderlich.",
+        "tags.saveShortcut": "Speichern ⌘⏎ / Strg+Enter",
+        "tags.cancelShortcut": "Abbrechen (Esc)",
+        "tags.success": "Tags aktualisiert.",
+        "tags.placeholder": "Noch keine Tags. Fügen Sie Labels hinzu, um Dokumente zu organisieren.",
+        "numberGenerated": "Neue Nummer generiert.",
+        "numberGenerateError": "Nummer konnte nicht generiert werden.",
         "convertToOrder": "In Bestellung umwandeln",
         "convertSuccess": "Angebot in Bestellung umgewandelt.",
         "convertError": "Angebot konnte nicht umgewandelt werden.",
         "convertExists": "Für dieses Angebot besteht bereits eine Bestellung.",
-        "deleteConfirm": "Delete this document? This cannot be undone.",
-        "deleted": "Document deleted.",
-        "deleteFailed": "Could not delete document.",
-        "externalRef": "External reference",
-        "customerRef": "Customer reference",
-        "email": "Primary email",
-        "channel": "Channel",
+        "deleteConfirm": "Dieses Dokument löschen? Dies kann nicht rückgängig gemacht werden.",
+        "deleted": "Dokument gelöscht.",
+        "deleteFailed": "Dokument konnte nicht gelöscht werden.",
+        "externalRef": "Externe Referenz",
+        "customerRef": "Kundenreferenz",
+        "email": "Primäre E-Mail",
+        "channel": "Kanal",
         "tabs": {
-          "comments": "Comments",
-          "addresses": "Addresses",
-          "items": "Items",
-          "shipments": "Shipments",
-          "payments": "Payments",
-          "adjustments": "Adjustments"
+          "comments": "Kommentare",
+          "addresses": "Adressen",
+          "items": "Positionen",
+          "shipments": "Sendungen",
+          "payments": "Zahlungen",
+          "adjustments": "Anpassungen"
         },
         "comments": {
-          "add": "Add comment"
+          "add": "Kommentar hinzufügen"
         },
-        "number": "Document number",
-        "numberEmpty": "No number yet",
-        "saveStub": "Saving number will land soon.",
-        "generateNumber": "Generate number",
-        "delete": "Delete",
+        "number": "Dokumentnummer",
+        "numberEmpty": "Noch keine Nummer",
+        "saveStub": "Nummernvergabe folgt in Kürze.",
+        "generateNumber": "Nummer generieren",
+        "delete": "Löschen",
         "details": "Details",
-        "customerRef.placeholder": "Customer PO or note",
-        "email.placeholder": "Add email",
-        "externalRef.placeholder": "Add external reference"
+        "customerRef.placeholder": "Kunden-PO oder Notiz",
+        "email.placeholder": "E-Mail hinzufügen",
+        "externalRef.placeholder": "Externe Referenz hinzufügen"
       },
       "adjustments": {
         "title": "Anpassungen",
@@ -1319,16 +1326,16 @@
           "surcharge": "Zuschlag",
           "custom": "Benutzerdefiniert"
         },
-        "submitCreate": "Add adjustment",
-        "submitUpdate": "Save changes",
-        "amountMode": "Calculation mode",
+        "submitCreate": "Anpassung hinzufügen",
+        "submitUpdate": "Änderungen speichern",
+        "amountMode": "Berechnungsmodus",
         "mode": {
-          "rate": "Percentage",
-          "amount": "Fixed amount"
+          "rate": "Prozentsatz",
+          "amount": "Festbetrag"
         },
-        "labelRequired": "Label is required.",
-        "errorRate": "Enter a percentage rate.",
-        "kind": "Kind"
+        "labelRequired": "Bezeichnung ist erforderlich.",
+        "errorRate": "Geben Sie einen Prozentsatz ein.",
+        "kind": "Typ"
       },
       "shipments": {
         "title": "Sendungen",
@@ -1397,53 +1404,53 @@
           "title": "Noch keine Sendungen.",
           "description": "Füge diesem Dokument Sendungen hinzu, damit Benutzer die Bestellung nachverfolgen können."
         },
-        "trackingGroup": "Tracking information"
+        "trackingGroup": "Tracking-Informationen"
       },
       "status": {
-        "changeDocument": "Change order/quote status",
-        "documentPlaceholder": "Select new order/quote status",
-        "changeLine": "Change order/quote item status",
-        "linePlaceholder": "Select item status",
-        "sectionTitle": "Status changes"
+        "changeDocument": "Bestell-/Angebotsstatus ändern",
+        "documentPlaceholder": "Neuen Bestell-/Angebotsstatus auswählen",
+        "changeLine": "Positionsstatus ändern",
+        "linePlaceholder": "Positionsstatus auswählen",
+        "sectionTitle": "Statusänderungen"
       },
       "empty": {
         "adjustments": {
-          "title": "No adjustments yet.",
-          "description": "Add discounts, fees, or taxes to refine totals."
+          "title": "Noch keine Anpassungen.",
+          "description": "Fügen Sie Rabatte, Gebühren oder Steuern hinzu, um die Summen anzupassen."
         }
       },
       "errors": {
-        "unauthorized": "Unauthorized",
-        "organization_required": "Organization context is required.",
-        "forbidden": "You do not have access to generate numbers.",
-        "number_generate_failed": "Failed to generate document number."
+        "unauthorized": "Nicht autorisiert",
+        "organization_required": "Organisationskontext ist erforderlich.",
+        "forbidden": "Sie haben keinen Zugriff zum Generieren von Nummern.",
+        "number_generate_failed": "Dokumentnummer konnte nicht generiert werden."
       }
     },
     "order-statuses": {
       "audit": {
-        "create": "Add sales order status",
-        "update": "Update sales order status",
-        "delete": "Delete sales order status"
+        "create": "Bestellstatus hinzufügen",
+        "update": "Bestellstatus aktualisieren",
+        "delete": "Bestellstatus löschen"
       }
     },
     "order-line-statuses": {
       "audit": {
-        "create": "Add sales order line status",
-        "update": "Update sales order line status",
-        "delete": "Delete sales order line status"
+        "create": "Positionsstatus hinzufügen",
+        "update": "Positionsstatus aktualisieren",
+        "delete": "Positionsstatus löschen"
       }
     },
     "audit": {
       "orders": {
         "lines": {
-          "upsert": "Update order line",
-          "delete": "Delete order line"
+          "upsert": "Bestellposition aktualisieren",
+          "delete": "Bestellposition löschen"
         }
       },
       "quotes": {
         "lines": {
-          "upsert": "Update quote line",
-          "delete": "Delete quote line"
+          "upsert": "Angebotsposition aktualisieren",
+          "delete": "Angebotsposition löschen"
         }
       }
     }
@@ -1467,6 +1474,8 @@
   "sales.quotes.create": "Angebot erstellen",
   "sales.quotes.update": "Angebot aktualisieren",
   "sales.quotes.delete": "Angebot löschen",
+  "sales.quotes.lines.upsert": "Angebotsposition aktualisieren",
+  "sales.quotes.lines.delete": "Angebotsposition löschen",
   "sales.quotes.adjustments.upsert": "Angebotsanpassung aktualisieren",
   "sales.quotes.adjustments.delete": "Angebotsanpassung löschen",
   "sales.orders.create": "Bestellung erstellen",
@@ -1498,8 +1507,8 @@
   "sales.shipments.line_missing": "Bestellposition wurde nicht gefunden.",
   "sales.shipments.quantity_exceeded": "Es kann nicht mehr als die verbleibende Menge versendet werden.",
   "sales.shipments.invalid_order": "Die Sendung gehört nicht zu dieser Bestellung.",
-  "sales.orders.edit_customer_blocked": "Customer cannot be changed for the current status.",
-  "sales.orders.edit_addresses_blocked": "Addresses cannot be changed for the current status.",
+  "sales.orders.edit_customer_blocked": "Kunde kann für den aktuellen Status nicht geändert werden.",
+  "sales.orders.edit_addresses_blocked": "Adressen können für den aktuellen Status nicht geändert werden.",
   "sales.orders.status_change.note": "Status geändert von {from} auf {to} durch {actor}.",
   "sales.orders.status_change.actor_unknown": "Unbekannter Benutzer",
   "sales.orders.status_change.actor_api_key": "API-Schlüssel {name}",

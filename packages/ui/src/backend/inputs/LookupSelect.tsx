@@ -30,6 +30,10 @@ type LookupSelectProps = {
   clearLabel?: string
   emptyLabel?: string
   loadingLabel?: string
+  selectLabel?: string
+  selectedLabel?: string
+  minQueryHintLabel?: string
+  startTypingLabel?: string
   selectedHintLabel?: (id: string) => string
   disabled?: boolean
   loading?: boolean
@@ -50,6 +54,10 @@ export function LookupSelect({
   clearLabel = 'Clear selection',
   emptyLabel = 'No results',
   loadingLabel = 'Searching…',
+  selectLabel = 'Select',
+  selectedLabel = 'Selected',
+  minQueryHintLabel,
+  startTypingLabel = 'Start typing to search.',
   selectedHintLabel,
   disabled = false,
   loading: loadingProp = false,
@@ -205,7 +213,7 @@ export function LookupSelect({
                         }}
                         disabled={item.disabled && !isSelected}
                       >
-                        {isSelected ? 'Selected' : 'Select'}
+                        {isSelected ? selectedLabel : selectLabel}
                       </Button>
                     </div>
                   </div>
@@ -228,10 +236,10 @@ export function LookupSelect({
         </div>
       ) : hasTyped ? (
         <p className="text-xs text-muted-foreground">
-          {`Type at least ${minQuery} characters or paste an id to search.`}
+          {minQueryHintLabel ?? `Type at least ${minQuery} characters or paste an id to search.`}
         </p>
       ) : (
-        <p className="text-xs text-muted-foreground">Start typing to search.</p>
+        <p className="text-xs text-muted-foreground">{startTypingLabel}</p>
       )}
       {error ? <p className="text-xs text-destructive">{emptyLabel}</p> : null}
     </div>

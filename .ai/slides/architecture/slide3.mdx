@@ -19,7 +19,6 @@
 - customers (CRM: companies/people/deals/activities/todos/tags)
 - catalog (products/catalog)
 - sales (orders/quotes and related sales docs)
-- booking (resources/team/availability/scheduling)
 
 ## UX / orchestration
 
@@ -63,7 +62,6 @@ flowchart TB
     customers[customers]
     catalog[catalog]
     sales[sales]
-    booking[booking]
   end
 
   subgraph UX["UX / orchestration"]
@@ -90,31 +88,26 @@ flowchart TB
   directory --> auth
   directory --> customers
   directory --> sales
-  directory --> booking
 
   entities --> customers
   entities --> catalog
   entities --> sales
-  entities --> booking
 
   query_index --> customers
   query_index --> catalog
   query_index --> sales
-  query_index --> booking
 
   search --> customers
   search --> catalog
   search --> sales
-  search --> booking
   search --> vector
 
   dashboards --> customers
   dashboards --> sales
-  dashboards --> booking
   perspectives --> customers
   api_docs --> auth
 ```
 
 :::notes
-This slide shows what Open Mercato ships with by default. The foundation modules give you multi-tenancy (directory), identity and permissions (auth), configuration (configs), dynamic data modeling (entities), and performance/indexing (query_index), plus operational modules like audit_logs, attachments, and API key support. On top of that are the core business domains—customers, catalog, sales, and booking. Then there are UX and orchestration modules like dashboards, perspectives, workflows, and business rules. Finally, search and AI are included with the search and vector modules. The important part: these are all modules—so you can disable, replace, or override them without forking the platform.
+This slide shows what Open Mercato ships with by default. The foundation modules give you multi-tenancy (directory), identity and permissions (auth), configuration (configs), dynamic data modeling (entities), and performance/indexing (query_index), plus operational modules like audit_logs, attachments, and API key support. On top of that are the core business domains—customers, catalog, sales. Then there are UX and orchestration modules like dashboards, perspectives, workflows, and business rules. Finally, search and AI are included with the search and vector modules. The important part: these are all modules—so you can disable, replace, or override them without forking the platform.
 :::

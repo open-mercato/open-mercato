@@ -28,6 +28,29 @@ async function compileAndImport(tsPath: string): Promise<Record<string, unknown>
     // Dynamically import esbuild only when needed
     const esbuild = await import('esbuild')
 
+    // The app root is 2 levels up from .mercato/generated/
+    const appRoot = path.dirname(path.dirname(path.dirname(tsPath)))
+
+    // Plugin to resolve @/ alias to app root (works for @app modules)
+    const aliasPlugin: import('esbuild').Plugin = {
+      name: 'alias-resolver',
+      setup(build) {
+        // Resolve @/ alias to app root
+        build.onResolve({ filter: /^@\// }, (args) => {
+          const resolved = path.join(appRoot, args.path.slice(2))
+          // Try with .ts extension if base path doesn't exist
+          if (!fs.existsSync(resolved) && fs.existsSync(resolved + '.ts')) {
+            return { path: resolved + '.ts' }
+          }
+          // Also check for /index.ts if it's a directory
+          if (fs.existsSync(resolved) && fs.statSync(resolved).isDirectory() && fs.existsSync(path.join(resolved, 'index.ts'))) {
+            return { path: path.join(resolved, 'index.ts') }
+          }
+          return { path: resolved }
+        })
+      },
+    }
+
     // Plugin to mark non-JSON package imports as external
     const externalNonJsonPlugin: import('esbuild').Plugin = {
       name: 'external-non-json',
@@ -52,7 +75,7 @@ async function compileAndImport(tsPath: string): Promise<Record<string, unknown>
       format: 'esm',
       platform: 'node',
       target: 'node18',
-      plugins: [externalNonJsonPlugin],
+      plugins: [aliasPlugin, externalNonJsonPlugin],
       // Allow JSON imports
       loader: { '.json': 'json' },
     })

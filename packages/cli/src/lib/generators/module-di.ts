@@ -41,7 +41,11 @@ export async function generateModuleDi(options: ModuleDiOptions): Promise<Genera
     const importName = `D_${toVar(modId)}_${i++}`
 
     if (useApp) {
-      imports.push(`import * as ${importName} from '${imp.appBase}/di'`)
+      // For @app modules, use relative path to work in both Next.js and Node.js CLI context
+      // From .mercato/generated/, go up two levels (../..) to reach the app root, then into src/modules/
+      const isAppModule = entry.from === '@app'
+      const importPath = isAppModule ? `../../src/modules/${modId}/di` : `${imp.appBase}/di`
+      imports.push(`import * as ${importName} from '${importPath}'`)
       registrars.push(`${importName}.register`)
     } else if (usePkg) {
       imports.push(`import * as ${importName} from '${imp.pkgBase}/di'`)

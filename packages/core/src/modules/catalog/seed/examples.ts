@@ -134,8 +134,8 @@ const PRODUCT_FIELDSETS = [
     ],
   },
   {
-    code: 'service_booking',
-    label: 'Services · Booking',
+    code: 'service_schedule',
+    label: 'Services · Scheduling',
     icon: 'solar:calendar-linear',
     description: 'Scheduling, preparation, and delivery metadata for service offerings.',
     groups: [
@@ -168,8 +168,8 @@ const VARIANT_FIELDSETS = [
     ],
   },
   {
-    code: 'service_booking',
-    label: 'Services · Booking',
+    code: 'service_schedule',
+    label: 'Services · Scheduling',
     icon: 'solar:calendar-linear',
     description: 'Provider, duration, and environment metadata for service slots.',
     groups: [
@@ -268,35 +268,35 @@ const CUSTOM_FIELD_SETS: FieldSetInput[] = [
   defineFields(E.catalog.catalog_product, [
     cf.integer('service_duration_minutes', {
       label: 'Duration (minutes)',
-      description: 'Length of a single booking slot.',
-      fieldset: 'service_booking',
+      description: 'Length of a single service slot.',
+      fieldset: 'service_schedule',
       group: { code: 'timing' },
       filterable: true,
       required: true,
     }),
     cf.integer('service_buffer_minutes', {
       label: 'Buffer between appointments',
-      description: 'Minimum downtime between consecutive bookings (minutes).',
-      fieldset: 'service_booking',
+      description: 'Minimum downtime between consecutive service slots (minutes).',
+      fieldset: 'service_schedule',
       group: { code: 'timing' },
     }),
     cf.text('service_location', {
       label: 'Location / Room',
       description: 'Where the service is delivered.',
-      fieldset: 'service_booking',
+      fieldset: 'service_schedule',
       group: { code: 'identity' },
     }),
     cf.select('service_resources', ['stylist', 'therapist', 'treatment_room', 'wash_station', 'steam_room'], {
       label: 'Required resources',
       description: 'Staff or rooms required to perform the service.',
-      fieldset: 'service_booking',
+      fieldset: 'service_schedule',
       group: { code: 'resources' },
       multi: true,
     }),
     cf.boolean('service_remote_available', {
       label: 'Remote session available',
       description: 'Indicates whether the service can be performed remotely or virtually.',
-      fieldset: 'service_booking',
+      fieldset: 'service_schedule',
       group: { code: 'resources' },
       defaultValue: false,
     }),
@@ -305,20 +305,20 @@ const CUSTOM_FIELD_SETS: FieldSetInput[] = [
     cf.select('provider_level', ['junior', 'senior', 'master'], {
       label: 'Provider level',
       description: 'Seniority of the assigned specialist.',
-      fieldset: 'service_booking',
+      fieldset: 'service_schedule',
       group: { code: 'provider' },
       filterable: true,
     }),
     cf.text('staff_member', {
       label: 'Staff member',
       description: 'Optional name of the staff member who usually delivers this variant.',
-      fieldset: 'service_booking',
+      fieldset: 'service_schedule',
       group: { code: 'provider' },
     }),
     cf.select('environment_type', ['studio', 'suite', 'on_site'], {
       label: 'Environment',
       description: 'Where the session is hosted.',
-      fieldset: 'service_booking',
+      fieldset: 'service_schedule',
       group: { code: 'environment' },
     }),
   ]),
@@ -509,10 +509,10 @@ const PRODUCT_SEEDS: ProductSeed[] = [
     handle: 'signature-haircut-service',
     sku: 'SERV-HAIR-60',
     description:
-      'Tailored haircut with relaxing wash, scalp massage, and styling finish. Designed for repeat bookings in the demo portal.',
+      'Tailored haircut with relaxing wash, scalp massage, and styling finish. Designed for repeat visits in the demo portal.',
     categorySlug: 'services-hairdresser',
-    customFieldsetCode: 'service_booking',
-    variantFieldsetCode: 'service_booking',
+    customFieldsetCode: 'service_schedule',
+    variantFieldsetCode: 'service_schedule',
     unit: 'hour',
     metadata: { channel: 'salon', serviceType: 'hairdresser' },
     customFields: {
@@ -546,8 +546,8 @@ const PRODUCT_SEEDS: ProductSeed[] = [
     description:
       'Full-body massage with aromatherapy oils and guided breathing. Includes complimentary refreshments and studio amenities.',
     categorySlug: 'services-massage',
-    customFieldsetCode: 'service_booking',
-    variantFieldsetCode: 'service_booking',
+    customFieldsetCode: 'service_schedule',
+    variantFieldsetCode: 'service_schedule',
     unit: 'hour',
     metadata: { channel: 'wellness', serviceType: 'massage' },
     customFields: {
