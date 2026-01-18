@@ -9,9 +9,9 @@ import { apiCall, readApiResultOrThrow } from '@open-mercato/ui/backend/utils/ap
 import { raiseCrudError } from '@open-mercato/ui/backend/utils/serverErrors'
 import { useCustomFieldDefs } from '@open-mercato/ui/backend/utils/customFieldDefs'
 import { Plus, Save, Trash2 } from 'lucide-react'
-import { useOrganizationScopeVersion } from '@/lib/frontend/useOrganizationScope'
-import { useT } from '@/lib/i18n/context'
-import { getEntityFields } from '@open-mercato/core/generated/entity-fields-registry'
+import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
+import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { getEntityFields } from '#generated/entity-fields-registry'
 
 type EntityOption = { entityId: string; label?: string; source?: string }
 

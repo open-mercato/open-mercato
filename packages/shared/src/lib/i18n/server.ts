@@ -1,25 +1,10 @@
-import { cookies, headers } from 'next/headers'
 import { defaultLocale, locales, type Locale } from './config'
 import type { Dict } from './context'
 import { createFallbackTranslator, createTranslator } from './translate'
-import type { Module } from '@open-mercato/shared/modules/registry'
+import { getModules } from '../modules/registry'
 
-// Registration pattern for publishable packages
-let _modules: Module[] | null = null
-
-export function registerModules(modules: Module[]) {
-  if (_modules !== null && process.env.NODE_ENV === 'development') {
-    console.debug('[Bootstrap] Modules re-registered (this may occur during HMR)')
-  }
-  _modules = modules
-}
-
-export function getModules(): Module[] {
-  if (!_modules) {
-    throw new Error('[Bootstrap] Modules not registered. Call registerModules() at bootstrap.')
-  }
-  return _modules
-}
+// Re-export for backwards compatibility
+export { registerModules, getModules } from '../modules/registry'
 
 function flattenDictionary(source: unknown, prefix = ''): Dict {
   if (!source || typeof source !== 'object' || Array.isArray(source)) return {}
@@ -37,18 +22,24 @@ function flattenDictionary(source: unknown, prefix = ''): Dict {
 }
 
 export async function detectLocale(): Promise<Locale> {
+  // Dynamic import to avoid requiring Next.js in non-Next.js contexts (CLI, tests)
   try {
-    const c = (await cookies()).get('locale')?.value
-    if (c && locales.includes(c as Locale)) return c as Locale
+    const { cookies, headers } = await import('next/headers')
+    try {
+      const c = (await cookies()).get('locale')?.value
+      if (c && locales.includes(c as Locale)) return c as Locale
+    } catch {
+      // cookies() may not be available outside request context (e.g., in tests)
+    }
+    try {
+      const accept = (await headers()).get('accept-language') || ''
+      const match = locales.find(l => new RegExp(`(^|,)\\s*${l}(-|;|,|$)`, 'i').test(accept))
+      if (match) return match
+    } catch {
+      // headers() may not be available outside request context (e.g., in tests)
+    }
   } catch {
-    // cookies() may not be available outside request context (e.g., in tests)
-  }
-  try {
-    const accept = (await headers()).get('accept-language') || ''
-    const match = locales.find(l => new RegExp(`(^|,)\\s*${l}(-|;|,|$)`, 'i').test(accept))
-    if (match) return match
-  } catch {
-    // headers() may not be available outside request context (e.g., in tests)
+    // next/headers not available (CLI context)
   }
   return defaultLocale
 }

@@ -1,7 +1,7 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { VectorIndexService } from '@open-mercato/search/vector'
 import { reindexEntity } from '@open-mercato/core/modules/query_index/lib/reindexer'
-import { E } from '@open-mercato/core/generated/entities.ids.generated'
+import { E } from '#generated/entities.ids.generated'
 
 type ModuleId = keyof typeof E
 

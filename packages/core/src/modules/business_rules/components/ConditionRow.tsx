@@ -5,7 +5,7 @@ import { Button } from '@open-mercato/ui/primitives/button'
 import { X } from 'lucide-react'
 import type { SimpleCondition } from './utils/conditionValidation'
 import { getComparisonOperators, isValidFieldPath } from './utils/conditionValidation'
-import { useT } from '@/lib/i18n/context'
+import { useT } from '@open-mercato/shared/lib/i18n/context'
 
 export type ConditionRowProps = {
   condition: SimpleCondition

@@ -1,35 +1,138 @@
 {
   "name": "@open-mercato/search",
-  "version": "0.3.13",
+  "version": "0.4.0",
   "private": true,
   "type": "module",
+  "main": "./dist/index.js",
   "exports": {
-    "./modules/*": "./src/modules/*",
-    "./strategies/*": "./src/strategies/*",
-    "./strategies": "./src/strategies/index.ts",
-    "./lib/*": "./src/lib/*",
-    "./indexer/*": "./src/indexer/*",
-    "./vector/*": "./src/vector/*",
-    "./fulltext/*": "./src/fulltext/*",
-    "./fulltext": "./src/fulltext/index.ts",
-    "./queue/*": "./src/queue/*",
-    "./types": "./src/types.ts",
-    ".": "./src/index.ts"
+    ".": {
+      "types": "./src/index.ts",
+      "default": "./dist/index.js"
+    },
+    "./modules/search": {
+      "types": "./src/modules/search/index.ts",
+      "default": "./dist/modules/search/index.js"
+    },
+    "./modules/search/index": {
+      "types": "./src/modules/search/index.ts",
+      "default": "./dist/modules/search/index.js"
+    },
+    "./modules/search/di": {
+      "types": "./src/modules/search/di.ts",
+      "default": "./dist/modules/search/di.js"
+    },
+    "./modules/search/acl": {
+      "types": "./src/modules/search/acl.ts",
+      "default": "./dist/modules/search/acl.js"
+    },
+    "./modules/search/cli": {
+      "types": "./src/modules/search/cli.ts",
+      "default": "./dist/modules/search/cli.js"
+    },
+    "./modules/search/frontend": {
+      "types": "./src/modules/search/frontend/index.ts",
+      "default": "./dist/modules/search/frontend/index.js"
+    },
+    "./modules/search/i18n/*": "./src/modules/search/i18n/*",
+    "./strategies": {
+      "types": "./src/strategies/index.ts",
+      "default": "./dist/strategies/index.js"
+    },
+    "./indexer": {
+      "types": "./src/indexer/index.ts",
+      "default": "./dist/indexer/index.js"
+    },
+    "./vector": {
+      "types": "./src/vector/index.ts",
+      "default": "./dist/vector/index.js"
+    },
+    "./fulltext": {
+      "types": "./src/fulltext/index.ts",
+      "default": "./dist/fulltext/index.js"
+    },
+    "./types": {
+      "types": "./src/types.ts",
+      "default": "./dist/types.js"
+    },
+    "./di": {
+      "types": "./src/di.ts",
+      "default": "./dist/di.js"
+    },
+    "./*": {
+      "types": [
+        "./src/*.ts",
+        "./src/*.tsx"
+      ],
+      "default": "./dist/*.js"
+    },
+    "./*/*": {
+      "types": [
+        "./src/*/*.ts",
+        "./src/*/*.tsx"
+      ],
+      "default": "./dist/*/*.js"
+    },
+    "./*/*/*": {
+      "types": [
+        "./src/*/*/*.ts",
+        "./src/*/*/*.tsx"
+      ],
+      "default": "./dist/*/*/*.js"
+    },
+    "./*/*/*/*": {
+      "types": [
+        "./src/*/*/*/*.ts",
+        "./src/*/*/*/*.tsx"
+      ],
+      "default": "./dist/*/*/*/*.js"
+    },
+    "./*/*/*/*/*": {
+      "types": [
+        "./src/*/*/*/*/*.ts",
+        "./src/*/*/*/*/*.tsx"
+      ],
+      "default": "./dist/*/*/*/*/*.js"
+    },
+    "./*/*/*/*/*/*": {
+      "types": [
+        "./src/*/*/*/*/*/*.ts",
+        "./src/*/*/*/*/*/*.tsx"
+      ],
+      "default": "./dist/*/*/*/*/*/*.js"
+    },
+    "./*/*/*/*/*/*/*": {
+      "types": [
+        "./src/*/*/*/*/*/*/*.ts",
+        "./src/*/*/*/*/*/*/*.tsx"
+      ],
+      "default": "./dist/*/*/*/*/*/*/*.js"
+    }
+  },
+  "scripts": {
+    "build": "node build.mjs",
+    "test": "jest --config jest.config.cjs",
+    "typecheck": "tsc --noEmit"
   },
   "dependencies": {
     "@ai-sdk/amazon-bedrock": "^4.0.8",
     "@ai-sdk/cohere": "^3.0.4",
-    "@ai-sdk/google": "^1.2.6",
+    "@ai-sdk/google": "^2.0.0",
     "@ai-sdk/mistral": "^3.0.5",
     "@ai-sdk/openai": "^3.0.5",
     "ai": "^6.0.0",
     "ai-sdk-ollama": "^3.0.1",
     "meilisearch": "^0.55.0",
-    "pg": "^8.16.3"
+    "pg": "^8.16.3",
+    "zod": "^4.0.0"
   },
   "peerDependencies": {
-    "@open-mercato/shared": "workspace:*",
     "@open-mercato/core": "workspace:*",
-    "@open-mercato/queue": "workspace:*"
+    "@open-mercato/queue": "workspace:*",
+    "@open-mercato/shared": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/jest": "^30.0.0",
+    "jest": "^30.2.0",
+    "ts-jest": "^29.4.6"
   }
 }

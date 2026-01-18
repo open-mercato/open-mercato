@@ -2,21 +2,84 @@
 // Note: Generated files and DI container are imported statically to avoid ESM/CJS interop issues.
 // Commands that need to run before generation (e.g., `init`) handle missing modules gracefully.
 
-import { createRequestContainer } from '@/lib/di/container'
+import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { runWorker } from '@open-mercato/queue/worker'
 import type { Module } from '@open-mercato/shared/modules/registry'
 import { getCliModules, hasCliModules, registerCliModules } from './registry'
 export { getCliModules, hasCliModules, registerCliModules }
 import { parseBooleanToken } from '@open-mercato/shared/lib/boolean'
+import type { ChildProcess } from 'node:child_process'
+import path from 'node:path'
+import fs from 'node:fs'
 
 let envLoaded = false
 
 async function ensureEnvLoaded() {
   if (envLoaded) return
+  envLoaded = true
+
+  // Try to find and load .env from the app directory
+  // First, try to find the app directory via resolver
+  try {
+    const { createResolver } = await import('./lib/resolver.js')
+    const resolver = createResolver()
+    const appDir = resolver.getAppDir()
+
+    // Load .env from app directory if it exists
+    const envPath = path.join(appDir, '.env')
+    if (fs.existsSync(envPath)) {
+      const dotenv = await import('dotenv')
+      dotenv.config({ path: envPath })
+      return
+    }
+  } catch {
+    // Resolver might fail during early init, fall back to default behavior
+  }
+
+  // Fall back to default dotenv behavior (loads from cwd)
   try {
     await import('dotenv/config')
   } catch {}
-  envLoaded = true
+}
+
+// Helper to run a CLI command directly (without spawning a process)
+async function runModuleCommand(
+  allModules: Module[],
+  moduleName: string,
+  commandName: string,
+  args: string[] = []
+): Promise<void> {
+  const mod = allModules.find((m) => m.id === moduleName)
+  if (!mod) {
+    throw new Error(`Module not found: "${moduleName}"`)
+  }
+  if (!mod.cli || mod.cli.length === 0) {
+    throw new Error(`Module "${moduleName}" has no CLI commands`)
+  }
+  const cmd = mod.cli.find((c) => c.command === commandName)
+  if (!cmd) {
+    throw new Error(`Command "${commandName}" not found in module "${moduleName}"`)
+  }
+  await cmd.run(args)
+}
+
+// Build all CLI modules (registered + built-in)
+async function buildAllModules(): Promise<Module[]> {
+  const modules = getCliModules()
+
+  // Load optional app-level CLI commands
+  let appCli: any[] = []
+  try {
+    const dynImport: any = (Function('return import') as any)()
+    const app = await dynImport.then((f: any) => f('@/cli')).catch(() => null)
+    if (app && Array.isArray(app?.default)) appCli = app.default
+  } catch {}
+
+  const all = modules.slice()
+
+  if (appCli.length) all.push({ id: 'app', cli: appCli } as any)
+
+  return all
 }
 
 // Helper to run a CLI command directly (without spawning a process)
@@ -163,7 +226,7 @@ export async function run(argv = process.argv) {
 
       if (reinstall) {
         // Load env variables so DATABASE_URL is available
-        try { await import('dotenv/config') } catch {}
+        await ensureEnvLoaded()
         console.log('♻️  Reinstall mode enabled: dropping all database tables...')
         const { Client } = await import('pg')
         const dbUrl = process.env.DATABASE_URL
@@ -219,21 +282,16 @@ export async function run(argv = process.argv) {
         console.log('✅ Database cleared. Proceeding with fresh initialization...\n')
       }
 
-      // Step 1: Install dependencies
-      console.log('📦 Installing dependencies...')
-      execSync('yarn install', { stdio: 'inherit' })
-      console.log('✅ Dependencies installed\n')
-
-      // Step 2: Run generators directly (no process spawn)
+      // Step 1: Run generators directly (no process spawn)
       console.log('🔧 Preparing modules (registry, entities, DI)...')
       const { createResolver } = await import('./lib/resolver')
-      const { generateEntityIds, generateModuleRegistry, generateModuleEntities, generateModuleDi, generateApiClient } = await import('./lib/generators')
+      const { generateEntityIds, generateModuleRegistry, generateModuleRegistryCli, generateModuleEntities, generateModuleDi } = await import('./lib/generators')
       const resolver = createResolver()
       await generateEntityIds({ resolver, quiet: true })
       await generateModuleRegistry({ resolver, quiet: true })
+      await generateModuleRegistryCli({ resolver, quiet: true })
       await generateModuleEntities({ resolver, quiet: true })
       await generateModuleDi({ resolver, quiet: true })
-      await generateApiClient({ resolver, quiet: true })
       console.log('✅ Modules prepared\n')
 
       // Step 3: Apply database migrations directly
@@ -243,14 +301,12 @@ export async function run(argv = process.argv) {
       console.log('✅ Migrations applied\n')
 
       // Step 4: Bootstrap to register modules and entity IDs
-      // Call the actual bootstrap function now that generated files exist
+      // Use the shared dynamicLoader which compiles TypeScript files on-the-fly
       console.log('🔗 Bootstrapping application...')
-      const { bootstrap } = await import('@/bootstrap')
-      bootstrap()
-      // Also register entity IDs via @open-mercato/shared path since some modules use that path
-      const { registerEntityIds: registerEntityIdsShared } = await import('@open-mercato/shared/lib/encryption/entityIds')
-      const { E: entityIdMap } = await import('@/generated/entities.ids.generated')
-      registerEntityIdsShared(entityIdMap)
+      const { bootstrapFromAppRoot } = await import('@open-mercato/shared/lib/bootstrap/dynamicLoader')
+      const bootstrapData = await bootstrapFromAppRoot(resolver.getAppDir())
+      // Register CLI modules directly (bootstrapFromAppRoot returns the data for this purpose)
+      registerCliModules(bootstrapData.modules)
       console.log('✅ Bootstrap complete\n')
 
       // Step 5: Build all modules for CLI commands
@@ -331,14 +387,6 @@ export async function run(argv = process.argv) {
         await runModuleCommand(allModules, 'catalog', 'seed-units', ['--tenant', tenantId, '--org', orgId])
         console.log('📏 ✅ Catalog units seeded\n')
 
-        console.log('📐 Seeding booking capacity units...')
-        await runModuleCommand(allModules, 'booking', 'seed-capacity-units', ['--tenant', tenantId, '--org', orgId])
-        console.log('📐 ✅ Booking capacity units seeded\n')
-
-        console.log('🗓️  Seeding booking availability schedules...')
-        await runModuleCommand(allModules, 'booking', 'seed-availability-rulesets', ['--tenant', tenantId, '--org', orgId])
-        console.log('🗓️  ✅ Booking availability schedules seeded\n')
-
         const parsedEncryption = parseBooleanToken(process.env.TENANT_DATA_ENCRYPTION ?? 'yes')
         const encryptionEnabled = parsedEncryption === null ? true : parsedEncryption
         if (encryptionEnabled) {
@@ -400,9 +448,13 @@ export async function run(argv = process.argv) {
           await runModuleCommand(allModules, 'sales', 'seed-examples', ['--tenant', tenantId, '--org', orgId])
           console.log('🧾 ✅ Sales examples seeded\n')
 
-          console.log('📝 Seeding example todos...')
-          await runModuleCommand(allModules, 'example', 'seed-todos', ['--org', orgId, '--tenant', tenantId])
-          console.log('📝 ✅ Example todos seeded\n')
+          // Optional: seed example todos if the example module is enabled
+          const exampleModule = allModules.find((m) => m.id === 'example')
+          if (exampleModule && exampleModule.cli) {
+            console.log('📝 Seeding example todos...')
+            await runModuleCommand(allModules, 'example', 'seed-todos', ['--org', orgId, '--tenant', tenantId])
+            console.log('📝 ✅ Example todos seeded\n')
+          }
         }
 
         if (stressTestEnabled) {
@@ -679,7 +731,7 @@ export async function run(argv = process.argv) {
           if (payloadArg) {
             try { payload = JSON.parse(payloadArg) } catch { payload = payloadArg }
           }
-          const { createRequestContainer } = await import('@/lib/di/container')
+          const { createRequestContainer } = await import('@open-mercato/shared/lib/di/container')
           const container = await createRequestContainer()
           const bus = (container.resolve('eventBus') as any)
           await bus.emit(eventName, payload, { persistent })
@@ -689,7 +741,7 @@ export async function run(argv = process.argv) {
       {
         command: 'clear',
         run: async () => {
-          const { createRequestContainer } = await import('@/lib/di/container')
+          const { createRequestContainer } = await import('@open-mercato/shared/lib/di/container')
           const container = await createRequestContainer()
           const bus = (container.resolve('eventBus') as any)
           const res = await bus.clearQueue()
@@ -805,7 +857,7 @@ export async function run(argv = process.argv) {
           const baseDir = path.resolve('src/modules', mod, 'api', routeSeg)
           fs.mkdirSync(baseDir, { recursive: true })
           const entitySnake = entity.replace(/([a-z0-9])([A-Z])/g, '$1_$2').toLowerCase()
-          const tmpl = `import { z } from 'zod'\nimport { makeCrudRoute } from '@open-mercato/shared/lib/crud/factory'\nimport { ${entity} } from '@/modules/${mod}/data/entities'\nimport { E } from '@/generated/entities.ids.generated'\nimport * as F from '@/generated/entities/${entitySnake}'\nimport ceEntities from '@/modules/${mod}/ce'\nimport { buildCustomFieldSelectorsForEntity, extractCustomFieldsFromItem, buildCustomFieldFiltersFromQuery } from '@open-mercato/shared/lib/crud/custom-fields'\nimport type { CustomFieldSet } from '@open-mercato/shared/modules/entities'\n\nconst querySchema = z.object({\n  id: z.string().uuid().optional(),\n  page: z.coerce.number().min(1).default(1),\n  pageSize: z.coerce.number().min(1).max(100).default(50),\n  sortField: z.string().optional().default('id'),\n  sortDir: z.enum(['asc','desc']).optional().default('asc'),\n  withDeleted: z.coerce.boolean().optional().default(false),\n}).passthrough()\n\nconst createSchema = z.object({}).passthrough()\nconst updateSchema = z.object({ id: z.string().uuid() }).passthrough()\n\ntype Query = z.infer<typeof querySchema>\n\nconst fieldSets: CustomFieldSet[] = []\nconst ceEntity = Array.isArray(ceEntities) ? ceEntities.find((entity) => entity?.id === '${mod}:${entitySnake}') : undefined\nif (ceEntity?.fields?.length) {\n  fieldSets.push({ entity: ceEntity.id, fields: ceEntity.fields, source: '${mod}' })\n}\n\nconst cfSel = buildCustomFieldSelectorsForEntity(E.${mod}.${entitySnake}, fieldSets)\nconst sortFieldMap: Record<string, unknown> = { id: F.id, created_at: F.created_at, ...Object.fromEntries(cfSel.keys.map(k => [\`cf_\${k}\`, \`cf:\${k}\`])) }\n\nexport const { metadata, GET, POST, PUT, DELETE } = makeCrudRoute({\n  metadata: { GET: { requireAuth: true }, POST: { requireAuth: true }, PUT: { requireAuth: true }, DELETE: { requireAuth: true } },\n  orm: { entity: ${entity}, idField: 'id', orgField: 'organizationId', tenantField: 'tenantId', softDeleteField: 'deletedAt' },\n  events: { module: '${mod}', entity: '${entitySnake}', persistent: true },\n  indexer: { entityType: E.${mod}.${entitySnake} },\n  list: {\n    schema: querySchema,\n    entityId: E.${mod}.${entitySnake},\n    fields: [F.id, F.created_at, ...cfSel.selectors],\n    sortFieldMap,\n    buildFilters: async (q: Query, ctx) => ({\n      ...(await buildCustomFieldFiltersFromQuery({\n        entityId: E.${mod}.${entitySnake},\n        query: q as any,\n        em: ctx.container.resolve('em'),\n        tenantId: ctx.auth!.tenantId,\n      })),\n    }),\n    transformItem: (item: any) => ({ id: item.id, created_at: item.created_at, ...extractCustomFieldsFromItem(item, cfSel.keys) }),\n  },\n  create: { schema: createSchema, mapToEntity: (input: any) => ({}), customFields: { enabled: true, entityId: E.${mod}.${entitySnake}, pickPrefixed: true } },\n  update: { schema: updateSchema, applyToEntity: (entity: ${entity}, input: any) => {}, customFields: { enabled: true, entityId: E.${mod}.${entitySnake}, pickPrefixed: true } },\n  del: { idFrom: 'query', softDelete: true },\n})\n`
+          const tmpl = `import { z } from 'zod'\nimport { makeCrudRoute } from '@open-mercato/shared/lib/crud/factory'\nimport { ${entity} } from '@open-mercato/shared/modules/${mod}/data/entities'\nimport { E } from '#generated/entities.ids.generated'\nimport ceEntities from '@open-mercato/shared/modules/${mod}/ce'\nimport { buildCustomFieldSelectorsForEntity, extractCustomFieldsFromItem, buildCustomFieldFiltersFromQuery } from '@open-mercato/shared/lib/crud/custom-fields'\nimport type { CustomFieldSet } from '@open-mercato/shared/modules/entities'\n\n// Field constants - update these based on your entity's actual fields\nconst F = {\n  id: 'id',\n  tenant_id: 'tenant_id',\n  organization_id: 'organization_id',\n  created_at: 'created_at',\n  updated_at: 'updated_at',\n  deleted_at: 'deleted_at',\n} as const\n\nconst querySchema = z.object({\n  id: z.string().uuid().optional(),\n  page: z.coerce.number().min(1).default(1),\n  pageSize: z.coerce.number().min(1).max(100).default(50),\n  sortField: z.string().optional().default('id'),\n  sortDir: z.enum(['asc','desc']).optional().default('asc'),\n  withDeleted: z.coerce.boolean().optional().default(false),\n}).passthrough()\n\nconst createSchema = z.object({}).passthrough()\nconst updateSchema = z.object({ id: z.string().uuid() }).passthrough()\n\ntype Query = z.infer<typeof querySchema>\n\nconst fieldSets: CustomFieldSet[] = []\nconst ceEntity = Array.isArray(ceEntities) ? ceEntities.find((entity) => entity?.id === '${mod}:${entitySnake}') : undefined\nif (ceEntity?.fields?.length) {\n  fieldSets.push({ entity: ceEntity.id, fields: ceEntity.fields, source: '${mod}' })\n}\n\nconst cfSel = buildCustomFieldSelectorsForEntity(E.${mod}.${entitySnake}, fieldSets)\nconst sortFieldMap: Record<string, unknown> = { id: F.id, created_at: F.created_at, ...Object.fromEntries(cfSel.keys.map(k => [\`cf_\${k}\`, \`cf:\${k}\`])) }\n\nexport const { metadata, GET, POST, PUT, DELETE } = makeCrudRoute({\n  metadata: { GET: { requireAuth: true }, POST: { requireAuth: true }, PUT: { requireAuth: true }, DELETE: { requireAuth: true } },\n  orm: { entity: ${entity}, idField: 'id', orgField: 'organizationId', tenantField: 'tenantId', softDeleteField: 'deletedAt' },\n  events: { module: '${mod}', entity: '${entitySnake}', persistent: true },\n  indexer: { entityType: E.${mod}.${entitySnake} },\n  list: {\n    schema: querySchema,\n    entityId: E.${mod}.${entitySnake},\n    fields: [F.id, F.created_at, ...cfSel.selectors],\n    sortFieldMap,\n    buildFilters: async (q: Query, ctx) => ({\n      ...(await buildCustomFieldFiltersFromQuery({\n        entityId: E.${mod}.${entitySnake},\n        query: q as any,\n        em: ctx.container.resolve('em'),\n        tenantId: ctx.auth!.tenantId,\n      })),\n    }),\n    transformItem: (item: any) => ({ id: item.id, created_at: item.created_at, ...extractCustomFieldsFromItem(item, cfSel.keys) }),\n  },\n  create: { schema: createSchema, mapToEntity: (input: any) => ({}), customFields: { enabled: true, entityId: E.${mod}.${entitySnake}, pickPrefixed: true } },\n  update: { schema: updateSchema, applyToEntity: (entity: ${entity}, input: any) => {}, customFields: { enabled: true, entityId: E.${mod}.${entitySnake}, pickPrefixed: true } },\n  del: { idFrom: 'query', softDelete: true },\n})\n`
           const file = path.join(baseDir, 'route.ts')
           fs.writeFileSync(file, tmpl, { flag: 'wx' })
           console.log(`Created CRUD route: ${path.relative(process.cwd(), file)}`)
@@ -823,16 +875,16 @@ export async function run(argv = process.argv) {
         command: 'all',
         run: async (args: string[]) => {
           const { createResolver } = await import('./lib/resolver')
-          const { generateEntityIds, generateModuleRegistry, generateModuleEntities, generateModuleDi, generateApiClient } = await import('./lib/generators')
+          const { generateEntityIds, generateModuleRegistry, generateModuleRegistryCli, generateModuleEntities, generateModuleDi } = await import('./lib/generators')
           const resolver = createResolver()
           const quiet = args.includes('--quiet') || args.includes('-q')
 
           console.log('Running all generators...')
           await generateEntityIds({ resolver, quiet })
           await generateModuleRegistry({ resolver, quiet })
+          await generateModuleRegistryCli({ resolver, quiet })
           await generateModuleEntities({ resolver, quiet })
           await generateModuleDi({ resolver, quiet })
-          await generateApiClient({ resolver, quiet })
           console.log('All generators completed.')
         },
       },
@@ -872,15 +924,6 @@ export async function run(argv = process.argv) {
           await generateModuleDi({ resolver, quiet: args.includes('--quiet') })
         },
       },
-      {
-        command: 'api-client',
-        run: async (args: string[]) => {
-          const { createResolver } = await import('./lib/resolver')
-          const { generateApiClient } = await import('./lib/generators')
-          const resolver = createResolver()
-          await generateApiClient({ resolver, quiet: args.includes('--quiet') })
-        },
-      },
     ],
   } as any)
 
@@ -914,6 +957,143 @@ export async function run(argv = process.argv) {
           const resolver = createResolver()
           const yes = args.includes('--yes') || args.includes('-y')
           await dbGreenfield(resolver, { yes })
+        },
+      },
+    ],
+  } as any)
+
+  // Built-in CLI module: server (runs Next.js + workers)
+  all.push({
+    id: 'server',
+    cli: [
+      {
+        command: 'dev',
+        run: async () => {
+          const { spawn } = await import('child_process')
+          const path = await import('path')
+          const { createResolver } = await import('./lib/resolver')
+          const resolver = createResolver()
+          const appDir = resolver.getAppDir()
+
+          // In monorepo, packages are hoisted to root; in standalone, they're in app's node_modules
+          const nodeModulesBase = resolver.isMonorepo() ? resolver.getRootDir() : appDir
+
+          const processes: ChildProcess[] = []
+          const autoSpawnWorkers = process.env.AUTO_SPAWN_WORKERS !== 'false'
+
+          function cleanup() {
+            console.log('[server] Shutting down...')
+            for (const proc of processes) {
+              if (!proc.killed) {
+                proc.kill('SIGTERM')
+              }
+            }
+          }
+
+          process.on('SIGTERM', cleanup)
+          process.on('SIGINT', cleanup)
+
+          console.log('[server] Starting Open Mercato in dev mode...')
+
+          // Resolve paths relative to where node_modules are located
+          const nextBin = path.join(nodeModulesBase, 'node_modules/next/dist/bin/next')
+          const mercatoBin = path.join(nodeModulesBase, 'node_modules/@open-mercato/cli/bin/mercato')
+
+          // Start Next.js dev
+          const nextProcess = spawn('node', [nextBin, 'dev', '--turbopack'], {
+            stdio: 'inherit',
+            env: process.env,
+            cwd: appDir,
+          })
+          processes.push(nextProcess)
+
+          // Start workers if enabled
+          if (autoSpawnWorkers) {
+            console.log('[server] Starting workers for all queues...')
+            const workerProcess = spawn('node', [mercatoBin, 'queue', 'worker', '--all'], {
+              stdio: 'inherit',
+              env: process.env,
+              cwd: appDir,
+            })
+            processes.push(workerProcess)
+          }
+
+          // Wait for any process to exit
+          await Promise.race(
+            processes.map(
+              (proc) =>
+                new Promise<void>((resolve) => {
+                  proc.on('exit', () => resolve())
+                })
+            )
+          )
+
+          cleanup()
+        },
+      },
+      {
+        command: 'start',
+        run: async () => {
+          const { spawn } = await import('child_process')
+          const path = await import('path')
+          const { createResolver } = await import('./lib/resolver')
+          const resolver = createResolver()
+          const appDir = resolver.getAppDir()
+
+          // In monorepo, packages are hoisted to root; in standalone, they're in app's node_modules
+          const nodeModulesBase = resolver.isMonorepo() ? resolver.getRootDir() : appDir
+
+          const processes: ChildProcess[] = []
+          const autoSpawnWorkers = process.env.AUTO_SPAWN_WORKERS !== 'false'
+
+          function cleanup() {
+            console.log('[server] Shutting down...')
+            for (const proc of processes) {
+              if (!proc.killed) {
+                proc.kill('SIGTERM')
+              }
+            }
+          }
+
+          process.on('SIGTERM', cleanup)
+          process.on('SIGINT', cleanup)
+
+          console.log('[server] Starting Open Mercato in production mode...')
+
+          // Resolve paths relative to where node_modules are located
+          const nextBin = path.join(nodeModulesBase, 'node_modules/next/dist/bin/next')
+          const mercatoBin = path.join(nodeModulesBase, 'node_modules/@open-mercato/cli/bin/mercato')
+
+          // Start Next.js production server
+          const nextProcess = spawn('node', [nextBin, 'start'], {
+            stdio: 'inherit',
+            env: process.env,
+            cwd: appDir,
+          })
+          processes.push(nextProcess)
+
+          // Start workers if enabled
+          if (autoSpawnWorkers) {
+            console.log('[server] Starting workers for all queues...')
+            const workerProcess = spawn('node', [mercatoBin, 'queue', 'worker', '--all'], {
+              stdio: 'inherit',
+              env: process.env,
+              cwd: appDir,
+            })
+            processes.push(workerProcess)
+          }
+
+          // Wait for any process to exit
+          await Promise.race(
+            processes.map(
+              (proc) =>
+                new Promise<void>((resolve) => {
+                  proc.on('exit', () => resolve())
+                })
+            )
+          )
+
+          cleanup()
         },
       },
     ],

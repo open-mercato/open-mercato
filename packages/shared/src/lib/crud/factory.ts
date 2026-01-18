@@ -1,8 +1,8 @@
 import { z } from 'zod'
 import type { AwilixContainer } from 'awilix'
-import { createRequestContainer } from '@/lib/di/container'
+import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { buildScopedWhere } from '@open-mercato/shared/lib/api/crud'
-import { getAuthFromCookies, getAuthFromRequest, type AuthContext } from '@/lib/auth/server'
+import { getAuthFromCookies, getAuthFromRequest, type AuthContext } from '@open-mercato/shared/lib/auth/server'
 import type { QueryEngine, Where, Sort, Page, QueryCustomFieldSource, QueryJoinEdge } from '@open-mercato/shared/lib/query/types'
 import { SortDir } from '@open-mercato/shared/lib/query/types'
 import type { DataEngine } from '@open-mercato/shared/lib/data/engine'
@@ -24,7 +24,7 @@ import {
 import { serializeExport, normalizeExportFormat, defaultExportFilename, ensureColumns, type CrudExportFormat, type PreparedExport } from './exporters'
 import { CrudHttpError } from './errors'
 import type { CommandBus, CommandLogMetadata } from '@open-mercato/shared/lib/commands'
-import type { EntityId } from '@/modules/entities'
+import type { EntityId } from '@open-mercato/shared/modules/entities'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import {
   buildCollectionTags,

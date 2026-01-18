@@ -254,18 +254,45 @@ jest.mock('@open-mercato/shared/lib/frontend/useOrganizationScope', () => ({
   useOrganizationScopeDetail: () => ({ organizationId: 'org', tenantId: 'tenant' }),
 }))
 
-jest.mock('@/lib/frontend/useOrganizationScope', () => ({
+jest.mock('@open-mercato/shared/lib/frontend/useOrganizationScope', () => ({
   useOrganizationScopeVersion: () => 1,
   useOrganizationScopeDetail: () => ({ organizationId: 'org', tenantId: 'tenant' }),
 }))
 
-jest.mock('@/lib/i18n/context', () => {
-  const translate = (key: string, fallback?: string, vars?: Record<string, unknown>) => {
-    const base = (fallback ?? key) as string
-    if (vars) {
-      return base.replace(/\{\{(\w+)\}\}/g, (_, token) => String(vars[token] ?? ''))
+jest.mock('@open-mercato/shared/lib/i18n/context', () => {
+  // Provide actual translations so tests verify user-visible text
+  const dict: Record<string, string> = {
+    'sales.documents.detail.totals.title': 'Totals',
+    'sales.documents.detail.totals.showDetails': 'Show details',
+    'sales.documents.detail.totals.hideDetails': 'Hide details',
+    'sales.documents.detail.totals.showingAll': 'Showing all totals',
+    'sales.documents.detail.totals.showingKey': 'Showing key totals · {{count}} more',
+  }
+  const translate = (
+    key: string,
+    fallbackOrParams?: string | Record<string, unknown>,
+    params?: Record<string, unknown>
+  ) => {
+    let fallback: string | undefined
+    let resolvedParams: Record<string, unknown> | undefined
+
+    if (typeof fallbackOrParams === 'string') {
+      fallback = fallbackOrParams
+      resolvedParams = params
+    } else {
+      resolvedParams = fallbackOrParams ?? params
     }
-    return base
+
+    const template = dict[key] ?? fallback ?? key
+    if (resolvedParams) {
+      return template.replace(/\{\{(\w+)\}\}|\{(\w+)\}/g, (match, doubleKey, singleKey) => {
+        const token = doubleKey ?? singleKey
+        if (!token) return match
+        const value = resolvedParams![token]
+        return value !== undefined ? String(value) : match
+      })
+    }
+    return template
   }
   return {
     useT: () => translate,
@@ -292,7 +319,8 @@ describe('sales components', () => {
   })
 
   it('formats prices with currency helper and component', () => {
-    expect(formatPriceWithCurrency(10, 'USD')).toContain('$')
+    // Intl.NumberFormat output is locale-dependent, accept either symbol or code
+    expect(formatPriceWithCurrency(10, 'USD')).toMatch(/\$|USD/)
     expect(formatPriceWithCurrency(null, 'USD')).toBe('—')
     render(<PriceWithCurrency amount={15} currency="EUR" />)
     expect(screen.getByText(/€|EUR/)).toBeInTheDocument()

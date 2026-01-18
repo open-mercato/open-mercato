@@ -1,0 +1,85 @@
+---
+title: List inventory items
+description: Render a DataGrid-backed admin page that consumes the Inventory API.
+---
+
+# Step 5: List inventory items
+
+With the API live, replace the placeholder page with a data table that calls it. Reuse the shared `DataGrid` component to get pagination, filters, and column formatting out of the box.
+
+## 1. Create a data provider
+
+```bash
+mkdir -p packages/inventory/src/modules/inventory/backend/inventory/list
+touch packages/inventory/src/modules/inventory/backend/inventory/list/page.tsx
+touch packages/inventory/src/modules/inventory/backend/inventory/list/page.meta.ts
+```
+
+```tsx title="backend/inventory/list/page.tsx"
+import { DataGrid } from '@open-mercato/ui/backend/DataGrid';
+import type { DataGridColumn } from '@open-mercato/ui/backend/DataGrid/types';
+import { readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall';
+
+type InventoryItem = {
+  id: string;
+  sku: string;
+  name: string;
+  quantity: number;
+  location?: string | null;
+};
+
+const columns: DataGridColumn<InventoryItem>[] = [
+  { id: 'sku', title: 'SKU' },
+  { id: 'name', title: 'Name', grow: 2 },
+  { id: 'quantity', title: 'Quantity', align: 'right' },
+  { id: 'location', title: 'Location', grow: 1 },
+];
+
+async function fetchItems(): Promise<InventoryItem[]> {
+  return readApiResultOrThrow('/api/items', undefined, { errorMessage: 'Failed to load inventory items' });
+}
+
+const InventoryListPage = async () => {
+  const rows = await fetchItems();
+  return (
+    <DataGrid
+      title="Inventory"
+      description="Live stock overview pulled from the inventory_items table."
+      columns={columns}
+      rows={rows}
+      getRowId={(row) => row.id}
+    />
+  );
+};
+
+export default InventoryListPage;
+```
+
+```ts title="backend/inventory/list/page.meta.ts"
+import type { PageMetadata } from '@open-mercato/shared/modules/registry';
+
+export const metadata: PageMetadata = {
+  title: 'Inventory',
+  group: 'Operations',
+  order: 20,
+  requireAuth: true,
+  requireFeatures: ['inventory.view'],
+};
+```
+
+## 2. Link from the module landing page
+
+Update `backend/inventory/page.tsx` to redirect to the list route:
+
+```tsx title="backend/inventory/page.tsx"
+import { redirect } from 'next/navigation';
+
+const InventoryLanding = () => {
+  redirect('/backend/inventory/list');
+  return null;
+};
+
+export default InventoryLanding;
+```
+
+Reload `/backend/inventory`. You should now see a fully functional grid. Filters and pagination can be wired by switching to the query engine (see the Framework reference) or by extending the API to accept query parameters.

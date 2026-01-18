@@ -6,7 +6,7 @@ import type {
   WidgetInjectionEventHandlers,
   WidgetBeforeSaveResult,
 } from '@open-mercato/shared/modules/widgets/injection'
-import { loadInjectionWidgetsForSpot, type LoadedInjectionWidget } from '@open-mercato/core/modules/widgets/lib/injection'
+import { loadInjectionWidgetsForSpot, type LoadedInjectionWidget } from '@open-mercato/shared/modules/widgets/injection-loader'
 
 export type InjectionSpotProps<TContext = unknown, TData = unknown> = {
   spotId: InjectionSpotId

@@ -73,8 +73,8 @@ Full examples live in the [Directory service guide](./directory).
 
 ## Tooling & Automation
 
-- Use `npm run dev` to boot the stack locally; the API listens on port `3000`.
-- `npm run modules:prepare` regenerates routing metadata after you add or remove module APIs.
+- Use `yarn dev` to boot the stack locally; the API listens on port `3000`.
+- `yarn generate` regenerates routing metadata after you add or remove module APIs.
 - For integration tests, compose requests with `createRequestContainer()` to reuse the same dependency injection graph as production handlers.
 - Use the shared CRUD helpers in `@open-mercato/shared/lib/crud/factory` to ensure consistent pagination, scoping, and event emission logic.
 

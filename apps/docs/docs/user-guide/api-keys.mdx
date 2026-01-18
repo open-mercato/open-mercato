@@ -1,0 +1,51 @@
+---
+title: Managing API keys
+description: Rotate, scope, and audit API keys for machine-to-machine access.
+---
+
+Use API keys when automations or external systems must call the Open Mercato API without a username and password. Keys inherit RBAC rules, so you can grant narrow permissions to each integration and revoke them without disturbing human accounts.
+
+## Requirements
+
+- Features: `api_keys.view` to see existing keys, `api_keys.create` to mint new ones, and `api_keys.delete` to revoke secrets.
+- Tenant and organization context: the key operates within the tenant and optional organization you select during creation.
+
+## Creating a key in the admin UI
+
+![API keys table](/screenshots/open-mercato-manage-api-keys.png)
+
+1. Open **Admin → Security → API keys**.
+2. Select the tenant and (optionally) the organization the key should scope to.
+3. Click **Create API key** to launch the form.
+
+![Create API key form](/screenshots/open-mercato-create-api-key.png)
+
+4. Provide a descriptive name and optional note so teammates know what the key powers.
+5. Set an expiration if the integration is temporary.
+6. Assign tenant-wide roles or organization-scoped roles as needed. The key receives the same features as those roles.
+7. Confirm to generate the secret.
+
+![API key created modal](/screenshots/open-mercato-api-key-created.png)
+
+- Copy the shown secret immediately; it is hashed after the modal closes.
+- Distribute the prefix (`omk_live_...`) alongside the secret so auditors can correlate requests with this key.
+
+## Rotating or revoking a key
+
+- Use the table actions to delete a key. Deletion immediately blocks further requests that use the secret.
+- Create a replacement key before deletion to avoid downtime. Update your automation to the new secret, verify access, then revoke the old one.
+- Monitor the **Last used** column to confirm automated jobs continue to call the API as expected.
+
+## Automating key management with the CLI
+
+For scripted environments, the CLI mirrors the UI workflow. Run:
+
+```bash
+yarn mercato api_keys add \
+  --name "CI deployer" \
+  --tenantId 4c1378aa-1d27-4bc5-9a82-5afecf05c8f3 \
+  --organizationId 6b4b3a5d-9a5d-4fcf-927f-830e1d9b3eee \
+  --roles admin,employee
+```
+
+The command prints the API key secret once. Store it in your secret manager and never commit it to version control. See the [CLI guide for API keys](../cli/api-keys) for full flag documentation and automation tips.

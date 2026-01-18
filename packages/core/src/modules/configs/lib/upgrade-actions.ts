@@ -6,11 +6,6 @@ import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacS
 import { reindexModules } from '@open-mercato/core/modules/configs/lib/reindex-helpers'
 import { installExampleCatalogData, type CatalogSeedScope } from '@open-mercato/core/modules/catalog/lib/seeds'
 import { seedSalesExamples } from '@open-mercato/core/modules/sales/seed/examples'
-import {
-  seedBookingAvailabilityRuleSetDefaults,
-  seedBookingCapacityUnits,
-  seedBookingResourceExamples,
-} from '@open-mercato/core/modules/booking/lib/seeds'
 import { seedExampleCurrencies } from '@open-mercato/core/modules/currencies/lib/seeds'
 import { seedExampleWorkflows } from '@open-mercato/core/modules/workflows/lib/seeds'
 import { collectCrudCacheStats, purgeCrudCacheSegment } from '@open-mercato/shared/lib/crud/cache-stats'
@@ -255,7 +250,7 @@ export const upgradeActions: UpgradeActionDefinition[] = [
     },
   },
   {
-    id: 'configs.upgrades.examples.booking_currencies_workflows',
+    id: 'configs.upgrades.examples.currencies_workflows',
     version: '0.3.13',
     messageKey: 'upgrades.v0313.message',
     ctaKey: 'upgrades.v0313.cta',
@@ -265,9 +260,6 @@ export const upgradeActions: UpgradeActionDefinition[] = [
       const normalizedTenantId = tenantId.trim()
       const scope = { tenantId, organizationId }
       await em.transactional(async (tem) => {
-        await seedBookingCapacityUnits(tem, scope)
-        await seedBookingAvailabilityRuleSetDefaults(tem, scope)
-        await seedBookingResourceExamples(tem, scope)
         await seedExampleCurrencies(tem, scope)
         await seedExampleWorkflows(tem, scope)
 
@@ -281,7 +273,7 @@ export const upgradeActions: UpgradeActionDefinition[] = [
             tem.create(RoleAcl, {
               role: adminRole,
               tenantId: normalizedTenantId,
-              featuresJson: ['search.*', 'feature_toggles.*', 'booking.*', 'currencies.*'],
+              featuresJson: ['search.*', 'feature_toggles.*', 'currencies.*'],
               isSuperAdmin: false,
               createdAt: new Date(),
               updatedAt: new Date(),
@@ -295,7 +287,6 @@ export const upgradeActions: UpgradeActionDefinition[] = [
           const nextFeatures = new Set(features)
           nextFeatures.add('search.*')
           nextFeatures.add('feature_toggles.*')
-          nextFeatures.add('booking.*')
           nextFeatures.add('currencies.*')
           if (nextFeatures.size === features.length) continue
           acl.featuresJson = Array.from(nextFeatures)
@@ -309,8 +300,6 @@ export const upgradeActions: UpgradeActionDefinition[] = [
       })
       const rbac = container.resolve<RbacService>('rbacService')
       await rbac.invalidateTenantCache(normalizedTenantId)
-      const vectorService = resolveVectorService(container)
-      await reindexModules(em, ['booking'], { tenantId, organizationId, vectorService })
     },
   },
 ]

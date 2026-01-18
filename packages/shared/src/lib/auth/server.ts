@@ -108,7 +108,7 @@ function applySuperAdminScope(
 async function resolveApiKeyAuth(secret: string): Promise<AuthContext> {
   if (!secret) return null
   try {
-    const { createRequestContainer } = await import('@/lib/di/container')
+    const { createRequestContainer } = await import('@open-mercato/shared/lib/di/container')
     const container = await createRequestContainer()
     const em = (container.resolve('em') as EntityManager)
     const { findApiKeyBySecret } = await import('@open-mercato/core/modules/api_keys/services/apiKeyService')

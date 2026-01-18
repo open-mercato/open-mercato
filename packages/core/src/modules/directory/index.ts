@@ -1,6 +1,6 @@
 import './commands/tenants'
 import './commands/organizations'
-import type { ModuleInfo } from '@/modules/registry'
+import type { ModuleInfo } from '@open-mercato/shared/modules/registry'
 
 export const metadata: ModuleInfo = {
   name: 'directory',

@@ -14,9 +14,19 @@ export function registerEntityIds(E: EntityIds) {
   _entityIdLookup = null // Reset cache on re-registration
 }
 
-export function getEntityIds(): EntityIds {
+/**
+ * Get registered entity IDs.
+ *
+ * @param throwIfNotRegistered - If true, throws error when entity IDs are not registered.
+ *                               If false, returns empty object (useful during module load).
+ *                               Default: true
+ */
+export function getEntityIds(throwIfNotRegistered = true): EntityIds {
   if (!_entityIds) {
-    throw new Error('[Bootstrap] Entity IDs not registered. Call registerEntityIds() at bootstrap.')
+    if (throwIfNotRegistered) {
+      throw new Error('[Bootstrap] Entity IDs not registered. Call registerEntityIds() at bootstrap.')
+    }
+    return {} as EntityIds
   }
   return _entityIds
 }

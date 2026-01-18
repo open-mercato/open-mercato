@@ -14,8 +14,8 @@ import {
   createSalesCrudOpenApi,
   defaultOkResponseSchema,
 } from '../openapi'
-import { E } from '@open-mercato/core/generated/entities.ids.generated'
-import * as F from '@open-mercato/core/generated/entities/sales_shipment'
+import { E } from '#generated/entities.ids.generated'
+import * as F from '#generated/entities/sales_shipment'
 import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 
 const rawBodySchema = z.object({}).passthrough()

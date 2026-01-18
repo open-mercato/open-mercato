@@ -85,7 +85,7 @@ const accessLogService = {
   log: jest.fn(async () => {}),
 }
 
-jest.mock('@/lib/di/container', () => ({
+jest.mock('@open-mercato/shared/lib/di/container', () => ({
   createRequestContainer: async () => ({
     resolve: (name: string) => ({
       em,
@@ -98,7 +98,7 @@ jest.mock('@/lib/di/container', () => ({
   })
 }))
 
-jest.mock('@/lib/auth/server', () => {
+jest.mock('@open-mercato/shared/lib/auth/server', () => {
   const auth = { sub: 'u1', orgId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', tenantId: '123e4567-e89b-12d3-a456-426614174000', roles: ['admin'] }
   return {
     getAuthFromCookies: async () => auth,

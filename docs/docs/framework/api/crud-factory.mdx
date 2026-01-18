@@ -79,17 +79,17 @@ const crud = makeCrudRoute({
 
 ## Usage
 
-Define a `route.ts` under `src/modules/<module>/api/<path>/route.ts` and use the factory.
+Define a `route.ts` under `packages/<pkg>/src/modules/<module>/api/<path>/route.ts` (or `apps/mercato/src/modules/<module>/api/<path>/route.ts` for app overrides) and use the factory.
 
 ### Modern Pattern (with Commands)
 
 The recommended approach is to delegate mutations to [Commands](../commands/overview) and use the factory primarily for the `GET` (list) handler and wiring.
 
-```ts title="src/modules/example/api/todos/route.ts"
+```ts title="packages/<pkg>/src/modules/example/api/todos/route.ts"
 import { z } from "zod";
 import { makeCrudRoute } from "@open-mercato/shared/lib/crud/factory";
 import { TodoEntity } from "../../data/entities";
-import { E } from "@open-mercato/example/generated/entities.ids.generated";
+import { E } from "@/generated/entities.ids.generated";
 
 const querySchema = z.object({
   page: z.coerce.number().min(1).default(1),

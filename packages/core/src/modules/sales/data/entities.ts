@@ -809,12 +809,16 @@ export class SalesDocumentSequence {
 
   @Property({ name: 'updated_at', type: Date, onUpdate: () => new Date() })
   updatedAt: Date = new Date()
+
+  @Property({ name: 'deleted_at', type: Date, nullable: true })
+  deletedAt?: Date | null
 }
 
 @Entity({ tableName: 'sales_quotes' })
 @Index({ name: 'sales_quotes_scope_idx', properties: ['organizationId', 'tenantId'] })
 @Index({ name: 'sales_quotes_status_idx', properties: ['organizationId', 'tenantId', 'status'] })
 @Unique({ name: 'sales_quotes_number_unique', properties: ['organizationId', 'tenantId', 'quoteNumber'] })
+@Unique({ name: 'sales_quotes_acceptance_token_unique', properties: ['acceptanceToken'] })
 export class SalesQuote {
   @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
   id!: string
@@ -962,6 +966,12 @@ export class SalesQuote {
 
   @Property({ name: 'converted_order_id', type: 'uuid', nullable: true })
   convertedOrderId?: string | null
+
+  @Property({ name: 'acceptance_token', type: 'text', nullable: true })
+  acceptanceToken?: string | null
+
+  @Property({ name: 'sent_at', type: Date, nullable: true })
+  sentAt?: Date | null
 
   @OneToMany(() => SalesQuoteLine, (line) => line.quote)
   lines = new Collection<SalesQuoteLine>(this)
@@ -1145,6 +1155,9 @@ export class SalesQuoteAdjustment {
 
   @Property({ name: 'updated_at', type: Date, onUpdate: () => new Date() })
   updatedAt: Date = new Date()
+
+  @Property({ name: 'deleted_at', type: Date, nullable: true })
+  deletedAt?: Date | null
 }
 
 @Entity({ tableName: 'sales_shipments' })
@@ -1661,6 +1674,9 @@ export class SalesNote {
 
   @Property({ name: 'updated_at', type: Date, onUpdate: () => new Date() })
   updatedAt: Date = new Date()
+
+  @Property({ name: 'deleted_at', type: Date, nullable: true })
+  deletedAt?: Date | null
 }
 
 @Entity({ tableName: 'sales_document_addresses' })

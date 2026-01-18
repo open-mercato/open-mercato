@@ -59,15 +59,17 @@ export async function createRequestContainer(): Promise<AppContainer> {
     }
   } catch { /* optional */ }
   // App-level DI override (last chance)
+  // This import path resolves only in the app context, not in packages
   try {
+    // @ts-ignore - @/di only exists in app context, not in packages
     const appDi = await import('@/di') as any
-      if (appDi?.register) {
-        try {
-          const maybe = appDi.register(container)
-          if (maybe && typeof maybe.then === 'function') await maybe
-        } catch {}
-      }
-    } catch {}
+    if (appDi?.register) {
+      try {
+        const maybe = appDi.register(container)
+        if (maybe && typeof maybe.then === 'function') await maybe
+      } catch {}
+    }
+  } catch {}
   // Ensure tenant encryption subscriber is always registered on the fresh request-scoped EM
   try {
     const emForEnc = container.resolve('em') as any

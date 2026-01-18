@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server'
-import { getAuthFromRequest } from '@/lib/auth/server'
+import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 
 export const metadata = {

@@ -1,4 +1,4 @@
-jest.mock('@open-mercato/core/generated/entities.ids.generated', () => ({
+jest.mock('#generated/entities.ids.generated', () => ({
   E: {
     auth: {
       user: 'auth:user',
@@ -8,7 +8,7 @@ jest.mock('@open-mercato/core/generated/entities.ids.generated', () => ({
       organization: 'directory:organization',
     },
   },
-}), { virtual: true })
+}))
 
 jest.mock('@open-mercato/shared/lib/i18n/server', () => ({
   resolveTranslations: async () => ({

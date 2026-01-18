@@ -1,9 +1,9 @@
 import { NextResponse } from 'next/server'
-import { getAuthFromRequest } from '@/lib/auth/server'
+import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { buildSystemStatusSnapshot } from '../../lib/system-status'
 import type { SystemStatusSnapshot } from '../../lib/system-status.types'
-import { createRequestContainer } from '@/lib/di/container'
+import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { runWithCacheTenant, type CacheStrategy } from '@open-mercato/cache'
 
 export const metadata = {

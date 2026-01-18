@@ -18,6 +18,31 @@ This repository is designed for extensibility. Agents should leverage the module
   - Prefer colocated `page.meta.ts`, `<name>.meta.ts`, or folder `meta.ts`.
   - Alternatively, server components may `export const metadata` from the page file itself.
 - API under `src/modules/<module>/api/<method>/<path>.ts` → `/api/<path>` dispatched by method
+  - **OpenAPI Specifications**: All API route files MUST export an `openApi` object to document request/response schemas for automatic API documentation generation. This ensures consistent API documentation across all modules.
+    - For CRUD routes, create an `openapi.ts` helper file in your module's `api/` directory following the pattern from `packages/core/src/modules/catalog/api/openapi.ts`
+    - Export `openApi` from each route file with schemas for all HTTP methods (GET, POST, PUT, DELETE)
+    - Use Zod schemas for request bodies, query parameters, and response shapes
+    - Example structure:
+      ```typescript
+      // src/modules/<module>/api/openapi.ts
+      import { createCrudOpenApiFactory } from '@open-mercato/shared/lib/openapi/crud'
+
+      export const buildModuleCrudOpenApi = createCrudOpenApiFactory({
+        defaultTag: 'ModuleName',
+        // ... other config
+      })
+
+      // src/modules/<module>/api/<resource>/route.ts
+      export const openApi = buildModuleCrudOpenApi({
+        resourceName: 'Resource',
+        querySchema: listQuerySchema,
+        listResponseSchema: createPagedListResponseSchema(itemSchema),
+        create: { schema: createSchema, description: '...' },
+        update: { schema: updateSchema, responseSchema: okSchema, description: '...' },
+        del: { schema: deleteSchema, responseSchema: okSchema, description: '...' },
+      })
+      ```
+    - For non-CRUD routes, manually define the `openApi` object with full HTTP method specifications
 - Subscribers under `src/modules/<module>/subscribers/*.ts` exporting default handler and `metadata` with `{ event: string, persistent?: boolean, id?: string }`
 - Workers under `src/modules/<module>/workers/*.ts` exporting default handler and `metadata` with `{ queue: string, id?: string, concurrency?: number }`
 - Optional CLI at `src/modules/<module>/cli.ts` default export
@@ -42,7 +67,7 @@ This repository is designed for extensibility. Agents should leverage the module
 - When submitting CRUD forms, collect custom-field payloads via `collectCustomFieldValues()` from `@open-mercato/ui/backend/utils/customFieldValues` instead of ad-hoc loops. Pass `{ transform }` to normalize values (e.g., `normalizeCustomFieldSubmitValue`) and always reuse this helper for both `cf_` and `cf:` prefixed keys so forms stay consistent.
 - Custom entities CRUD: follow the customers module API patterns (CRUD factory + query engine). Always wire custom field helpers for create/update/response normalization, and set `indexer: { entityType }` in `makeCrudRoute` so custom entities stay indexed and custom fields remain queryable.
 - Command undo + custom fields: capture custom field snapshots inside the same `before`/`after` payloads (e.g., `snapshot.custom`) and restore via `buildCustomFieldResetMap(before.custom, after.custom)` in `undo`. Do not rely on `changes`/`changesJson` for restoration.
-- Command side effects must include `indexer: { entityType, cacheAliases }` in both `emitCrudSideEffects` and `emitCrudUndoSideEffects` so undo refreshes the query index and caches (e.g., booking availability rule sets, resources, teams).
+- Command side effects must include `indexer: { entityType, cacheAliases }` in both `emitCrudSideEffects` and `emitCrudUndoSideEffects` so undo refreshes the query index and caches (e.g., search indexes and derived caches).
 - New admin pages and entities must use CRUD factory API routes and undoable commands, with custom fields fully supported in create/update/response flows. See customers examples: `packages/core/src/modules/customers/api/people/route.ts`, `packages/core/src/modules/customers/commands/people.ts`, `packages/core/src/modules/customers/backend/customers/people/page.tsx`.
 - Database entities (MikroORM) live in `src/modules/<module>/data/entities.ts` (fallbacks: `db/entities.ts` or `schema.ts` for compatibility).
 - Generators build:
@@ -193,7 +218,6 @@ This repository is designed for extensibility. Agents should leverage the module
   - Request scoping helpers (`withScopedPayload`, `parseScopedCommandInput`, etc.) live in `packages/shared/src/lib/api/scoped.ts`. Import from there instead of redefining per module so tenants/organization enforcement stays consistent. Prefer `createScopedApiHelpers()` to tailor module-specific translations while keeping behaviour aligned.
 - Catalog price selection, channel scoping, and layered overrides must use the helpers exported from `packages/core/src/modules/catalog/lib/pricing.ts`. Reuse `selectBestPrice`, `resolvePriceVariantId`, etc., instead of reimplementing scoring logic. If you need to customize the algorithm, register a resolver via `registerCatalogPricingResolver(resolver, { priority })` so your logic composes with the default `resolveCatalogPrice` pipeline. The helper now emits `catalog.pricing.resolve.before|after` events; reach for the DI token `catalogPricingService` when you need to resolve prices so overrides (event-driven or service swaps) take effect.
 - Order/quote totals must be computed through the DI-provided `salesCalculationService`, which wraps the existing `salesCalculations` registry and dispatches `sales.line.calculate.*` / `sales.document.calculate.*` events. Never reimplement document math inline; register line/totals calculators or override the service via DI.
-- Availability merges should use the DI-provided `bookingAvailabilityService` (wrapping `getMergedAvailabilityWindows` from `packages/core/src/modules/booking/lib/availabilityMerge.ts`) so date-specific overrides, notes, and whole-day rules apply consistently for resources and team members.
 - When adding new module features in `acl.ts`, mirror them in the `mercato init` role seeding (see `packages/core/src/modules/auth/cli.ts`) so the default admin role ships with immediate access to the capabilities you just enabled.
 - `ce.ts` files only describe custom entities or seed default custom-field sets. Always reference generated ids (`E.<module>.<entity>`) so system entities stay aligned with `generated/entities.ids.generated.ts`. System tables (e.g. catalog/sales documents) are auto-discovered from ORM metadata—exporting them in `ce.ts` is just for labeling/field seeding and will not register them as user-defined entities.
 

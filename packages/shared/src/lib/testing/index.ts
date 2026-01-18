@@ -11,3 +11,5 @@ export {
   type TestBootstrapOptions,
   type EntityIds,
 } from './bootstrap'
+
+export { renderWithProviders } from './renderWithProviders'

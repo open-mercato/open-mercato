@@ -10,7 +10,7 @@ import {
   documentAddressDeleteSchema,
   documentAddressUpdateSchema,
 } from '../../data/validators'
-import { E } from '@open-mercato/core/generated/entities.ids.generated'
+import { E } from '#generated/entities.ids.generated'
 
 const rawBodySchema = z.object({}).passthrough()
 

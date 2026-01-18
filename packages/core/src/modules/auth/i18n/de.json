@@ -89,5 +89,11 @@
   "auth.users.widgets.loading": "Widgets werden geladen…",
   "auth.users.widgets.mode.inherit": "Von Rollen übernehmen",
   "auth.users.widgets.mode.override": "Für diesen Benutzer überschreiben",
-  "auth.users.widgets.mode.hint": "Neue Benutzer erben Widgets von ihren zugewiesenen Rollen. Überschreiben Sie die Auswahl, um eine eigene Zusammenstellung festzulegen."
+  "auth.users.widgets.mode.hint": "Neue Benutzer erben Widgets von ihren zugewiesenen Rollen. Überschreiben Sie die Auswahl, um eine eigene Zusammenstellung festzulegen.",
+  "auth.email.resetPassword.subject": "Passwort zurücksetzen",
+  "auth.email.resetPassword.preview": "Passwort zurücksetzen",
+  "auth.email.resetPassword.title": "Passwort zurücksetzen",
+  "auth.email.resetPassword.body": "Klicken Sie auf den Link unten, um ein neues Passwort festzulegen. Dieser Link läuft in 60 Minuten ab.",
+  "auth.email.resetPassword.cta": "Neues Passwort festlegen",
+  "auth.email.resetPassword.hint": "Wenn Sie dies nicht angefordert haben, können Sie diese E-Mail ignorieren."
 }

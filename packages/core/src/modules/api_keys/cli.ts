@@ -1,5 +1,5 @@
-import type { ModuleCli } from '@/modules/registry'
-import { createRequestContainer } from '@/lib/di/container'
+import type { ModuleCli } from '@open-mercato/shared/modules/registry'
+import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { createApiKey } from './services/apiKeyService'
 import { Organization } from '@open-mercato/core/modules/directory/data/entities'
 import { Role } from '@open-mercato/core/modules/auth/data/entities'

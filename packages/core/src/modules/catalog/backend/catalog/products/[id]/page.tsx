@@ -18,8 +18,8 @@ import { Textarea } from '@open-mercato/ui/primitives/textarea'
 import { DataLoader } from '@open-mercato/ui/primitives/DataLoader'
 import { cn } from '@open-mercato/shared/lib/utils'
 import { apiCall, readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
-import { useT } from '@/lib/i18n/context'
-import { E } from '@open-mercato/core/generated/entities.ids.generated'
+import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { E } from '#generated/entities.ids.generated'
 import { ProductMediaManager, type ProductMediaItem } from '@open-mercato/core/modules/catalog/components/products/ProductMediaManager'
 import {
   fetchOptionSchemaTemplate,
