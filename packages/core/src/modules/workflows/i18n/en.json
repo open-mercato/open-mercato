@@ -186,7 +186,7 @@
         "executionTimeline": "Execution Timeline",
         "executionHistory": "Event Log"
       },
-      "statuses": {
+      "status": {
         "RUNNING": "Running",
         "WAITING_FOR_ACTIVITIES": "Waiting for Activities",
         "PAUSED": "Paused",
@@ -395,12 +395,14 @@
         "completeFailed": "Failed to complete task",
         "loadFailed": "Failed to load user tasks"
       },
+      "overdue": "OVERDUE",
+      "claimedBy": "Claimed by",
       "roles": "Roles",
       "detail": {
         "loading": "Loading task...",
         "notFound": "Task not found",
         "backToList": "Back to Tasks",
-        "overdueWarning": "⚠ This task is overdue!",
+        "overdueWarning": "This task is overdue!",
         "cannotComplete": "This task has already been completed or cancelled and cannot be modified.",
         "noFormSchema": "This task has no form to complete. You can add optional comments and submit.",
         "assignedTo": "Assigned To",

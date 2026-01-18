@@ -92,6 +92,11 @@
     "turbo": "^2.3.3",
     "typescript": "^5.9.3"
   },
+  "optionalDependencies": {
+    "better-sqlite3": "^12.5.0",
+    "bullmq": "^5.34.8",
+    "ioredis": "^5.8.2"
+  },
   "resolutions": {
     "pg": "8.16.3",
     "zod": "4.1.13"

@@ -15,7 +15,7 @@ import {
   createGeneratorResult,
 } from '../utils'
 
-type GroupKey = '@app' | '@open-mercato/core' | string
+type GroupKey = '@app' | '@open-mercato/core' | '@open-mercato/example' | string
 type EntityFieldMap = Record<string, string[]>
 
 export interface EntityIdsOptions {

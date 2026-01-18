@@ -186,7 +186,7 @@
         "executionTimeline": "Oś Czasu Wykonania",
         "executionHistory": "Dziennik Zdarzeń"
       },
-      "statuses": {
+      "status": {
         "RUNNING": "W Toku",
         "PAUSED": "Wstrzymany",
         "COMPLETED": "Ukończony",
@@ -394,12 +394,14 @@
         "completeFailed": "Nie udało się zakończyć zadania",
         "loadFailed": "Nie udało się załadować zadań użytkowników"
       },
+      "overdue": "PRZETERMINOWANE",
+      "claimedBy": "Przejęte przez",
       "roles": "Role",
       "detail": {
         "loading": "Ładowanie zadania...",
         "notFound": "Zadanie nie znalezione",
         "backToList": "Powrót do zadań",
-        "overdueWarning": "⚠ To zadanie jest przeterminowane!",
+        "overdueWarning": "To zadanie jest przeterminowane!",
         "cannotComplete": "To zadanie zostało już zakończone lub anulowane i nie może być modyfikowane.",
         "noFormSchema": "To zadanie nie ma formularza do wypełnienia. Możesz dodać opcjonalne komentarze i wysłać.",
         "assignedTo": "Przypisane do",

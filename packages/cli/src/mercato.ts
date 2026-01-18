@@ -77,6 +77,46 @@ async function buildAllModules(): Promise<Module[]> {
 
   const all = modules.slice()
 
+  // Built-in CLI module: generate
+  all.push({
+    id: 'generate',
+    cli: [
+      {
+        command: 'all',
+        run: async (args: string[]) => {
+          const { createResolver } = await import('./lib/resolver')
+          const { generateEntityIds, generateModuleRegistry, generateModuleRegistryCli, generateModuleEntities, generateModuleDi, generateApiClient } = await import('./lib/generators')
+          const resolver = createResolver()
+          const quiet = args.includes('--quiet') || args.includes('-q')
+          console.log('Running all generators...')
+          await generateEntityIds({ resolver, quiet })
+          await generateModuleRegistry({ resolver, quiet })
+          await generateModuleRegistryCli({ resolver, quiet })
+          await generateModuleEntities({ resolver, quiet })
+          await generateModuleDi({ resolver, quiet })
+          await generateApiClient({ resolver, quiet })
+          console.log('All generators completed.')
+        },
+      },
+    ],
+  } as any)
+
+  // Built-in CLI module: db
+  all.push({
+    id: 'db',
+    cli: [
+      {
+        command: 'migrate',
+        run: async () => {
+          const { createResolver } = await import('./lib/resolver')
+          const { dbMigrate } = await import('./lib/db')
+          const resolver = createResolver()
+          await dbMigrate(resolver)
+        },
+      },
+    ],
+  } as any)
+
   if (appCli.length) all.push({ id: 'app', cli: appCli } as any)
 
   return all
@@ -86,7 +126,7 @@ export async function run(argv = process.argv) {
   await ensureEnvLoaded()
   const [, , ...parts] = argv
   const [first, second, ...remaining] = parts
-  
+
   // Handle init command directly
   if (first === 'init') {
     const { execSync } = await import('child_process')
@@ -206,13 +246,14 @@ export async function run(argv = process.argv) {
       // Step 1: Run generators directly (no process spawn)
       console.log('🔧 Preparing modules (registry, entities, DI)...')
       const { createResolver } = await import('./lib/resolver')
-      const { generateEntityIds, generateModuleRegistry, generateModuleRegistryCli, generateModuleEntities, generateModuleDi } = await import('./lib/generators')
+      const { generateEntityIds, generateModuleRegistry, generateModuleRegistryCli, generateModuleEntities, generateModuleDi, generateApiClient } = await import('./lib/generators')
       const resolver = createResolver()
       await generateEntityIds({ resolver, quiet: true })
       await generateModuleRegistry({ resolver, quiet: true })
       await generateModuleRegistryCli({ resolver, quiet: true })
       await generateModuleEntities({ resolver, quiet: true })
       await generateModuleDi({ resolver, quiet: true })
+      await generateApiClient({ resolver, quiet: true })
       console.log('✅ Modules prepared\n')
 
       // Step 3: Apply database migrations directly
@@ -462,7 +503,7 @@ export async function run(argv = process.argv) {
 
   // Load modules from registered CLI modules
   const modules = getCliModules()
-  
+
   // Load optional app-level CLI commands lazily without static import resolution
   let appCli: any[] = []
   try {
@@ -471,7 +512,7 @@ export async function run(argv = process.argv) {
     if (app && Array.isArray(app?.default)) appCli = app.default
   } catch {}
   const all = modules.slice()
-  
+
   // Built-in CLI module: queue
   all.push({
     id: 'queue',
@@ -667,7 +708,7 @@ export async function run(argv = process.argv) {
       },
     ],
   } as any)
-  
+
   // Built-in CLI module: scaffold
   all.push({
     id: 'scaffold',
@@ -792,7 +833,7 @@ export async function run(argv = process.argv) {
         command: 'all',
         run: async (args: string[]) => {
           const { createResolver } = await import('./lib/resolver')
-          const { generateEntityIds, generateModuleRegistry, generateModuleRegistryCli, generateModuleEntities, generateModuleDi } = await import('./lib/generators')
+          const { generateEntityIds, generateModuleRegistry, generateModuleRegistryCli, generateModuleEntities, generateModuleDi, generateApiClient } = await import('./lib/generators')
           const resolver = createResolver()
           const quiet = args.includes('--quiet') || args.includes('-q')
 
@@ -802,6 +843,7 @@ export async function run(argv = process.argv) {
           await generateModuleRegistryCli({ resolver, quiet })
           await generateModuleEntities({ resolver, quiet })
           await generateModuleDi({ resolver, quiet })
+          await generateApiClient({ resolver, quiet })
           console.log('All generators completed.')
         },
       },
@@ -839,6 +881,15 @@ export async function run(argv = process.argv) {
           const { generateModuleDi } = await import('./lib/generators')
           const resolver = createResolver()
           await generateModuleDi({ resolver, quiet: args.includes('--quiet') })
+        },
+      },
+      {
+        command: 'api-client',
+        run: async (args: string[]) => {
+          const { createResolver } = await import('./lib/resolver')
+          const { generateApiClient } = await import('./lib/generators')
+          const resolver = createResolver()
+          await generateApiClient({ resolver, quiet: args.includes('--quiet') })
         },
       },
     ],

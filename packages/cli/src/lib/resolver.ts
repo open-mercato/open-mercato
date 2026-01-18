@@ -37,7 +37,7 @@ function pkgDirFor(rootDir: string, from?: string, isMonorepo = true): string {
   if (!from || from === '@open-mercato/core') {
     return path.resolve(rootDir, 'packages/core/src/modules')
   }
-  // Support other local packages like '@open-mercato/onboarding' => packages/onboarding/src/modules
+  // Support other local packages like '@open-mercato/onboarding' or '@open-mercato/example' => packages/{name}/src/modules
   const m = from.match(/^@open-mercato\/(.+)$/)
   if (m) {
     return path.resolve(rootDir, `packages/${m[1]}/src/modules`)

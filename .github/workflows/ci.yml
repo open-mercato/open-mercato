@@ -33,6 +33,7 @@ jobs:
       - name: Prepare generated modules
         run: yarn generate
 
+
       - name: Checking types
         run: yarn typecheck
 
