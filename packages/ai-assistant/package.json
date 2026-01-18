@@ -6,7 +6,8 @@
   "main": "./dist/index.js",
   "scripts": {
     "build": "node build.mjs",
-    "mcp:dev": "mercato ai_assistant mcp:dev"
+    "mcp:dev": "mercato ai_assistant mcp:dev",
+    "mcp:serve-http": "mercato ai_assistant mcp:serve-http"
   },
   "exports": {
     ".": "./dist/index.js",

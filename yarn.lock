@@ -5826,6 +5826,7 @@ __metadata:
     framer-motion: "npm:^11.0.0"
     react-json-view-lite: "npm:^2.5.0"
     react-markdown: "npm:^9.0.0"
+    tsx: "npm:^4.21.0"
     zod-to-json-schema: "npm:^3.25.1"
   peerDependencies:
     "@open-mercato/shared": "workspace:*"
