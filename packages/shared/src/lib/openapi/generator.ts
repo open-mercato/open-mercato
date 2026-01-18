@@ -857,10 +857,17 @@ function buildCurlSample(
   if (bodyExample !== undefined) {
     lines.push(`  -H "Content-Type: ${requestContentType}"`)
     const serialized = stringifyBodyExample(bodyExample, requestContentType)
-    if (serialized) lines.push(`  -d '${serialized.replace(/'/g, "\\'")}'`)
+    if (serialized) {
+      const escapedSerialized = escapeShellDoubleQuotes(serialized)
+      lines.push(`  -d "${escapedSerialized}"`)
+    }
   }
 
   return lines.join(' \\\n')
+}
+
+function escapeShellDoubleQuotes(value: string): string {
+  return value.replace(/[\\`"$]/g, '\\$&')
 }
 
 function ensureSecurityComponents(doc: OpenApiDocument) {
@@ -877,8 +884,37 @@ function ensureSecurityComponents(doc: OpenApiDocument) {
 }
 
 function resolveOperationId(moduleId: string, path: string, method: HttpMethod): string {
-  const cleaned = path.replace(/[^a-zA-Z0-9]+/g, '_').replace(/^_+|_+$/g, '')
-  return `${moduleId}_${method.toLowerCase()}_${cleaned}`.replace(/__+/g, '_')
+  const cleaned = normalizeOperationIdSegment(path)
+  return [moduleId, method.toLowerCase(), cleaned].filter(Boolean).join('_')
+}
+
+function normalizeOperationIdSegment(input: string): string {
+  let output = ''
+  let previousUnderscore = false
+
+  for (const character of input) {
+    const codePoint = character.charCodeAt(0)
+    const isLower = codePoint >= 97 && codePoint <= 122
+    const isUpper = codePoint >= 65 && codePoint <= 90
+    const isNumber = codePoint >= 48 && codePoint <= 57
+    const isAlphaNumeric = isLower || isUpper || isNumber
+
+    if (isAlphaNumeric) {
+      output += character
+      previousUnderscore = false
+      continue
+    }
+
+    if (!previousUnderscore) {
+      output += '_'
+      previousUnderscore = true
+    }
+  }
+
+  while (output.startsWith('_')) output = output.slice(1)
+  while (output.endsWith('_')) output = output.slice(0, -1)
+
+  return output
 }
 
 function collectRouteDoc(api: ModuleApi, moduleId: string): OpenApiRouteDoc | undefined {

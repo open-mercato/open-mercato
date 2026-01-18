@@ -1103,7 +1103,9 @@ function ProductSelectInput({
                         </span>
                         {channelId && product.existingOfferId ? (
                           <Link
-                            href={`/backend/sales/channels/${channelId}/offers/${product.existingOfferId}/edit`}
+                            href={`/backend/sales/channels/${encodeURIComponent(
+                              String(channelId)
+                            )}/offers/${encodeURIComponent(String(product.existingOfferId))}/edit`}
                             className="shrink-0 font-medium text-primary hover:underline"
                           >
                             {t('sales.channels.offers.form.productHasOfferLink', 'View offer')}
