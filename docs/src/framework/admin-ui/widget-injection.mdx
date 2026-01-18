@@ -56,6 +56,6 @@ The widget itself is a client component that uses `InjectionWidgetComponentProps
 1. Create a widget module exporting `InjectionWidgetModule` with metadata (`id`, `title`, optional `features`).
 2. Build the client component using `InjectionWidgetComponentProps<TContext, TData>`.
 3. Add entries to `widgets/injection-table.ts` with placement hints.
-4. Run `yarn modules:prepare` (or `yarn mercato generate registry`) to regenerate registries.
+4. Run `yarn generate` (or `yarn mercato generate registry`) to regenerate registries.
 
 The injection system supports multiple widgets per slot across modules; they are ordered by `priority` (higher first). Event hooks (`onLoad`, `onBeforeSave`, `onSave`, `onAfterSave`) remain available and are triggered once per widget.

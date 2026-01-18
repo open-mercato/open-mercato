@@ -5,7 +5,7 @@ import { Upload, Image as ImageIcon, Trash2, Star } from 'lucide-react'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { cn } from '@open-mercato/shared/lib/utils'
-import { useT } from '@/lib/i18n/context'
+import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { buildAttachmentImageUrl, slugifyAttachmentFileName } from '@open-mercato/core/modules/attachments/lib/imageUrls'
 
 export type ProductMediaItem = {

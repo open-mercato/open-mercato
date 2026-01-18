@@ -1,10 +1,10 @@
 "use client"
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@open-mercato/ui/primitives/card'
 import { DataLoader, ErrorNotice } from "@open-mercato/ui";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiCall } from "@open-mercato/ui/backend/utils/apiCall";
 import { raiseCrudError } from "@open-mercato/ui/backend/utils/serverErrors";
-import { useT } from "@/lib/i18n/context";
+import { useT } from "@open-mercato/shared/lib/i18n/context";
 import { CrudForm } from "@open-mercato/ui/backend/CrudForm";
 import { createOverrideFieldDefinitions, createOverrideFormGroups } from "./overrideFormConfig";
 import { FeatureToggleOverrideResponse } from "../data/validators";

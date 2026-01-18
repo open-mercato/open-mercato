@@ -10,7 +10,7 @@ import { RowActions } from '@open-mercato/ui/backend/RowActions'
 import type { SearchResult, SearchStrategyId } from '@open-mercato/shared/modules/search'
 import { cn } from '@open-mercato/shared/lib/utils'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
-import { useT } from '@/lib/i18n/context'
+import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { fetchHybridSearchResults } from '../utils'
 
 type Row = {

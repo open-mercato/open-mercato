@@ -1,4 +1,4 @@
-import type { AppContainer } from '@/lib/di/container'
+import type { AppContainer } from '@open-mercato/shared/lib/di/container'
 import type { EntityManager } from '@mikro-orm/core'
 import { RateFetchingService } from './services/rateFetchingService'
 import { ExchangeRateService } from './services/exchangeRateService'

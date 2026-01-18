@@ -1,5 +1,5 @@
 import { jest } from '@jest/globals'
-import type { AuthContext } from '@/lib/auth/server'
+import type { AuthContext } from '@open-mercato/shared/lib/auth/server'
 
 type AsyncMock<T = unknown> = jest.MockedFunction<(...args: any[]) => Promise<T>>
 type SyncMock<T = unknown, Args extends any[] = any[]> = jest.MockedFunction<(...args: Args) => T>

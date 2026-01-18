@@ -1,5 +1,5 @@
-import type { ModuleCli } from '@/modules/registry'
-import { createRequestContainer } from '@/lib/di/container'
+import type { ModuleCli } from '@open-mercato/shared/modules/registry'
+import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { DashboardRoleWidgets } from '@open-mercato/core/modules/dashboards/data/entities'
 import { Role } from '@open-mercato/core/modules/auth/data/entities'

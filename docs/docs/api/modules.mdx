@@ -7,7 +7,7 @@ import OpenApiExplorerBanner from '@site/src/components/OpenApiExplorerBanner';
 
 <OpenApiExplorerBanner />
 
-Open Mercato keeps module metadata in a generated file rather than a dedicated REST endpoint. When you run `npm run modules:prepare`, the generator writes `generated/modules.generated.ts`, which exports the module graph consumed by the API dispatcher, navigation builders, and the OpenAPI generator.
+Open Mercato keeps module metadata in a generated file rather than a dedicated REST endpoint. When you run `yarn generate`, the generator writes `generated/modules.generated.ts`, which exports the module graph consumed by the API dispatcher, navigation builders, and the OpenAPI generator.
 
 ```ts
 import { modules, modulesInfo } from '@/generated/modules.generated'
@@ -26,7 +26,7 @@ const authApis = modules
 The exported types live in `packages/shared/src/modules/registry.ts`:
 
 - `Module` — top-level container with `id`, optional `info`, arrays of `frontendRoutes`, `backendRoutes`, `apis`, `features`, `customFieldSets`, and more.
-- `ModuleApiRouteFile` — shape for file-based API routes discovered under `src/modules/<module>/api/**/route.ts`; includes `path`, `handlers`, optional module-level `requireAuth`/`requireRoles`, and an `openApi` descriptor if provided.
+- `ModuleApiRouteFile` — shape for file-based API routes discovered under `packages/<pkg>/src/modules/<module>/api/**/route.ts`; includes `path`, `handlers`, optional module-level `requireAuth`/`requireRoles`, and an `openApi` descriptor if provided.
 - `ModuleRoute` — metadata for frontend/back-office pages (pattern, guards, titles).
 - `ModuleInfo` — optional descriptor exported from each module’s `index.ts` (name, title, description, dependencies, etc.).
 
@@ -57,38 +57,6 @@ console.table(apiIndex)
 - Route-level `metadata` matches the per-method guards exported alongside the handler (`packages/shared/src/modules/registry.ts:188`), so you can surface RBAC hints in client SDKs.
 - The dispatcher in `src/app/api/[...slug]/route.ts` calls `findApi(modules, method, pathname)` to resolve the handler; your tooling can do the same for dry runs or static analysis.
 
-## Public TypeScript API client
-
-When you need to call Open Mercato APIs from an external script or integration, install the generated client:
-
-```bash
-npm install @open-mercato/client
-```
-
-```ts
-import { createOpenMercatoClient, type operations } from '@open-mercato/client'
-
-const client = createOpenMercatoClient({
-  baseUrl: process.env.OPEN_MERCATO_API_BASE_URL,
-  accessToken: () => process.env.OPEN_MERCATO_TOKEN,
-})
-
-const { data, error } = await client.GET('/customers/customers/people', {
-  params: { query: { page: 1, pageSize: 20 } },
-})
-
-if (error) throw new Error(error.message ?? 'Request failed')
-
-type ListPeopleResponse =
-  operations['customers_get_customers_customers_people']['responses']['200']['content']['application/json']
-```
-
-- `createOpenMercatoClient` automatically reuses the OpenAPI definition shipped with the repository, so each call is fully typed.
-- Omitting `baseUrl` falls back to `OPEN_MERCATO_API_BASE_URL`, `NEXT_PUBLIC_API_BASE_URL`, `NEXT_PUBLIC_APP_URL`, then `http://localhost:3000/api`.
-- Pass a string or async function to `accessToken`; it is normalized to `Authorization: Bearer ...` for every request.
-
-See the package README for more examples and links to the hosted API explorer.
-
 ## Features and ACL seeding
 
 Each module declares its feature flags in `<module>/acl.ts`. The generator hoists them into `module.features`, enabling tooling to seed default roles or audit coverage:
@@ -109,7 +77,7 @@ Combine this with the Auth module’s `GET /auth/features` endpoint when you nee
 
 ## When to regenerate
 
-- Run `npm run modules:prepare` whenever you add, rename, or delete APIs, pages, ACL declarations, or DI registrars.
+- Run `yarn generate` whenever you add, rename, or delete APIs, pages, ACL declarations, or DI registrars.
 - The OpenAPI routes (`/api/docs/openapi`, `/api/docs/markdown`) call `buildOpenApiDocument(modules, ...)`, so the explorer immediately reflects new endpoints.
 - The CLI scaffolding (`packages/cli/src/mercato.ts`) uses `modulesInfo` to enable module-aware commands.
 

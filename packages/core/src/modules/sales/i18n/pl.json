@@ -9,6 +9,77 @@
       "title": "Sprzedaż",
       "description": "Oferty, zamówienia, realizacja, fakturowanie i płatności powiązane z katalogiem produktów."
     },
+    "quotes": {
+      "send": {
+        "action": "Wyślij do klienta",
+        "title": "Wyślij ofertę do klienta",
+        "description": "E-mail zostanie wysłany na:",
+        "noEmail": "Brak e-maila",
+        "validForDays": "Ważne przez (dni)",
+        "cancel": "Anuluj",
+        "submit": "Wyślij ofertę",
+        "success": "Oferta wysłana.",
+        "failed": "Nie udało się wysłać oferty.",
+        "canceled": "Anulowanych ofert nie można wysłać.",
+        "missingEmail": "Do wysłania oferty wymagany jest e-mail klienta."
+      },
+      "email": {
+        "subject": "Oferta {quoteNumber}",
+        "preview": "Oferta {quoteNumber} jest gotowa do przeglądu",
+        "heading": "Oferta {quoteNumber}",
+        "total": "Suma: {amount} {currency}",
+        "validUntil": "Ważna do: {date}",
+        "cta": "Zobacz ofertę",
+        "footer": "Open Mercato"
+      },
+      "public": {
+        "pageTitle": "Oferta",
+        "notFound": "Nie znaleziono oferty.",
+        "failed": "Nie udało się wczytać oferty.",
+        "loading": "Wczytywanie oferty…",
+        "expired": "Ta oferta wygasła.",
+        "expiredMessage": "Skontaktuj się ze sprzedawcą, aby otrzymać zaktualizowaną ofertę.",
+        "validUntil": "Ważna do {date}",
+        "noValidityDate": "Brak daty ważności",
+        "items": "Pozycje",
+        "item": "Pozycja",
+        "qty": "Ilość: {quantity}",
+        "totals": "Sumy",
+        "subtotalGross": "Suma częściowa (brutto)",
+        "discount": "Rabat",
+        "tax": "Podatek",
+        "total": "Suma",
+        "acceptButton": "Zaakceptuj ofertę",
+        "acceptedTitle": "Oferta zaakceptowana",
+        "acceptedMessage": "Utworzono zamówienie: {orderNumber}",
+        "acceptFailed": "Nie udało się zaakceptować oferty."
+      },
+      "accept": {
+        "notFound": "Nie znaleziono oferty.",
+        "expired": "Ta oferta wygasła.",
+        "invalidStatus": "Nie można zaakceptować oferty w jej obecnym statusie.",
+        "failed": "Nie udało się zaakceptować oferty.",
+        "adminSubject": "Oferta {quoteNumber} zaakceptowana → Zamówienie {orderNumber}",
+        "adminEmail": {
+          "preview": "Oferta {quoteNumber} zaakceptowana",
+          "heading": "Oferta {quoteNumber} zaakceptowana",
+          "body": "Klient zaakceptował ofertę {quoteNumber}. Utworzono zamówienie: {orderNumber}.",
+          "cta": "Zobacz zamówienie",
+          "footer": "Open Mercato"
+        }
+      },
+      "list": {
+        "title": "Oferty"
+      },
+      "detail": {
+        "title": "Szczegóły oferty"
+      },
+      "form": {
+        "general": "Ogólne",
+        "lines": "Pozycje",
+        "notes": "Notatki"
+      }
+    },
     "nav": {
       "group": "Sprzedaż",
       "channels": "Kanały sprzedaży"
@@ -223,19 +294,6 @@
         "shipments": "Wysyłki",
         "invoices": "Faktury",
         "payments": "Płatności",
-        "notes": "Notatki"
-      }
-    },
-    "quotes": {
-      "list": {
-        "title": "Oferty"
-      },
-      "detail": {
-        "title": "Szczegóły oferty"
-      },
-      "form": {
-        "general": "Ogólne",
-        "lines": "Pozycje",
         "notes": "Notatki"
       }
     },
@@ -496,25 +554,25 @@
         }
       },
       "orderEditing": {
-        "title": "Order editing guards",
-        "description": "Control when customers and addresses can be changed on an order.",
-        "customerLabel": "Customer can be changed at",
-        "addressLabel": "Addresses can be changed at",
-        "allowAny": "Allow at any status",
-        "anyStatus": "Allowed at any status",
-        "pickStatuses": "Select statuses that allow this change",
-        "note": "Changing the customer clears assigned addresses to avoid mixing contact data.",
+        "title": "Zabezpieczenia edycji zamówień",
+        "description": "Kontroluj, kiedy można zmieniać klienta i adresy w zamówieniu.",
+        "customerLabel": "Klient może być zmieniony przy statusie",
+        "addressLabel": "Adresy mogą być zmienione przy statusie",
+        "allowAny": "Zezwól przy dowolnym statusie",
+        "anyStatus": "Dozwolone przy dowolnym statusie",
+        "pickStatuses": "Wybierz statusy, przy których zmiana jest dozwolona",
+        "note": "Zmiana klienta usuwa przypisane adresy, aby uniknąć mieszania danych kontaktowych.",
         "actions": {
-          "refresh": "Refresh",
-          "save": "Save settings",
-          "refreshing": "Refreshing…"
+          "refresh": "Odśwież",
+          "save": "Zapisz ustawienia",
+          "refreshing": "Odświeżanie…"
         },
         "errors": {
-          "load": "Failed to load order editing settings.",
-          "save": "Failed to save order editing settings."
+          "load": "Nie udało się wczytać ustawień edycji zamówień.",
+          "save": "Nie udało się zapisać ustawień edycji zamówień."
         },
         "success": {
-          "save": "Order editing settings saved."
+          "save": "Ustawienia edycji zamówień zapisane."
         }
       },
       "taxRates": {
@@ -672,10 +730,10 @@
         "numberHintQuote": "Format dla ofert, wykorzystuje skonfigurowany licznik.",
         "customer": {
           "quick": {
-            "error": "Failed to create customer.",
-            "personSuccess": "Customer created.",
-            "companySuccess": "Customer created.",
-            "dialogDescription": "Add a person without leaving this form."
+            "error": "Nie udało się utworzyć klienta.",
+            "personSuccess": "Klient utworzony.",
+            "companySuccess": "Klient utworzony.",
+            "dialogDescription": "Dodaj osobę bez opuszczania tego formularza."
           }
         },
         "customer.placeholder": "Szukaj klientów…",
@@ -749,37 +807,37 @@
         "kind.hint": "Wybierz rodzaj dokumentu sprzedaży. Oferta to rodzaj koszyka lub zapytania ofertowego, który można później przekształcić w zamówienie."
       },
       "payments": {
-        "add": "Add payment",
-        "loading": "Loading payments…",
-        "errorLoad": "Failed to load payments.",
-        "errorSave": "Failed to save payment.",
-        "scopeMissing": "Select an organization and tenant before deleting payments.",
-        "created": "Payment recorded.",
-        "edit": "Edit payment",
-        "delete": "Delete payment",
-        "deleted": "Payment deleted.",
-        "errorDelete": "Failed to delete payment.",
-        "retry": "Retry",
-        "amountRequired": "Enter a positive amount.",
-        "currencyRequired": "Currency is required.",
-        "reference": "Reference",
-        "method": "Method",
+        "add": "Dodaj płatność",
+        "loading": "Ładowanie płatności…",
+        "errorLoad": "Nie udało się wczytać płatności.",
+        "errorSave": "Nie udało się zapisać płatności.",
+        "scopeMissing": "Wybierz organizację i najemcę przed usunięciem płatności.",
+        "created": "Płatność zarejestrowana.",
+        "edit": "Edytuj płatność",
+        "delete": "Usuń płatność",
+        "deleted": "Płatność usunięta.",
+        "errorDelete": "Nie udało się usunąć płatności.",
+        "retry": "Spróbuj ponownie",
+        "amountRequired": "Wprowadź dodatnią kwotę.",
+        "currencyRequired": "Waluta jest wymagana.",
+        "reference": "Referencja",
+        "method": "Metoda",
         "status": "Status",
         "statusPlaceholder": "Wybierz status",
-        "amount": "Amount",
-        "receivedAt": "Received at",
-        "createdAt": "Created",
-        "emptyTitle": "No payments yet.",
-        "emptyDescription": "Track received payments to keep outstanding balances up to date.",
-        "loadingMethods": "Loading payment methods…",
-        "methodsEmpty": "No payment methods",
-        "methodSelected": "Selected method: {{id}}",
-        "methodPlaceholder": "Search payment method",
-        "currency": "Currency",
-        "referencePlaceholder": "External reference or note",
-        "saveShortcut": "Save ⌘⏎ / Ctrl+Enter",
+        "amount": "Kwota",
+        "receivedAt": "Data otrzymania",
+        "createdAt": "Utworzono",
+        "emptyTitle": "Brak płatności.",
+        "emptyDescription": "Śledź otrzymane płatności, aby mieć aktualne saldo do zapłaty.",
+        "loadingMethods": "Ładowanie metod płatności…",
+        "methodsEmpty": "Brak metod płatności",
+        "methodSelected": "Wybrana metoda: {{id}}",
+        "methodPlaceholder": "Szukaj metody płatności",
+        "currency": "Waluta",
+        "referencePlaceholder": "Referencja zewnętrzna lub notatka",
+        "saveShortcut": "Zapisz ⌘⏎ / Ctrl+Enter",
         "form": {
-          "title": "Payment details"
+          "title": "Szczegóły płatności"
         }
       },
       "items": {
@@ -813,53 +871,53 @@
           "actions": "Akcje",
           "gross": "brutto",
           "statusEmpty": "Brak statusu",
-          "net": "net"
+          "net": "netto"
         },
         "priceScope": {
-          "channel": "Channel",
-          "offer": "Offer",
-          "variant": "Variant",
-          "customerGroup": "Customer group",
-          "customer": "Customer",
-          "userGroup": "User group",
-          "user": "User",
-          "quantity": "Quantity",
-          "schedule": "Scheduled"
+          "channel": "Kanał",
+          "offer": "Oferta",
+          "variant": "Wariant",
+          "customerGroup": "Grupa klientów",
+          "customer": "Klient",
+          "userGroup": "Grupa użytkowników",
+          "user": "Użytkownik",
+          "quantity": "Ilość",
+          "schedule": "Zaplanowane"
         },
-        "priceGross": "Gross",
-        "priceNet": "Net",
-        "errorScope": "Organization and tenant are required.",
-        "errorCurrency": "Currency is required.",
-        "errorSave": "Failed to save line.",
-        "product": "Product",
-        "productSearch": "Search product",
-        "selectedProduct": "Selected {{id}}",
-        "variant": "Variant",
-        "variantSearch": "Search variant",
-        "selectedVariant": "Selected {{id}}",
-        "price": "Price",
-        "priceSearch": "Select price",
-        "unitPrice": "Unit price",
-        "quantity": "Quantity",
-        "name": "Name",
-        "namePlaceholder": "Optional line name",
-        "editTitle": "Edit line",
-        "addTitle": "Add line",
-        "save": "Save changes",
-        "addLine": "Add item",
-        "loading": "Loading items…",
-        "errorLoad": "Failed to load items.",
-        "add": "Add item",
-        "errorDelete": "Failed to delete line.",
-        "deleted": "Line removed.",
-        "empty": "No items yet.",
-        "subtitle": "Add products and configure pricing for this document.",
-        "untitled": "Untitled",
-        "title": "Items",
-        "errorDeleteShipped": "You cannot delete a line that has shipped items.",
-        "created": "Line added.",
-        "updated": "Line updated.",
-        "cancel": "Cancel"
+        "priceGross": "Brutto",
+        "priceNet": "Netto",
+        "errorScope": "Wymagane są organizacja i najemca.",
+        "errorCurrency": "Waluta jest wymagana.",
+        "errorSave": "Nie udało się zapisać pozycji.",
+        "product": "Produkt",
+        "productSearch": "Szukaj produktu",
+        "selectedProduct": "Wybrano {{id}}",
+        "variant": "Wariant",
+        "variantSearch": "Szukaj wariantu",
+        "selectedVariant": "Wybrano {{id}}",
+        "price": "Cena",
+        "priceSearch": "Wybierz cenę",
+        "unitPrice": "Cena jednostkowa",
+        "quantity": "Ilość",
+        "name": "Nazwa",
+        "namePlaceholder": "Opcjonalna nazwa pozycji",
+        "editTitle": "Edytuj pozycję",
+        "addTitle": "Dodaj pozycję",
+        "save": "Zapisz zmiany",
+        "addLine": "Dodaj pozycję",
+        "loading": "Ładowanie pozycji…",
+        "errorLoad": "Nie udało się załadować pozycji.",
+        "add": "Dodaj pozycję",
+        "errorDelete": "Nie udało się usunąć pozycji.",
+        "deleted": "Pozycja usunięta.",
+        "empty": "Brak pozycji.",
+        "subtitle": "Dodaj produkty i skonfiguruj ceny dla tego dokumentu.",
+        "untitled": "Bez nazwy",
+        "title": "Pozycje",
+        "errorDeleteShipped": "Nie można usunąć pozycji, która ma wysłane sztuki.",
+        "created": "Pozycja dodana.",
+        "updated": "Pozycja zaktualizowana.",
+        "cancel": "Anuluj"
       },
       "detail": {
         "title": "Dokument sprzedaży",
@@ -876,7 +934,10 @@
         "customer.empty": "Brak powiązania",
         "customerSnapshot": {
           "hint": "Edytuj zrzut zapisany w tym dokumencie.",
-          "kind": "Typ klienta"
+          "kind": "Typ klienta",
+          "edit": "Edytuj dane klienta",
+          "select": "Wybierz klienta",
+          "noCustomer": "Brak przypisanego klienta"
         },
         "currency": "Waluta",
         "currencyInvalid": "Kod waluty musi mieć 3 litery.",
@@ -907,7 +968,7 @@
           "empty": "Brak metod płatności.",
           "selected": "Wybrana metoda płatności: {{id}}"
         },
-        "empty": "Not set",
+        "empty": "Nie ustawiono",
         "items": {
           "wip": "Edytor pozycji pojawi się w następnej iteracji.",
           "deleteConfirm": "Usunąć tę pozycję?",
@@ -932,50 +993,50 @@
             "actions": "Akcje",
             "gross": "brutto",
             "statusEmpty": "Brak statusu",
-            "net": "net"
+            "net": "netto"
           },
-          "title": "Items",
-          "subtitle": "Add products and prices to this document.",
-          "add": "Add item",
-          "loading": "Loading items…",
-          "empty": "No items yet.",
-          "errorLoad": "Failed to load items.",
-          "errorSave": "Failed to save line.",
-          "errorDelete": "Failed to delete line.",
-          "errorDeleteShipped": "You cannot delete a line that has shipped items.",
-          "created": "Line added.",
-          "updated": "Line updated.",
-          "deleted": "Line removed.",
-          "addTitle": "Add line",
-          "editTitle": "Edit line",
-          "product": "Product",
-          "productSearch": "Search product",
-          "selectedProduct": "Selected {{id}}",
-          "variant": "Variant",
-          "variantSearch": "Search variant",
-          "price": "Price",
-          "priceSearch": "Select price",
-          "priceGross": "Gross",
-          "priceNet": "Net",
+          "title": "Pozycje",
+          "subtitle": "Dodaj produkty i ceny do tego dokumentu.",
+          "add": "Dodaj pozycję",
+          "loading": "Ładowanie pozycji…",
+          "empty": "Brak pozycji.",
+          "errorLoad": "Nie udało się wczytać pozycji.",
+          "errorSave": "Nie udało się zapisać pozycji.",
+          "errorDelete": "Nie udało się usunąć pozycji.",
+          "errorDeleteShipped": "Nie można usunąć pozycji, która ma wysłane sztuki.",
+          "created": "Pozycja dodana.",
+          "updated": "Pozycja zaktualizowana.",
+          "deleted": "Pozycja usunięta.",
+          "addTitle": "Dodaj pozycję",
+          "editTitle": "Edytuj pozycję",
+          "product": "Produkt",
+          "productSearch": "Szukaj produktu",
+          "selectedProduct": "Wybrano {{id}}",
+          "variant": "Wariant",
+          "variantSearch": "Szukaj wariantu",
+          "price": "Cena",
+          "priceSearch": "Wybierz cenę",
+          "priceGross": "Brutto",
+          "priceNet": "Netto",
           "priceScope": {
-            "channel": "Channel",
-            "offer": "Offer",
-            "variant": "Variant",
-            "customerGroup": "Customer group",
-            "customer": "Customer",
-            "userGroup": "User group",
-            "user": "User",
-            "quantity": "Quantity",
-            "schedule": "Scheduled"
+            "channel": "Kanał",
+            "offer": "Oferta",
+            "variant": "Wariant",
+            "customerGroup": "Grupa klientów",
+            "customer": "Klient",
+            "userGroup": "Grupa użytkowników",
+            "user": "Użytkownik",
+            "quantity": "Ilość",
+            "schedule": "Zaplanowane"
           },
-          "unitPrice": "Unit price",
-          "quantity": "Quantity",
-          "name": "Name",
-          "namePlaceholder": "Optional line name",
-          "cancel": "Cancel",
-          "addLine": "Add item",
-          "save": "Save changes",
-          "untitled": "Untitled"
+          "unitPrice": "Cena jednostkowa",
+          "quantity": "Ilość",
+          "name": "Nazwa",
+          "namePlaceholder": "Opcjonalna nazwa pozycji",
+          "cancel": "Anuluj",
+          "addLine": "Dodaj pozycję",
+          "save": "Zapisz zmiany",
+          "untitled": "Bez nazwy"
         },
         "status": "Status",
         "shipments": {
@@ -1111,15 +1172,15 @@
           "removed": "Adres usunięty z dokumentu.",
           "update": "Zaktualizuj adresy",
           "delete": "Usuń adres",
-          "deleteConfirm": "This will permanently remove this address from the document. This cannot be undone. Continue?",
-          "line1Required": "Add address line 1 to continue.",
-          "itemLabel": "Address",
-          "edit": "Edit address",
-          "save": "Save address",
-          "blocked": "Addresses cannot be changed for the current status."
+          "deleteConfirm": "Spowoduje to trwałe usunięcie tego adresu z dokumentu. Tej operacji nie można cofnąć. Kontynuować?",
+          "line1Required": "Dodaj adres (linia 1), aby kontynuować.",
+          "itemLabel": "Adres",
+          "edit": "Edytuj adres",
+          "save": "Zapisz adres",
+          "blocked": "Adresy nie mogą być zmienione dla bieżącego statusu."
         },
-        "customerChangeConfirm": "Change the customer? Existing shipping and billing addresses will be unassigned.",
-        "customerBlocked": "Customer cannot be changed for the current status.",
+        "customerChangeConfirm": "Zmienić klienta? Istniejące adresy dostawy i rozliczeniowy zostaną odłączone.",
+        "customerBlocked": "Klient nie może być zmieniony dla bieżącego statusu.",
         "timestamps": "Daty",
         "created": "Utworzono",
         "updated": "Zaktualizowano",
@@ -1138,16 +1199,20 @@
           "grandTotalGross": "Razem (brutto)",
           "paidTotal": "Zapłacono",
           "refundedTotal": "Zwrócono",
-          "outstandingTotal": "Do zapłaty"
+          "outstandingTotal": "Do zapłaty",
+          "showingAll": "Pokazywanie wszystkich sum",
+          "showingKey": "Pokazywanie kluczowych sum · {count} więcej",
+          "hideDetails": "Ukryj szczegóły",
+          "showDetails": "Pokaż szczegóły"
         },
         "inline": {
           "save": "Zapisz ⌘⏎ / Ctrl+Enter"
         },
-        "inlineError": "Unable to update document.",
-        "customData": "Custom data",
-        "customDataLoading": "Loading custom data…",
-        "customDataDefine": "Define custom fields first.",
-        "tags": "Tags",
+        "inlineError": "Nie można zaktualizować dokumentu.",
+        "customData": "Dane niestandardowe",
+        "customDataLoading": "Ładowanie danych niestandardowych…",
+        "customDataDefine": "Najpierw zdefiniuj pola niestandardowe.",
+        "tags": "Tagi",
         "statusInvalid": "Wybrany status nie został znaleziony.",
         "channelInvalid": "Nie znaleziono wybranego kanału.",
         "empty.comments.title": "Brak komentarzy.",
@@ -1158,7 +1223,7 @@
         "empty.shipments.title": "Brak wysyłek.",
         "empty.shipments.description": "Dodaj wysyłki do tego dokumentu, aby użytkownik mógł śledzić zamówienie.",
         "empty.payments.title": "Brak płatności.",
-        "empty.payments.description": "Track received payments to keep outstanding balances up to date.",
+        "empty.payments.description": "Śledź otrzymane płatności, aby mieć aktualne saldo do zapłaty.",
         "empty.adjustments.title": "Brak korekt.",
         "empty.adjustments.description": "Dodaj rabaty, opłaty lub podatki do tego dokumentu.",
         "empty.generic": "Nie ma tu jeszcze nic do pokazania.",
@@ -1176,48 +1241,48 @@
         "status.errorSave": "Nie udało się zapisać statusu.",
         "status.loading": "Ładowanie statusów…",
         "status.manage": "Zarządzaj statusami",
-        "tags.loading": "Loading tags…",
-        "tags.loadError": "Failed to load tags.",
-        "tags.createError": "Failed to create tag.",
-        "tags.updateError": "Failed to update tags.",
-        "tags.labelRequired": "Tag name is required.",
-        "tags.saveShortcut": "Save ⌘⏎ / Ctrl+Enter",
-        "tags.cancelShortcut": "Cancel (Esc)",
-        "tags.success": "Tags updated.",
-        "tags.placeholder": "No tags yet. Add labels to keep documents organized.",
-        "numberGenerated": "New number generated.",
-        "numberGenerateError": "Could not generate number.",
+        "tags.loading": "Ładowanie tagów…",
+        "tags.loadError": "Nie udało się wczytać tagów.",
+        "tags.createError": "Nie udało się utworzyć tagu.",
+        "tags.updateError": "Nie udało się zaktualizować tagów.",
+        "tags.labelRequired": "Nazwa tagu jest wymagana.",
+        "tags.saveShortcut": "Zapisz ⌘⏎ / Ctrl+Enter",
+        "tags.cancelShortcut": "Anuluj (Esc)",
+        "tags.success": "Tagi zaktualizowane.",
+        "tags.placeholder": "Brak tagów. Dodaj etykiety, aby uporządkować dokumenty.",
+        "numberGenerated": "Wygenerowano nowy numer.",
+        "numberGenerateError": "Nie udało się wygenerować numeru.",
         "convertToOrder": "Konwertuj na zamówienie",
         "convertSuccess": "Oferta została przekształcona w zamówienie.",
         "convertError": "Nie udało się przekształcić oferty.",
         "convertExists": "Dla tej oferty istnieje już zamówienie.",
-        "deleteConfirm": "Delete this document? This cannot be undone.",
-        "deleted": "Document deleted.",
-        "deleteFailed": "Could not delete document.",
-        "externalRef": "External reference",
-        "customerRef": "Customer reference",
-        "email": "Primary email",
-        "channel": "Channel",
+        "deleteConfirm": "Usunąć ten dokument? Tej operacji nie można cofnąć.",
+        "deleted": "Dokument usunięty.",
+        "deleteFailed": "Nie udało się usunąć dokumentu.",
+        "externalRef": "Referencja zewnętrzna",
+        "customerRef": "Referencja klienta",
+        "email": "Główny email",
+        "channel": "Kanał",
         "tabs": {
-          "comments": "Comments",
-          "addresses": "Addresses",
-          "items": "Items",
-          "shipments": "Shipments",
-          "payments": "Payments",
-          "adjustments": "Adjustments"
+          "comments": "Komentarze",
+          "addresses": "Adresy",
+          "items": "Pozycje",
+          "shipments": "Wysyłki",
+          "payments": "Płatności",
+          "adjustments": "Korekty"
         },
         "comments": {
-          "add": "Add comment"
+          "add": "Dodaj komentarz"
         },
-        "number": "Document number",
-        "numberEmpty": "No number yet",
-        "saveStub": "Saving number will land soon.",
-        "generateNumber": "Generate number",
-        "delete": "Delete",
-        "details": "Details",
-        "customerRef.placeholder": "Customer PO or note",
-        "email.placeholder": "Add email",
-        "externalRef.placeholder": "Add external reference"
+        "number": "Numer dokumentu",
+        "numberEmpty": "Brak numeru",
+        "saveStub": "Zapisywanie numeru będzie dostępne wkrótce.",
+        "generateNumber": "Wygeneruj numer",
+        "delete": "Usuń",
+        "details": "Szczegóły",
+        "customerRef.placeholder": "Numer PO klienta lub notatka",
+        "email.placeholder": "Dodaj email",
+        "externalRef.placeholder": "Dodaj referencję zewnętrzną"
       },
       "adjustments": {
         "title": "Korekty",
@@ -1265,16 +1330,16 @@
           "surcharge": "Dopłata",
           "custom": "Niestandardowe"
         },
-        "submitCreate": "Add adjustment",
-        "submitUpdate": "Save changes",
-        "amountMode": "Calculation mode",
+        "submitCreate": "Dodaj korektę",
+        "submitUpdate": "Zapisz zmiany",
+        "amountMode": "Tryb obliczania",
         "mode": {
-          "rate": "Percentage",
-          "amount": "Fixed amount"
+          "rate": "Procent",
+          "amount": "Kwota stała"
         },
-        "labelRequired": "Label is required.",
-        "errorRate": "Enter a percentage rate.",
-        "kind": "Kind"
+        "labelRequired": "Etykieta jest wymagana.",
+        "errorRate": "Wprowadź stawkę procentową.",
+        "kind": "Typ"
       },
       "shipments": {
         "title": "Wysyłki",
@@ -1343,47 +1408,47 @@
           "title": "Brak wysyłek.",
           "description": "Dodaj wysyłki do tego dokumentu, aby użytkownik mógł śledzić zamówienie."
         },
-        "trackingGroup": "Tracking information"
+        "trackingGroup": "Informacje o śledzeniu"
       },
       "status": {
-        "changeDocument": "Change order/quote status",
-        "documentPlaceholder": "Select new order/quote status",
-        "changeLine": "Change order/quote item status",
-        "linePlaceholder": "Select item status",
-        "sectionTitle": "Status changes"
+        "changeDocument": "Zmień status zamówienia/oferty",
+        "documentPlaceholder": "Wybierz nowy status zamówienia/oferty",
+        "changeLine": "Zmień status pozycji zamówienia/oferty",
+        "linePlaceholder": "Wybierz status pozycji",
+        "sectionTitle": "Zmiany statusu"
       },
       "empty": {
         "adjustments": {
-          "title": "No adjustments yet.",
-          "description": "Add discounts, fees, or taxes to refine totals."
+          "title": "Brak korekt.",
+          "description": "Dodaj rabaty, opłaty lub podatki, aby doprecyzować sumy."
         }
       }
     },
     "order-statuses": {
       "audit": {
-        "create": "Add sales order status",
-        "update": "Update sales order status",
-        "delete": "Delete sales order status"
+        "create": "Dodaj status zamówienia",
+        "update": "Zaktualizuj status zamówienia",
+        "delete": "Usuń status zamówienia"
       }
     },
     "order-line-statuses": {
       "audit": {
-        "create": "Add sales order line status",
-        "update": "Update sales order line status",
-        "delete": "Delete sales order line status"
+        "create": "Dodaj status pozycji zamówienia",
+        "update": "Zaktualizuj status pozycji zamówienia",
+        "delete": "Usuń status pozycji zamówienia"
       }
     },
     "audit": {
       "orders": {
         "lines": {
-          "upsert": "Update order line",
-          "delete": "Delete order line"
+          "upsert": "Zaktualizuj pozycję zamówienia",
+          "delete": "Usuń pozycję zamówienia"
         }
       },
       "quotes": {
         "lines": {
-          "upsert": "Update quote line",
-          "delete": "Delete quote line"
+          "upsert": "Zaktualizuj pozycję oferty",
+          "delete": "Usuń pozycję oferty"
         }
       }
     }
@@ -1407,6 +1472,8 @@
   "sales.quotes.create": "Utwórz ofertę",
   "sales.quotes.update": "Aktualizuj ofertę",
   "sales.quotes.delete": "Usuń ofertę",
+  "sales.quotes.lines.upsert": "Zaktualizuj pozycję oferty",
+  "sales.quotes.lines.delete": "Usuń pozycję oferty",
   "sales.quotes.adjustments.upsert": "Zaktualizuj korektę oferty",
   "sales.quotes.adjustments.delete": "Usuń korektę oferty",
   "sales.orders.create": "Utwórz zamówienie sprzedaży",
@@ -1438,8 +1505,8 @@
   "sales.shipments.line_missing": "Nie znaleziono linii zamówienia.",
   "sales.shipments.quantity_exceeded": "Nie można wysłać więcej niż pozostała ilość.",
   "sales.shipments.invalid_order": "Wysyłka nie należy do tego zamówienia.",
-  "sales.orders.edit_customer_blocked": "Customer cannot be changed for the current status.",
-  "sales.orders.edit_addresses_blocked": "Addresses cannot be changed for the current status.",
+  "sales.orders.edit_customer_blocked": "Klient nie może być zmieniony dla bieżącego statusu.",
+  "sales.orders.edit_addresses_blocked": "Adresy nie mogą być zmienione dla bieżącego statusu.",
   "sales.orders.status_change.note": "Status zmieniony z {from} na {to} przez {actor}.",
   "sales.orders.status_change.actor_unknown": "Nieznany użytkownik",
   "sales.orders.status_change.actor_api_key": "Klucz API {name}",

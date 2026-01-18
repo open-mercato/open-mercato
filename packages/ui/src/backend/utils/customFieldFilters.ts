@@ -1,6 +1,6 @@
 import * as React from 'react'
 import { useCustomFieldDefs, type UseCustomFieldDefsOptions } from './customFieldDefs'
-import { Filter } from '@/lib/query/types'
+import { Filter } from '@open-mercato/shared/lib/query/types'
 import type { FilterDef } from '../FilterOverlay'
 import type { CustomFieldDefDto } from './customFieldDefs'
 export type { CustomFieldDefDto }

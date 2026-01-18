@@ -1,15 +1,18 @@
-import type { ModuleCli } from '@/modules/registry'
-import { createRequestContainer } from '@/lib/di/container'
+import type { ModuleCli } from '@open-mercato/shared/modules/registry'
+import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { CommandBus, CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
 import { FeatureToggle } from './data/entities'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import fs from 'node:fs'
 import path from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { toggleCreateSchemaList } from './data/validators'
 import { parseBooleanToken } from '@open-mercato/shared/lib/boolean'
 
 type ParsedArgs = Record<string, string | boolean>
 
+// ESM equivalent of __dirname
+const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const defaultFilePath = path.resolve(__dirname, 'defaults.json')
 
 function parseArgs(rest: string[]): ParsedArgs {

@@ -1,4 +1,4 @@
-import type { AppContainer } from '@/lib/di/container'
+import type { AppContainer } from '@open-mercato/shared/lib/di/container'
 import { BasicQueryEngine, resolveEntityTableName } from '@open-mercato/shared/lib/query/engine'
 import { HybridQueryEngine } from './lib/engine'
 import { markDeleted } from './lib/indexer'
@@ -144,12 +144,9 @@ export function register(container: AppContainer) {
             proceed(cfEntityIds)
           } else {
             // Fallback to generated entity ids without await
-          Promise.all([
-            import('@open-mercato/core/datamodel/entities').catch(() => ({} as any)),
-            import('@open-mercato/example/datamodel/entities').catch(() => ({} as any)),
-          ]).then(([core, example]) => {
+          import('#generated/entities.ids.generated').then((core) => {
               const flatten = (E: any): string[] => Object.values(E || {}).flatMap((o: any) => Object.values(o || {}) as string[])
-              const guesses = new Set<string>([...flatten((core as any).E), ...flatten((example as any).E)])
+              const guesses = new Set<string>([...flatten((core as any).E)])
               proceed(Array.from(guesses))
             }).catch(() => {})
           }

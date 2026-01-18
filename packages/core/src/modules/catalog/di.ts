@@ -1,6 +1,6 @@
 import { asFunction } from 'awilix'
 import type { EventBus } from '@open-mercato/events'
-import type { AppContainer } from '@/lib/di/container'
+import type { AppContainer } from '@open-mercato/shared/lib/di/container'
 import { DefaultCatalogPricingService } from './services/catalogPricingService'
 
 type AppCradle = AppContainer['cradle'] & {

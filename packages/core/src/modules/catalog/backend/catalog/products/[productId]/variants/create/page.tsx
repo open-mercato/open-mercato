@@ -9,8 +9,8 @@ import { createCrudFormError } from '@open-mercato/ui/backend/utils/serverErrors
 import { collectCustomFieldValues } from '@open-mercato/ui/backend/utils/customFieldValues'
 import { apiCall, readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
-import { useT } from '@/lib/i18n/context'
-import { E } from '@open-mercato/core/generated/entities.ids.generated'
+import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { E } from '#generated/entities.ids.generated'
 import {
   type VariantFormValues,
   type VariantPriceDraft,

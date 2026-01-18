@@ -2,7 +2,7 @@
 
 import * as React from 'react'
 import { useQueryClient } from '@tanstack/react-query'
-import { useOrganizationScopeVersion } from '@/lib/frontend/useOrganizationScope'
+import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
 import {
   useCustomFieldDefs,
   normalizeEntityIds,

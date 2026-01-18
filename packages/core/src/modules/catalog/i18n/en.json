@@ -14,6 +14,28 @@
       "title": "Product Catalog",
       "description": "Manage reusable products, variants, and pricing for sales documents."
     },
+    "search": {
+      "badge": {
+        "product": "Product",
+        "variant": "Variant",
+        "category": "Category",
+        "offer": "Channel Offer",
+        "tag": "Tag",
+        "priceKind": "Price Kind",
+        "optionSchema": "Option Schema"
+      },
+      "status": {
+        "inactive": "Inactive"
+      },
+      "variant": {
+        "default": "Default"
+      },
+      "priceKind": {
+        "includingTax": "Incl. tax",
+        "excludingTax": "Excl. tax",
+        "promotion": "Promotion"
+      }
+    },
     "categories": {
       "page": {
         "title": "Categories"

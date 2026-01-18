@@ -1,6 +1,6 @@
 import { NextResponse, type NextRequest } from 'next/server'
-import { getAuthFromRequest } from '@/lib/auth/server'
-import { createRequestContainer } from '@/lib/di/container'
+import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
+import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { logCrudAccess } from '@open-mercato/shared/lib/crud/factory'
 import { Organization } from '@open-mercato/core/modules/directory/data/entities'
 import { computeHierarchyForOrganizations, type ComputedHierarchy } from '@open-mercato/core/modules/directory/lib/hierarchy'

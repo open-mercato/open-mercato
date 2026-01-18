@@ -11,7 +11,7 @@ jest.mock('@open-mercato/shared/lib/i18n/server', () => ({
   }),
 }))
 
-jest.mock('@/lib/di/container', () => ({
+jest.mock('@open-mercato/shared/lib/di/container', () => ({
   createRequestContainer: async () => ({
     resolve: (_: string) => ({
       findUserByEmail: async (email: string) => ({ id: 1, email, passwordHash: 'hash', tenantId: tenantId, organizationId: orgId }),
@@ -23,7 +23,7 @@ jest.mock('@/lib/di/container', () => ({
   }),
 }))
 
-jest.mock('@/lib/auth/jwt', () => ({ signJwt: () => 'jwt-token' }))
+jest.mock('@open-mercato/shared/lib/auth/jwt', () => ({ signJwt: () => 'jwt-token' }))
 
 function makeFormData(data: Record<string, string>) {
   const fd = new FormData()

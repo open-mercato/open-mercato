@@ -5,7 +5,7 @@ import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { SalesNote } from '../../data/entities'
 import { noteCreateSchema, noteUpdateSchema } from '../../data/validators'
 import { withScopedPayload } from '../utils'
-import { E } from '@open-mercato/core/generated/entities.ids.generated'
+import { E } from '#generated/entities.ids.generated'
 import {
   createPagedListResponseSchema,
   createSalesCrudOpenApi,

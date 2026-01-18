@@ -14,7 +14,7 @@ import {
 } from '../data/validators'
 import { ensureOrganizationScope, ensureTenantScope, extractUndoPayload } from './shared'
 import { rebuildCategoryHierarchyForOrganization } from '../lib/categoryHierarchy'
-import { E } from '@open-mercato/core/generated/entities.ids.generated'
+import { E } from '#generated/entities.ids.generated'
 
 type CategorySnapshot = {
   id: string

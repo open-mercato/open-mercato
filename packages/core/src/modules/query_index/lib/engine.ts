@@ -1,6 +1,6 @@
 import type { QueryEngine, QueryOptions, QueryResult, FilterOp, Filter, QueryCustomFieldSource, PartialIndexWarning } from '@open-mercato/shared/lib/query/types'
 import { SortDir } from '@open-mercato/shared/lib/query/types'
-import type { EntityId } from '@/modules/entities'
+import type { EntityId } from '@open-mercato/shared/modules/entities'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { BasicQueryEngine, resolveEntityTableName } from '@open-mercato/shared/lib/query/engine'
 import type { Knex } from 'knex'

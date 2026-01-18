@@ -7,7 +7,7 @@ import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { loadCustomFieldValues } from '@open-mercato/shared/lib/crud/custom-fields'
 import { setRecordCustomFields } from '@open-mercato/core/modules/entities/lib/helpers'
-import { E } from '@open-mercato/core/generated/entities.ids.generated'
+import { E } from '#generated/entities.ids.generated'
 import { SalesOrder, SalesOrderLine, SalesShipment, SalesShipmentItem } from '../data/entities'
 import {
   shipmentCreateSchema,

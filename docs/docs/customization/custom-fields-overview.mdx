@@ -19,7 +19,7 @@ Open Mercato ships with a universal custom-fields system. Administrators can add
 
 Mirror the admin configuration by exporting entities from `ce.ts` within your module:
 
-```ts title="src/modules/inventory/ce.ts"
+```ts title="packages/inventory/src/modules/inventory/ce.ts"
 import { defineFields, cf } from '@open-mercato/core/modules/dsl';
 
 export const entities = [
@@ -48,18 +48,18 @@ curl -X POST "$BASE_URL/entities/definitions.batch" \
   -H "X-Api-Key: $API_KEY" \
   -H "Content-Type: application/json" \
   -d "{
-    \"entityId\": \"catalog:catalog_product\",
+    \"entityId\": \"customers:person\",
     \"definitions\": [
-      { \"key\": \"service_duration_minutes\", \"kind\": \"integer\", \"configJson\": { \"fieldset\": \"service_booking\", \"group\": { \"code\": \"timing\" } } }
+      { \"key\": \"preferred_contact_method\", \"kind\": \"enum\", \"configJson\": { \"options\": [\"email\", \"phone\", \"sms\"], \"fieldset\": \"customer_profile\", \"group\": { \"code\": \"preferences\" } } }
     ],
     \"fieldsets\": [
       {
-        \"code\": \"service_booking\",
-        \"label\": \"Services · Booking\",
-        \"icon\": \"solar:calendar-linear\",
+        \"code\": \"customer_profile\",
+        \"label\": \"Customers · Profile\",
+        \"icon\": \"lucide:user\",
         \"groups\": [
-          { \"code\": \"timing\", \"title\": \"Timing\" },
-          { \"code\": \"resources\", \"title\": \"Resources\" }
+          { \"code\": \"identity\", \"title\": \"Identity\" },
+          { \"code\": \"preferences\", \"title\": \"Preferences\" }
         ]
       }
     ],

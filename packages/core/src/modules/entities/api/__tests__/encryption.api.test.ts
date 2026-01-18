@@ -14,7 +14,7 @@ const mockEncSvc = {
   invalidateMap: jest.fn(async () => {}),
 }
 
-jest.mock('@/lib/di/container', () => ({
+jest.mock('@open-mercato/shared/lib/di/container', () => ({
   createRequestContainer: async () => ({
     resolve: (k: string) => {
       if (k === 'em') return mockEm
@@ -24,7 +24,7 @@ jest.mock('@/lib/di/container', () => ({
   }),
 }))
 
-jest.mock('@/lib/auth/server', () => ({
+jest.mock('@open-mercato/shared/lib/auth/server', () => ({
   getAuthFromRequest: () => ({ tenantId: 't-1', orgId: 'o-1', roles: ['admin'] }),
 }))
 

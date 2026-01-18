@@ -18,7 +18,7 @@ import {
 import { apiCall, readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { raiseCrudError } from '@open-mercato/ui/backend/utils/serverErrors'
-import { useT } from '@/lib/i18n/context'
+import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { resolvePartitionEnvKey } from '@open-mercato/core/modules/attachments/lib/partitionEnv'
 
 type Partition = {

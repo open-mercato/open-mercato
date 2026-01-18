@@ -1,0 +1,99 @@
+---
+title: JSONB indexing layer
+description: Accelerate list queries by projecting entities and custom fields into a hybrid JSONB index.
+---
+
+# JSONB Indexing Layer (Hybrid)
+
+Goal: make querying base entities together with custom fields fast and simple by maintaining a flat, query-friendly JSONB index per entity record, without breaking module isomorphism or schema agility. See the [Hybrid query engine](./hybrid-query-engine) for runtime usage.
+
+What you get
+- Hybrid engine: uses a JSONB-backed index when available; falls back to the join-based engine otherwise.
+- Event-driven updates: created/updated/deleted events keep the index synced. Custom-field updates also trigger reindex via the DataEngine write layer.
+- Zero-churn evolution: new fields (base or custom) are available immediately in the JSON document; promote hot fields later if needed.
+
+Storage
+- Table: `entity_indexes`
+  - `id uuid` (PK)
+  - `entity_type text` e.g., `example:todo`
+  - `entity_id text` base record id as text
+  - `organization_id uuid null`, `tenant_id uuid null`
+  - `doc jsonb` flattened document of base fields + `cf:<key>` values
+  - `index_version int` (default 1), `created_at`, `updated_at`, `deleted_at`
+  - `organization_id_coalesced uuid generated always as (coalesce(organization_id, '00000000-0000-0000-0000-000000000000')) stored`
+- Indexes
+  - `gin(doc jsonb_path_ops)` for JSONB containment/path queries
+  - Unique: `unique(entity_type, entity_id, organization_id_coalesced)`
+
+Document shape
+- Base fields are stored under their snake_case DB names.
+- Custom fields are stored as `cf:<key>` values.
+- Arrays are preserved as arrays; singletons are scalars.
+
+Encryption
+- `entity_indexes.doc` is treated as “at rest” storage: it should contain the same encrypted values as the source tables / `custom_field_values`.
+- Decryption happens on read:
+  - `HybridQueryEngine` decrypts entity payload fields via the tenant encryption service and also decrypts `cf:*` values before returning results.
+- Search token generation (for `like/ilike` token search) may decrypt values transiently to hash the plaintext tokens, but plaintext is never persisted into `entity_indexes.doc`.
+  - Implementation helper: `packages/shared/src/lib/encryption/indexDoc.ts` (shared by Query Engine, indexers, and vector search).
+
+Indexer
+- Build: merges base row with custom field values into a single plain object.
+- Upsert: inserts or updates the JSONB row keyed by `(entity_type, entity_id, organization_id_coalesced)`.
+- Delete: sets `deleted_at` on logical delete.
+
+Events and consistency
+- Subscribers are registered for all entities that have custom field definitions:
+  - `<module>.<entity>.created|updated` → upsert index row.
+  - `<module>.<entity>.deleted` → mark index row deleted.
+- Custom-field writes done via the DataEngine emit `<module>.<entity>.updated` as well, reusing the same subscriber path.
+
+Query routing
+- The `HybridQueryEngine` prefers the JSONB index when rows exist for the target entity; otherwise it falls back to the basic engine.
+- Supported in index path:
+  - Filters: base fields and `cf:*` via JSON path extraction and casting for common types.
+  - Sorting: base fields and `cf:*` using casted expressions when possible.
+  - Paging and multi-tenant scoping (`organization_id`, `tenant_id`) and soft-delete exclusion by default.
+
+Backfill
+- CLI: `mercato query_index rebuild --entity <module:entity>` reindexes existing rows with a live progress bar.
+  - All orgs/tenants: `mercato query_index rebuild --entity example:todo --global`
+  - Scoped: `mercato query_index rebuild --entity example:todo --org <orgId> --tenant <tenantId>`
+  - Single record: `mercato query_index rebuild --entity example:todo --record <entityId>`
+  - Options: `--withDeleted` `--limit <n>` `--offset <n>` `--batch <size>`
+- CLI: `mercato query_index rebuild-all` walks every registered entity index using the same flags as `rebuild`, making it easy to refresh the entire corpus in one go.
+- CLI: `mercato query_index reindex [--entity <module:entity>] [--tenant <tenantId>] [--force]` (shorthand: `yarn mercato reindex`) now splits work into five partitions by default. Override the granularity with `--partitions <n>` or target a single shard with `--partition-index <i>`. Combine with `--skipResetCoverage` on partitions >0 when running several workers concurrently. The command continues to honour `--batch <size>` for the inner chunk size (defaults to 500 rows).
+  - Parallel run: start five terminals with `mercato query_index reindex --entity example:todo --partitions 5 --partition-index <0-4>`; the partition `0` process resets coverage, so the remaining workers should pass `--skipResetCoverage`.
+  - Single worker: omit `--partition-index` and the CLI will iterate every partition sequentially.
+- Each CLI run purges existing index rows before reindexing unless `--skipPurge` is provided, ensuring a clean rebuild.
+- The admin status view now tracks per-partition progress and marks jobs as **stalled** when no heartbeat is recorded for 60 seconds, making it easier to spot a wedged worker.
+- Scheduling via events remains available: `mercato query_index reindex [...]` and `mercato query_index purge [...]` enqueue background jobs when you don’t need immediate writes. API callers can pass `partitionCount`, `partitionIndex`, and `batchSize` to mirror the CLI behaviour; omitting `partitionIndex` emits one event per partition automatically.
+- Bulk imports: build and insert index payloads alongside your ETL transaction with the `buildIndexDocument` helper (`packages/core/src/modules/query_index/lib/document.ts`) so large seeders can skip the post-import reindex sweep. The CRM stress-test seeder now follows this pattern.
+
+Performance tips
+- Start with `gin(doc jsonb_path_ops)`.
+- Add expression indexes for hot JSON paths (filters/sorts) before promoting to typed columns:
+  - Example: `create index on entity_indexes (((doc->>'cf:priority')::int));`
+- Consider typed columns only for extreme hotspots.
+
+Limitations and notes
+- The index row appears after create/update events or backfill. Queries still work via fallback when the index is missing.
+- Cross-module relations remain by foreign key id only; no cross-module joins.
+- When the hybrid engine falls back because of partial index coverage it emits a warning and, by default, schedules an asynchronous reindex for the affected entity/tenant scope. Toggle this with `SCHEDULE_AUTO_REINDEX` (defaults to `true`) if you prefer to manage reindex jobs manually. For smaller datasets (≤10k customers) keep this flag enabled together with `OPTIMIZE_INDEX_COVERAGE_STATS=false` so coverage updates remain instant.
+- `OPTIMIZE_INDEX_COVERAGE_STATS=true` enables cached coverage snapshots. Leave it `false` to recalculate counts on every read, which is ideal for fast feedback during development or on small installations.
+- Keep the indexed path even when gaps are detected by setting `FORCE_QUERY_INDEX_ON_PARTIAL_INDEXES=true` (enabled by default). When active, list responses include an `x-om-partial-index` response header (with `entity`, `baseCount`, `indexedCount`, and `scope`) so the admin UI can surface a banner prompting the user to reindex via `/backend/query-indexes`.
+- Coverage statistics are tracked per tenant to avoid cross-organization leakage. Admin views surface the tenant snapshot directly and never blend organization-level scopes.
+
+## Debugging SQL output
+
+- Standard debug logs honour `LOG_VERBOSITY=debug` (or a development `NODE_ENV`) and describe which path the hybrid engine picks.
+- To additionally print the SQL emitted for the count and data queries, set `QUERY_ENGINE_DEBUG_SQL=true`. The flag is disabled by default to keep development logs readable.
+- To inspect the tokens generated for search, set `OM_SEARCH_DEBUG=true`. It will log each token and hash produced during indexing, plus a per-record summary, without changing query behaviour.
+
+Related files
+- `packages/core/src/modules/query_index/data/entities.ts`
+- `packages/core/src/modules/query_index/lib/indexer.ts`
+- `packages/core/src/modules/query_index/lib/engine.ts`
+- `packages/core/src/modules/query_index/di.ts`
+- `packages/core/src/modules/query_index/migrations/Migration20251001120000.ts`
+- `packages/core/src/modules/query_index/migrations/Migration20251001123000.ts`

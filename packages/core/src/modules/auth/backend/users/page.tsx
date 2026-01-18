@@ -13,8 +13,8 @@ import { raiseCrudError } from '@open-mercato/ui/backend/utils/serverErrors'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { buildOrganizationTreeOptions, formatOrganizationTreeLabel, type OrganizationTreeNode, type OrganizationTreeOption } from '@open-mercato/core/modules/directory/lib/tree'
-import { useOrganizationScopeVersion } from '@/lib/frontend/useOrganizationScope'
-import { useT } from '@/lib/i18n/context'
+import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
+import { useT } from '@open-mercato/shared/lib/i18n/context'
 
 type Row = {
   id: string

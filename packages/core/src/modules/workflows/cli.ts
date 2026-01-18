@@ -1,9 +1,13 @@
-import type { ModuleCli } from '@/modules/registry'
-import { createRequestContainer } from '@/lib/di/container'
+import type { ModuleCli } from '@open-mercato/shared/modules/registry'
+import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { WorkflowDefinition } from './data/entities'
 import * as fs from 'fs'
 import * as path from 'path'
+import { fileURLToPath } from 'url'
+
+const __filename = fileURLToPath(import.meta.url)
+const __dirname = path.dirname(__filename)
 
 /**
  * Parse CLI arguments
@@ -25,7 +29,7 @@ function parseArgs(args: string[]) {
  */
 const seedDemo: ModuleCli = {
   command: 'seed-demo',
-  async run(rest) {
+  async run(rest: string[]) {
     const args = parseArgs(rest)
     const tenantId = String(args.tenantId ?? args.tenant ?? args.t ?? '')
     const organizationId = String(args.organizationId ?? args.orgId ?? args.org ?? args.o ?? '')
@@ -92,7 +96,7 @@ const seedDemo: ModuleCli = {
  */
 const seedDemoWithRules: ModuleCli = {
   command: 'seed-demo-with-rules',
-  async run(rest) {
+  async run(rest: string[]) {
     const args = parseArgs(rest)
     const tenantId = String(args.tenantId ?? args.tenant ?? args.t ?? '')
     const organizationId = String(args.organizationId ?? args.orgId ?? args.org ?? args.o ?? '')
@@ -165,7 +169,7 @@ const seedDemoWithRules: ModuleCli = {
  */
 const seedSalesPipeline: ModuleCli = {
   command: 'seed-sales-pipeline',
-  async run(rest) {
+  async run(rest: string[]) {
     const args = parseArgs(rest)
     const tenantId = String(args.tenantId ?? args.tenant ?? args.t ?? '')
     const organizationId = String(args.organizationId ?? args.orgId ?? args.org ?? args.o ?? '')
@@ -225,7 +229,7 @@ const seedSalesPipeline: ModuleCli = {
  */
 const seedSimpleApproval: ModuleCli = {
   command: 'seed-simple-approval',
-  async run(rest) {
+  async run(rest: string[]) {
     const args = parseArgs(rest)
     const tenantId = String(args.tenantId ?? args.tenant ?? args.t ?? '')
     const organizationId = String(args.organizationId ?? args.orgId ?? args.org ?? args.o ?? '')
@@ -284,7 +288,7 @@ const seedSimpleApproval: ModuleCli = {
  */
 const startWorker: ModuleCli = {
   command: 'start-worker',
-  async run(rest) {
+  async run(rest: string[]) {
     const args = parseArgs(rest)
     const concurrency = parseInt(args.concurrency ?? args.c ?? '5')
 
@@ -337,7 +341,7 @@ const startWorker: ModuleCli = {
  */
 const seedAll: ModuleCli = {
   command: 'seed-all',
-  async run(rest) {
+  async run(rest: string[]) {
     const args = parseArgs(rest)
     const tenantId = String(args.tenantId ?? args.tenant ?? args.t ?? '')
     const organizationId = String(args.organizationId ?? args.orgId ?? args.org ?? args.o ?? '')
@@ -375,7 +379,7 @@ const seedAll: ModuleCli = {
  */
 const processActivities: ModuleCli = {
   command: 'process-activities',
-  async run(rest) {
+  async run(rest: string[]) {
     const args = parseArgs(rest)
     const limit = parseInt(args.limit ?? args.l ?? '0')
 

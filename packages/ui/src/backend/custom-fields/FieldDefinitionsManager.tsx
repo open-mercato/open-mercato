@@ -10,7 +10,7 @@ import { apiCall, readApiResultOrThrow } from '../utils/apiCall'
 import { raiseCrudError } from '../utils/serverErrors'
 import { invalidateCustomFieldDefs } from '../utils/customFieldDefs'
 import { FieldDefinitionsEditor, type FieldDefinition, type FieldDefinitionError } from './FieldDefinitionsEditor'
-import { upsertCustomFieldDefSchema } from '@open-mercato/core/modules/entities/data/validators'
+import { upsertCustomFieldDefSchema } from '@open-mercato/shared/modules/entities/validators'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 
 type FieldsetGroup = { code: string; title?: string; hint?: string }

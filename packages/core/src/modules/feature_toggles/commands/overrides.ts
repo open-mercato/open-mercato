@@ -4,10 +4,10 @@ import type { EntityManager, JsonType } from '@mikro-orm/postgresql'
 import { FeatureToggle } from '../data/entities'
 import { ProcessedChangeOverrideStateInput, processedChangeOverrideStateSchema } from '../data/validators'
 import { FeatureToggleOverride } from '../data/entities'
-import { buildChanges } from '@/lib/commands/helpers'
+import { buildChanges } from '@open-mercato/shared/lib/commands/helpers'
 import { extractUndoPayload } from '../../customers/commands/shared'
 import { FeatureTogglesService } from '../lib/feature-flag-check'
-import { resolveTranslations } from '@/lib/i18n/server'
+import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 
 type OverrideSnapshot = {
   id: string | null

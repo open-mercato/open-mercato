@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server'
-import { getAuthFromRequest, type AuthContext } from '@/lib/auth/server'
-import { createRequestContainer } from '@/lib/di/container'
+import { getAuthFromRequest, type AuthContext } from '@open-mercato/shared/lib/auth/server'
+import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { resolveFeatureCheckContext, resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/directory/utils/organizationScope'
 import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
 import { CommandBus } from '@open-mercato/shared/lib/commands/command-bus'

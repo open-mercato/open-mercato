@@ -23,8 +23,8 @@ This guide shows how to write and run unit tests for Open Mercato using Jest + t
 - `@/generated/*` → `generated/*`
 - `@/lib/*` → `packages/shared/src/lib/*`
 - `@/types/*` → `packages/shared/src/types/*`
-- `@open-mercato/core/*`, `@open-mercato/example/*`, `@open-mercato/cli/*`, `@open-mercato/shared/*`
-- Fallback: `@/*` → `src/*`
+- `@open-mercato/core/*`, `@open-mercato/cli/*`, `@open-mercato/shared/*`, and other workspace packages
+- Fallback: `@/*` → `apps/mercato/src/*`
 
 See `jest.config.cjs: moduleNameMapper` for the full mapping.
 

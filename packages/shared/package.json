@@ -1,9 +1,84 @@
 {
   "name": "@open-mercato/shared",
-  "version": "0.3.13",
+  "version": "0.4.0",
   "private": true,
   "type": "module",
+  "main": "./dist/index.js",
+  "scripts": {
+    "build": "node build.mjs",
+    "test": "jest --config jest.config.cjs",
+    "typecheck": "tsc --noEmit"
+  },
   "exports": {
-    "./*": "./src/*"
+    ".": "./dist/index.js",
+    "./lib/openapi": {
+      "types": "./src/lib/openapi/index.ts",
+      "default": "./dist/lib/openapi/index.js"
+    },
+    "./lib/commands": {
+      "types": "./src/lib/commands/index.ts",
+      "default": "./dist/lib/commands/index.js"
+    },
+    "./lib/hotkeys": {
+      "types": "./src/lib/hotkeys/index.ts",
+      "default": "./dist/lib/hotkeys/index.js"
+    },
+    "./lib/profiler": {
+      "types": "./src/lib/profiler/index.ts",
+      "default": "./dist/lib/profiler/index.js"
+    },
+    "./lib/testing": {
+      "types": "./src/lib/testing/index.ts",
+      "default": "./dist/lib/testing/index.js"
+    },
+    "./lib/bootstrap": {
+      "types": "./src/lib/bootstrap/index.ts",
+      "default": "./dist/lib/bootstrap/index.js"
+    },
+    "./lib/bootstrap/dynamicLoader": {
+      "types": "./src/lib/bootstrap/dynamicLoader.ts",
+      "default": "./dist/lib/bootstrap/dynamicLoader.js"
+    },
+    "./*.ts": {
+      "types": "./src/*.ts",
+      "default": "./dist/*.js"
+    },
+    "./*.tsx": {
+      "types": "./src/*.tsx",
+      "default": "./dist/*.js"
+    },
+    "./*": {
+      "types": [
+        "./src/*.ts",
+        "./src/*.tsx"
+      ],
+      "default": "./dist/*.js"
+    },
+    "./*/*": {
+      "types": [
+        "./src/*/*.ts",
+        "./src/*/*.tsx"
+      ],
+      "default": "./dist/*/*.js"
+    },
+    "./*/*/*": {
+      "types": [
+        "./src/*/*/*.ts",
+        "./src/*/*/*.tsx"
+      ],
+      "default": "./dist/*/*/*.js"
+    },
+    "./*/*/*/*": {
+      "types": [
+        "./src/*/*/*/*.ts",
+        "./src/*/*/*/*.tsx"
+      ],
+      "default": "./dist/*/*/*/*.js"
+    }
+  },
+  "devDependencies": {
+    "@types/jest": "^30.0.0",
+    "jest": "^30.2.0",
+    "ts-jest": "^29.4.6"
   }
 }

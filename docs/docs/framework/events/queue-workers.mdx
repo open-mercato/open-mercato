@@ -167,7 +167,7 @@ Open Mercato provides a unified entrypoint that runs both the Next.js app and al
 
 ```bash
 # Development mode with workers (default)
-npm run dev
+yarn dev
 ```
 
 When you run this command, the system automatically:
@@ -177,7 +177,7 @@ When you run this command, the system automatically:
 :::danger Production Warning
 **Never use the unified entrypoint with auto-spawned workers in production.** In production, you should:
 1. Set `AUTO_SPAWN_WORKERS=false`
-2. Run worker processes separately using `npm run start:workers` or `yarn mercato queue worker --all`
+2. Run worker processes separately using `yarn start:workers` or `yarn mercato queue worker --all`
 
 This separation allows you to:
 - Scale workers independently from the web application
@@ -198,18 +198,18 @@ AUTO_SPAWN_WORKERS=true  # Default: spawn workers automatically
 Set to `false` for production deployments where you want to run workers separately for scaling:
 
 ```bash
-AUTO_SPAWN_WORKERS=false npm run start
+AUTO_SPAWN_WORKERS=false yarn start
 ```
 
 #### Available Scripts
 
 | Script | Description |
 |--------|-------------|
-| `npm run dev` | Development mode with workers |
-| `npm run start` | Production mode with workers |
-| `npm run dev:app` | Development mode (app only) |
-| `npm run start:app` | Production mode (app only) |
-| `npm run start:workers` | Run workers only (all queues) |
+| `yarn dev` | Development mode with workers |
+| `yarn start` | Production mode with workers |
+| `yarn dev:app` | Development mode (app only) |
+| `yarn start:app` | Production mode (app only) |
+| `yarn start:workers` | Run workers only (all queues) |
 
 ### Running All Workers via CLI
 
@@ -220,7 +220,7 @@ The `--all` flag processes jobs from all discovered queues in a single process:
 yarn mercato queue worker --all
 
 # Via npm script
-npm run start:workers
+yarn start:workers
 ```
 
 This starts workers for all registered queues (e.g., `events`, `fulltext-indexing`, `vector-indexing`).

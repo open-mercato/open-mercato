@@ -1,4 +1,4 @@
-import type { CustomFieldDefinition, CustomFieldSet, EntityExtension, EntityId } from '@/modules/entities'
+import type { CustomFieldDefinition, CustomFieldSet, EntityExtension, EntityId } from '@open-mercato/shared/modules/entities'
 
 export function entityId(moduleId: string, entity: string): EntityId {
   return `${moduleId}:${entity}`

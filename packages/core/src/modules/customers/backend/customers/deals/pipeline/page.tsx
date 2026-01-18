@@ -8,9 +8,9 @@ import { Spinner } from '@open-mercato/ui/primitives/spinner'
 import { ErrorNotice } from '@open-mercato/ui/primitives/ErrorNotice'
 import { apiCallOrThrow, readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
-import { useT } from '@/lib/i18n/context'
+import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { translateWithFallback } from '@open-mercato/shared/lib/i18n/translate'
-import { useOrganizationScopeVersion } from '@/lib/frontend/useOrganizationScope'
+import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
 import {
   customerDictionaryQueryOptions,
   type CustomerDictionaryQueryData,

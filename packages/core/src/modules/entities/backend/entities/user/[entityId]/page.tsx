@@ -16,7 +16,7 @@ import { loadGeneratedFieldRegistrations } from '@open-mercato/ui/backend/fields
 import { Spinner } from '@open-mercato/ui/primitives/spinner'
 import { createCrudFormError, raiseCrudError } from '@open-mercato/ui/backend/utils/serverErrors'
 import { FieldDefinitionsEditor, type FieldDefinition, type FieldDefinitionError } from '@open-mercato/ui/backend/custom-fields/FieldDefinitionsEditor'
-import { useT } from '@/lib/i18n/context'
+import { useT } from '@open-mercato/shared/lib/i18n/context'
 
 type Def = FieldDefinition
 type EntitiesListResponse = { items?: Array<Record<string, unknown>> }
