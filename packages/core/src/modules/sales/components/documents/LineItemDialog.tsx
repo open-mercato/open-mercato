@@ -960,6 +960,12 @@ export function LineItemDialog({
                   }
                   minQuery={1}
                   searchPlaceholder={t('sales.documents.items.productSearch', 'Search product')}
+                  selectLabel={t('ui.lookupSelect.select', 'Select')}
+                  selectedLabel={t('ui.lookupSelect.selected', 'Selected')}
+                  clearLabel={t('ui.lookupSelect.clearSelection', 'Clear selection')}
+                  emptyLabel={t('ui.lookupSelect.noResults', 'No results')}
+                  loadingLabel={t('ui.lookupSelect.searching', 'Searching…')}
+                  startTypingLabel={t('ui.lookupSelect.startTyping', 'Start typing to search.')}
                   selectedHintLabel={(id) =>
                     t('sales.documents.items.selectedProduct', 'Selected {{id}}', {
                       id: productOption?.title ?? id,
@@ -1033,6 +1039,12 @@ export function LineItemDialog({
                         : options
                     }}
                     searchPlaceholder={t('sales.documents.items.variantSearch', 'Search variant')}
+                    selectLabel={t('ui.lookupSelect.select', 'Select')}
+                    selectedLabel={t('ui.lookupSelect.selected', 'Selected')}
+                    clearLabel={t('ui.lookupSelect.clearSelection', 'Clear selection')}
+                    emptyLabel={t('ui.lookupSelect.noResults', 'No results')}
+                    loadingLabel={t('ui.lookupSelect.searching', 'Searching…')}
+                    startTypingLabel={t('ui.lookupSelect.startTyping', 'Start typing to search.')}
                     minQuery={0}
                     options={
                       variantOption
@@ -1130,6 +1142,12 @@ export function LineItemDialog({
                     minQuery={0}
                     loading={priceLoading}
                     searchPlaceholder={t('sales.documents.items.priceSearch', 'Select price')}
+                    selectLabel={t('ui.lookupSelect.select', 'Select')}
+                    selectedLabel={t('ui.lookupSelect.selected', 'Selected')}
+                    clearLabel={t('ui.lookupSelect.clearSelection', 'Clear selection')}
+                    emptyLabel={t('ui.lookupSelect.noResults', 'No results')}
+                    loadingLabel={t('ui.lookupSelect.searching', 'Searching…')}
+                    startTypingLabel={t('ui.lookupSelect.startTyping', 'Start typing to search.')}
                     disabled={!productId}
                   />
                 )
@@ -1247,6 +1265,10 @@ export function LineItemDialog({
             emptyLabel={t('sales.documents.items.statusEmpty', 'No status')}
             fetchItems={fetchLineStatusItems}
             loadingLabel={t('sales.documents.items.statusLoading', 'Loading statuses…')}
+            selectLabel={t('ui.lookupSelect.select', 'Select')}
+            selectedLabel={t('ui.lookupSelect.selected', 'Selected')}
+            clearLabel={t('ui.lookupSelect.clearSelection', 'Clear selection')}
+            startTypingLabel={t('ui.lookupSelect.startTyping', 'Start typing to search.')}
             minQuery={0}
           />
         ),
