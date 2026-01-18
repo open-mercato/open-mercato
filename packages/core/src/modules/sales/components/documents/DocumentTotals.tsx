@@ -2,6 +2,7 @@
 
 import * as React from 'react'
 import { cn } from '@open-mercato/shared/lib/utils'
+import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { PriceWithCurrency } from '../PriceWithCurrency'
 
 export type DocumentTotalItem = {
@@ -19,8 +20,9 @@ type DocumentTotalsProps = {
 }
 
 export function DocumentTotals({ title, currency, items, className }: DocumentTotalsProps) {
+  const t = useT()
   const emphasizedRows = items.filter((item) => item.emphasize)
-  const heading = title ?? null
+  const heading = title ?? t('sales.documents.detail.totals.title')
   const [expanded, setExpanded] = React.useState(false)
   const paidItem = React.useMemo(() => {
     const entry = items.find((item) => item.key === 'paidTotalAmount')
@@ -54,11 +56,7 @@ export function DocumentTotals({ title, currency, items, className }: DocumentTo
     <div className={cn('space-y-3', className)}>
       <div className="overflow-hidden rounded-xl border bg-card shadow-sm">
         <div className="flex items-center justify-between border-b bg-muted/40 px-4 py-3">
-          {heading ? (
-            <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">{heading}</span>
-          ) : (
-            <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Totals</span>
-          )}
+          <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">{heading}</span>
           {currency ? (
             <span className="rounded-full border border-border/60 bg-background/60 px-3 py-1 text-xs font-semibold tracking-wide text-foreground">
               {currency}
@@ -103,15 +101,15 @@ export function DocumentTotals({ title, currency, items, className }: DocumentTo
           <div className="flex items-center justify-between border-t bg-muted/30 px-4 py-3">
             <span className="text-xs text-muted-foreground">
               {expanded
-                ? 'Showing all totals'
-                : `Showing key totals${hiddenCount > 0 ? ` · ${hiddenCount} more` : ''}`}
+                ? t('sales.documents.detail.totals.showingAll')
+                : t('sales.documents.detail.totals.showingKey', { count: hiddenCount })}
             </span>
             <button
               type="button"
               className="text-xs font-semibold text-primary transition-colors hover:text-primary/80"
               onClick={() => setExpanded((prev) => !prev)}
             >
-              {expanded ? 'Hide details' : 'Show details'}
+              {expanded ? t('sales.documents.detail.totals.hideDetails') : t('sales.documents.detail.totals.showDetails')}
             </button>
           </div>
         ) : null}
