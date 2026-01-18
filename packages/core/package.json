@@ -49,14 +49,6 @@
       "types": "./src/modules/catalog/commands/index.ts",
       "default": "./dist/modules/catalog/commands/index.js"
     },
-    "./modules/booking": {
-      "types": "./src/modules/booking/index.ts",
-      "default": "./dist/modules/booking/index.js"
-    },
-    "./modules/booking/commands": {
-      "types": "./src/modules/booking/commands/index.ts",
-      "default": "./dist/modules/booking/commands/index.js"
-    },
     "./modules/auth": {
       "types": "./src/modules/auth/index.ts",
       "default": "./dist/modules/auth/index.js"

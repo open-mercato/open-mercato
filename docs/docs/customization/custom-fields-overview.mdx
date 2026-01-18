@@ -50,11 +50,11 @@ curl -X POST "$BASE_URL/entities/definitions.batch" \
   -d "{
     \"entityId\": \"catalog:catalog_product\",
     \"definitions\": [
-      { \"key\": \"service_duration_minutes\", \"kind\": \"integer\", \"configJson\": { \"fieldset\": \"service_booking\", \"group\": { \"code\": \"timing\" } } }
+      { \"key\": \"service_duration_minutes\", \"kind\": \"integer\", \"configJson\": { \"fieldset\": \"service_schedule\", \"group\": { \"code\": \"timing\" } } }
     ],
     \"fieldsets\": [
       {
-        \"code\": \"service_booking\",
+        \"code\": \"service_schedule\",
         \"label\": \"Services · Booking\",
         \"icon\": \"solar:calendar-linear\",
         \"groups\": [
