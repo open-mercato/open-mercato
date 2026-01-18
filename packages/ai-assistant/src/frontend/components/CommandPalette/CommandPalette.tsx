@@ -3,10 +3,11 @@
 import * as React from 'react'
 import { createPortal } from 'react-dom'
 import { Command } from 'cmdk'
-import { Loader2 } from 'lucide-react'
+import { Loader2, Send } from 'lucide-react'
+import { cn } from '@open-mercato/shared/lib/utils'
+import { Button } from '@open-mercato/ui/primitives/button'
 import { Dialog, DialogContent, DialogTitle } from '@open-mercato/ui/primitives/dialog'
 import { VisuallyHidden } from '@radix-ui/react-visually-hidden'
-import { cn } from '@open-mercato/shared/lib/utils'
 import { useCommandPaletteContext } from './CommandPaletteProvider'
 import { CommandInput } from './CommandInput'
 import { CommandHeader } from './CommandHeader'
@@ -72,11 +73,22 @@ export function CommandPalette() {
   } = state
 
   const [localInput, setLocalInput] = React.useState('')
+  const [chatInput, setChatInput] = React.useState('')
+  const chatInputRef = React.useRef<HTMLInputElement>(null)
 
   // Reset local input when phase changes to idle
   React.useEffect(() => {
     if (phase === 'idle') {
       setLocalInput('')
+      setChatInput('')
+    }
+  }, [phase])
+
+  // Focus chat input when entering chatting phase
+  React.useEffect(() => {
+    if (phase === 'chatting' || phase === 'confirming' || phase === 'executing') {
+      // Small delay to ensure DOM is ready
+      setTimeout(() => chatInputRef.current?.focus(), 50)
     }
   }, [phase])
 
@@ -100,6 +112,31 @@ export function CommandPalette() {
     }
   }
 
+  const handleChatSubmit = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!chatInput.trim() || isStreaming) return
+
+    const content = chatInput
+    setChatInput('')
+    await sendAgenticMessage(content)
+  }
+
+  const handleChatKeyDown = (e: React.KeyboardEvent) => {
+    // Prevent escape from bubbling to close the palette
+    if (e.key === 'Escape') {
+      e.stopPropagation()
+    }
+    // Submit on Enter (not Shift+Enter for multiline)
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault()
+      if (chatInput.trim() && !isStreaming) {
+        const content = chatInput
+        setChatInput('')
+        sendAgenticMessage(content)
+      }
+    }
+  }
+
   return (
     <>
       {/* Custom blur overlay when debug mode is on (since modal=false removes it) */}
@@ -111,9 +148,10 @@ export function CommandPalette() {
           className={cn(
             'fixed left-1/2 top-[10vh] z-50 -translate-x-1/2',
             'w-full max-w-2xl p-0',
-            'overflow-hidden rounded-xl border bg-background shadow-2xl',
-            'max-h-[80vh] flex flex-col'
+            'rounded-xl border bg-background shadow-2xl',
+            'flex flex-col'
           )}
+          style={{ maxHeight: 500, overflow: 'hidden' }}
           onKeyDown={handleKeyDown}
           onPointerDownOutside={(e) => {
             // Prevent closing on outside click when debug mode is on
@@ -152,7 +190,7 @@ export function CommandPalette() {
             )}
 
             {/* Content area */}
-            <div className="flex-1 min-h-0 overflow-hidden">
+            <div className="flex-1 min-h-0 overflow-y-auto">
               {phase === 'idle' && !localInput && <IdleState />}
 
               {phase === 'routing' && <RoutingIndicator />}
@@ -164,7 +202,6 @@ export function CommandPalette() {
                   pendingToolCalls={pendingToolCalls}
                   isStreaming={isStreaming}
                   isThinking={isThinking}
-                  onSendMessage={sendAgenticMessage}
                   onApproveToolCall={approveToolCall}
                   onRejectToolCall={rejectToolCall}
                   pendingQuestion={pendingQuestion}
@@ -172,6 +209,39 @@ export function CommandPalette() {
                 />
               )}
             </div>
+
+            {/* Chat input - shown in chatting phases */}
+            {(phase === 'chatting' || phase === 'confirming' || phase === 'executing') && (
+              <form onSubmit={handleChatSubmit} className="shrink-0 border-t p-3">
+                <div className="flex items-center gap-2">
+                  <input
+                    ref={chatInputRef}
+                    type="text"
+                    value={chatInput}
+                    onChange={(e) => setChatInput(e.target.value)}
+                    onKeyDown={handleChatKeyDown}
+                    placeholder="Describe what you want to do..."
+                    className={cn(
+                      'flex-1 bg-muted rounded-lg px-4 py-2 text-sm outline-none',
+                      'focus:ring-2 focus:ring-ring',
+                      'disabled:opacity-50'
+                    )}
+                    disabled={isStreaming}
+                  />
+                  <Button
+                    type="submit"
+                    size="icon"
+                    disabled={!chatInput.trim() || isStreaming}
+                  >
+                    {isStreaming ? (
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                    ) : (
+                      <Send className="h-4 w-4" />
+                    )}
+                  </Button>
+                </div>
+              </form>
+            )}
 
             {/* Footer with connection status and keyboard hints */}
             <CommandFooter
@@ -189,8 +259,8 @@ export function CommandPalette() {
       {isOpen && showDebug && typeof document !== 'undefined' && createPortal(
         <div
           data-debug-panel
-          className="fixed top-[10vh] right-4 z-[9999] w-[400px] bg-gray-900 rounded-xl border border-gray-700 shadow-2xl flex flex-col overflow-hidden"
-          style={{ maxHeight: 'calc(80vh - 20px)' }}
+          className="fixed z-[9999] bg-gray-900 rounded-xl border border-gray-700 shadow-2xl flex flex-col overflow-hidden"
+          style={{ top: '80px', right: '20px', width: '400px', minWidth: '400px', maxWidth: '400px', maxHeight: 'calc(100vh - 100px)' }}
         >
           <DebugPanel
             events={debugEvents}
