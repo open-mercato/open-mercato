@@ -18,7 +18,6 @@ Open Mercato is a new‑era, AI‑supportive platform for shipping enterprise‑
 - 🛒 **Commerce** – launch CPQ flows, B2B ordering portals, or full commerce backends with reusable modules.
 - 🤝 **Self-service system** – spin up customer or partner portals with configurable forms, guided flows, and granular permissions.
 - 🔄 **Workflows** – orchestrate custom data lifecycles and document workflows per tenant or team.
-- 🛎️ **Services** – oversee bookings, team availability, and resource scheduling from a centralized workspace.
 - 🧵 **Production** – coordinate production management with modular entities, automation hooks, and reporting.
 - 🌐 **Headless/API platform** – expose rich, well-typed APIs for mobile and web apps using the same extensible data model.
 
