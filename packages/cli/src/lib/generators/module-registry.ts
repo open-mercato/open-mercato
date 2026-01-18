@@ -55,6 +55,11 @@ export async function generateModuleRegistry(options: ModuleRegistryOptions): Pr
     trackedRoots.add(roots.appBase)
     trackedRoots.add(roots.pkgBase)
 
+    // For @app modules, use relative paths since @/ alias doesn't work in Node.js runtime
+    // From .mercato/generated/, go up two levels (../..) to reach the app root, then into src/modules/
+    const isAppModule = entry.from === '@app'
+    const appImportBase = isAppModule ? `../../src/modules/${modId}` : imps.appBase
+
     const frontendRoutes: string[] = []
     const backendRoutes: string[] = []
     const apis: string[] = []
@@ -79,7 +84,7 @@ export async function generateModuleRegistry(options: ModuleRegistryOptions): Pr
     const indexTs = fs.existsSync(appIndex) ? appIndex : fs.existsSync(pkgIndex) ? pkgIndex : null
     if (indexTs) {
       infoImportName = `I${importId++}_${toVar(modId)}`
-      const importPath = indexTs.startsWith(roots.appBase) ? `${imps.appBase}/index` : `${imps.pkgBase}/index`
+      const importPath = indexTs.startsWith(roots.appBase) ? `${appImportBase}/index` : `${imps.pkgBase}/index`
       imports.push(`import * as ${infoImportName} from '${importPath}'`)
       // Try to eagerly read ModuleInfo.requires for dependency validation
       try {
@@ -125,7 +130,7 @@ export async function generateModuleRegistry(options: ModuleRegistryOptions): Pr
         const appFile = path.join(feApp, ...segs, 'page.tsx')
         const fromApp = fs.existsSync(appFile)
         const sub = segs.length ? `${segs.join('/')}/page` : 'page'
-        const importPath = `${fromApp ? imps.appBase : imps.pkgBase}/frontend/${sub}`
+        const importPath = `${fromApp ? appImportBase : imps.pkgBase}/frontend/${sub}`
         const routePath = '/' + (segs.join('/') || '')
         const metaCandidates = [
           path.join(fromApp ? feApp : fePkg, ...segs, 'page.meta.ts'),
@@ -135,7 +140,7 @@ export async function generateModuleRegistry(options: ModuleRegistryOptions): Pr
         let metaExpr = 'undefined'
         if (metaPath) {
           const metaImportName = `M${importId++}_${toVar(modId)}_${toVar(segs.join('_') || 'index')}`
-          const metaImportPath = `${fromApp ? imps.appBase : imps.pkgBase}/frontend/${[...segs, path.basename(metaPath).replace(/\.ts$/, '')].join('/')}`
+          const metaImportPath = `${fromApp ? appImportBase : imps.pkgBase}/frontend/${[...segs, path.basename(metaPath).replace(/\.ts$/, '')].join('/')}`
           imports.push(`import * as ${metaImportName} from '${metaImportPath}'`)
           metaExpr = `(${metaImportName}.metadata as any)`
           imports.push(`import ${importName} from '${importPath}'`)
@@ -157,7 +162,7 @@ export async function generateModuleRegistry(options: ModuleRegistryOptions): Pr
         const pageModName = `CM${importId++}_${toVar(modId)}_${toVar(routeSegs.join('_') || 'index')}`
         const appFile = path.join(feApp, ...segs, `${name}.tsx`)
         const fromApp = fs.existsSync(appFile)
-        const importPath = `${fromApp ? imps.appBase : imps.pkgBase}/frontend/${[...segs, name].join('/')}`
+        const importPath = `${fromApp ? appImportBase : imps.pkgBase}/frontend/${[...segs, name].join('/')}`
         const routePath = '/' + (routeSegs.join('/') || '')
         const metaCandidates = [
           path.join(fromApp ? feApp : fePkg, ...segs, name + '.meta.ts'),
@@ -169,7 +174,7 @@ export async function generateModuleRegistry(options: ModuleRegistryOptions): Pr
           const metaImportName = `M${importId++}_${toVar(modId)}_${toVar(routeSegs.join('_') || 'index')}`
           const metaBase = path.basename(metaPath)
           const metaImportSub = metaBase === 'meta.ts' ? 'meta' : name + '.meta'
-          const metaImportPath = `${fromApp ? imps.appBase : imps.pkgBase}/frontend/${[...segs, metaImportSub].join('/')}`
+          const metaImportPath = `${fromApp ? appImportBase : imps.pkgBase}/frontend/${[...segs, metaImportSub].join('/')}`
           imports.push(`import * as ${metaImportName} from '${metaImportPath}'`)
           metaExpr = `(${metaImportName}.metadata as any)`
           imports.push(`import ${importName} from '${importPath}'`)
@@ -191,7 +196,7 @@ export async function generateModuleRegistry(options: ModuleRegistryOptions): Pr
       const hasPkg = fs.existsSync(pkgFile)
       if (hasApp || hasPkg) {
         const importName = `X_${toVar(modId)}_${importId++}`
-        const importPath = hasApp ? `${imps.appBase}/data/extensions` : `${imps.pkgBase}/data/extensions`
+        const importPath = hasApp ? `${appImportBase}/data/extensions` : `${imps.pkgBase}/data/extensions`
         imports.push(`import * as ${importName} from '${importPath}'`)
         extensionsImportName = importName
       }
@@ -205,7 +210,7 @@ export async function generateModuleRegistry(options: ModuleRegistryOptions): Pr
       if (hasRoot) {
         const importName = `ACL_${toVar(modId)}_${importId++}`
         const useApp = fs.existsSync(rootApp) ? rootApp : rootPkg
-        const importPath = useApp.startsWith(roots.appBase) ? `${imps.appBase}/acl` : `${imps.pkgBase}/acl`
+        const importPath = useApp.startsWith(roots.appBase) ? `${appImportBase}/acl` : `${imps.pkgBase}/acl`
         imports.push(`import * as ${importName} from '${importPath}'`)
         featuresImportName = importName
       }
@@ -219,7 +224,7 @@ export async function generateModuleRegistry(options: ModuleRegistryOptions): Pr
       const hasPkg = fs.existsSync(pkgFile)
       if (hasApp || hasPkg) {
         const importName = `CE_${toVar(modId)}_${importId++}`
-        const importPath = hasApp ? `${imps.appBase}/ce` : `${imps.pkgBase}/ce`
+        const importPath = hasApp ? `${appImportBase}/ce` : `${imps.pkgBase}/ce`
         imports.push(`import * as ${importName} from '${importPath}'`)
         customEntitiesImportName = importName
       }
@@ -233,7 +238,7 @@ export async function generateModuleRegistry(options: ModuleRegistryOptions): Pr
       const hasPkg = fs.existsSync(pkgFile)
       if (hasApp || hasPkg) {
         const importName = `SEARCH_${toVar(modId)}_${importId++}`
-        const importPath = hasApp ? `${imps.appBase}/search` : `${imps.pkgBase}/search`
+        const importPath = hasApp ? `${appImportBase}/search` : `${imps.pkgBase}/search`
         const importStmt = `import * as ${importName} from '${importPath}'`
         imports.push(importStmt)
         searchImports.push(importStmt)
@@ -249,7 +254,7 @@ export async function generateModuleRegistry(options: ModuleRegistryOptions): Pr
       const hasPkg = fs.existsSync(pkgFile)
       if (hasApp || hasPkg) {
         const importName = `F_${toVar(modId)}_${importId++}`
-        const importPath = hasApp ? `${imps.appBase}/data/fields` : `${imps.pkgBase}/data/fields`
+        const importPath = hasApp ? `${appImportBase}/data/fields` : `${imps.pkgBase}/data/fields`
         imports.push(`import * as ${importName} from '${importPath}'`)
         fieldsImportName = importName
       }
@@ -287,7 +292,7 @@ export async function generateModuleRegistry(options: ModuleRegistryOptions): Pr
         const appFile = path.join(beApp, ...segs, 'page.tsx')
         const fromApp = fs.existsSync(appFile)
         const sub = segs.length ? `${segs.join('/')}/page` : 'page'
-        const importPath = `${fromApp ? imps.appBase : imps.pkgBase}/backend/${sub}`
+        const importPath = `${fromApp ? appImportBase : imps.pkgBase}/backend/${sub}`
         const basePath = segs.join('/') || modId
         const routePath = '/backend/' + basePath
         const metaCandidates = [
@@ -298,7 +303,7 @@ export async function generateModuleRegistry(options: ModuleRegistryOptions): Pr
         let metaExpr = 'undefined'
         if (metaPath) {
           const metaImportName = `BM${importId++}_${toVar(modId)}_${toVar(segs.join('_') || 'index')}`
-          const metaImportPath = `${fromApp ? imps.appBase : imps.pkgBase}/backend/${[...segs, path.basename(metaPath).replace(/\.ts$/, '')].join('/')}`
+          const metaImportPath = `${fromApp ? appImportBase : imps.pkgBase}/backend/${[...segs, path.basename(metaPath).replace(/\.ts$/, '')].join('/')}`
           imports.push(`import * as ${metaImportName} from '${metaImportPath}'`)
           metaExpr = `(${metaImportName}.metadata as any)`
           imports.push(`import ${importName} from '${importPath}'`)
@@ -319,7 +324,7 @@ export async function generateModuleRegistry(options: ModuleRegistryOptions): Pr
         const pageModName = `BM${importId++}_${toVar(modId)}_${toVar([...segs, name].join('_') || 'index')}`
         const appFile = path.join(beApp, ...segs, `${name}.tsx`)
         const fromApp = fs.existsSync(appFile)
-        const importPath = `${fromApp ? imps.appBase : imps.pkgBase}/backend/${[...segs, name].join('/')}`
+        const importPath = `${fromApp ? appImportBase : imps.pkgBase}/backend/${[...segs, name].join('/')}`
         const routePath = '/backend/' + [modId, ...segs, name].filter(Boolean).join('/')
         const metaCandidates = [
           path.join(fromApp ? beApp : bePkg, ...segs, name + '.meta.ts'),
@@ -331,7 +336,7 @@ export async function generateModuleRegistry(options: ModuleRegistryOptions): Pr
           const metaImportName = `BM${importId++}_${toVar(modId)}_${toVar([...segs, name].join('_') || 'index')}`
           const metaBase = path.basename(metaPath)
           const metaImportSub = metaBase === 'meta.ts' ? 'meta' : name + '.meta'
-          const metaImportPath = `${fromApp ? imps.appBase : imps.pkgBase}/backend/${[...segs, metaImportSub].join('/')}`
+          const metaImportPath = `${fromApp ? appImportBase : imps.pkgBase}/backend/${[...segs, metaImportSub].join('/')}`
           imports.push(`import * as ${metaImportName} from '${metaImportPath}'`)
           metaExpr = `${metaImportName}.metadata`
           imports.push(`import ${importName} from '${importPath}'`)
@@ -377,7 +382,7 @@ export async function generateModuleRegistry(options: ModuleRegistryOptions): Pr
         const appFile = path.join(apiApp, ...segs, 'route.ts')
         const fromApp = fs.existsSync(appFile)
         const apiSegPath = segs.join('/')
-        const importPath = `${fromApp ? imps.appBase : imps.pkgBase}/api${apiSegPath ? `/${apiSegPath}` : ''}/route`
+        const importPath = `${fromApp ? appImportBase : imps.pkgBase}/api${apiSegPath ? `/${apiSegPath}` : ''}/route`
         const routePath = '/' + reqSegs.filter(Boolean).join('/')
         const sourceFile = fromApp ? appFile : path.join(apiPkg, ...segs, 'route.ts')
         const hasOpenApi = await moduleHasExport(sourceFile, 'openApi')
@@ -414,7 +419,7 @@ export async function generateModuleRegistry(options: ModuleRegistryOptions): Pr
         const appFile = path.join(apiApp, ...fullSegs) + '.ts'
         const fromApp = fs.existsSync(appFile)
         const plainSegPath = fullSegs.join('/')
-        const importPath = `${fromApp ? imps.appBase : imps.pkgBase}/api${plainSegPath ? `/${plainSegPath}` : ''}`
+        const importPath = `${fromApp ? appImportBase : imps.pkgBase}/api${plainSegPath ? `/${plainSegPath}` : ''}`
         const pkgFile = path.join(apiPkg, ...fullSegs) + '.ts'
         const sourceFile = fromApp ? appFile : pkgFile
         const hasOpenApi = await moduleHasExport(sourceFile, 'openApi')
@@ -451,7 +456,7 @@ export async function generateModuleRegistry(options: ModuleRegistryOptions): Pr
           const routePath = '/' + [modId, ...fullSegs].filter(Boolean).join('/')
           const importName = `H${importId++}_${toVar(modId)}_${toVar(method)}_${toVar(fullSegs.join('_'))}`
           const fromApp = methodDir === appMethodDir
-          const importPath = `${fromApp ? imps.appBase : imps.pkgBase}/api/${method.toLowerCase()}/${fullSegs.join('/')}`
+          const importPath = `${fromApp ? appImportBase : imps.pkgBase}/api/${method.toLowerCase()}/${fullSegs.join('/')}`
           const metaName = `RM${importId++}_${toVar(modId)}_${toVar(method)}_${toVar(fullSegs.join('_'))}`
           const sourceFile = path.join(methodDir, ...segs, file)
           const hasOpenApi = await moduleHasExport(sourceFile, 'openApi')
@@ -468,7 +473,7 @@ export async function generateModuleRegistry(options: ModuleRegistryOptions): Pr
     const cliPath = fs.existsSync(cliApp) ? cliApp : fs.existsSync(cliPkg) ? cliPkg : null
     if (cliPath) {
       const importName = `CLI_${toVar(modId)}`
-      const importPath = cliPath.startsWith(roots.appBase) ? `${imps.appBase}/cli` : `${imps.pkgBase}/cli`
+      const importPath = cliPath.startsWith(roots.appBase) ? `${appImportBase}/cli` : `${imps.pkgBase}/cli`
       imports.push(`import ${importName} from '${importPath}'`)
       cliImportName = importName
     }
@@ -490,13 +495,13 @@ export async function generateModuleRegistry(options: ModuleRegistryOptions): Pr
         const cName = `T_${toVar(modId)}_${toVar(locale)}_C`
         const aName = `T_${toVar(modId)}_${toVar(locale)}_A`
         imports.push(`import ${cName} from '${imps.pkgBase}/i18n/${locale}.json'`)
-        imports.push(`import ${aName} from '${imps.appBase}/i18n/${locale}.json'`)
+        imports.push(`import ${aName} from '${appImportBase}/i18n/${locale}.json'`)
         translations.push(
           `'${locale}': { ...( ${cName} as unknown as Record<string,string> ), ...( ${aName} as unknown as Record<string,string> ) }`
         )
       } else if (appHas) {
         const aName = `T_${toVar(modId)}_${toVar(locale)}_A`
-        imports.push(`import ${aName} from '${imps.appBase}/i18n/${locale}.json'`)
+        imports.push(`import ${aName} from '${appImportBase}/i18n/${locale}.json'`)
         translations.push(`'${locale}': ${aName} as unknown as Record<string,string>`)
       } else if (coreHas) {
         const cName = `T_${toVar(modId)}_${toVar(locale)}_C`
@@ -532,7 +537,7 @@ export async function generateModuleRegistry(options: ModuleRegistryOptions): Pr
         const metaName = `SubscriberMeta${importId++}_${toVar(modId)}_${toVar([...segs, name].join('_') || 'index')}`
         const appFile = path.join(subApp, ...segs, `${name}.ts`)
         const fromApp = fs.existsSync(appFile)
-        const importPath = `${fromApp ? imps.appBase : imps.pkgBase}/subscribers/${[...segs, name].join('/')}`
+        const importPath = `${fromApp ? appImportBase : imps.pkgBase}/subscribers/${[...segs, name].join('/')}`
         imports.push(`import ${importName}, * as ${metaName} from '${importPath}'`)
         const sid = [modId, ...segs, name].filter(Boolean).join(':')
         subscribers.push(
@@ -569,7 +574,7 @@ export async function generateModuleRegistry(options: ModuleRegistryOptions): Pr
           const appFile = path.join(wrkApp, ...segs, `${name}.ts`)
           const fromApp = fs.existsSync(appFile)
           // Use package import path for checking exports (file path fails due to relative imports)
-          const importPath = `${fromApp ? imps.appBase : imps.pkgBase}/workers/${[...segs, name].join('/')}`
+          const importPath = `${fromApp ? appImportBase : imps.pkgBase}/workers/${[...segs, name].join('/')}`
           // Only include files that export metadata with a queue property
           if (!(await moduleHasExport(importPath, 'metadata'))) continue
           const importName = `Worker${importId++}_${toVar(modId)}_${toVar([...segs, name].join('_') || 'index')}`
@@ -620,7 +625,7 @@ export async function generateModuleRegistry(options: ModuleRegistryOptions): Pr
           const segs = rel.split('/')
           const file = segs.pop()!
           const base = file.replace(/\.(t|j)sx?$/, '')
-          const importPath = `${fromApp ? imps.appBase : imps.pkgBase}/widgets/dashboard/${[...segs, base].join('/')}`
+          const importPath = `${fromApp ? appImportBase : imps.pkgBase}/widgets/dashboard/${[...segs, base].join('/')}`
           const key = [modId, ...segs, base].filter(Boolean).join(':')
           const source = fromApp ? 'app' : 'package'
           dashboardWidgets.push(
@@ -659,7 +664,7 @@ export async function generateModuleRegistry(options: ModuleRegistryOptions): Pr
           const segs = rel.split('/')
           const file = segs.pop()!
           const base = file.replace(/\.(t|j)sx?$/, '')
-          const importPath = `${fromApp ? imps.appBase : imps.pkgBase}/widgets/injection/${[...segs, base].join('/')}`
+          const importPath = `${fromApp ? appImportBase : imps.pkgBase}/widgets/injection/${[...segs, base].join('/')}`
           const key = [modId, ...segs, base].filter(Boolean).join(':')
           const source = fromApp ? 'app' : 'package'
           injectionWidgets.push(
@@ -681,7 +686,7 @@ export async function generateModuleRegistry(options: ModuleRegistryOptions): Pr
       const hasPkg = fs.existsSync(pkgFile)
       if (hasApp || hasPkg) {
         const importName = `InjTable_${toVar(modId)}_${importId++}`
-        const importPath = hasApp ? `${imps.appBase}/widgets/injection-table` : `${imps.pkgBase}/widgets/injection-table`
+        const importPath = hasApp ? `${appImportBase}/widgets/injection-table` : `${imps.pkgBase}/widgets/injection-table`
         imports.push(`import * as ${importName} from '${importPath}'`)
         injectionTableImportName = importName
         allInjectionTables.push({ moduleId: modId, importPath, importName })
@@ -907,6 +912,11 @@ export async function generateModuleRegistryCli(options: ModuleRegistryOptions):
     trackedRoots.add(roots.appBase)
     trackedRoots.add(roots.pkgBase)
 
+    // For @app modules, use relative paths since @/ alias doesn't work in Node.js runtime
+    // From .mercato/generated/, go up two levels (../..) to reach the app root, then into src/modules/
+    const isAppModule = entry.from === '@app'
+    const appImportBase = isAppModule ? `../../src/modules/${modId}` : imps.appBase
+
     let cliImportName: string | null = null
     const translations: string[] = []
     const subscribers: string[] = []
@@ -925,7 +935,7 @@ export async function generateModuleRegistryCli(options: ModuleRegistryOptions):
     const indexTs = fs.existsSync(appIndex) ? appIndex : fs.existsSync(pkgIndex) ? pkgIndex : null
     if (indexTs) {
       infoImportName = `I${importId++}_${toVar(modId)}`
-      const importPath = indexTs.startsWith(roots.appBase) ? `${imps.appBase}/index` : `${imps.pkgBase}/index`
+      const importPath = indexTs.startsWith(roots.appBase) ? `${appImportBase}/index` : `${imps.pkgBase}/index`
       imports.push(`import * as ${infoImportName} from '${importPath}'`)
       // Try to eagerly read ModuleInfo.requires for dependency validation
       try {
@@ -945,7 +955,7 @@ export async function generateModuleRegistryCli(options: ModuleRegistryOptions):
       const hasPkg = fs.existsSync(pkgFile)
       if (hasApp || hasPkg) {
         const importName = `X_${toVar(modId)}_${importId++}`
-        const importPath = hasApp ? `${imps.appBase}/data/extensions` : `${imps.pkgBase}/data/extensions`
+        const importPath = hasApp ? `${appImportBase}/data/extensions` : `${imps.pkgBase}/data/extensions`
         imports.push(`import * as ${importName} from '${importPath}'`)
         extensionsImportName = importName
       }
@@ -959,7 +969,7 @@ export async function generateModuleRegistryCli(options: ModuleRegistryOptions):
       if (hasRoot) {
         const importName = `ACL_${toVar(modId)}_${importId++}`
         const useApp = fs.existsSync(rootApp) ? rootApp : rootPkg
-        const importPath = useApp.startsWith(roots.appBase) ? `${imps.appBase}/acl` : `${imps.pkgBase}/acl`
+        const importPath = useApp.startsWith(roots.appBase) ? `${appImportBase}/acl` : `${imps.pkgBase}/acl`
         imports.push(`import * as ${importName} from '${importPath}'`)
         featuresImportName = importName
       }
@@ -973,7 +983,7 @@ export async function generateModuleRegistryCli(options: ModuleRegistryOptions):
       const hasPkg = fs.existsSync(pkgFile)
       if (hasApp || hasPkg) {
         const importName = `CE_${toVar(modId)}_${importId++}`
-        const importPath = hasApp ? `${imps.appBase}/ce` : `${imps.pkgBase}/ce`
+        const importPath = hasApp ? `${appImportBase}/ce` : `${imps.pkgBase}/ce`
         imports.push(`import * as ${importName} from '${importPath}'`)
         customEntitiesImportName = importName
       }
@@ -987,7 +997,7 @@ export async function generateModuleRegistryCli(options: ModuleRegistryOptions):
       const hasPkg = fs.existsSync(pkgFile)
       if (hasApp || hasPkg) {
         const importName = `VECTOR_${toVar(modId)}_${importId++}`
-        const importPath = hasApp ? `${imps.appBase}/vector` : `${imps.pkgBase}/vector`
+        const importPath = hasApp ? `${appImportBase}/vector` : `${imps.pkgBase}/vector`
         imports.push(`import * as ${importName} from '${importPath}'`)
         vectorImportName = importName
       }
@@ -1001,7 +1011,7 @@ export async function generateModuleRegistryCli(options: ModuleRegistryOptions):
       const hasPkg = fs.existsSync(pkgFile)
       if (hasApp || hasPkg) {
         const importName = `F_${toVar(modId)}_${importId++}`
-        const importPath = hasApp ? `${imps.appBase}/data/fields` : `${imps.pkgBase}/data/fields`
+        const importPath = hasApp ? `${appImportBase}/data/fields` : `${imps.pkgBase}/data/fields`
         imports.push(`import * as ${importName} from '${importPath}'`)
         fieldsImportName = importName
       }
@@ -1013,7 +1023,7 @@ export async function generateModuleRegistryCli(options: ModuleRegistryOptions):
     const cliPath = fs.existsSync(cliApp) ? cliApp : fs.existsSync(cliPkg) ? cliPkg : null
     if (cliPath) {
       const importName = `CLI_${toVar(modId)}`
-      const importPath = cliPath.startsWith(roots.appBase) ? `${imps.appBase}/cli` : `${imps.pkgBase}/cli`
+      const importPath = cliPath.startsWith(roots.appBase) ? `${appImportBase}/cli` : `${imps.pkgBase}/cli`
       imports.push(`import ${importName} from '${importPath}'`)
       cliImportName = importName
     }
@@ -1035,13 +1045,13 @@ export async function generateModuleRegistryCli(options: ModuleRegistryOptions):
         const cName = `T_${toVar(modId)}_${toVar(locale)}_C`
         const aName = `T_${toVar(modId)}_${toVar(locale)}_A`
         imports.push(`import ${cName} from '${imps.pkgBase}/i18n/${locale}.json'`)
-        imports.push(`import ${aName} from '${imps.appBase}/i18n/${locale}.json'`)
+        imports.push(`import ${aName} from '${appImportBase}/i18n/${locale}.json'`)
         translations.push(
           `'${locale}': { ...( ${cName} as unknown as Record<string,string> ), ...( ${aName} as unknown as Record<string,string> ) }`
         )
       } else if (appHas) {
         const aName = `T_${toVar(modId)}_${toVar(locale)}_A`
-        imports.push(`import ${aName} from '${imps.appBase}/i18n/${locale}.json'`)
+        imports.push(`import ${aName} from '${appImportBase}/i18n/${locale}.json'`)
         translations.push(`'${locale}': ${aName} as unknown as Record<string,string>`)
       } else if (coreHas) {
         const cName = `T_${toVar(modId)}_${toVar(locale)}_C`
@@ -1077,7 +1087,7 @@ export async function generateModuleRegistryCli(options: ModuleRegistryOptions):
         const metaName = `SubscriberMeta${importId++}_${toVar(modId)}_${toVar([...segs, name].join('_') || 'index')}`
         const appFile = path.join(subApp, ...segs, `${name}.ts`)
         const fromApp = fs.existsSync(appFile)
-        const importPath = `${fromApp ? imps.appBase : imps.pkgBase}/subscribers/${[...segs, name].join('/')}`
+        const importPath = `${fromApp ? appImportBase : imps.pkgBase}/subscribers/${[...segs, name].join('/')}`
         imports.push(`import ${importName}, * as ${metaName} from '${importPath}'`)
         const sid = [modId, ...segs, name].filter(Boolean).join(':')
         subscribers.push(
@@ -1114,7 +1124,7 @@ export async function generateModuleRegistryCli(options: ModuleRegistryOptions):
           const appFile = path.join(wrkApp, ...segs, `${name}.ts`)
           const fromApp = fs.existsSync(appFile)
           // Use package import path for checking exports (file path fails due to relative imports)
-          const importPath = `${fromApp ? imps.appBase : imps.pkgBase}/workers/${[...segs, name].join('/')}`
+          const importPath = `${fromApp ? appImportBase : imps.pkgBase}/workers/${[...segs, name].join('/')}`
           // Only include files that export metadata with a queue property
           if (!(await moduleHasExport(importPath, 'metadata'))) continue
           const importName = `Worker${importId++}_${toVar(modId)}_${toVar([...segs, name].join('_') || 'index')}`

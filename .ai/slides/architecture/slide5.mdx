@@ -5,7 +5,7 @@
 - Two-layer RBAC with role bundles + user overrides
 - Features are the unit of permission
 - Declared per module in `src/modules/<module>/acl.ts`
-- Naming: `<module>.<action>` (e.g. `auth.users.edit`, `booking.manage_resources`)
+- Naming: `<module>.<action>` (e.g. `auth.users.edit`)
 - Enforcement:
   - Declarative guards: `requireAuth`, `requireRoles`, `requireFeatures`
   - Imperative checks: `rbacService.userHasAllFeatures(userId, features, { tenantId, organizationId })`

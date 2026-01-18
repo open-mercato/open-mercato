@@ -308,14 +308,6 @@ export async function run(argv = process.argv) {
         await runModuleCommand(allModules, 'catalog', 'seed-units', ['--tenant', tenantId, '--org', orgId])
         console.log('📏 ✅ Catalog units seeded\n')
 
-        console.log('📐 Seeding booking capacity units...')
-        await runModuleCommand(allModules, 'booking', 'seed-capacity-units', ['--tenant', tenantId, '--org', orgId])
-        console.log('📐 ✅ Booking capacity units seeded\n')
-
-        console.log('🗓️  Seeding booking availability schedules...')
-        await runModuleCommand(allModules, 'booking', 'seed-availability-rulesets', ['--tenant', tenantId, '--org', orgId])
-        console.log('🗓️  ✅ Booking availability schedules seeded\n')
-
         const parsedEncryption = parseBooleanToken(process.env.TENANT_DATA_ENCRYPTION ?? 'yes')
         const encryptionEnabled = parsedEncryption === null ? true : parsedEncryption
         if (encryptionEnabled) {
@@ -361,10 +353,6 @@ export async function run(argv = process.argv) {
         if (skipExamples) {
           console.log('🚫 Example data seeding skipped (--no-examples)\n')
         } else {
-          console.log('🪑 Seeding booking resource examples...')
-          await runModuleCommand(allModules, 'booking', 'seed-examples', ['--tenant', tenantId, '--org', orgId])
-          console.log('🪑 ✅ Booking resource examples seeded\n')
-
           console.log('🛍️  Seeding catalog examples...')
           await runModuleCommand(allModules, 'catalog', 'seed-examples', ['--tenant', tenantId, '--org', orgId])
           console.log('🛍️ ✅ Catalog examples seeded\n')

@@ -70,6 +70,7 @@ export function validateTableName(tableName: string): void {
 async function loadModuleEntities(entry: ModuleEntry, resolver: PackageResolver): Promise<any[]> {
   const roots = resolver.getModulePaths(entry)
   const imps = resolver.getModuleImportBase(entry)
+  const isAppModule = entry.from === '@app'
   const bases = [
     path.join(roots.appBase, 'data'),
     path.join(roots.pkgBase, 'data'),
@@ -84,10 +85,20 @@ async function loadModuleEntities(entry: ModuleEntry, resolver: PackageResolver)
       if (fs.existsSync(p)) {
         const sub = path.basename(base)
         const fromApp = base.startsWith(roots.appBase)
-        const importBase = fromApp ? imps.appBase : imps.pkgBase
-        const mod = await import(`${importBase}/${sub}/${f.replace(/\.ts$/, '')}`)
-        const entities = Object.values(mod).filter((v) => typeof v === 'function')
-        if (entities.length) return entities as any[]
+        // For @app modules, use file:// URL since @/ alias doesn't work in Node.js runtime
+        const importPath = (isAppModule && fromApp)
+          ? `file://${p.replace(/\.ts$/, '.js')}`
+          : `${fromApp ? imps.appBase : imps.pkgBase}/${sub}/${f.replace(/\.ts$/, '')}`
+        try {
+          const mod = await import(importPath)
+          const entities = Object.values(mod).filter((v) => typeof v === 'function')
+          if (entities.length) return entities as any[]
+        } catch (err) {
+          // For @app modules with TypeScript files, they can't be directly imported
+          // Skip and let MikroORM handle entities through discovery
+          if (isAppModule) continue
+          throw err
+        }
       }
     }
   }
@@ -108,7 +119,8 @@ function getMigrationsPath(entry: ModuleEntry, resolver: PackageResolver): strin
       pkgModRoot = path.join(resolver.getRootDir(), 'packages/core/src/modules', entry.id)
     }
   } else if (from === '@app') {
-    pkgModRoot = path.join(resolver.getRootDir(), 'src/modules', entry.id)
+    // For @app modules, use the app directory not the monorepo root
+    pkgModRoot = path.join(resolver.getAppDir(), 'src/modules', entry.id)
   } else {
     pkgModRoot = path.join(resolver.getRootDir(), 'packages/core/src/modules', entry.id)
   }
@@ -207,19 +219,25 @@ export async function dbMigrate(resolver: PackageResolver, options: DbOptions = 
     const modId = entry.id
     const sanitizedModId = sanitizeModuleId(modId)
     const entities = await loadModuleEntities(entry, resolver)
-    if (!entities.length) continue
 
     const migrationsPath = getMigrationsPath(entry, resolver)
+
+    // Skip if no entities AND no migrations directory exists
+    // (allows @app modules to run migrations even if entities can't be dynamically imported)
+    if (!entities.length && !fs.existsSync(migrationsPath)) continue
     fs.mkdirSync(migrationsPath, { recursive: true })
 
     const tableName = `mikro_orm_migrations_${sanitizedModId}`
     validateTableName(tableName)
 
+    // For @app modules, entities may be empty since TypeScript files can't be imported at runtime
+    // Use discovery.warnWhenNoEntities: false to allow running migrations without entities
     const orm = await MikroORM.init<PostgreSqlDriver>({
       driver: PostgreSqlDriver,
       clientUrl: getClientUrl(),
       loggerFactory: () => createMinimalLogger(),
-      entities,
+      entities: entities.length ? entities : [],
+      discovery: { warnWhenNoEntities: false },
       migrations: {
         path: migrationsPath,
         glob: '!(*.d).{ts,js}',
