@@ -365,12 +365,6 @@
         "dueDate": "Due Date",
         "createdAt": "Created At"
       },
-      "status": {
-        "PENDING": "Pending",
-        "IN_PROGRESS": "In Progress",
-        "COMPLETED": "Completed",
-        "CANCELLED": "Cancelled"
-      },
       "filters": {
         "status": "Status",
         "view": "View",

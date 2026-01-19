@@ -321,7 +321,6 @@
       "allTasks": "Wszystkie Zadania",
       "taskName": "Nazwa Zadania",
       "description": "Opis",
-      "status": "Status",
       "assignedTo": "Przypisane Do",
       "assignedToRoles": "Przypisane do Ról",
       "claimedBy": "Przejęte Przez",
