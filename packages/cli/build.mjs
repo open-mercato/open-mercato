@@ -18,6 +18,7 @@ const addJsExtension = {
       for (const file of outputFiles) {
         const fileDir = dirname(file)
         let content = readFileSync(file, 'utf-8')
+        const originalContent = content
         // Add .js to relative imports that don't have an extension
         content = content.replace(
           /from\s+["'](\.[^"']+)["']/g,
@@ -49,15 +50,41 @@ const addJsExtension = {
             return `import("${path}.js")`
           }
         )
-        writeFileSync(file, content)
+        // Only write if content actually changed to avoid race conditions with HMR
+        if (content !== originalContent) {
+          writeFileSync(file, content)
+        }
       }
     })
   }
 }
 
 const outdir = join(__dirname, 'dist')
+const isWatchMode = process.argv.includes('--watch')
 
-await esbuild.build({
+// Function to add shebang to bin.js
+function addShebangToBin() {
+  const binPath = join(__dirname, 'dist/bin.js')
+  if (existsSync(binPath)) {
+    const binContent = readFileSync(binPath, 'utf-8')
+    if (!binContent.startsWith('#!/usr/bin/env node')) {
+      writeFileSync(binPath, '#!/usr/bin/env node\n' + binContent)
+      chmodSync(binPath, 0o755)
+    }
+  }
+}
+
+// Plugin to add shebang after build
+const addShebangPlugin = {
+  name: 'add-shebang',
+  setup(build) {
+    build.onEnd(() => {
+      addShebangToBin()
+    })
+  }
+}
+
+const ctx = await esbuild.context({
   entryPoints,
   outdir,
   outbase: join(__dirname, 'src'),
@@ -66,13 +93,15 @@ await esbuild.build({
   target: 'node18',
   sourcemap: true,
   bundle: false,
-  plugins: [addJsExtension],
+  plugins: [addJsExtension, addShebangPlugin],
 })
 
-// Make bin.js executable with shebang
-const binPath = join(__dirname, 'dist/bin.js')
-const binContent = readFileSync(binPath, 'utf-8')
-writeFileSync(binPath, '#!/usr/bin/env node\n' + binContent)
-chmodSync(binPath, 0o755)
-
+await ctx.rebuild()
 console.log('CLI built successfully')
+
+if (isWatchMode) {
+  await ctx.watch()
+  console.log('[cli] Watching for changes...')
+} else {
+  await ctx.dispose()
+}

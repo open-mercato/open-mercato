@@ -7,6 +7,7 @@
   "main": "./dist/index.js",
   "scripts": {
     "build": "node build.mjs",
+    "dev": "node build.mjs --watch",
     "test": "jest --config jest.config.cjs",
     "typecheck": "tsc --noEmit"
   },

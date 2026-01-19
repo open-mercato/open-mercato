@@ -889,6 +889,7 @@ export async function run(argv = process.argv) {
           const { spawn } = await import('child_process')
           const path = await import('path')
           const { createResolver } = await import('./lib/resolver')
+          const { startGenerateWatcher } = await import('./lib/generate-watcher')
           const resolver = createResolver()
           const appDir = resolver.getAppDir()
 
@@ -897,9 +898,13 @@ export async function run(argv = process.argv) {
 
           const processes: ChildProcess[] = []
           const autoSpawnWorkers = process.env.AUTO_SPAWN_WORKERS !== 'false'
+          let stopGenerateWatcher: (() => void) | null = null
 
           function cleanup() {
             console.log('[server] Shutting down...')
+            if (stopGenerateWatcher) {
+              stopGenerateWatcher()
+            }
             for (const proc of processes) {
               if (!proc.killed) {
                 proc.kill('SIGTERM')
@@ -911,6 +916,14 @@ export async function run(argv = process.argv) {
           process.on('SIGINT', cleanup)
 
           console.log('[server] Starting Open Mercato in dev mode...')
+
+          // Start generation watcher
+          console.log('[server] Starting generation watcher...')
+          try {
+            stopGenerateWatcher = await startGenerateWatcher({ resolver, quiet: false })
+          } catch (error) {
+            console.warn('[server] Could not start generation watcher:', error)
+          }
 
           // Resolve paths relative to where node_modules are located
           const nextBin = path.join(nodeModulesBase, 'node_modules/next/dist/bin/next')

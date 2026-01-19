@@ -5794,6 +5794,7 @@ __metadata:
     "@mikro-orm/postgresql": "npm:^6.6.2"
     "@open-mercato/shared": "workspace:*"
     "@types/jest": "npm:^30.0.0"
+    chokidar: "npm:^3.6.0"
     jest: "npm:^30.2.0"
     pg: "npm:^8.16.3"
     ts-jest: "npm:^29.4.6"

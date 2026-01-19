@@ -48,6 +48,7 @@
   },
   "scripts": {
     "build": "node build.mjs",
+    "dev": "node build.mjs --watch",
     "test": "jest --config jest.config.cjs",
     "typecheck": "tsc --noEmit"
   },
@@ -56,6 +57,7 @@
     "@mikro-orm/migrations": "^6.6.2",
     "@mikro-orm/postgresql": "^6.6.2",
     "@open-mercato/shared": "workspace:*",
+    "chokidar": "^3.6.0",
     "pg": "^8.16.3",
     "typescript": "^5.9.3"
   },

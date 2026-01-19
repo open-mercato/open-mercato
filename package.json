@@ -8,7 +8,9 @@
     "packages/*"
   ],
   "scripts": {
-    "dev": "turbo run dev --filter=@open-mercato/app",
+    "dev": "turbo run dev --filter=!open-mercato-docs --concurrency=20",
+    "dev:app": "turbo run dev --filter=@open-mercato/app",
+    "dev:packages": "turbo run dev --filter='./packages/*' --concurrency=15",
     "build:app": "turbo run build --filter=@open-mercato/app",
     "build:packages": "turbo run build --filter='./packages/*'",
     "lint": "turbo run lint",

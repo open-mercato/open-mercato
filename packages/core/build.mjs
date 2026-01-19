@@ -20,6 +20,7 @@ const addJsExtension = {
       for (const file of outputFiles) {
         const fileDir = dirname(file)
         let content = readFileSync(file, 'utf-8')
+        const originalContent = content
         // Add .js to relative imports that don't have an extension
         content = content.replace(
           /from\s+["'](\.[^"']+)["']/g,
@@ -58,15 +59,42 @@ const addJsExtension = {
             return `import "${path}.js";`
           }
         )
-        writeFileSync(file, content)
+        // Only write if content actually changed to avoid race conditions with HMR
+        if (content !== originalContent) {
+          writeFileSync(file, content)
+        }
       }
     })
   }
 }
 
 const outdir = join(__dirname, 'dist')
+const isWatchMode = process.argv.includes('--watch')
 
-await esbuild.build({
+// Function to copy JSON files
+async function copyJsonFiles() {
+  const jsonFiles = await glob(join(__dirname, 'src/**/*.json'), {
+    ignore: ['**/node_modules/**', '**/i18n/**'] // i18n files are handled differently
+  })
+  for (const jsonFile of jsonFiles) {
+    const relativePath = relative(join(__dirname, 'src'), jsonFile)
+    const destPath = join(outdir, relativePath)
+    mkdirSync(dirname(destPath), { recursive: true })
+    copyFileSync(jsonFile, destPath)
+  }
+}
+
+// Plugin to copy JSON files after build
+const copyJsonPlugin = {
+  name: 'copy-json',
+  setup(build) {
+    build.onEnd(async () => {
+      await copyJsonFiles()
+    })
+  }
+}
+
+const ctx = await esbuild.context({
   entryPoints,
   outdir,
   outbase: join(__dirname, 'src'),
@@ -75,18 +103,35 @@ await esbuild.build({
   target: 'node18',
   sourcemap: true,
   jsx: 'automatic',
-  plugins: [addJsExtension],
+  plugins: [addJsExtension, copyJsonPlugin],
 })
 
-// Copy JSON files from src to dist (esbuild doesn't handle non-entry JSON files)
-const jsonFiles = await glob(join(__dirname, 'src/**/*.json'), {
-  ignore: ['**/node_modules/**', '**/i18n/**'] // i18n files are handled differently
-})
-for (const jsonFile of jsonFiles) {
-  const relativePath = relative(join(__dirname, 'src'), jsonFile)
-  const destPath = join(outdir, relativePath)
-  mkdirSync(dirname(destPath), { recursive: true })
-  copyFileSync(jsonFile, destPath)
-}
-
+await ctx.rebuild()
 console.log('core built successfully')
+
+if (isWatchMode) {
+  await ctx.watch()
+
+  // Also watch JSON files separately using chokidar if available
+  try {
+    const chokidar = await import('chokidar')
+    const jsonWatcher = chokidar.watch(join(__dirname, 'src/**/*.json'), {
+      ignored: ['**/node_modules/**', '**/i18n/**'],
+      persistent: true,
+    })
+    jsonWatcher.on('change', async (path) => {
+      console.log(`[core] JSON file changed: ${relative(__dirname, path)}`)
+      await copyJsonFiles()
+    })
+    jsonWatcher.on('add', async (path) => {
+      console.log(`[core] JSON file added: ${relative(__dirname, path)}`)
+      await copyJsonFiles()
+    })
+  } catch {
+    // chokidar not available, JSON files will only be copied on TS changes
+  }
+
+  console.log('[core] Watching for changes...')
+} else {
+  await ctx.dispose()
+}

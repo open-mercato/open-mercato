@@ -17,6 +17,7 @@ const addJsExtension = {
       for (const file of outputFiles) {
         const fileDir = dirname(file)
         let content = readFileSync(file, 'utf-8')
+        const originalContent = content
         // Add .js to relative imports that don't have an extension
         content = content.replace(
           /from\s+["'](\.[^"']+)["']/g,
@@ -42,13 +43,18 @@ const addJsExtension = {
             return `import("${path}.js")`
           }
         )
-        writeFileSync(file, content)
+        // Only write if content actually changed to avoid race conditions with HMR
+        if (content !== originalContent) {
+          writeFileSync(file, content)
+        }
       }
     })
   }
 }
 
-await esbuild.build({
+const isWatchMode = process.argv.includes('--watch')
+
+const ctx = await esbuild.context({
   entryPoints,
   outdir: 'dist',
   format: 'esm',
@@ -59,4 +65,12 @@ await esbuild.build({
   plugins: [addJsExtension],
 })
 
+await ctx.rebuild()
 console.log('content built successfully')
+
+if (isWatchMode) {
+  await ctx.watch()
+  console.log('[content] Watching for changes...')
+} else {
+  await ctx.dispose()
+}

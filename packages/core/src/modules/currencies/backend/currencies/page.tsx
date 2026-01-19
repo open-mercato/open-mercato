@@ -261,20 +261,20 @@ export default function CurrenciesPage() {
                 },
                 ...(!row.isBase
                   ? [
-                      {
-                        label: t('currencies.list.actions.setBase'),
-                        onSelect: () => handleSetBase(row),
-                      },
-                    ]
+                    {
+                      label: t('currencies.list.actions.setBase'),
+                      onSelect: () => handleSetBase(row),
+                    },
+                  ]
                   : []),
                 ...(!row.isBase
                   ? [
-                      {
-                        label: t('common.delete'),
-                        destructive: true,
-                        onSelect: () => handleDelete(row),
-                      },
-                    ]
+                    {
+                      label: t('common.delete'),
+                      destructive: true,
+                      onSelect: () => handleDelete(row),
+                    },
+                  ]
                   : []),
               ]}
             />
