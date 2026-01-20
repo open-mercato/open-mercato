@@ -167,7 +167,6 @@ yarn install
 cp apps/mercato/.env.example apps/mercato/.env # EDIT this file to set up your specific files
 #At minimum, set `DATABASE_URL`, `JWT_SECRET`, and `REDIS_URL` (or `EVENTS_REDIS_URL`) before bootstrapping.
 
-yarn build:packages
 yarn generate
 yarn initialize # or yarn reinstall
 yarn dev
