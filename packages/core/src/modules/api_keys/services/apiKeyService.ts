@@ -79,6 +79,98 @@ export async function findApiKeyBySecret(em: EntityManager, secret: string): Pro
   return record
 }
 
+// =============================================================================
+// Session-scoped API Keys (for AI Chat ephemeral authorization)
+// =============================================================================
+
+export type CreateSessionApiKeyInput = {
+  sessionToken: string
+  userId: string
+  userRoles: string[]
+  tenantId?: string | null
+  organizationId?: string | null
+  ttlMinutes?: number
+}
+
+/**
+ * Generate a unique session token for ephemeral API keys.
+ * Format: sess_{32 hex chars}
+ */
+export function generateSessionToken(): string {
+  return `sess_${randomBytes(16).toString('hex')}`
+}
+
+/**
+ * Create an ephemeral API key scoped to a chat session.
+ * The key inherits the user's roles and expires after ttlMinutes (default 30).
+ */
+export async function createSessionApiKey(
+  em: EntityManager,
+  input: CreateSessionApiKeyInput
+): Promise<{ keyId: string; secret: string; sessionToken: string }> {
+  const { secret, prefix } = generateApiKeySecret()
+  const ttl = input.ttlMinutes ?? 30
+  const expiresAt = new Date(Date.now() + ttl * 60 * 1000)
+
+  const record = em.create(ApiKey, {
+    name: `__session_${input.sessionToken}__`,
+    description: 'Ephemeral session API key for AI chat',
+    tenantId: input.tenantId ?? null,
+    organizationId: input.organizationId ?? null,
+    keyHash: hashApiKey(secret),
+    keyPrefix: prefix,
+    rolesJson: input.userRoles,
+    createdBy: input.userId,
+    sessionToken: input.sessionToken,
+    sessionUserId: input.userId,
+    expiresAt,
+    createdAt: new Date(),
+  })
+
+  await em.persistAndFlush(record)
+
+  return {
+    keyId: record.id,
+    secret,
+    sessionToken: input.sessionToken,
+  }
+}
+
+/**
+ * Find an API key by its session token.
+ * Returns null if not found, expired, or deleted.
+ */
+export async function findApiKeyBySessionToken(
+  em: EntityManager,
+  sessionToken: string
+): Promise<ApiKey | null> {
+  if (!sessionToken) return null
+
+  const record = await em.findOne(ApiKey, {
+    sessionToken,
+    deletedAt: null,
+  })
+
+  if (!record) return null
+  if (record.expiresAt && record.expiresAt.getTime() < Date.now()) return null
+
+  return record
+}
+
+/**
+ * Delete an ephemeral API key by its session token.
+ */
+export async function deleteSessionApiKey(
+  em: EntityManager,
+  sessionToken: string
+): Promise<void> {
+  const record = await em.findOne(ApiKey, { sessionToken, deletedAt: null })
+  if (!record) return
+
+  record.deletedAt = new Date()
+  await em.persistAndFlush(record)
+}
+
 /**
  * Execute a function with a one-time API key
  *

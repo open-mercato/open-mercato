@@ -1,4 +1,28 @@
 services:
+  opencode:
+    build:
+      context: ./docker/opencode
+    image: opencode-mvp
+    container_name: mercato-opencode
+    restart: unless-stopped
+    environment:
+      # Provider selection (anthropic, openai, google)
+      OPENCODE_PROVIDER: ${OPENCODE_PROVIDER:-anthropic}
+      OPENCODE_MODEL: ${OPENCODE_MODEL:-}
+      # Provider API keys (set the one matching OPENCODE_PROVIDER)
+      ANTHROPIC_API_KEY: ${OPENCODE_ANTHROPIC_API_KEY:-}
+      OPENAI_API_KEY: ${OPENCODE_OPENAI_API_KEY:-}
+      GOOGLE_API_KEY: ${OPENCODE_GOOGLE_API_KEY:-}
+      # MCP configuration
+      OPENCODE_MCP_URL: ${OPENCODE_MCP_URL:-http://host.docker.internal:3001/mcp}
+      MCP_SERVER_API_KEY: ${MCP_SERVER_API_KEY:-}
+    ports:
+      - "${OPENCODE_PORT:-4096}:4096"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    networks:
+      - mercato-network
+
   postgres:
     image: pgvector/pgvector:pg17-trixie
     container_name: mercato-postgres

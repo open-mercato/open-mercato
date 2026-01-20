@@ -30,6 +30,14 @@ export class ApiKey {
   @Property({ name: 'created_by', type: 'uuid', nullable: true })
   createdBy?: string | null
 
+  /** Session token for ephemeral session-scoped keys (used by AI chat) */
+  @Property({ name: 'session_token', type: 'text', nullable: true })
+  sessionToken?: string | null
+
+  /** User ID who owns this session (for ephemeral keys) */
+  @Property({ name: 'session_user_id', type: 'uuid', nullable: true })
+  sessionUserId?: string | null
+
   @Property({ name: 'last_used_at', type: Date, nullable: true })
   lastUsedAt?: Date | null
 

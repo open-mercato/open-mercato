@@ -9,6 +9,10 @@
       "cache": false,
       "persistent": true
     },
+    "mcp:dev": {
+      "cache": false,
+      "persistent": true
+    },
     "typecheck": {
       "cache": false,
       "outputs": []
