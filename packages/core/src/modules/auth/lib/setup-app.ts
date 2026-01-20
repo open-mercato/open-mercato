@@ -394,6 +394,7 @@ async function ensureDefaultRoleAcls(
       'example.*',
       'dashboards.*',
       'dashboards.admin.assign-widgets',
+      'analytics.view',
       'api_keys.*',
       'perspectives.use',
       'perspectives.role_defaults',
@@ -420,6 +421,7 @@ async function ensureDefaultRoleAcls(
       'example.widgets.*',
       'dashboards.view',
       'dashboards.configure',
+      'analytics.view',
       'audit_logs.undo_self',
       'perspectives.use',
     ])

@@ -208,6 +208,7 @@
   },
   "dependencies": {
     "@open-mercato/shared": "workspace:*",
+    "@tremor/react": "^3.18.7",
     "date-fns": "^4.1.0",
     "date-fns-tz": "^3.2.0"
   },

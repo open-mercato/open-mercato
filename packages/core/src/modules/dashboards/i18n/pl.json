@@ -5,5 +5,73 @@
   "dashboards.widgets.flash.saved": "Widżety pulpitu zostały zaktualizowane",
   "dashboards.widgets.mode.inherit": "Dziedzicz po rolach",
   "dashboards.widgets.mode.override": "Nadpisz dla tego użytkownika",
-  "dashboards.widgets.mode.hint": "Ten użytkownik dziedziczy widżety z przypisanych ról. Wybierz nadpisanie, aby je dostosować."
+  "dashboards.widgets.mode.hint": "Ten użytkownik dziedziczy widżety z przypisanych ról. Wybierz nadpisanie, aby je dostosować.",
+
+  "dashboards.analytics.dateRange.today": "Dzisiaj",
+  "dashboards.analytics.dateRange.yesterday": "Wczoraj",
+  "dashboards.analytics.dateRange.thisWeek": "Ten tydzień",
+  "dashboards.analytics.dateRange.lastWeek": "Poprzedni tydzień",
+  "dashboards.analytics.dateRange.thisMonth": "Ten miesiąc",
+  "dashboards.analytics.dateRange.lastMonth": "Poprzedni miesiąc",
+  "dashboards.analytics.dateRange.thisQuarter": "Ten kwartał",
+  "dashboards.analytics.dateRange.lastQuarter": "Poprzedni kwartał",
+  "dashboards.analytics.dateRange.thisYear": "Ten rok",
+  "dashboards.analytics.dateRange.lastYear": "Poprzedni rok",
+  "dashboards.analytics.dateRange.last7Days": "Ostatnie 7 dni",
+  "dashboards.analytics.dateRange.last30Days": "Ostatnie 30 dni",
+  "dashboards.analytics.dateRange.last90Days": "Ostatnie 90 dni",
+
+  "dashboards.analytics.granularity.day": "Dzień",
+  "dashboards.analytics.granularity.week": "Tydzień",
+  "dashboards.analytics.granularity.month": "Miesiąc",
+  "dashboards.analytics.granularity.quarter": "Kwartał",
+  "dashboards.analytics.granularity.year": "Rok",
+
+  "dashboards.analytics.chartVariant.pie": "Kołowy",
+  "dashboards.analytics.chartVariant.donut": "Pierścieniowy",
+
+  "dashboards.analytics.settings.dateRange": "Zakres dat",
+  "dashboards.analytics.settings.showComparison": "Pokaż porównanie",
+  "dashboards.analytics.settings.granularity": "Szczegółowość",
+  "dashboards.analytics.settings.showArea": "Pokaż wypełnienie obszaru",
+  "dashboards.analytics.settings.limit": "Liczba elementów",
+  "dashboards.analytics.settings.chartVariant": "Styl wykresu",
+
+  "dashboards.analytics.widgets.revenueKpi.title": "Przychód",
+  "dashboards.analytics.widgets.revenueKpi.error": "Nie udało się załadować danych o przychodach",
+
+  "dashboards.analytics.widgets.ordersKpi.title": "Zamówienia",
+  "dashboards.analytics.widgets.ordersKpi.error": "Nie udało się załadować danych o zamówieniach",
+
+  "dashboards.analytics.widgets.aovKpi.title": "Średnia wartość zamówienia",
+  "dashboards.analytics.widgets.aovKpi.error": "Nie udało się załadować danych AOV",
+
+  "dashboards.analytics.widgets.newCustomersKpi.title": "Nowi klienci",
+  "dashboards.analytics.widgets.newCustomersKpi.error": "Nie udało się załadować danych o nowych klientach",
+
+  "dashboards.analytics.widgets.revenueTrend.title": "Trend przychodów",
+  "dashboards.analytics.widgets.revenueTrend.error": "Nie udało się załadować danych trendu przychodów",
+  "dashboards.analytics.widgets.revenueTrend.empty": "Brak danych o przychodach dla tego okresu",
+
+  "dashboards.analytics.widgets.topProducts.title": "Najlepsze produkty wg przychodu",
+  "dashboards.analytics.widgets.topProducts.error": "Nie udało się załadować danych o produktach",
+  "dashboards.analytics.widgets.topProducts.empty": "Brak danych o sprzedaży produktów dla tego okresu",
+
+  "dashboards.analytics.widgets.ordersByStatus.title": "Zamówienia wg statusu",
+  "dashboards.analytics.widgets.ordersByStatus.error": "Nie udało się załadować danych o zamówieniach wg statusu",
+  "dashboards.analytics.widgets.ordersByStatus.empty": "Brak zamówień dla tego okresu",
+
+  "dashboards.analytics.widgets.topCustomers.title": "Najlepsi klienci wg przychodu",
+  "dashboards.analytics.widgets.topCustomers.error": "Nie udało się załadować danych o klientach",
+  "dashboards.analytics.widgets.topCustomers.empty": "Brak danych o klientach dla tego okresu",
+  "dashboards.analytics.widgets.topCustomers.column.customer": "Klient",
+  "dashboards.analytics.widgets.topCustomers.column.revenue": "Przychód",
+
+  "dashboards.analytics.widgets.pipelineSummary.title": "Podsumowanie lejka",
+  "dashboards.analytics.widgets.pipelineSummary.error": "Nie udało się załadować danych lejka",
+  "dashboards.analytics.widgets.pipelineSummary.empty": "Brak danych o szansach dla tego okresu",
+
+  "dashboards.analytics.widgets.salesByRegion.title": "Sprzedaż wg regionu",
+  "dashboards.analytics.widgets.salesByRegion.error": "Nie udało się załadować danych sprzedaży wg regionu",
+  "dashboards.analytics.widgets.salesByRegion.empty": "Brak danych o sprzedaży regionalnej dla tego okresu"
 }
