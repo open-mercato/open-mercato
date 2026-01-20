@@ -13,6 +13,7 @@ import { FormFieldArrayEditor } from './fields/FormFieldArrayEditor'
 import { ActivityArrayEditor } from './fields/ActivityArrayEditor'
 import { MappingArrayEditor } from './fields/MappingArrayEditor'
 import { WorkflowSelectorField } from './fields/WorkflowSelectorField'
+import { StartPreConditionsEditor } from './fields/StartPreConditionsEditor'
 import { nodeToFormValues, formValuesToNodeUpdates, isJsonSchemaFormat, type NodeFormValues } from '../lib/nodeFormTransforms'
 import { sanitizeId } from '../lib/graph-utils'
 
@@ -110,8 +111,8 @@ export function NodeEditDialogCrudForm({ node, isOpen, onClose, onSave, onDelete
   const groups: CrudFormGroup[] = useMemo(() => {
     if (!node) return []
 
-    // Start and End nodes are non-editable
-    if (node.type === 'start' || node.type === 'end') {
+    // End nodes are non-editable
+    if (node.type === 'end') {
       return [
         {
           id: 'info',
@@ -121,12 +122,36 @@ export function NodeEditDialogCrudForm({ node, isOpen, onClose, onSave, onDelete
             <Alert variant="default" className="border-blue-200 bg-blue-50">
               <Info className="size-4" />
               <AlertDescription>
-                {node.type === 'start'
-                  ? 'Start nodes cannot be edited. They mark the beginning of the workflow.'
-                  : 'End nodes cannot be edited. They mark the completion of the workflow.'}
+                End nodes cannot be edited. They mark the completion of the workflow.
               </AlertDescription>
             </Alert>
           ),
+        },
+      ]
+    }
+
+    // Start nodes: allow editing pre-conditions
+    if (node.type === 'start') {
+      return [
+        {
+          id: 'info',
+          column: 1,
+          bare: true,
+          component: () => (
+            <Alert variant="default" className="border-blue-200 bg-blue-50 mb-4">
+              <Info className="size-4" />
+              <AlertDescription>
+                Start nodes mark the beginning of the workflow. You can define pre-conditions that must pass before the workflow can be started.
+              </AlertDescription>
+            </Alert>
+          ),
+        },
+        {
+          id: 'preConditions',
+          title: 'Pre-Conditions',
+          column: 1,
+          description: 'Business rules that must pass before the workflow can start',
+          fields: ['preConditions'],
         },
       ]
     }
@@ -409,6 +434,15 @@ export function NodeEditDialogCrudForm({ node, isOpen, onClose, onSave, onDelete
       type: 'custom',
       description: 'Additional JSON configuration merged with the step data',
       component: (props) => <JsonConfigEditor {...props} />,
+    },
+
+    // Start node pre-conditions
+    {
+      id: 'preConditions',
+      label: 'Pre-Conditions',
+      type: 'custom',
+      description: 'Business rules that must pass before the workflow can start',
+      component: (props) => <StartPreConditionsEditor {...props} value={props.value as any} />,
     },
   ], [showJsonSchemaWarning])
 

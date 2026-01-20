@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { Button } from '@open-mercato/ui/primitives/button'
 import Link from 'next/link'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
@@ -62,6 +62,8 @@ export default function CheckoutDemoPage() {
   const [selectedCustomerId, setSelectedCustomerId] = useState<string>('')
   const [selectedCurrency, setSelectedCurrency] = useState<string>('USD')
   const [cart, setCart] = useState<CartItem[]>([])
+  const [validationErrors, setValidationErrors] = useState<Array<{ ruleId: string; message: string }>>([])
+  const [isValidating, setIsValidating] = useState(false)
 
   // Poll workflow instance for real-time status updates
   const { data: instanceData } = useQuery({
@@ -182,20 +184,6 @@ export default function CheckoutDemoPage() {
     },
   })
 
-  // Auto-populate cart with first 3 products when products load (for demo convenience)
-  useEffect(() => {
-    if (products.length > 0 && cart.length === 0) {
-      const initialCart: CartItem[] = products.slice(0, 3).map((product: any) => ({
-        id: product.id,
-        name: product.title || product.display_name || 'Untitled Product',
-        // Use resolved pricing from catalog pricing service (in USD)
-        price: product.pricing?.unit_price_gross || product.pricing?.unit_price_net || 99.99,
-        quantity: 1,
-      }))
-      setCart(initialCart)
-    }
-  }, [products, cart.length])
-
   // Exchange rates (USD base)
   const exchangeRates: Record<string, number> = {
     USD: 1,
@@ -303,6 +291,67 @@ export default function CheckoutDemoPage() {
     }
   }, [result?.status])
 
+  // Validate workflow pre-conditions before starting checkout
+  const validateBeforeCheckout = useCallback(async (): Promise<boolean> => {
+    // Don't validate if no customer selected yet
+    if (!selectedCustomerId) {
+      setValidationErrors([])
+      return false
+    }
+
+    setIsValidating(true)
+
+    try {
+      const response = await fetch('/api/workflows/instances/validate-start', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          workflowId: 'checkout_simple_v1',
+          context: {
+            cart: {
+              items: demoCart,
+              itemCount: demoCart.reduce((sum, item) => sum + item.quantity, 0),
+              subtotal: subtotal,
+              tax: tax,
+              shipping: shipping,
+              total: total,
+              currency: selectedCurrency,
+            },
+            customerId: selectedCustomerId,
+            currency: selectedCurrency,
+          },
+        }),
+      })
+
+      const data = await response.json()
+
+      if (!data.canStart) {
+        setValidationErrors(data.errors || [{ ruleId: '_UNKNOWN', message: 'Validation failed' }])
+        return false
+      }
+
+      setValidationErrors([])
+      return true
+    } catch (err) {
+      setValidationErrors([{ ruleId: '_ERROR', message: 'Failed to validate checkout pre-conditions' }])
+      return false
+    } finally {
+      setIsValidating(false)
+    }
+  }, [selectedCustomerId, demoCart, subtotal, tax, shipping, total, selectedCurrency])
+
+  // Auto-validate when customer is selected or cart changes
+  // Using JSON.stringify(cart) to detect actual cart content changes
+  const cartJson = JSON.stringify(cart)
+  useEffect(() => {
+    // Only validate if customer is selected and workflow hasn't started yet
+    if (!selectedCustomerId || result) {
+      return
+    }
+
+    validateBeforeCheckout()
+  }, [selectedCustomerId, cartJson, result]) // eslint-disable-line react-hooks/exhaustive-deps
+
   const handleCheckout = async () => {
     // Validate customer selection
     if (!selectedCustomerId) {
@@ -310,9 +359,9 @@ export default function CheckoutDemoPage() {
       return
     }
 
-    // Validate cart has items
-    if (cart.length === 0) {
-      setError('Please add at least one product to your cart')
+    // Validate pre-conditions before starting workflow
+    const canStart = await validateBeforeCheckout()
+    if (!canStart) {
       return
     }
 
@@ -460,7 +509,7 @@ export default function CheckoutDemoPage() {
   const getStatusColor = (status: string) => {
     switch (status) {
       case 'RUNNING':
-        return 'text-blue-600 dark:text-blue-400 bg-blue-50'
+        return 'text-blue-600 bg-blue-50'
       case 'WAITING_FOR_ACTIVITIES':
         return 'text-purple-600 bg-purple-50'
       case 'PAUSED':
@@ -470,7 +519,7 @@ export default function CheckoutDemoPage() {
       case 'FAILED':
         return 'text-red-600 bg-red-50'
       default:
-        return 'text-muted-foreground bg-muted'
+        return 'text-gray-600 bg-gray-50'
     }
   }
 
@@ -495,21 +544,21 @@ export default function CheckoutDemoPage() {
       case 'completed':
         return 'bg-green-100 text-green-600 border-green-300'
       case 'current':
-        return 'bg-blue-100 dark:bg-blue-900/50 text-blue-600 dark:text-blue-400 border-blue-300'
+        return 'bg-blue-100 text-blue-600 border-blue-300'
       case 'paused':
         return 'bg-yellow-100 text-yellow-600 border-yellow-300'
       default:
-        return 'bg-muted text-muted-foreground border-border'
+        return 'bg-gray-100 text-gray-600 border-gray-300'
     }
   }
 
   const getEventTypeBadgeClass = (eventType: string) => {
-    if (eventType.includes('STARTED')) return 'bg-blue-100 dark:bg-blue-900/50 text-blue-800 dark:text-blue-200'
+    if (eventType.includes('STARTED')) return 'bg-blue-100 text-blue-800'
     if (eventType.includes('COMPLETED')) return 'bg-green-100 text-green-800'
     if (eventType.includes('FAILED') || eventType.includes('REJECTED')) return 'bg-red-100 text-red-800'
-    if (eventType.includes('CANCELLED')) return 'bg-muted text-foreground'
+    if (eventType.includes('CANCELLED')) return 'bg-gray-100 text-gray-800'
     if (eventType.includes('ENTERED') || eventType.includes('EXITED')) return 'bg-purple-100 text-purple-800'
-    return 'bg-muted text-foreground'
+    return 'bg-gray-100 text-gray-800'
   }
 
   const formatEventType = (eventType: string) => {
@@ -661,8 +710,8 @@ export default function CheckoutDemoPage() {
     const fieldDescription = fieldSchema.description
     const enumValues = fieldSchema.enum
 
-    const inputClasses = "w-full px-3 py-2 border border-border rounded-md focus:outline-none focus:ring-2 focus:ring-yellow-500 text-sm"
-    const labelClasses = "block text-sm font-medium text-foreground mb-1"
+    const inputClasses = "w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-yellow-500 text-sm"
+    const labelClasses = "block text-sm font-medium text-gray-700 mb-1"
 
     // Handle enum (select dropdown)
     if (enumValues && Array.isArray(enumValues)) {
@@ -673,7 +722,7 @@ export default function CheckoutDemoPage() {
             {required && <span className="text-red-600 ml-1">*</span>}
           </label>
           {fieldDescription && (
-            <p className="text-xs text-muted-foreground mb-1">{fieldDescription}</p>
+            <p className="text-xs text-gray-500 mb-1">{fieldDescription}</p>
           )}
           <select
             id={fieldName}
@@ -704,7 +753,7 @@ export default function CheckoutDemoPage() {
                 {required && <span className="text-red-600 ml-1">*</span>}
               </label>
               {fieldDescription && (
-                <p className="text-xs text-muted-foreground mb-1">{fieldDescription}</p>
+                <p className="text-xs text-gray-500 mb-1">{fieldDescription}</p>
               )}
               <input
                 type="email"
@@ -725,7 +774,7 @@ export default function CheckoutDemoPage() {
                 {required && <span className="text-red-600 ml-1">*</span>}
               </label>
               {fieldDescription && (
-                <p className="text-xs text-muted-foreground mb-1">{fieldDescription}</p>
+                <p className="text-xs text-gray-500 mb-1">{fieldDescription}</p>
               )}
               <input
                 type="date"
@@ -746,7 +795,7 @@ export default function CheckoutDemoPage() {
                 {required && <span className="text-red-600 ml-1">*</span>}
               </label>
               {fieldDescription && (
-                <p className="text-xs text-muted-foreground mb-1">{fieldDescription}</p>
+                <p className="text-xs text-gray-500 mb-1">{fieldDescription}</p>
               )}
               <textarea
                 id={fieldName}
@@ -766,7 +815,7 @@ export default function CheckoutDemoPage() {
               {required && <span className="text-red-600 ml-1">*</span>}
             </label>
             {fieldDescription && (
-              <p className="text-xs text-muted-foreground mb-1">{fieldDescription}</p>
+              <p className="text-xs text-gray-500 mb-1">{fieldDescription}</p>
             )}
             <input
               type="text"
@@ -788,7 +837,7 @@ export default function CheckoutDemoPage() {
               {required && <span className="text-red-600 ml-1">*</span>}
             </label>
             {fieldDescription && (
-              <p className="text-xs text-muted-foreground mb-1">{fieldDescription}</p>
+              <p className="text-xs text-gray-500 mb-1">{fieldDescription}</p>
             )}
             <input
               type="number"
@@ -811,15 +860,15 @@ export default function CheckoutDemoPage() {
                 id={fieldName}
                 checked={!!formData[fieldName]}
                 onChange={(e) => handleFieldChange(fieldName, e.target.checked)}
-                className="w-4 h-4 text-yellow-600 border-border rounded focus:ring-yellow-500"
+                className="w-4 h-4 text-yellow-600 border-gray-300 rounded focus:ring-yellow-500"
               />
-              <label htmlFor={fieldName} className="text-sm font-medium text-foreground">
+              <label htmlFor={fieldName} className="text-sm font-medium text-gray-700">
                 {fieldTitle}
                 {required && <span className="text-red-600 ml-1">*</span>}
               </label>
             </div>
             {fieldDescription && (
-              <p className="text-xs text-muted-foreground ml-6">{fieldDescription}</p>
+              <p className="text-xs text-gray-500 ml-6">{fieldDescription}</p>
             )}
           </div>
         )
@@ -832,7 +881,7 @@ export default function CheckoutDemoPage() {
               {required && <span className="text-red-600 ml-1">*</span>}
             </label>
             {fieldDescription && (
-              <p className="text-xs text-muted-foreground mb-1">{fieldDescription}</p>
+              <p className="text-xs text-gray-500 mb-1">{fieldDescription}</p>
             )}
             <input
               type="text"
@@ -848,29 +897,29 @@ export default function CheckoutDemoPage() {
   }
 
   return (
-    <div className="min-h-screen bg-muted py-12 px-4 sm:px-6 lg:px-8">
+    <div className="min-h-screen bg-gray-50 py-12 px-4 sm:px-6 lg:px-8">
       <div className="max-w-6xl mx-auto">
         {/* Header */}
         <div className="text-center mb-8">
-          <h1 className="text-3xl font-bold text-foreground mb-2">Checkout Demo with Payment Webhooks</h1>
-          <p className="text-muted-foreground">
+          <h1 className="text-3xl font-bold text-gray-900 mb-2">Checkout Demo with Payment Webhooks</h1>
+          <p className="text-gray-600">
             Interactive workflow demonstration featuring signal-based payment confirmation (WAIT_FOR_SIGNAL)
           </p>
         </div>
 
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
           {/* Interactive Left Panel - Changes based on workflow step */}
-          <div className="bg-card shadow rounded-lg p-6">
+          <div className="bg-white shadow rounded-lg p-6">
             {/* Initial State - Cart Summary */}
             {!result && (
               <>
                 {/* Customer Selection */}
-                <div className="mb-6 pb-6 border-b border-border">
-                  <label htmlFor="customer-select" className="block text-sm font-medium text-foreground mb-2">
+                <div className="mb-6 pb-6 border-b border-gray-200">
+                  <label htmlFor="customer-select" className="block text-sm font-medium text-gray-700 mb-2">
                     Select Customer <span className="text-red-600">*</span>
                   </label>
                   {customersLoading ? (
-                    <div className="flex items-center justify-center py-3 text-sm text-muted-foreground">
+                    <div className="flex items-center justify-center py-3 text-sm text-gray-500">
                       <div className="inline-block w-4 h-4 border-2 border-blue-600 border-t-transparent rounded-full animate-spin mr-2"></div>
                       Loading customers...
                     </div>
@@ -884,7 +933,7 @@ export default function CheckoutDemoPage() {
                         id="customer-select"
                         value={selectedCustomerId}
                         onChange={(e) => setSelectedCustomerId(e.target.value)}
-                        className="w-full px-3 py-2 border border-border rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
+                        className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
                       >
                         <option value="">-- Select a customer --</option>
                         {customers.map((customer: any) => (
@@ -894,14 +943,14 @@ export default function CheckoutDemoPage() {
                         ))}
                       </select>
                       <div className="mt-2">
-                        <label htmlFor="currency-select" className="block text-xs font-medium text-muted-foreground mb-1">
+                        <label htmlFor="currency-select" className="block text-xs font-medium text-gray-600 mb-1">
                           Currency
                         </label>
                         <select
                           id="currency-select"
                           value={selectedCurrency}
                           onChange={(e) => setSelectedCurrency(e.target.value)}
-                          className="w-full px-3 py-2 border border-border rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
+                          className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
                         >
                           <option value="USD">USD - US Dollar</option>
                           <option value="EUR">EUR - Euro</option>
@@ -914,12 +963,12 @@ export default function CheckoutDemoPage() {
                 </div>
 
                 {/* Product Selection */}
-                <div className="mb-6 pb-6 border-b border-border">
-                  <label htmlFor="product-select" className="block text-sm font-medium text-foreground mb-2">
+                <div className="mb-6 pb-6 border-b border-gray-200">
+                  <label htmlFor="product-select" className="block text-sm font-medium text-gray-700 mb-2">
                     Add Products to Cart
                   </label>
                   {productsLoading ? (
-                    <div className="flex items-center justify-center py-3 text-sm text-muted-foreground">
+                    <div className="flex items-center justify-center py-3 text-sm text-gray-500">
                       <div className="inline-block w-4 h-4 border-2 border-blue-600 border-t-transparent rounded-full animate-spin mr-2"></div>
                       Loading products...
                     </div>
@@ -942,7 +991,7 @@ export default function CheckoutDemoPage() {
                             e.target.value = '' // Reset selection
                           }
                         }}
-                        className="w-full px-3 py-2 border border-border rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
+                        className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
                         value=""
                       >
                         <option value="">-- Select a product to add --</option>
@@ -957,7 +1006,7 @@ export default function CheckoutDemoPage() {
                         })}
                       </select>
                       {cart.length === 0 && (
-                        <p className="text-xs text-muted-foreground mt-1">
+                        <p className="text-xs text-gray-500 mt-1">
                           Select products from the dropdown to add them to your cart
                         </p>
                       )}
@@ -965,39 +1014,39 @@ export default function CheckoutDemoPage() {
                   )}
                 </div>
 
-                <h2 className="text-xl font-semibold text-foreground mb-4">Order Summary</h2>
+                <h2 className="text-xl font-semibold text-gray-900 mb-4">Order Summary</h2>
 
                 {/* Cart Items */}
                 {cart.length === 0 ? (
-                  <div className="bg-muted border border-border rounded-lg p-6 text-center mb-6">
-                    <p className="text-muted-foreground text-sm">Your cart is empty</p>
-                    <p className="text-muted-foreground text-xs mt-1">Add products from the dropdown above</p>
+                  <div className="bg-gray-50 border border-gray-200 rounded-lg p-6 text-center mb-6">
+                    <p className="text-gray-500 text-sm">Your cart is empty</p>
+                    <p className="text-gray-400 text-xs mt-1">Add products from the dropdown above</p>
                   </div>
                 ) : (
                   <div className="space-y-4 mb-6">
                     {demoCart.map((item) => (
-                      <div key={item.id} className="flex justify-between items-center gap-4 pb-3 border-b border-border last:border-0">
+                      <div key={item.id} className="flex justify-between items-center gap-4 pb-3 border-b border-gray-100 last:border-0">
                         <div className="flex-1 min-w-0">
-                          <p className="font-medium text-foreground truncate">{item.name}</p>
-                          <p className="text-xs text-muted-foreground">{currencySymbol}{item.price.toFixed(2)} each</p>
+                          <p className="font-medium text-gray-900 truncate">{item.name}</p>
+                          <p className="text-xs text-gray-500">{currencySymbol}{item.price.toFixed(2)} each</p>
                         </div>
                         <div className="flex items-center gap-2">
                           <button
                             onClick={() => updateQuantity(item.id, item.quantity - 1)}
-                            className="w-7 h-7 flex items-center justify-center rounded border border-border hover:bg-muted text-muted-foreground"
+                            className="w-7 h-7 flex items-center justify-center rounded border border-gray-300 hover:bg-gray-50 text-gray-600"
                           >
                             -
                           </button>
                           <span className="w-8 text-center text-sm font-medium">{item.quantity}</span>
                           <button
                             onClick={() => updateQuantity(item.id, item.quantity + 1)}
-                            className="w-7 h-7 flex items-center justify-center rounded border border-border hover:bg-muted text-muted-foreground"
+                            className="w-7 h-7 flex items-center justify-center rounded border border-gray-300 hover:bg-gray-50 text-gray-600"
                           >
                             +
                           </button>
                         </div>
                         <div className="flex items-center gap-2">
-                          <p className="font-medium text-foreground min-w-[80px] text-right">
+                          <p className="font-medium text-gray-900 min-w-[80px] text-right">
                             {currencySymbol}{(item.price * item.quantity).toFixed(2)}
                           </p>
                           <button
@@ -1014,37 +1063,56 @@ export default function CheckoutDemoPage() {
                 )}
 
                 {/* Totals */}
-                <div className="border-t border-border pt-4 space-y-2">
+                <div className="border-t border-gray-200 pt-4 space-y-2">
                   <div className="flex justify-between text-sm">
-                    <span className="text-muted-foreground">Subtotal</span>
-                    <span className="text-foreground">{currencySymbol}{subtotal.toFixed(2)}</span>
+                    <span className="text-gray-600">Subtotal</span>
+                    <span className="text-gray-900">{currencySymbol}{subtotal.toFixed(2)}</span>
                   </div>
                   <div className="flex justify-between text-sm">
-                    <span className="text-muted-foreground">Tax (8%)</span>
-                    <span className="text-foreground">{currencySymbol}{tax.toFixed(2)}</span>
+                    <span className="text-gray-600">Tax (8%)</span>
+                    <span className="text-gray-900">{currencySymbol}{tax.toFixed(2)}</span>
                   </div>
                   <div className="flex justify-between text-sm">
-                    <span className="text-muted-foreground">Shipping</span>
-                    <span className="text-foreground">{currencySymbol}{shipping.toFixed(2)}</span>
+                    <span className="text-gray-600">Shipping</span>
+                    <span className="text-gray-900">{currencySymbol}{shipping.toFixed(2)}</span>
                   </div>
-                  <div className="flex justify-between font-semibold text-lg pt-2 border-t border-border">
-                    <span className="text-foreground">Total</span>
-                    <span className="text-foreground">{currencySymbol}{total.toFixed(2)}</span>
+                  <div className="flex justify-between font-semibold text-lg pt-2 border-t border-gray-200">
+                    <span className="text-gray-900">Total</span>
+                    <span className="text-gray-900">{currencySymbol}{total.toFixed(2)}</span>
                   </div>
                 </div>
+
+                {/* Validation Errors */}
+                {validationErrors.length > 0 && (
+                  <div className="bg-red-50 border border-red-200 rounded-lg p-4 mt-6">
+                    <h4 className="text-sm font-medium text-red-800 mb-2 flex items-center gap-2">
+                      <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                      </svg>
+                      Cannot start checkout
+                    </h4>
+                    <ul className="list-disc list-inside space-y-1">
+                      {validationErrors.map((err, idx) => (
+                        <li key={idx} className="text-sm text-red-700">
+                          {err.message}
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
 
                 {/* Checkout Button */}
                 <Button
                   onClick={handleCheckout}
-                  disabled={loading || result !== null || !selectedCustomerId || customers.length === 0 || cart.length === 0}
+                  disabled={loading || isValidating || result !== null || !selectedCustomerId || customers.length === 0 || validationErrors.length > 0}
                   className="w-full mt-6"
                   size="lg"
                 >
-                  {loading ? 'Starting...' : result ? 'Workflow Started' : !selectedCustomerId ? 'Select Customer to Continue' : cart.length === 0 ? 'Add Products to Continue' : 'Start Checkout Workflow'}
+                  {isValidating ? 'Validating...' : loading ? 'Starting...' : result ? 'Workflow Started' : !selectedCustomerId ? 'Select Customer to Continue' : validationErrors.length > 0 ? 'Fix Validation Errors' : 'Start Checkout Workflow'}
                 </Button>
-                {(!selectedCustomerId || cart.length === 0) && customers.length > 0 && (
-                  <p className="text-xs text-muted-foreground text-center mt-2">
-                    {!selectedCustomerId ? 'Please select a customer to continue' : 'Please add products to your cart to continue'}
+                {!selectedCustomerId && customers.length > 0 && validationErrors.length === 0 && (
+                  <p className="text-xs text-gray-500 text-center mt-2">
+                    Please select a customer to continue
                   </p>
                 )}
               </>
@@ -1053,7 +1121,7 @@ export default function CheckoutDemoPage() {
             {/* Cart Validation Step */}
             {result && (result.currentStepId === 'start' || result.currentStepId === 'cart_validation') && (
               <>
-                <h2 className="text-xl font-semibold text-foreground mb-4 flex items-center gap-2">
+                <h2 className="text-xl font-semibold text-gray-900 mb-4 flex items-center gap-2">
                   <span className="inline-block w-2 h-2 bg-blue-600 rounded-full animate-pulse"></span>
                   Validating Cart
                 </h2>
@@ -1064,21 +1132,21 @@ export default function CheckoutDemoPage() {
                       <p className="text-xs text-purple-700 mt-1">The workflow is waiting for async tasks to complete before proceeding.</p>
                     </div>
                   ) : (
-                    <div className="bg-blue-50 dark:bg-blue-950/50 border border-blue-200 dark:border-blue-800 rounded-lg p-4">
-                      <p className="text-sm text-blue-800 dark:text-blue-200">Checking cart items and inventory availability...</p>
+                    <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+                      <p className="text-sm text-blue-800">Checking cart items and inventory availability...</p>
                     </div>
                   )}
                   {demoCart.map((item) => (
-                    <div key={item.id} className="flex justify-between items-center border-b border-border pb-2">
+                    <div key={item.id} className="flex justify-between items-center border-b border-gray-200 pb-2">
                       <div className="flex-1">
-                        <p className="font-medium text-foreground">{item.name}</p>
-                        <p className="text-xs text-muted-foreground">Qty: {item.quantity}</p>
+                        <p className="font-medium text-gray-900">{item.name}</p>
+                        <p className="text-xs text-gray-500">Qty: {item.quantity}</p>
                       </div>
                       <span className="text-green-600 text-sm">✓ Available</span>
                     </div>
                   ))}
-                  <div className="pt-2 border-t border-border">
-                    <p className="text-sm font-medium text-foreground">Total: {currencySymbol}{total.toFixed(2)}</p>
+                  <div className="pt-2 border-t border-gray-200">
+                    <p className="text-sm font-medium text-gray-900">Total: {currencySymbol}{total.toFixed(2)}</p>
                   </div>
                 </div>
               </>
@@ -1087,7 +1155,7 @@ export default function CheckoutDemoPage() {
             {/* Customer Information Step - USER_TASK */}
             {result && result.currentStepId === 'customer_info' && (
               <>
-                <h2 className="text-xl font-semibold text-foreground mb-4 flex items-center gap-2">
+                <h2 className="text-xl font-semibold text-gray-900 mb-4 flex items-center gap-2">
                   <span className="inline-block w-2 h-2 bg-yellow-600 rounded-full animate-pulse"></span>
                   Customer Information Required
                 </h2>
@@ -1119,14 +1187,14 @@ export default function CheckoutDemoPage() {
                       </Button>
                     </div>
                   ) : tasksLoading ? (
-                    <div className="bg-blue-50 dark:bg-blue-950/50 border border-blue-200 dark:border-blue-800 rounded-lg p-4">
+                    <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
                       <div className="flex items-center justify-center py-4">
                         <div className="inline-block w-8 h-8 border-4 border-yellow-600 border-t-transparent rounded-full animate-spin"></div>
-                        <p className="ml-3 text-sm text-muted-foreground">Loading task...</p>
+                        <p className="ml-3 text-sm text-gray-600">Loading task...</p>
                       </div>
                     </div>
                   ) : userTasks.length > 0 ? (
-                    <form onSubmit={handleTaskSubmit} className="bg-card border border-border rounded-lg p-4 space-y-4">
+                    <form onSubmit={handleTaskSubmit} className="bg-white border border-gray-200 rounded-lg p-4 space-y-4">
                       {taskError && (
                         <div className="bg-red-50 border border-red-200 rounded-lg p-3">
                           <p className="text-sm text-red-800">{taskError}</p>
@@ -1142,7 +1210,7 @@ export default function CheckoutDemoPage() {
                         </div>
                       )}
 
-                      <div className="pt-3 border-t border-border">
+                      <div className="pt-3 border-t border-gray-200">
                         <Button
                           type="submit"
                           disabled={submittingTask}
@@ -1177,28 +1245,28 @@ export default function CheckoutDemoPage() {
             {/* Payment Initiation Step */}
             {result && result.currentStepId === 'payment_initiation' && (
               <>
-                <h2 className="text-xl font-semibold text-foreground mb-4 flex items-center gap-2">
+                <h2 className="text-xl font-semibold text-gray-900 mb-4 flex items-center gap-2">
                   <span className="inline-block w-2 h-2 bg-blue-600 rounded-full animate-pulse"></span>
                   Initiating Payment
                 </h2>
                 <div className="space-y-6">
-                  <div className="bg-blue-50 dark:bg-blue-950/50 border border-blue-200 dark:border-blue-800 rounded-lg p-4">
-                    <p className="text-sm text-blue-800 dark:text-blue-200 font-medium mb-2">Payment Details</p>
+                  <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+                    <p className="text-sm text-blue-800 font-medium mb-2">Payment Details</p>
                     <div className="space-y-2 text-sm">
                       <div className="flex justify-between">
-                        <span className="text-muted-foreground">Method:</span>
-                        <span className="text-foreground">Credit Card ****4242</span>
+                        <span className="text-gray-600">Method:</span>
+                        <span className="text-gray-900">Credit Card ****4242</span>
                       </div>
                       <div className="flex justify-between">
-                        <span className="text-muted-foreground">Amount:</span>
-                        <span className="text-foreground font-semibold">{currencySymbol}{total.toFixed(2)}</span>
+                        <span className="text-gray-600">Amount:</span>
+                        <span className="text-gray-900 font-semibold">{currencySymbol}{total.toFixed(2)}</span>
                       </div>
                     </div>
                   </div>
                   <div className="flex items-center justify-center py-8">
                     <div className="text-center">
                       <div className="inline-block w-16 h-16 border-4 border-blue-600 border-t-transparent rounded-full animate-spin mb-4"></div>
-                      <p className="text-sm text-muted-foreground">Sending payment request...</p>
+                      <p className="text-sm text-gray-600">Sending payment request...</p>
                     </div>
                   </div>
                 </div>
@@ -1208,7 +1276,7 @@ export default function CheckoutDemoPage() {
             {/* Wait for Payment Confirmation Step - SIGNAL */}
             {result && result.currentStepId === 'wait_payment_confirmation' && (
               <>
-                <h2 className="text-xl font-semibold text-foreground mb-4 flex items-center gap-2">
+                <h2 className="text-xl font-semibold text-gray-900 mb-4 flex items-center gap-2">
                   <span className="inline-block w-2 h-2 bg-yellow-600 rounded-full animate-pulse"></span>
                   Waiting for Payment Confirmation
                 </h2>
@@ -1270,9 +1338,9 @@ export default function CheckoutDemoPage() {
                   )}
 
                   {result.status === 'PAUSED' && (
-                    <div className="bg-card border border-border rounded-lg p-4">
-                      <p className="text-sm font-medium text-foreground mb-2">For Demo Testing:</p>
-                      <p className="text-xs text-muted-foreground mb-3">
+                    <div className="bg-white border border-gray-200 rounded-lg p-4">
+                      <p className="text-sm font-medium text-gray-900 mb-2">For Demo Testing:</p>
+                      <p className="text-xs text-gray-600 mb-3">
                         Click the button below to simulate a payment provider webhook confirming the transaction.
                       </p>
                       <Button
@@ -1282,26 +1350,26 @@ export default function CheckoutDemoPage() {
                       >
                         {sendingSignal ? 'Sending Signal...' : '🔔 Simulate Payment Webhook'}
                       </Button>
-                      <p className="text-xs text-muted-foreground mt-2 text-center">
-                        This sends a <code className="bg-muted px-1 py-0.5 rounded text-xs">SIGNAL_RECEIVED</code> event
+                      <p className="text-xs text-gray-500 mt-2 text-center">
+                        This sends a <code className="bg-gray-100 px-1 py-0.5 rounded text-xs">SIGNAL_RECEIVED</code> event
                       </p>
                     </div>
                   )}
 
                   {result.status !== 'PAUSED' && (
-                    <div className="bg-blue-50 dark:bg-blue-950/50 border border-blue-200 dark:border-blue-800 rounded-lg p-4">
-                      <p className="text-sm text-blue-800 dark:text-blue-200">
+                    <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+                      <p className="text-sm text-blue-800">
                         <strong>Note:</strong> Workflow status is <strong>{result.status}</strong>.
                         The signal button will appear when the workflow is fully paused at this step.
                       </p>
                     </div>
                   )}
 
-                  <div className="bg-blue-50 dark:bg-blue-950/50 border border-blue-200 dark:border-blue-800 rounded-lg p-4">
-                    <p className="text-xs text-blue-800 dark:text-blue-200">
+                  <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+                    <p className="text-xs text-blue-800">
                       <strong>Real-world scenario:</strong> Your payment provider (Stripe, PayPal) would send a webhook
-                      to your server endpoint (e.g., <code className="bg-blue-100 dark:bg-blue-900/50 px-1 py-0.5 rounded">/api/webhooks/payments</code>),
-                      which would then call <code className="bg-blue-100 dark:bg-blue-900/50 px-1 py-0.5 rounded">POST /api/workflows/instances/[id]/signal</code>
+                      to your server endpoint (e.g., <code className="bg-blue-100 px-1 py-0.5 rounded">/api/webhooks/payments</code>),
+                      which would then call <code className="bg-blue-100 px-1 py-0.5 rounded">POST /api/workflows/instances/[id]/signal</code>
                       to resume the workflow.
                     </p>
                   </div>
@@ -1312,7 +1380,7 @@ export default function CheckoutDemoPage() {
             {/* Order Confirmation Step */}
             {result && result.currentStepId === 'order_confirmation' && (
               <>
-                <h2 className="text-xl font-semibold text-foreground mb-4 flex items-center gap-2">
+                <h2 className="text-xl font-semibold text-gray-900 mb-4 flex items-center gap-2">
                   <span className="inline-block w-2 h-2 bg-blue-600 rounded-full animate-pulse"></span>
                   Creating Order
                 </h2>
@@ -1324,15 +1392,15 @@ export default function CheckoutDemoPage() {
                   <div className="space-y-3">
                     <div className="flex items-center gap-2 text-sm">
                       <span className="text-green-600">✓</span>
-                      <span className="text-foreground">Creating order record</span>
+                      <span className="text-gray-700">Creating order record</span>
                     </div>
                     <div className="flex items-center gap-2 text-sm">
                       <span className="inline-block w-4 h-4 border-2 border-blue-600 border-t-transparent rounded-full animate-spin"></span>
-                      <span className="text-foreground">Sending confirmation email</span>
+                      <span className="text-gray-700">Sending confirmation email</span>
                     </div>
                     <div className="flex items-center gap-2 text-sm">
-                      <span className="text-muted-foreground">○</span>
-                      <span className="text-muted-foreground">Updating inventory</span>
+                      <span className="text-gray-400">○</span>
+                      <span className="text-gray-500">Updating inventory</span>
                     </div>
                   </div>
                 </div>
@@ -1348,38 +1416,38 @@ export default function CheckoutDemoPage() {
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
                     </svg>
                   </div>
-                  <h2 className="text-2xl font-bold text-foreground mb-2">Order Confirmed!</h2>
-                  <p className="text-sm text-muted-foreground">Order #{result.instanceId.slice(0, 8).toUpperCase()}</p>
+                  <h2 className="text-2xl font-bold text-gray-900 mb-2">Order Confirmed!</h2>
+                  <p className="text-sm text-gray-600">Order #{result.instanceId.slice(0, 8).toUpperCase()}</p>
                 </div>
 
                 <div className="space-y-4">
-                  <div className="bg-muted rounded-lg p-4 space-y-2">
+                  <div className="bg-gray-50 rounded-lg p-4 space-y-2">
                     <div className="flex justify-between text-sm">
-                      <span className="text-muted-foreground">Order Date:</span>
-                      <span className="text-foreground">{new Date().toLocaleDateString()}</span>
+                      <span className="text-gray-600">Order Date:</span>
+                      <span className="text-gray-900">{new Date().toLocaleDateString()}</span>
                     </div>
                     <div className="flex justify-between text-sm">
-                      <span className="text-muted-foreground">Payment Method:</span>
-                      <span className="text-foreground">Credit Card ****4242</span>
+                      <span className="text-gray-600">Payment Method:</span>
+                      <span className="text-gray-900">Credit Card ****4242</span>
                     </div>
                     <div className="flex justify-between text-sm">
-                      <span className="text-muted-foreground">Total Paid:</span>
-                      <span className="text-foreground font-semibold">{currencySymbol}{total.toFixed(2)}</span>
+                      <span className="text-gray-600">Total Paid:</span>
+                      <span className="text-gray-900 font-semibold">{currencySymbol}{total.toFixed(2)}</span>
                     </div>
                   </div>
 
-                  <div className="border-t border-border pt-4">
-                    <p className="text-xs text-muted-foreground mb-3">Order Items:</p>
+                  <div className="border-t border-gray-200 pt-4">
+                    <p className="text-xs text-gray-600 mb-3">Order Items:</p>
                     {demoCart.map((item) => (
                       <div key={item.id} className="flex justify-between text-sm mb-2">
-                        <span className="text-foreground">{item.quantity}x {item.name}</span>
-                        <span className="text-foreground">{currencySymbol}{(item.price * item.quantity).toFixed(2)}</span>
+                        <span className="text-gray-700">{item.quantity}x {item.name}</span>
+                        <span className="text-gray-900">{currencySymbol}{(item.price * item.quantity).toFixed(2)}</span>
                       </div>
                     ))}
                   </div>
 
-                  <div className="bg-blue-50 dark:bg-blue-950/50 border border-blue-200 dark:border-blue-800 rounded-lg p-4">
-                    <p className="text-xs text-blue-800 dark:text-blue-200">
+                  <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+                    <p className="text-xs text-blue-800">
                       ✉️ A confirmation email has been sent to demo@example.com
                     </p>
                   </div>
@@ -1425,13 +1493,13 @@ export default function CheckoutDemoPage() {
           </div>
 
           {/* Workflow Status */}
-          <div className="bg-card shadow rounded-lg p-6">
-            <h2 className="text-xl font-semibold text-foreground mb-4">Workflow Progress</h2>
+          <div className="bg-white shadow rounded-lg p-6">
+            <h2 className="text-xl font-semibold text-gray-900 mb-4">Workflow Progress</h2>
 
             {!result && !error && (
               <div className="text-center py-12">
                 <svg
-                  className="mx-auto h-12 w-12 text-muted-foreground"
+                  className="mx-auto h-12 w-12 text-gray-400"
                   fill="none"
                   viewBox="0 0 24 24"
                   stroke="currentColor"
@@ -1443,7 +1511,7 @@ export default function CheckoutDemoPage() {
                     d="M13 10V3L4 14h7v7l9-11h-7z"
                   />
                 </svg>
-                <p className="mt-4 text-muted-foreground">
+                <p className="mt-4 text-gray-600">
                   Click "Start Checkout Workflow" to begin
                 </p>
               </div>
@@ -1452,7 +1520,7 @@ export default function CheckoutDemoPage() {
             {loading && (
               <div className="text-center py-12">
                 <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto"></div>
-                <p className="mt-4 text-muted-foreground">Starting workflow...</p>
+                <p className="mt-4 text-gray-600">Starting workflow...</p>
               </div>
             )}
 
@@ -1492,7 +1560,7 @@ export default function CheckoutDemoPage() {
               <div className="space-y-6">
                 {/* Status Badge */}
                 <div>
-                  <label className="block text-sm font-medium text-foreground mb-2">
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
                     Status
                   </label>
                   <span
@@ -1506,7 +1574,7 @@ export default function CheckoutDemoPage() {
 
                 {/* Workflow Steps Visual */}
                 <div>
-                  <label className="block text-sm font-medium text-foreground mb-3">
+                  <label className="block text-sm font-medium text-gray-700 mb-3">
                     Steps
                   </label>
                   <div className="space-y-2">
@@ -1523,7 +1591,7 @@ export default function CheckoutDemoPage() {
                           }`}
                         >
                           <div className="flex items-center">
-                            <div className="flex-shrink-0 w-8 h-8 rounded-full bg-card flex items-center justify-center font-bold text-sm">
+                            <div className="flex-shrink-0 w-8 h-8 rounded-full bg-white flex items-center justify-center font-bold text-sm">
                               {status === 'completed' ? '✓' : isPaused ? '⏸' : index + 1}
                             </div>
                             <div className="ml-3 flex-1">
@@ -1553,7 +1621,7 @@ export default function CheckoutDemoPage() {
 
                 {/* User Task Required */}
                 {result.status === 'PAUSED' && userTasks.length > 0 && (
-                  <div className="border-t border-border pt-4">
+                  <div className="border-t border-gray-200 pt-4">
                     <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4">
                       <div className="flex items-start mb-3">
                         <svg
@@ -1580,15 +1648,15 @@ export default function CheckoutDemoPage() {
                       </div>
 
                       {userTasks.map((task: any) => (
-                        <div key={task.id} className="mt-3 bg-card rounded-md p-3 border border-yellow-200">
+                        <div key={task.id} className="mt-3 bg-white rounded-md p-3 border border-yellow-200">
                           <div className="flex items-start justify-between">
                             <div className="flex-1">
-                              <h4 className="text-sm font-semibold text-foreground">{task.taskName}</h4>
+                              <h4 className="text-sm font-semibold text-gray-900">{task.taskName}</h4>
                               {task.description && (
-                                <p className="text-sm text-muted-foreground mt-1">{task.description}</p>
+                                <p className="text-sm text-gray-600 mt-1">{task.description}</p>
                               )}
                               {task.dueDate && (
-                                <p className="text-xs text-muted-foreground mt-2">
+                                <p className="text-xs text-gray-500 mt-2">
                                   Due: {new Date(task.dueDate).toLocaleString()}
                                 </p>
                               )}
@@ -1610,11 +1678,11 @@ export default function CheckoutDemoPage() {
 
                 {/* Manual Progression */}
                 {result.status === 'RUNNING' && currentStep && currentStep.stepType !== 'END' && (
-                  <div className="border-t border-border pt-4">
-                    <label className="block text-sm font-medium text-foreground mb-2">
+                  <div className="border-t border-gray-200 pt-4">
+                    <label className="block text-sm font-medium text-gray-700 mb-2">
                       Manual Progression
                     </label>
-                    <p className="text-sm text-muted-foreground mb-3">
+                    <p className="text-sm text-gray-600 mb-3">
                       Manually advance to the next step for testing
                     </p>
                     <Button
@@ -1657,7 +1725,7 @@ export default function CheckoutDemoPage() {
                 )}
 
                 {/* Actions */}
-                <div className="border-t border-border pt-4 space-y-3">
+                <div className="border-t border-gray-200 pt-4 space-y-3">
                   <Link
                     href={`/backend/instances/${result.instanceId}`}
                     className="block w-full text-center px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
@@ -1685,12 +1753,12 @@ export default function CheckoutDemoPage() {
 
         {/* Workflow Events Timeline */}
         {result && events.length > 0 && (
-          <div className="mt-8 bg-card shadow rounded-lg p-6">
+          <div className="mt-8 bg-white shadow rounded-lg p-6">
             <div className="flex items-center justify-between mb-4">
               <div className="flex items-center gap-3">
-                <h2 className="text-xl font-semibold text-foreground">
+                <h2 className="text-xl font-semibold text-gray-900">
                   Workflow Events
-                  <span className="ml-2 text-sm font-normal text-muted-foreground">
+                  <span className="ml-2 text-sm font-normal text-gray-500">
                     ({events.length})
                   </span>
                 </h2>
@@ -1703,7 +1771,7 @@ export default function CheckoutDemoPage() {
               </div>
               <Link
                 href={`/backend/events?workflowInstanceId=${result.instanceId}`}
-                className="text-sm text-blue-600 dark:text-blue-400 hover:text-blue-800 dark:text-blue-200 hover:underline"
+                className="text-sm text-blue-600 hover:text-blue-800 hover:underline"
               >
                 View all events →
               </Link>
@@ -1713,7 +1781,7 @@ export default function CheckoutDemoPage() {
               {events.map((event: WorkflowEvent) => (
                 <div
                   key={event.id}
-                  className="border border-border rounded-lg p-3 hover:bg-muted transition-colors"
+                  className="border border-gray-200 rounded-lg p-3 hover:bg-gray-50 transition-colors"
                 >
                   <div className="flex items-start justify-between gap-3">
                     <div className="flex-1 min-w-0">
@@ -1725,16 +1793,16 @@ export default function CheckoutDemoPage() {
                         >
                           {formatEventType(event.eventType)}
                         </span>
-                        <span className="text-xs text-muted-foreground">
+                        <span className="text-xs text-gray-500">
                           {new Date(event.occurredAt).toLocaleTimeString()}
                         </span>
                       </div>
                       {event.eventData && Object.keys(event.eventData).length > 0 && (
                         <details className="mt-2">
-                          <summary className="text-xs text-muted-foreground cursor-pointer hover:text-foreground">
+                          <summary className="text-xs text-gray-600 cursor-pointer hover:text-gray-900">
                             View event data
                           </summary>
-                          <pre className="mt-2 text-xs bg-muted p-2 rounded overflow-x-auto max-h-32 overflow-y-auto">
+                          <pre className="mt-2 text-xs bg-gray-100 p-2 rounded overflow-x-auto max-h-32 overflow-y-auto">
                             {JSON.stringify(event.eventData, null, 2)}
                           </pre>
                         </details>
@@ -1742,7 +1810,7 @@ export default function CheckoutDemoPage() {
                     </div>
                     <Link
                       href={`/backend/events/${event.id}`}
-                      className="text-xs text-blue-600 dark:text-blue-400 hover:text-blue-800 dark:text-blue-200 hover:underline whitespace-nowrap"
+                      className="text-xs text-blue-600 hover:text-blue-800 hover:underline whitespace-nowrap"
                     >
                       Details
                     </Link>
@@ -1755,7 +1823,7 @@ export default function CheckoutDemoPage() {
               <div className="mt-4 text-center">
                 <Link
                   href={`/backend/events?workflowInstanceId=${result.instanceId}`}
-                  className="text-sm text-blue-600 dark:text-blue-400 hover:text-blue-800 dark:text-blue-200 hover:underline"
+                  className="text-sm text-blue-600 hover:text-blue-800 hover:underline"
                 >
                   View all {events.length} events →
                 </Link>
@@ -1765,10 +1833,10 @@ export default function CheckoutDemoPage() {
         )}
 
         {/* Features Info */}
-        <div className="mt-4 bg-blue-50 dark:bg-blue-950/50 border border-blue-200 dark:border-blue-800 rounded-lg p-4">
+        <div className="mt-4 bg-blue-50 border border-blue-200 rounded-lg p-4">
           <div className="flex items-start">
             <svg
-              className="h-5 w-5 text-blue-600 dark:text-blue-400 mt-0.5"
+              className="h-5 w-5 text-blue-600 mt-0.5"
               fill="none"
               viewBox="0 0 24 24"
               stroke="currentColor"
@@ -1781,7 +1849,7 @@ export default function CheckoutDemoPage() {
               />
             </svg>
             <div className="ml-3">
-              <h3 className="text-sm font-medium text-blue-800 dark:text-blue-200">Features</h3>
+              <h3 className="text-sm font-medium text-blue-800">Features</h3>
               <div className="mt-2 text-sm text-blue-700">
                 <ul className="list-disc list-inside space-y-1">
                   <li><strong>Signal-Based Payment Flow:</strong> Demonstrates real-world webhook pattern with WAIT_FOR_SIGNAL step type</li>
@@ -1792,9 +1860,10 @@ export default function CheckoutDemoPage() {
                   <li><strong>Complete Order Flow:</strong> Experience the full checkout journey from cart to confirmation with async payment processing</li>
                   <li><strong>User Task Integration:</strong> Form-based user input with workflow pause/resume on task completion</li>
                   <li><strong>Business Rules Integration:</strong> Guard rules validate transitions with detailed failure information</li>
+                  <li><strong>START Step Pre-conditions:</strong> Validate business rules before workflow can start (e.g., cart not empty) with localized error messages</li>
                 </ul>
                 <p className="mt-2">
-                  <Link href="/backend/definitions" className="text-blue-800 dark:text-blue-200 hover:text-blue-900 underline">
+                  <Link href="/backend/definitions" className="text-blue-800 hover:text-blue-900 underline">
                     View all workflows →
                   </Link>
                 </p>

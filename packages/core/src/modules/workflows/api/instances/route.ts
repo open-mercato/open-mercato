@@ -240,6 +240,16 @@ export async function POST(request: NextRequest) {
           { status: 400 }
         )
       }
+      if (error.code === 'START_PRE_CONDITIONS_FAILED') {
+        return NextResponse.json(
+          {
+            error: error.message,
+            code: error.code,
+            details: error.details,
+          },
+          { status: 422 }
+        )
+      }
     }
 
     return NextResponse.json(

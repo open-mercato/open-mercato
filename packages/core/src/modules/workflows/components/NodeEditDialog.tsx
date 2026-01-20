@@ -10,6 +10,7 @@ import {ChevronDown, Info, Plus, Trash2} from 'lucide-react'
 import {sanitizeId} from '../lib/graph-utils'
 import {WorkflowDefinition, WorkflowSelector} from './WorkflowSelector'
 import {JsonBuilder} from '@open-mercato/ui/backend/JsonBuilder'
+import {StartPreConditionsEditor, type StartPreCondition} from './fields/StartPreConditionsEditor'
 
 export interface NodeEditDialogProps {
   node: Node | null
@@ -71,6 +72,9 @@ export function NodeEditDialog({ node, isOpen, onClose, onSave, onDelete }: Node
   // Step activities state (for AUTOMATED steps)
   const [stepActivities, setStepActivities] = useState<any[]>([])
   const [expandedStepActivities, setExpandedStepActivities] = useState<Set<number>>(new Set())
+
+  // Pre-conditions state (for START steps)
+  const [preConditions, setPreConditions] = useState<StartPreCondition[]>([])
 
   // Convert JSON Schema to our custom format
   const convertJsonSchemaToFields = (schema: any): FormField[] => {
@@ -200,6 +204,13 @@ export function NodeEditDialog({ node, isOpen, onClose, onSave, onDelete }: Node
         setStepActivities(nodeData.activities)
       } else if (node.type === 'automated') {
         setStepActivities([])
+      }
+
+      // Load pre-conditions (for START steps)
+      if (node.type === 'start' && nodeData?.preConditions) {
+        setPreConditions(nodeData.preConditions)
+      } else if (node.type === 'start') {
+        setPreConditions([])
       }
 
       // Load form fields from userTaskConfig.formSchema
@@ -385,6 +396,12 @@ export function NodeEditDialog({ node, isOpen, onClose, onSave, onDelete }: Node
       updates.activities = stepActivities
     }
 
+    // Pre-conditions (for START steps)
+    if (node.type === 'start') {
+      // Filter out empty rule IDs
+      updates.preConditions = preConditions.filter(pc => pc.ruleId && pc.ruleId.trim())
+    }
+
     // Merge advanced config
     if (advancedConfig && Object.keys(advancedConfig).length > 0) {
       Object.assign(updates, advancedConfig)
@@ -421,7 +438,9 @@ export function NodeEditDialog({ node, isOpen, onClose, onSave, onDelete }: Node
     decision: 'DECISION',
   }[node.type || 'automated']
 
-  const isEditable = node.type !== 'start' && node.type !== 'end'
+  // START nodes are partially editable (pre-conditions only), END nodes are not editable
+  const isEditable = node.type !== 'end'
+  const isStartNode = node.type === 'start'
 
   const badgeVariant =
     node.type === 'start' ? 'default' :
@@ -457,9 +476,25 @@ export function NodeEditDialog({ node, isOpen, onClose, onSave, onDelete }: Node
             <Alert variant="info">
               <Info className="size-4" />
               <AlertDescription>
-                {nodeTypeLabel} steps cannot be edited. They represent fixed workflow entry/exit points.
+                END steps cannot be edited. They represent fixed workflow exit points.
               </AlertDescription>
             </Alert>
+          ) : isStartNode ? (
+            <div className="space-y-4">
+              {/* Info Alert for START nodes */}
+              <Alert variant="info">
+                <Info className="size-4" />
+                <AlertDescription>
+                  START steps mark the beginning of the workflow. You can define pre-conditions that must pass before the workflow can be started.
+                </AlertDescription>
+              </Alert>
+
+              {/* Pre-Conditions Editor for START nodes */}
+              <StartPreConditionsEditor
+                value={preConditions}
+                setValue={setPreConditions}
+              />
+            </div>
           ) : (
             <div className="space-y-4">
               {/* Step Name */}
@@ -1343,7 +1378,7 @@ export function NodeEditDialog({ node, isOpen, onClose, onSave, onDelete }: Node
         </div>
 
         <DialogFooter className="flex justify-between">
-          {isEditable && onDelete && (
+          {onDelete && (
             <Button
               type="button"
               variant="destructive"

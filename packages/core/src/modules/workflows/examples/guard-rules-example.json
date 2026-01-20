@@ -5,8 +5,8 @@
     "description": "Guard rule that blocks checkout if cart has no items",
     "ruleType": "GUARD",
     "ruleCategory": "checkout_validation",
-    "entityType": "workflow:checkout_simple_v1:transition",
-    "eventType": "pre_transition",
+    "entityType": "workflow:checkout_simple_v1:start",
+    "eventType": "validate_start",
     "conditionExpression": {
       "operator": "AND",
       "rules": [

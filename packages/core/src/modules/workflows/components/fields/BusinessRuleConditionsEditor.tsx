@@ -4,10 +4,14 @@ import { useState, useEffect } from 'react'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Badge } from '@open-mercato/ui/primitives/badge'
 import { Label } from '@open-mercato/ui/primitives/label'
-import { Plus, Trash2, Loader2, AlertCircle } from 'lucide-react'
+import { Plus, Trash2, AlertCircle } from 'lucide-react'
 import type { CrudCustomFieldRenderProps } from '@open-mercato/ui/backend/CrudForm'
 import { BusinessRulesSelector, type BusinessRule } from '../BusinessRulesSelector'
 import { apiFetch } from '@open-mercato/ui/backend/utils/api'
+import { EmptyState } from '@open-mercato/ui/backend/EmptyState'
+import { Spinner } from '@open-mercato/ui/primitives/spinner'
+import { Switch } from '@open-mercato/ui/primitives/switch'
+import { ConfirmDialog } from '@open-mercato/ui/backend/ConfirmDialog'
 
 /**
  * Condition definition structure (supports legacy string format and new object format)
@@ -136,9 +140,6 @@ export function BusinessRuleConditionsEditor({
   }
 
   const removeCondition = (index: number) => {
-    if (typeof window !== 'undefined' && !window.confirm('Are you sure you want to remove this condition?')) {
-      return
-    }
     const newConditions = conditions.filter((_, i) => i !== index)
     setValue(newConditions)
   }
@@ -172,9 +173,11 @@ export function BusinessRuleConditionsEditor({
       </div>
 
       {conditions.length === 0 ? (
-        <div className="p-4 text-center text-sm text-muted-foreground bg-muted rounded-lg border">
-          No conditions defined. Click "Add Rule" to add a business rule condition.
-        </div>
+        <EmptyState
+          title="No conditions defined"
+          description="Add a business rule condition for this transition."
+          action={{ label: 'Add Rule', onClick: () => setIsModalOpen(true), disabled }}
+        />
       ) : (
         <div className="space-y-2">
           {conditionsWithDetails.map((condition, index) => {
@@ -187,38 +190,38 @@ export function BusinessRuleConditionsEditor({
                     <div className="flex items-center gap-2">
                       {condition.loading ? (
                         <>
-                          <Loader2 className="size-4 animate-spin text-muted-foreground" />
+                          <Spinner size="sm" />
                           <span className="text-sm text-muted-foreground">Loading rule details...</span>
                         </>
                       ) : condition.error ? (
                         <>
-                          <AlertCircle className="size-4 text-yellow-600" />
+                          <AlertCircle className="size-4 text-amber-600" />
                           <div>
-                            <span className="text-sm font-semibold text-gray-900">{condition.ruleId}</span>
-                            <p className="text-xs text-yellow-600">Rule not found or unavailable</p>
+                            <span className="text-sm font-semibold text-foreground">{condition.ruleId}</span>
+                            <p className="text-xs text-amber-600">Rule not found or unavailable</p>
                           </div>
                         </>
                       ) : (
                         <div>
-                          <span className="text-sm font-semibold text-gray-900">{condition.ruleName}</span>
+                          <span className="text-sm font-semibold text-foreground">{condition.ruleName}</span>
                           {condition.ruleType && (
                             <Badge variant="secondary" className="text-xs ml-2">
                               {condition.ruleType}
                             </Badge>
                           )}
-                          <p className="text-xs text-muted-foreground font-mono mt-0.5">{condition.ruleId}</p>
+                          <p className="text-xs text-muted-foreground mt-0.5">
+                            ID: <code className="bg-muted px-1 rounded font-mono">{condition.ruleId}</code>
+                          </p>
                         </div>
                       )}
                     </div>
 
                     {/* Required Toggle */}
                     <div className="flex items-center gap-2">
-                      <input
-                        type="checkbox"
+                      <Switch
                         id={`${id}-${index}-required`}
                         checked={normalized.required}
-                        onChange={() => toggleRequired(index)}
-                        className="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                        onCheckedChange={() => toggleRequired(index)}
                         disabled={disabled}
                       />
                       <Label htmlFor={`${id}-${index}-required`} className="text-xs font-medium cursor-pointer">
@@ -228,16 +231,22 @@ export function BusinessRuleConditionsEditor({
                   </div>
 
                   {/* Delete Button */}
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="sm"
-                    onClick={() => removeCondition(index)}
-                    disabled={disabled}
-                    className="ml-2 flex-shrink-0"
-                  >
-                    <Trash2 className="size-4" />
-                  </Button>
+                  <ConfirmDialog
+                    trigger={
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        disabled={disabled}
+                        className="ml-2 flex-shrink-0"
+                      >
+                        <Trash2 className="size-4 text-red-600" />
+                      </Button>
+                    }
+                    title="Remove Condition"
+                    description="Are you sure you want to remove this condition?"
+                    onConfirm={() => removeCondition(index)}
+                  />
                 </div>
               </div>
             )

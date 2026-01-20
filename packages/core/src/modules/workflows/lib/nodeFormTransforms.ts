@@ -9,6 +9,7 @@ import type { Node } from '@xyflow/react'
 import type { FormField } from '../components/fields/FormFieldArrayEditor'
 import type { Activity } from '../components/fields/ActivityArrayEditor'
 import type { Mapping } from '../components/fields/MappingArrayEditor'
+import type { StartPreCondition } from '../components/fields/StartPreConditionsEditor'
 import { sanitizeId } from './graph-utils'
 
 /**
@@ -43,6 +44,9 @@ export interface NodeFormValues {
   // WaitForSignal fields
   signalName?: string
   signalTimeout?: string
+
+  // Start node pre-conditions
+  preConditions?: StartPreCondition[]
 
   // Advanced configuration (JSON)
   advancedConfig?: string
@@ -194,6 +198,13 @@ export function nodeToFormValues(node: Node): NodeFormValues {
     values.signalTimeout = nodeData.signalConfig.timeout || 'PT5M'
   }
 
+  // Start node pre-conditions
+  if (node.type === 'start' && nodeData?.preConditions) {
+    values.preConditions = nodeData.preConditions
+  } else if (node.type === 'start') {
+    values.preConditions = []
+  }
+
   // Advanced config (preserve all fields not explicitly handled)
   const advancedFields: any = {}
   if (nodeData?.userTaskConfig) {
@@ -313,6 +324,16 @@ export function formValuesToNodeUpdates(
 
     if (Object.keys(config).length > 0) {
       updates.signalConfig = config
+    }
+  }
+
+  // Start node pre-conditions
+  if (node.type === 'start') {
+    if (values.preConditions && values.preConditions.length > 0) {
+      // Filter out empty rule IDs
+      updates.preConditions = values.preConditions.filter(pc => pc.ruleId && pc.ruleId.trim())
+    } else {
+      updates.preConditions = []
     }
   }
 
