@@ -136,7 +136,7 @@ export function FieldDefinitionsEditor({
   kindOptions = DEFAULT_KIND_OPTIONS,
   orderNotice,
   infoNote = (
-    <div className="text-xs text-gray-500 mt-2">
+    <div className="text-xs text-muted-foreground mt-2">
       Supported kinds: text, multiline, integer, float, boolean, select (with options/optionsUrl), relation (with related entity and options URL).
     </div>
   ),
@@ -275,7 +275,7 @@ export function FieldDefinitionsEditor({
       {...listProps}
     >
       {hasFieldsets ? (
-        <div className="rounded border bg-white p-3 space-y-3">
+        <div className="rounded border bg-card p-3 space-y-3">
           <div className="flex flex-wrap items-center gap-2">
             <label className="text-xs font-medium text-muted-foreground">Fieldset</label>
             <select
@@ -293,7 +293,7 @@ export function FieldDefinitionsEditor({
             <button
               type="button"
               onClick={handleAddFieldset}
-              className="px-2 py-1 border rounded hover:bg-gray-50 inline-flex items-center gap-1 text-xs"
+              className="px-2 py-1 border rounded hover:bg-muted inline-flex items-center gap-1 text-xs"
             >
               <Plus className="h-3.5 w-3.5" /> Add
             </button>
@@ -301,7 +301,7 @@ export function FieldDefinitionsEditor({
               type="button"
               onClick={handleRemoveFieldset}
               disabled={!resolvedActiveFieldset}
-              className="px-2 py-1 border rounded hover:bg-gray-50 inline-flex items-center gap-1 text-xs disabled:opacity-50"
+              className="px-2 py-1 border rounded hover:bg-muted inline-flex items-center gap-1 text-xs disabled:opacity-50"
             >
               <Trash2 className="h-3.5 w-3.5" /> Delete
             </button>
@@ -375,7 +375,7 @@ export function FieldDefinitionsEditor({
             <button
               type="button"
               onClick={handleAddFieldset}
-              className="px-3 py-1.5 border rounded bg-white text-sm font-medium inline-flex items-center gap-2"
+              className="px-3 py-1.5 border rounded bg-card text-sm font-medium inline-flex items-center gap-2"
             >
               <Plus className="h-4 w-4" />
               Add first fieldset
@@ -442,13 +442,13 @@ export function FieldDefinitionsEditor({
         <button
           type="button"
           onClick={onAddField}
-          className="px-3 py-1.5 text-sm border rounded hover:bg-gray-50 inline-flex items-center gap-1"
+          className="px-3 py-1.5 text-sm border rounded hover:bg-muted inline-flex items-center gap-1"
         >
           <Plus className="h-4 w-4" /> {addButtonLabel}
         </button>
         {infoNote}
         {deletedKeys && deletedKeys.length > 0 && onRestoreField ? (
-          <div className="text-xs text-gray-500 mt-2">
+          <div className="text-xs text-muted-foreground mt-2">
             Restore deleted fields:{' '}
             {deletedKeys.map((key, idx) => (
               <span key={key}>
@@ -695,7 +695,7 @@ const FieldDefinitionCard = React.memo(function FieldDefinitionCard({
 
   return (
     <>
-    <div className="rounded border p-3 bg-white transition-colors hover:border-muted-foreground/60">
+    <div className="rounded border p-3 bg-card transition-colors hover:border-muted-foreground/60">
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2 text-xs text-muted-foreground">
           <span className="inline-flex items-center justify-center h-5 w-5 rounded hover:bg-muted cursor-grab active:cursor-grabbing">
@@ -707,7 +707,7 @@ const FieldDefinitionCard = React.memo(function FieldDefinitionCard({
           <label className="inline-flex items-center gap-2 text-sm">
             <input type="checkbox" checked={local.isActive !== false} onChange={(event) => { apply({ isActive: event.target.checked }, true) }} /> Active
           </label>
-          <button type="button" onClick={onRemove} className="px-2 py-1 border rounded hover:bg-gray-50" aria-label="Remove field">
+          <button type="button" onClick={onRemove} className="px-2 py-1 border rounded hover:bg-muted" aria-label="Remove field">
             <Trash2 className="h-4 w-4" />
           </button>
         </div>
@@ -874,7 +874,7 @@ const FieldDefinitionCard = React.memo(function FieldDefinitionCard({
                 resolvedOptions.map((option, idx) => (
                   <div
                     key={`${option.value}-${idx}`}
-                    className="flex items-center justify-between rounded border px-3 py-2 text-xs bg-gray-50"
+                    className="flex items-center justify-between rounded border px-3 py-2 text-xs bg-muted"
                   >
                     <div>
                       <div className="font-medium text-foreground">{option.label}</div>
@@ -897,7 +897,7 @@ const FieldDefinitionCard = React.memo(function FieldDefinitionCard({
             <div className="flex justify-end">
               <button
                 type="button"
-                className="text-xs px-2 py-1 border rounded hover:bg-gray-50 inline-flex items-center gap-1"
+                className="text-xs px-2 py-1 border rounded hover:bg-muted inline-flex items-center gap-1"
                 onClick={handleOpenOptionDialog}
               >
                 <Plus className="h-3.5 w-3.5" />
@@ -965,7 +965,7 @@ const FieldDefinitionCard = React.memo(function FieldDefinitionCard({
           <label className="text-sm font-medium">Validation rules</label>
           <button
             type="button"
-            className="text-xs px-2 py-1 border rounded hover:bg-gray-50 inline-flex items-center gap-1"
+            className="text-xs px-2 py-1 border rounded hover:bg-muted inline-flex items-center gap-1"
             onClick={() => {
               apply((current) => {
                 const list = Array.isArray(current.configJson?.validation) ? [...current.configJson.validation] : []
@@ -1046,7 +1046,7 @@ const FieldDefinitionCard = React.memo(function FieldDefinitionCard({
               <div className="md:col-span-1 flex justify-end">
                 <button
                   type="button"
-                  className="px-2 py-1 border rounded hover:bg-gray-50"
+                  className="px-2 py-1 border rounded hover:bg-muted"
                   aria-label="Remove rule"
                   onClick={() => {
                     apply((current) => {

@@ -31,7 +31,7 @@ function buildColumns(t: (key: string, fallback: string) => string): ColumnDef<E
       meta: { priority: 5 },
       cell: ({ getValue }) => (
         <span className={`px-2 py-1 rounded text-xs ${
-          getValue() ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-600'
+          getValue() ? 'bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400' : 'bg-muted text-muted-foreground'
         }`}>
           {getValue() ? t('common.yes', 'Yes') : t('common.no', 'No')}
         </span>

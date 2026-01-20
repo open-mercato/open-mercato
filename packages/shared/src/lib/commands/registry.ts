@@ -23,6 +23,13 @@ class CommandRegistry {
     return this.handlers.has(id)
   }
 
+  /**
+   * List all registered command handler IDs.
+   */
+  list(): string[] {
+    return Array.from(this.handlers.keys())
+  }
+
   clear() {
     this.handlers.clear()
   }

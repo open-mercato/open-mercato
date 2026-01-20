@@ -88,6 +88,24 @@
           "nullable": true,
           "mappedType": "uuid"
         },
+        "session_token": {
+          "name": "session_token",
+          "type": "text",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": true,
+          "mappedType": "text"
+        },
+        "session_user_id": {
+          "name": "session_user_id",
+          "type": "uuid",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": true,
+          "mappedType": "uuid"
+        },
         "last_used_at": {
           "name": "last_used_at",
           "type": "timestamptz",

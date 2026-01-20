@@ -24,7 +24,9 @@
     "docs:dev": "turbo run dev --filter=@open-mercato/docs",
     "clean:generated": "./scripts/clean-generated.sh",
     "clean:packages": "./scripts/clean-packages.sh",
-    "clean": "yarn clean:generated && yarn clean:packages"
+    "clean": "yarn clean:generated && yarn clean:packages",
+    "mcp:serve": "turbo run mcp:serve --filter=@open-mercato/ai-assistant",
+    "mcp:dev": "turbo run mcp:dev --filter=@open-mercato/ai-assistant"
   },
   "dependencies": {
     "@ai-sdk/openai": "^2.0.80",

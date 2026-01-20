@@ -1,0 +1,33 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "provider": {
+    "anthropic": {}
+  },
+  "model": "anthropic/claude-haiku-4-5-20251001",
+  "instructions": ["AGENTS.md"],
+  "tools": {
+    "write": false,
+    "bash": false,
+    "edit": false,
+    "read": false,
+    "glob": false,
+    "grep": false,
+    "todoread": false,
+    "todowrite": false
+  },
+  "mcp": {
+    "open-mercato": {
+      "type": "remote",
+      "url": "http://host.docker.internal:3001/mcp",
+      "headers": {
+        "x-api-key": "YOUR_MCP_SERVER_API_KEY_HERE"
+      },
+      "enabled": true
+    }
+  },
+  "permission": "allow",
+  "server": {
+    "port": 4096,
+    "hostname": "0.0.0.0"
+  }
+}

@@ -1,4 +1,5 @@
 export * from './theme/ThemeProvider'
+export * from './theme/ThemeToggle'
 export * from './theme/QueryProvider'
 export * from './backend/AppShell'
 export * from './backend/Page'
