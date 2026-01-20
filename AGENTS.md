@@ -2,14 +2,109 @@
 
 This repository is designed for extensibility. Agents should leverage the module system and follow strict naming and coding conventions to keep the system consistent and safe to extend.
 
+## Monorepo Structure
+The project is organized as a monorepo with the following structure:
+
+### Apps (`apps/`)
+- **mercato**: The main Next.js application. User-created modules go in `apps/mercato/src/modules/`.
+- **docs**: Documentation site.
+
+### Packages (`packages/`)
+All packages use the `@open-mercato/<package>` naming convention:
+
+| Package | Import | Description |
+|---------|--------|-------------|
+| **shared** | `@open-mercato/shared` | Core utilities, types, DSL helpers, i18n, testing, commands, data engine |
+| **ui** | `@open-mercato/ui` | UI components, primitives, backend components, forms, data tables |
+| **core** | `@open-mercato/core` | Core business modules (auth, catalog, customers, sales, etc.) |
+| **cli** | `@open-mercato/cli` | CLI tooling and commands |
+| **cache** | `@open-mercato/cache` | Multi-strategy cache service with tag-based invalidation |
+| **queue** | `@open-mercato/queue` | Multi-strategy job queue (local, BullMQ) |
+| **events** | `@open-mercato/events` | Event bus and pub/sub infrastructure |
+| **search** | `@open-mercato/search` | Search module (fulltext, vector, tokens strategies) |
+| **ai-assistant** | `@open-mercato/ai-assistant` | AI assistant and MCP server |
+| **content** | `@open-mercato/content` | Content management module |
+| **onboarding** | `@open-mercato/onboarding` | Onboarding flows and wizards |
+
+### Core Modules by Package
+Each package contains domain-specific modules:
+
+**@open-mercato/core** (`packages/core/src/modules/`):
+- `api_docs` - API documentation generation
+- `api_keys` - API key management
+- `attachments` - File attachments and uploads
+- `audit_logs` - Activity and change logging
+- `auth` - Authentication and authorization
+- `business_rules` - Business rule engine
+- `catalog` - Product catalog and pricing
+- `configs` - System configuration
+- `currencies` - Multi-currency support
+- `customers` - Customer management (people, companies, deals)
+- `dashboards` - Dashboard widgets
+- `dictionaries` - Lookup tables and enumerations
+- `directory` - Organizational directory
+- `entities` - Custom entities and fields (EAV)
+- `feature_toggles` - Feature flag management
+- `perspectives` - Data perspectives and views
+- `query_index` - Query indexing for fast lookups
+- `sales` - Sales orders, quotes, invoices
+- `widgets` - Widget infrastructure
+- `workflows` - Workflow automation
+
+**@open-mercato/search** (`packages/search/src/modules/`):
+- `search` - Unified search (fulltext, vector, tokens)
+
+**@open-mercato/ai-assistant** (`packages/ai-assistant/src/modules/`):
+- `ai_assistant` - AI chat and MCP server
+
+**@open-mercato/onboarding** (`packages/onboarding/src/modules/`):
+- `onboarding` - Setup wizards and guided flows
+
+**@open-mercato/content** (`packages/content/src/modules/`):
+- `content` - Content management
+
+**@open-mercato/events** (`packages/events/src/modules/`):
+- `events` - Event bus infrastructure
+
+### Common Import Patterns
+```typescript
+// Shared utilities and helpers
+import { registerCommand } from '@open-mercato/shared/lib/commands'
+import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
+import { useT } from '@open-mercato/shared/lib/i18n/context'
+import type { DataEngine } from '@open-mercato/shared/lib/data/engine'
+
+// Shared module types
+import type { SearchModuleConfig } from '@open-mercato/shared/modules/search'
+import type { DashboardWidgetModule } from '@open-mercato/shared/modules/dashboard/widgets'
+
+// UI components
+import { Spinner } from '@open-mercato/ui/primitives/spinner'
+import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
+import { CrudForm } from '@open-mercato/ui/backend/crud'
+
+// Core modules (when importing from another module)
+import { CustomFieldDef } from '@open-mercato/core/modules/entities/data/entities'
+import type { SalesOrderEntity } from '@open-mercato/core/modules/sales'
+```
+
 ## Conventions
 - Modules: plural, snake_case (folders and `id`). Special cases: `auth`, `example`.
 - JS/TS fields and identifiers: camelCase.
 - Database tables and columns: snake_case; table names plural.
 - Keep code minimal and focused; avoid side effects across modules.
-- Avoid adding code in the `src/` - try to put it in a proper package in the `packages` folder - `src` is a boilerplate for users app
+- **Where to put code**:
+  - Core platform features → `packages/<package>/src/modules/<module>/`
+  - Shared utilities and types → `packages/shared/src/lib/` or `packages/shared/src/modules/`
+  - UI components → `packages/ui/src/`
+  - User/app-specific modules → `apps/mercato/src/modules/<module>/`
+  - Avoid adding code directly in `apps/mercato/src/` - it's a boilerplate for user apps
 
 ## Extensibility Contract
+All module paths below use `src/modules/<module>/` as a shorthand. In practice:
+- **Package modules**: `packages/<package>/src/modules/<module>/` (e.g., `packages/core/src/modules/customers/`)
+- **App modules**: `apps/mercato/src/modules/<module>/` (e.g., `apps/mercato/src/modules/example/`)
+
 - Auto-discovery:
   - Frontend pages under `src/modules/<module>/frontend/<path>.tsx` → `/<path>`
   - Backend pages under `src/modules/<module>/backend/<path>.tsx` → `/backend/<path>`
@@ -55,10 +150,11 @@ This repository is designed for extensibility. Agents should leverage the module
   - Per-module entity extensions: declare in `src/modules/<module>/data/extensions.ts` as `export const extensions: EntityExtension[]`.
 - Custom fields: declare in `src/modules/<module>/ce.ts` under `entities[].fields`. `data/fields.ts` is no longer supported.
 - Generators add these to `modules.generated.ts` so they’re available at runtime.
-- Prefer using the DSL helpers from `@/modules/dsl`:
+- Prefer using the DSL helpers from `@open-mercato/shared/modules/dsl`:
   - `defineLink()` with `entityId()` or `linkable()` for module-to-module extensions.
   - `defineFields()` with `cf.*` helpers for field sets.
-- Generated registries now flow through DI bindings. Do not import `@/generated/*` or `@open-mercato/*/generated/*` inside packages; only the app bootstrap should import generated files and register them.
+- Generated registries now flow through DI bindings. Generated files are in `apps/mercato/.mercato/generated/`. Do not import generated files inside packages; only the app bootstrap should import and register them.
+  - Generated files: `modules.generated.ts`, `entities.generated.ts`, `di.generated.ts`, `entities.ids.generated.ts`, `dashboard-widgets.generated.ts`, `injection-widgets.generated.ts`, `injection-tables.generated.ts`, `search.generated.ts`, `modules.cli.generated.ts`
   - Bootstrap registration: `registerOrmEntities`, `registerDiRegistrars`, `registerModules`/`registerCliModules`, `registerEntityIds`, `registerDashboardWidgets`, `registerInjectionWidgets`, `registerCoreInjectionWidgets`/`registerCoreInjectionTables`.
   - Runtime access: `getOrmEntities`, `getDiRegistrars`, `getModules`, `getCliModules`, `getEntityIds`, `getDashboardWidgets`, `getInjectionWidgets`, `getCoreInjectionWidgets`/`getCoreInjectionTables`.
   - Tests: use `bootstrapTest` from `@open-mercato/shared/lib/testing/bootstrap` to register only what the test needs.
@@ -70,11 +166,12 @@ This repository is designed for extensibility. Agents should leverage the module
 - Command side effects must include `indexer: { entityType, cacheAliases }` in both `emitCrudSideEffects` and `emitCrudUndoSideEffects` so undo refreshes the query index and caches (e.g., search indexes and derived caches).
 - New admin pages and entities must use CRUD factory API routes and undoable commands, with custom fields fully supported in create/update/response flows. See customers examples: `packages/core/src/modules/customers/api/people/route.ts`, `packages/core/src/modules/customers/commands/people.ts`, `packages/core/src/modules/customers/backend/customers/people/page.tsx`.
 - Database entities (MikroORM) live in `src/modules/<module>/data/entities.ts` (fallbacks: `db/entities.ts` or `schema.ts` for compatibility).
-- Generators build:
-  - `src/modules/generated.ts` (routes/APIs/CLIs + info)
-  - subscribers and workers are included in `modules.generated.ts` under each module entry
-  - `src/modules/entities.generated.ts` (MikroORM entities)
-  - `src/modules/di.generated.ts` (DI registrars)
+- Generators build (output to `apps/mercato/.mercato/generated/`):
+  - `modules.generated.ts` (routes/APIs/CLIs + info; subscribers and workers included per module)
+  - `entities.generated.ts` (MikroORM entities)
+  - `di.generated.ts` (DI registrars)
+  - `entities.ids.generated.ts` (entity ID registry)
+  - `search.generated.ts` (search configurations)
   - Run `npm run modules:prepare` or rely on `predev`/`prebuild`.
 - Query index coverage:
   - Every CRUD route that should emit index/refresh events must configure `indexer: { entityType }` in `makeCrudRoute` (see sales orders/lines/payments/shipments, catalog products, customer deals).
@@ -179,9 +276,9 @@ This repository is designed for extensibility. Agents should leverage the module
 - Keep locales in sync: update every supported language file, and add fallbacks only when the translation is genuinely unavailable.
 - Run or document any required sync scripts so `src/modules/generated.ts` and other build artefacts stay aligned with locale updates.
 - Avoid hard-coded strings; leverage the shared translation utilities in `packages/ui` to read from locale dictionaries.
-- Client components can grab the translator with `useT` from `@/lib/i18n/context`:
+- Client components can grab the translator with `useT` from `@open-mercato/shared/lib/i18n/context`:
   ```tsx
-  import { useT } from '@/lib/i18n/context'
+  import { useT } from '@open-mercato/shared/lib/i18n/context'
 
   export function LoginTitle() {
     const t = useT()
