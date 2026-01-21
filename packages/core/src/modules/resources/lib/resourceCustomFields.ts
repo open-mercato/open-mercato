@@ -8,6 +8,7 @@ export const RESOURCES_RESOURCE_FIELDSET_LAPTOP = 'resources_resource_laptop'
 export const RESOURCES_RESOURCE_FIELDSET_SEAT = 'resources_resource_seat'
 export const RESOURCES_RESOURCE_FIELDSET_HAIR_KIT = 'resources_resource_hair_kit'
 export const RESOURCES_RESOURCE_FIELDSET_DENTAL_CHAIR = 'resources_resource_dental_chair'
+export const RESOURCES_RESOURCE_FIELDSET_VEHICLE = 'resources_resource_vehicle'
 
 export const RESOURCES_RESOURCE_FIELDSETS = [
   {
@@ -65,6 +66,16 @@ export const RESOURCES_RESOURCE_FIELDSETS = [
     groups: [
       { code: 'chair', title: 'Chair settings' },
       { code: 'hygiene', title: 'Hygiene' },
+      { code: 'maintenance', title: 'Maintenance' },
+    ],
+  },
+  {
+    code: RESOURCES_RESOURCE_FIELDSET_VEHICLE,
+    label: 'Vehicles',
+    description: 'Vehicle specs, usage, and maintenance.',
+    groups: [
+      { code: 'identity', title: 'Identity' },
+      { code: 'specs', title: 'Specs' },
       { code: 'maintenance', title: 'Maintenance' },
     ],
   },
@@ -217,6 +228,35 @@ export const RESOURCES_RESOURCE_CUSTOM_FIELD_SETS: FieldSetInput[] = [
       group: { code: 'maintenance' },
     }),
   ]),
+  defineFields(E.resources.resources_resource, [
+    cf.text('vehicle_plate', {
+      label: 'License plate',
+      fieldset: RESOURCES_RESOURCE_FIELDSET_VEHICLE,
+      group: { code: 'identity' },
+      filterable: true,
+    }),
+    cf.text('vehicle_model', {
+      label: 'Model',
+      fieldset: RESOURCES_RESOURCE_FIELDSET_VEHICLE,
+      group: { code: 'identity' },
+    }),
+    cf.select('vehicle_fuel_type', ['petrol', 'diesel', 'hybrid', 'electric'], {
+      label: 'Fuel type',
+      fieldset: RESOURCES_RESOURCE_FIELDSET_VEHICLE,
+      group: { code: 'specs' },
+    }),
+    cf.integer('vehicle_mileage_km', {
+      label: 'Mileage (km)',
+      fieldset: RESOURCES_RESOURCE_FIELDSET_VEHICLE,
+      group: { code: 'specs' },
+    }),
+    cf.text('vehicle_last_service', {
+      label: 'Last service date',
+      description: 'YYYY-MM-DD',
+      fieldset: RESOURCES_RESOURCE_FIELDSET_VEHICLE,
+      group: { code: 'maintenance' },
+    }),
+  ]),
 ]
 
 function normalizeName(value?: string | null): string {
@@ -231,5 +271,6 @@ export function resolveResourcesResourceFieldsetCode(name?: string | null): stri
   if (normalized.includes('seat')) return RESOURCES_RESOURCE_FIELDSET_SEAT
   if (normalized.includes('hair')) return RESOURCES_RESOURCE_FIELDSET_HAIR_KIT
   if (normalized.includes('dental')) return RESOURCES_RESOURCE_FIELDSET_DENTAL_CHAIR
+  if (normalized.includes('car') || normalized.includes('vehicle')) return RESOURCES_RESOURCE_FIELDSET_VEHICLE
   return RESOURCES_RESOURCE_FIELDSET_DEFAULT
 }

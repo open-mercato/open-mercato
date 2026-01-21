@@ -365,6 +365,22 @@ export async function run(argv = process.argv) {
           await runModuleCommand(allModules, 'sales', 'seed-examples', ['--tenant', tenantId, '--org', orgId])
           console.log('🧾 ✅ Sales examples seeded\n')
 
+          console.log('👥 Seeding staff examples...')
+          await runModuleCommand(allModules, 'staff', 'seed-examples', ['--tenant', tenantId, '--org', orgId])
+          console.log('👥 ✅ Staff examples seeded\n')
+
+          console.log('📦 Seeding resource capacity units...')
+          await runModuleCommand(allModules, 'resources', 'seed-capacity-units', ['--tenant', tenantId, '--org', orgId])
+          console.log('📦 ✅ Resource capacity units seeded\n')
+
+          console.log('🧰 Seeding resource examples...')
+          await runModuleCommand(allModules, 'resources', 'seed-examples', ['--tenant', tenantId, '--org', orgId])
+          console.log('🧰 ✅ Resource examples seeded\n')
+
+          console.log('🗓️  Seeding planner availability rulesets...')
+          await runModuleCommand(allModules, 'planner', 'seed-availability-rulesets', ['--tenant', tenantId, '--org', orgId])
+          console.log('🗓️  ✅ Planner availability rulesets seeded\n')
+
           // Optional: seed example todos if the example module is enabled
           const exampleModule = allModules.find((m) => m.id === 'example')
           if (exampleModule && exampleModule.cli) {

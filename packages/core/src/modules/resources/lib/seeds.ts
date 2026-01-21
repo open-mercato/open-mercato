@@ -14,6 +14,7 @@ import {
   RESOURCES_RESOURCE_FIELDSET_LAPTOP,
   RESOURCES_RESOURCE_FIELDSET_ROOM,
   RESOURCES_RESOURCE_FIELDSET_SEAT,
+  RESOURCES_RESOURCE_FIELDSET_VEHICLE,
   resolveResourcesResourceFieldsetCode,
 } from './resourceCustomFields'
 import { RESOURCES_CAPACITY_UNIT_DEFAULTS, RESOURCES_CAPACITY_UNIT_DICTIONARY_KEY } from './capacityUnits'
@@ -196,6 +197,14 @@ function buildResourceTypeCustomValues(
         chair_last_disinfected: '2025-01-01',
         chair_inspection_notes: 'Monthly inspection scheduled.',
       }
+    case RESOURCES_RESOURCE_FIELDSET_VEHICLE:
+      return {
+        vehicle_plate: 'OM-2034',
+        vehicle_model: 'Polestar 2',
+        vehicle_fuel_type: 'electric',
+        vehicle_mileage_km: 18200,
+        vehicle_last_service: '2025-02-18',
+      }
     default:
       return {}
   }
@@ -235,65 +244,53 @@ async function fillMissingResourceCustomFields(
 
 const RESOURCE_TYPE_SEEDS: ResourcesResourceTypeSeed[] = [
   {
-    key: 'room',
-    name: 'Consultation room',
-    description: 'Private room for client consultations.',
-    appearanceIcon: 'lucide:building',
+    key: 'meeting_room',
+    name: 'Meeting room',
+    description: 'Collaborative space with A/V equipment.',
+    appearanceIcon: 'lucide:video',
     appearanceColor: '#2563eb',
+  },
+  {
+    key: 'focus_room',
+    name: 'Focus room',
+    description: 'Quiet room for heads-down work.',
+    appearanceIcon: 'lucide:door-closed',
+    appearanceColor: '#0ea5e9',
   },
   {
     key: 'laptop',
     name: 'Engineering laptop',
-    description: 'Portable computer for software teams.',
+    description: 'Portable computer for the delivery team.',
     appearanceIcon: 'lucide:cpu',
-    appearanceColor: '#0ea5e9',
+    appearanceColor: '#14b8a6',
   },
   {
-    key: 'client_seat',
-    name: 'Salon seat',
-    description: 'Seat for salon services.',
-    appearanceIcon: 'lucide:users',
-    appearanceColor: '#16a34a',
-  },
-  {
-    key: 'hair_kit',
-    name: 'Hair kit',
-    description: 'Tools and supplies for hair services.',
-    appearanceIcon: 'lucide:wand',
-    appearanceColor: '#ea580c',
-  },
-  {
-    key: 'dental_chair',
-    name: 'Dental chair',
-    description: 'Chair for dental treatments.',
-    appearanceIcon: 'lucide:heart',
-    appearanceColor: '#0f766e',
+    key: 'company_car',
+    name: 'Company car',
+    description: 'Shared vehicle for client visits and errands.',
+    appearanceIcon: 'lucide:car',
+    appearanceColor: '#7c3aed',
   },
 ]
 
 const TAG_SEEDS: ResourcesResourceTagSeed[] = [
   { key: 'room', slug: 'room', label: 'Room', color: '#1d4ed8' },
-  { key: 'tech', slug: 'tech', label: 'Tech', color: '#0f766e' },
-  { key: 'seat', slug: 'seat', label: 'Seat', color: '#374151' },
-  { key: 'hair', slug: 'hair', label: 'Hairdressing', color: '#b91c1c' },
-  { key: 'dental', slug: 'dental', label: 'Dental', color: '#0369a1' },
+  { key: 'focus', slug: 'focus', label: 'Focus', color: '#0f766e' },
+  { key: 'tech', slug: 'tech', label: 'Tech', color: '#2563eb' },
   { key: 'equipment', slug: 'equipment', label: 'Equipment', color: '#6b21a8' },
-  { key: 'software', slug: 'software', label: 'Software', color: '#2563eb' },
-  { key: 'consulting', slug: 'consulting', label: 'Consulting', color: '#0f766e' },
+  { key: 'vehicle', slug: 'vehicle', label: 'Vehicle', color: '#7c3aed' },
+  { key: 'collaboration', slug: 'collaboration', label: 'Collaboration', color: '#14b8a6' },
 ]
 
 const RESOURCE_SEEDS: ResourcesResourceSeed[] = [
-  { key: 'dental-room-1', name: 'Dental Room 1', typeKey: 'room', tagKeys: ['room', 'dental'] },
-  { key: 'dental-room-2', name: 'Dental Room 2', typeKey: 'room', tagKeys: ['room', 'dental'] },
-  { key: 'dental-chair-1', name: 'Dental Chair 1', typeKey: 'dental_chair', tagKeys: ['seat', 'dental'] },
-  { key: 'dental-chair-2', name: 'Dental Chair 2', typeKey: 'dental_chair', tagKeys: ['seat', 'dental'] },
-  { key: 'software-room-a', name: 'Software Room A', typeKey: 'room', tagKeys: ['room', 'tech'] },
-  { key: 'engineer-laptop-1', name: 'Engineer Laptop 1', typeKey: 'laptop', tagKeys: ['tech', 'equipment'] },
-  { key: 'engineer-laptop-2', name: 'Engineer Laptop 2', typeKey: 'laptop', tagKeys: ['tech', 'equipment'] },
-  { key: 'salon-seat-1', name: 'Salon Seat 1', typeKey: 'client_seat', tagKeys: ['seat', 'hair'] },
-  { key: 'salon-seat-2', name: 'Salon Seat 2', typeKey: 'client_seat', tagKeys: ['seat', 'hair'] },
-  { key: 'hair-kit-a', name: 'Hair Kit A', typeKey: 'hair_kit', tagKeys: ['hair', 'equipment'] },
-  { key: 'hair-kit-b', name: 'Hair Kit B', typeKey: 'hair_kit', tagKeys: ['hair', 'equipment'] },
+  { key: 'meeting-room-a', name: 'Meeting Room A', typeKey: 'meeting_room', tagKeys: ['room', 'collaboration'] },
+  { key: 'meeting-room-b', name: 'Meeting Room B', typeKey: 'meeting_room', tagKeys: ['room', 'collaboration'] },
+  { key: 'focus-room-1', name: 'Focus Room 1', typeKey: 'focus_room', tagKeys: ['room', 'focus'] },
+  { key: 'focus-room-2', name: 'Focus Room 2', typeKey: 'focus_room', tagKeys: ['room', 'focus'] },
+  { key: 'engineering-laptop-1', name: 'Engineering Laptop 1', typeKey: 'laptop', tagKeys: ['tech', 'equipment'] },
+  { key: 'engineering-laptop-2', name: 'Engineering Laptop 2', typeKey: 'laptop', tagKeys: ['tech', 'equipment'] },
+  { key: 'company-car-1', name: 'Company Car 1', typeKey: 'company_car', tagKeys: ['vehicle'] },
+  { key: 'company-car-2', name: 'Company Car 2', typeKey: 'company_car', tagKeys: ['vehicle'] },
 ]
 
 export async function seedResourcesResourceExamples(

@@ -1,10 +1,15 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
-import { CustomFieldValue } from '@open-mercato/core/modules/entities/data/entities'
+import { CustomFieldEntityConfig, CustomFieldValue } from '@open-mercato/core/modules/entities/data/entities'
+import { ensureCustomFieldDefinitions } from '@open-mercato/core/modules/entities/lib/field-definitions'
 import { setRecordCustomFields } from '@open-mercato/core/modules/entities/lib/helpers'
 import { User } from '@open-mercato/core/modules/auth/data/entities'
 import { StaffTeam, StaffTeamMember, StaffTeamRole } from '../data/entities'
 import { E } from '#generated/entities.ids.generated'
+import {
+  STAFF_TEAM_MEMBER_CUSTOM_FIELD_SETS,
+  STAFF_TEAM_MEMBER_FIELDSETS,
+} from './customFields'
 
 export type StaffSeedScope = { tenantId: string; organizationId: string }
 
@@ -25,7 +30,7 @@ type StaffTeamMemberSeed = {
   roleKeys: string[]
   tags?: string[]
   userIndex?: number
-  customFields?: Record<string, string | number | boolean | null>
+  customFields?: Record<string, string | number | boolean | null | string[]>
 }
 
 type StaffTeamSeed = {
@@ -36,138 +41,203 @@ type StaffTeamSeed = {
 
 const TEAM_ROLE_SEEDS: StaffTeamRoleSeed[] = [
   {
-    key: 'dentist',
-    name: 'Dentist',
-    teamKey: 'dental',
-    description: 'Primary dental care provider.',
-    appearanceIcon: 'lucide:stethoscope',
-    appearanceColor: '#0f766e',
-  },
-  {
-    key: 'dental_assistant',
-    name: 'Dental assistant',
-    teamKey: 'dental',
-    description: 'Supports dental treatments and room prep.',
-    appearanceIcon: 'lucide:clipboard',
+    key: 'backend_engineer',
+    name: 'Backend engineer',
+    teamKey: 'engineering',
+    description: 'Builds core services, APIs, and integrations.',
+    appearanceIcon: 'lucide:server',
     appearanceColor: '#2563eb',
   },
   {
-    key: 'software_engineer',
-    name: 'Software engineer',
-    teamKey: 'software',
-    description: 'Leads technical sessions and delivery.',
-    appearanceIcon: 'lucide:code',
+    key: 'frontend_engineer',
+    name: 'Frontend engineer',
+    teamKey: 'engineering',
+    description: 'Owns UI delivery and design system updates.',
+    appearanceIcon: 'lucide:monitor',
     appearanceColor: '#0ea5e9',
   },
   {
-    key: 'product_lead',
-    name: 'Product lead',
-    teamKey: 'software',
-    description: 'Coordinates software delivery and client needs.',
+    key: 'product_manager',
+    name: 'Product manager',
+    teamKey: 'product',
+    description: 'Drives product discovery and roadmap delivery.',
     appearanceIcon: 'lucide:layout-grid',
     appearanceColor: '#14b8a6',
   },
   {
-    key: 'hair_stylist',
-    name: 'Hair stylist',
-    teamKey: 'hair',
-    description: 'Delivers salon services and styling.',
-    appearanceIcon: 'lucide:scissors',
-    appearanceColor: '#ea580c',
+    key: 'ux_designer',
+    name: 'UX designer',
+    teamKey: 'product',
+    description: 'Designs user flows and interface patterns.',
+    appearanceIcon: 'lucide:pen-tool',
+    appearanceColor: '#f97316',
   },
   {
-    key: 'color_specialist',
-    name: 'Color specialist',
-    teamKey: 'hair',
-    description: 'Handles color and treatment services.',
-    appearanceIcon: 'lucide:palette',
-    appearanceColor: '#b45309',
+    key: 'devops_engineer',
+    name: 'DevOps engineer',
+    teamKey: 'operations',
+    description: 'Maintains infrastructure and delivery tooling.',
+    appearanceIcon: 'lucide:cloud',
+    appearanceColor: '#7c3aed',
   },
 ]
 
 const TEAM_SEEDS: StaffTeamSeed[] = [
   {
-    key: 'dental',
-    name: 'Dental clinic',
-    description: 'Dental care providers and assistants.',
+    key: 'engineering',
+    name: 'Engineering',
+    description: 'Backend and frontend delivery squad.',
   },
   {
-    key: 'software',
-    name: 'Software studio',
-    description: 'Software delivery and consulting team.',
+    key: 'product',
+    name: 'Product',
+    description: 'Product management and design leadership.',
   },
   {
-    key: 'hair',
-    name: 'Hair salon',
-    description: 'Salon stylists and color specialists.',
+    key: 'operations',
+    name: 'Operations',
+    description: 'Infrastructure, IT, and internal tooling.',
   },
 ]
 
 const TEAM_MEMBER_SEEDS: StaffTeamMemberSeed[] = [
   {
-    key: 'dr_aria_santos',
-    displayName: 'Dr. Aria Santos',
-    teamKey: 'dental',
-    description: 'Leads dental consults and treatment plans.',
-    roleKeys: ['dentist'],
-    tags: ['dental', 'lead'],
+    key: 'alex_chen',
+    displayName: 'Alex Chen',
+    teamKey: 'engineering',
+    description: 'Backend lead focused on platform reliability.',
+    roleKeys: ['backend_engineer'],
+    tags: ['backend', 'platform'],
     userIndex: 0,
-    customFields: { years_of_experience: 12, hourly_rate: 180, currency_code: 'USD' },
+    customFields: {
+      years_of_experience: 9,
+      hourly_rate: 165,
+      currency_code: 'USD',
+      employment_date: '2021-03-15',
+      employment_type: 'full_time',
+      onboarded: true,
+      bio: 'Platform-focused engineer who owns core service reliability.',
+      work_mode: 'hybrid',
+      focus_areas: ['APIs', 'observability', 'infra'],
+    },
   },
   {
-    key: 'mia_keller',
-    displayName: 'Mia Keller',
-    teamKey: 'dental',
-    description: 'Assists with dental prep and hygiene.',
-    roleKeys: ['dental_assistant'],
-    tags: ['dental', 'support'],
+    key: 'priya_nair',
+    displayName: 'Priya Nair',
+    teamKey: 'engineering',
+    description: 'Frontend specialist pairing with design systems.',
+    roleKeys: ['frontend_engineer'],
+    tags: ['frontend', 'design-system'],
     userIndex: 1,
-    customFields: { years_of_experience: 6, hourly_rate: 95, currency_code: 'USD' },
+    customFields: {
+      years_of_experience: 7,
+      hourly_rate: 140,
+      currency_code: 'USD',
+      employment_date: '2020-11-02',
+      employment_type: 'full_time',
+      onboarded: true,
+      bio: 'Partners closely with design to ship crisp UI experiences.',
+      work_mode: 'remote',
+      focus_areas: ['design systems', 'accessibility'],
+    },
   },
   {
-    key: 'rohan_desai',
-    displayName: 'Rohan Desai',
-    teamKey: 'software',
-    description: 'Leads architecture workshops and delivery.',
-    roleKeys: ['software_engineer'],
-    tags: ['software', 'lead'],
+    key: 'marta_lopez',
+    displayName: 'Marta Lopez',
+    teamKey: 'product',
+    description: 'Keeps roadmap aligned with customer outcomes.',
+    roleKeys: ['product_manager'],
+    tags: ['product', 'strategy'],
     userIndex: 2,
-    customFields: { years_of_experience: 9, hourly_rate: 160, currency_code: 'USD' },
+    customFields: {
+      years_of_experience: 10,
+      hourly_rate: 155,
+      currency_code: 'EUR',
+      employment_date: '2019-06-10',
+      employment_type: 'full_time',
+      onboarded: true,
+      bio: 'Translates customer feedback into clear product priorities.',
+      work_mode: 'hybrid',
+      focus_areas: ['roadmap', 'customer discovery'],
+    },
   },
   {
-    key: 'claire_hudson',
-    displayName: 'Claire Hudson',
-    teamKey: 'software',
-    description: 'Coordinates product scope and client needs.',
-    roleKeys: ['product_lead'],
-    tags: ['software', 'product'],
-    customFields: { years_of_experience: 7, hourly_rate: 140, currency_code: 'USD' },
+    key: 'samir_haddad',
+    displayName: 'Samir Haddad',
+    teamKey: 'product',
+    description: 'Designs workflows and UX patterns for admins.',
+    roleKeys: ['ux_designer'],
+    tags: ['design', 'ux'],
+    customFields: {
+      years_of_experience: 8,
+      hourly_rate: 130,
+      currency_code: 'GBP',
+      employment_date: '2022-02-01',
+      employment_type: 'contract',
+      onboarded: true,
+      bio: 'Turns complex workflows into approachable UI patterns.',
+      work_mode: 'remote',
+      focus_areas: ['flows', 'prototyping'],
+    },
   },
   {
-    key: 'kiara_jones',
-    displayName: 'Kiara Jones',
-    teamKey: 'hair',
-    description: 'Specializes in modern cuts and styling.',
-    roleKeys: ['hair_stylist'],
-    tags: ['hair', 'stylist'],
-    customFields: { years_of_experience: 8, hourly_rate: 110, currency_code: 'USD' },
-  },
-  {
-    key: 'noah_bennett',
-    displayName: 'Noah Bennett',
-    teamKey: 'hair',
-    description: 'Focuses on color treatments and care.',
-    roleKeys: ['color_specialist'],
-    tags: ['hair', 'color'],
-    customFields: { years_of_experience: 5, hourly_rate: 100, currency_code: 'USD' },
+    key: 'jordan_kim',
+    displayName: 'Jordan Kim',
+    teamKey: 'operations',
+    description: 'Keeps environments stable and deployments smooth.',
+    roleKeys: ['devops_engineer'],
+    tags: ['devops', 'infra'],
+    customFields: {
+      years_of_experience: 6,
+      hourly_rate: 150,
+      currency_code: 'USD',
+      employment_date: '2023-05-08',
+      employment_type: 'full_time',
+      onboarded: false,
+      bio: 'Owns CI/CD pipelines and monitoring dashboards.',
+      work_mode: 'onsite',
+      focus_areas: ['ci/cd', 'security'],
+    },
   },
 ]
+
+async function ensureStaffTeamMemberCustomFields(em: EntityManager, scope: StaffSeedScope) {
+  const now = new Date()
+  let config = await em.findOne(CustomFieldEntityConfig, {
+    entityId: E.staff.staff_team_member,
+    organizationId: scope.organizationId,
+    tenantId: scope.tenantId,
+  })
+  if (!config) {
+    config = em.create(CustomFieldEntityConfig, {
+      entityId: E.staff.staff_team_member,
+      organizationId: scope.organizationId,
+      tenantId: scope.tenantId,
+      isActive: true,
+      createdAt: now,
+      updatedAt: now,
+    })
+  }
+  config.configJson = {
+    fieldsets: STAFF_TEAM_MEMBER_FIELDSETS,
+    singleFieldsetPerRecord: false,
+  }
+  config.isActive = true
+  config.updatedAt = now
+  em.persist(config)
+
+  await ensureCustomFieldDefinitions(em, STAFF_TEAM_MEMBER_CUSTOM_FIELD_SETS, {
+    organizationId: scope.organizationId,
+    tenantId: scope.tenantId,
+  })
+  await em.flush()
+}
 
 async function fillMissingTeamMemberCustomFields(
   em: EntityManager,
   scope: StaffSeedScope,
   member: StaffTeamMember,
-  customValues: Record<string, string | number | boolean | null>,
+  customValues: Record<string, string | number | boolean | null | string[]>,
 ) {
   const keys = Object.keys(customValues)
   if (!keys.length) return
@@ -179,7 +249,7 @@ async function fillMissingTeamMemberCustomFields(
     fieldKey: { $in: keys },
   })
   const existingKeys = new Set(existingValues.map((value) => value.fieldKey))
-  const missingValues: Record<string, string | number | boolean | null> = {}
+  const missingValues: Record<string, string | number | boolean | null | string[]> = {}
   for (const key of keys) {
     if (!existingKeys.has(key)) {
       missingValues[key] = customValues[key] ?? null
@@ -199,6 +269,7 @@ export async function seedStaffTeamExamples(
   em: EntityManager,
   scope: StaffSeedScope,
 ) {
+  await ensureStaffTeamMemberCustomFields(em, scope)
   const now = new Date()
   const teamNames = TEAM_SEEDS.map((seed) => seed.name)
   const existingTeams = await findWithDecryption(

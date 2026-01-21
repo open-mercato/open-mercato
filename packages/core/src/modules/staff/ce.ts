@@ -1,5 +1,6 @@
 import type { CustomEntitySpec } from '@open-mercato/shared/modules/entities'
 import { E } from '#generated/entities.ids.generated'
+import { STAFF_TEAM_MEMBER_CUSTOM_FIELDS } from './lib/customFields'
 
 const systemEntities: CustomEntitySpec[] = [
   {
@@ -8,44 +9,7 @@ const systemEntities: CustomEntitySpec[] = [
     description: 'Employees who can be scheduled on worktime plans.',
     labelField: 'displayName',
     showInSidebar: false,
-    fields: [
-      {
-        key: 'hourly_rate',
-        kind: 'float',
-        label: 'Hourly rate',
-        description: 'Billing rate per hour.',
-        filterable: true,
-        formEditable: true,
-        listVisible: true,
-      },
-      {
-        key: 'currency_code',
-        kind: 'text',
-        label: 'Currency code',
-        description: 'ISO 4217 currency code for rates.',
-        filterable: true,
-        formEditable: true,
-        listVisible: true,
-      },
-      {
-        key: 'years_of_experience',
-        kind: 'integer',
-        label: 'Years of experience',
-        description: 'Total years of experience for the team member.',
-        filterable: true,
-        formEditable: true,
-        listVisible: true,
-      },
-      {
-        key: 'bio',
-        kind: 'multiline',
-        label: 'Bio',
-        description: 'Short profile or notes about the team member.',
-        formEditable: true,
-        listVisible: false,
-        editor: 'simpleMarkdown',
-      },
-    ],
+    fields: STAFF_TEAM_MEMBER_CUSTOM_FIELDS,
   },
 ]
 
