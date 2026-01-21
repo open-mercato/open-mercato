@@ -1,0 +1,116 @@
+"use client"
+
+import * as React from 'react'
+import Link from 'next/link'
+import { Page, PageBody } from '@open-mercato/ui/backend/Page'
+import { Button } from '@open-mercato/ui/primitives/button'
+import { LoadingMessage, ErrorMessage } from '@open-mercato/ui/backend/detail'
+import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
+import { AvailabilityRulesEditor } from '@open-mercato/core/modules/planner/components/AvailabilityRulesEditor'
+import { buildMemberScheduleItems } from '@open-mercato/core/modules/staff/lib/memberSchedule'
+import { useT } from '@open-mercato/shared/lib/i18n/context'
+
+type SelfMemberResponse = {
+  member?: {
+    id?: string
+    displayName?: string
+    availabilityRuleSetId?: string | null
+  } | null
+}
+
+type FeatureCheckResponse = {
+  ok?: boolean
+  granted?: string[]
+}
+
+export default function StaffMyAvailabilityPage() {
+  const t = useT()
+  const [member, setMember] = React.useState<SelfMemberResponse['member']>(null)
+  const [isLoading, setIsLoading] = React.useState(true)
+  const [error, setError] = React.useState<string | null>(null)
+  const [canManageAvailability, setCanManageAvailability] = React.useState(false)
+
+  React.useEffect(() => {
+    let cancelled = false
+    async function load() {
+      setIsLoading(true)
+      setError(null)
+      try {
+        const memberCall = await apiCall<SelfMemberResponse>('/api/staff/team-members/self')
+        const featureCall = await apiCall<FeatureCheckResponse>('/api/auth/feature-check', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ features: ['planner.manage_availability'] }),
+        })
+        if (!cancelled) {
+          setMember(memberCall.result?.member ?? null)
+          const granted = Array.isArray(featureCall.result?.granted) ? featureCall.result?.granted ?? [] : []
+          setCanManageAvailability(granted.includes('planner.manage_availability'))
+        }
+      } catch (err) {
+        if (!cancelled) {
+          setError(t('staff.myAvailability.errors.load', 'Failed to load availability.'))
+        }
+      } finally {
+        if (!cancelled) setIsLoading(false)
+      }
+    }
+    void load()
+    return () => { cancelled = true }
+  }, [t])
+
+  if (isLoading) {
+    return (
+      <Page>
+        <PageBody>
+          <LoadingMessage message={t('staff.myAvailability.loading', 'Loading availability...')} />
+        </PageBody>
+      </Page>
+    )
+  }
+
+  if (error) {
+    return (
+      <Page>
+        <PageBody>
+          <ErrorMessage message={error} />
+        </PageBody>
+      </Page>
+    )
+  }
+
+  if (!member?.id) {
+    return (
+      <Page>
+        <PageBody>
+          <div className="space-y-3 rounded-lg border bg-card p-6 text-center text-sm text-muted-foreground">
+            <p>{t('staff.myAvailability.empty.profileRequired', 'Create your team member profile to manage availability.')}</p>
+            <Button asChild size="sm">
+              <Link href="/backend/staff/profile/create">
+                {t('staff.leaveRequests.actions.createProfile', 'Create my profile')}
+              </Link>
+            </Button>
+          </div>
+        </PageBody>
+      </Page>
+    )
+  }
+
+  return (
+    <Page>
+      <PageBody>
+        <AvailabilityRulesEditor
+          subjectType="member"
+          subjectId={member.id}
+          labelPrefix="staff.teamMembers"
+          mode="availability"
+          rulesetId={member.availabilityRuleSetId ?? null}
+          buildScheduleItems={({ availabilityRules, translate }) => (
+            buildMemberScheduleItems({ availabilityRules, translate })
+          )}
+          readOnly={!canManageAvailability}
+        />
+      </PageBody>
+    </Page>
+  )
+}

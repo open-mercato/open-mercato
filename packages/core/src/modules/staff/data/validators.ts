@@ -169,11 +169,6 @@ export const staffTeamMemberTagAssignmentSchema = z.object({
 
 const staffLeaveRequestStatusSchema = z.enum(['pending', 'approved', 'rejected'])
 
-const staffLeaveRequestDateRangeSchema = z.object({
-  startDate: z.coerce.date(),
-  endDate: z.coerce.date(),
-})
-
 const validateStaffLeaveRequestDateRange = (
   value: { startDate?: Date; endDate?: Date },
   ctx: z.RefinementCtx,
@@ -188,11 +183,13 @@ const validateStaffLeaveRequestDateRange = (
   }
 }
 
-export const staffLeaveRequestCreateSchema = staffLeaveRequestDateRangeSchema
-  .safeExtend({
+export const staffLeaveRequestCreateSchema = z
+  .object({
     ...scopedCreateFields,
     memberId: z.string().uuid(),
     timezone: z.string().min(1),
+    startDate: z.coerce.date(),
+    endDate: z.coerce.date(),
     unavailabilityReasonEntryId: z.string().uuid().optional().nullable(),
     unavailabilityReasonValue: z.string().trim().min(1).max(150).optional().nullable(),
     note: z.string().max(2000).optional().nullable(),
@@ -200,12 +197,13 @@ export const staffLeaveRequestCreateSchema = staffLeaveRequestDateRangeSchema
   })
   .superRefine(validateStaffLeaveRequestDateRange)
 
-export const staffLeaveRequestUpdateSchema = staffLeaveRequestDateRangeSchema
-  .partial()
-  .safeExtend({
+export const staffLeaveRequestUpdateSchema = z
+  .object({
     ...scopedUpdateFields,
     timezone: z.string().min(1).optional(),
     memberId: z.string().uuid().optional(),
+    startDate: z.coerce.date().optional(),
+    endDate: z.coerce.date().optional(),
     unavailabilityReasonEntryId: z.string().uuid().optional().nullable(),
     unavailabilityReasonValue: z.string().trim().min(1).max(150).optional().nullable(),
     note: z.string().max(2000).optional().nullable(),

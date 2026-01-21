@@ -69,6 +69,7 @@ export type AvailabilityRulesEditorProps = {
   onRulesetChange?: (rulesetId: string | null) => Promise<void>
   buildScheduleItems: AvailabilityScheduleItemBuilder
   loadBookedEvents?: (range: ScheduleRange) => Promise<AvailabilityBookedEvent[]>
+  readOnly?: boolean
 }
 
 type TimeWindow = { start: string; end: string }
@@ -344,8 +345,10 @@ export function AvailabilityRulesEditor({
   onRulesetChange,
   buildScheduleItems,
   loadBookedEvents,
+  readOnly,
 }: AvailabilityRulesEditorProps) {
   const t = useT()
+  const isReadOnly = Boolean(readOnly)
   const dialogRef = React.useRef<HTMLDivElement | null>(null)
   const createRuleSetDialogRef = React.useRef<HTMLDivElement | null>(null)
   const [availabilityRules, setAvailabilityRules] = React.useState<AvailabilityRule[]>([])
@@ -747,6 +750,7 @@ export function AvailabilityRulesEditor({
   }, [])
 
   const saveWeeklyHours = React.useCallback(async (options?: { silentSuccess?: boolean; skipRefresh?: boolean }) => {
+    if (isReadOnly) return
     const subjectForRules: AvailabilitySubjectType = usingRuleSet ? 'ruleset' : subjectType
     const subjectIdForRules = usingRuleSet ? (rulesetId ?? '') : subjectId
     if (!subjectIdForRules) return
@@ -793,6 +797,7 @@ export function AvailabilityRulesEditor({
     usingRuleSet,
     weeklyHasErrors,
     weeklyKey,
+    isReadOnly,
   ])
 
   React.useEffect(() => {
@@ -836,6 +841,7 @@ export function AvailabilityRulesEditor({
   }, [queueWeeklySave, usingRuleSet, viewMode, weeklyHasErrors, weeklyKey])
 
   const persistTimezone = React.useCallback(async (nextTimezone: string) => {
+    if (isReadOnly) return
     if (timezoneSaveInFlightRef.current) return
     const trimmedTimezone = nextTimezone.trim() || 'UTC'
     const rulesetTimezoneId = subjectType === 'ruleset' ? subjectId : rulesetId
@@ -880,6 +886,7 @@ export function AvailabilityRulesEditor({
     rulesetId,
     subjectId,
     subjectType,
+    isReadOnly,
   ])
 
   React.useEffect(() => {
@@ -900,12 +907,14 @@ export function AvailabilityRulesEditor({
   }, [persistTimezone, timezone, timezoneDirty])
 
   const handleTimezoneChange = React.useCallback((nextTimezone: string) => {
+    if (isReadOnly) return
     const trimmed = nextTimezone.trim()
     setTimezone(trimmed || 'UTC')
     setTimezoneDirty(true)
-  }, [])
+  }, [isReadOnly])
 
   const handleCustomize = React.useCallback(async () => {
+    if (isReadOnly) return
     if (!rulesetId) return
     try {
       const creations = rulesetRules.map((rule) => createCrud('planner/availability', {
@@ -924,9 +933,10 @@ export function AvailabilityRulesEditor({
       const message = error instanceof Error ? error.message : listLabels.saveWeeklyError
       flash(message, 'error')
     }
-  }, [listLabels.saveWeeklyError, refreshAvailability, rulesetId, rulesetRules, subjectId, subjectType])
+  }, [listLabels.saveWeeklyError, refreshAvailability, rulesetId, rulesetRules, subjectId, subjectType, isReadOnly])
 
   const handleResetToRuleSet = React.useCallback(async () => {
+    if (isReadOnly) return
     if (!rulesetId) return
     try {
       await Promise.all(
@@ -938,9 +948,10 @@ export function AvailabilityRulesEditor({
       const message = error instanceof Error ? error.message : listLabels.saveWeeklyError
       flash(message, 'error')
     }
-  }, [availabilityRules, listLabels.saveWeeklyError, refreshAvailability, rulesetId])
+  }, [availabilityRules, listLabels.saveWeeklyError, refreshAvailability, rulesetId, isReadOnly])
 
   const handleRuleSetChange = React.useCallback(async (nextId: string | null) => {
+    if (isReadOnly) return
     if (!onRulesetChange) return
     if (availabilityRules.length > 0 && nextId !== rulesetId) {
       const confirmed = window.confirm(listLabels.ruleSetConfirm)
@@ -959,6 +970,7 @@ export function AvailabilityRulesEditor({
     onRulesetChange,
     refreshAvailability,
     rulesetId,
+    isReadOnly,
   ])
 
   const ruleSetFormSchema = React.useMemo(
@@ -983,6 +995,7 @@ export function AvailabilityRulesEditor({
   }), [])
 
   const handleCreateRuleSet = React.useCallback(async (values: RuleSetFormValues) => {
+    if (isReadOnly) return
     const name = values.name.trim()
     const timezoneValue = timezone
     const response = await createCrud('planner/availability-rule-sets', {
@@ -1045,9 +1058,11 @@ export function AvailabilityRulesEditor({
     refreshRuleSetRules,
     refreshRuleSets,
     timezone,
+    isReadOnly,
   ])
 
   const openEditor = React.useCallback((scope: 'date' | 'weekday', options?: { date?: Date; weekday?: number; rules?: AvailabilityRule[] }) => {
+    if (isReadOnly) return
     setEditorScope(scope)
     const rules = options?.rules ?? []
     const unavailableRule = rules.find((rule) => rule.kind === 'unavailability')
@@ -1074,7 +1089,7 @@ export function AvailabilityRulesEditor({
       setEditorReasonValue('')
     }
     setEditorOpen(true)
-  }, [])
+  }, [isReadOnly])
 
   const handleEditorWindowChange = React.useCallback((index: number, window: TimeWindow) => {
     setEditorWindows((prev) => {
@@ -1120,6 +1135,7 @@ export function AvailabilityRulesEditor({
   )
 
   const handleEditorSubmit = React.useCallback(async () => {
+    if (isReadOnly) return
     const subjectForRules: AvailabilitySubjectType = usingRuleSet ? 'ruleset' : subjectType
     const subjectIdForRules = usingRuleSet ? (rulesetId ?? '') : subjectId
     if (!subjectIdForRules) return
@@ -1206,6 +1222,7 @@ export function AvailabilityRulesEditor({
     subjectType,
     timezone,
     usingRuleSet,
+    isReadOnly,
   ])
 
   const handleSlotClick = React.useCallback((slot: ScheduleSlot) => {
@@ -1286,6 +1303,7 @@ export function AvailabilityRulesEditor({
                     const value = event.target.value
                     void handleRuleSetChange(value ? value : null)
                   }}
+                  disabled={isReadOnly}
                 >
                   <option value="">{listLabels.ruleSetPlaceholder}</option>
                   {ruleSets.map((ruleSet) => (
@@ -1295,17 +1313,17 @@ export function AvailabilityRulesEditor({
                   ))}
                 </select>
               )}
-              <Button type="button" variant="outline" size="sm" onClick={() => setCreateRuleSetOpen(true)}>
+              <Button type="button" variant="outline" size="sm" onClick={() => setCreateRuleSetOpen(true)} disabled={isReadOnly}>
                 <Plus className="size-4 mr-2" aria-hidden />
                 {listLabels.ruleSetCreateLabel}
               </Button>
               {rulesetId && usingRuleSet ? (
-                <Button type="button" variant="outline" size="sm" onClick={handleCustomize}>
+                <Button type="button" variant="outline" size="sm" onClick={handleCustomize} disabled={isReadOnly}>
                   {listLabels.ruleSetCustomize}
                 </Button>
               ) : null}
               {rulesetId && !usingRuleSet ? (
-                <Button type="button" variant="ghost" size="sm" onClick={handleResetToRuleSet}>
+                <Button type="button" variant="ghost" size="sm" onClick={handleResetToRuleSet} disabled={isReadOnly}>
                   {listLabels.ruleSetReset}
                 </Button>
               ) : null}
@@ -1321,6 +1339,7 @@ export function AvailabilityRulesEditor({
                 suggestions={timezoneOptions}
                 placeholder={listLabels.timezonePlaceholder}
                 allowCustomValues
+                disabled={isReadOnly}
               />
             </div>
           </div>
@@ -1390,7 +1409,7 @@ export function AvailabilityRulesEditor({
                                       value={window.start}
                                       onChange={(event) => handleWeeklyWindowChange(index, windowIndex, { ...window, start: event.target.value })}
                                       className={`h-9 w-[120px] ${errorClass}`}
-                                      disabled={usingRuleSet}
+                                      disabled={usingRuleSet || isReadOnly}
                                     />
                                     <span className="text-sm text-muted-foreground">-</span>
                                     <Input
@@ -1398,14 +1417,14 @@ export function AvailabilityRulesEditor({
                                       value={window.end}
                                       onChange={(event) => handleWeeklyWindowChange(index, windowIndex, { ...window, end: event.target.value })}
                                       className={`h-9 w-[120px] ${errorClass}`}
-                                      disabled={usingRuleSet}
+                                      disabled={usingRuleSet || isReadOnly}
                                     />
                                     <Button
                                       type="button"
                                       variant="outline"
                                       size="icon"
                                       onClick={() => handleWeeklyWindowRemove(index, windowIndex)}
-                                      disabled={usingRuleSet}
+                                      disabled={usingRuleSet || isReadOnly}
                                       aria-label={listLabels.removeWindow}
                                     >
                                       <Trash2 className="size-4" aria-hidden />
@@ -1418,7 +1437,7 @@ export function AvailabilityRulesEditor({
                               )
                             })
                           )}
-                          <Button type="button" variant="outline" size="sm" onClick={() => handleWeeklyWindowAdd(index)} disabled={usingRuleSet}>
+                          <Button type="button" variant="outline" size="sm" onClick={() => handleWeeklyWindowAdd(index)} disabled={usingRuleSet || isReadOnly}>
                             <Plus className="size-4 mr-2" aria-hidden />
                             {listLabels.addWindow}
                           </Button>
@@ -1434,7 +1453,7 @@ export function AvailabilityRulesEditor({
                     <h3 className="text-base font-semibold">{listLabels.dateSpecificTitle}</h3>
                     <p className="text-sm text-muted-foreground">{listLabels.dateSpecificSubtitle}</p>
                   </div>
-                  <Button type="button" variant="outline" size="sm" onClick={() => openEditor('date')} disabled={usingRuleSet}>
+                  <Button type="button" variant="outline" size="sm" onClick={() => openEditor('date')} disabled={usingRuleSet || isReadOnly}>
                     <Clock className="size-4 mr-2" aria-hidden />
                     {listLabels.addHours}
                   </Button>
@@ -1473,7 +1492,7 @@ export function AvailabilityRulesEditor({
                                 variant="outline"
                                 size="sm"
                                 onClick={() => openEditor('date', { date: new Date(`${date}T00:00:00`), rules })}
-                                disabled={usingRuleSet}
+                                disabled={usingRuleSet || isReadOnly}
                               >
                                 <PencilLine className="size-4 mr-2" aria-hidden />
                                 {listLabels.editTitle}
@@ -1487,7 +1506,7 @@ export function AvailabilityRulesEditor({
                                   await refreshAvailability()
                                   await refreshRuleSetRules()
                                 }}
-                                disabled={usingRuleSet}
+                                disabled={usingRuleSet || isReadOnly}
                                 aria-label={listLabels.removeWindow}
                               >
                                 <Trash2 className="size-4" aria-hidden />

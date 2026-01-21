@@ -262,23 +262,28 @@ const statusDictionaryEntryCreateSchema = z.object({
   icon: createDictionaryEntrySchema.shape.icon,
 })
 
-const statusDictionaryEntryUpdateSchema = z
-  .object({
-    value: updateDictionaryEntrySchema.shape.value,
-    label: z.string().trim().min(1).max(150).optional(),
-    color: updateDictionaryEntrySchema.shape.color,
-    icon: updateDictionaryEntrySchema.shape.icon,
-  })
-  .refine(
-    (payload) => Object.values(payload).some((value) => value !== undefined),
-    { message: 'Provide at least one field to update.' }
-  )
+const statusDictionaryEntryUpdateFieldsSchema = z.object({
+  value: updateDictionaryEntrySchema.shape.value,
+  label: z.string().trim().min(1).max(150).optional(),
+  color: updateDictionaryEntrySchema.shape.color,
+  icon: updateDictionaryEntrySchema.shape.icon,
+})
+
+const validateStatusDictionaryUpdate = (
+  payload: z.infer<typeof statusDictionaryEntryUpdateFieldsSchema>,
+) => Object.values(payload).some((value) => value !== undefined)
+
+const statusDictionaryEntryUpdateSchema = statusDictionaryEntryUpdateFieldsSchema.refine(
+  validateStatusDictionaryUpdate,
+  { message: 'Provide at least one field to update.' },
+)
 
 export const statusDictionaryCreateSchema = scoped.merge(statusDictionaryEntryCreateSchema)
 
 export const statusDictionaryUpdateSchema = scoped
-  .merge(statusDictionaryEntryUpdateSchema)
-  .extend({ id: uuid() })
+  .merge(statusDictionaryEntryUpdateFieldsSchema)
+  .safeExtend({ id: uuid() })
+  .refine(validateStatusDictionaryUpdate, { message: 'Provide at least one field to update.' })
 
 const lineKindSchema = z.enum(['product', 'service', 'shipping', 'discount', 'adjustment'])
 
