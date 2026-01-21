@@ -5,7 +5,7 @@ export * from './ErrorMessage'
 export * from './TabEmptyState'
 export * from './CustomDataSection'
 export * from './TagsSection'
-export { NotesSection } from './NotesSection'
+export { NotesSection, mapCommentSummary } from './NotesSection'
 export type { NotesSectionProps, CommentSummary, SectionAction, TabEmptyStateConfig } from './NotesSection'
 export { ActivitiesSection } from './ActivitiesSection'
 export type {
