@@ -20,7 +20,6 @@ import {
 } from '../data/entities'
 import * as ruleEvaluator from '../../business_rules/lib/rule-evaluator'
 import * as ruleEngine from '../../business_rules/lib/rule-engine'
-import type { RuleEngineContext } from '../../business_rules/lib/rule-engine'
 import * as activityExecutor from './activity-executor'
 import type { ActivityDefinition } from './activity-executor'
 import * as stepHandler from './step-handler'
@@ -659,6 +658,10 @@ async function evaluateTransitionConditions(
  * Pre-conditions are GUARD rules that must pass before transition can execute.
  * If any GUARD rule fails, the transition is blocked.
  *
+ * If the transition defines specific preConditions with ruleIds, those are
+ * executed directly via executeRuleByRuleId. Otherwise, falls back to
+ * discovery-based execution via executeRules.
+ *
  * @param em - Entity manager
  * @param instance - Workflow instance
  * @param transition - Transition definition
@@ -686,32 +689,88 @@ async function evaluatePreConditions(
       }
     }
 
-    // Build rule engine context
-    const ruleContext: RuleEngineContext = {
-      entityType: `workflow:${definition.workflowId}:transition`,
-      entityId: transition.transitionId || `${transition.fromStepId}->${transition.toStepId}`,
-      eventType: 'pre_transition',
-      data: {
-        workflowInstanceId: instance.id,
-        workflowId: definition.workflowId,
-        fromStepId: transition.fromStepId,
-        toStepId: transition.toStepId,
-        workflowContext: {
-          ...instance.context,
-          ...context.workflowContext,
-        },
-        triggerData: context.triggerData,
-      },
-      user: context.userId ? { id: context.userId } : undefined,
-      tenantId: instance.tenantId,
-      organizationId: instance.organizationId,
-      executedBy: context.userId,
+    // Check if transition has specific preConditions defined
+    const preConditions = transition.preConditions || []
+
+    // If no pre-conditions defined, allow transition
+    if (preConditions.length === 0) {
+      return {
+        allowed: true,
+        executedRules: [],
+        totalExecutionTime: 0,
+      }
     }
 
-    // Execute rules - only GUARD rules will affect the 'allowed' status
-    const result = await ruleEngine.executeRules(em, ruleContext, { eventBus })
+    // Execute each pre-condition rule directly by ruleId
+    const startTime = Date.now()
+    const executedRules: ruleEngine.RuleExecutionResult[] = []
+    const errors: string[] = []
+    let allowed = true
 
-    return result
+    for (const condition of preConditions) {
+      const result = await ruleEngine.executeRuleByRuleId(em, {
+        ruleId: condition.ruleId,  // String identifier
+        data: {
+          workflowInstanceId: instance.id,
+          workflowId: definition.workflowId,
+          fromStepId: transition.fromStepId,
+          toStepId: transition.toStepId,
+          workflowContext: {
+            ...instance.context,
+            ...context.workflowContext,
+          },
+          triggerData: context.triggerData,
+        },
+        user: context.userId ? { id: context.userId } : undefined,
+        tenantId: instance.tenantId,
+        organizationId: instance.organizationId,
+        executedBy: context.userId,
+        entityType: `workflow:${definition.workflowId}:transition`,
+        entityId: transition.transitionId || `${transition.fromStepId}->${transition.toStepId}`,
+        eventType: 'pre_transition',
+      })
+
+      // Create a compatible RuleExecutionResult for tracking
+      // We don't have the full BusinessRule entity, but we can create a partial result
+      const ruleResult: ruleEngine.RuleExecutionResult = {
+        rule: {
+          ruleId: result.ruleId,
+          ruleName: result.ruleName,
+          ruleType: 'GUARD',
+        } as any,
+        conditionResult: result.conditionResult,
+        actionsExecuted: result.actionsExecuted,
+        executionTime: result.executionTime,
+        error: result.error,
+        logId: result.logId,
+      }
+      executedRules.push(ruleResult)
+
+      // Handle rule errors
+      if (result.error) {
+        // Rule not found, disabled, or other errors
+        const isRequired = condition.required !== false  // Default to required
+        if (isRequired) {
+          allowed = false
+          errors.push(`Rule '${result.ruleId}': ${result.error}`)
+        }
+        continue
+      }
+
+      // If required and condition failed, block transition
+      const isRequired = condition.required !== false  // Default to required
+      if (isRequired && !result.conditionResult) {
+        allowed = false
+        errors.push(`Pre-condition '${result.ruleName || result.ruleId}' failed`)
+      }
+    }
+
+    return {
+      allowed,
+      executedRules,
+      totalExecutionTime: Date.now() - startTime,
+      errors: errors.length > 0 ? errors : undefined,
+    }
   } catch (error) {
     console.error('Error evaluating pre-conditions:', error)
     return {
@@ -728,6 +787,9 @@ async function evaluatePreConditions(
  *
  * Post-conditions are GUARD rules that should pass after transition executes.
  * Unlike pre-conditions, post-condition failures are logged but don't block the transition.
+ *
+ * If the transition defines specific postConditions with ruleIds, those are
+ * executed directly via executeRuleByRuleId. Otherwise, returns allowed: true.
  *
  * @param em - Entity manager
  * @param instance - Workflow instance
@@ -756,32 +818,83 @@ async function evaluatePostConditions(
       }
     }
 
-    // Build rule engine context
-    const ruleContext: RuleEngineContext = {
-      entityType: `workflow:${definition.workflowId}:transition`,
-      entityId: transition.transitionId || `${transition.fromStepId}->${transition.toStepId}`,
-      eventType: 'post_transition',
-      data: {
-        workflowInstanceId: instance.id,
-        workflowId: definition.workflowId,
-        fromStepId: transition.fromStepId,
-        toStepId: transition.toStepId,
-        workflowContext: {
-          ...instance.context,
-          ...context.workflowContext,
-        },
-        triggerData: context.triggerData,
-      },
-      user: context.userId ? { id: context.userId } : undefined,
-      tenantId: instance.tenantId,
-      organizationId: instance.organizationId,
-      executedBy: context.userId,
+    // Check if transition has specific postConditions defined
+    const postConditions = transition.postConditions || []
+
+    // If no post-conditions defined, allow
+    if (postConditions.length === 0) {
+      return {
+        allowed: true,
+        executedRules: [],
+        totalExecutionTime: 0,
+      }
     }
 
-    // Execute rules
-    const result = await ruleEngine.executeRules(em, ruleContext, { eventBus })
+    // Execute each post-condition rule directly by ruleId
+    const startTime = Date.now()
+    const executedRules: ruleEngine.RuleExecutionResult[] = []
+    const errors: string[] = []
+    let allowed = true
 
-    return result
+    for (const condition of postConditions) {
+      const result = await ruleEngine.executeRuleByRuleId(em, {
+        ruleId: condition.ruleId,  // String identifier
+        data: {
+          workflowInstanceId: instance.id,
+          workflowId: definition.workflowId,
+          fromStepId: transition.fromStepId,
+          toStepId: transition.toStepId,
+          workflowContext: {
+            ...instance.context,
+            ...context.workflowContext,
+          },
+          triggerData: context.triggerData,
+        },
+        user: context.userId ? { id: context.userId } : undefined,
+        tenantId: instance.tenantId,
+        organizationId: instance.organizationId,
+        executedBy: context.userId,
+        entityType: `workflow:${definition.workflowId}:transition`,
+        entityId: transition.transitionId || `${transition.fromStepId}->${transition.toStepId}`,
+        eventType: 'post_transition',
+      })
+
+      // Create a compatible RuleExecutionResult for tracking
+      const ruleResult: ruleEngine.RuleExecutionResult = {
+        rule: {
+          ruleId: result.ruleId,
+          ruleName: result.ruleName,
+          ruleType: 'GUARD',
+        } as any,
+        conditionResult: result.conditionResult,
+        actionsExecuted: result.actionsExecuted,
+        executionTime: result.executionTime,
+        error: result.error,
+        logId: result.logId,
+      }
+      executedRules.push(ruleResult)
+
+      // Handle rule errors
+      if (result.error) {
+        errors.push(`Rule '${result.ruleId}': ${result.error}`)
+        // Post-conditions don't block, but track the failure
+        allowed = false
+        continue
+      }
+
+      // Track condition failures (post-conditions are warnings, not blockers)
+      if (!result.conditionResult) {
+        allowed = false
+        errors.push(`Post-condition '${result.ruleName || result.ruleId}' failed`)
+      }
+    }
+
+    return {
+      allowed,
+      executedRules,
+      totalExecutionTime: Date.now() - startTime,
+      errors: errors.length > 0 ? errors : undefined,
+    }
   } catch (error) {
     console.error('Error evaluating post-conditions:', error)
     return {
