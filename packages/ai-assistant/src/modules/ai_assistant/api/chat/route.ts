@@ -5,7 +5,7 @@ import {
   type OpenCodeStreamEvent,
 } from '../../lib/opencode-handlers'
 import { createOpenCodeClient } from '../../lib/opencode-client'
-import { createRequestContainer } from '@/lib/di/container'
+import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import {
   generateSessionToken,

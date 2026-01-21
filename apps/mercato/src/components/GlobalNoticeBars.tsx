@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react'
 import Link from 'next/link'
 import { X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
-import { useT } from '@/lib/i18n/context'
+import { useT } from '@open-mercato/shared/lib/i18n/context'
 
 const DEMO_NOTICE_COOKIE = 'om_demo_notice_ack'
 const COOKIE_NOTICE_COOKIE = 'om_cookie_notice_ack'
