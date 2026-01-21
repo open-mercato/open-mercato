@@ -166,7 +166,7 @@ const createActivityCommand: CommandHandler<ResourcesResourceActivityCreateInput
     const em = (ctx.container.resolve('em') as EntityManager)
     return await loadActivitySnapshot(em, result.activityId)
   },
-  buildLog: async ({ result }) => {
+  buildLog: async ({ result, ctx }) => {
     const { translate } = await resolveTranslations()
     const em = (ctx.container.resolve('em') as EntityManager)
     const snapshot = await loadActivitySnapshot(em, result.activityId)

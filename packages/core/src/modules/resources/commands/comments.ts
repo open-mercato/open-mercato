@@ -107,7 +107,7 @@ const createCommentCommand: CommandHandler<
     const em = (ctx.container.resolve('em') as EntityManager)
     return await loadCommentSnapshot(em, result.commentId)
   },
-  buildLog: async ({ result }) => {
+  buildLog: async ({ result, ctx }) => {
     const { translate } = await resolveTranslations()
     const em = (ctx.container.resolve('em') as EntityManager)
     const snapshot = await loadCommentSnapshot(em, result.commentId)
