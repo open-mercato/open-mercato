@@ -1226,12 +1226,12 @@ export function AvailabilityRulesEditor({
   ])
 
   const handleSlotClick = React.useCallback((slot: ScheduleSlot) => {
-    if (usingRuleSet) return
+    if (usingRuleSet || isReadOnly) return
     openEditor('date', { date: slot.start })
-  }, [openEditor, usingRuleSet])
+  }, [openEditor, usingRuleSet, isReadOnly])
 
   const handleItemClick = React.useCallback((item: ScheduleItem) => {
-    if (usingRuleSet) return
+    if (usingRuleSet || isReadOnly) return
     const rule = item.metadata?.rule as AvailabilityRule | undefined
     if (!rule) return
     const window = parseAvailabilityRuleWindow(rule)
@@ -1250,7 +1250,7 @@ export function AvailabilityRulesEditor({
       })
       openEditor('date', { date: window.startAt, rules })
     }
-  }, [activeRules, openEditor, usingRuleSet])
+  }, [activeRules, openEditor, usingRuleSet, isReadOnly])
 
   return (
     <>

@@ -1,3 +1,4 @@
+import { randomUUID } from 'crypto'
 import type { CommandHandler } from '@open-mercato/shared/lib/commands'
 import { registerCommand } from '@open-mercato/shared/lib/commands'
 import type { EntityManager } from '@mikro-orm/postgresql'
@@ -8,7 +9,7 @@ import type { CrudIndexerConfig } from '@open-mercato/shared/lib/crud/types'
 import type { DataEngine } from '@open-mercato/shared/lib/data/engine'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { PlannerAvailabilityRule } from '@open-mercato/core/modules/planner/data/entities'
-import { StaffLeaveRequest, StaffTeamMember, type StaffLeaveRequestStatus } from '../data/entities'
+import { StaffLeaveRequest, type StaffLeaveRequestStatus } from '../data/entities'
 import {
   staffLeaveRequestCreateSchema,
   staffLeaveRequestDecisionSchema,
@@ -135,7 +136,7 @@ async function loadLeaveRequestSnapshot(em: EntityManager, id: string): Promise<
 }
 
 async function requireLeaveRequest(em: EntityManager, id: string): Promise<StaffLeaveRequest> {
-  const request = await findOneWithDecryption(em, StaffLeaveRequest, { id }, undefined, { tenantId: null, organizationId: null })
+  const request = await findOneWithDecryption(em, StaffLeaveRequest, { id, deletedAt: null }, undefined, { tenantId: null, organizationId: null })
   if (!request) throw new CrudHttpError(404, { error: 'Leave request not found.' })
   return request
 }
@@ -162,7 +163,9 @@ async function createUnavailabilityRules(params: {
   params.dates.forEach((date) => {
     const rrule = buildFullDayRrule(date)
     if (!rrule) return
+    const ruleId = randomUUID()
     const rule = params.em.create(PlannerAvailabilityRule, {
+      id: ruleId,
       tenantId: params.tenantId,
       organizationId: params.organizationId,
       subjectType: 'member',
@@ -179,7 +182,7 @@ async function createUnavailabilityRules(params: {
       deletedAt: null,
     })
     params.em.persist(rule)
-    createdIds.push(rule.id)
+    createdIds.push(ruleId)
   })
   return createdIds
 }
@@ -384,6 +387,19 @@ const updateLeaveRequestCommand: CommandHandler<StaffLeaveRequestUpdateInput, { 
     request.decidedAt = before.decidedAt ? new Date(before.decidedAt) : null
     request.updatedAt = new Date()
     await em.flush()
+
+    const de = (ctx.container.resolve('dataEngine') as DataEngine)
+    await emitCrudUndoSideEffects({
+      dataEngine: de,
+      action: 'updated',
+      entity: request,
+      identifiers: {
+        id: request.id,
+        organizationId: request.organizationId,
+        tenantId: request.tenantId,
+      },
+      indexer: leaveRequestCrudIndexer,
+    })
   },
 }
 
@@ -448,6 +464,19 @@ const deleteLeaveRequestCommand: CommandHandler<{ id: string }, { requestId: str
     request.deletedAt = null
     request.updatedAt = new Date()
     await em.flush()
+
+    const de = (ctx.container.resolve('dataEngine') as DataEngine)
+    await emitCrudUndoSideEffects({
+      dataEngine: de,
+      action: 'created',
+      entity: request,
+      identifiers: {
+        id: request.id,
+        organizationId: request.organizationId,
+        tenantId: request.tenantId,
+      },
+      indexer: leaveRequestCrudIndexer,
+    })
   },
 }
 
@@ -563,6 +592,19 @@ const acceptLeaveRequestCommand: CommandHandler<StaffLeaveRequestDecisionInput, 
     request.updatedAt = new Date()
     await em.flush()
 
+    const de = (ctx.container.resolve('dataEngine') as DataEngine)
+    await emitCrudUndoSideEffects({
+      dataEngine: de,
+      action: 'updated',
+      entity: request,
+      identifiers: {
+        id: request.id,
+        organizationId: request.organizationId,
+        tenantId: request.tenantId,
+      },
+      indexer: leaveRequestCrudIndexer,
+    })
+
     if (availabilityRuleIds.length) {
       const rules = await em.find(PlannerAvailabilityRule, { id: { $in: availabilityRuleIds } })
       const now = new Date()
@@ -662,6 +704,19 @@ const rejectLeaveRequestCommand: CommandHandler<StaffLeaveRequestDecisionInput, 
     request.decidedAt = before.decidedAt ? new Date(before.decidedAt) : null
     request.updatedAt = new Date()
     await em.flush()
+
+    const de = (ctx.container.resolve('dataEngine') as DataEngine)
+    await emitCrudUndoSideEffects({
+      dataEngine: de,
+      action: 'updated',
+      entity: request,
+      identifiers: {
+        id: request.id,
+        organizationId: request.organizationId,
+        tenantId: request.tenantId,
+      },
+      indexer: leaveRequestCrudIndexer,
+    })
   },
 }
 

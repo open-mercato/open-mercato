@@ -280,12 +280,15 @@ const crud = makeCrudRoute({
           const request = await findOneWithDecryption(
             em,
             StaffLeaveRequest,
-            { id: parsed.id },
+            { id: parsed.id, deletedAt: null },
             undefined,
             { tenantId: ctx.auth?.tenantId ?? null, organizationId: ctx.selectedOrganizationId ?? null },
           )
           const memberId = request ? (typeof request.member === 'string' ? request.member : request.member.id) : null
           if (!request || memberId !== access.memberId) {
+            throw new CrudHttpError(403, { error: translate('staff.leaveRequests.errors.forbidden', 'Forbidden') })
+          }
+          if (parsed.memberId && parsed.memberId !== memberId) {
             throw new CrudHttpError(403, { error: translate('staff.leaveRequests.errors.forbidden', 'Forbidden') })
           }
         }
@@ -311,7 +314,7 @@ const crud = makeCrudRoute({
           const request = await findOneWithDecryption(
             em,
             StaffLeaveRequest,
-            { id },
+            { id, deletedAt: null },
             undefined,
             { tenantId: ctx.auth?.tenantId ?? null, organizationId: ctx.selectedOrganizationId ?? null },
           )

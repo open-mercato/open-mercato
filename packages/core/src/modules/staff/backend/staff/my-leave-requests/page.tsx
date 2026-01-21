@@ -227,7 +227,7 @@ function mapLeaveRequest(item: Record<string, unknown>): LeaveRequestRow {
 function formatDateRange(start?: string | null, end?: string | null): string {
   const startLabel = formatDateLabel(start)
   const endLabel = formatDateLabel(end)
-  if (startLabel && endLabel) return `${startLabel} → ${endLabel}`
+  if (startLabel && endLabel) return `${startLabel} -> ${endLabel}`
   return startLabel || endLabel || '-'
 }
 

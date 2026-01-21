@@ -238,7 +238,7 @@ export function LeaveRequestForm(props: LeaveRequestFormProps) {
               setValue(next ?? null)
               if (setFormValue) {
                 const entry = next ? reasonEntriesById[next] : null
-                setFormValue('unavailabilityReasonValue', entry?.value ?? '')
+                setFormValue('unavailabilityReasonValue', entry?.value ?? null)
               }
             }}
             fetchOptions={fetchReasonOptions}

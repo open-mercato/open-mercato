@@ -7,7 +7,7 @@ import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { createCrud } from '@open-mercato/ui/backend/utils/crud'
 import { LoadingMessage, ErrorMessage } from '@open-mercato/ui/backend/detail'
-import { apiCall, readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
+import { readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 import { LeaveRequestForm, buildLeaveRequestPayload, type LeaveRequestFormValues } from '@open-mercato/core/modules/staff/components/LeaveRequestForm'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 
