@@ -8,7 +8,7 @@ import { normalizeCustomFieldValues } from '@open-mercato/shared/lib/custom-fiel
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { LookupSelect, type LookupSelectItem } from '@open-mercato/ui/backend/inputs'
 import { Button } from '@open-mercato/ui/primitives/button'
-import { TagsSection, type TagOption, type TagsSectionLabels } from '@open-mercato/ui/backend/detail'
+import { AttachmentsSection, TagsSection, type TagOption, type TagsSectionLabels } from '@open-mercato/ui/backend/detail'
 import { E } from '#generated/entities.ids.generated'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
@@ -111,6 +111,7 @@ export function TeamMemberForm(props: TeamMemberFormProps) {
     tagsSection,
   } = props
   const translate = useT()
+  const recordId = typeof initialValues?.id === 'string' ? initialValues.id : null
   const router = useRouter()
   const scopeVersion = useOrganizationScopeVersion()
   const [roles, setRoles] = React.useState<TeamRoleRow[]>([])
@@ -473,8 +474,20 @@ export function TeamMemberForm(props: TeamMemberFormProps) {
       })
     }
 
+    baseGroups.push({
+      id: 'attachments',
+      title: translate('attachments.library.title', 'Attachments'),
+      column: 1,
+      component: () => (
+        <AttachmentsSection
+          entityId={E.staff.staff_team_member}
+          recordId={recordId}
+        />
+      ),
+    })
+
     return baseGroups
-  }, [tagsSection, translate])
+  }, [recordId, tagsSection, translate])
 
   return (
     <CrudForm<TeamMemberFormValues>

@@ -2,6 +2,8 @@ import type { CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
 import type { ActionLog } from '@open-mercato/core/modules/audit_logs/data/entities'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { ensureOrganizationScope } from '@open-mercato/shared/lib/commands/scope'
+import type { EntityManager } from '@mikro-orm/postgresql'
+import { ResourcesResource } from '../data/entities'
 
 export function ensureTenantScope(ctx: CommandRuntimeContext, tenantId: string): void {
   const currentTenant = ctx.auth?.tenantId ?? null
@@ -11,6 +13,16 @@ export function ensureTenantScope(ctx: CommandRuntimeContext, tenantId: string):
 }
 
 export { ensureOrganizationScope }
+
+export async function requireResource(
+  em: EntityManager,
+  resourceId: string,
+  message = 'Resource not found',
+): Promise<ResourcesResource> {
+  const resource = await em.findOne(ResourcesResource, { id: resourceId })
+  if (!resource) throw new CrudHttpError(404, { error: message })
+  return resource
+}
 
 type UndoEnvelope<T> = {
   undo?: T

@@ -95,6 +95,49 @@ export const resourcesResourceTagAssignmentSchema = z.object({
   resourceId: z.string().uuid(),
 })
 
+export const resourcesResourceCommentCreateSchema = z.object({
+  ...scopedCreateFields,
+  entityId: z.string().uuid(),
+  body: z.string().min(1).max(8000),
+  authorUserId: z.string().uuid().optional(),
+  appearanceIcon: z.string().trim().max(100).optional().nullable(),
+  appearanceColor: z
+    .string()
+    .trim()
+    .regex(/^#([0-9a-fA-F]{6})$/)
+    .optional()
+    .nullable(),
+})
+
+export const resourcesResourceCommentUpdateSchema = z
+  .object({
+    id: z.string().uuid(),
+  })
+  .merge(resourcesResourceCommentCreateSchema.partial())
+
+export const resourcesResourceActivityCreateSchema = z.object({
+  ...scopedCreateFields,
+  entityId: z.string().uuid(),
+  activityType: z.string().min(1).max(100),
+  subject: z.string().max(200).optional(),
+  body: z.string().max(8000).optional(),
+  occurredAt: z.coerce.date().optional(),
+  authorUserId: z.string().uuid().optional(),
+  appearanceIcon: z.string().trim().max(100).optional().nullable(),
+  appearanceColor: z
+    .string()
+    .trim()
+    .regex(/^#([0-9a-fA-F]{6})$/)
+    .optional()
+    .nullable(),
+})
+
+export const resourcesResourceActivityUpdateSchema = z
+  .object({
+    id: z.string().uuid(),
+  })
+  .merge(resourcesResourceActivityCreateSchema.partial())
+
 export type ResourcesResourceTypeCreateInput = z.infer<typeof resourcesResourceTypeCreateSchema>
 export type ResourcesResourceTypeUpdateInput = z.infer<typeof resourcesResourceTypeUpdateSchema>
 export type ResourcesResourceCreateInput = z.infer<typeof resourcesResourceCreateSchema>
@@ -102,3 +145,7 @@ export type ResourcesResourceUpdateInput = z.infer<typeof resourcesResourceUpdat
 export type ResourcesResourceTagCreateInput = z.infer<typeof resourcesResourceTagCreateSchema>
 export type ResourcesResourceTagUpdateInput = z.infer<typeof resourcesResourceTagUpdateSchema>
 export type ResourcesResourceTagAssignmentInput = z.infer<typeof resourcesResourceTagAssignmentSchema>
+export type ResourcesResourceCommentCreateInput = z.infer<typeof resourcesResourceCommentCreateSchema>
+export type ResourcesResourceCommentUpdateInput = z.infer<typeof resourcesResourceCommentUpdateSchema>
+export type ResourcesResourceActivityCreateInput = z.infer<typeof resourcesResourceActivityCreateSchema>
+export type ResourcesResourceActivityUpdateInput = z.infer<typeof resourcesResourceActivityUpdateSchema>

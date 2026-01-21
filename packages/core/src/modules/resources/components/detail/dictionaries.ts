@@ -15,9 +15,8 @@ type DictionarySummary = {
   name: string
 }
 
-const STAFF_DICTIONARY_KEYS = {
-  activityTypes: 'staff-activity-types',
-  addressTypes: 'staff-address-types',
+const RESOURCE_DICTIONARY_KEYS = {
+  activityTypes: 'resources.activity-types',
 } as const
 
 async function ensureDictionary(key: string, name: string): Promise<DictionarySummary | null> {
@@ -39,9 +38,11 @@ async function ensureDictionary(key: string, name: string): Promise<DictionarySu
   return null
 }
 
-export async function loadStaffDictionaryEntries(kind: keyof typeof STAFF_DICTIONARY_KEYS): Promise<DictionaryEntryOption[]> {
-  const key = STAFF_DICTIONARY_KEYS[kind]
-  const name = kind === 'activityTypes' ? 'Staff activity types' : 'Staff address types'
+export async function loadResourceDictionaryEntries(
+  kind: keyof typeof RESOURCE_DICTIONARY_KEYS,
+): Promise<DictionaryEntryOption[]> {
+  const key = RESOURCE_DICTIONARY_KEYS[kind]
+  const name = 'Resource activity types'
   const dictionary = await ensureDictionary(key, name)
   if (!dictionary) return []
   const entriesCall = await apiCall<{ items?: Record<string, unknown>[] }>(`/api/dictionaries/${dictionary.id}/entries`)
@@ -61,12 +62,12 @@ export async function loadStaffDictionaryEntries(kind: keyof typeof STAFF_DICTIO
     .filter((entry): entry is DictionaryEntryOption => !!entry)
 }
 
-export async function createStaffDictionaryEntry(
-  kind: keyof typeof STAFF_DICTIONARY_KEYS,
+export async function createResourceDictionaryEntry(
+  kind: keyof typeof RESOURCE_DICTIONARY_KEYS,
   input: { value: string; label?: string; color?: string | null; icon?: string | null },
 ): Promise<DictionaryEntryOption | null> {
-  const key = STAFF_DICTIONARY_KEYS[kind]
-  const name = kind === 'activityTypes' ? 'Staff activity types' : 'Staff address types'
+  const key = RESOURCE_DICTIONARY_KEYS[kind]
+  const name = 'Resource activity types'
   const dictionary = await ensureDictionary(key, name)
   if (!dictionary) return null
   const response = await apiCallOrThrow<Record<string, unknown>>(

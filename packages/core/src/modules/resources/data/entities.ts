@@ -92,6 +92,89 @@ export class ResourcesResource {
   deletedAt?: Date | null
 }
 
+@Entity({ tableName: 'resources_resource_comments' })
+@Index({ name: 'resources_resource_comments_resource_idx', properties: ['resource'] })
+@Index({ name: 'resources_resource_comments_tenant_org_idx', properties: ['tenantId', 'organizationId'] })
+export class ResourcesResourceComment {
+  @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
+  id!: string
+
+  @Property({ name: 'tenant_id', type: 'uuid' })
+  tenantId!: string
+
+  @Property({ name: 'organization_id', type: 'uuid' })
+  organizationId!: string
+
+  @Property({ name: 'body', type: 'text' })
+  body!: string
+
+  @Property({ name: 'author_user_id', type: 'uuid', nullable: true })
+  authorUserId?: string | null
+
+  @Property({ name: 'appearance_icon', type: 'text', nullable: true })
+  appearanceIcon?: string | null
+
+  @Property({ name: 'appearance_color', type: 'text', nullable: true })
+  appearanceColor?: string | null
+
+  @Property({ name: 'created_at', type: Date, onCreate: () => new Date() })
+  createdAt: Date = new Date()
+
+  @Property({ name: 'updated_at', type: Date, onUpdate: () => new Date() })
+  updatedAt: Date = new Date()
+
+  @Property({ name: 'deleted_at', type: Date, nullable: true })
+  deletedAt?: Date | null
+
+  @ManyToOne(() => ResourcesResource, { fieldName: 'resource_id' })
+  resource!: ResourcesResource
+}
+
+@Entity({ tableName: 'resources_resource_activities' })
+@Index({ name: 'resources_resource_activities_resource_idx', properties: ['resource'] })
+@Index({ name: 'resources_resource_activities_tenant_org_idx', properties: ['tenantId', 'organizationId'] })
+@Index({ name: 'resources_resource_activities_resource_occurred_created_idx', properties: ['resource', 'occurredAt', 'createdAt'] })
+export class ResourcesResourceActivity {
+  @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
+  id!: string
+
+  @Property({ name: 'tenant_id', type: 'uuid' })
+  tenantId!: string
+
+  @Property({ name: 'organization_id', type: 'uuid' })
+  organizationId!: string
+
+  @Property({ name: 'activity_type', type: 'text' })
+  activityType!: string
+
+  @Property({ name: 'subject', type: 'text', nullable: true })
+  subject?: string | null
+
+  @Property({ name: 'body', type: 'text', nullable: true })
+  body?: string | null
+
+  @Property({ name: 'occurred_at', type: Date, nullable: true })
+  occurredAt?: Date | null
+
+  @Property({ name: 'author_user_id', type: 'uuid', nullable: true })
+  authorUserId?: string | null
+
+  @Property({ name: 'appearance_icon', type: 'text', nullable: true })
+  appearanceIcon?: string | null
+
+  @Property({ name: 'appearance_color', type: 'text', nullable: true })
+  appearanceColor?: string | null
+
+  @Property({ name: 'created_at', type: Date, onCreate: () => new Date() })
+  createdAt: Date = new Date()
+
+  @Property({ name: 'updated_at', type: Date, onUpdate: () => new Date() })
+  updatedAt: Date = new Date()
+
+  @ManyToOne(() => ResourcesResource, { fieldName: 'resource_id' })
+  resource!: ResourcesResource
+}
+
 @Entity({ tableName: 'resources_resource_tags' })
 @Index({ name: 'resources_resource_tags_scope_idx', properties: ['organizationId', 'tenantId'] })
 @Unique({ name: 'resources_resource_tags_slug_unique', properties: ['organizationId', 'tenantId', 'slug'] })

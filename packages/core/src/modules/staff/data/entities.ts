@@ -197,6 +197,45 @@ export class StaffTeamMemberActivity {
   member!: StaffTeamMember
 }
 
+@Entity({ tableName: 'staff_team_member_job_histories' })
+@Index({ name: 'staff_team_member_job_histories_member_idx', properties: ['member'] })
+@Index({ name: 'staff_team_member_job_histories_tenant_org_idx', properties: ['tenantId', 'organizationId'] })
+@Index({ name: 'staff_team_member_job_histories_member_start_idx', properties: ['member', 'startDate'] })
+export class StaffTeamMemberJobHistory {
+  @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
+  id!: string
+
+  @Property({ name: 'tenant_id', type: 'uuid' })
+  tenantId!: string
+
+  @Property({ name: 'organization_id', type: 'uuid' })
+  organizationId!: string
+
+  @Property({ type: 'text' })
+  name!: string
+
+  @Property({ name: 'company_name', type: 'text', nullable: true })
+  companyName?: string | null
+
+  @Property({ type: 'text', nullable: true })
+  description?: string | null
+
+  @Property({ name: 'start_date', type: Date })
+  startDate!: Date
+
+  @Property({ name: 'end_date', type: Date, nullable: true })
+  endDate?: Date | null
+
+  @Property({ name: 'created_at', type: Date, onCreate: () => new Date() })
+  createdAt: Date = new Date()
+
+  @Property({ name: 'updated_at', type: Date, onUpdate: () => new Date() })
+  updatedAt: Date = new Date()
+
+  @ManyToOne(() => StaffTeamMember, { fieldName: 'member_id' })
+  member!: StaffTeamMember
+}
+
 @Entity({ tableName: 'staff_team_member_addresses' })
 @Index({ name: 'staff_team_member_addresses_member_idx', properties: ['member'] })
 @Index({ name: 'staff_team_member_addresses_tenant_org_idx', properties: ['tenantId', 'organizationId'] })

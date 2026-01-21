@@ -100,6 +100,22 @@ export const staffTeamMemberActivityUpdateSchema = z
   })
   .merge(staffTeamMemberActivityCreateSchema.partial())
 
+export const staffTeamMemberJobHistoryCreateSchema = z.object({
+  ...scopedCreateFields,
+  entityId: z.string().uuid(),
+  name: z.string().min(1).max(200),
+  companyName: z.string().max(200).optional().nullable(),
+  description: z.string().max(2000).optional().nullable(),
+  startDate: z.coerce.date(),
+  endDate: z.coerce.date().optional().nullable(),
+})
+
+export const staffTeamMemberJobHistoryUpdateSchema = z
+  .object({
+    id: z.string().uuid(),
+  })
+  .merge(staffTeamMemberJobHistoryCreateSchema.partial())
+
 export const staffTeamMemberCommentCreateSchema = z.object({
   ...scopedCreateFields,
   entityId: z.string().uuid(),
@@ -160,6 +176,8 @@ export type StaffTeamMemberUpdateInput = z.infer<typeof staffTeamMemberUpdateSch
 export type StaffTeamMemberTagAssignmentInput = z.infer<typeof staffTeamMemberTagAssignmentSchema>
 export type StaffTeamMemberActivityCreateInput = z.infer<typeof staffTeamMemberActivityCreateSchema>
 export type StaffTeamMemberActivityUpdateInput = z.infer<typeof staffTeamMemberActivityUpdateSchema>
+export type StaffTeamMemberJobHistoryCreateInput = z.infer<typeof staffTeamMemberJobHistoryCreateSchema>
+export type StaffTeamMemberJobHistoryUpdateInput = z.infer<typeof staffTeamMemberJobHistoryUpdateSchema>
 export type StaffTeamMemberCommentCreateInput = z.infer<typeof staffTeamMemberCommentCreateSchema>
 export type StaffTeamMemberCommentUpdateInput = z.infer<typeof staffTeamMemberCommentUpdateSchema>
 export type StaffTeamMemberAddressCreateInput = z.infer<typeof staffTeamMemberAddressCreateSchema>

@@ -15,7 +15,7 @@ import { cn } from '@open-mercato/shared/lib/utils'
 import { Copy, Download, Trash2 } from 'lucide-react'
 import { AttachmentContentPreview } from '@open-mercato/core/modules/attachments/components/AttachmentContentPreview'
 import { buildAttachmentFileUrl, buildAttachmentImageUrl, slugifyAttachmentFileName } from '@open-mercato/core/modules/attachments/lib/imageUrls'
-import { E } from '#generated/entities.ids.generated'
+import { E } from '@open-mercato/core/generated-shims/entities.ids.generated'
 
 export type AttachmentAssignment = {
   type: string

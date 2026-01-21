@@ -22,6 +22,7 @@ import { createStaffNotesAdapter } from '@open-mercato/core/modules/staff/compon
 import { createStaffActivitiesAdapter } from '@open-mercato/core/modules/staff/components/detail/activitiesAdapter'
 import { createStaffAddressAdapter, createStaffAddressTypesAdapter } from '@open-mercato/core/modules/staff/components/detail/addressesAdapter'
 import { loadStaffDictionaryEntries, createStaffDictionaryEntry } from '@open-mercato/core/modules/staff/components/detail/dictionaries'
+import { JobHistorySection } from '@open-mercato/core/modules/staff/components/detail/JobHistorySection'
 import type { DictionarySelectLabels } from '@open-mercato/core/modules/dictionaries/components/DictionaryEntrySelect'
 
 type TeamMemberRecord = {
@@ -59,7 +60,7 @@ export default function StaffTeamMemberDetailPage({ params }: { params?: { id?: 
   const [initialValues, setInitialValues] = React.useState<TeamMemberFormValues | null>(null)
   const [memberRecord, setMemberRecord] = React.useState<TeamMemberRecord | null>(null)
   const [availabilityRuleSetId, setAvailabilityRuleSetId] = React.useState<string | null>(null)
-  const [activePanel, setActivePanel] = React.useState<'details' | 'availability'>('details')
+  const [activePanel, setActivePanel] = React.useState<'details' | 'availability' | 'jobHistory'>('details')
   const [activeTab, setActiveTab] = React.useState<'notes' | 'activities' | 'addresses'>('notes')
   const [sectionAction, setSectionAction] = React.useState<SectionAction | null>(null)
   const flashShownRef = React.useRef(false)
@@ -211,6 +212,7 @@ export default function StaffTeamMemberDetailPage({ params }: { params?: { id?: 
   const panelTabs = React.useMemo(() => ([
     { id: 'details' as const, label: t('staff.teamMembers.detail.tabs.details', 'Details') },
     { id: 'availability' as const, label: t('staff.teamMembers.detail.tabs.availability', 'Availability') },
+    { id: 'jobHistory' as const, label: t('staff.teamMembers.detail.tabs.jobHistory', 'Job history') },
   ]), [t])
 
   const tabs = React.useMemo(() => ([
@@ -435,7 +437,7 @@ export default function StaffTeamMemberDetailPage({ params }: { params?: { id?: 
                 loadingMessage={t('staff.teamMembers.form.loading', 'Loading team member...')}
               />
             </>
-          ) : (
+          ) : activePanel === 'availability' ? (
             <AvailabilityRulesEditor
               subjectType="member"
               subjectId={memberId ?? ''}
@@ -447,6 +449,10 @@ export default function StaffTeamMemberDetailPage({ params }: { params?: { id?: 
                 buildMemberScheduleItems({ availabilityRules, translate: translateLabel })
               )}
             />
+          ) : (
+            <div className="rounded-lg border bg-card p-4">
+              <JobHistorySection memberId={memberId ?? null} />
+            </div>
           )}
         </div>
       </PageBody>
