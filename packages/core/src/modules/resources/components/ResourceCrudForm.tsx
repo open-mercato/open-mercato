@@ -5,7 +5,7 @@ import { CrudForm, type CrudField, type CrudFormGroup } from '@open-mercato/ui/b
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { DictionarySelectControl } from '@open-mercato/core/modules/dictionaries/components/DictionarySelectControl'
 import { AppearanceSelector } from '@open-mercato/core/modules/dictionaries/components/AppearanceSelector'
-import { TagsSection, type TagOption, type TagsSectionLabels } from '@open-mercato/ui/backend/detail'
+import { AttachmentsSection, TagsSection, type TagOption, type TagsSectionLabels } from '@open-mercato/ui/backend/detail'
 import { E } from '#generated/entities.ids.generated'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
@@ -293,6 +293,22 @@ export function ResourcesResourceForm(props: ResourcesResourceFormProps) {
     loadingMessage,
     formConfig,
   } = props
+  const t = useT()
+  const recordId = typeof initialValues?.id === 'string' ? initialValues.id : null
+  const groups = React.useMemo<CrudFormGroup[]>(() => {
+    const attachmentsGroup: CrudFormGroup = {
+      id: 'attachments',
+      title: t('attachments.library.title', 'Attachments'),
+      column: 1,
+      component: () => (
+        <AttachmentsSection
+          entityId={E.resources.resources_resource}
+          recordId={recordId}
+        />
+      ),
+    }
+    return [...formConfig.groups, attachmentsGroup]
+  }, [formConfig.groups, recordId, t])
 
   return (
     <CrudForm
@@ -302,7 +318,7 @@ export function ResourcesResourceForm(props: ResourcesResourceFormProps) {
       submitLabel={submitLabel}
       successRedirect={successRedirect}
       fields={formConfig.fields}
-      groups={formConfig.groups}
+      groups={groups}
       initialValues={initialValues}
       entityId={E.resources.resources_resource}
       customFieldsetBindings={{ [E.resources.resources_resource]: { valueKey: 'customFieldsetCode' } }}

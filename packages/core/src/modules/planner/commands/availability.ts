@@ -25,6 +25,8 @@ type AvailabilityRuleSnapshot = {
   exdates: string[]
   kind: PlannerAvailabilityKind
   note: string | null
+  unavailabilityReasonEntryId: string | null
+  unavailabilityReasonValue: string | null
   deletedAt: Date | null
 }
 
@@ -47,6 +49,8 @@ async function loadAvailabilityRuleSnapshot(em: EntityManager, id: string): Prom
     exdates: [...(record.exdates ?? [])],
     kind: record.kind,
     note: record.note ?? null,
+    unavailabilityReasonEntryId: record.unavailabilityReasonEntryId ?? null,
+    unavailabilityReasonValue: record.unavailabilityReasonValue ?? null,
     deletedAt: record.deletedAt ?? null,
   }
 }
@@ -65,6 +69,8 @@ async function restoreAvailabilityRuleFromSnapshot(em: EntityManager, snapshot: 
       exdates: snapshot.exdates ?? [],
       kind: snapshot.kind ?? 'availability',
       note: snapshot.note ?? null,
+      unavailabilityReasonEntryId: snapshot.unavailabilityReasonEntryId ?? null,
+      unavailabilityReasonValue: snapshot.unavailabilityReasonValue ?? null,
       createdAt: new Date(),
       updatedAt: new Date(),
     })
@@ -77,6 +83,8 @@ async function restoreAvailabilityRuleFromSnapshot(em: EntityManager, snapshot: 
     record.exdates = snapshot.exdates ?? []
     record.kind = snapshot.kind ?? 'availability'
     record.note = snapshot.note ?? null
+    record.unavailabilityReasonEntryId = snapshot.unavailabilityReasonEntryId ?? null
+    record.unavailabilityReasonValue = snapshot.unavailabilityReasonValue ?? null
     record.deletedAt = snapshot.deletedAt ?? null
   }
 }
@@ -90,6 +98,11 @@ const createAvailabilityRuleCommand: CommandHandler<PlannerAvailabilityRuleCreat
 
     const em = (ctx.container.resolve('em') as EntityManager).fork()
     const now = new Date()
+    const kind = parsed.kind ?? 'availability'
+    const unavailabilityReasonEntryId = kind === 'unavailability' ? parsed.unavailabilityReasonEntryId ?? null : null
+    const unavailabilityReasonValue = kind === 'unavailability'
+      ? (parsed.unavailabilityReasonValue ?? null)
+      : null
     const record = em.create(PlannerAvailabilityRule, {
       tenantId: parsed.tenantId,
       organizationId: parsed.organizationId,
@@ -98,8 +111,10 @@ const createAvailabilityRuleCommand: CommandHandler<PlannerAvailabilityRuleCreat
       timezone: parsed.timezone,
       rrule: parsed.rrule,
       exdates: parsed.exdates ?? [],
-      kind: parsed.kind ?? 'availability',
+      kind,
       note: parsed.note ?? null,
+      unavailabilityReasonEntryId,
+      unavailabilityReasonValue,
       createdAt: now,
       updatedAt: now,
     })
@@ -164,6 +179,18 @@ const updateAvailabilityRuleCommand: CommandHandler<PlannerAvailabilityRuleUpdat
     if (parsed.exdates !== undefined) record.exdates = parsed.exdates
     if (parsed.kind !== undefined) record.kind = parsed.kind
     if (parsed.note !== undefined) record.note = parsed.note ?? null
+    const nextKind = parsed.kind ?? record.kind
+    if (nextKind !== 'unavailability') {
+      record.unavailabilityReasonEntryId = null
+      record.unavailabilityReasonValue = null
+    } else {
+      if (parsed.unavailabilityReasonEntryId !== undefined) {
+        record.unavailabilityReasonEntryId = parsed.unavailabilityReasonEntryId ?? null
+      }
+      if (parsed.unavailabilityReasonValue !== undefined) {
+        record.unavailabilityReasonValue = parsed.unavailabilityReasonValue ?? null
+      }
+    }
 
     await em.flush()
     return { ruleId: record.id }

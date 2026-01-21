@@ -12,6 +12,12 @@ import { createCrud, deleteCrud, updateCrud } from '@open-mercato/ui/backend/uti
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { Spinner } from '@open-mercato/ui/primitives/spinner'
 import { ComboboxInput } from '@open-mercato/ui/backend/inputs'
+import { DictionaryEntrySelect, type DictionarySelectLabels } from '@open-mercato/core/modules/dictionaries/components/DictionaryEntrySelect'
+import {
+  createUnavailabilityReasonEntry,
+  loadUnavailabilityReasonEntries,
+  type UnavailabilityReasonEntry,
+} from '@open-mercato/core/modules/planner/components/unavailabilityReasons'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { parseAvailabilityRuleWindow } from '@open-mercato/core/modules/planner/lib/availabilitySchedule'
 import { CrudForm, type CrudField } from '@open-mercato/ui/backend/CrudForm'
@@ -29,6 +35,8 @@ type AvailabilityRule = {
   exdates: string[]
   kind?: 'availability' | 'unavailability'
   note?: string | null
+  unavailabilityReasonEntryId?: string | null
+  unavailabilityReasonValue?: string | null
   createdAt?: string | null
 }
 
@@ -80,6 +88,24 @@ const DAY_LABELS = [
 ] as const
 
 const DEFAULT_WINDOW: TimeWindow = { start: '09:00', end: '17:00' }
+
+function resolveRuleReasonEntryId(rule?: AvailabilityRule | null): string | null {
+  if (!rule) return null
+  if (typeof rule.unavailabilityReasonEntryId === 'string' && rule.unavailabilityReasonEntryId.length) {
+    return rule.unavailabilityReasonEntryId
+  }
+  const fallback = (rule as Record<string, unknown>).unavailability_reason_entry_id
+  return typeof fallback === 'string' && fallback.length ? fallback : null
+}
+
+function resolveRuleReasonValue(rule?: AvailabilityRule | null): string | null {
+  if (!rule) return null
+  if (typeof rule.unavailabilityReasonValue === 'string' && rule.unavailabilityReasonValue.length) {
+    return rule.unavailabilityReasonValue
+  }
+  const fallback = (rule as Record<string, unknown>).unavailability_reason_value
+  return typeof fallback === 'string' && fallback.length ? fallback : null
+}
 
 function createDefaultWindow(): TimeWindow {
   return { ...DEFAULT_WINDOW }
@@ -351,6 +377,8 @@ export function AvailabilityRulesEditor({
   const [editorRules, setEditorRules] = React.useState<AvailabilityRule[]>([])
   const [editorUnavailable, setEditorUnavailable] = React.useState(false)
   const [editorNote, setEditorNote] = React.useState('')
+  const [editorReasonEntryId, setEditorReasonEntryId] = React.useState<string | null>(null)
+  const [reasonEntriesById, setReasonEntriesById] = React.useState<Record<string, UnavailabilityReasonEntry>>({})
   const [createRuleSetOpen, setCreateRuleSetOpen] = React.useState(false)
   const [isWeeklyAutoSaving, setIsWeeklyAutoSaving] = React.useState(false)
   const [customOverridesEnabled, setCustomOverridesEnabled] = React.useState(false)
@@ -437,6 +465,21 @@ export function AvailabilityRulesEditor({
       unavailableTitle: t(`${labelPrefix}.availability.unavailable.title`, 'Unavailable'),
       unavailableNoteLabel: t(`${labelPrefix}.availability.unavailable.note`, 'Note'),
       unavailableNotePlaceholder: t(`${labelPrefix}.availability.unavailable.notePlaceholder`, 'Holiday'),
+      unavailableReasonLabel: t(`${labelPrefix}.availability.unavailable.reason.label`, 'Reason'),
+      unavailableReasonPlaceholder: t(`${labelPrefix}.availability.unavailable.reason.placeholder`, 'Select a reason'),
+      unavailableReasonAddLabel: t(`${labelPrefix}.availability.unavailable.reason.addLabel`, 'Add reason'),
+      unavailableReasonAddPrompt: t(`${labelPrefix}.availability.unavailable.reason.addPrompt`, 'Name the reason'),
+      unavailableReasonDialogTitle: t(`${labelPrefix}.availability.unavailable.reason.dialogTitle`, 'Add reason'),
+      unavailableReasonValueLabel: t(`${labelPrefix}.availability.unavailable.reason.valueLabel`, 'Reason'),
+      unavailableReasonValuePlaceholder: t(`${labelPrefix}.availability.unavailable.reason.valuePlaceholder`, 'Reason name'),
+      unavailableReasonLabelLabel: t(`${labelPrefix}.availability.unavailable.reason.labelLabel`, 'Label'),
+      unavailableReasonLabelPlaceholder: t(`${labelPrefix}.availability.unavailable.reason.labelPlaceholder`, 'Display label (optional)'),
+      unavailableReasonEmptyError: t(`${labelPrefix}.availability.unavailable.reason.emptyError`, 'Please enter a reason'),
+      unavailableReasonSaveLabel: t(`${labelPrefix}.availability.unavailable.reason.saveLabel`, 'Save'),
+      unavailableReasonErrorLoad: t(`${labelPrefix}.availability.unavailable.reason.errorLoad`, 'Failed to load reasons'),
+      unavailableReasonErrorSave: t(`${labelPrefix}.availability.unavailable.reason.errorSave`, 'Failed to save reason'),
+      unavailableReasonLoading: t(`${labelPrefix}.availability.unavailable.reason.loading`, 'Loading reasons...'),
+      unavailableReasonManageTitle: t(`${labelPrefix}.availability.unavailable.reason.manageTitle`, 'Manage reasons'),
       scheduleError: t(`${labelPrefix}.schedule.error.load`, 'Failed to load schedule.'),
       scheduleLoading: t(`${labelPrefix}.schedule.loading`, 'Loading schedule...'),
       customizePrompt: t(`${labelPrefix}.availability.ruleset.customizePrompt`, 'This schedule is based on a shared ruleset. Customize it to make changes.'),
@@ -446,6 +489,24 @@ export function AvailabilityRulesEditor({
       addDateLabel: t(`${labelPrefix}.availability.dateSpecific.addDate`, 'Add date'),
     }
   }, [editorWeekday, labelPrefix, t])
+
+  const unavailableReasonLabels = React.useMemo<DictionarySelectLabels>(() => ({
+    placeholder: listLabels.unavailableReasonPlaceholder,
+    addLabel: listLabels.unavailableReasonAddLabel,
+    addPrompt: listLabels.unavailableReasonAddPrompt,
+    dialogTitle: listLabels.unavailableReasonDialogTitle,
+    valueLabel: listLabels.unavailableReasonValueLabel,
+    valuePlaceholder: listLabels.unavailableReasonValuePlaceholder,
+    labelLabel: listLabels.unavailableReasonLabelLabel,
+    labelPlaceholder: listLabels.unavailableReasonLabelPlaceholder,
+    emptyError: listLabels.unavailableReasonEmptyError,
+    cancelLabel: listLabels.cancelLabel,
+    saveLabel: listLabels.unavailableReasonSaveLabel,
+    errorLoad: listLabels.unavailableReasonErrorLoad,
+    errorSave: listLabels.unavailableReasonErrorSave,
+    loadingLabel: listLabels.unavailableReasonLoading,
+    manageTitle: listLabels.unavailableReasonManageTitle,
+  }), [listLabels])
 
   const refreshAvailability = React.useCallback(async () => {
     if (!subjectId) return

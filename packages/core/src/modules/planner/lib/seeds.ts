@@ -1,6 +1,12 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
+import { Dictionary, DictionaryEntry, type DictionaryManagerVisibility } from '@open-mercato/core/modules/dictionaries/data/entities'
+import { normalizeDictionaryValue } from '@open-mercato/core/modules/dictionaries/lib/utils'
 import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { PlannerAvailabilityRule, PlannerAvailabilityRuleSet } from '../data/entities'
+import {
+  UNAVAILABILITY_REASON_DICTIONARIES,
+  type UnavailabilityReasonSubjectType,
+} from './unavailabilityReasons'
 
 export type PlannerSeedScope = { tenantId: string; organizationId: string }
 
@@ -26,6 +32,22 @@ const AVAILABILITY_RULESET_SEEDS = [
     hours: WEEKEND_WORKING_HOURS,
   },
 ] as const
+
+const UNAVAILABILITY_REASON_DEFAULTS: Record<UnavailabilityReasonSubjectType, Array<{ value: string; label: string }>> = {
+  member: [
+    { value: 'Sick off', label: 'Sick off' },
+    { value: 'Holidays', label: 'Holidays' },
+    { value: 'Unspecified', label: 'Unspecified' },
+  ],
+  resource: [
+    { value: 'In use', label: 'In use' },
+    { value: 'Maintenance', label: 'Maintenance' },
+    { value: 'Failure', label: 'Failure' },
+  ],
+  ruleset: [
+    { value: 'Unspecified', label: 'Unspecified' },
+  ],
+}
 
 function formatDuration(minutes: number): string {
   const clamped = Math.max(1, minutes)
@@ -122,6 +144,67 @@ export async function seedPlannerAvailabilityRuleSetDefaults(
         updatedAt: now,
       })
       em.persist(rule)
+    }
+    await em.flush()
+  }
+}
+
+export async function seedPlannerUnavailabilityReasons(
+  em: EntityManager,
+  scope: PlannerSeedScope,
+) {
+  const now = new Date()
+  const dictionaryEntries = Object.entries(UNAVAILABILITY_REASON_DICTIONARIES) as Array<[
+    UnavailabilityReasonSubjectType,
+    (typeof UNAVAILABILITY_REASON_DICTIONARIES)[UnavailabilityReasonSubjectType],
+  ]>
+
+  for (const [subjectType, dictionaryConfig] of dictionaryEntries) {
+    let dictionary = await em.findOne(Dictionary, {
+      tenantId: scope.tenantId,
+      organizationId: scope.organizationId,
+      key: dictionaryConfig.key,
+      deletedAt: null,
+    })
+    if (!dictionary) {
+      dictionary = em.create(Dictionary, {
+        key: dictionaryConfig.key,
+        name: dictionaryConfig.name,
+        description: 'Default unavailability reasons for scheduling.',
+        tenantId: scope.tenantId,
+        organizationId: scope.organizationId,
+        isSystem: true,
+        isActive: true,
+        managerVisibility: 'default' satisfies DictionaryManagerVisibility,
+        createdAt: now,
+        updatedAt: now,
+      })
+      em.persist(dictionary)
+      await em.flush()
+    }
+
+    const existingEntries = await em.find(DictionaryEntry, {
+      dictionary,
+      tenantId: scope.tenantId,
+      organizationId: scope.organizationId,
+    })
+    const existingMap = new Map(existingEntries.map((entry) => [entry.normalizedValue, entry]))
+    for (const reason of UNAVAILABILITY_REASON_DEFAULTS[subjectType]) {
+      const normalized = normalizeDictionaryValue(reason.value)
+      if (!normalized || existingMap.has(normalized)) continue
+      const entry = em.create(DictionaryEntry, {
+        dictionary,
+        tenantId: scope.tenantId,
+        organizationId: scope.organizationId,
+        value: reason.value,
+        normalizedValue: normalized,
+        label: reason.label,
+        color: null,
+        icon: null,
+        createdAt: now,
+        updatedAt: now,
+      })
+      em.persist(entry)
     }
     await em.flush()
   }

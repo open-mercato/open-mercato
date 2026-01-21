@@ -22,6 +22,8 @@ type AvailabilityRuleSnapshot = {
   exdates: string[]
   kind: PlannerAvailabilityKind
   note: string | null
+  unavailabilityReasonEntryId: string | null
+  unavailabilityReasonValue: string | null
   deletedAt: Date | null
 }
 
@@ -90,6 +92,8 @@ function toAvailabilityRuleSnapshot(record: PlannerAvailabilityRule): Availabili
     exdates: [...(record.exdates ?? [])],
     kind: record.kind,
     note: record.note ?? null,
+    unavailabilityReasonEntryId: record.unavailabilityReasonEntryId ?? null,
+    unavailabilityReasonValue: record.unavailabilityReasonValue ?? null,
     deletedAt: record.deletedAt ?? null,
   }
 }
@@ -135,6 +139,8 @@ async function restoreAvailabilityRuleFromSnapshot(em: EntityManager, snapshot: 
       exdates: snapshot.exdates ?? [],
       kind: snapshot.kind ?? 'availability',
       note: snapshot.note ?? null,
+      unavailabilityReasonEntryId: snapshot.unavailabilityReasonEntryId ?? null,
+      unavailabilityReasonValue: snapshot.unavailabilityReasonValue ?? null,
       createdAt: new Date(),
       updatedAt: new Date(),
       deletedAt: snapshot.deletedAt ?? null,
@@ -148,6 +154,8 @@ async function restoreAvailabilityRuleFromSnapshot(em: EntityManager, snapshot: 
     record.exdates = snapshot.exdates ?? []
     record.kind = snapshot.kind ?? 'availability'
     record.note = snapshot.note ?? null
+    record.unavailabilityReasonEntryId = snapshot.unavailabilityReasonEntryId ?? null
+    record.unavailabilityReasonValue = snapshot.unavailabilityReasonValue ?? null
     record.deletedAt = snapshot.deletedAt ?? null
   }
 }
@@ -178,6 +186,8 @@ const replaceDateSpecificAvailabilityCommand: CommandHandler<PlannerAvailability
     const kind = parsed.kind ?? (parsed.isAvailable === false ? 'unavailability' : 'availability')
     const isAvailable = kind !== 'unavailability'
     const note = typeof parsed.note === 'string' && parsed.note.trim().length ? parsed.note.trim() : null
+    const unavailabilityReasonEntryId = isAvailable ? null : parsed.unavailabilityReasonEntryId ?? null
+    const unavailabilityReasonValue = isAvailable ? null : parsed.unavailabilityReasonValue ?? null
     const now = new Date()
 
     const em = (ctx.container.resolve('em') as EntityManager).fork()
@@ -220,6 +230,8 @@ const replaceDateSpecificAvailabilityCommand: CommandHandler<PlannerAvailability
             exdates: [],
             kind: 'unavailability',
             note,
+            unavailabilityReasonEntryId,
+            unavailabilityReasonValue,
             createdAt: now,
             updatedAt: now,
           })
@@ -242,6 +254,8 @@ const replaceDateSpecificAvailabilityCommand: CommandHandler<PlannerAvailability
               exdates: [],
               kind: 'availability',
               note: null,
+              unavailabilityReasonEntryId: null,
+              unavailabilityReasonValue: null,
               createdAt: now,
               updatedAt: now,
             })

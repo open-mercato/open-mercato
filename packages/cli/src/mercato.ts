@@ -308,6 +308,10 @@ export async function run(argv = process.argv) {
         await runModuleCommand(allModules, 'catalog', 'seed-units', ['--tenant', tenantId, '--org', orgId])
         console.log('📏 ✅ Catalog units seeded\n')
 
+        console.log('🗓️  Seeding unavailability reasons...')
+        await runModuleCommand(allModules, 'planner', 'seed-unavailability-reasons', ['--tenant', tenantId, '--org', orgId])
+        console.log('🗓️  ✅ Unavailability reasons seeded\n')
+
         const parsedEncryption = parseBooleanToken(process.env.TENANT_DATA_ENCRYPTION ?? 'yes')
         const encryptionEnabled = parsedEncryption === null ? true : parsedEncryption
         if (encryptionEnabled) {

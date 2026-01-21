@@ -68,6 +68,12 @@ export class PlannerAvailabilityRule {
   @Property({ type: 'text', nullable: true })
   note?: string | null
 
+  @Property({ name: 'unavailability_reason_entry_id', type: 'uuid', nullable: true })
+  unavailabilityReasonEntryId?: string | null
+
+  @Property({ name: 'unavailability_reason_value', type: 'text', nullable: true })
+  unavailabilityReasonValue?: string | null
+
   @Property({ name: 'created_at', type: Date, onCreate: () => new Date() })
   createdAt: Date = new Date()
 

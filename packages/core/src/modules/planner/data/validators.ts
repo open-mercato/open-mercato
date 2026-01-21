@@ -39,6 +39,8 @@ export const plannerAvailabilityRuleCreateSchema = z.object({
   exdates: z.array(isoDateString).optional().default([]),
   kind: availabilityKindSchema.optional().default('availability'),
   note: z.string().trim().max(200).optional().nullable(),
+  unavailabilityReasonEntryId: z.string().uuid().optional().nullable(),
+  unavailabilityReasonValue: z.string().trim().min(1).max(150).optional().nullable(),
 })
 
 export const plannerAvailabilityRuleUpdateSchema = z.object({
@@ -50,6 +52,8 @@ export const plannerAvailabilityRuleUpdateSchema = z.object({
   exdates: z.array(isoDateString).optional(),
   kind: availabilityKindSchema.optional(),
   note: z.string().trim().max(200).optional().nullable(),
+  unavailabilityReasonEntryId: z.string().uuid().optional().nullable(),
+  unavailabilityReasonValue: z.string().trim().min(1).max(150).optional().nullable(),
 })
 
 const weeklyWindowSchema = z.object({
@@ -86,6 +90,8 @@ export const plannerAvailabilityDateSpecificReplaceSchema = z.object({
   isAvailable: z.boolean().default(true),
   kind: availabilityKindSchema.optional(),
   note: z.string().trim().max(200).optional().nullable(),
+  unavailabilityReasonEntryId: z.string().uuid().optional().nullable(),
+  unavailabilityReasonValue: z.string().trim().min(1).max(150).optional().nullable(),
 }).superRefine((value, ctx) => {
   const hasDate = typeof value.date === 'string' && value.date.length > 0
   const hasDates = Array.isArray(value.dates) && value.dates.length > 0
