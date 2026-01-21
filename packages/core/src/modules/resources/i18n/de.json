@@ -40,6 +40,8 @@
   "resources.resourceTypes.errors.delete": "Ressourcentyp konnte nicht gelöscht werden.",
   "resources.resourceTypes.errors.deleteAssigned": "Dem Ressourcentyp sind Ressourcen zugewiesen.",
   "resources.resources.form.fields.capacity.help": "Hängt von der Ressource ab und kann Plätze, Einheiten, Menge oder eine andere Kapazitätsart bedeuten.",
+  "resources.resources.form.fields.type.add": "Ressourcentyp hinzufügen",
+  "resources.resources.form.fields.type.manage": "Ressourcentypen verwalten",
   "resources.resources.form.fields.capacityUnit": "Kapazitätseinheit",
   "resources.resources.form.fields.capacityUnit.missing": "Das Kapazitätseinheiten-Wörterbuch ist nicht konfiguriert.",
   "resources.resources.list.filters.tags": "Tags",

@@ -40,6 +40,8 @@
   "resources.resourceTypes.errors.delete": "Nie udało się usunąć typu zasobu.",
   "resources.resourceTypes.errors.deleteAssigned": "Ten typ zasobu ma przypisane zasoby.",
   "resources.resources.form.fields.capacity.help": "Zależy od zasobu i może oznaczać miejsca, jednostki, ilość lub inny typ pojemności.",
+  "resources.resources.form.fields.type.add": "Dodaj typ zasobu",
+  "resources.resources.form.fields.type.manage": "Zarządzaj typami zasobów",
   "resources.resources.form.fields.capacityUnit": "Jednostka pojemności",
   "resources.resources.form.fields.capacityUnit.missing": "Słownik jednostek pojemności nie jest skonfigurowany.",
   "resources.resources.list.filters.tags": "Tagi",

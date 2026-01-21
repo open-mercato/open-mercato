@@ -6,11 +6,14 @@ import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { DictionarySelectControl } from '@open-mercato/core/modules/dictionaries/components/DictionarySelectControl'
 import { AppearanceSelector } from '@open-mercato/core/modules/dictionaries/components/AppearanceSelector'
 import { AttachmentsSection, TagsSection, type TagOption, type TagsSectionLabels } from '@open-mercato/ui/backend/detail'
+import { Button } from '@open-mercato/ui/primitives/button'
 import { E } from '#generated/entities.ids.generated'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
 import { RESOURCES_CAPACITY_UNIT_DICTIONARY_KEY } from '@open-mercato/core/modules/resources/lib/capacityUnits'
 import { RESOURCES_RESOURCE_FIELDSET_DEFAULT, resolveResourcesResourceFieldsetCode } from '@open-mercato/core/modules/resources/lib/resourceCustomFields'
+import Link from 'next/link'
+import { Plus, Settings } from 'lucide-react'
 
 const DEFAULT_PAGE_SIZE = 100
 
@@ -127,26 +130,57 @@ export function useResourcesResourceFormConfig(options: {
         id: 'resourceTypeId',
         label: t('resources.resources.form.fields.type', 'Resource type'),
         type: 'custom',
-        component: ({ value, setValue, setFormValue }) => (
-          <select
-            className="w-full h-9 rounded border px-2 text-sm"
-            value={typeof value === 'string' ? value : ''}
-            onChange={(event) => {
-              const next = event.target.value || ''
-              setValue(next)
-              if (setFormValue) {
-                setFormValue('customFieldsetCode', resolveFieldsetCode(next || null))
-              }
-            }}
-            data-crud-focus-target=""
-          >
-            <option value="">{t('ui.forms.select.emptyOption', '—')}</option>
-            {resourceTypes.map((type) => (
-              <option key={type.id} value={type.id}>
-                {type.name}
-              </option>
-            ))}
-          </select>
+        component: ({ value, setValue, setFormValue, disabled }) => (
+          <div className="flex items-center gap-2">
+            <select
+              className="h-9 w-full rounded border px-2 text-sm"
+              value={typeof value === 'string' ? value : ''}
+              onChange={(event) => {
+                const next = event.target.value || ''
+                setValue(next)
+                if (setFormValue) {
+                  setFormValue('customFieldsetCode', resolveFieldsetCode(next || null))
+                }
+              }}
+              data-crud-focus-target=""
+              disabled={disabled}
+            >
+              <option value="">{t('ui.forms.select.emptyOption', '—')}</option>
+              {resourceTypes.map((type) => (
+                <option key={type.id} value={type.id}>
+                  {type.name}
+                </option>
+              ))}
+            </select>
+            <Button
+              asChild
+              type="button"
+              variant="ghost"
+              size="icon"
+              className="shrink-0"
+              title={t('resources.resources.form.fields.type.manage', 'Manage resource types')}
+              aria-label={t('resources.resources.form.fields.type.manage', 'Manage resource types')}
+              disabled={disabled}
+            >
+              <Link href="/backend/resources/resource-types">
+                <Settings className="h-4 w-4" aria-hidden />
+              </Link>
+            </Button>
+            <Button
+              asChild
+              type="button"
+              variant="ghost"
+              size="icon"
+              className="shrink-0"
+              title={t('resources.resources.form.fields.type.add', 'Add resource type')}
+              aria-label={t('resources.resources.form.fields.type.add', 'Add resource type')}
+              disabled={disabled}
+            >
+              <Link href="/backend/resources/resource-types/create">
+                <Plus className="h-4 w-4" aria-hidden />
+              </Link>
+            </Button>
+          </div>
         ),
       },
       {

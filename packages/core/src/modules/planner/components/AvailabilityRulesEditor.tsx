@@ -378,6 +378,7 @@ export function AvailabilityRulesEditor({
   const [editorUnavailable, setEditorUnavailable] = React.useState(false)
   const [editorNote, setEditorNote] = React.useState('')
   const [editorReasonEntryId, setEditorReasonEntryId] = React.useState<string | null>(null)
+  const [editorReasonValue, setEditorReasonValue] = React.useState('')
   const [reasonEntriesById, setReasonEntriesById] = React.useState<Record<string, UnavailabilityReasonEntry>>({})
   const [createRuleSetOpen, setCreateRuleSetOpen] = React.useState(false)
   const [isWeeklyAutoSaving, setIsWeeklyAutoSaving] = React.useState(false)
@@ -591,6 +592,17 @@ export function AvailabilityRulesEditor({
       icon: entry.icon,
     }
   }, [subjectType])
+
+  React.useEffect(() => {
+    if (!editorReasonEntryId) {
+      if (editorReasonValue) setEditorReasonValue('')
+      return
+    }
+    const entry = reasonEntriesById[editorReasonEntryId]
+    if (entry && entry.value !== editorReasonValue) {
+      setEditorReasonValue(entry.value)
+    }
+  }, [editorReasonEntryId, editorReasonValue, reasonEntriesById])
 
   React.useEffect(() => {
     void refreshAvailability()
@@ -1043,6 +1055,7 @@ export function AvailabilityRulesEditor({
     setEditorUnavailable(scope === 'date' && Boolean(unavailableRule))
     setEditorNote(unavailableRule?.note ?? '')
     setEditorReasonEntryId(scope === 'date' ? resolveRuleReasonEntryId(unavailableRule) : null)
+    setEditorReasonValue(scope === 'date' ? (resolveRuleReasonValue(unavailableRule) ?? '') : '')
     if (scope === 'date') {
       const date = options?.date ?? new Date()
       const windows = buildWindowsFromRules(rules)
@@ -1058,6 +1071,7 @@ export function AvailabilityRulesEditor({
       setEditorUnavailable(false)
       setEditorNote('')
       setEditorReasonEntryId(null)
+      setEditorReasonValue('')
     }
     setEditorOpen(true)
   }, [])
@@ -1117,7 +1131,10 @@ export function AvailabilityRulesEditor({
       if (editorScope === 'date') {
         const trimmedNote = editorNote.trim()
         const reasonEntryId = editorUnavailable ? editorReasonEntryId : null
-        const reasonValue = reasonEntryId ? (reasonEntriesById[reasonEntryId]?.value ?? null) : null
+        const fallbackReasonValue = editorReasonValue.trim()
+        const reasonValue = reasonEntryId
+          ? (reasonEntriesById[reasonEntryId]?.value ?? (fallbackReasonValue || null))
+          : null
         const payload: Record<string, unknown> = {
           subjectType: subjectForRules,
           subjectId: subjectIdForRules,
@@ -1175,6 +1192,7 @@ export function AvailabilityRulesEditor({
     editorUnavailable,
     editorNote,
     editorReasonEntryId,
+    editorReasonValue,
     editorWeekday,
     editorWindowErrors,
     editorWindows,
@@ -1515,6 +1533,7 @@ export function AvailabilityRulesEditor({
             setEditorUnavailable(false)
             setEditorNote('')
             setEditorReasonEntryId(null)
+            setEditorReasonValue('')
           }
         }}
       >
@@ -1566,6 +1585,7 @@ export function AvailabilityRulesEditor({
                               setEditorUnavailable(false)
                               setEditorNote('')
                               setEditorReasonEntryId(null)
+                              setEditorReasonValue('')
                             }}
                             className={`rounded-md px-3 py-1.5 text-sm font-medium transition ${
                               editorScope === 'weekday'
@@ -1617,6 +1637,7 @@ export function AvailabilityRulesEditor({
                                 if (!checked) {
                                   setEditorNote('')
                                   setEditorReasonEntryId(null)
+                                  setEditorReasonValue('')
                                 }
                               }}
                             />
@@ -1631,7 +1652,10 @@ export function AvailabilityRulesEditor({
                                 <label className="text-xs font-medium text-muted-foreground">{listLabels.unavailableReasonLabel}</label>
                                 <DictionaryEntrySelect
                                   value={editorReasonEntryId ?? undefined}
-                                  onChange={(next) => setEditorReasonEntryId(next ?? null)}
+                                  onChange={(next) => {
+                                    setEditorReasonEntryId(next ?? null)
+                                    setEditorReasonValue('')
+                                  }}
                                   fetchOptions={fetchUnavailabilityReasonOptions}
                                   createOption={createUnavailabilityReasonOption}
                                   labels={unavailableReasonLabels}
