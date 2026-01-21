@@ -300,6 +300,14 @@ export async function run(argv = process.argv) {
         await runModuleCommand(allModules, 'customers', 'seed-dictionaries', ['--tenant', tenantId, '--org', orgId])
         console.log('📚 ✅ Customer dictionaries seeded\n')
 
+        console.log('🏠 Seeding staff address types...')
+        await runModuleCommand(allModules, 'staff', 'seed-address-types', ['--tenant', tenantId, '--org', orgId])
+        console.log('🏠 ✅ Staff address types seeded\n')
+
+        console.log('🏠 Seeding resources address types...')
+        await runModuleCommand(allModules, 'resources', 'seed-address-types', ['--tenant', tenantId, '--org', orgId])
+        console.log('🏠 ✅ Resources address types seeded\n')
+
         console.log('📚 Seeding currencies...')
         await runModuleCommand(allModules, 'currencies', 'seed', ['--tenant', tenantId, '--org', orgId])
         console.log('📚 ✅ Currencies seeded\n')

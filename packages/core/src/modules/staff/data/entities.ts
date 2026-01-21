@@ -1,4 +1,6 @@
-import { Entity, PrimaryKey, Property, Index, ManyToOne } from '@mikro-orm/core'
+import { Entity, PrimaryKey, Property, Index, ManyToOne, Enum } from '@mikro-orm/core'
+
+export type StaffLeaveRequestStatus = 'pending' | 'approved' | 'rejected'
 
 @Entity({ tableName: 'staff_teams' })
 @Index({ name: 'staff_teams_tenant_org_idx', properties: ['tenantId', 'organizationId'] })
@@ -103,6 +105,66 @@ export class StaffTeamMember {
 
   @Property({ name: 'is_active', type: 'boolean', default: true })
   isActive: boolean = true
+
+  @Property({ name: 'created_at', type: Date, onCreate: () => new Date() })
+  createdAt: Date = new Date()
+
+  @Property({ name: 'updated_at', type: Date, onUpdate: () => new Date() })
+  updatedAt: Date = new Date()
+
+  @Property({ name: 'deleted_at', type: Date, nullable: true })
+  deletedAt?: Date | null
+}
+
+@Entity({ tableName: 'staff_leave_requests' })
+@Index({ name: 'staff_leave_requests_tenant_org_idx', properties: ['tenantId', 'organizationId'] })
+@Index({ name: 'staff_leave_requests_member_idx', properties: ['member'] })
+@Index({ name: 'staff_leave_requests_status_idx', properties: ['status', 'tenantId', 'organizationId'] })
+export class StaffLeaveRequest {
+  @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
+  id!: string
+
+  @Property({ name: 'tenant_id', type: 'uuid' })
+  tenantId!: string
+
+  @Property({ name: 'organization_id', type: 'uuid' })
+  organizationId!: string
+
+  @ManyToOne(() => StaffTeamMember, { fieldName: 'member_id' })
+  member!: StaffTeamMember
+
+  @Property({ name: 'start_date', type: Date })
+  startDate!: Date
+
+  @Property({ name: 'end_date', type: Date })
+  endDate!: Date
+
+  @Property({ type: 'text' })
+  timezone!: string
+
+  @Enum({ items: ['pending', 'approved', 'rejected'], type: 'text', name: 'status' })
+  status: StaffLeaveRequestStatus = 'pending'
+
+  @Property({ name: 'unavailability_reason_entry_id', type: 'uuid', nullable: true })
+  unavailabilityReasonEntryId?: string | null
+
+  @Property({ name: 'unavailability_reason_value', type: 'text', nullable: true })
+  unavailabilityReasonValue?: string | null
+
+  @Property({ type: 'text', nullable: true })
+  note?: string | null
+
+  @Property({ name: 'decision_comment', type: 'text', nullable: true })
+  decisionComment?: string | null
+
+  @Property({ name: 'submitted_by_user_id', type: 'uuid', nullable: true })
+  submittedByUserId?: string | null
+
+  @Property({ name: 'decided_by_user_id', type: 'uuid', nullable: true })
+  decidedByUserId?: string | null
+
+  @Property({ name: 'decided_at', type: Date, nullable: true })
+  decidedAt?: Date | null
 
   @Property({ name: 'created_at', type: Date, onCreate: () => new Date() })
   createdAt: Date = new Date()

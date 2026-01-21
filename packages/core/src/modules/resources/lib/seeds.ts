@@ -53,6 +53,7 @@ type ResourcesResourceSeed = {
 }
 
 const RESOURCES_ACTIVITY_TYPE_DICTIONARY_KEY = 'resources.activity-types'
+const RESOURCES_ADDRESS_TYPE_DICTIONARY_KEY = 'resources.address-types'
 
 const RESOURCES_ACTIVITY_TYPE_DEFAULTS: DictionarySeedEntry[] = [
   { value: 'Planned maintenance', label: 'Planned maintenance', icon: 'lucide:calendar-cog', color: '#2563eb' },
@@ -62,6 +63,12 @@ const RESOURCES_ACTIVITY_TYPE_DEFAULTS: DictionarySeedEntry[] = [
   { value: 'Calibration', label: 'Calibration', icon: 'lucide:gauge', color: '#6366f1' },
   { value: 'Out of service', label: 'Out of service', icon: 'lucide:ban', color: '#ef4444' },
   { value: 'Back in service', label: 'Back in service', icon: 'lucide:refresh-ccw', color: '#22c55e' },
+]
+
+const RESOURCES_ADDRESS_TYPE_DEFAULTS: DictionarySeedEntry[] = [
+  { value: 'main address', label: 'Main address' },
+  { value: 'alternative address', label: 'Alternative address' },
+  { value: 'current address', label: 'Current address' },
 ]
 
 async function ensureResourceFieldsetConfig(em: EntityManager, scope: ResourcesSeedScope) {
@@ -234,6 +241,52 @@ export async function seedResourcesActivityTypes(
       label: (seed.label ?? value).trim(),
       color: color ?? null,
       icon: icon ?? null,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    })
+    em.persist(entry)
+  }
+  await em.flush()
+}
+
+export async function seedResourcesAddressTypes(
+  em: EntityManager,
+  scope: ResourcesSeedScope,
+) {
+  const dictionary = await ensureResourcesDictionary(em, scope, {
+    key: RESOURCES_ADDRESS_TYPE_DICTIONARY_KEY,
+    name: 'Resource address types',
+    description: 'Address types for resources (main, alternative, current).',
+  })
+  const existingEntries = await em.find(DictionaryEntry, {
+    dictionary,
+    tenantId: scope.tenantId,
+    organizationId: scope.organizationId,
+  })
+  const existingByValue = new Map(existingEntries.map((entry) => [entry.normalizedValue, entry]))
+  for (const seed of RESOURCES_ADDRESS_TYPE_DEFAULTS) {
+    const value = seed.value.trim()
+    if (!value) continue
+    const normalizedValue = normalizeDictionaryValue(value)
+    if (!normalizedValue) continue
+    const existing = existingByValue.get(normalizedValue)
+    if (existing) {
+      if (!existing.label?.trim() && (seed.label ?? '').trim()) {
+        existing.label = (seed.label ?? value).trim()
+        existing.updatedAt = new Date()
+        em.persist(existing)
+      }
+      continue
+    }
+    const entry = em.create(DictionaryEntry, {
+      dictionary,
+      tenantId: scope.tenantId,
+      organizationId: scope.organizationId,
+      value,
+      normalizedValue,
+      label: (seed.label ?? value).trim(),
+      color: null,
+      icon: null,
       createdAt: new Date(),
       updatedAt: new Date(),
     })

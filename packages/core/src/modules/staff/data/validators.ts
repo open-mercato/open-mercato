@@ -167,6 +167,48 @@ export const staffTeamMemberTagAssignmentSchema = z.object({
   tag: z.string().min(1),
 })
 
+const staffLeaveRequestStatusSchema = z.enum(['pending', 'approved', 'rejected'])
+
+const staffLeaveRequestDateRangeSchema = z.object({
+  startDate: z.coerce.date(),
+  endDate: z.coerce.date(),
+})
+  .refine((value) => value.endDate >= value.startDate, {
+    message: 'End date must be after start date.',
+    path: ['endDate'],
+  })
+
+export const staffLeaveRequestCreateSchema = staffLeaveRequestDateRangeSchema.extend({
+  ...scopedCreateFields,
+  memberId: z.string().uuid(),
+  timezone: z.string().min(1),
+  unavailabilityReasonEntryId: z.string().uuid().optional().nullable(),
+  unavailabilityReasonValue: z.string().trim().min(1).max(150).optional().nullable(),
+  note: z.string().max(2000).optional().nullable(),
+  submittedByUserId: z.string().uuid().optional().nullable(),
+})
+
+export const staffLeaveRequestUpdateSchema = staffLeaveRequestDateRangeSchema.partial().extend({
+  ...scopedUpdateFields,
+  timezone: z.string().min(1).optional(),
+  memberId: z.string().uuid().optional(),
+  unavailabilityReasonEntryId: z.string().uuid().optional().nullable(),
+  unavailabilityReasonValue: z.string().trim().min(1).max(150).optional().nullable(),
+  note: z.string().max(2000).optional().nullable(),
+})
+
+export const staffLeaveRequestDecisionSchema = z.object({
+  id: z.string().uuid(),
+  decisionComment: z.string().max(2000).optional().nullable(),
+  decidedByUserId: z.string().uuid().optional().nullable(),
+})
+
+export const staffTeamMemberSelfCreateSchema = z.object({
+  ...scopedCreateFields,
+  displayName: z.string().min(1),
+  description: z.string().max(2000).optional().nullable(),
+})
+
 export type StaffTeamCreateInput = z.infer<typeof staffTeamCreateSchema>
 export type StaffTeamUpdateInput = z.infer<typeof staffTeamUpdateSchema>
 export type StaffTeamRoleCreateInput = z.infer<typeof staffTeamRoleCreateSchema>
@@ -182,3 +224,8 @@ export type StaffTeamMemberCommentCreateInput = z.infer<typeof staffTeamMemberCo
 export type StaffTeamMemberCommentUpdateInput = z.infer<typeof staffTeamMemberCommentUpdateSchema>
 export type StaffTeamMemberAddressCreateInput = z.infer<typeof staffTeamMemberAddressCreateSchema>
 export type StaffTeamMemberAddressUpdateInput = z.infer<typeof staffTeamMemberAddressUpdateSchema>
+export type StaffLeaveRequestStatus = z.infer<typeof staffLeaveRequestStatusSchema>
+export type StaffLeaveRequestCreateInput = z.infer<typeof staffLeaveRequestCreateSchema>
+export type StaffLeaveRequestUpdateInput = z.infer<typeof staffLeaveRequestUpdateSchema>
+export type StaffLeaveRequestDecisionInput = z.infer<typeof staffLeaveRequestDecisionSchema>
+export type StaffTeamMemberSelfCreateInput = z.infer<typeof staffTeamMemberSelfCreateSchema>

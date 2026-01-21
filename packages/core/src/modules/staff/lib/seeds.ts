@@ -211,6 +211,7 @@ const TEAM_MEMBER_SEEDS: StaffTeamMemberSeed[] = [
 ]
 
 const STAFF_ACTIVITY_TYPE_DICTIONARY_KEY = 'staff-activity-types'
+const STAFF_ADDRESS_TYPE_DICTIONARY_KEY = 'staff-address-types'
 
 const STAFF_ACTIVITY_TYPE_DEFAULTS: DictionarySeedEntry[] = [
   { value: 'Onboarding', label: 'Onboarding', icon: 'lucide:user-plus', color: '#2563eb' },
@@ -220,6 +221,12 @@ const STAFF_ACTIVITY_TYPE_DEFAULTS: DictionarySeedEntry[] = [
   { value: 'Time off', label: 'Time off', icon: 'lucide:calendar-minus', color: '#f59e0b' },
   { value: 'Shift change', label: 'Shift change', icon: 'lucide:clock-3', color: '#22c55e' },
   { value: 'Role change', label: 'Role change', icon: 'lucide:shuffle', color: '#f97316' },
+]
+
+const STAFF_ADDRESS_TYPE_DEFAULTS: DictionarySeedEntry[] = [
+  { value: 'home address', label: 'Home address' },
+  { value: 'mailing address', label: 'Mailing address' },
+  { value: 'job address', label: 'Job address' },
 ]
 
 async function ensureStaffTeamMemberCustomFields(em: EntityManager, scope: StaffSeedScope) {
@@ -336,6 +343,52 @@ export async function seedStaffActivityTypes(
       label: (seed.label ?? value).trim(),
       color: color ?? null,
       icon: icon ?? null,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    })
+    em.persist(entry)
+  }
+  await em.flush()
+}
+
+export async function seedStaffAddressTypes(
+  em: EntityManager,
+  scope: StaffSeedScope,
+) {
+  const dictionary = await ensureStaffDictionary(em, scope, {
+    key: STAFF_ADDRESS_TYPE_DICTIONARY_KEY,
+    name: 'Staff address types',
+    description: 'Address types for team member profiles (home, mailing, job).',
+  })
+  const existingEntries = await em.find(DictionaryEntry, {
+    dictionary,
+    tenantId: scope.tenantId,
+    organizationId: scope.organizationId,
+  })
+  const existingByValue = new Map(existingEntries.map((entry) => [entry.normalizedValue, entry]))
+  for (const seed of STAFF_ADDRESS_TYPE_DEFAULTS) {
+    const value = seed.value.trim()
+    if (!value) continue
+    const normalizedValue = normalizeDictionaryValue(value)
+    if (!normalizedValue) continue
+    const existing = existingByValue.get(normalizedValue)
+    if (existing) {
+      if (!existing.label?.trim() && (seed.label ?? '').trim()) {
+        existing.label = (seed.label ?? value).trim()
+        existing.updatedAt = new Date()
+        em.persist(existing)
+      }
+      continue
+    }
+    const entry = em.create(DictionaryEntry, {
+      dictionary,
+      tenantId: scope.tenantId,
+      organizationId: scope.organizationId,
+      value,
+      normalizedValue,
+      label: (seed.label ?? value).trim(),
+      color: null,
+      icon: null,
       createdAt: new Date(),
       updatedAt: new Date(),
     })
