@@ -40,7 +40,7 @@ export async function GET(request: NextRequest) {
     if (!tenantId || !organizationId) {
       return NextResponse.json(
         { error: 'Missing tenant or organization context' },
-        ResponseInit
+        { status: 400 }
       )
     }
 
