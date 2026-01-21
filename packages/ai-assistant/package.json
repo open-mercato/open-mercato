@@ -1,7 +1,6 @@
 {
   "name": "@open-mercato/ai-assistant",
   "version": "0.3.13",
-  "private": true,
   "type": "module",
   "main": "./dist/index.js",
   "scripts": {
@@ -101,5 +100,8 @@
   "devDependencies": {
     "@open-mercato/cli": "workspace:*",
     "tsx": "^4.21.0"
+  },
+  "publishConfig": {
+    "access": "public"
   }
 }

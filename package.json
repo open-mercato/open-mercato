@@ -31,7 +31,9 @@
     "clean:packages": "./scripts/clean-packages.sh",
     "clean": "yarn clean:generated && yarn clean:packages",
     "mcp:serve": "turbo run mcp:serve --filter=@open-mercato/ai-assistant",
-    "mcp:dev": "turbo run mcp:dev --filter=@open-mercato/ai-assistant"
+    "mcp:dev": "turbo run mcp:dev --filter=@open-mercato/ai-assistant",
+    "registry:setup-user": "./scripts/registry/setup-user.sh",
+    "registry:publish": "./scripts/registry/publish-all.sh"
   },
   "dependencies": {
     "@ai-sdk/openai": "^2.0.80",
