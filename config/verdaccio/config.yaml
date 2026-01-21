@@ -18,9 +18,10 @@ uplinks:
 packages:
   '@open-mercato/*':
     access: $all
-    publish: $authenticated
-    unpublish: $authenticated
+    publish: $all
+    unpublish: $all
     # No proxy - these are local packages only
+    # Allow anonymous publish for local development
 
   '@*/*':
     access: $all
