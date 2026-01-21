@@ -12,9 +12,10 @@ import type { AddressFormatStrategy } from './addressFormat'
 type Translator = (key: string, fallback?: string, params?: Record<string, string | number>) => string
 
 export type SectionAction = {
-  label: string
+  label: React.ReactNode
   onClick: () => void
   disabled?: boolean
+  icon?: React.ReactNode
 }
 
 export type TabEmptyStateConfig = {
@@ -284,21 +285,30 @@ export function AddressesSection<C = unknown>({
     }))
   }, [addresses])
 
+  const [addAction, setAddAction] = React.useState<{
+    openCreateForm: () => void
+    addDisabled: boolean
+  } | null>(null)
+
   const handleAddActionChange = React.useCallback(
     (action: { openCreateForm: () => void; addDisabled: boolean } | null) => {
-      if (!onActionChange) return
-      if (!action) {
-        onActionChange(null)
-        return
-      }
-      onActionChange({
-        label: addActionLabel,
-        onClick: action.openCreateForm,
-        disabled: action.addDisabled,
-      })
+      setAddAction(action)
     },
-    [addActionLabel, onActionChange],
+    [],
   )
+
+  React.useEffect(() => {
+    if (!onActionChange) return
+    if (!addAction || addresses.length === 0) {
+      onActionChange(null)
+      return
+    }
+    onActionChange({
+      label: addActionLabel,
+      onClick: addAction.openCreateForm,
+      disabled: addAction.addDisabled,
+    })
+  }, [addAction, addActionLabel, addresses.length, onActionChange])
 
   return (
     <div className="mt-4">

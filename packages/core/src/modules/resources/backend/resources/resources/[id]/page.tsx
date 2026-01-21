@@ -20,7 +20,11 @@ import { ResourcesResourceForm, useResourcesResourceFormConfig } from '@open-mer
 import { renderDictionaryColor, renderDictionaryIcon, ICON_SUGGESTIONS } from '@open-mercato/core/modules/dictionaries/components/dictionaryAppearance'
 import { createResourceNotesAdapter } from '@open-mercato/core/modules/resources/components/detail/notesAdapter'
 import { createResourceActivitiesAdapter } from '@open-mercato/core/modules/resources/components/detail/activitiesAdapter'
-import { loadResourceDictionaryEntries, createResourceDictionaryEntry } from '@open-mercato/core/modules/resources/components/detail/dictionaries'
+import {
+  createResourceDictionaryEntry,
+  loadResourceDictionary,
+  type DictionaryEntryOption,
+} from '@open-mercato/core/modules/resources/components/detail/dictionaries'
 import type { DictionarySelectLabels } from '@open-mercato/core/modules/dictionaries/components/DictionaryEntrySelect'
 
 type ResourceRecord = {
@@ -80,6 +84,8 @@ export default function ResourcesResourceDetailPage({ params }: { params?: { id?
   const [activeDetailTab, setActiveDetailTab] = React.useState<'notes' | 'activities'>('notes')
   const [sectionAction, setSectionAction] = React.useState<SectionAction | null>(null)
   const [availabilityRuleSetId, setAvailabilityRuleSetId] = React.useState<string | null>(null)
+  const [activityDictionaryId, setActivityDictionaryId] = React.useState<string | null>(null)
+  const [activityTypeEntries, setActivityTypeEntries] = React.useState<DictionaryEntryOption[]>([])
   const flashShownRef = React.useRef(false)
 
   const availabilityMode = 'availability'
@@ -106,7 +112,10 @@ export default function ResourcesResourceDetailPage({ params }: { params?: { id?
   }), [t])
 
   const loadActivityOptions = React.useCallback(async () => {
-    return await loadResourceDictionaryEntries('activityTypes')
+    const { dictionary, entries } = await loadResourceDictionary('activityTypes')
+    setActivityDictionaryId(dictionary?.id ?? null)
+    setActivityTypeEntries(entries)
+    return entries
   }, [])
 
   const createActivityOption = React.useCallback(
@@ -119,6 +128,32 @@ export default function ResourcesResourceDetailPage({ params }: { params?: { id?
     },
     [t],
   )
+
+  React.useEffect(() => {
+    loadActivityOptions().catch(() => {})
+  }, [loadActivityOptions])
+
+  const activityTypeMap = React.useMemo(
+    () => new Map(activityTypeEntries.map((entry) => [entry.value, entry])),
+    [activityTypeEntries],
+  )
+
+  const resolveActivityPresentation = React.useCallback(
+    (activity: { activityType: string; appearanceIcon?: string | null; appearanceColor?: string | null }) => {
+      const entry = activityTypeMap.get(activity.activityType)
+      return {
+        label: entry?.label ?? activity.activityType,
+        icon: entry?.icon ?? activity.appearanceIcon ?? null,
+        color: entry?.color ?? activity.appearanceColor ?? null,
+      }
+    },
+    [activityTypeMap],
+  )
+
+  const manageActivityHref = React.useMemo(() => {
+    if (!activityDictionaryId) return '/backend/config/dictionaries'
+    return `/backend/config/dictionaries?dictionaryId=${encodeURIComponent(activityDictionaryId)}`
+  }, [activityDictionaryId])
 
   const appearanceLabels = React.useMemo(() => ({
     colorLabel: t('resources.resources.detail.activities.appearance.colorLabel', 'Color'),
@@ -462,6 +497,7 @@ export default function ResourcesResourceDetailPage({ params }: { params?: { id?
                       disabled={sectionAction.disabled}
                       onClick={() => sectionAction.onClick()}
                     >
+                      {sectionAction.icon ?? null}
                       {sectionAction.label}
                     </Button>
                   ) : null}
@@ -501,10 +537,12 @@ export default function ResourcesResourceDetailPage({ params }: { params?: { id?
                     activityTypeLabels={activityTypeLabels}
                     loadActivityOptions={loadActivityOptions}
                     createActivityOption={createActivityOption}
+                    resolveActivityPresentation={resolveActivityPresentation}
                     labelPrefix="resources.resources.detail.activities"
                     renderIcon={renderDictionaryIcon}
                     renderColor={renderDictionaryColor}
                     appearanceLabels={appearanceLabels}
+                    manageHref={manageActivityHref}
                     customFieldEntityIds={['resources:resources_resource_activity']}
                   />
                 ) : null}

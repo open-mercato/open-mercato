@@ -33,7 +33,6 @@ import { E } from '#generated/entities.ids.generated'
 const ACTIVITY_ENTITY_ID = E.resources.resources_resource_activity
 const activityCrudIndexer: CrudIndexerConfig<ResourcesResourceActivity> = {
   entityType: E.resources.resources_resource_activity,
-  cacheAliases: [],
 }
 
 type ActivitySnapshot = {

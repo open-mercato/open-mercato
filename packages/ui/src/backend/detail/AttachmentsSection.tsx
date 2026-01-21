@@ -20,6 +20,7 @@ type Props = {
   title?: string
   description?: string
   className?: string
+  showHeader?: boolean
   onChanged?: () => void
 }
 
@@ -121,6 +122,7 @@ export function AttachmentsSection({
   title,
   description,
   className,
+  showHeader = true,
   onChanged,
 }: Props) {
   const t = useT()
@@ -285,10 +287,12 @@ export function AttachmentsSection({
 
   return (
     <div className={cn('space-y-4', className)}>
-      <div className="space-y-1">
-        <div className="text-base font-medium">{sectionTitle}</div>
-        <div className="text-sm text-muted-foreground">{sectionDescription}</div>
-      </div>
+      {showHeader ? (
+        <div className="space-y-1">
+          <div className="text-base font-medium">{sectionTitle}</div>
+          <div className="text-sm text-muted-foreground">{sectionDescription}</div>
+        </div>
+      ) : null}
 
       {!recordId ? (
         <div className="rounded-md border border-dashed border-border/70 px-4 py-6 text-sm text-muted-foreground">

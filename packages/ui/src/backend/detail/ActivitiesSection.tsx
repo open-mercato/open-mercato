@@ -2,7 +2,7 @@
 
 import * as React from 'react'
 import Link from 'next/link'
-import { ArrowUpRightSquare, Pencil, Trash2 } from 'lucide-react'
+import { ArrowUpRightSquare, Pencil, Plus, Trash2 } from 'lucide-react'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { createCrudFormError } from '@open-mercato/ui/backend/utils/serverErrors'
@@ -37,9 +37,10 @@ export type ActivitySummary = {
 }
 
 export type SectionAction = {
-  label: string
+  label: React.ReactNode
   onClick: () => void
   disabled?: boolean
+  icon?: React.ReactNode
 }
 
 export type TabEmptyStateConfig = {
@@ -246,6 +247,7 @@ type ActivityFormProps = {
   dealOptions?: Array<{ id: string; label: string }>
   entityOptions?: Array<{ id: string; label: string }>
   defaultEntityId?: string | null
+  manageHref?: string
   customFieldEntityIds?: string[]
   labelPrefix?: string
   appearanceLabels?: AppearanceSelectorLabels
@@ -285,6 +287,7 @@ function ActivityForm({
   dealOptions,
   entityOptions,
   defaultEntityId,
+  manageHref = '/backend/config/dictionaries',
   customFieldEntityIds,
   labelPrefix = 'customers.people.detail.activities',
   appearanceLabels,
@@ -292,7 +295,7 @@ function ActivityForm({
   const tHook = useT()
   const t = React.useMemo<Translator>(() => createTranslatorWithFallback(tHook), [tHook])
   const translate = React.useCallback(
-    (suffix: string, fallback: string) => t(`${labelPrefix}.${suffix}`, fallback),
+    (suffix: string, fallback?: string) => t(`${labelPrefix}.${suffix}`, fallback ?? ''),
     [labelPrefix, t],
   )
   const [pending, setPending] = React.useState(false)
@@ -407,7 +410,7 @@ function ActivityForm({
           allowInlineCreate
           appearanceLabels={appearanceLabels}
           selectClassName="w-full"
-          manageHref="/backend/config/dictionaries"
+          manageHref={manageHref}
         />
       ),
     } as CrudField)
@@ -460,6 +463,7 @@ function ActivityForm({
     appearanceLabels,
     createActivityOption,
     loadActivityOptions,
+    manageHref,
     normalizedDealOptions,
     normalizedEntityOptions,
     translate,
@@ -612,6 +616,7 @@ type ActivityDialogProps = {
   dealOptions?: Array<{ id: string; label: string }>
   entityOptions?: Array<{ id: string; label: string }>
   defaultEntityId?: string | null
+  manageHref?: string
   customFieldEntityIds?: string[]
   labelPrefix?: string
   appearanceLabels?: AppearanceSelectorLabels
@@ -633,6 +638,7 @@ function ActivityDialog({
   dealOptions,
   entityOptions,
   defaultEntityId,
+  manageHref,
   customFieldEntityIds,
   labelPrefix = 'customers.people.detail.activities',
   appearanceLabels,
@@ -640,7 +646,8 @@ function ActivityDialog({
   const tHook = useT()
   const t = React.useMemo<Translator>(() => createTranslatorWithFallback(tHook), [tHook])
   const translate = React.useCallback(
-    (suffix: string, fallback: string) => t(`${labelPrefix}.${suffix}`, fallback),
+    (suffix: string, fallback?: string, params?: Record<string, string | number>) =>
+      t(`${labelPrefix}.${suffix}`, fallback ?? '', params),
     [labelPrefix, t],
   )
 
@@ -680,6 +687,7 @@ function ActivityDialog({
           dealOptions={dealOptions}
           entityOptions={entityOptions}
           defaultEntityId={defaultEntityId}
+          manageHref={manageHref}
           customFieldEntityIds={customFieldEntityIds}
           labelPrefix={labelPrefix}
           appearanceLabels={appearanceLabels}
@@ -706,11 +714,13 @@ export type ActivitiesSectionProps<C = unknown> = {
   createActivityOption?: (input: { value: string; label?: string; color?: string | null; icon?: string | null }) => Promise<DictionaryOption>
   resolveActivityPresentation?: (activity: ActivitySummary) => ActivityTypePresentation
   renderCustomFields?: (activity: ActivitySummary) => React.ReactNode
+  customFieldEntityIds?: string[]
   labelPrefix?: string
   renderIcon?: (icon: string, className?: string) => React.ReactNode
   renderColor?: (color: string, className?: string) => React.ReactNode
   appearanceLabels?: AppearanceSelectorLabels
   dealLinkHref?: (dealId: string) => string
+  manageHref?: string
 }
 
 export function ActivitiesSection<C = unknown>({
@@ -735,11 +745,13 @@ export function ActivitiesSection<C = unknown>({
   renderColor,
   appearanceLabels,
   dealLinkHref,
+  manageHref,
 }: ActivitiesSectionProps<C>) {
   const tHook = useT()
   const baseTranslator = React.useMemo<Translator>(() => createTranslatorWithFallback(tHook), [tHook])
   const translate = React.useCallback(
-    (suffix: string, fallback: string) => baseTranslator(`${labelPrefix}.${suffix}`, fallback),
+    (suffix: string, fallback?: string, params?: Record<string, string | number>) =>
+      baseTranslator(`${labelPrefix}.${suffix}`, fallback ?? '', params),
     [baseTranslator, labelPrefix],
   )
   const resolvedDefaultEntityId = React.useMemo(() => {
@@ -1027,9 +1039,20 @@ export function ActivitiesSection<C = unknown>({
 
   React.useEffect(() => {
     if (!onActionChange) return
+    if (activities.length === 0) {
+      onActionChange(null)
+      return () => {
+        onActionChange(null)
+      }
+    }
     const disabled = resolveEntityForSubmission(null) === null || pendingAction !== null || isLoading
     const action: SectionAction = {
-      label: addActionLabel,
+      label: (
+        <span className="inline-flex items-center gap-1.5">
+          <Plus className="h-4 w-4" />
+          {addActionLabel}
+        </span>
+      ),
       onClick: () => {
         if (!disabled) openCreateDialog()
       },
@@ -1039,7 +1062,15 @@ export function ActivitiesSection<C = unknown>({
     return () => {
       onActionChange(null)
     }
-  }, [addActionLabel, isLoading, onActionChange, openCreateDialog, pendingAction, resolveEntityForSubmission])
+  }, [
+    activities.length,
+    addActionLabel,
+    isLoading,
+    onActionChange,
+    openCreateDialog,
+    pendingAction,
+    resolveEntityForSubmission,
+  ])
 
   const isFormPending =
     pendingAction?.kind === 'create' ||
@@ -1240,6 +1271,7 @@ export function ActivitiesSection<C = unknown>({
         dealOptions={dealOptions}
         entityOptions={entityOptions}
         defaultEntityId={resolvedDefaultEntityId || undefined}
+        manageHref={manageHref}
         labelPrefix={labelPrefix}
         appearanceLabels={appearanceLabels}
       />

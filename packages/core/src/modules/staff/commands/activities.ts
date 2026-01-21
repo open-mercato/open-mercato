@@ -18,7 +18,6 @@ import { E } from '#generated/entities.ids.generated'
 
 const activityCrudIndexer: CrudIndexerConfig<StaffTeamMemberActivity> = {
   entityType: E.staff.staff_team_member_activity,
-  cacheAliases: [],
 }
 
 type ActivitySnapshot = {

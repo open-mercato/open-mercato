@@ -11,6 +11,7 @@ import {
 import { FieldRegistry, loadGeneratedFieldRegistrations } from '../fields/registry'
 import { apiCall } from './apiCall'
 import { normalizeCustomFieldOptions } from '@open-mercato/shared/modules/entities/options'
+import { CURRENCY_OPTIONS_URL } from '@open-mercato/shared/modules/entities/kinds'
 
 let registryReady: Promise<void> | null = null
 
@@ -81,6 +82,7 @@ export function buildFormFieldFromCustomFieldDef(
       return { id, label, type: 'richtext', description: def.description, editor, required }
     }
     case 'select':
+    case 'currency':
     case 'relation':
       return {
         id,
@@ -93,7 +95,14 @@ export function buildFormFieldFromCustomFieldDef(
         })),
         multiple: !!def.multi,
         required,
-        ...(def.optionsUrl
+        ...(def.kind === 'currency'
+          ? {
+              loadOptions: async (query?: string) => {
+                const url = buildOptionsUrl(CURRENCY_OPTIONS_URL, query)
+                return loadRemoteOptions(url)
+              },
+            }
+          : def.optionsUrl
           ? {
               loadOptions: async (query?: string) => {
                 const url = buildOptionsUrl(def.optionsUrl!, query)

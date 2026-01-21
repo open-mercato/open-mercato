@@ -867,7 +867,7 @@ export function AttachmentLibrary() {
         header: t('attachments.library.table.tags', 'Tags'),
         enableSorting: false,
         cell: ({ row }) => {
-          const tags = row.original.tags
+          const tags = row.original.tags ?? []
           if (!tags.length) return <span className="text-xs text-muted-foreground">—</span>
           return (
             <div className="flex flex-wrap gap-1">
@@ -930,11 +930,14 @@ export function AttachmentLibrary() {
         id: 'createdAt',
         accessorKey: 'createdAt',
         header: t('attachments.library.table.created', 'Created'),
-        cell: ({ row }) => (
-          <div className="text-sm text-muted-foreground">
-            {humanDate(row.original.createdAt)}
-          </div>
-        ),
+        cell: ({ row }) => {
+          const createdAt = row.original.createdAt
+          return (
+            <div className="text-sm text-muted-foreground">
+              {createdAt ? humanDate(createdAt) : '—'}
+            </div>
+          )
+        },
       },
       {
         id: 'download',
@@ -1054,7 +1057,10 @@ export function AttachmentLibrary() {
             items={[
               {
                 label: t('attachments.library.actions.open', 'Open'),
-                onSelect: () => window.open(row.url, '_blank', 'noopener,noreferrer'),
+                onSelect: () => {
+                  if (!row.url) return
+                  window.open(row.url, '_blank', 'noopener,noreferrer')
+                },
               },
               {
                 label: t('attachments.library.actions.edit', 'Edit metadata'),
@@ -1063,6 +1069,10 @@ export function AttachmentLibrary() {
               {
                 label: t('attachments.library.actions.copyUrl', 'Copy URL'),
                 onSelect: () => {
+                  if (!row.url) {
+                    flash(t('attachments.library.actions.copyError', 'Unable to copy link.'), 'error')
+                    return
+                  }
                   const absolute = resolveAbsoluteUrl(row.url)
                   navigator.clipboard
                     .writeText(absolute)

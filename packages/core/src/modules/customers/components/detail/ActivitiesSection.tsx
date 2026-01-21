@@ -232,6 +232,7 @@ export function ActivitiesSection({
       renderCustomFields={renderCustomFields}
       renderIcon={renderDictionaryIcon}
       renderColor={renderDictionaryColor}
+      manageHref="/backend/config/customers"
       appearanceLabels={appearanceLabels}
     />
   )

@@ -1,5 +1,6 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { Dictionary, DictionaryEntry, type DictionaryManagerVisibility } from '@open-mercato/core/modules/dictionaries/data/entities'
+import { normalizeDictionaryValue, sanitizeDictionaryColor, sanitizeDictionaryIcon } from '@open-mercato/core/modules/dictionaries/lib/utils'
 import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { ensureCustomFieldDefinitions } from '@open-mercato/core/modules/entities/lib/field-definitions'
 import { CustomFieldEntityConfig, CustomFieldValue } from '@open-mercato/core/modules/entities/data/entities'
@@ -20,6 +21,13 @@ import {
 import { RESOURCES_CAPACITY_UNIT_DEFAULTS, RESOURCES_CAPACITY_UNIT_DICTIONARY_KEY } from './capacityUnits'
 
 export type ResourcesSeedScope = { tenantId: string; organizationId: string }
+
+type DictionarySeedEntry = {
+  value: string
+  label?: string
+  color?: string | null
+  icon?: string | null
+}
 
 type ResourcesResourceTypeSeed = {
   key: string
@@ -43,6 +51,18 @@ type ResourcesResourceSeed = {
   typeKey?: string | null
   tagKeys: string[]
 }
+
+const RESOURCES_ACTIVITY_TYPE_DICTIONARY_KEY = 'resources.activity-types'
+
+const RESOURCES_ACTIVITY_TYPE_DEFAULTS: DictionarySeedEntry[] = [
+  { value: 'Planned maintenance', label: 'Planned maintenance', icon: 'lucide:calendar-cog', color: '#2563eb' },
+  { value: 'Undergoing maintenance', label: 'Undergoing maintenance', icon: 'lucide:wrench', color: '#f59e0b' },
+  { value: 'Maintenance completed', label: 'Maintenance completed', icon: 'lucide:check-circle-2', color: '#16a34a' },
+  { value: 'Inspection scheduled', label: 'Inspection scheduled', icon: 'lucide:clipboard-check', color: '#0ea5e9' },
+  { value: 'Calibration', label: 'Calibration', icon: 'lucide:gauge', color: '#6366f1' },
+  { value: 'Out of service', label: 'Out of service', icon: 'lucide:ban', color: '#ef4444' },
+  { value: 'Back in service', label: 'Back in service', icon: 'lucide:refresh-ccw', color: '#22c55e' },
+]
 
 async function ensureResourceFieldsetConfig(em: EntityManager, scope: ResourcesSeedScope) {
   const now = new Date()
@@ -124,6 +144,96 @@ export async function seedResourcesCapacityUnits(
       label: unit.label,
       color: null,
       icon: null,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    })
+    em.persist(entry)
+  }
+  await em.flush()
+}
+
+async function ensureResourcesDictionary(
+  em: EntityManager,
+  scope: ResourcesSeedScope,
+  definition: { key: string; name: string; description: string },
+): Promise<Dictionary> {
+  let dictionary = await em.findOne(Dictionary, {
+    tenantId: scope.tenantId,
+    organizationId: scope.organizationId,
+    key: definition.key,
+    deletedAt: null,
+  })
+  if (!dictionary) {
+    dictionary = em.create(Dictionary, {
+      key: definition.key,
+      name: definition.name,
+      description: definition.description,
+      tenantId: scope.tenantId,
+      organizationId: scope.organizationId,
+      isSystem: true,
+      isActive: true,
+      managerVisibility: 'default' satisfies DictionaryManagerVisibility,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    })
+    em.persist(dictionary)
+    await em.flush()
+  }
+  return dictionary
+}
+
+export async function seedResourcesActivityTypes(
+  em: EntityManager,
+  scope: ResourcesSeedScope,
+) {
+  const dictionary = await ensureResourcesDictionary(em, scope, {
+    key: RESOURCES_ACTIVITY_TYPE_DICTIONARY_KEY,
+    name: 'Resource activity types',
+    description: 'Activity types for resource timelines (maintenance, inspections, etc.).',
+  })
+  const existingEntries = await em.find(DictionaryEntry, {
+    dictionary,
+    tenantId: scope.tenantId,
+    organizationId: scope.organizationId,
+  })
+  const existingByValue = new Map(existingEntries.map((entry) => [entry.normalizedValue, entry]))
+  for (const seed of RESOURCES_ACTIVITY_TYPE_DEFAULTS) {
+    const value = seed.value.trim()
+    if (!value) continue
+    const normalizedValue = normalizeDictionaryValue(value)
+    if (!normalizedValue) continue
+    const color = sanitizeDictionaryColor(seed.color)
+    const icon = sanitizeDictionaryIcon(seed.icon)
+    const existing = existingByValue.get(normalizedValue)
+    if (existing) {
+      let updated = false
+      if (!existing.label?.trim() && (seed.label ?? '').trim()) {
+        existing.label = (seed.label ?? value).trim()
+        updated = true
+      }
+      if (color !== undefined && existing.color !== color) {
+        existing.color = color
+        updated = true
+      }
+      if (icon !== undefined && existing.icon !== icon) {
+        existing.icon = icon
+        updated = true
+      }
+      if (updated) {
+        existing.updatedAt = new Date()
+        em.persist(existing)
+      }
+      continue
+    }
+    const entry = em.create(DictionaryEntry, {
+      dictionary,
+      tenantId: scope.tenantId,
+      organizationId: scope.organizationId,
+      value,
+      normalizedValue,
+      label: (seed.label ?? value).trim(),
+      color: color ?? null,
+      icon: icon ?? null,
       createdAt: new Date(),
       updatedAt: new Date(),
     })
@@ -337,6 +447,7 @@ export async function seedResourcesResourceExamples(
   scope: ResourcesSeedScope,
 ) {
   const now = new Date()
+  await seedResourcesActivityTypes(em, scope)
   await ensureResourceCustomFields(em, scope)
   const typeNames = RESOURCE_TYPE_SEEDS.map((seed) => seed.name)
   const existingTypes = await findWithDecryption(

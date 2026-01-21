@@ -20,6 +20,49 @@ const STAFF_DICTIONARY_KEYS = {
   addressTypes: 'staff-address-types',
 } as const
 
+const STAFF_ADDRESS_TYPE_DEFAULTS = [
+  { value: 'home address', label: 'Home address' },
+  { value: 'mailing address', label: 'Mailing address' },
+  { value: 'job address', label: 'Job address' },
+]
+
+function parseDictionaryEntries(items: Record<string, unknown>[]): DictionaryEntryOption[] {
+  return items
+    .map((entry) => {
+      if (!entry || typeof entry !== 'object') return null
+      const record = entry as Record<string, unknown>
+      const value = typeof record.value === 'string' ? record.value : null
+      if (!value) return null
+      const label = typeof record.label === 'string' && record.label.trim().length ? record.label : value
+      const color = typeof record.color === 'string' ? record.color : null
+      const icon = typeof record.icon === 'string' ? record.icon : null
+      return { value, label, color, icon }
+    })
+    .filter((entry): entry is DictionaryEntryOption => !!entry)
+}
+
+async function ensureDictionaryDefaults(
+  dictionaryId: string,
+  entries: DictionaryEntryOption[],
+  defaults: Array<{ value: string; label: string }>,
+): Promise<DictionaryEntryOption[]> {
+  const existingValues = new Set(entries.map((entry) => entry.value.toLowerCase()))
+  const missing = defaults.filter((entry) => !existingValues.has(entry.value.toLowerCase()))
+  if (!missing.length) return entries
+  await Promise.all(
+    missing.map((entry) =>
+      apiCall(`/api/dictionaries/${dictionaryId}/entries`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ value: entry.value, label: entry.label }),
+      }),
+    ),
+  )
+  const entriesCall = await apiCall<{ items?: Record<string, unknown>[] }>(`/api/dictionaries/${dictionaryId}/entries`)
+  const items = Array.isArray(entriesCall.result?.items) ? entriesCall.result?.items ?? [] : []
+  return parseDictionaryEntries(items)
+}
+
 async function ensureDictionary(key: string, name: string): Promise<DictionarySummary | null> {
   const listCall = await apiCall<{ items?: DictionarySummary[] }>('/api/dictionaries')
   const items = Array.isArray(listCall.result?.items) ? listCall.result?.items ?? [] : []
@@ -40,25 +83,26 @@ async function ensureDictionary(key: string, name: string): Promise<DictionarySu
 }
 
 export async function loadStaffDictionaryEntries(kind: keyof typeof STAFF_DICTIONARY_KEYS): Promise<DictionaryEntryOption[]> {
+  const { entries } = await loadStaffDictionary(kind)
+  return entries
+}
+
+export async function loadStaffDictionary(
+  kind: keyof typeof STAFF_DICTIONARY_KEYS,
+): Promise<{ dictionary: DictionarySummary | null; entries: DictionaryEntryOption[] }> {
   const key = STAFF_DICTIONARY_KEYS[kind]
   const name = kind === 'activityTypes' ? 'Staff activity types' : 'Staff address types'
   const dictionary = await ensureDictionary(key, name)
-  if (!dictionary) return []
+  if (!dictionary) return { dictionary: null, entries: [] }
   const entriesCall = await apiCall<{ items?: Record<string, unknown>[] }>(`/api/dictionaries/${dictionary.id}/entries`)
-  if (!entriesCall.ok) return []
+  if (!entriesCall.ok) return { dictionary, entries: [] }
   const items = Array.isArray(entriesCall.result?.items) ? entriesCall.result?.items ?? [] : []
-  return items
-    .map((entry) => {
-      if (!entry || typeof entry !== 'object') return null
-      const record = entry as Record<string, unknown>
-      const value = typeof record.value === 'string' ? record.value : null
-      if (!value) return null
-      const label = typeof record.label === 'string' && record.label.trim().length ? record.label : value
-      const color = typeof record.color === 'string' ? record.color : null
-      const icon = typeof record.icon === 'string' ? record.icon : null
-      return { value, label, color, icon }
-    })
-    .filter((entry): entry is DictionaryEntryOption => !!entry)
+  const entries = parseDictionaryEntries(items)
+  if (kind === 'addressTypes') {
+    const defaultEntries = await ensureDictionaryDefaults(dictionary.id, entries, STAFF_ADDRESS_TYPE_DEFAULTS)
+    return { dictionary, entries: defaultEntries }
+  }
+  return { dictionary, entries }
 }
 
 export async function createStaffDictionaryEntry(

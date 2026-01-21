@@ -1,6 +1,7 @@
 "use client"
 
 import * as React from 'react'
+import { Plus } from 'lucide-react'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@open-mercato/ui/primitives/dialog'
 import { CrudForm, type CrudField } from '@open-mercato/ui/backend/CrudForm'
@@ -169,13 +170,18 @@ export function JobHistorySection({ memberId }: { memberId: string | null }) {
         endDate: '',
       }
 
+  const hasItems = items.length > 0
+
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between gap-3">
-        <h2 className="text-sm font-semibold uppercase text-muted-foreground">{labels.title}</h2>
-        <Button type="button" size="sm" onClick={openCreateDialog} disabled={!memberId}>
-          {labels.add}
-        </Button>
+        <h2 className="text-lg font-semibold text-foreground">{labels.title}</h2>
+        {hasItems ? (
+          <Button type="button" size="sm" onClick={openCreateDialog} disabled={!memberId}>
+            <Plus className="mr-2 h-4 w-4" aria-hidden />
+            {labels.add}
+          </Button>
+        ) : null}
       </div>
 
       {isLoading ? (

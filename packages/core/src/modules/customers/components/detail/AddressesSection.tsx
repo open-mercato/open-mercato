@@ -3,9 +3,7 @@
 import * as React from 'react'
 import { apiCall, apiCallOrThrow, readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 import { AddressesSection as SharedAddressesSection } from '@open-mercato/ui/backend/detail'
-import type { AddressDataAdapter } from '@open-mercato/ui/backend/detail'
-import type { AddressTypesAdapter } from '@open-mercato/ui/backend/detail'
-import type { AddressFormatStrategy } from '@open-mercato/ui/backend/detail'
+import type { AddressDataAdapter, AddressTypesAdapter, AddressFormatStrategy, SectionAction } from '@open-mercato/ui/backend/detail'
 import { createTranslatorWithFallback } from '@open-mercato/shared/lib/i18n/translate'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 
@@ -14,7 +12,7 @@ export type AddressesSectionProps = {
   emptyLabel: string
   addActionLabel: string
   emptyState: { title: string; actionLabel: string; description?: string }
-  onActionChange?: (action: { label: string; onClick: () => void; disabled?: boolean } | null) => void
+  onActionChange?: (action: SectionAction | null) => void
   translator?: (key: string, fallback?: string, params?: Record<string, string | number>) => string
   onLoadingChange?: (isLoading: boolean) => void
 }
@@ -155,9 +153,8 @@ export function AddressesSection({
         method: 'GET',
       })
       const payload = call.result ?? {}
-      const items = Array.isArray((payload as { items?: unknown[] }).items)
-        ? (payload as { items?: unknown[] }).items
-        : []
+      const rawItems = (payload as { items?: unknown[] }).items
+      const items = Array.isArray(rawItems) ? rawItems : []
       return items
         .map((item) => {
           if (!item || typeof item !== 'object') return null

@@ -21,9 +21,14 @@ import { renderDictionaryColor, renderDictionaryIcon, ICON_SUGGESTIONS } from '@
 import { createStaffNotesAdapter } from '@open-mercato/core/modules/staff/components/detail/notesAdapter'
 import { createStaffActivitiesAdapter } from '@open-mercato/core/modules/staff/components/detail/activitiesAdapter'
 import { createStaffAddressAdapter, createStaffAddressTypesAdapter } from '@open-mercato/core/modules/staff/components/detail/addressesAdapter'
-import { loadStaffDictionaryEntries, createStaffDictionaryEntry } from '@open-mercato/core/modules/staff/components/detail/dictionaries'
+import {
+  createStaffDictionaryEntry,
+  loadStaffDictionary,
+  type DictionaryEntryOption,
+} from '@open-mercato/core/modules/staff/components/detail/dictionaries'
 import { JobHistorySection } from '@open-mercato/core/modules/staff/components/detail/JobHistorySection'
 import type { DictionarySelectLabels } from '@open-mercato/core/modules/dictionaries/components/DictionaryEntrySelect'
+import { Plus } from 'lucide-react'
 
 type TeamMemberRecord = {
   id: string
@@ -63,6 +68,8 @@ export default function StaffTeamMemberDetailPage({ params }: { params?: { id?: 
   const [activePanel, setActivePanel] = React.useState<'details' | 'availability' | 'jobHistory'>('details')
   const [activeTab, setActiveTab] = React.useState<'notes' | 'activities' | 'addresses'>('notes')
   const [sectionAction, setSectionAction] = React.useState<SectionAction | null>(null)
+  const [activityDictionaryId, setActivityDictionaryId] = React.useState<string | null>(null)
+  const [activityTypeEntries, setActivityTypeEntries] = React.useState<DictionaryEntryOption[]>([])
   const flashShownRef = React.useRef(false)
 
   const notesAdapter = React.useMemo(() => createStaffNotesAdapter(detailTranslator), [detailTranslator])
@@ -90,7 +97,10 @@ export default function StaffTeamMemberDetailPage({ params }: { params?: { id?: 
   }), [t])
 
   const loadActivityOptions = React.useCallback(async () => {
-    return await loadStaffDictionaryEntries('activityTypes')
+    const { dictionary, entries } = await loadStaffDictionary('activityTypes')
+    setActivityDictionaryId(dictionary?.id ?? null)
+    setActivityTypeEntries(entries)
+    return entries
   }, [])
 
   const createActivityOption = React.useCallback(
@@ -103,6 +113,32 @@ export default function StaffTeamMemberDetailPage({ params }: { params?: { id?: 
     },
     [t],
   )
+
+  React.useEffect(() => {
+    loadActivityOptions().catch(() => {})
+  }, [loadActivityOptions])
+
+  const activityTypeMap = React.useMemo(
+    () => new Map(activityTypeEntries.map((entry) => [entry.value, entry])),
+    [activityTypeEntries],
+  )
+
+  const resolveActivityPresentation = React.useCallback(
+    (activity: { activityType: string; appearanceIcon?: string | null; appearanceColor?: string | null }) => {
+      const entry = activityTypeMap.get(activity.activityType)
+      return {
+        label: entry?.label ?? activity.activityType,
+        icon: entry?.icon ?? activity.appearanceIcon ?? null,
+        color: entry?.color ?? activity.appearanceColor ?? null,
+      }
+    },
+    [activityTypeMap],
+  )
+
+  const manageActivityHref = React.useMemo(() => {
+    if (!activityDictionaryId) return '/backend/config/dictionaries'
+    return `/backend/config/dictionaries?dictionaryId=${encodeURIComponent(activityDictionaryId)}`
+  }, [activityDictionaryId])
 
   const appearanceLabels = React.useMemo(() => ({
     colorLabel: t('staff.teamMembers.detail.activities.appearance.colorLabel', 'Color'),
@@ -348,6 +384,7 @@ export default function StaffTeamMemberDetailPage({ params }: { params?: { id?: 
                           disabled={sectionAction.disabled}
                           onClick={() => sectionAction.onClick()}
                         >
+                          {sectionAction.icon ?? (activeTab === 'addresses' ? <Plus className="mr-2 h-4 w-4" /> : null)}
                           {sectionAction.label}
                         </Button>
                       ) : null}
@@ -387,10 +424,12 @@ export default function StaffTeamMemberDetailPage({ params }: { params?: { id?: 
                         activityTypeLabels={activityTypeLabels}
                         loadActivityOptions={loadActivityOptions}
                         createActivityOption={createActivityOption}
+                        resolveActivityPresentation={resolveActivityPresentation}
                         labelPrefix="staff.teamMembers.detail.activities"
                         renderIcon={renderDictionaryIcon}
                         renderColor={renderDictionaryColor}
                         appearanceLabels={appearanceLabels}
+                        manageHref={manageActivityHref}
                       />
                     ) : null}
                     {activeTab === 'addresses' ? (

@@ -6,7 +6,7 @@ import type { PluggableList } from 'unified'
 import type { AppearanceSelectorLabels } from '@open-mercato/core/modules/dictionaries/components/AppearanceSelector'
 import { AppearanceDialog } from '@open-mercato/core/modules/customers/components/detail/AppearanceDialog'
 import type { IconOption } from '@open-mercato/core/modules/dictionaries/components/dictionaryAppearance'
-import { ArrowUpRightSquare, FileCode, Loader2, Palette, Pencil, Trash2 } from 'lucide-react'
+import { ArrowUpRightSquare, FileCode, Loader2, Palette, Pencil, Plus, Trash2 } from 'lucide-react'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { flash } from '../FlashMessages'
 import { SwitchableMarkdownInput } from '../inputs/SwitchableMarkdownInput'
@@ -17,9 +17,10 @@ import { TabEmptyState } from './TabEmptyState'
 type Translator = (key: string, fallback?: string, params?: Record<string, string | number>) => string
 
 export type SectionAction = {
-  label: string
+  label: React.ReactNode
   onClick: () => void
   disabled?: boolean
+  icon?: React.ReactNode
 }
 
 export type TabEmptyStateConfig = {
@@ -546,6 +547,7 @@ export function NotesSection<C = unknown>({
       label: addActionLabel,
       onClick: focusComposer,
       disabled: isSubmitting || isLoading || !hasEntity,
+      icon: <Plus className="mr-2 h-4 w-4" />,
     })
     return () => onActionChange(null)
   }, [onActionChange, addActionLabel, focusComposer, hasEntity, isLoading, isSubmitting, notes.length])

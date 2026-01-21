@@ -1,5 +1,7 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { Dictionary, DictionaryEntry, type DictionaryManagerVisibility } from '@open-mercato/core/modules/dictionaries/data/entities'
+import { normalizeDictionaryValue, sanitizeDictionaryColor, sanitizeDictionaryIcon } from '@open-mercato/core/modules/dictionaries/lib/utils'
 import { CustomFieldEntityConfig, CustomFieldValue } from '@open-mercato/core/modules/entities/data/entities'
 import { ensureCustomFieldDefinitions } from '@open-mercato/core/modules/entities/lib/field-definitions'
 import { setRecordCustomFields } from '@open-mercato/core/modules/entities/lib/helpers'
@@ -12,6 +14,13 @@ import {
 } from './customFields'
 
 export type StaffSeedScope = { tenantId: string; organizationId: string }
+
+type DictionarySeedEntry = {
+  value: string
+  label?: string
+  color?: string | null
+  icon?: string | null
+}
 
 type StaffTeamRoleSeed = {
   key: string
@@ -201,6 +210,18 @@ const TEAM_MEMBER_SEEDS: StaffTeamMemberSeed[] = [
   },
 ]
 
+const STAFF_ACTIVITY_TYPE_DICTIONARY_KEY = 'staff-activity-types'
+
+const STAFF_ACTIVITY_TYPE_DEFAULTS: DictionarySeedEntry[] = [
+  { value: 'Onboarding', label: 'Onboarding', icon: 'lucide:user-plus', color: '#2563eb' },
+  { value: 'Training', label: 'Training', icon: 'lucide:graduation-cap', color: '#0ea5e9' },
+  { value: 'Performance review', label: 'Performance review', icon: 'lucide:clipboard-list', color: '#8b5cf6' },
+  { value: 'Certification', label: 'Certification', icon: 'lucide:badge-check', color: '#16a34a' },
+  { value: 'Time off', label: 'Time off', icon: 'lucide:calendar-minus', color: '#f59e0b' },
+  { value: 'Shift change', label: 'Shift change', icon: 'lucide:clock-3', color: '#22c55e' },
+  { value: 'Role change', label: 'Role change', icon: 'lucide:shuffle', color: '#f97316' },
+]
+
 async function ensureStaffTeamMemberCustomFields(em: EntityManager, scope: StaffSeedScope) {
   const now = new Date()
   let config = await em.findOne(CustomFieldEntityConfig, {
@@ -230,6 +251,96 @@ async function ensureStaffTeamMemberCustomFields(em: EntityManager, scope: Staff
     organizationId: scope.organizationId,
     tenantId: scope.tenantId,
   })
+  await em.flush()
+}
+
+async function ensureStaffDictionary(
+  em: EntityManager,
+  scope: StaffSeedScope,
+  definition: { key: string; name: string; description: string },
+): Promise<Dictionary> {
+  let dictionary = await em.findOne(Dictionary, {
+    tenantId: scope.tenantId,
+    organizationId: scope.organizationId,
+    key: definition.key,
+    deletedAt: null,
+  })
+  if (!dictionary) {
+    dictionary = em.create(Dictionary, {
+      key: definition.key,
+      name: definition.name,
+      description: definition.description,
+      tenantId: scope.tenantId,
+      organizationId: scope.organizationId,
+      isSystem: true,
+      isActive: true,
+      managerVisibility: 'default' satisfies DictionaryManagerVisibility,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    })
+    em.persist(dictionary)
+    await em.flush()
+  }
+  return dictionary
+}
+
+export async function seedStaffActivityTypes(
+  em: EntityManager,
+  scope: StaffSeedScope,
+) {
+  const dictionary = await ensureStaffDictionary(em, scope, {
+    key: STAFF_ACTIVITY_TYPE_DICTIONARY_KEY,
+    name: 'Team member activity types',
+    description: 'Activity types for team member timelines (training, reviews, etc.).',
+  })
+  const existingEntries = await em.find(DictionaryEntry, {
+    dictionary,
+    tenantId: scope.tenantId,
+    organizationId: scope.organizationId,
+  })
+  const existingByValue = new Map(existingEntries.map((entry) => [entry.normalizedValue, entry]))
+  for (const seed of STAFF_ACTIVITY_TYPE_DEFAULTS) {
+    const value = seed.value.trim()
+    if (!value) continue
+    const normalizedValue = normalizeDictionaryValue(value)
+    if (!normalizedValue) continue
+    const color = sanitizeDictionaryColor(seed.color)
+    const icon = sanitizeDictionaryIcon(seed.icon)
+    const existing = existingByValue.get(normalizedValue)
+    if (existing) {
+      let updated = false
+      if (!existing.label?.trim() && (seed.label ?? '').trim()) {
+        existing.label = (seed.label ?? value).trim()
+        updated = true
+      }
+      if (color !== undefined && existing.color !== color) {
+        existing.color = color
+        updated = true
+      }
+      if (icon !== undefined && existing.icon !== icon) {
+        existing.icon = icon
+        updated = true
+      }
+      if (updated) {
+        existing.updatedAt = new Date()
+        em.persist(existing)
+      }
+      continue
+    }
+    const entry = em.create(DictionaryEntry, {
+      dictionary,
+      tenantId: scope.tenantId,
+      organizationId: scope.organizationId,
+      value,
+      normalizedValue,
+      label: (seed.label ?? value).trim(),
+      color: color ?? null,
+      icon: icon ?? null,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    })
+    em.persist(entry)
+  }
   await em.flush()
 }
 
@@ -269,6 +380,7 @@ export async function seedStaffTeamExamples(
   em: EntityManager,
   scope: StaffSeedScope,
 ) {
+  await seedStaffActivityTypes(em, scope)
   await ensureStaffTeamMemberCustomFields(em, scope)
   const now = new Date()
   const teamNames = TEAM_SEEDS.map((seed) => seed.name)

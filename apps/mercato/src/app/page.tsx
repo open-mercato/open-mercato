@@ -53,7 +53,6 @@ export default async function Home() {
           alt={t('app.page.logoAlt', 'Open Mercato')}
           width={40}
           height={40}
-          className="dark:invert"
           priority
         />
         <div className="flex-1">

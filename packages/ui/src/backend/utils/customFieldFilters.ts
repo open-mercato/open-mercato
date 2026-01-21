@@ -7,6 +7,7 @@ export type { CustomFieldDefDto }
 import { filterCustomFieldDefs, fetchCustomFieldDefs as loadCustomFieldDefs } from './customFieldDefs'
 import { type UseQueryResult } from '@tanstack/react-query'
 import { apiCall } from './apiCall'
+import { CURRENCY_OPTIONS_URL } from '@open-mercato/shared/modules/entities/kinds'
 
 function buildOptionsUrl(base: string, query?: string): string {
   if (!query) return base
@@ -71,13 +72,14 @@ export function buildFilterDefsFromCustomFields(defs: CustomFieldDefDto[]): Filt
     const label = d.label || d.key
     if (d.kind === 'boolean') {
       f.push({ id, label, type: 'checkbox' })
-    } else if (d.kind === 'select' || d.kind === 'relation' || d.kind === 'dictionary') {
+    } else if (d.kind === 'select' || d.kind === 'currency' || d.kind === 'relation' || d.kind === 'dictionary') {
       const options = normalizeOptions(d.options)
       const base: FilterDef = { id: d.multi ? `${id}In` : id, label, type: 'select', multiple: !!d.multi, options }
       // When optionsUrl is provided, allow async options loading for filters too
-      if (d.optionsUrl) {
+      const optionsUrl = d.kind === 'currency' ? CURRENCY_OPTIONS_URL : d.optionsUrl
+      if (optionsUrl) {
         ;(base as FilterDef).loadOptions = async (query?: string) => {
-          const url = buildOptionsUrl(d.optionsUrl!, query)
+          const url = buildOptionsUrl(optionsUrl, query)
           return loadRemoteOptions(url)
         }
       }

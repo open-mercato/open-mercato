@@ -338,6 +338,7 @@ export function ResourcesResourceForm(props: ResourcesResourceFormProps) {
         <AttachmentsSection
           entityId={E.resources.resources_resource}
           recordId={recordId}
+          showHeader={false}
         />
       ),
     }

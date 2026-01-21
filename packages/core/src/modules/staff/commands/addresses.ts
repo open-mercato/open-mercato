@@ -23,7 +23,6 @@ import { E } from '#generated/entities.ids.generated'
 
 const addressCrudIndexer: CrudIndexerConfig<StaffTeamMemberAddress> = {
   entityType: E.staff.staff_team_member_address,
-  cacheAliases: [],
 }
 
 type AddressSnapshot = {

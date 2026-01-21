@@ -482,6 +482,7 @@ export function TeamMemberForm(props: TeamMemberFormProps) {
         <AttachmentsSection
           entityId={E.staff.staff_team_member}
           recordId={recordId}
+          showHeader={false}
         />
       ),
     })

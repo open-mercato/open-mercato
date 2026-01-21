@@ -132,6 +132,8 @@
   "customers.config.dictionaries.sections.industries.description": "Zarządzaj branżami używanymi przez firmy.",
   "customers.config.dictionaries.sections.lifecycle.title": "Etapy cyklu życia",
   "customers.config.dictionaries.sections.lifecycle.description": "Skonfiguruj etapy cyklu życia do śledzenia postępu klientów.",
+  "customers.config.dictionaries.sections.activityTypes.title": "Typy aktywności",
+  "customers.config.dictionaries.sections.activityTypes.description": "Zdefiniuj typy aktywności używane w kontaktach z klientami.",
   "customers.config.dictionaries.sections.addressTypes.title": "Typy adresów",
   "customers.config.dictionaries.sections.addressTypes.description": "Zdefiniuj dostępne typy adresów.",
   "customers.people.form.dictionary.manage": "Zarządzaj słownikami",

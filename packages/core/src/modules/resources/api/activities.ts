@@ -176,7 +176,7 @@ const crud = makeCrudRoute({
       const items = Array.isArray(payload.items) ? payload.items : []
       if (!items.length) return
       const userIds = new Set<string>()
-      items.forEach((item) => {
+      items.forEach((item: unknown) => {
         if (!item || typeof item !== 'object') return
         const record = item as Record<string, unknown>
         const userId =
@@ -199,12 +199,12 @@ const crud = makeCrudRoute({
         )
         const map = new Map<string, { name: string | null; email: string | null }>()
         users.forEach((user) => {
-          const name = typeof user.displayName === 'string' && user.displayName.trim().length
-            ? user.displayName.trim()
+          const name = typeof user.name === 'string' && user.name.trim().length
+            ? user.name.trim()
             : null
           map.set(user.id, { name, email: user.email ?? null })
         })
-        items.forEach((item) => {
+        items.forEach((item: unknown) => {
           if (!item || typeof item !== 'object') return
           const record = item as Record<string, unknown>
           const userId =

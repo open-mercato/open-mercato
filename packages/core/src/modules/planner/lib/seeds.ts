@@ -37,6 +37,7 @@ const UNAVAILABILITY_REASON_DEFAULTS: Record<UnavailabilityReasonSubjectType, Ar
   member: [
     { value: 'Sick off', label: 'Sick off' },
     { value: 'Holidays', label: 'Holidays' },
+    { value: 'Work from home', label: 'Work from home' },
     { value: 'Unspecified', label: 'Unspecified' },
   ],
   resource: [

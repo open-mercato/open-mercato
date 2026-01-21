@@ -1,6 +1,7 @@
 "use client"
 
 import * as React from 'react'
+import { useSearchParams } from 'next/navigation'
 import { Plus, Pencil, Trash2 } from 'lucide-react'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '@open-mercato/ui/primitives/dialog'
@@ -29,6 +30,7 @@ type DialogState = {
 
 export function DictionariesManager() {
   const t = useT()
+  const searchParams = useSearchParams()
   const [items, setItems] = React.useState<DictionarySummary[]>([])
   const [selectedId, setSelectedId] = React.useState<string | null>(null)
   const [loading, setLoading] = React.useState(true)
@@ -38,6 +40,8 @@ export function DictionariesManager() {
   const [submitting, setSubmitting] = React.useState(false)
   const [deleting, setDeleting] = React.useState<string | null>(null)
   const inheritedManageMessage = t('dictionaries.config.error.inheritedManage', 'Inherited dictionaries must be managed at the parent organization.')
+  const requestedDictionaryId = searchParams?.get('dictionaryId') ?? null
+  const requestedDictionaryKey = searchParams?.get('key')?.trim().toLowerCase() ?? null
 
   const loadDictionaries = React.useCallback(async () => {
     setLoading(true)
@@ -77,6 +81,23 @@ export function DictionariesManager() {
   React.useEffect(() => {
     loadDictionaries().catch(() => {})
   }, [loadDictionaries])
+
+  React.useEffect(() => {
+    if (!items.length) return
+    if (requestedDictionaryId) {
+      const match = items.find((dictionary) => dictionary.id === requestedDictionaryId)
+      if (match && selectedId !== match.id) {
+        setSelectedId(match.id)
+      }
+      return
+    }
+    if (requestedDictionaryKey) {
+      const match = items.find((dictionary) => dictionary.key.toLowerCase() === requestedDictionaryKey)
+      if (match && selectedId !== match.id) {
+        setSelectedId(match.id)
+      }
+    }
+  }, [items, requestedDictionaryId, requestedDictionaryKey, selectedId])
 
   const openCreateDialog = React.useCallback(() => {
     setForm({ key: '', name: '', description: '' })

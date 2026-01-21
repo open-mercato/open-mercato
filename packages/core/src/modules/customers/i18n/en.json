@@ -132,6 +132,8 @@
   "customers.config.dictionaries.sections.industries.description": "Manage the industries used by companies.",
   "customers.config.dictionaries.sections.lifecycle.title": "Lifecycle stages",
   "customers.config.dictionaries.sections.lifecycle.description": "Configure lifecycle stages to track customer progress.",
+  "customers.config.dictionaries.sections.activityTypes.title": "Activity types",
+  "customers.config.dictionaries.sections.activityTypes.description": "Define the activity types used for customer interactions.",
   "customers.config.dictionaries.sections.addressTypes.title": "Address types",
   "customers.config.dictionaries.sections.addressTypes.description": "Define the address type options available for addresses.",
   "customers.people.form.dictionary.manage": "Manage dictionaries",

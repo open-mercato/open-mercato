@@ -23,7 +23,6 @@ import { E } from '#generated/entities.ids.generated'
 
 const jobHistoryCrudIndexer: CrudIndexerConfig<StaffTeamMemberJobHistory> = {
   entityType: E.staff.staff_team_member_job_history,
-  cacheAliases: [],
 }
 
 type JobHistorySnapshot = {

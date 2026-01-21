@@ -132,6 +132,8 @@
   "customers.config.dictionaries.sections.industries.description": "Gestiona las industrias utilizadas por las empresas.",
   "customers.config.dictionaries.sections.lifecycle.title": "Etapas del ciclo de vida",
   "customers.config.dictionaries.sections.lifecycle.description": "Configura las etapas del ciclo de vida para seguir el progreso de los clientes.",
+  "customers.config.dictionaries.sections.activityTypes.title": "Tipos de actividad",
+  "customers.config.dictionaries.sections.activityTypes.description": "Define los tipos de actividad usados para las interacciones con clientes.",
   "customers.config.dictionaries.sections.addressTypes.title": "Tipos de dirección",
   "customers.config.dictionaries.sections.addressTypes.description": "Define los tipos de dirección disponibles.",
   "customers.people.form.dictionary.manage": "Gestionar diccionarios",

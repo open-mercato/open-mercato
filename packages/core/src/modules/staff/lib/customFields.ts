@@ -48,7 +48,7 @@ export const STAFF_TEAM_MEMBER_CUSTOM_FIELDS: CustomFieldDefinition[] = [
     fieldset: STAFF_TEAM_MEMBER_FIELDSET_HR,
     group: { code: 'compensation', title: 'Compensation' },
   }),
-  cf.select('currency_code', [], {
+  cf.currency('currency_code', {
     label: 'Currency',
     description: 'Currency for the hourly rate.',
     filterable: true,
@@ -56,7 +56,6 @@ export const STAFF_TEAM_MEMBER_CUSTOM_FIELDS: CustomFieldDefinition[] = [
     listVisible: true,
     fieldset: STAFF_TEAM_MEMBER_FIELDSET_HR,
     group: { code: 'compensation' },
-    optionsUrl: '/api/currencies/options',
   }),
   cf.text('employment_date', {
     label: 'Employment date',

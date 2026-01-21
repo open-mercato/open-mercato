@@ -18,7 +18,6 @@ import { E } from '#generated/entities.ids.generated'
 
 const commentCrudIndexer: CrudIndexerConfig<ResourcesResourceComment> = {
   entityType: E.resources.resources_resource_comment,
-  cacheAliases: [],
 }
 
 type CommentSnapshot = {
