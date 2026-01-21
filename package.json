@@ -11,7 +11,9 @@
     "packages/*"
   ],
   "scripts": {
-    "dev": "turbo run dev --filter=@open-mercato/app",
+    "dev": "yarn build:packages && yarn watch:packages & sleep 3 && yarn dev:app",
+    "dev:app": "turbo run dev --filter=@open-mercato/app",
+    "watch:packages": "turbo run watch --filter='./packages/*' --parallel",
     "build:app": "turbo run build --filter=@open-mercato/app",
     "build:packages": "turbo run build --filter='./packages/*'",
     "lint": "turbo run lint",
