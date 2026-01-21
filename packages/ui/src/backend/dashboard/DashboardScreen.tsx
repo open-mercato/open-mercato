@@ -163,16 +163,38 @@ export function DashboardScreen() {
   }, [layout, widgetCatalog])
 
   const resolveWidgetTitle = React.useCallback((meta: WidgetMeta): string => {
-    const key = `dashboard.widgets.${meta.id}.title`
-    const translated = t(key)
-    return translated === key ? meta.title : translated
+    const keys = [
+      `${meta.id}.title`,
+      `dashboard.widgets.${meta.id}.title`,
+    ]
+    if (meta.id.includes('.')) {
+      const parts = meta.id.split('.')
+      const lastPart = parts.pop()
+      keys.unshift(`${parts.join('.')}.widgets.${lastPart}.title`)
+    }
+    for (const key of keys) {
+      const translated = t(key)
+      if (translated !== key) return translated
+    }
+    return meta.title
   }, [t])
 
   const resolveWidgetDescription = React.useCallback((meta: WidgetMeta): string | null => {
     if (!meta.description) return null
-    const key = `dashboard.widgets.${meta.id}.description`
-    const translated = t(key)
-    return translated === key ? meta.description : translated
+    const keys = [
+      `${meta.id}.description`,
+      `dashboard.widgets.${meta.id}.description`,
+    ]
+    if (meta.id.includes('.')) {
+      const parts = meta.id.split('.')
+      const lastPart = parts.pop()
+      keys.unshift(`${parts.join('.')}.widgets.${lastPart}.description`)
+    }
+    for (const key of keys) {
+      const translated = t(key)
+      if (translated !== key) return translated
+    }
+    return meta.description
   }, [t])
 
   const queueLayoutSave = React.useCallback((items: LayoutItem[]) => {

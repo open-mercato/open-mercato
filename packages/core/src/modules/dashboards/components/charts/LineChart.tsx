@@ -1,8 +1,20 @@
 "use client"
 
 import * as React from 'react'
-import { Card, Title, LineChart as TremorLineChart, AreaChart as TremorAreaChart } from '@tremor/react'
+import {
+  LineChart as RechartsLineChart,
+  AreaChart as RechartsAreaChart,
+  Line,
+  Area,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  Tooltip,
+  ResponsiveContainer,
+  Legend,
+} from 'recharts'
 import { Spinner } from '@open-mercato/ui/primitives/spinner'
+import { ChartTooltipContent, CHART_COLORS } from './ChartUtils'
 
 export type LineChartDataItem = Record<string, string | number | null | undefined>
 
@@ -51,57 +63,120 @@ export function LineChart({
   className = '',
   emptyMessage = 'No data available',
 }: LineChartProps) {
+  const getLineColor = (idx: number): string => {
+    if (colors?.[idx]) {
+      return `var(--color-${colors[idx]}-500)`
+    }
+    return CHART_COLORS[idx % CHART_COLORS.length]
+  }
+
   if (error) {
     return (
-      <Card className={className}>
-        {title && <Title className="mb-4">{title}</Title>}
+      <div className={`rounded-lg border bg-card p-4 ${className}`}>
+        {title && <h3 className="mb-4 text-base font-medium text-card-foreground">{title}</h3>}
         <div className="flex h-48 items-center justify-center">
           <p className="text-sm text-destructive">{error}</p>
         </div>
-      </Card>
+      </div>
     )
   }
 
   if (loading) {
     return (
-      <Card className={className}>
-        {title && <Title className="mb-4">{title}</Title>}
+      <div className={`rounded-lg border bg-card p-4 ${className}`}>
+        {title && <h3 className="mb-4 text-base font-medium text-card-foreground">{title}</h3>}
         <div className="flex h-48 items-center justify-center">
           <Spinner className="h-6 w-6 text-muted-foreground" />
         </div>
-      </Card>
+      </div>
     )
   }
 
   if (!data || data.length === 0) {
     return (
-      <Card className={className}>
-        {title && <Title className="mb-4">{title}</Title>}
+      <div className={`rounded-lg border bg-card p-4 ${className}`}>
+        {title && <h3 className="mb-4 text-base font-medium text-card-foreground">{title}</h3>}
         <div className="flex h-48 items-center justify-center">
           <p className="text-sm text-muted-foreground">{emptyMessage}</p>
         </div>
-      </Card>
+      </div>
     )
   }
 
-  const ChartComponent = showArea ? TremorAreaChart : TremorLineChart
+  const ChartComponent = showArea ? RechartsAreaChart : RechartsLineChart
 
   return (
-    <Card className={className}>
-      {title && <Title className="mb-4">{title}</Title>}
-      <ChartComponent
-        data={data}
-        index={index}
-        categories={categories}
-        colors={colors as any}
-        valueFormatter={valueFormatter}
-        showLegend={showLegend}
-        showGridLines={showGridLines}
-        curveType={curveType}
-        connectNulls={connectNulls}
-        className="h-48"
-      />
-    </Card>
+    <div className={`rounded-lg border bg-card p-4 ${className}`}>
+      {title && <h3 className="mb-4 text-base font-medium text-card-foreground">{title}</h3>}
+      <div className="h-52 w-full">
+        <ResponsiveContainer width="100%" height="100%">
+          <ChartComponent
+            data={data}
+            margin={{ top: 5, right: 10, left: 10, bottom: 5 }}
+          >
+            {showGridLines && (
+              <CartesianGrid
+                strokeDasharray="3 3"
+                stroke="hsl(var(--border))"
+              />
+            )}
+            <XAxis
+              dataKey={index}
+              tick={{ fontSize: 12, fill: 'hsl(var(--muted-foreground))' }}
+              tickLine={false}
+              axisLine={false}
+            />
+            <YAxis
+              tickFormatter={valueFormatter}
+              tick={{ fontSize: 12, fill: 'hsl(var(--muted-foreground))' }}
+              tickLine={false}
+              axisLine={false}
+              width={56}
+            />
+            <Tooltip
+              content={<ChartTooltipContent valueFormatter={valueFormatter} />}
+              cursor={{ stroke: 'hsl(var(--muted-foreground))', strokeDasharray: '3 3' }}
+            />
+            {showLegend && categories.length > 1 && (
+              <Legend
+                verticalAlign="top"
+                height={36}
+                formatter={(value) => (
+                  <span style={{ color: 'hsl(var(--muted-foreground))', fontSize: '12px' }}>{value}</span>
+                )}
+              />
+            )}
+            {showArea
+              ? categories.map((category, idx) => (
+                  <Area
+                    key={category}
+                    type={curveType}
+                    dataKey={category}
+                    stroke={getLineColor(idx)}
+                    fill={getLineColor(idx)}
+                    fillOpacity={0.2}
+                    strokeWidth={2}
+                    connectNulls={connectNulls}
+                    dot={false}
+                    activeDot={{ r: 4, strokeWidth: 0 }}
+                  />
+                ))
+              : categories.map((category, idx) => (
+                  <Line
+                    key={category}
+                    type={curveType}
+                    dataKey={category}
+                    stroke={getLineColor(idx)}
+                    strokeWidth={2}
+                    connectNulls={connectNulls}
+                    dot={false}
+                    activeDot={{ r: 4, strokeWidth: 0 }}
+                  />
+                ))}
+          </ChartComponent>
+        </ResponsiveContainer>
+      </div>
+    </div>
   )
 }
 

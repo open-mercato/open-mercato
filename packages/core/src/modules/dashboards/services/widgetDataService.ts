@@ -171,7 +171,7 @@ export class WidgetDataService {
       throw new Error('Failed to build aggregation query')
     }
 
-    const rows = await this.em.execute(query.sql, query.params)
+    const rows = await this.em.getConnection().execute(query.sql, query.params)
     const results = Array.isArray(rows) ? rows : []
 
     if (request.groupBy) {

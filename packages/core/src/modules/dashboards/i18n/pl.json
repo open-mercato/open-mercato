@@ -38,40 +38,50 @@
   "dashboards.analytics.settings.chartVariant": "Styl wykresu",
 
   "dashboards.analytics.widgets.revenueKpi.title": "Przychód",
+  "dashboards.analytics.widgets.revenueKpi.description": "Łączny przychód z porównaniem okresów",
   "dashboards.analytics.widgets.revenueKpi.error": "Nie udało się załadować danych o przychodach",
 
   "dashboards.analytics.widgets.ordersKpi.title": "Zamówienia",
+  "dashboards.analytics.widgets.ordersKpi.description": "Łączna liczba zamówień z porównaniem okresów",
   "dashboards.analytics.widgets.ordersKpi.error": "Nie udało się załadować danych o zamówieniach",
 
   "dashboards.analytics.widgets.aovKpi.title": "Średnia wartość zamówienia",
+  "dashboards.analytics.widgets.aovKpi.description": "Średnia wartość zamówienia z porównaniem okresów",
   "dashboards.analytics.widgets.aovKpi.error": "Nie udało się załadować danych AOV",
 
-  "dashboards.analytics.widgets.newCustomersKpi.title": "Nowi klienci",
+  "dashboards.analytics.widgets.newCustomersKpi.title": "Wzrost klientów",
+  "dashboards.analytics.widgets.newCustomersKpi.description": "Liczba nowych klientów z porównaniem okresów",
   "dashboards.analytics.widgets.newCustomersKpi.error": "Nie udało się załadować danych o nowych klientach",
 
   "dashboards.analytics.widgets.revenueTrend.title": "Trend przychodów",
+  "dashboards.analytics.widgets.revenueTrend.description": "Przychód w czasie z konfigurowalną szczegółowością",
   "dashboards.analytics.widgets.revenueTrend.error": "Nie udało się załadować danych trendu przychodów",
   "dashboards.analytics.widgets.revenueTrend.empty": "Brak danych o przychodach dla tego okresu",
 
   "dashboards.analytics.widgets.topProducts.title": "Najlepsze produkty wg przychodu",
+  "dashboards.analytics.widgets.topProducts.description": "Najlepiej sprzedające się produkty wg przychodu",
   "dashboards.analytics.widgets.topProducts.error": "Nie udało się załadować danych o produktach",
   "dashboards.analytics.widgets.topProducts.empty": "Brak danych o sprzedaży produktów dla tego okresu",
 
   "dashboards.analytics.widgets.ordersByStatus.title": "Zamówienia wg statusu",
+  "dashboards.analytics.widgets.ordersByStatus.description": "Rozkład zamówień według statusu",
   "dashboards.analytics.widgets.ordersByStatus.error": "Nie udało się załadować danych o zamówieniach wg statusu",
   "dashboards.analytics.widgets.ordersByStatus.empty": "Brak zamówień dla tego okresu",
 
   "dashboards.analytics.widgets.topCustomers.title": "Najlepsi klienci wg przychodu",
+  "dashboards.analytics.widgets.topCustomers.description": "Najlepsi klienci wg łącznego przychodu",
   "dashboards.analytics.widgets.topCustomers.error": "Nie udało się załadować danych o klientach",
   "dashboards.analytics.widgets.topCustomers.empty": "Brak danych o klientach dla tego okresu",
   "dashboards.analytics.widgets.topCustomers.column.customer": "Klient",
   "dashboards.analytics.widgets.topCustomers.column.revenue": "Przychód",
 
   "dashboards.analytics.widgets.pipelineSummary.title": "Podsumowanie lejka",
+  "dashboards.analytics.widgets.pipelineSummary.description": "Wartość szans wg etapu lejka",
   "dashboards.analytics.widgets.pipelineSummary.error": "Nie udało się załadować danych lejka",
   "dashboards.analytics.widgets.pipelineSummary.empty": "Brak danych o szansach dla tego okresu",
 
   "dashboards.analytics.widgets.salesByRegion.title": "Sprzedaż wg regionu",
+  "dashboards.analytics.widgets.salesByRegion.description": "Rozkład przychodu wg regionu wysyłki",
   "dashboards.analytics.widgets.salesByRegion.error": "Nie udało się załadować danych sprzedaży wg regionu",
   "dashboards.analytics.widgets.salesByRegion.empty": "Brak danych o sprzedaży regionalnej dla tego okresu"
 }

@@ -138,12 +138,21 @@ export async function POST(req: Request) {
   })()
 
   try {
+    console.log('[widgets/data] Request:', {
+      tenantId,
+      organizationIds,
+      entityType: parsed.data.entityType,
+      metric: parsed.data.metric,
+      dateRange: parsed.data.dateRange,
+    })
+
     const service = createWidgetDataService(em, {
       tenantId,
       organizationIds,
     })
 
     const result = await service.fetchWidgetData(parsed.data as WidgetDataRequest)
+    console.log('[widgets/data] Result:', { value: result.value, recordCount: result.metadata.recordCount })
     return NextResponse.json(result)
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Internal error'

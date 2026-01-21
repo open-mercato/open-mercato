@@ -1,7 +1,6 @@
 "use client"
 
 import * as React from 'react'
-import { Card, Metric, Text, BadgeDelta } from '@tremor/react'
 import { Spinner } from '@open-mercato/ui/primitives/spinner'
 
 export type KpiTrend = {
@@ -36,10 +35,44 @@ function formatPercentageChange(value: number): string {
   return `${formatted}%`
 }
 
-function mapDirectionToDeltaType(direction: 'up' | 'down' | 'unchanged'): 'increase' | 'decrease' | 'unchanged' {
-  if (direction === 'up') return 'increase'
-  if (direction === 'down') return 'decrease'
-  return 'unchanged'
+type BadgeDeltaProps = {
+  direction: 'up' | 'down' | 'unchanged'
+  value: number
+}
+
+function BadgeDelta({ direction, value }: BadgeDeltaProps) {
+  const baseClasses = 'inline-flex items-center gap-1 rounded-md px-2 py-0.5 text-xs font-medium'
+
+  const directionClasses = {
+    up: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400',
+    down: 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400',
+    unchanged: 'bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-400',
+  }
+
+  const icons = {
+    up: (
+      <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+        <path strokeLinecap="round" strokeLinejoin="round" d="M5 10l7-7m0 0l7 7m-7-7v18" />
+      </svg>
+    ),
+    down: (
+      <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+        <path strokeLinecap="round" strokeLinejoin="round" d="M19 14l-7 7m0 0l-7-7m7 7V3" />
+      </svg>
+    ),
+    unchanged: (
+      <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+        <path strokeLinecap="round" strokeLinejoin="round" d="M5 12h14" />
+      </svg>
+    ),
+  }
+
+  return (
+    <span className={`${baseClasses} ${directionClasses[direction]}`}>
+      {icons[direction]}
+      {formatPercentageChange(value)}
+    </span>
+  )
 }
 
 export function KpiCard({
@@ -55,54 +88,49 @@ export function KpiCard({
 }: KpiCardProps) {
   if (error) {
     return (
-      <Card className={`${className}`}>
-        <Text className="text-sm text-muted-foreground">{title}</Text>
+      <div className={`rounded-lg border bg-card p-4 ${className}`}>
+        <p className="text-sm text-muted-foreground">{title}</p>
         <div className="mt-2">
-          <Text className="text-sm text-destructive">{error}</Text>
+          <p className="text-sm text-destructive">{error}</p>
         </div>
-      </Card>
+      </div>
     )
   }
 
   if (loading) {
     return (
-      <Card className={`${className}`}>
-        <Text className="text-sm text-muted-foreground">{title}</Text>
+      <div className={`rounded-lg border bg-card p-4 ${className}`}>
+        <p className="text-sm text-muted-foreground">{title}</p>
         <div className="mt-4 flex items-center justify-center">
           <Spinner className="h-6 w-6 text-muted-foreground" />
         </div>
-      </Card>
+      </div>
     )
   }
 
   if (value === null) {
     return (
-      <Card className={`${className}`}>
-        <Text className="text-sm text-muted-foreground">{title}</Text>
-        <Metric className="mt-2">--</Metric>
-      </Card>
+      <div className={`rounded-lg border bg-card p-4 ${className}`}>
+        <p className="text-sm text-muted-foreground">{title}</p>
+        <p className="mt-2 text-3xl font-semibold tracking-tight text-card-foreground">--</p>
+      </div>
     )
   }
 
   return (
-    <Card className={`${className}`}>
-      <Text className="text-sm text-muted-foreground">{title}</Text>
+    <div className={`rounded-lg border bg-card p-4 ${className}`}>
+      <p className="text-sm text-muted-foreground">{title}</p>
       <div className="mt-2 flex items-baseline gap-2">
-        <Metric>
+        <p className="text-3xl font-semibold tracking-tight text-card-foreground">
           {prefix}
           {formatValue(value)}
           {suffix}
-        </Metric>
+        </p>
         {trend && (
-          <BadgeDelta
-            deltaType={mapDirectionToDeltaType(trend.direction)}
-            size="sm"
-          >
-            {formatPercentageChange(trend.value)}
-          </BadgeDelta>
+          <BadgeDelta direction={trend.direction} value={trend.value} />
         )}
       </div>
-    </Card>
+    </div>
   )
 }
 

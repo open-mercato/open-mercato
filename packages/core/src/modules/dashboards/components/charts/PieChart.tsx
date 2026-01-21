@@ -1,8 +1,16 @@
 "use client"
 
 import * as React from 'react'
-import { Card, Title, DonutChart } from '@tremor/react'
+import {
+  PieChart as RechartsPieChart,
+  Pie,
+  Cell,
+  Tooltip,
+  ResponsiveContainer,
+  Legend,
+} from 'recharts'
 import { Spinner } from '@open-mercato/ui/primitives/spinner'
+import { ChartTooltipContent, CHART_COLORS } from './ChartUtils'
 
 export type PieChartDataItem = {
   name: string
@@ -46,54 +54,106 @@ export function PieChart({
   className = '',
   emptyMessage = 'No data available',
 }: PieChartProps) {
+  const getSliceColor = (idx: number): string => {
+    if (colors?.[idx]) {
+      return `var(--color-${colors[idx]}-500)`
+    }
+    return CHART_COLORS[idx % CHART_COLORS.length]
+  }
+
+  const total = React.useMemo(() => {
+    return data.reduce((sum, item) => sum + item.value, 0)
+  }, [data])
+
   if (error) {
     return (
-      <Card className={className}>
-        {title && <Title className="mb-4">{title}</Title>}
+      <div className={`rounded-lg border bg-card p-4 ${className}`}>
+        {title && <h3 className="mb-4 text-base font-medium text-card-foreground">{title}</h3>}
         <div className="flex h-48 items-center justify-center">
           <p className="text-sm text-destructive">{error}</p>
         </div>
-      </Card>
+      </div>
     )
   }
 
   if (loading) {
     return (
-      <Card className={className}>
-        {title && <Title className="mb-4">{title}</Title>}
+      <div className={`rounded-lg border bg-card p-4 ${className}`}>
+        {title && <h3 className="mb-4 text-base font-medium text-card-foreground">{title}</h3>}
         <div className="flex h-48 items-center justify-center">
           <Spinner className="h-6 w-6 text-muted-foreground" />
         </div>
-      </Card>
+      </div>
     )
   }
 
   if (!data || data.length === 0) {
     return (
-      <Card className={className}>
-        {title && <Title className="mb-4">{title}</Title>}
+      <div className={`rounded-lg border bg-card p-4 ${className}`}>
+        {title && <h3 className="mb-4 text-base font-medium text-card-foreground">{title}</h3>}
         <div className="flex h-48 items-center justify-center">
           <p className="text-sm text-muted-foreground">{emptyMessage}</p>
         </div>
-      </Card>
+      </div>
     )
   }
 
+  const innerRadius = variant === 'donut' ? '60%' : 0
+  const outerRadius = '80%'
+
   return (
-    <Card className={className}>
-      {title && <Title className="mb-4">{title}</Title>}
-      <DonutChart
-        data={data}
-        category="value"
-        index="name"
-        colors={colors as any}
-        valueFormatter={valueFormatter}
-        label={showLabel ? undefined : ''}
-        showTooltip={showTooltip}
-        variant={variant}
-        className="h-48"
-      />
-    </Card>
+    <div className={`rounded-lg border bg-card p-4 ${className}`}>
+      {title && <h3 className="mb-4 text-base font-medium text-card-foreground">{title}</h3>}
+      <div className="h-52 w-full">
+        <ResponsiveContainer width="100%" height="100%">
+          <RechartsPieChart>
+            <Pie
+              data={data}
+              dataKey="value"
+              nameKey="name"
+              cx="50%"
+              cy="50%"
+              innerRadius={innerRadius}
+              outerRadius={outerRadius}
+              paddingAngle={2}
+              strokeWidth={0}
+            >
+              {data.map((_, idx) => (
+                <Cell key={`cell-${idx}`} fill={getSliceColor(idx)} />
+              ))}
+            </Pie>
+            {showTooltip && (
+              <Tooltip
+                content={
+                  <ChartTooltipContent
+                    valueFormatter={valueFormatter}
+                    hideLabel
+                  />
+                }
+              />
+            )}
+            <Legend
+              verticalAlign="bottom"
+              height={36}
+              formatter={(value) => (
+                <span style={{ color: 'hsl(var(--muted-foreground))', fontSize: '12px' }}>{value}</span>
+              )}
+            />
+            {showLabel && variant === 'donut' && (
+              <text
+                x="50%"
+                y="50%"
+                textAnchor="middle"
+                dominantBaseline="middle"
+                className="fill-foreground text-2xl font-bold"
+              >
+                {valueFormatter(total)}
+              </text>
+            )}
+          </RechartsPieChart>
+        </ResponsiveContainer>
+      </div>
+    </div>
   )
 }
 

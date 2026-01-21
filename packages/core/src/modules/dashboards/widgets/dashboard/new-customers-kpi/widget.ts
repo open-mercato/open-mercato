@@ -5,7 +5,7 @@ import { DEFAULT_SETTINGS, hydrateSettings, type NewCustomersKpiSettings } from 
 const widget: DashboardWidgetModule<NewCustomersKpiSettings> = {
   metadata: {
     id: 'dashboards.analytics.newCustomersKpi',
-    title: 'New Customers',
+    title: 'Customer Growth',
     description: 'New customer count with period comparison',
     features: ['analytics.view', 'customers.people.view'],
     defaultSize: 'sm',

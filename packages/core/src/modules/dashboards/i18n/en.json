@@ -38,40 +38,50 @@
   "dashboards.analytics.settings.chartVariant": "Chart Style",
 
   "dashboards.analytics.widgets.revenueKpi.title": "Revenue",
+  "dashboards.analytics.widgets.revenueKpi.description": "Total revenue with period comparison",
   "dashboards.analytics.widgets.revenueKpi.error": "Failed to load revenue data",
 
   "dashboards.analytics.widgets.ordersKpi.title": "Orders",
+  "dashboards.analytics.widgets.ordersKpi.description": "Total orders with period comparison",
   "dashboards.analytics.widgets.ordersKpi.error": "Failed to load orders data",
 
   "dashboards.analytics.widgets.aovKpi.title": "Average Order Value",
+  "dashboards.analytics.widgets.aovKpi.description": "Average order value with period comparison",
   "dashboards.analytics.widgets.aovKpi.error": "Failed to load AOV data",
 
-  "dashboards.analytics.widgets.newCustomersKpi.title": "New Customers",
+  "dashboards.analytics.widgets.newCustomersKpi.title": "Customer Growth",
+  "dashboards.analytics.widgets.newCustomersKpi.description": "New customer count with period comparison",
   "dashboards.analytics.widgets.newCustomersKpi.error": "Failed to load new customers data",
 
   "dashboards.analytics.widgets.revenueTrend.title": "Revenue Trend",
+  "dashboards.analytics.widgets.revenueTrend.description": "Revenue over time with customizable granularity",
   "dashboards.analytics.widgets.revenueTrend.error": "Failed to load revenue trend data",
   "dashboards.analytics.widgets.revenueTrend.empty": "No revenue data for this period",
 
   "dashboards.analytics.widgets.topProducts.title": "Top Products by Revenue",
+  "dashboards.analytics.widgets.topProducts.description": "Top-selling products by revenue",
   "dashboards.analytics.widgets.topProducts.error": "Failed to load top products data",
   "dashboards.analytics.widgets.topProducts.empty": "No product sales data for this period",
 
   "dashboards.analytics.widgets.ordersByStatus.title": "Orders by Status",
+  "dashboards.analytics.widgets.ordersByStatus.description": "Distribution of orders by status",
   "dashboards.analytics.widgets.ordersByStatus.error": "Failed to load orders by status data",
   "dashboards.analytics.widgets.ordersByStatus.empty": "No orders for this period",
 
   "dashboards.analytics.widgets.topCustomers.title": "Top Customers by Revenue",
+  "dashboards.analytics.widgets.topCustomers.description": "Top customers ranked by total revenue",
   "dashboards.analytics.widgets.topCustomers.error": "Failed to load top customers data",
   "dashboards.analytics.widgets.topCustomers.empty": "No customer data for this period",
   "dashboards.analytics.widgets.topCustomers.column.customer": "Customer",
   "dashboards.analytics.widgets.topCustomers.column.revenue": "Revenue",
 
   "dashboards.analytics.widgets.pipelineSummary.title": "Pipeline Summary",
+  "dashboards.analytics.widgets.pipelineSummary.description": "Deal value by pipeline stage",
   "dashboards.analytics.widgets.pipelineSummary.error": "Failed to load pipeline data",
   "dashboards.analytics.widgets.pipelineSummary.empty": "No deal data for this period",
 
   "dashboards.analytics.widgets.salesByRegion.title": "Sales by Region",
+  "dashboards.analytics.widgets.salesByRegion.description": "Revenue distribution by shipping region",
   "dashboards.analytics.widgets.salesByRegion.error": "Failed to load sales by region data",
   "dashboards.analytics.widgets.salesByRegion.empty": "No regional sales data for this period"
 }

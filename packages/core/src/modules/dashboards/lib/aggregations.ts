@@ -205,7 +205,6 @@ export function buildAggregationQuery(options: BuildAggregationQueryOptions): Ag
   if (!metricMapping) return null
 
   const params: unknown[] = []
-  let paramIndex = 1
 
   const tableName = config.schema ? `"${config.schema}"."${config.tableName}"` : `"${config.tableName}"`
   const aggregateExpr = buildAggregateExpression(options.metric.aggregate, metricMapping.dbColumn)
@@ -245,12 +244,12 @@ export function buildAggregationQuery(options: BuildAggregationQueryOptions): Ag
 
   const whereClauses: string[] = []
 
-  whereClauses.push(`tenant_id = $${paramIndex++}`)
+  whereClauses.push(`tenant_id = ?`)
   params.push(options.scope.tenantId)
 
   if (options.scope.organizationIds && options.scope.organizationIds.length > 0) {
-    whereClauses.push(`organization_id = ANY($${paramIndex++}::uuid[])`)
-    params.push(options.scope.organizationIds)
+    whereClauses.push(`organization_id = ANY(?::uuid[])`)
+    params.push(`{${options.scope.organizationIds.join(',')}}`)
   }
 
   whereClauses.push(`deleted_at IS NULL`)
@@ -258,9 +257,9 @@ export function buildAggregationQuery(options: BuildAggregationQueryOptions): Ag
   if (options.dateRange) {
     const dateMapping = getFieldMapping(options.entityType, options.dateRange.field)
     if (dateMapping) {
-      whereClauses.push(`${dateMapping.dbColumn} >= $${paramIndex++}`)
+      whereClauses.push(`${dateMapping.dbColumn} >= ?`)
       params.push(options.dateRange.start)
-      whereClauses.push(`${dateMapping.dbColumn} <= $${paramIndex++}`)
+      whereClauses.push(`${dateMapping.dbColumn} <= ?`)
       params.push(options.dateRange.end)
     }
   }
@@ -272,35 +271,35 @@ export function buildAggregationQuery(options: BuildAggregationQueryOptions): Ag
 
       switch (filter.operator) {
         case 'eq':
-          whereClauses.push(`${filterMapping.dbColumn} = $${paramIndex++}`)
+          whereClauses.push(`${filterMapping.dbColumn} = ?`)
           params.push(filter.value)
           break
         case 'neq':
-          whereClauses.push(`${filterMapping.dbColumn} != $${paramIndex++}`)
+          whereClauses.push(`${filterMapping.dbColumn} != ?`)
           params.push(filter.value)
           break
         case 'gt':
-          whereClauses.push(`${filterMapping.dbColumn} > $${paramIndex++}`)
+          whereClauses.push(`${filterMapping.dbColumn} > ?`)
           params.push(filter.value)
           break
         case 'gte':
-          whereClauses.push(`${filterMapping.dbColumn} >= $${paramIndex++}`)
+          whereClauses.push(`${filterMapping.dbColumn} >= ?`)
           params.push(filter.value)
           break
         case 'lt':
-          whereClauses.push(`${filterMapping.dbColumn} < $${paramIndex++}`)
+          whereClauses.push(`${filterMapping.dbColumn} < ?`)
           params.push(filter.value)
           break
         case 'lte':
-          whereClauses.push(`${filterMapping.dbColumn} <= $${paramIndex++}`)
+          whereClauses.push(`${filterMapping.dbColumn} <= ?`)
           params.push(filter.value)
           break
         case 'in':
-          whereClauses.push(`${filterMapping.dbColumn} = ANY($${paramIndex++})`)
+          whereClauses.push(`${filterMapping.dbColumn} = ANY(?)`)
           params.push(filter.value)
           break
         case 'not_in':
-          whereClauses.push(`${filterMapping.dbColumn} != ALL($${paramIndex++})`)
+          whereClauses.push(`${filterMapping.dbColumn} != ALL(?)`)
           params.push(filter.value)
           break
         case 'is_null':

@@ -24,7 +24,7 @@ async function fetchNewCustomersData(settings: NewCustomersKpiSettings): Promise
     comparison: settings.showComparison ? { type: 'previous_period' } : undefined,
   }
 
-  const call = await apiCall<WidgetDataResponse>('/api/widgets/data', {
+  const call = await apiCall<WidgetDataResponse>('/api/dashboards/widgets/data', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
@@ -106,7 +106,7 @@ const NewCustomersKpiWidget: React.FC<DashboardWidgetComponentProps<NewCustomers
 
   return (
     <KpiCard
-      title={t('dashboards.analytics.widgets.newCustomersKpi.title', 'New Customers')}
+      title={t('dashboards.analytics.widgets.newCustomersKpi.title', 'Customer Growth')}
       value={value}
       trend={trend}
       loading={loading}

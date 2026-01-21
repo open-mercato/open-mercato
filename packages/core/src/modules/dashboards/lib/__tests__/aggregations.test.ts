@@ -173,7 +173,7 @@ describe('aggregations', () => {
       expect(result?.sql).toContain('SELECT')
       expect(result?.sql).toContain('COALESCE(SUM(grand_total_gross_amount::numeric), 0)')
       expect(result?.sql).toContain('FROM "sales_orders"')
-      expect(result?.sql).toContain('tenant_id = $1')
+      expect(result?.sql).toContain('tenant_id = ?')
       expect(result?.params).toContain('tenant-123')
     })
 
@@ -182,8 +182,8 @@ describe('aggregations', () => {
         ...baseOptions,
         scope: { tenantId: 'tenant-123', organizationIds: ['org-1', 'org-2'] },
       })
-      expect(result?.sql).toContain('organization_id = ANY($2::uuid[])')
-      expect(result?.params).toContainEqual(['org-1', 'org-2'])
+      expect(result?.sql).toContain('organization_id = ANY(?::uuid[])')
+      expect(result?.params).toContain('{org-1,org-2}')
     })
 
     it('includes date range filter', () => {
@@ -193,8 +193,8 @@ describe('aggregations', () => {
         ...baseOptions,
         dateRange: { field: 'placedAt', start, end },
       })
-      expect(result?.sql).toContain('placed_at >= $')
-      expect(result?.sql).toContain('placed_at <= $')
+      expect(result?.sql).toContain('placed_at >= ?')
+      expect(result?.sql).toContain('placed_at <= ?')
       expect(result?.params).toContain(start)
       expect(result?.params).toContain(end)
     })
@@ -246,8 +246,8 @@ describe('aggregations', () => {
           { field: 'grandTotalGrossAmount', operator: 'gte', value: 100 },
         ],
       })
-      expect(result?.sql).toContain('status = $')
-      expect(result?.sql).toContain('grand_total_gross_amount >= $')
+      expect(result?.sql).toContain('status = ?')
+      expect(result?.sql).toContain('grand_total_gross_amount >= ?')
     })
 
     it('handles is_null and is_not_null operators without value', () => {

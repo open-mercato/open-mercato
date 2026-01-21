@@ -208,9 +208,9 @@
   },
   "dependencies": {
     "@open-mercato/shared": "workspace:*",
-    "@tremor/react": "^3.18.7",
     "date-fns": "^4.1.0",
-    "date-fns-tz": "^3.2.0"
+    "date-fns-tz": "^3.2.0",
+    "recharts": "^2.15.0"
   },
   "devDependencies": {
     "@testing-library/dom": "^10.4.1",

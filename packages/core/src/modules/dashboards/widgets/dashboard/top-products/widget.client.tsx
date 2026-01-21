@@ -28,7 +28,7 @@ async function fetchTopProductsData(settings: TopProductsSettings): Promise<Widg
     },
   }
 
-  const call = await apiCall<WidgetDataResponse>('/api/widgets/data', {
+  const call = await apiCall<WidgetDataResponse>('/api/dashboards/widgets/data', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),

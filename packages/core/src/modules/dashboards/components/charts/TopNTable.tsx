@@ -1,7 +1,6 @@
 "use client"
 
 import * as React from 'react'
-import { Card, Title, Table, TableHead, TableRow, TableHeaderCell, TableBody, TableCell } from '@tremor/react'
 import { Spinner } from '@open-mercato/ui/primitives/spinner'
 
 export type TopNTableColumn<T = Record<string, unknown>> = {
@@ -58,76 +57,84 @@ export function TopNTable<T extends Record<string, unknown>>({
 }: TopNTableProps<T>) {
   if (error) {
     return (
-      <Card className={className}>
-        {title && <Title className="mb-4">{title}</Title>}
+      <div className={`rounded-lg border bg-card p-4 ${className}`}>
+        {title && <h3 className="mb-4 text-base font-medium text-card-foreground">{title}</h3>}
         <div className="flex h-48 items-center justify-center">
           <p className="text-sm text-destructive">{error}</p>
         </div>
-      </Card>
+      </div>
     )
   }
 
   if (loading) {
     return (
-      <Card className={className}>
-        {title && <Title className="mb-4">{title}</Title>}
+      <div className={`rounded-lg border bg-card p-4 ${className}`}>
+        {title && <h3 className="mb-4 text-base font-medium text-card-foreground">{title}</h3>}
         <div className="flex h-48 items-center justify-center">
           <Spinner className="h-6 w-6 text-muted-foreground" />
         </div>
-      </Card>
+      </div>
     )
   }
 
   if (!data || data.length === 0) {
     return (
-      <Card className={className}>
-        {title && <Title className="mb-4">{title}</Title>}
+      <div className={`rounded-lg border bg-card p-4 ${className}`}>
+        {title && <h3 className="mb-4 text-base font-medium text-card-foreground">{title}</h3>}
         <div className="flex h-48 items-center justify-center">
           <p className="text-sm text-muted-foreground">{emptyMessage}</p>
         </div>
-      </Card>
+      </div>
     )
   }
 
   const displayData = maxRows && maxRows > 0 ? data.slice(0, maxRows) : data
 
+  const getAlignClass = (align?: 'left' | 'center' | 'right') => {
+    if (align === 'right') return 'text-right'
+    if (align === 'center') return 'text-center'
+    return 'text-left'
+  }
+
   return (
-    <Card className={className}>
-      {title && <Title className="mb-4">{title}</Title>}
-      <Table>
-        <TableHead>
-          <TableRow>
-            {columns.map((column) => (
-              <TableHeaderCell
-                key={String(column.key)}
-                className={column.align === 'right' ? 'text-right' : column.align === 'center' ? 'text-center' : ''}
-                style={column.width ? { width: column.width } : undefined}
-              >
-                {column.header}
-              </TableHeaderCell>
+    <div className={`rounded-lg border bg-card p-4 ${className}`}>
+      {title && <h3 className="mb-4 text-base font-medium text-card-foreground">{title}</h3>}
+      <div className="overflow-x-auto">
+        <table className="w-full">
+          <thead>
+            <tr className="border-b border-border">
+              {columns.map((column) => (
+                <th
+                  key={String(column.key)}
+                  className={`pb-2 text-sm font-medium text-muted-foreground ${getAlignClass(column.align)}`}
+                  style={column.width ? { width: column.width } : undefined}
+                >
+                  {column.header}
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {displayData.map((row, rowIndex) => (
+              <tr key={rowIndex} className="border-b border-border last:border-0">
+                {columns.map((column) => {
+                  const rawValue = getNestedValue(row as Record<string, unknown>, String(column.key))
+                  const formatted = column.formatter ? column.formatter(rawValue, row) : defaultFormatter(rawValue)
+                  return (
+                    <td
+                      key={String(column.key)}
+                      className={`py-2 text-sm text-card-foreground ${getAlignClass(column.align)}`}
+                    >
+                      {formatted}
+                    </td>
+                  )
+                })}
+              </tr>
             ))}
-          </TableRow>
-        </TableHead>
-        <TableBody>
-          {displayData.map((row, rowIndex) => (
-            <TableRow key={rowIndex}>
-              {columns.map((column) => {
-                const rawValue = getNestedValue(row as Record<string, unknown>, String(column.key))
-                const formatted = column.formatter ? column.formatter(rawValue, row) : defaultFormatter(rawValue)
-                return (
-                  <TableCell
-                    key={String(column.key)}
-                    className={column.align === 'right' ? 'text-right' : column.align === 'center' ? 'text-center' : ''}
-                  >
-                    {formatted}
-                  </TableCell>
-                )
-              })}
-            </TableRow>
-          ))}
-        </TableBody>
-      </Table>
-    </Card>
+          </tbody>
+        </table>
+      </div>
+    </div>
   )
 }
 
