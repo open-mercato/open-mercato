@@ -3,18 +3,25 @@
 import * as React from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
+import { Button } from '@open-mercato/ui/primitives/button'
 import { apiCallOrThrow, readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 import { collectCustomFieldValues } from '@open-mercato/ui/backend/utils/customFieldValues'
 import { createCrudFormError } from '@open-mercato/ui/backend/utils/serverErrors'
 import { updateCrud, deleteCrud } from '@open-mercato/ui/backend/utils/crud'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
-import { type TagOption } from '@open-mercato/ui/backend/detail'
+import { ActivitiesSection, NotesSection, type SectionAction, type TagOption } from '@open-mercato/ui/backend/detail'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { createTranslatorWithFallback } from '@open-mercato/shared/lib/i18n/translate'
 import { buildResourceScheduleItems } from '@open-mercato/core/modules/resources/lib/resourceSchedule'
 import { RESOURCES_RESOURCE_FIELDSET_DEFAULT } from '@open-mercato/core/modules/resources/lib/resourceCustomFields'
 import type { AvailabilityScheduleItemBuilder } from '@open-mercato/core/modules/planner/components/AvailabilityRulesEditor'
 import { AvailabilityRulesEditor } from '@open-mercato/core/modules/planner/components/AvailabilityRulesEditor'
 import { ResourcesResourceForm, useResourcesResourceFormConfig } from '@open-mercato/core/modules/resources/components/ResourceCrudForm'
+import { renderDictionaryColor, renderDictionaryIcon, ICON_SUGGESTIONS } from '@open-mercato/core/modules/dictionaries/components/dictionaryAppearance'
+import { createResourceNotesAdapter } from '@open-mercato/core/modules/resources/components/detail/notesAdapter'
+import { createResourceActivitiesAdapter } from '@open-mercato/core/modules/resources/components/detail/activitiesAdapter'
+import { loadResourceDictionaryEntries, createResourceDictionaryEntry } from '@open-mercato/core/modules/resources/components/detail/dictionaries'
+import type { DictionarySelectLabels } from '@open-mercato/core/modules/dictionaries/components/DictionaryEntrySelect'
 
 type ResourceRecord = {
   id: string
@@ -64,15 +71,68 @@ function normalizeResourceRecord(record: ResourceRecord): ResourceRecord {
 export default function ResourcesResourceDetailPage({ params }: { params?: { id?: string } }) {
   const resourceId = params?.id
   const t = useT()
+  const detailTranslator = React.useMemo(() => createTranslatorWithFallback(t), [t])
   const router = useRouter()
   const searchParams = useSearchParams()
   const [initialValues, setInitialValues] = React.useState<Record<string, unknown> | null>(null)
   const [tags, setTags] = React.useState<TagOption[]>([])
   const [activeTab, setActiveTab] = React.useState<'details' | 'availability'>('details')
+  const [activeDetailTab, setActiveDetailTab] = React.useState<'notes' | 'activities'>('notes')
+  const [sectionAction, setSectionAction] = React.useState<SectionAction | null>(null)
   const [availabilityRuleSetId, setAvailabilityRuleSetId] = React.useState<string | null>(null)
   const flashShownRef = React.useRef(false)
 
   const availabilityMode = 'availability'
+  const notesAdapter = React.useMemo(() => createResourceNotesAdapter(detailTranslator), [detailTranslator])
+  const activitiesAdapter = React.useMemo(() => createResourceActivitiesAdapter(detailTranslator), [detailTranslator])
+
+  const activityTypeLabels = React.useMemo<DictionarySelectLabels>(() => ({
+    placeholder: t('resources.resources.detail.activities.dictionary.placeholder', 'Select an activity type'),
+    addLabel: t('resources.resources.detail.activities.dictionary.add', 'Add type'),
+    addPrompt: t('resources.resources.detail.activities.dictionary.prompt', 'Name the type'),
+    dialogTitle: t('resources.resources.detail.activities.dictionary.dialogTitle', 'Add activity type'),
+    valueLabel: t('resources.resources.detail.activities.dictionary.valueLabel', 'Name'),
+    valuePlaceholder: t('resources.resources.detail.activities.dictionary.valuePlaceholder', 'Name'),
+    labelLabel: t('resources.resources.detail.activities.dictionary.labelLabel', 'Label'),
+    labelPlaceholder: t('resources.resources.detail.activities.dictionary.labelPlaceholder', 'Display name shown in UI'),
+    emptyError: t('resources.resources.detail.activities.dictionary.emptyError', 'Please enter a name'),
+    cancelLabel: t('resources.resources.detail.activities.dictionary.cancel', 'Cancel'),
+    saveLabel: t('resources.resources.detail.activities.dictionary.save', 'Save'),
+    saveShortcutHint: t('resources.resources.detail.activities.dictionary.saveShortcut', '⌘/Ctrl + Enter'),
+    errorLoad: t('resources.resources.detail.activities.dictionary.errorLoad', 'Failed to load options'),
+    errorSave: t('resources.resources.detail.activities.dictionary.errorSave', 'Failed to save option'),
+    loadingLabel: t('resources.resources.detail.activities.dictionary.loading', 'Loading…'),
+    manageTitle: t('resources.resources.detail.activities.dictionary.manage', 'Manage dictionary'),
+  }), [t])
+
+  const loadActivityOptions = React.useCallback(async () => {
+    return await loadResourceDictionaryEntries('activityTypes')
+  }, [])
+
+  const createActivityOption = React.useCallback(
+    async (input: { value: string; label?: string; color?: string | null; icon?: string | null }) => {
+      const entry = await createResourceDictionaryEntry('activityTypes', input)
+      if (!entry) {
+        throw new Error(t('resources.resources.detail.activities.dictionary.errorSave', 'Failed to save option'))
+      }
+      return entry
+    },
+    [t],
+  )
+
+  const appearanceLabels = React.useMemo(() => ({
+    colorLabel: t('resources.resources.detail.activities.appearance.colorLabel', 'Color'),
+    colorHelp: t('resources.resources.detail.activities.appearance.colorHelp', 'Pick a highlight color for this entry.'),
+    colorClearLabel: t('resources.resources.detail.activities.appearance.colorClear', 'Remove color'),
+    iconLabel: t('resources.resources.detail.activities.appearance.iconLabel', 'Icon or emoji'),
+    iconPlaceholder: t('resources.resources.detail.activities.appearance.iconPlaceholder', 'Type an emoji or pick one of the suggestions.'),
+    iconPickerTriggerLabel: t('resources.resources.detail.activities.appearance.iconBrowse', 'Browse icons and emojis'),
+    iconSearchPlaceholder: t('resources.resources.detail.activities.appearance.iconSearchPlaceholder', 'Search icons or emojis…'),
+    iconSearchEmptyLabel: t('resources.resources.detail.activities.appearance.iconSearchEmpty', 'No icons match your search.'),
+    iconSuggestionsLabel: t('resources.resources.detail.activities.appearance.iconSuggestions', 'Suggestions'),
+    iconClearLabel: t('resources.resources.detail.activities.appearance.iconClear', 'Remove icon'),
+    previewEmptyLabel: t('resources.resources.detail.activities.appearance.previewEmpty', 'No appearance selected'),
+  }), [t])
 
   React.useEffect(() => {
     if (!searchParams) return
@@ -154,6 +214,10 @@ export default function ResourcesResourceDetailPage({ params }: { params?: { id?
   const tabs = React.useMemo(() => ([
     { id: 'details', label: t('resources.resources.tabs.details', 'Details') },
     { id: 'availability', label: t('resources.resources.tabs.availability', 'Availability') },
+  ]), [t])
+  const detailTabs = React.useMemo(() => ([
+    { id: 'notes' as const, label: t('resources.resources.detail.tabs.notes', 'Notes') },
+    { id: 'activities' as const, label: t('resources.resources.detail.tabs.activities', 'Activities') },
   ]), [t])
 
   const loadTagOptions = React.useCallback(
@@ -373,6 +437,79 @@ export default function ResourcesResourceDetailPage({ params }: { params?: { id?
 
           {activeTab === 'details' ? (
             <>
+              <div className="rounded-lg border bg-card p-4">
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <div className="flex gap-2">
+                    {detailTabs.map((tab) => (
+                      <button
+                        key={tab.id}
+                        type="button"
+                        onClick={() => setActiveDetailTab(tab.id)}
+                        className={`relative -mb-px border-b-2 px-0 py-1 text-sm font-medium transition-colors ${
+                          activeDetailTab === tab.id
+                            ? 'border-primary text-foreground'
+                            : 'border-transparent text-muted-foreground hover:text-foreground'
+                        }`}
+                      >
+                        {tab.label}
+                      </button>
+                    ))}
+                  </div>
+                  {sectionAction ? (
+                    <Button
+                      type="button"
+                      size="sm"
+                      disabled={sectionAction.disabled}
+                      onClick={() => sectionAction.onClick()}
+                    >
+                      {sectionAction.label}
+                    </Button>
+                  ) : null}
+                </div>
+                {activeDetailTab === 'notes' ? (
+                  <NotesSection
+                    entityId={resourceId ?? null}
+                    emptyLabel={t('resources.resources.detail.notes.empty', 'No notes yet.')}
+                    viewerUserId={null}
+                    viewerName={null}
+                    viewerEmail={null}
+                    addActionLabel={t('resources.resources.detail.notes.add', 'Add note')}
+                    emptyState={{
+                      title: t('resources.resources.detail.notes.emptyTitle', 'Keep everyone in the loop'),
+                      actionLabel: t('resources.resources.detail.notes.emptyAction', 'Add a note'),
+                    }}
+                    onActionChange={setSectionAction}
+                    translator={detailTranslator}
+                    labelPrefix="resources.resources.detail.notes"
+                    inlineLabelPrefix="resources.resources.detail.inline"
+                    dataAdapter={notesAdapter}
+                    renderIcon={renderDictionaryIcon}
+                    renderColor={renderDictionaryColor}
+                    iconSuggestions={ICON_SUGGESTIONS}
+                  />
+                ) : null}
+                {activeDetailTab === 'activities' ? (
+                  <ActivitiesSection
+                    entityId={resourceId ?? null}
+                    addActionLabel={t('resources.resources.detail.activities.add', 'Log activity')}
+                    emptyState={{
+                      title: t('resources.resources.detail.activities.emptyTitle', 'No activities yet'),
+                      actionLabel: t('resources.resources.detail.activities.emptyAction', 'Add an activity'),
+                    }}
+                    onActionChange={setSectionAction}
+                    dataAdapter={activitiesAdapter}
+                    activityTypeLabels={activityTypeLabels}
+                    loadActivityOptions={loadActivityOptions}
+                    createActivityOption={createActivityOption}
+                    labelPrefix="resources.resources.detail.activities"
+                    renderIcon={renderDictionaryIcon}
+                    renderColor={renderDictionaryColor}
+                    appearanceLabels={appearanceLabels}
+                    customFieldEntityIds={['resources:resources_resource_activity']}
+                  />
+                ) : null}
+              </div>
+
               <ResourcesResourceForm
                 title={t('resources.resources.form.editTitle', 'Edit resource')}
                 backHref="/backend/resources/resources"
