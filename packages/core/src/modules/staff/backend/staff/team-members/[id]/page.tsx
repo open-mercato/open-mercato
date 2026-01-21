@@ -332,6 +332,8 @@ export default function StaffTeamMemberDetailPage({ params }: { params?: { id?: 
                     }}
                     onActionChange={setSectionAction}
                     translator={detailTranslator}
+                    labelPrefix="staff.teamMembers.detail.notes"
+                    inlineLabelPrefix="staff.teamMembers.detail.inline"
                     onLoadingChange={() => {}}
                     dataAdapter={notesAdapter}
                     renderIcon={renderDictionaryIcon}

@@ -204,6 +204,8 @@ export type NotesSectionProps<C = unknown> = {
   emptyState: TabEmptyStateConfig
   onActionChange?: (action: SectionAction | null) => void
   translator?: Translator
+  labelPrefix?: string
+  inlineLabelPrefix?: string
   onLoadingChange?: (isLoading: boolean) => void
   dealOptions?: Array<{ id: string; label: string }>
   entityOptions?: Array<{ id: string; label: string }>
@@ -300,6 +302,8 @@ export function NotesSection<C = unknown>({
   emptyState,
   onActionChange,
   translator,
+  labelPrefix = 'customers.people.detail.notes',
+  inlineLabelPrefix = 'customers.people.detail.inline',
   onLoadingChange,
   dealOptions,
   entityOptions,
@@ -313,6 +317,16 @@ export function NotesSection<C = unknown>({
   disableMarkdown,
 }: NotesSectionProps<C>) {
   const t = React.useMemo<Translator>(() => translator ?? ((key, fallback) => fallback ?? key), [translator])
+  const label = React.useCallback(
+    (suffix: string, fallback?: string, params?: Record<string, string | number>) =>
+      t(`${labelPrefix}.${suffix}`, fallback, params),
+    [labelPrefix, t],
+  )
+  const inlineLabel = React.useCallback(
+    (suffix: string, fallback?: string, params?: Record<string, string | number>) =>
+      t(`${inlineLabelPrefix}.${suffix}`, fallback, params),
+    [inlineLabelPrefix, t],
+  )
   const [markdownPlugins, setMarkdownPlugins] = React.useState<PluggableList>([])
   React.useEffect(() => {
     if (isTestEnv) return
@@ -494,7 +508,7 @@ export function NotesSection<C = unknown>({
       } catch (err) {
         if (cancelled) return
         const message =
-          err instanceof Error ? err.message : t('customers.people.detail.notes.loadError', 'Failed to load notes.')
+          err instanceof Error ? err.message : label('loadError', 'Failed to load notes.')
         setNotes([])
         setLoadError(message)
         flash(message, 'error')
@@ -509,7 +523,7 @@ export function NotesSection<C = unknown>({
     }
   }, [dataAdapter, dataContext, dealId, entityId, popLoading, pushLoading, t])
 
-  const youLabel = t('customers.people.detail.notes.you', 'You')
+  const youLabel = label('you', 'You')
   const viewerLabel = React.useMemo(() => viewerName ?? viewerEmail ?? null, [viewerEmail, viewerName])
 
   const handleMarkdownToggle = React.useCallback(() => {
@@ -576,12 +590,12 @@ export function NotesSection<C = unknown>({
   const visibleNotes = React.useMemo(() => notes.slice(0, visibleCount), [notes, visibleCount])
   const hasVisibleNotes = React.useMemo(() => visibleCount > 0, [visibleCount])
 
-  const loadMoreLabel = t('customers.people.detail.notes.loadMore')
+  const loadMoreLabel = label('loadMore')
 
   const handleCreateNote = React.useCallback(
     async (input: { body: string; appearanceIcon: string | null; appearanceColor: string | null }) => {
       if (!hasEntity || !resolvedEntityId) {
-        flash(t('customers.people.detail.notes.entityMissing', 'Unable to determine current person.'), 'error')
+        flash(label('entityMissing', 'Unable to determine current person.'), 'error')
         return false
       }
       const body = input.body.trim()
@@ -635,10 +649,10 @@ export function NotesSection<C = unknown>({
           }
           return [newNote, ...prev]
         })
-        flash(t('customers.people.detail.notes.success'), 'success')
+        flash(label('success'), 'success')
         return true
       } catch (err) {
-        const message = err instanceof Error ? err.message : t('customers.people.detail.notes.error')
+        const message = err instanceof Error ? err.message : label('error')
         flash(message, 'error')
         return false
       } finally {
@@ -681,9 +695,9 @@ export function NotesSection<C = unknown>({
           })
           return nextComments
         })
-        flash(t('customers.people.detail.notes.updateSuccess'), 'success')
+        flash(label('updateSuccess'), 'success')
       } catch (error) {
-        const message = error instanceof Error ? error.message : t('customers.people.detail.notes.updateError')
+        const message = error instanceof Error ? error.message : label('updateError')
         flash(message, 'error')
         throw error instanceof Error ? error : new Error(message)
       }
@@ -696,16 +710,16 @@ export function NotesSection<C = unknown>({
       const confirmed =
         typeof window === 'undefined'
           ? true
-          : window.confirm(t('customers.people.detail.notes.deleteConfirm', 'Delete this note? This action cannot be undone.'))
+          : window.confirm(label('deleteConfirm', 'Delete this note? This action cannot be undone.'))
       if (!confirmed) return
       setDeletingNoteId(note.id)
       pushLoading()
       try {
         await dataAdapter.delete({ id: note.id, context: dataContext })
         setNotes((prev) => prev.filter((existing) => existing.id !== note.id))
-        flash(t('customers.people.detail.notes.deleteSuccess', 'Note deleted'), 'success')
+        flash(label('deleteSuccess', 'Note deleted'), 'success')
       } catch (err) {
-        const message = err instanceof Error ? err.message : t('customers.people.detail.notes.deleteError', 'Failed to delete note')
+        const message = err instanceof Error ? err.message : label('deleteError', 'Failed to delete note')
         flash(message, 'error')
       } finally {
         setDeletingNoteId(null)
@@ -764,7 +778,7 @@ export function NotesSection<C = unknown>({
       const message =
         err instanceof Error
           ? err.message
-          : t('customers.people.detail.notes.appearance.error', 'Failed to update appearance.')
+          : label('appearance.error', 'Failed to update appearance.')
       setAppearanceDialogError(message)
     } finally {
       setAppearanceDialogSaving(false)
@@ -781,7 +795,7 @@ export function NotesSection<C = unknown>({
     if (!contentEditor.id) return
     const trimmed = contentEditor.value.trim()
     if (!trimmed) {
-      setContentError(t('customers.people.detail.notes.updateError', 'Failed to update note'))
+      setContentError(label('updateError', 'Failed to update note'))
       return
     }
     setContentSavingId(contentEditor.id)
@@ -791,7 +805,7 @@ export function NotesSection<C = unknown>({
       setContentEditor({ id: '', value: '' })
     } catch (err) {
       const message =
-        err instanceof Error ? err.message : t('customers.people.detail.notes.updateError', 'Failed to update note')
+        err instanceof Error ? err.message : label('updateError', 'Failed to update note')
       setContentError(message)
     } finally {
       setContentSavingId(null)
@@ -847,19 +861,19 @@ export function NotesSection<C = unknown>({
 
   const noteAppearanceLabels = React.useMemo<AppearanceSelectorLabels>(
     () => ({
-      colorLabel: t('customers.people.detail.notes.appearance.colorLabel'),
-      colorHelp: t('customers.people.detail.notes.appearance.colorHelp'),
-      colorClearLabel: t('customers.people.detail.notes.appearance.clearColor'),
-      iconLabel: t('customers.people.detail.notes.appearance.iconLabel'),
-      iconPlaceholder: t('customers.people.detail.notes.appearance.iconPlaceholder'),
-      iconPickerTriggerLabel: t('customers.people.detail.notes.appearance.iconPicker'),
-      iconSearchPlaceholder: t('customers.people.detail.notes.appearance.iconSearchPlaceholder'),
-      iconSearchEmptyLabel: t('customers.people.detail.notes.appearance.iconSearchEmpty'),
-      iconSuggestionsLabel: t('customers.people.detail.notes.appearance.iconSuggestions'),
-      iconClearLabel: t('customers.people.detail.notes.appearance.iconClear'),
-      previewEmptyLabel: t('customers.people.detail.notes.appearance.previewEmpty'),
+      colorLabel: label('appearance.colorLabel'),
+      colorHelp: label('appearance.colorHelp'),
+      colorClearLabel: label('appearance.clearColor'),
+      iconLabel: label('appearance.iconLabel'),
+      iconPlaceholder: label('appearance.iconPlaceholder'),
+      iconPickerTriggerLabel: label('appearance.iconPicker'),
+      iconSearchPlaceholder: label('appearance.iconSearchPlaceholder'),
+      iconSearchEmptyLabel: label('appearance.iconSearchEmpty'),
+      iconSuggestionsLabel: label('appearance.iconSuggestions'),
+      iconClearLabel: label('appearance.iconClear'),
+      previewEmptyLabel: label('appearance.previewEmpty'),
     }),
-    [t],
+    [label],
   )
 
   const composerAuthor = React.useMemo(
@@ -870,17 +884,14 @@ export function NotesSection<C = unknown>({
   const appearanceDialogOpen = appearanceDialogState !== null
   const editingAppearanceNoteId =
     appearanceDialogState?.mode === 'edit' ? appearanceDialogState.noteId : null
-  const addNoteShortcutLabel = t('customers.people.detail.notes.addShortcut', 'Add note ⌘⏎ / Ctrl+Enter')
-  const saveAppearanceShortcutLabel = t(
-    'customers.people.detail.notes.appearance.saveShortcut',
-    'Save appearance ⌘⏎ / Ctrl+Enter',
-  )
+  const addNoteShortcutLabel = label('addShortcut', 'Add note ⌘⏎ / Ctrl+Enter')
+  const saveAppearanceShortcutLabel = label('appearance.saveShortcut', 'Save appearance ⌘⏎ / Ctrl+Enter')
   const composerSubmitLabel = addNoteShortcutLabel
   const appearanceDialogPrimaryLabel = saveAppearanceShortcutLabel
   const appearanceDialogSavingLabel =
     appearanceDialogState?.mode === 'edit'
-      ? t('customers.people.detail.notes.appearance.saving')
-      : t('customers.people.detail.notes.saving', 'Saving note…')
+      ? label('appearance.saving')
+      : label('saving', 'Saving note…')
 
   return (
     <div className="mt-0 space-y-2">
@@ -899,7 +910,7 @@ export function NotesSection<C = unknown>({
             className="space-y-3"
           >
             <div className="flex flex-wrap items-center justify-between gap-2">
-              <h3 className="text-sm font-medium">{t('customers.people.detail.notes.addLabel')}</h3>
+              <h3 className="text-sm font-medium">{label('addLabel')}</h3>
               <div className="flex flex-wrap items-center gap-1">
                 <Button
                   type="button"
@@ -911,7 +922,7 @@ export function NotesSection<C = unknown>({
                   }}
                   disabled={isSubmitting || isLoading || !hasEntity}
                 >
-                  <span className="sr-only">{t('customers.people.detail.notes.appearance.toggleOpen', 'Customize appearance')}</span>
+                  <span className="sr-only">{label('appearance.toggleOpen', 'Customize appearance')}</span>
                   <Palette className="h-4 w-4" />
                 </Button>
                 {disableMarkdown ? null : (
@@ -938,7 +949,7 @@ export function NotesSection<C = unknown>({
                   }}
                   disabled={isSubmitting || isLoading}
                 >
-                  {t('customers.people.detail.inline.cancel')}
+                  {inlineLabel('cancel')}
                 </Button>
               </div>
             </div>
@@ -950,7 +961,7 @@ export function NotesSection<C = unknown>({
                       htmlFor="note-entity-select"
                       className="text-xs font-medium text-muted-foreground"
                     >
-                      {t('customers.people.detail.notes.fields.entity', 'Assign to customer')}
+                      {label('fields.entity', 'Assign to customer')}
                     </label>
                     <select
                       id="note-entity-select"
@@ -973,7 +984,7 @@ export function NotesSection<C = unknown>({
                       htmlFor="note-deal-select"
                       className="text-xs font-medium text-muted-foreground"
                     >
-                      {t('customers.people.detail.notes.fields.deal', 'Link to deal (optional)')}
+                      {label('fields.deal', 'Link to deal (optional)')}
                     </label>
                     <select
                       id="note-deal-select"
@@ -983,7 +994,7 @@ export function NotesSection<C = unknown>({
                       disabled={isSubmitting || isLoading}
                     >
                       <option value="">
-                        {t('customers.people.detail.notes.fields.dealPlaceholder', 'No linked deal')}
+                        {label('fields.dealPlaceholder', 'No linked deal')}
                       </option>
                       {normalizedDealOptions.map((option) => (
                         <option key={option.id} value={option.id}>
@@ -1001,7 +1012,7 @@ export function NotesSection<C = unknown>({
               isMarkdownEnabled={isMarkdownEnabled}
               disableMarkdown={disableMarkdown}
               rows={1}
-              placeholder={t('customers.people.detail.notes.placeholder')}
+              placeholder={label('placeholder')}
               textareaRef={textareaRef}
               onTextareaInput={(event) => adjustTextareaSize(event.currentTarget)}
               disabled={isSubmitting || isLoading || !hasEntity}
@@ -1033,7 +1044,7 @@ export function NotesSection<C = unknown>({
                   }}
                   disabled={isSubmitting}
                 >
-                  {t('customers.people.detail.notes.appearance.clearAll', 'Clear')}
+                  {label('appearance.clearAll', 'Clear')}
                 </Button>
               </div>
             ) : null}
@@ -1056,7 +1067,7 @@ export function NotesSection<C = unknown>({
       <div className="space-y-3">
         {isLoading ? (
           <LoadingMessage
-            label={t('customers.people.detail.notes.loading', 'Loading notes…')}
+            label={label('loading', 'Loading notes…')}
             className="border-0 bg-transparent p-0 py-8 justify-center"
           />
         ) : hasVisibleNotes ? (
@@ -1090,7 +1101,7 @@ export function NotesSection<C = unknown>({
                         >
                           {note.dealTitle && note.dealTitle.length
                             ? note.dealTitle
-                            : t('customers.people.detail.notes.linkedDeal', 'Linked deal')}
+                            : label('linkedDeal', 'Linked deal')}
                         </a>
                       </div>
                     ) : null}
@@ -1166,10 +1177,10 @@ export function NotesSection<C = unknown>({
                         {contentSavingId === note.id ? (
                           <>
                             <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                            {t('customers.people.detail.notes.saving')}
+                            {label('saving')}
                           </>
                         ) : (
-                          t('customers.people.detail.inline.saveShortcut')
+                          inlineLabel('saveShortcut')
                         )}
                       </Button>
                       {disableMarkdown ? null : (
@@ -1192,7 +1203,7 @@ export function NotesSection<C = unknown>({
                         onClick={() => setContentEditor({ id: '', value: '' })}
                         disabled={contentSavingId === note.id}
                       >
-                        {t('customers.people.detail.inline.cancel')}
+                        {inlineLabel('cancel')}
                       </Button>
                     </div>
                   </div>
@@ -1238,8 +1249,8 @@ export function NotesSection<C = unknown>({
         open={appearanceDialogOpen}
         title={
           appearanceDialogState?.mode === 'edit'
-            ? t('customers.people.detail.notes.appearance.edit')
-            : t('customers.people.detail.notes.appearance.toggleOpen', 'Customize appearance')
+            ? label('appearance.edit')
+            : label('appearance.toggleOpen', 'Customize appearance')
         }
         icon={appearanceDialogState?.icon ?? null}
         color={appearanceDialogState?.color ?? null}
@@ -1255,7 +1266,7 @@ export function NotesSection<C = unknown>({
         errorMessage={appearanceDialogError}
         primaryLabel={appearanceDialogPrimaryLabel}
         savingLabel={appearanceDialogSavingLabel}
-        cancelLabel={t('customers.people.detail.notes.appearance.cancel')}
+        cancelLabel={label('appearance.cancel')}
       />
     </div>
   )

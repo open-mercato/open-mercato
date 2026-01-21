@@ -331,6 +331,10 @@ const updateAddressCommand: CommandHandler<StaffTeamMemberAddressUpdateInput, { 
       address.isPrimary = before.isPrimary
     }
     await em.flush()
+    if (before.isPrimary) {
+      await enforcePrimaryAddress(em, before.memberId, before.id)
+      await em.flush()
+    }
 
     const de = (ctx.container.resolve('dataEngine') as DataEngine)
     await emitCrudUndoSideEffects({
@@ -447,6 +451,10 @@ const deleteAddressCommand: CommandHandler<{ body?: Record<string, unknown>; que
         address.isPrimary = before.isPrimary
       }
       await em.flush()
+      if (before.isPrimary) {
+        await enforcePrimaryAddress(em, before.memberId, before.id)
+        await em.flush()
+      }
 
       const de = (ctx.container.resolve('dataEngine') as DataEngine)
       await emitCrudUndoSideEffects({
