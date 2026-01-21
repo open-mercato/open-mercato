@@ -53,6 +53,7 @@ const widgetDataRequestSchema = z.object({
       field: z.string().min(1),
       granularity: dateGranularitySchema.optional(),
       limit: z.number().int().min(1).max(100).optional(),
+      resolveLabels: z.boolean().optional(),
     })
     .optional(),
   filters: z
@@ -79,6 +80,7 @@ const widgetDataRequestSchema = z.object({
 
 const widgetDataItemSchema = z.object({
   groupKey: z.unknown(),
+  groupLabel: z.string().optional(),
   value: z.number().nullable(),
 })
 

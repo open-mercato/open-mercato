@@ -8,11 +8,11 @@ import {
   YAxis,
   CartesianGrid,
   Tooltip,
-  ResponsiveContainer,
   Legend,
+  ResponsiveContainer,
 } from 'recharts'
 import { Spinner } from '@open-mercato/ui/primitives/spinner'
-import { ChartTooltipContent, CHART_COLORS } from './ChartUtils'
+import { ChartTooltipContent, resolveChartColor } from './ChartUtils'
 
 export type BarChartDataItem = Record<string, string | number | null | undefined>
 
@@ -58,10 +58,7 @@ export function BarChart({
   emptyMessage = 'No data available',
 }: BarChartProps) {
   const getBarColor = (idx: number): string => {
-    if (colors?.[idx]) {
-      return `var(--color-${colors[idx]}-500)`
-    }
-    return CHART_COLORS[idx % CHART_COLORS.length]
+    return resolveChartColor(colors?.[idx], idx)
   }
 
   if (error) {
@@ -98,84 +95,56 @@ export function BarChart({
   }
 
   const isHorizontal = layout === 'horizontal'
+  const chartHeight = isHorizontal ? Math.max(200, data.length * 32) : 200
 
   return (
     <div className={`rounded-lg border bg-card p-4 ${className}`}>
       {title && <h3 className="mb-4 text-base font-medium text-card-foreground">{title}</h3>}
-      <div className="h-52 w-full">
-        <ResponsiveContainer width="100%" height="100%">
-          <RechartsBarChart
-            data={data}
-            layout={isHorizontal ? 'vertical' : 'horizontal'}
-            margin={{ top: 5, right: 10, left: 10, bottom: 5 }}
-          >
-            {showGridLines && (
-              <CartesianGrid
-                strokeDasharray="3 3"
-                vertical={!isHorizontal}
-                horizontal={isHorizontal}
-                stroke="hsl(var(--border))"
+      <ResponsiveContainer width="100%" height={chartHeight}>
+        <RechartsBarChart
+          data={data}
+          layout={isHorizontal ? 'vertical' : 'horizontal'}
+          margin={{ top: 5, right: 30, left: 20, bottom: 5 }}
+        >
+          {showGridLines && (
+            <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
+          )}
+          <XAxis
+            type={isHorizontal ? 'number' : 'category'}
+            dataKey={isHorizontal ? undefined : index}
+            tickFormatter={isHorizontal ? valueFormatter : undefined}
+          />
+          <YAxis
+            type={isHorizontal ? 'category' : 'number'}
+            dataKey={isHorizontal ? index : undefined}
+            tickFormatter={isHorizontal ? undefined : valueFormatter}
+            width={isHorizontal ? 100 : 60}
+          />
+          <Tooltip
+            content={
+              <ChartTooltipContent
+                valueFormatter={valueFormatter}
+                labelFormatter={(label, payload) => {
+                  const item = payload?.[0]?.payload as BarChartDataItem | undefined
+                  return item?.[index] ? String(item[index]) : label
+                }}
               />
-            )}
-            {isHorizontal ? (
-              <>
-                <XAxis
-                  type="number"
-                  tickFormatter={valueFormatter}
-                  tick={{ fontSize: 12, fill: 'hsl(var(--muted-foreground))' }}
-                  tickLine={false}
-                  axisLine={false}
-                />
-                <YAxis
-                  dataKey={index}
-                  type="category"
-                  tick={{ fontSize: 12, fill: 'hsl(var(--muted-foreground))' }}
-                  tickLine={false}
-                  axisLine={false}
-                  width={80}
-                />
-              </>
-            ) : (
-              <>
-                <XAxis
-                  dataKey={index}
-                  tick={{ fontSize: 12, fill: 'hsl(var(--muted-foreground))' }}
-                  tickLine={false}
-                  axisLine={false}
-                />
-                <YAxis
-                  tickFormatter={valueFormatter}
-                  tick={{ fontSize: 12, fill: 'hsl(var(--muted-foreground))' }}
-                  tickLine={false}
-                  axisLine={false}
-                  width={56}
-                />
-              </>
-            )}
-            <Tooltip
-              content={<ChartTooltipContent valueFormatter={valueFormatter} />}
-              cursor={{ fill: 'hsl(var(--muted))', opacity: 0.3 }}
+            }
+            cursor={{ fill: 'hsl(var(--muted))', opacity: 0.2 }}
+          />
+          {showLegend && categories.length > 1 && (
+            <Legend verticalAlign="top" height={36} />
+          )}
+          {categories.map((category, idx) => (
+            <Bar
+              key={category}
+              dataKey={category}
+              fill={getBarColor(idx)}
+              radius={isHorizontal ? [0, 4, 4, 0] : [4, 4, 0, 0]}
             />
-            {showLegend && categories.length > 1 && (
-              <Legend
-                verticalAlign="top"
-                height={36}
-                formatter={(value) => (
-                  <span style={{ color: 'hsl(var(--muted-foreground))', fontSize: '12px' }}>{value}</span>
-                )}
-              />
-            )}
-            {categories.map((category, idx) => (
-              <Bar
-                key={category}
-                dataKey={category}
-                fill={getBarColor(idx)}
-                radius={isHorizontal ? [0, 4, 4, 0] : [4, 4, 0, 0]}
-              />
-            ))}
-          </RechartsBarChart>
-        </ResponsiveContainer>
-      </div>
+          ))}
+        </RechartsBarChart>
+      </ResponsiveContainer>
     </div>
   )
 }

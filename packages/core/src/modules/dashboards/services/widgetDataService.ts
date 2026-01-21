@@ -25,6 +25,7 @@ export type WidgetDataRequest = {
     field: string
     granularity?: DateGranularity
     limit?: number
+    resolveLabels?: boolean
   }
   filters?: Array<{
     field: string
@@ -42,7 +43,28 @@ export type WidgetDataRequest = {
 
 export type WidgetDataItem = {
   groupKey: unknown
+  groupLabel?: string
   value: number | null
+}
+
+type LabelResolverConfig = {
+  table: string
+  idColumn: string
+  labelColumn: string
+}
+
+const LABEL_RESOLVER_CONFIG: Record<string, Record<string, LabelResolverConfig>> = {
+  'sales:order_lines': {
+    productId: { table: 'catalog_products', idColumn: 'id', labelColumn: 'title' },
+    productVariantId: { table: 'catalog_product_variants', idColumn: 'id', labelColumn: 'name' },
+  },
+  'sales:orders': {
+    customerEntityId: { table: 'customer_entities', idColumn: 'id', labelColumn: 'display_name' },
+    channelId: { table: 'sales_channels', idColumn: 'id', labelColumn: 'name' },
+  },
+  'customers:deals': {
+    customerEntityId: { table: 'customer_entities', idColumn: 'id', labelColumn: 'display_name' },
+  },
 }
 
 export type WidgetDataResponse = {
@@ -175,16 +197,75 @@ export class WidgetDataService {
     const results = Array.isArray(rows) ? rows : []
 
     if (request.groupBy) {
-      const data = results.map((row: Record<string, unknown>) => ({
+      let data: WidgetDataItem[] = results.map((row: Record<string, unknown>) => ({
         groupKey: row.group_key,
         value: row.value !== null ? Number(row.value) : null,
       }))
-      const totalValue = data.reduce((sum: number, item: { value: number | null }) => sum + (item.value ?? 0), 0)
+
+      if (request.groupBy.resolveLabels) {
+        data = await this.resolveGroupLabels(data, request.entityType, request.groupBy.field)
+      }
+
+      const totalValue = data.reduce((sum: number, item: WidgetDataItem) => sum + (item.value ?? 0), 0)
       return { value: totalValue, data }
     }
 
     const singleValue = results[0]?.value !== undefined ? Number(results[0].value) : null
     return { value: singleValue, data: [] }
+  }
+
+  private async resolveGroupLabels(
+    data: WidgetDataItem[],
+    entityType: string,
+    groupByField: string,
+  ): Promise<WidgetDataItem[]> {
+    const config = LABEL_RESOLVER_CONFIG[entityType]?.[groupByField]
+
+    if (!config) {
+      return data.map((item) => ({
+        ...item,
+        groupLabel: item.groupKey != null && item.groupKey !== '' ? String(item.groupKey) : undefined,
+      }))
+    }
+
+    const ids = data
+      .map((item) => item.groupKey)
+      .filter((id): id is string => {
+        if (typeof id !== 'string' || id.length === 0) return false
+        return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id)
+      })
+
+    if (ids.length === 0) {
+      return data.map((item) => ({ ...item, groupLabel: undefined }))
+    }
+
+    const uniqueIds = [...new Set(ids)]
+    const sql = `SELECT "${config.idColumn}" as id, "${config.labelColumn}" as label FROM "${config.table}" WHERE "${config.idColumn}" = ANY(?::uuid[]) AND tenant_id = ?`
+    const pgArray = `{${uniqueIds.join(',')}}`
+    const params = [pgArray, this.scope.tenantId]
+
+    try {
+      const labelRows = await this.em.getConnection().execute(sql, params)
+
+      const labelMap = new Map<string, string>()
+      for (const row of labelRows as Array<{ id: string; label: string | null }>) {
+        if (row.id && row.label != null && row.label !== '') {
+          labelMap.set(row.id, row.label)
+        }
+      }
+
+      return data.map((item) => ({
+        ...item,
+        groupLabel: typeof item.groupKey === 'string' && labelMap.has(item.groupKey)
+          ? labelMap.get(item.groupKey)!
+          : undefined,
+      }))
+    } catch (err) {
+      return data.map((item) => ({
+        ...item,
+        groupLabel: undefined,
+      }))
+    }
   }
 }
 

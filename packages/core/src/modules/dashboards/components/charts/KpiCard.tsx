@@ -12,12 +12,15 @@ export type KpiCardProps = {
   title: string
   value: number | null
   trend?: KpiTrend
+  comparisonLabel?: string
   loading?: boolean
   error?: string | null
   formatValue?: (value: number) => string
   prefix?: string
   suffix?: string
   className?: string
+  /** Optional action element to render in the header (e.g., date range selector) */
+  headerAction?: React.ReactNode
 }
 
 function defaultFormatValue(value: number): string {
@@ -68,7 +71,10 @@ function BadgeDelta({ direction, value }: BadgeDeltaProps) {
   }
 
   return (
-    <span className={`${baseClasses} ${directionClasses[direction]}`}>
+    <span
+      className={`${baseClasses} ${directionClasses[direction]}`}
+      title="Compared to previous period"
+    >
       {icons[direction]}
       {formatPercentageChange(value)}
     </span>
@@ -79,17 +85,26 @@ export function KpiCard({
   title,
   value,
   trend,
+  comparisonLabel,
   loading,
   error,
   formatValue = defaultFormatValue,
   prefix = '',
   suffix = '',
   className = '',
+  headerAction,
 }: KpiCardProps) {
+  const headerRow = (
+    <div className="flex items-center justify-between gap-2">
+      <p className="text-sm text-muted-foreground">{title}</p>
+      {headerAction}
+    </div>
+  )
+
   if (error) {
     return (
       <div className={`rounded-lg border bg-card p-4 ${className}`}>
-        <p className="text-sm text-muted-foreground">{title}</p>
+        {headerRow}
         <div className="mt-2">
           <p className="text-sm text-destructive">{error}</p>
         </div>
@@ -100,7 +115,7 @@ export function KpiCard({
   if (loading) {
     return (
       <div className={`rounded-lg border bg-card p-4 ${className}`}>
-        <p className="text-sm text-muted-foreground">{title}</p>
+        {headerRow}
         <div className="mt-4 flex items-center justify-center">
           <Spinner className="h-6 w-6 text-muted-foreground" />
         </div>
@@ -111,7 +126,7 @@ export function KpiCard({
   if (value === null) {
     return (
       <div className={`rounded-lg border bg-card p-4 ${className}`}>
-        <p className="text-sm text-muted-foreground">{title}</p>
+        {headerRow}
         <p className="mt-2 text-3xl font-semibold tracking-tight text-card-foreground">--</p>
       </div>
     )
@@ -119,7 +134,7 @@ export function KpiCard({
 
   return (
     <div className={`rounded-lg border bg-card p-4 ${className}`}>
-      <p className="text-sm text-muted-foreground">{title}</p>
+      {headerRow}
       <div className="mt-2 flex items-baseline gap-2">
         <p className="text-3xl font-semibold tracking-tight text-card-foreground">
           {prefix}
@@ -130,6 +145,9 @@ export function KpiCard({
           <BadgeDelta direction={trend.direction} value={trend.value} />
         )}
       </div>
+      {trend && comparisonLabel && (
+        <p className="mt-1 text-xs text-muted-foreground">{comparisonLabel}</p>
+      )}
     </div>
   )
 }

@@ -21,6 +21,7 @@ async function fetchTopProductsData(settings: TopProductsSettings): Promise<Widg
     groupBy: {
       field: 'productId',
       limit: settings.limit,
+      resolveLabels: true,
     },
     dateRange: {
       field: 'createdAt',
@@ -42,10 +43,16 @@ async function fetchTopProductsData(settings: TopProductsSettings): Promise<Widg
   return call.result as WidgetDataResponse
 }
 
-function truncateLabel(label: string, maxLength: number = 20): string {
-  if (!label) return 'Unknown'
-  if (label.length <= maxLength) return label
-  return label.slice(0, maxLength - 3) + '...'
+function truncateLabel(label: unknown, maxLength: number = 20): string {
+  if (label == null || label === '') return 'Unknown Product'
+  const labelStr = String(label)
+  // Check for UUID-like strings or meaningless values
+  if (labelStr === '0' || labelStr === 'null' || labelStr === 'undefined') return 'Unknown Product'
+  if (/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(labelStr)) {
+    return 'Unnamed Product'
+  }
+  if (labelStr.length <= maxLength) return labelStr
+  return labelStr.slice(0, maxLength - 3) + '...'
 }
 
 const TopProductsWidget: React.FC<DashboardWidgetComponentProps<TopProductsSettings>> = ({
@@ -60,15 +67,18 @@ const TopProductsWidget: React.FC<DashboardWidgetComponentProps<TopProductsSetti
   const [data, setData] = React.useState<BarChartDataItem[]>([])
   const [loading, setLoading] = React.useState(true)
   const [error, setError] = React.useState<string | null>(null)
+  const fetchingRef = React.useRef(false)
 
   const refresh = React.useCallback(async () => {
+    if (fetchingRef.current) return
+    fetchingRef.current = true
     onRefreshStateChange?.(true)
     setLoading(true)
     setError(null)
     try {
       const result = await fetchTopProductsData(hydrated)
       const chartData = result.data.map((item, index) => ({
-        name: truncateLabel(String(item.groupKey || `Product ${index + 1}`)),
+        name: truncateLabel(item.groupLabel ?? item.groupKey ?? `Product ${index + 1}`),
         Revenue: item.value ?? 0,
       }))
       setData(chartData)
@@ -78,6 +88,7 @@ const TopProductsWidget: React.FC<DashboardWidgetComponentProps<TopProductsSetti
     } finally {
       setLoading(false)
       onRefreshStateChange?.(false)
+      fetchingRef.current = false
     }
   }, [hydrated, onRefreshStateChange, t])
 

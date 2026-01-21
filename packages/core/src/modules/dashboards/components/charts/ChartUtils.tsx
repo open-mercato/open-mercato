@@ -144,13 +144,33 @@ export function ChartTooltipContent({
 }
 
 export const CHART_COLORS = [
-  'hsl(var(--chart-1))',
-  'hsl(var(--chart-2))',
-  'hsl(var(--chart-3))',
-  'hsl(var(--chart-4))',
-  'hsl(var(--chart-5))',
+  'var(--chart-1)',
+  'var(--chart-2)',
+  'var(--chart-3)',
+  'var(--chart-4)',
+  'var(--chart-5)',
 ] as const
 
+export const NAMED_COLORS: Record<string, string> = {
+  blue: 'var(--chart-blue)',
+  emerald: 'var(--chart-emerald)',
+  amber: 'var(--chart-amber)',
+  rose: 'var(--chart-rose)',
+  violet: 'var(--chart-violet)',
+  cyan: 'var(--chart-cyan)',
+  indigo: 'var(--chart-indigo)',
+  pink: 'var(--chart-pink)',
+  teal: 'var(--chart-teal)',
+  orange: 'var(--chart-orange)',
+}
+
 export function getChartColor(index: number): string {
+  return CHART_COLORS[index % CHART_COLORS.length]
+}
+
+export function resolveChartColor(color: string | undefined, index: number): string {
+  if (color && NAMED_COLORS[color]) {
+    return NAMED_COLORS[color]
+  }
   return CHART_COLORS[index % CHART_COLORS.length]
 }

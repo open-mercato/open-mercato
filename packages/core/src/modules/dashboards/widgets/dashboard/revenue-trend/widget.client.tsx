@@ -6,6 +6,7 @@ import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { LineChart, type LineChartDataItem } from '../../../components/charts/LineChart'
 import { DateRangeSelect } from '../../../components/settings/DateRangeSelect'
+import { InlineDateRangeSelect } from '../../../components/settings/InlineDateRangeSelect'
 import { DEFAULT_SETTINGS, hydrateSettings, type RevenueTrendSettings } from './config'
 import type { WidgetDataResponse } from '../../../services/widgetDataService'
 import type { DateRangePreset } from '../../../lib/dateRanges'
@@ -74,6 +75,31 @@ const GRANULARITY_OPTIONS: { value: DateGranularity; labelKey: string }[] = [
   { value: 'quarter', labelKey: 'dashboards.analytics.granularity.quarter' },
   { value: 'year', labelKey: 'dashboards.analytics.granularity.year' },
 ]
+
+function getAutoGranularity(dateRange: DateRangePreset): DateGranularity {
+  switch (dateRange) {
+    case 'today':
+    case 'yesterday':
+    case 'last_7_days':
+      return 'day'
+    case 'this_week':
+    case 'last_week':
+    case 'last_30_days':
+      return 'day'
+    case 'this_month':
+    case 'last_month':
+    case 'last_90_days':
+      return 'week'
+    case 'this_quarter':
+    case 'last_quarter':
+      return 'week'
+    case 'this_year':
+    case 'last_year':
+      return 'month'
+    default:
+      return 'day'
+  }
+}
 
 const RevenueTrendWidget: React.FC<DashboardWidgetComponentProps<RevenueTrendSettings>> = ({
   mode,
@@ -161,19 +187,29 @@ const RevenueTrendWidget: React.FC<DashboardWidgetComponentProps<RevenueTrendSet
     )
   }
 
+  const effectiveGranularity = hydrated.granularity === 'day' ? getAutoGranularity(hydrated.dateRange) : hydrated.granularity
+
   return (
-    <LineChart
-      title={t('dashboards.analytics.widgets.revenueTrend.title', 'Revenue Trend')}
-      data={data}
-      index="date"
-      categories={['Revenue']}
-      loading={loading}
-      error={error}
-      showArea={hydrated.showArea}
-      valueFormatter={formatCurrencyCompact}
-      colors={['blue']}
-      emptyMessage={t('dashboards.analytics.widgets.revenueTrend.empty', 'No revenue data for this period')}
-    />
+    <div>
+      <div className="mb-2 flex justify-end">
+        <InlineDateRangeSelect
+          value={hydrated.dateRange}
+          onChange={(dateRange) => onSettingsChange({ ...hydrated, dateRange, granularity: getAutoGranularity(dateRange) })}
+        />
+      </div>
+      <LineChart
+        title={t('dashboards.analytics.widgets.revenueTrend.title', 'Revenue Trend')}
+        data={data}
+        index="date"
+        categories={['Revenue']}
+        loading={loading}
+        error={error}
+        showArea={hydrated.showArea}
+        valueFormatter={formatCurrencyCompact}
+        colors={['blue']}
+        emptyMessage={t('dashboards.analytics.widgets.revenueTrend.empty', 'No revenue data for this period')}
+      />
+    </div>
   )
 }
 

@@ -20,6 +20,7 @@ async function fetchPipelineData(settings: PipelineSummarySettings): Promise<Wid
     },
     groupBy: {
       field: 'pipelineStage',
+      resolveLabels: true,
     },
     dateRange: {
       field: 'createdAt',
@@ -41,9 +42,11 @@ async function fetchPipelineData(settings: PipelineSummarySettings): Promise<Wid
   return call.result as WidgetDataResponse
 }
 
-function formatStageLabel(stage: string | null): string {
-  if (!stage) return 'Unknown'
-  return stage
+function formatStageLabel(stage: unknown): string {
+  if (stage == null || stage === '') return 'Unknown'
+  const stageStr = String(stage)
+  if (stageStr === '0' || stageStr === 'null' || stageStr === 'undefined') return 'Unknown'
+  return stageStr
     .replace(/_/g, ' ')
     .replace(/\b\w/g, (l) => l.toUpperCase())
 }
@@ -67,10 +70,12 @@ const PipelineSummaryWidget: React.FC<DashboardWidgetComponentProps<PipelineSumm
     setError(null)
     try {
       const result = await fetchPipelineData(hydrated)
-      const chartData = result.data.map((item) => ({
-        stage: formatStageLabel(item.groupKey as string | null),
-        Value: item.value ?? 0,
-      }))
+      const chartData = result.data
+        .filter((item) => item.groupKey != null && item.groupKey !== '' && String(item.groupKey) !== '0')
+        .map((item) => ({
+          stage: formatStageLabel(item.groupLabel ?? item.groupKey),
+          Value: item.value ?? 0,
+        }))
       setData(chartData)
     } catch (err) {
       console.error('Failed to load pipeline data', err)

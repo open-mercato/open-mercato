@@ -10,7 +10,7 @@ import {
   Legend,
 } from 'recharts'
 import { Spinner } from '@open-mercato/ui/primitives/spinner'
-import { ChartTooltipContent, CHART_COLORS } from './ChartUtils'
+import { ChartTooltipContent, resolveChartColor } from './ChartUtils'
 
 export type PieChartDataItem = {
   name: string
@@ -55,10 +55,7 @@ export function PieChart({
   emptyMessage = 'No data available',
 }: PieChartProps) {
   const getSliceColor = (idx: number): string => {
-    if (colors?.[idx]) {
-      return `var(--color-${colors[idx]}-500)`
-    }
-    return CHART_COLORS[idx % CHART_COLORS.length]
+    return resolveChartColor(colors?.[idx], idx)
   }
 
   const total = React.useMemo(() => {

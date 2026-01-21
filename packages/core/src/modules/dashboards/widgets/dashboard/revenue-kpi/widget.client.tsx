@@ -6,9 +6,10 @@ import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { KpiCard, type KpiTrend } from '../../../components/charts/KpiCard'
 import { DateRangeSelect } from '../../../components/settings/DateRangeSelect'
+import { InlineDateRangeSelect } from '../../../components/settings/InlineDateRangeSelect'
 import { DEFAULT_SETTINGS, hydrateSettings, type RevenueKpiSettings } from './config'
 import type { WidgetDataResponse } from '../../../services/widgetDataService'
-import type { DateRangePreset } from '../../../lib/dateRanges'
+import { type DateRangePreset, getComparisonLabelKey } from '../../../lib/dateRanges'
 import { formatCurrency } from '../../../lib/formatters'
 
 async function fetchRevenueData(settings: RevenueKpiSettings): Promise<WidgetDataResponse> {
@@ -105,14 +106,26 @@ const RevenueKpiWidget: React.FC<DashboardWidgetComponentProps<RevenueKpiSetting
     )
   }
 
+  const comparisonLabelInfo = getComparisonLabelKey(hydrated.dateRange)
+  const comparisonLabel = hydrated.showComparison
+    ? t(comparisonLabelInfo.key, comparisonLabelInfo.fallback)
+    : undefined
+
   return (
     <KpiCard
       title={t('dashboards.analytics.widgets.revenueKpi.title', 'Revenue')}
       value={value}
       trend={trend}
+      comparisonLabel={comparisonLabel}
       loading={loading}
       error={error}
       formatValue={formatCurrency}
+      headerAction={
+        <InlineDateRangeSelect
+          value={hydrated.dateRange}
+          onChange={(dateRange) => onSettingsChange({ ...hydrated, dateRange })}
+        />
+      }
     />
   )
 }

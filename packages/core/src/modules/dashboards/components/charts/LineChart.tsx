@@ -14,7 +14,7 @@ import {
   Legend,
 } from 'recharts'
 import { Spinner } from '@open-mercato/ui/primitives/spinner'
-import { ChartTooltipContent, CHART_COLORS } from './ChartUtils'
+import { ChartTooltipContent, resolveChartColor } from './ChartUtils'
 
 export type LineChartDataItem = Record<string, string | number | null | undefined>
 
@@ -64,10 +64,7 @@ export function LineChart({
   emptyMessage = 'No data available',
 }: LineChartProps) {
   const getLineColor = (idx: number): string => {
-    if (colors?.[idx]) {
-      return `var(--color-${colors[idx]}-500)`
-    }
-    return CHART_COLORS[idx % CHART_COLORS.length]
+    return resolveChartColor(colors?.[idx], idx)
   }
 
   if (error) {

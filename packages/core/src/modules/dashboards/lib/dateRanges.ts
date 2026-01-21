@@ -183,3 +183,36 @@ export function determineChangeDirection(current: number, previous: number): 'up
   if (current < previous) return 'down'
   return 'unchanged'
 }
+
+export function getComparisonLabelKey(preset: DateRangePreset): { key: string; fallback: string } {
+  switch (preset) {
+    case 'today':
+      return { key: 'dashboards.analytics.comparison.vsYesterday', fallback: 'vs yesterday' }
+    case 'yesterday':
+      return { key: 'dashboards.analytics.comparison.vsDayBefore', fallback: 'vs day before' }
+    case 'this_week':
+      return { key: 'dashboards.analytics.comparison.vsLastWeek', fallback: 'vs last week' }
+    case 'last_week':
+      return { key: 'dashboards.analytics.comparison.vsWeekBefore', fallback: 'vs week before' }
+    case 'this_month':
+      return { key: 'dashboards.analytics.comparison.vsLastMonth', fallback: 'vs last month' }
+    case 'last_month':
+      return { key: 'dashboards.analytics.comparison.vsMonthBefore', fallback: 'vs month before' }
+    case 'this_quarter':
+      return { key: 'dashboards.analytics.comparison.vsLastQuarter', fallback: 'vs last quarter' }
+    case 'last_quarter':
+      return { key: 'dashboards.analytics.comparison.vsQuarterBefore', fallback: 'vs quarter before' }
+    case 'this_year':
+      return { key: 'dashboards.analytics.comparison.vsLastYear', fallback: 'vs last year' }
+    case 'last_year':
+      return { key: 'dashboards.analytics.comparison.vsYearBefore', fallback: 'vs year before' }
+    case 'last_7_days':
+      return { key: 'dashboards.analytics.comparison.vsPrevious7Days', fallback: 'vs previous 7 days' }
+    case 'last_30_days':
+      return { key: 'dashboards.analytics.comparison.vsPrevious30Days', fallback: 'vs previous 30 days' }
+    case 'last_90_days':
+      return { key: 'dashboards.analytics.comparison.vsPrevious90Days', fallback: 'vs previous 90 days' }
+    default:
+      return { key: 'dashboards.analytics.comparison.vsPreviousPeriod', fallback: 'vs previous period' }
+  }
+}
