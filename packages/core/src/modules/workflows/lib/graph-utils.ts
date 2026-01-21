@@ -90,6 +90,11 @@ export function graphToDefinition(
       step.activities = node.data.activities
     }
 
+    // Pre-conditions (for START steps)
+    if (node.type === 'start' && (node.data as any).preConditions && (node.data as any).preConditions.length > 0) {
+      step.preConditions = (node.data as any).preConditions
+    }
+
     // Store position for visual editor
     if (options.includePositions && node.position) {
       step._editorPosition = {
@@ -274,6 +279,11 @@ export function definitionToGraph(
     // Add step activities data (for AUTOMATED steps)
     if (step.stepType === 'AUTOMATED' && (step as any).activities) {
       nodeData.activities = (step as any).activities
+    }
+
+    // Add pre-conditions data (for START steps)
+    if (step.stepType === 'START' && (step as any).preConditions) {
+      nodeData.preConditions = (step as any).preConditions
     }
 
     // Set badge based on type

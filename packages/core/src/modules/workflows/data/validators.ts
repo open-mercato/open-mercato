@@ -163,6 +163,18 @@ export const activityDefinitionSchema = z.object({
   }).optional(), // Compensation configuration (Phase 8.2)
 })
 
+// Localized validation message schema (for START step pre-conditions)
+export const localizedMessageSchema = z.record(z.string(), z.string())
+
+// START step pre-condition schema (with optional localized validation messages)
+export const startPreConditionSchema = z.object({
+  ruleId: z.string().min(1).max(50), // Business rule ID
+  required: z.boolean().default(true),
+  validationMessage: localizedMessageSchema.optional(), // Optional localized error messages
+})
+
+export type StartPreCondition = z.infer<typeof startPreConditionSchema>
+
 // Step definition
 export const workflowStepSchema = z.object({
   stepId: z.string().min(1).max(100).regex(/^[a-z0-9_-]+$/, 'Step ID must contain only lowercase letters, numbers, hyphens, and underscores'),
@@ -179,6 +191,8 @@ export const workflowStepSchema = z.object({
   activities: z.array(activityDefinitionSchema).optional(),
   timeout: z.string().optional(), // ISO 8601 duration
   retryPolicy: retryPolicySchema.optional(),
+  // Pre-conditions for START step (business rules to validate before workflow can be started)
+  preConditions: z.array(startPreConditionSchema).optional(),
 })
 
 // Transition condition (reference to business rule)
@@ -186,8 +200,6 @@ export const transitionConditionSchema = z.object({
   ruleId: z.string().min(1).max(50), // Business rule ID
   required: z.boolean().default(true),
 })
-
-
 
 // Transition definition
 export const workflowTransitionSchema = z.object({
