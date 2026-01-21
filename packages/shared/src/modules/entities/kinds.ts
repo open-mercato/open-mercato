@@ -17,4 +17,4 @@ export function isCustomFieldKind(x: string): x is CustomFieldKind {
   return (CUSTOM_FIELD_KINDS as readonly string[]).includes(x)
 }
 
-export const CURRENCY_OPTIONS_URL = '/api/currencies/options'
+export const CURRENCY_OPTIONS_URL = '/api/currencies/currencies/options'
