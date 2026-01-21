@@ -173,29 +173,44 @@ const staffLeaveRequestDateRangeSchema = z.object({
   startDate: z.coerce.date(),
   endDate: z.coerce.date(),
 })
-  .refine((value) => value.endDate >= value.startDate, {
-    message: 'End date must be after start date.',
-    path: ['endDate'],
+
+const validateStaffLeaveRequestDateRange = (
+  value: { startDate?: Date; endDate?: Date },
+  ctx: z.RefinementCtx,
+) => {
+  if (!value.startDate || !value.endDate) return
+  if (value.endDate < value.startDate) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: 'End date must be after start date.',
+      path: ['endDate'],
+    })
+  }
+}
+
+export const staffLeaveRequestCreateSchema = staffLeaveRequestDateRangeSchema
+  .safeExtend({
+    ...scopedCreateFields,
+    memberId: z.string().uuid(),
+    timezone: z.string().min(1),
+    unavailabilityReasonEntryId: z.string().uuid().optional().nullable(),
+    unavailabilityReasonValue: z.string().trim().min(1).max(150).optional().nullable(),
+    note: z.string().max(2000).optional().nullable(),
+    submittedByUserId: z.string().uuid().optional().nullable(),
   })
+  .superRefine(validateStaffLeaveRequestDateRange)
 
-export const staffLeaveRequestCreateSchema = staffLeaveRequestDateRangeSchema.extend({
-  ...scopedCreateFields,
-  memberId: z.string().uuid(),
-  timezone: z.string().min(1),
-  unavailabilityReasonEntryId: z.string().uuid().optional().nullable(),
-  unavailabilityReasonValue: z.string().trim().min(1).max(150).optional().nullable(),
-  note: z.string().max(2000).optional().nullable(),
-  submittedByUserId: z.string().uuid().optional().nullable(),
-})
-
-export const staffLeaveRequestUpdateSchema = staffLeaveRequestDateRangeSchema.partial().extend({
-  ...scopedUpdateFields,
-  timezone: z.string().min(1).optional(),
-  memberId: z.string().uuid().optional(),
-  unavailabilityReasonEntryId: z.string().uuid().optional().nullable(),
-  unavailabilityReasonValue: z.string().trim().min(1).max(150).optional().nullable(),
-  note: z.string().max(2000).optional().nullable(),
-})
+export const staffLeaveRequestUpdateSchema = staffLeaveRequestDateRangeSchema
+  .partial()
+  .safeExtend({
+    ...scopedUpdateFields,
+    timezone: z.string().min(1).optional(),
+    memberId: z.string().uuid().optional(),
+    unavailabilityReasonEntryId: z.string().uuid().optional().nullable(),
+    unavailabilityReasonValue: z.string().trim().min(1).max(150).optional().nullable(),
+    note: z.string().max(2000).optional().nullable(),
+  })
+  .superRefine(validateStaffLeaveRequestDateRange)
 
 export const staffLeaveRequestDecisionSchema = z.object({
   id: z.string().uuid(),

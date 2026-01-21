@@ -401,6 +401,7 @@ async function ensureDefaultRoleAcls(
       'workflows.*',
       'currencies.*',
       'staff.*',
+      'staff.leave_requests.manage',
       'resources.*',
       'planner.*',
     ]
@@ -425,6 +426,8 @@ async function ensureDefaultRoleAcls(
       'dashboards.configure',
       'audit_logs.undo_self',
       'perspectives.use',
+      'staff.leave_requests.send',
+      'planner.view',
     ])
   }
 }
