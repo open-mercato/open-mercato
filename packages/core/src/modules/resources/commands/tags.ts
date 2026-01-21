@@ -3,6 +3,7 @@ import { registerCommand } from '@open-mercato/shared/lib/commands'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
+import { slugifyTagLabel } from '@open-mercato/shared/lib/utils'
 import { ResourcesResourceTag, ResourcesResourceTagAssignment } from '../data/entities'
 import {
   resourcesResourceTagCreateSchema,
@@ -18,9 +19,13 @@ const createTagCommand: CommandHandler<ResourcesResourceTagCreateInput, { tagId:
     const parsed = resourcesResourceTagCreateSchema.parse(rawInput ?? {})
     ensureTenantScope(ctx, parsed.tenantId)
     ensureOrganizationScope(ctx, parsed.organizationId)
+    const slug =
+      typeof parsed.slug === 'string' && parsed.slug.trim().length
+        ? parsed.slug.trim()
+        : slugifyTagLabel(parsed.label)
     const em = (ctx.container.resolve('em') as EntityManager).fork()
     const conflict = await em.findOne(ResourcesResourceTag, {
-      slug: parsed.slug,
+      slug,
       organizationId: parsed.organizationId,
       tenantId: parsed.tenantId,
     })
@@ -28,7 +33,7 @@ const createTagCommand: CommandHandler<ResourcesResourceTagCreateInput, { tagId:
     const tag = em.create(ResourcesResourceTag, {
       organizationId: parsed.organizationId,
       tenantId: parsed.tenantId,
-      slug: parsed.slug,
+      slug,
       label: parsed.label,
       color: parsed.color ?? null,
       description: parsed.description ?? null,
@@ -57,13 +62,13 @@ const updateTagCommand: CommandHandler<ResourcesResourceTagUpdateInput, { tagId:
     const em = (ctx.container.resolve('em') as EntityManager).fork()
     const tag = await em.findOne(ResourcesResourceTag, { id: parsed.id })
     if (!tag) throw new CrudHttpError(404, { error: 'Tag not found' })
-    ensureTenantScope(ctx, parsed.tenantId ?? tag.tenantId)
-    ensureOrganizationScope(ctx, parsed.organizationId ?? tag.organizationId)
+    ensureTenantScope(ctx, tag.tenantId)
+    ensureOrganizationScope(ctx, tag.organizationId)
     if (parsed.slug && parsed.slug !== tag.slug) {
       const conflict = await em.findOne(ResourcesResourceTag, {
         slug: parsed.slug,
-        organizationId: parsed.organizationId ?? tag.organizationId,
-        tenantId: parsed.tenantId ?? tag.tenantId,
+        organizationId: tag.organizationId,
+        tenantId: tag.tenantId,
       })
       if (conflict && conflict.id !== tag.id) {
         throw new CrudHttpError(409, { error: 'Tag slug already exists for this scope' })
@@ -73,19 +78,19 @@ const updateTagCommand: CommandHandler<ResourcesResourceTagUpdateInput, { tagId:
     if (parsed.label !== undefined) tag.label = parsed.label
     if (parsed.color !== undefined) tag.color = parsed.color ?? null
     if (parsed.description !== undefined) tag.description = parsed.description ?? null
-    if (parsed.organizationId) tag.organizationId = parsed.organizationId
-    if (parsed.tenantId) tag.tenantId = parsed.tenantId
     await em.flush()
     return { tagId: tag.id }
   },
   buildLog: async ({ input, result, ctx }) => {
     const { translate } = await resolveTranslations()
+    const em = (ctx.container.resolve('em') as EntityManager)
+    const tag = result?.tagId ? await em.findOne(ResourcesResourceTag, { id: result.tagId }) : null
     return {
       actionLabel: translate('resources.audit.resourceTags.update', 'Update resource tag'),
       resourceKind: 'resources.resourceTag',
       resourceId: result?.tagId ?? input?.id ?? null,
-      tenantId: input?.tenantId ?? ctx.auth?.tenantId ?? null,
-      organizationId: input?.organizationId ?? ctx.selectedOrganizationId ?? ctx.auth?.orgId ?? null,
+      tenantId: tag?.tenantId ?? ctx.auth?.tenantId ?? null,
+      organizationId: tag?.organizationId ?? ctx.selectedOrganizationId ?? ctx.auth?.orgId ?? null,
     }
   },
 }

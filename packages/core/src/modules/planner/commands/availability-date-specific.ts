@@ -158,7 +158,7 @@ const replaceDateSpecificAvailabilityCommand: CommandHandler<PlannerAvailability
     const parsed = plannerAvailabilityDateSpecificReplaceSchema.parse(input)
     ensureTenantScope(ctx, parsed.tenantId)
     ensureOrganizationScope(ctx, parsed.organizationId)
-    const dates = new Set(parsed.dates.filter((value) => value && value.length))
+    const dates = new Set<string>([parsed.date])
     const em = (ctx.container.resolve('em') as EntityManager)
     const before = await loadDateSpecificSnapshots(em, {
       tenantId: parsed.tenantId,
@@ -173,10 +173,9 @@ const replaceDateSpecificAvailabilityCommand: CommandHandler<PlannerAvailability
     const parsed = plannerAvailabilityDateSpecificReplaceSchema.parse(input)
     ensureTenantScope(ctx, parsed.tenantId)
     ensureOrganizationScope(ctx, parsed.organizationId)
-    const dates = new Set(parsed.dates.filter((value) => value && value.length))
+    const dates = new Set<string>([parsed.date])
     const windows = parsed.windows ?? []
-    const kind = parsed.kind ?? 'availability'
-    const note = parsed.note?.trim() ?? null
+    const isAvailable = parsed.isAvailable ?? true
     const now = new Date()
 
     const em = (ctx.container.resolve('em') as EntityManager).fork()
@@ -205,7 +204,7 @@ const replaceDateSpecificAvailabilityCommand: CommandHandler<PlannerAvailability
 
       if (!dates.size) return
 
-      if (kind === 'unavailability') {
+      if (!isAvailable) {
         dates.forEach((date) => {
           const rrule = buildFullDayRrule(date)
           if (!rrule) return
@@ -218,7 +217,7 @@ const replaceDateSpecificAvailabilityCommand: CommandHandler<PlannerAvailability
             rrule,
             exdates: [],
             kind: 'unavailability',
-            note: note && note.length ? note : null,
+            note: null,
             createdAt: now,
             updatedAt: now,
           })
@@ -255,7 +254,7 @@ const replaceDateSpecificAvailabilityCommand: CommandHandler<PlannerAvailability
   },
   buildLog: async ({ input, snapshots, ctx }) => {
     const parsed = plannerAvailabilityDateSpecificReplaceSchema.parse(input)
-    const dates = new Set(parsed.dates.filter((value) => value && value.length))
+    const dates = new Set<string>([parsed.date])
     const em = (ctx.container.resolve('em') as EntityManager)
     const after = await loadDateSpecificSnapshots(em, {
       tenantId: parsed.tenantId,
