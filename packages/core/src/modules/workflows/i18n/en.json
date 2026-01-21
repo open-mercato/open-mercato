@@ -324,7 +324,6 @@
       "allTasks": "All Tasks",
       "taskName": "Task Name",
       "description": "Description",
-      "status": "Status",
       "assignedTo": "Assigned To",
       "assignedToRoles": "Assigned to Roles",
       "claimedBy": "Claimed By",

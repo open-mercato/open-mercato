@@ -1,0 +1,512 @@
+import type { EntityManager } from '@mikro-orm/postgresql'
+import { Dictionary, DictionaryEntry, type DictionaryManagerVisibility } from '@open-mercato/core/modules/dictionaries/data/entities'
+import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { ensureCustomFieldDefinitions } from '@open-mercato/core/modules/entities/lib/field-definitions'
+import { CustomFieldEntityConfig, CustomFieldValue } from '@open-mercato/core/modules/entities/data/entities'
+import { setRecordCustomFields } from '@open-mercato/core/modules/entities/lib/helpers'
+import { ResourcesResource, ResourcesResourceTag, ResourcesResourceTagAssignment, ResourcesResourceType } from '../data/entities'
+import { E } from '#generated/entities.ids.generated'
+import {
+  RESOURCES_RESOURCE_CUSTOM_FIELD_SETS,
+  RESOURCES_RESOURCE_FIELDSET_DENTAL_CHAIR,
+  RESOURCES_RESOURCE_FIELDSETS,
+  RESOURCES_RESOURCE_FIELDSET_HAIR_KIT,
+  RESOURCES_RESOURCE_FIELDSET_LAPTOP,
+  RESOURCES_RESOURCE_FIELDSET_ROOM,
+  RESOURCES_RESOURCE_FIELDSET_SEAT,
+  resolveResourcesResourceFieldsetCode,
+} from './resourceCustomFields'
+import { RESOURCES_CAPACITY_UNIT_DEFAULTS, RESOURCES_CAPACITY_UNIT_DICTIONARY_KEY } from './capacityUnits'
+
+export type ResourcesSeedScope = { tenantId: string; organizationId: string }
+
+type ResourcesResourceTypeSeed = {
+  key: string
+  name: string
+  description?: string | null
+  appearanceIcon?: string | null
+  appearanceColor?: string | null
+}
+
+type ResourcesResourceTagSeed = {
+  key: string
+  slug: string
+  label: string
+  color?: string | null
+  description?: string | null
+}
+
+type ResourcesResourceSeed = {
+  key: string
+  name: string
+  typeKey?: string | null
+  tagKeys: string[]
+}
+
+async function ensureResourceFieldsetConfig(em: EntityManager, scope: ResourcesSeedScope) {
+  const now = new Date()
+  let config = await em.findOne(CustomFieldEntityConfig, {
+    entityId: E.resources.resources_resource,
+    organizationId: scope.organizationId,
+    tenantId: scope.tenantId,
+  })
+  if (!config) {
+    config = em.create(CustomFieldEntityConfig, {
+      entityId: E.resources.resources_resource,
+      organizationId: scope.organizationId,
+      tenantId: scope.tenantId,
+      isActive: true,
+      createdAt: now,
+      updatedAt: now,
+    })
+  }
+  config.configJson = {
+    fieldsets: RESOURCES_RESOURCE_FIELDSETS,
+    singleFieldsetPerRecord: true,
+  }
+  config.isActive = true
+  config.updatedAt = now
+  em.persist(config)
+}
+
+async function ensureResourceCustomFields(em: EntityManager, scope: ResourcesSeedScope) {
+  await ensureResourceFieldsetConfig(em, scope)
+  await ensureCustomFieldDefinitions(em, RESOURCES_RESOURCE_CUSTOM_FIELD_SETS, {
+    organizationId: scope.organizationId,
+    tenantId: scope.tenantId,
+  })
+  await em.flush()
+}
+
+export async function seedResourcesCapacityUnits(
+  em: EntityManager,
+  scope: ResourcesSeedScope,
+) {
+  let dictionary = await em.findOne(Dictionary, {
+    tenantId: scope.tenantId,
+    organizationId: scope.organizationId,
+    key: RESOURCES_CAPACITY_UNIT_DICTIONARY_KEY,
+    deletedAt: null,
+  })
+  if (!dictionary) {
+    dictionary = em.create(Dictionary, {
+      key: RESOURCES_CAPACITY_UNIT_DICTIONARY_KEY,
+      name: 'Resource capacity units',
+      description: 'Units for resource capacity (spots, units, quantity, etc.).',
+      tenantId: scope.tenantId,
+      organizationId: scope.organizationId,
+      isSystem: true,
+      isActive: true,
+      managerVisibility: 'default' satisfies DictionaryManagerVisibility,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    })
+    em.persist(dictionary)
+    await em.flush()
+  }
+
+  const existingEntries = await em.find(DictionaryEntry, {
+    dictionary,
+    tenantId: scope.tenantId,
+    organizationId: scope.organizationId,
+  })
+  const existingMap = new Map(existingEntries.map((entry) => [entry.normalizedValue, entry]))
+  for (const unit of RESOURCES_CAPACITY_UNIT_DEFAULTS) {
+    const normalized = unit.value.trim().toLowerCase()
+    if (!normalized || existingMap.has(normalized)) continue
+    const entry = em.create(DictionaryEntry, {
+      dictionary,
+      tenantId: scope.tenantId,
+      organizationId: scope.organizationId,
+      value: unit.value,
+      normalizedValue: normalized,
+      label: unit.label,
+      color: null,
+      icon: null,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    })
+    em.persist(entry)
+  }
+  await em.flush()
+}
+
+function normalizeAssetTag(value: string): string {
+  const trimmed = value.trim()
+  if (!trimmed) return 'RESOURCE'
+  const upper = trimmed.toUpperCase()
+  const normalized = upper.replace(/[^A-Z0-9]+/g, '-').replace(/^-+|-+$/g, '')
+  return normalized || 'RESOURCE'
+}
+
+function buildBaseResourceCustomValues(
+  resourceName: string,
+  seedKey?: string | null,
+): Record<string, string | number | boolean | null> {
+  const tagSource = seedKey?.trim().length ? seedKey : resourceName
+  const assetTag = normalizeAssetTag(tagSource ?? resourceName)
+  return {
+    asset_tag: assetTag,
+    owner: 'Operations',
+    warranty_expires: '2026-12-31',
+    ops_notes: `Seeded for ${resourceName}.`,
+  }
+}
+
+function buildResourceTypeCustomValues(
+  fieldsetCode: string,
+  seedKey?: string | null,
+): Record<string, string | number | boolean | null> {
+  switch (fieldsetCode) {
+    case RESOURCES_RESOURCE_FIELDSET_ROOM:
+      return {
+        room_floor: '1',
+        room_zone: 'North Wing',
+        room_projector: true,
+        room_whiteboard: true,
+        room_access_notes: 'Keycard access required after 6pm.',
+      }
+    case RESOURCES_RESOURCE_FIELDSET_LAPTOP: {
+      const serialSource = seedKey?.trim().length ? seedKey : 'resource'
+      return {
+        laptop_serial: `LT-${normalizeAssetTag(serialSource)}`,
+        laptop_cpu: 'Intel i7',
+        laptop_ram_gb: 16,
+        laptop_storage_gb: 512,
+        laptop_os: 'windows',
+        laptop_accessories: 'Docking station, charger, spare mouse.',
+      }
+    }
+    case RESOURCES_RESOURCE_FIELDSET_SEAT:
+      return {
+        seat_style: 'standard',
+        seat_heated: false,
+        seat_positioning: 'Adjust headrest for extended sessions.',
+      }
+    case RESOURCES_RESOURCE_FIELDSET_HAIR_KIT:
+      return {
+        kit_inventory: 'Shears, clippers, comb set, cape, spray bottle.',
+        kit_restock_cycle: 'Monthly',
+        kit_maintenance: 'Replace clipper blades every quarter.',
+      }
+    case RESOURCES_RESOURCE_FIELDSET_DENTAL_CHAIR:
+      return {
+        chair_model: 'DX-300',
+        chair_ultrasonic: true,
+        chair_last_disinfected: '2025-01-01',
+        chair_inspection_notes: 'Monthly inspection scheduled.',
+      }
+    default:
+      return {}
+  }
+}
+
+async function fillMissingResourceCustomFields(
+  em: EntityManager,
+  scope: ResourcesSeedScope,
+  resource: ResourcesResource,
+  customValues: Record<string, string | number | boolean | null>,
+) {
+  const keys = Object.keys(customValues)
+  if (!keys.length) return
+  const existingValues = await em.find(CustomFieldValue, {
+    entityId: E.resources.resources_resource,
+    recordId: resource.id,
+    organizationId: scope.organizationId,
+    tenantId: scope.tenantId,
+    fieldKey: { $in: keys },
+  })
+  const existingKeys = new Set(existingValues.map((value) => value.fieldKey))
+  const missingValues: Record<string, string | number | boolean | null> = {}
+  for (const key of keys) {
+    if (!existingKeys.has(key)) {
+      missingValues[key] = customValues[key] ?? null
+    }
+  }
+  if (Object.keys(missingValues).length === 0) return
+  await setRecordCustomFields(em, {
+    entityId: E.resources.resources_resource,
+    recordId: resource.id,
+    organizationId: scope.organizationId,
+    tenantId: scope.tenantId,
+    values: missingValues,
+  })
+}
+
+const RESOURCE_TYPE_SEEDS: ResourcesResourceTypeSeed[] = [
+  {
+    key: 'room',
+    name: 'Consultation room',
+    description: 'Private room for client consultations.',
+    appearanceIcon: 'lucide:building',
+    appearanceColor: '#2563eb',
+  },
+  {
+    key: 'laptop',
+    name: 'Engineering laptop',
+    description: 'Portable computer for software teams.',
+    appearanceIcon: 'lucide:cpu',
+    appearanceColor: '#0ea5e9',
+  },
+  {
+    key: 'client_seat',
+    name: 'Salon seat',
+    description: 'Seat for salon services.',
+    appearanceIcon: 'lucide:users',
+    appearanceColor: '#16a34a',
+  },
+  {
+    key: 'hair_kit',
+    name: 'Hair kit',
+    description: 'Tools and supplies for hair services.',
+    appearanceIcon: 'lucide:wand',
+    appearanceColor: '#ea580c',
+  },
+  {
+    key: 'dental_chair',
+    name: 'Dental chair',
+    description: 'Chair for dental treatments.',
+    appearanceIcon: 'lucide:heart',
+    appearanceColor: '#0f766e',
+  },
+]
+
+const TAG_SEEDS: ResourcesResourceTagSeed[] = [
+  { key: 'room', slug: 'room', label: 'Room', color: '#1d4ed8' },
+  { key: 'tech', slug: 'tech', label: 'Tech', color: '#0f766e' },
+  { key: 'seat', slug: 'seat', label: 'Seat', color: '#374151' },
+  { key: 'hair', slug: 'hair', label: 'Hairdressing', color: '#b91c1c' },
+  { key: 'dental', slug: 'dental', label: 'Dental', color: '#0369a1' },
+  { key: 'equipment', slug: 'equipment', label: 'Equipment', color: '#6b21a8' },
+  { key: 'software', slug: 'software', label: 'Software', color: '#2563eb' },
+  { key: 'consulting', slug: 'consulting', label: 'Consulting', color: '#0f766e' },
+]
+
+const RESOURCE_SEEDS: ResourcesResourceSeed[] = [
+  { key: 'dental-room-1', name: 'Dental Room 1', typeKey: 'room', tagKeys: ['room', 'dental'] },
+  { key: 'dental-room-2', name: 'Dental Room 2', typeKey: 'room', tagKeys: ['room', 'dental'] },
+  { key: 'dental-chair-1', name: 'Dental Chair 1', typeKey: 'dental_chair', tagKeys: ['seat', 'dental'] },
+  { key: 'dental-chair-2', name: 'Dental Chair 2', typeKey: 'dental_chair', tagKeys: ['seat', 'dental'] },
+  { key: 'software-room-a', name: 'Software Room A', typeKey: 'room', tagKeys: ['room', 'tech'] },
+  { key: 'engineer-laptop-1', name: 'Engineer Laptop 1', typeKey: 'laptop', tagKeys: ['tech', 'equipment'] },
+  { key: 'engineer-laptop-2', name: 'Engineer Laptop 2', typeKey: 'laptop', tagKeys: ['tech', 'equipment'] },
+  { key: 'salon-seat-1', name: 'Salon Seat 1', typeKey: 'client_seat', tagKeys: ['seat', 'hair'] },
+  { key: 'salon-seat-2', name: 'Salon Seat 2', typeKey: 'client_seat', tagKeys: ['seat', 'hair'] },
+  { key: 'hair-kit-a', name: 'Hair Kit A', typeKey: 'hair_kit', tagKeys: ['hair', 'equipment'] },
+  { key: 'hair-kit-b', name: 'Hair Kit B', typeKey: 'hair_kit', tagKeys: ['hair', 'equipment'] },
+]
+
+export async function seedResourcesResourceExamples(
+  em: EntityManager,
+  scope: ResourcesSeedScope,
+) {
+  const now = new Date()
+  await ensureResourceCustomFields(em, scope)
+  const typeNames = RESOURCE_TYPE_SEEDS.map((seed) => seed.name)
+  const existingTypes = await findWithDecryption(
+    em,
+    ResourcesResourceType,
+    {
+      tenantId: scope.tenantId,
+      organizationId: scope.organizationId,
+      name: { $in: typeNames },
+      deletedAt: null,
+    },
+    undefined,
+    scope,
+  )
+  const typeByName = new Map(existingTypes.map((type) => [type.name.toLowerCase(), type]))
+  const typeByKey = new Map<string, ResourcesResourceType>()
+  for (const seed of RESOURCE_TYPE_SEEDS) {
+    const existing = typeByName.get(seed.name.toLowerCase())
+    if (existing) {
+      if (!existing.appearanceIcon && seed.appearanceIcon) {
+        existing.appearanceIcon = seed.appearanceIcon
+      }
+      if (!existing.appearanceColor && seed.appearanceColor) {
+        existing.appearanceColor = seed.appearanceColor
+      }
+      if (existing.appearanceIcon || existing.appearanceColor) {
+        existing.updatedAt = now
+        em.persist(existing)
+      }
+      typeByKey.set(seed.key, existing)
+      continue
+    }
+    const record = em.create(ResourcesResourceType, {
+      tenantId: scope.tenantId,
+      organizationId: scope.organizationId,
+      name: seed.name,
+      description: seed.description ?? null,
+      appearanceIcon: seed.appearanceIcon ?? null,
+      appearanceColor: seed.appearanceColor ?? null,
+      createdAt: now,
+      updatedAt: now,
+    })
+    em.persist(record)
+    typeByKey.set(seed.key, record)
+  }
+  await em.flush()
+
+  const allTypes = await findWithDecryption(
+    em,
+    ResourcesResourceType,
+    {
+      tenantId: scope.tenantId,
+      organizationId: scope.organizationId,
+      deletedAt: null,
+    },
+    undefined,
+    scope,
+  )
+  const typeNameById = new Map(allTypes.map((type) => [type.id, type.name]))
+
+  const tagSlugs = TAG_SEEDS.map((seed) => seed.slug)
+  const existingTags = await findWithDecryption(
+    em,
+    ResourcesResourceTag,
+    {
+      tenantId: scope.tenantId,
+      organizationId: scope.organizationId,
+      slug: { $in: tagSlugs },
+    },
+    undefined,
+    scope,
+  )
+  const tagBySlug = new Map(existingTags.map((tag) => [tag.slug.toLowerCase(), tag]))
+  const tagByKey = new Map<string, ResourcesResourceTag>()
+  for (const seed of TAG_SEEDS) {
+    const existing = tagBySlug.get(seed.slug.toLowerCase())
+    if (existing) {
+      tagByKey.set(seed.key, existing)
+      continue
+    }
+    const tag = em.create(ResourcesResourceTag, {
+      tenantId: scope.tenantId,
+      organizationId: scope.organizationId,
+      slug: seed.slug,
+      label: seed.label,
+      color: seed.color ?? null,
+      description: seed.description ?? null,
+      createdAt: now,
+      updatedAt: now,
+    })
+    em.persist(tag)
+    tagByKey.set(seed.key, tag)
+  }
+  await em.flush()
+
+  const resourceNames = RESOURCE_SEEDS.map((seed) => seed.name)
+  const existingResources = await findWithDecryption(
+    em,
+    ResourcesResource,
+    {
+      tenantId: scope.tenantId,
+      organizationId: scope.organizationId,
+      name: { $in: resourceNames },
+      deletedAt: null,
+    },
+    undefined,
+    scope,
+  )
+  const resourceByName = new Map(existingResources.map((resource) => [resource.name.toLowerCase(), resource]))
+  const resourceByKey = new Map<string, ResourcesResource>()
+  for (const seed of RESOURCE_SEEDS) {
+    const existing = resourceByName.get(seed.name.toLowerCase())
+    if (existing) {
+      if (!existing.resourceTypeId && seed.typeKey) {
+        const typeId = typeByKey.get(seed.typeKey)?.id ?? null
+        if (typeId) {
+          existing.resourceTypeId = typeId
+          existing.updatedAt = now
+          em.persist(existing)
+        }
+      }
+      resourceByKey.set(seed.key, existing)
+      continue
+    }
+    const resourceTypeId = seed.typeKey ? typeByKey.get(seed.typeKey)?.id ?? null : null
+    const resource = em.create(ResourcesResource, {
+      tenantId: scope.tenantId,
+      organizationId: scope.organizationId,
+      name: seed.name,
+      resourceTypeId,
+      isActive: true,
+      createdAt: now,
+      updatedAt: now,
+    })
+    em.persist(resource)
+    resourceByKey.set(seed.key, resource)
+  }
+  await em.flush()
+
+  const resourcesInScope = await findWithDecryption(
+    em,
+    ResourcesResource,
+    {
+      tenantId: scope.tenantId,
+      organizationId: scope.organizationId,
+      deletedAt: null,
+    },
+    undefined,
+    scope,
+  )
+  const seedKeyByName = new Map(RESOURCE_SEEDS.map((seed) => [seed.name.toLowerCase(), seed.key]))
+  for (const resource of resourcesInScope) {
+    const resourceName = resource.name ?? 'Resource'
+    const seedKey = seedKeyByName.get(resourceName.toLowerCase()) ?? null
+    const typeName = resource.resourceTypeId ? typeNameById.get(resource.resourceTypeId) ?? null : null
+    const fieldsetCode = resolveResourcesResourceFieldsetCode(typeName ?? resourceName)
+    const customValues = {
+      ...buildBaseResourceCustomValues(resourceName, seedKey),
+      ...buildResourceTypeCustomValues(fieldsetCode, seedKey),
+    }
+    await fillMissingResourceCustomFields(em, scope, resource, customValues)
+  }
+
+  const resourceList = Array.from(resourceByKey.values())
+  if (resourceList.length > 0) {
+    const existingAssignments = await findWithDecryption(
+      em,
+      ResourcesResourceTagAssignment,
+      {
+        tenantId: scope.tenantId,
+        organizationId: scope.organizationId,
+        resource: { $in: resourceList.map((resource) => resource.id) },
+      },
+      { populate: ['resource', 'tag'] },
+      scope,
+    )
+    const assignmentMap = new Map<string, Set<string>>()
+    for (const assignment of existingAssignments) {
+      const resourceId = assignment.resource?.id
+      const tagId = assignment.tag?.id
+      if (!resourceId || !tagId) continue
+      const set = assignmentMap.get(resourceId) ?? new Set<string>()
+      set.add(tagId)
+      assignmentMap.set(resourceId, set)
+    }
+
+    for (const seed of RESOURCE_SEEDS) {
+      const resource = resourceByKey.get(seed.key)
+      if (!resource) continue
+      const existing = assignmentMap.get(resource.id) ?? new Set<string>()
+      for (const tagKey of seed.tagKeys) {
+        const tag = tagByKey.get(tagKey)
+        if (!tag || existing.has(tag.id)) continue
+        const assignment = em.create(ResourcesResourceTagAssignment, {
+          tenantId: scope.tenantId,
+          organizationId: scope.organizationId,
+          resource: em.getReference(ResourcesResource, resource.id),
+          tag: em.getReference(ResourcesResourceTag, tag.id),
+          createdAt: now,
+          updatedAt: now,
+        })
+        em.persist(assignment)
+        existing.add(tag.id)
+      }
+      assignmentMap.set(resource.id, existing)
+    }
+    await em.flush()
+  }
+}
