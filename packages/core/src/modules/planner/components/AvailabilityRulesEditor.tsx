@@ -565,6 +565,33 @@ export function AvailabilityRulesEditor({
     }
   }, [onRulesetChange])
 
+  const fetchUnavailabilityReasonOptions = React.useCallback(async () => {
+    const entries = await loadUnavailabilityReasonEntries(subjectType)
+    const map: Record<string, UnavailabilityReasonEntry> = {}
+    entries.forEach((entry) => {
+      map[entry.id] = entry
+    })
+    setReasonEntriesById(map)
+    return entries.map((entry) => ({
+      value: entry.id,
+      label: entry.label ?? entry.value,
+      color: entry.color,
+      icon: entry.icon,
+    }))
+  }, [subjectType])
+
+  const createUnavailabilityReasonOption = React.useCallback(async (input: { value: string; label?: string; color?: string | null; icon?: string | null }) => {
+    const entry = await createUnavailabilityReasonEntry(subjectType, input)
+    if (!entry) return null
+    setReasonEntriesById((prev) => ({ ...prev, [entry.id]: entry }))
+    return {
+      value: entry.id,
+      label: entry.label ?? entry.value,
+      color: entry.color,
+      icon: entry.icon,
+    }
+  }, [subjectType])
+
   React.useEffect(() => {
     void refreshAvailability()
   }, [refreshAvailability])
@@ -980,6 +1007,8 @@ export function AvailabilityRulesEditor({
           exdates: rule.exdates ?? [],
           kind: rule.kind ?? 'availability',
           note: rule.note ?? null,
+          unavailabilityReasonEntryId: resolveRuleReasonEntryId(rule),
+          unavailabilityReasonValue: resolveRuleReasonValue(rule),
         }, { errorMessage: listLabels.ruleSetCreateError }))
       })
     }
@@ -1013,6 +1042,7 @@ export function AvailabilityRulesEditor({
     setEditorRules(rules)
     setEditorUnavailable(scope === 'date' && Boolean(unavailableRule))
     setEditorNote(unavailableRule?.note ?? '')
+    setEditorReasonEntryId(scope === 'date' ? resolveRuleReasonEntryId(unavailableRule) : null)
     if (scope === 'date') {
       const date = options?.date ?? new Date()
       const windows = buildWindowsFromRules(rules)
@@ -1027,6 +1057,7 @@ export function AvailabilityRulesEditor({
       setEditorWindows(windows.length ? windows : [createDefaultWindow()])
       setEditorUnavailable(false)
       setEditorNote('')
+      setEditorReasonEntryId(null)
     }
     setEditorOpen(true)
   }, [])
@@ -1085,6 +1116,8 @@ export function AvailabilityRulesEditor({
       const dates = Array.from(new Set(editorDates.filter((value) => value && value.length)))
       if (editorScope === 'date') {
         const trimmedNote = editorNote.trim()
+        const reasonEntryId = editorUnavailable ? editorReasonEntryId : null
+        const reasonValue = reasonEntryId ? (reasonEntriesById[reasonEntryId]?.value ?? null) : null
         const payload: Record<string, unknown> = {
           subjectType: subjectForRules,
           subjectId: subjectIdForRules,
@@ -1093,6 +1126,8 @@ export function AvailabilityRulesEditor({
           windows: editorUnavailable ? [] : validWindows,
           kind: editorUnavailable ? 'unavailability' : 'availability',
           note: editorUnavailable && trimmedNote.length ? trimmedNote : null,
+          unavailabilityReasonEntryId: editorUnavailable ? reasonEntryId : null,
+          unavailabilityReasonValue: editorUnavailable ? reasonValue : null,
         }
         await apiCallOrThrow('/api/planner/availability-date-specific', {
           method: 'POST',
@@ -1139,6 +1174,7 @@ export function AvailabilityRulesEditor({
     editorScope,
     editorUnavailable,
     editorNote,
+    editorReasonEntryId,
     editorWeekday,
     editorWindowErrors,
     editorWindows,
@@ -1146,6 +1182,7 @@ export function AvailabilityRulesEditor({
     listLabels.saveDateSuccess,
     refreshAvailability,
     refreshRuleSetRules,
+    reasonEntriesById,
     rulesetId,
     subjectId,
     subjectType,
@@ -1391,6 +1428,7 @@ export function AvailabilityRulesEditor({
                     const weekdayText = weekdayLabel ? t(weekdayLabel.nameKey, weekdayLabel.fallback) : date
                     const weekdayShort = weekdayLabel ? weekdayLabel.short : '?'
                     const unavailableRule = rules.find((rule) => rule.kind === 'unavailability')
+                    const unavailableReason = resolveRuleReasonValue(unavailableRule)
                     return (
                       <div key={date} className="flex flex-wrap items-start gap-3 rounded-lg border bg-background p-3">
                         <div className="flex w-10 justify-center pt-1">
@@ -1442,6 +1480,9 @@ export function AvailabilityRulesEditor({
                             {unavailableRule ? (
                               <div className="space-y-1">
                                 <div className="font-medium text-foreground">{listLabels.unavailableTitle}</div>
+                                {unavailableReason ? (
+                                  <div className="text-xs text-muted-foreground">{unavailableReason}</div>
+                                ) : null}
                                 {unavailableRule.note ? (
                                   <div className="text-xs text-muted-foreground">{unavailableRule.note}</div>
                                 ) : null}
@@ -1473,6 +1514,7 @@ export function AvailabilityRulesEditor({
             setEditorRules([])
             setEditorUnavailable(false)
             setEditorNote('')
+            setEditorReasonEntryId(null)
           }
         }}
       >
@@ -1523,6 +1565,7 @@ export function AvailabilityRulesEditor({
                               setEditorScope('weekday')
                               setEditorUnavailable(false)
                               setEditorNote('')
+                              setEditorReasonEntryId(null)
                             }}
                             className={`rounded-md px-3 py-1.5 text-sm font-medium transition ${
                               editorScope === 'weekday'
@@ -1568,7 +1611,14 @@ export function AvailabilityRulesEditor({
                               type="checkbox"
                               className="mt-0.5 size-4"
                               checked={editorUnavailable}
-                              onChange={(event) => setEditorUnavailable(event.target.checked)}
+                              onChange={(event) => {
+                                const checked = event.target.checked
+                                setEditorUnavailable(checked)
+                                if (!checked) {
+                                  setEditorNote('')
+                                  setEditorReasonEntryId(null)
+                                }
+                              }}
                             />
                             <div>
                               <div className="font-medium text-foreground">{listLabels.unavailableLabel}</div>
@@ -1576,14 +1626,28 @@ export function AvailabilityRulesEditor({
                             </div>
                           </label>
                           {editorUnavailable ? (
-                            <div className="space-y-2">
-                              <label className="text-xs font-medium text-muted-foreground">{listLabels.unavailableNoteLabel}</label>
-                              <Input
-                                type="text"
-                                value={editorNote}
-                                placeholder={listLabels.unavailableNotePlaceholder}
-                                onChange={(event) => setEditorNote(event.target.value)}
-                              />
+                            <div className="space-y-3">
+                              <div className="space-y-2">
+                                <label className="text-xs font-medium text-muted-foreground">{listLabels.unavailableReasonLabel}</label>
+                                <DictionaryEntrySelect
+                                  value={editorReasonEntryId ?? undefined}
+                                  onChange={(next) => setEditorReasonEntryId(next ?? null)}
+                                  fetchOptions={fetchUnavailabilityReasonOptions}
+                                  createOption={createUnavailabilityReasonOption}
+                                  labels={unavailableReasonLabels}
+                                  selectClassName="w-full"
+                                  manageHref="/backend/config/dictionaries"
+                                />
+                              </div>
+                              <div className="space-y-2">
+                                <label className="text-xs font-medium text-muted-foreground">{listLabels.unavailableNoteLabel}</label>
+                                <Input
+                                  type="text"
+                                  value={editorNote}
+                                  placeholder={listLabels.unavailableNotePlaceholder}
+                                  onChange={(event) => setEditorNote(event.target.value)}
+                                />
+                              </div>
                             </div>
                           ) : null}
                         </div>

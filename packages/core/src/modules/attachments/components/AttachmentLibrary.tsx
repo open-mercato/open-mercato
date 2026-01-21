@@ -691,8 +691,6 @@ function AttachmentUploadForm({ partitions, availableTags, onUploaded, onCancel 
     </div>
   )
 }
-
-                   >
 type UploadDialogProps = {
   open: boolean
   onOpenChange: (next: boolean) => void
