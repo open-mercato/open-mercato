@@ -198,15 +198,54 @@ function buildResourceTypeCustomValues(
         chair_inspection_notes: 'Monthly inspection scheduled.',
       }
     case RESOURCES_RESOURCE_FIELDSET_VEHICLE:
-      return {
-        vehicle_plate: 'OM-2034',
-        vehicle_model: 'Polestar 2',
-        vehicle_fuel_type: 'electric',
-        vehicle_mileage_km: 18200,
-        vehicle_last_service: '2025-02-18',
-      }
+      return buildVehicleCustomValues(seedKey)
     default:
       return {}
+  }
+}
+
+type VehicleSeedDetails = {
+  model: string
+  plate: string
+  fuelType: string
+  mileageKm: number
+  lastService: string
+}
+
+const VEHICLE_SEED_DETAILS: Record<string, VehicleSeedDetails> = {
+  'company-car-1': {
+    model: 'Tesla Model 3',
+    plate: 'WWA 4K32',
+    fuelType: 'electric',
+    mileageKm: 18240,
+    lastService: '2025-02-18',
+  },
+  'company-car-2': {
+    model: 'Volvo XC40 Recharge',
+    plate: 'WPR 9L18',
+    fuelType: 'electric',
+    mileageKm: 22610,
+    lastService: '2024-12-05',
+  },
+}
+
+function buildVehicleCustomValues(seedKey?: string | null): Record<string, string | number | boolean | null> {
+  const details = seedKey ? VEHICLE_SEED_DETAILS[seedKey] : undefined
+  if (!details) {
+    return {
+      vehicle_plate: 'OM-2034',
+      vehicle_model: 'Polestar 2',
+      vehicle_fuel_type: 'electric',
+      vehicle_mileage_km: 18200,
+      vehicle_last_service: '2025-02-18',
+    }
+  }
+  return {
+    vehicle_plate: details.plate,
+    vehicle_model: details.model,
+    vehicle_fuel_type: details.fuelType,
+    vehicle_mileage_km: details.mileageKm,
+    vehicle_last_service: details.lastService,
   }
 }
 
@@ -289,8 +328,8 @@ const RESOURCE_SEEDS: ResourcesResourceSeed[] = [
   { key: 'focus-room-2', name: 'Focus Room 2', typeKey: 'focus_room', tagKeys: ['room', 'focus'] },
   { key: 'engineering-laptop-1', name: 'Engineering Laptop 1', typeKey: 'laptop', tagKeys: ['tech', 'equipment'] },
   { key: 'engineering-laptop-2', name: 'Engineering Laptop 2', typeKey: 'laptop', tagKeys: ['tech', 'equipment'] },
-  { key: 'company-car-1', name: 'Company Car 1', typeKey: 'company_car', tagKeys: ['vehicle'] },
-  { key: 'company-car-2', name: 'Company Car 2', typeKey: 'company_car', tagKeys: ['vehicle'] },
+  { key: 'company-car-1', name: 'Tesla Model 3 - WWA 4K32', typeKey: 'company_car', tagKeys: ['vehicle'] },
+  { key: 'company-car-2', name: 'Volvo XC40 Recharge - WPR 9L18', typeKey: 'company_car', tagKeys: ['vehicle'] },
 ]
 
 export async function seedResourcesResourceExamples(

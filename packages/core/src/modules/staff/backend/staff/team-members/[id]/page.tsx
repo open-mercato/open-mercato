@@ -59,6 +59,7 @@ export default function StaffTeamMemberDetailPage({ params }: { params?: { id?: 
   const [initialValues, setInitialValues] = React.useState<TeamMemberFormValues | null>(null)
   const [memberRecord, setMemberRecord] = React.useState<TeamMemberRecord | null>(null)
   const [availabilityRuleSetId, setAvailabilityRuleSetId] = React.useState<string | null>(null)
+  const [activePanel, setActivePanel] = React.useState<'details' | 'availability'>('details')
   const [activeTab, setActiveTab] = React.useState<'notes' | 'activities' | 'addresses'>('notes')
   const [sectionAction, setSectionAction] = React.useState<SectionAction | null>(null)
   const flashShownRef = React.useRef(false)
@@ -207,6 +208,11 @@ export default function StaffTeamMemberDetailPage({ params }: { params?: { id?: 
     flash(t('staff.teamMembers.availability.ruleset.updateSuccess', 'Schedule updated.'), 'success')
   }, [memberId, t])
 
+  const panelTabs = React.useMemo(() => ([
+    { id: 'details' as const, label: t('staff.teamMembers.detail.tabs.details', 'Details') },
+    { id: 'availability' as const, label: t('staff.teamMembers.detail.tabs.availability', 'Availability') },
+  ]), [t])
+
   const tabs = React.useMemo(() => ([
     { id: 'notes' as const, label: t('staff.teamMembers.detail.tabs.notes', 'Notes') },
     { id: 'activities' as const, label: t('staff.teamMembers.detail.tabs.activities', 'Activities') },
@@ -249,174 +255,199 @@ export default function StaffTeamMemberDetailPage({ params }: { params?: { id?: 
             </div>
           </div>
 
-          <div className="grid gap-6 lg:grid-cols-[minmax(0,2fr),minmax(0,1.1fr)]">
-            <div className="space-y-6">
-              <div className="rounded-lg border bg-card p-4">
-                <h2 className="mb-4 text-sm font-semibold uppercase text-muted-foreground">
-                  {t('staff.teamMembers.detail.highlights', 'Highlights')}
-                </h2>
-                <div className="grid gap-4 sm:grid-cols-2">
-                  <div>
-                    <p className="text-xs font-medium uppercase text-muted-foreground">
-                      {t('staff.teamMembers.detail.fields.team', 'Team')}
-                    </p>
-                    <p className="text-base text-foreground">{teamLabel}</p>
-                  </div>
-                  <div>
-                    <p className="text-xs font-medium uppercase text-muted-foreground">
-                      {t('staff.teamMembers.detail.fields.roles', 'Roles')}
-                    </p>
-                    <p className="text-base text-foreground">{roleLabels.join(', ')}</p>
-                  </div>
-                  <div>
-                    <p className="text-xs font-medium uppercase text-muted-foreground">
-                      {t('staff.teamMembers.detail.fields.user', 'User')}
-                    </p>
-                    <p className="text-base text-foreground">
-                      {userEmail ?? t('staff.teamMembers.detail.fields.userEmpty', 'No user linked')}
-                    </p>
-                  </div>
-                  <div>
-                    <p className="text-xs font-medium uppercase text-muted-foreground">
-                      {t('staff.teamMembers.detail.fields.status', 'Status')}
-                    </p>
-                    <p className="text-base text-foreground">
-                      {memberRecord?.isActive ?? memberRecord?.is_active
-                        ? t('staff.teamMembers.detail.status.active', 'Active')
-                        : t('staff.teamMembers.detail.status.inactive', 'Inactive')}
-                    </p>
-                  </div>
-                </div>
-              </div>
-
-              <div className="rounded-lg border bg-card p-4">
-                <div className="flex flex-wrap items-center justify-between gap-3">
-                  <div className="flex gap-2">
-                    {tabs.map((tab) => (
-                      <button
-                        key={tab.id}
-                        type="button"
-                        onClick={() => setActiveTab(tab.id)}
-                        className={`relative -mb-px border-b-2 px-0 py-1 text-sm font-medium transition-colors ${
-                          activeTab === tab.id
-                            ? 'border-primary text-foreground'
-                            : 'border-transparent text-muted-foreground hover:text-foreground'
-                        }`}
-                      >
-                        {tab.label}
-                      </button>
-                    ))}
-                  </div>
-                  {sectionAction ? (
-                    <Button
-                      type="button"
-                      size="sm"
-                      disabled={sectionAction.disabled}
-                      onClick={() => sectionAction.onClick()}
-                    >
-                      {sectionAction.label}
-                    </Button>
-                  ) : null}
-                </div>
-                {activeTab === 'notes' ? (
-                  <NotesSection
-                    entityId={memberId ?? null}
-                    emptyLabel={t('staff.teamMembers.detail.notes.empty', 'No notes yet.')}
-                    viewerUserId={null}
-                    viewerName={null}
-                    viewerEmail={null}
-                    addActionLabel={t('staff.teamMembers.detail.notes.add', 'Add note')}
-                    emptyState={{
-                      title: t('staff.teamMembers.detail.notes.emptyTitle', 'Keep everyone in the loop'),
-                      actionLabel: t('staff.teamMembers.detail.notes.emptyAction', 'Add a note'),
-                    }}
-                    onActionChange={setSectionAction}
-                    translator={detailTranslator}
-                    labelPrefix="staff.teamMembers.detail.notes"
-                    inlineLabelPrefix="staff.teamMembers.detail.inline"
-                    onLoadingChange={() => {}}
-                    dataAdapter={notesAdapter}
-                    renderIcon={renderDictionaryIcon}
-                    renderColor={renderDictionaryColor}
-                    iconSuggestions={ICON_SUGGESTIONS}
-                  />
-                ) : null}
-                {activeTab === 'activities' ? (
-                  <ActivitiesSection
-                    entityId={memberId ?? null}
-                    addActionLabel={t('staff.teamMembers.detail.activities.add', 'Log activity')}
-                    emptyState={{
-                      title: t('staff.teamMembers.detail.activities.emptyTitle', 'No activities yet'),
-                      actionLabel: t('staff.teamMembers.detail.activities.emptyAction', 'Add an activity'),
-                    }}
-                    onActionChange={setSectionAction}
-                    onLoadingChange={() => {}}
-                    dataAdapter={activitiesAdapter}
-                    activityTypeLabels={activityTypeLabels}
-                    loadActivityOptions={loadActivityOptions}
-                    createActivityOption={createActivityOption}
-                    labelPrefix="staff.teamMembers.detail.activities"
-                    renderIcon={renderDictionaryIcon}
-                    renderColor={renderDictionaryColor}
-                    appearanceLabels={appearanceLabels}
-                  />
-                ) : null}
-                {activeTab === 'addresses' ? (
-                  <SharedAddressesSection
-                    entityId={memberId ?? null}
-                    emptyLabel={t('staff.teamMembers.detail.addresses.empty', 'No addresses yet.')}
-                    addActionLabel={t('staff.teamMembers.detail.addresses.add', 'Add address')}
-                    emptyState={{
-                      title: t('staff.teamMembers.detail.addresses.emptyTitle', 'No addresses yet'),
-                      actionLabel: t('staff.teamMembers.detail.addresses.emptyAction', 'Add an address'),
-                    }}
-                    onActionChange={setSectionAction}
-                    onLoadingChange={() => {}}
-                    dataAdapter={addressesAdapter}
-                    addressTypesAdapter={addressTypesAdapter}
-                    labelPrefix="staff.teamMembers.detail.addresses"
-                  />
-                ) : null}
-              </div>
-            </div>
-            <div className="space-y-4">
-              <div className="rounded-lg border bg-card p-4">
-                <h2 className="mb-4 text-sm font-semibold uppercase text-muted-foreground">
-                  {t('staff.teamMembers.detail.details', 'Member details')}
-                </h2>
-                <div className="space-y-2 text-sm text-muted-foreground">
-                  {memberRecord?.description ? (
-                    <p>{memberRecord.description}</p>
-                  ) : (
-                    <p>{t('staff.teamMembers.detail.descriptionEmpty', 'No description provided.')}</p>
-                  )}
-                </div>
-              </div>
-            </div>
+          <div className="border-b">
+            <nav
+              className="flex flex-wrap items-center gap-5 text-sm"
+              aria-label={t('staff.teamMembers.detail.tabs.label', 'Team member sections')}
+            >
+              {panelTabs.map((tab) => (
+                <button
+                  key={tab.id}
+                  type="button"
+                  role="tab"
+                  aria-selected={activePanel === tab.id}
+                  onClick={() => setActivePanel(tab.id)}
+                  className={`relative -mb-px border-b-2 px-0 py-2 text-sm font-medium transition-colors ${
+                    activePanel === tab.id
+                      ? 'border-primary text-foreground'
+                      : 'border-transparent text-muted-foreground hover:text-foreground'
+                  }`}
+                >
+                  {tab.label}
+                </button>
+              ))}
+            </nav>
           </div>
 
-          <TeamMemberForm
-            title={t('staff.teamMembers.form.editTitle', 'Edit team member')}
-            backHref="/backend/staff/team-members"
-            cancelHref="/backend/staff/team-members"
-            initialValues={resolvedInitialValues}
-            onSubmit={handleSubmit}
-            onDelete={handleDelete}
-            isLoading={!initialValues}
-            loadingMessage={t('staff.teamMembers.form.loading', 'Loading team member...')}
-          />
+          {activePanel === 'details' ? (
+            <>
+              <div className="grid gap-6 lg:grid-cols-[minmax(0,2fr),minmax(0,1.1fr)]">
+                <div className="space-y-6">
+                  <div className="rounded-lg border bg-card p-4">
+                    <h2 className="mb-4 text-sm font-semibold uppercase text-muted-foreground">
+                      {t('staff.teamMembers.detail.highlights', 'Highlights')}
+                    </h2>
+                    <div className="grid gap-4 sm:grid-cols-2">
+                      <div>
+                        <p className="text-xs font-medium uppercase text-muted-foreground">
+                          {t('staff.teamMembers.detail.fields.team', 'Team')}
+                        </p>
+                        <p className="text-base text-foreground">{teamLabel}</p>
+                      </div>
+                      <div>
+                        <p className="text-xs font-medium uppercase text-muted-foreground">
+                          {t('staff.teamMembers.detail.fields.roles', 'Roles')}
+                        </p>
+                        <p className="text-base text-foreground">{roleLabels.join(', ')}</p>
+                      </div>
+                      <div>
+                        <p className="text-xs font-medium uppercase text-muted-foreground">
+                          {t('staff.teamMembers.detail.fields.user', 'User')}
+                        </p>
+                        <p className="text-base text-foreground">
+                          {userEmail ?? t('staff.teamMembers.detail.fields.userEmpty', 'No user linked')}
+                        </p>
+                      </div>
+                      <div>
+                        <p className="text-xs font-medium uppercase text-muted-foreground">
+                          {t('staff.teamMembers.detail.fields.status', 'Status')}
+                        </p>
+                        <p className="text-base text-foreground">
+                          {memberRecord?.isActive ?? memberRecord?.is_active
+                            ? t('staff.teamMembers.detail.status.active', 'Active')
+                            : t('staff.teamMembers.detail.status.inactive', 'Inactive')}
+                        </p>
+                      </div>
+                    </div>
+                  </div>
 
-          <AvailabilityRulesEditor
-            subjectType="member"
-            subjectId={memberId ?? ''}
-            labelPrefix="staff.teamMembers"
-            mode="availability"
-            rulesetId={availabilityRuleSetId}
-            onRulesetChange={handleRulesetChange}
-            buildScheduleItems={({ availabilityRules, translate: translateLabel }) => (
-              buildMemberScheduleItems({ availabilityRules, translate: translateLabel })
-            )}
-          />
+                  <div className="rounded-lg border bg-card p-4">
+                    <div className="flex flex-wrap items-center justify-between gap-3">
+                      <div className="flex gap-2">
+                        {tabs.map((tab) => (
+                          <button
+                            key={tab.id}
+                            type="button"
+                            onClick={() => setActiveTab(tab.id)}
+                            className={`relative -mb-px border-b-2 px-0 py-1 text-sm font-medium transition-colors ${
+                              activeTab === tab.id
+                                ? 'border-primary text-foreground'
+                                : 'border-transparent text-muted-foreground hover:text-foreground'
+                            }`}
+                          >
+                            {tab.label}
+                          </button>
+                        ))}
+                      </div>
+                      {sectionAction ? (
+                        <Button
+                          type="button"
+                          size="sm"
+                          disabled={sectionAction.disabled}
+                          onClick={() => sectionAction.onClick()}
+                        >
+                          {sectionAction.label}
+                        </Button>
+                      ) : null}
+                    </div>
+                    {activeTab === 'notes' ? (
+                      <NotesSection
+                        entityId={memberId ?? null}
+                        emptyLabel={t('staff.teamMembers.detail.notes.empty', 'No notes yet.')}
+                        viewerUserId={null}
+                        viewerName={null}
+                        viewerEmail={null}
+                        addActionLabel={t('staff.teamMembers.detail.notes.add', 'Add note')}
+                        emptyState={{
+                          title: t('staff.teamMembers.detail.notes.emptyTitle', 'Keep everyone in the loop'),
+                          actionLabel: t('staff.teamMembers.detail.notes.emptyAction', 'Add a note'),
+                        }}
+                        onActionChange={setSectionAction}
+                        translator={detailTranslator}
+                        labelPrefix="staff.teamMembers.detail.notes"
+                        inlineLabelPrefix="staff.teamMembers.detail.inline"
+                        dataAdapter={notesAdapter}
+                        renderIcon={renderDictionaryIcon}
+                        renderColor={renderDictionaryColor}
+                        iconSuggestions={ICON_SUGGESTIONS}
+                      />
+                    ) : null}
+                    {activeTab === 'activities' ? (
+                      <ActivitiesSection
+                        entityId={memberId ?? null}
+                        addActionLabel={t('staff.teamMembers.detail.activities.add', 'Log activity')}
+                        emptyState={{
+                          title: t('staff.teamMembers.detail.activities.emptyTitle', 'No activities yet'),
+                          actionLabel: t('staff.teamMembers.detail.activities.emptyAction', 'Add an activity'),
+                        }}
+                        onActionChange={setSectionAction}
+                        dataAdapter={activitiesAdapter}
+                        activityTypeLabels={activityTypeLabels}
+                        loadActivityOptions={loadActivityOptions}
+                        createActivityOption={createActivityOption}
+                        labelPrefix="staff.teamMembers.detail.activities"
+                        renderIcon={renderDictionaryIcon}
+                        renderColor={renderDictionaryColor}
+                        appearanceLabels={appearanceLabels}
+                      />
+                    ) : null}
+                    {activeTab === 'addresses' ? (
+                      <SharedAddressesSection
+                        entityId={memberId ?? null}
+                        emptyLabel={t('staff.teamMembers.detail.addresses.empty', 'No addresses yet.')}
+                        addActionLabel={t('staff.teamMembers.detail.addresses.add', 'Add address')}
+                        emptyState={{
+                          title: t('staff.teamMembers.detail.addresses.emptyTitle', 'No addresses yet'),
+                          actionLabel: t('staff.teamMembers.detail.addresses.emptyAction', 'Add an address'),
+                        }}
+                        onActionChange={setSectionAction}
+                        dataAdapter={addressesAdapter}
+                        addressTypesAdapter={addressTypesAdapter}
+                        labelPrefix="staff.teamMembers.detail.addresses"
+                      />
+                    ) : null}
+                  </div>
+                </div>
+                <div className="space-y-4">
+                  <div className="rounded-lg border bg-card p-4">
+                    <h2 className="mb-4 text-sm font-semibold uppercase text-muted-foreground">
+                      {t('staff.teamMembers.detail.details', 'Member details')}
+                    </h2>
+                    <div className="space-y-2 text-sm text-muted-foreground">
+                      {memberRecord?.description ? (
+                        <p>{memberRecord.description}</p>
+                      ) : (
+                        <p>{t('staff.teamMembers.detail.descriptionEmpty', 'No description provided.')}</p>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <TeamMemberForm
+                title={t('staff.teamMembers.form.editTitle', 'Edit team member')}
+                backHref="/backend/staff/team-members"
+                cancelHref="/backend/staff/team-members"
+                initialValues={resolvedInitialValues}
+                onSubmit={handleSubmit}
+                onDelete={handleDelete}
+                isLoading={!initialValues}
+                loadingMessage={t('staff.teamMembers.form.loading', 'Loading team member...')}
+              />
+            </>
+          ) : (
+            <AvailabilityRulesEditor
+              subjectType="member"
+              subjectId={memberId ?? ''}
+              labelPrefix="staff.teamMembers"
+              mode="availability"
+              rulesetId={availabilityRuleSetId}
+              onRulesetChange={handleRulesetChange}
+              buildScheduleItems={({ availabilityRules, translate: translateLabel }) => (
+                buildMemberScheduleItems({ availabilityRules, translate: translateLabel })
+              )}
+            />
+          )}
         </div>
       </PageBody>
     </Page>
