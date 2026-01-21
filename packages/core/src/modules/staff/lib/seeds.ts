@@ -290,7 +290,7 @@ export async function seedStaffActivityTypes(
 ) {
   const dictionary = await ensureStaffDictionary(em, scope, {
     key: STAFF_ACTIVITY_TYPE_DICTIONARY_KEY,
-    name: 'Team member activity types',
+    name: 'Staff activity types',
     description: 'Activity types for team member timelines (training, reviews, etc.).',
   })
   const existingEntries = await em.find(DictionaryEntry, {

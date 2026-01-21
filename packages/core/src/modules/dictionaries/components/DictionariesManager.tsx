@@ -39,6 +39,7 @@ export function DictionariesManager() {
   const [errors, setErrors] = React.useState<{ key?: string; name?: string }>({})
   const [submitting, setSubmitting] = React.useState(false)
   const [deleting, setDeleting] = React.useState<string | null>(null)
+  const selectionFromQueryApplied = React.useRef(false)
   const inheritedManageMessage = t('dictionaries.config.error.inheritedManage', 'Inherited dictionaries must be managed at the parent organization.')
   const requestedDictionaryId = searchParams?.get('dictionaryId') ?? null
   const requestedDictionaryKey = searchParams?.get('key')?.trim().toLowerCase() ?? null
@@ -83,12 +84,15 @@ export function DictionariesManager() {
   }, [loadDictionaries])
 
   React.useEffect(() => {
+    if (selectionFromQueryApplied.current) return
     if (!items.length) return
+    if (!requestedDictionaryId && !requestedDictionaryKey) return
     if (requestedDictionaryId) {
       const match = items.find((dictionary) => dictionary.id === requestedDictionaryId)
       if (match && selectedId !== match.id) {
         setSelectedId(match.id)
       }
+      selectionFromQueryApplied.current = true
       return
     }
     if (requestedDictionaryKey) {
@@ -96,6 +100,7 @@ export function DictionariesManager() {
       if (match && selectedId !== match.id) {
         setSelectedId(match.id)
       }
+      selectionFromQueryApplied.current = true
     }
   }, [items, requestedDictionaryId, requestedDictionaryKey, selectedId])
 
