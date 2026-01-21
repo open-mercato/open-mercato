@@ -170,10 +170,12 @@ export function LeaveRequestForm(props: LeaveRequestFormProps) {
     const selected = typeof initialValues.memberId === 'string' ? initialValues.memberId : null
     if (!selected || !allowMemberSelect) return
     if (memberOptions.some((option) => option.id === selected)) return
+    const selectedId = selected
     let cancelled = false
     async function loadMember() {
       try {
-        const params = new URLSearchParams({ page: '1', pageSize: '1', ids: selected })
+        const params = new URLSearchParams({ page: '1', pageSize: '1' })
+        params.set('ids', selectedId)
         const call = await apiCall<TeamMemberResponse>(`/api/staff/team-members?${params.toString()}`)
         const item = Array.isArray(call.result?.items) ? call.result.items[0] : null
         const id = typeof item?.id === 'string' ? item.id : null

@@ -74,7 +74,7 @@ type LeaveRequestAccess = {
 
 const uuidRegex = /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-5][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$/
 
-function resolveActorUserId(ctx: { auth?: { sub?: string; isApiKey?: boolean } }): string | null {
+function resolveActorUserId(ctx: { auth?: { sub?: string | null; isApiKey?: boolean } | null }): string | null {
   if (!ctx.auth || ctx.auth.isApiKey) return null
   const sub = ctx.auth.sub ?? null
   if (!sub || !uuidRegex.test(sub)) return null

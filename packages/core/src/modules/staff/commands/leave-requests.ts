@@ -62,7 +62,7 @@ function parseUuidCandidate(value: string | null | undefined): string | null {
   return uuidRegex.test(value) ? value : null
 }
 
-function resolveAuthUserId(ctx: { auth?: { sub?: string; isApiKey?: boolean } }): string | null {
+function resolveAuthUserId(ctx: { auth?: { sub?: string | null; isApiKey?: boolean } | null }): string | null {
   if (!ctx.auth || ctx.auth.isApiKey) return null
   return parseUuidCandidate(ctx.auth.sub ?? null)
 }

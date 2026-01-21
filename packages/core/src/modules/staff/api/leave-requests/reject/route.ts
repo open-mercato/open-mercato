@@ -9,7 +9,7 @@ import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { parseScopedCommandInput } from '@open-mercato/shared/lib/api/scoped'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
-import { staffLeaveRequestDecisionSchema, type StaffLeaveRequestDecisionInput } from '../../../../data/validators'
+import { staffLeaveRequestDecisionSchema, type StaffLeaveRequestDecisionInput } from '../../../data/validators'
 
 export const metadata = {
   POST: { requireAuth: true, requireFeatures: ['staff.leave_requests.manage'] },

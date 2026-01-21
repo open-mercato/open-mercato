@@ -110,7 +110,7 @@ export default function StaffMyLeaveRequestDetailPage({ params }: { params?: { i
     return (
       <Page>
         <PageBody>
-          <LoadingMessage message={t('staff.leaveRequests.form.loading', 'Loading leave request...')} />
+          <LoadingMessage label={t('staff.leaveRequests.form.loading', 'Loading leave request...')} />
         </PageBody>
       </Page>
     )
@@ -120,7 +120,7 @@ export default function StaffMyLeaveRequestDetailPage({ params }: { params?: { i
     return (
       <Page>
         <PageBody>
-          <ErrorMessage message={error ?? t('staff.leaveRequests.errors.load', 'Failed to load leave request.')} />
+          <ErrorMessage label={error ?? t('staff.leaveRequests.errors.load', 'Failed to load leave request.')} />
         </PageBody>
       </Page>
     )

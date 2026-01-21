@@ -63,7 +63,7 @@ export default function StaffMyAvailabilityPage() {
     return (
       <Page>
         <PageBody>
-          <LoadingMessage message={t('staff.myAvailability.loading', 'Loading availability...')} />
+          <LoadingMessage label={t('staff.myAvailability.loading', 'Loading availability...')} />
         </PageBody>
       </Page>
     )
@@ -73,7 +73,7 @@ export default function StaffMyAvailabilityPage() {
     return (
       <Page>
         <PageBody>
-          <ErrorMessage message={error} />
+          <ErrorMessage label={error} />
         </PageBody>
       </Page>
     )

@@ -44,7 +44,6 @@ export default function StaffLeaveRequestsPage() {
 
   const labels = React.useMemo(() => ({
     title: t('staff.leaveRequests.page.title', 'Leave requests'),
-    description: t('staff.leaveRequests.page.description', 'Review leave requests from your team.'),
     table: {
       member: t('staff.leaveRequests.table.member', 'Team member'),
       dates: t('staff.leaveRequests.table.dates', 'Dates'),
@@ -145,7 +144,6 @@ export default function StaffLeaveRequestsPage() {
       <PageBody>
         <DataTable<LeaveRequestRow>
           title={labels.title}
-          description={labels.description}
           data={rows}
           columns={columns}
           isLoading={isLoading}

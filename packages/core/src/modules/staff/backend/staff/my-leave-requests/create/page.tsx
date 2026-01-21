@@ -73,7 +73,7 @@ export default function StaffMyLeaveRequestCreatePage() {
     return (
       <Page>
         <PageBody>
-          <LoadingMessage message={t('staff.leaveRequests.form.loading', 'Loading leave request...')} />
+          <LoadingMessage label={t('staff.leaveRequests.form.loading', 'Loading leave request...')} />
         </PageBody>
       </Page>
     )
@@ -83,7 +83,7 @@ export default function StaffMyLeaveRequestCreatePage() {
     return (
       <Page>
         <PageBody>
-          <ErrorMessage message={error} />
+          <ErrorMessage label={error} />
         </PageBody>
       </Page>
     )

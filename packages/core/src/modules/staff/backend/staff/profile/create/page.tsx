@@ -73,7 +73,7 @@ export default function StaffProfileCreatePage() {
     return (
       <Page>
         <PageBody>
-          <LoadingMessage message={t('staff.teamMembers.form.loading', 'Loading team member...')} />
+          <LoadingMessage label={t('staff.teamMembers.form.loading', 'Loading team member...')} />
         </PageBody>
       </Page>
     )
@@ -83,7 +83,7 @@ export default function StaffProfileCreatePage() {
     return (
       <Page>
         <PageBody>
-          <ErrorMessage message={error} />
+          <ErrorMessage label={error} />
         </PageBody>
       </Page>
     )

@@ -11,7 +11,11 @@ import { parseScopedCommandInput } from '@open-mercato/shared/lib/api/scoped'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { StaffTeamMember } from '../../../data/entities'
-import { staffTeamMemberSelfCreateSchema, type StaffTeamMemberSelfCreateInput } from '../../../data/validators'
+import {
+  staffTeamMemberSelfCreateSchema,
+  type StaffTeamMemberSelfCreateInput,
+  type StaffTeamMemberCreateInput,
+} from '../../../data/validators'
 
 export const metadata = {
   GET: { requireAuth: true, requireFeatures: ['staff.leave_requests.send'] },
@@ -99,18 +103,19 @@ export async function POST(req: Request) {
     }
 
     const commandBus = (ctx.container.resolve('commandBus') as CommandBus)
-    const { result, logEntry } = await commandBus.execute<StaffTeamMemberSelfCreateInput, { memberId: string }>(
+    const selfInput: StaffTeamMemberCreateInput = {
+      ...parsed,
+      userId: auth.sub,
+      teamId: null,
+      roleIds: [],
+      tags: [],
+      availabilityRuleSetId: null,
+      isActive: true,
+    }
+    const { result, logEntry } = await commandBus.execute<StaffTeamMemberCreateInput, { memberId: string }>(
       'staff.team-members.create',
       {
-        input: {
-          ...parsed,
-          userId: auth.sub,
-          teamId: null,
-          roleIds: [],
-          tags: [],
-          availabilityRuleSetId: null,
-          isActive: true,
-        },
+        input: selfInput,
         ctx,
       },
     )
