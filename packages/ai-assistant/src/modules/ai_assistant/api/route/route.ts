@@ -7,7 +7,7 @@ import {
 } from '../../lib/ai-sdk'
 import { z } from 'zod'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
-import { createRequestContainer } from '@/lib/di/container'
+import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import {
   resolveChatConfig,
   isProviderConfigured,

@@ -1,7 +1,7 @@
 import { NextResponse, type NextRequest } from 'next/server'
 import { zodToJsonSchema } from 'zod-to-json-schema'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
-import { createRequestContainer } from '@/lib/di/container'
+import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { getToolRegistry } from '../../lib/tool-registry'
 import { loadAllModuleTools } from '../../lib/tool-loader'
 import { hasRequiredFeatures } from '../../lib/auth'
