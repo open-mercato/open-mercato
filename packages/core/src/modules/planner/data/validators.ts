@@ -80,9 +80,22 @@ export const plannerAvailabilityDateSpecificReplaceSchema = z.object({
   subjectType: availabilitySubjectSchema,
   subjectId: z.string().uuid(),
   timezone: z.string().min(1),
-  date: dateSpecificDateSchema,
+  date: dateSpecificDateSchema.optional(),
+  dates: z.array(dateSpecificDateSchema).optional(),
   windows: z.array(dateSpecificWindowSchema).default([]),
   isAvailable: z.boolean().default(true),
+  kind: availabilityKindSchema.optional(),
+  note: z.string().trim().max(200).optional().nullable(),
+}).superRefine((value, ctx) => {
+  const hasDate = typeof value.date === 'string' && value.date.length > 0
+  const hasDates = Array.isArray(value.dates) && value.dates.length > 0
+  if (!hasDate && !hasDates) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['date'],
+      message: 'Date is required.',
+    })
+  }
 })
 
 export type PlannerAvailabilityDateSpecificReplaceInput = z.infer<typeof plannerAvailabilityDateSpecificReplaceSchema>

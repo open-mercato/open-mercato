@@ -1024,18 +1024,19 @@ export function AvailabilityRulesEditor({
       const dates = Array.from(new Set(editorDates.filter((value) => value && value.length)))
       if (editorScope === 'date') {
         const trimmedNote = editorNote.trim()
+        const payload: Record<string, unknown> = {
+          subjectType: subjectForRules,
+          subjectId: subjectIdForRules,
+          timezone,
+          dates,
+          windows: editorUnavailable ? [] : validWindows,
+          kind: editorUnavailable ? 'unavailability' : 'availability',
+          note: editorUnavailable && trimmedNote.length ? trimmedNote : null,
+        }
         await apiCallOrThrow('/api/planner/availability-date-specific', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            subjectType: subjectForRules,
-            subjectId: subjectIdForRules,
-            timezone,
-            dates,
-            windows: editorUnavailable ? [] : validWindows,
-            kind: editorUnavailable ? 'unavailability' : 'availability',
-            note: editorUnavailable && trimmedNote.length ? trimmedNote : null,
-          }),
+          body: JSON.stringify(payload),
         }, { errorMessage: listLabels.saveDateError })
       } else {
         const rulesToDelete = editorRules

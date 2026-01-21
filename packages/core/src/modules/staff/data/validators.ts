@@ -77,6 +77,74 @@ export const staffTeamMemberUpdateSchema = z.object({
   isActive: z.boolean().optional(),
 })
 
+export const staffTeamMemberActivityCreateSchema = z.object({
+  ...scopedCreateFields,
+  entityId: z.string().uuid(),
+  activityType: z.string().min(1).max(100),
+  subject: z.string().max(200).optional(),
+  body: z.string().max(8000).optional(),
+  occurredAt: z.coerce.date().optional(),
+  authorUserId: z.string().uuid().optional(),
+  appearanceIcon: z.string().trim().max(100).optional().nullable(),
+  appearanceColor: z
+    .string()
+    .trim()
+    .regex(/^#([0-9a-fA-F]{6})$/)
+    .optional()
+    .nullable(),
+})
+
+export const staffTeamMemberActivityUpdateSchema = z
+  .object({
+    id: z.string().uuid(),
+  })
+  .merge(staffTeamMemberActivityCreateSchema.partial())
+
+export const staffTeamMemberCommentCreateSchema = z.object({
+  ...scopedCreateFields,
+  entityId: z.string().uuid(),
+  body: z.string().min(1).max(8000),
+  authorUserId: z.string().uuid().optional(),
+  appearanceIcon: z.string().trim().max(100).optional().nullable(),
+  appearanceColor: z
+    .string()
+    .trim()
+    .regex(/^#([0-9a-fA-F]{6})$/)
+    .optional()
+    .nullable(),
+})
+
+export const staffTeamMemberCommentUpdateSchema = z
+  .object({
+    id: z.string().uuid(),
+  })
+  .merge(staffTeamMemberCommentCreateSchema.partial())
+
+export const staffTeamMemberAddressCreateSchema = z.object({
+  ...scopedCreateFields,
+  entityId: z.string().uuid(),
+  name: z.string().max(150).optional(),
+  purpose: z.string().max(150).optional(),
+  companyName: z.string().max(200).optional(),
+  addressLine1: z.string().min(1).max(300),
+  addressLine2: z.string().max(300).optional(),
+  buildingNumber: z.string().max(50).optional(),
+  flatNumber: z.string().max(50).optional(),
+  city: z.string().max(150).optional(),
+  region: z.string().max(150).optional(),
+  postalCode: z.string().max(30).optional(),
+  country: z.string().max(150).optional(),
+  latitude: z.coerce.number().optional(),
+  longitude: z.coerce.number().optional(),
+  isPrimary: z.boolean().optional(),
+})
+
+export const staffTeamMemberAddressUpdateSchema = z
+  .object({
+    id: z.string().uuid(),
+  })
+  .merge(staffTeamMemberAddressCreateSchema.partial())
+
 export const staffTeamMemberTagAssignmentSchema = z.object({
   ...scopedCreateFields,
   memberId: z.string().uuid(),
@@ -90,3 +158,9 @@ export type StaffTeamRoleUpdateInput = z.infer<typeof staffTeamRoleUpdateSchema>
 export type StaffTeamMemberCreateInput = z.infer<typeof staffTeamMemberCreateSchema>
 export type StaffTeamMemberUpdateInput = z.infer<typeof staffTeamMemberUpdateSchema>
 export type StaffTeamMemberTagAssignmentInput = z.infer<typeof staffTeamMemberTagAssignmentSchema>
+export type StaffTeamMemberActivityCreateInput = z.infer<typeof staffTeamMemberActivityCreateSchema>
+export type StaffTeamMemberActivityUpdateInput = z.infer<typeof staffTeamMemberActivityUpdateSchema>
+export type StaffTeamMemberCommentCreateInput = z.infer<typeof staffTeamMemberCommentCreateSchema>
+export type StaffTeamMemberCommentUpdateInput = z.infer<typeof staffTeamMemberCommentUpdateSchema>
+export type StaffTeamMemberAddressCreateInput = z.infer<typeof staffTeamMemberAddressCreateSchema>
+export type StaffTeamMemberAddressUpdateInput = z.infer<typeof staffTeamMemberAddressUpdateSchema>

@@ -52,7 +52,8 @@ export async function POST(req: Request) {
     const { ctx } = await resolveRequestContext(req)
     const { translate } = await resolveTranslations()
     const payload = await req.json().catch(() => ({}))
-    const input = parseScopedCommandInput(plannerAvailabilityDateSpecificReplaceSchema, payload, ctx, translate)
+    const normalized = normalizeDateSpecificPayload(payload)
+    const input = parseScopedCommandInput(plannerAvailabilityDateSpecificReplaceSchema, normalized, ctx, translate)
     const commandBus = ctx.container.resolve('commandBus') as CommandBus
     const { logEntry } = await commandBus.execute('planner.availability.date-specific.replace', { input, ctx })
     const response = NextResponse.json({ ok: true })
@@ -103,4 +104,25 @@ export const openApi = {
       ],
     },
   },
+}
+
+type DateSpecificPayload = {
+  date?: string
+  dates?: string[]
+  kind?: string
+  isAvailable?: boolean
+  [key: string]: unknown
+}
+
+function normalizeDateSpecificPayload(payload: unknown): DateSpecificPayload {
+  if (!payload || typeof payload !== 'object') return {}
+  const data = { ...(payload as Record<string, unknown>) } as DateSpecificPayload
+  if (!data.date && Array.isArray(data.dates) && data.dates.length > 0) {
+    const first = data.dates.find((value) => typeof value === 'string' && value.length > 0)
+    if (first) data.date = first
+  }
+  if (data.isAvailable === undefined && typeof data.kind === 'string') {
+    data.isAvailable = data.kind !== 'unavailability'
+  }
+  return data
 }

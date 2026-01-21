@@ -1,81 +1,25 @@
 "use client"
 
 import * as React from 'react'
-import { flash } from '@open-mercato/ui/backend/FlashMessages'
-import { apiCallOrThrow, readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
-import { LoadingMessage } from '@open-mercato/ui/backend/detail'
-import { generateTempId } from '@open-mercato/core/modules/customers/lib/detailHelpers'
-import { CustomerAddressTiles, type CustomerAddressInput, type CustomerAddressValue } from '../AddressTiles'
-import type { AddressSummary, SectionAction, TabEmptyStateConfig, Translator } from './types'
-import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { apiCall, apiCallOrThrow, readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
+import { AddressesSection as SharedAddressesSection } from '@open-mercato/ui/backend/detail'
+import type { AddressDataAdapter } from '@open-mercato/ui/backend/detail'
+import type { AddressTypesAdapter } from '@open-mercato/ui/backend/detail'
+import type { AddressFormatStrategy } from '@open-mercato/ui/backend/detail'
 import { createTranslatorWithFallback } from '@open-mercato/shared/lib/i18n/translate'
+import { useT } from '@open-mercato/shared/lib/i18n/context'
 
 export type AddressesSectionProps = {
   entityId: string | null
   emptyLabel: string
   addActionLabel: string
-  emptyState: TabEmptyStateConfig
-  onActionChange?: (action: SectionAction | null) => void
-  translator?: Translator
+  emptyState: { title: string; actionLabel: string; description?: string }
+  onActionChange?: (action: { label: string; onClick: () => void; disabled?: boolean } | null) => void
+  translator?: (key: string, fallback?: string, params?: Record<string, string | number>) => string
   onLoadingChange?: (isLoading: boolean) => void
 }
 
 type ApiAddressPayload = Record<string, unknown>
-
-function readString(record: Record<string, unknown>, ...keys: string[]): string | null {
-  for (const key of keys) {
-    const value = record[key]
-    if (typeof value === 'string') {
-      const trimmed = value.trim()
-      if (trimmed.length) return trimmed
-    }
-  }
-  return null
-}
-
-function readBoolean(record: Record<string, unknown>, ...keys: string[]): boolean {
-  for (const key of keys) {
-    const value = record[key]
-    if (typeof value === 'boolean') return value
-    if (typeof value === 'number') return value === 1
-    if (typeof value === 'string') {
-      const normalized = value.trim().toLowerCase()
-      if (normalized === 'true' || normalized === '1') return true
-      if (normalized === 'false' || normalized === '0') return false
-    }
-  }
-  return false
-}
-
-function mapAddress(input: unknown): AddressSummary | null {
-  if (!input || typeof input !== 'object') return null
-  const record = input as Record<string, unknown>
-  const rawId = record.id ?? record.address_id ?? null
-  const id =
-    typeof rawId === 'string'
-      ? rawId
-      : typeof rawId === 'number' || typeof rawId === 'bigint'
-        ? String(rawId)
-        : null
-  if (!id) return null
-  const addressLine1 = readString(record, 'address_line1', 'addressLine1')
-  if (!addressLine1) return null
-  return {
-    id,
-    name: readString(record, 'name'),
-    purpose: readString(record, 'purpose'),
-    companyName: readString(record, 'company_name', 'companyName'),
-    addressLine1,
-    addressLine2: readString(record, 'address_line2', 'addressLine2'),
-    buildingNumber: readString(record, 'building_number', 'buildingNumber'),
-    flatNumber: readString(record, 'flat_number', 'flatNumber'),
-    city: readString(record, 'city'),
-    region: readString(record, 'region'),
-    postalCode: readString(record, 'postal_code', 'postalCode'),
-    country: readString(record, 'country'),
-    isPrimary: readBoolean(record, 'is_primary', 'isPrimary'),
-  }
-}
 
 export function AddressesSection({
   entityId,
@@ -87,212 +31,112 @@ export function AddressesSection({
   onLoadingChange,
 }: AddressesSectionProps) {
   const tHook = useT()
-  const fallbackTranslator = React.useMemo<Translator>(() => createTranslatorWithFallback(tHook), [tHook])
+  const fallbackTranslator = React.useMemo(() => createTranslatorWithFallback(tHook), [tHook])
   const t = translator ?? fallbackTranslator
 
-  const normalizedEntityId = React.useMemo(() => {
-    if (typeof entityId !== 'string') return null
-    const trimmed = entityId.trim()
-    return trimmed.length ? trimmed : null
-  }, [entityId])
-  const [addresses, setAddresses] = React.useState<AddressSummary[]>([])
-  const [isSubmitting, setIsSubmitting] = React.useState(false)
-  const [isLoading, setIsLoading] = React.useState<boolean>(() => Boolean(normalizedEntityId))
-
-  const loadingCounterRef = React.useRef(0)
-  const pushLoading = React.useCallback(() => {
-    loadingCounterRef.current += 1
-    if (loadingCounterRef.current === 1) {
-      onLoadingChange?.(true)
-    }
-  }, [onLoadingChange])
-  const popLoading = React.useCallback(() => {
-    loadingCounterRef.current = Math.max(0, loadingCounterRef.current - 1)
-    if (loadingCounterRef.current === 0) {
-      onLoadingChange?.(false)
-    }
-  }, [onLoadingChange])
-
-  const loadAddresses = React.useCallback(async () => {
-    if (!normalizedEntityId) {
-      setAddresses([])
-      setIsLoading(false)
-      return
-    }
-    setIsLoading(true)
-    pushLoading()
-    try {
-      const params = new URLSearchParams({ entityId: normalizedEntityId, pageSize: '100' })
+  const dataAdapter = React.useMemo<AddressDataAdapter>(() => ({
+    list: async ({ entityId: listEntityId }) => {
+      if (!listEntityId) return []
+      const params = new URLSearchParams({ entityId: listEntityId, pageSize: '100' })
       const payload = await readApiResultOrThrow<ApiAddressPayload>(
         `/api/customers/addresses?${params.toString()}`,
         undefined,
         { errorMessage: t('customers.people.detail.addresses.error') },
       )
       const items = Array.isArray(payload?.items) ? payload.items : []
-      const mapped = items
-        .map(mapAddress)
-        .filter((value): value is AddressSummary => value !== null)
-      setAddresses(mapped)
-    } catch (err) {
-      const message =
-        err instanceof Error && err.message
-          ? err.message
-          : t('customers.people.detail.addresses.error')
-      flash(message, 'error')
-      setAddresses([])
-    } finally {
-      setIsLoading(false)
-      popLoading()
-    }
-  }, [normalizedEntityId, pushLoading, popLoading, t])
-
-  React.useEffect(() => {
-    loadAddresses().catch(() => {})
-  }, [loadAddresses])
-
-  const buildPayload = React.useCallback(
-    (base: { id?: string }) => {
-      return (payload: CustomerAddressInput) => {
-        const bodyPayload: Record<string, unknown> = {
-          ...base,
-          addressLine1: payload.addressLine1,
-          isPrimary: payload.isPrimary ?? false,
-        }
-        if (normalizedEntityId && !base.id) bodyPayload.entityId = normalizedEntityId
-        if (typeof payload.name === 'string') bodyPayload.name = payload.name
-        if (typeof payload.purpose === 'string') bodyPayload.purpose = payload.purpose
-        if (typeof payload.companyName === 'string') bodyPayload.companyName = payload.companyName
-        if (typeof payload.addressLine2 === 'string') bodyPayload.addressLine2 = payload.addressLine2
-        if (typeof payload.buildingNumber === 'string') bodyPayload.buildingNumber = payload.buildingNumber
-        if (typeof payload.flatNumber === 'string') bodyPayload.flatNumber = payload.flatNumber
-        if (typeof payload.city === 'string') bodyPayload.city = payload.city
-        if (typeof payload.region === 'string') bodyPayload.region = payload.region
-        if (typeof payload.postalCode === 'string') bodyPayload.postalCode = payload.postalCode
-        if (typeof payload.country === 'string') bodyPayload.country = payload.country.toUpperCase()
-        return bodyPayload
-      }
-    },
-    [normalizedEntityId]
-  )
-
-  const handleCreate = React.useCallback(
-    async (payload: CustomerAddressInput) => {
-      if (!normalizedEntityId) {
-        throw new Error(t('customers.people.detail.addresses.error'))
-      }
-      pushLoading()
-      setIsSubmitting(true)
-      try {
-        const response = await apiCallOrThrow<Record<string, unknown>>(
-          '/api/customers/addresses',
-          {
-            method: 'POST',
-            headers: { 'content-type': 'application/json' },
-            body: JSON.stringify(buildPayload({})(payload)),
-          },
-          { errorMessage: t('customers.people.detail.addresses.error') },
-        )
-        const body = response.result ?? {}
-        const newAddress: AddressSummary = {
-          id: typeof body?.id === 'string' ? body.id : generateTempId(),
-          name: payload.name ?? null,
-          purpose: payload.purpose ?? null,
-          companyName: payload.companyName ?? null,
-          addressLine1: payload.addressLine1,
-          addressLine2: payload.addressLine2 ?? null,
-          buildingNumber: payload.buildingNumber ?? null,
-          flatNumber: payload.flatNumber ?? null,
-          city: payload.city ?? null,
-          region: payload.region ?? null,
-          postalCode: payload.postalCode ?? null,
-          country: payload.country ? payload.country.toUpperCase() : null,
-          isPrimary: payload.isPrimary ?? false,
-        }
-        setAddresses((prev) => {
-          const existing = payload.isPrimary ? prev.map((addr) => ({ ...addr, isPrimary: false })) : prev
-          return [newAddress, ...existing]
+      return items
+        .map((item) => {
+          if (!item || typeof item !== 'object') return null
+          const record = item as Record<string, unknown>
+          const rawId = record.id ?? record.address_id ?? null
+          const id =
+            typeof rawId === 'string'
+              ? rawId
+              : typeof rawId === 'number' || typeof rawId === 'bigint'
+                ? String(rawId)
+                : null
+          if (!id) return null
+          const addressLine1 = typeof record.address_line1 === 'string'
+            ? record.address_line1
+            : typeof record.addressLine1 === 'string'
+              ? record.addressLine1
+              : null
+          if (!addressLine1) return null
+          return {
+            id,
+            name: typeof record.name === 'string' ? record.name : null,
+            purpose: typeof record.purpose === 'string' ? record.purpose : null,
+            companyName: typeof record.company_name === 'string'
+              ? record.company_name
+              : typeof record.companyName === 'string'
+                ? record.companyName
+                : null,
+            addressLine1,
+            addressLine2: typeof record.address_line2 === 'string'
+              ? record.address_line2
+              : typeof record.addressLine2 === 'string'
+                ? record.addressLine2
+                : null,
+            buildingNumber: typeof record.building_number === 'string'
+              ? record.building_number
+              : typeof record.buildingNumber === 'string'
+                ? record.buildingNumber
+                : null,
+            flatNumber: typeof record.flat_number === 'string'
+              ? record.flat_number
+              : typeof record.flatNumber === 'string'
+                ? record.flatNumber
+                : null,
+            city: typeof record.city === 'string' ? record.city : null,
+            region: typeof record.region === 'string' ? record.region : null,
+            postalCode: typeof record.postal_code === 'string'
+              ? record.postal_code
+              : typeof record.postalCode === 'string'
+                ? record.postalCode
+                : null,
+            country: typeof record.country === 'string' ? record.country : null,
+            isPrimary:
+              typeof record.is_primary === 'boolean'
+                ? record.is_primary
+                : typeof record.isPrimary === 'boolean'
+                  ? record.isPrimary
+                  : false,
+          }
         })
-        flash(t('customers.people.detail.addresses.success'), 'success')
-      } catch (err) {
-        const message =
-          err instanceof Error && err.message ? err.message : t('customers.people.detail.addresses.error')
-        const error = new Error(message) as Error & { details?: unknown }
-        if (err && typeof err === 'object' && (err as { details?: unknown }).details) {
-          error.details = (err as { details?: unknown }).details
-        }
-        throw error
-      } finally {
-        setIsSubmitting(false)
-        popLoading()
-      }
+        .filter((value): value is NonNullable<typeof value> => value !== null)
     },
-    [normalizedEntityId, pushLoading, popLoading, t, buildPayload]
-  )
-
-  const handleUpdate = React.useCallback(
-    async (id: string, payload: CustomerAddressInput) => {
-      if (!normalizedEntityId) {
-        throw new Error(t('customers.people.detail.addresses.error'))
-      }
-      pushLoading()
-      setIsSubmitting(true)
-      try {
-        await apiCallOrThrow(
-          '/api/customers/addresses',
-          {
-            method: 'PUT',
-            headers: { 'content-type': 'application/json' },
-            body: JSON.stringify(buildPayload({ id })(payload)),
-          },
-          { errorMessage: t('customers.people.detail.addresses.error') },
-        )
-        setAddresses((prev) => {
-          return prev.map((address) => {
-            if (address.id !== id) {
-              return payload.isPrimary ? { ...address, isPrimary: false } : address
-            }
-            return {
-              ...address,
-              name: payload.name ?? null,
-              purpose: payload.purpose ?? null,
-              companyName: payload.companyName ?? null,
-              addressLine1: payload.addressLine1,
-              addressLine2: payload.addressLine2 ?? null,
-              buildingNumber: payload.buildingNumber ?? null,
-              flatNumber: payload.flatNumber ?? null,
-              city: payload.city ?? null,
-              region: payload.region ?? null,
-              postalCode: payload.postalCode ?? null,
-              country: payload.country ? payload.country.toUpperCase() : null,
-              isPrimary: payload.isPrimary ?? false,
-            }
-          })
-        })
-        flash(t('customers.people.detail.addresses.success'), 'success')
-      } catch (err) {
-        const message =
-          err instanceof Error && err.message ? err.message : t('customers.people.detail.addresses.error')
-        const error = new Error(message) as Error & { details?: unknown }
-        if (err && typeof err === 'object' && (err as { details?: unknown }).details) {
-          error.details = (err as { details?: unknown }).details
-        }
-        throw error
-      } finally {
-        setIsSubmitting(false)
-        popLoading()
-      }
+    create: async ({ entityId: targetId, payload }) => {
+      const response = await apiCallOrThrow<Record<string, unknown>>(
+        '/api/customers/addresses',
+        {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({
+            entityId: targetId,
+            ...payload,
+            country: payload.country ? payload.country.toUpperCase() : undefined,
+          }),
+        },
+        { errorMessage: t('customers.people.detail.addresses.error') },
+      )
+      return response.result ?? {}
     },
-    [normalizedEntityId, pushLoading, popLoading, t, buildPayload]
-  )
-
-  const handleDelete = React.useCallback(
-    async (id: string) => {
-      if (!normalizedEntityId) {
-        throw new Error(t('customers.people.detail.addresses.error'))
-      }
-      pushLoading()
-      setIsSubmitting(true)
-    try {
+    update: async ({ id, payload }) => {
+      await apiCallOrThrow(
+        '/api/customers/addresses',
+        {
+          method: 'PUT',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({
+            id,
+            ...payload,
+            country: payload.country ? payload.country.toUpperCase() : undefined,
+          }),
+        },
+        { errorMessage: t('customers.people.detail.addresses.error') },
+      )
+    },
+    delete: async ({ id }) => {
       await apiCallOrThrow(
         '/api/customers/addresses',
         {
@@ -302,80 +146,80 @@ export function AddressesSection({
         },
         { errorMessage: t('customers.people.detail.addresses.error') },
       )
-      setAddresses((prev) => prev.filter((address) => address.id !== id))
-      flash(t('customers.people.detail.addresses.deleted'), 'success')
-    } catch (err) {
-      const message =
-        err instanceof Error && err.message ? err.message : t('customers.people.detail.addresses.error')
-      flash(message, 'error')
-      throw err
-    } finally {
-      setIsSubmitting(false)
-      popLoading()
-    }
-  },
-    [normalizedEntityId, pushLoading, popLoading, t]
-  )
-
-  const displayAddresses = React.useMemo<CustomerAddressValue[]>(() => {
-    return addresses.map((address) => ({
-      id: address.id,
-      name: address.name ?? undefined,
-      purpose: address.purpose ?? undefined,
-      companyName: address.companyName ?? undefined,
-      addressLine1: address.addressLine1,
-      addressLine2: address.addressLine2 ?? undefined,
-      buildingNumber: address.buildingNumber ?? undefined,
-      flatNumber: address.flatNumber ?? undefined,
-      city: address.city ?? undefined,
-      region: address.region ?? undefined,
-      postalCode: address.postalCode ?? undefined,
-      country: address.country ?? undefined,
-      isPrimary: address.isPrimary ?? false,
-    }))
-  }, [addresses])
-
-  const handleAddActionChange = React.useCallback(
-    (action: { openCreateForm: () => void; addDisabled: boolean } | null) => {
-      if (!onActionChange) return
-      if (!action) {
-        onActionChange(null)
-        return
-      }
-      onActionChange({
-        label: addActionLabel,
-        onClick: action.openCreateForm,
-        disabled: action.addDisabled,
-      })
     },
-    [addActionLabel, onActionChange]
-  )
+  }), [t])
+
+  const addressTypesAdapter = React.useMemo<AddressTypesAdapter>(() => ({
+    list: async () => {
+      const call = await apiCall<Record<string, unknown>>('/api/customers/dictionaries/address-types', {
+        method: 'GET',
+      })
+      const payload = call.result ?? {}
+      const items = Array.isArray((payload as { items?: unknown[] }).items)
+        ? (payload as { items?: unknown[] }).items
+        : []
+      return items
+        .map((item) => {
+          if (!item || typeof item !== 'object') return null
+          const record = item as Record<string, unknown>
+          const value = typeof record.value === 'string' ? record.value : null
+          if (!value) return null
+          const label = typeof record.label === 'string' && record.label.trim().length ? record.label : value
+          return { value, label }
+        })
+        .filter((entry): entry is { value: string; label: string } => !!entry)
+    },
+    create: async (value: string) => {
+      const response = await apiCallOrThrow<Record<string, unknown>>(
+        '/api/customers/dictionaries/address-types',
+        {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ value }),
+        },
+        { errorMessage: t('customers.people.detail.addresses.types.saveError', 'Failed to save address type') },
+      )
+      const payload = response.result ?? {}
+      const createdValue = typeof payload.value === 'string' ? payload.value : value
+      const label = typeof payload.label === 'string' && payload.label.trim().length ? payload.label : createdValue
+      return { value: createdValue, label }
+    },
+    manageHref: '/backend/config/customers',
+  }), [t])
+
+  const loadFormat = React.useCallback(async (): Promise<AddressFormatStrategy> => {
+    const call = await apiCall<{ addressFormat?: string; error?: string }>(
+      '/api/customers/settings/address-format',
+    )
+    const payload = (call.result ?? {}) as Record<string, unknown>
+    if (!call.ok) {
+      const message =
+        typeof (payload as Record<string, unknown>)?.error === 'string'
+          ? (payload as Record<string, unknown>).error as string
+          : t('customers.people.detail.addresses.formatLoadError', 'Failed to load address configuration')
+      throw new Error(message)
+    }
+    const valueRaw = payload?.addressFormat
+    const value = typeof valueRaw === 'string' ? valueRaw : null
+    if (value === 'street_first' || value === 'line_first') {
+      return value
+    }
+    return 'line_first'
+  }, [t])
 
   return (
-    <div className="mt-4">
-      {isLoading ? (
-        <div className="flex justify-center">
-          <LoadingMessage
-            label={t('customers.people.detail.addresses.loading', 'Loading addresses…')}
-            className="min-h-[120px] w-full justify-center border-0 bg-transparent p-0"
-          />
-        </div>
-      ) : (
-        <CustomerAddressTiles
-          addresses={displayAddresses}
-          onCreate={handleCreate}
-          onUpdate={handleUpdate}
-          onDelete={handleDelete}
-          isSubmitting={isSubmitting}
-          emptyLabel={emptyLabel}
-          t={t}
-          hideAddButton
-          onAddActionChange={handleAddActionChange}
-          emptyStateTitle={emptyState.title}
-          emptyStateActionLabel={emptyState.actionLabel}
-        />
-      )}
-    </div>
+    <SharedAddressesSection
+      entityId={entityId}
+      emptyLabel={emptyLabel}
+      addActionLabel={addActionLabel}
+      emptyState={emptyState}
+      onActionChange={onActionChange}
+      onLoadingChange={onLoadingChange}
+      translator={t}
+      dataAdapter={dataAdapter}
+      addressTypesAdapter={addressTypesAdapter}
+      loadFormat={loadFormat}
+    />
   )
 }
 
