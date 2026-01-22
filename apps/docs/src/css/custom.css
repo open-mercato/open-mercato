@@ -35,8 +35,19 @@ body {
 }
 
 .navbar {
-  backdrop-filter: blur(16px);
   border-bottom: 1px solid rgba(255, 215, 128, 0.25);
+  background: transparent;
+  position: relative;
+}
+
+.navbar::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: var(--ifm-navbar-background-color);
+  backdrop-filter: blur(16px);
+  pointer-events: none;
+  z-index: -1;
 }
 
 .navbar__title,
