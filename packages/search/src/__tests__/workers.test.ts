@@ -155,25 +155,14 @@ describe('Fulltext Index Worker', () => {
     purge: jest.fn().mockResolvedValue(undefined),
   }
 
-  // Mock knex query builder for batch-index tests
-  const mockKnexQuery = {
-    select: jest.fn().mockReturnThis(),
-    where: jest.fn().mockReturnThis(),
-    whereIn: jest.fn().mockReturnThis(),
-    whereNull: jest.fn().mockResolvedValue([
-      { entity_id: 'rec-1', doc: { name: 'Test 1' } },
-      { entity_id: 'rec-2', doc: { name: 'Test 2' } },
-    ]),
-  }
-  const mockKnex = jest.fn(() => mockKnexQuery)
-
   const mockSearchIndexer = {
     getEntityConfig: jest.fn().mockReturnValue(null),
+    indexRecordById: jest.fn().mockResolvedValue({ action: 'indexed' }),
   }
 
   const mockEm = {
     getConnection: jest.fn().mockReturnValue({
-      getKnex: jest.fn().mockReturnValue(mockKnex),
+      getKnex: jest.fn().mockReturnValue(jest.fn()),
     }),
   }
 
@@ -188,14 +177,6 @@ describe('Fulltext Index Worker', () => {
 
   beforeEach(() => {
     jest.clearAllMocks()
-    // Reset knex mock chain
-    mockKnexQuery.select.mockReturnThis()
-    mockKnexQuery.where.mockReturnThis()
-    mockKnexQuery.whereIn.mockReturnThis()
-    mockKnexQuery.whereNull.mockResolvedValue([
-      { entity_id: 'rec-1', doc: { name: 'Test 1' } },
-      { entity_id: 'rec-2', doc: { name: 'Test 2' } },
-    ])
   })
 
   it('should skip job with missing tenantId', async () => {
@@ -211,7 +192,7 @@ describe('Fulltext Index Worker', () => {
     expect(mockFulltextStrategy.bulkIndex).not.toHaveBeenCalled()
   })
 
-  it('should bulk index records when jobType is batch-index', async () => {
+  it('should index records via searchIndexer when jobType is batch-index', async () => {
     // Use minimal record format (just entityId + recordId)
     const records = [
       { entityId: 'test:entity', recordId: 'rec-1' },
@@ -226,12 +207,20 @@ describe('Fulltext Index Worker', () => {
 
     await handleFulltextIndexJob(job, ctx, mockContainer)
 
-    // Verify bulkIndex was called with IndexableRecords built from DB data
-    expect(mockFulltextStrategy.bulkIndex).toHaveBeenCalled()
-    const calledWith = mockFulltextStrategy.bulkIndex.mock.calls[0][0]
-    expect(calledWith).toHaveLength(2)
-    expect(calledWith[0].recordId).toBe('rec-1')
-    expect(calledWith[1].recordId).toBe('rec-2')
+    // Verify searchIndexer.indexRecordById was called for each record
+    expect(mockSearchIndexer.indexRecordById).toHaveBeenCalledTimes(2)
+    expect(mockSearchIndexer.indexRecordById).toHaveBeenCalledWith({
+      entityId: 'test:entity',
+      recordId: 'rec-1',
+      tenantId: 'tenant-123',
+      organizationId: undefined,
+    })
+    expect(mockSearchIndexer.indexRecordById).toHaveBeenCalledWith({
+      entityId: 'test:entity',
+      recordId: 'rec-2',
+      tenantId: 'tenant-123',
+      organizationId: undefined,
+    })
   })
 
   it('should skip batch-index with empty records', async () => {
@@ -244,7 +233,7 @@ describe('Fulltext Index Worker', () => {
 
     await handleFulltextIndexJob(job, ctx, mockContainer)
 
-    expect(mockFulltextStrategy.bulkIndex).not.toHaveBeenCalled()
+    expect(mockSearchIndexer.indexRecordById).not.toHaveBeenCalled()
   })
 
   it('should delete record when jobType is delete', async () => {
