@@ -1,5 +1,5 @@
-// Build-time application version sourced from the root package.json
-import packageJson from '../../../../package.json'
-
-export const APP_VERSION = packageJson.version
+// Application version - replaced at build time by esbuild plugin
+// The actual version is injected during the build process in build.mjs
+// This source file uses a placeholder that gets replaced in dist/
+export const APP_VERSION = '0.0.0-dev'
 export const appVersion = APP_VERSION

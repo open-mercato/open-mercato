@@ -1,0 +1,5 @@
+# Local Verdaccio registry configuration
+# Copy this to .npmrc when testing local publishing
+
+@open-mercato:registry=http://localhost:4873/
+//localhost:4873/:_authToken="${NPM_TOKEN}"

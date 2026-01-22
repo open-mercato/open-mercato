@@ -14,6 +14,7 @@
 
 # testing
 /coverage
+published-app/
 
 # next.js
 .next/
@@ -98,3 +99,7 @@ newrelic_agent.log
 # OpenCode local config (generated at runtime, may contain secrets)
 docker/opencode/opencode.jsonc
 .vscode/launch.json
+
+# Local npm registry (Verdaccio)
+.npmrc
+!.npmrc.local
