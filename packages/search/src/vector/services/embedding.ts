@@ -1,7 +1,12 @@
 import { embed } from 'ai'
 import type { EmbeddingModel } from 'ai'
-import type { SharedV3ProviderOptions } from '@ai-sdk/provider'
 import { createOpenAI } from '@ai-sdk/openai'
+
+// Local type definition to avoid @ai-sdk/provider version conflicts
+// Matches SharedV3ProviderOptions = Record<string, JSONObject>
+type JSONValue = string | number | boolean | null | JSONValue[] | { [key: string]: JSONValue }
+type JSONObject = { [key: string]: JSONValue }
+type ProviderOptions = Record<string, JSONObject>
 import { createGoogleGenerativeAI } from '@ai-sdk/google'
 import { createMistral } from '@ai-sdk/mistral'
 import { createCohere } from '@ai-sdk/cohere'
@@ -166,7 +171,7 @@ export class EmbeddingService {
     }
   }
 
-  private getProviderOptions(): SharedV3ProviderOptions | undefined {
+  private getProviderOptions(): ProviderOptions | undefined {
     const { providerId, outputDimensionality, model } = this.config
 
     if (!outputDimensionality) {

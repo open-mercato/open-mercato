@@ -120,7 +120,7 @@
     "@ai-sdk/mistral": "^3.0.5",
     "@ai-sdk/openai": "^3.0.5",
     "ai": "^6.0.0",
-    "ai-sdk-ollama": "^3.0.1",
+    "ai-sdk-ollama": "3.0.0",
     "meilisearch": "^0.55.0",
     "pg": "^8.16.3",
     "zod": "^4.0.0"
