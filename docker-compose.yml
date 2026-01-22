@@ -78,6 +78,27 @@ services:
     networks:
       - mercato-network
 
+  verdaccio:
+    image: verdaccio/verdaccio:6
+    container_name: mercato-verdaccio
+    restart: unless-stopped
+    environment:
+      VERDACCIO_PORT: 4873
+      VERDACCIO_PUBLIC_URL: http://localhost:4873
+    ports:
+      - "${VERDACCIO_PORT:-4873}:4873"
+    volumes:
+      - verdaccio_storage:/verdaccio/storage
+      - verdaccio_plugins:/verdaccio/plugins
+      - ./config/verdaccio/config.yaml:/verdaccio/conf/config.yaml:ro
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:4873/-/ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - mercato-network
+
 volumes:
   postgres_data:
     name: mercato-postgres-data
@@ -85,6 +106,10 @@ volumes:
     name: mercato-redis-data
   meilisearch_data:
     name: mercato-meilisearch-data
+  verdaccio_storage:
+    name: mercato-verdaccio-storage
+  verdaccio_plugins:
+    name: mercato-verdaccio-plugins
 
 networks:
   mercato-network:

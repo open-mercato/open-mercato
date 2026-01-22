@@ -11,6 +11,7 @@ import { Separator } from '@open-mercato/ui/primitives/separator'
 import { JsonDisplay } from '@open-mercato/ui/backend/JsonDisplay'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { apiFetch } from '@open-mercato/ui/backend/utils/api'
+import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import type { WorkflowInstance, WorkflowEvent, WorkflowDefinition } from '../../../data/entities'
 import { WorkflowGraphReadOnly } from '../../../components/WorkflowGraph'
 import { WorkflowLegend } from '../../../components/WorkflowLegend'
@@ -136,11 +137,12 @@ export default function WorkflowInstanceDetailPage({ params }: { params?: { id?:
       return response.json()
     },
     onSuccess: () => {
+      flash(t('workflows.instances.messages.cancelled'), 'success')
       queryClient.invalidateQueries({ queryKey: ['workflow-instance', id] })
     },
     onError: (error) => {
       console.error('Error cancelling instance:', error)
-      alert(t('workflows.instances.cancelFailed'))
+      flash(t('workflows.instances.cancelFailed'), 'error')
     },
   })
 
@@ -155,11 +157,12 @@ export default function WorkflowInstanceDetailPage({ params }: { params?: { id?:
       return response.json()
     },
     onSuccess: () => {
+      flash(t('workflows.instances.messages.retried'), 'success')
       queryClient.invalidateQueries({ queryKey: ['workflow-instance', id] })
     },
     onError: (error) => {
       console.error('Error retrying instance:', error)
-      alert(t('workflows.instances.retryFailed'))
+      flash(t('workflows.instances.retryFailed'), 'error')
     },
   })
 

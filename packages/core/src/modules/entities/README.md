@@ -48,7 +48,7 @@ await upsertCustomEntity(em, 'example:calendar_entity', {
 - From a module DI registrar (on boot):
 
 ```
-import type { AppContainer } from '@/lib/di/container'
+import type { AppContainer } from '@open-mercato/shared/lib/di/container'
 import { upsertCustomEntity } from '@open-mercato/core/modules/entities/lib/register'
 
 let registered = false

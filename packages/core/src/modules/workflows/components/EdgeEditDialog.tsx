@@ -1,18 +1,23 @@
 'use client'
 
-import { Edge } from '@xyflow/react'
-import { useState, useEffect } from 'react'
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@open-mercato/ui/primitives/dialog'
-import { Button } from '@open-mercato/ui/primitives/button'
-import { Input } from '@open-mercato/ui/primitives/input'
-import { Textarea } from '@open-mercato/ui/primitives/textarea'
-import { Label } from '@open-mercato/ui/primitives/label'
-import { Badge } from '@open-mercato/ui/primitives/badge'
-import { Separator } from '@open-mercato/ui/primitives/separator'
-import { Alert, AlertDescription } from '@open-mercato/ui/primitives/alert'
-import { cn } from '@open-mercato/shared/lib/utils'
-import { ChevronDown, Plus, Trash2, X, Info } from 'lucide-react'
-import { BusinessRulesSelector, type BusinessRule } from './BusinessRulesSelector'
+import {Edge} from '@xyflow/react'
+import {useEffect, useState} from 'react'
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle
+} from '@open-mercato/ui/primitives/dialog'
+import {Button} from '@open-mercato/ui/primitives/button'
+import {Input} from '@open-mercato/ui/primitives/input'
+import {Label} from '@open-mercato/ui/primitives/label'
+import {Badge} from '@open-mercato/ui/primitives/badge'
+import {Separator} from '@open-mercato/ui/primitives/separator'
+import {Plus, Trash2} from 'lucide-react'
+import {type BusinessRule, BusinessRulesSelector} from './BusinessRulesSelector'
+import {JsonBuilder} from '@open-mercato/ui/backend/JsonBuilder'
 
 export interface EdgeEditDialogProps {
   edge: Edge | null
@@ -46,7 +51,7 @@ export function EdgeEditDialog({ edge, isOpen, onClose, onSave, onDelete }: Edge
   const [preConditions, setPreConditions] = useState<TransitionCondition[]>([])
   const [postConditions, setPostConditions] = useState<TransitionCondition[]>([])
   const [showAdvanced, setShowAdvanced] = useState(false)
-  const [advancedConfig, setAdvancedConfig] = useState('')
+  const [advancedConfig, setAdvancedConfig] = useState<Record<string, any>>({})
   const [activities, setActivities] = useState<any[]>([])
   const [expandedActivities, setExpandedActivities] = useState<Set<number>>(new Set())
   const [expandedPreConditions, setExpandedPreConditions] = useState<Set<number>>(new Set())
@@ -112,7 +117,7 @@ export function EdgeEditDialog({ edge, isOpen, onClose, onSave, onDelete }: Edge
       if (edgeData?.activities && edgeData.activities.length > 0) {
         advancedFields.activities = edgeData.activities
       }
-      setAdvancedConfig(Object.keys(advancedFields).length > 0 ? JSON.stringify(advancedFields, null, 2) : '')
+      setAdvancedConfig(advancedFields)
       setExpandedActivities(new Set())
       setExpandedPreConditions(new Set())
       setExpandedPostConditions(new Set())
@@ -176,17 +181,6 @@ export function EdgeEditDialog({ edge, isOpen, onClose, onSave, onDelete }: Edge
       },
     }
     setActivities(updated)
-  }
-
-  const updateActivityConfig = (index: number, configJson: string) => {
-    try {
-      const config = JSON.parse(configJson)
-      const updated = [...activities]
-      updated[index] = { ...updated[index], config }
-      setActivities(updated)
-    } catch (error) {
-      // Invalid JSON, don't update
-    }
   }
 
   // Business Rules Management
@@ -279,15 +273,9 @@ export function EdgeEditDialog({ edge, isOpen, onClose, onSave, onDelete }: Edge
       activities: activities.length > 0 ? activities : undefined,
     }
 
-    // Parse advanced config (JSON)
-    if (advancedConfig.trim()) {
-      try {
-        const parsed = JSON.parse(advancedConfig)
-        Object.assign(updates, parsed)
-      } catch (error) {
-        alert('Invalid JSON in Advanced Configuration. Please check your syntax.')
-        return
-      }
+    // Merge advanced config
+    if (advancedConfig && Object.keys(advancedConfig).length > 0) {
+      Object.assign(updates, advancedConfig)
     }
 
     onSave(edge.id, updates)
@@ -407,7 +395,7 @@ export function EdgeEditDialog({ edge, isOpen, onClose, onSave, onDelete }: Edge
                   id="continueOnActivityFailure"
                   checked={continueOnActivityFailure}
                   onChange={(e) => setContinueOnActivityFailure(e.target.checked)}
-                  className="h-4 w-4 rounded border-border"
+                  className="h-4 w-4 rounded border-gray-300"
                 />
                 <Label htmlFor="continueOnActivityFailure" className="font-normal cursor-pointer">
                   Continue on Activity Failure
@@ -452,15 +440,15 @@ export function EdgeEditDialog({ edge, isOpen, onClose, onSave, onDelete }: Edge
                   const isExpanded = expandedPreConditions.has(index)
                   const rule = getBusinessRuleDetails(condition.ruleId)
                   return (
-                    <div key={index} className="border border-border rounded-lg bg-muted">
+                    <div key={index} className="border border-gray-200 rounded-lg bg-gray-50">
                       <button
                         type="button"
                         onClick={() => togglePreCondition(index)}
-                        className="w-full px-4 py-3 text-left flex items-center justify-between hover:bg-muted transition-colors rounded-t-lg"
+                        className="w-full px-4 py-3 text-left flex items-center justify-between hover:bg-gray-100 transition-colors rounded-t-lg"
                       >
                         <div className="flex-1">
                           <div className="flex items-center gap-2">
-                            <span className="text-sm font-semibold text-foreground">
+                            <span className="text-sm font-semibold text-gray-900">
                               {rule?.ruleName || condition.ruleId}
                             </span>
                             {condition.required && (
@@ -474,15 +462,15 @@ export function EdgeEditDialog({ edge, isOpen, onClose, onSave, onDelete }: Edge
                               </span>
                             )}
                           </div>
-                          <p className="text-xs text-muted-foreground mt-1">
-                            Rule ID: <code className="bg-card px-1 rounded">{condition.ruleId}</code>
+                          <p className="text-xs text-gray-600 mt-1">
+                            Rule ID: <code className="bg-white px-1 rounded">{condition.ruleId}</code>
                           </p>
                           {rule?.description && (
-                            <p className="text-xs text-muted-foreground mt-1 line-clamp-1">{rule.description}</p>
+                            <p className="text-xs text-gray-500 mt-1 line-clamp-1">{rule.description}</p>
                           )}
                         </div>
                         <svg
-                          className={`w-5 h-5 text-muted-foreground transition-transform ${isExpanded ? 'rotate-180' : ''}`}
+                          className={`w-5 h-5 text-gray-400 transition-transform ${isExpanded ? 'rotate-180' : ''}`}
                           fill="none"
                           stroke="currentColor"
                           viewBox="0 0 24 24"
@@ -492,68 +480,68 @@ export function EdgeEditDialog({ edge, isOpen, onClose, onSave, onDelete }: Edge
                       </button>
 
                       {isExpanded && (
-                        <div className="px-4 pb-4 space-y-3 border-t border-border bg-card">
+                        <div className="px-4 pb-4 space-y-3 border-t border-gray-200 bg-white">
                           <div className="pt-3">
-                            <label className="block text-xs font-medium text-foreground mb-1">Rule ID</label>
+                            <label className="block text-xs font-medium text-gray-700 mb-1">Rule ID</label>
                             <input
                               type="text"
                               value={condition.ruleId}
                               onChange={(e) => updatePreCondition(index, 'ruleId', e.target.value)}
-                              className="w-full px-2 py-1.5 border border-border rounded text-xs focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
+                              className="w-full px-2 py-1.5 border border-gray-300 rounded text-xs focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
                             />
                           </div>
 
                           <div>
-                            <label className="flex items-center gap-2 text-xs font-medium text-foreground">
+                            <label className="flex items-center gap-2 text-xs font-medium text-gray-700">
                               <input
                                 type="checkbox"
                                 checked={condition.required}
                                 onChange={(e) => updatePreCondition(index, 'required', e.target.checked)}
-                                className="rounded border-border text-blue-600 focus:ring-blue-500"
+                                className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
                               />
                               Required (transition blocked if rule fails)
                             </label>
                           </div>
 
                           {rule && (
-                            <div className="border-t border-border pt-3">
-                              <h4 className="text-xs font-semibold text-foreground mb-2">Business Rule Details</h4>
+                            <div className="border-t border-gray-200 pt-3">
+                              <h4 className="text-xs font-semibold text-gray-900 mb-2">Business Rule Details</h4>
                               <dl className="space-y-1 text-xs">
                                 <div className="flex justify-between">
-                                  <dt className="font-medium text-foreground">Name:</dt>
-                                  <dd className="text-foreground">{rule.ruleName}</dd>
+                                  <dt className="font-medium text-gray-700">Name:</dt>
+                                  <dd className="text-gray-900">{rule.ruleName}</dd>
                                 </div>
                                 <div className="flex justify-between">
-                                  <dt className="font-medium text-foreground">Type:</dt>
-                                  <dd className="text-foreground">{rule.ruleType}</dd>
+                                  <dt className="font-medium text-gray-700">Type:</dt>
+                                  <dd className="text-gray-900">{rule.ruleType}</dd>
                                 </div>
                                 {rule.ruleCategory && (
                                   <div className="flex justify-between">
-                                    <dt className="font-medium text-foreground">Category:</dt>
-                                    <dd className="text-foreground">{rule.ruleCategory}</dd>
+                                    <dt className="font-medium text-gray-700">Category:</dt>
+                                    <dd className="text-gray-900">{rule.ruleCategory}</dd>
                                   </div>
                                 )}
                                 <div className="flex justify-between">
-                                  <dt className="font-medium text-foreground">Entity Type:</dt>
-                                  <dd className="text-foreground font-mono text-xs">{rule.entityType}</dd>
+                                  <dt className="font-medium text-gray-700">Entity Type:</dt>
+                                  <dd className="text-gray-900 font-mono text-xs">{rule.entityType}</dd>
                                 </div>
                                 {rule.eventType && (
                                   <div className="flex justify-between">
-                                    <dt className="font-medium text-foreground">Event Type:</dt>
-                                    <dd className="text-foreground">{rule.eventType}</dd>
+                                    <dt className="font-medium text-gray-700">Event Type:</dt>
+                                    <dd className="text-gray-900">{rule.eventType}</dd>
                                   </div>
                                 )}
                                 {rule.description && (
-                                  <div className="mt-2 pt-2 border-t border-border">
-                                    <dt className="font-medium text-foreground mb-1">Description:</dt>
-                                    <dd className="text-muted-foreground">{rule.description}</dd>
+                                  <div className="mt-2 pt-2 border-t border-gray-200">
+                                    <dt className="font-medium text-gray-700 mb-1">Description:</dt>
+                                    <dd className="text-gray-600">{rule.description}</dd>
                                   </div>
                                 )}
                               </dl>
                             </div>
                           )}
 
-                          <div className="border-t border-border pt-3">
+                          <div className="border-t border-gray-200 pt-3">
                             <Button
                               type="button"
                               variant="destructive"
@@ -604,15 +592,15 @@ export function EdgeEditDialog({ edge, isOpen, onClose, onSave, onDelete }: Edge
                   const isExpanded = expandedPostConditions.has(index)
                   const rule = getBusinessRuleDetails(condition.ruleId)
                   return (
-                    <div key={index} className="border border-border rounded-lg bg-muted">
+                    <div key={index} className="border border-gray-200 rounded-lg bg-gray-50">
                       <button
                         type="button"
                         onClick={() => togglePostCondition(index)}
-                        className="w-full px-4 py-3 text-left flex items-center justify-between hover:bg-muted transition-colors rounded-t-lg"
+                        className="w-full px-4 py-3 text-left flex items-center justify-between hover:bg-gray-100 transition-colors rounded-t-lg"
                       >
                         <div className="flex-1">
                           <div className="flex items-center gap-2">
-                            <span className="text-sm font-semibold text-foreground">
+                            <span className="text-sm font-semibold text-gray-900">
                               {rule?.ruleName || condition.ruleId}
                             </span>
                             {condition.required && (
@@ -626,15 +614,15 @@ export function EdgeEditDialog({ edge, isOpen, onClose, onSave, onDelete }: Edge
                               </span>
                             )}
                           </div>
-                          <p className="text-xs text-muted-foreground mt-1">
-                            Rule ID: <code className="bg-card px-1 rounded">{condition.ruleId}</code>
+                          <p className="text-xs text-gray-600 mt-1">
+                            Rule ID: <code className="bg-white px-1 rounded">{condition.ruleId}</code>
                           </p>
                           {rule?.description && (
-                            <p className="text-xs text-muted-foreground mt-1 line-clamp-1">{rule.description}</p>
+                            <p className="text-xs text-gray-500 mt-1 line-clamp-1">{rule.description}</p>
                           )}
                         </div>
                         <svg
-                          className={`w-5 h-5 text-muted-foreground transition-transform ${isExpanded ? 'rotate-180' : ''}`}
+                          className={`w-5 h-5 text-gray-400 transition-transform ${isExpanded ? 'rotate-180' : ''}`}
                           fill="none"
                           stroke="currentColor"
                           viewBox="0 0 24 24"
@@ -644,68 +632,68 @@ export function EdgeEditDialog({ edge, isOpen, onClose, onSave, onDelete }: Edge
                       </button>
 
                       {isExpanded && (
-                        <div className="px-4 pb-4 space-y-3 border-t border-border bg-card">
+                        <div className="px-4 pb-4 space-y-3 border-t border-gray-200 bg-white">
                           <div className="pt-3">
-                            <label className="block text-xs font-medium text-foreground mb-1">Rule ID</label>
+                            <label className="block text-xs font-medium text-gray-700 mb-1">Rule ID</label>
                             <input
                               type="text"
                               value={condition.ruleId}
                               onChange={(e) => updatePostCondition(index, 'ruleId', e.target.value)}
-                              className="w-full px-2 py-1.5 border border-border rounded text-xs focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
+                              className="w-full px-2 py-1.5 border border-gray-300 rounded text-xs focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
                             />
                           </div>
 
                           <div>
-                            <label className="flex items-center gap-2 text-xs font-medium text-foreground">
+                            <label className="flex items-center gap-2 text-xs font-medium text-gray-700">
                               <input
                                 type="checkbox"
                                 checked={condition.required}
                                 onChange={(e) => updatePostCondition(index, 'required', e.target.checked)}
-                                className="rounded border-border text-blue-600 focus:ring-blue-500"
+                                className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
                               />
                               Required (log warning if rule fails)
                             </label>
                           </div>
 
                           {rule && (
-                            <div className="border-t border-border pt-3">
-                              <h4 className="text-xs font-semibold text-foreground mb-2">Business Rule Details</h4>
+                            <div className="border-t border-gray-200 pt-3">
+                              <h4 className="text-xs font-semibold text-gray-900 mb-2">Business Rule Details</h4>
                               <dl className="space-y-1 text-xs">
                                 <div className="flex justify-between">
-                                  <dt className="font-medium text-foreground">Name:</dt>
-                                  <dd className="text-foreground">{rule.ruleName}</dd>
+                                  <dt className="font-medium text-gray-700">Name:</dt>
+                                  <dd className="text-gray-900">{rule.ruleName}</dd>
                                 </div>
                                 <div className="flex justify-between">
-                                  <dt className="font-medium text-foreground">Type:</dt>
-                                  <dd className="text-foreground">{rule.ruleType}</dd>
+                                  <dt className="font-medium text-gray-700">Type:</dt>
+                                  <dd className="text-gray-900">{rule.ruleType}</dd>
                                 </div>
                                 {rule.ruleCategory && (
                                   <div className="flex justify-between">
-                                    <dt className="font-medium text-foreground">Category:</dt>
-                                    <dd className="text-foreground">{rule.ruleCategory}</dd>
+                                    <dt className="font-medium text-gray-700">Category:</dt>
+                                    <dd className="text-gray-900">{rule.ruleCategory}</dd>
                                   </div>
                                 )}
                                 <div className="flex justify-between">
-                                  <dt className="font-medium text-foreground">Entity Type:</dt>
-                                  <dd className="text-foreground font-mono text-xs">{rule.entityType}</dd>
+                                  <dt className="font-medium text-gray-700">Entity Type:</dt>
+                                  <dd className="text-gray-900 font-mono text-xs">{rule.entityType}</dd>
                                 </div>
                                 {rule.eventType && (
                                   <div className="flex justify-between">
-                                    <dt className="font-medium text-foreground">Event Type:</dt>
-                                    <dd className="text-foreground">{rule.eventType}</dd>
+                                    <dt className="font-medium text-gray-700">Event Type:</dt>
+                                    <dd className="text-gray-900">{rule.eventType}</dd>
                                   </div>
                                 )}
                                 {rule.description && (
-                                  <div className="mt-2 pt-2 border-t border-border">
-                                    <dt className="font-medium text-foreground mb-1">Description:</dt>
-                                    <dd className="text-muted-foreground">{rule.description}</dd>
+                                  <div className="mt-2 pt-2 border-t border-gray-200">
+                                    <dt className="font-medium text-gray-700 mb-1">Description:</dt>
+                                    <dd className="text-gray-600">{rule.description}</dd>
                                   </div>
                                 )}
                               </dl>
                             </div>
                           )}
 
-                          <div className="border-t border-border pt-3">
+                          <div className="border-t border-gray-200 pt-3">
                             <Button
                               type="button"
                               variant="destructive"
@@ -725,9 +713,9 @@ export function EdgeEditDialog({ edge, isOpen, onClose, onSave, onDelete }: Edge
             </div>
 
             {/* Activities Section */}
-            <div className="border-t border-border pt-4 mt-4">
+            <div className="border-t border-gray-200 pt-4 mt-4">
               <div className="flex items-center justify-between mb-3">
-                <h3 className="text-sm font-semibold text-foreground">
+                <h3 className="text-sm font-semibold text-gray-900">
                   Activities ({activities.length})
                 </h3>
                 <Button
@@ -741,8 +729,8 @@ export function EdgeEditDialog({ edge, isOpen, onClose, onSave, onDelete }: Edge
               </div>
 
               {activities.length === 0 && (
-                <div className="p-4 text-center text-sm text-muted-foreground bg-muted rounded-lg border border-border">
-                  No activities defined. Click "Add Activity" to create one.
+                <div className="p-4 text-center text-sm text-gray-500 bg-gray-50 rounded-lg border border-gray-200">
+                  No activities defined. Click &#34;Add Activity&#34; to create one.
                 </div>
               )}
 
@@ -750,27 +738,27 @@ export function EdgeEditDialog({ edge, isOpen, onClose, onSave, onDelete }: Edge
                 {activities.map((activity, index) => {
                   const isExpanded = expandedActivities.has(index)
                   return (
-                    <div key={index} className="border border-border rounded-lg bg-muted">
+                    <div key={index} className="border border-gray-200 rounded-lg bg-gray-50">
                       <button
                         type="button"
                         onClick={() => toggleActivity(index)}
-                        className="w-full px-4 py-3 text-left flex items-center justify-between hover:bg-muted transition-colors rounded-t-lg"
+                        className="w-full px-4 py-3 text-left flex items-center justify-between hover:bg-gray-100 transition-colors rounded-t-lg"
                       >
                         <div className="flex-1">
                           <div className="flex items-center gap-2">
-                            <span className="text-sm font-semibold text-foreground">
+                            <span className="text-sm font-semibold text-gray-900">
                               {activity.activityName || activity.label || activity.activityId || `Activity ${index + 1}`}
                             </span>
                             <Badge variant="secondary" className="text-xs">
                               {activity.activityType}
                             </Badge>
                           </div>
-                          <p className="text-xs text-muted-foreground mt-1">
-                            Activity ID: <code className="bg-card px-1 rounded">{activity.activityId}</code>
+                          <p className="text-xs text-gray-600 mt-1">
+                            Activity ID: <code className="bg-white px-1 rounded">{activity.activityId}</code>
                           </p>
                         </div>
                         <svg
-                          className={`w-5 h-5 text-muted-foreground transition-transform ${isExpanded ? 'rotate-180' : ''}`}
+                          className={`w-5 h-5 text-gray-400 transition-transform ${isExpanded ? 'rotate-180' : ''}`}
                           fill="none"
                           stroke="currentColor"
                           viewBox="0 0 24 24"
@@ -780,38 +768,38 @@ export function EdgeEditDialog({ edge, isOpen, onClose, onSave, onDelete }: Edge
                       </button>
 
                       {isExpanded && (
-                        <div className="px-4 pb-4 space-y-3 border-t border-border bg-card">
+                        <div className="px-4 pb-4 space-y-3 border-t border-gray-200 bg-white">
                           {/* Activity ID */}
                           <div className="pt-3">
-                            <label className="block text-xs font-medium text-foreground mb-1">Activity ID *</label>
+                            <label className="block text-xs font-medium text-gray-700 mb-1">Activity ID *</label>
                             <input
                               type="text"
                               value={activity.activityId}
                               onChange={(e) => updateActivity(index, 'activityId', e.target.value)}
-                              className="w-full px-2 py-1.5 border border-border rounded text-xs focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
+                              className="w-full px-2 py-1.5 border border-gray-300 rounded text-xs focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
                               placeholder="activity_name"
                             />
                           </div>
 
                           {/* Activity Name */}
                           <div>
-                            <label className="block text-xs font-medium text-foreground mb-1">Activity Name *</label>
+                            <label className="block text-xs font-medium text-gray-700 mb-1">Activity Name *</label>
                             <input
                               type="text"
                               value={activity.activityName || ''}
                               onChange={(e) => updateActivity(index, 'activityName', e.target.value)}
-                              className="w-full px-2 py-1.5 border border-border rounded text-xs focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
+                              className="w-full px-2 py-1.5 border border-gray-300 rounded text-xs focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
                               placeholder="Activity Name"
                             />
                           </div>
 
                           {/* Activity Type */}
                           <div>
-                            <label className="block text-xs font-medium text-foreground mb-1">Activity Type *</label>
+                            <label className="block text-xs font-medium text-gray-700 mb-1">Activity Type *</label>
                             <select
                               value={activity.activityType}
                               onChange={(e) => updateActivity(index, 'activityType', e.target.value)}
-                              className="w-full px-2 py-1.5 border border-border rounded text-xs focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
+                              className="w-full px-2 py-1.5 border border-gray-300 rounded text-xs focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
                             >
                               <option value="SEND_EMAIL">Send Email</option>
                               <option value="CALL_API">Call API</option>
@@ -825,64 +813,64 @@ export function EdgeEditDialog({ edge, isOpen, onClose, onSave, onDelete }: Edge
 
                           {/* Timeout */}
                           <div>
-                            <label className="block text-xs font-medium text-foreground mb-1">Timeout</label>
+                            <label className="block text-xs font-medium text-gray-700 mb-1">Timeout</label>
                             <input
                               type="text"
                               value={activity.timeout || ''}
                               onChange={(e) => updateActivity(index, 'timeout', e.target.value)}
-                              className="w-full px-2 py-1.5 border border-border rounded text-xs focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
+                              className="w-full px-2 py-1.5 border border-gray-300 rounded text-xs focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
                               placeholder="PT30S or 30000"
                             />
-                            <p className="text-xs text-muted-foreground mt-0.5">ISO 8601 duration or milliseconds</p>
+                            <p className="text-xs text-gray-500 mt-0.5">ISO 8601 duration or milliseconds</p>
                           </div>
 
                           {/* Retry Policy */}
-                          <div className="border-t border-border pt-3">
-                            <h4 className="text-xs font-semibold text-foreground mb-2">Retry Policy</h4>
+                          <div className="border-t border-gray-200 pt-3">
+                            <h4 className="text-xs font-semibold text-gray-900 mb-2">Retry Policy</h4>
                             <div className="grid grid-cols-2 gap-2">
                               <div>
-                                <label className="block text-xs font-medium text-foreground mb-1">Max Attempts</label>
+                                <label className="block text-xs font-medium text-gray-700 mb-1">Max Attempts</label>
                                 <input
                                   type="number"
                                   value={activity.retryPolicy?.maxAttempts || ''}
                                   onChange={(e) => updateActivityRetryPolicy(index, 'maxAttempts', parseInt(e.target.value) || 0)}
-                                  className="w-full px-2 py-1.5 border border-border rounded text-xs focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
+                                  className="w-full px-2 py-1.5 border border-gray-300 rounded text-xs focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
                                   placeholder="3"
                                   min="1"
                                   max="10"
                                 />
                               </div>
                               <div>
-                                <label className="block text-xs font-medium text-foreground mb-1">Initial Interval (ms)</label>
+                                <label className="block text-xs font-medium text-gray-700 mb-1">Initial Interval (ms)</label>
                                 <input
                                   type="number"
                                   value={activity.retryPolicy?.initialIntervalMs || ''}
                                   onChange={(e) => updateActivityRetryPolicy(index, 'initialIntervalMs', parseInt(e.target.value) || 0)}
-                                  className="w-full px-2 py-1.5 border border-border rounded text-xs focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
+                                  className="w-full px-2 py-1.5 border border-gray-300 rounded text-xs focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
                                   placeholder="1000"
                                   min="0"
                                 />
                               </div>
                               <div>
-                                <label className="block text-xs font-medium text-foreground mb-1">Backoff Coefficient</label>
+                                <label className="block text-xs font-medium text-gray-700 mb-1">Backoff Coefficient</label>
                                 <input
                                   type="number"
                                   step="0.1"
                                   value={activity.retryPolicy?.backoffCoefficient || ''}
                                   onChange={(e) => updateActivityRetryPolicy(index, 'backoffCoefficient', parseFloat(e.target.value) || 1)}
-                                  className="w-full px-2 py-1.5 border border-border rounded text-xs focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
+                                  className="w-full px-2 py-1.5 border border-gray-300 rounded text-xs focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
                                   placeholder="2"
                                   min="1"
                                   max="10"
                                 />
                               </div>
                               <div>
-                                <label className="block text-xs font-medium text-foreground mb-1">Max Interval (ms)</label>
+                                <label className="block text-xs font-medium text-gray-700 mb-1">Max Interval (ms)</label>
                                 <input
                                   type="number"
                                   value={activity.retryPolicy?.maxIntervalMs || ''}
                                   onChange={(e) => updateActivityRetryPolicy(index, 'maxIntervalMs', parseInt(e.target.value) || 0)}
-                                  className="w-full px-2 py-1.5 border border-border rounded text-xs focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
+                                  className="w-full px-2 py-1.5 border border-gray-300 rounded text-xs focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
                                   placeholder="10000"
                                   min="0"
                                 />
@@ -891,8 +879,8 @@ export function EdgeEditDialog({ edge, isOpen, onClose, onSave, onDelete }: Edge
                           </div>
 
                           {/* Activity Flags */}
-                          <div className="border-t border-border pt-3">
-                            <h4 className="text-xs font-semibold text-foreground mb-2">Activity Options</h4>
+                          <div className="border-t border-gray-200 pt-3">
+                            <h4 className="text-xs font-semibold text-gray-900 mb-2">Activity Options</h4>
                             <div className="space-y-2">
                               <div className="flex items-center space-x-2">
                                 <input
@@ -900,9 +888,9 @@ export function EdgeEditDialog({ edge, isOpen, onClose, onSave, onDelete }: Edge
                                   id={`activity-async-${index}`}
                                   checked={activity.async || false}
                                   onChange={(e) => updateActivity(index, 'async', e.target.checked)}
-                                  className="h-4 w-4 rounded border-border"
+                                  className="h-4 w-4 rounded border-gray-300"
                                 />
-                                <label htmlFor={`activity-async-${index}`} className="text-xs text-foreground cursor-pointer">
+                                <label htmlFor={`activity-async-${index}`} className="text-xs text-gray-700 cursor-pointer">
                                   Async (run in background)
                                 </label>
                               </div>
@@ -912,9 +900,9 @@ export function EdgeEditDialog({ edge, isOpen, onClose, onSave, onDelete }: Edge
                                   id={`activity-compensate-${index}`}
                                   checked={activity.compensate || false}
                                   onChange={(e) => updateActivity(index, 'compensate', e.target.checked)}
-                                  className="h-4 w-4 rounded border-border"
+                                  className="h-4 w-4 rounded border-gray-300"
                                 />
-                                <label htmlFor={`activity-compensate-${index}`} className="text-xs text-foreground cursor-pointer">
+                                <label htmlFor={`activity-compensate-${index}`} className="text-xs text-gray-700 cursor-pointer">
                                   Compensate (execute compensation on failure)
                                 </label>
                               </div>
@@ -922,20 +910,21 @@ export function EdgeEditDialog({ edge, isOpen, onClose, onSave, onDelete }: Edge
                           </div>
 
                           {/* Configuration */}
-                          <div className="border-t border-border pt-3">
-                            <label className="block text-xs font-medium text-foreground mb-1">Configuration (JSON)</label>
-                            <textarea
-                              value={JSON.stringify(activity.config || {}, null, 2)}
-                              onChange={(e) => updateActivityConfig(index, e.target.value)}
-                              rows={6}
-                              className="w-full px-2 py-1.5 border border-border rounded text-xs font-mono focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
-                              placeholder='{}'
+                          <div className="border-t border-gray-200 pt-3">
+                            <label className="block text-xs font-medium text-gray-700 mb-1">Configuration (JSON)</label>
+                            <JsonBuilder
+                              value={activity.config || {}}
+                              onChange={(config) => {
+                                const updated = [...activities]
+                                updated[index] = { ...updated[index], config }
+                                setActivities(updated)
+                              }}
                             />
-                            <p className="text-xs text-muted-foreground mt-0.5">Activity-specific configuration as JSON</p>
+                            <p className="text-xs text-gray-500 mt-0.5">Activity-specific configuration as JSON</p>
                           </div>
 
                           {/* Delete Button */}
-                          <div className="border-t border-border pt-3">
+                          <div className="border-t border-gray-200 pt-3">
                             <Button
                               type="button"
                               variant="destructive"
@@ -955,13 +944,13 @@ export function EdgeEditDialog({ edge, isOpen, onClose, onSave, onDelete }: Edge
             </div>
 
             {/* Advanced Configuration */}
-            <div className="border-t border-border pt-4 mt-4">
+            <div className="border-t border-gray-200 pt-4 mt-4">
               <button
                 type="button"
                 onClick={() => setShowAdvanced(!showAdvanced)}
                 className="flex items-center justify-between w-full text-left"
               >
-                <h3 className="text-sm font-semibold text-foreground">
+                <h3 className="text-sm font-semibold text-gray-900">
                   Advanced Configuration (JSON)
                 </h3>
                 <svg
@@ -975,14 +964,11 @@ export function EdgeEditDialog({ edge, isOpen, onClose, onSave, onDelete }: Edge
               </button>
               {showAdvanced && (
                 <div className="mt-3">
-                  <textarea
+                  <JsonBuilder
                     value={advancedConfig}
-                    onChange={(e) => setAdvancedConfig(e.target.value)}
-                    placeholder='{"activities": [{"activityId": "...", "activityType": "CALL_API", "config": {...}}]}'
-                    rows={10}
-                    className="w-full px-3 py-2 border border-border rounded-lg text-xs font-mono focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                    onChange={setAdvancedConfig}
                   />
-                  <p className="text-xs text-muted-foreground mt-1">
+                  <p className="text-xs text-gray-500 mt-1">
                     Add complex configuration like activities array with CALL_API, SEND_EMAIL, EXECUTE_FUNCTION, etc.
                   </p>
                 </div>

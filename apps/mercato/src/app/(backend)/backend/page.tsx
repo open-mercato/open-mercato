@@ -1,4 +1,4 @@
-import { getAuthFromCookies } from '@/lib/auth/server'
+import { getAuthFromCookies } from '@open-mercato/shared/lib/auth/server'
 import { redirect } from 'next/navigation'
 import { DashboardScreen } from '@open-mercato/ui/backend/dashboard'
 

@@ -45,7 +45,15 @@ export type InlineMultilineDisplayRenderer = NonNullable<InlineMultilineEditorPr
 export function InlineTextEditor(props: InlineFieldProps) {
   const { type = 'text', validator, recordId } = props
   const t = useT()
-  const [draft, setDraft] = React.useState(props.value ?? '')
+  const normalizeText = React.useCallback((value: unknown) => {
+    if (typeof value === 'string') return value
+    if (value === null || value === undefined) return ''
+    return String(value)
+  }, [])
+  const [draft, setDraft] = React.useState<string>(() => normalizeText(props.value))
+  const setDraftValue = React.useCallback((value: unknown) => {
+    setDraft(normalizeText(value))
+  }, [normalizeText])
   const [editing, setEditing] = React.useState(false)
   const currentRecordId = React.useMemo(() => (typeof recordId === 'string' ? recordId : null), [recordId])
   const isEmailField = type === 'email'
@@ -70,9 +78,9 @@ export function InlineTextEditor(props: InlineFieldProps) {
 
   React.useEffect(() => {
     if (!editing) {
-      setDraft(props.value ?? '')
+      setDraftValue(props.value)
     }
-  }, [editing, props.value])
+  }, [editing, props.value, setDraftValue])
 
   React.useEffect(() => {
     if (!editing || !isPhoneField) {
@@ -111,7 +119,8 @@ export function InlineTextEditor(props: InlineFieldProps) {
       {...props}
       type={type}
       validator={validator}
-      onDraftChange={setDraft}
+      value={normalizeText(props.value)}
+      onDraftChange={setDraftValue}
       onEditingChange={setEditing}
       renderBelowInput={({ resolvedType, error }) => {
         if (resolvedType === 'email') {

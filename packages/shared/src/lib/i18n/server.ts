@@ -2,9 +2,11 @@ import { defaultLocale, locales, type Locale } from './config'
 import type { Dict } from './context'
 import { createFallbackTranslator, createTranslator } from './translate'
 import { getModules } from '../modules/registry'
+import { loadAppDictionary } from './app-dictionaries'
 
 // Re-export for backwards compatibility
 export { registerModules, getModules } from '../modules/registry'
+export { registerAppDictionaryLoader } from './app-dictionaries'
 
 function flattenDictionary(source: unknown, prefix = ''): Dict {
   if (!source || typeof source !== 'object' || Array.isArray(source)) return {}
@@ -45,7 +47,8 @@ export async function detectLocale(): Promise<Locale> {
 }
 
 export async function loadDictionary(locale: Locale): Promise<Dict> {
-  const baseRaw = await import(`@/i18n/${locale}.json`).then(m => m.default).catch(() => ({} as Record<string, unknown>))
+  // Load from registry instead of @/ import (works in standalone packages)
+  const baseRaw = await loadAppDictionary(locale)
   const merged: Dict = { ...flattenDictionary(baseRaw) }
   const modules = getModules()
   for (const m of modules) {

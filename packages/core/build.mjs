@@ -6,9 +6,15 @@ import { fileURLToPath } from 'node:url'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 
-const entryPoints = await glob(join(__dirname, 'src/**/*.{ts,tsx}'), {
+const srcEntryPoints = await glob(join(__dirname, 'src/**/*.{ts,tsx}'), {
   ignore: ['**/__tests__/**', '**/*.test.ts', '**/*.test.tsx']
 })
+
+const generatedEntryPoints = await glob(join(__dirname, 'generated/**/*.{ts,tsx}'), {
+  ignore: ['**/__tests__/**', '**/*.test.ts', '**/*.test.tsx']
+})
+
+const entryPoints = srcEntryPoints
 
 // Plugin to add .js extension to relative imports
 const addJsExtension = {
@@ -87,6 +93,20 @@ for (const jsonFile of jsonFiles) {
   const destPath = join(outdir, relativePath)
   mkdirSync(dirname(destPath), { recursive: true })
   copyFileSync(jsonFile, destPath)
+}
+
+// Build generated files to dist/generated
+if (generatedEntryPoints.length > 0) {
+  await esbuild.build({
+    entryPoints: generatedEntryPoints,
+    outdir: join(__dirname, 'dist/generated'),
+    outbase: join(__dirname, 'generated'),
+    format: 'esm',
+    platform: 'node',
+    target: 'node18',
+    sourcemap: true,
+    plugins: [addJsExtension],
+  })
 }
 
 console.log('core built successfully')

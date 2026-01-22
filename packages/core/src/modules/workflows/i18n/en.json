@@ -53,6 +53,7 @@
       "toggleEnabled": "Click to enable/disable"
     },
     "confirm": {
+      "deleteTitle": "Delete Workflow",
       "delete": "Are you sure you want to delete workflow '{{name}}'? This action cannot be undone."
     },
     "form": {
@@ -362,12 +363,6 @@
         "assignment": "Assignment",
         "dueDate": "Due Date",
         "createdAt": "Created At"
-      },
-      "status": {
-        "PENDING": "Pending",
-        "IN_PROGRESS": "In Progress",
-        "COMPLETED": "Completed",
-        "CANCELLED": "Cancelled"
       },
       "filters": {
         "status": "Status",

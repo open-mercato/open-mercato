@@ -1,11 +1,11 @@
 {
   "name": "@open-mercato/ai-assistant",
   "version": "0.3.13",
-  "private": true,
   "type": "module",
   "main": "./dist/index.js",
   "scripts": {
     "build": "node build.mjs",
+    "watch": "node watch.mjs",
     "mcp:dev": "mercato ai_assistant mcp:dev",
     "mcp:serve-http": "mercato ai_assistant mcp:serve-http"
   },
@@ -100,5 +100,8 @@
   "devDependencies": {
     "@open-mercato/cli": "workspace:*",
     "tsx": "^4.21.0"
+  },
+  "publishConfig": {
+    "access": "public"
   }
 }
