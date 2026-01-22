@@ -112,7 +112,6 @@ const NewCustomersKpiWidget: React.FC<DashboardWidgetComponentProps<NewCustomers
 
   return (
     <KpiCard
-      title={t('dashboards.analytics.widgets.newCustomersKpi.title', 'Customer Growth')}
       value={value}
       trend={trend}
       comparisonLabel={comparisonLabel}

@@ -113,7 +113,6 @@ const AovKpiWidget: React.FC<DashboardWidgetComponentProps<AovKpiSettings>> = ({
 
   return (
     <KpiCard
-      title={t('dashboards.analytics.widgets.aovKpi.title', 'Average Order Value')}
       value={value}
       trend={trend}
       comparisonLabel={comparisonLabel}

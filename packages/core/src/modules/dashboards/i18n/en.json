@@ -56,6 +56,9 @@
   "dashboards.analytics.settings.showArea": "Show area fill",
   "dashboards.analytics.settings.limit": "Number of items",
   "dashboards.analytics.settings.chartVariant": "Chart Style",
+  "dashboards.analytics.settings.chartLayout": "Chart Layout",
+  "dashboards.analytics.settings.horizontal": "Horizontal",
+  "dashboards.analytics.settings.vertical": "Vertical",
 
   "dashboards.analytics.widgets.revenueKpi.title": "Revenue",
   "dashboards.analytics.widgets.revenueKpi.description": "Total revenue with period comparison",

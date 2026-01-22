@@ -112,7 +112,6 @@ const OrdersKpiWidget: React.FC<DashboardWidgetComponentProps<OrdersKpiSettings>
 
   return (
     <KpiCard
-      title={t('dashboards.analytics.widgets.ordersKpi.title', 'Orders')}
       value={value}
       trend={trend}
       comparisonLabel={comparisonLabel}

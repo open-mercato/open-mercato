@@ -61,9 +61,12 @@ export function BarChart({
     return resolveChartColor(colors?.[idx], idx)
   }
 
+  const hasWrapper = !!title
+  const wrapperClass = hasWrapper ? `rounded-lg border bg-card p-4 ${className}` : className
+
   if (error) {
     return (
-      <div className={`rounded-lg border bg-card p-4 ${className}`}>
+      <div className={wrapperClass}>
         {title && <h3 className="mb-4 text-base font-medium text-card-foreground">{title}</h3>}
         <div className="flex h-48 items-center justify-center">
           <p className="text-sm text-destructive">{error}</p>
@@ -74,7 +77,7 @@ export function BarChart({
 
   if (loading) {
     return (
-      <div className={`rounded-lg border bg-card p-4 ${className}`}>
+      <div className={wrapperClass}>
         {title && <h3 className="mb-4 text-base font-medium text-card-foreground">{title}</h3>}
         <div className="flex h-48 items-center justify-center">
           <Spinner className="h-6 w-6 text-muted-foreground" />
@@ -85,7 +88,7 @@ export function BarChart({
 
   if (!data || data.length === 0) {
     return (
-      <div className={`rounded-lg border bg-card p-4 ${className}`}>
+      <div className={wrapperClass}>
         {title && <h3 className="mb-4 text-base font-medium text-card-foreground">{title}</h3>}
         <div className="flex h-48 items-center justify-center">
           <p className="text-sm text-muted-foreground">{emptyMessage}</p>
@@ -95,12 +98,10 @@ export function BarChart({
   }
 
   const isHorizontal = layout === 'horizontal'
-  const chartHeight = isHorizontal ? Math.max(200, data.length * 32) : 200
+  const chartHeight = isHorizontal ? Math.max(200, data.length * 28) : 200
 
-  return (
-    <div className={`rounded-lg border bg-card p-4 ${className}`}>
-      {title && <h3 className="mb-4 text-base font-medium text-card-foreground">{title}</h3>}
-      <ResponsiveContainer width="100%" height={chartHeight}>
+  const chartContent = (
+    <ResponsiveContainer width="100%" height={chartHeight}>
         <RechartsBarChart
           data={data}
           layout={isHorizontal ? 'vertical' : 'horizontal'}
@@ -113,12 +114,15 @@ export function BarChart({
             type={isHorizontal ? 'number' : 'category'}
             dataKey={isHorizontal ? undefined : index}
             tickFormatter={isHorizontal ? valueFormatter : undefined}
+            tick={{ fontSize: 11 }}
           />
           <YAxis
             type={isHorizontal ? 'category' : 'number'}
             dataKey={isHorizontal ? index : undefined}
             tickFormatter={isHorizontal ? undefined : valueFormatter}
-            width={isHorizontal ? 100 : 60}
+            width={isHorizontal ? 90 : 50}
+            interval={0}
+            tick={{ fontSize: 10 }}
           />
           <Tooltip
             content={
@@ -145,6 +149,12 @@ export function BarChart({
           ))}
         </RechartsBarChart>
       </ResponsiveContainer>
+  )
+
+  return (
+    <div className={wrapperClass}>
+      {title && <h3 className="mb-4 text-base font-medium text-card-foreground">{title}</h3>}
+      {chartContent}
     </div>
   )
 }

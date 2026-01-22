@@ -6,6 +6,7 @@ import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { PieChart, type PieChartDataItem } from '../../../components/charts/PieChart'
 import { DateRangeSelect } from '../../../components/settings/DateRangeSelect'
+import { InlineDateRangeSelect } from '../../../components/settings/InlineDateRangeSelect'
 import { DEFAULT_SETTINGS, hydrateSettings, type OrdersByStatusSettings } from './config'
 import type { WidgetDataResponse } from '../../../services/widgetDataService'
 import type { DateRangePreset } from '../../../lib/dateRanges'
@@ -115,15 +116,24 @@ const OrdersByStatusWidget: React.FC<DashboardWidgetComponentProps<OrdersByStatu
   }
 
   return (
-    <PieChart
-      title={t('dashboards.analytics.widgets.ordersByStatus.title', 'Orders by Status')}
-      data={data}
-      loading={loading}
-      error={error}
-      variant={hydrated.variant}
-      colors={['blue', 'emerald', 'amber', 'rose', 'violet', 'cyan']}
-      emptyMessage={t('dashboards.analytics.widgets.ordersByStatus.empty', 'No orders for this period')}
-    />
+    <div className="flex flex-col h-full">
+      <div className="flex justify-end mb-2">
+        <InlineDateRangeSelect
+          value={hydrated.dateRange}
+          onChange={(dateRange) => onSettingsChange({ ...hydrated, dateRange })}
+        />
+      </div>
+      <div className="flex-1 min-h-0">
+        <PieChart
+          data={data}
+          loading={loading}
+          error={error}
+          variant={hydrated.variant}
+          colors={['blue', 'emerald', 'amber', 'rose', 'violet', 'cyan']}
+          emptyMessage={t('dashboards.analytics.widgets.ordersByStatus.empty', 'No orders for this period')}
+        />
+      </div>
+    </div>
   )
 }
 

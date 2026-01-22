@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
 import { z } from 'zod'
+import type { EntityManager } from '@mikro-orm/postgresql'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/directory/utils/organizationScope'
@@ -9,6 +10,14 @@ import { dashboardsTag, dashboardsErrorSchema } from '../../openapi'
 
 export const metadata = {
   POST: { requireAuth: true, requireFeatures: ['analytics.view'] },
+}
+
+const ENTITY_FEATURE_MAP: Record<string, string[]> = {
+  'sales:orders': ['sales.orders.view'],
+  'sales:order_lines': ['sales.orders.view'],
+  'customers:entities': ['customers.view'],
+  'customers:deals': ['customers.deals.view'],
+  'catalog:products': ['catalog.view'],
 }
 
 const aggregateFunctionSchema = z.enum(['count', 'sum', 'avg', 'min', 'max'])
@@ -122,7 +131,30 @@ export async function POST(req: Request) {
   }
 
   const container = await createRequestContainer()
-  const em = (container.resolve('em') as any).fork({ clear: true, freshEventManager: true, useContext: true })
+
+  const entityFeatures = ENTITY_FEATURE_MAP[parsed.data.entityType]
+  if (entityFeatures) {
+    const rbacService = container.resolve<{
+      userHasAllFeatures: (
+        userId: string,
+        features: string[],
+        scope: { tenantId: string; organizationId?: string | null },
+      ) => Promise<boolean>
+    }>('rbacService')
+    const hasAccess = await rbacService.userHasAllFeatures(auth.sub, entityFeatures, {
+      tenantId: auth.tenantId!,
+      organizationId: auth.orgId,
+    })
+    if (!hasAccess) {
+      return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+    }
+  }
+
+  const em = (container.resolve('em') as EntityManager).fork({
+    clear: true,
+    freshEventManager: true,
+    useContext: true,
+  })
 
   const tenantId = auth.tenantId ?? null
   if (!tenantId) {
@@ -140,26 +172,19 @@ export async function POST(req: Request) {
   })()
 
   try {
-    console.log('[widgets/data] Request:', {
-      tenantId,
-      organizationIds,
-      entityType: parsed.data.entityType,
-      metric: parsed.data.metric,
-      dateRange: parsed.data.dateRange,
-    })
-
     const service = createWidgetDataService(em, {
       tenantId,
       organizationIds,
     })
 
     const result = await service.fetchWidgetData(parsed.data as WidgetDataRequest)
-    console.log('[widgets/data] Result:', { value: result.value, recordCount: result.metadata.recordCount })
     return NextResponse.json(result)
   } catch (err) {
-    const message = err instanceof Error ? err.message : 'Internal error'
-    console.error('[widgets/data] Error fetching widget data:', err)
-    return NextResponse.json({ error: message }, { status: 500 })
+    console.error('[widgets/data] Error:', err)
+    return NextResponse.json(
+      { error: 'An error occurred while processing your request' },
+      { status: 500 },
+    )
   }
 }
 

@@ -15,6 +15,14 @@ import {
   getFieldMapping,
 } from '../lib/aggregations'
 
+const SAFE_IDENTIFIER_PATTERN = /^[a-zA-Z_][a-zA-Z0-9_]*$/
+
+function assertSafeIdentifier(value: string, name: string): void {
+  if (!SAFE_IDENTIFIER_PATTERN.test(value)) {
+    throw new Error(`Invalid ${name}: ${value}`)
+  }
+}
+
 export type WidgetDataRequest = {
   entityType: string
   metric: {
@@ -240,6 +248,11 @@ export class WidgetDataService {
     }
 
     const uniqueIds = [...new Set(ids)]
+
+    assertSafeIdentifier(config.table, 'table name')
+    assertSafeIdentifier(config.idColumn, 'id column')
+    assertSafeIdentifier(config.labelColumn, 'label column')
+
     const sql = `SELECT "${config.idColumn}" as id, "${config.labelColumn}" as label FROM "${config.table}" WHERE "${config.idColumn}" = ANY(?::uuid[]) AND tenant_id = ?`
     const pgArray = `{${uniqueIds.join(',')}}`
     const params = [pgArray, this.scope.tenantId]

@@ -56,6 +56,9 @@
   "dashboards.analytics.settings.showArea": "Mostrar relleno de área",
   "dashboards.analytics.settings.limit": "Número de elementos",
   "dashboards.analytics.settings.chartVariant": "Estilo de gráfico",
+  "dashboards.analytics.settings.chartLayout": "Disposición del gráfico",
+  "dashboards.analytics.settings.horizontal": "Horizontal",
+  "dashboards.analytics.settings.vertical": "Vertical",
 
   "dashboards.analytics.widgets.revenueKpi.title": "Ingresos",
   "dashboards.analytics.widgets.revenueKpi.description": "Ingresos totales con comparación de períodos",

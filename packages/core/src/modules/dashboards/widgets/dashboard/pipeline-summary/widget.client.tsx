@@ -6,6 +6,7 @@ import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { BarChart, type BarChartDataItem } from '../../../components/charts/BarChart'
 import { DateRangeSelect } from '../../../components/settings/DateRangeSelect'
+import { InlineDateRangeSelect } from '../../../components/settings/InlineDateRangeSelect'
 import { DEFAULT_SETTINGS, hydrateSettings, type PipelineSummarySettings } from './config'
 import type { WidgetDataResponse } from '../../../services/widgetDataService'
 import type { DateRangePreset } from '../../../lib/dateRanges'
@@ -104,18 +105,27 @@ const PipelineSummaryWidget: React.FC<DashboardWidgetComponentProps<PipelineSumm
   }
 
   return (
-    <BarChart
-      title={t('dashboards.analytics.widgets.pipelineSummary.title', 'Pipeline Summary')}
-      data={data}
-      index="stage"
-      categories={['Value']}
-      loading={loading}
-      error={error}
-      valueFormatter={formatCurrencyCompact}
-      colors={['violet']}
-      showLegend={false}
-      emptyMessage={t('dashboards.analytics.widgets.pipelineSummary.empty', 'No deal data for this period')}
-    />
+    <div className="flex flex-col h-full">
+      <div className="flex justify-end mb-2">
+        <InlineDateRangeSelect
+          value={hydrated.dateRange}
+          onChange={(dateRange) => onSettingsChange({ ...hydrated, dateRange })}
+        />
+      </div>
+      <div className="flex-1 min-h-0">
+        <BarChart
+          data={data}
+          index="stage"
+          categories={['Value']}
+          loading={loading}
+          error={error}
+          valueFormatter={formatCurrencyCompact}
+          colors={['violet']}
+          showLegend={false}
+          emptyMessage={t('dashboards.analytics.widgets.pipelineSummary.empty', 'No deal data for this period')}
+        />
+      </div>
+    </div>
   )
 }
 

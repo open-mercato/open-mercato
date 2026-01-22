@@ -56,6 +56,9 @@
   "dashboards.analytics.settings.showArea": "Pokaż wypełnienie obszaru",
   "dashboards.analytics.settings.limit": "Liczba elementów",
   "dashboards.analytics.settings.chartVariant": "Styl wykresu",
+  "dashboards.analytics.settings.chartLayout": "Układ wykresu",
+  "dashboards.analytics.settings.horizontal": "Poziomy",
+  "dashboards.analytics.settings.vertical": "Pionowy",
 
   "dashboards.analytics.widgets.revenueKpi.title": "Przychód",
   "dashboards.analytics.widgets.revenueKpi.description": "Łączny przychód z porównaniem okresów",

@@ -18,7 +18,7 @@ const widget: DashboardWidgetModule<TopProductsSettings> = {
   },
   Widget: TopProductsWidget,
   hydrateSettings,
-  dehydrateSettings: (s) => ({ dateRange: s.dateRange, limit: s.limit }),
+  dehydrateSettings: (s) => ({ dateRange: s.dateRange, limit: s.limit, layout: s.layout }),
 }
 
 export default widget

@@ -6,6 +6,7 @@ import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { BarChart, type BarChartDataItem } from '../../../components/charts/BarChart'
 import { DateRangeSelect } from '../../../components/settings/DateRangeSelect'
+import { InlineDateRangeSelect } from '../../../components/settings/InlineDateRangeSelect'
 import { DEFAULT_SETTINGS, hydrateSettings, type TopProductsSettings } from './config'
 import type { WidgetDataResponse } from '../../../services/widgetDataService'
 import type { DateRangePreset } from '../../../lib/dateRanges'
@@ -125,24 +126,50 @@ const TopProductsWidget: React.FC<DashboardWidgetComponentProps<TopProductsSetti
             }}
           />
         </div>
+        <div className="space-y-1.5">
+          <label
+            htmlFor="top-products-layout"
+            className="text-xs font-semibold uppercase text-muted-foreground"
+          >
+            {t('dashboards.analytics.settings.chartLayout', 'Chart Layout')}
+          </label>
+          <select
+            id="top-products-layout"
+            className="w-full rounded-md border px-2 py-1 text-sm focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
+            value={hydrated.layout}
+            onChange={(e) => onSettingsChange({ ...hydrated, layout: e.target.value as 'horizontal' | 'vertical' })}
+          >
+            <option value="horizontal">{t('dashboards.analytics.settings.horizontal', 'Horizontal')}</option>
+            <option value="vertical">{t('dashboards.analytics.settings.vertical', 'Vertical')}</option>
+          </select>
+        </div>
       </div>
     )
   }
 
   return (
-    <BarChart
-      title={t('dashboards.analytics.widgets.topProducts.title', 'Top Products by Revenue')}
-      data={data}
-      index="name"
-      categories={['Revenue']}
-      loading={loading}
-      error={error}
-      layout="horizontal"
-      valueFormatter={formatCurrencyCompact}
-      colors={['emerald']}
-      showLegend={false}
-      emptyMessage={t('dashboards.analytics.widgets.topProducts.empty', 'No product sales data for this period')}
-    />
+    <div className="flex flex-col h-full">
+      <div className="flex justify-end mb-2">
+        <InlineDateRangeSelect
+          value={hydrated.dateRange}
+          onChange={(dateRange) => onSettingsChange({ ...hydrated, dateRange })}
+        />
+      </div>
+      <div className="flex-1 min-h-0">
+        <BarChart
+          data={data}
+          index="name"
+          categories={['Revenue']}
+          loading={loading}
+          error={error}
+          layout={hydrated.layout}
+          valueFormatter={formatCurrencyCompact}
+          colors={['emerald']}
+          showLegend={false}
+          emptyMessage={t('dashboards.analytics.widgets.topProducts.empty', 'No product sales data for this period')}
+        />
+      </div>
+    </div>
   )
 }
 

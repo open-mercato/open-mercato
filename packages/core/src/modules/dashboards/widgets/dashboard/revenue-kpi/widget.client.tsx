@@ -113,7 +113,6 @@ const RevenueKpiWidget: React.FC<DashboardWidgetComponentProps<RevenueKpiSetting
 
   return (
     <KpiCard
-      title={t('dashboards.analytics.widgets.revenueKpi.title', 'Revenue')}
       value={value}
       trend={trend}
       comparisonLabel={comparisonLabel}

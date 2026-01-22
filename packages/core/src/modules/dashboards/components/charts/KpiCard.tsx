@@ -9,7 +9,7 @@ export type KpiTrend = {
 }
 
 export type KpiCardProps = {
-  title: string
+  title?: string
   value: number | null
   trend?: KpiTrend
   comparisonLabel?: string
@@ -19,7 +19,6 @@ export type KpiCardProps = {
   prefix?: string
   suffix?: string
   className?: string
-  /** Optional action element to render in the header (e.g., date range selector) */
   headerAction?: React.ReactNode
 }
 
@@ -94,29 +93,30 @@ export function KpiCard({
   className = '',
   headerAction,
 }: KpiCardProps) {
-  const headerRow = (
-    <div className="flex items-center justify-between gap-2">
-      <p className="text-sm text-muted-foreground">{title}</p>
+  const hasWrapper = !!title
+  const wrapperClass = hasWrapper ? `rounded-lg border bg-card p-4 ${className}` : className
+
+  const headerRow = (title || headerAction) ? (
+    <div className="flex items-center justify-between gap-2 mb-2">
+      {title && <p className="text-sm font-medium text-muted-foreground">{title}</p>}
       {headerAction}
     </div>
-  )
+  ) : null
 
   if (error) {
     return (
-      <div className={`rounded-lg border bg-card p-4 ${className}`}>
+      <div className={wrapperClass}>
         {headerRow}
-        <div className="mt-2">
-          <p className="text-sm text-destructive">{error}</p>
-        </div>
+        <p className="text-sm text-destructive">{error}</p>
       </div>
     )
   }
 
   if (loading) {
     return (
-      <div className={`rounded-lg border bg-card p-4 ${className}`}>
+      <div className={wrapperClass}>
         {headerRow}
-        <div className="mt-4 flex items-center justify-center">
+        <div className="flex items-center justify-center py-4">
           <Spinner className="h-6 w-6 text-muted-foreground" />
         </div>
       </div>
@@ -125,17 +125,17 @@ export function KpiCard({
 
   if (value === null) {
     return (
-      <div className={`rounded-lg border bg-card p-4 ${className}`}>
+      <div className={wrapperClass}>
         {headerRow}
-        <p className="mt-2 text-3xl font-semibold tracking-tight text-card-foreground">--</p>
+        <p className="text-3xl font-semibold tracking-tight text-card-foreground">--</p>
       </div>
     )
   }
 
   return (
-    <div className={`rounded-lg border bg-card p-4 ${className}`}>
+    <div className={wrapperClass}>
       {headerRow}
-      <div className="mt-2 flex items-baseline gap-2">
+      <div className="flex items-baseline gap-3">
         <p className="text-3xl font-semibold tracking-tight text-card-foreground">
           {prefix}
           {formatValue(value)}

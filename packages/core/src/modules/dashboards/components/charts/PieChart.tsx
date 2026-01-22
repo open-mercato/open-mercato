@@ -8,6 +8,7 @@ import {
   Tooltip,
   ResponsiveContainer,
   Legend,
+  Label,
 } from 'recharts'
 import { Spinner } from '@open-mercato/ui/primitives/spinner'
 import { ChartTooltipContent, resolveChartColor } from './ChartUtils'
@@ -62,9 +63,12 @@ export function PieChart({
     return data.reduce((sum, item) => sum + item.value, 0)
   }, [data])
 
+  const hasWrapper = !!title
+  const wrapperClass = hasWrapper ? `rounded-lg border bg-card p-4 ${className}` : className
+
   if (error) {
     return (
-      <div className={`rounded-lg border bg-card p-4 ${className}`}>
+      <div className={wrapperClass}>
         {title && <h3 className="mb-4 text-base font-medium text-card-foreground">{title}</h3>}
         <div className="flex h-48 items-center justify-center">
           <p className="text-sm text-destructive">{error}</p>
@@ -75,7 +79,7 @@ export function PieChart({
 
   if (loading) {
     return (
-      <div className={`rounded-lg border bg-card p-4 ${className}`}>
+      <div className={wrapperClass}>
         {title && <h3 className="mb-4 text-base font-medium text-card-foreground">{title}</h3>}
         <div className="flex h-48 items-center justify-center">
           <Spinner className="h-6 w-6 text-muted-foreground" />
@@ -86,7 +90,7 @@ export function PieChart({
 
   if (!data || data.length === 0) {
     return (
-      <div className={`rounded-lg border bg-card p-4 ${className}`}>
+      <div className={wrapperClass}>
         {title && <h3 className="mb-4 text-base font-medium text-card-foreground">{title}</h3>}
         <div className="flex h-48 items-center justify-center">
           <p className="text-sm text-muted-foreground">{emptyMessage}</p>
@@ -99,7 +103,7 @@ export function PieChart({
   const outerRadius = '80%'
 
   return (
-    <div className={`rounded-lg border bg-card p-4 ${className}`}>
+    <div className={wrapperClass}>
       {title && <h3 className="mb-4 text-base font-medium text-card-foreground">{title}</h3>}
       <div className="h-52 w-full">
         <ResponsiveContainer width="100%" height="100%">
@@ -109,7 +113,7 @@ export function PieChart({
               dataKey="value"
               nameKey="name"
               cx="50%"
-              cy="50%"
+              cy="40%"
               innerRadius={innerRadius}
               outerRadius={outerRadius}
               paddingAngle={2}
@@ -118,6 +122,13 @@ export function PieChart({
               {data.map((_, idx) => (
                 <Cell key={`cell-${idx}`} fill={getSliceColor(idx)} />
               ))}
+              {showLabel && variant === 'donut' && (
+                <Label
+                  value={valueFormatter(total)}
+                  position="center"
+                  className="fill-foreground text-2xl font-bold"
+                />
+              )}
             </Pie>
             {showTooltip && (
               <Tooltip
@@ -136,17 +147,6 @@ export function PieChart({
                 <span style={{ color: 'hsl(var(--muted-foreground))', fontSize: '12px' }}>{value}</span>
               )}
             />
-            {showLabel && variant === 'donut' && (
-              <text
-                x="50%"
-                y="50%"
-                textAnchor="middle"
-                dominantBaseline="middle"
-                className="fill-foreground text-2xl font-bold"
-              >
-                {valueFormatter(total)}
-              </text>
-            )}
           </RechartsPieChart>
         </ResponsiveContainer>
       </div>

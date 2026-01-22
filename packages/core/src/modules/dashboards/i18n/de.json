@@ -56,6 +56,9 @@
   "dashboards.analytics.settings.showArea": "Flächenfüllung anzeigen",
   "dashboards.analytics.settings.limit": "Anzahl der Elemente",
   "dashboards.analytics.settings.chartVariant": "Diagrammstil",
+  "dashboards.analytics.settings.chartLayout": "Diagramm-Layout",
+  "dashboards.analytics.settings.horizontal": "Horizontal",
+  "dashboards.analytics.settings.vertical": "Vertikal",
 
   "dashboards.analytics.widgets.revenueKpi.title": "Umsatz",
   "dashboards.analytics.widgets.revenueKpi.description": "Gesamtumsatz mit Periodenvergleich",
