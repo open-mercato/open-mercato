@@ -12,7 +12,7 @@
   "imports": {
     "#generated/entities.ids.generated": {
       "types": "./generated/entities.ids.generated.ts",
-      "default": "./generated/entities.ids.generated.ts"
+      "default": "./dist/generated/entities.ids.generated.js"
     },
     "#generated/entity-fields-registry": {
       "types": "./src/generated-shims/entity-fields-registry.ts",
@@ -20,7 +20,7 @@
     },
     "#generated/entities/*": {
       "types": "./generated/entities/*/index.ts",
-      "default": "./generated/entities/*/index.ts"
+      "default": "./dist/generated/entities/*/index.js"
     }
   },
   "exports": {
