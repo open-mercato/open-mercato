@@ -5,7 +5,13 @@ import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { ensureCustomFieldDefinitions } from '@open-mercato/core/modules/entities/lib/field-definitions'
 import { CustomFieldEntityConfig, CustomFieldValue } from '@open-mercato/core/modules/entities/data/entities'
 import { setRecordCustomFields } from '@open-mercato/core/modules/entities/lib/helpers'
-import { ResourcesResource, ResourcesResourceTag, ResourcesResourceTagAssignment, ResourcesResourceType } from '../data/entities'
+import {
+  ResourcesResource,
+  ResourcesResourceActivity,
+  ResourcesResourceTag,
+  ResourcesResourceTagAssignment,
+  ResourcesResourceType,
+} from '../data/entities'
 import { E } from '#generated/entities.ids.generated'
 import {
   RESOURCES_RESOURCE_CUSTOM_FIELD_SETS,
@@ -50,6 +56,18 @@ type ResourcesResourceSeed = {
   name: string
   typeKey?: string | null
   tagKeys: string[]
+}
+
+type ResourcesResourceActivitySeed = {
+  resourceKey: string
+  activityType: string
+  subject?: string | null
+  body?: string | null
+  appearanceIcon?: string | null
+  appearanceColor?: string | null
+  authorUserId?: string | null
+  daysAgo?: number
+  customFields?: Record<string, string | number | boolean | null>
 }
 
 const RESOURCES_ACTIVITY_TYPE_DICTIONARY_KEY = 'resources.activity-types'
@@ -444,6 +462,38 @@ async function fillMissingResourceCustomFields(
   })
 }
 
+async function fillMissingResourceActivityCustomFields(
+  em: EntityManager,
+  scope: ResourcesSeedScope,
+  activity: ResourcesResourceActivity,
+  customValues: Record<string, string | number | boolean | null>,
+) {
+  const keys = Object.keys(customValues)
+  if (!keys.length) return
+  const existingValues = await em.find(CustomFieldValue, {
+    entityId: E.resources.resources_resource_activity,
+    recordId: activity.id,
+    organizationId: scope.organizationId,
+    tenantId: scope.tenantId,
+    fieldKey: { $in: keys },
+  })
+  const existingKeys = new Set(existingValues.map((value) => value.fieldKey))
+  const missingValues: Record<string, string | number | boolean | null> = {}
+  for (const key of keys) {
+    if (!existingKeys.has(key)) {
+      missingValues[key] = customValues[key] ?? null
+    }
+  }
+  if (Object.keys(missingValues).length === 0) return
+  await setRecordCustomFields(em, {
+    entityId: E.resources.resources_resource_activity,
+    recordId: activity.id,
+    organizationId: scope.organizationId,
+    tenantId: scope.tenantId,
+    values: missingValues,
+  })
+}
+
 const RESOURCE_TYPE_SEEDS: ResourcesResourceTypeSeed[] = [
   {
     key: 'meeting_room',
@@ -493,6 +543,51 @@ const RESOURCE_SEEDS: ResourcesResourceSeed[] = [
   { key: 'engineering-laptop-2', name: 'Engineering Laptop 2', typeKey: 'laptop', tagKeys: ['tech', 'equipment'] },
   { key: 'company-car-1', name: 'Tesla Model 3 - WWA 4K32', typeKey: 'company_car', tagKeys: ['vehicle'] },
   { key: 'company-car-2', name: 'Volvo XC40 Recharge - WPR 9L18', typeKey: 'company_car', tagKeys: ['vehicle'] },
+]
+
+const RESOURCE_ACTIVITY_SEEDS: ResourcesResourceActivitySeed[] = [
+  {
+    resourceKey: 'meeting-room-a',
+    activityType: 'Inspection scheduled',
+    subject: 'AV equipment inspection',
+    body: 'Quarterly AV inspection scheduled with facilities.',
+    appearanceIcon: 'lucide:clipboard-check',
+    appearanceColor: '#0ea5e9',
+    daysAgo: 10,
+    customFields: {
+      activity_priority: 'normal',
+      work_order: 'WO-1021',
+      requires_follow_up: true,
+    },
+  },
+  {
+    resourceKey: 'engineering-laptop-1',
+    activityType: 'Calibration',
+    subject: 'Battery health calibration',
+    body: 'Battery calibration completed after OS update.',
+    appearanceIcon: 'lucide:gauge',
+    appearanceColor: '#6366f1',
+    daysAgo: 4,
+    customFields: {
+      activity_priority: 'low',
+      work_order: 'WO-1148',
+      requires_follow_up: false,
+    },
+  },
+  {
+    resourceKey: 'company-car-1',
+    activityType: 'Maintenance completed',
+    subject: 'Tire rotation completed',
+    body: 'Rotation completed and tire pressure set to spec.',
+    appearanceIcon: 'lucide:check-circle-2',
+    appearanceColor: '#16a34a',
+    daysAgo: 22,
+    customFields: {
+      activity_priority: 'high',
+      work_order: 'WO-0987',
+      requires_follow_up: false,
+    },
+  },
 ]
 
 export async function seedResourcesResourceExamples(
@@ -662,6 +757,79 @@ export async function seedResourcesResourceExamples(
       ...buildResourceTypeCustomValues(fieldsetCode, seedKey),
     }
     await fillMissingResourceCustomFields(em, scope, resource, customValues)
+  }
+
+  const activityDate = (daysAgo?: number) => {
+    const date = new Date(now)
+    if (typeof daysAgo === 'number') {
+      date.setDate(date.getDate() - daysAgo)
+    }
+    return date
+  }
+
+  const resourceIds = Array.from(resourceByKey.values())
+    .map((resource) => resource.id)
+    .filter((id): id is string => typeof id === 'string')
+
+  if (resourceIds.length > 0) {
+    const existingActivities = await findWithDecryption(
+      em,
+      ResourcesResourceActivity,
+      {
+        tenantId: scope.tenantId,
+        organizationId: scope.organizationId,
+        resource: { $in: resourceIds },
+      },
+      { populate: ['resource'] },
+      scope,
+    )
+    const activityByKey = new Map<string, ResourcesResourceActivity>()
+    for (const activity of existingActivities) {
+      const resourceId = typeof activity.resource === 'string' ? activity.resource : activity.resource.id
+      const subject = activity.subject?.trim().toLowerCase() ?? ''
+      const body = activity.body?.trim().toLowerCase() ?? ''
+      const occurredAt = activity.occurredAt ? activity.occurredAt.toISOString().slice(0, 10) : ''
+      const key = `${resourceId}:${activity.activityType}:${subject}:${body}:${occurredAt}`
+      activityByKey.set(key, activity)
+    }
+
+    for (const seed of RESOURCE_ACTIVITY_SEEDS) {
+      const resource = resourceByKey.get(seed.resourceKey)
+      if (!resource) continue
+      const resourceId = resource.id
+      const occurredAt = activityDate(seed.daysAgo)
+      const subject = seed.subject?.trim() ?? null
+      const body = seed.body?.trim() ?? null
+      const key = `${resourceId}:${seed.activityType}:${subject?.toLowerCase() ?? ''}:${body?.toLowerCase() ?? ''}:${occurredAt.toISOString().slice(0, 10)}`
+      const existing = activityByKey.get(key)
+      if (existing) {
+        if (seed.customFields) {
+          await fillMissingResourceActivityCustomFields(em, scope, existing, seed.customFields)
+        }
+        continue
+      }
+      const activity = em.create(ResourcesResourceActivity, {
+        tenantId: scope.tenantId,
+        organizationId: scope.organizationId,
+        resource: em.getReference(ResourcesResource, resourceId),
+        activityType: seed.activityType,
+        subject,
+        body,
+        occurredAt,
+        authorUserId: seed.authorUserId ?? null,
+        appearanceIcon: seed.appearanceIcon ?? null,
+        appearanceColor: seed.appearanceColor ?? null,
+        createdAt: now,
+        updatedAt: now,
+      })
+      em.persist(activity)
+      activityByKey.set(key, activity)
+      if (seed.customFields) {
+        await em.flush()
+        await fillMissingResourceActivityCustomFields(em, scope, activity, seed.customFields)
+      }
+    }
+    await em.flush()
   }
 
   const resourceList = Array.from(resourceByKey.values())

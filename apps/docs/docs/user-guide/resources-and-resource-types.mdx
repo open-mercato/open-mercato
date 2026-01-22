@@ -1,0 +1,42 @@
+---
+title: Resources and resource types
+description: Organize shared assets, define resource types, and track availability with activities and custom fields.
+---
+
+The **Resources** module is the home for shared assets such as rooms, vehicles, equipment, or any reservable item. Resources are grouped by resource types, enriched with custom fields, and tracked with activities, comments, and availability schedules.
+
+![Resources grouped by type](/screenshots/open-mercato-resources.png)
+
+## Resource types
+
+- **Define categories** in **Resource planning -> Resource types** so assets share the same default structure and capacity units.
+- **Attach custom fields** to resource types to capture specific attributes such as license plates, serial numbers, or maintenance data.
+- **Reuse across teams** by keeping resource types consistent, then create resources for each real-world instance.
+
+## Manage resources
+
+- **Browse the list** in **Resource planning -> Resources** to see resources grouped by type, with tags and capacity highlights.
+- **Filter and search** by resource name, tags, or type to narrow large inventories.
+- **Edit appearance** settings (color, icon) so resources stand out on schedules.
+
+![Editing a resource with custom fields and tags](/screenshots/open-mercato-resource-details.png)
+
+## Activities, comments, and attachments
+
+- **Log activities** to record maintenance, incidents, or lifecycle updates directly on the resource.
+- **Add comments** to capture operator notes, handoff details, or context for the next assignee.
+- **Store attachments** such as manuals, contracts, or inspection reports in the resource detail view.
+
+## Availability scheduling
+
+![Resource availability editor](/screenshots/open-mercato-resource-availability.png)
+
+- **Set weekly hours** to define the default availability window for each resource.
+- **Add date-specific hours** for exceptions like repairs, holidays, or one-off reservations.
+- **Keep time zones explicit** so availability is interpreted consistently across teams.
+
+## Access control
+
+- **Read-only access** is gated by `resources.view`.
+- **Create and edit access** (resources, resource types, tags, activities, comments) requires `resources.manage_resources`.
+- Pair these features with role scopes in **Auth -> Roles** so only the right operators can modify shared assets.

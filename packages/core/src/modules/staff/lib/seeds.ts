@@ -74,6 +74,7 @@ type StaffTeamMemberActivitySeed = {
   appearanceColor?: string | null
   authorUserIndex?: number
   daysAgo?: number
+  customFields?: Record<string, string | number | boolean | null>
 }
 
 type StaffTeamMemberAddressSeed = {
@@ -303,6 +304,11 @@ const TEAM_MEMBER_ACTIVITY_SEEDS: StaffTeamMemberActivitySeed[] = [
     appearanceIcon: 'lucide:clipboard-check',
     appearanceColor: '#2563eb',
     daysAgo: 30,
+    customFields: {
+      activity_outcome: 'completed',
+      follow_up_owner: 'Alex Chen',
+      requires_follow_up: false,
+    },
   },
   {
     memberKey: 'priya_nair',
@@ -312,6 +318,11 @@ const TEAM_MEMBER_ACTIVITY_SEEDS: StaffTeamMemberActivitySeed[] = [
     appearanceIcon: 'lucide:graduation-cap',
     appearanceColor: '#0ea5e9',
     daysAgo: 18,
+    customFields: {
+      activity_outcome: 'completed',
+      follow_up_owner: 'Priya Nair',
+      requires_follow_up: false,
+    },
   },
   {
     memberKey: 'marta_lopez',
@@ -321,6 +332,11 @@ const TEAM_MEMBER_ACTIVITY_SEEDS: StaffTeamMemberActivitySeed[] = [
     appearanceIcon: 'lucide:badge-check',
     appearanceColor: '#16a34a',
     daysAgo: 40,
+    customFields: {
+      activity_outcome: 'completed',
+      follow_up_owner: 'Marta Lopez',
+      requires_follow_up: false,
+    },
   },
   {
     memberKey: 'samir_haddad',
@@ -330,6 +346,11 @@ const TEAM_MEMBER_ACTIVITY_SEEDS: StaffTeamMemberActivitySeed[] = [
     appearanceIcon: 'lucide:user-plus',
     appearanceColor: '#f97316',
     daysAgo: 12,
+    customFields: {
+      activity_outcome: 'completed',
+      follow_up_owner: 'Samir Haddad',
+      requires_follow_up: false,
+    },
   },
   {
     memberKey: 'jordan_kim',
@@ -339,6 +360,11 @@ const TEAM_MEMBER_ACTIVITY_SEEDS: StaffTeamMemberActivitySeed[] = [
     appearanceIcon: 'lucide:clock-3',
     appearanceColor: '#7c3aed',
     daysAgo: 7,
+    customFields: {
+      activity_outcome: 'rescheduled',
+      follow_up_owner: 'Jordan Kim',
+      requires_follow_up: true,
+    },
   },
 ]
 
@@ -619,6 +645,38 @@ async function fillMissingTeamMemberCustomFields(
   await setRecordCustomFields(em, {
     entityId: E.staff.staff_team_member,
     recordId: member.id,
+    organizationId: scope.organizationId,
+    tenantId: scope.tenantId,
+    values: missingValues,
+  })
+}
+
+async function fillMissingActivityCustomFields(
+  em: EntityManager,
+  scope: StaffSeedScope,
+  activity: StaffTeamMemberActivity,
+  customValues: Record<string, string | number | boolean | null>,
+) {
+  const keys = Object.keys(customValues)
+  if (!keys.length) return
+  const existingValues = await em.find(CustomFieldValue, {
+    entityId: E.staff.staff_team_member_activity,
+    recordId: activity.id,
+    organizationId: scope.organizationId,
+    tenantId: scope.tenantId,
+    fieldKey: { $in: keys },
+  })
+  const existingKeys = new Set(existingValues.map((value) => value.fieldKey))
+  const missingValues: Record<string, string | number | boolean | null> = {}
+  for (const key of keys) {
+    if (!existingKeys.has(key)) {
+      missingValues[key] = customValues[key] ?? null
+    }
+  }
+  if (Object.keys(missingValues).length === 0) return
+  await setRecordCustomFields(em, {
+    entityId: E.staff.staff_team_member_activity,
+    recordId: activity.id,
     organizationId: scope.organizationId,
     tenantId: scope.tenantId,
     values: missingValues,
@@ -915,15 +973,15 @@ export async function seedStaffTeamExamples(
     { populate: ['member'] },
     scope,
   )
-  const activityKeys = new Set(
-    existingActivities.map((activity) => {
-      const memberId = typeof activity.member === 'string' ? activity.member : activity.member.id
-      const subject = activity.subject?.trim().toLowerCase() ?? ''
-      const body = activity.body?.trim().toLowerCase() ?? ''
-      const occurredAt = activity.occurredAt ? activity.occurredAt.toISOString().slice(0, 10) : ''
-      return `${memberId}:${activity.activityType}:${subject}:${body}:${occurredAt}`
-    }),
-  )
+  const activityByKey = new Map<string, StaffTeamMemberActivity>()
+  for (const activity of existingActivities) {
+    const memberId = typeof activity.member === 'string' ? activity.member : activity.member.id
+    const subject = activity.subject?.trim().toLowerCase() ?? ''
+    const body = activity.body?.trim().toLowerCase() ?? ''
+    const occurredAt = activity.occurredAt ? activity.occurredAt.toISOString().slice(0, 10) : ''
+    const key = `${memberId}:${activity.activityType}:${subject}:${body}:${occurredAt}`
+    activityByKey.set(key, activity)
+  }
   for (const seed of TEAM_MEMBER_ACTIVITY_SEEDS) {
     const member = memberByKey.get(seed.memberKey)
     if (!member) continue
@@ -932,7 +990,13 @@ export async function seedStaffTeamExamples(
     const subject = seed.subject?.trim() ?? null
     const body = seed.body?.trim() ?? null
     const key = `${memberId}:${seed.activityType}:${subject?.toLowerCase() ?? ''}:${body?.toLowerCase() ?? ''}:${occurredAt.toISOString().slice(0, 10)}`
-    if (activityKeys.has(key)) continue
+    const existing = activityByKey.get(key)
+    if (existing) {
+      if (seed.customFields) {
+        await fillMissingActivityCustomFields(em, scope, existing, seed.customFields)
+      }
+      continue
+    }
     const authorUserId = typeof seed.authorUserIndex === 'number'
       ? sortedUsers[seed.authorUserIndex]?.id ?? null
       : null
@@ -951,7 +1015,11 @@ export async function seedStaffTeamExamples(
       updatedAt: now,
     })
     em.persist(activity)
-    activityKeys.add(key)
+    activityByKey.set(key, activity)
+    if (seed.customFields) {
+      await em.flush()
+      await fillMissingActivityCustomFields(em, scope, activity, seed.customFields)
+    }
   }
   await em.flush()
 
