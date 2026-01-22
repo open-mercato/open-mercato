@@ -379,6 +379,10 @@
   "upgrades.v035.cta": "Grant Business Rules access to admin",
   "upgrades.v035.loading": "Updating role…",
   "upgrades.v035.success": "Admin role updated with Business Rules access.",
+  "upgrades.v041.message": "Version {{version}} has been installed. Seed planner, staff, and resources example data and access.",
+  "upgrades.v041.cta": "Seed planner, staff, and resources data",
+  "upgrades.v041.loading": "Seeding…",
+  "upgrades.v041.success": "Planner, staff, and resources data seeded.",
   "upgrades.runFailed": "We could not run this upgrade action.",
   "upgrades.loading": "Loading upgrade…"
 }

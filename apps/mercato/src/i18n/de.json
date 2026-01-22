@@ -378,6 +378,10 @@
   "upgrades.v035.cta": "Business-Rules-Zugriff für Admin-Rolle hinzufügen",
   "upgrades.v035.loading": "Rolle wird aktualisiert…",
   "upgrades.v035.success": "Admin-Rolle um Business-Rules-Zugriff ergänzt.",
+  "upgrades.v041.message": "Version {{version}} wurde installiert. Beispiel-Daten und Zugriff für Planner, Staff und Resources installieren.",
+  "upgrades.v041.cta": "Planner-, Staff- und Resources-Daten installieren",
+  "upgrades.v041.loading": "Installiere…",
+  "upgrades.v041.success": "Planner-, Staff- und Resources-Daten installiert.",
   "upgrades.runFailed": "Die Upgrade-Aktion konnte nicht ausgeführt werden.",
   "upgrades.loading": "Upgrade wird geladen…"
 }

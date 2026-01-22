@@ -379,6 +379,10 @@
   "upgrades.v035.cta": "Conceder acceso a Business Rules al rol admin",
   "upgrades.v035.loading": "Actualizando rol…",
   "upgrades.v035.success": "Rol admin actualizado con acceso a Business Rules.",
+  "upgrades.v041.message": "La versión {{version}} se ha instalado. Instala datos de ejemplo y acceso para planner, staff y resources.",
+  "upgrades.v041.cta": "Instalar datos de planner, staff y resources",
+  "upgrades.v041.loading": "Instalando…",
+  "upgrades.v041.success": "Datos de planner, staff y resources instalados.",
   "upgrades.runFailed": "No pudimos ejecutar esta acción de actualización.",
   "upgrades.loading": "Cargando actualización…"
 }

@@ -378,6 +378,10 @@
   "upgrades.v035.cta": "Nadaj dostęp Business Rules roli admin",
   "upgrades.v035.loading": "Aktualizowanie roli…",
   "upgrades.v035.success": "Rola admin została zaktualizowana o dostęp do Business Rules.",
+  "upgrades.v041.message": "Wersja {{version}} została zainstalowana. Zainstaluj przykładowe dane i dostęp dla planner, staff i resources.",
+  "upgrades.v041.cta": "Zainstaluj dane planner, staff i resources",
+  "upgrades.v041.loading": "Instalowanie…",
+  "upgrades.v041.success": "Dane planner, staff i resources zostały zainstalowane.",
   "upgrades.runFailed": "Nie udało się uruchomić tej akcji aktualizacji.",
   "upgrades.loading": "Ładowanie aktualizacji…"
 }

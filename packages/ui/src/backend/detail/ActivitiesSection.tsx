@@ -486,16 +486,14 @@ function ActivityForm({
         fields: detailFields,
       },
     ]
-    if (customFieldEntityIds && customFieldEntityIds.length) {
-      baseGroups.push({
-        id: 'custom',
-        title: translate('form.customFields', 'Custom fields'),
-        column: 2,
-        kind: 'customFields',
-      })
-    }
+    baseGroups.push({
+      id: 'custom',
+      title: translate('form.customFields', 'Custom fields'),
+      column: 2,
+      kind: 'customFields',
+    })
     return baseGroups
-  }, [customFieldEntityIds, normalizedDealOptions.length, normalizedEntityOptions.length, translate])
+  }, [normalizedDealOptions.length, normalizedEntityOptions.length, translate])
 
   const handleSubmit = React.useCallback(
     async (values: Record<string, unknown>) => {
@@ -742,6 +740,7 @@ export function ActivitiesSection<C = unknown>({
   createActivityOption,
   resolveActivityPresentation,
   renderCustomFields,
+  customFieldEntityIds,
   labelPrefix = 'customers.people.detail.activities',
   renderIcon,
   renderColor,
@@ -1274,6 +1273,7 @@ export function ActivitiesSection<C = unknown>({
         entityOptions={entityOptions}
         defaultEntityId={resolvedDefaultEntityId || undefined}
         manageHref={manageHref}
+        customFieldEntityIds={customFieldEntityIds}
         labelPrefix={labelPrefix}
         appearanceLabels={appearanceLabels}
       />
