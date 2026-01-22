@@ -20,7 +20,9 @@ services:
     build:
       context: .
     image: open-mercato/app:dev
-    command: yarn start
+    command: >
+      sh -c "yarn mercato init &&
+      yarn start"
     working_dir: /app/apps/mercato
     ports:
       - "3000:3000"
