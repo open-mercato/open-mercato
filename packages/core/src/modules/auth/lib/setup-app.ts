@@ -401,6 +401,10 @@ async function ensureDefaultRoleAcls(
       'business_rules.*',
       'workflows.*',
       'currencies.*',
+      'staff.*',
+      'staff.leave_requests.manage',
+      'resources.*',
+      'planner.*',
     ]
     await ensureRoleAclFor(em, adminRole, tenantId, adminFeatures, { remove: ['directory.organizations.*', 'directory.tenants.*'] })
   }
@@ -424,6 +428,12 @@ async function ensureDefaultRoleAcls(
       'analytics.view',
       'audit_logs.undo_self',
       'perspectives.use',
+      'staff.leave_requests.send',
+      'staff.my_availability.view',
+      'staff.my_availability.manage',
+      'staff.my_leave_requests.view',
+      'staff.my_leave_requests.send',
+      'planner.view',
     ])
   }
 }

@@ -1,5 +1,6 @@
 {
   "search.nav.hybridSearch": "Search",
+  "search.config.nav.hybridSearch": "Search Settings",
   "search.messages.missingConfig": "Search requires configuring an embedding provider for semantic search.",
   "search.dialog.actions.search": "Search",
   "search.dialog.actions.openGlobalSearch": "Open global search",

@@ -1,7 +1,6 @@
 {
   "name": "@open-mercato/cli",
-  "version": "0.4.0",
-  "private": true,
+  "version": "0.4.1",
   "type": "module",
   "main": "./dist/index.js",
   "exports": {
@@ -48,6 +47,7 @@
   },
   "scripts": {
     "build": "node build.mjs",
+    "watch": "node watch.mjs",
     "test": "jest --config jest.config.cjs",
     "typecheck": "tsc --noEmit"
   },
@@ -63,5 +63,8 @@
     "@types/jest": "^30.0.0",
     "jest": "^30.2.0",
     "ts-jest": "^29.4.6"
+  },
+  "publishConfig": {
+    "access": "public"
   }
 }

@@ -300,6 +300,14 @@ export async function run(argv = process.argv) {
         await runModuleCommand(allModules, 'customers', 'seed-dictionaries', ['--tenant', tenantId, '--org', orgId])
         console.log('📚 ✅ Customer dictionaries seeded\n')
 
+        console.log('🏠 Seeding staff address types...')
+        await runModuleCommand(allModules, 'staff', 'seed-address-types', ['--tenant', tenantId, '--org', orgId])
+        console.log('🏠 ✅ Staff address types seeded\n')
+
+        console.log('🏠 Seeding resources address types...')
+        await runModuleCommand(allModules, 'resources', 'seed-address-types', ['--tenant', tenantId, '--org', orgId])
+        console.log('🏠 ✅ Resources address types seeded\n')
+
         console.log('📚 Seeding currencies...')
         await runModuleCommand(allModules, 'currencies', 'seed', ['--tenant', tenantId, '--org', orgId])
         console.log('📚 ✅ Currencies seeded\n')
@@ -307,6 +315,10 @@ export async function run(argv = process.argv) {
         console.log('📏 Seeding catalog units...')
         await runModuleCommand(allModules, 'catalog', 'seed-units', ['--tenant', tenantId, '--org', orgId])
         console.log('📏 ✅ Catalog units seeded\n')
+
+        console.log('🗓️  Seeding unavailability reasons...')
+        await runModuleCommand(allModules, 'planner', 'seed-unavailability-reasons', ['--tenant', tenantId, '--org', orgId])
+        console.log('🗓️  ✅ Unavailability reasons seeded\n')
 
         const parsedEncryption = parseBooleanToken(process.env.TENANT_DATA_ENCRYPTION ?? 'yes')
         const encryptionEnabled = parsedEncryption === null ? true : parsedEncryption
@@ -364,6 +376,22 @@ export async function run(argv = process.argv) {
           console.log('🧾 Seeding sales examples...')
           await runModuleCommand(allModules, 'sales', 'seed-examples', ['--tenant', tenantId, '--org', orgId])
           console.log('🧾 ✅ Sales examples seeded\n')
+
+          console.log('👥 Seeding staff examples...')
+          await runModuleCommand(allModules, 'staff', 'seed-examples', ['--tenant', tenantId, '--org', orgId])
+          console.log('👥 ✅ Staff examples seeded\n')
+
+          console.log('📦 Seeding resource capacity units...')
+          await runModuleCommand(allModules, 'resources', 'seed-capacity-units', ['--tenant', tenantId, '--org', orgId])
+          console.log('📦 ✅ Resource capacity units seeded\n')
+
+          console.log('🧰 Seeding resource examples...')
+          await runModuleCommand(allModules, 'resources', 'seed-examples', ['--tenant', tenantId, '--org', orgId])
+          console.log('🧰 ✅ Resource examples seeded\n')
+
+          console.log('🗓️  Seeding planner availability rulesets...')
+          await runModuleCommand(allModules, 'planner', 'seed-availability-rulesets', ['--tenant', tenantId, '--org', orgId])
+          console.log('🗓️  ✅ Planner availability rulesets seeded\n')
 
           // Optional: seed example todos if the example module is enabled
           const exampleModule = allModules.find((m) => m.id === 'example')

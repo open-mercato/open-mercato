@@ -16,7 +16,6 @@ export const MODULE_ICONS: Record<string, string> = {
   customers: 'users',
   catalog: 'package',
   sales: 'shopping-cart',
-  booking: 'calendar',
   search: 'search',
   auth: 'lock',
   dictionaries: 'book',

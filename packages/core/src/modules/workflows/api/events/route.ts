@@ -128,7 +128,7 @@ export async function GET(request: NextRequest) {
 
     // Enrich events with workflow instance info
     const enrichedEvents = events.map(event => ({
-      id: event.id,
+      id: String(event.id), // Convert BigInt to string for JSON serialization
       workflowInstanceId: event.workflowInstanceId,
       stepInstanceId: event.stepInstanceId,
       eventType: event.eventType,

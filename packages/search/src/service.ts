@@ -162,6 +162,10 @@ export class SearchService {
   async index(record: IndexableRecord): Promise<void> {
     const strategies = await this.getAvailableStrategies()
 
+    if (strategies.length === 0) {
+      return
+    }
+
     const results = await Promise.allSettled(
       strategies.map((strategy) => this.executeStrategyIndex(strategy, record)),
     )

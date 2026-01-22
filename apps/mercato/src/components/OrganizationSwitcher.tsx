@@ -4,11 +4,11 @@ import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { raiseCrudError } from '@open-mercato/ui/backend/utils/serverErrors'
-import { emitOrganizationScopeChanged } from '@/lib/frontend/organizationEvents'
+import { emitOrganizationScopeChanged } from '@open-mercato/shared/lib/frontend/organizationEvents'
 import { OrganizationSelect, type OrganizationTreeNode } from '@open-mercato/core/modules/directory/components/OrganizationSelect'
 import { TenantSelect, type TenantRecord } from '@open-mercato/core/modules/directory/components/TenantSelect'
 import { ALL_ORGANIZATIONS_COOKIE_VALUE } from '@open-mercato/core/modules/directory/constants'
-import { useT } from '@/lib/i18n/context'
+import { useT } from '@open-mercato/shared/lib/i18n/context'
 
 type OrganizationMenuNode = {
   id: string

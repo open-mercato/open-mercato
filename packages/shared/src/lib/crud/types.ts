@@ -23,6 +23,7 @@ export type CrudIndexerConfig<TEntity = unknown> = {
   entityType: string
   buildUpsertPayload?: (ctx: CrudEmitContext<TEntity>) => unknown
   buildDeletePayload?: (ctx: CrudEmitContext<TEntity>) => unknown
+  cacheAliases?: string[]
 }
 
 export type CrudIdentifierResolver<TEntity = unknown> = (entity: TEntity, action: CrudEventAction) => CrudEntityIdentifiers

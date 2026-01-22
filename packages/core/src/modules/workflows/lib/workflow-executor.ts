@@ -149,6 +149,31 @@ export async function startWorkflow(
     )
   }
 
+  // Validate START step pre-conditions if defined
+  if (startStep.preConditions && startStep.preConditions.length > 0) {
+    const { validateWorkflowStart } = await import('./start-validator')
+
+    const validationResult = await validateWorkflowStart(em, {
+      workflowId,
+      version: definition.version,
+      context: initialContext,
+      tenantId,
+      organizationId,
+    })
+
+    if (!validationResult.canStart) {
+      throw new WorkflowExecutionError(
+        `Workflow start pre-conditions failed: ${validationResult.errors.map(e => e.message).join('; ')}`,
+        'START_PRE_CONDITIONS_FAILED',
+        {
+          workflowId,
+          errors: validationResult.errors,
+          validatedRules: validationResult.validatedRules,
+        }
+      )
+    }
+  }
+
   // Create workflow instance
   const now = new Date()
   const instance = em.create(WorkflowInstance, {

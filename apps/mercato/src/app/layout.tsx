@@ -2,7 +2,7 @@ import type { Metadata } from 'next'
 import { Geist, Geist_Mono } from 'next/font/google'
 import './globals.css'
 import { bootstrap } from '@/bootstrap'
-import { I18nProvider } from '@/lib/i18n/context'
+import { I18nProvider } from '@open-mercato/shared/lib/i18n/context'
 
 // Bootstrap all package registrations at module load time
 bootstrap()

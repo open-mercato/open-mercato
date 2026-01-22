@@ -96,7 +96,9 @@ export function createMeilisearchDriver(
   }
 
   async function ensureIndex(indexName: string): Promise<void> {
-    if (initializedIndexes.has(indexName)) return
+    if (initializedIndexes.has(indexName)) {
+      return
+    }
 
     const existingPromise = initializingIndexes.get(indexName)
     if (existingPromise) {
@@ -170,7 +172,9 @@ export function createMeilisearchDriver(
     },
 
     async isHealthy(): Promise<boolean> {
-      if (!host) return false
+      if (!host) {
+        return false
+      }
 
       try {
         const meiliClient = getClient()
@@ -221,6 +225,7 @@ export function createMeilisearchDriver(
       await ensureIndex(indexName)
 
       const document = await prepareDocument(doc)
+
       const index = meiliClient.index(indexName)
       await index.addDocuments([document], { primaryKey: '_id' })
     },

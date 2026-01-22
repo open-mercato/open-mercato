@@ -5,9 +5,25 @@ This document describes how to configure and use the search module for indexing 
 ## Overview
 
 The search module provides unified search capabilities via three strategies:
-- **Fulltext**: Fast, typo-tolerant search (requires external fulltext engine)
-- **Vector**: Semantic/AI-powered search via embeddings
+- **Fulltext**: Fast, typo-tolerant search via Meilisearch
+- **Vector**: Semantic/AI-powered search via embeddings (OpenAI, Ollama, etc.)
 - **Tokens**: Exact keyword matching in PostgreSQL (always available)
+
+## Global Search (Cmd+K)
+
+The global search dialog strategies can be configured per-tenant via **Settings > Search** or the API:
+
+```typescript
+// Get current config
+GET /api/search/settings/global-search
+// Response: { "enabledStrategies": ["fulltext", "vector", "tokens"] }
+
+// Update config
+POST /api/search/settings/global-search
+// Body: { "enabledStrategies": ["fulltext", "tokens"] }
+```
+
+Strategies automatically become unavailable if their backend is not configured (e.g., no `MEILISEARCH_HOST` means fulltext is unavailable).
 
 ## Creating a Search Configuration
 
@@ -284,6 +300,53 @@ interface SearchResultLink {
 }
 ```
 
+## Core Types
+
+### SearchOptions
+
+```typescript
+interface SearchOptions {
+  tenantId: string
+  organizationId?: string | null
+  limit?: number
+  offset?: number
+  strategies?: SearchStrategyId[]  // 'fulltext' | 'vector' | 'tokens'
+  entityTypes?: string[]           // Filter by entity types
+}
+```
+
+### SearchResult
+
+```typescript
+interface SearchResult {
+  entityId: string                 // e.g., 'customers:customer_person_profile'
+  recordId: string                 // Primary key of the record
+  score: number                    // Relevance score (0-1)
+  source: SearchStrategyId         // Which strategy returned this result
+  presenter?: SearchResultPresenter
+  url?: string
+  links?: SearchResultLink[]
+  metadata?: Record<string, unknown>
+}
+```
+
+### IndexableRecord
+
+```typescript
+interface IndexableRecord {
+  entityId: string
+  recordId: string
+  tenantId: string
+  organizationId?: string | null
+  fields: Record<string, unknown>  // Searchable field values
+  presenter?: SearchResultPresenter
+  url?: string
+  links?: SearchResultLink[]
+  text?: string | string[]         // For vector embeddings
+  checksumSource?: unknown         // For change detection
+}
+```
+
 ## Auto-Indexing via Events
 
 When CRUD routes have `indexer: { entityType }` configured, the search module automatically:
@@ -292,6 +355,135 @@ When CRUD routes have `indexer: { entityType }` configured, the search module au
 3. Removes deleted records from all indexes
 
 No manual indexing code is needed for standard CRUD operations.
+
+## Programmatic Integration (DI)
+
+Other modules can use search functionality by resolving services from the DI container.
+
+### SearchService
+
+The primary service for executing searches and managing indexes:
+
+```typescript
+import type { SearchService } from '@open-mercato/search'
+
+const searchService = container.resolve('searchService') as SearchService
+
+// Execute a search
+const results = await searchService.search('john doe', {
+  tenantId: 'tenant-123',
+  organizationId: 'org-456',
+  limit: 20,
+  strategies: ['fulltext', 'vector'],
+})
+
+// Index a record
+await searchService.index({
+  entityId: 'customers:customer_person_profile',
+  recordId: 'rec-123',
+  tenantId: 'tenant-123',
+  organizationId: 'org-456',
+  fields: { name: 'John Doe', email: 'john@example.com' },
+  presenter: { title: 'John Doe', subtitle: 'Customer' },
+  url: '/backend/customers/people/rec-123',
+})
+
+// Bulk index, delete, purge
+await searchService.bulkIndex([record1, record2])
+await searchService.delete('customers:customer_person_profile', 'rec-123', 'tenant-123')
+await searchService.purge('customers:customer_person_profile', 'tenant-123')
+```
+
+### SearchIndexer
+
+Higher-level API for config-aware indexing with automatic presenter/URL resolution:
+
+```typescript
+import type { SearchIndexer } from '@open-mercato/search'
+
+const searchIndexer = container.resolve('searchIndexer') as SearchIndexer
+
+// Index with automatic config-based formatting
+await searchIndexer.indexRecord({
+  entityId: 'customers:customer_person_profile',
+  recordId: 'rec-123',
+  tenantId: 'tenant-123',
+  organizationId: 'org-456',
+  record: { id: 'rec-123', name: 'John Doe', email: 'john@example.com' },
+  customFields: { priority: 'high' },
+})
+
+// Index by ID (loads record from database)
+const result = await searchIndexer.indexRecordById({
+  entityId: 'customers:customer_person_profile',
+  recordId: 'rec-123',
+  tenantId: 'tenant-123',
+})
+
+// Check entity configuration
+if (searchIndexer.isEntityEnabled('customers:customer_person_profile')) {
+  // Entity is configured for indexing
+}
+
+// Reindex operations
+await searchIndexer.reindexEntity({ entityId, tenantId, purgeFirst: true })
+await searchIndexer.reindexAll({ tenantId, purgeFirst: true })
+```
+
+### DI Token Reference
+
+| Token | Type | Description |
+|-------|------|-------------|
+| `searchService` | `SearchService` | Execute searches, index/delete records |
+| `searchIndexer` | `SearchIndexer` | Config-aware indexing with presenter resolution |
+| `searchStrategies` | `SearchStrategy[]` | Array of registered strategy instances |
+| `fulltextIndexQueue` | `Queue` | Queue for fulltext indexing jobs |
+| `vectorIndexQueue` | `Queue` | Queue for vector indexing jobs |
+
+## REST API
+
+### Search Endpoint
+
+**`GET /api/search`**
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `q` | string | Yes | Search query |
+| `limit` | number | No | Max results (default: 50, max: 100) |
+| `strategies` | string | No | Comma-separated: `fulltext,vector,tokens` |
+
+```bash
+curl "https://your-app.com/api/search?q=john%20doe&limit=20" \
+  -H "Authorization: Bearer <token>"
+```
+
+**Response:**
+```json
+{
+  "results": [
+    {
+      "entityId": "customers:customer_person_profile",
+      "recordId": "rec-123",
+      "score": 0.95,
+      "source": "fulltext",
+      "presenter": { "title": "John Doe", "subtitle": "Customer" },
+      "url": "/backend/customers/people/rec-123"
+    }
+  ],
+  "strategiesUsed": ["fulltext", "vector"],
+  "timing": 45
+}
+```
+
+### Other Endpoints
+
+| Endpoint | Method | Permission | Description |
+|----------|--------|------------|-------------|
+| `/api/search/settings/global-search` | GET | `search.view` | Get enabled strategies for Cmd+K |
+| `/api/search/settings/global-search` | POST | `search.manage` | Update enabled strategies |
+| `/api/search/reindex` | POST | `search.manage` | Trigger fulltext reindex |
+| `/api/search/embeddings/reindex` | POST | `search.manage` | Trigger vector reindex |
+| `/api/search/embeddings/status` | GET | `search.view` | Get vector indexing status |
 
 ## Environment Variables
 
@@ -302,6 +494,9 @@ No manual indexing code is needed for standard CRUD operations.
 | `OPENAI_API_KEY` | Vector | OpenAI API key for embeddings |
 | `QUEUE_STRATEGY` | Queues | `local` (dev) or `async` (prod) |
 | `REDIS_URL` | Async queues | Redis connection URL |
+| `QUEUE_REDIS_URL` | Async queues | Alternative Redis URL for queues |
+| `OM_SEARCH_ENABLED` | - | Enable/disable search module (default: `true`) |
+| `OM_SEARCH_DEBUG` | Debug | Enable verbose debug logging |
 | `SEARCH_EXCLUDE_ENCRYPTED_FIELDS` | Security | Exclude encrypted fields from fulltext index |
 | `DEBUG_SEARCH_ENRICHER` | Debug | Enable presenter enricher debug logs |
 
@@ -321,20 +516,60 @@ For development with `QUEUE_STRATEGY=local`, jobs process from `.queue/` automat
 
 ## CLI Commands
 
+### Status
 ```bash
-# Check search module status and available strategies
 yarn mercato search status
+```
+Shows search module status, available strategies, and configuration.
 
-# Trigger reindex for all strategies
-yarn mercato search reindex --tenant <id>
+### Query
+```bash
+yarn mercato search query -q "search term" --tenant <id> [options]
+```
+Options:
+- `--query, -q` - Search query (required)
+- `--tenant` - Tenant ID (required)
+- `--org` - Organization ID
+- `--entity` - Entity types (comma-separated)
+- `--strategy` - Strategies to use: `fulltext,vector,tokens`
+- `--limit` - Max results (default: 20)
 
-# Reindex specific entity
-yarn mercato search reindex --tenant <id> --entity <module:entity>
+### Index Single Record
+```bash
+yarn mercato search index --entity <entityId> --record <recordId> --tenant <id>
+```
+Options:
+- `--entity` - Entity ID (e.g., `customers:customer_person_profile`)
+- `--record` - Record ID
+- `--tenant` - Tenant ID
+- `--org` - Organization ID
 
-# Test search query
-yarn mercato search query -q "search term" --tenant <id>
+### Reindex
+```bash
+yarn mercato search reindex --tenant <id> [options]
+```
+Options:
+- `--tenant` - Tenant scope (required)
+- `--org` - Organization scope
+- `--entity` - Single entity to reindex (defaults to all)
+- `--force` - Force reindex even if another job is running
+- `--purgeFirst` - Purge before reindexing
+- `--partitions` - Number of parallel partitions
+- `--batch` - Override batch size
 
-# Show all commands
+### Test Meilisearch Connection
+```bash
+yarn mercato search test-meilisearch
+```
+
+### Start Queue Worker
+```bash
+yarn mercato search worker <queue-name> --concurrency=<n>
+```
+Queues: `fulltext-indexing`, `vector-indexing`
+
+### Help
+```bash
 yarn mercato search help
 ```
 
@@ -421,3 +656,23 @@ buildSource: async (ctx) => {
   },
 }
 ```
+
+## Architecture
+
+```
+packages/search/src/
+├── modules/search/
+│   ├── api/              # REST API routes
+│   ├── cli.ts            # CLI commands
+│   ├── di.ts             # DI registration
+│   ├── subscribers/      # Event subscribers (fulltext_upsert, vector_upsert, delete)
+│   └── workers/          # Queue workers (fulltext-index, vector-index)
+├── fulltext/             # Fulltext drivers (Meilisearch)
+├── indexer/              # SearchIndexer implementation
+├── queue/                # Queue definitions
+├── strategies/           # Strategy implementations
+├── vector/               # Vector index service
+└── service.ts            # SearchService implementation
+```
+
+See `packages/search/src/modules/search/README.md` for complete API reference and advanced configuration.

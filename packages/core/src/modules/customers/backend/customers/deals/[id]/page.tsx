@@ -501,6 +501,7 @@ export default function DealDetailPage({ params }: { params?: { id?: string } })
                       disabled={sectionAction.disabled}
                       onClick={handleSectionAction}
                     >
+                      {sectionAction.icon ?? null}
                       {sectionAction.label}
                     </Button>
                   ) : null}

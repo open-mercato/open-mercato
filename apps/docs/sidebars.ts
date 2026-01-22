@@ -37,6 +37,15 @@ const sidebars: SidebarsConfig = {
         "user-guide/organizations",
         {
           type: "category",
+          label: "Resources & Staff",
+          items: [
+            "user-guide/resources-and-resource-types",
+            "user-guide/teams-and-team-members",
+            "user-guide/leave-requests-and-availability",
+          ],
+        },
+        {
+          type: "category",
           label: "Sales",
           items: [
             "user-guide/sales/orders-and-quotes",

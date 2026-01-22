@@ -147,6 +147,14 @@ export const DEFAULT_ENCRYPTION_MAPS: Array<{ entityId: string; fields: Array<{ 
     ],
   },
   {
+    entityId: 'staff:staff_leave_request',
+    fields: [
+      { field: 'note' },
+      { field: 'decision_comment' },
+      { field: 'unavailability_reason_value' },
+    ],
+  },
+  {
     entityId: 'vector:vector_search',
     fields: [
       { field: 'links' },

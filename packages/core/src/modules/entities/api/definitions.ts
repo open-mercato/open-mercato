@@ -16,6 +16,7 @@ import { filterSelectableSystemEntityIds, isSystemEntitySelectable } from '@open
 import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/directory/utils/organizationScope'
 import { loadEntityFieldsetConfigs, CustomFieldsetDefinition } from '../lib/fieldsets'
 import { normalizeCustomFieldOptions } from '@open-mercato/shared/modules/entities/options'
+import { CURRENCY_OPTIONS_URL } from '@open-mercato/shared/modules/entities/kinds'
 
 export const metadata = {
   // Reading definitions is needed by record forms; keep it auth-protected but accessible to all authenticated users
@@ -207,10 +208,12 @@ export async function GET(req: Request) {
         description: d.configJson?.description || undefined,
         multi: Boolean(d.configJson?.multi),
         options: (() => {
+          if (d.kind === 'currency') return undefined
           const normalizedOptions = normalizeCustomFieldOptions(d.configJson?.options)
           return normalizedOptions.length ? normalizedOptions : undefined
         })(),
         optionsUrl: (() => {
+          if (d.kind === 'currency') return CURRENCY_OPTIONS_URL
           const dictionaryId = typeof d.configJson?.dictionaryId === 'string' ? d.configJson.dictionaryId : undefined
           if (dictionaryId) return `/api/dictionaries/${dictionaryId}/entries`
           return typeof d.configJson?.optionsUrl === 'string' ? d.configJson.optionsUrl : undefined
@@ -331,6 +334,10 @@ export async function POST(req: Request) {
     const dictionaryId = typeof cfg.dictionaryId === 'string' ? cfg.dictionaryId.trim() : ''
     cfg.dictionaryId = dictionaryId
     cfg.dictionaryInlineCreate = cfg.dictionaryInlineCreate !== false
+  }
+  if (input.kind === 'currency') {
+    cfg.optionsUrl = CURRENCY_OPTIONS_URL
+    if (Array.isArray(cfg.options)) delete cfg.options
   }
   if (input.kind === 'multiline' && (cfg.editor == null || String(cfg.editor).trim() === '')) {
     cfg.editor = 'markdown'
@@ -572,6 +579,7 @@ const computeDefinitionScore = (def: any, cfg: Record<string, any>, entityIndex:
       case 'relation':
         return 6
       case 'select':
+      case 'currency':
         return 4
       case 'multiline':
         return 3

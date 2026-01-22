@@ -1,4 +1,5 @@
 {
+  "audit_logs.nav.title": "Audit-Logs",
   "audit_logs.actions.title": "Aktionsprotokoll",
   "audit_logs.actions.columns.action": "Aktion",
   "audit_logs.actions.columns.resource": "Ressource",

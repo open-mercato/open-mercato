@@ -9,6 +9,25 @@
  * the application before any package code executes.
  */
 
+// Register app dictionary loader before bootstrap (required for i18n in standalone packages)
+import { registerAppDictionaryLoader } from '@open-mercato/shared/lib/i18n/server'
+import type { Locale } from '@open-mercato/shared/lib/i18n/config'
+
+registerAppDictionaryLoader(async (locale: Locale): Promise<Record<string, unknown>> => {
+  switch (locale) {
+    case 'en':
+      return import('./i18n/en.json').then((m) => m.default)
+    case 'pl':
+      return import('./i18n/pl.json').then((m) => m.default)
+    case 'es':
+      return import('./i18n/es.json').then((m) => m.default)
+    case 'de':
+      return import('./i18n/de.json').then((m) => m.default)
+    default:
+      return import('./i18n/en.json').then((m) => m.default)
+  }
+})
+
 // Generated imports (static - works with bundlers)
 import { modules } from '@/.mercato/generated/modules.generated'
 import { entities } from '@/.mercato/generated/entities.generated'

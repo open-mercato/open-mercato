@@ -92,7 +92,7 @@ export async function handleOpenCodeHealth(): Promise<OpenCodeHealthResponse> {
     driver: null,
   }
   try {
-    const { createRequestContainer } = await import('@/lib/di/container')
+    const { createRequestContainer } = await import('@open-mercato/shared/lib/di/container')
     const container = await createRequestContainer()
     const searchService = container.resolve<{
       isStrategyAvailable: (strategy: string) => boolean

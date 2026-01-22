@@ -1,0 +1,46 @@
+storage: /verdaccio/storage
+plugins: /verdaccio/plugins
+
+web:
+  title: Open Mercato Local Registry
+  sort_packages: asc
+
+auth:
+  htpasswd:
+    file: /verdaccio/storage/htpasswd
+    max_users: 100
+
+uplinks:
+  npmjs:
+    url: https://registry.npmjs.org/
+    cache: true
+
+packages:
+  '@open-mercato/*':
+    access: $all
+    publish: $all
+    unpublish: $all
+    # No proxy - these are local packages only
+    # Allow anonymous publish for local development
+
+  '@*/*':
+    access: $all
+    publish: $authenticated
+    proxy: npmjs
+
+  '**':
+    access: $all
+    publish: $authenticated
+    proxy: npmjs
+
+server:
+  keepAliveTimeout: 60
+
+middlewares:
+  audit:
+    enabled: true
+
+log:
+  type: stdout
+  format: pretty
+  level: info
