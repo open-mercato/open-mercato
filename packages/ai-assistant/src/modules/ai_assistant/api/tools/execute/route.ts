@@ -1,6 +1,6 @@
 import { NextResponse, type NextRequest } from 'next/server'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
-import { createRequestContainer } from '@/lib/di/container'
+import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { executeTool } from '../../../lib/tool-executor'
 import { loadAllModuleTools } from '../../../lib/tool-loader'
 import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'

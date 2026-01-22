@@ -39,7 +39,7 @@ jest.mock('@open-mercato/shared/modules/registry', () => ({
 }))
 
 // Mock auth cookie reader
-jest.mock('@/lib/auth/server', () => ({
+jest.mock('@open-mercato/shared/lib/auth/server', () => ({
   getAuthFromCookies: jest.fn(),
 }))
 
@@ -50,7 +50,7 @@ const mockRbac = {
     Parameters<RbacService['userHasAllFeatures']>
   >()
 }
-jest.mock('@/lib/di/container', () => ({
+jest.mock('@open-mercato/shared/lib/di/container', () => ({
   createRequestContainer: async () => ({
     resolve: (key: string) => (key === 'rbacService' ? mockRbac : null),
   }),
@@ -64,10 +64,10 @@ jest.mock('next/navigation', () => ({
   notFound: () => notFound(),
 }))
 
-type GetAuthFromCookies = typeof import('@/lib/auth/server')['getAuthFromCookies']
+type GetAuthFromCookies = typeof import('@open-mercato/shared/lib/auth/server')['getAuthFromCookies']
 
 async function setAuthMock(value: Awaited<ReturnType<GetAuthFromCookies>>) {
-  const authModule = await import('@/lib/auth/server')
+  const authModule = await import('@open-mercato/shared/lib/auth/server')
   const mocked = authModule.getAuthFromCookies as jest.MockedFunction<GetAuthFromCookies>
   mocked.mockResolvedValue(value)
 }

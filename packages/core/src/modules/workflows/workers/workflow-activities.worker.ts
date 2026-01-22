@@ -24,7 +24,7 @@ import {
 } from '../lib/activity-executor'
 
 // Worker metadata for auto-discovery
-const DEFAULT_CONCURRENCY = 2
+const DEFAULT_CONCURRENCY = 1
 const envConcurrency = process.env.WORKERS_WORKFLOW_ACTIVITIES_CONCURRENCY
 
 export const metadata: WorkerMeta = {

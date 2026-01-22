@@ -6,6 +6,26 @@ import { fileURLToPath } from 'node:url'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 
+// Read the package version at build time for injection
+const packageJson = JSON.parse(readFileSync(join(__dirname, 'package.json'), 'utf-8'))
+const packageVersion = packageJson.version
+
+// Plugin to inject version at build time (replaces version.ts content)
+const injectVersion = {
+  name: 'inject-version',
+  setup(build) {
+    build.onLoad({ filter: /lib\/version\.ts$/ }, async () => {
+      return {
+        contents: `// Build-time generated version
+export const APP_VERSION = '${packageVersion}'
+export const appVersion = APP_VERSION
+`,
+        loader: 'ts'
+      }
+    })
+  }
+}
+
 const entryPoints = await glob(join(__dirname, 'src/**/*.{ts,tsx}'), {
   ignore: ['**/__tests__/**', '**/*.test.ts', '**/*.test.tsx']
 })
@@ -75,7 +95,7 @@ await esbuild.build({
   target: 'node18',
   sourcemap: true,
   jsx: 'automatic',
-  plugins: [addJsExtension],
+  plugins: [injectVersion, addJsExtension],
 })
 
 console.log('shared built successfully')
