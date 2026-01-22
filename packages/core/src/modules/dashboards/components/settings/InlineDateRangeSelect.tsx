@@ -25,7 +25,7 @@ export function InlineDateRangeSelect({
   return (
     <div className={`relative inline-flex items-center ${className}`}>
       <select
-        className="appearance-none rounded-md border border-border bg-background px-2 py-0.5 pr-6 text-xs text-muted-foreground hover:border-primary/50 focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary cursor-pointer"
+        className="appearance-none rounded-md border border-border bg-background px-2 py-0.5 pr-6 text-xs text-foreground hover:border-primary/50 focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary cursor-pointer"
         value={value}
         onChange={(e) => onChange(e.target.value as DateRangePreset)}
         title={displayLabel}

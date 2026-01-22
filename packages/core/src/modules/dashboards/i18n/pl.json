@@ -106,5 +106,18 @@
   "dashboards.analytics.widgets.salesByRegion.title": "Sprzedaż wg regionu",
   "dashboards.analytics.widgets.salesByRegion.description": "Rozkład przychodu wg regionu wysyłki",
   "dashboards.analytics.widgets.salesByRegion.error": "Nie udało się załadować danych sprzedaży wg regionu",
-  "dashboards.analytics.widgets.salesByRegion.empty": "Brak danych o sprzedaży regionalnej dla tego okresu"
+  "dashboards.analytics.widgets.salesByRegion.empty": "Brak danych o sprzedaży regionalnej dla tego okresu",
+
+  "dashboards.analytics.labels.unknown": "Nieznany",
+  "dashboards.analytics.labels.unknownProduct": "Nieznany produkt",
+  "dashboards.analytics.labels.unnamedProduct": "Produkt bez nazwy",
+  "dashboards.analytics.labels.value": "Wartość",
+
+  "dashboards.analytics.orderStatus.draft": "Szkic",
+  "dashboards.analytics.orderStatus.pending": "Oczekujące",
+  "dashboards.analytics.orderStatus.confirmed": "Potwierdzone",
+  "dashboards.analytics.orderStatus.processing": "W realizacji",
+  "dashboards.analytics.orderStatus.shipped": "Wysłane",
+  "dashboards.analytics.orderStatus.delivered": "Dostarczone",
+  "dashboards.analytics.orderStatus.cancelled": "Anulowane"
 }

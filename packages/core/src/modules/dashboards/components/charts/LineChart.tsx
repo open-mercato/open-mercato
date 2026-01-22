@@ -34,6 +34,7 @@ export type LineChartProps = {
   connectNulls?: boolean
   className?: string
   emptyMessage?: string
+  categoryLabels?: Record<string, string>
 }
 
 function defaultValueFormatter(value: number): string {
@@ -62,6 +63,7 @@ export function LineChart({
   connectNulls = true,
   className = '',
   emptyMessage = 'No data available',
+  categoryLabels,
 }: LineChartProps) {
   const getLineColor = (idx: number): string => {
     return resolveChartColor(colors?.[idx], idx)
@@ -119,19 +121,19 @@ export function LineChart({
             )}
             <XAxis
               dataKey={index}
-              tick={{ fontSize: 12, fill: 'hsl(var(--muted-foreground))' }}
+              tick={{ fontSize: 12 }}
               tickLine={false}
               axisLine={false}
             />
             <YAxis
               tickFormatter={valueFormatter}
-              tick={{ fontSize: 12, fill: 'hsl(var(--muted-foreground))' }}
+              tick={{ fontSize: 12 }}
               tickLine={false}
               axisLine={false}
               width={56}
             />
             <Tooltip
-              content={<ChartTooltipContent valueFormatter={valueFormatter} />}
+              content={<ChartTooltipContent valueFormatter={valueFormatter} categoryLabels={categoryLabels} />}
               cursor={{ stroke: 'hsl(var(--muted-foreground))', strokeDasharray: '3 3' }}
             />
             {showLegend && categories.length > 1 && (

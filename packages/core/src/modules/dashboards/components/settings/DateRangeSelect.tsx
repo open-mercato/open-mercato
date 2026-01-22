@@ -33,7 +33,7 @@ export function DateRangeSelect({
       )}
       <select
         id={id}
-        className="w-full rounded-md border px-2 py-1 text-sm focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
+        className="w-full rounded-md border bg-background px-2 py-1 text-sm text-foreground focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
         value={value}
         onChange={(e) => onChange(e.target.value as DateRangePreset)}
       >

@@ -41,11 +41,23 @@ async function fetchOrdersByStatusData(settings: OrdersByStatusSettings): Promis
   return call.result as WidgetDataResponse
 }
 
-function formatStatusLabel(status: string | null): string {
-  if (!status) return 'Unknown'
-  return status
-    .replace(/_/g, ' ')
-    .replace(/\b\w/g, (l) => l.toUpperCase())
+const ORDER_STATUS_KEYS: Record<string, string> = {
+  draft: 'dashboards.analytics.orderStatus.draft',
+  pending: 'dashboards.analytics.orderStatus.pending',
+  confirmed: 'dashboards.analytics.orderStatus.confirmed',
+  processing: 'dashboards.analytics.orderStatus.processing',
+  shipped: 'dashboards.analytics.orderStatus.shipped',
+  delivered: 'dashboards.analytics.orderStatus.delivered',
+  cancelled: 'dashboards.analytics.orderStatus.cancelled',
+}
+
+function formatStatusLabel(status: string | null, t: (key: string, fallback: string) => string): string {
+  if (!status) return t('dashboards.analytics.labels.unknown', 'Unknown')
+  const key = ORDER_STATUS_KEYS[status.toLowerCase()]
+  if (key) {
+    return t(key, status.replace(/_/g, ' ').replace(/\b\w/g, (l) => l.toUpperCase()))
+  }
+  return status.replace(/_/g, ' ').replace(/\b\w/g, (l) => l.toUpperCase())
 }
 
 const OrdersByStatusWidget: React.FC<DashboardWidgetComponentProps<OrdersByStatusSettings>> = ({
@@ -68,7 +80,7 @@ const OrdersByStatusWidget: React.FC<DashboardWidgetComponentProps<OrdersByStatu
     try {
       const result = await fetchOrdersByStatusData(hydrated)
       const chartData = result.data.map((item) => ({
-        name: formatStatusLabel(item.groupKey as string | null),
+        name: formatStatusLabel(item.groupKey as string | null, t),
         value: item.value ?? 0,
       }))
       setData(chartData)
@@ -103,7 +115,7 @@ const OrdersByStatusWidget: React.FC<DashboardWidgetComponentProps<OrdersByStatu
           </label>
           <select
             id="orders-by-status-variant"
-            className="w-full rounded-md border px-2 py-1 text-sm focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
+            className="w-full rounded-md border bg-background px-2 py-1 text-sm text-foreground focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
             value={hydrated.variant}
             onChange={(e) => onSettingsChange({ ...hydrated, variant: e.target.value as 'pie' | 'donut' })}
           >

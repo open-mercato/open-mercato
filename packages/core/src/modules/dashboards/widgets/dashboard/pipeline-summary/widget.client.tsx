@@ -43,10 +43,12 @@ async function fetchPipelineData(settings: PipelineSummarySettings): Promise<Wid
   return call.result as WidgetDataResponse
 }
 
-function formatStageLabel(stage: unknown): string {
-  if (stage == null || stage === '') return 'Unknown'
+function formatStageLabel(stage: unknown, t: (key: string, fallback: string) => string): string {
+  if (stage == null || stage === '') return t('dashboards.analytics.labels.unknown', 'Unknown')
   const stageStr = String(stage)
-  if (stageStr === '0' || stageStr === 'null' || stageStr === 'undefined') return 'Unknown'
+  if (stageStr === '0' || stageStr === 'null' || stageStr === 'undefined') {
+    return t('dashboards.analytics.labels.unknown', 'Unknown')
+  }
   return stageStr
     .replace(/_/g, ' ')
     .replace(/\b\w/g, (l) => l.toUpperCase())
@@ -74,7 +76,7 @@ const PipelineSummaryWidget: React.FC<DashboardWidgetComponentProps<PipelineSumm
       const chartData = result.data
         .filter((item) => item.groupKey != null && item.groupKey !== '' && String(item.groupKey) !== '0')
         .map((item) => ({
-          stage: formatStageLabel(item.groupLabel ?? item.groupKey),
+          stage: formatStageLabel(item.groupLabel ?? item.groupKey, t),
           Value: item.value ?? 0,
         }))
       setData(chartData)
@@ -117,6 +119,7 @@ const PipelineSummaryWidget: React.FC<DashboardWidgetComponentProps<PipelineSumm
           data={data}
           index="stage"
           categories={['Value']}
+          categoryLabels={{ Value: t('dashboards.analytics.labels.value', 'Value') }}
           loading={loading}
           error={error}
           valueFormatter={formatCurrencyCompact}

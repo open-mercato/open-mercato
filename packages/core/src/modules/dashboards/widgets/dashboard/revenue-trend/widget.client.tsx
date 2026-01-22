@@ -3,7 +3,7 @@
 import * as React from 'react'
 import type { DashboardWidgetComponentProps } from '@open-mercato/shared/modules/dashboard/widgets'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
-import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { useT, useLocale } from '@open-mercato/shared/lib/i18n/context'
 import { LineChart, type LineChartDataItem } from '../../../components/charts/LineChart'
 import { DateRangeSelect } from '../../../components/settings/DateRangeSelect'
 import { InlineDateRangeSelect } from '../../../components/settings/InlineDateRangeSelect'
@@ -12,7 +12,6 @@ import type { WidgetDataResponse } from '../../../services/widgetDataService'
 import type { DateRangePreset } from '../../../lib/dateRanges'
 import type { DateGranularity } from '../../../lib/aggregations'
 import { formatCurrencyCompact } from '../../../lib/formatters'
-import { format } from 'date-fns'
 
 async function fetchRevenueTrendData(settings: RevenueTrendSettings): Promise<WidgetDataResponse> {
   const body = {
@@ -45,23 +44,25 @@ async function fetchRevenueTrendData(settings: RevenueTrendSettings): Promise<Wi
   return call.result as WidgetDataResponse
 }
 
-function formatDate(dateStr: string | null, granularity: DateGranularity): string {
+function formatDate(dateStr: string | null, granularity: DateGranularity, locale?: string): string {
   if (!dateStr) return '--'
   try {
     const date = new Date(dateStr)
+    const localeStr = locale ?? undefined
     switch (granularity) {
       case 'day':
-        return format(date, 'MMM d')
       case 'week':
-        return format(date, 'MMM d')
+        return date.toLocaleDateString(localeStr, { month: 'short', day: 'numeric' })
       case 'month':
-        return format(date, 'MMM yyyy')
-      case 'quarter':
-        return format(date, 'QQQ yyyy')
+        return date.toLocaleDateString(localeStr, { month: 'short', year: 'numeric' })
+      case 'quarter': {
+        const quarter = Math.floor(date.getMonth() / 3) + 1
+        return `Q${quarter} ${date.getFullYear()}`
+      }
       case 'year':
-        return format(date, 'yyyy')
+        return date.toLocaleDateString(localeStr, { year: 'numeric' })
       default:
-        return format(date, 'MMM d')
+        return date.toLocaleDateString(localeStr, { month: 'short', day: 'numeric' })
     }
   } catch {
     return String(dateStr)
@@ -109,6 +110,7 @@ const RevenueTrendWidget: React.FC<DashboardWidgetComponentProps<RevenueTrendSet
   onRefreshStateChange,
 }) => {
   const t = useT()
+  const locale = useLocale()
   const hydrated = React.useMemo(() => hydrateSettings(settings), [settings])
   const [data, setData] = React.useState<LineChartDataItem[]>([])
   const [loading, setLoading] = React.useState(true)
@@ -126,7 +128,7 @@ const RevenueTrendWidget: React.FC<DashboardWidgetComponentProps<RevenueTrendSet
         return aTime - bTime
       })
       const chartData = sortedData.map((item) => ({
-        date: formatDate(item.groupKey as string | null, hydrated.granularity),
+        date: formatDate(item.groupKey as string | null, hydrated.granularity, locale),
         Revenue: item.value ?? 0,
       }))
       setData(chartData)
@@ -137,7 +139,7 @@ const RevenueTrendWidget: React.FC<DashboardWidgetComponentProps<RevenueTrendSet
       setLoading(false)
       onRefreshStateChange?.(false)
     }
-  }, [hydrated, onRefreshStateChange, t])
+  }, [hydrated, locale, onRefreshStateChange, t])
 
   React.useEffect(() => {
     refresh().catch(() => {})
@@ -161,7 +163,7 @@ const RevenueTrendWidget: React.FC<DashboardWidgetComponentProps<RevenueTrendSet
           </label>
           <select
             id="revenue-trend-granularity"
-            className="w-full rounded-md border px-2 py-1 text-sm focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
+            className="w-full rounded-md border bg-background px-2 py-1 text-sm text-foreground focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
             value={hydrated.granularity}
             onChange={(e) => onSettingsChange({ ...hydrated, granularity: e.target.value as DateGranularity })}
           >
@@ -202,6 +204,7 @@ const RevenueTrendWidget: React.FC<DashboardWidgetComponentProps<RevenueTrendSet
         data={data}
         index="date"
         categories={['Revenue']}
+        categoryLabels={{ Revenue: t('dashboards.analytics.widgets.topCustomers.column.revenue', 'Revenue') }}
         loading={loading}
         error={error}
         showArea={hydrated.showArea}

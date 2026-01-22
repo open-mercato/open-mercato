@@ -106,5 +106,18 @@
   "dashboards.analytics.widgets.salesByRegion.title": "Ventas por región",
   "dashboards.analytics.widgets.salesByRegion.description": "Distribución de ingresos por región de envío",
   "dashboards.analytics.widgets.salesByRegion.error": "No se pudieron cargar los datos de ventas por región",
-  "dashboards.analytics.widgets.salesByRegion.empty": "No hay datos de ventas regionales para este período"
+  "dashboards.analytics.widgets.salesByRegion.empty": "No hay datos de ventas regionales para este período",
+
+  "dashboards.analytics.labels.unknown": "Desconocido",
+  "dashboards.analytics.labels.unknownProduct": "Producto desconocido",
+  "dashboards.analytics.labels.unnamedProduct": "Producto sin nombre",
+  "dashboards.analytics.labels.value": "Valor",
+
+  "dashboards.analytics.orderStatus.draft": "Borrador",
+  "dashboards.analytics.orderStatus.pending": "Pendiente",
+  "dashboards.analytics.orderStatus.confirmed": "Confirmado",
+  "dashboards.analytics.orderStatus.processing": "En proceso",
+  "dashboards.analytics.orderStatus.shipped": "Enviado",
+  "dashboards.analytics.orderStatus.delivered": "Entregado",
+  "dashboards.analytics.orderStatus.cancelled": "Cancelado"
 }

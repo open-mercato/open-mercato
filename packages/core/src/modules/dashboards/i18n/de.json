@@ -106,5 +106,18 @@
   "dashboards.analytics.widgets.salesByRegion.title": "Verkäufe nach Region",
   "dashboards.analytics.widgets.salesByRegion.description": "Umsatzverteilung nach Versandregion",
   "dashboards.analytics.widgets.salesByRegion.error": "Daten zu Verkäufen nach Region konnten nicht geladen werden",
-  "dashboards.analytics.widgets.salesByRegion.empty": "Keine regionalen Verkaufsdaten für diesen Zeitraum"
+  "dashboards.analytics.widgets.salesByRegion.empty": "Keine regionalen Verkaufsdaten für diesen Zeitraum",
+
+  "dashboards.analytics.labels.unknown": "Unbekannt",
+  "dashboards.analytics.labels.unknownProduct": "Unbekanntes Produkt",
+  "dashboards.analytics.labels.unnamedProduct": "Unbenanntes Produkt",
+  "dashboards.analytics.labels.value": "Wert",
+
+  "dashboards.analytics.orderStatus.draft": "Entwurf",
+  "dashboards.analytics.orderStatus.pending": "Ausstehend",
+  "dashboards.analytics.orderStatus.confirmed": "Bestätigt",
+  "dashboards.analytics.orderStatus.processing": "In Bearbeitung",
+  "dashboards.analytics.orderStatus.shipped": "Versendet",
+  "dashboards.analytics.orderStatus.delivered": "Geliefert",
+  "dashboards.analytics.orderStatus.cancelled": "Storniert"
 }

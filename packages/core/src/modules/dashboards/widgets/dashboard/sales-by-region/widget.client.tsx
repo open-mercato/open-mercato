@@ -62,7 +62,7 @@ const SalesByRegionWidget: React.FC<DashboardWidgetComponentProps<SalesByRegionS
     try {
       const result = await fetchSalesByRegionData(hydrated)
       const chartData = result.data.map((item) => ({
-        region: String(item.groupKey || 'Unknown'),
+        region: String(item.groupKey || t('dashboards.analytics.labels.unknown', 'Unknown')),
         Revenue: item.value ?? 0,
       }))
       setData(chartData)
@@ -118,6 +118,7 @@ const SalesByRegionWidget: React.FC<DashboardWidgetComponentProps<SalesByRegionS
       data={data}
       index="region"
       categories={['Revenue']}
+      categoryLabels={{ Revenue: t('dashboards.analytics.widgets.topCustomers.column.revenue', 'Revenue') }}
       loading={loading}
       error={error}
       layout="horizontal"

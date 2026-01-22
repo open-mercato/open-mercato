@@ -48,8 +48,8 @@ async function fetchTopCustomersData(settings: TopCustomersSettings): Promise<Wi
   return call.result as WidgetDataResponse
 }
 
-function truncateId(id: string | null): string {
-  if (!id) return 'Unknown'
+function truncateId(id: string | null, unknownLabel: string): string {
+  if (!id) return unknownLabel
   if (id.length <= 12) return id
   return id.slice(0, 8) + '...'
 }
@@ -67,6 +67,7 @@ const TopCustomersWidget: React.FC<DashboardWidgetComponentProps<TopCustomersSet
   const [loading, setLoading] = React.useState(true)
   const [error, setError] = React.useState<string | null>(null)
 
+  const unknownLabel = t('dashboards.analytics.labels.unknown', 'Unknown')
   const columns: TopNTableColumn<CustomerRow>[] = React.useMemo(
     () => [
       {
@@ -77,7 +78,7 @@ const TopCustomersWidget: React.FC<DashboardWidgetComponentProps<TopCustomersSet
       {
         key: 'customerId',
         header: t('dashboards.analytics.widgets.topCustomers.column.customer', 'Customer'),
-        formatter: (value) => truncateId(String(value || '')),
+        formatter: (value) => truncateId(String(value || ''), unknownLabel),
       },
       {
         key: 'revenue',
@@ -86,7 +87,7 @@ const TopCustomersWidget: React.FC<DashboardWidgetComponentProps<TopCustomersSet
         formatter: (value: unknown) => formatCurrencySafe(value),
       },
     ],
-    [t],
+    [t, unknownLabel],
   )
 
   const refresh = React.useCallback(async () => {
@@ -97,7 +98,7 @@ const TopCustomersWidget: React.FC<DashboardWidgetComponentProps<TopCustomersSet
       const result = await fetchTopCustomersData(hydrated)
       const tableData: CustomerRow[] = result.data.map((item, index) => ({
         rank: index + 1,
-        customerId: String(item.groupKey || 'Unknown'),
+        customerId: String(item.groupKey || t('dashboards.analytics.labels.unknown', 'Unknown')),
         revenue: item.value ?? 0,
       }))
       setData(tableData)

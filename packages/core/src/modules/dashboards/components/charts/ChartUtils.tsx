@@ -83,6 +83,7 @@ interface ChartTooltipContentProps {
   hideLabel?: boolean
   indicator?: 'line' | 'dot' | 'dashed'
   nameKey?: string
+  categoryLabels?: Record<string, string>
 }
 
 export function ChartTooltipContent({
@@ -94,6 +95,7 @@ export function ChartTooltipContent({
   hideLabel = false,
   indicator = 'dot',
   nameKey,
+  categoryLabels,
 }: ChartTooltipContentProps) {
   if (!active || !payload?.length) {
     return null
@@ -108,7 +110,8 @@ export function ChartTooltipContent({
       )}
       <div className="flex flex-col gap-1">
         {payload.map((item, index) => {
-          const name = nameKey && item.payload ? String(item.payload[nameKey]) : item.name
+          const rawName = nameKey && item.payload ? String(item.payload[nameKey]) : item.name
+          const name = categoryLabels?.[rawName] ?? rawName
           return (
             <div key={index} className="flex items-center justify-between gap-8">
               <div className="flex items-center gap-2">

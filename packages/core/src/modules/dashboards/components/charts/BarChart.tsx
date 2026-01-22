@@ -30,6 +30,7 @@ export type BarChartProps = {
   showGridLines?: boolean
   className?: string
   emptyMessage?: string
+  categoryLabels?: Record<string, string>
 }
 
 function defaultValueFormatter(value: number): string {
@@ -56,6 +57,7 @@ export function BarChart({
   showGridLines = true,
   className = '',
   emptyMessage = 'No data available',
+  categoryLabels,
 }: BarChartProps) {
   const getBarColor = (idx: number): string => {
     return resolveChartColor(colors?.[idx], idx)
@@ -128,6 +130,7 @@ export function BarChart({
             content={
               <ChartTooltipContent
                 valueFormatter={valueFormatter}
+                categoryLabels={categoryLabels}
                 labelFormatter={(label, payload) => {
                   const item = payload?.[0]?.payload as BarChartDataItem | undefined
                   return item?.[index] ? String(item[index]) : label

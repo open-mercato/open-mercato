@@ -44,13 +44,19 @@ async function fetchTopProductsData(settings: TopProductsSettings): Promise<Widg
   return call.result as WidgetDataResponse
 }
 
-function truncateLabel(label: unknown, maxLength: number = 20): string {
-  if (label == null || label === '') return 'Unknown Product'
+function truncateLabel(
+  label: unknown,
+  t: (key: string, fallback: string) => string,
+  maxLength: number = 20
+): string {
+  if (label == null || label === '') return t('dashboards.analytics.labels.unknownProduct', 'Unknown Product')
   const labelStr = String(label)
   // Check for UUID-like strings or meaningless values
-  if (labelStr === '0' || labelStr === 'null' || labelStr === 'undefined') return 'Unknown Product'
+  if (labelStr === '0' || labelStr === 'null' || labelStr === 'undefined') {
+    return t('dashboards.analytics.labels.unknownProduct', 'Unknown Product')
+  }
   if (/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(labelStr)) {
-    return 'Unnamed Product'
+    return t('dashboards.analytics.labels.unnamedProduct', 'Unnamed Product')
   }
   if (labelStr.length <= maxLength) return labelStr
   return labelStr.slice(0, maxLength - 3) + '...'
@@ -79,7 +85,7 @@ const TopProductsWidget: React.FC<DashboardWidgetComponentProps<TopProductsSetti
     try {
       const result = await fetchTopProductsData(hydrated)
       const chartData = result.data.map((item, index) => ({
-        name: truncateLabel(item.groupLabel ?? item.groupKey ?? `Product ${index + 1}`),
+        name: truncateLabel(item.groupLabel ?? item.groupKey ?? `Product ${index + 1}`, t),
         Revenue: item.value ?? 0,
       }))
       setData(chartData)
@@ -135,7 +141,7 @@ const TopProductsWidget: React.FC<DashboardWidgetComponentProps<TopProductsSetti
           </label>
           <select
             id="top-products-layout"
-            className="w-full rounded-md border px-2 py-1 text-sm focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
+            className="w-full rounded-md border bg-background px-2 py-1 text-sm text-foreground focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
             value={hydrated.layout}
             onChange={(e) => onSettingsChange({ ...hydrated, layout: e.target.value as 'horizontal' | 'vertical' })}
           >
@@ -160,6 +166,7 @@ const TopProductsWidget: React.FC<DashboardWidgetComponentProps<TopProductsSetti
           data={data}
           index="name"
           categories={['Revenue']}
+          categoryLabels={{ Revenue: t('dashboards.analytics.widgets.topCustomers.column.revenue', 'Revenue') }}
           loading={loading}
           error={error}
           layout={hydrated.layout}

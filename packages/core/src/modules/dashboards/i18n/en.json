@@ -106,5 +106,18 @@
   "dashboards.analytics.widgets.salesByRegion.title": "Sales by Region",
   "dashboards.analytics.widgets.salesByRegion.description": "Revenue distribution by shipping region",
   "dashboards.analytics.widgets.salesByRegion.error": "Failed to load sales by region data",
-  "dashboards.analytics.widgets.salesByRegion.empty": "No regional sales data for this period"
+  "dashboards.analytics.widgets.salesByRegion.empty": "No regional sales data for this period",
+
+  "dashboards.analytics.labels.unknown": "Unknown",
+  "dashboards.analytics.labels.unknownProduct": "Unknown Product",
+  "dashboards.analytics.labels.unnamedProduct": "Unnamed Product",
+  "dashboards.analytics.labels.value": "Value",
+
+  "dashboards.analytics.orderStatus.draft": "Draft",
+  "dashboards.analytics.orderStatus.pending": "Pending",
+  "dashboards.analytics.orderStatus.confirmed": "Confirmed",
+  "dashboards.analytics.orderStatus.processing": "Processing",
+  "dashboards.analytics.orderStatus.shipped": "Shipped",
+  "dashboards.analytics.orderStatus.delivered": "Delivered",
+  "dashboards.analytics.orderStatus.cancelled": "Cancelled"
 }
