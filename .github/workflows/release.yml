@@ -1,4 +1,4 @@
-name: Release New Version
+name: Release
 
 on:
   push:
@@ -6,13 +6,14 @@ on:
 
 permissions:
   contents: write
-  id-token: write
   pull-requests: write
-  issues: write
+  id-token: write
+
+concurrency: ${{ github.workflow }}-${{ github.ref }}
 
 jobs:
   release:
-    name: Semantic Release
+    name: Release
     runs-on: ubuntu-latest
 
     steps:
@@ -24,7 +25,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version: '24'
 
       - name: Enable Corepack
         run: corepack enable
@@ -32,8 +33,46 @@ jobs:
       - name: Install dependencies
         run: yarn install --immutable
 
-      - name: Run semantic release
-        id: release
+      - name: Build packages
+        run: yarn build:packages
+
+      - name: Configure npm authentication
+        run: |
+          yarn config set npmAuthToken $NPM_TOKEN
+        env:
+          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+      - name: Create Release Pull Request or Publish
+        id: changesets
+        uses: changesets/action@v1
+        with:
+          version: yarn changeset:version
+          publish: yarn release
+          title: "chore: release packages"
+          commit: "chore: release packages"
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: yarn semantic-release
+          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+      - name: Create GitHub Releases
+        if: steps.changesets.outputs.published == 'true'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const publishedPackages = JSON.parse('${{ steps.changesets.outputs.publishedPackages }}');
+            for (const pkg of publishedPackages) {
+              try {
+                await github.rest.repos.createRelease({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  tag_name: `${pkg.name}@${pkg.version}`,
+                  name: `${pkg.name}@${pkg.version}`,
+                  body: `Release ${pkg.name}@${pkg.version}`,
+                  draft: false,
+                  prerelease: false
+                });
+                console.log(`Created release for ${pkg.name}@${pkg.version}`);
+              } catch (error) {
+                console.log(`Failed to create release for ${pkg.name}@${pkg.version}: ${error.message}`);
+              }
+            }

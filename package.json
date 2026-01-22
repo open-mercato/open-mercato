@@ -34,7 +34,14 @@
     "mcp:serve": "turbo run mcp:serve --filter=@open-mercato/ai-assistant",
     "mcp:dev": "turbo run mcp:dev --filter=@open-mercato/ai-assistant",
     "registry:setup-user": "./scripts/registry/setup-user.sh",
-    "registry:publish": "./scripts/registry/publish.sh"
+    "registry:publish": "./scripts/registry/publish.sh",
+    "changeset": "changeset",
+    "changeset:version": "changeset version",
+    "changeset:publish": "changeset publish",
+    "changeset:snapshot": "changeset version --snapshot canary",
+    "changeset:publish-snapshot": "changeset publish --tag canary --no-git-tag",
+    "release": "yarn build:packages && yarn changeset:publish",
+    "release:snapshot": "yarn build:packages && yarn changeset:snapshot && yarn changeset:publish-snapshot"
   },
   "dependencies": {
     "@ai-sdk/openai": "^2.0.80",
@@ -74,13 +81,9 @@
     "zod": "^4.1.13"
   },
   "devDependencies": {
+    "@changesets/changelog-github": "^0.5.2",
+    "@changesets/cli": "^2.29.8",
     "@eslint/eslintrc": "^3.3.3",
-    "@semantic-release/changelog": "^6.0.3",
-    "@semantic-release/commit-analyzer": "^13.0.0",
-    "@semantic-release/exec": "^7.1.0",
-    "@semantic-release/git": "^10.0.1",
-    "@semantic-release/github": "^12.0.2",
-    "@semantic-release/release-notes-generator": "^14.0.1",
     "@types/better-sqlite3": "^7.6.11",
     "@types/jest": "^30.0.0",
     "@types/node": "^20.0.0",
@@ -94,7 +97,6 @@
     "jest": "^30.2.0",
     "jest-environment-jsdom": "^30.2.0",
     "openapi-typescript": "^7.10.1",
-    "semantic-release": "^25.0.2",
     "ts-jest": "^29.4.6",
     "ts-node": "^10.9.2",
     "tsconfig-paths": "^4.2.0",
@@ -105,32 +107,5 @@
   "resolutions": {
     "pg": "8.16.3",
     "zod": "4.1.13"
-  },
-  "release": {
-    "branches": [
-      "main"
-    ],
-    "plugins": [
-      "@semantic-release/commit-analyzer",
-      "@semantic-release/release-notes-generator",
-      "@semantic-release/changelog",
-      [
-        "@semantic-release/exec",
-        {
-          "verifyReleaseCmd": "echo ${nextRelease.version} > .VERSION"
-        }
-      ],
-      [
-        "@semantic-release/git",
-        {
-          "assets": [
-            "CHANGELOG.md",
-            "README.md"
-          ],
-          "message": "chore(release): ${nextRelease.version} [skip ci]\n\n${nextRelease.notes}"
-        }
-      ],
-      "@semantic-release/github"
-    ]
   }
 }

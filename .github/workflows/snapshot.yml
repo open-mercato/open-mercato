@@ -1,0 +1,89 @@
+name: Snapshot Release
+
+on:
+  push:
+    branches: [develop]
+  pull_request:
+    branches: [main, develop]
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  snapshot:
+    name: Publish Canary
+    runs-on: ubuntu-latest
+    # Only run on push to develop, or PRs from the same repo (not forks)
+    if: github.event_name == 'push' || github.event.pull_request.head.repo.full_name == github.repository
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+
+      - name: Enable Corepack
+        run: corepack enable
+
+      - name: Install dependencies
+        run: yarn install --immutable
+
+      - name: Build packages
+        run: yarn build:packages
+
+      - name: Configure npm authentication
+        run: |
+          yarn config set npmAuthToken $NPM_TOKEN
+        env:
+          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+      - name: Create snapshot versions
+        run: yarn changeset:snapshot
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Publish snapshot to npm
+        id: publish
+        run: |
+          yarn changeset:publish-snapshot 2>&1 | tee publish-output.txt
+          # Extract published packages from output
+          PUBLISHED=$(grep -E "^@open-mercato/" publish-output.txt | sed 's/^/- /' || echo "No packages published")
+          echo "published<<EOF" >> $GITHUB_OUTPUT
+          echo "$PUBLISHED" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+        env:
+          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+      - name: Comment on PR
+        if: github.event_name == 'pull_request' && steps.publish.outputs.published != 'No packages published'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const published = `${{ steps.publish.outputs.published }}`;
+            const body = `## Canary Release Published
+
+            The following packages have been published to npm with the \`@canary\` tag:
+
+            ${published}
+
+            ### Install
+
+            \`\`\`bash
+            npm install @open-mercato/shared@canary
+            # or
+            yarn add @open-mercato/shared@canary
+            \`\`\`
+            `;
+
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: body
+            });
