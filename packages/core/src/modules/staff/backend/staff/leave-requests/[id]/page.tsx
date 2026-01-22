@@ -94,6 +94,10 @@ export default function StaffLeaveRequestDetailPage({ params }: { params?: { id?
 
   const status = record?.status ?? 'pending'
   const memberLabel = record?.member?.displayName ?? null
+  const dateSummary = formatDateRange(
+    record?.startDate ?? record?.start_date ?? null,
+    record?.endDate ?? record?.end_date ?? null,
+  )
   const initialValues = React.useMemo<LeaveRequestFormValues>(() => ({
     id: record?.id,
     memberId: record?.memberId ?? record?.member_id ?? null,
@@ -167,8 +171,13 @@ export default function StaffLeaveRequestDetailPage({ params }: { params?: { id?
               </span>
             ) : null}
           </div>
+          {memberLabel ? (
+            <p className="text-sm text-muted-foreground">
+              {t('staff.leaveRequests.detail.member', 'Team member')}: {memberLabel}
+            </p>
+          ) : null}
           <p className="text-sm text-muted-foreground">
-            {memberLabel ? t('staff.leaveRequests.detail.member', 'Team member') + `: ${memberLabel}` : null}
+            {t('staff.leaveRequests.detail.dates', 'Dates')}: {dateSummary}
           </p>
         </div>
 
@@ -223,4 +232,11 @@ function formatDateLabel(value?: string | null): string {
   const date = new Date(value)
   if (Number.isNaN(date.getTime())) return value
   return date.toLocaleDateString()
+}
+
+function formatDateRange(start?: string | null, end?: string | null): string {
+  const startLabel = formatDateLabel(start)
+  const endLabel = formatDateLabel(end)
+  if (startLabel && endLabel) return `${startLabel} -> ${endLabel}`
+  return startLabel || endLabel || '-'
 }

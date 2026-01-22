@@ -29,6 +29,7 @@ export default function StaffMyAvailabilityPage() {
   const [isLoading, setIsLoading] = React.useState(true)
   const [error, setError] = React.useState<string | null>(null)
   const [canManageAvailability, setCanManageAvailability] = React.useState(false)
+  const [canManageUnavailability, setCanManageUnavailability] = React.useState(false)
 
   React.useEffect(() => {
     let cancelled = false
@@ -40,12 +41,23 @@ export default function StaffMyAvailabilityPage() {
         const featureCall = await apiCall<FeatureCheckResponse>('/api/auth/feature-check', {
           method: 'POST',
           headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({ features: ['planner.manage_availability'] }),
+          body: JSON.stringify({
+            features: [
+              'planner.manage_availability',
+              'staff.my_availability.manage',
+              'staff.my_availability.unavailability',
+            ],
+          }),
         })
         if (!cancelled) {
           setMember(memberCall.result?.member ?? null)
           const granted = Array.isArray(featureCall.result?.granted) ? featureCall.result?.granted ?? [] : []
-          setCanManageAvailability(granted.includes('planner.manage_availability'))
+          const hasPlannerManage = granted.includes('planner.manage_availability')
+          const hasSelfManage = granted.includes('staff.my_availability.manage')
+          const hasSelfUnavailability = granted.includes('staff.my_availability.unavailability')
+          const canManage = hasPlannerManage || hasSelfManage
+          setCanManageAvailability(canManage)
+          setCanManageUnavailability(canManage && (hasPlannerManage || hasSelfUnavailability))
         }
       } catch (err) {
         if (!cancelled) {
@@ -125,6 +137,7 @@ export default function StaffMyAvailabilityPage() {
               buildMemberScheduleItems({ availabilityRules, translate })
             )}
             readOnly={!canManageAvailability}
+            allowUnavailability={canManageUnavailability}
           />
         </div>
       </PageBody>

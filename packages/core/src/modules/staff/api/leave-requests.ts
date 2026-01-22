@@ -19,6 +19,8 @@ import { createStaffCrudOpenApi, createPagedListResponseSchema, defaultOkRespons
 
 const MANAGE_FEATURE = 'staff.leave_requests.manage'
 const SEND_FEATURE = 'staff.leave_requests.send'
+const MY_VIEW_FEATURE = 'staff.my_leave_requests.view'
+const MY_SEND_FEATURE = 'staff.my_leave_requests.send'
 
 const routeMetadata = {
   GET: { requireAuth: true },
@@ -69,6 +71,7 @@ const listSchema = z
 type LeaveRequestAccess = {
   canManage: boolean
   canSend: boolean
+  canView: boolean
   memberId: string | null
 }
 
@@ -84,17 +87,21 @@ function resolveActorUserId(ctx: { auth?: { sub?: string | null; isApiKey?: bool
 async function resolveLeaveRequestAccess(ctx: any): Promise<LeaveRequestAccess> {
   const auth = ctx.auth
   if (!auth || !auth.sub || auth.isApiKey) {
-    return { canManage: false, canSend: false, memberId: null }
+    return { canManage: false, canSend: false, canView: false, memberId: null }
   }
   const tenantId = ctx.organizationScope?.tenantId ?? auth.tenantId ?? null
   const organizationId = ctx.selectedOrganizationId ?? ctx.organizationScope?.selectedId ?? auth.orgId ?? null
   const rbac = (ctx.container.resolve('rbacService') as RbacService)
-  const [canManage, canSend] = await Promise.all([
+  const [canManage, canSendLegacy, canSendSelf, canViewSelf] = await Promise.all([
     rbac.userHasAllFeatures(auth.sub, [MANAGE_FEATURE], { tenantId, organizationId }),
     rbac.userHasAllFeatures(auth.sub, [SEND_FEATURE], { tenantId, organizationId }),
+    rbac.userHasAllFeatures(auth.sub, [MY_SEND_FEATURE], { tenantId, organizationId }),
+    rbac.userHasAllFeatures(auth.sub, [MY_VIEW_FEATURE], { tenantId, organizationId }),
   ])
-  if (!canManage && !canSend) {
-    return { canManage, canSend, memberId: null }
+  const canSend = canSendLegacy || canSendSelf
+  const canView = canManage || canSend || canViewSelf
+  if (!canManage && !canView) {
+    return { canManage, canSend, canView, memberId: null }
   }
   const member = await findOneWithDecryption(
     ctx.container.resolve('em') as EntityManager,
@@ -103,7 +110,7 @@ async function resolveLeaveRequestAccess(ctx: any): Promise<LeaveRequestAccess> 
     undefined,
     { tenantId, organizationId },
   )
-  return { canManage, canSend, memberId: member?.id ?? null }
+  return { canManage, canSend, canView, memberId: member?.id ?? null }
 }
 
 const crud = makeCrudRoute({
@@ -182,7 +189,7 @@ const crud = makeCrudRoute({
 
       const access = await resolveLeaveRequestAccess(ctx)
       if (!access.canManage) {
-        if (!access.canSend || !access.memberId) {
+        if (!access.canView || !access.memberId) {
           filters[F.id] = '__no_access__'
         } else {
           filters[F.member_id] = access.memberId
@@ -368,6 +375,7 @@ const leaveRequestListResponseSchema = createPagedListResponseSchema(leaveReques
     .object({
       canManage: z.boolean(),
       canSend: z.boolean(),
+      canView: z.boolean(),
       memberId: z.string().uuid().nullable(),
     })
     .optional(),

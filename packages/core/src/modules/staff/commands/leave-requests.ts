@@ -7,6 +7,7 @@ import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { emitCrudSideEffects, emitCrudUndoSideEffects, buildChanges } from '@open-mercato/shared/lib/commands/helpers'
 import type { CrudIndexerConfig } from '@open-mercato/shared/lib/crud/types'
 import type { DataEngine } from '@open-mercato/shared/lib/data/engine'
+import { invalidateCrudCache } from '@open-mercato/shared/lib/crud/cache'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { PlannerAvailabilityRule } from '@open-mercato/core/modules/planner/data/entities'
 import { StaffLeaveRequest, type StaffLeaveRequestStatus } from '../data/entities'
@@ -27,6 +28,7 @@ const leaveRequestCrudIndexer: CrudIndexerConfig<StaffLeaveRequest> = {
 
 const availabilityRuleCrudIndexer: CrudIndexerConfig<PlannerAvailabilityRule> = {
   entityType: E.planner.planner_availability_rule,
+  cacheAliases: ['planner.availability'],
 }
 
 type LeaveRequestSnapshot = {
@@ -185,6 +187,26 @@ async function createUnavailabilityRules(params: {
     createdIds.push(ruleId)
   })
   return createdIds
+}
+
+async function invalidateAvailabilityCache(params: {
+  container: CommandRuntimeContext['container']
+  tenantId: string | null
+  organizationId: string | null
+  ruleIds: string[]
+}) {
+  if (!params.ruleIds.length) return
+  const resource = 'planner.availability'
+  const fallbackTenant = params.tenantId ?? null
+  for (const ruleId of params.ruleIds) {
+    await invalidateCrudCache(
+      params.container,
+      resource,
+      { id: ruleId, organizationId: params.organizationId, tenantId: params.tenantId },
+      fallbackTenant,
+      'updated',
+    )
+  }
 }
 
 const createLeaveRequestCommand: CommandHandler<StaffLeaveRequestCreateInput, { requestId: string }> = {
@@ -546,6 +568,12 @@ const acceptLeaveRequestCommand: CommandHandler<StaffLeaveRequestDecisionInput, 
         })
       }
     }
+    await invalidateAvailabilityCache({
+      container: ctx.container,
+      tenantId: request.tenantId,
+      organizationId: request.organizationId,
+      ruleIds: createdRuleIds,
+    })
 
     return { requestId: request.id, ruleIds: createdRuleIds }
   },
@@ -629,6 +657,12 @@ const acceptLeaveRequestCommand: CommandHandler<StaffLeaveRequestDecisionInput, 
         })
       }
     }
+    await invalidateAvailabilityCache({
+      container: ctx.container,
+      tenantId: before.tenantId,
+      organizationId: before.organizationId,
+      ruleIds: availabilityRuleIds,
+    })
   },
 }
 

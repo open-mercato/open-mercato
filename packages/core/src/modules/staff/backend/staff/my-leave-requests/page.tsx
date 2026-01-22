@@ -27,7 +27,7 @@ type LeaveRequestsResponse = {
   items?: Array<Record<string, unknown>>
   total?: number
   totalPages?: number
-  viewer?: { memberId?: string | null }
+  viewer?: { memberId?: string | null; canSend?: boolean }
 }
 
 export default function StaffMyLeaveRequestsPage() {
@@ -42,6 +42,7 @@ export default function StaffMyLeaveRequestsPage() {
   const [isLoading, setIsLoading] = React.useState(true)
   const [sorting, setSorting] = React.useState<SortingState>([{ id: 'startDate', desc: true }])
   const [memberId, setMemberId] = React.useState<string | null>(null)
+  const [canSend, setCanSend] = React.useState(false)
 
   const labels = React.useMemo(() => ({
     title: t('staff.leaveRequests.my.title', 'My leave requests'),
@@ -118,11 +119,13 @@ export default function StaffMyLeaveRequestsPage() {
       setTotalPages(typeof payload.totalPages === 'number' ? payload.totalPages : 1)
       const viewerMemberId = typeof payload.viewer?.memberId === 'string' ? payload.viewer.memberId : null
       setMemberId(viewerMemberId)
+      setCanSend(payload.viewer?.canSend === true)
     } catch {
       setRows([])
       setTotal(0)
       setTotalPages(1)
       setMemberId(null)
+      setCanSend(false)
     } finally {
       setIsLoading(false)
     }
@@ -160,7 +163,7 @@ export default function StaffMyLeaveRequestsPage() {
           onSearchChange={handleSearchChange}
           searchPlaceholder={labels.table.search}
           emptyState={emptyState}
-          actions={memberId ? (
+          actions={memberId && canSend ? (
             <Button asChild size="sm">
               <Link href="/backend/staff/my-leave-requests/create">{labels.actions.add}</Link>
             </Button>

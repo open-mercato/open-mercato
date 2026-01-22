@@ -70,6 +70,7 @@ export type AvailabilityRulesEditorProps = {
   buildScheduleItems: AvailabilityScheduleItemBuilder
   loadBookedEvents?: (range: ScheduleRange) => Promise<AvailabilityBookedEvent[]>
   readOnly?: boolean
+  allowUnavailability?: boolean
 }
 
 type TimeWindow = { start: string; end: string }
@@ -346,9 +347,11 @@ export function AvailabilityRulesEditor({
   buildScheduleItems,
   loadBookedEvents,
   readOnly,
+  allowUnavailability,
 }: AvailabilityRulesEditorProps) {
   const t = useT()
   const isReadOnly = Boolean(readOnly)
+  const canManageUnavailability = allowUnavailability ?? true
   const dialogRef = React.useRef<HTMLDivElement | null>(null)
   const createRuleSetDialogRef = React.useRef<HTMLDivElement | null>(null)
   const [availabilityRules, setAvailabilityRules] = React.useState<AvailabilityRule[]>([])
@@ -911,7 +914,7 @@ export function AvailabilityRulesEditor({
     const trimmed = nextTimezone.trim()
     setTimezone(trimmed || 'UTC')
     setTimezoneDirty(true)
-  }, [isReadOnly])
+  }, [canManageUnavailability, isReadOnly])
 
   const handleCustomize = React.useCallback(async () => {
     if (isReadOnly) return
@@ -1066,6 +1069,7 @@ export function AvailabilityRulesEditor({
     setEditorScope(scope)
     const rules = options?.rules ?? []
     const unavailableRule = rules.find((rule) => rule.kind === 'unavailability')
+    if (unavailableRule && !canManageUnavailability) return
     setEditorRules(rules)
     setEditorUnavailable(scope === 'date' && Boolean(unavailableRule))
     setEditorNote(unavailableRule?.note ?? '')
@@ -1136,6 +1140,7 @@ export function AvailabilityRulesEditor({
 
   const handleEditorSubmit = React.useCallback(async () => {
     if (isReadOnly) return
+    if (editorUnavailable && !canManageUnavailability) return
     const subjectForRules: AvailabilitySubjectType = usingRuleSet ? 'ruleset' : subjectType
     const subjectIdForRules = usingRuleSet ? (rulesetId ?? '') : subjectId
     if (!subjectIdForRules) return
@@ -1222,6 +1227,7 @@ export function AvailabilityRulesEditor({
     subjectType,
     timezone,
     usingRuleSet,
+    canManageUnavailability,
     isReadOnly,
   ])
 
@@ -1466,6 +1472,7 @@ export function AvailabilityRulesEditor({
                     const weekdayShort = weekdayLabel ? weekdayLabel.short : '?'
                     const unavailableRule = rules.find((rule) => rule.kind === 'unavailability')
                     const unavailableReason = resolveRuleReasonValue(unavailableRule)
+                    const lockUnavailabilityActions = Boolean(unavailableRule) && !canManageUnavailability
                     return (
                       <div key={date} className="flex flex-wrap items-start gap-3 rounded-lg border bg-background p-3">
                         <div className="flex w-10 justify-center pt-1">
@@ -1492,7 +1499,7 @@ export function AvailabilityRulesEditor({
                                 variant="outline"
                                 size="sm"
                                 onClick={() => openEditor('date', { date: new Date(`${date}T00:00:00`), rules })}
-                                disabled={usingRuleSet || isReadOnly}
+                                disabled={usingRuleSet || isReadOnly || lockUnavailabilityActions}
                               >
                                 <PencilLine className="size-4 mr-2" aria-hidden />
                                 {listLabels.editTitle}
@@ -1506,7 +1513,7 @@ export function AvailabilityRulesEditor({
                                   await refreshAvailability()
                                   await refreshRuleSetRules()
                                 }}
-                                disabled={usingRuleSet || isReadOnly}
+                                disabled={usingRuleSet || isReadOnly || lockUnavailabilityActions}
                                 aria-label={listLabels.removeWindow}
                               >
                                 <Trash2 className="size-4" aria-hidden />
@@ -1650,6 +1657,7 @@ export function AvailabilityRulesEditor({
                               type="checkbox"
                               className="mt-0.5 size-4"
                               checked={editorUnavailable}
+                              disabled={!canManageUnavailability}
                               onChange={(event) => {
                                 const checked = event.target.checked
                                 setEditorUnavailable(checked)
@@ -1680,6 +1688,7 @@ export function AvailabilityRulesEditor({
                                   labels={unavailableReasonLabels}
                                   selectClassName="w-full"
                                   manageHref="/backend/config/dictionaries"
+                                  disabled={!canManageUnavailability}
                                 />
                               </div>
                               <div className="space-y-2">
@@ -1688,6 +1697,7 @@ export function AvailabilityRulesEditor({
                                   type="text"
                                   value={editorNote}
                                   placeholder={listLabels.unavailableNotePlaceholder}
+                                  disabled={!canManageUnavailability}
                                   onChange={(event) => setEditorNote(event.target.value)}
                                 />
                               </div>
