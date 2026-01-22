@@ -132,7 +132,8 @@ export function BarChart({
                 valueFormatter={valueFormatter}
                 categoryLabels={categoryLabels}
                 labelFormatter={(label, payload) => {
-                  const item = payload?.[0]?.payload as BarChartDataItem | undefined
+                  const entry = payload?.[0] as { payload?: BarChartDataItem } | undefined
+                  const item = entry?.payload
                   return item?.[index] ? String(item[index]) : label
                 }}
               />
