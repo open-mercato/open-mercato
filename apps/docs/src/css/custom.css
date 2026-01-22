@@ -58,29 +58,19 @@ body {
 @media (max-width: 996px) {
   .navbar-sidebar {
     background: var(--ifm-navbar-background-color);
-    left: 0;
-    right: auto;
-    z-index: 1001;
-  }
-
-  .navbar-sidebar__backdrop {
     z-index: 1000;
   }
 
-  .navbar-sidebar--show .navbar-sidebar,
-  .navbar-sidebar--show .navbar-sidebar__backdrop {
+  .navbar-sidebar__backdrop {
+    z-index: 999;
+  }
+
+  html.navbar-sidebar--show .navbar-sidebar,
+  html.navbar-sidebar--show .navbar-sidebar__backdrop {
     opacity: 1;
     pointer-events: auto;
+    transform: translateX(0);
     visibility: visible;
-  }
-
-  .navbar-sidebar--show .navbar-sidebar {
-    transform: translate3d(0, 0, 0);
-  }
-
-  .navbar-sidebar__item .menu__link,
-  .navbar-sidebar__item .menu__link--active {
-    color: var(--ifm-navbar-link-color);
   }
 }
 
