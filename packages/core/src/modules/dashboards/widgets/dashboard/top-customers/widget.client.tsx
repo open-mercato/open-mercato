@@ -27,6 +27,7 @@ async function fetchTopCustomersData(settings: TopCustomersSettings): Promise<Wi
     groupBy: {
       field: 'customerEntityId',
       limit: settings.limit,
+      resolveLabels: true,
     },
     dateRange: {
       field: 'placedAt',
@@ -48,10 +49,9 @@ async function fetchTopCustomersData(settings: TopCustomersSettings): Promise<Wi
   return call.result as WidgetDataResponse
 }
 
-function truncateId(id: string | null, unknownLabel: string): string {
-  if (!id) return unknownLabel
-  if (id.length <= 12) return id
-  return id.slice(0, 8) + '...'
+function formatCustomerName(name: string | null, unknownLabel: string): string {
+  if (!name) return unknownLabel
+  return name
 }
 
 const TopCustomersWidget: React.FC<DashboardWidgetComponentProps<TopCustomersSettings>> = ({
@@ -78,7 +78,7 @@ const TopCustomersWidget: React.FC<DashboardWidgetComponentProps<TopCustomersSet
       {
         key: 'customerId',
         header: t('dashboards.analytics.widgets.topCustomers.column.customer', 'Customer'),
-        formatter: (value) => truncateId(String(value || ''), unknownLabel),
+        formatter: (value) => formatCustomerName(String(value || ''), unknownLabel),
       },
       {
         key: 'revenue',
@@ -98,7 +98,7 @@ const TopCustomersWidget: React.FC<DashboardWidgetComponentProps<TopCustomersSet
       const result = await fetchTopCustomersData(hydrated)
       const tableData: CustomerRow[] = result.data.map((item, index) => ({
         rank: index + 1,
-        customerId: String(item.groupKey || t('dashboards.analytics.labels.unknown', 'Unknown')),
+        customerId: item.groupLabel || String(item.groupKey || t('dashboards.analytics.labels.unknown', 'Unknown')),
         revenue: item.value ?? 0,
       }))
       setData(tableData)
@@ -150,7 +150,6 @@ const TopCustomersWidget: React.FC<DashboardWidgetComponentProps<TopCustomersSet
 
   return (
     <TopNTable
-      title={t('dashboards.analytics.widgets.topCustomers.title', 'Top Customers by Revenue')}
       data={data}
       columns={columns}
       loading={loading}

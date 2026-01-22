@@ -215,23 +215,25 @@ export function buildAggregationQuery(options: BuildAggregationQueryOptions): Ag
   let limitClause = ''
 
   if (options.groupBy) {
-    const groupMapping = getFieldMapping(options.entityType, options.groupBy.field)
-    if (groupMapping) {
-      let groupExpr: string
+    let groupMapping = getFieldMapping(options.entityType, options.groupBy.field)
+    let groupExpr: string | null = null
+
+    // Handle JSONB path notation (e.g., shippingAddressSnapshot.region)
+    if (!groupMapping && options.groupBy.field.includes('.')) {
+      const [baseField, ...pathParts] = options.groupBy.field.split('.')
+      const baseMapping = getFieldMapping(options.entityType, baseField)
+      if (baseMapping?.type === 'jsonb') {
+        groupExpr = buildJsonbFieldExpression(baseMapping.dbColumn, pathParts.join('.'))
+      }
+    } else if (groupMapping) {
       if (groupMapping.type === 'timestamp' && options.groupBy.granularity) {
         groupExpr = buildDateTruncExpression(groupMapping.dbColumn, options.groupBy.granularity)
-      } else if (groupMapping.type === 'jsonb' && options.groupBy.field.includes('.')) {
-        const [baseField, ...pathParts] = options.groupBy.field.split('.')
-        const baseMapping = getFieldMapping(options.entityType, baseField)
-        if (baseMapping?.type === 'jsonb') {
-          groupExpr = buildJsonbFieldExpression(baseMapping.dbColumn, pathParts.join('.'))
-        } else {
-          groupExpr = groupMapping.dbColumn
-        }
       } else {
         groupExpr = groupMapping.dbColumn
       }
+    }
 
+    if (groupExpr) {
       selectClause = `SELECT ${groupExpr} AS group_key, ${aggregateExpr} AS value`
       groupByClause = `GROUP BY ${groupExpr}`
       orderByClause = `ORDER BY value DESC`

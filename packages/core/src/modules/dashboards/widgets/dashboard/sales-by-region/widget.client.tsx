@@ -114,7 +114,6 @@ const SalesByRegionWidget: React.FC<DashboardWidgetComponentProps<SalesByRegionS
 
   return (
     <BarChart
-      title={t('dashboards.analytics.widgets.salesByRegion.title', 'Sales by Region')}
       data={data}
       index="region"
       categories={['Revenue']}

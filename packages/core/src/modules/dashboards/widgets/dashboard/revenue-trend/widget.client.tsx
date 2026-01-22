@@ -200,7 +200,6 @@ const RevenueTrendWidget: React.FC<DashboardWidgetComponentProps<RevenueTrendSet
         />
       </div>
       <LineChart
-        title={t('dashboards.analytics.widgets.revenueTrend.title', 'Revenue Trend')}
         data={data}
         index="date"
         categories={['Revenue']}
