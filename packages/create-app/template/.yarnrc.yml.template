@@ -1,0 +1,2 @@
+nodeLinker: node-modules
+{{REGISTRY_CONFIG}}
