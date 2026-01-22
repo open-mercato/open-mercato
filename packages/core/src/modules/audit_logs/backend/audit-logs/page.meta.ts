@@ -10,8 +10,10 @@ export const metadata = {
   requireAuth: true,
   requireFeatures: ['audit_logs.view_self'],
   pageTitle: 'Audit Logs',
+  pageTitleKey: 'audit_logs.nav.title',
   pageGroup: 'Security',
+  pageGroupKey: 'backend.nav.security',
   pageOrder: 160,
   icon: activityIcon,
-  breadcrumb: [{ label: 'Audit Logs' }],
+  breadcrumb: [{ label: 'Audit Logs', labelKey: 'audit_logs.nav.title' }],
 }

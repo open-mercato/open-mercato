@@ -183,7 +183,7 @@
   "staff.availabilityRuleSets.tabs.details": "Detalles",
   "staff.availabilityRuleSets.tabs.label": "Secciones del horario",
   "staff.errors.unauthorized": "No autorizado",
-  "staff.nav.group": "Reservas",
+  "staff.nav.group": "Empleados",
   "staff.resourceTypes.actions.add": "Agregar tipo de recurso",
   "staff.resourceTypes.actions.delete": "Eliminar",
   "staff.resourceTypes.actions.deleteConfirm": "Eliminar el tipo de recurso \"{{name}}\"?",

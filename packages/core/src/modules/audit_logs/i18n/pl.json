@@ -1,4 +1,5 @@
 {
+  "audit_logs.nav.title": "Logi audytu",
   "audit_logs.actions.title": "Dziennik działań",
   "audit_logs.actions.columns.action": "Działanie",
   "audit_logs.actions.columns.resource": "Zasób",

@@ -20,6 +20,7 @@
   "customers.config.addressFormat.errorSave": "Nie udało się zaktualizować ustawień adresu",
   "customers.config.addressFormat.success": "Zaktualizowano format adresu",
   "backend.nav.configuration": "Konfiguracja",
+  "customers.storage.nav.group": "Magazyn",
   "customers.audit.people.create": "Utwórz osobę",
   "customers.audit.people.update": "Zaktualizuj osobę",
   "customers.audit.people.delete": "Usuń osobę",

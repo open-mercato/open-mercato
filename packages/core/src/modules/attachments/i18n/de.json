@@ -6,7 +6,7 @@
       }
     },
     "library": {
-      "title": "Attachments",
+      "title": "Anhänge",
       "description": "Browse, tag, and manage every file stored in this workspace.",
       "actions": {
         "refresh": "Refresh",

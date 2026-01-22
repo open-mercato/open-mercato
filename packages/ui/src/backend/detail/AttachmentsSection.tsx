@@ -135,6 +135,7 @@ export function AttachmentsSection({
   const [selectedItem, setSelectedItem] = React.useState<AttachmentItem | null>(null)
   const [deleteOpen, setDeleteOpen] = React.useState(false)
   const [deleteTarget, setDeleteTarget] = React.useState<AttachmentItem | null>(null)
+  const [brokenThumbnails, setBrokenThumbnails] = React.useState<Record<string, boolean>>({})
   const fileInputRef = React.useRef<HTMLInputElement | null>(null)
 
   const load = React.useCallback(async () => {
@@ -168,6 +169,10 @@ export function AttachmentsSection({
       setError(null)
     }
   }, [load, recordId])
+
+  React.useEffect(() => {
+    setBrokenThumbnails({})
+  }, [items])
 
   const acceptFiles = React.useCallback(
     async (files: FileList | null) => {
@@ -335,6 +340,7 @@ export function AttachmentsSection({
           {items.map((item) => {
             const placeholder = resolveAttachmentPlaceholder(item.mimeType ?? null, item.fileName)
             const PlaceholderIcon = placeholder.icon
+            const showThumbnail = Boolean(item.thumbnailUrl) && !brokenThumbnails[item.id]
             return (
               <button
                 key={item.id}
@@ -343,8 +349,15 @@ export function AttachmentsSection({
                 className="group flex flex-col overflow-hidden rounded-lg border bg-card text-left transition-shadow hover:shadow-sm"
               >
                 <div className="relative aspect-[4/3] bg-muted">
-                  {item.thumbnailUrl ? (
-                    <img src={item.thumbnailUrl} alt={item.fileName} className="h-full w-full object-cover" />
+                  {showThumbnail ? (
+                    <img
+                      src={item.thumbnailUrl}
+                      alt={item.fileName}
+                      className="h-full w-full object-cover"
+                      onError={() => {
+                        setBrokenThumbnails((prev) => ({ ...prev, [item.id]: true }))
+                      }}
+                    />
                   ) : (
                     <div className="flex h-full w-full flex-col items-center justify-center text-xs font-semibold uppercase text-muted-foreground">
                       <PlaceholderIcon className="mb-2 h-6 w-6" aria-hidden />

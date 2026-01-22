@@ -183,7 +183,7 @@
   "staff.availabilityRuleSets.tabs.details": "Details",
   "staff.availabilityRuleSets.tabs.label": "Zeitplanbereiche",
   "staff.errors.unauthorized": "Nicht autorisiert",
-  "staff.nav.group": "Buchung",
+  "staff.nav.group": "Mitarbeiter",
   "staff.resourceTypes.actions.add": "Ressourcentyp hinzuf\u00fcgen",
   "staff.resourceTypes.actions.delete": "L\u00f6schen",
   "staff.resourceTypes.actions.deleteConfirm": "Ressourcentyp \"{{name}}\" l\u00f6schen?",

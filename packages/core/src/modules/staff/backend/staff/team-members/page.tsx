@@ -433,7 +433,7 @@ export default function StaffTeamMembersPage() {
           rowActions={(row) => row.kind === 'member' ? (
             <RowActions
               items={[
-                { label: labels.actions.edit, onSelect: () => { router.push(`/backend/staff/team-members/${row.id}`) } },
+                { id: 'edit', label: labels.actions.edit, onSelect: () => { router.push(`/backend/staff/team-members/${row.id}`) } },
                 { label: labels.actions.delete, destructive: true, onSelect: () => { void handleDelete(row) } },
               ]}
             />

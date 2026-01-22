@@ -20,6 +20,7 @@
   "customers.config.addressFormat.errorSave": "Failed to update address settings",
   "customers.config.addressFormat.success": "Address format updated",
   "backend.nav.configuration": "Configuration",
+  "customers.storage.nav.group": "Storage",
   "customers.audit.people.create": "Create person",
   "customers.audit.people.update": "Update person",
   "customers.audit.people.delete": "Delete person",

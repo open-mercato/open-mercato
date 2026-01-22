@@ -6,7 +6,14 @@ import { CustomFieldEntityConfig, CustomFieldValue } from '@open-mercato/core/mo
 import { ensureCustomFieldDefinitions } from '@open-mercato/core/modules/entities/lib/field-definitions'
 import { setRecordCustomFields } from '@open-mercato/core/modules/entities/lib/helpers'
 import { User } from '@open-mercato/core/modules/auth/data/entities'
-import { StaffTeam, StaffTeamMember, StaffTeamRole } from '../data/entities'
+import {
+  StaffTeam,
+  StaffTeamMember,
+  StaffTeamMemberActivity,
+  StaffTeamMemberAddress,
+  StaffTeamMemberComment,
+  StaffTeamRole,
+} from '../data/entities'
 import { E } from '#generated/entities.ids.generated'
 import {
   STAFF_TEAM_MEMBER_ACTIVITY_CUSTOM_FIELD_SETS,
@@ -47,6 +54,44 @@ type StaffTeamSeed = {
   key: string
   name: string
   description?: string | null
+}
+
+type StaffTeamMemberNoteSeed = {
+  memberKey: string
+  body: string
+  appearanceIcon?: string | null
+  appearanceColor?: string | null
+  authorUserIndex?: number
+  daysAgo?: number
+}
+
+type StaffTeamMemberActivitySeed = {
+  memberKey: string
+  activityType: string
+  subject?: string | null
+  body?: string | null
+  appearanceIcon?: string | null
+  appearanceColor?: string | null
+  authorUserIndex?: number
+  daysAgo?: number
+}
+
+type StaffTeamMemberAddressSeed = {
+  memberKey: string
+  name?: string | null
+  purpose?: string | null
+  companyName?: string | null
+  addressLine1: string
+  addressLine2?: string | null
+  buildingNumber?: string | null
+  flatNumber?: string | null
+  city?: string | null
+  region?: string | null
+  postalCode?: string | null
+  country?: string | null
+  latitude?: number | null
+  longitude?: number | null
+  isPrimary?: boolean
 }
 
 const TEAM_ROLE_SEEDS: StaffTeamRoleSeed[] = [
@@ -208,6 +253,152 @@ const TEAM_MEMBER_SEEDS: StaffTeamMemberSeed[] = [
       work_mode: 'onsite',
       focus_areas: ['ci/cd', 'security'],
     },
+  },
+]
+
+const TEAM_MEMBER_NOTE_SEEDS: StaffTeamMemberNoteSeed[] = [
+  {
+    memberKey: 'alex_chen',
+    body: 'Reviewed API latency metrics and flagged two services for cache tuning.',
+    appearanceIcon: 'lucide:message-circle',
+    appearanceColor: '#2563eb',
+    daysAgo: 14,
+  },
+  {
+    memberKey: 'priya_nair',
+    body: 'Partnered with design to refresh the admin UI spacing scale.',
+    appearanceIcon: 'lucide:pen-tool',
+    appearanceColor: '#0ea5e9',
+    daysAgo: 9,
+  },
+  {
+    memberKey: 'marta_lopez',
+    body: 'Prepared Q2 roadmap review and surfaced three customer retention risks.',
+    appearanceIcon: 'lucide:clipboard-list',
+    appearanceColor: '#14b8a6',
+    daysAgo: 21,
+  },
+  {
+    memberKey: 'samir_haddad',
+    body: 'Shared updated journey map for onboarding and handoff to support.',
+    appearanceIcon: 'lucide:map',
+    appearanceColor: '#f97316',
+    daysAgo: 6,
+  },
+  {
+    memberKey: 'jordan_kim',
+    body: 'Reviewed incident playbooks and scheduled a backup drill.',
+    appearanceIcon: 'lucide:shield-check',
+    appearanceColor: '#7c3aed',
+    daysAgo: 3,
+  },
+]
+
+const TEAM_MEMBER_ACTIVITY_SEEDS: StaffTeamMemberActivitySeed[] = [
+  {
+    memberKey: 'alex_chen',
+    activityType: 'Performance review',
+    subject: 'Q1 performance review complete',
+    body: 'Aligned on scaling priorities for platform observability.',
+    appearanceIcon: 'lucide:clipboard-check',
+    appearanceColor: '#2563eb',
+    daysAgo: 30,
+  },
+  {
+    memberKey: 'priya_nair',
+    activityType: 'Training',
+    subject: 'Completed accessibility refresher',
+    body: 'Focused on color contrast and keyboard navigation.',
+    appearanceIcon: 'lucide:graduation-cap',
+    appearanceColor: '#0ea5e9',
+    daysAgo: 18,
+  },
+  {
+    memberKey: 'marta_lopez',
+    activityType: 'Certification',
+    subject: 'Product strategy certification',
+    body: 'Covered outcome-driven roadmapping practices.',
+    appearanceIcon: 'lucide:badge-check',
+    appearanceColor: '#16a34a',
+    daysAgo: 40,
+  },
+  {
+    memberKey: 'samir_haddad',
+    activityType: 'Onboarding',
+    subject: 'New design tooling walkthrough',
+    body: 'Introduced shared component library workflows.',
+    appearanceIcon: 'lucide:user-plus',
+    appearanceColor: '#f97316',
+    daysAgo: 12,
+  },
+  {
+    memberKey: 'jordan_kim',
+    activityType: 'Shift change',
+    subject: 'On-call rotation update',
+    body: 'Moved primary on-call to midweek coverage.',
+    appearanceIcon: 'lucide:clock-3',
+    appearanceColor: '#7c3aed',
+    daysAgo: 7,
+  },
+]
+
+const TEAM_MEMBER_ADDRESS_SEEDS: StaffTeamMemberAddressSeed[] = [
+  {
+    memberKey: 'alex_chen',
+    name: 'HQ workspace',
+    purpose: 'job address',
+    companyName: 'Open Mercato',
+    addressLine1: '120 Market Street',
+    city: 'San Francisco',
+    region: 'CA',
+    postalCode: '94105',
+    country: 'United States',
+    isPrimary: true,
+  },
+  {
+    memberKey: 'priya_nair',
+    name: 'Home office',
+    purpose: 'home address',
+    addressLine1: '48 Maple Avenue',
+    city: 'Austin',
+    region: 'TX',
+    postalCode: '78701',
+    country: 'United States',
+    isPrimary: true,
+  },
+  {
+    memberKey: 'marta_lopez',
+    name: 'Primary residence',
+    purpose: 'home address',
+    addressLine1: '19 Calle del Prado',
+    city: 'Madrid',
+    region: 'Community of Madrid',
+    postalCode: '28014',
+    country: 'Spain',
+    isPrimary: true,
+  },
+  {
+    memberKey: 'samir_haddad',
+    name: 'Remote workspace',
+    purpose: 'mailing address',
+    addressLine1: '77 Cedar Lane',
+    city: 'Manchester',
+    region: 'Greater Manchester',
+    postalCode: 'M1 1AA',
+    country: 'United Kingdom',
+    isPrimary: true,
+  },
+  {
+    memberKey: 'jordan_kim',
+    name: 'Operations hub',
+    purpose: 'job address',
+    companyName: 'Open Mercato',
+    addressLine1: '350 Harbor Drive',
+    city: 'Seattle',
+    region: 'WA',
+    postalCode: '98101',
+    country: 'United States',
+    isPrimary: true,
   },
 ]
 
@@ -439,6 +630,7 @@ export async function seedStaffTeamExamples(
   scope: StaffSeedScope,
 ) {
   await seedStaffActivityTypes(em, scope)
+  await seedStaffAddressTypes(em, scope)
   await ensureStaffTeamMemberCustomFields(em, scope)
   const now = new Date()
   const teamNames = TEAM_SEEDS.map((seed) => seed.name)
@@ -576,6 +768,7 @@ export async function seedStaffTeamExamples(
   )
   const memberByName = new Map(existingMembers.map((member) => [member.displayName.toLowerCase(), member]))
 
+  const memberByKey = new Map<string, StaffTeamMember>()
   for (const seed of TEAM_MEMBER_SEEDS) {
     const roleIds = seed.roleKeys
       .map((key) => roleByKey.get(key)?.id ?? null)
@@ -612,6 +805,7 @@ export async function seedStaffTeamExamples(
         existing.updatedAt = now
         em.persist(existing)
       }
+      memberByKey.set(seed.key, existing)
       continue
     }
     const record = em.create(StaffTeamMember, {
@@ -628,6 +822,7 @@ export async function seedStaffTeamExamples(
       updatedAt: now,
     })
     em.persist(record)
+    memberByKey.set(seed.key, record)
   }
   await em.flush()
 
@@ -648,4 +843,168 @@ export async function seedStaffTeamExamples(
     if (!seed?.customFields) continue
     await fillMissingTeamMemberCustomFields(em, scope, member, seed.customFields)
   }
+
+  const seedDate = (daysAgo?: number) => {
+    const date = new Date(now)
+    if (typeof daysAgo === 'number') {
+      date.setDate(date.getDate() - daysAgo)
+    }
+    return date
+  }
+
+  const memberIds = Array.from(memberByKey.values())
+    .map((member) => member.id)
+    .filter((id): id is string => typeof id === 'string')
+
+  if (memberIds.length === 0) return
+
+  const existingComments = await findWithDecryption(
+    em,
+    StaffTeamMemberComment,
+    {
+      tenantId: scope.tenantId,
+      organizationId: scope.organizationId,
+      member: { $in: memberIds },
+      deletedAt: null,
+    },
+    { populate: ['member'] },
+    scope,
+  )
+  const commentKeys = new Set(
+    existingComments.map((comment) => {
+      const memberId = typeof comment.member === 'string' ? comment.member : comment.member.id
+      const body = comment.body.trim().toLowerCase()
+      return `${memberId}:${body}`
+    }),
+  )
+  for (const seed of TEAM_MEMBER_NOTE_SEEDS) {
+    const member = memberByKey.get(seed.memberKey)
+    if (!member) continue
+    const memberId = member.id
+    const body = seed.body.trim()
+    const key = `${memberId}:${body.toLowerCase()}`
+    if (commentKeys.has(key)) continue
+    const authorUserId = typeof seed.authorUserIndex === 'number'
+      ? sortedUsers[seed.authorUserIndex]?.id ?? null
+      : null
+    const createdAt = seedDate(seed.daysAgo)
+    const comment = em.create(StaffTeamMemberComment, {
+      tenantId: scope.tenantId,
+      organizationId: scope.organizationId,
+      member: em.getReference(StaffTeamMember, memberId),
+      body,
+      authorUserId,
+      appearanceIcon: seed.appearanceIcon ?? null,
+      appearanceColor: seed.appearanceColor ?? null,
+      createdAt,
+      updatedAt: createdAt,
+    })
+    em.persist(comment)
+    commentKeys.add(key)
+  }
+  await em.flush()
+
+  const existingActivities = await findWithDecryption(
+    em,
+    StaffTeamMemberActivity,
+    {
+      tenantId: scope.tenantId,
+      organizationId: scope.organizationId,
+      member: { $in: memberIds },
+    },
+    { populate: ['member'] },
+    scope,
+  )
+  const activityKeys = new Set(
+    existingActivities.map((activity) => {
+      const memberId = typeof activity.member === 'string' ? activity.member : activity.member.id
+      const subject = activity.subject?.trim().toLowerCase() ?? ''
+      const body = activity.body?.trim().toLowerCase() ?? ''
+      const occurredAt = activity.occurredAt ? activity.occurredAt.toISOString().slice(0, 10) : ''
+      return `${memberId}:${activity.activityType}:${subject}:${body}:${occurredAt}`
+    }),
+  )
+  for (const seed of TEAM_MEMBER_ACTIVITY_SEEDS) {
+    const member = memberByKey.get(seed.memberKey)
+    if (!member) continue
+    const memberId = member.id
+    const occurredAt = seedDate(seed.daysAgo)
+    const subject = seed.subject?.trim() ?? null
+    const body = seed.body?.trim() ?? null
+    const key = `${memberId}:${seed.activityType}:${subject?.toLowerCase() ?? ''}:${body?.toLowerCase() ?? ''}:${occurredAt.toISOString().slice(0, 10)}`
+    if (activityKeys.has(key)) continue
+    const authorUserId = typeof seed.authorUserIndex === 'number'
+      ? sortedUsers[seed.authorUserIndex]?.id ?? null
+      : null
+    const activity = em.create(StaffTeamMemberActivity, {
+      tenantId: scope.tenantId,
+      organizationId: scope.organizationId,
+      member: em.getReference(StaffTeamMember, memberId),
+      activityType: seed.activityType,
+      subject,
+      body,
+      occurredAt,
+      authorUserId,
+      appearanceIcon: seed.appearanceIcon ?? null,
+      appearanceColor: seed.appearanceColor ?? null,
+      createdAt: now,
+      updatedAt: now,
+    })
+    em.persist(activity)
+    activityKeys.add(key)
+  }
+  await em.flush()
+
+  const existingAddresses = await findWithDecryption(
+    em,
+    StaffTeamMemberAddress,
+    {
+      tenantId: scope.tenantId,
+      organizationId: scope.organizationId,
+      member: { $in: memberIds },
+    },
+    { populate: ['member'] },
+    scope,
+  )
+  const addressKeys = new Set(
+    existingAddresses.map((address) => {
+      const memberId = typeof address.member === 'string' ? address.member : address.member.id
+      const line1 = address.addressLine1.trim().toLowerCase()
+      const postal = address.postalCode?.trim().toLowerCase() ?? ''
+      return `${memberId}:${line1}:${postal}`
+    }),
+  )
+  for (const seed of TEAM_MEMBER_ADDRESS_SEEDS) {
+    const member = memberByKey.get(seed.memberKey)
+    if (!member) continue
+    const memberId = member.id
+    const line1 = seed.addressLine1.trim()
+    const postalCode = seed.postalCode?.trim() ?? null
+    const key = `${memberId}:${line1.toLowerCase()}:${postalCode?.toLowerCase() ?? ''}`
+    if (addressKeys.has(key)) continue
+    const address = em.create(StaffTeamMemberAddress, {
+      tenantId: scope.tenantId,
+      organizationId: scope.organizationId,
+      member: em.getReference(StaffTeamMember, memberId),
+      name: seed.name ?? null,
+      purpose: seed.purpose ?? null,
+      companyName: seed.companyName ?? null,
+      addressLine1: line1,
+      addressLine2: seed.addressLine2 ?? null,
+      buildingNumber: seed.buildingNumber ?? null,
+      flatNumber: seed.flatNumber ?? null,
+      city: seed.city ?? null,
+      region: seed.region ?? null,
+      postalCode,
+      country: seed.country ?? null,
+      latitude: seed.latitude ?? null,
+      longitude: seed.longitude ?? null,
+      isPrimary: seed.isPrimary ?? false,
+      createdAt: now,
+      updatedAt: now,
+    })
+    em.persist(address)
+    addressKeys.add(key)
+  }
+  await em.flush()
 }

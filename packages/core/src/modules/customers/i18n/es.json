@@ -20,6 +20,7 @@
   "customers.config.addressFormat.errorSave": "No se pudieron actualizar las preferencias de dirección",
   "customers.config.addressFormat.success": "Formato de dirección actualizado",
   "backend.nav.configuration": "Configuración",
+  "customers.storage.nav.group": "Almacenamiento",
   "customers.audit.people.create": "Crear persona",
   "customers.audit.people.update": "Actualizar persona",
   "customers.audit.people.delete": "Eliminar persona",

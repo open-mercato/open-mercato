@@ -183,7 +183,7 @@
   "staff.availabilityRuleSets.tabs.details": "Szczeg\u00f3\u0142y",
   "staff.availabilityRuleSets.tabs.label": "Sekcje harmonogramu",
   "staff.errors.unauthorized": "Brak autoryzacji",
-  "staff.nav.group": "Rezerwacje",
+  "staff.nav.group": "Pracownicy",
   "staff.resourceTypes.actions.add": "Dodaj typ zasobu",
   "staff.resourceTypes.actions.delete": "Usu\u0144",
   "staff.resourceTypes.actions.deleteConfirm": "Usun\u0105\u0107 typ zasobu \"{{name}}\"?",
