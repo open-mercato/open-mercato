@@ -464,6 +464,7 @@
   "staff.teamMembers.detail.activities.fields.dealPlaceholder": "Kein verkn\u00fcpfter Deal",
   "staff.teamMembers.detail.activities.fields.entity": "Einem Teammitglied zuweisen",
   "staff.teamMembers.detail.activities.fields.occurredAt": "Ist aufgetreten/wird auftreten um",
+  "staff.teamMembers.detail.activities.customFields.empty": "Nicht angegeben",
   "staff.teamMembers.detail.activities.fields.subject": "Thema",
   "staff.teamMembers.detail.activities.fields.type": "Aktivit\u00e4tstyp",
   "staff.teamMembers.detail.activities.form.customFields": "Benutzerdefinierte Felder",

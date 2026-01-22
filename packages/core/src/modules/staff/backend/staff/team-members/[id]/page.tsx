@@ -2,7 +2,9 @@
 
 import * as React from 'react'
 import Link from 'next/link'
+import dynamic from 'next/dynamic'
 import { useRouter, useSearchParams } from 'next/navigation'
+import type { PluggableList } from 'unified'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
@@ -29,6 +31,31 @@ import {
 import { JobHistorySection } from '@open-mercato/core/modules/staff/components/detail/JobHistorySection'
 import type { DictionarySelectLabels } from '@open-mercato/core/modules/dictionaries/components/DictionaryEntrySelect'
 import { Plus } from 'lucide-react'
+
+const isTestEnv = typeof process !== 'undefined' && process.env.NODE_ENV === 'test'
+const MARKDOWN_CLASSNAME =
+  'text-sm text-muted-foreground break-words [&>*]:mb-2 [&>*:last-child]:mb-0 [&_ul]:ml-4 [&_ul]:list-disc [&_ol]:ml-4 [&_ol]:list-decimal [&_code]:rounded [&_code]:bg-muted [&_code]:px-1 [&_code]:py-0.5 [&_pre]:rounded-md [&_pre]:bg-muted [&_pre]:p-3 [&_pre]:text-xs'
+
+type MarkdownPreviewProps = { children: string; className?: string; remarkPlugins?: PluggableList }
+
+const MarkdownPreview: React.ComponentType<MarkdownPreviewProps> = isTestEnv
+  ? ({ children, className }) => <div className={className}>{children}</div>
+  : (dynamic(() => import('react-markdown').then((mod) => mod.default as React.ComponentType<MarkdownPreviewProps>), {
+      ssr: false,
+      loading: () => null,
+    }) as unknown as React.ComponentType<MarkdownPreviewProps>)
+
+let markdownPluginsPromise: Promise<PluggableList> | null = null
+
+async function loadMarkdownPlugins(): Promise<PluggableList> {
+  if (isTestEnv) return []
+  if (!markdownPluginsPromise) {
+    markdownPluginsPromise = import('remark-gfm')
+      .then((mod) => [mod.default ?? mod] as PluggableList)
+      .catch(() => [])
+  }
+  return markdownPluginsPromise
+}
 
 type TeamMemberRecord = {
   id: string
@@ -70,12 +97,17 @@ export default function StaffTeamMemberDetailPage({ params }: { params?: { id?: 
   const [sectionAction, setSectionAction] = React.useState<SectionAction | null>(null)
   const [activityDictionaryId, setActivityDictionaryId] = React.useState<string | null>(null)
   const [activityTypeEntries, setActivityTypeEntries] = React.useState<DictionaryEntryOption[]>([])
+  const [markdownPlugins, setMarkdownPlugins] = React.useState<PluggableList>([])
   const flashShownRef = React.useRef(false)
 
   const notesAdapter = React.useMemo(() => createStaffNotesAdapter(detailTranslator), [detailTranslator])
   const activitiesAdapter = React.useMemo(() => createStaffActivitiesAdapter(detailTranslator), [detailTranslator])
   const addressesAdapter = React.useMemo(() => createStaffAddressAdapter(detailTranslator), [detailTranslator])
   const addressTypesAdapter = React.useMemo(() => createStaffAddressTypesAdapter(detailTranslator), [detailTranslator])
+
+  React.useEffect(() => {
+    void loadMarkdownPlugins().then((plugins) => setMarkdownPlugins(plugins))
+  }, [])
 
   const activityTypeLabels = React.useMemo<DictionarySelectLabels>(() => ({
     placeholder: t('staff.teamMembers.detail.activities.dictionary.placeholder', 'Select an activity type'),
@@ -153,6 +185,35 @@ export default function StaffTeamMemberDetailPage({ params }: { params?: { id?: 
     iconClearLabel: t('staff.teamMembers.detail.activities.appearance.iconClear', 'Remove icon'),
     previewEmptyLabel: t('staff.teamMembers.detail.activities.appearance.previewEmpty', 'No appearance selected'),
   }), [t])
+
+  const renderCustomFields = React.useCallback((activity: { id?: string; customFields?: Array<{ key: string; label?: string | null; value: unknown }> }) => {
+    const entries = Array.isArray(activity.customFields) ? activity.customFields : []
+    if (!entries.length) return null
+    const emptyLabel = t('staff.teamMembers.detail.activities.customFields.empty', 'Not provided')
+    return (
+      <div className="grid gap-3 sm:grid-cols-2">
+        {entries.map((entry, index) => {
+          const label = entry.label ?? entry.key
+          const value = entry.value
+          const hasValue = !(value == null || value === '' || (Array.isArray(value) && value.length === 0))
+          const content = hasValue
+            ? Array.isArray(value)
+              ? value.map((item) => String(item)).join(', ')
+              : String(value)
+            : emptyLabel
+          return (
+            <div
+              key={`activity-${activity.id ?? 'row'}-custom-${index}`}
+              className="rounded-md border border-border/60 bg-muted/10 px-3 py-2"
+            >
+              <div className="text-xs font-medium text-muted-foreground">{label}</div>
+              <div className="mt-1 text-sm text-foreground">{content}</div>
+            </div>
+          )
+        })}
+      </div>
+    )
+  }, [t])
 
   React.useEffect(() => {
     if (!memberId) return
@@ -425,6 +486,7 @@ export default function StaffTeamMemberDetailPage({ params }: { params?: { id?: 
                         loadActivityOptions={loadActivityOptions}
                         createActivityOption={createActivityOption}
                         resolveActivityPresentation={resolveActivityPresentation}
+                        renderCustomFields={renderCustomFields}
                         labelPrefix="staff.teamMembers.detail.activities"
                         renderIcon={renderDictionaryIcon}
                         renderColor={renderDictionaryColor}
@@ -455,11 +517,15 @@ export default function StaffTeamMemberDetailPage({ params }: { params?: { id?: 
                     <h2 className="mb-4 text-sm font-semibold uppercase text-muted-foreground">
                       {t('staff.teamMembers.detail.details', 'Member details')}
                     </h2>
-                    <div className="space-y-2 text-sm text-muted-foreground">
+                    <div className="space-y-2">
                       {memberRecord?.description ? (
-                        <p>{memberRecord.description}</p>
+                        <MarkdownPreview remarkPlugins={markdownPlugins} className={MARKDOWN_CLASSNAME}>
+                          {memberRecord.description}
+                        </MarkdownPreview>
                       ) : (
-                        <p>{t('staff.teamMembers.detail.descriptionEmpty', 'No description provided.')}</p>
+                        <p className="text-sm text-muted-foreground">
+                          {t('staff.teamMembers.detail.descriptionEmpty', 'No description provided.')}
+                        </p>
                       )}
                     </div>
                   </div>

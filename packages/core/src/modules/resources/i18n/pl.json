@@ -655,6 +655,7 @@
   "resources.resources.detail.activities.fields.dealPlaceholder": "Brak powi\u0105zanej umowy",
   "resources.resources.detail.activities.fields.entity": "Przypisz do zasobu",
   "resources.resources.detail.activities.fields.occurredAt": "Wyst\u0105pi\u0142o/wyst\u0105pi o godz",
+  "resources.resources.detail.activities.customFields.empty": "Brak danych",
   "resources.resources.detail.activities.fields.subject": "Temat",
   "resources.resources.detail.activities.fields.type": "Typ aktywno\u015bci",
   "resources.resources.detail.activities.form.customFields": "Pola niestandardowe",

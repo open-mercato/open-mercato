@@ -464,6 +464,7 @@
   "staff.teamMembers.detail.activities.fields.dealPlaceholder": "Brak powi\u0105zanej umowy",
   "staff.teamMembers.detail.activities.fields.entity": "Przypisz do cz\u0142onka zespo\u0142u",
   "staff.teamMembers.detail.activities.fields.occurredAt": "Wyst\u0105pi\u0142o/wyst\u0105pi o godz",
+  "staff.teamMembers.detail.activities.customFields.empty": "Brak danych",
   "staff.teamMembers.detail.activities.fields.subject": "Temat",
   "staff.teamMembers.detail.activities.fields.type": "Typ aktywno\u015bci",
   "staff.teamMembers.detail.activities.form.customFields": "Pola niestandardowe",

@@ -655,6 +655,7 @@
   "resources.resources.detail.activities.fields.dealPlaceholder": "Sin trato vinculado",
   "resources.resources.detail.activities.fields.entity": "Asignar al recurso",
   "resources.resources.detail.activities.fields.occurredAt": "Ocurri\u00f3/ocurrir\u00e1 en",
+  "resources.resources.detail.activities.customFields.empty": "No proporcionado",
   "resources.resources.detail.activities.fields.subject": "Sujeto",
   "resources.resources.detail.activities.fields.type": "Tipo de actividad",
   "resources.resources.detail.activities.form.customFields": "Campos personalizados",

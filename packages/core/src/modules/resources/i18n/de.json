@@ -655,6 +655,7 @@
   "resources.resources.detail.activities.fields.dealPlaceholder": "Kein verkn\u00fcpfter Deal",
   "resources.resources.detail.activities.fields.entity": "Einer Ressource zuweisen",
   "resources.resources.detail.activities.fields.occurredAt": "Ist aufgetreten/wird auftreten um",
+  "resources.resources.detail.activities.customFields.empty": "Nicht angegeben",
   "resources.resources.detail.activities.fields.subject": "Thema",
   "resources.resources.detail.activities.fields.type": "Aktivit\u00e4tstyp",
   "resources.resources.detail.activities.form.customFields": "Benutzerdefinierte Felder",

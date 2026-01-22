@@ -44,6 +44,25 @@ body {
   color: var(--ifm-navbar-link-color);
 }
 
+@media (max-width: 996px) {
+  .navbar-sidebar {
+    background: var(--ifm-navbar-background-color);
+    z-index: 1000;
+  }
+
+  .navbar-sidebar__backdrop {
+    z-index: 999;
+  }
+
+  html.navbar-sidebar--show .navbar-sidebar,
+  html.navbar-sidebar--show .navbar-sidebar__backdrop {
+    opacity: 1;
+    pointer-events: auto;
+    transform: translateX(0);
+    visibility: visible;
+  }
+}
+
 .hero.hero--primary {
   background: var(--docs-hero-accent);
   color: #1f2937;

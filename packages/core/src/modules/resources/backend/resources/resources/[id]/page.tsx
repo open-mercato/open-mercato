@@ -169,6 +169,35 @@ export default function ResourcesResourceDetailPage({ params }: { params?: { id?
     previewEmptyLabel: t('resources.resources.detail.activities.appearance.previewEmpty', 'No appearance selected'),
   }), [t])
 
+  const renderCustomFields = React.useCallback((activity: { id?: string; customFields?: Array<{ key: string; label?: string | null; value: unknown }> }) => {
+    const entries = Array.isArray(activity.customFields) ? activity.customFields : []
+    if (!entries.length) return null
+    const emptyLabel = t('resources.resources.detail.activities.customFields.empty', 'Not provided')
+    return (
+      <div className="grid gap-3 sm:grid-cols-2">
+        {entries.map((entry, index) => {
+          const label = entry.label ?? entry.key
+          const value = entry.value
+          const hasValue = !(value == null || value === '' || (Array.isArray(value) && value.length === 0))
+          const content = hasValue
+            ? Array.isArray(value)
+              ? value.map((item) => String(item)).join(', ')
+              : String(value)
+            : emptyLabel
+          return (
+            <div
+              key={`activity-${activity.id ?? 'row'}-custom-${index}`}
+              className="rounded-md border border-border/60 bg-muted/10 px-3 py-2"
+            >
+              <div className="text-xs font-medium text-muted-foreground">{label}</div>
+              <div className="mt-1 text-sm text-foreground">{content}</div>
+            </div>
+          )
+        })}
+      </div>
+    )
+  }, [t])
+
   React.useEffect(() => {
     if (!searchParams) return
     const tabParam = searchParams.get('tab')
@@ -538,6 +567,7 @@ export default function ResourcesResourceDetailPage({ params }: { params?: { id?
                     loadActivityOptions={loadActivityOptions}
                     createActivityOption={createActivityOption}
                     resolveActivityPresentation={resolveActivityPresentation}
+                    renderCustomFields={renderCustomFields}
                     labelPrefix="resources.resources.detail.activities"
                     renderIcon={renderDictionaryIcon}
                     renderColor={renderDictionaryColor}

@@ -464,6 +464,7 @@
   "staff.teamMembers.detail.activities.fields.dealPlaceholder": "Sin trato vinculado",
   "staff.teamMembers.detail.activities.fields.entity": "Asignar a un miembro del equipo",
   "staff.teamMembers.detail.activities.fields.occurredAt": "Ocurri\u00f3/ocurrir\u00e1 en",
+  "staff.teamMembers.detail.activities.customFields.empty": "No proporcionado",
   "staff.teamMembers.detail.activities.fields.subject": "Sujeto",
   "staff.teamMembers.detail.activities.fields.type": "Tipo de actividad",
   "staff.teamMembers.detail.activities.form.customFields": "Campos personalizados",

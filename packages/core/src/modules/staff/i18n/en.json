@@ -464,6 +464,7 @@
   "staff.teamMembers.detail.activities.fields.dealPlaceholder": "No linked deal",
   "staff.teamMembers.detail.activities.fields.entity": "Assign to team member",
   "staff.teamMembers.detail.activities.fields.occurredAt": "Occurred / will occur at",
+  "staff.teamMembers.detail.activities.customFields.empty": "Not provided",
   "staff.teamMembers.detail.activities.fields.subject": "Subject",
   "staff.teamMembers.detail.activities.fields.type": "Activity type",
   "staff.teamMembers.detail.activities.form.customFields": "Custom fields",
