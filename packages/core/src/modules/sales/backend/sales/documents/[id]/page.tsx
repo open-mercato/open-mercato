@@ -4528,7 +4528,7 @@ export default function SalesDocumentDetailPage({
                 onClick={handleSectionAction}
                 disabled={sectionAction.disabled}
               >
-                <Plus className="mr-2 h-4 w-4" />
+                {sectionAction.icon ?? <Plus className="mr-2 h-4 w-4" />}
                 {sectionAction.label}
               </Button>
             ) : null}

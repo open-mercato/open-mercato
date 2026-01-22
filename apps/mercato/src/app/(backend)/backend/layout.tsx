@@ -193,6 +193,8 @@ export default async function BackendLayout({ children, params }: { children: Re
     'customers.nav.group',
     'catalog.nav.group',
     'customers~sales.nav.group',
+    'resources.nav.group',
+    'staff.nav.group',
     'entities.nav.group',
     'directory.nav.group',
     'customers.storage.nav.group',

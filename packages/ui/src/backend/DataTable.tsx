@@ -61,8 +61,10 @@ export type DataTableRefreshButton = {
 
 // Helper function to extract edit action from RowActions items
 function extractEditAction(items: RowActionItem[]): RowActionItem | null {
-  return items.find(item => 
-    item.label.toLowerCase() === 'edit' && 
+  const byId = items.find((item) => item.id === 'edit' && (item.href || item.onSelect))
+  if (byId) return byId
+  return items.find((item) =>
+    item.label.toLowerCase() === 'edit' &&
     (item.href || item.onSelect)
   ) || null
 }

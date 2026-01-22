@@ -8,6 +8,9 @@ import { installExampleCatalogData, type CatalogSeedScope } from '@open-mercato/
 import { seedSalesExamples } from '@open-mercato/core/modules/sales/seed/examples'
 import { seedExampleCurrencies } from '@open-mercato/core/modules/currencies/lib/seeds'
 import { seedExampleWorkflows } from '@open-mercato/core/modules/workflows/lib/seeds'
+import { seedPlannerAvailabilityRuleSetDefaults, seedPlannerUnavailabilityReasons } from '@open-mercato/core/modules/planner/lib/seeds'
+import { seedResourcesAddressTypes, seedResourcesCapacityUnits, seedResourcesResourceExamples } from '@open-mercato/core/modules/resources/lib/seeds'
+import { seedStaffTeamExamples } from '@open-mercato/core/modules/staff/lib/seeds'
 import { collectCrudCacheStats, purgeCrudCacheSegment } from '@open-mercato/shared/lib/crud/cache-stats'
 import { isCrudCacheEnabled, resolveCrudCache } from '@open-mercato/shared/lib/crud/cache'
 import * as semver from 'semver'
@@ -300,6 +303,71 @@ export const upgradeActions: UpgradeActionDefinition[] = [
       })
       const rbac = container.resolve<RbacService>('rbacService')
       await rbac.invalidateTenantCache(normalizedTenantId)
+    },
+  },
+  {
+    id: 'configs.upgrades.examples.planner_staff_resources',
+    version: '0.4.1',
+    messageKey: 'upgrades.v041.message',
+    ctaKey: 'upgrades.v041.cta',
+    successKey: 'upgrades.v041.success',
+    loadingKey: 'upgrades.v041.loading',
+    async run({ container, em, tenantId, organizationId }) {
+      const normalizedTenantId = tenantId.trim()
+      const scope = { tenantId, organizationId }
+      await em.transactional(async (tem) => {
+        await seedPlannerAvailabilityRuleSetDefaults(tem, scope)
+        await seedPlannerUnavailabilityReasons(tem, scope)
+        await seedStaffTeamExamples(tem, scope)
+        await seedResourcesCapacityUnits(tem, scope)
+        await seedResourcesAddressTypes(tem, scope)
+        await seedResourcesResourceExamples(tem, scope)
+
+        const adminRole = await tem.findOne(Role, { name: 'admin', tenantId: normalizedTenantId, deletedAt: null })
+        if (!adminRole) return
+
+        const roleAcls = await tem.find(RoleAcl, { role: adminRole, tenantId: normalizedTenantId, deletedAt: null })
+        const addedFeatures = [
+          'staff.*',
+          'staff.leave_requests.manage',
+          'resources.*',
+          'planner.*',
+        ]
+        let touched = false
+        if (!roleAcls.length) {
+          tem.persist(
+            tem.create(RoleAcl, {
+              role: adminRole,
+              tenantId: normalizedTenantId,
+              featuresJson: addedFeatures,
+              isSuperAdmin: false,
+              createdAt: new Date(),
+              updatedAt: new Date(),
+            }),
+          )
+          touched = true
+        }
+
+        for (const acl of roleAcls) {
+          const features = Array.isArray(acl.featuresJson) ? [...acl.featuresJson] : []
+          const nextFeatures = new Set(features)
+          for (const feature of addedFeatures) nextFeatures.add(feature)
+          if (nextFeatures.size === features.length) continue
+          acl.featuresJson = Array.from(nextFeatures)
+          acl.updatedAt = new Date()
+          touched = true
+        }
+
+        if (touched) {
+          await tem.flush()
+        }
+      })
+
+      const rbac = container.resolve<RbacService>('rbacService')
+      await rbac.invalidateTenantCache(normalizedTenantId)
+
+      const vectorService = resolveVectorService(container)
+      await reindexModules(em, ['planner', 'staff', 'resources'], { tenantId, organizationId, vectorService })
     },
   },
 ]

@@ -51,6 +51,7 @@ const attachmentItemSchema = z.object({
   fileName: z.string().describe('Original filename'),
   fileSize: z.number().int().nonnegative().describe('File size in bytes'),
   createdAt: z.string().describe('Upload timestamp (ISO 8601)'),
+  mimeType: z.string().nullable().optional().describe('MIME type of the file'),
   thumbnailUrl: z.string().optional().describe('Helper route that renders a thumbnail'),
   partitionCode: z.string().optional().describe('Partition identifier'),
   tags: z.array(z.string()).optional().describe('Tags assigned to the attachment'),
@@ -182,6 +183,7 @@ export async function GET(req: Request) {
         fileName: a.fileName,
         fileSize: a.fileSize,
         createdAt: a.createdAt,
+        mimeType: a.mimeType ?? null,
         partitionCode: a.partitionCode,
         content: a.content ?? null,
         thumbnailUrl: buildAttachmentImageUrl(a.id, {

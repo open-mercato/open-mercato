@@ -69,7 +69,9 @@ export function DetailTabsLayout<TId extends string = string>({
             onClick={onSectionAction}
             disabled={sectionAction.disabled}
           >
-            <Plus className="mr-2 h-4 w-4" />
+            {sectionAction.icon ?? (typeof sectionAction.label === 'string' || typeof sectionAction.label === 'number' ? (
+              <Plus className="mr-2 h-4 w-4" />
+            ) : null)}
             {sectionAction.label}
           </Button>
         ) : null}

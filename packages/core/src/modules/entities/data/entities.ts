@@ -43,7 +43,7 @@ export class CustomFieldDef {
   @Index({ name: 'cf_defs_entity_key_idx' })
   key!: string
 
-  // Field kind: text|multiline|integer|float|boolean|select
+  // Field kind: text|multiline|integer|float|boolean|select|currency
   @Property({ type: 'text' })
   kind!: string
 

@@ -35,7 +35,6 @@ const MODULE_ICONS: Record<string, LucideIcon> = {
   customers: Users,
   catalog: Package,
   sales: ShoppingCart,
-  booking: Calendar,
   search: Search,
   auth: Lock,
   dictionaries: BookOpen,

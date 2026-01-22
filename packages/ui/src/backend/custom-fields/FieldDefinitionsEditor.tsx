@@ -137,7 +137,7 @@ export function FieldDefinitionsEditor({
   orderNotice,
   infoNote = (
     <div className="text-xs text-muted-foreground mt-2">
-      Supported kinds: text, multiline, integer, float, boolean, select (with options/optionsUrl), relation (with related entity and options URL).
+      Supported kinds: text, multiline, integer, float, boolean, select (with options/optionsUrl), currency (fixed currencies list), relation (with related entity and options URL).
     </div>
   ),
   addButtonLabel = 'Add Field',
@@ -944,6 +944,15 @@ const FieldDefinitionCard = React.memo(function FieldDefinitionCard({
               </div>
             )}
           </>
+        )}
+
+        {local.kind === 'currency' && (
+          <div className="md:col-span-2">
+            <label className="text-xs">Options source</label>
+            <div className="rounded border bg-muted px-2 py-1 text-xs text-muted-foreground">
+              /api/currencies/options
+            </div>
+          </div>
         )}
 
         {(local.kind === 'integer' || local.kind === 'float') && (
