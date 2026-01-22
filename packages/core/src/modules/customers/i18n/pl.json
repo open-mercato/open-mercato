@@ -849,7 +849,7 @@
   "customers.people.detail.activities.fields.type": "Typ",
   "customers.people.detail.activities.fields.subject": "Temat",
   "customers.people.detail.activities.fields.body": "Opis",
-  "customers.people.detail.activities.fields.occurredAt": "Data wystąpienia",
+  "customers.people.detail.activities.fields.occurredAt": "Wystąpiło / wystąpi",
   "customers.people.detail.activities.fields.entity": "Przypisz do klienta",
   "customers.people.detail.activities.fields.deal": "Powiąż z szansą (opcjonalnie)",
   "customers.people.detail.activities.fields.dealPlaceholder": "Brak powiązanej szansy",

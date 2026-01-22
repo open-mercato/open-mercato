@@ -743,7 +743,7 @@
   "customers.people.detail.activities.fields.type": "Tipo",
   "customers.people.detail.activities.fields.subject": "Asunto",
   "customers.people.detail.activities.fields.body": "Descripción",
-  "customers.people.detail.activities.fields.occurredAt": "Fecha de ocurrencia",
+  "customers.people.detail.activities.fields.occurredAt": "Ocurrió / ocurrirá el",
   "customers.people.detail.activities.cancel": "Cancelar",
   "customers.people.detail.activities.save": "Guardar actividad (⌘/Ctrl + Enter)",
   "customers.people.detail.activities.saving": "Guardando…",

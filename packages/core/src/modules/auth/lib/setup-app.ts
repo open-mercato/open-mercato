@@ -427,6 +427,10 @@ async function ensureDefaultRoleAcls(
       'audit_logs.undo_self',
       'perspectives.use',
       'staff.leave_requests.send',
+      'staff.my_availability.view',
+      'staff.my_availability.manage',
+      'staff.my_leave_requests.view',
+      'staff.my_leave_requests.send',
       'planner.view',
     ])
   }

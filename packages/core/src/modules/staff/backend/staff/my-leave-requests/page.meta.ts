@@ -11,7 +11,7 @@ const myLeaveRequestsIcon = React.createElement(
 
 export const metadata = {
   requireAuth: true,
-  requireFeatures: ['staff.leave_requests.send'],
+  requireFeatures: ['staff.my_leave_requests.view'],
   pageTitle: 'My leave requests',
   pageTitleKey: 'staff.leaveRequests.my.title',
   pageGroup: 'Employees',

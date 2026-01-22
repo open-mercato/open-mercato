@@ -780,7 +780,7 @@
   "customers.people.detail.activities.fields.type": "Typ",
   "customers.people.detail.activities.fields.subject": "Betreff",
   "customers.people.detail.activities.fields.body": "Beschreibung",
-  "customers.people.detail.activities.fields.occurredAt": "Zeitpunkt",
+  "customers.people.detail.activities.fields.occurredAt": "Ist / wird stattfinden am",
   "customers.people.detail.activities.fields.entity": "Kontakt zuordnen",
   "customers.people.detail.activities.fields.deal": "Deal verknüpfen (optional)",
   "customers.people.detail.activities.fields.dealPlaceholder": "Kein verknüpfter Deal",

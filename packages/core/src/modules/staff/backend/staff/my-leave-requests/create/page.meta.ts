@@ -1,6 +1,6 @@
 export const metadata = {
   requireAuth: true,
-  requireFeatures: ['staff.leave_requests.send'],
+  requireFeatures: ['staff.my_leave_requests.send'],
   pageTitle: 'New leave request',
   pageTitleKey: 'staff.leaveRequests.form.createTitle',
   pageGroup: 'Employees',

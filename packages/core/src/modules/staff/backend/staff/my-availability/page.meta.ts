@@ -9,7 +9,7 @@ const myAvailabilityIcon = React.createElement(
 
 export const metadata = {
   requireAuth: true,
-  requireFeatures: ['staff.leave_requests.send'],
+  requireFeatures: ['staff.my_availability.view'],
   pageTitle: 'My availability',
   pageTitleKey: 'staff.myAvailability.page.title',
   pageGroup: 'Employees',

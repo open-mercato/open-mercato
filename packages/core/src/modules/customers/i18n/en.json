@@ -849,7 +849,7 @@
   "customers.people.detail.activities.fields.type": "Type",
   "customers.people.detail.activities.fields.subject": "Subject",
   "customers.people.detail.activities.fields.body": "Description",
-  "customers.people.detail.activities.fields.occurredAt": "Occurred at",
+  "customers.people.detail.activities.fields.occurredAt": "Occurred / will occur at",
   "customers.people.detail.activities.fields.entity": "Assign to customer",
   "customers.people.detail.activities.fields.deal": "Link to deal (optional)",
   "customers.people.detail.activities.fields.dealPlaceholder": "No linked deal",

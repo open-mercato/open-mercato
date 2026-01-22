@@ -643,7 +643,7 @@
   "resources.resources.detail.activities.fields.deal": "Link to deal (optional)",
   "resources.resources.detail.activities.fields.dealPlaceholder": "No linked deal",
   "resources.resources.detail.activities.fields.entity": "Assign to resource",
-  "resources.resources.detail.activities.fields.occurredAt": "Occurred at",
+  "resources.resources.detail.activities.fields.occurredAt": "Occurred / will occur at",
   "resources.resources.detail.activities.fields.subject": "Subject",
   "resources.resources.detail.activities.fields.type": "Activity type",
   "resources.resources.detail.activities.form.customFields": "Custom fields",

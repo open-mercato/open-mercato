@@ -17,6 +17,11 @@ type TeamMemberResponse = {
   items?: Array<Record<string, unknown>>
 }
 
+type FeatureCheckResponse = {
+  ok?: boolean
+  granted?: string[]
+}
+
 export type LeaveRequestFormValues = {
   id?: string
   memberId?: string | null
@@ -80,6 +85,7 @@ export function LeaveRequestForm(props: LeaveRequestFormProps) {
   const scopeVersion = useOrganizationScopeVersion()
   const [memberOptions, setMemberOptions] = React.useState<LookupSelectItem[]>([])
   const [reasonEntriesById, setReasonEntriesById] = React.useState<Record<string, UnavailabilityReasonEntry>>({})
+  const [canManageReasons, setCanManageReasons] = React.useState(false)
   const resolvedMemberLabel = memberLabel ?? initialValues.memberLabel ?? null
 
   const labels = React.useMemo(() => ({
@@ -167,6 +173,27 @@ export function LeaveRequestForm(props: LeaveRequestFormProps) {
   }, [allowMemberSelect, fetchMemberOptions, scopeVersion])
 
   React.useEffect(() => {
+    let cancelled = false
+    async function loadPermissions() {
+      try {
+        const call = await apiCall<FeatureCheckResponse>('/api/auth/feature-check', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ features: ['dictionaries.manage'] }),
+        })
+        const granted = Array.isArray(call.result?.granted) ? call.result?.granted ?? [] : []
+        if (!cancelled) {
+          setCanManageReasons(granted.includes('dictionaries.manage'))
+        }
+      } catch {
+        if (!cancelled) setCanManageReasons(false)
+      }
+    }
+    void loadPermissions()
+    return () => { cancelled = true }
+  }, [scopeVersion])
+
+  React.useEffect(() => {
     const selected = typeof initialValues.memberId === 'string' ? initialValues.memberId : null
     if (!selected || !allowMemberSelect) return
     if (memberOptions.some((option) => option.id === selected)) return
@@ -244,10 +271,12 @@ export function LeaveRequestForm(props: LeaveRequestFormProps) {
               }
             }}
             fetchOptions={fetchReasonOptions}
-            createOption={createReasonOption}
+            createOption={canManageReasons ? createReasonOption : undefined}
             labels={reasonLabels}
             selectClassName="w-full"
-            manageHref="/backend/config/dictionaries"
+            manageHref={canManageReasons ? '/backend/config/dictionaries' : undefined}
+            allowInlineCreate={canManageReasons}
+            showManage={canManageReasons}
           />
         ),
       },
@@ -270,6 +299,7 @@ export function LeaveRequestForm(props: LeaveRequestFormProps) {
     reasonLabels,
     resolvedMemberLabel,
     t,
+    canManageReasons,
   ])
 
   return (

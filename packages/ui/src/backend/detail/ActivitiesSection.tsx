@@ -201,11 +201,13 @@ function TimelineItemHeader({
     return absoluteLabel ?? fallbackTimestampLabel ?? null
   }, [fallbackTimestampLabel, subtitle, timestamp])
 
+  const iconNode = icon && renderIcon ? renderIcon(icon, iconSizeClass) : null
+
   return (
     <div className={['flex items-start gap-3', className].filter(Boolean).join(' ')}>
-      {icon && renderIcon ? (
+      {iconNode ? (
         <span className={['inline-flex items-center justify-center rounded border border-border bg-muted/40', wrapperSize].join(' ')}>
-          {renderIcon(icon, iconSizeClass)}
+          {iconNode}
         </span>
       ) : null}
       <div className="space-y-1">
@@ -432,7 +434,7 @@ function ActivityForm({
 
     fields.push({
       id: 'occurredAt',
-      label: translate('fields.occurredAt', 'Occurred at'),
+      label: translate('fields.occurredAt', 'Occurred / will occur at'),
       type: 'custom',
       component: ({ value, setValue }) => (
         <input
