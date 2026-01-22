@@ -9,9 +9,10 @@ import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { parseScopedCommandInput } from '@open-mercato/shared/lib/api/scoped'
 import { plannerAvailabilityWeeklyReplaceSchema } from '../data/validators'
 import { serializeOperationMetadata } from '@open-mercato/shared/lib/commands/operationMetadata'
+import { assertAvailabilityWriteAccess } from './access'
 
 export const metadata = {
-  POST: { requireAuth: true, requireFeatures: ['planner.manage_availability'] },
+  POST: { requireAuth: true },
 }
 
 type RequestContext = {
@@ -53,6 +54,7 @@ export async function POST(req: Request) {
     const { translate } = await resolveTranslations()
     const payload = await req.json().catch(() => ({}))
     const input = parseScopedCommandInput(plannerAvailabilityWeeklyReplaceSchema, payload, ctx, translate)
+    await assertAvailabilityWriteAccess(ctx, { subjectType: input.subjectType, subjectId: input.subjectId }, translate)
     const commandBus = ctx.container.resolve('commandBus') as CommandBus
     const { logEntry } = await commandBus.execute('planner.availability.weekly.replace', { input, ctx })
     const response = NextResponse.json({ ok: true })

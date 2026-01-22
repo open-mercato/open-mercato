@@ -9,6 +9,7 @@ import { User } from '@open-mercato/core/modules/auth/data/entities'
 import { StaffTeam, StaffTeamMember, StaffTeamRole } from '../data/entities'
 import { E } from '#generated/entities.ids.generated'
 import {
+  STAFF_TEAM_MEMBER_ACTIVITY_CUSTOM_FIELD_SETS,
   STAFF_TEAM_MEMBER_CUSTOM_FIELD_SETS,
   STAFF_TEAM_MEMBER_FIELDSETS,
 } from './customFields'
@@ -255,6 +256,10 @@ async function ensureStaffTeamMemberCustomFields(em: EntityManager, scope: Staff
   em.persist(config)
 
   await ensureCustomFieldDefinitions(em, STAFF_TEAM_MEMBER_CUSTOM_FIELD_SETS, {
+    organizationId: scope.organizationId,
+    tenantId: scope.tenantId,
+  })
+  await ensureCustomFieldDefinitions(em, STAFF_TEAM_MEMBER_ACTIVITY_CUSTOM_FIELD_SETS, {
     organizationId: scope.organizationId,
     tenantId: scope.tenantId,
   })

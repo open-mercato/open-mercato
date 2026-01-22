@@ -63,6 +63,9 @@ const crud = makeCrudRoute({
       'created_at',
       'updated_at',
     ],
+    decorateCustomFields: {
+      entityIds: E.staff.staff_team_member_activity,
+    },
     sortFieldMap: {
       occurredAt: 'occurred_at',
       createdAt: 'created_at',
@@ -72,6 +75,66 @@ const crud = makeCrudRoute({
       const filters: Record<string, unknown> = {}
       if (query.entityId) filters.member_id = { $eq: query.entityId }
       return filters
+    },
+    transformItem: (item: Record<string, unknown>) => {
+      const record = (item ?? {}) as Record<string, unknown>
+      const toIsoString = (value: unknown): string | null => {
+        if (value == null) return null
+        if (value instanceof Date) return value.toISOString()
+        if (typeof value === 'string') {
+          const trimmed = value.trim()
+          if (!trimmed.length) return null
+          const date = new Date(trimmed)
+          return Number.isNaN(date.getTime()) ? trimmed : date.toISOString()
+        }
+        return null
+      }
+      const readString = (value: unknown): string | null => (typeof value === 'string' ? value : null)
+      const idValue = readString(record.id) ?? (record.id != null ? String(record.id) : '')
+      const memberId = readString(record['member_id']) ?? readString(record['memberId']) ?? null
+      const activityType =
+        readString(record['activity_type']) ??
+        readString(record['activityType']) ??
+        ''
+      const subject =
+        readString(record.subject) ??
+        (record.subject == null ? null : String(record.subject))
+      const body =
+        readString(record.body) ??
+        (record.body == null ? null : String(record.body))
+      const authorUserId =
+        readString(record['author_user_id']) ?? readString(record['authorUserId']) ?? null
+      const appearanceIconRaw =
+        readString(record['appearance_icon']) ?? readString(record['appearanceIcon'])
+      const appearanceColorRaw =
+        readString(record['appearance_color']) ?? readString(record['appearanceColor'])
+      const organizationId =
+        readString(record['organization_id']) ?? readString(record['organizationId'])
+      const tenantId =
+        readString(record['tenant_id']) ?? readString(record['tenantId'])
+      const output: Record<string, unknown> = {
+        id: idValue,
+        entityId: memberId,
+        memberId,
+        activityType,
+        subject,
+        body,
+        occurredAt: toIsoString(record['occurred_at'] ?? record['occurredAt']),
+        createdAt: toIsoString(record['created_at'] ?? record['createdAt']),
+        authorUserId,
+        organizationId,
+        tenantId,
+        appearanceIcon: appearanceIconRaw && appearanceIconRaw.trim().length ? appearanceIconRaw : null,
+        appearanceColor: appearanceColorRaw && appearanceColorRaw.trim().length ? appearanceColorRaw : null,
+        customFields: Array.isArray(record.customFields) ? record.customFields : undefined,
+        customValues: record.customValues ?? undefined,
+      }
+      for (const [key, value] of Object.entries(record)) {
+        if (key.startsWith('cf_') || key.startsWith('cf:')) {
+          output[key] = value
+        }
+      }
+      return output
     },
   },
   actions: {

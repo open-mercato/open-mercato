@@ -1,6 +1,13 @@
 import { registerCommand } from '@open-mercato/shared/lib/commands'
-import type { CommandHandler } from '@open-mercato/shared/lib/commands'
-import { emitCrudSideEffects, emitCrudUndoSideEffects, buildChanges, requireId } from '@open-mercato/shared/lib/commands/helpers'
+import type { CommandHandler, CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
+import {
+  emitCrudSideEffects,
+  emitCrudUndoSideEffects,
+  buildChanges,
+  requireId,
+  parseWithCustomFields,
+  setCustomFieldsIfAny,
+} from '@open-mercato/shared/lib/commands/helpers'
 import type { DataEngine } from '@open-mercato/shared/lib/data/engine'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
@@ -15,23 +22,32 @@ import {
 } from '../data/validators'
 import { ensureOrganizationScope, ensureTenantScope, extractUndoPayload, requireTeamMember } from './shared'
 import { E } from '#generated/entities.ids.generated'
+import {
+  loadCustomFieldSnapshot,
+  diffCustomFieldChanges,
+  buildCustomFieldResetMap,
+  type CustomFieldChangeSet,
+} from '@open-mercato/shared/lib/commands/customFieldSnapshots'
 
 const activityCrudIndexer: CrudIndexerConfig<StaffTeamMemberActivity> = {
   entityType: E.staff.staff_team_member_activity,
 }
 
 type ActivitySnapshot = {
-  id: string
-  organizationId: string
-  tenantId: string
-  memberId: string
-  activityType: string
-  subject: string | null
-  body: string | null
-  occurredAt: string | null
-  authorUserId: string | null
-  appearanceIcon: string | null
-  appearanceColor: string | null
+  activity: {
+    id: string
+    organizationId: string
+    tenantId: string
+    memberId: string
+    activityType: string
+    subject: string | null
+    body: string | null
+    occurredAt: Date | null
+    authorUserId: string | null
+    appearanceIcon: string | null
+    appearanceColor: string | null
+  }
+  custom?: Record<string, unknown>
 }
 
 type ActivityUndoPayload = {
@@ -39,22 +55,55 @@ type ActivityUndoPayload = {
   after?: ActivitySnapshot | null
 }
 
+type ActivityChangeMap = Record<string, { from: unknown; to: unknown }> & {
+  custom?: CustomFieldChangeSet
+}
+
 async function loadActivitySnapshot(em: EntityManager, id: string): Promise<ActivitySnapshot | null> {
   const activity = await em.findOne(StaffTeamMemberActivity, { id })
   if (!activity) return null
-  return {
-    id: activity.id,
-    organizationId: activity.organizationId,
+  const custom = await loadCustomFieldSnapshot(em, {
+    entityId: E.staff.staff_team_member_activity,
+    recordId: activity.id,
     tenantId: activity.tenantId,
-    memberId: typeof activity.member === 'string' ? activity.member : activity.member.id,
-    activityType: activity.activityType,
-    subject: activity.subject ?? null,
-    body: activity.body ?? null,
-    occurredAt: activity.occurredAt ? activity.occurredAt.toISOString() : null,
-    authorUserId: activity.authorUserId ?? null,
-    appearanceIcon: activity.appearanceIcon ?? null,
-    appearanceColor: activity.appearanceColor ?? null,
+    organizationId: activity.organizationId,
+  })
+  return {
+    activity: {
+      id: activity.id,
+      organizationId: activity.organizationId,
+      tenantId: activity.tenantId,
+      memberId: typeof activity.member === 'string' ? activity.member : activity.member.id,
+      activityType: activity.activityType,
+      subject: activity.subject ?? null,
+      body: activity.body ?? null,
+      occurredAt: activity.occurredAt ?? null,
+      authorUserId: activity.authorUserId ?? null,
+      appearanceIcon: activity.appearanceIcon ?? null,
+      appearanceColor: activity.appearanceColor ?? null,
+    },
+    custom,
   }
+}
+
+async function setActivityCustomFields(
+  ctx: CommandRuntimeContext,
+  activityId: string,
+  organizationId: string,
+  tenantId: string,
+  values: Record<string, unknown>
+) {
+  if (!values || !Object.keys(values).length) return
+  const de = (ctx.container.resolve('dataEngine') as DataEngine)
+  await setCustomFieldsIfAny({
+    dataEngine: de,
+    entityId: E.staff.staff_team_member_activity,
+    recordId: activityId,
+    organizationId,
+    tenantId,
+    values,
+    notify: false,
+  })
 }
 
 const createActivityCommand: CommandHandler<
@@ -63,7 +112,7 @@ const createActivityCommand: CommandHandler<
 > = {
   id: 'staff.team-member-activities.create',
   async execute(rawInput, ctx) {
-    const parsed = staffTeamMemberActivityCreateSchema.parse(rawInput)
+    const { parsed, custom } = parseWithCustomFields(staffTeamMemberActivityCreateSchema, rawInput)
     ensureTenantScope(ctx, parsed.tenantId)
     ensureOrganizationScope(ctx, parsed.organizationId)
     const authSub = ctx.auth?.isApiKey ? null : ctx.auth?.sub ?? null
@@ -96,6 +145,8 @@ const createActivityCommand: CommandHandler<
     em.persist(activity)
     await em.flush()
 
+    await setActivityCustomFields(ctx, activity.id, parsed.organizationId, parsed.tenantId, custom)
+
     const de = (ctx.container.resolve('dataEngine') as DataEngine)
     await emitCrudSideEffects({
       dataEngine: de,
@@ -123,8 +174,8 @@ const createActivityCommand: CommandHandler<
       actionLabel: translate('staff.audit.teamMemberActivities.create', 'Create activity'),
       resourceKind: 'staff.team_member_activity',
       resourceId: result.activityId,
-      tenantId: snapshot?.tenantId ?? null,
-      organizationId: snapshot?.organizationId ?? null,
+      tenantId: snapshot?.activity.tenantId ?? null,
+      organizationId: snapshot?.activity.organizationId ?? null,
       snapshotAfter: snapshot ?? null,
       payload: {
         undo: {
@@ -154,7 +205,7 @@ const updateActivityCommand: CommandHandler<StaffTeamMemberActivityUpdateInput, 
     return snapshot ? { before: snapshot } : {}
   },
   async execute(rawInput, ctx) {
-    const parsed = staffTeamMemberActivityUpdateSchema.parse(rawInput)
+    const { parsed, custom } = parseWithCustomFields(staffTeamMemberActivityUpdateSchema, rawInput)
     const em = (ctx.container.resolve('em') as EntityManager).fork()
     const activity = await em.findOne(StaffTeamMemberActivity, { id: parsed.id })
     if (!activity) throw new CrudHttpError(404, { error: 'Activity not found' })
@@ -177,6 +228,8 @@ const updateActivityCommand: CommandHandler<StaffTeamMemberActivityUpdateInput, 
 
     await em.flush()
 
+    await setActivityCustomFields(ctx, activity.id, activity.organizationId, activity.tenantId, custom)
+
     const de = (ctx.container.resolve('dataEngine') as DataEngine)
     await emitCrudSideEffects({
       dataEngine: de,
@@ -197,21 +250,33 @@ const updateActivityCommand: CommandHandler<StaffTeamMemberActivityUpdateInput, 
     const before = snapshots.before as ActivitySnapshot | undefined
     if (!before) return null
     const em = (ctx.container.resolve('em') as EntityManager)
-    const afterSnapshot = await loadActivitySnapshot(em, before.id)
-    const changes =
+    const afterSnapshot = await loadActivitySnapshot(em, before.activity.id)
+    const changeKeys: readonly string[] = [
+      'memberId',
+      'activityType',
+      'subject',
+      'body',
+      'occurredAt',
+      'authorUserId',
+      'appearanceIcon',
+      'appearanceColor',
+    ]
+    const changes: ActivityChangeMap =
       afterSnapshot && before
         ? buildChanges(
-            before as unknown as Record<string, unknown>,
-            afterSnapshot as unknown as Record<string, unknown>,
-            ['memberId', 'activityType', 'subject', 'body', 'occurredAt', 'authorUserId', 'appearanceIcon', 'appearanceColor']
+            before.activity as Record<string, unknown>,
+            afterSnapshot.activity as Record<string, unknown>,
+            changeKeys
           )
         : {}
+    const customChanges = diffCustomFieldChanges(before.custom, afterSnapshot?.custom)
+    if (Object.keys(customChanges).length) changes.custom = customChanges
     return {
       actionLabel: translate('staff.audit.teamMemberActivities.update', 'Update activity'),
       resourceKind: 'staff.team_member_activity',
-      resourceId: before.id,
-      tenantId: before.tenantId,
-      organizationId: before.organizationId,
+      resourceId: before.activity.id,
+      tenantId: before.activity.tenantId,
+      organizationId: before.activity.organizationId,
       snapshotBefore: before,
       snapshotAfter: afterSnapshot ?? null,
       changes,
@@ -228,35 +293,35 @@ const updateActivityCommand: CommandHandler<StaffTeamMemberActivityUpdateInput, 
     const before = payload?.before
     if (!before) return
     const em = (ctx.container.resolve('em') as EntityManager).fork()
-    let activity = await em.findOne(StaffTeamMemberActivity, { id: before.id })
-    const member = await requireTeamMember(em, before.memberId, 'Team member not found')
+    let activity = await em.findOne(StaffTeamMemberActivity, { id: before.activity.id })
+    const member = await requireTeamMember(em, before.activity.memberId, 'Team member not found')
 
     if (!activity) {
       activity = em.create(StaffTeamMemberActivity, {
-        id: before.id,
-        organizationId: before.organizationId,
-        tenantId: before.tenantId,
+        id: before.activity.id,
+        organizationId: before.activity.organizationId,
+        tenantId: before.activity.tenantId,
         member,
-        activityType: before.activityType,
-        subject: before.subject,
-        body: before.body,
-        occurredAt: before.occurredAt ? new Date(before.occurredAt) : null,
-        authorUserId: before.authorUserId,
-        appearanceIcon: before.appearanceIcon,
-        appearanceColor: before.appearanceColor,
+        activityType: before.activity.activityType,
+        subject: before.activity.subject,
+        body: before.activity.body,
+        occurredAt: before.activity.occurredAt ?? null,
+        authorUserId: before.activity.authorUserId,
+        appearanceIcon: before.activity.appearanceIcon,
+        appearanceColor: before.activity.appearanceColor,
         createdAt: new Date(),
         updatedAt: new Date(),
       })
       em.persist(activity)
     } else {
       activity.member = member
-      activity.activityType = before.activityType
-      activity.subject = before.subject
-      activity.body = before.body
-      activity.occurredAt = before.occurredAt ? new Date(before.occurredAt) : null
-      activity.authorUserId = before.authorUserId
-      activity.appearanceIcon = before.appearanceIcon
-      activity.appearanceColor = before.appearanceColor
+      activity.activityType = before.activity.activityType
+      activity.subject = before.activity.subject
+      activity.body = before.activity.body
+      activity.occurredAt = before.activity.occurredAt ?? null
+      activity.authorUserId = before.activity.authorUserId
+      activity.appearanceIcon = before.activity.appearanceIcon
+      activity.appearanceColor = before.activity.appearanceColor
     }
     await em.flush()
 
@@ -272,6 +337,19 @@ const updateActivityCommand: CommandHandler<StaffTeamMemberActivityUpdateInput, 
       },
       indexer: activityCrudIndexer,
     })
+
+    const resetValues = buildCustomFieldResetMap(before.custom, payload?.after?.custom)
+    if (Object.keys(resetValues).length) {
+      await setCustomFieldsIfAny({
+        dataEngine: de,
+        entityId: E.staff.staff_team_member_activity,
+        recordId: activity.id,
+        organizationId: activity.organizationId,
+        tenantId: activity.tenantId,
+        values: resetValues,
+        notify: false,
+      })
+    }
   },
 }
 
@@ -315,9 +393,9 @@ const deleteActivityCommand: CommandHandler<{ body?: Record<string, unknown>; qu
       return {
         actionLabel: translate('staff.audit.teamMemberActivities.delete', 'Delete activity'),
         resourceKind: 'staff.team_member_activity',
-        resourceId: before.id,
-        tenantId: before.tenantId,
-        organizationId: before.organizationId,
+        resourceId: before.activity.id,
+        tenantId: before.activity.tenantId,
+        organizationId: before.activity.organizationId,
         snapshotBefore: before,
         payload: {
           undo: {
@@ -331,34 +409,34 @@ const deleteActivityCommand: CommandHandler<{ body?: Record<string, unknown>; qu
       const before = payload?.before
       if (!before) return
       const em = (ctx.container.resolve('em') as EntityManager).fork()
-      const member = await requireTeamMember(em, before.memberId, 'Team member not found')
-      let activity = await em.findOne(StaffTeamMemberActivity, { id: before.id })
+      const member = await requireTeamMember(em, before.activity.memberId, 'Team member not found')
+      let activity = await em.findOne(StaffTeamMemberActivity, { id: before.activity.id })
       if (!activity) {
         activity = em.create(StaffTeamMemberActivity, {
-          id: before.id,
-          organizationId: before.organizationId,
-          tenantId: before.tenantId,
+          id: before.activity.id,
+          organizationId: before.activity.organizationId,
+          tenantId: before.activity.tenantId,
           member,
-          activityType: before.activityType,
-          subject: before.subject,
-          body: before.body,
-          occurredAt: before.occurredAt ? new Date(before.occurredAt) : null,
-          authorUserId: before.authorUserId,
-          appearanceIcon: before.appearanceIcon,
-          appearanceColor: before.appearanceColor,
+          activityType: before.activity.activityType,
+          subject: before.activity.subject,
+          body: before.activity.body,
+          occurredAt: before.activity.occurredAt ?? null,
+          authorUserId: before.activity.authorUserId,
+          appearanceIcon: before.activity.appearanceIcon,
+          appearanceColor: before.activity.appearanceColor,
           createdAt: new Date(),
           updatedAt: new Date(),
         })
         em.persist(activity)
       } else {
         activity.member = member
-        activity.activityType = before.activityType
-        activity.subject = before.subject
-        activity.body = before.body
-        activity.occurredAt = before.occurredAt ? new Date(before.occurredAt) : null
-        activity.authorUserId = before.authorUserId
-        activity.appearanceIcon = before.appearanceIcon
-        activity.appearanceColor = before.appearanceColor
+        activity.activityType = before.activity.activityType
+        activity.subject = before.activity.subject
+        activity.body = before.activity.body
+        activity.occurredAt = before.activity.occurredAt ?? null
+        activity.authorUserId = before.activity.authorUserId
+        activity.appearanceIcon = before.activity.appearanceIcon
+        activity.appearanceColor = before.activity.appearanceColor
       }
       await em.flush()
 
@@ -374,6 +452,19 @@ const deleteActivityCommand: CommandHandler<{ body?: Record<string, unknown>; qu
         },
         indexer: activityCrudIndexer,
       })
+
+      const resetValues = buildCustomFieldResetMap(before.custom, undefined)
+      if (Object.keys(resetValues).length) {
+        await setCustomFieldsIfAny({
+          dataEngine: de,
+          entityId: E.staff.staff_team_member_activity,
+          recordId: activity.id,
+          organizationId: activity.organizationId,
+          tenantId: activity.tenantId,
+          values: resetValues,
+          notify: false,
+        })
+      }
     },
   }
 

@@ -1,11 +1,15 @@
 import { z } from 'zod'
+import type { EntityManager } from '@mikro-orm/postgresql'
 import { makeCrudRoute } from '@open-mercato/shared/lib/crud/factory'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { resolveCrudRecordId, parseScopedCommandInput } from '@open-mercato/shared/lib/api/scoped'
+import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
+import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { PlannerAvailabilityRule } from '../data/entities'
 import { plannerAvailabilityRuleCreateSchema, plannerAvailabilityRuleUpdateSchema } from '../data/validators'
 import { E } from '#generated/entities.ids.generated'
 import { createPlannerCrudOpenApi, createPagedListResponseSchema, defaultOkResponseSchema } from './openapi'
+import { assertAvailabilityWriteAccess } from './access'
 
 // Field constants for PlannerAvailabilityRule entity
 const F = {
@@ -28,9 +32,9 @@ const F = {
 
 const routeMetadata = {
   GET: { requireAuth: true, requireFeatures: ['planner.view'] },
-  POST: { requireAuth: true, requireFeatures: ['planner.manage_availability'] },
-  PUT: { requireAuth: true, requireFeatures: ['planner.manage_availability'] },
-  DELETE: { requireAuth: true, requireFeatures: ['planner.manage_availability'] },
+  POST: { requireAuth: true },
+  PUT: { requireAuth: true },
+  DELETE: { requireAuth: true },
 }
 
 export const metadata = routeMetadata
@@ -107,7 +111,17 @@ const crud = makeCrudRoute({
       schema: rawBodySchema,
       mapInput: async ({ raw, ctx }) => {
         const { translate } = await resolveTranslations()
-        return parseScopedCommandInput(plannerAvailabilityRuleCreateSchema, raw ?? {}, ctx, translate)
+        const input = parseScopedCommandInput(plannerAvailabilityRuleCreateSchema, raw ?? {}, ctx, translate)
+        await assertAvailabilityWriteAccess(
+          ctx,
+          {
+            subjectType: input.subjectType,
+            subjectId: input.subjectId,
+            requiresUnavailability: input.kind === 'unavailability',
+          },
+          translate,
+        )
+        return input
       },
       response: ({ result }) => ({ id: result?.ruleId ?? null }),
       status: 201,
@@ -117,7 +131,46 @@ const crud = makeCrudRoute({
       schema: rawBodySchema,
       mapInput: async ({ raw, ctx }) => {
         const { translate } = await resolveTranslations()
-        return parseScopedCommandInput(plannerAvailabilityRuleUpdateSchema, raw ?? {}, ctx, translate)
+        const parsed = parseScopedCommandInput(plannerAvailabilityRuleUpdateSchema, raw ?? {}, ctx, translate)
+        const tenantId = ctx.auth?.tenantId ?? null
+        const organizationId = ctx.selectedOrganizationId ?? ctx.auth?.orgId ?? null
+        const em = ctx.container.resolve('em') as EntityManager
+        const recordScope: Record<string, unknown> = { id: parsed.id, deletedAt: null }
+        if (tenantId) recordScope.tenantId = tenantId
+        if (organizationId) recordScope.organizationId = organizationId
+        const record = await findOneWithDecryption(
+          em,
+          PlannerAvailabilityRule,
+          recordScope,
+          undefined,
+          { tenantId, organizationId },
+        )
+        const subjectType = record?.subjectType ?? parsed.subjectType
+        const subjectId = record?.subjectId ?? parsed.subjectId
+        if (record && subjectType && subjectId) {
+          const requiresUnavailability = record.kind === 'unavailability' || parsed.kind === 'unavailability'
+          const access = await assertAvailabilityWriteAccess(
+            ctx,
+            { subjectType, subjectId, requiresUnavailability },
+            translate,
+          )
+          if (!access.canManageAll) {
+            if (parsed.subjectType && parsed.subjectType !== record.subjectType) {
+              throw new CrudHttpError(403, { error: translate('planner.availability.errors.unauthorized', 'Unauthorized') })
+            }
+            if (parsed.subjectId && parsed.subjectId !== record.subjectId) {
+              throw new CrudHttpError(403, { error: translate('planner.availability.errors.unauthorized', 'Unauthorized') })
+            }
+          }
+        } else if (subjectType && subjectId) {
+          const nextKind = parsed.kind ?? 'availability'
+          await assertAvailabilityWriteAccess(
+            ctx,
+            { subjectType, subjectId, requiresUnavailability: nextKind === 'unavailability' },
+            translate,
+          )
+        }
+        return parsed
       },
       response: () => ({ ok: true }),
     },
@@ -127,6 +180,26 @@ const crud = makeCrudRoute({
       mapInput: async ({ parsed, ctx }) => {
         const { translate } = await resolveTranslations()
         const id = resolveCrudRecordId(parsed, ctx, translate)
+        const tenantId = ctx.auth?.tenantId ?? null
+        const organizationId = ctx.selectedOrganizationId ?? ctx.auth?.orgId ?? null
+        const em = ctx.container.resolve('em') as EntityManager
+        const recordScope: Record<string, unknown> = { id, deletedAt: null }
+        if (tenantId) recordScope.tenantId = tenantId
+        if (organizationId) recordScope.organizationId = organizationId
+        const record = await findOneWithDecryption(
+          em,
+          PlannerAvailabilityRule,
+          recordScope,
+          undefined,
+          { tenantId, organizationId },
+        )
+        if (record) {
+          await assertAvailabilityWriteAccess(
+            ctx,
+            { subjectType: record.subjectType, subjectId: record.subjectId, requiresUnavailability: record.kind === 'unavailability' },
+            translate,
+          )
+        }
         return { id }
       },
       response: () => ({ ok: true }),

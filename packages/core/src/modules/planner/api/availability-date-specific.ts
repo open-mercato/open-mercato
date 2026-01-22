@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
 import { z } from 'zod'
+import type { EntityManager } from '@mikro-orm/postgresql'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/directory/utils/organizationScope'
@@ -7,11 +8,15 @@ import type { CommandBus, CommandRuntimeContext } from '@open-mercato/shared/lib
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { parseScopedCommandInput } from '@open-mercato/shared/lib/api/scoped'
+import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { plannerAvailabilityDateSpecificReplaceSchema } from '../data/validators'
 import { serializeOperationMetadata } from '@open-mercato/shared/lib/commands/operationMetadata'
+import { PlannerAvailabilityRule } from '../data/entities'
+import { parseAvailabilityRuleWindow } from '../lib/availabilitySchedule'
+import { assertAvailabilityWriteAccess } from './access'
 
 export const metadata = {
-  POST: { requireAuth: true, requireFeatures: ['planner.manage_availability'] },
+  POST: { requireAuth: true },
 }
 
 type RequestContext = {
@@ -54,6 +59,40 @@ export async function POST(req: Request) {
     const payload = await req.json().catch(() => ({}))
     const normalized = normalizeDateSpecificPayload(payload)
     const input = parseScopedCommandInput(plannerAvailabilityDateSpecificReplaceSchema, normalized, ctx, translate)
+    const isUnavailability = input.kind === 'unavailability' || input.isAvailable === false
+    const access = await assertAvailabilityWriteAccess(
+      ctx,
+      { subjectType: input.subjectType, subjectId: input.subjectId, requiresUnavailability: isUnavailability },
+      translate,
+    )
+    if (!access.canManageAll && !access.canManageUnavailability) {
+      const dateSet = resolveDateSet(input)
+      if (dateSet.size) {
+        const em = ctx.container.resolve('em') as EntityManager
+        const rules = await findWithDecryption(
+          em,
+          PlannerAvailabilityRule,
+          {
+            tenantId: input.tenantId,
+            organizationId: input.organizationId,
+            subjectType: input.subjectType,
+            subjectId: input.subjectId,
+            kind: 'unavailability',
+            deletedAt: null,
+          },
+          undefined,
+          { tenantId: input.tenantId, organizationId: input.organizationId },
+        )
+        const blocked = rules.some((rule) => {
+          const window = parseAvailabilityRuleWindow(rule)
+          if (window.repeat !== 'once') return false
+          return dateSet.has(formatDateKey(window.startAt))
+        })
+        if (blocked) {
+          throw new CrudHttpError(403, { error: translate('planner.availability.errors.unauthorized', 'Unauthorized') })
+        }
+      }
+    }
     const commandBus = ctx.container.resolve('commandBus') as CommandBus
     const { logEntry } = await commandBus.execute('planner.availability.date-specific.replace', { input, ctx })
     const response = NextResponse.json({ ok: true })
@@ -125,4 +164,26 @@ function normalizeDateSpecificPayload(payload: unknown): DateSpecificPayload {
     data.isAvailable = data.kind !== 'unavailability'
   }
   return data
+}
+
+function resolveDateSet(input: { date?: string; dates?: string[] }): Set<string> {
+  const dates = new Set<string>()
+  if (typeof input.date === 'string' && input.date.length > 0) {
+    dates.add(input.date)
+  }
+  if (Array.isArray(input.dates)) {
+    input.dates.forEach((value) => {
+      if (typeof value === 'string' && value.length > 0) {
+        dates.add(value)
+      }
+    })
+  }
+  return dates
+}
+
+function formatDateKey(value: Date): string {
+  const year = value.getFullYear()
+  const month = String(value.getMonth() + 1).padStart(2, '0')
+  const day = String(value.getDate()).padStart(2, '0')
+  return `${year}-${month}-${day}`
 }

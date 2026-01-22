@@ -257,6 +257,28 @@ export const RESOURCES_RESOURCE_CUSTOM_FIELD_SETS: FieldSetInput[] = [
       group: { code: 'maintenance' },
     }),
   ]),
+  defineFields(E.resources.resources_resource_activity, [
+    cf.select('activity_priority', ['low', 'normal', 'high'], {
+      label: 'Priority',
+      description: 'Urgency of the activity.',
+      filterable: true,
+      formEditable: true,
+      listVisible: true,
+    }),
+    cf.text('work_order', {
+      label: 'Work order',
+      description: 'External or internal reference ID.',
+      formEditable: true,
+      listVisible: true,
+    }),
+    cf.boolean('requires_follow_up', {
+      label: 'Requires follow-up',
+      description: 'Track if another action is needed.',
+      defaultValue: false,
+      formEditable: true,
+      listVisible: true,
+    }),
+  ]),
 ]
 
 function normalizeName(value?: string | null): string {

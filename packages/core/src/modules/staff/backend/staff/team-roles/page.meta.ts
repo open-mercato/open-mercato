@@ -1,9 +1,11 @@
 import React from 'react'
 
-const roleIcon = React.createElement(
+const briefcaseIcon = React.createElement(
   'svg',
   { width: 16, height: 16, viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', strokeWidth: 2 },
-  React.createElement('path', { d: 'M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z' }),
+  React.createElement('rect', { x: 2, y: 7, width: 20, height: 14, rx: 2, ry: 2 }),
+  React.createElement('path', { d: 'M16 7V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v2' }),
+  React.createElement('path', { d: 'M2 13h20' }),
 )
 
 export const metadata = {
@@ -14,6 +16,6 @@ export const metadata = {
   pageGroup: 'Employees',
   pageGroupKey: 'staff.nav.group',
   pageOrder: 81,
-  icon: roleIcon,
+  icon: briefcaseIcon,
   breadcrumb: [{ label: 'Team roles', labelKey: 'staff.teamRoles.page.title' }],
 }

@@ -234,6 +234,7 @@ export function ActivitiesSection({
       renderColor={renderDictionaryColor}
       manageHref="/backend/config/customers"
       appearanceLabels={appearanceLabels}
+      customFieldEntityIds={['customers:customer_activity']}
     />
   )
 }

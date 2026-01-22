@@ -430,6 +430,7 @@ export default function StaffTeamMemberDetailPage({ params }: { params?: { id?: 
                         renderColor={renderDictionaryColor}
                         appearanceLabels={appearanceLabels}
                         manageHref={manageActivityHref}
+                        customFieldEntityIds={['staff:staff_team_member_activity']}
                       />
                     ) : null}
                     {activeTab === 'addresses' ? (

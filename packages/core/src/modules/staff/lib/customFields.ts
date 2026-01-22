@@ -119,6 +119,33 @@ export const STAFF_TEAM_MEMBER_CUSTOM_FIELDS: CustomFieldDefinition[] = [
   }),
 ]
 
+export const STAFF_TEAM_MEMBER_ACTIVITY_CUSTOM_FIELDS: CustomFieldDefinition[] = [
+  cf.select('activity_outcome', ['completed', 'rescheduled', 'blocked'], {
+    label: 'Outcome',
+    description: 'Result of the activity or follow-up.',
+    filterable: true,
+    formEditable: true,
+    listVisible: true,
+  }),
+  cf.text('follow_up_owner', {
+    label: 'Follow-up owner',
+    description: 'Who is responsible for the next step.',
+    formEditable: true,
+    listVisible: true,
+  }),
+  cf.boolean('requires_follow_up', {
+    label: 'Requires follow-up',
+    description: 'Mark when another action is needed.',
+    defaultValue: false,
+    formEditable: true,
+    listVisible: true,
+  }),
+]
+
 export const STAFF_TEAM_MEMBER_CUSTOM_FIELD_SETS: FieldSetInput[] = [
   defineFields(E.staff.staff_team_member, STAFF_TEAM_MEMBER_CUSTOM_FIELDS, 'staff'),
+]
+
+export const STAFF_TEAM_MEMBER_ACTIVITY_CUSTOM_FIELD_SETS: FieldSetInput[] = [
+  defineFields(E.staff.staff_team_member_activity, STAFF_TEAM_MEMBER_ACTIVITY_CUSTOM_FIELDS, 'staff'),
 ]
