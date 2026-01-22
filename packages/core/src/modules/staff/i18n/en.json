@@ -869,6 +869,8 @@
   "staff.myAvailability.loading": "Loading availability...",
   "staff.myAvailability.errors.load": "Failed to load availability.",
   "staff.myAvailability.empty.profileRequired": "Create your team member profile to manage availability.",
+  "staff.myAvailability.readOnly.title": "Only an administrator can manage your availability.",
+  "staff.myAvailability.readOnly.body": "Use leave requests to request changes.",
   "staff.teamMembers.self.createTitle": "Create my profile",
   "staff.teamMembers.self.created": "Profile created.",
   "staff.teamMembers.self.exists": "Team member profile already exists."

@@ -869,6 +869,8 @@
   "staff.myAvailability.loading": "Verfügbarkeit wird geladen...",
   "staff.myAvailability.errors.load": "Verfügbarkeit konnte nicht geladen werden.",
   "staff.myAvailability.empty.profileRequired": "Erstelle dein Teamprofil, um Verfügbarkeit zu verwalten.",
+  "staff.myAvailability.readOnly.title": "Nur Administratoren können deine Verfügbarkeit verwalten.",
+  "staff.myAvailability.readOnly.body": "Nutze Urlaubsanträge, um Änderungen zu melden.",
   "staff.teamMembers.self.createTitle": "Mein Profil erstellen",
   "staff.teamMembers.self.created": "Profil erstellt.",
   "staff.teamMembers.self.exists": "Teamprofil existiert bereits."

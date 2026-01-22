@@ -99,17 +99,34 @@ export default function StaffMyAvailabilityPage() {
   return (
     <Page>
       <PageBody>
-        <AvailabilityRulesEditor
-          subjectType="member"
-          subjectId={member.id}
-          labelPrefix="staff.teamMembers"
-          mode="availability"
-          rulesetId={member.availabilityRuleSetId ?? null}
-          buildScheduleItems={({ availabilityRules, translate }) => (
-            buildMemberScheduleItems({ availabilityRules, translate })
-          )}
-          readOnly={!canManageAvailability}
-        />
+        <div className="space-y-4">
+          {!canManageAvailability ? (
+            <div className="space-y-2 rounded-lg border bg-card p-4 text-sm text-muted-foreground">
+              <p className="font-medium text-foreground">
+                {t('staff.myAvailability.readOnly.title', 'Only an administrator can manage your availability.')}
+              </p>
+              <p>
+                {t('staff.myAvailability.readOnly.body', 'Use leave requests to request changes.')}
+              </p>
+              <Button asChild size="sm" variant="outline">
+                <Link href="/backend/staff/my-leave-requests">
+                  {t('staff.leaveRequests.my.title', 'My leave requests')}
+                </Link>
+              </Button>
+            </div>
+          ) : null}
+          <AvailabilityRulesEditor
+            subjectType="member"
+            subjectId={member.id}
+            labelPrefix="staff.teamMembers"
+            mode="availability"
+            rulesetId={member.availabilityRuleSetId ?? null}
+            buildScheduleItems={({ availabilityRules, translate }) => (
+              buildMemberScheduleItems({ availabilityRules, translate })
+            )}
+            readOnly={!canManageAvailability}
+          />
+        </div>
       </PageBody>
     </Page>
   )

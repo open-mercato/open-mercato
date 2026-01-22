@@ -869,6 +869,8 @@
   "staff.myAvailability.loading": "Cargando disponibilidad...",
   "staff.myAvailability.errors.load": "No se pudo cargar la disponibilidad.",
   "staff.myAvailability.empty.profileRequired": "Crea tu perfil de miembro para gestionar la disponibilidad.",
+  "staff.myAvailability.readOnly.title": "Solo un administrador puede gestionar tu disponibilidad.",
+  "staff.myAvailability.readOnly.body": "Usa las solicitudes de ausencia para pedir cambios.",
   "staff.teamMembers.self.createTitle": "Crear mi perfil",
   "staff.teamMembers.self.created": "Perfil creado.",
   "staff.teamMembers.self.exists": "El perfil del miembro ya existe."
