@@ -5831,7 +5831,7 @@ __metadata:
   peerDependencies:
     "@open-mercato/shared": "workspace:*"
     "@open-mercato/ui": "workspace:*"
-    zod: ^3.23.0
+    zod: ">=3.23.0"
   languageName: unknown
   linkType: soft
 
