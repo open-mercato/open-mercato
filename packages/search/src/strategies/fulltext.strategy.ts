@@ -47,7 +47,7 @@ export class FullTextSearchStrategy implements SearchStrategy {
 
   async index(record: IndexableRecord): Promise<void> {
     const doc = this.mapRecordToDocument(record)
-    return this.driver.index(doc)
+    await this.driver.index(doc)
   }
 
   async delete(entityId: EntityId, recordId: string, tenantId: string): Promise<void> {
