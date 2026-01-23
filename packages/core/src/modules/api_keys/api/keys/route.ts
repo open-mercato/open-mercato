@@ -15,6 +15,7 @@ import { escapeLikePattern } from '@open-mercato/shared/lib/db/escapeLikePattern
 
 type ApiKeyCrudCtx = CrudCtx & {
   __apiKeySecret?: { secret: string; prefix: string }
+  __apiKeyHash?: string
   __apiKeyRoleIds?: string[]
   __apiKeyRoles?: Role[]
   __apiKeyOrganizationId?: string | null
@@ -100,7 +101,8 @@ const crud = makeCrudRoute<
     mapToEntity: (input, ctx) => {
       const scopedCtx = ctx as ApiKeyCrudCtx
       const secretData = scopedCtx.__apiKeySecret
-      if (!secretData) throw new Error('API key secret not prepared')
+      const keyHash = scopedCtx.__apiKeyHash
+      if (!secretData || !keyHash) throw new Error('API key secret not prepared')
       const roleIds = Array.isArray(scopedCtx.__apiKeyRoleIds) ? scopedCtx.__apiKeyRoleIds : []
       const organizationId = scopedCtx.__apiKeyOrganizationId ?? null
       const tenantId = scopedCtx.__apiKeyTenantId ?? null
@@ -109,7 +111,7 @@ const crud = makeCrudRoute<
         description: input.description ?? null,
         tenantId,
         organizationId,
-        keyHash: hashApiKey(secretData.secret),
+        keyHash,
         keyPrefix: secretData.prefix,
         rolesJson: roleIds,
         createdBy: ctx.auth?.sub ?? null,
@@ -229,6 +231,7 @@ const crud = makeCrudRoute<
 
       const secretData = generateApiKeySecret()
       scopedCtx.__apiKeySecret = secretData
+      scopedCtx.__apiKeyHash = await hashApiKey(secretData.secret)
 
       const em = (ctx.container.resolve('em') as EntityManager)
       const roleTokens = Array.isArray(input.roles) ? input.roles.filter((value) => typeof value === 'string' && value.trim().length > 0) : []

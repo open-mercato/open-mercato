@@ -15,6 +15,16 @@ We’re excited to collaborate with folks building on top of Open Mercato. This 
 - Follow module conventions from [`AGENTS.md`](AGENTS.md) and prefer the `packages/` workspace for new code.
 - Document user-facing copy in the locale dictionaries and keep translations in sync.
 
+### Spec Driven Development
+
+Before implementing new features or making significant changes, check for an existing spec in `.ai/specs/`:
+
+1. **Check for a spec**: Look for `.ai/specs/<module-name>.md` related to your feature
+2. **Create or update**: If no spec exists, create one; if it does, update it with your changes
+3. **Maintain the changelog**: Add a dated entry summarizing your changes
+
+This ensures design decisions are documented and the codebase remains well-understood by both humans and AI agents. See [`.ai/specs/AGENTS.md`](.ai/specs/AGENTS.md) for detailed guidelines.
+
 ## Pull Requests
 
 - Open PRs against `develop` unless you are coordinating a release hotfix.

@@ -1,4 +1,4 @@
-FROM node:20-bookworm-slim AS builder
+FROM node:24-bookworm-slim AS builder
 
 ENV NODE_ENV=production \
     NEXT_TELEMETRY_DISABLED=1
@@ -6,26 +6,43 @@ ENV NODE_ENV=production \
 WORKDIR /app
 
 # Install system deps required by optional native modules
-RUN apt-get update \
- && apt-get install -y --no-install-recommends python3 build-essential ca-certificates openssl \
+RUN rm -rf /var/lib/apt/lists/* \
+ && apt-get update \
+ && apt-get install -y --no-install-recommends --fix-missing python3 build-essential ca-certificates openssl \
  && rm -rf /var/lib/apt/lists/*
 
-# Install JS dependencies using Corepack/Yarn with caching
-COPY package.json yarn.lock ./
-COPY packages ./packages
-COPY tsconfig.json ./
-COPY next.config.ts ./next.config.ts
-COPY components.json ./components.json
-RUN corepack enable \
- && yarn install --frozen-lockfile --production=false
+# Enable Corepack for Yarn
+RUN corepack enable
 
-# Copy the rest of the workspace
-COPY . .
+# Copy workspace configuration files
+COPY package.json yarn.lock .yarnrc.yml turbo.json ./
+COPY tsconfig.base.json tsconfig.json ./
 
-# Build Next.js + internal packages for production usage
-RUN yarn build
+# Copy all packages and apps (including package.json files for dependency installation)
+COPY packages/ ./packages/
+COPY apps/ ./apps/
+COPY scripts/ ./scripts/
 
-FROM node:20-bookworm-slim AS runner
+# Install all dependencies (including devDependencies for build)
+# Note: Using plain install because peer dependency warnings cause lockfile changes
+RUN yarn install
+
+# Copy other necessary files
+COPY newrelic.js ./
+COPY jest.config.cjs jest.setup.ts jest.dom.setup.ts ./
+COPY eslint.config.mjs ./
+
+# Build packages first
+RUN yarn build:packages
+
+# Generate module registry files (required before building the app)
+RUN yarn generate
+
+# Build the app
+RUN yarn build:app
+
+# Production stage
+FROM node:24-bookworm-slim AS runner
 
 ENV NODE_ENV=production \
     NEXT_TELEMETRY_DISABLED=1 \
@@ -33,10 +50,42 @@ ENV NODE_ENV=production \
 
 WORKDIR /app
 
+# Install only production system dependencies
+RUN rm -rf /var/lib/apt/lists/* \
+ && apt-get update \
+ && apt-get install -y --no-install-recommends --fix-missing ca-certificates openssl \
+ && rm -rf /var/lib/apt/lists/*
+
+# Enable Corepack for Yarn
 RUN corepack enable
 
-# Copy built artifacts and workspace
-COPY --from=builder /app /app
+# Copy workspace configuration for production install
+COPY package.json yarn.lock .yarnrc.yml turbo.json ./
+COPY tsconfig.base.json tsconfig.json ./
+COPY --from=builder /app/.yarn ./.yarn
+
+# Copy all packages and app metadata for dependency resolution
+COPY --from=builder /app/packages/ ./packages/
+COPY --from=builder /app/apps/mercato/package.json ./apps/mercato/
+
+# Install only production dependencies
+RUN yarn workspaces focus @open-mercato/app --production
+
+# Copy built Next.js application
+COPY --from=builder /app/apps/mercato/.next ./apps/mercato/.next
+COPY --from=builder /app/apps/mercato/public ./apps/mercato/public
+COPY --from=builder /app/apps/mercato/next.config.ts ./apps/mercato/
+COPY --from=builder /app/apps/mercato/components.json ./apps/mercato/
+COPY --from=builder /app/apps/mercato/tsconfig.json ./apps/mercato/
+COPY --from=builder /app/apps/mercato/postcss.config.mjs ./apps/mercato/
+
+# Copy generated files and other runtime necessities
+COPY --from=builder /app/apps/mercato/.mercato ./apps/mercato/.mercato
+COPY --from=builder /app/apps/mercato/src ./apps/mercato/src
+COPY --from=builder /app/apps/mercato/types ./apps/mercato/types
+
+# Copy runtime configuration files
+COPY --from=builder /app/newrelic.js ./
 
 # Drop root privileges
 RUN useradd --create-home --uid 1001 omuser \
@@ -46,4 +95,6 @@ USER omuser
 
 EXPOSE 3000
 
+# Run the app directly instead of using turbo (which is a devDependency)
+WORKDIR /app/apps/mercato
 CMD ["yarn", "start"]

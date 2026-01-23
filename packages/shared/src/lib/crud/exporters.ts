@@ -41,6 +41,7 @@ function escapeCsv(value: string): string {
 
 function escapeMarkdown(value: string): string {
   const escaped = value
+    .replace(/\\/g, '\\\\')
     .replace(/\|/g, '\\|')
     .replace(/\r?\n/g, '<br />')
   return escaped || ' '
