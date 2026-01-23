@@ -1,4 +1,6 @@
 import { z } from 'zod'
+import { validateCron } from '../services/cronParser'
+import { validateInterval } from '../services/intervalParser'
 
 /**
  * Base schedule fields
@@ -64,6 +66,21 @@ export const scheduleCreateSchema = scheduleBaseSchema
       path: ['targetType'],
     }
   )
+  .refine(
+    (data) => {
+      if (data.scheduleType === 'cron') {
+        return validateCron(data.scheduleValue)
+      }
+      if (data.scheduleType === 'interval') {
+        return validateInterval(data.scheduleValue)
+      }
+      return false
+    },
+    {
+      message: 'Invalid schedule value. For cron: use valid cron expression (e.g., "0 0 * * *"). For interval: use <number><unit> format (e.g., "15m", "2h", "1d")',
+      path: ['scheduleValue'],
+    }
+  )
 
 /**
  * Update schedule schema (all fields optional except id)
@@ -82,6 +99,24 @@ export const scheduleUpdateSchema = z.object({
   
   isEnabled: z.boolean().optional(),
 })
+  .refine(
+    (data) => {
+      // If scheduleValue is provided, validate it based on scheduleType
+      if (data.scheduleValue && data.scheduleType) {
+        if (data.scheduleType === 'cron') {
+          return validateCron(data.scheduleValue)
+        }
+        if (data.scheduleType === 'interval') {
+          return validateInterval(data.scheduleValue)
+        }
+      }
+      return true
+    },
+    {
+      message: 'Invalid schedule value. For cron: use valid cron expression (e.g., "0 0 * * *"). For interval: use <number><unit> format (e.g., "15m", "2h", "1d")',
+      path: ['scheduleValue'],
+    }
+  )
 
 /**
  * Delete schedule schema

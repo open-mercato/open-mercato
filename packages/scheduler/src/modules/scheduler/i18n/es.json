@@ -1,0 +1,99 @@
+{
+  "scheduler": {
+    "module": {
+      "title": "Tareas programadas",
+      "description": "Administre tareas programadas automáticas con expresiones cron o intervalos simples."
+    },
+    "title": "Tareas programadas",
+    "loading": "Cargando programación...",
+    "search": {
+      "placeholder": "Buscar programaciones..."
+    },
+    "field": {
+      "name": "Nombre",
+      "description": "Descripción",
+      "schedule_type": "Tipo",
+      "schedule": "Programación",
+      "schedule_value": "Valor de programación",
+      "target": "Objetivo",
+      "next_run": "Próxima ejecución",
+      "status": "Estado",
+      "active": "Activo",
+      "source": "Fuente",
+      "timezone": "Zona horaria"
+    },
+    "scope": {
+      "system": "Sistema",
+      "organization": "Organización",
+      "tenant": "Inquilino"
+    },
+    "type": {
+      "cron": "Expresión Cron",
+      "interval": "Intervalo simple"
+    },
+    "target": {
+      "queue": "Cola",
+      "command": "Comando"
+    },
+    "status": {
+      "enabled": "Habilitado",
+      "disabled": "Deshabilitado"
+    },
+    "action": {
+      "create": "Nueva programación",
+      "view": "Ver",
+      "edit": "Editar",
+      "delete": "Eliminar",
+      "trigger": "Ejecutar ahora",
+      "refresh": "Actualizar"
+    },
+    "create": {
+      "title": "Crear programación"
+    },
+    "edit": {
+      "title": "Editar programación"
+    },
+    "form": {
+      "name": "Nombre",
+      "name.required": "El nombre es obligatorio",
+      "description": "Descripción",
+      "scope_type": "Ámbito",
+      "schedule_type": "Tipo de programación",
+      "schedule": "Programación",
+      "schedule.required": "La programación es obligatoria",
+      "schedule_value": "Valor de programación",
+      "schedule_value.placeholder": "ej. 0 */6 * * * o 15m",
+      "schedule_value.description": "Para cron: use expresión cron (ej. \"0 0 * * *\"). Para intervalo: use formato como \"15m\", \"2h\", \"1d\" (s=segundos, m=minutos, h=horas, d=días)",
+      "timezone": "Zona horaria",
+      "target_type": "Tipo de objetivo",
+      "target_queue": "Cola de destino",
+      "target_queue.placeholder": "ej. email-sender",
+      "target_command": "Comando de destino",
+      "target_command.placeholder": "ej. sync:data",
+      "is_enabled": "Habilitado",
+      "submit": "Crear programación",
+      "save": "Guardar cambios"
+    },
+    "confirm": {
+      "delete": "¿Está seguro de que desea eliminar esta programación?"
+    },
+    "success": {
+      "created": "Programación creada con éxito",
+      "updated": "Programación actualizada con éxito",
+      "deleted": "Programación eliminada con éxito",
+      "triggered": "Programación ejecutada con éxito"
+    },
+    "error": {
+      "fetch_failed": "Error al cargar las programaciones",
+      "load_failed": "Error al cargar la programación",
+      "not_found": "Programación no encontrada",
+      "delete_failed": "Error al eliminar la programación",
+      "trigger_failed": "Error al ejecutar la programación"
+    },
+    "audit": {
+      "create": "Crear programación",
+      "update": "Actualizar programación",
+      "delete": "Eliminar programación"
+    }
+  }
+}

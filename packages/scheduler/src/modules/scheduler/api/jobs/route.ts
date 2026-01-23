@@ -91,8 +91,31 @@ const crud = makeCrudRoute({
     create: {
       commandId: 'scheduler.jobs.create',
       schema: rawBodySchema,
-      mapInput: async ({ raw }) => {
-        const parsed = scheduleCreateSchema.parse(raw)
+      mapInput: async ({ raw, ctx }) => {
+        // Auto-populate organizationId and tenantId based on scopeType
+        const scopeType = raw.scopeType
+        let organizationId = raw.organizationId
+        let tenantId = raw.tenantId
+        
+        if (scopeType === 'system') {
+          // System scope: no org/tenant
+          organizationId = null
+          tenantId = null
+        } else if (scopeType === 'organization') {
+          // Organization scope: use auth context (orgId and tenantId)
+          organizationId = ctx.auth?.orgId ?? null
+          tenantId = ctx.auth?.tenantId ?? null
+        } else if (scopeType === 'tenant') {
+          // Tenant scope: use auth context tenantId only
+          organizationId = null
+          tenantId = ctx.auth?.tenantId ?? null
+        }
+        
+        const parsed = scheduleCreateSchema.parse({
+          ...raw,
+          organizationId,
+          tenantId,
+        })
         return parsed
       },
       response: ({ result }) => ({

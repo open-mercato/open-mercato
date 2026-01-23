@@ -1,0 +1,99 @@
+{
+  "scheduler": {
+    "module": {
+      "title": "Geplante Aufgaben",
+      "description": "Verwalten Sie automatisierte geplante Aufgaben mit Cron-Ausdrücken oder einfachen Intervallen."
+    },
+    "title": "Geplante Aufgaben",
+    "loading": "Zeitplan wird geladen...",
+    "search": {
+      "placeholder": "Zeitpläne durchsuchen..."
+    },
+    "field": {
+      "name": "Name",
+      "description": "Beschreibung",
+      "schedule_type": "Typ",
+      "schedule": "Zeitplan",
+      "schedule_value": "Zeitplanwert",
+      "target": "Ziel",
+      "next_run": "Nächste Ausführung",
+      "status": "Status",
+      "active": "Aktiv",
+      "source": "Quelle",
+      "timezone": "Zeitzone"
+    },
+    "scope": {
+      "system": "System",
+      "organization": "Organisation",
+      "tenant": "Mandant"
+    },
+    "type": {
+      "cron": "Cron-Ausdruck",
+      "interval": "Einfaches Intervall"
+    },
+    "target": {
+      "queue": "Warteschlange",
+      "command": "Befehl"
+    },
+    "status": {
+      "enabled": "Aktiviert",
+      "disabled": "Deaktiviert"
+    },
+    "action": {
+      "create": "Neuer Zeitplan",
+      "view": "Anzeigen",
+      "edit": "Bearbeiten",
+      "delete": "Löschen",
+      "trigger": "Jetzt ausführen",
+      "refresh": "Aktualisieren"
+    },
+    "create": {
+      "title": "Zeitplan erstellen"
+    },
+    "edit": {
+      "title": "Zeitplan bearbeiten"
+    },
+    "form": {
+      "name": "Name",
+      "name.required": "Name ist erforderlich",
+      "description": "Beschreibung",
+      "scope_type": "Bereich",
+      "schedule_type": "Zeitplantyp",
+      "schedule": "Zeitplan",
+      "schedule.required": "Zeitplan ist erforderlich",
+      "schedule_value": "Zeitplanwert",
+      "schedule_value.placeholder": "z.B. 0 */6 * * * oder 15m",
+      "schedule_value.description": "Für Cron: verwenden Sie Cron-Ausdruck (z.B. \"0 0 * * *\"). Für Intervall: verwenden Sie Format wie \"15m\", \"2h\", \"1d\" (s=Sekunden, m=Minuten, h=Stunden, d=Tage)",
+      "timezone": "Zeitzone",
+      "target_type": "Zieltyp",
+      "target_queue": "Zielwarteschlange",
+      "target_queue.placeholder": "z.B. email-sender",
+      "target_command": "Zielbefehl",
+      "target_command.placeholder": "z.B. sync:data",
+      "is_enabled": "Aktiviert",
+      "submit": "Zeitplan erstellen",
+      "save": "Änderungen speichern"
+    },
+    "confirm": {
+      "delete": "Sind Sie sicher, dass Sie diesen Zeitplan löschen möchten?"
+    },
+    "success": {
+      "created": "Zeitplan erfolgreich erstellt",
+      "updated": "Zeitplan erfolgreich aktualisiert",
+      "deleted": "Zeitplan erfolgreich gelöscht",
+      "triggered": "Zeitplan erfolgreich ausgeführt"
+    },
+    "error": {
+      "fetch_failed": "Fehler beim Laden der Zeitpläne",
+      "load_failed": "Fehler beim Laden des Zeitplans",
+      "not_found": "Zeitplan nicht gefunden",
+      "delete_failed": "Fehler beim Löschen des Zeitplans",
+      "trigger_failed": "Fehler beim Ausführen des Zeitplans"
+    },
+    "audit": {
+      "create": "Zeitplan erstellen",
+      "update": "Zeitplan aktualisieren",
+      "delete": "Zeitplan löschen"
+    }
+  }
+}

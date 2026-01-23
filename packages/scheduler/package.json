@@ -17,16 +17,45 @@
     },
     "./*": {
       "types": [
-        "./src/*.ts"
+        "./src/*.ts",
+        "./src/*.tsx"
       ],
       "default": "./dist/*.js"
     },
+    "./*.json": "./src/*.json",
     "./*/*": {
       "types": [
-        "./src/*/*.ts"
+        "./src/*/*.ts",
+        "./src/*/*.tsx"
       ],
       "default": "./dist/*/*.js"
-    }
+    },
+    "./*/*.json": "./src/*/*.json",
+    "./*/*/*": {
+      "types": [
+        "./src/*/*/*.ts",
+        "./src/*/*/*.tsx"
+      ],
+      "default": "./dist/*/*/*.js"
+    },
+    "./*/*/*.json": "./src/*/*/*.json",
+    "./*/*/*/*": {
+      "types": [
+        "./src/*/*/*/*.ts",
+        "./src/*/*/*/*.tsx"
+      ],
+      "default": "./dist/*/*/*/*.js"
+    },
+    "./*/*/*/*.json": "./src/*/*/*/*.json",
+    "./*/*/*/*/*": {
+      "types": [
+        "./src/*/*/*/*/*.ts",
+        "./src/*/*/*/*/*.tsx"
+      ],
+      "default": "./dist/*/*/*/*/*.js"
+    },
+    "./*/*/*/*/*.json": "./src/*/*/*/*/*.json",
+    "./*/*/*/*/*/*.json": "./src/*/*/*/*/*/*.json"
   },
   "dependencies": {
     "@open-mercato/events": "workspace:*",

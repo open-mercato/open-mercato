@@ -108,23 +108,23 @@ const createScheduleCommand: CommandHandler<ScheduleCreateInput, { id: string }>
     // Create schedule
     const schedule = em.create(ScheduledJob, {
       name: input.name,
-      description: input.description || null,
+      description: input.description ? input.description : null,
       scopeType: input.scopeType,
-      organizationId: input.organizationId || null,
-      tenantId: input.tenantId || null,
+      organizationId: input.organizationId ? input.organizationId : null,
+      tenantId: input.tenantId ? input.tenantId : null,
       scheduleType: input.scheduleType,
       scheduleValue: input.scheduleValue,
-      timezone: input.timezone || 'UTC',
+      timezone: input.timezone ? input.timezone : 'UTC',
       targetType: input.targetType,
-      targetQueue: input.targetQueue || null,
-      targetCommand: input.targetCommand || null,
+      targetQueue: input.targetQueue ? input.targetQueue : null,
+      targetCommand: input.targetCommand ? input.targetCommand : null,
       targetPayload: input.targetPayload ?? null,
-      requireFeature: input.requireFeature || null,
+      requireFeature: input.requireFeature ? input.requireFeature : null,
       isEnabled: input.isEnabled !== undefined ? input.isEnabled : true,
-      sourceType: input.sourceType || 'user',
-      sourceModule: input.sourceModule || null,
+      sourceType: input.sourceType ? input.sourceType : 'user',
+      sourceModule: input.sourceModule ? input.sourceModule : null,
       nextRunAt,
-      createdByUserId: ctx.auth?.userId || null,
+      createdByUserId: (ctx.auth?.userId as string | undefined) ?? null,
       createdAt: new Date(),
       updatedAt: new Date(),
     })
@@ -215,7 +215,7 @@ const updateScheduleCommand: CommandHandler<ScheduleUpdateInput, { ok: boolean }
     }
 
     schedule.updatedAt = new Date()
-    schedule.updatedByUserId = ctx.auth?.userId || null
+    schedule.updatedByUserId = (ctx.auth?.userId as string | undefined) ?? null
 
     await em.flush()
 
@@ -297,7 +297,7 @@ const deleteScheduleCommand: CommandHandler<{ id: string }, { ok: boolean }> = {
     // Soft delete
     schedule.deletedAt = new Date()
     schedule.updatedAt = new Date()
-    schedule.updatedByUserId = ctx.auth?.userId || null
+    schedule.updatedByUserId = (ctx.auth?.userId as string | undefined) ?? null
 
     await em.flush()
 
