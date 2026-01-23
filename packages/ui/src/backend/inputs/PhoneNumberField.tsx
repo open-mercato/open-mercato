@@ -30,11 +30,6 @@ const digitsOnly = (value: string): string => {
   return matches ? matches.join('') : ''
 }
 
-const formatPhoneNumber = (digits: string): string => {
-  if (!digits) return ''
-  return `+${digits}`
-}
-
 export function PhoneNumberField({
   value,
   onValueChange,
@@ -48,23 +43,19 @@ export function PhoneNumberField({
   duplicateLinkLabel,
   onDuplicateLookup,
 }: PhoneNumberFieldProps) {
-  const [local, setLocal] = React.useState<string>(() => {
-    if (!value) return ''
-    return formatPhoneNumber(digitsOnly(String(value)))
-  })
+  const [local, setLocal] = React.useState<string>(() => (value == null ? '' : String(value)))
   const [duplicate, setDuplicate] = React.useState<PhoneDuplicateMatch | null>(null)
   const [checking, setChecking] = React.useState(false)
 
   React.useEffect(() => {
-    if (!value) {
+    if (value == null || value === '') {
       setLocal('')
       onDigitsChange?.(null)
       return
     }
-    const normalizedDigits = digitsOnly(String(value))
-    const formatted = formatPhoneNumber(normalizedDigits)
-    setLocal(formatted)
-    onDigitsChange?.(normalizedDigits || null)
+    const nextValue = String(value)
+    setLocal(nextValue)
+    onDigitsChange?.(digitsOnly(nextValue) || null)
   }, [value, onDigitsChange])
 
   React.useEffect(() => {
@@ -103,16 +94,9 @@ export function PhoneNumberField({
     (event: React.ChangeEvent<HTMLInputElement>) => {
       const next = event.target.value
       const cleanDigits = digitsOnly(next)
-      if (!cleanDigits) {
-        setLocal('')
-        onValueChange(undefined)
-        onDigitsChange?.(null)
-        return
-      }
-      const formatted = formatPhoneNumber(cleanDigits)
-      setLocal(formatted)
-      onValueChange(formatted)
-      onDigitsChange?.(cleanDigits)
+      setLocal(next)
+      onValueChange(next.length ? next : undefined)
+      onDigitsChange?.(cleanDigits.length ? cleanDigits : null)
     },
     [onValueChange, onDigitsChange]
   )

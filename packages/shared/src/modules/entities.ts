@@ -25,6 +25,7 @@ export type CustomFieldKind =
   | 'float'
   | 'boolean'
   | 'select'
+  | 'currency'
   | 'relation'
   | 'attachment'
   | 'dictionary'

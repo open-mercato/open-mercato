@@ -1,6 +1,14 @@
 jest.mock('@open-mercato/ui/backend/CrudForm', () => ({
   CrudForm: () => null,
 }))
+jest.mock('react-markdown', () => ({
+  __esModule: true,
+  default: () => null,
+}))
+jest.mock('remark-gfm', () => ({
+  __esModule: true,
+  default: () => undefined,
+}))
 
 import { z } from 'zod'
 import { buildDealValidationError } from '../DealForm'

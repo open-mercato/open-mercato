@@ -145,13 +145,13 @@ export default function WorkflowInstancesListPage() {
       case 'FAILED':
         return 'bg-red-100 text-red-800'
       case 'CANCELLED':
-        return 'bg-gray-100 text-gray-800'
+        return 'bg-muted text-foreground'
       case 'COMPENSATING':
         return 'bg-orange-100 text-orange-800'
       case 'COMPENSATED':
         return 'bg-purple-100 text-purple-800'
       default:
-        return 'bg-gray-100 text-gray-600'
+        return 'bg-muted text-muted-foreground'
     }
   }
 
@@ -206,7 +206,7 @@ export default function WorkflowInstancesListPage() {
         <div>
           <div className="font-mono text-sm font-medium">{row.original.workflowId}</div>
           {row.original.correlationKey && (
-            <div className="text-xs text-gray-500">
+            <div className="text-xs text-muted-foreground">
               {t('workflows.instances.fields.correlationKey')}: {row.original.correlationKey}
             </div>
           )}
@@ -228,7 +228,7 @@ export default function WorkflowInstancesListPage() {
       header: t('workflows.instances.fields.currentStep'),
       accessorKey: 'currentStepId',
       cell: ({ row }) => (
-        <span className="text-sm text-gray-700">{row.original.currentStepId}</span>
+        <span className="text-sm text-muted-foreground">{row.original.currentStepId}</span>
       ),
     },
     {
@@ -244,8 +244,8 @@ export default function WorkflowInstancesListPage() {
 
         return (
           <div className="text-sm">
-            <div className="text-gray-700">{started.toLocaleString()}</div>
-            <div className="text-xs text-gray-500">
+            <div className="text-foreground">{started.toLocaleString()}</div>
+            <div className="text-xs text-muted-foreground">
               {completed ? t('workflows.instances.duration') : t('workflows.instances.elapsed')}: {durationText}
             </div>
           </div>
@@ -257,7 +257,7 @@ export default function WorkflowInstancesListPage() {
       header: t('workflows.instances.fields.retryCount'),
       accessorKey: 'retryCount',
       cell: ({ row }) => (
-        <span className={`text-sm ${row.original.retryCount > 0 ? 'text-orange-600 font-medium' : 'text-gray-500'}`}>
+        <span className={`text-sm ${row.original.retryCount > 0 ? 'text-orange-600 font-medium' : 'text-muted-foreground'}`}>
           {row.original.retryCount}
         </span>
       ),

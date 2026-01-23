@@ -3,6 +3,7 @@ import { z } from 'zod'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/directory/utils/organizationScope'
+import { serializeOperationMetadata } from '@open-mercato/shared/lib/commands/operationMetadata'
 import type { CommandBus, CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
@@ -60,13 +61,34 @@ export async function POST(req: Request) {
     const scoped = withScopedPayload(payload ?? {}, ctx, translate)
     const input = convertSchema.parse(scoped)
     const commandBus = ctx.container.resolve('commandBus') as CommandBus
-    const response = await commandBus.execute('sales.quotes.convert_to_order', { input, ctx })
-    const orderId =
-      (response as { result?: { orderId?: string | null } }).result?.orderId ??
-      input.orderId ??
-      input.quoteId
+    const { result, logEntry } = await commandBus.execute<
+      { quoteId: string; orderId?: string; orderNumber?: string },
+      { orderId: string }
+    >('sales.quotes.convert_to_order', { input, ctx })
 
-    return NextResponse.json({ orderId })
+    const orderId = result?.orderId ?? input.orderId ?? input.quoteId
+    const jsonResponse = NextResponse.json({ orderId })
+
+    if (logEntry?.undoToken && logEntry?.id && logEntry?.commandId) {
+      jsonResponse.headers.set(
+        'x-om-operation',
+        serializeOperationMetadata({
+          id: logEntry.id,
+          undoToken: logEntry.undoToken,
+          commandId: logEntry.commandId,
+          actionLabel: logEntry.actionLabel ?? null,
+          resourceKind: logEntry.resourceKind ?? 'sales.order',
+          resourceId: logEntry.resourceId ?? orderId,
+          executedAt: logEntry.createdAt instanceof Date
+            ? logEntry.createdAt.toISOString()
+            : typeof logEntry.createdAt === 'string'
+              ? logEntry.createdAt
+              : new Date().toISOString(),
+        })
+      )
+    }
+
+    return jsonResponse
   } catch (err) {
     if (err instanceof CrudHttpError) {
       return NextResponse.json(err.body, { status: err.status })

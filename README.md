@@ -175,7 +175,6 @@ yarn install
 cp apps/mercato/.env.example apps/mercato/.env # EDIT this file to set up your specific files
 #At minimum, set `DATABASE_URL`, `JWT_SECRET`, and `REDIS_URL` (or `EVENTS_REDIS_URL`) before bootstrapping.
 
-yarn build:packages
 yarn generate
 yarn initialize # or yarn reinstall
 yarn dev
@@ -209,6 +208,55 @@ ADMIN_EMAIL=ops@your-domain.com
 
 Full installation guide (including prerequisites and cloud deployment): [docs.openmercato.com/installation/setup](https://docs.openmercato.com/installation/setup)
 
+## Docker Deployment
+
+Run the complete Open Mercato stack (app + PostgreSQL + Redis + Meilisearch) with Docker Compose:
+
+```bash
+# Clone and configure
+git clone https://github.com/open-mercato/open-mercato.git
+cd open-mercato
+
+# Build and start all services
+docker compose -f docker-compose.fullapp.yml up --build
+```
+
+### Environment Variables
+
+Before starting, you may want to configure the following environment variables. Create a `.env` file in the project root or export them in your shell:
+
+| Variable | Required | Default | Description |
+|----------|----------|---------|-------------|
+| `JWT_SECRET` | ⚠️ For production | `JWT` | Secret key for JWT token signing. **Use a strong, unique value in production.** |
+| `POSTGRES_PASSWORD` | ⚠️ For production | `postgres` | PostgreSQL database password. **Use a strong password in production.** |
+| `POSTGRES_USER` | No | `postgres` | PostgreSQL database user |
+| `POSTGRES_DB` | No | `open-mercato` | PostgreSQL database name |
+| `POSTGRES_PORT` | No | `5432` | PostgreSQL exposed port |
+| `REDIS_PORT` | No | `6379` | Redis exposed port |
+| `MEILISEARCH_MASTER_KEY` | ⚠️ For production | `meilisearch-dev-key` | Meilisearch API key. **Use a strong key in production.** |
+| `MEILISEARCH_PORT` | No | `7700` | Meilisearch exposed port |
+| `OPENAI_API_KEY` | No | - | OpenAI API key (enables AI features) |
+| `ANTHROPIC_API_KEY` | No | - | Anthropic API key (for opencode service) |
+| `OPENCODE_PORT` | No | `4096` | Opencode service exposed port |
+
+Example `.env` file for production:
+```bash
+JWT_SECRET=your-strong-secret-key-here
+POSTGRES_PASSWORD=your-strong-db-password
+MEILISEARCH_MASTER_KEY=your-strong-meilisearch-key
+OPENAI_API_KEY=sk-...  # Optional, for AI features
+```
+
+Navigate to `http://localhost:3000/backend` and sign in with the default credentials (admin@example.com).
+
+**Common operations:**
+- Start: `docker compose -f docker-compose.fullapp.yml up -d`
+- Logs: `docker compose -f docker-compose.fullapp.yml logs -f app`
+- Stop: `docker compose -f docker-compose.fullapp.yml down`
+- Rebuild: `docker compose -f docker-compose.fullapp.yml up --build`
+
+For production deployments, ensure strong `JWT_SECRET`, secure database credentials, and consider managed database services. See the [full Docker deployment guide](https://docs.openmercato.com/installation/setup#docker-deployment-full-stack) for detailed configuration and production tips.
+
 ## Live demo
 
 [![Explore the Open Mercato live demo](docs/static/screenshots/open-mercato-onboarding-showoff.png)](https://demo.openmercato.com)
@@ -227,6 +275,26 @@ Browse the full documentation at [docs.openmercato.com](https://docs.openmercato
 - [API Reference](https://docs.openmercato.com/api/overview)
 - [CLI Reference](https://docs.openmercato.com/cli/overview)
 - [Appendix](https://docs.openmercato.com/appendix/troubleshooting)
+
+## Spec Driven Development
+
+Open Mercato follows a **spec-first development approach**. Before implementing new features or making significant changes, we document the design in the `.ai/specs/` folder.
+
+### Why Specs?
+
+- **Clarity**: Specs ensure everyone understands the feature before coding starts
+- **Consistency**: Design decisions are documented and can be referenced by humans and AI agents
+- **Traceability**: Each spec maintains a changelog tracking the evolution of the feature
+
+### How It Works
+
+1. **Before coding**: Check if a spec exists at `.ai/specs/<module-name>.md`
+2. **New features**: Create or update the spec with your design before implementation
+3. **After changes**: Update the spec's changelog with a dated summary
+
+Example specs: `notifications-module.md`, `messages-module.md`, `ui-reusable-components.md`
+
+See [`.ai/specs/AGENTS.md`](.ai/specs/AGENTS.md) for detailed guidelines on maintaining specs.
 
 ## Join us on Discord
 

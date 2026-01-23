@@ -15,7 +15,17 @@
         "stepId": "start",
         "stepName": "Start",
         "stepType": "START",
-        "description": "Checkout process initiated"
+        "description": "Checkout process initiated",
+        "preConditions": [
+          {
+            "ruleId": "workflow_checkout_cart_not_empty",
+            "required": true,
+            "validationMessage": {
+              "en": "Your shopping cart is empty. Please add items before starting checkout.",
+              "pl": "Twój koszyk jest pusty. Dodaj produkty przed rozpoczęciem zakupu."
+            }
+          }
+        ]
       },
       {
         "stepId": "cart_validation",

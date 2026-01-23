@@ -4,6 +4,7 @@ import { createPortal } from 'react-dom'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 
 export type RowActionItem = {
+  id?: string
   label: string
   onSelect?: () => void
   href?: string

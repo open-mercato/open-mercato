@@ -1,18 +1,18 @@
 {
   "name": "@open-mercato/core",
-  "version": "0.4.0",
-  "private": true,
+  "version": "0.4.1",
   "type": "module",
   "main": "./dist/index.js",
   "scripts": {
     "build": "node build.mjs",
+    "watch": "node watch.mjs",
     "test": "jest --config jest.config.cjs",
     "typecheck": "tsc --noEmit"
   },
   "imports": {
     "#generated/entities.ids.generated": {
       "types": "./generated/entities.ids.generated.ts",
-      "default": "./generated/entities.ids.generated.ts"
+      "default": "./dist/generated/entities.ids.generated.js"
     },
     "#generated/entity-fields-registry": {
       "types": "./src/generated-shims/entity-fields-registry.ts",
@@ -20,7 +20,7 @@
     },
     "#generated/entities/*": {
       "types": "./generated/entities/*/index.ts",
-      "default": "./generated/entities/*/index.ts"
+      "default": "./dist/generated/entities/*/index.js"
     }
   },
   "exports": {
@@ -208,6 +208,7 @@
   },
   "dependencies": {
     "@open-mercato/shared": "workspace:*",
+    "@xyflow/react": "^12.6.0",
     "date-fns": "^4.1.0",
     "date-fns-tz": "^3.2.0"
   },
@@ -219,5 +220,8 @@
     "jest": "^30.2.0",
     "jest-environment-jsdom": "^30.2.0",
     "ts-jest": "^29.4.6"
+  },
+  "publishConfig": {
+    "access": "public"
   }
 }

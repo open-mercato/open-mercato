@@ -57,7 +57,8 @@ export class CommandBus {
     const snapshots = await this.prepareSnapshots(handler, options)
     const result = await handler.execute(options.input, options.ctx)
     const afterSnapshot = await this.captureAfter(handler, options, result)
-    const logMeta = await this.buildLog(handler, options, result, snapshots)
+    const snapshotsWithAfter = { ...snapshots, after: afterSnapshot }
+    const logMeta = await this.buildLog(handler, options, result, snapshotsWithAfter)
     let mergedMeta = this.mergeMetadata(options.metadata, logMeta)
     const undoable = this.isUndoable(handler)
     if (undoable) {
@@ -134,7 +135,7 @@ export class CommandBus {
     handler: CommandHandler<TInput, TResult>,
     options: CommandExecutionOptions<TInput>,
     result: TResult,
-    snapshots: { before?: unknown }
+    snapshots: { before?: unknown; after?: unknown }
   ): Promise<CommandLogMetadata | null> {
     if (!handler.buildLog) return null
     const args: CommandLogBuilderArgs<TInput, TResult> = {

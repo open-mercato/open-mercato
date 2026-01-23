@@ -7,12 +7,23 @@ import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { DataTable } from '@open-mercato/ui/backend/DataTable'
 import type { ColumnDef } from '@tanstack/react-table'
 import { Button } from '@open-mercato/ui/primitives/button'
+import { Badge } from '@open-mercato/ui/primitives/badge'
 import { RowActions } from '@open-mercato/ui/backend/RowActions'
+import { ErrorMessage } from '@open-mercato/ui/backend/detail'
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@open-mercato/ui/primitives/dialog'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import type { FilterDef, FilterValues } from '@open-mercato/ui/backend/FilterBar'
+import {Trash2} from "lucide-react";
 
 type WorkflowDefinition = {
   id: string
@@ -54,6 +65,7 @@ export default function WorkflowDefinitionsListPage() {
   const router = useRouter()
   const queryClient = useQueryClient()
   const [filterValues, setFilterValues] = React.useState<FilterValues>({})
+  const [deleteTarget, setDeleteTarget] = React.useState<{ id: string; name: string } | null>(null)
 
   const { data, isLoading, error } = useQuery({
     queryKey: ['workflow-definitions', 'list', filterValues, page],
@@ -88,12 +100,14 @@ export default function WorkflowDefinitionsListPage() {
     },
   })
 
-  const handleDelete = async (id: string, workflowName: string) => {
-    if (!confirm(t('workflows.confirm.delete', { name: workflowName }))) {
-      return
-    }
+  const handleDelete = (id: string, workflowName: string) => {
+    setDeleteTarget({ id, name: workflowName })
+  }
 
-    const result = await apiCall(`/api/workflows/definitions/${id}`, {
+  const confirmDelete = async () => {
+    if (!deleteTarget) return
+
+    const result = await apiCall(`/api/workflows/definitions/${deleteTarget.id}`, {
       method: 'DELETE',
     })
 
@@ -103,6 +117,7 @@ export default function WorkflowDefinitionsListPage() {
     } else {
       flash(t('workflows.messages.deleteFailed'), 'error')
     }
+    setDeleteTarget(null)
   }
 
   const handleToggleEnabled = async (id: string, currentEnabled: boolean) => {
@@ -200,9 +215,9 @@ export default function WorkflowDefinitionsListPage() {
       header: t('workflows.fields.version'),
       accessorKey: 'version',
       cell: ({ row }) => (
-        <span className="inline-flex items-center px-2 py-1 rounded text-xs font-mono bg-gray-100 text-gray-800">
+        <Badge variant="secondary" className="font-mono">
           v{row.original.version}
-        </span>
+        </Badge>
       ),
     },
     {
@@ -232,14 +247,12 @@ export default function WorkflowDefinitionsListPage() {
         return (
           <div className="flex flex-wrap gap-1">
             {tags.slice(0, 2).map((tag, idx) => (
-              <span key={idx} className="inline-flex items-center px-1.5 py-0.5 rounded text-xs bg-blue-100 text-blue-800">
+              <Badge key={idx} variant="secondary">
                 {tag}
-              </span>
+              </Badge>
             ))}
             {tags.length > 2 && (
-              <span className="inline-flex items-center px-1.5 py-0.5 rounded text-xs bg-gray-100 text-gray-600">
-                +{tags.length - 2}
-              </span>
+              <Badge variant="outline">+{tags.length - 2}</Badge>
             )}
           </div>
         )
@@ -291,12 +304,15 @@ export default function WorkflowDefinitionsListPage() {
     return (
       <Page>
         <PageBody>
-          <div className="p-8 text-center">
-            <p className="text-red-600">{t('workflows.messages.loadFailed')}</p>
-            <Button onClick={() => queryClient.invalidateQueries({ queryKey: ['workflow-definitions'] })} className="mt-4">
-              {t('common.retry')}
-            </Button>
-          </div>
+          <ErrorMessage
+            label={t('workflows.messages.loadFailed')}
+            description={error.message}
+            action={(
+              <Button variant="outline" size="sm" onClick={() => queryClient.invalidateQueries({ queryKey: ['workflow-definitions'] })}>
+                {t('common.retry', 'Retry')}
+              </Button>
+            )}
+          />
         </PageBody>
       </Page>
     )
@@ -327,11 +343,31 @@ export default function WorkflowDefinitionsListPage() {
           filterValues={filterValues}
           onFiltersApply={handleFiltersApply}
           onFiltersClear={handleFiltersClear}
+          onRowClick={(row) => router.push(`/backend/definitions/visual-editor?id=${row.id}`)}
           perspective={{
             tableId: 'workflows.definitions.list',
           }}
           pagination={{ page, pageSize, total, totalPages, onPageChange: setPage }}
         />
+        <Dialog open={!!deleteTarget} onOpenChange={(open) => !open && setDeleteTarget(null)}>
+          <DialogContent className="sm:max-w-md">
+            <DialogHeader>
+              <DialogTitle>{t('workflows.confirm.deleteTitle')}</DialogTitle>
+              <DialogDescription>
+                {t('workflows.confirm.delete', { name: deleteTarget?.name ?? '' })}
+              </DialogDescription>
+            </DialogHeader>
+            <DialogFooter>
+              <Button variant="outline" onClick={() => setDeleteTarget(null)}>
+                {t('common.cancel')}
+              </Button>
+              <Button variant="destructive" onClick={confirmDelete}>
+                <Trash2/>
+                {t('common.delete')}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
       </PageBody>
     </Page>
   )

@@ -58,7 +58,7 @@ Widget availability is gated by existing RBAC rules:
 2. Export a `DashboardWidgetModule`, including `metadata.id` (must be globally unique), `title`, and `features`.
 3. Provide `hydrateSettings`/`dehydrateSettings` to keep the persisted JSON payload stable.
 4. If the widget performs network traffic, use the helpers from `@open-mercato/ui/backend/utils/apiCall` (e.g., `apiCall` or `readApiResultOrThrow`) so authentication headers are applied consistently.
-5. Run `npm run modules:prepare` so the registry picks up your new widget.
+5. Run `yarn generate` so the registry picks up your new widget.
 
 ### Best practices
 

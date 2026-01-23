@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { Button } from '@open-mercato/ui/primitives/button'
 import Link from 'next/link'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
@@ -62,6 +62,8 @@ export default function CheckoutDemoPage() {
   const [selectedCustomerId, setSelectedCustomerId] = useState<string>('')
   const [selectedCurrency, setSelectedCurrency] = useState<string>('USD')
   const [cart, setCart] = useState<CartItem[]>([])
+  const [validationErrors, setValidationErrors] = useState<Array<{ ruleId: string; message: string }>>([])
+  const [isValidating, setIsValidating] = useState(false)
 
   // Poll workflow instance for real-time status updates
   const { data: instanceData } = useQuery({
@@ -182,20 +184,6 @@ export default function CheckoutDemoPage() {
     },
   })
 
-  // Auto-populate cart with first 3 products when products load (for demo convenience)
-  useEffect(() => {
-    if (products.length > 0 && cart.length === 0) {
-      const initialCart: CartItem[] = products.slice(0, 3).map((product: any) => ({
-        id: product.id,
-        name: product.title || product.display_name || 'Untitled Product',
-        // Use resolved pricing from catalog pricing service (in USD)
-        price: product.pricing?.unit_price_gross || product.pricing?.unit_price_net || 99.99,
-        quantity: 1,
-      }))
-      setCart(initialCart)
-    }
-  }, [products, cart.length])
-
   // Exchange rates (USD base)
   const exchangeRates: Record<string, number> = {
     USD: 1,
@@ -303,6 +291,67 @@ export default function CheckoutDemoPage() {
     }
   }, [result?.status])
 
+  // Validate workflow pre-conditions before starting checkout
+  const validateBeforeCheckout = useCallback(async (): Promise<boolean> => {
+    // Don't validate if no customer selected yet
+    if (!selectedCustomerId) {
+      setValidationErrors([])
+      return false
+    }
+
+    setIsValidating(true)
+
+    try {
+      const response = await fetch('/api/workflows/instances/validate-start', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          workflowId: 'checkout_simple_v1',
+          context: {
+            cart: {
+              items: demoCart,
+              itemCount: demoCart.reduce((sum, item) => sum + item.quantity, 0),
+              subtotal: subtotal,
+              tax: tax,
+              shipping: shipping,
+              total: total,
+              currency: selectedCurrency,
+            },
+            customerId: selectedCustomerId,
+            currency: selectedCurrency,
+          },
+        }),
+      })
+
+      const data = await response.json()
+
+      if (!data.canStart) {
+        setValidationErrors(data.errors || [{ ruleId: '_UNKNOWN', message: 'Validation failed' }])
+        return false
+      }
+
+      setValidationErrors([])
+      return true
+    } catch (err) {
+      setValidationErrors([{ ruleId: '_ERROR', message: 'Failed to validate checkout pre-conditions' }])
+      return false
+    } finally {
+      setIsValidating(false)
+    }
+  }, [selectedCustomerId, demoCart, subtotal, tax, shipping, total, selectedCurrency])
+
+  // Auto-validate when customer is selected or cart changes
+  // Using JSON.stringify(cart) to detect actual cart content changes
+  const cartJson = JSON.stringify(cart)
+  useEffect(() => {
+    // Only validate if customer is selected and workflow hasn't started yet
+    if (!selectedCustomerId || result) {
+      return
+    }
+
+    validateBeforeCheckout()
+  }, [selectedCustomerId, cartJson, result]) // eslint-disable-line react-hooks/exhaustive-deps
+
   const handleCheckout = async () => {
     // Validate customer selection
     if (!selectedCustomerId) {
@@ -310,9 +359,9 @@ export default function CheckoutDemoPage() {
       return
     }
 
-    // Validate cart has items
-    if (cart.length === 0) {
-      setError('Please add at least one product to your cart')
+    // Validate pre-conditions before starting workflow
+    const canStart = await validateBeforeCheckout()
+    if (!canStart) {
       return
     }
 
@@ -1033,18 +1082,37 @@ export default function CheckoutDemoPage() {
                   </div>
                 </div>
 
+                {/* Validation Errors */}
+                {validationErrors.length > 0 && (
+                  <div className="bg-red-50 border border-red-200 rounded-lg p-4 mt-6">
+                    <h4 className="text-sm font-medium text-red-800 mb-2 flex items-center gap-2">
+                      <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                      </svg>
+                      Cannot start checkout
+                    </h4>
+                    <ul className="list-disc list-inside space-y-1">
+                      {validationErrors.map((err, idx) => (
+                        <li key={idx} className="text-sm text-red-700">
+                          {err.message}
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+
                 {/* Checkout Button */}
                 <Button
                   onClick={handleCheckout}
-                  disabled={loading || result !== null || !selectedCustomerId || customers.length === 0 || cart.length === 0}
+                  disabled={loading || isValidating || result !== null || !selectedCustomerId || customers.length === 0 || validationErrors.length > 0}
                   className="w-full mt-6"
                   size="lg"
                 >
-                  {loading ? 'Starting...' : result ? 'Workflow Started' : !selectedCustomerId ? 'Select Customer to Continue' : cart.length === 0 ? 'Add Products to Continue' : 'Start Checkout Workflow'}
+                  {isValidating ? 'Validating...' : loading ? 'Starting...' : result ? 'Workflow Started' : !selectedCustomerId ? 'Select Customer to Continue' : validationErrors.length > 0 ? 'Fix Validation Errors' : 'Start Checkout Workflow'}
                 </Button>
-                {(!selectedCustomerId || cart.length === 0) && customers.length > 0 && (
+                {!selectedCustomerId && customers.length > 0 && validationErrors.length === 0 && (
                   <p className="text-xs text-gray-500 text-center mt-2">
-                    {!selectedCustomerId ? 'Please select a customer to continue' : 'Please add products to your cart to continue'}
+                    Please select a customer to continue
                   </p>
                 )}
               </>
@@ -1792,6 +1860,7 @@ export default function CheckoutDemoPage() {
                   <li><strong>Complete Order Flow:</strong> Experience the full checkout journey from cart to confirmation with async payment processing</li>
                   <li><strong>User Task Integration:</strong> Form-based user input with workflow pause/resume on task completion</li>
                   <li><strong>Business Rules Integration:</strong> Guard rules validate transitions with detailed failure information</li>
+                  <li><strong>START Step Pre-conditions:</strong> Validate business rules before workflow can start (e.g., cart not empty) with localized error messages</li>
                 </ul>
                 <p className="mt-2">
                   <Link href="/backend/definitions" className="text-blue-800 hover:text-blue-900 underline">

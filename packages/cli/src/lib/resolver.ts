@@ -29,8 +29,9 @@ export interface PackageResolver {
 function pkgDirFor(rootDir: string, from?: string, isMonorepo = true): string {
   if (!isMonorepo) {
     // Production mode: look in node_modules
+    // Packages include source TypeScript files in src/modules
     const pkgName = from || '@open-mercato/core'
-    return path.join(rootDir, 'node_modules', pkgName, 'dist', 'modules')
+    return path.join(rootDir, 'node_modules', pkgName, 'src', 'modules')
   }
 
   // Monorepo mode
@@ -151,7 +152,8 @@ function discoverPackagesInNodeModules(rootDir: string): PackageInfo[] {
 
     try {
       const pkgJson = JSON.parse(fs.readFileSync(pkgJsonPath, 'utf8'))
-      const modulesPath = path.join(pkgPath, 'dist', 'modules')
+      // Packages include source TypeScript files in src/modules
+      const modulesPath = path.join(pkgPath, 'src', 'modules')
 
       if (fs.existsSync(modulesPath)) {
         packages.push({

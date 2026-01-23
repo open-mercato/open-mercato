@@ -104,6 +104,10 @@ export function sanitizeOpenApiDocument<T extends Record<string, any>>(doc: T): 
       }
       return cloneContainer(value, hint)
     }
+    // Convert BigInt to string for JSON serialization
+    if (typeof value === 'bigint') {
+      return value.toString()
+    }
     return value as JsonValue
   }
 
@@ -111,7 +115,13 @@ export function sanitizeOpenApiDocument<T extends Record<string, any>>(doc: T): 
     if (Array.isArray(value)) {
       return value.map((entry, idx) => traverse(entry, `${hint}_${idx}`))
     }
-    if (!isPlainObject(value)) return value
+    if (!isPlainObject(value)) {
+      // Convert BigInt to string for JSON serialization
+      if (typeof value === 'bigint') {
+        return value.toString()
+      }
+      return value
+    }
     const result: Record<string, unknown> = { ...value }
     for (const [key, child] of Object.entries(result)) {
       if (key === 'schema' && child && typeof child === 'object') {

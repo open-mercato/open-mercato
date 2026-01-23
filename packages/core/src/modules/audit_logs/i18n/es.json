@@ -1,4 +1,5 @@
 {
+  "audit_logs.nav.title": "Registros de auditoría",
   "audit_logs.actions.title": "Registro de acciones",
   "audit_logs.actions.columns.action": "Acción",
   "audit_logs.actions.columns.resource": "Recurso",

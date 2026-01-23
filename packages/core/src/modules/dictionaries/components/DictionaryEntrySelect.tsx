@@ -72,6 +72,7 @@ export type DictionaryEntrySelectProps = {
   appearanceLabels?: AppearanceSelectorLabels
   disabled?: boolean
   showLabelInput?: boolean
+  showManage?: boolean
 }
 
 export function DictionaryEntrySelect({
@@ -87,6 +88,7 @@ export function DictionaryEntrySelect({
   appearanceLabels,
   disabled: disabledProp = false,
   showLabelInput = true,
+  showManage = true,
 }: DictionaryEntrySelectProps) {
   const [options, setOptions] = React.useState<DictionaryOption[]>([])
   const [loading, setLoading] = React.useState(true)
@@ -313,12 +315,14 @@ export function DictionaryEntrySelect({
               </DialogContent>
             </Dialog>
           ) : null}
-          <Button asChild variant="ghost" size="icon" title={labels.manageTitle} aria-label={labels.manageTitle}>
-            <Link href={manageLink}>
-              <Settings className="h-4 w-4" />
-              <span className="sr-only">{labels.manageTitle}</span>
-            </Link>
-          </Button>
+          {showManage ? (
+            <Button asChild variant="ghost" size="icon" title={labels.manageTitle} aria-label={labels.manageTitle}>
+              <Link href={manageLink}>
+                <Settings className="h-4 w-4" />
+                <span className="sr-only">{labels.manageTitle}</span>
+              </Link>
+            </Button>
+          ) : null}
         </div>
       </div>
       {activeOption && (activeOption.icon || activeOption.color) ? (

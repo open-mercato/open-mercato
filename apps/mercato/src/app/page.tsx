@@ -4,7 +4,7 @@ import { cookies } from 'next/headers'
 import Image from 'next/image'
 import Link from 'next/link'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
-import { createRequestContainer } from '@/lib/di/container'
+import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { EntityManager } from '@mikro-orm/postgresql'
 
 function FeatureBadge({ label }: { label: string }) {
@@ -53,7 +53,6 @@ export default async function Home() {
           alt={t('app.page.logoAlt', 'Open Mercato')}
           width={40}
           height={40}
-          className="dark:invert"
           priority
         />
         <div className="flex-1">

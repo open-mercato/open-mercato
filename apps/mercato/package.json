@@ -1,6 +1,6 @@
 {
   "name": "@open-mercato/app",
-  "version": "0.4.0",
+  "version": "0.4.1",
   "private": true,
   "scripts": {
     "dev": "mercato server dev",
@@ -21,6 +21,7 @@
     "@mikro-orm/core": "^6.6.2",
     "@mikro-orm/migrations": "^6.6.2",
     "@mikro-orm/postgresql": "^6.6.2",
+    "@open-mercato/ai-assistant": "workspace:*",
     "@open-mercato/cache": "workspace:*",
     "@open-mercato/cli": "workspace:*",
     "@open-mercato/content": "workspace:*",

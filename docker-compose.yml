@@ -1,4 +1,28 @@
 services:
+  opencode:
+    build:
+      context: ./docker/opencode
+    image: opencode-mvp
+    container_name: mercato-opencode
+    restart: unless-stopped
+    environment:
+      # Provider selection (anthropic, openai, google)
+      OPENCODE_PROVIDER: ${OPENCODE_PROVIDER:-anthropic}
+      OPENCODE_MODEL: ${OPENCODE_MODEL:-}
+      # Provider API keys (set the one matching OPENCODE_PROVIDER)
+      ANTHROPIC_API_KEY: ${OPENCODE_ANTHROPIC_API_KEY:-}
+      OPENAI_API_KEY: ${OPENCODE_OPENAI_API_KEY:-}
+      GOOGLE_API_KEY: ${OPENCODE_GOOGLE_API_KEY:-}
+      # MCP configuration
+      OPENCODE_MCP_URL: ${OPENCODE_MCP_URL:-http://host.docker.internal:3001/mcp}
+      MCP_SERVER_API_KEY: ${MCP_SERVER_API_KEY:-}
+    ports:
+      - "${OPENCODE_PORT:-4096}:4096"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    networks:
+      - mercato-network
+
   postgres:
     image: pgvector/pgvector:pg17-trixie
     container_name: mercato-postgres
@@ -54,6 +78,27 @@ services:
     networks:
       - mercato-network
 
+  verdaccio:
+    image: verdaccio/verdaccio:6
+    container_name: mercato-verdaccio
+    restart: unless-stopped
+    environment:
+      VERDACCIO_PORT: 4873
+      VERDACCIO_PUBLIC_URL: http://localhost:4873
+    ports:
+      - "${VERDACCIO_PORT:-4873}:4873"
+    volumes:
+      - verdaccio_storage:/verdaccio/storage
+      - verdaccio_plugins:/verdaccio/plugins
+      - ./config/verdaccio/config.yaml:/verdaccio/conf/config.yaml:ro
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:4873/-/ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - mercato-network
+
 volumes:
   postgres_data:
     name: mercato-postgres-data
@@ -61,6 +106,10 @@ volumes:
     name: mercato-redis-data
   meilisearch_data:
     name: mercato-meilisearch-data
+  verdaccio_storage:
+    name: mercato-verdaccio-storage
+  verdaccio_plugins:
+    name: mercato-verdaccio-plugins
 
 networks:
   mercato-network:

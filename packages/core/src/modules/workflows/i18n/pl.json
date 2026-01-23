@@ -1,23 +1,20 @@
 {
   "workflows": {
     "module": {
-      "name": "Silnik Przepływów Pracy",
+      "name": "Silnik procesów biznesowych",
       "description": "Orkiestracja procesów biznesowych"
     },
     "features": {
-      "view": "Przeglądaj Przepływy Pracy",
-      "create": "Twórz Przepływy Pracy",
-      "edit": "Edytuj Przepływy Pracy",
-      "delete": "Usuń Przepływy Pracy",
-      "execute": "Wykonaj Przepływy Pracy",
+      "view": "Przeglądaj procesy biznesowe",
+      "create": "Twórz procesy biznesowe",
+      "edit": "Edytuj procesy biznesowe",
+      "delete": "Usuń  biznesowe",
+      "execute": "Wykonaj proces biznesowy",
       "view_instances": "Przeglądaj Instancje Przepływów",
       "manage_instances": "Zarządzaj Instancjami Przepływów",
       "view_tasks": "Przeglądaj Zadania Użytkownika",
       "complete_tasks": "Ukończ Zadania Użytkownika",
       "view_logs": "Przeglądaj Logi Przepływów"
-    },
-    "nav": {
-      "graphTest": "Test Grafu"
     },
     "backend": {
       "definitions": {
@@ -53,6 +50,7 @@
       "toggleEnabled": "Kliknij aby włączyć/wyłączyć"
     },
     "confirm": {
+      "deleteTitle": "Usuń Workflow",
       "delete": "Czy na pewno chcesz usunąć przepływ '{{name}}'? Tej operacji nie można cofnąć."
     },
     "form": {
@@ -323,7 +321,6 @@
       "allTasks": "Wszystkie Zadania",
       "taskName": "Nazwa Zadania",
       "description": "Opis",
-      "status": "Status",
       "assignedTo": "Przypisane Do",
       "assignedToRoles": "Przypisane do Ról",
       "claimedBy": "Przejęte Przez",

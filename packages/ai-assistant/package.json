@@ -1,0 +1,107 @@
+{
+  "name": "@open-mercato/ai-assistant",
+  "version": "0.3.13",
+  "type": "module",
+  "main": "./dist/index.js",
+  "scripts": {
+    "build": "node build.mjs",
+    "watch": "node watch.mjs",
+    "mcp:dev": "mercato ai_assistant mcp:dev",
+    "mcp:serve-http": "mercato ai_assistant mcp:serve-http"
+  },
+  "exports": {
+    ".": "./dist/index.js",
+    "./modules/ai_assistant": {
+      "types": "./src/modules/ai_assistant/index.ts",
+      "default": "./dist/modules/ai_assistant/index.js"
+    },
+    "./tools": {
+      "types": "./src/modules/ai_assistant/lib/tool-registry.ts",
+      "default": "./dist/modules/ai_assistant/lib/tool-registry.js"
+    },
+    "./types": {
+      "types": "./src/modules/ai_assistant/lib/types.ts",
+      "default": "./dist/modules/ai_assistant/lib/types.js"
+    },
+    "./ai-sdk": {
+      "types": "./src/modules/ai_assistant/lib/ai-sdk.ts",
+      "default": "./dist/modules/ai_assistant/lib/ai-sdk.js"
+    },
+    "./frontend": {
+      "types": "./src/frontend/index.ts",
+      "default": "./dist/frontend/index.js"
+    },
+    "./*.ts": {
+      "types": "./src/*.ts",
+      "default": "./dist/*.js"
+    },
+    "./*.tsx": {
+      "types": "./src/*.tsx",
+      "default": "./dist/*.js"
+    },
+    "./*.json": "./src/*.json",
+    "./*": {
+      "types": [
+        "./src/*.ts",
+        "./src/*.tsx"
+      ],
+      "default": "./dist/*.js"
+    },
+    "./*/*.json": "./src/*/*.json",
+    "./*/*": {
+      "types": [
+        "./src/*/*.ts",
+        "./src/*/*.tsx"
+      ],
+      "default": "./dist/*/*.js"
+    },
+    "./*/*/*.json": "./src/*/*/*.json",
+    "./*/*/*": {
+      "types": [
+        "./src/*/*/*.ts",
+        "./src/*/*/*.tsx"
+      ],
+      "default": "./dist/*/*/*.js"
+    },
+    "./*/*/*/*.json": "./src/*/*/*/*.json",
+    "./*/*/*/*": {
+      "types": [
+        "./src/*/*/*/*.ts",
+        "./src/*/*/*/*.tsx"
+      ],
+      "default": "./dist/*/*/*/*.js"
+    },
+    "./*/*/*/*/*.json": "./src/*/*/*/*/*.json",
+    "./*/*/*/*/*": {
+      "types": [
+        "./src/*/*/*/*/*.ts",
+        "./src/*/*/*/*/*.tsx"
+      ],
+      "default": "./dist/*/*/*/*/*.js"
+    }
+  },
+  "dependencies": {
+    "@ai-sdk/anthropic": "^3.0.12",
+    "@ai-sdk/google": "^1.2.6",
+    "@ai-sdk/openai": "^3.0.5",
+    "@modelcontextprotocol/sdk": "^1.25.2",
+    "ai": "^6.0.33",
+    "cmdk": "^1.0.0",
+    "framer-motion": "^11.0.0",
+    "react-json-view-lite": "^2.5.0",
+    "react-markdown": "^9.0.0",
+    "zod-to-json-schema": "^3.25.1"
+  },
+  "peerDependencies": {
+    "@open-mercato/shared": "workspace:*",
+    "@open-mercato/ui": "workspace:*",
+    "zod": ">=3.23.0"
+  },
+  "devDependencies": {
+    "@open-mercato/cli": "workspace:*",
+    "tsx": "^4.21.0"
+  },
+  "publishConfig": {
+    "access": "public"
+  }
+}

@@ -1,52 +1,138 @@
 ---
-title: Example - Todo module with custom fields
+title: Building a Todo Module with Custom Fields
 description: Walk through creating a module with new entities, custom fields, seed data, and admin surfaces.
 ---
 
-# Example: Todo List with Custom Fields
+# Building a Todo Module with Custom Fields
 
-This example extends the `example` module with a new `Todo` entity, declares custom fields using the `entities` module, seeds 10 demo rows with values, and exposes a backend page to browse the data via the query engine.
+This tutorial walks you through creating a custom module with a `Todo` entity, custom fields using the `entities` module, seed data, and backend pages using the query engine.
 
-## What’s included
-- New entity `Todo` in `src/modules/example/data/entities.ts` (table: `todos`).
-– Custom fields for `example:todo` are defined in `src/modules/example/ce.ts` under `entities[].fields`:
+## What you'll build
+- New entity `Todo` in your module's `data/entities.ts` (table: `todos`).
+- Custom fields defined in your module's `ce.ts` under `entities[].fields`:
   - `priority` (integer, 1–5)
   - `severity` (select: low/medium/high)
   - `blocked` (boolean)
-- Backend page at `/backend/example/todos` using the query engine to project CFs.
-- CLI seeding command `mercato example seed-todos` to insert 10 demo rows and CF values.
-- Quick link added to the home page.
+- Backend page at `/backend/my_todos/todos` using the query engine to project custom fields.
+- CLI seeding command to insert demo rows and custom field values.
 
-## Run it
-1) Generate modules and DI
-   - `npm run modules:prepare`
+## Step 1: Create the module package
 
-2) Create migrations and apply
-   - `npm run db:generate`
-   - `npm run db:migrate`
+Create a new package for your module:
 
-3) Sync custom entity definitions for your tenant
-   - `npm run mercato -- entities install -- --tenant <tenantId>`
+```
+packages/my-todos/package.json
+{
+  "name": "@open-mercato/my-todos",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": { "./modules/*": "./src/modules/*" }
+}
+```
 
-4) Seed todos and their custom field values (scoped to org and tenant)
-   - `npm run mercato -- example seed-todos -- --org <orgId> --tenant <tenantId>`
+## Step 2: Define the entity
 
-5) Open the page
-   - Go to `/backend/example/todos` (also linked on the home page under Quick Links).
+Create `packages/my-todos/src/modules/my_todos/data/entities.ts`:
+
+```ts
+import { Entity, Property, PrimaryKey } from '@mikro-orm/core'
+
+@Entity({ tableName: 'todos' })
+export class Todo {
+  @PrimaryKey()
+  id!: number
+
+  @Property()
+  title!: string
+
+  @Property({ default: false })
+  is_done: boolean = false
+
+  @Property()
+  tenant_id!: string
+
+  @Property()
+  organization_id!: string
+
+  @Property({ nullable: true })
+  deleted_at?: Date
+}
+```
+
+## Step 3: Define custom entity and fields
+
+Create `packages/my-todos/src/modules/my_todos/ce.ts`:
+
+```ts
+export const entities = [
+  {
+    id: 'my_todos:todo',
+    label: 'Todo',
+    showInSidebar: false,
+    fields: [
+      { key: 'priority', kind: 'integer', label: 'Priority', required: false, indexed: true, filterable: true, formEditable: true },
+      { key: 'severity', kind: 'select', label: 'Severity', required: false, filterable: true, formEditable: true, options: ['low', 'medium', 'high'] },
+      { key: 'blocked', kind: 'boolean', label: 'Blocked', required: false, filterable: true, formEditable: true },
+    ],
+  },
+]
+```
+
+## Step 4: Create the module index
+
+Create `packages/my-todos/src/modules/my_todos/index.ts`:
+
+```ts
+import type { ModuleInfo } from '@open-mercato/shared/modules/registry'
+
+export const metadata: ModuleInfo = {
+  id: 'my_todos',
+  title: 'My Todos',
+  version: '0.1.0',
+  description: 'A todo list module with custom fields',
+} as any
+```
+
+## Step 5: Enable the module
+
+Add the module to `apps/mercato/src/modules.ts`:
+
+```ts
+export const enabledModules = [
+  // ... existing modules
+  { id: 'my_todos', from: '@open-mercato/my-todos' },
+]
+```
+
+## Step 6: Generate and migrate
+
+Run the following commands:
+
+```bash
+# Generate modules and DI
+yarn generate
+
+# Create migrations and apply
+yarn db:generate
+yarn db:migrate
+
+# Sync custom entity definitions for your tenant
+yarn mercato entities install --tenant <tenantId>
+```
 
 ## Notes
-- The page uses the query engine with `organizationId` set from auth and fields imported from `@open-mercato/example/datamodel/entities/todo` like `[id, title, tenant_id, organization_id, is_done, 'cf:priority', 'cf:severity', 'cf:blocked']` so custom fields are joined and projected.
+- The page uses the query engine with `organizationId` set from auth and fields like `[id, title, tenant_id, organization_id, is_done, 'cf:priority', 'cf:severity', 'cf:blocked']` so custom fields are joined and projected.
 - You can filter or sort on base fields today; custom-field filters are supported as `filters: [{ field: 'cf:priority', op: 'gte', value: 3 }]` or, using the Mongo-style object syntax: `filters: { 'cf:priority': { $gte: 3 } }`. For sorting, prefer the `SortDir` enum: `sort: [{ field: id, dir: SortDir.Asc }]`.
 - Soft delete: if the `todos` table has `deleted_at`, results exclude soft-deleted rows by default. Pass `withDeleted: true` to include them.
-- The example entity includes both `organization_id` and `tenant_id` for proper multi-tenant scoping. All queries must include both `organizationId` and `tenantId` in query options.
-  - In this example, the `todos` table includes `tenant_id` and `organization_id`, and the page filters by `organizationId` from the authenticated user.
+- The entity includes both `organization_id` and `tenant_id` for proper multi-tenant scoping. All queries must include both `organizationId` and `tenantId` in query options.
 
 ### Create form (mobile-friendly)
-The create page (`/backend/example/todos/create`) uses the shared `CrudForm` component for a quick, validated form with custom fields.
+The create page can use the shared `CrudForm` component for a quick, validated form with custom fields.
 
 Key behaviors:
 - Mobile screens render a fullscreen form with a header and back link.
-  
+
 - Inline help text per field uses the `description` property.
 
 Example usage:
@@ -54,24 +140,17 @@ Example usage:
 ```tsx
 <CrudForm
   title="Create Todo"
-  backHref="/backend/todos"
+  backHref="/backend/my_todos/todos"
   schema={todoCreateSchema}
   fields={fields}
   submitLabel="Create Todo"
-  cancelHref="/backend/todos"
-  successRedirect="/backend/todos"
+  cancelHref="/backend/my_todos/todos"
+  successRedirect="/backend/my_todos/todos"
   onSubmit={async (vals) => { /* ... */ }}
 />
 ```
 
 Advanced editors supported out of the box: `tags`, `richtext`, `relation`, plus `custom` renderers for bespoke components. See [Admin forms with CrudForm](../framework/admin-ui/crud-form) for the full API.
-
-Fields used in the example create page:
-- `cf_labels` (tags): Stored as a multi-select custom field `labels`.
-- `cf_description` (richtext): Stored as `description` (multiline) CF, HTML string.
-- `cf_assignee` (relation-like): Stored as `assignee` text CF (just an ID string). The UI uses an async loader to demonstrate dynamic options.
-
-The API accepts these on create and persists them via the custom fields module.
 
 ### Optional page metadata
 You can co-locate admin navigation and access control metadata with the page.
@@ -79,12 +158,12 @@ You can co-locate admin navigation and access control metadata with the page.
 Add next to the page file:
 
 ```ts
-// packages/example/src/modules/example/backend/todos/page.meta.ts
+// packages/my-todos/src/modules/my_todos/backend/todos/page.meta.ts
 import type { PageMetadata } from '@open-mercato/shared/modules/registry'
 export const metadata: PageMetadata = {
   requireAuth: true,
   pageTitle: 'Todos',
-  pageGroup: 'Example',
+  pageGroup: 'My Todos',
   pageOrder: 20,
 }
 ```
@@ -92,12 +171,12 @@ export const metadata: PageMetadata = {
 Or, since this page is a server component, export `metadata` from the page itself:
 
 ```ts
-// packages/example/src/modules/example/backend/todos/page.tsx
+// packages/my-todos/src/modules/my_todos/backend/todos/page.tsx
 import type { PageMetadata } from '@open-mercato/shared/modules/registry'
 export const metadata: PageMetadata = {
   requireAuth: true,
   pageTitle: 'Todos',
-  pageGroup: 'Example',
+  pageGroup: 'My Todos',
 }
 export default async function Page() { /* ... */ }
 ```
@@ -122,11 +201,11 @@ Usage:
   onFiltersApply={setValues}
   onFiltersClear={() => setValues({})}
   // Auto-include custom-field filters for this entity
-  entityId="example:todo"
+  entityId="my_todos:todo"
 />
 ```
 
-This appends controls for all custom fields marked `filterable` in their definitions (boolean → checkbox, select → dropdown; multi-select uses a checkbox list, text-like kinds → text input). Selected values should be mapped to query params as `cf_<key>` or `cf_<key>In` for multi.
+This appends controls for all custom fields marked `filterable` in their definitions (boolean -> checkbox, select -> dropdown; multi-select uses a checkbox list, text-like kinds -> text input). Selected values should be mapped to query params as `cf_<key>` or `cf_<key>In` for multi.
 
 Note: `customFieldFiltersEntityId` has been renamed to `entityId`.
 
@@ -135,7 +214,7 @@ Note: `customFieldFiltersEntityId` has been renamed to `entityId`.
 When a user changes the active organization from the global switcher, the app emits a browser event so client components can immediately refetch their data without waiting for a full page reload. Instead of wiring the event manually, reach for the hooks in `@/lib/frontend/useOrganizationScope`:
 
 ```ts
-import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
+import { useOrganizationScopeVersion } from '@/lib/frontend/useOrganizationScope'
 import { useQuery } from '@tanstack/react-query'
 
 export function TodosTable() {

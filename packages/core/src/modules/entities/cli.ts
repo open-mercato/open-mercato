@@ -176,9 +176,9 @@ const addField: ModuleCli = {
       const orgId = isGlobal ? null : ((args.org as string) || (args.organizationId as string) || await ask('Organization ID'))
       const tenantId = isGlobal ? null : ((args.tenant as string) || (args.tenantId as string) || await ask('Tenant ID'))
       const key = (args.key as string) || await ask('Field key (snake_case)')
-      let kind = (args.kind as string) || await ask("Kind (text|multiline|integer|float|boolean|select|relation|attachment)", 'text')
+      let kind = (args.kind as string) || await ask("Kind (text|multiline|integer|float|boolean|select|currency|relation|attachment)", 'text')
       kind = kind.toLowerCase()
-      if (!['text','multiline','integer','float','boolean','select','relation','attachment'].includes(kind)) throw new Error('Invalid kind')
+      if (!['text','multiline','integer','float','boolean','select','currency','relation','attachment'].includes(kind)) throw new Error('Invalid kind')
       const label = (args.label as string) || (await ask('Label', key))
       const description = (args.description as string) || ''
       const required = args.required !== undefined ? Boolean(args.required) : await askBool('Required?', false)

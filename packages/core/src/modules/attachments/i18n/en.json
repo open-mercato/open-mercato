@@ -33,6 +33,7 @@
         "tags": "Tags",
         "tagsPlaceholder": "Filter by tag"
       },
+      "loading": "Loading attachments…",
       "upload": {
         "title": "Upload attachment",
         "file": "Files",
@@ -40,6 +41,7 @@
         "partitionDefault": "Default (private)",
         "dropHint": "Drag and drop files here or click to upload.",
         "choose": "Choose files",
+        "saveFirst": "Save the record before uploading files.",
         "noFiles": "No files selected yet.",
         "tagsPlaceholder": "Add tags",
         "cancel": "Cancel",

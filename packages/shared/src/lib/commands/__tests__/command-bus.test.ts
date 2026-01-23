@@ -4,6 +4,7 @@ import { unregisterCommand, registerCommand, CommandBus } from '@open-mercato/sh
 describe('CommandBus', () => {
   afterEach(() => {
     unregisterCommand('test.command')
+    unregisterCommand('test.command.with-capture')
   })
 
   it('executes registered command and logs action metadata', async () => {
@@ -38,5 +39,46 @@ describe('CommandBus', () => {
       })
     )
     expect(logEntry).toEqual({ id: 'log-entry' })
+  })
+
+  it('passes captureAfter snapshot to buildLog as snapshots.after', async () => {
+    const logMock = jest.fn(async () => ({ id: 'log-entry-2' }))
+    const buildLogMock = jest.fn(() => ({
+      actionLabel: 'Test with capture',
+      resourceKind: 'test',
+      resourceId: '456',
+    }))
+
+    registerCommand({
+      id: 'test.command.with-capture',
+      prepare: jest.fn(async () => ({ before: { state: 'before-snapshot' } })),
+      execute: jest.fn(async () => ({ id: 'result-123' })),
+      captureAfter: jest.fn(async (_input, result) => ({ state: 'after-snapshot', resultId: result.id })),
+      buildLog: buildLogMock,
+    })
+
+    const container = createContainer({ injectionMode: InjectionMode.CLASSIC })
+    container.register({ actionLogService: asValue({ log: logMock }) })
+
+    const bus = new CommandBus()
+    const ctx = {
+      container,
+      auth: { sub: 'user-2', tenantId: 'tenant-2', orgId: null },
+      organizationScope: null,
+      selectedOrganizationId: null,
+      organizationIds: null,
+    }
+
+    await bus.execute('test.command.with-capture', { input: { foo: 'bar' }, ctx })
+
+    // Verify buildLog received both before and after snapshots
+    expect(buildLogMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        snapshots: {
+          before: { state: 'before-snapshot' },
+          after: { state: 'after-snapshot', resultId: 'result-123' },
+        },
+      })
+    )
   })
 })

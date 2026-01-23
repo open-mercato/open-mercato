@@ -33,16 +33,22 @@ export const createDictionaryEntrySchema = z.object({
 
 export type CreateDictionaryEntryInput = z.infer<typeof createDictionaryEntrySchema>
 
-export const updateDictionaryEntrySchema = z
-  .object({
-    value: z.string().trim().min(1).max(150).optional(),
-    label: z.string().trim().min(1).max(150).optional(),
-    color: hexColorSchema.nullable().optional(),
-    icon: iconSchema.nullable().optional(),
-  })
-  .refine((payload) => Object.keys(payload).length > 0, {
+const dictionaryEntryUpdateFieldsSchema = z.object({
+  value: z.string().trim().min(1).max(150).optional(),
+  label: z.string().trim().min(1).max(150).optional(),
+  color: hexColorSchema.nullable().optional(),
+  icon: iconSchema.nullable().optional(),
+})
+
+const validateDictionaryEntryUpdate = (payload: z.infer<typeof dictionaryEntryUpdateFieldsSchema>) =>
+  Object.keys(payload).length > 0
+
+export const updateDictionaryEntrySchema = dictionaryEntryUpdateFieldsSchema.refine(
+  validateDictionaryEntryUpdate,
+  {
     message: 'Provide at least one field to update.',
-  })
+  },
+)
 
 export type UpdateDictionaryEntryInput = z.infer<typeof updateDictionaryEntrySchema>
 
@@ -56,6 +62,9 @@ export const dictionaryEntryCommandUpdateSchema = z
   .object({
     id: z.string().uuid(),
   })
-  .merge(updateDictionaryEntrySchema)
+  .merge(dictionaryEntryUpdateFieldsSchema)
+  .refine(validateDictionaryEntryUpdate, {
+    message: 'Provide at least one field to update.',
+  })
 
 export type DictionaryEntryCommandUpdateInput = z.infer<typeof dictionaryEntryCommandUpdateSchema>

@@ -55,7 +55,7 @@ The Event Bus publishes:
 Example module hook:
 
 ```ts
-import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
+import { createRequestContainer } from '@/lib/di/container'
 
 const container = await createRequestContainer()
 const eventBus = container.resolve('eventBus')
@@ -86,7 +86,7 @@ Price kinds determine whether backend inputs and frontend displays treat values 
 
 ## Testing and migrations
 
-- New installations automatically include the `tax_amount` column on `catalog_product_prices`. If you upgraded from earlier commits, run `npm run db:migrate` to apply `Migration20251117173713`.
+- New installations automatically include the `tax_amount` column on `catalog_product_prices`. If you upgraded from earlier commits, run `yarn db:migrate` to apply `Migration20251117173713`.
 - Use the `sales.tax.calculate.*` events during integration tests to assert your overrides are firing. The Sales module exposes `salesCalculationService` for order totals—use that service for document totals so tax logic continues to be centralized.
 
 ## Troubleshooting

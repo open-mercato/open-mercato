@@ -113,8 +113,8 @@ const JsonNode = React.memo<JsonNodeProps>(({ data, depth, maxInitialDepth, them
     string: theme === 'light' ? 'text-green-600' : 'text-green-400',
     number: theme === 'light' ? 'text-purple-600' : 'text-purple-400',
     boolean: theme === 'light' ? 'text-orange-600' : 'text-orange-400',
-    null: theme === 'light' ? 'text-gray-400' : 'text-gray-500',
-    punctuation: theme === 'light' ? 'text-gray-600' : 'text-gray-400',
+    null: 'text-muted-foreground',
+    punctuation: 'text-muted-foreground',
   }
 
   if (data === null) {

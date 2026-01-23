@@ -12,29 +12,37 @@ This tutorial walks you through:
 
 ## 1) Prerequisites
 - Node.js 20+
-- PostgreSQL
-- Copy `.env.example` → `.env` and set:
-  - `DATABASE_URL=postgres://user:password@localhost:5432/mercato`
+- Docker & Docker Compose (for PostgreSQL and Redis)
+- Copy `apps/mercato/.env.example` → `apps/mercato/.env` and set:
+  - `DATABASE_URL=postgres://postgres:postgres@localhost:5432/open-mercato`
   - `JWT_SECRET=some-strong-secret`
+  - `REDIS_URL=redis://localhost:6379`
 
 ## 2) Install and Prepare
+- Start Docker services: `docker compose up -d`
 - Install deps: `yarn install`
-- Prepare modules (registry, entities, DI): `yarn modules:prepare`
+- Bootstrap the app: `yarn initialize`
+
+This single command prepares module registries, generates/applies migrations, seeds default roles, provisions an admin user, and loads demo CRM data.
+
+Alternatively, you can run the steps manually:
+- Generate modules (registry, entities, DI): `yarn generate`
 - Generate DB migrations (per enabled module): `yarn db:generate`
 - Apply migrations: `yarn db:migrate`
 
 ## 3) Seed Roles and Create Admin
+If you ran `yarn initialize`, this step is already done. Otherwise:
 - Seed default roles: `yarn mercato auth seed-roles`
 - Create the first tenant/org/admin:
   - `yarn mercato auth setup --orgName "Acme" --email admin@acme.com --password secret --roles superadmin,admin`
 
 ## 4) Run the App
 - `yarn dev`
-- Open http://localhost:3000
+- Open http://localhost:3000/backend
 
 ## 5) How Modules Load and Override
-- Core modules live in packages and are enabled in `src/modules.ts`.
-- App-level overrides live under `src/modules/<module>/...` and take precedence over packages with the same relative path.
+- Core modules live in packages (`packages/core`, `packages/search`, etc.) and are enabled in `apps/mercato/src/modules.ts`.
+- App-level overrides live under `apps/mercato/src/modules/<module>/...` and take precedence over packages with the same relative path.
 - Generators discover routes/APIs/DI/i18n/entities for enabled modules and write combined outputs to `generated/`.
 
 ## 6) Create Your Own Module (as a package)
@@ -80,19 +88,19 @@ export const metadata: ModuleInfo = { id: 'my_module', title: 'My Module', versi
 
 - In `tsconfig.json` paths add: "@open-mercato/my-module/*": ["./packages/my-module/src/*"]
 
-4. Enable the module in `src/modules.ts`:
+4. Enable the module in `apps/mercato/src/modules.ts`:
 
 ```
 export const enabledModules = [
   { id: 'auth', from: '@open-mercato/core' },
   { id: 'directory', from: '@open-mercato/core' },
-  { id: 'example', from: '@open-mercato/example' },
+  { id: 'customers', from: '@open-mercato/core' },
   { id: 'my_module', from: '@open-mercato/my-module' },
 ]
 ```
 
 5. Regenerate + run:
-- `yarn modules:prepare`
+- `yarn generate`
 - `yarn dev`
 
 Now visit `/my_module` and `/backend/my_module`.
@@ -102,7 +110,7 @@ Now visit `/my_module` and `/backend/my_module`.
 To customize login without touching core, create the override file in the app overlay:
 
 ```
-src/modules/auth/frontend/login.tsx
+apps/mercato/src/modules/auth/frontend/login.tsx
 ```
 
 This file overrides the package page `@open-mercato/core/modules/auth/frontend/login.tsx`.
@@ -110,10 +118,10 @@ Delete it to fall back to the package implementation.
 
 ## 8) Override Services (DI)
 
-Use `src/di.ts` to register app-level DI overrides (runs after all module registrars):
+Use `apps/mercato/src/di.ts` to register app-level DI overrides (runs after all module registrars):
 
 ```
-import type { AppContainer } from '@open-mercato/shared/lib/di/container'
+import type { AppContainer } from '@/lib/di/container'
 import { asClass } from 'awilix'
 // import { CustomAuthService } from './services/CustomAuthService'
 
@@ -124,13 +132,13 @@ export function register(container: AppContainer) {
 
 ## 9) Entities and Migrations
 - Place package entities in `packages/<pkg>/src/modules/<module>/data/entities.ts`.
-- To override/extend in the app: `src/modules/<module>/data/entities.override.ts`.
-- Generate migrations: `yarn db:generate` (writes to `packages/<pkg>/src/modules/<module>/migrations`; app-local modules write to `src/modules/<module>/migrations`).
+- To override/extend in the app: `apps/mercato/src/modules/<module>/data/entities.override.ts`.
+- Generate migrations: `yarn db:generate` (writes to `packages/<pkg>/src/modules/<module>/migrations`; app-local modules write to `apps/mercato/src/modules/<module>/migrations`).
 - Apply migrations: `yarn db:migrate`.
 
 ## 10) CLI Commands
 - Each module can expose CLI in `modules/<module>/cli.ts`.
 - List and run via `yarn mercato <module> <command> [...args]`.
-- Add app-level commands in `src/cli.ts` (listed under module `app`).
+- Add app-level commands in `apps/mercato/src/cli.ts` (listed under module `app`).
 
 You now have an app running with core modules, your own module package, and an overridden auth login screen — all without editing core.

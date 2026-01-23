@@ -7,10 +7,10 @@ import OpenApiExplorerBanner from '@site/src/components/OpenApiExplorerBanner';
 
 <OpenApiExplorerBanner />
 
-Open Mercato keeps module metadata in a generated file rather than a dedicated REST endpoint. When you run `npm run modules:prepare`, the generator writes `generated/modules.generated.ts`, which exports the module graph consumed by the API dispatcher, navigation builders, and the OpenAPI generator.
+Open Mercato keeps module metadata in a generated file rather than a dedicated REST endpoint. When you run `yarn generate`, the generator writes `generated/modules.generated.ts`, which exports the module graph consumed by the API dispatcher, navigation builders, and the OpenAPI generator.
 
 ```ts
-import { modules, modulesInfo } from '@/generated/modules.generated' // your app's generated file
+import { modules, modulesInfo } from '@/generated/modules.generated'
 
 modulesInfo.forEach((entry) => {
   console.log(entry.id, entry.title)
@@ -26,7 +26,7 @@ const authApis = modules
 The exported types live in `packages/shared/src/modules/registry.ts`:
 
 - `Module` — top-level container with `id`, optional `info`, arrays of `frontendRoutes`, `backendRoutes`, `apis`, `features`, `customFieldSets`, and more.
-- `ModuleApiRouteFile` — shape for file-based API routes discovered under `src/modules/<module>/api/**/route.ts`; includes `path`, `handlers`, optional module-level `requireAuth`/`requireRoles`, and an `openApi` descriptor if provided.
+- `ModuleApiRouteFile` — shape for file-based API routes discovered under `packages/<pkg>/src/modules/<module>/api/**/route.ts`; includes `path`, `handlers`, optional module-level `requireAuth`/`requireRoles`, and an `openApi` descriptor if provided.
 - `ModuleRoute` — metadata for frontend/back-office pages (pattern, guards, titles).
 - `ModuleInfo` — optional descriptor exported from each module’s `index.ts` (name, title, description, dependencies, etc.).
 
@@ -35,7 +35,7 @@ These structures are stable runtime contracts and can be imported anywhere in yo
 ## Enumerating APIs at runtime
 
 ```ts
-import { modules } from '@/generated/modules.generated' // your app's generated file
+import { modules } from '@/generated/modules.generated'
 import type { ModuleApiRouteFile } from '@open-mercato/shared/modules/registry'
 
 const apiIndex = modules.flatMap((module) => {
@@ -62,7 +62,7 @@ console.table(apiIndex)
 Each module declares its feature flags in `<module>/acl.ts`. The generator hoists them into `module.features`, enabling tooling to seed default roles or audit coverage:
 
 ```ts
-import { modules } from '@/generated/modules.generated' // your app's generated file
+import { modules } from '@/generated/modules.generated'
 
 const featureMatrix = modules.flatMap((module) =>
   (module.features ?? []).map((feature) => ({
@@ -77,7 +77,7 @@ Combine this with the Auth module’s `GET /auth/features` endpoint when you nee
 
 ## When to regenerate
 
-- Run `npm run modules:prepare` whenever you add, rename, or delete APIs, pages, ACL declarations, or DI registrars.
+- Run `yarn generate` whenever you add, rename, or delete APIs, pages, ACL declarations, or DI registrars.
 - The OpenAPI routes (`/api/docs/openapi`, `/api/docs/markdown`) call `buildOpenApiDocument(modules, ...)`, so the explorer immediately reflects new endpoints.
 - The CLI scaffolding (`packages/cli/src/mercato.ts`) uses `modulesInfo` to enable module-aware commands.
 

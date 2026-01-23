@@ -19,7 +19,7 @@ Add new action types that execute custom logic.
 
 ```typescript
 // In your module's di.ts or service file
-import { registerActionHandler } from '@open-mercato/core/modules/business_rules/lib/action-executor'
+import { registerActionHandler } from '@/modules/business_rules/lib/action-executor'
 
 // Register custom action handler
 registerActionHandler('SEND_SLACK_MESSAGE', async (config, context, em) => {
@@ -79,7 +79,7 @@ Add new comparison operators for condition evaluation.
 
 ```typescript
 // In your module's di.ts
-import { registerOperator } from '@open-mercato/core/modules/business_rules/lib/rule-evaluator'
+import { registerOperator } from '@/modules/business_rules/lib/rule-evaluator'
 
 // Register custom operator
 registerOperator('WITHIN_RANGE', (actualValue, expectedValue) => {
@@ -145,7 +145,7 @@ Extend value resolution for special field paths.
 
 ```typescript
 // In your module's di.ts
-import { registerValueResolver } from '@open-mercato/core/modules/business_rules/lib/value-resolver'
+import { registerValueResolver } from '@/modules/business_rules/lib/value-resolver'
 
 // Register custom resolver for special field paths
 registerValueResolver('weather', async (path, context, em) => {
@@ -189,7 +189,7 @@ Customize which rules are discovered for execution.
 
 ```typescript
 // In your module's di.ts
-import { registerDiscoveryHook } from '@open-mercato/core/modules/business_rules/lib/rule-engine'
+import { registerDiscoveryHook } from '@/modules/business_rules/lib/rule-engine'
 
 registerDiscoveryHook(async (rules, context, em) => {
   // Filter rules based on custom logic
@@ -215,7 +215,7 @@ Hook into rule execution lifecycle.
 
 ```typescript
 // In your module's di.ts
-import { registerExecutionMiddleware } from '@open-mercato/core/modules/business_rules/lib/rule-engine'
+import { registerExecutionMiddleware } from '@/modules/business_rules/lib/rule-engine'
 
 registerExecutionMiddleware('beforeExecution', async (rule, context, em) => {
   // Called before each rule executes

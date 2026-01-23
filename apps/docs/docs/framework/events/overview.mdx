@@ -22,20 +22,20 @@ For background job processing at scale, see the [Queue & Workers](./queue-worker
 
 ## Overview
 
-- Subscribers live under `src/modules/<module>/subscribers/*.ts` and export:
+- Subscribers live under `packages/<pkg>/src/modules/<module>/subscribers/*.ts` (or `apps/mercato/src/modules/<module>/subscribers/*.ts` for app-level overrides) and export:
   - `export const metadata = { event: string, persistent?: boolean, id?: string }`
   - `export default async function(payload, ctx) { /* ... */ }`
     - `ctx.resolve(name)` resolves services from Awilix per-request container.
-- Subscribers discovered at build via `modules:prepare` and registered into a global Event Bus via the core bootstrap (`@open-mercato/core/bootstrap`), which your app calls from `src/di.ts`.
+- Subscribers discovered at build via `yarn generate` and registered into a global Event Bus via the core bootstrap (`@open-mercato/core/bootstrap`), which your app calls from `apps/mercato/src/di.ts`.
 - Emit events programmatically via `eventBus.emitEvent(event, payload, { persistent? })`.
 - Two strategies:
   - Local: online delivery + optional persistence to `.events/queue.json` with state in `.events/state.json`.
   - Redis: online delivery + persistence in Redis sorted set.
-- Offline processing: `npm run mercato events process -- [--limit=N]` replays unprocessed persistent events.
+- Offline processing: `yarn mercato events process [--limit=N]` replays unprocessed persistent events.
 
 ## File Structure
 
-Example subscriber file `src/modules/example/subscribers/order-created.ts`:
+Example subscriber file `packages/my-module/src/modules/my_module/subscribers/order-created.ts`:
 
 ```
 export const metadata = {
@@ -65,7 +65,7 @@ await bus.emitEvent('order.created', { id: 123, total: 42 }, { persistent: true 
 Modules can register subscribers in `di.ts`:
 
 ```
-import type { AppContainer } from '@open-mercato/shared/lib/di/container'
+import type { AppContainer } from '@/lib/di/container'
 
 export function register(container: AppContainer) {
   const bus = container.resolve<any>('eventBus')

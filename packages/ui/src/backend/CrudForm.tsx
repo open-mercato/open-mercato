@@ -1512,6 +1512,7 @@ export function CrudForm<TValues extends Record<string, unknown>>({
 
     const col1Content = renderGroupedCards(col1)
     const col2Content = renderGroupedCards(col2)
+    const hasSecondaryColumn = col2Content.length > 0
 
     return (
       <div className="space-y-4" ref={rootRef}>
@@ -1563,9 +1564,13 @@ export function CrudForm<TValues extends Record<string, unknown>>({
                 widgetsOverride={stackedInjectionWidgets}
               />
             ) : null}
-            <div className="grid grid-cols-1 lg:grid-cols-[7fr_3fr] gap-4">
+            <div
+              className={hasSecondaryColumn
+                ? 'grid grid-cols-1 lg:grid-cols-[7fr_3fr] gap-4'
+                : 'grid grid-cols-1 gap-4'}
+            >
               <div className="space-y-3">{col1Content}</div>
-              <div className="space-y-3">{col2Content}</div>
+              {hasSecondaryColumn ? <div className="space-y-3">{col2Content}</div> : null}
             </div>
             {formError ? <div className="text-sm text-red-600">{formError}</div> : null}
             <div className={`flex items-center ${embedded ? 'justify-end' : 'justify-between'} gap-2 ${dialogFooterClass}`}>

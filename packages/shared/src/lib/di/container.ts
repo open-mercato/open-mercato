@@ -10,20 +10,32 @@ export type AppContainer = AwilixContainer
 export type DiRegistrar = (container: AwilixContainer) => void
 
 // Registration pattern for publishable packages
-let _diRegistrars: DiRegistrar[] | null = null
+// Use globalThis to survive tsx/esbuild module duplication issue where the same
+// file can be loaded as multiple module instances when mixing dynamic and static imports
+const GLOBAL_KEY = '__openMercatoDiRegistrars__'
+
+function getGlobalRegistrars(): DiRegistrar[] | null {
+  return (globalThis as any)[GLOBAL_KEY] ?? null
+}
+
+function setGlobalRegistrars(registrars: DiRegistrar[]): void {
+  (globalThis as any)[GLOBAL_KEY] = registrars
+}
 
 export function registerDiRegistrars(registrars: DiRegistrar[]) {
-  if (_diRegistrars !== null && process.env.NODE_ENV === 'development') {
+  const existing = getGlobalRegistrars()
+  if (existing !== null && process.env.NODE_ENV === 'development') {
     console.debug('[Bootstrap] DI registrars re-registered (this may occur during HMR)')
   }
-  _diRegistrars = registrars
+  setGlobalRegistrars(registrars)
 }
 
 export function getDiRegistrars(): DiRegistrar[] {
-  if (!_diRegistrars) {
+  const registrars = getGlobalRegistrars()
+  if (!registrars) {
     throw new Error('[Bootstrap] DI registrars not registered. Call registerDiRegistrars() at bootstrap.')
   }
-  return _diRegistrars
+  return registrars
 }
 
 export async function createRequestContainer(): Promise<AppContainer> {

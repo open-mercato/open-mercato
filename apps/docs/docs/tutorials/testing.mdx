@@ -20,11 +20,11 @@ This guide shows how to write and run unit tests for Open Mercato using Jest + t
 
 ## Jest Aliases (in tests)
 
-- `@/generated/*` → `src/generated/*` (app-specific generated files)
-- `@open-mercato/shared/lib/*` → `packages/shared/src/lib/*`
-- `@open-mercato/shared/types/*` → `packages/shared/src/types/*`
-- `@open-mercato/core/*`, `@open-mercato/example/*`, `@open-mercato/cli/*`, `@open-mercato/shared/*`
-- Fallback: `@/*` → `src/*`
+- `@/generated/*` → `generated/*`
+- `@/lib/*` → `packages/shared/src/lib/*`
+- `@/types/*` → `packages/shared/src/types/*`
+- `@open-mercato/core/*`, `@open-mercato/cli/*`, `@open-mercato/shared/*`, and other workspace packages
+- Fallback: `@/*` → `apps/mercato/src/*`
 
 See `jest.config.cjs: moduleNameMapper` for the full mapping.
 
@@ -61,7 +61,7 @@ Import handlers and call them directly. Mock the DI container so handlers get fa
 // packages/core/src/modules/auth/api/__tests__/login.test.ts
 import { POST } from '@open-mercato/core/modules/auth/api/login'
 
-jest.mock('@open-mercato/shared/lib/di/container', () => ({
+jest.mock('@/lib/di/container', () => ({
   createRequestContainer: async () => ({
     resolve: () => ({
       findUserByEmail: async () => ({ id: 1, email: 'admin@acme.com', passwordHash: 'hash', tenant: { id: 1 }, organization: { id: 1 } }),

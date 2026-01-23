@@ -79,6 +79,11 @@ export default function DictionarySettings() {
       description: t('customers.config.dictionaries.sections.lifecycle.description', 'Configure lifecycle stages to track customer progress.'),
     },
     {
+      kind: 'activity-types',
+      title: t('customers.config.dictionaries.sections.activityTypes.title', 'Activity types'),
+      description: t('customers.config.dictionaries.sections.activityTypes.description', 'Define the activity types used for customer interactions.'),
+    },
+    {
       kind: 'address-types',
       title: t('customers.config.dictionaries.sections.addressTypes.title', 'Address types'),
       description: t('customers.config.dictionaries.sections.addressTypes.description', 'Define the available address types.'),

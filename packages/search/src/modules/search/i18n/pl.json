@@ -1,5 +1,6 @@
 {
   "search.nav.hybridSearch": "Wyszukiwanie",
+  "search.config.nav.hybridSearch": "Ustawienia wyszukiwania",
   "search.config.nav.embeddings": "Osadzenia",
   "search.messages.missingConfig": "Wyszukiwanie wymaga skonfigurowania dostawcy embeddingów dla wyszukiwania semantycznego.",
   "search.dialog.actions.search": "Szukaj",

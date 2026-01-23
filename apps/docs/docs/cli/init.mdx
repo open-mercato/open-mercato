@@ -1,15 +1,15 @@
 ---
-title: yarn init
-sidebar_label: yarn init
+title: yarn initialize
+sidebar_label: yarn initialize
 description: Bootstraps an Open Mercato workspace, installs dependencies, runs migrations, and seeds default data.
 ---
 
-The `yarn init` script wraps the Open Mercato CLI `mercato init` command and delivers a ready-to-run workspace. It installs dependencies, prepares generated module artifacts, applies database migrations, seeds baseline RBAC data, and populates demo CRM content (companies, people, deals, activities, todos) unless you disable it with `--no-examples`. Enable `--stresstest` to tack on a synthetic, high-volume dataset that includes additional companies, pipeline deals, activities, and notes — all wired with realistic custom field values and a live progress bar.
+The `yarn initialize` script wraps the Open Mercato CLI `mercato init` command and delivers a ready-to-run workspace. It installs dependencies, prepares generated module artifacts, applies database migrations, seeds baseline RBAC data, and populates demo CRM content (companies, people, deals, activities, todos) unless you disable it with `--no-examples`. Enable `--stresstest` to tack on a synthetic, high-volume dataset that includes additional companies, pipeline deals, activities, and notes — all wired with realistic custom field values and a live progress bar.
 
 ## Usage
 
 ```bash
-yarn init [--org=<name>] [--email=<address>] [--password=<value>] [--roles=<csv>] [--no-examples] [--stresstest] [--lite] [-n <count>] [--count=<count>] [--reinstall|-r]
+yarn initialize [--org=<name>] [--email=<address>] [--password=<value>] [--roles=<csv>] [--no-examples] [--stresstest] [--lite] [-n <count>] [--count=<count>] [--reinstall|-r]
 ```
 
 Ensure `DATABASE_URL` points to the Postgres instance you want to initialize before running the command.
@@ -68,5 +68,5 @@ Use this mode for destructive resets in development. **Never run it against prod
 ## Troubleshooting
 
 - **Missing `DATABASE_URL`** — the command aborts before performing database work. Export the variable or place it in `.env`.
-- **Dependency install fails** — run `yarn install` manually to inspect the error, then re-run `yarn init`.
+- **Dependency install fails** — run `yarn install` manually to inspect the error, then re-run `yarn initialize`.
 - **Migrations fail** — confirm the database credentials and ensure the target user can create tables. The CLI stops on the first failure so you can address the issue before re-running.

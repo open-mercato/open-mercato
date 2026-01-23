@@ -39,6 +39,10 @@ await queue.process(async (job, ctx) => {
 
 The local strategy stores jobs in JSON files, making it ideal for development and simple deployments without Redis.
 
+:::danger Production Warning
+**Never use the local strategy in production.** It is filesystem-based and does not support distributed systems, concurrent access from multiple processes, or high availability. Always use the `async` (Redis/BullMQ) strategy for production deployments.
+:::
+
 ```typescript
 import { createQueue } from '@open-mercato/queue'
 
@@ -157,7 +161,83 @@ await queue.process(async (job, ctx) => {
 
 For production deployments, run dedicated worker processes that continuously process jobs.
 
-### Using `runWorker`
+### Unified Entrypoint (Development Only)
+
+Open Mercato provides a unified entrypoint that runs both the Next.js app and all queue workers automatically:
+
+```bash
+# Development mode with workers (default)
+yarn dev
+```
+
+When you run this command, the system automatically:
+1. Starts the Next.js application
+2. Spawns a worker process that handles ALL discovered queues
+
+:::danger Production Warning
+**Never use the unified entrypoint with auto-spawned workers in production.** In production, you should:
+1. Set `AUTO_SPAWN_WORKERS=false`
+2. Run worker processes separately using `yarn start:workers` or `yarn mercato queue worker --all`
+
+This separation allows you to:
+- Scale workers independently from the web application
+- Deploy workers on dedicated machines
+- Restart workers without affecting the main application
+- Monitor and manage worker processes separately
+:::
+
+#### Controlling Worker Auto-Spawn
+
+Use the `AUTO_SPAWN_WORKERS` environment variable to control this behavior:
+
+```bash
+# .env
+AUTO_SPAWN_WORKERS=true  # Default: spawn workers automatically
+```
+
+Set to `false` for production deployments where you want to run workers separately for scaling:
+
+```bash
+AUTO_SPAWN_WORKERS=false yarn start
+```
+
+#### Available Scripts
+
+| Script | Description |
+|--------|-------------|
+| `yarn dev` | Development mode with workers |
+| `yarn start` | Production mode with workers |
+| `yarn dev:app` | Development mode (app only) |
+| `yarn start:app` | Production mode (app only) |
+| `yarn start:workers` | Run workers only (all queues) |
+
+### Running All Workers via CLI
+
+The `--all` flag processes jobs from all discovered queues in a single process:
+
+```bash
+# Process all queues
+yarn mercato queue worker --all
+
+# Via npm script
+yarn start:workers
+```
+
+This starts workers for all registered queues (e.g., `events`, `fulltext-indexing`, `vector-indexing`).
+
+### Running a Single Queue
+
+For fine-grained control, run workers for specific queues:
+
+```bash
+# Start a worker for a specific queue
+yarn mercato queue worker events
+
+# With custom concurrency
+yarn mercato queue worker events --concurrency=5
+```
+
+### Using `runWorker` Programmatically
 
 ```typescript
 import { runWorker } from '@open-mercato/queue/worker'
@@ -364,3 +444,87 @@ type ProcessResult = {
   lastJobId?: string
 }
 ```
+
+## Worker Auto-Discovery
+
+Open Mercato automatically discovers workers from modules following a naming convention. This allows you to define workers alongside your module code.
+
+### File Convention
+
+Place worker files in your module's `workers/` directory with the `.worker.ts` suffix:
+
+```
+src/modules/<module>/workers/
+  └── <queue-name>.worker.ts
+
+# or in packages
+packages/<package>/src/modules/<module>/workers/
+  └── <queue-name>.worker.ts
+```
+
+### Worker File Structure
+
+Each worker file must export:
+1. `metadata` - Worker configuration (`WorkerMeta` type)
+2. `default` - Handler function
+
+```typescript
+// src/modules/notifications/workers/email.worker.ts
+import type { QueuedJob, JobContext, WorkerMeta } from '@open-mercato/queue'
+
+// Required: Export metadata for auto-discovery
+export const metadata: WorkerMeta = {
+  queue: 'email-notifications',
+  concurrency: parseInt(process.env.WORKERS_EMAIL_CONCURRENCY || '2', 10),
+}
+
+type EmailJobPayload = {
+  to: string
+  subject: string
+  body: string
+}
+
+// Required: Export default handler function
+export default async function handle(
+  job: QueuedJob<EmailJobPayload>,
+  ctx: JobContext
+): Promise<void> {
+  const { to, subject, body } = job.payload
+  console.log(`[email-worker] Sending email to ${to}: ${subject}`)
+  // Your job processing logic here
+}
+```
+
+### WorkerMeta Type
+
+```typescript
+type WorkerMeta = {
+  /** Queue name this worker processes */
+  queue: string
+  /** Optional unique identifier (defaults to <module>:workers:<filename>) */
+  id?: string
+  /** Worker concurrency (default: 1) */
+  concurrency?: number
+}
+```
+
+### Per-Queue Concurrency
+
+Control concurrency per queue via environment variables:
+
+```bash
+# Format: WORKERS_<QUEUE_NAME>_CONCURRENCY
+WORKERS_EVENTS_CONCURRENCY=5
+WORKERS_EMAIL_NOTIFICATIONS_CONCURRENCY=2
+WORKERS_FULLTEXT_INDEXING_CONCURRENCY=10
+```
+
+### Existing Workers
+
+Open Mercato includes these built-in workers:
+
+| Worker | Queue | Purpose |
+|--------|-------|---------|
+| `events.worker.ts` | `events` | Dispatches persistent events to subscribers |
+| `fulltext-index.worker.ts` | `fulltext-indexing` | Indexes documents for Meilisearch |
+| `vector-index.worker.ts` | `vector-indexing` | Generates embeddings for vector search |

@@ -10,5 +10,4 @@ export type {
   SearchIndexerOptions,
 } from './search-indexer'
 
-export { createSearchIndexSubscriber, metadata as searchIndexMetadata } from './subscribers/upsert'
 export { createSearchDeleteSubscriber, metadata as searchDeleteMetadata } from './subscribers/delete'

@@ -18,7 +18,7 @@ Each file exports handlers for HTTP methods (GET, POST, PUT, DELETE, etc.) follo
 ```ts title="api/organizations/invite/route.ts"
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { createRequestContainer } from "@open-mercato/shared/lib/di/container";
+import { createRequestContainer } from "@/lib/di/container";
 import type { AuthContext } from "@open-mercato/shared/lib/auth/server";
 
 const inputSchema = z.object({

@@ -32,7 +32,7 @@ The Open Mercato framework uses a module-based architecture where routes and pag
 Frontend pages are located in `src/modules/<module>/frontend/<path>.tsx` and are automatically mapped to `/<path>`.
 
 ```typescript
-// src/modules/example/frontend/products/page.tsx
+// packages/my-module/src/modules/my_module/frontend/products/page.tsx
 export default function ProductsPage() {
   return (
     <div>
@@ -48,7 +48,7 @@ export default function ProductsPage() {
 Backend pages are located in `src/modules/<module>/backend/<path>.tsx` and are automatically mapped to `/backend/<path>`.
 
 ```typescript
-// src/modules/example/backend/todos/page.tsx
+// packages/my-module/src/modules/my_module/backend/todos/page.tsx
 import { Page, PageHeader, PageBody } from '@open-mercato/ui/backend/Page'
 
 export default function TodosPage() {
@@ -68,7 +68,7 @@ export default function TodosPage() {
 Pages can have metadata for navigation, authentication, and other configuration:
 
 ```typescript
-// src/modules/example/backend/todos/page.meta.ts
+// packages/my-module/src/modules/my_module/backend/todos/page.meta.ts
 export const metadata = {
   requireAuth: true,
   requireRoles: ['admin'] as const,
@@ -101,10 +101,10 @@ API routes are located in `src/modules/<module>/api/<path>/route.ts` and are aut
 ### Basic API Route
 
 ```typescript
-// src/modules/example/api/todos/route.ts
+// packages/my-module/src/modules/my_module/api/todos/route.ts
 import { NextResponse } from 'next/server'
-import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
-import { getAuthFromCookies } from '@open-mercato/shared/lib/auth/server'
+import { createRequestContainer } from '@/lib/di/container'
+import { getAuthFromCookies } from '@/lib/auth/server'
 
 export async function GET(request: Request) {
   try {
@@ -128,7 +128,7 @@ export async function GET(request: Request) {
 API routes support per-HTTP-method metadata for fine-grained authorization:
 
 ```typescript
-// src/modules/example/api/todos/route.ts
+// packages/my-module/src/modules/my_module/api/todos/route.ts
 export const metadata = {
   GET: {
     requireAuth: true,
@@ -223,7 +223,7 @@ export async function GET(request: Request) {
 In page components:
 
 ```typescript
-import { getAuthFromCookies } from '@open-mercato/shared/lib/auth/server'
+import { getAuthFromCookies } from '@/lib/auth/server'
 
 export default async function ProtectedPage() {
   const auth = await getAuthFromCookies()
@@ -388,7 +388,7 @@ export async function GET(request: Request): Promise<Response> {
 
 **Backend Page:**
 ```typescript
-// src/modules/example/backend/todos/page.tsx
+// packages/my-module/src/modules/my_module/backend/todos/page.tsx
 import { Page, PageHeader, PageBody } from '@open-mercato/ui/backend/Page'
 import TodosTable from '../../components/TodosTable'
 
@@ -409,7 +409,7 @@ export default function TodosPage() {
 
 **Page Metadata:**
 ```typescript
-// src/modules/example/backend/todos/page.meta.ts
+// packages/my-module/src/modules/my_module/backend/todos/page.meta.ts
 export const metadata = {
   requireAuth: true,
   requireRoles: ['admin'] as const,
@@ -422,10 +422,10 @@ export const metadata = {
 
 **API Route:**
 ```typescript
-// src/modules/example/api/todos/route.ts
-import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
-import { getAuthFromCookies } from '@open-mercato/shared/lib/auth/server'
-import { E } from '@open-mercato/example/datamodel/entities'
+// packages/my-module/src/modules/my_module/api/todos/route.ts
+import { createRequestContainer } from '@/lib/di/container'
+import { getAuthFromCookies } from '@/lib/auth/server'
+import { E } from '@/generated/entities.ids.generated'
 import type { QueryEngine } from '@open-mercato/shared/lib/query/types'
 
 export const metadata = {
