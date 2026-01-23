@@ -1,4 +1,6 @@
-import { parseExpression } from 'cron-parser'
+import parser from 'cron-parser'
+
+const { parseExpression } = parser
 
 export interface CronParseResult {
   isValid: boolean

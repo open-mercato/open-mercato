@@ -1,0 +1,99 @@
+{
+  "scheduler": {
+    "module": {
+      "title": "Zaplanowane zadania",
+      "description": "Zarządzaj automatycznymi zaplanowanymi zadaniami z wyrażeniami cron lub prostymi interwałami."
+    },
+    "title": "Zaplanowane zadania",
+    "loading": "Ładowanie harmonogramu...",
+    "search": {
+      "placeholder": "Szukaj harmonogramów..."
+    },
+    "field": {
+      "name": "Nazwa",
+      "description": "Opis",
+      "schedule_type": "Typ",
+      "schedule": "Harmonogram",
+      "schedule_value": "Wartość harmonogramu",
+      "target": "Cel",
+      "next_run": "Następne uruchomienie",
+      "status": "Status",
+      "active": "Aktywny",
+      "source": "Źródło",
+      "timezone": "Strefa czasowa"
+    },
+    "scope": {
+      "system": "System",
+      "organization": "Organizacja",
+      "tenant": "Najemca"
+    },
+    "type": {
+      "cron": "Wyrażenie Cron",
+      "interval": "Prosty interwał"
+    },
+    "target": {
+      "queue": "Kolejka",
+      "command": "Polecenie"
+    },
+    "status": {
+      "enabled": "Włączony",
+      "disabled": "Wyłączony"
+    },
+    "action": {
+      "create": "Nowy harmonogram",
+      "view": "Podgląd",
+      "edit": "Edytuj",
+      "delete": "Usuń",
+      "trigger": "Uruchom teraz",
+      "refresh": "Odśwież"
+    },
+    "create": {
+      "title": "Utwórz harmonogram"
+    },
+    "edit": {
+      "title": "Edytuj harmonogram"
+    },
+    "form": {
+      "name": "Nazwa",
+      "name.required": "Nazwa jest wymagana",
+      "description": "Opis",
+      "scope_type": "Zakres",
+      "schedule_type": "Typ harmonogramu",
+      "schedule": "Harmonogram",
+      "schedule.required": "Harmonogram jest wymagany",
+      "schedule_value": "Wartość harmonogramu",
+      "schedule_value.placeholder": "np. 0 */6 * * * lub 15m",
+      "schedule_value.description": "Dla cron: użyj wyrażenia cron (np. \"0 0 * * *\"). Dla interwału: użyj formatu jak \"15m\", \"2h\", \"1d\" (s=sekundy, m=minuty, h=godziny, d=dni)",
+      "timezone": "Strefa czasowa",
+      "target_type": "Typ celu",
+      "target_queue": "Kolejka docelowa",
+      "target_queue.placeholder": "np. email-sender",
+      "target_command": "Polecenie docelowe",
+      "target_command.placeholder": "np. sync:data",
+      "is_enabled": "Włączony",
+      "submit": "Utwórz harmonogram",
+      "save": "Zapisz zmiany"
+    },
+    "confirm": {
+      "delete": "Czy na pewno chcesz usunąć ten harmonogram?"
+    },
+    "success": {
+      "created": "Harmonogram utworzony pomyślnie",
+      "updated": "Harmonogram zaktualizowany pomyślnie",
+      "deleted": "Harmonogram usunięty pomyślnie",
+      "triggered": "Harmonogram uruchomiony pomyślnie"
+    },
+    "error": {
+      "fetch_failed": "Nie udało się załadować harmonogramów",
+      "load_failed": "Nie udało się załadować harmonogramu",
+      "not_found": "Harmonogram nie znaleziony",
+      "delete_failed": "Nie udało się usunąć harmonogramu",
+      "trigger_failed": "Nie udało się uruchomić harmonogramu"
+    },
+    "audit": {
+      "create": "Utwórz harmonogram",
+      "update": "Zaktualizuj harmonogram",
+      "delete": "Usuń harmonogram"
+    }
+  }
+}

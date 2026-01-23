@@ -1,10 +1,10 @@
 import * as esbuild from 'esbuild'
 import { glob } from 'glob'
-import { readFileSync, writeFileSync, existsSync } from 'node:fs'
+import { readFileSync, writeFileSync, existsSync, mkdirSync, copyFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 
-const entryPoints = await glob('src/**/*.ts', {
-  ignore: ['**/__tests__/**', '**/*.test.ts']
+const entryPoints = await glob('src/**/*.{ts,tsx}', {
+  ignore: ['**/__tests__/**', '**/*.test.ts', '**/*.test.tsx']
 })
 
 // Plugin to add .js extension to relative imports
@@ -57,5 +57,14 @@ await esbuild.build({
   sourcemap: true,
   plugins: [addJsExtension],
 })
+
+// Copy JSON files (translations, etc.)
+const jsonFiles = await glob('src/**/*.json')
+for (const jsonFile of jsonFiles) {
+  const destPath = jsonFile.replace('src/', 'dist/')
+  const destDir = dirname(destPath)
+  mkdirSync(destDir, { recursive: true })
+  copyFileSync(jsonFile, destPath)
+}
 
 console.log('scheduler built successfully')
