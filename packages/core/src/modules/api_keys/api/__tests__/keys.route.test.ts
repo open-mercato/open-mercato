@@ -59,7 +59,7 @@ const mockContainer: MockContainer = {
     return undefined
   }),
 }
-const mockHashApiKey = jest.fn<string, [string]>((secret) => `hashed:${secret}`)
+const mockHashApiKey = jest.fn<Promise<string>, [string]>((secret) => Promise.resolve(`hashed:${secret}`))
 
 jest.mock('@open-mercato/shared/lib/di/container', () => ({
   createRequestContainer: jest.fn(async () => mockContainer),
