@@ -4,19 +4,13 @@ set -e
 
 COMMIT_HASH=$(git rev-parse --short=10 HEAD)
 
-echo "==> Bumping patch version..."
-yarn workspaces foreach -A --no-private version patch
+# Get base version from shared package, bump patch, add canary suffix
+BASE_VERSION=$(jq -r '.version' packages/shared/package.json | sed -E 's/-.*$//')
+IFS='.' read -r major minor patch <<< "$BASE_VERSION"
+CANARY_VERSION="${major}.${minor}.$((patch + 1))-canary-${COMMIT_HASH}"
 
-echo "==> Adding canary suffix (-canary-${COMMIT_HASH})..."
-for pkg_json in packages/*/package.json; do
-  is_private=$(jq -r '.private // false' "$pkg_json")
-  [ "$is_private" = "true" ] && continue
-
-  current=$(jq -r '.version' "$pkg_json")
-  canary="${current}-canary-${COMMIT_HASH}"
-  jq --arg v "$canary" '.version = $v' "$pkg_json" > tmp.$$ && mv tmp.$$ "$pkg_json"
-  echo "  $(jq -r '.name' "$pkg_json"): $canary"
-done
+echo "==> Setting version to ${CANARY_VERSION}..."
+yarn workspaces foreach -A --no-private version "$CANARY_VERSION"
 
 echo "==> Building packages..."
 yarn build:packages
