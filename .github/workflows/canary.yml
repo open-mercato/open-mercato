@@ -72,8 +72,8 @@ jobs:
               table += `\n| \`${pkg.name}\` | \`${pkg.version}\` |`;
             }
 
-            const samplePkg = packages.find(p => p.name === '@open-mercato/shared') || packages[0];
-            const sampleVersion = samplePkg?.version || 'VERSION';
+            const createAppPkg = packages.find(p => p.name === 'create-mercato-app');
+            const createAppVersion = createAppPkg?.version || 'VERSION';
 
             const body = `${marker}
             ## Canary Release Published
@@ -82,12 +82,18 @@ jobs:
 
             ${table}
 
-            ### Install
+            ### Create a new app
 
             \`\`\`bash
-            npm install @open-mercato/shared@${sampleVersion}
+            npx create-mercato-app@${createAppVersion} my-app
+            \`\`\`
+
+            ### Install packages
+
+            \`\`\`bash
+            npm install @open-mercato/shared@${createAppVersion}
             # or
-            yarn add @open-mercato/shared@${sampleVersion}
+            yarn add @open-mercato/shared@${createAppVersion}
             \`\`\`
             `;
 
