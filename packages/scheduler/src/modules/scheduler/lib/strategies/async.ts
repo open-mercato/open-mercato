@@ -1,10 +1,8 @@
-// Note: Requires 'redlock' and 'ioredis' packages
-// import Redlock from 'redlock'
-// import { Redis } from 'ioredis'
-
 /**
  * Redis-based distributed lock strategy for multi-instance deployments
- * TODO: Implement once redlock and ioredis are added as dependencies
+ * 
+ * Uses Redlock algorithm for distributed locking across multiple Redis instances.
+ * This prevents duplicate job execution when running multiple scheduler instances.
  */
 export class AsyncLockStrategy {
   private redlock: any = null
@@ -19,28 +17,34 @@ export class AsyncLockStrategy {
   private async initialize(): Promise<void> {
     if (this.redlock) return
 
-    throw new Error('AsyncLockStrategy not yet implemented. Requires redlock and ioredis dependencies.')
-    
-    // const url = this.redisUrl || process.env.REDIS_URL || process.env.QUEUE_REDIS_URL
-    // if (!url) {
-    //   throw new Error('Redis URL not configured for async lock strategy')
-    // }
+    const url = this.redisUrl || process.env.REDIS_URL || process.env.QUEUE_REDIS_URL
+    if (!url) {
+      throw new Error('Redis URL not configured for async lock strategy. Set REDIS_URL environment variable.')
+    }
 
-    // const { Redis } = await import('ioredis')
-    // const Redlock = (await import('redlock')).default
-    
-    // this.redis = new Redis(url)
-    // this.redlock = new Redlock([this.redis], {
-    //   driftFactor: 0.01,
-    //   retryCount: 0, // Don't retry, fail fast
-    //   retryDelay: 200,
-    //   retryJitter: 200,
-    //   automaticExtensionThreshold: 500,
-    // })
+    try {
+      // Dynamic imports to make Redis optional
+      const { default: Redis } = await import('ioredis')
+      const Redlock = (await import('redlock')).default
+      
+      this.redis = new Redis(url)
+      
+      // Configure Redlock for scheduler use case
+      this.redlock = new Redlock([this.redis], {
+        driftFactor: 0.01,      // Clock drift factor
+        retryCount: 0,          // Don't retry, fail fast (let next poll cycle try)
+        retryDelay: 200,        // Delay between retries (not used with retryCount=0)
+        retryJitter: 200,       // Jitter for retry delay (not used with retryCount=0)
+      })
 
-    // this.redlock.on('error', (error: Error) => {
-    //   console.error('[scheduler:async] Redlock error:', error)
-    // })
+      this.redlock.on('clientError', (error: Error) => {
+        console.error('[scheduler:async] Redis client error:', error)
+      })
+
+      console.log('[scheduler:async] Connected to Redis:', url.replace(/:[^:]+@/, ':****@'))
+    } catch (error: any) {
+      throw new Error(`Failed to initialize Redis for async strategy: ${error.message}. Install ioredis with: npm install ioredis`)
+    }
   }
 
   /**
