@@ -1,0 +1,48 @@
+{
+  "name": "@open-mercato/scheduler",
+  "version": "0.1.0",
+  "description": "Database-managed scheduled jobs with admin UI",
+  "type": "module",
+  "main": "./dist/index.js",
+  "scripts": {
+    "build": "node build.mjs",
+    "watch": "node watch.mjs",
+    "test": "jest --config jest.config.cjs",
+    "typecheck": "tsc --noEmit"
+  },
+  "exports": {
+    ".": {
+      "types": "./src/index.ts",
+      "default": "./dist/index.js"
+    },
+    "./*": {
+      "types": [
+        "./src/*.ts"
+      ],
+      "default": "./dist/*.js"
+    },
+    "./*/*": {
+      "types": [
+        "./src/*/*.ts"
+      ],
+      "default": "./dist/*/*.js"
+    }
+  },
+  "dependencies": {
+    "@open-mercato/queue": "workspace:*",
+    "@open-mercato/events": "workspace:*",
+    "@open-mercato/shared": "workspace:*",
+    "@mikro-orm/core": "workspace:*",
+    "cron-parser": "^4.9.0",
+    "redlock": "^5.0.0"
+  },
+  "devDependencies": {
+    "@types/jest": "^30.0.0",
+    "@types/node": "^20.0.0",
+    "jest": "^30.2.0",
+    "ts-jest": "^29.4.6"
+  },
+  "publishConfig": {
+    "access": "public"
+  }
+}
