@@ -4,31 +4,44 @@ Database-managed scheduled jobs with admin UI for Open Mercato.
 
 ## Status
 
-**Phase 1 Complete: Core Infrastructure** ✅
+**Production Ready** ✅
+
+The scheduler now uses **BullMQ's repeatable jobs** for robust, distributed scheduling.
 
 - [x] Package structure created
 - [x] Database entities defined (ScheduledJob, ScheduledJobRun)
 - [x] Cron parser implemented (using cron-parser library)
 - [x] Interval parser implemented (15m, 2h, 1d formats)
-- [x] Next run calculator implemented
-- [x] Scheduler engine with locking strategies
+- [x] **BullMQ repeatable jobs integration** (Phase 4 refactoring)
+- [x] Execution worker with event emissions
 - [x] SchedulerService (public API for modules)
+- [x] CLI commands (list, status, run, start)
+- [x] History cleanup worker
 - [x] ACL features defined
+- [x] Full Admin UI (Phase 3)
 
 ## Features
 
-### Completed
+### Architecture
+
+**BullMQ-Based Scheduling** (Recommended)
+
+The scheduler uses BullMQ's repeatable jobs for exact timing and distributed locking:
+
+1. **Database as Source of Truth**: Schedules stored in PostgreSQL
+2. **BullMQ Manages Timing**: Repeatable jobs trigger at exact times (no polling)
+3. **Worker Executes**: `execute-schedule.worker.ts` loads fresh config and enqueues target job
+4. **Automatic Sync**: Changes to schedules automatically sync with BullMQ
+
+**Key Components:**
 
 - **Database Entities**: `ScheduledJob` and `ScheduledJobRun` with MikroORM
-- **Schedule Parsers**: 
-  - Cron expressions (e.g., `*/30 * * * *`)
-  - Simple intervals (e.g., `15m`, `2h`, `1d`)
-- **Scheduler Engine**: Polls database, acquires locks, enqueues jobs
-- **Locking Strategies**:
-  - Local: PostgreSQL advisory locks (single-instance)
-  - Async: Redis distributed locks (multi-instance) - stub for now
+- **Schedule Parsers**: Cron expressions and simple intervals (15m, 2h, 1d)
+- **BullMQSchedulerService**: Syncs database schedules with BullMQ repeatable jobs
+- **Execution Worker**: Processes scheduled jobs with feature flag checks
 - **SchedulerService**: Public API for modules to register/unregister schedules
 - **Event Emissions**: `scheduler.job.started/completed/failed/skipped`
+- **History Cleanup**: Automatic 7-day retention worker
 
 ### Scope Types
 
@@ -77,26 +90,32 @@ export class CurrencySetupService {
 }
 ```
 
-### Starting the Scheduler Engine
+### Starting the Scheduler (BullMQ)
 
-```typescript
-import { SchedulerEngine } from '@open-mercato/scheduler'
-import { createEventBus } from '@open-mercato/events'
-import { createQueue } from '@open-mercato/queue'
+The scheduler now uses BullMQ repeatable jobs. No need for a separate engine process!
 
-const engine = new SchedulerEngine(
-  () => em, // EntityManager factory
-  eventBus,
-  (queueName) => createQueue(queueName, 'local'),
-  rbacService,
-  {
-    strategy: 'local', // or 'async' for Redis
-    pollIntervalMs: 30000, // 30 seconds
-  }
-)
+**Setup:**
+1. Set `QUEUE_STRATEGY=async` and configure Redis
+2. Sync schedules with BullMQ: `yarn mercato scheduler start`
+3. Run workers to process jobs: `yarn mercato worker:start`
 
-await engine.start()
+**How it works:**
+- Schedules are stored in database (source of truth)
+- BullMQ creates repeatable jobs for each enabled schedule
+- Workers execute jobs at scheduled times
+- Changes to schedules automatically sync with BullMQ
+
+```bash
+# Sync all schedules with BullMQ
+yarn mercato scheduler start
+
+# Run workers (in separate process/container)
+yarn mercato worker:start
 ```
+
+**For local development (QUEUE_STRATEGY=local):**
+Workers will still process jobs, but scheduling won't be distributed.
+Consider using async strategy even in development for full functionality.
 
 ## Environment Variables
 

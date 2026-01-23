@@ -1,6 +1,7 @@
 import type { EntityManager } from '@mikro-orm/core'
 import { ScheduledJob } from '../data/entities.js'
 import { calculateNextRun } from './nextRunCalculator.js'
+import type { BullMQSchedulerService } from './bullmqSchedulerService.js'
 
 export interface ScheduleRegistration {
   id: string
@@ -23,7 +24,10 @@ export interface ScheduleRegistration {
 }
 
 export class SchedulerService {
-  constructor(private em: () => EntityManager) {}
+  constructor(
+    private em: () => EntityManager,
+    private bullmqService?: BullMQSchedulerService,
+  ) {}
 
   /**
    * Register a new schedule (upsert)
@@ -99,6 +103,20 @@ export class SchedulerService {
     }
     
     await em.flush()
+
+    // Sync with BullMQ if available
+    if (this.bullmqService && schedule) {
+      try {
+        if (schedule.isEnabled) {
+          await this.bullmqService.register(schedule)
+        } else {
+          await this.bullmqService.unregister(schedule.id)
+        }
+      } catch (error: any) {
+        console.error(`[scheduler] Failed to sync with BullMQ:`, error)
+        // Don't throw - DB is source of truth, BullMQ sync is best-effort
+      }
+    }
   }
 
   /**
@@ -110,6 +128,15 @@ export class SchedulerService {
     
     if (schedule) {
       await em.remove(schedule).flush()
+      
+      // Unregister from BullMQ if available
+      if (this.bullmqService) {
+        try {
+          await this.bullmqService.unregister(scheduleId)
+        } catch (error: any) {
+          console.error(`[scheduler] Failed to unregister from BullMQ:`, error)
+        }
+      }
     }
   }
 
@@ -162,6 +189,19 @@ export class SchedulerService {
     
     schedule.updatedAt = new Date()
     await em.flush()
+
+    // Sync with BullMQ if available
+    if (this.bullmqService) {
+      try {
+        if (schedule.isEnabled) {
+          await this.bullmqService.register(schedule)
+        } else {
+          await this.bullmqService.unregister(scheduleId)
+        }
+      } catch (error: any) {
+        console.error(`[scheduler] Failed to sync update with BullMQ:`, error)
+      }
+    }
   }
 
   /**
