@@ -38,7 +38,8 @@ jobs:
 
       - name: Configure npm authentication
         run: |
-          yarn config set npmAuthToken $NPM_TOKEN
+          echo "//registry.npmjs.org/:_authToken=${NPM_TOKEN}" > .npmrc
+          echo "access=public" >> .npmrc
         env:
           NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
 
