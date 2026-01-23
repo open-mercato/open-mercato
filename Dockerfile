@@ -6,8 +6,9 @@ ENV NODE_ENV=production \
 WORKDIR /app
 
 # Install system deps required by optional native modules
-RUN apt-get update \
- && apt-get install -y --no-install-recommends python3 build-essential ca-certificates openssl \
+RUN rm -rf /var/lib/apt/lists/* \
+ && apt-get update \
+ && apt-get install -y --no-install-recommends --fix-missing python3 build-essential ca-certificates openssl \
  && rm -rf /var/lib/apt/lists/*
 
 # Enable Corepack for Yarn
@@ -50,8 +51,9 @@ ENV NODE_ENV=production \
 WORKDIR /app
 
 # Install only production system dependencies
-RUN apt-get update \
- && apt-get install -y --no-install-recommends ca-certificates openssl \
+RUN rm -rf /var/lib/apt/lists/* \
+ && apt-get update \
+ && apt-get install -y --no-install-recommends --fix-missing ca-certificates openssl \
  && rm -rf /var/lib/apt/lists/*
 
 # Enable Corepack for Yarn
