@@ -1,6 +1,6 @@
 #!/bin/bash
 # Minor release: bump minor version, build, and publish with @latest tag
-set -e
+set -euo pipefail
 
 echo "==> Bumping minor version..."
 yarn workspaces foreach -A --no-private version minor

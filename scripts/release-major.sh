@@ -1,6 +1,6 @@
 #!/bin/bash
 # Major release: bump major version, build, and publish with @latest tag
-set -e
+set -euo pipefail
 
 echo "==> Bumping major version..."
 yarn workspaces foreach -A --no-private version major

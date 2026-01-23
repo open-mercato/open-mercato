@@ -16,6 +16,8 @@ jobs:
     runs-on: ubuntu-latest
     # Only run on push to develop, or PRs from the same repo (not forks)
     if: github.event_name == 'push' || github.event.pull_request.head.repo.full_name == github.repository
+    env:
+      YARN_NPM_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
     steps:
       - name: Checkout code
@@ -56,8 +58,6 @@ jobs:
 
           PACKAGE_COUNT=$(echo "$PACKAGES_JSON" | jq 'length')
           echo "package_count=$PACKAGE_COUNT" >> $GITHUB_OUTPUT
-        env:
-          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
 
       - name: Comment on PR
         if: github.event_name == 'pull_request' && steps.release.outputs.package_count != '0'

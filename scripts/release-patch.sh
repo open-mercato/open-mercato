@@ -1,6 +1,6 @@
 #!/bin/bash
 # Patch release: bump patch version, build, and publish with @latest tag
-set -e
+set -euo pipefail
 
 echo "==> Bumping patch version..."
 yarn workspaces foreach -A --no-private version patch
