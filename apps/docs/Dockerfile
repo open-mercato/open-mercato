@@ -49,11 +49,11 @@ RUN addgroup -g 1001 -S docuser && \
     chown -R docuser:docuser /usr/share/nginx/html
 
 # Default port (Dokploy will override via PORT env var)
-ENV PORT=3000
+ENV PORT=4000
 
 USER docuser
 
-EXPOSE 3000
+EXPOSE 4000
 
 # Health check
 HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
