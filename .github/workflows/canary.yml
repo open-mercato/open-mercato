@@ -65,17 +65,18 @@ jobs:
         with:
           script: |
             const packages = ${{ steps.release.outputs.packages_json }};
+            const marker = '<!-- canary-release-comment -->';
 
             let table = '| Package | Version |\n|---------|---------|';
             for (const pkg of packages) {
               table += `\n| \`${pkg.name}\` | \`${pkg.version}\` |`;
             }
 
-            // Get a sample version for the install example
             const samplePkg = packages.find(p => p.name === '@open-mercato/shared') || packages[0];
             const sampleVersion = samplePkg?.version || 'VERSION';
 
-            const body = `## Canary Release Published
+            const body = `${marker}
+            ## Canary Release Published
 
             The following packages have been published to npm:
 
@@ -90,9 +91,27 @@ jobs:
             \`\`\`
             `;
 
-            github.rest.issues.createComment({
-              issue_number: context.issue.number,
+            // Find existing comment
+            const { data: comments } = await github.rest.issues.listComments({
               owner: context.repo.owner,
               repo: context.repo.repo,
-              body: body
+              issue_number: context.issue.number,
             });
+
+            const existing = comments.find(c => c.body.includes(marker));
+
+            if (existing) {
+              await github.rest.issues.updateComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                comment_id: existing.id,
+                body: body
+              });
+            } else {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.issue.number,
+                body: body
+              });
+            }
