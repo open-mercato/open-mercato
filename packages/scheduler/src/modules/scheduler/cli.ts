@@ -228,6 +228,4 @@ const startCommand: ModuleCli = {
   },
 }
 
-export default {
-  commands: [listCommand, statusCommand, runCommand, startCommand],
-}
+export default [listCommand, statusCommand, runCommand, startCommand]

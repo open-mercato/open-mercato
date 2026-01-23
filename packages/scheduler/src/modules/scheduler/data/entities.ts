@@ -103,30 +103,15 @@ export class ScheduledJobRun {
   @Property({ type: 'text', default: 'running' })
   status!: 'running' | 'completed' | 'failed' | 'skipped'
 
-  @Property({ name: 'queue_job_id', type: 'text', nullable: true })
-  queueJobId?: string | null
-
-  @Property({ name: 'queue_name', type: 'text', nullable: true })
-  queueName?: string | null
-
-  @Property({ name: 'error_message', type: 'text', nullable: true })
-  errorMessage?: string | null
-
-  @Property({ name: 'error_stack', type: 'text', nullable: true })
-  errorStack?: string | null
-
   @Property({ name: 'trigger_type', type: 'text' })
   triggerType!: 'scheduled' | 'manual'
 
   @Property({ name: 'triggered_by_user_id', type: 'uuid', nullable: true })
   triggeredByUserId?: string | null
 
-  @Property({ name: 'duration_ms', type: 'integer', nullable: true })
-  durationMs?: number | null
+  @Property({ name: 'error_message', type: 'text', nullable: true })
+  errorMessage?: string | null
 
-  @Property({ type: 'jsonb', nullable: true })
-  payload?: Record<string, unknown> | null
-
-  @Property({ name: 'created_at', type: Date, defaultRaw: 'now()' })
-  createdAt!: Date
+  @Property({ name: 'result_payload', type: 'jsonb', nullable: true })
+  resultPayload?: Record<string, unknown> | null
 }
