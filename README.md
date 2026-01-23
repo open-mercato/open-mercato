@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="docs/static/img/open-mercato.svg" alt="Open Mercato logo" width="120" />
+  <img src="apps/docs/static/img/open-mercato.svg" alt="Open Mercato logo" width="120" />
 </p>
 
 # Open Mercato
@@ -38,9 +38,9 @@ Open Mercato is a new‑era, AI‑supportive platform for shipping enterprise‑
 
 <table>
   <tr>
-    <td><a href="docs/static/screenshots/open-mercato-orders-order-shipments.png"><img src="docs/static/screenshots/open-mercato-orders-order-shipments.png" alt="Order shipments timeline" width="260"/></a></td>
-    <td><a href="docs/static/screenshots/open-mercato-edit-organization.png"><img src="docs/static/screenshots/open-mercato-edit-organization.png" alt="Editing an organization" width="260"/></a></td>
-    <td><a href="docs/static/screenshots/open-mercato-users-management.png"><img src="docs/static/screenshots/open-mercato-users-management.png" alt="Users management view" width="260"/></a></td>
+    <td><a href="app/docs/static/screenshots/open-mercato-orders-order-shipments.png"><img src="app/docs/static/screenshots/open-mercato-orders-order-shipments.png" alt="Order shipments timeline" width="260"/></a></td>
+    <td><a href="app/docs/static/screenshots/open-mercato-edit-organization.png"><img src="app/docs/static/screenshots/open-mercato-edit-organization.png" alt="Editing an organization" width="260"/></a></td>
+    <td><a href="app/docs/static/screenshots/open-mercato-users-management.png"><img src="app/docs/static/screenshots/open-mercato-users-management.png" alt="Users management view" width="260"/></a></td>
   </tr>
   <tr>
     <td style="text-align:center;">Order Shipments</td>
@@ -48,9 +48,9 @@ Open Mercato is a new‑era, AI‑supportive platform for shipping enterprise‑
     <td style="text-align:center;">Users</td>
   </tr>
   <tr>
-    <td><a href="docs/static/screenshots/open-mercato-managing-roles.png"><img src="docs/static/screenshots/open-mercato-managing-roles.png" alt="Managing roles and permissions" width="260"/></a></td>
-    <td><a href="docs/static/screenshots/open-mercato-define-custom-fields.png"><img src="docs/static/screenshots/open-mercato-define-custom-fields.png" alt="Defining custom fields" width="260"/></a></td>
-    <td><a href="docs/static/screenshots/open-mercato-custom-entity-records.png"><img src="docs/static/screenshots/open-mercato-custom-entity-records.png" alt="Managing custom entity records" width="260"/></a></td>
+    <td><a href="app/docs/static/screenshots/open-mercato-managing-roles.png"><img src="app/docs/static/screenshots/open-mercato-managing-roles.png" alt="Managing roles and permissions" width="260"/></a></td>
+    <td><a href="app/docs/static/screenshots/open-mercato-define-custom-fields.png"><img src="app/docs/static/screenshots/open-mercato-define-custom-fields.png" alt="Defining custom fields" width="260"/></a></td>
+    <td><a href="app/docs/static/screenshots/open-mercato-custom-entity-records.png"><img src="app/docs/static/screenshots/open-mercato-custom-entity-records.png" alt="Managing custom entity records" width="260"/></a></td>
   </tr>
   <tr>
     <td style="text-align:center;">Roles &amp; ACL</td>
@@ -58,9 +58,9 @@ Open Mercato is a new‑era, AI‑supportive platform for shipping enterprise‑
     <td style="text-align:center;">Custom Entity Records</td>
   </tr>
   <tr>
-    <td><a href="docs/static/screenshots/open-mercato-people-add-new.png"><img src="docs/static/screenshots/open-mercato-people-add-new.png" alt="Add new customer form" width="260"/></a></td>
-    <td><a href="docs/static/screenshots/open-mercato-deals-listing.png"><img src="docs/static/screenshots/open-mercato-deals-listing.png" alt="Deals pipeline board" width="260"/></a></td>
-    <td><a href="docs/static/screenshots/open-mercato-people-notes.png"><img src="docs/static/screenshots/open-mercato-people-notes.png" alt="Customer notes timeline" width="260"/></a></td>
+    <td><a href="app/docs/static/screenshots/open-mercato-people-add-new.png"><img src="app/docs/static/screenshots/open-mercato-people-add-new.png" alt="Add new customer form" width="260"/></a></td>
+    <td><a href="app/docs/static/screenshots/open-mercato-deals-listing.png"><img src="app/docs/static/screenshots/open-mercato-deals-listing.png" alt="Deals pipeline board" width="260"/></a></td>
+    <td><a href="app/docs/static/screenshots/open-mercato-people-notes.png"><img src="app/docs/static/screenshots/open-mercato-people-notes.png" alt="Customer notes timeline" width="260"/></a></td>
   </tr>
   <tr>
     <td style="text-align:center;">Add New Customer</td>
@@ -68,9 +68,9 @@ Open Mercato is a new‑era, AI‑supportive platform for shipping enterprise‑
     <td style="text-align:center;">Customer Notes</td>
   </tr>
   <tr>
-    <td><a href="docs/static/screenshots/open-mercato-sales-pipeline.png"><img src="docs/static/screenshots/open-mercato-sales-pipeline.png" alt="Sales pipeline board view" width="260"/></a></td>
-    <td><a href="docs/static/screenshots/open-mercato-orders-order-shipments.png"><img src="docs/static/screenshots/open-mercato-orders-order-shipments.png" alt="Order shipments timeline" width="260"/></a></td>
-    <td><a href="docs/static/screenshots/open-mercato-orders-order-totals.png"><img src="docs/static/screenshots/open-mercato-orders-order-totals.png" alt="Order totals breakdown" width="260"/></a></td>
+    <td><a href="app/docs/static/screenshots/open-mercato-sales-pipeline.png"><img src="app/docs/static/screenshots/open-mercato-sales-pipeline.png" alt="Sales pipeline board view" width="260"/></a></td>
+    <td><a href="app/docs/static/screenshots/open-mercato-orders-order-shipments.png"><img src="app/docs/static/screenshots/open-mercato-orders-order-shipments.png" alt="Order shipments timeline" width="260"/></a></td>
+    <td><a href="app/docs/static/screenshots/open-mercato-orders-order-totals.png"><img src="app/docs/static/screenshots/open-mercato-orders-order-totals.png" alt="Order totals breakdown" width="260"/></a></td>
   </tr>
   <tr>
     <td style="text-align:center;">Sales Pipeline</td>
@@ -78,9 +78,9 @@ Open Mercato is a new‑era, AI‑supportive platform for shipping enterprise‑
     <td style="text-align:center;">Order Totals</td>
   </tr>
   <tr>
-    <td><a href="docs/static/screenshots/open-mercato-catalog-products.png"><img src="docs/static/screenshots/open-mercato-catalog-products.png" alt="Catalog products list" width="260"/></a></td>
-    <td><a href="docs/static/screenshots/open-mercato-sales-channels.png"><img src="docs/static/screenshots/open-mercato-sales-channels.png" alt="Sales channels overview" width="260"/></a></td>
-    <td><a href="docs/static/screenshots/open-mercato-all-sales-channels-offers.png"><img src="docs/static/screenshots/open-mercato-all-sales-channels-offers.png" alt="Sales channel offers listing" width="260"/></a></td>
+    <td><a href="app/docs/static/screenshots/open-mercato-catalog-products.png"><img src="app/docs/static/screenshots/open-mercato-catalog-products.png" alt="Catalog products list" width="260"/></a></td>
+    <td><a href="app/docs/static/screenshots/open-mercato-sales-channels.png"><img src="app/docs/static/screenshots/open-mercato-sales-channels.png" alt="Sales channels overview" width="260"/></a></td>
+    <td><a href="app/docs/static/screenshots/open-mercato-all-sales-channels-offers.png"><img src="app/docs/static/screenshots/open-mercato-all-sales-channels-offers.png" alt="Sales channel offers listing" width="260"/></a></td>
   </tr>
   <tr>
     <td style="text-align:center;">Catalog Products</td>
@@ -89,7 +89,7 @@ Open Mercato is a new‑era, AI‑supportive platform for shipping enterprise‑
   </tr>
   <tr>
     <td colspan="3" style="text-align:center;" halign="center">
-      <a href="docs/static/screenshots/open-mercato-homepage.png"><img src="docs/static/screenshots/open-mercato-homepage.png" alt="Home page showing enabled modules" width="520"/></a>
+      <a href="app/docs/static/screenshots/open-mercato-homepage.png"><img src="app/docs/static/screenshots/open-mercato-homepage.png" alt="Home page showing enabled modules" width="520"/></a>
     </td>
   </tr>
   <tr>
@@ -196,6 +196,7 @@ This script prepares module registries, generates/applies migrations, seeds defa
 Navigate to `http://localhost:3000/backend` and sign in with the credentials printed by `yarn mercato init`.
 
 If you plan to use the self-service onboarding flow or send transactional emails, opt-in by setting the following environment variables in your `.env` file before starting the server (the onboarding toggle defaults to `false`):
+
 ```env
 RESEND_API_KEY=your_resend_api_key
 APP_URL=http://localhost:3000
