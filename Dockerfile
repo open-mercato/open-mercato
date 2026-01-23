@@ -1,15 +1,12 @@
-FROM node:24-bookworm-slim AS builder
+FROM node:24-alpine AS builder
 
 ENV NODE_ENV=production \
     NEXT_TELEMETRY_DISABLED=1
 
 WORKDIR /app
 
-# Install system deps required by optional native modules
-RUN rm -rf /var/lib/apt/lists/* \
- && apt-get update \
- && apt-get install -y --no-install-recommends --fix-missing python3 build-essential ca-certificates openssl \
- && rm -rf /var/lib/apt/lists/*
+# Install system deps required by optional native modules (Alpine uses apk)
+RUN apk add --no-cache python3 make g++ ca-certificates openssl
 
 # Enable Corepack for Yarn
 RUN corepack enable
@@ -42,7 +39,7 @@ RUN yarn generate
 RUN yarn build:app
 
 # Production stage
-FROM node:24-bookworm-slim AS runner
+FROM node:24-alpine AS runner
 
 ENV NODE_ENV=production \
     NEXT_TELEMETRY_DISABLED=1 \
@@ -50,11 +47,8 @@ ENV NODE_ENV=production \
 
 WORKDIR /app
 
-# Install only production system dependencies
-RUN rm -rf /var/lib/apt/lists/* \
- && apt-get update \
- && apt-get install -y --no-install-recommends --fix-missing ca-certificates openssl \
- && rm -rf /var/lib/apt/lists/*
+# Install only production system dependencies (Alpine uses apk)
+RUN apk add --no-cache ca-certificates openssl
 
 # Enable Corepack for Yarn
 RUN corepack enable
@@ -87,8 +81,8 @@ COPY --from=builder /app/apps/mercato/types ./apps/mercato/types
 # Copy runtime configuration files
 COPY --from=builder /app/newrelic.js ./
 
-# Drop root privileges
-RUN useradd --create-home --uid 1001 omuser \
+# Drop root privileges (Alpine uses adduser instead of useradd)
+RUN adduser -D -u 1001 omuser \
  && chown -R omuser:omuser /app
 
 USER omuser
