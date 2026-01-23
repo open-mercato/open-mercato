@@ -219,6 +219,26 @@ Browse the full documentation at [docs.openmercato.com](https://docs.openmercato
 - [CLI Reference](https://docs.openmercato.com/cli/overview)
 - [Appendix](https://docs.openmercato.com/appendix/troubleshooting)
 
+## Spec Driven Development
+
+Open Mercato follows a **spec-first development approach**. Before implementing new features or making significant changes, we document the design in the `.ai/specs/` folder.
+
+### Why Specs?
+
+- **Clarity**: Specs ensure everyone understands the feature before coding starts
+- **Consistency**: Design decisions are documented and can be referenced by humans and AI agents
+- **Traceability**: Each spec maintains a changelog tracking the evolution of the feature
+
+### How It Works
+
+1. **Before coding**: Check if a spec exists at `.ai/specs/<module-name>.md`
+2. **New features**: Create or update the spec with your design before implementation
+3. **After changes**: Update the spec's changelog with a dated summary
+
+Example specs: `notifications-module.md`, `messages-module.md`, `ui-reusable-components.md`
+
+See [`.ai/specs/AGENTS.md`](.ai/specs/AGENTS.md) for detailed guidelines on maintaining specs.
+
 ## Join us on Discord
 
 Connect with the team and other builders in our Discord community: [https://discord.gg/f4qwPtJ3qA](https://discord.gg/f4qwPtJ3qA).
