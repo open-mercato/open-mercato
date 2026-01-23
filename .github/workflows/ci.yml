@@ -44,3 +44,40 @@ jobs:
 
       - name: Build
         run: yarn build:app
+
+  docker-build:
+    runs-on: ubuntu-latest
+    # Only run on non-fork PRs (forks don't have access to GHA cache)
+    if: github.event.pull_request.head.repo.full_name == github.repository
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build docs Dockerfile
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: apps/docs/Dockerfile
+          push: false
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Build fullapp (main app)
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: Dockerfile
+          push: false
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Build opencode container
+        uses: docker/build-push-action@v6
+        with:
+          context: ./docker/opencode
+          push: false
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
