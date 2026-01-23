@@ -260,7 +260,7 @@ For production deployments, ensure strong `JWT_SECRET`, secure database credenti
 
 ## Live demo
 
-[![Explore the Open Mercato live demo](docs/static/screenshots/open-mercato-onboarding-showoff.png)](https://demo.openmercato.com)
+[![Explore the Open Mercato live demo](apps/docs/static/screenshots/open-mercato-onboarding-showoff.png)](https://demo.openmercato.com)
 
 ## Documentation
 
