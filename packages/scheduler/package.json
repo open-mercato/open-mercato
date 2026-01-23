@@ -29,12 +29,11 @@
     }
   },
   "dependencies": {
-    "@open-mercato/queue": "workspace:*",
     "@open-mercato/events": "workspace:*",
+    "@open-mercato/queue": "workspace:*",
     "@open-mercato/shared": "workspace:*",
-    "@mikro-orm/core": "workspace:*",
     "cron-parser": "^4.9.0",
-    "redlock": "^5.0.0"
+    "redlock": "^4.2.0"
   },
   "devDependencies": {
     "@types/jest": "^30.0.0",

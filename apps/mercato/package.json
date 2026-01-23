@@ -30,6 +30,7 @@
     "@open-mercato/events": "workspace:*",
     "@open-mercato/onboarding": "workspace:*",
     "@open-mercato/queue": "workspace:*",
+    "@open-mercato/scheduler": "workspace:*",
     "@open-mercato/search": "workspace:*",
     "@open-mercato/shared": "workspace:*",
     "@open-mercato/ui": "workspace:*",
