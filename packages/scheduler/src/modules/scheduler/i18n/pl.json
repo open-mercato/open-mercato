@@ -65,6 +65,7 @@
       "schedule_value.placeholder": "np. 0 */6 * * * lub 15m",
       "schedule_value.description": "Dla cron: użyj wyrażenia cron (np. \"0 0 * * *\"). Dla interwału: użyj formatu jak \"15m\", \"2h\", \"1d\" (s=sekundy, m=minuty, h=godziny, d=dni)",
       "timezone": "Strefa czasowa",
+      "timezone.placeholder": "Szukaj strefy czasowej...",
       "target_type": "Typ celu",
       "target_queue": "Kolejka docelowa",
       "target_queue.placeholder": "np. email-sender",
@@ -72,7 +73,12 @@
       "target_command.placeholder": "np. sync:data",
       "is_enabled": "Włączony",
       "submit": "Utwórz harmonogram",
-      "save": "Zapisz zmiany"
+      "save": "Zapisz zmiany",
+      "group": {
+        "basic": "Podstawowe informacje",
+        "schedule": "Konfiguracja harmonogramu",
+        "target": "Konfiguracja celu"
+      }
     },
     "confirm": {
       "delete": "Czy na pewno chcesz usunąć ten harmonogram?"
