@@ -29,14 +29,9 @@ COPY newrelic.js ./
 COPY jest.config.cjs jest.setup.ts jest.dom.setup.ts ./
 COPY eslint.config.mjs ./
 
-# Build packages first
-RUN yarn build:packages
-
-# Generate module registry files (required before building the app)
-RUN yarn generate
 
 # Build the app
-RUN yarn build:app
+RUN yarn build
 
 # Production stage
 FROM node:24-alpine AS runner
