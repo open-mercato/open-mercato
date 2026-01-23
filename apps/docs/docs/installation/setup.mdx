@@ -154,9 +154,217 @@ yarn mercato init
 docker exec mercato-postgres psql -U postgres -d open-mercato -c "SELECT extname, extversion FROM pg_extension WHERE extname = 'vector';"
 ```
 
-For advanced/manual flows (custom migration control, selective seeding, etc.) see the CLI reference in the repository README.
-If you want to deploy the application together with the redis and postgresql you can run: 
+## Docker Deployment (Full Stack)
 
+Run the complete Open Mercato stack with Docker Compose, including the application, PostgreSQL, Redis, and Meilisearch. This approach is ideal for quick demos, testing, or containerized deployments.
+
+### Prerequisites
+
+- Docker 24+ and Docker Compose v2+
+- At least 4GB RAM available for Docker
+- Configured `.env` file (see Environment Variables below)
+
+### Quick Start
+
+```bash
+# Clone the repository
+git clone https://github.com/open-mercato/open-mercato.git
+cd open-mercato
+
+# Copy environment template
+cp apps/mercato/.env.example apps/mercato/.env
+
+# Edit apps/mercato/.env with your configuration (see next section)
+
+# Build and start all services
+docker compose -f docker-compose.fullapp.yml up --build
+```
+
+The application will be available at `http://localhost:3000/backend`. Sign in with the default admin credentials printed during initialization (typically `admin@example.com`).
+
+### Environment Variables
+
+Before starting the Docker stack, configure `apps/mercato/.env` with at least these required variables:
+
+```env
+# Database (container uses these to initialize PostgreSQL)
+POSTGRES_USER=postgres
+POSTGRES_PASSWORD=postgres
+POSTGRES_DB=open-mercato
+DATABASE_URL=postgres://postgres:postgres@postgres:5432/open-mercato
+
+# Authentication (generate a strong secret for production)
+JWT_SECRET=your-secure-jwt-secret-change-me
+
+# Application
+APP_URL=http://localhost:3000
+NODE_ENV=development
+
+# Caching
+CACHE_REDIS_URL=redis://redis:6379
+CACHE_STRATEGY=redis
+
+# Search (optional but recommended)
+MEILISEARCH_HOST=http://meilisearch:7700
+MEILISEARCH_API_KEY=meilisearch-dev-key
+MEILISEARCH_MASTER_KEY=meilisearch-dev-key
+
+# AI Features (optional)
+OPENAI_API_KEY=sk-your-openai-key
+```
+
+**Note:** The container hostnames (`postgres`, `redis`, `meilisearch`) match the service names in `docker-compose.fullapp.yml`.
+
+### Common Operations
+
+**Start services in detached mode:**
+```bash
+docker compose -f docker-compose.fullapp.yml up -d
+```
+
+**View logs from all services:**
+```bash
+docker compose -f docker-compose.fullapp.yml logs -f
+```
+
+**View logs from app only:**
+```bash
+docker compose -f docker-compose.fullapp.yml logs -f app
+```
+
+**Rebuild after code changes:**
 ```bash
 docker compose -f docker-compose.fullapp.yml up --build
 ```
+
+**Stop all services:**
+```bash
+docker compose -f docker-compose.fullapp.yml down
+```
+
+**Stop and remove volumes (deletes all data):**
+```bash
+docker compose -f docker-compose.fullapp.yml down -v
+```
+
+**Restart a specific service:**
+```bash
+docker compose -f docker-compose.fullapp.yml restart app
+```
+
+### Data Persistence
+
+Data is stored in named Docker volumes:
+- `mercato-postgres-data` - PostgreSQL database
+- `mercato-redis-data` - Redis cache and events
+- `mercato-meilisearch-data` - Meilisearch indexes
+
+Volumes persist between container restarts unless explicitly removed with `docker compose down -v`.
+
+**Backup volumes:**
+```bash
+# Backup PostgreSQL
+docker exec mercato-postgres pg_dump -U postgres open-mercato > backup.sql
+
+# Restore PostgreSQL
+cat backup.sql | docker exec -i mercato-postgres psql -U postgres -d open-mercato
+```
+
+### Production Deployment Tips
+
+When deploying to production environments, consider these recommendations:
+
+**Security:**
+- Generate a strong, unique `JWT_SECRET` (use `openssl rand -base64 32`)
+- Use strong, random passwords for `POSTGRES_PASSWORD` and `MEILISEARCH_MASTER_KEY`
+- Never expose database or Redis ports directly to the internet
+- Consider using Docker secrets or external secret management (Vault, AWS Secrets Manager)
+
+**Infrastructure:**
+- Use managed database services (AWS RDS, Google Cloud SQL, Azure Database) instead of containerized PostgreSQL for production workloads
+- Consider managed Redis (AWS ElastiCache, Redis Cloud) for better reliability
+- Set up a reverse proxy (nginx, Traefik) with SSL/TLS termination
+- Use Docker Swarm or Kubernetes for orchestration and scaling
+- Configure resource limits for containers (CPU, memory)
+
+**Monitoring & Operations:**
+- Enable health checks for all services (already configured in docker-compose.fullapp.yml)
+- Set up log aggregation (ELK stack, Loki, CloudWatch)
+- Monitor container resource usage and disk space
+- Configure automated backups for volumes
+- Test restore procedures regularly
+
+**Application Configuration:**
+- Set `NODE_ENV=production` in production environments
+- Configure proper `APP_URL` with your domain
+- Review and set optional environment variables for AI, email, and integrations
+- Consider external Meilisearch for better search performance at scale
+
+### Troubleshooting
+
+**Container fails to start:**
+```bash
+# Check logs for errors
+docker compose -f docker-compose.fullapp.yml logs app
+
+# Verify environment variables
+cat apps/mercato/.env
+
+# Check if ports are already in use
+lsof -i :3000
+lsof -i :5432
+lsof -i :6379
+```
+
+**Database connection errors:**
+```bash
+# Verify PostgreSQL is running
+docker compose -f docker-compose.fullapp.yml ps postgres
+
+# Check if database exists
+docker exec mercato-postgres psql -U postgres -c "\l"
+
+# Verify DATABASE_URL matches container configuration
+grep DATABASE_URL apps/mercato/.env
+```
+
+**Build errors:**
+```bash
+# Clean build cache
+docker compose -f docker-compose.fullapp.yml build --no-cache
+
+# Remove old images
+docker image prune -a
+```
+
+**Out of disk space:**
+```bash
+# Check Docker disk usage
+docker system df
+
+# Clean up unused resources
+docker system prune -a --volumes
+```
+
+**Reset everything:**
+```bash
+# Stop and remove all containers, networks, and volumes
+docker compose -f docker-compose.fullapp.yml down -v
+
+# Rebuild from scratch
+docker compose -f docker-compose.fullapp.yml up --build
+```
+
+### Architecture Overview
+
+The `docker-compose.fullapp.yml` stack includes:
+
+- **app** - Open Mercato application (Node.js 24, Next.js)
+- **postgres** - PostgreSQL 17 with pgvector extension
+- **redis** - Redis 7 for caching and event persistence
+- **meilisearch** - Meilisearch v1.11 for full-text search
+- **opencode** - Claude Code integration (optional)
+
+Services communicate via a dedicated Docker network (`mercato-network-fullapp`) and use health checks to ensure proper startup order.
+
+For advanced/manual flows (custom migration control, selective seeding, etc.) see the CLI reference in the repository README.

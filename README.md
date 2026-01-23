@@ -200,6 +200,32 @@ ADMIN_EMAIL=ops@your-domain.com
 
 Full installation guide (including prerequisites and cloud deployment): [docs.openmercato.com/installation/setup](https://docs.openmercato.com/installation/setup)
 
+## Docker Deployment
+
+Run the complete Open Mercato stack (app + PostgreSQL + Redis + Meilisearch) with Docker Compose:
+
+```bash
+# Clone and configure
+git clone https://github.com/open-mercato/open-mercato.git
+cd open-mercato
+cp apps/mercato/.env.example apps/mercato/.env
+
+# Edit apps/mercato/.env with required values (DATABASE_URL, JWT_SECRET, etc.)
+
+# Build and start all services
+docker compose -f docker-compose.fullapp.yml up --build
+```
+
+Navigate to `http://localhost:3000/backend` and sign in with the default credentials (admin@example.com).
+
+**Common operations:**
+- Start: `docker compose -f docker-compose.fullapp.yml up -d`
+- Logs: `docker compose -f docker-compose.fullapp.yml logs -f app`
+- Stop: `docker compose -f docker-compose.fullapp.yml down`
+- Rebuild: `docker compose -f docker-compose.fullapp.yml up --build`
+
+For production deployments, ensure strong `JWT_SECRET`, secure database credentials, and consider managed database services. See the [full Docker deployment guide](https://docs.openmercato.com/installation/setup#docker-deployment-full-stack) for detailed configuration and production tips.
+
 ## Live demo
 
 [![Explore the Open Mercato live demo](docs/static/screenshots/open-mercato-onboarding-showoff.png)](https://demo.openmercato.com)
