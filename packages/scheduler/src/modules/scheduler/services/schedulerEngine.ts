@@ -13,6 +13,18 @@ export interface SchedulerEngineConfig {
   redisUrl?: string
 }
 
+/**
+ * @deprecated Use BullMQ repeatable jobs instead (BullMQSchedulerService + execute-schedule.worker)
+ * 
+ * This polling-based engine is kept for backward compatibility but is no longer recommended.
+ * The new architecture uses BullMQ's built-in job schedulers which provide:
+ * - Exact timing (no polling delay)
+ * - Built-in distributed locking
+ * - Better scalability
+ * - Simpler codebase
+ * 
+ * See: https://docs.bullmq.io/guide/job-schedulers
+ */
 export class SchedulerEngine {
   private isRunning = false
   private pollTimer?: NodeJS.Timeout

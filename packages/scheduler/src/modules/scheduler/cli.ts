@@ -2,7 +2,6 @@ import type { ModuleCli } from '@open-mercato/shared/modules/registry'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { EntityManager } from '@mikro-orm/core'
 import { ScheduledJob } from './data/entities'
-import { SchedulerEngine } from './services/schedulerEngine'
 
 function parseArgs(rest: string[]): Record<string, string> {
   const args: Record<string, string> = {}
@@ -128,45 +127,14 @@ const runCommand: ModuleCli = {
     console.log(`  Target: ${job.targetType === 'queue' ? job.targetQueue : job.targetCommand}`)
     console.log('')
 
-    // Create a minimal engine instance to trigger the job
-    const engine = new SchedulerEngine(
-      () => em,
-      eventBus,
-      queueService,
-      rbacService,
-      { strategy: 'local', pollIntervalMs: 30000 }
-    )
-
     try {
-      // Manually enqueue the job (bypassing the schedule check)
-      if (job.targetType === 'queue' && job.targetQueue) {
-        const queue = queueService.getQueue(job.targetQueue)
-        const payload = {
-          ...((job.targetPayload as any) || {}),
-          tenantId: job.tenantId,
-          organizationId: job.organizationId,
-        }
-        
-        await queue.add(job.targetQueue, payload)
-        
-        await eventBus.emit('scheduler.job.started', {
-          scheduleId: job.id,
-          scheduleName: job.name,
-          tenantId: job.tenantId,
-          organizationId: job.organizationId,
-          triggerType: 'manual',
-        })
+      // Manually enqueue the job (triggering the scheduler-execution worker)
+      const schedulerQueue = queueService.getQueue('scheduler-execution')
+      await schedulerQueue.add('execute-schedule', { scheduleId: job.id })
 
-        console.log('✓ Job successfully enqueued to:', job.targetQueue)
-      } else if (job.targetType === 'command' && job.targetCommand) {
-        console.error('✗ Command execution not yet implemented')
-        return
-      }
-
-      // Update last run time
-      job.lastRunAt = new Date()
-      await em.flush()
-
+      console.log('✓ Job successfully triggered via scheduler-execution queue')
+      console.log('  The worker will pick it up and enqueue to:', 
+        job.targetType === 'queue' ? job.targetQueue : job.targetCommand)
       console.log('✓ Manual trigger completed\n')
     } catch (error: any) {
       console.error('✗ Failed to trigger job:', error.message)
@@ -178,53 +146,54 @@ const runCommand: ModuleCli = {
 const startCommand: ModuleCli = {
   command: 'start',
   async run() {
-    console.log('🚀 Starting scheduler engine...\n')
+    console.log('🚀 Syncing schedules with BullMQ...\n')
 
     const { resolve } = await createRequestContainer()
-    const em = resolve('em') as any
-    const eventBus = resolve('eventBus') as any
-    const queueService = resolve('queueService') as any
-    const rbacService = resolve('rbacService') as any
+    
+    const queueStrategy = process.env.QUEUE_STRATEGY || 'local'
+    
+    if (queueStrategy !== 'async') {
+      console.error('❌ Error: BullMQ scheduler requires QUEUE_STRATEGY=async')
+      console.error('   The scheduler now uses BullMQ repeatable jobs.')
+      console.error('   For local development, you can still use QUEUE_STRATEGY=local,')
+      console.error('   but schedules will only work if workers are running.')
+      console.error('')
+      console.error('   To use the scheduler:')
+      console.error('   1. Set QUEUE_STRATEGY=async in your .env')
+      console.error('   2. Ensure Redis is running')
+      console.error('   3. Run: yarn mercato scheduler start')
+      console.error('   4. Run workers: yarn mercato worker:start')
+      console.error('')
+      process.exit(1)
+    }
 
-    const strategyEnv = process.env.SCHEDULER_STRATEGY || 'local'
-    const strategy = (strategyEnv === 'async' ? 'async' : 'local') as 'local' | 'async'
-    const pollInterval = parseInt(process.env.SCHEDULER_POLL_INTERVAL_MS || '30000', 10)
+    try {
+      const bullmqService = resolve('bullmqSchedulerService') as any
+      
+      if (!bullmqService) {
+        console.error('❌ BullMQSchedulerService not registered.')
+        console.error('   Make sure QUEUE_STRATEGY=async is set.')
+        process.exit(1)
+      }
 
-    console.log('Configuration:')
-    console.log(`  Strategy: ${strategy}`)
-    console.log(`  Poll Interval: ${pollInterval}ms (${Math.round(pollInterval / 1000)}s)`)
-    console.log('')
+      console.log('Configuration:')
+      console.log(`  Queue Strategy: ${queueStrategy}`)
+      console.log(`  Redis URL: ${process.env.REDIS_URL || process.env.QUEUE_REDIS_URL || 'default'}`)
+      console.log('')
 
-    const engine = new SchedulerEngine(
-      () => em,
-      eventBus,
-      queueService,
-      rbacService,
-      { strategy, pollIntervalMs: pollInterval }
-    )
+      // Sync all enabled schedules with BullMQ
+      await bullmqService.syncAll()
 
-    await engine.start()
-
-    console.log('✓ Scheduler engine started')
-    console.log('  Press Ctrl+C to stop\n')
-
-    // Handle graceful shutdown
-    process.on('SIGINT', async () => {
-      console.log('\n\n⏸  Stopping scheduler engine...')
-      await engine.stop()
-      console.log('✓ Scheduler engine stopped\n')
-      process.exit(0)
-    })
-
-    process.on('SIGTERM', async () => {
-      console.log('\n\n⏸  Stopping scheduler engine...')
-      await engine.stop()
-      console.log('✓ Scheduler engine stopped\n')
-      process.exit(0)
-    })
-
-    // Keep the process alive
-    await new Promise(() => {}) // Never resolves
+      console.log('✓ Scheduler sync completed')
+      console.log('')
+      console.log('BullMQ is now managing all schedules.')
+      console.log('Make sure workers are running to process scheduled jobs:')
+      console.log('  yarn mercato worker:start')
+      console.log('')
+    } catch (error: any) {
+      console.error('❌ Failed to sync schedules:', error.message)
+      process.exit(1)
+    }
   },
 }
 
