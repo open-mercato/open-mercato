@@ -103,7 +103,8 @@
   },
   "resolutions": {
     "pg": "8.16.3",
-    "zod": "4.1.13"
+    "zod": "4.1.13",
+    "lodash-es": "4.17.23"
   },
   "release": {
     "branches": [
