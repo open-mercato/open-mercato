@@ -1,0 +1,18 @@
+{
+  "notifications.nav.title": "Benachrichtigungen",
+  "notifications.title": "Benachrichtigungen",
+  "notifications.empty": "Keine Benachrichtigungen",
+  "notifications.markAllRead": "Alle als gelesen markieren",
+  "notifications.actionTaken": "Ausgeführte Aktion: {action}",
+  "notifications.filters.all": "Alle",
+  "notifications.filters.unread": "Ungelesen",
+  "notifications.filters.actionRequired": "Aktion erforderlich",
+  "notifications.actions.dismiss": "Verwerfen",
+  "notifications.actions.markRead": "Als gelesen markieren",
+  "notifications.toast.new": "Neue Benachrichtigung",
+  "notifications.toast.actionSuccess": "Aktion erfolgreich ausgeführt",
+  "notifications.toast.actionError": "Aktion konnte nicht ausgeführt werden",
+  "notifications.error.load": "Benachrichtigungen konnten nicht geladen werden",
+  "notifications.error.action": "Aktion konnte nicht ausgeführt werden",
+  "notifications.badge.unread": "{count} ungelesene Benachrichtigungen"
+}

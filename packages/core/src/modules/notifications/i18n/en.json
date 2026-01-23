@@ -1,0 +1,18 @@
+{
+  "notifications.nav.title": "Notifications",
+  "notifications.title": "Notifications",
+  "notifications.empty": "No notifications",
+  "notifications.markAllRead": "Mark all read",
+  "notifications.actionTaken": "Action taken: {action}",
+  "notifications.filters.all": "All",
+  "notifications.filters.unread": "Unread",
+  "notifications.filters.actionRequired": "Action Required",
+  "notifications.actions.dismiss": "Dismiss",
+  "notifications.actions.markRead": "Mark as read",
+  "notifications.toast.new": "New notification",
+  "notifications.toast.actionSuccess": "Action completed successfully",
+  "notifications.toast.actionError": "Failed to execute action",
+  "notifications.error.load": "Failed to load notifications",
+  "notifications.error.action": "Failed to execute action",
+  "notifications.badge.unread": "{count} unread notifications"
+}

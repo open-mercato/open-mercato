@@ -1,0 +1,18 @@
+{
+  "notifications.nav.title": "Notificaciones",
+  "notifications.title": "Notificaciones",
+  "notifications.empty": "Sin notificaciones",
+  "notifications.markAllRead": "Marcar todo como leído",
+  "notifications.actionTaken": "Acción realizada: {action}",
+  "notifications.filters.all": "Todas",
+  "notifications.filters.unread": "No leídas",
+  "notifications.filters.actionRequired": "Acción requerida",
+  "notifications.actions.dismiss": "Descartar",
+  "notifications.actions.markRead": "Marcar como leída",
+  "notifications.toast.new": "Nueva notificación",
+  "notifications.toast.actionSuccess": "Acción completada correctamente",
+  "notifications.toast.actionError": "No se pudo ejecutar la acción",
+  "notifications.error.load": "No se pudieron cargar las notificaciones",
+  "notifications.error.action": "No se pudo ejecutar la acción",
+  "notifications.badge.unread": "{count} notificaciones no leídas"
+}
