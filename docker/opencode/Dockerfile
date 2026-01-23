@@ -1,12 +1,7 @@
-FROM ubuntu:24.04
+FROM alpine:3.20
 
-ENV DEBIAN_FRONTEND=noninteractive
-
-# Install dependencies
-RUN apt-get update && apt-get install -y \
-    curl \
-    ca-certificates \
-    && rm -rf /var/lib/apt/lists/*
+# Install dependencies (Alpine uses apk, not affected by Debian mirror issues)
+RUN apk add --no-cache curl ca-certificates bash shadow
 
 # Install OpenCode and move to system path
 RUN curl -fsSL https://opencode.ai/install | bash && \
