@@ -4,23 +4,18 @@ set -e
 
 COMMIT_HASH=$(git rev-parse --short=10 HEAD)
 
-echo "==> Versioning packages with canary-${COMMIT_HASH}..."
+echo "==> Bumping patch version..."
+yarn workspaces foreach -A --no-private version patch
+
+echo "==> Adding canary suffix (-canary-${COMMIT_HASH})..."
 for pkg_json in packages/*/package.json; do
-  is_private=$(cat "$pkg_json" | jq -r '.private // false')
-  if [ "$is_private" = "true" ]; then
-    continue
-  fi
+  is_private=$(jq -r '.private // false' "$pkg_json")
+  [ "$is_private" = "true" ] && continue
 
-  current_version=$(cat "$pkg_json" | jq -r '.version')
-  pkg_name=$(cat "$pkg_json" | jq -r '.name')
-  base_version=$(echo "$current_version" | sed -E 's/-.*$//')
-  IFS='.' read -r major minor patch <<< "$base_version"
-  new_patch=$((patch + 1))
-  canary_version="${major}.${minor}.${new_patch}-canary-${COMMIT_HASH}"
-
-  echo "  $pkg_name: $current_version -> $canary_version"
-  tmp=$(mktemp)
-  jq --arg v "$canary_version" '.version = $v' "$pkg_json" > "$tmp" && mv "$tmp" "$pkg_json"
+  current=$(jq -r '.version' "$pkg_json")
+  canary="${current}-canary-${COMMIT_HASH}"
+  jq --arg v "$canary" '.version = $v' "$pkg_json" > tmp.$$ && mv tmp.$$ "$pkg_json"
+  echo "  $(jq -r '.name' "$pkg_json"): $canary"
 done
 
 echo "==> Building packages..."
