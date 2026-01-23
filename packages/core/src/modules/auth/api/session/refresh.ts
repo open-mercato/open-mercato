@@ -12,15 +12,22 @@ function parseCookie(req: Request, name: string): string | null {
   return m ? decodeURIComponent(m[1]) : null
 }
 
-function sanitizeRedirect(param: string | null): string {
+function sanitizeRedirect(param: string | null, baseUrl: string): string {
   const value = param || '/'
-  if (value.startsWith('/') && !value.startsWith('//')) return value
+  try {
+    const base = new URL(baseUrl)
+    const resolved = new URL(value, baseUrl)
+    if (resolved.origin === base.origin && resolved.pathname.startsWith('/')) {
+      return resolved.pathname + resolved.search + resolved.hash
+    }
+  } catch {}
   return '/'
 }
 
 export async function GET(req: Request) {
   const url = new URL(req.url)
-  const redirectTo = sanitizeRedirect(url.searchParams.get('redirect'))
+  const baseUrl = process.env.APP_URL || `${url.protocol}//${url.host}`
+  const redirectTo = sanitizeRedirect(url.searchParams.get('redirect'), baseUrl)
   const token = parseCookie(req, 'session_token')
   if (!token) return NextResponse.redirect(toAbsoluteUrl(req, '/login?redirect=' + encodeURIComponent(redirectTo)))
   const c = await createRequestContainer()
