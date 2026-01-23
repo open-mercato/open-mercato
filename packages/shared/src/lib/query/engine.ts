@@ -13,6 +13,7 @@ import {
 } from './join-utils'
 import { resolveSearchConfig } from '../search/config'
 import { tokenizeText } from '../search/tokenize'
+import { isRlsEnabled, setRlsContext } from '../db/rls'
 
 const entityTableCache = new Map<string, string>()
 
@@ -120,6 +121,16 @@ export class BasicQueryEngine implements QueryEngine {
         'Please provide a tenantId in QueryOptions, e.g., query(entity, { tenantId: ... }). ' +
         'See migration guide or documentation for details.'
       )
+    }
+
+    // Set RLS context for database-level tenant isolation (defense-in-depth)
+    // This ensures RLS is set even if the CRUD factory context wasn't used
+    if (isRlsEnabled()) {
+      try {
+        await setRlsContext(knex, opts.tenantId, opts.organizationId ?? null)
+      } catch {
+        // Best-effort: don't fail query if RLS context setting fails
+      }
     }
     // Optional organization filter (when present in schema)
     if (orgScope && await this.columnExists(table, 'organization_id')) {
