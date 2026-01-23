@@ -146,53 +146,84 @@ const runCommand: ModuleCli = {
 const startCommand: ModuleCli = {
   command: 'start',
   async run() {
-    console.log('🚀 Syncing schedules with BullMQ...\n')
-
     const { resolve } = await createRequestContainer()
-    
     const queueStrategy = process.env.QUEUE_STRATEGY || 'local'
-    
-    if (queueStrategy !== 'async') {
-      console.error('❌ Error: BullMQ scheduler requires QUEUE_STRATEGY=async')
-      console.error('   The scheduler now uses BullMQ repeatable jobs.')
-      console.error('   For local development, you can still use QUEUE_STRATEGY=local,')
-      console.error('   but schedules will only work if workers are running.')
-      console.error('')
-      console.error('   To use the scheduler:')
-      console.error('   1. Set QUEUE_STRATEGY=async in your .env')
-      console.error('   2. Ensure Redis is running')
-      console.error('   3. Run: yarn mercato scheduler start')
-      console.error('   4. Run workers: yarn mercato worker:start')
-      console.error('')
-      process.exit(1)
-    }
 
-    try {
-      const bullmqService = resolve('bullmqSchedulerService') as any
-      
-      if (!bullmqService) {
-        console.error('❌ BullMQSchedulerService not registered.')
-        console.error('   Make sure QUEUE_STRATEGY=async is set.')
+    console.log(`🚀 Starting scheduler (strategy: ${queueStrategy})...\n`)
+
+    if (queueStrategy === 'async') {
+      // BullMQ strategy: Sync schedules with BullMQ repeatable jobs
+      try {
+        const bullmqService = resolve('bullmqSchedulerService') as any
+        
+        if (!bullmqService) {
+          console.error('❌ BullMQSchedulerService not registered.')
+          console.error('   Make sure QUEUE_STRATEGY=async is set.')
+          process.exit(1)
+        }
+
+        console.log('Configuration:')
+        console.log(`  Queue Strategy: ${queueStrategy}`)
+        console.log(`  Redis URL: ${process.env.REDIS_URL || process.env.QUEUE_REDIS_URL || 'default'}`)
+        console.log('')
+
+        // Sync all enabled schedules with BullMQ
+        await bullmqService.syncAll()
+
+        console.log('✓ Scheduler sync completed')
+        console.log('')
+        console.log('BullMQ is now managing all schedules.')
+        console.log('Make sure workers are running to process scheduled jobs:')
+        console.log('  yarn mercato worker:start')
+        console.log('')
+      } catch (error: any) {
+        console.error('❌ Failed to sync schedules:', error.message)
         process.exit(1)
       }
+    } else {
+      // Local strategy: Start polling engine
+      try {
+        const localService = resolve('localSchedulerService') as any
+        
+        if (!localService) {
+          console.error('❌ LocalSchedulerService not registered.')
+          console.error('   Make sure QUEUE_STRATEGY=local is set (or omitted).')
+          process.exit(1)
+        }
 
-      console.log('Configuration:')
-      console.log(`  Queue Strategy: ${queueStrategy}`)
-      console.log(`  Redis URL: ${process.env.REDIS_URL || process.env.QUEUE_REDIS_URL || 'default'}`)
-      console.log('')
+        const pollInterval = parseInt(process.env.SCHEDULER_POLL_INTERVAL_MS || '30000', 10)
 
-      // Sync all enabled schedules with BullMQ
-      await bullmqService.syncAll()
+        console.log('Configuration:')
+        console.log(`  Queue Strategy: ${queueStrategy}`)
+        console.log(`  Poll Interval: ${pollInterval}ms (${Math.round(pollInterval / 1000)}s)`)
+        console.log('')
 
-      console.log('✓ Scheduler sync completed')
-      console.log('')
-      console.log('BullMQ is now managing all schedules.')
-      console.log('Make sure workers are running to process scheduled jobs:')
-      console.log('  yarn mercato worker:start')
-      console.log('')
-    } catch (error: any) {
-      console.error('❌ Failed to sync schedules:', error.message)
-      process.exit(1)
+        // Start the local polling engine
+        await localService.start()
+
+        console.log('✓ Local scheduler engine started')
+        console.log('')
+        console.log('The scheduler will poll for due schedules every', Math.round(pollInterval / 1000), 'seconds.')
+        console.log('Press Ctrl+C to stop.')
+        console.log('')
+
+        // Keep the process alive and handle graceful shutdown
+        const gracefulShutdown = async () => {
+          console.log('\n📛 Shutting down scheduler...')
+          await localService.stop()
+          console.log('✓ Scheduler stopped')
+          process.exit(0)
+        }
+
+        process.on('SIGINT', gracefulShutdown)
+        process.on('SIGTERM', gracefulShutdown)
+
+        // Keep process alive
+        await new Promise(() => {}) // Never resolves
+      } catch (error: any) {
+        console.error('❌ Failed to start local scheduler:', error.message)
+        process.exit(1)
+      }
     }
   },
 }
