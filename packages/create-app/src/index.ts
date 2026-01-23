@@ -4,7 +4,8 @@ import { fileURLToPath } from 'node:url'
 import pc from 'picocolors'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
-const PACKAGE_VERSION = '0.4.1'
+const packageJson = JSON.parse(readFileSync(join(__dirname, '..', 'package.json'), 'utf-8'))
+const PACKAGE_VERSION: string = packageJson.version
 const TEMPLATE_DIR = join(__dirname, '..', 'template')
 
 interface Options {
