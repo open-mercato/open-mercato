@@ -1,3 +1,6 @@
 {
-    "chatgpt.openOnStartup": true
+    "chatgpt.openOnStartup": true,
+    "chat.tools.terminal.autoApprove": {
+        "corepack": true
+    }
 }

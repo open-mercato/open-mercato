@@ -1,0 +1,12 @@
+---
+title: Źródła (archiwalno-kancelaryjne)
+sidebar_position: 15
+---
+
+Źródła prawa i materiały interpretacyjne specyficzne dla przepisów archiwalno‑kancelaryjnych.
+
+Właściwy rejestr źródeł obszaru jest tutaj:
+- [zrodla/index](zrodla/index)
+
+Wskazówka:
+- Dopisz „stan na dzień” oraz link do tekstu jednolitego.

@@ -1,0 +1,79 @@
+---
+title: Obiekty i czynności
+sidebar_position: 35
+---
+
+Ta strona zbiera neutralną (wspólną) listę **obiektów** i **czynności** występujących w obszarze archiwalno‑kancelaryjnym.
+
+## Zakres
+- EZD (dokumenty elektroniczne) + archiwum zakładowe.
+- Papier/nośniki: **nie jako osobne byty**, tylko jako metadane o miejscu odłożenia w składzie chronologicznym.
+- Uwzględniamy **pakiety archiwalne A/B** (jako wymagane zestawy metadanych).
+- Nie uwzględniamy: audit log (ślad zmian) i funkcji eksportów.
+
+## Obiekty
+
+### Dokumentacja i metadane
+- **Dokument ewidencjonowany (elektroniczny)**: dokument, który podlega ewidencjonowaniu w systemie teleinformatycznym.
+- **Metadane dokumentu**: zestaw informacji przechowywany razem z dokumentem (lub wskazanie na metadane), zgodnie z wymaganiami źródłowymi.
+- **Pakiet archiwalny A (wpływ)**: zestaw metadanych wymaganych dla przesyłki wpływającej / dokumentów powiązanych (wariant A).
+- **Pakiet archiwalny B (wyjście)**: zestaw metadanych wymaganych dla przesyłki wychodzącej / dokumentów powiązanych (wariant B).
+- **Przesyłka wpływająca**: zdarzenie/obiekt rejestrowany przy wpływie; ma własne metadane i może inicjować sprawę.
+- **Przesyłka wychodząca**: zdarzenie/obiekt rejestrowany przy wysyłce; ma własne metadane.
+- **Element akt sprawy (niebędący przesyłką)**: dokument wytworzony wewnętrznie (np. notatka, projekt, opinia) z metadanymi.
+
+### Sprawy i akta
+- **Sprawa**: podstawowa jednostka prowadzenia czynności i grupowania dokumentacji.
+- **Akta sprawy**: zbiór dokumentów (przesyłek i dokumentów wewnętrznych) powiązanych ze sprawą.
+- **Znak sprawy**: identyfikator sprawy budowany według reguł instrukcji kancelaryjnej i klasyfikacji.
+- **Spis spraw**: rejestr/lista spraw (z minimalnym zestawem kolumn), prowadzony dla danej klasyfikacji/komórki.
+
+### Klasyfikacja i retencja
+- **Klasa JRWA (jednolitego rzeczowego wykazu akt)**: pozycja klasyfikacji (symbol + hasło), stosowana do grupowania dokumentacji.
+- **Kategoria archiwalna / okres przechowywania**: kwalifikacja dokumentacji (np. A/B/BE) i reguły retencji.
+
+### Archiwum zakładowe i przechowywanie
+- **Skład chronologiczny – lokalizacja** (metadane): informacja, gdzie fizycznie odłożono papier/nośnik w składzie chronologicznym.
+- **Jednostka przechowywania** (neutralnie): teczka/tom/pudło/nośnik – jako „opakowanie” dokumentacji w archiwum zakładowym.
+- **Spis zdawczo‑odbiorczy**: wykaz przekazywanej dokumentacji (np. przy przekazaniu do archiwum zakładowego albo do archiwum państwowego).
+- **Wykaz spisów zdawczo‑odbiorczych**: rejestr spisów (metadane spisu: numer, daty, strony, itp.).
+- **Sygnatura archiwalna**: oznaczenie nadawane jednostkom przechowywania.
+- **Karta udostępnienia dokumentacji**: zapis udostępnienia (kto/co/kiedy/na jakiej podstawie).
+- **Protokół** (neutralnie): protokół skontrum / wycofania / brakowania / zaginięcia‑uszkodzenia – zależnie od procedury.
+
+## Czynności
+
+### EZD: rejestrowanie i prowadzenie spraw
+- **Ewidencjonowanie dokumentów elektronicznych** → Dokument ewidencjonowany, Metadane dokumentu.
+- **Rejestracja przesyłki wpływającej** → Przesyłka wpływająca, Pakiet A.
+- **Rejestracja przesyłki wychodzącej** → Przesyłka wychodząca, Pakiet B.
+- **Zakładanie sprawy i nadanie znaku sprawy** → Sprawa, Znak sprawy, Spis spraw.
+- **Dołączanie dokumentów do akt sprawy** → Akta sprawy, Element akt sprawy.
+- **Zamykanie sprawy** → Sprawa (status), Akta sprawy.
+
+### Klasyfikacja i kwalifikacja
+- **Przypisanie klasy JRWA** → Klasa JRWA, Sprawa, Dokument ewidencjonowany.
+- **Ustalenie kwalifikacji archiwalnej i retencji** → Kategoria archiwalna / okres, Klasa JRWA.
+
+### Skład chronologiczny (papier/nośniki jako metadane)
+- **Odłożenie papieru/nośnika do składu chronologicznego** → Skład chronologiczny – lokalizacja (metadane).
+- **Aktualizacja miejsca przechowywania** (np. zmiana półki/pojemnika) → Skład chronologiczny – lokalizacja.
+
+### Archiwum zakładowe
+- **Przekazanie dokumentacji do archiwum zakładowego** → Spis zdawczo‑odbiorczy, Jednostka przechowywania, Sygnatura archiwalna.
+- **Ewidencja i porządkowanie w archiwum zakładowym** → Wykaz spisów, Sygnatury, Jednostki.
+- **Udostępnienie dokumentacji** → Karta udostępnienia.
+- **Wycofanie dokumentacji (wznowienie sprawy/wyjęcie ze stanu archiwum)** → Protokół, aktualizacja ewidencji.
+- **Skontrum** → Protokół skontrum.
+- **Brakowanie dokumentacji niearchiwalnej** → Protokół brakowania, spisy/zgody (jeśli wymagane).
+- **Przekazanie materiałów archiwalnych do archiwum państwowego** → Spis zdawczo‑odbiorczy (wariant dla archiwum państwowego).
+
+## Źródła i przykłady
+- Źródła obszaru: [zrodla/index](zrodla/index)
+- Rozporządzenie MSWiA 2006 (dokumenty elektroniczne): [zrodla/rozporzadzenie-mswia-2006-dokumenty-elektroniczne/index](zrodla/rozporzadzenie-mswia-2006-dokumenty-elektroniczne/index)
+- Pakiety archiwalne A/B (tabela pól do uzupełnienia): [zrodla/rozporzadzenie-mswia-2006-dokumenty-elektroniczne/pakiety-archiwalne-a-b](zrodla/rozporzadzenie-mswia-2006-dokumenty-elektroniczne/pakiety-archiwalne-a-b)
+- Ustawa o zasobie archiwalnym: [zrodla/ustawa-narodowy-zasob-archiwalny-i-archiwa/index](zrodla/ustawa-narodowy-zasob-archiwalny-i-archiwa/index)
+- Przykład klasyfikacji (JRWA): [zrodla/jrwa-mkidn-2025/index](zrodla/jrwa-mkidn-2025/index)
+- Przykłady instrukcji (nie definiują wariantów obiektów):
+  - MKiDN 2021: [zrodla/instrukcja-kancelaryjna-mkidn-2021/index](zrodla/instrukcja-kancelaryjna-mkidn-2021/index), [zrodla/instrukcja-archiwum-zakladowe-mkidn-2021/index](zrodla/instrukcja-archiwum-zakladowe-mkidn-2021/index)
+  - MC 2024: [zrodla/instrukcja-kancelaryjna-ministerstwo-cyfryzacji-2024/index](zrodla/instrukcja-kancelaryjna-ministerstwo-cyfryzacji-2024/index)

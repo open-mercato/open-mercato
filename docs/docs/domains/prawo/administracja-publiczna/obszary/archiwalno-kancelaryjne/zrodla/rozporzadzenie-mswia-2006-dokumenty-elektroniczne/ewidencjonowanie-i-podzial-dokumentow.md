@@ -1,0 +1,41 @@
+---
+title: Ewidencjonowanie i podział dokumentów
+---
+
+Źródło: [Rozporządzenie MSWiA 2006 — dokumenty elektroniczne](index).
+
+## Tekst (fragment tematyczny)
+
+## ROZPORZÑDZENIE MINISTRA SPRAW WEWN¢TRZNYCH I ADMINISTRACJI 1)
+
+z dnia 30 paêdziernika 2006 r.
+
+## w sprawie szczegó∏owego sposobu post´powania z dokumentami elektronicznymi
+
+Na podstawie art. 5 ust. 2b ustawy z dnia 14 lipca 1983  r.  o narodowym  zasobie  archiwalnym  i archiwach (Dz. U. z 2006 r. Nr 97, poz. 673, Nr 104, poz. 708 i Nr 170, poz. 1217) zarzàdza si´, co nast´puje:
+
+§ 1. Rozporzàdzenie okreÊla:
+
+- 1) sposób post´powania z dokumentami elektronicznymi  powstajàcymi  w organach  paƒstwowych i paƒstwowych jednostkach organizacyjnych, w organach  jednostek  samorzàdu  terytorialnego i samorzàdowych  jednostkach  organizacyjnych, zwanych dalej  'podmiotami',  oraz  nap∏ywajàcymi do nich;
+- 2) zasady  ewidencjonowania,  przechowywania,  klasyfikowania i kwalifikowania dokumentów elektronicznych oraz ich zabezpieczania przed utratà i nieuprawnionymi zmianami;
+- 3) zasady  i tryb  brakowania  dokumentacji  niearchiwalnej oraz zasady i tryb przekazywania materia∏ów archiwalnych do archiwów paƒstwowych.
+
+§ 2. 1. Dokumenty elektroniczne Êwiadczàce o wykonywaniu dzia∏alnoÊci podmiotów, powstajàce w nich lub nap∏ywajàce do nich, je˝eli odzwierciedlajà przebieg za∏atwiania i rozstrzygania spraw, podlegajà ewidencjonowaniu  w systemie  teleinformatycznym, o którym mowa w § 6, i zwane sà dalej 'dokumenta-
+
+-------
+
+1) Minister  Spraw  Wewn´trznych  i Administracji  kieruje dzia∏em administracji rzàdowej - informatyzacja, na podstawie § 1 ust. 2 pkt 2 rozporzàdzenia Prezesa Rady Ministrów z dnia 18 lipca 2006 r. w sprawie szczegó∏owego zakresu dzia∏ania Ministra Spraw Wewn´trznych i Administracji (Dz. U. Nr 131, poz. 919).
+
+mi ewidencjonowanymi'. Podmioty prowadzà wykaz rodzajów dokumentów ewidencjonowanych.
+
+2. Dokumenty ewidencjonowane dzielà si´ na:
+- 1) materia∏y archiwalne;
+- 2) inne dokumenty niestanowiàce materia∏ów archiwalnych,  które  mogà  podlegaç  brakowaniu  po up∏ywie okresu ich przechowywania, zwane dalej 'dokumentacjà niearchiwalnà'.
+
+3. Dyrektor archiwum paƒstwowego mo˝e do materia∏ów  archiwalnych  przekwalifikowaç  dokumentacj´ niearchiwalnà, która zyska∏a znaczenie jako êród∏o informacji  o wartoÊci  historycznej,  z zastrze˝eniem ust. 4.
+
+4. W odniesieniu do podmiotów, w których utworzono archiwa paƒstwowe wyodr´bnione, dokumentacj´  niearchiwalnà,  o której  mowa  w ust.  3,  mo˝e przekwalifikowaç do materia∏ów archiwalnych organ, któremu podlega lub przez który jest nadzorowany dany podmiot, a w razie braku takiego organu - kierownik tego podmiotu.
+
+5. Sposób oznaczania kategorii archiwalnej dokumentów ewidencjonowanych ze wzgl´du na d∏ugoÊç okresu ich przechowywania okreÊla za∏àcznik do rozporzàdzenia.
+
+§ 3. Dokumenty elektroniczne, które nie podlegajà ewidencjonowaniu,  sà  usuwane  w sposób  przyj´ty w danym podmiocie.

@@ -1,0 +1,83 @@
+---
+title: Przekazywanie materiałów archiwalnych
+---
+
+Źródło: [Rozporządzenie MSWiA 2006 — dokumenty elektroniczne](index).
+
+## Tekst (fragment tematyczny)
+
+§ 15. 1. Materia∏y archiwalne sà przekazywane do archiwum  paƒstwowego  wskazanego  przez  Naczelnego Dyrektora Archiwów Paƒstwowych po up∏ywie 10 lat od ich wytworzenia, z zastrze˝eniem ust. 2 i 3.
+
+2.  W porozumieniu z dyrektorem archiwum paƒstwowego  wskazanego  przez  Naczelnego  Dyrektora Archiwów  Paƒstwowych  podmioty  mogà  przekazaç materia∏y archiwalne do tego archiwum w terminie innym ni˝ okreÊlony w ust. 1.
+
+3. Termin okreÊlony w ust. 1 nie dotyczy materia∏ów archiwalnych:
+
+- 1) których  okres  przechowywania  przez  podmioty okreÊlony jest odr´bnymi przepisami;
+- 2) których gromadzenie i przechowywanie Naczelny Dyrektor  Archiwów  Paƒstwowych  powierzy∏  jednostkom organizacyjnym.
+
+§ 16. 1. W przypadku ustania dzia∏alnoÊci podmiotów:
+
+- 1) materia∏y archiwalne przekazuje si´ do archiwum paƒstwowego,  o którym  mowa  w §  15  ust.  1, z tym  ˝e  materia∏y  archiwalne,  dla  których  nie up∏ynà∏ 10-letni okres od ich wytworzenia, a które sà niezb´dne do dzia∏alnoÊci organu lub jednostki  organizacyjnej  przejmujàcej  zadania  i funkcje organu lub jednostki  organizacyjnej,  której  dzia-
+
+∏alnoÊç usta∏a, przekazuje si´ temu organowi lub jednostce;
+
+- 2) dokumentacj´ niearchiwalnà przekazuje si´ organowi  lub  jednostce  organizacyjnej  przejmujàcej zadania i funkcje organu lub jednostki organizacyjnej, której dzia∏alnoÊç usta∏a.
+
+2.  W przypadku  braku  nast´pcy  prawnego  dokumentacj´  niearchiwalnà  wytworzonà  i zgromadzonà przez organ paƒstwowy lub paƒstwowà jednostk´ organizacyjnà,  której  okres  przechowywania  nie  up∏ywa,  przekazuje  si´  rzeczowo  w∏aÊciwemu  organowi administracji rzàdowej.
+
+3. Dokumentacj´ niearchiwalnà wytworzonà i zgromadzonà przez organy jednostek samorzàdu terytorialnego  i samorzàdowe  jednostki  organizacyjne w przypadku braku nast´pcy prawnego przekazuje si´ odp∏atnie na przechowanie na podstawie umowy podmiotom  prowadzàcym  dzia∏alnoÊç  w zakresie  przechowywania  dokumentów  elektronicznych.  Umowa przechowania powinna byç zawarta do koƒca okresu przechowywania  dokumentacji.  Likwidator  zapewnia wplanie likwidacji odpowiednie Êrodki finansowe niezb´dne do realizacji umowy przechowania.
+
+§  17.  1.  Podmioty  wyst´pujà  do  dyrektora  archiwum  paƒstwowego,  o którym  mowa  odpowiednio w §  10  ust.  2  pkt  1  lub  2,  z wnioskiem  dotyczàcym przekazania  materia∏ów  archiwalnych  do  archiwum paƒstwowego. Do wniosku do∏àcza si´ spis zdawczo-odbiorczy tych materia∏ów.
+
+2. Wniosek, o którym mowa w ust. 1, zawiera:
+- 1) nazw´ i adres podmiotu przekazujàcego materia∏y archiwalne;
+- 2) dat´ sporzàdzenia wniosku;
+- 3) nazw´ archiwum paƒstwowego, do którego kierowany jest wniosek;
+- 4) dat´ sporzàdzenia spisu zdawczo-odbiorczego materia∏ów archiwalnych;
+- 5) nazw´ podmiotu, który wytworzy∏ materia∏y archiwalne;
+- 6) okreÊlenie liczby pozycji spisu zdawczo-odbiorczego;
+- 7) wskazanie przewidywanej iloÊci materia∏ów archiwalnych  b´dàcych  przedmiotem  spisu  zdawczo-odbiorczego, okreÊlonej w megabajtach;
+- 8) podpis  osoby  uprawnionej  do  reprezentowania podmiotu przekazujàcego materia∏y archiwalne.
+
+3. Jedna pozycja w spisie zdawczo-odbiorczym powinna odpowiadaç jednej sprawie.
+
+4. Spis zdawczo-odbiorczy powinien zawieraç dla ka˝dej pozycji:
+
+- 1) liczb´ porzàdkowà;
+
+## 2) znak sprawy;
+
+- 3) has∏o  klasyfikacyjne  wykazu  akt  odpowiadajàce znakowi sprawy, o którym mowa w pkt 2;
+- 4) tytu∏ sprawy;
+- 5) dat´ wszcz´cia sprawy;
+- 6) dat´ zakoƒczenia sprawy;
+- 7) liczb´ dokumentów w sprawie.
+
+§  18.  1.  Przygotowanie  materia∏ów  archiwalnych do  przekazania  do  archiwum  paƒstwowego  polega na:
+
+- 1) zapisaniu dokumentów ewidencjonowanych wsposób uporzàdkowany, w strukturze okreÊlonej wprzepisach wydanych na podstawie art. 5 ust. 2a ustawy,  na  noÊniku  przeznaczonym  do  przekazania danych do archiwum paƒstwowego w formacie  zapisu  zgodnym  z przepisami  wydanymi  na podstawie art. 5 ust. 2c ustawy;
+- 2) przygotowaniu spisu zdawczo-odbiorczego materia∏ów archiwalnych w postaci dokumentu elektronicznego zapisanego w jednym z formatów okreÊlonych  w przepisach  wydanych  na  podstawie art. 18 pkt 1 ustawy z dnia 17 lutego 2005 r. o informatyzacji dzia∏alnoÊci podmiotów realizujàcych zadania  publiczne  (Dz.  U.  Nr  64,  poz.  565  oraz z 2006 r. Nr 12, poz. 65 i Nr 73, poz. 501); format spisu  zdawczo-odbiorczego i sposób przekazania spisu  wskazuje  dyrektor  w∏aÊciwego  archiwum paƒstwowego w porozumieniu z podmiotem przekazujàcym.
+
+2.  Uporzàdkowanie materia∏ów archiwalnych polega na przypisaniu do ka˝dego dokumentu ewidencjonowanego metadanych, których podanie jest obowiàzkowe zgodnie z przepisami wydanymi na podstawie art. 5 ust. 2a ustawy.
+
+3.  Do  spisu  zdawczo-odbiorczego  materia∏ów  archiwalnych przeznaczonych do przekazania do archiwum paƒstwowego do∏àcza si´ w postaci dokumentu elektronicznego  informacj´  zawierajàcà  podstawowe dane dotyczàce zmian organizacyjnych, jakie nastàpi∏y w okresie, z którego pochodzà przekazywane materia∏y archiwalne. Format tego dokumentu i sposób jego  przekazania  wskazuje  dyrektor  w∏aÊciwego  archiwum  paƒstwowego  w porozumieniu  z podmiotem przekazujàcym.
+
+4.  W przypadku przekazywania materia∏ów archiwalnych podmiotu, którego dzia∏alnoÊç usta∏a, do spisu  zdawczo-odbiorczego  nale˝y  do∏àczyç,  w postaci dokumentu elektronicznego, podstawowe dane dotyczàce  organizacji  i zakresu  dzia∏ania  tego  podmiotu w uj´ciu chronologicznym.
+
+§ 19. 1. Materia∏y archiwalne przekazuje si´ na informatycznym  noÊniku  danych  spe∏niajàcym  wymagania  techniczne  okreÊlone  w przepisach  wydanych na  podstawie  art.  5  ust.  2c  ustawy  lub  za  pomocà Êrodków  komunikacji elektronicznej  do  archiwum paƒstwowego wskazanego przez Naczelnego Dyrektora Archiwów Paƒstwowych.
+
+2. Dyrektor w∏aÊciwego archiwum paƒstwowego mo˝e, w przypadku nieuporzàdkowania materia∏ów archiwalnych  w sposób  okreÊlony  w §  18  ust.  2, wstrzymaç  ich  przekazanie  do  archiwum  paƒstwowego, o którym mowa w ust. 1, do czasu dokonania odpowiednich zmian, okreÊlajàc termin ich wykonania.
+
+3.  Przekazanie  materia∏ów  archiwalnych  odbywa si´  na  podstawie  spisu  zdawczo-odbiorczego,  o którym mowa w § 17 ust. 1.
+
+4.  Dyrektor archiwum paƒstwowego wskazanego przez Naczelnego Dyrektora Archiwów Paƒstwowych ustala,  w porozumieniu z zainteresowanym podmiotem,  termin  i sposób  przekazania  materia∏ów  archiwalnych.
+
+5. Koszty zwiàzane z przygotowaniem materia∏ów archiwalnych oraz ich przekazaniem ponosi podmiot przekazujàcy materia∏y.
+
+§ 20. Materia∏y archiwalne zgrupowane inaczej ni˝ w akta  spraw  przekazuje  si´  w sposób  uzgodniony z dyrektorem  archiwum  paƒstwowego  wskazanego przez Naczelnego Dyrektora Archiwów Paƒstwowych.
+
+§ 21. 1. Archiwum paƒstwowe potwierdza w formie  pisemnej  przej´cie  prawid∏owo  uporzàdkowanych materia∏ów archiwalnych w terminie ustalonym przez  strony,  nie  d∏u˝szym  ni˝  12  miesi´cy  od  daty przekazania materia∏ów.
+
+2.  Do  czasu  uzyskania  potwierdzenia,  o którym mowa w ust. 1, podmioty obowiàzane sà przechowywaç przekazane materia∏y archiwalne wraz z ich metadanymi.
+
+§ 23. Rozporzàdzenie wchodzi w ˝ycie po up∏ywie 6 miesi´cy od dnia og∏oszenia.

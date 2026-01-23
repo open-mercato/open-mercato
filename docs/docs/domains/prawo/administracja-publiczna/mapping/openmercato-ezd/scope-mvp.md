@@ -1,0 +1,51 @@
+---
+title: Zakres i MVP
+sidebar_position: 20
+---
+
+Ten dokument opisuje **granice** oraz **definicję MVP** dla mapowania kancelaryjno‑archiwalnego EZD na OpenMercato.
+
+## MVP = CRUD
+
+MVP obejmuje:
+
+- CRUD dla 7 encji MVP,
+- listy z paginacją i filtrowaniem po podstawowych polach,
+- walidacje wejścia (Zod + OpenAPI),
+- audyt podstawowych zmian (jeśli jest standardem w CRUD).
+
+Nie obejmuje na start:
+
+- workflow (stany, kroki, user tasks),
+- kolejki/asynchroniczności,
+- pełnego obiegu dekretacji/akceptacji,
+- automatycznej inicjacji sprawy z przesyłki.
+
+## Encje MVP (domenowo)
+
+- Przesyłka wpływająca
+- JRWA
+- Spis spraw
+- Sprawa
+- Koszulka
+- Dokument
+- Skład chronologiczny – lokalizacja (jako encja z historią zmian)
+
+Uwaga: RPW jest traktowany jako **widok/numeracja**, a nie osobna encja.
+
+## Granice danych (papier/nośniki)
+
+- „Skład chronologiczny – lokalizacja” jest modelowany jako osobna encja.
+- Zmiany lokalizacji muszą być **historyczne** (nie nadpisujemy w miejscu).
+
+## Założenia i ograniczenia
+
+- Brak relacji ORM między modułami: powiązania realizujemy przez pola typu `...Id`.
+- Każdy rekord jest scope’owany tenantem/organizacją (jeśli dotyczy środowiska uruchomieniowego).
+- UI/UX nie jest celem tego dokumentu – tu opisujemy model, API i decyzje.
+
+## Otwarte kwestie (do dopięcia)
+
+1. Minimalne statusy sprawy (czy wystarcza open/closed).
+2. Zakres numeracji i unikalności: RPW, spis spraw, znak sprawy.
+3. Model załączników (osobne dokumenty vs pliki w dokumencie).

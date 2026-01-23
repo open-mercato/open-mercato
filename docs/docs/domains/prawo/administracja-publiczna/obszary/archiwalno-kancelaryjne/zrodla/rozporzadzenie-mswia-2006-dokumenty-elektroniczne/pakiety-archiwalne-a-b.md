@@ -1,0 +1,35 @@
+---
+title: Pakiety archiwalne A/B — metadane (załączniki)
+---
+
+Źródło: [Rozporządzenie MSWiA 2006 — dokumenty elektroniczne](index).
+
+Oficjalny tekst (PDF, ELI): https://eli.gov.pl/api/acts/DU/2006/1518/text/O/D20061518.pdf
+
+## Cel tej strony
+Ta strona jest miejscem na **konkretną listę pól metadanych** dla:
+- **Pakietu archiwalnego A** (dla przesyłek/dokumentów wpływających)
+- **Pakietu archiwalnego B** (dla przesyłek/dokumentów wychodzących)
+
+Pakiety archiwalne A/B są traktowane jako „twarda” definicja pól (wprost z przepisów), a następnie mapowane na neutralne obiekty domenowe w EZD.
+
+## Status (do uzupełnienia)
+W repozytorium nie było dotąd wypisanych tabel z załączników. Żeby nie „zgadywać” pól, ta strona zawiera gotowy szablon, a treść pól należy przepisać/skopiować z oficjalnego PDF.
+
+## Jak uzupełnić (instrukcja robocza)
+1. Otwórz oficjalny PDF z ELI (link powyżej).
+2. Znajdź załączniki zawierające tabele/wykaz pól dla pakietu A i pakietu B.
+3. Przepisz pola **w brzmieniu i kolejności z załącznika**, zachowując nazewnictwo.
+4. W kolumnie „Mapowanie” dopisz, do którego neutralnego obiektu to pole należy (np. przesyłka wpływająca/wychodząca, dokument, nadawca/adresat).
+
+## Pakiet archiwalny A (wpływ) — pola
+
+| Pole (jak w załączniku) | Znaczenie | Typ/format | Wymagalność | Mapowanie (neutralny obiekt) | Uwagi |
+|---|---|---|---|---|---|
+| *(do uzupełnienia z załącznika)* |  |  |  |  |  |
+
+## Pakiet archiwalny B (wyjście) — pola
+
+| Pole (jak w załączniku) | Znaczenie | Typ/format | Wymagalność | Mapowanie (neutralny obiekt) | Uwagi |
+|---|---|---|---|---|---|
+| *(do uzupełnienia z załącznika)* |  |  |  |  |  |

@@ -1,0 +1,45 @@
+---
+title: Wymagania dla systemu teleinformatycznego
+---
+
+Źródło: [Rozporządzenie MSWiA 2006 — dokumenty elektroniczne](index).
+
+## Tekst (fragment tematyczny)
+
+§  6.  Post´powanie  z dokumentami ewidencjonowanymi i metadanymi prowadzi si´ przy u˝yciu systemu teleinformatycznego, który:
+
+- 1) zapewnia integralnoÊç treÊci dokumentów i metadanych polegajàcà na zabezpieczeniu przed wprowadzaniem zmian, z wyjàtkiem zmian wprowadzanych w ramach ustalonych i udokumentowanych procedur;
+- 2) zabezpiecza przed wprowadzaniem zmian w dokumentach spraw za∏atwionych;
+- 3) zabezpiecza przed usuni´ciem dokumentów z systemu, z wyjàtkiem udokumentowanych czynnoÊci dokonywanych  w ramach  ustalonych  procedur usuwania dokumentów:
+- a) dla których up∏ynà∏ okres przechowywania ustalony w wykazie akt,
+- b) mylnie zapisanych,
+- c) mogàcych stanowiç zagro˝enie dla prawid∏owego funkcjonowania systemu,
+- d) których usuni´cie wymagane jest na podstawie przepisu prawa, prawomocnego orzeczenia sàdu lub ostatecznej decyzji organu administracji;
+- 4) zapewnia sta∏y i skuteczny dost´p do dokumentów oraz ich wyszukiwanie;
+- 5) umo˝liwia  odczytanie  metadanych  dla  ka˝dego dokumentu;
+- 6) identyfikuje u˝ytkowników i dokumentuje dokonywane przez nich zmiany w dokumentach i metadanych;
+- 7) zapewnia  kontrol´  dost´pu  poszczególnych  u˝ytkowników do dokumentów i metadanych;
+- 8) umo˝liwia odczytanie bez zniekszta∏ceƒ treÊci dokumentów  wytworzonych  przez  podmiot,  w którym dzia∏a system;
+- 9) zachowuje  dokumenty  i metadane  w strukturze okreÊlonej w przepisach wydanych na podstawie art. 5 ust. 2a ustawy, ∏àcznie z mo˝liwoÊcià prezentacji tej struktury;
+- 10) zapewnia odtworzenie przebiegu za∏atwiania i rozstrzygania spraw;
+- 11) wspomaga czynnoÊci zwiàzane z klasyfikowaniem i kwalifikowaniem  oraz  grupowaniem  dokumentów w akta spraw na podstawie wykazu akt;
+- 12) wspomaga i dokumentuje proces brakowania dokumentów stanowiàcych  dokumentacj´  niearchiwalnà, w tym:
+- a) wyodr´bnia automatycznie dokumenty przeznaczone do brakowania,
+- b) przygotowuje automatycznie spis dokumentacji niearchiwalnej,  o którym  mowa  w §  11  ust.  1 pkt 2;
+- 13) wspomaga czynnoÊci zwiàzane z przygotowaniem dokumentów stanowiàcych materia∏y archiwalne i ich  metadanych  do  przekazania  do  archiwum paƒstwowego, w tym:
+- a) wyodr´bnia  automatycznie  dokumenty  przeznaczone do przekazania,
+- b) przygotowuje automatycznie spis zdawczo-odbiorczy, o którym mowa w § 17 ust. 1, w postaci dokumentu elektronicznego,
+- c) eksportuje dokumenty i ich metadane,
+- d) oznacza  dokumenty  przekazane  do  archiwum paƒstwowego w sposób umo˝liwiajàcy ich odró˝nienie od dokumentów nieprzekazanych;
+- 14) umo˝liwia  przesy∏anie  dokumentów  do  innych systemów  teleinformatycznych,  w szczególnoÊci przez:
+- a) eksport  dokumentów  i ich  metadanych  lub wskazaƒ  na  te  metadane  oraz  danych  dokumentujàcych dokonane zmiany, o których mowa w pkt 6, z zachowaniem powiàzaƒ pomi´dzy tymi dokumentami i metadanymi,
+- b) zapisywanie  wyeksportowanych  metadanych w formacie XML.
+
+§  7.  System  teleinformatyczny,  o którym  mowa w § 6, spe∏nia dla dokumentów ewidencjonowanych funkcj´ archiwum zak∏adowego lub sk∏adnicy akt.
+
+§ 22. Podmioty zapewniajà nadzór nad prawid∏owoÊcià:
+
+- 1) funkcjonowania systemu teleinformatycznego, o którym mowa w § 6;
+- 2) grupowania dokumentacji w sprawy zgodnie z wykazem akt;
+- 3) procesu brakowania dokumentacji niearchiwalnej lub  przekazywania  materia∏ów  archiwalnych  do archiwów paƒstwowych;
+- 4) dzia∏aƒ, o których mowa w § 4 ust. 2.

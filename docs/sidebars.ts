@@ -96,6 +96,119 @@ const sidebars: SidebarsConfig = {
     },
     {
       type: "category",
+      label: "Domeny",
+      items: [
+        "domains/overview",
+        {
+          type: "category",
+          label: "Źródła wspólne",
+          items: [
+            "domains/_sources/overview",
+            {
+              type: "category",
+              label: "PL",
+              items: [
+                "domains/_sources/pl/akty-prawne/index",
+                "domains/_sources/pl/akty-prawne/pzp",
+                "domains/_sources/pl/akty-prawne/zasob-archiwalny",
+                "domains/_sources/pl/instytucje/index",
+                "domains/_sources/pl/instytucje/kio",
+                "domains/_sources/pl/wytyczne/index",
+              ],
+            },
+          ],
+        },
+        {
+          type: "category",
+          label: "Prawo",
+          items: [
+            "domains/prawo/overview",
+            {
+              type: "category",
+              label: "Administracja publiczna",
+              items: [
+                "domains/prawo/administracja-publiczna/index",
+                "domains/prawo/administracja-publiczna/sources",
+                "domains/prawo/administracja-publiczna/glossary",
+                "domains/prawo/administracja-publiczna/actors",
+                "domains/prawo/administracja-publiczna/processes",
+                {
+                  type: "category",
+                  label: "Wymagania",
+                  items: [
+                    "domains/prawo/administracja-publiczna/requirements/business",
+                    "domains/prawo/administracja-publiczna/requirements/legal",
+                    "domains/prawo/administracja-publiczna/requirements/evidence",
+                    "domains/prawo/administracja-publiczna/requirements/data",
+                    "domains/prawo/administracja-publiczna/requirements/nonfunctional",
+                    "domains/prawo/administracja-publiczna/requirements/rbac",
+                  ],
+                },
+                {
+                  type: "category",
+                  label: "Mapowanie",
+                  items: [
+                    "domains/prawo/administracja-publiczna/mapping/open-mercato",
+                    "domains/prawo/administracja-publiczna/mapping/module-hypotheses",
+                    "domains/prawo/administracja-publiczna/mapping/coverage",
+                    "domains/prawo/administracja-publiczna/mapping/gaps",
+                    "domains/prawo/administracja-publiczna/mapping/integration-points",
+                    {
+                      type: "category",
+                      label: "OpenMercato ↔ EZD (kancelaryjno-archiwalne)",
+                      items: [
+                        "domains/prawo/administracja-publiczna/mapping/openmercato-ezd/index",
+                        "domains/prawo/administracja-publiczna/mapping/openmercato-ezd/scope-mvp",
+                        "domains/prawo/administracja-publiczna/mapping/openmercato-ezd/glossary-dev",
+                        "domains/prawo/administracja-publiczna/mapping/openmercato-ezd/conceptual-model",
+                        "domains/prawo/administracja-publiczna/mapping/openmercato-ezd/entity-map",
+                        "domains/prawo/administracja-publiczna/mapping/openmercato-ezd/api-map",
+                        "domains/prawo/administracja-publiczna/mapping/openmercato-ezd/data-dictionary",
+                        "domains/prawo/administracja-publiczna/mapping/openmercato-ezd/examples-archival-packages",
+                        "domains/prawo/administracja-publiczna/mapping/openmercato-ezd/decisions",
+                      ],
+                    },
+                  ],
+                },
+                {
+                  type: "category",
+                  label: "Obszary",
+                  items: [
+                    {
+                      type: "category",
+                      label: "Archiwalno-kancelaryjne",
+                      items: [
+                        "domains/prawo/administracja-publiczna/obszary/archiwalno-kancelaryjne/overview",
+                        "domains/prawo/administracja-publiczna/obszary/archiwalno-kancelaryjne/sources",
+                        "domains/prawo/administracja-publiczna/obszary/archiwalno-kancelaryjne/requirements",
+                        "domains/prawo/administracja-publiczna/obszary/archiwalno-kancelaryjne/jrwa",
+                        "domains/prawo/administracja-publiczna/obszary/archiwalno-kancelaryjne/retention",
+                        "domains/prawo/administracja-publiczna/obszary/archiwalno-kancelaryjne/checklist",
+                      ],
+                    },
+                    {
+                      type: "category",
+                      label: "KIO / PZP",
+                      items: [
+                        "domains/prawo/administracja-publiczna/obszary/kio-pzp/overview",
+                        "domains/prawo/administracja-publiczna/obszary/kio-pzp/sources",
+                        "domains/prawo/administracja-publiczna/obszary/kio-pzp/requirements",
+                        "domains/prawo/administracja-publiczna/obszary/kio-pzp/timeline",
+                        "domains/prawo/administracja-publiczna/obszary/kio-pzp/evidence-pack",
+                      ],
+                    },
+                  ],
+                },
+                "domains/prawo/administracja-publiczna/open-questions",
+                "domains/prawo/administracja-publiczna/decisions",
+              ],
+            },
+          ],
+        },
+      ],
+    },
+    {
+      type: "category",
       label: "REST API",
       items: [
         "api/overview",

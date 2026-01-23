@@ -1,0 +1,45 @@
+---
+title: Plan: obiekty i pola
+sidebar_position: 36
+---
+
+Ten dokument opisuje **jak** przygotować listę obiektów wraz z polami (informacjami) oraz w jakiej kolejności je uzupełniać.
+
+## Założenia
+- Obiekty są **neutralne (wspólne)**; dokumenty MKiDN i MC traktujemy jako przykłady.
+- Zakres obejmuje EZD + archiwum zakładowe.
+- Papier/nośniki nie są osobnymi bytami domenowymi: opisujemy je przez **metadane lokalizacji składu chronologicznego**.
+- Uwzględniamy pakiety archiwalne A/B.
+- Nie opisujemy audit log i eksportów.
+
+## Metoda opisu pól
+Dla każdego obiektu tworzysz tabelę pól z minimalnym zestawem atrybutów:
+
+| Pole | Znaczenie | Format / typ | Wymagalność | Źródło | Kto uzupełnia | Reguły / uwagi |
+|---|---|---|---|---|---|---|
+
+W sekcji „Źródło” podawaj link do źródła w repo (np. akt/załącznik), a jeśli pole wynika z praktyki organizacyjnej – oznacz jako „praktyka” i dopisz pytanie otwarte.
+
+## Kolejność uzupełniania (rekomendowana)
+1. **Pakiety archiwalne A/B** (najbardziej „twarde” definicje pól) – pola metadanych przesyłek i dokumentów towarzyszących. Źródło robocze: [zrodla/rozporzadzenie-mswia-2006-dokumenty-elektroniczne/pakiety-archiwalne-a-b](zrodla/rozporzadzenie-mswia-2006-dokumenty-elektroniczne/pakiety-archiwalne-a-b).
+2. **Sprawa / akta sprawy / znak sprawy / spis spraw** – identyfikacja, rejestry, minimalna metryka.
+3. **Dokument ewidencjonowany + metadane dokumentu** – co jest przechowywane razem z dokumentem.
+4. **JRWA** – minimalne pola klasy: symbol, hasło, kategoria, okres, uwagi.
+5. **Archiwum zakładowe** – spisy zdawczo‑odbiorcze, wykaz spisów, sygnatury, jednostki przechowywania.
+6. **Udostępnianie / wycofywanie / skontrum / brakowanie** – pola kart i protokołów.
+
+## Specjalny przypadek: papier/nośniki jako metadane
+Wprowadzamy neutralny zestaw pól „lokalizacji składu chronologicznego”, powiązany ze sprawą albo dokumentem (w zależności od praktyki):
+- `skladChronologicznyId` (np. magazyn/skład)
+- `pojemnik` (np. pudło/segregator/pojemnik)
+- `pozycja` (np. półka/przegroda/slot)
+- `dataOdlozenia`
+- `opis` (opcjonalnie)
+
+## Jak linkować przykłady MKiDN i MC
+- W polach/rulesach dopisuj sekcję „Przykłady” z linkiem do odpowiedniego źródła.
+- Jeżeli w przykładzie występuje dodatkowe pole (lokalne), opisuj je jako „wariant praktyki”, nie jako nowy obiekt.
+
+## Gotowe szablony stron (do późniejszego rozpisania)
+- „Obiekt”: Definicja → Pola → Relacje → Reguły → Dowody → Źródła → Przykłady.
+- „Czynność”: Cel/trigger → Role → Wejścia (obiekty+pola) → Kroki → Wyjścia → Kontrole → Źródła.

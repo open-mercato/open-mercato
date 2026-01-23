@@ -1,0 +1,67 @@
+---
+title: OpenMercato ↔ EZD (dev docs)
+sidebar_position: 10
+---
+
+Ta przestrzeń służy do dokumentowania **mapowania potrzeb kancelaryjno‑archiwalnych (EZD)** na **istniejące funkcjonalności OpenMercato** oraz do podejmowania decyzji o **nowych encjach / obiektach / widokach / procesach / API**.
+
+## Cel (MVP)
+
+Na start zakres jest świadomie ograniczony do:
+
+- modelu danych,
+- walidacji wejścia,
+- CRUD + listowanie + filtrowanie po podstawowych polach,
+- opisania luk i decyzji (bez implementacji workflow na tym etapie).
+
+## MVP: encje
+
+Aktualne MVP obejmuje 7 encji (nazwy domenowe):
+
+1. Przesyłka wpływająca
+2. RPW (tylko numeracja/widok dla przesyłek wpływających)
+3. JRWA
+4. Spis spraw
+5. Sprawa
+6. Koszulka
+7. Dokument
+
+## Jak pracować z tą dokumentacją
+
+Proponowany przepływ:
+
+1. Doprecyzuj zakres i granice w dokumencie „Zakres i MVP”.
+2. Ustal wspólny język w „Słowniku (dev)”.
+3. Zapisz model pojęciowy i relacje w „Modelu konceptualnym”.
+4. Zmapuj byty w „Mapowaniu encji”.
+5. Zmapuj operacje w „Mapowaniu API”.
+6. Zdefiniuj pola w „Słowniku danych”.
+7. Dodaj przykłady payloadów (Pakiet A/B).
+8. Każdą istotną decyzję utrwal w „Decyzjach” (format ADR‑like).
+
+## Konwencje mapowania
+
+### Co tu nazywamy czym
+
+- **Encja**: rekord przechowywany w DB i wystawiany przez CRUD.
+- **Obiekt domenowy**: pojęcie z obszaru kancelaryjno‑archiwalnego (np. „sprawa”, „koszulka”).
+- **Widok**: sposób numeracji/raportowania/listy (np. RPW) – może nie być encją.
+- **Proces**: akcja wieloetapowa (na tym etapie tylko opisujemy, nie implementujemy).
+
+### Kryteria: „istnieje” vs „nowe”
+
+W mapowaniu rozróżniamy:
+
+- **Istnieje w OpenMercato**: da się złożyć z obecnych modułów i wzorców.
+- **Nowe w OpenMercato**: potrzebne nowe encje/API/ekrany lub rozszerzenia.
+
+Jeżeli coś jest „nowe”, zapisujemy:
+
+- propozycję nazwy modułu/encji,
+- minimalny zakres pól,
+- uzasadnienie i konsekwencje,
+- link do decyzji.
+
+## Następny krok
+
+Uzupełnij „Zakres i MVP” oraz „Słownik danych” na podstawie aktualnego opisu Pakietu A.
