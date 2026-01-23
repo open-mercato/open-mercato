@@ -64,7 +64,13 @@ export function resolveAttachmentAbsolutePath(
   storagePath: string,
   storageDriver?: string | null
 ): string {
-  const safeRelative = storagePath.replace(/^\/*/, '').replace(/\.\.(\/|\\)/g, '')
+  // Remove leading slashes first
+  let safeRelative = storagePath.replace(/^\/*/, '')
+  // Remove all ../ (and ..\) path traversal segments, repeatedly until gone
+  do {
+    var prev = safeRelative
+    safeRelative = safeRelative.replace(/\.\.(\/|\\)/g, '')
+  } while (safeRelative !== prev)
   if (storageDriver === 'legacyPublic') {
     return path.join(process.cwd(), safeRelative)
   }
