@@ -14,8 +14,6 @@ RUN apt-get update \
 COPY package.json yarn.lock ./
 COPY packages ./packages
 COPY tsconfig.json ./
-COPY next.config.ts ./next.config.ts
-COPY components.json ./components.json
 RUN corepack enable \
  && yarn install --frozen-lockfile --production=false
 
@@ -38,6 +36,10 @@ RUN corepack enable
 # Copy built artifacts and workspace
 COPY --from=builder /app /app
 
+# Copy entrypoint script
+COPY docker/entrypoint.sh /app/entrypoint.sh
+RUN chmod +x /app/entrypoint.sh
+
 # Drop root privileges
 RUN useradd --create-home --uid 1001 omuser \
  && chown -R omuser:omuser /app
@@ -46,4 +48,6 @@ USER omuser
 
 EXPOSE 3000
 
+# Use entrypoint for first-run initialization
+ENTRYPOINT ["/app/entrypoint.sh"]
 CMD ["yarn", "start"]

@@ -20,25 +20,27 @@ services:
     build:
       context: .
     image: open-mercato/app:dev
-    command: >
-      sh -c "yarn install --frozen-lockfile &&
-             yarn mercato init --no-examples &&
-             yarn start"
-    working_dir: /app
     ports:
       - "3000:3000"
+    volumes:
+      # Persist initialization marker across container restarts
+      - app_data:/app/.initialized_data
     environment:
-      NODE_ENV: development
+      NODE_ENV: production
       DATABASE_URL: postgres://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/${POSTGRES_DB:-open-mercato}
-      JWT_SECRET: ${JWT_SECRET:-JWT}
+      JWT_SECRET: ${JWT_SECRET:-change-me-in-production}
       APP_URL: http://localhost:3000
       CACHE_REDIS_URL: redis://redis:6379
       SELF_SERVICE_ONBOARDING_ENABLED: "false"
-      OPENAI_API_KEY: ${OPENAI_API_KEY}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
       DEMO_MODE: "true"
       CACHE_STRATEGY: redis
       MEILISEARCH_HOST: http://meilisearch:7700
       MEILISEARCH_API_KEY: ${MEILISEARCH_MASTER_KEY:-meilisearch-dev-key}
+      # Initialization control (see docker/entrypoint.sh for options)
+      INIT_FLAGS: "--no-examples"
+      # Set SKIP_INIT=true if database is already initialized
+      # SKIP_INIT: "true"
     depends_on:
       postgres:
         condition: service_healthy
@@ -111,6 +113,8 @@ volumes:
     name: mercato-redis-data
   meilisearch_data:
     name: mercato-meilisearch-data
+  app_data:
+    name: mercato-app-data
 
 networks:
   mercato-network-fullapp:
