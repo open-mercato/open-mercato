@@ -35,13 +35,10 @@
     "mcp:dev": "turbo run mcp:dev --filter=@open-mercato/ai-assistant",
     "registry:setup-user": "./scripts/registry/setup-user.sh",
     "registry:publish": "./scripts/registry/publish.sh",
-    "changeset": "changeset",
-    "changeset:version": "changeset version",
-    "changeset:publish": "changeset publish",
-    "changeset:snapshot": "changeset version --snapshot canary",
-    "changeset:publish-snapshot": "changeset publish --tag canary --no-git-tag",
-    "release": "yarn build:packages && yarn changeset:publish",
-    "release:snapshot": "yarn build:packages && yarn changeset:snapshot && yarn changeset:publish-snapshot"
+    "release:canary": "./scripts/release-canary.sh",
+    "release:patch": "./scripts/release-patch.sh",
+    "release:minor": "./scripts/release-minor.sh",
+    "release:major": "./scripts/release-major.sh"
   },
   "dependencies": {
     "@ai-sdk/openai": "^2.0.80",
@@ -81,8 +78,6 @@
     "zod": "^4.1.13"
   },
   "devDependencies": {
-    "@changesets/changelog-github": "^0.5.2",
-    "@changesets/cli": "^2.29.8",
     "@eslint/eslintrc": "^3.3.3",
     "@types/better-sqlite3": "^7.6.11",
     "@types/jest": "^30.0.0",

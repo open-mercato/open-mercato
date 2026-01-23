@@ -1,4 +1,4 @@
-name: Snapshot Release
+name: Canary Release
 
 on:
   push:
@@ -11,7 +11,7 @@ permissions:
   pull-requests: write
 
 jobs:
-  snapshot:
+  canary:
     name: Publish Canary
     runs-on: ubuntu-latest
     # Only run on push to develop, or PRs from the same repo (not forks)
@@ -34,9 +34,6 @@ jobs:
       - name: Install dependencies
         run: yarn install --immutable
 
-      - name: Build packages
-        run: yarn build:packages
-
       - name: Configure npm authentication
         run: |
           echo "//registry.npmjs.org/:_authToken=${NPM_TOKEN}" > .npmrc
@@ -44,59 +41,52 @@ jobs:
         env:
           NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
 
-      - name: Create snapshot versions
-        run: yarn changeset:snapshot
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Publish snapshot to npm
-        id: publish
+      - name: Release canary
+        id: release
         run: |
-          yarn changeset:publish-snapshot 2>&1 | tee publish-output.txt
+          ./scripts/release-canary.sh 2>&1 | tee release-output.txt
 
-          # Extract published packages and versions from output
-          # Lines look like: 🦋  info Publishing "@open-mercato/shared" at "0.4.1-canary-..."
-          PACKAGES_JSON=$(grep 'Publishing "' publish-output.txt | \
-            sed -E 's/.*Publishing "([^"]+)" at "([^"]+)".*/\1|\2/' | \
-            jq -R -s 'split("\n") | map(select(length > 0)) | map(split("|")) | map({name: .[0], version: .[1]})' || echo "[]")
+          # Build packages list from package.json files for PR comment
+          PACKAGES_JSON=$(find packages -name package.json -not -path "*/node_modules/*" -exec cat {} \; | \
+            jq -s '[.[] | select(.private != true) | {name: .name, version: .version}]')
 
           echo "packages_json<<EOF" >> $GITHUB_OUTPUT
           echo "$PACKAGES_JSON" >> $GITHUB_OUTPUT
           echo "EOF" >> $GITHUB_OUTPUT
 
-          # Check if any packages were published
           PACKAGE_COUNT=$(echo "$PACKAGES_JSON" | jq 'length')
           echo "package_count=$PACKAGE_COUNT" >> $GITHUB_OUTPUT
         env:
           NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
 
       - name: Comment on PR
-        if: github.event_name == 'pull_request' && steps.publish.outputs.package_count != '0'
+        if: github.event_name == 'pull_request' && steps.release.outputs.package_count != '0'
         uses: actions/github-script@v7
         with:
           script: |
-            const packages = ${{ steps.publish.outputs.packages_json }};
+            const packages = ${{ steps.release.outputs.packages_json }};
 
-            // Build markdown table
             let table = '| Package | Version |\n|---------|---------|';
             for (const pkg of packages) {
               table += `\n| \`${pkg.name}\` | \`${pkg.version}\` |`;
             }
 
+            // Get a sample version for the install example
+            const samplePkg = packages.find(p => p.name === '@open-mercato/shared') || packages[0];
+            const sampleVersion = samplePkg?.version || 'VERSION';
+
             const body = `## Canary Release Published
 
-            The following packages have been published to npm with the \`@canary\` tag:
+            The following packages have been published to npm:
 
             ${table}
 
             ### Install
 
             \`\`\`bash
-            # Install a specific package
-            npm install @open-mercato/shared@canary
-
-            # Or with yarn
-            yarn add @open-mercato/shared@canary
+            npm install @open-mercato/shared@${sampleVersion}
+            # or
+            yarn add @open-mercato/shared@${sampleVersion}
             \`\`\`
             `;
 
