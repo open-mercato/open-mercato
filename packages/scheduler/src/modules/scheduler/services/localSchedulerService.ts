@@ -166,7 +166,8 @@ export class LocalSchedulerService {
     run.status = 'running'
     run.triggerType = 'scheduled'
     run.startedAt = new Date()
-    run.payload = (schedule.targetPayload as any) || {}
+    // Note: payload field requires migration - commented out for now
+    // run.payload = (schedule.targetPayload as any) || {}
     
     await em.persistAndFlush(run)
 
@@ -217,10 +218,9 @@ export class LocalSchedulerService {
 
         const jobId = await queue.enqueue(payload)
         
-        run.queueJobId = jobId
-        run.queueName = schedule.targetQueue
         run.status = 'completed'
         run.finishedAt = new Date()
+        run.resultPayload = { queueJobId: jobId, queueName: schedule.targetQueue }
         
         // Update schedule's last run time and calculate next run
         schedule.lastRunAt = new Date()
@@ -239,7 +239,7 @@ export class LocalSchedulerService {
         await this.eventBus.emit('scheduler.job.completed', {
           scheduleId: schedule.id,
           runId: run.id,
-          queueJobId: run.queueJobId,
+          queueJobId: jobId,
           tenantId: schedule.tenantId,
           organizationId: schedule.organizationId,
         })
@@ -255,7 +255,7 @@ export class LocalSchedulerService {
     } catch (error: any) {
       run.status = 'failed'
       run.errorMessage = error.message
-      run.errorStack = error.stack
+      run.resultPayload = { errorStack: error.stack }
       run.finishedAt = new Date()
       await em.flush()
 
