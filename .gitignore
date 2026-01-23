@@ -79,6 +79,7 @@ packages/*/src/**/*.jsx
 tmp/
 
 public/uploads/*
+apps/mercato/storage/*
 apps/mercato/storage/attachments/*
 storage
 apps/mercato/data
