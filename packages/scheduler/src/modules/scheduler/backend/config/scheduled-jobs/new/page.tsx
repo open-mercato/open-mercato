@@ -3,13 +3,14 @@
 import * as React from 'react'
 import { useRouter } from 'next/navigation'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
-import { CrudForm, type CrudField, type CrudCustomField } from '@open-mercato/ui/backend/CrudForm'
+import { CrudForm, type CrudField, type CrudFormGroup } from '@open-mercato/ui/backend/CrudForm'
 import { createCrud } from '@open-mercato/ui/backend/utils/crud'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
+import { Switch } from '@open-mercato/ui/primitives/switch'
+import { Label } from '@open-mercato/ui/primitives/label'
 import { z } from 'zod'
 import { Input } from '@open-mercato/ui/primitives/input'
-import { Label } from '@open-mercato/ui/primitives/label'
 
 type ScheduleFormValues = {
   name: string
@@ -17,7 +18,7 @@ type ScheduleFormValues = {
   scopeType: 'system' | 'organization' | 'tenant'
   scheduleType: 'cron' | 'interval'
   scheduleValue: string
-  timezone?: string
+  timezone: string
   targetType: 'queue' | 'command'
   targetQueue?: string
   targetCommand?: string
@@ -27,6 +28,23 @@ type ScheduleFormValues = {
 export default function NewSchedulePage() {
   const t = useT()
   const router = useRouter()
+  const [isEnabled, setIsEnabled] = React.useState(true)
+
+  // Load timezone options - filtering on query for better performance
+  const loadTimezoneOptions = React.useCallback(async (query?: string) => {
+    try {
+      const allTz = Intl.supportedValuesOf('timeZone')
+      const filtered = query
+        ? allTz.filter((tz) => tz.toLowerCase().includes(query.toLowerCase()))
+        : allTz
+      return filtered.slice(0, 100).map((tz) => ({
+        value: tz,
+        label: tz,
+      }))
+    } catch {
+      return [{ value: 'UTC', label: 'UTC' }]
+    }
+  }, [])
 
   const formSchema = React.useMemo(
     () =>
@@ -36,7 +54,7 @@ export default function NewSchedulePage() {
         scopeType: z.enum(['system', 'organization', 'tenant']),
         scheduleType: z.enum(['cron', 'interval']),
         scheduleValue: z.string().min(1, t('scheduler.form.schedule.required', 'Schedule is required')),
-        timezone: z.string().optional(),
+        timezone: z.string(),
         targetType: z.enum(['queue', 'command']),
         targetQueue: z.string().optional(),
         targetCommand: z.string().optional(),
@@ -49,20 +67,17 @@ export default function NewSchedulePage() {
     () => [
       {
         id: 'name',
-        name: 'name',
         type: 'text',
         label: t('scheduler.form.name', 'Name'),
         required: true,
       },
       {
         id: 'description',
-        name: 'description',
         type: 'textarea',
         label: t('scheduler.form.description', 'Description'),
       },
       {
         id: 'scopeType',
-        name: 'scopeType',
         type: 'select',
         label: t('scheduler.form.scope_type', 'Scope'),
         required: true,
@@ -74,7 +89,6 @@ export default function NewSchedulePage() {
       },
       {
         id: 'scheduleType',
-        name: 'scheduleType',
         type: 'select',
         label: t('scheduler.form.schedule_type', 'Schedule Type'),
         required: true,
@@ -85,7 +99,6 @@ export default function NewSchedulePage() {
       },
       {
         id: 'scheduleValue',
-        name: 'scheduleValue',
         type: 'text',
         label: t('scheduler.form.schedule_value', 'Schedule Value'),
         placeholder: t('scheduler.form.schedule_value.placeholder', 'e.g. 0 */6 * * * or 15m'),
@@ -94,14 +107,15 @@ export default function NewSchedulePage() {
       },
       {
         id: 'timezone',
-        name: 'timezone',
-        type: 'text',
+        type: 'combobox',
         label: t('scheduler.form.timezone', 'Timezone'),
-        placeholder: 'UTC',
+        placeholder: t('scheduler.form.timezone.placeholder', 'Search timezone...'),
+        required: true,
+        loadOptions: loadTimezoneOptions,
+        allowCustomValues: false,
       },
       {
         id: 'targetType',
-        name: 'targetType',
         type: 'select',
         label: t('scheduler.form.target_type', 'Target Type'),
         required: true,
@@ -151,11 +165,26 @@ export default function NewSchedulePage() {
           )
         },
       },
+    ],
+    [t, loadTimezoneOptions]
+  )
+
+  const groups = React.useMemo<CrudFormGroup[]>(
+    () => [
       {
-        id: 'isEnabled',
-        name: 'isEnabled',
-        type: 'checkbox',
-        label: t('scheduler.form.is_enabled', 'Enabled'),
+        id: 'basic',
+        title: t('scheduler.form.group.basic', 'Basic Information'),
+        fields: ['name', 'description', 'scopeType'],
+      },
+      {
+        id: 'schedule',
+        title: t('scheduler.form.group.schedule', 'Schedule Configuration'),
+        fields: ['scheduleType', 'scheduleValue', 'timezone'],
+      },
+      {
+        id: 'target',
+        title: t('scheduler.form.group.target', 'Target Configuration'),
+        fields: ['targetType', 'targetFields'],
       },
     ],
     [t]
@@ -179,14 +208,27 @@ export default function NewSchedulePage() {
           title={t('scheduler.create.title', 'Create Schedule')}
           backHref="/backend/config/scheduled-jobs"
           fields={fields}
+          groups={groups}
           initialValues={initialValues}
           submitLabel={t('scheduler.form.submit', 'Create Schedule')}
           cancelHref="/backend/config/scheduled-jobs"
           schema={formSchema}
+          contentHeader={
+            <div className="flex items-center justify-end gap-2 mb-4">
+              <Label htmlFor="enabled-switch" className="text-sm font-medium">
+                {t('scheduler.form.is_enabled', 'Enabled')}
+              </Label>
+              <Switch
+                id="enabled-switch"
+                checked={isEnabled}
+                onCheckedChange={setIsEnabled}
+              />
+            </div>
+          }
           onSubmit={async (values) => {
             await createCrud<{ id?: string }>(
               'scheduler/jobs',
-              values
+              { ...values, isEnabled }
             )
 
             flash(t('scheduler.success.created', 'Schedule created successfully'), 'success')

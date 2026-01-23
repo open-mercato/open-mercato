@@ -65,6 +65,7 @@
       "schedule_value.placeholder": "ej. 0 */6 * * * o 15m",
       "schedule_value.description": "Para cron: use expresión cron (ej. \"0 0 * * *\"). Para intervalo: use formato como \"15m\", \"2h\", \"1d\" (s=segundos, m=minutos, h=horas, d=días)",
       "timezone": "Zona horaria",
+      "timezone.placeholder": "Buscar zona horaria...",
       "target_type": "Tipo de objetivo",
       "target_queue": "Cola de destino",
       "target_queue.placeholder": "ej. email-sender",
@@ -72,7 +73,12 @@
       "target_command.placeholder": "ej. sync:data",
       "is_enabled": "Habilitado",
       "submit": "Crear programación",
-      "save": "Guardar cambios"
+      "save": "Guardar cambios",
+      "group": {
+        "basic": "Información básica",
+        "schedule": "Configuración de programación",
+        "target": "Configuración de objetivo"
+      }
     },
     "confirm": {
       "delete": "¿Está seguro de que desea eliminar esta programación?"
