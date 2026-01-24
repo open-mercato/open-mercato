@@ -30,6 +30,8 @@ Ten dokument definiuje minimalne pola dla encji MVP oraz ich źródła (np. Paki
 
 ## Dokument
 
+Dokument jest konceptualnie **załącznikiem z metadanami**. Wykorzystuje moduł `attachments` (core) do zarządzania plikami.
+
 | Pole | Typ | Wymagane | Uwagi |
 |---|---|---:|---|
 | `title` | string | tak | tytuł dokumentu |
@@ -41,8 +43,17 @@ Ten dokument definiuje minimalne pola dla encji MVP oraz ich źródła (np. Paki
 | `incomingShipmentId` | uuid | nie | link do przesyłki |
 | `folderId` | uuid | nie | link do koszulki |
 | `caseId` | uuid | nie | link do sprawy |
+| `attachmentIds` | uuid[] | nie | referencje do załączników (plików) z modułu `attachments` |
 
-Zasada spójności: dokument może być przypięty do **dokładnie jednego** obiektu: `folderId` XOR `caseId` (lub do żadnego).
+Zasady spójności:
+
+- Dokument może być przypięty do **dokładnie jednego** obiektu: `folderId` XOR `caseId` (lub do żadnego).
+- `attachmentIds` zawiera referencje do fizycznych plików zarządzanych przez moduł `attachments` (core).
+- Główny właściciel załączników jest określany przez kontekst dokumentu:
+  - Jeśli `incomingShipmentId` → właściciel: przesyłka
+  - Jeśli `caseId` → właściciel: sprawa
+  - Jeśli `folderId` → właściciel: koszulka
+  - Jeśli brak powiązań → właściciel: dokument
 
 ## Koszulka
 
