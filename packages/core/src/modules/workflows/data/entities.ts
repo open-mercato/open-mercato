@@ -47,6 +47,45 @@ export type UserTaskStatus =
   | 'ESCALATED'
 
 // ============================================================================
+// Event Trigger Types
+// ============================================================================
+
+export type TriggerFilterOperator =
+  | 'eq'
+  | 'neq'
+  | 'gt'
+  | 'gte'
+  | 'lt'
+  | 'lte'
+  | 'contains'
+  | 'startsWith'
+  | 'endsWith'
+  | 'in'
+  | 'notIn'
+  | 'exists'
+  | 'notExists'
+  | 'regex'
+
+export interface TriggerFilterCondition {
+  field: string // JSON path (e.g., "status", "metadata.type")
+  operator: TriggerFilterOperator
+  value: unknown
+}
+
+export interface TriggerContextMapping {
+  targetKey: string // Key in workflow initial context
+  sourceExpression: string // Path from event payload (supports dot notation)
+  defaultValue?: unknown
+}
+
+export interface WorkflowEventTriggerConfig {
+  filterConditions?: TriggerFilterCondition[]
+  contextMapping?: TriggerContextMapping[]
+  debounceMs?: number // Debounce rapid events
+  maxConcurrentInstances?: number // Limit concurrent instances
+}
+
+// ============================================================================
 // JSONB Structure Interfaces
 // ============================================================================
 
@@ -429,6 +468,71 @@ export class WorkflowEvent {
   organizationId!: string
 }
 
+// ============================================================================
+// Entity: WorkflowEventTrigger
+// ============================================================================
+
+/**
+ * WorkflowEventTrigger entity
+ *
+ * Maps event patterns to workflow definitions for automatic triggering.
+ * When a matching event is emitted, the corresponding workflow is started
+ * with context mapped from the event payload.
+ */
+@Entity({ tableName: 'workflow_event_triggers' })
+@Index({ name: 'workflow_event_triggers_event_pattern_idx', properties: ['eventPattern', 'enabled'] })
+@Index({ name: 'workflow_event_triggers_definition_idx', properties: ['workflowDefinitionId'] })
+@Index({ name: 'workflow_event_triggers_tenant_org_idx', properties: ['tenantId', 'organizationId'] })
+@Index({ name: 'workflow_event_triggers_enabled_priority_idx', properties: ['enabled', 'priority'] })
+export class WorkflowEventTrigger {
+  [OptionalProps]?: 'enabled' | 'priority' | 'createdAt' | 'updatedAt' | 'deletedAt'
+
+  @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
+  id!: string
+
+  @Property({ name: 'name', type: 'varchar', length: 255 })
+  name!: string
+
+  @Property({ name: 'description', type: 'text', nullable: true })
+  description?: string | null
+
+  @Property({ name: 'workflow_definition_id', type: 'uuid' })
+  workflowDefinitionId!: string
+
+  @Property({ name: 'event_pattern', type: 'varchar', length: 255 })
+  eventPattern!: string
+
+  @Property({ name: 'config', type: 'jsonb', nullable: true })
+  config?: WorkflowEventTriggerConfig | null
+
+  @Property({ name: 'enabled', type: 'boolean', default: true })
+  enabled: boolean = true
+
+  @Property({ name: 'priority', type: 'integer', default: 0 })
+  priority: number = 0
+
+  @Property({ name: 'tenant_id', type: 'uuid' })
+  tenantId!: string
+
+  @Property({ name: 'organization_id', type: 'uuid' })
+  organizationId!: string
+
+  @Property({ name: 'created_by', type: 'varchar', length: 255, nullable: true })
+  createdBy?: string | null
+
+  @Property({ name: 'updated_by', type: 'varchar', length: 255, nullable: true })
+  updatedBy?: string | null
+
+  @Property({ name: 'created_at', type: Date, onCreate: () => new Date() })
+  createdAt: Date = new Date()
+
+  @Property({ name: 'updated_at', type: Date, onUpdate: () => new Date() })
+  updatedAt: Date = new Date()
+
+  @Property({ name: 'deleted_at', type: Date, nullable: true })
+  deletedAt?: Date | null
+}
+
 // Export all entities as default for MikroORM discovery
 export default [
   WorkflowDefinition,
@@ -436,4 +540,5 @@ export default [
   StepInstance,
   UserTask,
   WorkflowEvent,
+  WorkflowEventTrigger,
 ]

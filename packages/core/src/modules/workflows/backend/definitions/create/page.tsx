@@ -16,6 +16,8 @@ import {
 } from '../../../components/formConfig'
 import { StepsEditor } from '../../../components/StepsEditor'
 import { TransitionsEditor } from '../../../components/TransitionsEditor'
+import { Alert, AlertDescription, AlertTitle } from '@open-mercato/ui/primitives/alert'
+import { Zap } from 'lucide-react'
 
 export default function CreateWorkflowDefinitionPage() {
   const router = useRouter()
@@ -50,6 +52,13 @@ export default function CreateWorkflowDefinitionPage() {
   return (
     <Page>
       <PageBody>
+        <Alert variant="info" className="mb-6">
+          <Zap className="w-4 h-4" />
+          <AlertTitle>Event Triggers</AlertTitle>
+          <AlertDescription>
+            After creating this workflow definition, you can configure event triggers to automatically start the workflow when specific events occur in the system.
+          </AlertDescription>
+        </Alert>
         <CrudForm
           title={t('workflows.create.title')}
           backHref="/backend/definitions"

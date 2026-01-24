@@ -12,6 +12,38 @@ import type {
 /** Queue name for persistent events */
 const EVENTS_QUEUE_NAME = 'events'
 
+/**
+ * Match an event name against a pattern.
+ *
+ * Supports:
+ * - Exact match: `customers.people.created`
+ * - Wildcard `*` matches single segment: `customers.*` matches `customers.people` but not `customers.people.created`
+ * - Global wildcard: `*` alone matches all events
+ *
+ * @param eventName - The actual event name
+ * @param pattern - The pattern to match against
+ * @returns True if the event matches the pattern
+ */
+function matchEventPattern(eventName: string, pattern: string): boolean {
+  // Global wildcard matches all events
+  if (pattern === '*') return true
+
+  // Exact match
+  if (pattern === eventName) return true
+
+  // No wildcards in pattern means we need exact match, which already failed
+  if (!pattern.includes('*')) return false
+
+  // Convert pattern to regex:
+  // - Escape regex special chars (except *)
+  // - Replace * with [^.]+ (match one or more non-dot chars)
+  const regexPattern = pattern
+    .replace(/[.+^${}()|[\]\\]/g, '\\$&')
+    .replace(/\*/g, '[^.]+')
+  const regex = new RegExp(`^${regexPattern}$`)
+  return regex.test(eventName)
+}
+
 /** Job data structure for queued events */
 type EventJobData = {
   event: string
@@ -81,16 +113,24 @@ export function createEventBus(opts: CreateBusOptions): EventBus {
 
   /**
    * Delivers an event to all registered in-memory handlers.
+   * Supports wildcard pattern matching for event patterns.
    */
   async function deliver(event: string, payload: EventPayload): Promise<void> {
-    const handlers = listeners.get(event)
-    if (!handlers || handlers.size === 0) return
+    // Check all registered patterns (including wildcards)
+    for (const [pattern, handlers] of listeners) {
+      if (!matchEventPattern(event, pattern)) continue
+      if (!handlers || handlers.size === 0) continue
 
-    for (const handler of handlers) {
-      try {
-        await Promise.resolve(handler(payload, { resolve: opts.resolve }))
-      } catch (error) {
-        console.error(`[events] Handler error for "${event}":`, error)
+      for (const handler of handlers) {
+        try {
+          // Pass eventName in context for wildcard handlers
+          await Promise.resolve(handler(payload, {
+            resolve: opts.resolve,
+            eventName: event,
+          }))
+        } catch (error) {
+          console.error(`[events] Handler error for "${event}" (pattern: "${pattern}"):`, error)
+        }
       }
     }
   }
