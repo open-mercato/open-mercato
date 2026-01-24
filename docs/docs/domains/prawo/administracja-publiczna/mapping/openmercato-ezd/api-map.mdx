@@ -16,9 +16,10 @@ Ten dokument opisuje minimalny zestaw endpointów CRUD dla MVP.
 | Zasób | Endpoint (docelowy) | Uwagi |
 |---|---|---|
 | Przesyłki wpływające | `/api/records/incoming-shipments` | RPW jako numeracja na rekordzie |
-| Dokumenty | `/api/records/documents` | dokument jako załącznik z metadanymi; może istnieć sam |
-| Sprawy | `/api/records/cases` | nie inicjujemy automatycznie z przesyłki; obejmuje rekordy z i bez znaku sprawy ("Koszulki") |
-| Powiązania | `/api/records/record-links` | neutralne, symetryczne linki między rekordami sprawy |
+| Dokumenty | `/api/records/documents` | dokument może istnieć sam |
+| Koszulki | `/api/records/folders` | koszulka → sprawa 1:1 (patrz niżej) |
+| Sprawy | `/api/records/cases` | nie inicjujemy automatycznie z przesyłki |
+| Powiązania | `/api/records/record-links` | neutralne, symetryczne linki spraw/koszulek |
 | Spisy spraw | `/api/records/case-registers` | numeracja spraw do dopięcia |
 | JRWA | `/api/records/jrwa-classes` | drzewo klas |
 | Lokalizacje składu | `/api/records/chronological-locations` | słownik |

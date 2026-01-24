@@ -15,9 +15,9 @@ Uwaga: to tylko hipoteza do walidacji – finalna nazwa zależy od spójności z
 
 | Potrzeba (domena) | Typ | Odpowiednik w OM | Status | Notatki |
 |---|---|---|---|---|
-| Przesyłka wpływająca | Encja | `records.incoming_shipments` | Nowe | RPW jako numeracja na tej encji |
+| Przesyłka wpływająca | Encja | `records.incoming_shipments` | Nowe | Zwana również "Wpływ". RPW jako numeracja na tej encji. Zawartością przesyłki są Dokumenty. |
 | RPW | Widok/numeracja | pola na przesyłce + lista | Nowe | Bez osobnej tabeli/encji |
-| JRWA | Encja | `records.jrwa_classes` | Nowe | Drzewo klas + retencja |
+| JRWA | Encja | `records.jrwa_classes` | Nowe | Drzewo klas + retencja. Sprawa ma JRWA. |
 | Spis spraw | Encja | `records.case_registers` | Nowe | Zakres numeracji do dopięcia |
 | Sprawa | Encja | `records.cases` | Nowe | **Uwaga:** Sprawa i Koszulka są tą samą encją. Sprawa = Koszulka z przypisanym znakiem sprawy. Znak sprawy jako pole opcjonalne; gdy jest pusty, rekord funkcjonuje jako "Koszulka" (kontener roboczy/teczka tematyczna) |
 | Powiązania (neutralne) | Encja | `records.record_links` | Nowe | Symetryczne linki między rekordami sprawy (niezależnie od tego, czy mają przypisany znak sprawy) |
