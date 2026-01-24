@@ -19,9 +19,8 @@ Uwaga: to tylko hipoteza do walidacji – finalna nazwa zależy od spójności z
 | RPW | Widok/numeracja | pola na przesyłce + lista | Nowe | Bez osobnej tabeli/encji |
 | JRWA | Encja | `records.jrwa_classes` | Nowe | Drzewo klas + retencja |
 | Spis spraw | Encja | `records.case_registers` | Nowe | Zakres numeracji do dopięcia |
-| Sprawa | Encja | `records.cases` | Nowe | Znak sprawy jako pole wyliczalne lub przechowywane |
-| Koszulka | Encja | `records.folders` | Nowe | Może być powiązana ze sprawami i innymi koszulkami |
-| Powiązania (neutralne) | Encja | `records.record_links` | Nowe | Symetryczne linki: sprawa↔sprawa, koszulka↔koszulka, sprawa↔koszulka |
+| Sprawa | Encja | `records.cases` | Nowe | **Uwaga:** Sprawa i Koszulka są tą samą encją. Sprawa = Koszulka z przypisanym znakiem sprawy. Znak sprawy jako pole opcjonalne; gdy jest pusty, rekord funkcjonuje jako "Koszulka" (kontener roboczy/teczka tematyczna) |
+| Powiązania (neutralne) | Encja | `records.record_links` | Nowe | Symetryczne linki między rekordami sprawy (niezależnie od tego, czy mają przypisany znak sprawy) |
 | Dokument | Encja | `records.documents` | Nowe | **Załącznik z metadanami**. Powiązania opcjonalne: przesyłka + (dokładnie jedna) koszulka **lub** sprawa. Wykorzystuje moduł `attachments` (core) do przechowywania plików |
 | Skład chronologiczny – lokalizacja | Encja | `records.chronological_locations` | Nowe | Z historią zmian przypisań |
 

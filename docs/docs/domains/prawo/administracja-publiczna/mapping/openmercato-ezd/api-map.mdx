@@ -17,9 +17,8 @@ Ten dokument opisuje minimalny zestaw endpointów CRUD dla MVP.
 |---|---|---|
 | Przesyłki wpływające | `/api/records/incoming-shipments` | RPW jako numeracja na rekordzie |
 | Dokumenty | `/api/records/documents` | dokument jako załącznik z metadanymi; może istnieć sam |
-| Koszulki | `/api/records/folders` | koszulka → sprawa 1:1 (patrz niżej) |
-| Sprawy | `/api/records/cases` | nie inicjujemy automatycznie z przesyłki |
-| Powiązania | `/api/records/record-links` | neutralne, symetryczne linki spraw/koszulek |
+| Sprawy | `/api/records/cases` | nie inicjujemy automatycznie z przesyłki; obejmuje rekordy z i bez znaku sprawy ("Koszulki") |
+| Powiązania | `/api/records/record-links` | neutralne, symetryczne linki między rekordami sprawy |
 | Spisy spraw | `/api/records/case-registers` | numeracja spraw do dopięcia |
 | JRWA | `/api/records/jrwa-classes` | drzewo klas |
 | Lokalizacje składu | `/api/records/chronological-locations` | słownik |
@@ -29,7 +28,7 @@ Ten dokument opisuje minimalny zestaw endpointów CRUD dla MVP.
 
 ### Read-only (zamknięcie / otwarcie)
 
-Sprawa i koszulka mogą zostać ustawione jako **read-only** (zamknięte). Read-only:
+Sprawa może zostać ustawiona jako **read-only** (zamknięta). Read-only:
 
 - blokuje edycję pól,
 - blokuje dopinanie/odpinanie dokumentów,
@@ -47,7 +46,7 @@ W MVP:
 
 - tworzenie: `POST /api/records/record-links`
 - usuwanie: `DELETE /api/records/record-links/{id}`
-- listowanie: `GET /api/records/record-links?type=case|folder&id=<uuid>`
+- listowanie: `GET /api/records/record-links?type=case&id=<uuid>`
 
 Walidacje:
 
@@ -98,8 +97,7 @@ Dostęp do załączników dokumentu jest kontrolowany przez:
 
 1. **Uprawnienia do głównego właściciela**:
    - Jeśli dokument powiązany z przesyłką → sprawdź uprawnienia do przesyłki
-   - Jeśli dokument powiązany ze sprawą → sprawdź uprawnienia do sprawy
-   - Jeśli dokument powiązany z koszulką → sprawdź uprawnienia do koszulki
+   - Jeśli dokument powiązany ze sprawą → sprawdź uprawnienia do sprawy (niezależnie od tego, czy ma przypisany znak sprawy)
    - Jeśli dokument samodzielny → sprawdź uprawnienia do dokumentu
 
 2. **Poziom dostępu dokumentu** (`accessLevel`):
@@ -107,7 +105,7 @@ Dostęp do załączników dokumentu jest kontrolowany przez:
    - Wpływa na widoczność załączników
 
 3. **Status właściciela**:
-   - Jeśli sprawa/koszulka jest `read-only` → blokada modyfikacji załączników (dodawanie/usuwanie)
+   - Jeśli sprawa jest `read-only` → blokada modyfikacji załączników (dodawanie/usuwanie)
    - Odczyt załączników pozostaje dozwolony
 
 Implementacja RBAC w module `records` musi zapewnić, że użytkownik pobierający załącznik przez `/api/attachments/{id}/download` ma odpowiednie uprawnienia do dokumentu i jego głównego właściciela.
