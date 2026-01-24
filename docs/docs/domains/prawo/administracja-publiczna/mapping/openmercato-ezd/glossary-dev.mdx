@@ -79,6 +79,33 @@ Zasada: dokument może być przypięty do **dokładnie jednego** obiektu (sprawy
 
 Jeśli sprawa/koszulka jest read-only, nie można dopinać/odpiąć dokumentów.
 
+#### Dokument jako załącznik z metadanymi
+
+W implementacji, dokument jest konceptualnie **załącznikiem z metadanymi**:
+
+- **Encja `records.documents`** przechowuje metadane (tytuł, rodzaj, poziom dostępu, daty, powiązania).
+- **Moduł `attachments` (core)** zarządza fizycznymi plikami.
+- Relacja: dokument ma pole `attachmentIds` z referencjami do plików.
+
+**Główny właściciel załączników** (primary owner) jest określany przez kontekst dokumentu:
+
+- Dokument powiązany z przesyłką (`incomingShipmentId`) → właściciel: przesyłka
+- Dokument powiązany ze sprawą (`caseId`) → właściciel: sprawa
+- Dokument powiązany z koszulką (`folderId`) → właściciel: koszulka
+- Dokument samodzielny → właściciel: dokument
+
+**RBAC dla załączników**: Dostęp kontrolowany przez uprawnienia do głównego właściciela + poziom dostępu dokumentu + status właściciela.
+
+### Załącznik (attachment)
+
+Fizyczny plik zarządzany przez moduł `attachments` (core). Załączniki mogą być powiązane z różnymi encjami w systemie, w tym z dokumentami w module `records`.
+
+W kontekście modułu `records`:
+
+- Załączniki są plikami dokumentów (PDF, DOCX, JPG itp.).
+- Dokument może mieć jeden lub więcej załączników.
+- Metadane załącznika (nazwa pliku, rozmiar, typ MIME) są zarządzane przez moduł `attachments`.
+
 ### Skład chronologiczny – lokalizacja
 
 Encja opisująca lokalizację przechowywania i jej historię zmian.

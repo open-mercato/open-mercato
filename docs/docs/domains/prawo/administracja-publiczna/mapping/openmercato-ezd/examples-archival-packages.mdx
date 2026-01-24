@@ -30,6 +30,8 @@ Przykład (roboczy):
 
 ## Dokument w przesyłce (podpięty do przesyłki)
 
+Dokument jest konceptualnie załącznikiem z metadanymi. Poniższy przykład pokazuje metadane dokumentu:
+
 ```json
 {
   "incomingShipmentId": "24f66b31-b198-4099-8332-e261612ccd9c",
@@ -38,20 +40,33 @@ Przykład (roboczy):
   "accessLevel": "non_public",
   "receivedAt": "2025-04-14",
   "documentDate": "2025-04-12",
-  "documentSign": "WD-9821/21/2025"
+  "documentSign": "WD-9821/21/2025",
+  "attachmentIds": [
+    "a8f3c9d2-1e45-4a3b-9c7e-8d2f1a4b6c5e"
+  ]
 }
 ```
 
-## Dokument „przyniesiony” (bez przesyłki)
+**Uwaga**: Pole `attachmentIds` zawiera referencje do plików zarządzanych przez moduł `attachments` (core). Pliki są uploadowane osobno przez `/api/attachments` i zwracane `attachmentId` jest dodawane do dokumentu.
+
+## Dokument „przyniesiony" (bez przesyłki)
+
+Dokument może istnieć bez powiązania z przesyłką:
 
 ```json
 {
   "title": "notatka służbowa",
   "kind": "notatka",
   "accessLevel": "non_public",
-  "documentDate": "2026-01-23"
+  "documentDate": "2026-01-23",
+  "attachmentIds": [
+    "b7e4d8f3-2a56-4c9d-8e1f-9a3c2b5d7e6f"
+  ]
 }
 ```
+
+**Główny właściciel**: W tym przypadku dokument jest samodzielny (brak `incomingShipmentId`, `caseId`, `folderId`), więc głównym właścicielem załączników jest sam dokument.
+
 
 ## Pakiet B
 

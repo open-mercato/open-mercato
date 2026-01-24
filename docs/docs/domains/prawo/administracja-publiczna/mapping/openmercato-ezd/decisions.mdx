@@ -78,3 +78,27 @@ Format decyzji (ADR‑like):
 - Konsekwencje:
 	- CRUD dla tych encji musi odświeżać `query_index`.
 	- Moduł `records` musi dostarczyć presenter (`formatResult`) dla tokens, żeby wyniki były czytelne.
+
+## D-008: Dokument jako załącznik z metadanymi
+
+- Status: accepted
+- Kontekst:
+	- Dokumenty w systemie EZD są nośnikami treści, które mogą mieć różne formy (elektroniczne pliki, skany papierowych dokumentów).
+	- Potrzebujemy spójnego podejścia do przechowywania i zarządzania plikami w systemie.
+	- OpenMercato posiada moduł `attachments` (core) do zarządzania plikami.
+- Decyzja:
+	- **Dokument** (encja `records.documents`) jest konceptualnie **załącznikiem z metadanymi**.
+	- Dokument wykorzystuje moduł `attachments` do przechowywania plików.
+	- Relacja: każdy rekord dokumentu może mieć powiązane załączniki (pliki) poprzez `attachmentId` lub wielokrotne załączniki.
+	- Metadane dokumentu (tytuł, rodzaj, poziom dostępu, daty, powiązania) są przechowywane w encji `records.documents`.
+	- Fizyczne pliki są zarządzane przez moduł `attachments`.
+- Konsekwencje:
+	- Encja `records.documents` zawiera pola metadanych oraz referencje do załączników (`attachmentIds` lub podobne).
+	- RBAC dla dokumentów musi uwzględniać zasady dostępu do załączników.
+	- Główny właściciel załącznika (primary owner) jest określany przez powiązanie dokumentu:
+		- Jeśli dokument ma `incomingShipmentId` → właścicielem jest przesyłka.
+		- Jeśli dokument ma `caseId` → właścicielem jest sprawa.
+		- Jeśli dokument ma `folderId` → właścicielem jest koszulka.
+		- Jeśli dokument nie ma żadnego powiązania → właścicielem jest sam dokument.
+	- API dokumentów musi obsługiwać upload/download plików przez moduł `attachments`.
+	- Przy usuwaniu dokumentu należy rozważyć politykę usuwania powiązanych załączników (cascade delete lub orphan handling).

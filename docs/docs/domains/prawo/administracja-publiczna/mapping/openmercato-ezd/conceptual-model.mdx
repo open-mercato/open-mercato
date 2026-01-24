@@ -24,6 +24,9 @@ Nazwy techniczne są robocze; finalnie będą zależeć od nazwy modułu i istni
 - `document.folderId` (opcjonalne)
 - `document.caseId` (opcjonalne)
   - Zasada: dokument może być przypięty do **dokładnie jednego** obiektu: `folderId` XOR `caseId`.
+- `document.attachmentIds` (tablica, opcjonalne)
+  - Referencje do załączników z modułu `attachments` (core)
+  - Dokument jest konceptualnie załącznikiem z metadanymi – wykorzystuje `attachments` do przechowywania plików
 
 - `case.jrwaClassId` (wymagane)
 - `case.caseRegisterId` (wymagane)
@@ -78,3 +81,51 @@ Minimalny zestaw pól oznaczeń:
 - `mappingCoverage: 'none' | 'partial' | 'full'`
 
 Szczegóły doprecyzowujemy w słowniku danych.
+
+## Dokument jako załącznik z metadanymi
+
+**Dokument** w systemie EZD jest nośnikiem treści – w praktyce jest to plik (lub zbiór plików) z dodatkowymi metadanymi kancelaryjno-archiwalnymi.
+
+### Model konceptualny
+
+W OpenMercato:
+
+- **Encja `records.documents`** przechowuje metadane dokumentu:
+  - identyfikacja: tytuł, rodzaj, znak
+  - daty: data dokumentu, data wpływu
+  - klasyfikacja: poziom dostępu
+  - powiązania: przesyłka, sprawa lub koszulka
+- **Moduł `attachments` (core)** zarządza fizycznymi plikami:
+  - upload/download
+  - przechowywanie
+  - metadane pliku (nazwa, rozmiar, typ MIME)
+
+### Relacja dokument–załączniki
+
+- Dokument może mieć jeden lub więcej załączników (plików).
+- Relacja jest realizowana przez pole `attachmentIds` (lub podobne) w encji `records.documents`.
+- Główny właściciel załączników jest określany przez kontekst dokumentu:
+  - Dokument powiązany z przesyłką → właściciel: przesyłka
+  - Dokument powiązany ze sprawą → właściciel: sprawa
+  - Dokument powiązany z koszulką → właściciel: koszulka
+  - Dokument samodzielny → właściciel: dokument
+
+### Implikacje dla RBAC
+
+Dostęp do załączników jest kontrolowany poprzez:
+
+1. Uprawnienia do głównego właściciela (przesyłka/sprawa/koszulka/dokument)
+2. Poziom dostępu dokumentu (`accessLevel`)
+3. Status właściciela (np. `read-only` dla sprawy/koszulki)
+
+Użytkownik ma dostęp do załączników dokumentu, jeśli:
+
+- Ma uprawnienia do odczytu głównego właściciela
+- Poziom dostępu dokumentu pozwala na odczyt
+- Główny właściciel nie jest w stanie blokującym dostęp
+
+### Cykl życia
+
+- **Tworzenie**: Upload plików przez moduł `attachments`, referencje zapisywane w `records.documents`
+- **Aktualizacja**: Możliwość dodawania/usuwania załączników (jeśli właściciel nie jest `read-only`)
+- **Usuwanie**: Polityka usuwania załączników do zdefiniowania (cascade delete lub orphan handling)
