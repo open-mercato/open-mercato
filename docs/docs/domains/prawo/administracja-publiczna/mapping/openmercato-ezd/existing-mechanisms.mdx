@@ -1,0 +1,1041 @@
+---
+title: Wykorzystanie istniejących mechanizmów OpenMercato
+sidebar_position: 60
+---
+
+Ten dokument opisuje, jak wykorzystać istniejące mechanizmy OpenMercato dla potrzeb modułu `records` (system EZD), w szczególności dla: numeracji, hierarchii, jednostek organizacyjnych, załączników i CRUD.
+
+## 1. Numeracja (Document Number Generator)
+
+### Mechanizm w OpenMercato
+
+OpenMercato posiada sprawdzony mechanizm numeracji dokumentów sprzedażowych (`salesDocumentNumberGenerator`), który zapewnia:
+
+- **Atomic increment** – wykorzystuje sekwencje bazodanowe PostgreSQL z atomic operations
+- **Konfigurowalne formaty** – tokeny jak `{YYYY}`, `{MM}`, `{SEQ:N}`, `{RAND:N}`, `{GUID}`, `{NANOID:N}`
+- **Zakres per organizacja + tenant** – każda kombinacja `organizationId` + `tenantId` ma niezależną sekwencję
+- **Concurrency safety** – wykorzystuje `INSERT ... ON CONFLICT DO UPDATE` dla bezpieczeństwa współbieżności
+- **Diagnostyka** – możliwość podglądu/ustawienia następnego numeru dla administratorów
+
+**Lokalizacja kodu:**
+- `packages/core/src/modules/sales/services/salesDocumentNumberGenerator.ts`
+- `packages/core/src/modules/sales/api/document-numbers/route.ts`
+
+### Zastosowanie dla RPW (Rejestr Przesyłek Wpływających)
+
+Zgodnie z decyzją **D-011**, RPW wykorzystuje analogiczny wzorzec numeracji:
+
+#### Model danych
+
+```typescript
+// Tabela: incoming_shipment_sequences
+{
+  id: uuid
+  organization_id: uuid  // zakres numeracji
+  tenant_id: uuid        // zakres numeracji
+  office_id: uuid        // NOWE: zakres per Kancelaria
+  current_value: integer // aktualny numer
+  created_at: timestamp
+  updated_at: timestamp
+}
+
+// Unikalność: (organization_id, tenant_id, office_id)
+```
+
+#### Generator RPW
+
+```typescript
+class IncomingShipmentNumberGenerator {
+  async generate(params: {
+    organizationId: string
+    tenantId: string
+    officeId: string      // dodatkowy wymiar zakresu
+    format?: string | null
+  }): Promise<{ number: string; format: string; sequence: number }> {
+    // 1. Pobierz format z ustawień Kancelarii lub użyj domyślnego
+    const format = params.format || await this.getOfficeRpwFormat(params.officeId)
+    
+    // 2. Claim sequence (atomic)
+    const sequence = await this.claimSequence(params)
+    
+    // 3. Format number z tokenami
+    const number = this.formatNumber(format, { sequence, date: new Date() })
+    
+    return { number, format, sequence }
+  }
+  
+  private async claimSequence(scope: {
+    organizationId: string
+    tenantId: string
+    officeId: string
+  }): Promise<number> {
+    const rows = await this.em.getConnection().execute(
+      `INSERT INTO incoming_shipment_sequences 
+       (id, organization_id, tenant_id, office_id, current_value, created_at, updated_at)
+       VALUES (gen_random_uuid(), ?, ?, ?, 1, now(), now())
+       ON CONFLICT (organization_id, tenant_id, office_id)
+       DO UPDATE SET 
+         current_value = incoming_shipment_sequences.current_value + 1,
+         updated_at = now()
+       RETURNING current_value`,
+      [scope.organizationId, scope.tenantId, scope.officeId]
+    )
+    return Number(rows[0].current_value)
+  }
+}
+```
+
+#### Przykładowe formaty RPW
+
+```typescript
+// Format 1: RPW/2025/000001
+const format1 = 'RPW/{YYYY}/{SEQ:6}'
+
+// Format 2: RPW-K01/2025/01/0001
+// Uwaga: Token {CODE} wymaga rozszerzenia generatora o pobranie kodu Kancelarii.
+// Po implementacji można używać: 'RPW-{CODE}/{YYYY}/{MM}/{SEQ:4}'
+// Obecnie dla uproszczenia można użyć stałego prefiksu lub pobrać kod w runtime.
+const format2 = 'RPW-K01/{YYYY}/{MM}/{SEQ:4}'
+
+// Format 3: Zgodny z instrukcją kancelaryjną MKiDN
+const format3 = '{YYYY}/{SEQ:5}'
+```
+
+### Zastosowanie dla znaków sprawy
+
+Analogiczny mechanizm może być użyty dla numeracji znaków sprawy:
+
+```typescript
+// Tabela: case_number_sequences
+// Zakres: (organization_id, tenant_id, office_id, jrwa_class_id, year)
+
+class CaseNumberGenerator {
+  async generate(params: {
+    organizationId: string
+    tenantId: string
+    officeId: string
+    jrwaClassId: string    // klasa JRWA
+    year?: number           // rok (domyślnie bieżący)
+  }): Promise<string> {
+    const year = params.year || new Date().getFullYear()
+    const jrwaClass = await this.getJrwaClass(params.jrwaClassId)
+    
+    // Claim sequence per (office, jrwa, year)
+    const sequence = await this.claimSequence({
+      ...params,
+      year,
+    })
+    
+    // Format: <symbol JRWA>/<numer>/<rok>
+    // Przykład: 0102/15/2025
+    return `${jrwaClass.symbol}/${sequence}/${year}`
+  }
+}
+```
+
+## 2. Hierarchia (Tree Structure)
+
+### Mechanizm w OpenMercato
+
+Moduł `catalog` implementuje drzewo kategorii produktów z wykorzystaniem **closure table pattern**:
+
+**Lokalizacja kodu:**
+- `packages/core/src/modules/catalog/lib/categoryHierarchy.ts`
+- `packages/core/src/modules/catalog/data/entities.ts` (CatalogProductCategory)
+
+### Implementacja drzewa kategorii
+
+Każda kategoria przechowuje:
+
+```typescript
+{
+  id: uuid
+  parentId: uuid | null        // bezpośredni rodzic
+  rootId: uuid                 // korzeń drzewa
+  treePath: string             // ścieżka IDs: "root/parent/child"
+  depth: number                // głębokość w drzewie (0 = root)
+  ancestorIds: string[]        // tablica przodków [root, parent]
+  childIds: string[]           // bezpośrednie dzieci
+  descendantIds: string[]      // wszyscy potomkowie (rekurencyjnie)
+  name: string
+  isActive: boolean
+}
+```
+
+### Funkcje obliczeniowe
+
+```typescript
+function computeHierarchyForCategories(
+  categories: Category[]
+): ComputedCategoryHierarchy {
+  // 1. Buduje graf węzłów (parent-child)
+  // 2. Wykrywa cykle (kategoria nie może być swoim przodkiem)
+  // 3. Rekurencyjnie oblicza depth, paths, ancestors, descendants
+  // 4. Zwraca Map<id, ComputedNode> + posortowaną listę
+}
+
+async function rebuildCategoryHierarchyForOrganization(
+  em: EntityManager,
+  organizationId: string,
+  tenantId: string
+): Promise<void> {
+  // Pobiera wszystkie kategorie
+  // Oblicza hierarchię
+  // Aktualizuje pola w bazie (parentId, depth, paths, ...)
+  // Flush
+}
+```
+
+### Zastosowanie dla JRWA
+
+JRWA (Jednolity Rzeczowy Wykaz Akt) jest hierarchiczną strukturą klas dokumentów, analogiczną do kategorii produktów.
+
+#### Model danych JRWA
+
+```typescript
+// Encja: records.jrwa_classes
+{
+  id: uuid
+  organizationId: uuid
+  tenantId: uuid
+  
+  // Hierarchia (analogicznie do catalog categories)
+  parentId: uuid | null
+  rootId: uuid
+  treePath: string              // "0/01/010"
+  depth: number                 // 0, 1, 2, 3...
+  ancestorIds: string[]
+  childIds: string[]
+  descendantIds: string[]
+  
+  // Specyficzne dla JRWA
+  symbol: string                // "0102" (klasyfikacja numeryczna)
+  name: string                  // Hasło klasyfikacyjne
+  description: string | null    // Uwagi
+  archivalCategory: string      // "A", "B", "BE", "BE10", etc.
+  retentionPeriod: string | null// Okres przechowywania
+  
+  isActive: boolean
+  createdAt: timestamp
+  updatedAt: timestamp
+  deletedAt: timestamp | null
+}
+```
+
+#### Przykład struktury JRWA (z problemu)
+
+```
+0 ZARZĄDZANIE (depth: 0, symbol: "0")
+├─ 00 KIEROWNICTWO MINISTERSTWA I ORGANY KOLEGIALNE (depth: 1, symbol: "00")
+│  ├─ 000 Posiedzenia i narady kierownictwa (depth: 2, symbol: "000")
+│  ├─ 001 Komisje, rady, zespoły (depth: 2, symbol: "001")
+│  └─ 002 Komisje resortowe (depth: 2, symbol: "002")
+├─ 01 ORGANIZACJA (depth: 1, symbol: "01")
+│  └─ 010 Organizacja oraz prace projektowe (depth: 2, symbol: "010")
+│     ├─ 0100 Organizacja Ministerstwa (depth: 3, symbol: "0100")
+│     ├─ 0101 Organizacja komórek (depth: 3, symbol: "0101")
+│     └─ 0102 Organizacja organów podległych (depth: 3, symbol: "0102")
+└─ 02 AKTY NORMATYWNE (depth: 1, symbol: "02")
+   └─ 020 Wewnętrzne akty normatywne (depth: 2, symbol: "020")
+      ├─ 0200 Zbiór aktów (depth: 3, symbol: "0200")
+      ├─ 0201 Projekty aktów (depth: 3, symbol: "0201")
+      └─ 0202 Opiniowanie projektów (depth: 3, symbol: "0202")
+```
+
+#### Implementacja
+
+```typescript
+// Analogicznie do categoryHierarchy.ts
+export function computeHierarchyForJrwaClasses(
+  classes: JrwaClass[]
+): ComputedJrwaHierarchy {
+  // Reuse logiki z categoryHierarchy
+  // Sortowanie po symbolu zamiast nazwy
+}
+
+export async function rebuildJrwaHierarchyForOrganization(
+  em: EntityManager,
+  organizationId: string,
+  tenantId: string
+): Promise<void> {
+  const classes = await em.find(JrwaClass, { 
+    organizationId, 
+    tenantId, 
+    deletedAt: null 
+  })
+  const hierarchy = computeHierarchyForJrwaClasses(classes)
+  
+  // Aktualizuj pola hierarchii w bazie
+  for (const cls of classes) {
+    const computed = hierarchy.map.get(cls.id)
+    if (computed) {
+      cls.parentId = computed.parentId
+      cls.rootId = computed.rootId
+      cls.treePath = computed.treePath
+      cls.depth = computed.depth
+      cls.ancestorIds = computed.ancestorIds
+      cls.childIds = computed.childIds
+      cls.descendantIds = computed.descendantIds
+    }
+  }
+  await em.flush()
+}
+```
+
+#### API dla JRWA
+
+```typescript
+// GET /api/records/jrwa-classes?view=tree
+// Zwraca drzewo klas z obliczonymi polami hierarchii
+
+// GET /api/records/jrwa-classes?view=manage
+// Zwraca płaską listę z pathLabel dla UI
+
+// POST /api/records/jrwa-classes (create)
+// PUT /api/records/jrwa-classes (update)
+// - Po modyfikacji parentId wywołuje rebuildJrwaHierarchy
+
+// DELETE /api/records/jrwa-classes
+// - Waliduje, czy klasa nie ma przypisanych spraw
+// - Soft delete
+```
+
+## 3. Jednostki organizacyjne (Organizational Units)
+
+### Mechanizm w OpenMercato
+
+Moduł `directory` zarządza hierarchią organizacji (tenants i organizations):
+
+**Lokalizacja kodu:**
+- `packages/core/src/modules/directory/data/entities.ts`
+- `packages/core/src/modules/directory/utils/organizationScope.ts`
+
+### Model organizacji
+
+```typescript
+// Encja: Organization
+{
+  id: uuid
+  tenantId: uuid
+  name: string
+  isActive: boolean
+  
+  // Hierarchia (analogicznie do kategorii)
+  parentId: uuid | null
+  rootId: uuid | null
+  treePath: string | null
+  depth: number
+  ancestorIds: string[]
+  childIds: string[]
+  descendantIds: string[]
+  
+  createdAt: timestamp
+  updatedAt: timestamp
+  deletedAt: timestamp | null
+}
+```
+
+### Zastosowanie dla Kancelarii (Office)
+
+Zgodnie z decyzją **D-010**, Kancelaria jest jednostką organizacyjną zarządzającą przesyłkami:
+
+```typescript
+// Encja: records.offices
+{
+  id: uuid
+  organizationId: uuid         // powiązanie z organizacją
+  tenantId: uuid
+  
+  code: string                 // kod Kancelarii (np. "K01", "MAIN")
+  name: string                 // nazwa Kancelarii
+  description: string | null
+  isActive: boolean
+  
+  // Konfiguracja numeracji RPW
+  rpwNumberFormat: string | null  // opcjonalny format; jeśli null, użyj domyślnego
+  
+  // RBAC: użytkownicy przypisani do Kancelarii
+  // (można rozszerzyć o pole userIds lub osobną tabelę office_members)
+  
+  createdAt: timestamp
+  updatedAt: timestamp
+  deletedAt: timestamp | null
+}
+```
+
+### Zakres uprawnień per Kancelaria
+
+```typescript
+// RBAC: użytkownik ma dostęp tylko do przesyłek/spraw z przypisanych Kancelarii
+
+async function resolveUserOffices(
+  userId: string,
+  organizationId: string
+): Promise<string[]> {
+  // Zwraca listę officeIds, do których użytkownik ma dostęp
+  // Może być:
+  // 1. Relacja many-to-many: office_members(user_id, office_id)
+  // 2. Custom field na użytkowniku: user.cf_assigned_offices
+  // 3. Role-based: user z rolą "office_manager" ma dostęp do wszystkich
+}
+
+// W zapytaniach o przesyłki/sprawy:
+const userOffices = await resolveUserOffices(auth.sub, organizationId)
+const where = {
+  organizationId,
+  tenantId,
+  officeId: { $in: userOffices }  // filtrowanie per Kancelaria
+}
+```
+
+### Migracja istniejących organizacji
+
+```typescript
+// Przy wdrożeniu modułu records:
+// Każda istniejąca organizacja otrzymuje domyślną Kancelarię
+
+async function createDefaultOffices(em: EntityManager) {
+  const organizations = await em.find(Organization, { deletedAt: null })
+  
+  for (const org of organizations) {
+    const existingOffice = await em.findOne(Office, {
+      organizationId: org.id,
+      tenantId: org.tenantId
+    })
+    
+    if (!existingOffice) {
+      const office = em.create(Office, {
+        organizationId: org.id,
+        tenantId: org.tenantId,
+        code: 'MAIN',
+        name: 'Kancelaria główna',
+        isActive: true,
+        rpwNumberFormat: null  // użyje domyślnego
+      })
+      em.persist(office)
+    }
+  }
+  
+  await em.flush()
+}
+```
+
+## 4. Załączniki (Attachments)
+
+### Mechanizm w OpenMercato
+
+Moduł `attachments` (core) zarządza plikami z pełnym wsparciem dla:
+
+- **Upload/download** – multipart form-data
+- **Metadane** – fileName, fileSize, mimeType, tags
+- **Assignments** – powiązania z encjami (entityId + recordId)
+- **Thumbnails** – automatyczne generowanie miniatur dla obrazów
+- **OCR** – opcjonalne wydobywanie tekstu z plików
+- **Custom fields** – możliwość rozszerzenia metadanych
+
+**Lokalizacja kodu:**
+- `packages/core/src/modules/attachments/api/route.ts`
+- `packages/core/src/modules/attachments/lib/metadata.ts`
+- `packages/core/src/modules/attachments/lib/storage.ts`
+
+### Model załącznika
+
+```typescript
+// Encja: Attachment
+{
+  id: uuid
+  tenantId: uuid
+  organizationId: uuid
+  
+  fileName: string
+  fileSize: number
+  mimeType: string
+  partitionCode: string        // lokalizacja w storage (np. "default")
+  storagePath: string          // ścieżka do pliku
+  
+  // Metadata
+  tags: string[]               // tagi dla kategoryzacji
+  content: string | null       // wydobyty tekst (OCR/extraction)
+  
+  // Assignments: powiązania z rekordami
+  assignments: AttachmentAssignment[]
+  
+  createdAt: timestamp
+  updatedAt: timestamp
+  deletedAt: timestamp | null
+}
+
+type AttachmentAssignment = {
+  type: string                 // np. "records.document", "records.case"
+  id: string                   // recordId
+  href?: string                // opcjonalny link do rekordu
+  label?: string               // opcjonalna etykieta
+}
+```
+
+### Zastosowanie dla Dokumentów w EZD
+
+Zgodnie z decyzją **D-008**, **Dokument** w module `records` jest **załącznikiem z metadanymi kancelaryjno-archiwalnymi**.
+
+#### Model dokumentu
+
+```typescript
+// Encja: records.documents
+{
+  id: uuid
+  organizationId: uuid
+  tenantId: uuid
+  officeId: uuid               // Kancelaria
+  
+  // Metadane dokumentu
+  title: string                // tytuł/nazwa dokumentu
+  documentType: string         // rodzaj dokumentu (np. "pismo", "protokół")
+  documentDate: date | null    // data dokumentu
+  accessLevel: string          // poziom dostępu ("public", "internal", "restricted")
+  
+  // Powiązania z encjami (główny właściciel)
+  incomingShipmentId: uuid | null  // przesyłka wpływająca (opcjonalne)
+  caseId: uuid | null              // sprawa/koszulka (opcjonalne)
+  
+  // Referencje do załączników
+  attachmentIds: uuid[]        // lista załączników (plików) z modułu attachments
+  
+  // JRWA (opcjonalne)
+  jrwaClassId: uuid | null
+  
+  createdAt: timestamp
+  updatedAt: timestamp
+  deletedAt: timestamp | null
+}
+```
+
+#### Główny właściciel załącznika
+
+Logika określania głównego właściciela (primary owner) dla RBAC:
+
+```typescript
+function resolvePrimaryOwner(document: Document): {
+  type: string
+  id: string
+} {
+  if (document.incomingShipmentId) {
+    return { 
+      type: 'records.incoming_shipment', 
+      id: document.incomingShipmentId 
+    }
+  }
+  
+  if (document.caseId) {
+    return { 
+      type: 'records.case', 
+      id: document.caseId 
+    }
+  }
+  
+  // Dokument samodzielny (nie przypięty do sprawy/przesyłki)
+  return { 
+    type: 'records.document', 
+    id: document.id 
+  }
+}
+```
+
+#### API dla dokumentów
+
+```typescript
+// POST /api/records/documents (create)
+// Body: {
+//   title: string
+//   documentType: string
+//   file: File                  // multipart form-data
+//   caseId?: string
+//   incomingShipmentId?: string
+// }
+
+async function createDocument(input: CreateDocumentInput) {
+  // 1. Utwórz dokument z metadanymi (generuje ID)
+  const document = await em.create(Document, {
+    ...input,
+    attachmentIds: []  // początkowo pusta lista
+  })
+  await em.flush()  // Flush aby uzyskać wygenerowany ID
+  
+  // 2. Upload pliku do modułu attachments z prawidłowym recordId
+  const attachment = await uploadAttachment({
+    entityId: 'records.document',
+    recordId: document.id,
+    file: input.file
+  })
+  
+  // 3. Aktualizuj dokument z ID załącznika
+  document.attachmentIds = [attachment.id]
+  
+  // 4. Ustaw assignment w załączniku
+  await upsertAssignment(attachment.id, {
+    type: 'records.document',
+    id: document.id,
+    label: document.title
+  })
+  
+  await em.flush()
+  return document
+}
+
+// GET /api/records/documents/:id/attachments
+// Zwraca listę załączników dla dokumentu
+
+// DELETE /api/records/documents/:id
+// Usuwa dokument oraz opcjonalnie związane załączniki (cascade delete)
+```
+
+#### Polityka usuwania załączników
+
+```typescript
+// Opcja 1: Cascade delete (usunięcie dokumentu → usunięcie załączników)
+async function deleteDocument(id: string, cascadeAttachments = false) {
+  const document = await em.findOneOrFail(Document, id)
+  
+  if (cascadeAttachments && document.attachmentIds.length) {
+    for (const attachmentId of document.attachmentIds) {
+      await deleteAttachment(attachmentId)
+    }
+  }
+  
+  document.deletedAt = new Date()
+  await em.flush()
+}
+
+// Opcja 2: Orphan handling (załączniki pozostają, ale tracą assignment)
+async function deleteDocument(id: string) {
+  const document = await em.findOneOrFail(Document, id)
+  
+  // Usuń assignments z załączników
+  for (const attachmentId of document.attachmentIds) {
+    await removeAssignment(attachmentId, 'records.document', id)
+  }
+  
+  document.deletedAt = new Date()
+  await em.flush()
+}
+```
+
+## 5. CRUD (Create, Read, Update, Delete)
+
+### Mechanizm w OpenMercato
+
+`packages/shared/lib/crud/factory.ts` dostarcza fabrykę `makeCrudRoute`, która automatyzuje budowanie API CRUD:
+
+**Lokalizacja kodu:**
+- `packages/shared/lib/crud/factory.ts`
+- `packages/shared/lib/crud/custom-fields.ts`
+
+### Funkcje CRUD factory
+
+```typescript
+makeCrudRoute({
+  metadata: {
+    GET: { requireAuth: true, requireFeatures: [...] },
+    POST: { requireAuth: true, requireFeatures: [...] },
+    PUT: { requireAuth: true, requireFeatures: [...] },
+    DELETE: { requireAuth: true, requireFeatures: [...] },
+  },
+  
+  orm: {
+    entity: MyEntity,              // MikroORM entity
+    idField: 'id',                 // pole ID (domyślnie 'id')
+    orgField: 'organizationId',    // pole organizacji (auto-scoping)
+    tenantField: 'tenantId',       // pole tenanta (auto-scoping)
+    softDeleteField: 'deletedAt',  // soft delete (domyślnie 'deletedAt')
+  },
+  
+  actions: {
+    create: {
+      commandId: 'my.entity.create',
+      schema: createSchema,
+      mapInput: async ({ raw, ctx }) => { /* transform input */ },
+      response: ({ result }) => ({ id: result.entityId }),
+      status: 201,
+    },
+    
+    update: {
+      commandId: 'my.entity.update',
+      schema: updateSchema,
+      mapInput: async ({ raw, ctx }) => { /* transform input */ },
+      response: () => ({ ok: true }),
+    },
+    
+    delete: {
+      commandId: 'my.entity.delete',
+      schema: deleteSchema,
+      mapInput: async ({ parsed, ctx }) => { /* resolve ID */ },
+      response: () => ({ ok: true }),
+    },
+  },
+  
+  list: {
+    schema: listQuerySchema,
+    entityId: E.my.entity,         // dla QueryEngine (opcjonalne)
+    fields: [...],                 // pola do zwrócenia
+    sortFieldMap: { ... },         // mapowanie sortowania
+    buildFilters: (query, ctx) => { /* custom WHERE */ },
+    transformItem: (item) => { /* transform row */ },
+    allowCsv: true,                // eksport CSV
+  },
+  
+  customFields: {
+    enabled: true,
+    entityId: E.my.entity,
+    pickPrefixed: true,            // mapuje cf_* → custom fields
+  },
+  
+  hooks: {
+    beforeCreate: async (input, ctx) => { /* pre-create logic */ },
+    afterCreate: async (entity, ctx) => { /* post-create logic */ },
+    beforeUpdate: async (input, ctx) => { /* pre-update logic */ },
+    afterUpdate: async (entity, ctx) => { /* post-update logic */ },
+    beforeDelete: async (id, ctx) => { /* pre-delete logic */ },
+    afterDelete: async (id, ctx) => { /* post-delete logic */ },
+  },
+})
+```
+
+### Zastosowanie dla encji w module `records`
+
+Wszystkie encje MVP mogą wykorzystać CRUD factory:
+
+#### Przykład: Przesyłka wpływająca (Incoming Shipment)
+
+```typescript
+// packages/core/src/modules/records/api/incoming-shipments/route.ts
+
+import { makeCrudRoute } from '@open-mercato/shared/lib/crud/factory'
+import { IncomingShipment } from '../../data/entities'
+import { 
+  incomingShipmentCreateSchema, 
+  incomingShipmentUpdateSchema 
+} from '../../data/validators'
+import { IncomingShipmentNumberGenerator } from '../../services/incomingShipmentNumberGenerator'
+
+export const metadata = {
+  GET: { requireAuth: true, requireFeatures: ['records.incoming_shipments.view'] },
+  POST: { requireAuth: true, requireFeatures: ['records.incoming_shipments.manage'] },
+  PUT: { requireAuth: true, requireFeatures: ['records.incoming_shipments.manage'] },
+  DELETE: { requireAuth: true, requireFeatures: ['records.incoming_shipments.manage'] },
+}
+
+const crud = makeCrudRoute({
+  metadata,
+  orm: {
+    entity: IncomingShipment,
+    idField: 'id',
+    orgField: 'organizationId',
+    tenantField: 'tenantId',
+    softDeleteField: 'deletedAt',
+  },
+  
+  actions: {
+    create: {
+      commandId: 'records.incoming_shipments.create',
+      schema: incomingShipmentCreateSchema,
+      mapInput: async ({ raw, ctx }) => {
+        // Generuj numer RPW automatycznie
+        const generator = ctx.container.resolve('incomingShipmentNumberGenerator')
+        const { number, sequence } = await generator.generate({
+          organizationId: ctx.selectedOrganizationId,
+          tenantId: ctx.auth.tenantId,
+          officeId: raw.officeId,
+        })
+        
+        return {
+          ...raw,
+          rpwNumber: number,
+          rpwSequence: sequence,
+          receivedDate: raw.receivedDate || new Date(),
+        }
+      },
+      response: ({ result }) => ({ id: result.shipmentId }),
+      status: 201,
+    },
+    
+    update: {
+      commandId: 'records.incoming_shipments.update',
+      schema: incomingShipmentUpdateSchema,
+      mapInput: async ({ raw, ctx }) => raw,
+      response: () => ({ ok: true }),
+    },
+    
+    delete: {
+      commandId: 'records.incoming_shipments.delete',
+      schema: z.object({ id: z.string().uuid() }),
+      mapInput: async ({ parsed }) => ({ id: parsed.id }),
+      response: () => ({ ok: true }),
+    },
+  },
+  
+  list: {
+    schema: z.object({
+      page: z.coerce.number().min(1).default(1),
+      pageSize: z.coerce.number().min(1).max(200).default(50),
+      officeId: z.string().uuid().optional(),
+      dateFrom: z.string().optional(),
+      dateTo: z.string().optional(),
+      search: z.string().optional(),
+    }),
+    entityId: E.records.incoming_shipment,
+    fields: [
+      'id',
+      'rpwNumber',
+      'rpwSequence',
+      'officeId',
+      'receivedDate',
+      'sender',
+      'subject',
+      'createdAt',
+    ],
+    buildFilters: (query, ctx) => {
+      const where: any = {}
+      
+      if (query.officeId) {
+        where.officeId = query.officeId
+      }
+      
+      if (query.dateFrom || query.dateTo) {
+        where.receivedDate = {}
+        if (query.dateFrom) where.receivedDate.$gte = new Date(query.dateFrom)
+        if (query.dateTo) where.receivedDate.$lte = new Date(query.dateTo)
+      }
+      
+      if (query.search) {
+        where.$or = [
+          { rpwNumber: { $ilike: `%${query.search}%` } },
+          { sender: { $ilike: `%${query.search}%` } },
+          { subject: { $ilike: `%${query.search}%` } },
+        ]
+      }
+      
+      return where
+    },
+    allowCsv: true,
+  },
+  
+  customFields: {
+    enabled: true,
+    entityId: E.records.incoming_shipment,
+    pickPrefixed: true,
+  },
+  
+  hooks: {
+    afterCreate: async (entity, ctx) => {
+      // Indeksuj dla wyszukiwania Cmd+K
+      await ctx.container.resolve('queryIndexService').refresh({
+        entityId: E.records.incoming_shipment,
+        recordId: entity.id,
+      })
+    },
+    
+    afterUpdate: async (entity, ctx) => {
+      // Odśwież indeks
+      await ctx.container.resolve('queryIndexService').refresh({
+        entityId: E.records.incoming_shipment,
+        recordId: entity.id,
+      })
+    },
+  },
+})
+
+export const { GET, POST, PUT, DELETE } = crud
+```
+
+#### Przykład: Sprawa (Case)
+
+```typescript
+// packages/core/src/modules/records/api/cases/route.ts
+
+import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
+import { makeCrudRoute } from '@open-mercato/shared/lib/crud/factory'
+import { Case, Document } from '../../data/entities'
+
+const crud = makeCrudRoute({
+  metadata: {
+    GET: { requireAuth: true, requireFeatures: ['records.cases.view'] },
+    POST: { requireAuth: true, requireFeatures: ['records.cases.manage'] },
+    PUT: { requireAuth: true, requireFeatures: ['records.cases.manage'] },
+    DELETE: { requireAuth: true, requireFeatures: ['records.cases.manage'] },
+  },
+  
+  orm: {
+    entity: Case,
+    idField: 'id',
+    orgField: 'organizationId',
+    tenantField: 'tenantId',
+    softDeleteField: 'deletedAt',
+  },
+  
+  actions: {
+    create: {
+      commandId: 'records.cases.create',
+      schema: caseCreateSchema,
+      mapInput: async ({ raw, ctx }) => {
+        // Jeśli sign (znak sprawy) nie jest podany, sprawa działa jako "koszulka"
+        let sign = raw.sign || null
+        
+        // Opcjonalnie: automatyczne generowanie znaku sprawy
+        if (raw.autoGenerateSign && raw.jrwaClassId) {
+          const generator = ctx.container.resolve('caseNumberGenerator')
+          sign = await generator.generate({
+            organizationId: ctx.selectedOrganizationId,
+            tenantId: ctx.auth.tenantId,
+            officeId: raw.officeId,
+            jrwaClassId: raw.jrwaClassId,
+          })
+        }
+        
+        return {
+          ...raw,
+          sign,
+          status: raw.status || 'open',
+          isReadOnly: false,
+        }
+      },
+      response: ({ result }) => ({ id: result.caseId }),
+      status: 201,
+    },
+    
+    update: {
+      commandId: 'records.cases.update',
+      schema: caseUpdateSchema,
+      mapInput: async ({ raw, ctx }) => {
+        // Waliduj read-only
+        const existing = await ctx.container.resolve('em').findOneOrFail(Case, raw.id)
+        if (existing.isReadOnly) {
+          throw new CrudHttpError(400, { 
+            error: 'Cannot update read-only case. Reopen first.' 
+          })
+        }
+        return raw
+      },
+      response: () => ({ ok: true }),
+    },
+    
+    delete: {
+      commandId: 'records.cases.delete',
+      schema: z.object({ id: z.string().uuid() }),
+      mapInput: async ({ parsed, ctx }) => {
+        // Waliduj, że sprawa nie ma przypisanych dokumentów
+        const documentCount = await ctx.container.resolve('em').count(Document, {
+          caseId: parsed.id,
+          deletedAt: null,
+        })
+        if (documentCount > 0) {
+          throw new CrudHttpError(400, {
+            error: `Cannot delete case with ${documentCount} documents attached.`
+          })
+        }
+        return { id: parsed.id }
+      },
+      response: () => ({ ok: true }),
+    },
+  },
+  
+  list: {
+    schema: z.object({
+      page: z.coerce.number().min(1).default(1),
+      pageSize: z.coerce.number().min(1).max(200).default(50),
+      officeId: z.string().uuid().optional(),
+      jrwaClassId: z.string().uuid().optional(),
+      status: z.enum(['open', 'closed', 'archived']).optional(),
+      hasSign: z.enum(['yes', 'no']).optional(),  // filtruj sprawy vs koszulki
+      search: z.string().optional(),
+    }),
+    entityId: E.records.case,
+    fields: [
+      'id',
+      'sign',
+      'title',
+      'officeId',
+      'jrwaClassId',
+      'status',
+      'isReadOnly',
+      'createdAt',
+    ],
+    buildFilters: (query, ctx) => {
+      const where: any = {}
+      
+      if (query.officeId) where.officeId = query.officeId
+      if (query.jrwaClassId) where.jrwaClassId = query.jrwaClassId
+      if (query.status) where.status = query.status
+      
+      // Filtruj sprawy (z znakiem) vs koszulki (bez znaku)
+      if (query.hasSign === 'yes') {
+        where.sign = { $ne: null }
+      } else if (query.hasSign === 'no') {
+        where.sign = null
+      }
+      
+      if (query.search) {
+        where.$or = [
+          { sign: { $ilike: `%${query.search}%` } },
+          { title: { $ilike: `%${query.search}%` } },
+        ]
+      }
+      
+      return where
+    },
+    allowCsv: true,
+  },
+  
+  customFields: {
+    enabled: true,
+    entityId: E.records.case,
+    pickPrefixed: true,
+  },
+  
+  hooks: {
+    afterCreate: async (entity, ctx) => {
+      await ctx.container.resolve('queryIndexService').refresh({
+        entityId: E.records.case,
+        recordId: entity.id,
+      })
+    },
+    afterUpdate: async (entity, ctx) => {
+      await ctx.container.resolve('queryIndexService').refresh({
+        entityId: E.records.case,
+        recordId: entity.id,
+      })
+    },
+  },
+})
+
+export const { GET, POST, PUT, DELETE } = crud
+```
+
+## Podsumowanie
+
+Istniejące mechanizmy OpenMercato zapewniają solidne fundamenty dla implementacji modułu `records`:
+
+| Potrzeba EZD | Mechanizm OM | Reuse | MVP |
+|---|---|---|:---:|
+| **Numeracja RPW** | `salesDocumentNumberGenerator` | Wzorzec + atomic sequences | ✅ |
+| **Numeracja znaków sprawy** | `salesDocumentNumberGenerator` | Wzorzec + atomic sequences | ✅ |
+| **Hierarchia JRWA** | `categoryHierarchy` (catalog) | Closure table pattern | ✅ |
+| **Jednostki organizacyjne (Kancelarie)** | `directory` (organizations) | Model + RBAC | ✅ |
+| **Załączniki** | `attachments` (core) | Upload, metadata, assignments | ✅ |
+| **CRUD dla encji** | `makeCrudRoute` (shared) | Factory + hooks + custom fields | ✅ |
+| **Wyszukiwanie (Cmd+K)** | `query_index` + `search` (core) | Indeksowanie + tokens | ✅ |
+| **Audyt zmian** | `audit_logs` (core) | Logowanie operacji CRUD | opcja |
+| **Custom fields** | `entities` (core) + shared helpers | Definicje + walidacje | opcja |
+
+**Zalecenia:**
+
+1. **Numeracja**: Zaadaptuj `salesDocumentNumberGenerator` dla RPW i znaków sprawy (zakres per Kancelaria + JRWA).
+2. **Hierarchia**: Wykorzystaj `categoryHierarchy` dla JRWA (analogiczny model z closure table).
+3. **Jednostki org.**: Stwórz encję `records.offices` z referencją do `directory.organizations`.
+4. **Załączniki**: Dokumenty w EZD są **załącznikami z metadanymi** – używaj modułu `attachments`.
+5. **CRUD**: Wykorzystaj `makeCrudRoute` dla wszystkich 10 encji MVP – oszczędność kodu, spójność API, automatyczne side effects.
+
+**Konsekwencje:**
+
+- Mniejsza ilość kodu do napisania (reuse sprawdzonych wzorców).
+- Spójność z resztą systemu (API, błędy, metadane).
+- Łatwiejsze utrzymanie (jeden mechanizm numeracji, jeden wzorzec hierarchii).
+- Bezpieczeństwo (atomic sequences, RBAC, soft delete).
