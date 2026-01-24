@@ -91,8 +91,9 @@ class IncomingShipmentNumberGenerator {
 // Format 1: RPW/2025/000001
 const format1 = 'RPW/{YYYY}/{SEQ:6}'
 
-// Format 2: RPW-K01/2025/01/0001 (z kodem Kancelarii)
-const format2 = 'RPW-{CODE}/{YYYY}/{MM}/{SEQ:4}'
+// Format 2: RPW-K01/2025/01/0001 (z kodem Kancelarii - wymaga rozszerzenia tokenów)
+// Uwaga: Token {CODE} wymaga implementacji custom tokena dla kodu Kancelarii
+const format2 = 'RPW-K01/{YYYY}/{MM}/{SEQ:4}'  // lub RPW-{CODE} po rozszerzeniu
 
 // Format 3: Zgodny z instrukcją kancelaryjną MKiDN
 const format3 = '{YYYY}/{SEQ:5}'
@@ -550,26 +551,31 @@ function resolvePrimaryOwner(document: Document): {
 // }
 
 async function createDocument(input: CreateDocumentInput) {
-  // 1. Upload pliku do modułu attachments
+  // 1. Utwórz dokument z metadanymi (generuje ID)
+  const document = await em.create(Document, {
+    ...input,
+    attachmentIds: []  // początkowo pusta lista
+  })
+  await em.flush()  // Flush aby uzyskać wygenerowany ID
+  
+  // 2. Upload pliku do modułu attachments z prawidłowym recordId
   const attachment = await uploadAttachment({
     entityId: 'records.document',
-    recordId: generateUUID(),  // tymczasowy ID (będzie nadpisany)
+    recordId: document.id,
     file: input.file
   })
   
-  // 2. Utwórz dokument z metadanymi
-  const document = await em.create(Document, {
-    ...input,
-    attachmentIds: [attachment.id]
-  })
+  // 3. Aktualizuj dokument z ID załącznika
+  document.attachmentIds = [attachment.id]
   
-  // 3. Aktualizuj assignment w załączniku
+  // 4. Ustaw assignment w załączniku
   await upsertAssignment(attachment.id, {
     type: 'records.document',
     id: document.id,
     label: document.title
   })
   
+  await em.flush()
   return document
 }
 
@@ -842,6 +848,10 @@ export const { GET, POST, PUT, DELETE } = crud
 
 ```typescript
 // packages/core/src/modules/records/api/cases/route.ts
+
+import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
+import { makeCrudRoute } from '@open-mercato/shared/lib/crud/factory'
+import { Case, Document } from '../../data/entities'
 
 const crud = makeCrudRoute({
   metadata: {
