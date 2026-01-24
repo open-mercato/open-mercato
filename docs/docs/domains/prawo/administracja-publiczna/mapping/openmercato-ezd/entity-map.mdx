@@ -13,17 +13,21 @@ Uwaga: to tylko hipoteza do walidacji – finalna nazwa zależy od spójności z
 
 ## Tabela mapowania (MVP)
 
+**Nota terminologiczna:** RKW = rejestr przesyłek wychodzących (terminologia projektowa dla spójności ze źródłami).
+
 | Potrzeba (domena) | Typ | Odpowiednik w OM | Status | Notatki |
 |---|---|---|---|---|
-| Kancelaria (Office) | Encja | `records.offices` | Nowe | Jednostka organizacyjna zarządzająca przesyłkami. Definiuje zakres numeracji RPW i uprawnienia pracowników. System obsługuje wiele Kancelarii w organizacji. |
+| Kancelaria (Office) | Encja | `records.offices` | Nowe | Jednostka organizacyjna zarządzająca przesyłkami wpływającymi i wychodzącymi. Definiuje zakres numeracji RPW (przesyłki wpływające) i RKW (przesyłki wychodzące) oraz uprawnienia pracowników. System obsługuje wiele Kancelarii w organizacji. |
 | Przesyłka wpływająca | Encja | `records.incoming_shipments` | Nowe | Zwana również "Wpływ". RPW jako numeracja na tej encji (wykorzystuje wzorzec z `salesDocumentNumberGenerator`). Zawartością przesyłki są Dokumenty. Każda przesyłka jest obsługiwana przez konkretną Kancelarię. |
 | RPW | Widok/numeracja | pola na przesyłce + lista + generator | Nowe | Bez osobnej tabeli/encji. Wykorzystuje mechanizm numeracji analogiczny do `salesDocumentNumberGenerator` z zakresem per Kancelaria. |
+| Przesyłka wychodząca | Encja | `records.outgoing_shipments` | Nowe | Zwana również "Wysyłka". RKW jako numeracja na tej encji (wykorzystuje wzorzec z `salesDocumentNumberGenerator`). Zawartością przesyłki są Dokumenty. Każda przesyłka jest obsługiwana przez konkretną Kancelarię. |
+| RKW | Widok/numeracja | pola na przesyłce + lista + generator | Nowe | Bez osobnej tabeli/encji. Wykorzystuje mechanizm numeracji analogiczny do `salesDocumentNumberGenerator` z zakresem per Kancelaria. RKW = rejestr przesyłek wychodzących. |
 | JRWA | Encja | `records.jrwa_classes` | Nowe | Drzewo klas + retencja. Sprawa ma JRWA. |
 | Spis spraw | Encja | `records.case_registers` | Nowe | Zakres numeracji do dopięcia |
 | Szablon sprawy | Encja | `records.case_templates` | Nowe | Definiuje strukturę, pola i reguły dla konkretnego typu sprawy. Umożliwia standaryzację procesu zakładania spraw i dostosowanie systemu do różnych rodzajów postępowań bez modyfikacji kodu. Szablon określa: wymagane/opcjonalne pola custom fields, domyślne wartości, powiązania z JRWA, role stron. |
 | Sprawa | Encja | `records.cases` | Nowe | **Uwaga:** Sprawa i Koszulka są tą samą encją. Sprawa = Koszulka z przypisanym znakiem sprawy. Znak sprawy jako pole opcjonalne; gdy jest pusty, rekord funkcjonuje jako "Koszulka" (kontener roboczy/teczka tematyczna). Sprawa może być utworzona na podstawie szablonu sprawy. |
 | Powiązania (neutralne) | Encja | `records.record_links` | Nowe | Symetryczne linki między rekordami sprawy (niezależnie od tego, czy mają przypisany znak sprawy) |
-| Dokument | Encja | `records.documents` | Nowe | **Załącznik z metadanami**. Powiązania opcjonalne: przesyłka + (dokładnie jedna) koszulka **lub** sprawa. Wykorzystuje moduł `attachments` (core) do przechowywania plików |
+| Dokument | Encja | `records.documents` | Nowe | **Załącznik z metadanymi**. Powiązania opcjonalne: przesyłka wpływająca (`incomingShipmentId`) i/lub przesyłka wychodząca (`outgoingShipmentId`) + (dokładnie jedna) koszulka **lub** sprawa. Dokument z wpływu i odpowiedź wychodząca to jeden rekord z dwoma numerami przesyłek. Wykorzystuje moduł `attachments` (core) do przechowywania plików |
 | Skład chronologiczny – lokalizacja | Encja | `records.chronological_locations` | Nowe | Z historią zmian przypisań |
 | Strony (Case Parties) | Encja | `records.case_parties` | Nowe | Podmioty zaangażowane w sprawę (wnioskodawcy, uczestnicy, strony postępowania). Powiązane ze sprawą, referencja do rejestru podmiotów (np. `customers`) lub nazwa ad-hoc. |
 

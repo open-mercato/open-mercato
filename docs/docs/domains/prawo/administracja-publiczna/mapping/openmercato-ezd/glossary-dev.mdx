@@ -32,14 +32,14 @@ W MVP (CRUD) procesy dokumentujemy, ale nie implementujemy.
 
 ### Kancelaria (Office)
 
-Jednostka organizacyjna odpowiedzialna za obsługę przesyłek wpływających w ramach organizacji.
+Jednostka organizacyjna odpowiedzialna za obsługę przesyłek wpływających i wychodzących w ramach organizacji.
 
 **Kluczowe cechy:**
 
 - Organizacja może mieć wiele Kancelarii
-- Każda Kancelaria ma niezależną sekwencję numeracji RPW
+- Każda Kancelaria ma niezależną sekwencję numeracji RPW (przesyłki wpływające) i RKW (przesyłki wychodzące)
 - Kancelaria określa zakres uprawnień pracowników (RBAC)
-- Kancelaria może mieć własny format numeracji RPW
+- Kancelaria może mieć własny format numeracji RPW i RKW
 
 **Przypadki użycia:**
 
@@ -47,20 +47,20 @@ Jednostka organizacyjna odpowiedzialna za obsługę przesyłek wpływających w 
 - Podział organizacyjny według kompetencji (np. różne departamenty)
 - Separacja danych dla różnych jednostek w ramach jednej organizacji
 
-### Numeracja RPW per Kancelaria
+### Numeracja RPW i RKW per Kancelaria
 
-Każda Kancelaria ma własną sekwencję numeracji RPW.
+Każda Kancelaria ma własne sekwencje numeracji RPW i RKW.
 
 **Zakres numeracji:**
 
 - Organizacja + Tenant + Kancelaria
-- Sekwencja jest niezależna dla każdej Kancelarii
-- Format numeracji jest konfigurowalny per Kancelaria
+- Sekwencje są niezależne dla każdej Kancelarii
+- Formaty numeracji są konfigurowalne per Kancelaria
 
 **Przykład:**
 
-- Kancelaria A: RPW-A/2026/000001, RPW-A/2026/000002, ...
-- Kancelaria B: RPW-B/2026/000001, RPW-B/2026/000002, ...
+- Kancelaria A: RPW-A/2026/000001, RPW-A/2026/000002, ... oraz RKW-A/2026/000001, RKW-A/2026/000002, ...
+- Kancelaria B: RPW-B/2026/000001, RPW-B/2026/000002, ... oraz RKW-B/2026/000001, RKW-B/2026/000002, ...
 
 ### Uprawnienia w kontekście Kancelarii
 
@@ -85,6 +85,21 @@ Jednostka rejestracji wpływu. Nie ma „statusów”, ale ma **oznaczenia** dot
 ### RPW
 
 Rejestr Przesyłek Wpływających jako **widok/numeracja** – nie osobna encja.
+
+### Przesyłka wychodząca
+
+Jednostka rejestracji wysyłki. Reprezentuje przesyłkę wysyłaną (wydawaną) przez organizację.
+
+- Zwana również "Wysyłka"
+- Numerowana w RKW (Rejestr Przesyłek Wychodzących)
+- Zawiera dokumenty wychodzące
+- Obsługiwana przez konkretną Kancelarię
+
+### RKW
+
+**RKW = Rejestr Przesyłek Wychodzących** (terminologia projektowa dla spójności ze źródłami).
+
+Rejestr Przesyłek Wychodzących jako **widok/numeracja** – nie osobna encja. Analogiczny do RPW, ale dla przesyłek wychodzących.
 
 ### Sprawa
 
@@ -112,9 +127,10 @@ Rejestr spraw, w ramach którego numerowane są sprawy (szczegóły numeracji do
 Nośnik treści. Może:
 
 - istnieć niezależnie (np. „przyniesiony” bez przesyłki),
-- być przypięty do przesyłki,
+- być przypięty do przesyłki wpływającej (`incomingShipmentId`),
 - być przypięty do sprawy **albo** koszulki.
 
+- mieć jednocześnie przesyłkę wpływającą i wychodzącą (dokument wpływający i odpowiedź wychodząca to jeden rekord z dwoma numerami przesyłek).
 Zasada: dokument może być przypięty do **dokładnie jednego** obiektu (sprawy albo koszulki) lub do żadnego.
 
 Jeśli sprawa jest read-only, nie można dopinać/odpiąć dokumentów.
@@ -129,7 +145,7 @@ W implementacji, dokument jest konceptualnie **załącznikiem z metadanymi**:
 
 **Główny właściciel załączników** (primary owner) jest określany przez kontekst dokumentu:
 
-- Dokument powiązany z przesyłką (`incomingShipmentId`) → właściciel: przesyłka
+- Dokument powiązany z przesyłką wpływającą (`incomingShipmentId`) lub wychodzącą (`outgoingShipmentId`) → właściciel: przesyłka
 - Dokument powiązany ze sprawą (`caseId`) → właściciel: sprawa (niezależnie od tego, czy ma przypisany znak sprawy)
 - Dokument samodzielny → właściciel: dokument
 

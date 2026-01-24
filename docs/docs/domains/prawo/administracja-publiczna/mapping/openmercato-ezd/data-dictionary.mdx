@@ -7,7 +7,7 @@ Ten dokument definiuje minimalne pola dla encji MVP oraz ich źródła (np. Paki
 
 ## Kancelaria (Office)
 
-Jednostka organizacyjna zarządzająca przesyłkami wpływającymi. System obsługuje wiele Kancelarii w ramach jednej organizacji.
+Jednostka organizacyjna zarządzająca przesyłkami wpływającymi i wychodzącymi. System obsługuje wiele Kancelarii w ramach jednej organizacji.
 
 | Pole | Typ | Wymagane | Uwagi |
 |---|---|---:|---|
@@ -16,12 +16,13 @@ Jednostka organizacyjna zarządzająca przesyłkami wpływającymi. System obsł
 | `description` | string | nie | Opis/zakres działania |
 | `isActive` | boolean | tak | Czy Kancelaria jest aktywna (domyślnie true) |
 | `rpwNumberFormat` | string | nie | Format numeracji RPW (jeśli brak, używany domyślny: "RPW/{YYYY}/{SEQ:6}") |
+| `rkwNumberFormat` | string | nie | Format numeracji RKW (jeśli brak, używany domyślny: "RKW/{YYYY}/{SEQ:6}"). RKW = rejestr przesyłek wychodzących |
 
 Zasady:
 
 - Kod Kancelarii jest unikalny w zakresie organizacji
-- Nieaktywna Kancelaria nie może przyjmować nowych przesyłek
-- Format numeracji RPW wykorzystuje tokeny: `{YYYY}`, `{YY}`, `{MM}`, `{DD}`, `{SEQ:N}` (analogicznie do `salesDocumentNumberGenerator`)
+- Nieaktywna Kancelaria nie może przyjmować nowych przesyłek wpływających ani obsługiwać przesyłek wychodzących
+- Format numeracji RPW i RKW wykorzystuje tokeny: `{YYYY}`, `{YY}`, `{MM}`, `{DD}`, `{SEQ:N}` (analogicznie do `salesDocumentNumberGenerator`)
 
 ## Przesyłka wpływająca (incoming shipment)
 
@@ -59,16 +60,18 @@ Zasady:
 | `receivedAt` | date | nie | jeśli dotyczy |
 | `documentDate` | date | nie | data na dokumencie |
 | `documentSign` | string | nie | znak na dokumencie |
-| `incomingShipmentId` | uuid | nie | link do przesyłki |
+| `incomingShipmentId` | uuid | nie | link do przesyłki wpływającej |
+| `outgoingShipmentId` | uuid | nie | link do przesyłki wychodzącej. Dokument z wpływu i odpowiedź wychodząca to jeden rekord z dwoma numerami przesyłek |
 | `caseId` | uuid | nie | link do sprawy (niezależnie od tego, czy ma przypisany znak sprawy) |
 | `attachmentIds` | uuid[] | nie | referencje do załączników (plików) z modułu `attachments` |
 
 Zasady spójności:
 
 - Dokument może być przypięty do sprawy (niezależnie od tego, czy ma przypisany znak sprawy) lub do żadnej.
+- Dokument może mieć zarówno `incomingShipmentId` jak i `outgoingShipmentId` (dokument wpływający i odpowiedź wychodząca to jeden rekord).
 - `attachmentIds` zawiera referencje do fizycznych plików zarządzanych przez moduł `attachments` (core).
 - Główny właściciel załączników jest określany przez kontekst dokumentu:
-  - Jeśli `incomingShipmentId` → właściciel: przesyłka
+  - Jeśli `incomingShipmentId` lub `outgoingShipmentId` → właściciel: przesyłka (wpływająca lub wychodząca)
   - Jeśli `caseId` → właściciel: sprawa (niezależnie od tego, czy ma przypisany znak sprawy)
   - Jeśli brak powiązań → właściciel: dokument
 
