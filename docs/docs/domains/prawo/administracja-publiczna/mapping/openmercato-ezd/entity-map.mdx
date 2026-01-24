@@ -31,7 +31,7 @@ Ta tabela pokazuje „klocki platformy” OpenMercato, które wykorzystamy przy 
 
 MVP wymaga:
 
-- wyszukiwania Cmd+K dla **Sprawy** i **Dokumentu**,
+- wyszukiwania Cmd+K dla **Sprawy** (obejmuje rekordy z i bez znaku sprawy) i **Dokumentu**,
 - strategii search **tokens** (minimalnie).
 
 | Potrzeba EZD | Moduł/Helper OM | Zakres reuse | Wymóg na MVP? | Linki (docs) |
@@ -80,23 +80,19 @@ Główny właściciel załącznika jest określany przez powiązanie dokumentu z
    - Przypadek użycia: dokumenty otrzymane w ramach przesyłki
 
 2. **Dokument powiązany ze sprawą** (`caseId`):
-   - Główny właściciel: sprawa
-   - Przypadek użycia: dokumenty przypisane do konkretnej sprawy
+   - Główny właściciel: sprawa (rekord może mieć lub nie mieć przypisany znak sprawy)
+   - Przypadek użycia: dokumenty przypisane do konkretnej sprawy lub zgrupowane tematycznie
 
-3. **Dokument powiązany z koszulką** (`folderId`):
-   - Główny właściciel: koszulka
-   - Przypadek użycia: dokumenty zgrupowane tematycznie w koszulce
-
-4. **Dokument samodzielny** (brak powiązań):
+3. **Dokument samodzielny** (brak powiązań):
    - Główny właściciel: sam dokument
-   - Przypadek użycia: dokument „przyniesiony", nieprzypisany jeszcze do sprawy/koszulki
+   - Przypadek użycia: dokument „przyniesiony", nieprzypisany jeszcze do sprawy
 
 ### Implikacje dla RBAC
 
 - Dostęp do załączników dokumentu jest kontrolowany przez:
-  1. Uprawnienia do głównego właściciela (przesyłka/sprawa/koszulka)
+  1. Uprawnienia do głównego właściciela (przesyłka/sprawa)
   2. Poziom dostępu dokumentu (`accessLevel`)
-  3. Status właściciela (np. sprawa/koszulka w stanie `read-only`)
+  3. Status właściciela (np. sprawa w stanie `read-only`)
 
 - RBAC musi uwzględniać łańcuch uprawnień: `user → owner entity → document → attachments`
 

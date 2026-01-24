@@ -29,14 +29,34 @@ Format decyzji (ADR‑like):
 
 ## D-003: Koszulka → Sprawa 1:1
 
-- Status: superseded
+- Status: superseded (by D-009)
 - Kontekst: pierwotnie zakładaliśmy „koszulkę” jako obiekt przejściowy przed sprawą.
 - Decyzja: (nieaktualne) koszulka jest encją i może zostać przekształcona w sprawę 1:1.
 - Konsekwencje: (nieaktualne) pola wiążące typu `folder.caseId` / `case.folderId`.
 
-## D-007: Powiązania neutralne + read-only (Sprawa i Koszulka)
+## D-009: Ujednolicenie Sprawa = Koszulka
 
 - Status: accepted
+- Kontekst:
+- Analiza wymagań wykazała, że "Koszulka" i "Sprawa" są konceptualnie tym samym obiektem.
+- "Sprawa" to "Koszulka" z przypisanym znakiem sprawy.
+- Utrzymywanie dwóch osobnych encji prowadziło do nadmiernej złożoności i niespójności w dokumentacji.
+- Decyzja:
+- Sprawa i Koszulka są tą samą encją (`records.cases`).
+- Pole `sign` (znak sprawy) jest opcjonalne:
+- Gdy `sign` jest wypełniony → rekord funkcjonuje jako pełna "Sprawa"
+- Gdy `sign` jest pusty → rekord funkcjonuje jako "Koszulka" (kontener roboczy/teczka tematyczna)
+- Usuwamy osobną encję `records.folders`.
+- Konsekwencje:
+- Uproszczenie modelu danych (7 encji zamiast 8).
+- Dokumenty powiązane są tylko z `caseId` (nie `folderId`).
+- Powiązania między rekordami (`record_links`) używają tylko typu `case`.
+- Wszystkie referencje do "Koszulki" w dokumentacji są aktualizowane, aby odzwierciedlać ten ujednolicony model.
+- CRUD dla sprawy obsługuje zarówno rekordy z przypisanym znakiem sprawy, jak i bez niego.
+
+## D-007: Powiązania neutralne + read-only (Sprawa)
+
+- Status: accepted (aktualizowane przez D-009)
 - Kontekst:
 	- W źródłach pojawia się potrzeba „wzajemnie powiązanych spraw”.
 	- Sprawy i koszulki służą katalogowaniu informacji i wymagają elastycznego łączenia.
@@ -73,7 +93,7 @@ Format decyzji (ADR‑like):
 - Status: accepted
 - Kontekst: chcemy, aby użytkownik mógł szybko znajdować rekordy Cmd+K, ale bez wdrażania fulltext/vector w MVP.
 - Decyzja:
-	- W MVP indeksujemy i wystawiamy w Cmd+K tylko: **Sprawa** i **Dokument**.
+	- W MVP indeksujemy i wystawiamy w Cmd+K tylko: **Sprawa** (obejmuje rekordy z i bez znaku sprawy) i **Dokument**.
 	- Strategia search na start: **tokens**.
 - Konsekwencje:
 	- CRUD dla tych encji musi odświeżać `query_index`.
@@ -97,8 +117,7 @@ Format decyzji (ADR‑like):
 	- RBAC dla dokumentów musi uwzględniać zasady dostępu do załączników.
 	- Główny właściciel załącznika (primary owner) jest określany przez powiązanie dokumentu:
 		- Jeśli dokument ma `incomingShipmentId` → właścicielem jest przesyłka.
-		- Jeśli dokument ma `caseId` → właścicielem jest sprawa.
-		- Jeśli dokument ma `folderId` → właścicielem jest koszulka.
+		- Jeśli dokument ma `caseId` → właścicielem jest sprawa (niezależnie od tego, czy ma przypisany znak sprawy).
 		- Jeśli dokument nie ma żadnego powiązania → właścicielem jest sam dokument.
 	- API dokumentów musi obsługiwać upload/download plików przez moduł `attachments`.
 	- Przy usuwaniu dokumentu należy rozważyć politykę usuwania powiązanych załączników (cascade delete lub orphan handling).

@@ -41,46 +41,40 @@ Dokument jest konceptualnie **załącznikiem z metadanami**. Wykorzystuje moduł
 | `documentDate` | date | nie | data na dokumencie |
 | `documentSign` | string | nie | znak na dokumencie |
 | `incomingShipmentId` | uuid | nie | link do przesyłki |
-| `folderId` | uuid | nie | link do koszulki |
-| `caseId` | uuid | nie | link do sprawy |
+| `caseId` | uuid | nie | link do sprawy (niezależnie od tego, czy ma przypisany znak sprawy) |
 | `attachmentIds` | uuid[] | nie | referencje do załączników (plików) z modułu `attachments` |
 
 Zasady spójności:
 
-- Dokument może być przypięty do **dokładnie jednego** obiektu: `folderId` XOR `caseId` (lub do żadnego).
+- Dokument może być przypięty do sprawy (niezależnie od tego, czy ma przypisany znak sprawy) lub do żadnej.
 - `attachmentIds` zawiera referencje do fizycznych plików zarządzanych przez moduł `attachments` (core).
 - Główny właściciel załączników jest określany przez kontekst dokumentu:
   - Jeśli `incomingShipmentId` → właściciel: przesyłka
-  - Jeśli `caseId` → właściciel: sprawa
-  - Jeśli `folderId` → właściciel: koszulka
+  - Jeśli `caseId` → właściciel: sprawa (niezależnie od tego, czy ma przypisany znak sprawy)
   - Jeśli brak powiązań → właściciel: dokument
-
-## Koszulka
-
-| Pole | Typ | Wymagane | Uwagi |
-|---|---|---:|---|
-| `title` | string | tak | nazwa koszulki |
-| `isReadOnly` | boolean | tak | blokuje zmiany (pola, dokumenty, powiązania); odwracalne z uprawnieniem |
 
 ## Sprawa
 
+**Uwaga:** Sprawa i Koszulka są tą samą encją. Sprawa = Koszulka z przypisanym znakiem sprawy.
+
 | Pole | Typ | Wymagane | Uwagi |
 |---|---|---:|---|
+| `title` | string | tak | nazwa sprawy/koszulki |
 | `caseRegisterId` | uuid | tak | spis spraw |
 | `jrwaClassId` | uuid | tak | JRWA |
-| `sign` | string | nie | znak sprawy; zasady generacji do dopięcia |
+| `sign` | string | nie | znak sprawy; gdy pusty, rekord funkcjonuje jako "Koszulka" (kontener roboczy/teczka tematyczna); zasady generacji do dopięcia |
 | `isReadOnly` | boolean | tak | blokuje zmiany (pola, dokumenty, powiązania); odwracalne z uprawnieniem |
 
 ## Powiązanie (record link)
 
-Powiązanie jest neutralne (bez typu/etykiety) i symetryczne.
+Powiązanie jest neutralne (bez typu/etykiety) i symetryczne. Łączy rekordy sprawy (niezależnie od tego, czy mają przypisany znak sprawy).
 
 | Pole | Typ | Wymagane | Uwagi |
 |---|---|---:|---|
-| `aType` | enum | tak | `case` / `folder` |
-| `aId` | uuid | tak | id obiektu A |
-| `bType` | enum | tak | `case` / `folder` |
-| `bId` | uuid | tak | id obiektu B |
+| `aType` | enum | tak | `case` |
+| `aId` | uuid | tak | id rekordu A |
+| `bType` | enum | tak | `case` |
+| `bId` | uuid | tak | id rekordu B |
 | `createdAt` | datetime | nie | audit/porządek chronologiczny |
 
 Zasady spójności:

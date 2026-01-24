@@ -10,48 +10,50 @@ Ten dokument opisuje model pojęciowy (nie techniczny) dla MVP.
 1. `incoming_shipment` – Przesyłka wpływająca
 2. `jrwa_class` – JRWA (klasa/pozycja)
 3. `case_register` – Spis spraw
-4. `case` – Sprawa
-5. `folder` – Koszulka
-6. `document` – Dokument
-7. `chronological_location` – Skład chronologiczny: lokalizacja
-8. `record_link` – Powiązanie (neutralne)
+4. `case` – Sprawa (obejmuje również funkcjonalność "Koszulki" - rekordy bez przypisanego znaku sprawy)
+5. `document` – Dokument
+6. `chronological_location` – Skład chronologiczny: lokalizacja
+7. `record_link` – Powiązanie (neutralne)
+
+**Uwaga:** Sprawa i Koszulka są tą samą encją. Sprawa = Koszulka z przypisanym znakiem sprawy. Gdy rekord nie ma przypisanego znaku sprawy, funkcjonuje jako kontener roboczy/teczka tematyczna.
 
 Nazwy techniczne są robocze; finalnie będą zależeć od nazwy modułu i istniejących konwencji.
 
 ## Relacje (przez ID)
 
 - `document.incomingShipmentId` (opcjonalne)
-- `document.folderId` (opcjonalne)
 - `document.caseId` (opcjonalne)
-  - Zasada: dokument może być przypięty do **dokładnie jednego** obiektu: `folderId` XOR `caseId`.
+  - Dokument może być przypięty do sprawy (niezależnie od tego, czy sprawa ma przypisany znak sprawy).
 - `document.attachmentIds` (tablica, opcjonalne)
   - Referencje do załączników z modułu `attachments` (core)
   - Dokument jest konceptualnie załącznikiem z metadanymi – wykorzystuje `attachments` do przechowywania plików
 
 - `case.jrwaClassId` (wymagane)
 - `case.caseRegisterId` (wymagane)
+- `case.sign` (opcjonalne)
+  - Znak sprawy – gdy jest pusty, rekord funkcjonuje jako "Koszulka" (kontener roboczy)
 
 - `record_link.aType` + `record_link.aId`
 - `record_link.bType` + `record_link.bId`
-  - typ: `case` | `folder`
+  - typ: `case` (dla rekordów z i bez znaku sprawy)
   - powiązanie jest **symetryczne** (a↔b) i **neutralne** (bez etykiety)
 
 ## Zasady spójności (MVP)
 
 - Dokument może istnieć bez przesyłki.
-- Dokument może być przypięty do sprawy lub koszulki niezależnie od przesyłki.
+- Dokument może być przypięty do sprawy niezależnie od przesyłki (niezależnie od tego, czy sprawa ma przypisany znak sprawy).
 - Przesyłka nie inicjuje sprawy automatycznie.
 
 ### Read-only (zamknięcie)
 
-Sprawa i koszulka mogą zostać wprowadzone w stan **read-only** (zamknięte).
+Sprawa może zostać wprowadzona w stan **read-only** (zamknięte).
 
 - Read-only blokuje: edycję pól, dopinanie/odpinanie dokumentów, dodawanie/usuwanie powiązań.
 - Read-only jest odwracalne (reopen), ale wymaga uprawnienia (RBAC) — do ustalenia w module `records`.
 
 ### Powiązania (neutralne, symetryczne)
 
-- Dopuszczamy: sprawa↔sprawa, koszulka↔koszulka, sprawa↔koszulka.
+- Dopuszczamy powiązania między dowolnymi rekordami sprawy (niezależnie od tego, czy mają przypisany znak sprawy).
 - Rekomendacja spójności: powiązanie przechowujemy jako jedną parę (A,B) z kanonicznym uporządkowaniem (żeby uniknąć duplikatów A–B i B–A).
 
 ## Skład chronologiczny: lokalizacja i historia
@@ -94,7 +96,7 @@ W OpenMercato:
   - identyfikacja: tytuł, rodzaj, znak
   - daty: data dokumentu, data wpływu
   - klasyfikacja: poziom dostępu
-  - powiązania: przesyłka, sprawa lub koszulka
+  - powiązania: przesyłka lub sprawa (niezależnie od tego, czy ma przypisany znak sprawy)
 - **Moduł `attachments` (core)** zarządza fizycznymi plikami:
   - upload/download
   - przechowywanie
@@ -106,17 +108,16 @@ W OpenMercato:
 - Relacja jest realizowana przez pole `attachmentIds` (lub podobne) w encji `records.documents`.
 - Główny właściciel załączników jest określany przez kontekst dokumentu:
   - Dokument powiązany z przesyłką → właściciel: przesyłka
-  - Dokument powiązany ze sprawą → właściciel: sprawa
-  - Dokument powiązany z koszulką → właściciel: koszulka
+  - Dokument powiązany ze sprawą → właściciel: sprawa (niezależnie od tego, czy ma przypisany znak sprawy)
   - Dokument samodzielny → właściciel: dokument
 
 ### Implikacje dla RBAC
 
 Dostęp do załączników jest kontrolowany poprzez:
 
-1. Uprawnienia do głównego właściciela (przesyłka/sprawa/koszulka/dokument)
+1. Uprawnienia do głównego właściciela (przesyłka/sprawa/dokument)
 2. Poziom dostępu dokumentu (`accessLevel`)
-3. Status właściciela (np. `read-only` dla sprawy/koszulki)
+3. Status właściciela (np. `read-only` dla sprawy)
 
 Użytkownik ma dostęp do załączników dokumentu, jeśli:
 
