@@ -42,14 +42,26 @@ Rejestr Przesyłek Wpływających jako **widok/numeracja** – nie osobna encja.
 
 ### Koszulka
 
-Kontener roboczy na dokumenty, zanim powstanie sprawa.
+Kontener roboczy i/lub teczka tematyczna do grupowania dokumentacji.
 
-- Koszulka jest przekształcana w sprawę 1:1.
-- Dokumenty w koszulce mogą zostać przypięte do sprawy po konwersji.
+- Koszulka może być powiązana z inną koszulką.
+- Koszulka może być powiązana ze sprawą.
+- Koszulka może zostać zamknięta (read-only).
 
 ### Sprawa
 
 Zbiór dokumentów i czynności prowadzonych pod znakiem sprawy.
+
+- Sprawa może być powiązana z inną sprawą.
+- Sprawa może być powiązana z koszulką.
+- Sprawa może zostać zamknięta (read-only).
+
+### Powiązanie (neutralne)
+
+Neutralny (bez etykiety) i symetryczny link między dwoma obiektami: sprawą lub koszulką.
+
+- Dopuszczamy: sprawa↔sprawa, koszulka↔koszulka, sprawa↔koszulka.
+- Powiązania są blokowane, jeśli dowolna strona jest read-only.
 
 ### Spis spraw
 
@@ -61,7 +73,11 @@ Nośnik treści. Może:
 
 - istnieć niezależnie (np. „przyniesiony” bez przesyłki),
 - być przypięty do przesyłki,
-- być przypięty do sprawy.
+- być przypięty do sprawy **albo** koszulki.
+
+Zasada: dokument może być przypięty do **dokładnie jednego** obiektu (sprawy albo koszulki) lub do żadnego.
+
+Jeśli sprawa/koszulka jest read-only, nie można dopinać/odpiąć dokumentów.
 
 ### Skład chronologiczny – lokalizacja
 

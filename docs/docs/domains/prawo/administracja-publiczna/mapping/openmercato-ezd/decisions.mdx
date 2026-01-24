@@ -29,10 +29,30 @@ Format decyzji (ADR‑like):
 
 ## D-003: Koszulka → Sprawa 1:1
 
+- Status: superseded
+- Kontekst: pierwotnie zakładaliśmy „koszulkę” jako obiekt przejściowy przed sprawą.
+- Decyzja: (nieaktualne) koszulka jest encją i może zostać przekształcona w sprawę 1:1.
+- Konsekwencje: (nieaktualne) pola wiążące typu `folder.caseId` / `case.folderId`.
+
+## D-007: Powiązania neutralne + read-only (Sprawa i Koszulka)
+
 - Status: accepted
-- Kontekst: dokumenty podlegają pracy merytorycznej, zanim powstanie sprawa.
-- Decyzja: koszulka jest encją i może zostać przekształcona w sprawę 1:1.
-- Konsekwencje: tworzymy pole wiążące (`folder.caseId` oraz opcjonalnie `case.folderId`).
+- Kontekst:
+	- W źródłach pojawia się potrzeba „wzajemnie powiązanych spraw”.
+	- Sprawy i koszulki służą katalogowaniu informacji i wymagają elastycznego łączenia.
+	- Potrzebujemy możliwości „zamknięcia” obiektu (blokady zmian) oraz późniejszego otwarcia.
+- Decyzja:
+	- Sprawy i koszulki są osobnymi obiektami domenowymi i encjami (MVP).
+	- Powiązania między obiektami są **neutralne** (bez typu/etykiety) i **symetryczne**.
+		- Dopuszczamy: sprawa↔sprawa, koszulka↔koszulka, sprawa↔koszulka.
+	- Wprowadzamy stan **read-only** (zamknięcie) dla spraw i koszulek.
+		- Read-only blokuje: edycję pól, dopinanie/odpinanie dokumentów, dodawanie/usuwanie powiązań.
+		- Read-only jest **odwracalne** (reopen), ale wymaga dedykowanego uprawnienia (RBAC) — nazwa do ustalenia w module `records`.
+	- Dokument może być przypięty do **dokładnie jednego** obiektu: sprawy *albo* koszulki (lub do żadnego).
+- Konsekwencje:
+	- Usuwamy koncepcję „koszulka → sprawa 1:1” i wynikające z niej pola/endpointy.
+	- Dodajemy encję/zasób powiązań (roboczo: `records.record_links`) oraz reguły unikalności par.
+	- W CRUD dla spraw/koszulek musimy walidować blokady read-only.
 
 ## D-004: Dokument może istnieć bez przesyłki
 

@@ -19,20 +19,41 @@ Ten dokument opisuje minimalny zestaw endpointów CRUD dla MVP.
 | Dokumenty | `/api/records/documents` | dokument może istnieć sam |
 | Koszulki | `/api/records/folders` | koszulka → sprawa 1:1 (patrz niżej) |
 | Sprawy | `/api/records/cases` | nie inicjujemy automatycznie z przesyłki |
+| Powiązania | `/api/records/record-links` | neutralne, symetryczne linki spraw/koszulek |
 | Spisy spraw | `/api/records/case-registers` | numeracja spraw do dopięcia |
 | JRWA | `/api/records/jrwa-classes` | drzewo klas |
 | Lokalizacje składu | `/api/records/chronological-locations` | słownik |
 | Historia lokalizacji | `/api/records/chronological-assignments` | historia przypisań dokument↔lokalizacja |
 
-## Operacje „na granicy CRUD”
+## Operacje „na granicy CRUD"
 
-### Konwersja koszulki do sprawy
+### Read-only (zamknięcie / otwarcie)
 
-W MVP (CRUD) konwersję można ująć jako:
+Sprawa i koszulka mogą zostać ustawione jako **read-only** (zamknięte). Read-only:
 
-- `POST /api/records/cases` z polem `folderId`, które tworzy sprawę i ustawia `folder.caseId`.
+- blokuje edycję pól,
+- blokuje dopinanie/odpinanie dokumentów,
+- blokuje dodawanie/usuwanie powiązań.
 
-Alternatywnie (później, jako proces): dedykowany endpoint typu `POST /api/records/folders/{id}/convert-to-case`.
+Read-only jest odwracalne (reopen), ale wymaga dedykowanego uprawnienia (RBAC) — do ustalenia w module `records`.
+
+W MVP traktujemy to jako standardowy `PATCH/PUT` na encji (`isReadOnly: true/false`).
+
+### Powiązania (neutralne, symetryczne)
+
+Powiązania są neutralne (bez typu/etykiety) i symetryczne.
+
+W MVP:
+
+- tworzenie: `POST /api/records/record-links`
+- usuwanie: `DELETE /api/records/record-links/{id}`
+- listowanie: `GET /api/records/record-links?type=case|folder&id=<uuid>`
+
+Walidacje:
+
+- brak duplikatów A–B i B–A,
+- A != B,
+- jeśli dowolna strona jest read-only → brak zmian w powiązaniach.
 
 ## Przesyłka: oznaczenia odwzorowania
 

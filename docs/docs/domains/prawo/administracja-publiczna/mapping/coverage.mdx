@@ -27,9 +27,9 @@ W szczególności:
 ### Co już mamy (ustalone)
 
 - [x] MVP ograniczone do modelu danych + CRUD
-- [x] MVP obejmuje 7 encji domenowych: Przesyłka wpływająca, JRWA, Spis spraw, Sprawa, Koszulka, Dokument, Skład chronologiczny – lokalizacja
+- [x] MVP obejmuje 8 encji domenowych: Przesyłka wpływająca, JRWA, Spis spraw, Sprawa, Koszulka, Powiązanie (neutralne), Dokument, Skład chronologiczny – lokalizacja
 - [x] RPW traktujemy jako widok/numerację dla Przesyłek wpływających (bez osobnej encji)
-- [x] Koszulka jako kontener roboczy, konwersja do sprawy 1:1
+- [x] Powiązania neutralne i symetryczne: sprawa↔sprawa, koszulka↔koszulka, sprawa↔koszulka
 - [x] Dokument może istnieć bez przesyłki i może być przypięty bezpośrednio do sprawy
 - [x] Przesyłka wpływająca nie ma statusów — ma oznaczenia dot. odwzorowania (pełne/częściowe/skład chronologiczny)
 - [x] Skład chronologiczny – lokalizacja jako osobna encja z historią zmian
@@ -39,7 +39,9 @@ W szczególności:
 - [ ] Decyzja: nazwa i scope modułu (roboczo: `records`) oraz nazwy zasobów/endpointów
 - [ ] JRWA: minimalny schemat (pola obowiązkowe, drzewo, retencja) + sposób zasilania (import vs CRUD)
 - [ ] Spis spraw: zakres numeracji i unikalność (per rok? per komórka? per JRWA?)
-- [ ] Sprawa: minimalne statusy (czy tylko open/closed), zasady zamknięcia, oraz generacja/unikalność znaku sprawy
+- [ ] Sprawa i koszulka: read-only (zamknięcie/otwarcie), uprawnienia (RBAC) i konsekwencje blokad (pola, dokumenty, powiązania)
+- [ ] Powiązania: model unikalności (A–B vs B–A), walidacje i filtrowanie list
+- [ ] Sprawa: generacja/unikalność znaku sprawy
 - [ ] Dokument: model załączników (osobne dokumenty vs pliki), minimalne typy `kind`
 - [ ] Przesyłka wpływająca: które pola Pakietu A są wymagane na start (na create vs na update)
 - [ ] Dostęp (accessLevel): ustalenie enumów i znaczenia „publiczny / częściowo / niepubliczny” dla MVP

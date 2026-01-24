@@ -20,8 +20,9 @@ Uwaga: to tylko hipoteza do walidacji – finalna nazwa zależy od spójności z
 | JRWA | Encja | `records.jrwa_classes` | Nowe | Drzewo klas + retencja |
 | Spis spraw | Encja | `records.case_registers` | Nowe | Zakres numeracji do dopięcia |
 | Sprawa | Encja | `records.cases` | Nowe | Znak sprawy jako pole wyliczalne lub przechowywane |
-| Koszulka | Encja | `records.folders` | Nowe | Konwersja 1:1 do sprawy |
-| Dokument | Encja | `records.documents` | Nowe | Powiązania opcjonalne: przesyłka/koszulka/sprawa |
+| Koszulka | Encja | `records.folders` | Nowe | Może być powiązana ze sprawami i innymi koszulkami |
+| Powiązania (neutralne) | Encja | `records.record_links` | Nowe | Symetryczne linki: sprawa↔sprawa, koszulka↔koszulka, sprawa↔koszulka |
+| Dokument | Encja | `records.documents` | Nowe | Powiązania opcjonalne: przesyłka + (dokładnie jedna) koszulka **lub** sprawa |
 | Skład chronologiczny – lokalizacja | Encja | `records.chronological_locations` | Nowe | Z historią zmian przypisań |
 
 ## Pokrycie istniejącymi modułami OM (core/shared/search)

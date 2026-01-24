@@ -42,12 +42,14 @@ Ten dokument definiuje minimalne pola dla encji MVP oraz ich źródła (np. Paki
 | `folderId` | uuid | nie | link do koszulki |
 | `caseId` | uuid | nie | link do sprawy |
 
+Zasada spójności: dokument może być przypięty do **dokładnie jednego** obiektu: `folderId` XOR `caseId` (lub do żadnego).
+
 ## Koszulka
 
 | Pole | Typ | Wymagane | Uwagi |
 |---|---|---:|---|
 | `title` | string | tak | nazwa koszulki |
-| `caseId` | uuid | nie | ustawiane po konwersji |
+| `isReadOnly` | boolean | tak | blokuje zmiany (pola, dokumenty, powiązania); odwracalne z uprawnieniem |
 
 ## Sprawa
 
@@ -56,7 +58,25 @@ Ten dokument definiuje minimalne pola dla encji MVP oraz ich źródła (np. Paki
 | `caseRegisterId` | uuid | tak | spis spraw |
 | `jrwaClassId` | uuid | tak | JRWA |
 | `sign` | string | nie | znak sprawy; zasady generacji do dopięcia |
-| `folderId` | uuid | nie | jeśli sprawa z koszulki |
+| `isReadOnly` | boolean | tak | blokuje zmiany (pola, dokumenty, powiązania); odwracalne z uprawnieniem |
+
+## Powiązanie (record link)
+
+Powiązanie jest neutralne (bez typu/etykiety) i symetryczne.
+
+| Pole | Typ | Wymagane | Uwagi |
+|---|---|---:|---|
+| `aType` | enum | tak | `case` / `folder` |
+| `aId` | uuid | tak | id obiektu A |
+| `bType` | enum | tak | `case` / `folder` |
+| `bId` | uuid | tak | id obiektu B |
+| `createdAt` | datetime | nie | audit/porządek chronologiczny |
+
+Zasady spójności:
+
+- powiązanie jest symetryczne: A↔B (nie przechowujemy osobno B↔A)
+- A != B
+- rekomendacja: kanoniczne uporządkowanie par (żeby uniknąć duplikatów)
 
 ## Spis spraw
 

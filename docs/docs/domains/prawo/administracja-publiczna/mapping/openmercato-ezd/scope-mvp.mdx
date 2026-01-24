@@ -9,7 +9,7 @@ Ten dokument opisuje **granice** oraz **definicję MVP** dla mapowania kancelary
 
 MVP obejmuje:
 
-- CRUD dla 7 encji MVP,
+- CRUD dla 8 encji MVP,
 - listy z paginacją i filtrowaniem po podstawowych polach,
 - walidacje wejścia (Zod + OpenAPI),
 - audyt podstawowych zmian (jeśli jest standardem w CRUD).
@@ -28,6 +28,7 @@ Nie obejmuje na start:
 - Spis spraw
 - Sprawa
 - Koszulka
+- Powiązanie (neutralne)
 - Dokument
 - Skład chronologiczny – lokalizacja (jako encja z historią zmian)
 
@@ -46,6 +47,6 @@ Uwaga: RPW jest traktowany jako **widok/numeracja**, a nie osobna encja.
 
 ## Otwarte kwestie (do dopięcia)
 
-1. Minimalne statusy sprawy (czy wystarcza open/closed).
+1. Minimalne statusy sprawy i koszulki (w tym read-only: zamknięcie/otwarcie + uprawnienia).
 2. Zakres numeracji i unikalności: RPW, spis spraw, znak sprawy.
 3. Model załączników (osobne dokumenty vs pliki w dokumencie).
