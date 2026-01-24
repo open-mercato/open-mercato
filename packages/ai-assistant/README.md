@@ -342,10 +342,33 @@ graph LR
 
 ### OpenCode Configuration
 
+**Environment Variables:**
+```bash
+# Provider selection (required)
+OPENCODE_PROVIDER=anthropic  # Options: anthropic, openai, google
+
+# Model override (optional - uses provider default if not set)
+OPENCODE_MODEL=
+
+# Provider API keys (set the one matching OPENCODE_PROVIDER)
+OPENCODE_ANTHROPIC_API_KEY=sk-ant-...
+OPENCODE_OPENAI_API_KEY=sk-...
+OPENCODE_GOOGLE_API_KEY=AIza...
+```
+
+**Default Models by Provider:**
+
+| Provider | Default Model | Context Window |
+|----------|---------------|----------------|
+| `anthropic` | `claude-haiku-4-5-20251001` | 200K tokens |
+| `openai` | `gpt-5-mini` | 128K tokens |
+| `google` | `gemini-3-flash-preview` | 1M tokens |
+
+**Example `opencode.json`:**
 ```json
 {
   "provider": "anthropic",
-  "model": "claude-sonnet-4-20250514",
+  "model": "claude-haiku-4-5-20251001",
   "mcp": {
     "open-mercato": {
       "type": "sse",
@@ -591,13 +614,22 @@ The module includes handling for Zod 4 schemas with the Vercel AI SDK. See [AGEN
 services:
   opencode:
     build: ./docker/opencode
-    container_name: opencode-mvp
+    container_name: mercato-opencode
     ports:
-      - "4096:4096"
+      - "${OPENCODE_PORT:-4096}:4096"
     environment:
-      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
-    volumes:
-      - ./docker/opencode/opencode.json:/root/.opencode/opencode.json
+      # Provider selection (anthropic, openai, google)
+      OPENCODE_PROVIDER: ${OPENCODE_PROVIDER:-anthropic}
+      OPENCODE_MODEL: ${OPENCODE_MODEL:-}
+      # Provider API keys (set the one matching OPENCODE_PROVIDER)
+      ANTHROPIC_API_KEY: ${OPENCODE_ANTHROPIC_API_KEY:-}
+      OPENAI_API_KEY: ${OPENCODE_OPENAI_API_KEY:-}
+      GOOGLE_GENERATIVE_AI_API_KEY: ${OPENCODE_GOOGLE_API_KEY:-}
+      # MCP configuration
+      OPENCODE_MCP_URL: ${OPENCODE_MCP_URL:-http://host.docker.internal:3001/mcp}
+      MCP_SERVER_API_KEY: ${MCP_SERVER_API_KEY:-}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
 ```
 
 ---
