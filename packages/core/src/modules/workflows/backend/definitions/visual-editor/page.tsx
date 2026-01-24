@@ -34,6 +34,7 @@ import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import {CircleQuestionMark, Info, PanelTopClose, PanelTopOpen, Play, Save, Trash2} from 'lucide-react'
 import { NODE_TYPE_ICONS, NODE_TYPE_COLORS, NODE_TYPE_LABELS } from '../../../lib/node-type-icons'
+import { EventTriggersEditor } from '../../../components/EventTriggersEditor'
 import * as React from "react";
 
 /**
@@ -709,6 +710,15 @@ export default function VisualEditorPage() {
             </div>
             </div>
           </div>
+
+          {/* Event Triggers - Only show when editing an existing definition */}
+          {definitionId && (
+            <EventTriggersEditor
+              workflowDefinitionId={definitionId}
+              workflowId={workflowId}
+              className="mt-4"
+            />
+          )}
         </div>
       )}
 
