@@ -22,7 +22,7 @@ Uwaga: to tylko hipoteza do walidacji – finalna nazwa zależy od spójności z
 | Sprawa | Encja | `records.cases` | Nowe | Znak sprawy jako pole wyliczalne lub przechowywane |
 | Koszulka | Encja | `records.folders` | Nowe | Może być powiązana ze sprawami i innymi koszulkami |
 | Powiązania (neutralne) | Encja | `records.record_links` | Nowe | Symetryczne linki: sprawa↔sprawa, koszulka↔koszulka, sprawa↔koszulka |
-| Dokument | Encja | `records.documents` | Nowe | **Załącznik z metadanami**. Powiązania opcjonalne: przesyłka + (dokładnie jedna) koszulka **lub** sprawa. Wykorzystuje moduł `attachments` (core) do przechowywania plików |
+| Dokument | Encja | `records.documents` | Nowe | Powiązania opcjonalne: przesyłka + (dokładnie jedna) koszulka **lub** sprawa |
 | Skład chronologiczny – lokalizacja | Encja | `records.chronological_locations` | Nowe | Z historią zmian przypisań |
 
 ## Pokrycie istniejącymi modułami OM (core/shared/search)
@@ -60,48 +60,3 @@ W OpenMercato moduły są niezależne.
 - Powiązania realizujemy przez pola `...Id`.
 
 Jeśli w przyszłości trzeba będzie łączyć np. nadawcę (podmiot) z innym modułem, robimy to przez ID i osobne zapytania.
-
-## Załączniki i dokumenty
-
-**Dokument** w module `records` jest konceptualnie **załącznikiem z metadanymi kancelaryjno-archiwalnymi**.
-
-### Model relacji
-
-- Encja `records.documents` przechowuje metadane dokumentu (tytuł, rodzaj, poziom dostępu, daty, powiązania z innymi encjami).
-- Fizyczne pliki są zarządzane przez moduł `attachments` (core).
-- Każdy dokument może mieć jedno lub więcej powiązanych załączników poprzez pole `attachmentIds` (lub podobne).
-
-### Główny właściciel załącznika (primary owner)
-
-Główny właściciel załącznika jest określany przez powiązanie dokumentu z innymi encjami:
-
-1. **Dokument powiązany z przesyłką** (`incomingShipmentId`):
-   - Główny właściciel: przesyłka wpływająca
-   - Przypadek użycia: dokumenty otrzymane w ramach przesyłki
-
-2. **Dokument powiązany ze sprawą** (`caseId`):
-   - Główny właściciel: sprawa
-   - Przypadek użycia: dokumenty przypisane do konkretnej sprawy
-
-3. **Dokument powiązany z koszulką** (`folderId`):
-   - Główny właściciel: koszulka
-   - Przypadek użycia: dokumenty zgrupowane tematycznie w koszulce
-
-4. **Dokument samodzielny** (brak powiązań):
-   - Główny właściciel: sam dokument
-   - Przypadek użycia: dokument „przyniesiony", nieprzypisany jeszcze do sprawy/koszulki
-
-### Implikacje dla RBAC
-
-- Dostęp do załączników dokumentu jest kontrolowany przez:
-  1. Uprawnienia do głównego właściciela (przesyłka/sprawa/koszulka)
-  2. Poziom dostępu dokumentu (`accessLevel`)
-  3. Status właściciela (np. sprawa/koszulka w stanie `read-only`)
-
-- RBAC musi uwzględniać łańcuch uprawnień: `user → owner entity → document → attachments`
-
-### Cykl życia załączników
-
-- Przy tworzeniu dokumentu: upload plików poprzez moduł `attachments`, referencje zapisywane w `records.documents`
-- Przy aktualizacji dokumentu: możliwość dodawania/usuwania załączników
-- Przy usuwaniu dokumentu: polityka usuwania załączników do zdefiniowania (cascade delete lub orphan handling)
