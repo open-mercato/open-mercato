@@ -50,6 +50,25 @@ Zasady:
 
 `*` Wymagalność nadawcy: doprecyzować regułę (senderId vs senderDisplayName) na podstawie trybu „nadawca anonimowy”.
 
+
+## Przesyłka wychodząca (outgoing shipment)
+
+**Nota terminologiczna:** RKW = rejestr przesyłek wychodzących (terminologia projektowa).
+
+| Pole | Typ | Wymagane | Uwagi |
+|---|---|---:|---|
+| `officeId` | uuid | tak | Kancelaria obsługująca przesyłkę (zakres numeracji RKW) |
+| `rkwNumber` | string | tak (auto) | Numer RKW - generowany automatycznie wg formatu Kancelarii |
+| `rkwSequence` | number | tak (auto) | Pozycja w sekwencji RKW (per Kancelaria) |
+| `recipientId` lub `recipientDisplayName` | string | tak* | jeśli odbiorca anonimowy, przechowujemy displayName/minimum |
+| `recipientAnonymous` | boolean | nie | domyślnie false |
+| `sentAt` | date | tak | data wysłania |
+| `deliveryMethod` | enum | tak | `in_person` / `epuap` / `edoręczenia` / `mail` (robocze) |
+| `remarks` | string | nie | uwagi |
+| `accessLevel` | enum | tak | publiczny / częściowo / niepubliczny (robocze) |
+
+`*` Wymagalność odbiorcy: doprecyzować regułę (recipientId vs recipientDisplayName) na podstawie trybu „odbiorca anonimowy".
+
 ## Dokument
 
 | Pole | Typ | Wymagane | Uwagi |
