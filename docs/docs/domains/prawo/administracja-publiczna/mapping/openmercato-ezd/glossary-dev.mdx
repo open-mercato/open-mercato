@@ -40,27 +40,21 @@ Jednostka rejestracji wpływu. Nie ma „statusów”, ale ma **oznaczenia** dot
 
 Rejestr Przesyłek Wpływających jako **widok/numeracja** – nie osobna encja.
 
-### Koszulka
-
-Kontener roboczy i/lub teczka tematyczna do grupowania dokumentacji.
-
-- Koszulka może być powiązana z inną koszulką.
-- Koszulka może być powiązana ze sprawą.
-- Koszulka może zostać zamknięta (read-only).
-
 ### Sprawa
 
-Zbiór dokumentów i czynności prowadzonych pod znakiem sprawy.
+Podstawowa jednostka katalogowania dokumentacji i czynności. Sprawa jest tą samą encją co wcześniejsza "Koszulka".
 
-- Sprawa może być powiązana z inną sprawą.
-- Sprawa może być powiązana z koszulką.
+**Sprawa = Koszulka z przypisanym znakiem sprawy.**
+
+- Rekord sprawy może mieć przypisany znak sprawy (wtedy funkcjonuje jako pełna sprawa) lub może pozostać bez znaku (wtedy funkcjonuje jako kontener roboczy/teczka tematyczna).
+- Sprawa może być powiązana z inną sprawą (niezależnie od tego, czy mają przypisany znak sprawy).
 - Sprawa może zostać zamknięta (read-only).
 
 ### Powiązanie (neutralne)
 
-Neutralny (bez etykiety) i symetryczny link między dwoma obiektami: sprawą lub koszulką.
+Neutralny (bez etykiety) i symetryczny link między dwoma sprawami (rekordami).
 
-- Dopuszczamy: sprawa↔sprawa, koszulka↔koszulka, sprawa↔koszulka.
+- Dopuszczamy powiązania między dowolnymi rekordami sprawy (niezależnie od tego, czy mają przypisany znak sprawy).
 - Powiązania są blokowane, jeśli dowolna strona jest read-only.
 
 ### Spis spraw
@@ -77,7 +71,33 @@ Nośnik treści. Może:
 
 Zasada: dokument może być przypięty do **dokładnie jednego** obiektu (sprawy albo koszulki) lub do żadnego.
 
-Jeśli sprawa/koszulka jest read-only, nie można dopinać/odpiąć dokumentów.
+Jeśli sprawa jest read-only, nie można dopinać/odpiąć dokumentów.
+
+#### Dokument jako załącznik z metadanymi
+
+W implementacji, dokument jest konceptualnie **załącznikiem z metadanymi**:
+
+- **Encja `records.documents`** przechowuje metadane (tytuł, rodzaj, poziom dostępu, daty, powiązania).
+- **Moduł `attachments` (core)** zarządza fizycznymi plikami.
+- Relacja: dokument ma pole `attachmentIds` z referencjami do plików.
+
+**Główny właściciel załączników** (primary owner) jest określany przez kontekst dokumentu:
+
+- Dokument powiązany z przesyłką (`incomingShipmentId`) → właściciel: przesyłka
+- Dokument powiązany ze sprawą (`caseId`) → właściciel: sprawa (niezależnie od tego, czy ma przypisany znak sprawy)
+- Dokument samodzielny → właściciel: dokument
+
+**RBAC dla załączników**: Dostęp kontrolowany przez uprawnienia do głównego właściciela + poziom dostępu dokumentu + status właściciela.
+
+### Załącznik (attachment)
+
+Fizyczny plik zarządzany przez moduł `attachments` (core). Załączniki mogą być powiązane z różnymi encjami w systemie, w tym z dokumentami w module `records`.
+
+W kontekście modułu `records`:
+
+- Załączniki są plikami dokumentów (PDF, DOCX, JPG itp.).
+- Dokument może mieć jeden lub więcej załączników.
+- Metadane załącznika (nazwa pliku, rozmiar, typ MIME) są zarządzane przez moduł `attachments`.
 
 ### Skład chronologiczny – lokalizacja
 

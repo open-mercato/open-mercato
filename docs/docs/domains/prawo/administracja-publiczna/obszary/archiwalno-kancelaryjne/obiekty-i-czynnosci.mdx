@@ -23,8 +23,7 @@ Ta strona zbiera neutralną (wspólną) listę **obiektów** i **czynności** wy
 - **Element akt sprawy (niebędący przesyłką)**: dokument wytworzony wewnętrznie (np. notatka, projekt, opinia) z metadanymi.
 
 ### Sprawy i akta
-- **Sprawa**: podstawowa jednostka prowadzenia czynności i grupowania dokumentacji.
-- **Koszulka**: obiekt do grupowania/katalogowania dokumentacji (teczka tematyczna/robocza).
+- **Sprawa**: podstawowa jednostka prowadzenia czynności i grupowania dokumentacji. **Uwaga:** Sprawa i Koszulka są tą samą encją. Sprawa to rekord z przypisanym znakiem sprawy; gdy znak sprawy jest pusty, rekord funkcjonuje jako kontener roboczy/teczka tematyczna.
 - **Akta sprawy**: zbiór dokumentów (przesyłek i dokumentów wewnętrznych) powiązanych ze sprawą.
 - **Znak sprawy**: identyfikator sprawy budowany według reguł instrukcji kancelaryjnej i klasyfikacji.
 - **Spis spraw**: rejestr/lista spraw (z minimalnym zestawem kolumn), prowadzony dla danej klasyfikacji/komórki.
@@ -52,12 +51,10 @@ Ta strona zbiera neutralną (wspólną) listę **obiektów** i **czynności** wy
 - **Dołączanie dokumentów do akt sprawy** → Akta sprawy, Element akt sprawy.
 - **Zamykanie sprawy** → Sprawa (status), Akta sprawy.
 
-- **Powiązanie spraw** (katalogowanie/ciągłość) → Sprawa, Sprawa.
-- **Powiązanie koszulek** (katalogowanie) → Koszulka, Koszulka.
-- **Powiązanie sprawy z koszulką** (katalogowanie) → Sprawa, Koszulka.
+- **Powiązanie spraw** (katalogowanie/ciągłość) → Sprawa, Sprawa (może łączyć rekordy z i bez znaku sprawy).
 
-- **Zamykanie koszulki** (read-only) → Koszulka.
-- **Otwarcie sprawy/koszulki** (reopen) → Sprawa/Koszulka.
+- **Zamykanie sprawy** (read-only) → Sprawa (dotyczy wszystkich rekordów, z i bez znaku sprawy).
+- **Otwarcie sprawy** (reopen) → Sprawa.
 
 Read-only (zamknięcie) oznacza blokadę:
 
