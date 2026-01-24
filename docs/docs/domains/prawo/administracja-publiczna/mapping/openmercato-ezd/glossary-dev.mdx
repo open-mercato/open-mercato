@@ -26,6 +26,52 @@ Przykład: **RPW** jako numeracja/lista dla przesyłek wpływających.
 Akcja wieloetapowa, często wymagająca walidacji, uprawnień i konsekwencji pobocznych.
 W MVP (CRUD) procesy dokumentujemy, ale nie implementujemy.
 
+
+
+## Pojęcia związane z wielokancelaryjnością
+
+### Kancelaria (Office)
+
+Jednostka organizacyjna odpowiedzialna za obsługę przesyłek wpływających w ramach organizacji.
+
+**Kluczowe cechy:**
+
+- Organizacja może mieć wiele Kancelarii
+- Każda Kancelaria ma niezależną sekwencję numeracji RPW
+- Kancelaria określa zakres uprawnień pracowników (RBAC)
+- Kancelaria może mieć własny format numeracji RPW
+
+**Przypadki użycia:**
+
+- Organizacje z wieloma lokalizacjami (oddziały, delegatury)
+- Podział organizacyjny według kompetencji (np. różne departamenty)
+- Separacja danych dla różnych jednostek w ramach jednej organizacji
+
+### Numeracja RPW per Kancelaria
+
+Każda Kancelaria ma własną sekwencję numeracji RPW.
+
+**Zakres numeracji:**
+
+- Organizacja + Tenant + Kancelaria
+- Sekwencja jest niezależna dla każdej Kancelarii
+- Format numeracji jest konfigurowalny per Kancelaria
+
+**Przykład:**
+
+- Kancelaria A: RPW-A/2026/000001, RPW-A/2026/000002, ...
+- Kancelaria B: RPW-B/2026/000001, RPW-B/2026/000002, ...
+
+### Uprawnienia w kontekście Kancelarii
+
+Pracownik może być przypisany do jednej lub wielu Kancelarii.
+
+**Zasady RBAC:**
+
+- Użytkownik widzi tylko zasoby z Kancelarii, do których jest przypisany
+- Role w Kancelarii: Administrator, Pracownik, Czytelnik
+- Dodatkowe filtry: poziom dostępu dokumentu, status sprawy
+
 ## Pojęcia kancelaryjno‑archiwalne
 
 ### Przesyłka wpływająca
@@ -102,3 +148,28 @@ W kontekście modułu `records`:
 ### Skład chronologiczny – lokalizacja
 
 Encja opisująca lokalizację przechowywania i jej historię zmian.
+
+
+### Strony (Case Parties)
+
+Podmioty zaangażowane w sprawę – osoby fizyczne, prawne lub jednostki organizacyjne.
+
+**Kluczowe cechy:**
+
+- Każda strona jest powiązana z konkretną sprawą (niezależnie od tego, czy ma przypisany znak sprawy)
+- Strona ma określoną rolę (wnioskodawca, uczestnik, obserwator, strona postępowania)
+- Strona może być podmiotem zarejestrowanym (referencja do `customers`) lub ad-hoc (tylko nazwa)
+
+**Zasady:**
+
+- Jedna sprawa może mieć wiele stron
+- Strona może występować w różnych rolach w tej samej sprawie
+- Jeśli sprawa jest read-only, strony nie mogą być modyfikowane
+- Historia stron jest zachowana (audit log)
+
+**Typy stron (MVP):**
+
+- **Wnioskodawca** (applicant) – podmiot inicjujący sprawę
+- **Uczestnik** (participant) – podmiot uczestniczący w sprawie
+- **Obserwator** (observer) – podmiot informowany o przebiegu
+- **Strona postępowania** (party_to_proceedings) – strona w postępowaniu administracyjnym
