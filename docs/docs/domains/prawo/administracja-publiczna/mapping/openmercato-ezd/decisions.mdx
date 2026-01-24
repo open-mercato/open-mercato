@@ -121,3 +121,66 @@ Format decyzji (ADR‑like):
 		- Jeśli dokument nie ma żadnego powiązania → właścicielem jest sam dokument.
 	- API dokumentów musi obsługiwać upload/download plików przez moduł `attachments`.
 	- Przy usuwaniu dokumentu należy rozważyć politykę usuwania powiązanych załączników (cascade delete lub orphan handling).
+
+
+## D-010: Kancelaria jako encja z niezależną numeracją RPW
+
+- Status: accepted
+- Kontekst:
+  - System musi obsługiwać wiele Kancelarii (jednostek organizacyjnych) w ramach jednej organizacji.
+  - Różne Kancelarie mogą mieć różne zakresy odpowiedzialności i uprawnienia.
+  - Numeracja RPW powinna być niezależna dla każdej Kancelarii (chronologiczność w ramach Kancelarii).
+- Decyzja:
+  - **Kancelaria** jest osobną encją (`records.offices`) z własnymi ustawieniami.
+  - Każda Kancelaria ma **niezależną sekwencję numeracji RPW**.
+  - Zakres numeracji RPW: organizacja + tenant + **officeId**.
+  - Kancelaria definiuje format numeracji RPW (opcjonalnie; domyślnie używany jest format globalny).
+  - Przesyłka wpływająca jest zawsze powiązana z konkretną Kancelarią (`officeId` wymagane).
+- Konsekwencje:
+  - Model danych: encja `records.offices` z polami: `code`, `name`, `description`, `isActive`, `rpwNumberFormat`.
+  - Generator numerów RPW przyjmuje `officeId` jako część zakresu (analogicznie do `salesDocumentNumberGenerator`).
+  - RBAC: użytkownik ma dostęp tylko do przesyłek/spraw z Kancelarii, do których jest przypisany.
+  - Migracja: istniejące organizacje z jedną Kancelarią otrzymają domyślną Kancelarię ("Kancelaria główna").
+
+## D-011: RPW wykorzystuje wzorzec numeracji z OpenMercato
+
+- Status: accepted
+- Kontekst:
+  - System OpenMercato posiada sprawdzony mechanizm numeracji dokumentów (`salesDocumentNumberGenerator`).
+  - Mechanizm ten obsługuje: sekwencje bazodanowe, atomic increment, formaty konfigurowalne, concurrency.
+  - RPW wymaga analogicznej funkcjonalności: automatyczna numeracja, chronologiczność, unikalność.
+- Decyzja:
+  - **RPW wykorzystuje wzorzec numeracji analogiczny do `salesDocumentNumberGenerator`**.
+  - Zakres numeracji: `organizationId` + `tenantId` + `officeId` (nowy wymiar: per Kancelaria).
+  - Format numeracji jest konfigurowalny per Kancelaria (tokeny: `{YYYY}`, `{MM}`, `{SEQ:N}`, etc.).
+  - Implementacja: tabela `incoming_shipment_sequences` z atomic increment.
+  - Numer RPW jest generowany automatycznie przy tworzeniu przesyłki (pola `rpwNumber` i `rpwSequence` tylko do odczytu).
+- Konsekwencje:
+  - Reuse sprawdzonego wzorca – mniejsze ryzyko błędów, spójność z resztą systemu.
+  - Łatwiejsza implementacja – można wykorzystać kod z `salesDocumentNumberGenerator` jako punkt startowy.
+  - Format numeracji może być dostosowany do specyfiki organizacji (np. `RPW/{YYYY}/{SEQ:6}` lub `RPW-{CODE}/{YYYY}/{SEQ:4}`).
+  - Endpoint diagnostyczny dla administratorów: podgląd/ustawienie następnego numeru.
+
+## D-012: Strony (Case Parties) jako encja w MVP
+
+- Status: accepted
+- Kontekst:
+  - Sprawy w systemie EZD często wymagają identyfikacji podmiotów zaangażowanych (wnioskodawcy, uczestnicy, strony postępowania).
+  - Podmioty mogą być zarejestrowane w systemie (moduł `customers`) lub ad-hoc (tylko nazwa).
+  - Potrzebna jest elastyczność: jedna sprawa może mieć wiele stron w różnych rolach.
+- Decyzja:
+  - **Strony (Case Parties)** są osobną encją (`records.case_parties`) powiązaną ze sprawą.
+  - Każda strona ma:
+    - `caseId` (wymagane) – sprawa, do której należy
+    - `role` (wymagane) – rola w sprawie (wnioskodawca, uczestnik, obserwator, strona postępowania)
+    - `partyId` (opcjonalne) – referencja do podmiotu w rejestrze (np. `customers`)
+    - `partyDisplayName` (wymagane, jeśli brak `partyId`) – nazwa podmiotu ad-hoc
+    - Dane kontaktowe i adres (opcjonalne)
+  - Strony podlegają read-only sprawy: jeśli sprawa jest zamknięta, strony nie mogą być modyfikowane.
+  - Historia zmian stron jest zachowana (audit log).
+- Konsekwencje:
+  - Encja `records.case_parties` z relacją N:1 do sprawy.
+  - CRUD: `/api/records/case-parties` z walidacją read-only sprawy.
+  - RBAC: dostęp do stron przez uprawnienia do sprawy.
+  - MVP: minimalny zestaw ról (wnioskodawca, uczestnik, obserwator, strona postępowania).
+  - Przyszłość: możliwość "materializacji" strony ad-hoc jako pełnego podmiotu w rejestrze.

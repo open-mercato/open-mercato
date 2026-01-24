@@ -5,12 +5,33 @@ sidebar_position: 70
 
 Ten dokument definiuje minimalne pola dla encji MVP oraz ich źródła (np. Pakiet A).
 
+## Kancelaria (Office)
+
+Jednostka organizacyjna zarządzająca przesyłkami wpływającymi. System obsługuje wiele Kancelarii w ramach jednej organizacji.
+
+| Pole | Typ | Wymagane | Uwagi |
+|---|---|---:|---|
+| `code` | string | tak | Kod identyfikacyjny Kancelarii (unikalny w organizacji) |
+| `name` | string | tak | Pełna nazwa Kancelarii |
+| `description` | string | nie | Opis/zakres działania |
+| `isActive` | boolean | tak | Czy Kancelaria jest aktywna (domyślnie true) |
+| `rpwNumberFormat` | string | nie | Format numeracji RPW (jeśli brak, używany domyślny: "RPW/{YYYY}/{SEQ:6}") |
+
+Zasady:
+
+- Kod Kancelarii jest unikalny w zakresie organizacji
+- Nieaktywna Kancelaria nie może przyjmować nowych przesyłek
+- Format numeracji RPW wykorzystuje tokeny: `{YYYY}`, `{YY}`, `{MM}`, `{DD}`, `{SEQ:N}` (analogicznie do `salesDocumentNumberGenerator`)
+
 ## Przesyłka wpływająca (incoming shipment)
 
 Źródło: Pakiet A.
 
 | Pole | Typ | Wymagane | Uwagi |
 |---|---|---:|---|
+| `officeId` | uuid | tak | Kancelaria obsługująca przesyłkę (zakres numeracji RPW) |
+| `rpwNumber` | string | tak (auto) | Numer RPW - generowany automatycznie wg formatu Kancelarii |
+| `rpwSequence` | number | tak (auto) | Pozycja w sekwencji RPW (per Kancelaria) |
 | `senderId` lub `senderDisplayName` | string | tak* | jeśli nadawca anonimowy, przechowujemy displayName/minimum |
 | `senderAnonymous` | boolean | nie | domyślnie false |
 | `receivedAt` | date | tak | data wpływu |
@@ -115,3 +136,26 @@ Zasady spójności:
 | `validFrom` | datetime | tak | |
 | `validTo` | datetime | nie | null = aktualne |
 | `note` | string | nie | |
+
+## Strony (Case Parties)
+
+Podmioty zaangażowane w sprawę. Każda strona ma określoną rolę w sprawie.
+
+| Pole | Typ | Wymagane | Uwagi |
+|---|---|---:|---|
+| `caseId` | uuid | tak | Sprawa, do której należy strona |
+| `partyId` | uuid | nie | Referencja do podmiotu w rejestrze (np. moduł `customers`) |
+| `partyDisplayName` | string | tak* | Nazwa podmiotu - wymagane jeśli brak `partyId` |
+| `partyType` | enum | tak | `person` / `legal_entity` / `organizational_unit` (robocze) |
+| `role` | enum | tak | `applicant` / `participant` / `observer` / `party_to_proceedings` (robocze) |
+| `contactEmail` | string | nie | Email kontaktowy |
+| `contactPhone` | string | nie | Telefon kontaktowy |
+| `address` | string | nie | Adres (jako tekst lub JSON z komponentami) |
+| `notes` | string | nie | Dodatkowe uwagi o stronie |
+
+Zasady spójności:
+
+- Wymagane jest `partyId` LUB `partyDisplayName` (co najmniej jeden)
+- Jedna sprawa może mieć wiele stron (różne role)
+- Jeśli sprawa jest `read-only`, strony nie mogą być modyfikowane
+- Historia zmian stron jest zachowana (audit log)

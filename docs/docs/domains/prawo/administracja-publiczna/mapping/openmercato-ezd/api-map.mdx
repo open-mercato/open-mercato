@@ -15,7 +15,8 @@ Ten dokument opisuje minimalny zestaw endpointów CRUD dla MVP.
 
 | Zasób | Endpoint (docelowy) | Uwagi |
 |---|---|---|
-| Przesyłki wpływające | `/api/records/incoming-shipments` | RPW jako numeracja na rekordzie |
+| Kancelarie (Offices) | `/api/records/offices` | Jednostki organizacyjne zarządzające przesyłkami. Definiują zakres numeracji RPW i uprawnienia. |
+| Przesyłki wpływające | `/api/records/incoming-shipments` | RPW jako numeracja na rekordzie (wykorzystuje generator analogiczny do `salesDocumentNumberGenerator` z zakresem per Kancelaria) |
 | Dokumenty | `/api/records/documents` | dokument może istnieć sam |
 | Koszulki | `/api/records/folders` | koszulka → sprawa 1:1 (patrz niżej) |
 | Sprawy | `/api/records/cases` | nie inicjujemy automatycznie z przesyłki |
@@ -24,6 +25,7 @@ Ten dokument opisuje minimalny zestaw endpointów CRUD dla MVP.
 | JRWA | `/api/records/jrwa-classes` | drzewo klas |
 | Lokalizacje składu | `/api/records/chronological-locations` | słownik |
 | Historia lokalizacji | `/api/records/chronological-assignments` | historia przypisań dokument↔lokalizacja |
+| Strony (Case Parties) | `/api/records/case-parties` | podmioty zaangażowane w sprawę; RBAC przez sprawę |
 
 ## Operacje „na granicy CRUD"
 
@@ -110,6 +112,144 @@ Dostęp do załączników dokumentu jest kontrolowany przez:
    - Odczyt załączników pozostaje dozwolony
 
 Implementacja RBAC w module `records` musi zapewnić, że użytkownik pobierający załącznik przez `/api/attachments/{id}/download` ma odpowiednie uprawnienia do dokumentu i jego głównego właściciela.
+
+
+
+## Kancelaria (Office): wielokancelaryjność i uprawnienia
+
+### Operacje CRUD
+
+Standardowe operacje na `/api/records/offices`:
+
+- `POST /api/records/offices` – tworzenie nowej Kancelarii
+- `GET /api/records/offices` – lista Kancelarii (z filtrowaniem po `isActive`)
+- `GET /api/records/offices/{id}` – pobieranie szczegółów Kancelarii
+- `PATCH/PUT /api/records/offices/{id}` – aktualizacja Kancelarii
+- `DELETE /api/records/offices/{id}` – usuwanie Kancelarii (tylko jeśli brak powiązanych przesyłek)
+
+### Konfiguracja numeracji RPW
+
+Każda Kancelaria może mieć własny format numeracji RPW (`rpwNumberFormat`):
+
+- Jeśli format jest pusty, używany jest domyślny: `"RPW/{YYYY}/{SEQ:6}"`
+- Format wykorzystuje tokeny analogiczne do `salesDocumentNumberGenerator`:
+  - `{YYYY}` – rok czterocyfrowy
+  - `{YY}` – rok dwucyfrowy
+  - `{MM}` – miesiąc dwucyfrowy
+  - `{DD}` – dzień dwucyfrowy
+  - `{SEQ:N}` – sekwencja z paddingiem (N cyfr)
+  - `{RAND:N}` – losowe cyfry
+  - `{NANOID:N}` – losowy identyfikator alfanumeryczny
+
+Przykładowe formaty:
+- `"RPW/{YYYY}/{SEQ:6}"` → RPW/2026/000001
+- `"RPW-{CODE}/{YYYY}/{SEQ:4}"` → RPW-A/2026/0001 (gdzie {CODE} to kod Kancelarii)
+- `"{YYYY}-{MM}/RPW-{SEQ:5}"` → 2026-01/RPW-00001
+
+### Uprawnienia i RBAC
+
+Dostęp do zasobów EZD jest kontrolowany przez przynależność do Kancelarii:
+
+1. **Przypisanie pracownika do Kancelarii**:
+   - Relacja N:M (pracownik może być w wielu Kancelariach)
+   - Realizacja: `office_members` lub wykorzystanie RBAC z OpenMercato
+
+2. **Kontrola dostępu**:
+   - Użytkownik widzi tylko przesyłki/dokumenty z Kancelarii, do których jest przypisany
+   - Dodatkowe filtry: poziom dostępu dokumentu, status sprawy (read-only)
+
+3. **Role w Kancelarii** (do doprecyzowania):
+   - Administrator Kancelarii (zarządza konfiguracją, użytkownikami)
+   - Pracownik Kancelarii (obsługa przesyłek, edycja)
+   - Czytelnik (tylko odczyt)
+
+## RPW: numeracja z wykorzystaniem mechanizmów OpenMercato
+
+### Generator numerów RPW
+
+RPW wykorzystuje wzorzec analogiczny do `salesDocumentNumberGenerator`:
+
+```typescript
+interface RPWNumberGenerator {
+  // Zakres numeracji
+  scope: {
+    organizationId: string
+    tenantId: string
+    officeId: string  // Nowy wymiar - per Kancelaria
+  }
+  
+  // Generowanie numeru
+  generate(): Promise<{
+    rpwNumber: string      // Sformatowany numer
+    rpwSequence: number    // Pozycja w sekwencji
+    format: string         // Użyty format
+  }>
+  
+  // Podgląd następnego numeru (bez zajmowania)
+  peek(): Promise<number>
+  
+  // Ustawienie następnego numeru (np. po migracji)
+  setNext(value: number): Promise<void>
+}
+```
+
+### Implementacja
+
+- **Tabela sekwencji**: `incoming_shipment_sequences` (analogicznie do `sales_document_sequences`)
+  - Klucz: `(organization_id, tenant_id, office_id)`
+  - Pole `current_value` z atomic increment
+  - Obsługa concurrency przez `INSERT ... ON CONFLICT DO UPDATE`
+
+- **Generowanie przy tworzeniu przesyłki**:
+  - Automatyczne wywołanie generatora w `POST /api/records/incoming-shipments`
+  - Pola `rpwNumber` i `rpwSequence` są tylko do odczytu (nie można ich edytować)
+
+- **Endpoint diagnostyczny** (opcjonalnie):
+  - `GET /api/records/offices/{id}/rpw-sequence` – podgląd następnego numeru
+  - `POST /api/records/offices/{id}/rpw-sequence` – ustawienie następnego numeru (wymaga uprawnień administratora)
+
+### Rejestracja chronologiczna
+
+Pole `hasChronologicalRegistration: boolean` na przesyłce:
+
+- Aktualizacja przez `PATCH /api/records/incoming-shipments/{id}`
+- Proces:
+  1. Przesyłka otrzymuje numer RPW przy utworzeniu (automatycznie)
+  2. Rejestracja w składzie chronologicznym to osobny krok (ustawienie `hasChronologicalRegistration = true`)
+  3. Opcjonalnie: przypisanie lokalizacji fizycznej (dla przesyłek papierowych)
+
+## Strony (Case Parties): zarządzanie podmiotami sprawy
+
+### Operacje CRUD
+
+Standardowe operacje na `/api/records/case-parties`:
+
+- `POST /api/records/case-parties` – dodanie strony do sprawy
+  - Wymagane: `caseId`, `role`, `partyId` LUB `partyDisplayName`
+  - Walidacja: jeśli sprawa jest `read-only` → błąd 403
+- `GET /api/records/case-parties?caseId={uuid}` – lista stron sprawy
+- `GET /api/records/case-parties/{id}` – szczegóły strony
+- `PATCH/PUT /api/records/case-parties/{id}` – aktualizacja strony
+  - Walidacja: jeśli sprawa jest `read-only` → błąd 403
+- `DELETE /api/records/case-parties/{id}` – usunięcie strony
+  - Walidacja: jeśli sprawa jest `read-only` → błąd 403
+
+### RBAC dla stron
+
+Dostęp do stron jest kontrolowany przez uprawnienia do sprawy:
+
+- Użytkownik widzi strony tylko tych spraw, do których ma dostęp
+- Poziom dostępu sprawy wpływa na widoczność stron
+- Historia zmian stron jest zachowana (audit log)
+
+### Integracja z rejestrem podmiotów
+
+Strona może być powiązana z podmiotem z zewnętrznego rejestru:
+
+- `partyId` → referencja do modułu `customers` (lub innego rejestru)
+- Jeśli podmiot nie jest zarejestrowany → użyj `partyDisplayName` (ad-hoc)
+- W przyszłości: możliwość "materializacji" ad-hoc strony jako pełnego podmiotu
+
 
 ## Search/indexer requirements (MVP)
 

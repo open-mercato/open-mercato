@@ -7,19 +7,25 @@ Ten dokument opisuje model pojęciowy (nie techniczny) dla MVP.
 
 ## Encje (MVP)
 
-1. `incoming_shipment` – Przesyłka wpływająca
-2. `jrwa_class` – JRWA (klasa/pozycja)
-3. `case_register` – Spis spraw
-4. `case` – Sprawa (obejmuje również funkcjonalność "Koszulki" - rekordy bez przypisanego znaku sprawy)
-5. `document` – Dokument
-6. `chronological_location` – Skład chronologiczny: lokalizacja
-7. `record_link` – Powiązanie (neutralne)
+1. `office` – Kancelaria (Office)
+2. `incoming_shipment` – Przesyłka wpływająca
+3. `jrwa_class` – JRWA (klasa/pozycja)
+4. `case_register` – Spis spraw
+5. `case` – Sprawa (obejmuje również funkcjonalność "Koszulki" - rekordy bez przypisanego znaku sprawy)
+6. `document` – Dokument
+7. `chronological_location` – Skład chronologiczny: lokalizacja
+8. `record_link` – Powiązanie (neutralne)
+9. `case_party` – Strony (Case Parties)
 
 **Uwaga:** Sprawa i Koszulka są tą samą encją. Sprawa = Koszulka z przypisanym znakiem sprawy. Gdy rekord nie ma przypisanego znaku sprawy, funkcjonuje jako kontener roboczy/teczka tematyczna.
 
 Nazwy techniczne są robocze; finalnie będą zależeć od nazwy modułu i istniejących konwencji.
 
 ## Relacje (przez ID)
+
+- `incoming_shipment.officeId` (wymagane)
+  - Każda przesyłka wpływająca jest obsługiwana przez konkretną Kancelarię
+  - Kancelaria określa zakres numeracji RPW i uprawnienia dostępu
 
 - `document.incomingShipmentId` (opcjonalne)
 - `document.caseId` (opcjonalne)
@@ -37,6 +43,12 @@ Nazwy techniczne są robocze; finalnie będą zależeć od nazwy modułu i istni
 - `record_link.bType` + `record_link.bId`
   - typ: `case` (dla rekordów z i bez znaku sprawy)
   - powiązanie jest **symetryczne** (a↔b) i **neutralne** (bez etykiety)
+
+- `case_party.caseId` (wymagane)
+  - Strona jest zawsze powiązana z konkretną sprawą (niezależnie od tego, czy sprawa ma przypisany znak sprawy)
+- `case_party.partyId` (wymagane)
+  - Referencja do podmiotu (zewnętrznego lub wewnętrznego)
+  - Podmiot może być z modułu `customers` lub innego rejestru podmiotów
 
 ## Zasady spójności (MVP)
 
@@ -74,6 +86,86 @@ To rozdzielenie pozwala:
 
 - mieć słownik lokalizacji,
 - utrzymywać historię bez nadpisywania.
+
+## Kancelaria (Office): wielokancelaryjność
+
+System obsługuje **wiele Kancelarii** w ramach jednej organizacji.
+
+### Model konceptualny Kancelarii
+
+- Każda Kancelaria jest **jednostką organizacyjną** odpowiedzialną za obsługę przesyłek wpływających.
+- Kancelaria definiuje **zakres numeracji RPW** – przesyłki rejestrowane w różnych Kancelariach mają niezależne numeracje.
+- Kancelaria określa **uprawnienia dostępu** – pracownicy przypisani do Kancelarii mają dostęp do przesyłek obsługiwanych przez tę Kancelarię.
+
+### Relacje z innymi encjami
+
+- **Przesyłka wpływająca** → Kancelaria (każda przesyłka jest obsługiwana przez konkretną Kancelarię)
+- **Pracownik/Użytkownik** → Kancelaria (przypisanie określa uprawnienia dostępu)
+- **RPW numeracja** → Kancelaria (sekwencja numeracji jest niezależna dla każdej Kancelarii)
+
+### Uprawnienia i RBAC
+
+Dostęp do zasobów EZD jest kontrolowany przez:
+
+1. **Przynależność do Kancelarii**: Pracownik może być przypisany do jednej lub wielu Kancelarii
+2. **Rola w Kancelarii**: Określa poziom uprawnień (odczyt, edycja, zarządzanie)
+3. **Poziom dostępu rekordu**: Publiczny, częściowo ograniczony, niepubliczny
+
+Użytkownik ma dostęp do przesyłki/dokumentu, jeśli:
+- Jest przypisany do Kancelarii obsługującej przesyłkę
+- Jego rola w Kancelarii pozwala na daną operację
+- Poziom dostępu rekordu nie blokuje dostępu
+
+## RPW: numeracja wykorzystująca mechanizmy OpenMercato
+
+**RPW (Rejestr Przesyłek Wpływających)** jest widokiem/numeracją na encji `incoming_shipment`.
+
+### Wykorzystanie istniejących mechanizmów
+
+System RPW wykorzystuje **wzorzec numeracji dokumentów** z OpenMercato (analogiczny do `salesDocumentNumberGenerator`):
+
+- **Sekwencja**: Automatyczna numeracja z wykorzystaniem sekwencji bazodanowych
+- **Zakres numeracji**: Per Kancelaria + organizacja + tenant
+- **Format konfigurowalny**: Szablony z tokenami (rok, miesiąc, sekwencja, etc.)
+- **Bezpieczeństwo**: Atomic increment z obsługą concurrency
+
+### Model numeracji RPW
+
+```typescript
+// Zakres numeracji (scope)
+{
+  organizationId: string    // Organizacja
+  tenantId: string          // Tenant (multi-tenant support)
+  officeId: string          // Kancelaria (nowy wymiar zakresu)
+}
+
+// Format numeracji (konfigurowalny)
+{
+  rpwNumberFormat: string   // np. "RPW/{YYYY}/{SEQ:6}"
+}
+
+// Przykładowe numery:
+// - RPW/2026/000001
+// - RPW/2026/000002
+// - Kancelaria A: RPW-A/2026/000001
+// - Kancelaria B: RPW-B/2026/000001
+```
+
+### Zasady numeracji
+
+1. **Niezależność Kancelarii**: Każda Kancelaria ma własną sekwencję numeracji RPW
+2. **Chronologiczność**: Numery są przydzielane chronologicznie w ramach Kancelarii
+3. **Unikalność**: Numer RPW jest unikalny w zakresie: organizacja + tenant + Kancelaria
+4. **Ciągłość**: Sekwencja nie jest resetowana przy usunięciu przesyłek (audit trail)
+
+### Rejestracja chronologiczna
+
+Przesyłka ma pole `hasChronologicalRegistration: boolean` oznaczające, że została zarejestrowana w składzie chronologicznym.
+
+Proces rejestracji chronologicznej:
+1. Przesyłka otrzymuje numer RPW przy utworzeniu (automatycznie)
+2. Rejestracja w składzie chronologicznym jest osobnym krokiem (oznaczenie `hasChronologicalRegistration = true`)
+3. Rejestracja może obejmować przypisanie lokalizacji fizycznej (jeśli dotyczy przesyłki papierowej)
 
 ## Oznaczenia przesyłki (zamiast statusów)
 
@@ -130,3 +222,37 @@ Użytkownik ma dostęp do załączników dokumentu, jeśli:
 - **Tworzenie**: Upload plików przez moduł `attachments`, referencje zapisywane w `records.documents`
 - **Aktualizacja**: Możliwość dodawania/usuwania załączników (jeśli właściciel nie jest `read-only`)
 - **Usuwanie**: Polityka usuwania załączników do zdefiniowania (cascade delete lub orphan handling)
+
+## Strony (Case Parties)
+
+**Strony** reprezentują podmioty zaangażowane w sprawę – mogą to być osoby fizyczne, prawne lub jednostki organizacyjne.
+
+### Model konceptualny
+
+- Każda strona jest powiązana z konkretną sprawą (niezależnie od tego, czy sprawa ma przypisany znak sprawy).
+- Strona ma określoną **rolę** w sprawie (np. strona postępowania, wnioskodawca, uczestnik, obserwator).
+- Strona może być **podmiotem zewnętrznym** (klient, obywatel) lub **wewnętrznym** (dział, komórka organizacyjna).
+
+### Relacje
+
+- `case_party.caseId` → `case.id`
+  - Każda strona jest powiązana z konkretną sprawą
+- `case_party.partyId`
+  - Referencja do podmiotu w zewnętrznym rejestrze (np. moduł `customers`)
+  - Lub `partyDisplayName` dla podmiotów ad-hoc (bez rejestracji w systemie)
+
+### Typy stron
+
+Minimalny zestaw ról stron (MVP):
+
+- **Wnioskodawca** – podmiot inicjujący sprawę
+- **Uczestnik** – podmiot uczestniczący w sprawie
+- **Obserwator** – podmiot informowany o przebiegu sprawy
+- **Strona postępowania** – podmiot będący stroną w postępowaniu administracyjnym
+
+### Zasady spójności
+
+- Jedna sprawa może mieć wiele stron (relacja 1:N)
+- Strona może występować w różnych rolach w tej samej sprawie (np. wnioskodawca i uczestnik)
+- Jeśli sprawa jest `read-only`, nie można dodawać/usuwać/modyfikować stron
+- Historia stron jest zachowana (audit log)

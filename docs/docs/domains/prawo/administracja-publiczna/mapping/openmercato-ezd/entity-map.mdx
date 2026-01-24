@@ -15,14 +15,16 @@ Uwaga: to tylko hipoteza do walidacji – finalna nazwa zależy od spójności z
 
 | Potrzeba (domena) | Typ | Odpowiednik w OM | Status | Notatki |
 |---|---|---|---|---|
-| Przesyłka wpływająca | Encja | `records.incoming_shipments` | Nowe | Zwana również "Wpływ". RPW jako numeracja na tej encji. Zawartością przesyłki są Dokumenty. |
-| RPW | Widok/numeracja | pola na przesyłce + lista | Nowe | Bez osobnej tabeli/encji |
+| Kancelaria (Office) | Encja | `records.offices` | Nowe | Jednostka organizacyjna zarządzająca przesyłkami. Definiuje zakres numeracji RPW i uprawnienia pracowników. System obsługuje wiele Kancelarii w organizacji. |
+| Przesyłka wpływająca | Encja | `records.incoming_shipments` | Nowe | Zwana również "Wpływ". RPW jako numeracja na tej encji (wykorzystuje wzorzec z `salesDocumentNumberGenerator`). Zawartością przesyłki są Dokumenty. Każda przesyłka jest obsługiwana przez konkretną Kancelarię. |
+| RPW | Widok/numeracja | pola na przesyłce + lista + generator | Nowe | Bez osobnej tabeli/encji. Wykorzystuje mechanizm numeracji analogiczny do `salesDocumentNumberGenerator` z zakresem per Kancelaria. |
 | JRWA | Encja | `records.jrwa_classes` | Nowe | Drzewo klas + retencja. Sprawa ma JRWA. |
 | Spis spraw | Encja | `records.case_registers` | Nowe | Zakres numeracji do dopięcia |
 | Sprawa | Encja | `records.cases` | Nowe | **Uwaga:** Sprawa i Koszulka są tą samą encją. Sprawa = Koszulka z przypisanym znakiem sprawy. Znak sprawy jako pole opcjonalne; gdy jest pusty, rekord funkcjonuje jako "Koszulka" (kontener roboczy/teczka tematyczna) |
 | Powiązania (neutralne) | Encja | `records.record_links` | Nowe | Symetryczne linki między rekordami sprawy (niezależnie od tego, czy mają przypisany znak sprawy) |
 | Dokument | Encja | `records.documents` | Nowe | **Załącznik z metadanami**. Powiązania opcjonalne: przesyłka + (dokładnie jedna) koszulka **lub** sprawa. Wykorzystuje moduł `attachments` (core) do przechowywania plików |
 | Skład chronologiczny – lokalizacja | Encja | `records.chronological_locations` | Nowe | Z historią zmian przypisań |
+| Strony (Case Parties) | Encja | `records.case_parties` | Nowe | Podmioty zaangażowane w sprawę (wnioskodawcy, uczestnicy, strony postępowania). Powiązane ze sprawą, referencja do rejestru podmiotów (np. `customers`) lub nazwa ad-hoc. |
 
 ## Pokrycie istniejącymi modułami OM (core/shared/search)
 
