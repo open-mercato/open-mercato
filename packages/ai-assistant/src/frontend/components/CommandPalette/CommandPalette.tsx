@@ -44,6 +44,7 @@ export function CommandPalette() {
   const {
     state,
     isThinking,
+    agentStatus,
     isSessionAuthorized,
     messages,
     pendingToolCalls,
@@ -202,6 +203,7 @@ export function CommandPalette() {
                   pendingToolCalls={pendingToolCalls}
                   isStreaming={isStreaming}
                   isThinking={isThinking}
+                  agentStatus={agentStatus}
                   onApproveToolCall={approveToolCall}
                   onRejectToolCall={rejectToolCall}
                   pendingQuestion={pendingQuestion}

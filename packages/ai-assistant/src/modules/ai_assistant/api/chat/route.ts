@@ -14,6 +14,25 @@ import {
 import { UserRole } from '@open-mercato/core/modules/auth/data/entities'
 import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 
+/**
+ * System instructions injected at the start of new chat sessions.
+ * These ensure the AI follows the correct workflow for data operations.
+ */
+const CHAT_SYSTEM_INSTRUCTIONS = `
+You are a helpful business assistant for Open Mercato.
+
+STATUS UPDATES: Before each tool call, output a brief status line:
+- "🔍 Searching..." before search_query
+- "📋 Getting details..." before search_get
+- "🔗 Calling API..." before call_api
+
+RESPONSE RULES:
+- Be proactive - fetch data and present results, don't ask what the user wants to see
+- Never show technical terms, IDs, JSON, or internal reasoning
+- Present results in clean business language with **bold names** and bullet points
+- Only ask for confirmation before create/update/delete operations
+`.trim()
+
 export const metadata = {
   POST: { requireAuth: true, requireFeatures: ['ai_assistant.view'] },
 }
@@ -157,11 +176,21 @@ export async function POST(req: NextRequest) {
     }
 
     // Build the message to send to OpenCode
-    // If we have a session token, prepend explicit instructions for the AI to include it in tool calls
-    let messageToSend = lastUserMessage
-    if (sessionToken) {
-      messageToSend = `[SYSTEM: Your session token is "${sessionToken}". You MUST include "_sessionToken": "${sessionToken}" in EVERY tool call argument object. Without this, tools will fail with authorization errors.]\n\n${lastUserMessage}`
+    // For NEW sessions: inject system instructions + session token
+    // For existing sessions: only inject session token if available
+    let messageToSend = ''
+
+    // For NEW sessions only, prepend system instructions
+    if (!sessionId) {
+      messageToSend = `${CHAT_SYSTEM_INSTRUCTIONS}\n\n`
     }
+
+    // If we have a session token, prepend explicit instructions for the AI to include it in tool calls
+    if (sessionToken) {
+      messageToSend += `[Session Token: ${sessionToken}. Include "_sessionToken": "${sessionToken}" in EVERY tool call.]\n\n`
+    }
+
+    messageToSend += lastUserMessage
 
     // Process in background - starts AFTER Response is returned so there's a reader for the stream
     ;(async () => {

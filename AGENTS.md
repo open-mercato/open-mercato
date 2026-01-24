@@ -512,3 +512,95 @@ yarn mercato ai_assistant mcp:list-tools --verbose
 - Session validation: `packages/ai-assistant/src/modules/ai_assistant/lib/http-server.ts`
 - API key service: `packages/core/src/modules/api_keys/services/apiKeyService.ts`
 - CLI commands: `packages/ai-assistant/src/modules/ai_assistant/cli.ts`
+
+### MCP Tools Reference
+
+The AI assistant exposes 4 core tools via MCP for understanding and interacting with the system:
+
+#### `entity_context` - Get full context for an entity
+
+Use when you need to understand a database entity (fields, relationships, API endpoints).
+
+**Input:** `{ "entity": "SalesOrder" }`
+
+**Output:**
+- `entity.fields` - All columns with types and nullability
+- `relationships` - Array of triples: `(Entity)-[TYPE:property]->(Target)`
+- `endpoints` - CRUD operations with paths and operationIds
+
+**Example usage:**
+```
+"I need to create a sales order"
+-> Call entity_context("SalesOrder")
+-> Get fields + POST endpoint
+-> Call api_execute with the endpoint
+```
+
+#### `schema_overview` - Discover entities and relationships
+
+Use for high-level exploration: what entities exist, how they relate.
+
+**Input:**
+- `{ }` - Get all entities grouped by module
+- `{ "module": "sales" }` - Filter to one module
+- `{ "includeGraph": true }` - Include relationship triples
+
+**Output:**
+- `stats` - Total entities, relationships, modules
+- `entities` - Entities grouped by module
+- `graph` - Relationship triples (if requested)
+
+**Example usage:**
+```
+"What entities are in the sales module?"
+-> Call schema_overview({ module: "sales" })
+```
+
+#### `api_discover` - Search API endpoints
+
+Use to find endpoints by natural language query. Returns schema summary.
+
+**Input:** `{ "query": "create order", "method": "POST" }`
+
+**Output:** Matching endpoints with:
+- `path`, `method`, `operationId`
+- `requestBody` - Schema with required fields and types
+
+**Example usage:**
+```
+"How do I update a customer?"
+-> Call api_discover({ query: "update customer" })
+```
+
+#### `api_execute` - Call an API endpoint
+
+Use to execute API operations after discovering the endpoint.
+
+**Input:**
+```json
+{
+  "method": "POST",
+  "path": "/api/sales/orders",
+  "body": { "customerId": "...", "lines": [...] }
+}
+```
+
+**Workflow pattern:**
+1. `entity_context` or `api_discover` -> understand the API
+2. `api_execute` -> make the call
+
+### Relationship Triple Format
+
+Relationships are always expressed as triples:
+```
+(SourceEntity)-[RELATIONSHIP_TYPE:propertyName]->(TargetEntity)
+```
+
+Types:
+- `BELONGS_TO` - ManyToOne (e.g., OrderLine belongs to Order)
+- `HAS_MANY` - OneToMany (e.g., Order has many Lines)
+- `HAS_ONE` - OneToOne owner
+- `BELONGS_TO_ONE` - OneToOne inverse
+- `HAS_MANY_MANY` / `BELONGS_TO_MANY` - ManyToMany
+
+The `?` suffix indicates nullable: `(Order)-[BELONGS_TO?:channel]->(Channel)`

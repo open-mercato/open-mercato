@@ -6,6 +6,14 @@ export type PalettePhase =
   | 'confirming' // Waiting for user to approve tool call
   | 'executing'  // Tool running
 
+// Agent status for showing what the AI is currently doing
+export type AgentStatus =
+  | { type: 'idle' }
+  | { type: 'thinking' }
+  | { type: 'tool'; toolName: string }
+  | { type: 'executing' }  // Generic status when tools are running but name is unknown
+  | { type: 'responding' }
+
 // Page-based navigation for Raycast-style interface (deprecated, use PalettePhase)
 export type CommandPalettePage = 'home' | 'tool-chat'
 
@@ -97,6 +105,7 @@ export interface CommandPaletteState {
 export interface CommandPaletteContextValue {
   state: CommandPaletteState
   isThinking: boolean
+  agentStatus: AgentStatus
   isSessionAuthorized: boolean
   pageContext: PageContext | null
   selectedEntities: SelectedEntity[]

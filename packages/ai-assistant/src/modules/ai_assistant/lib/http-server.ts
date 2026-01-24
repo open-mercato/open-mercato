@@ -169,12 +169,11 @@ function createMcpServerForRequest(
           const sessionToken = toolArgs._sessionToken as string | undefined
           delete toolArgs._sessionToken // Remove before passing to tool handler
 
-          if (config.debug) {
-            console.error(`[MCP HTTP] Calling tool: ${tool.name}`, {
-              hasSessionToken: !!sessionToken,
-              args: JSON.stringify(toolArgs),
-            })
-          }
+          // Always log tool calls for debugging
+          console.error(`[MCP HTTP] ▶ Tool call: ${tool.name}`, {
+            hasSessionToken: !!sessionToken,
+            args: JSON.stringify(toolArgs).slice(0, 200),
+          })
 
           // Resolve user context from session token
           let effectiveContext = toolContext
@@ -238,27 +237,44 @@ function createMcpServerForRequest(
             }
           }
 
-          const result = await executeTool(tool.name, toolArgs, effectiveContext)
+          try {
+            const result = await executeTool(tool.name, toolArgs, effectiveContext)
 
-          if (!result.success) {
+            if (!result.success) {
+              console.error(`[MCP HTTP] ✗ Tool error: ${tool.name}`, { error: result.error, code: result.errorCode })
+              return {
+                content: [
+                  {
+                    type: 'text' as const,
+                    text: JSON.stringify({ error: result.error, code: result.errorCode }),
+                  },
+                ],
+                isError: true,
+              }
+            }
+
+            console.error(`[MCP HTTP] ✓ Tool success: ${tool.name}`, {
+              resultPreview: JSON.stringify(result.result).slice(0, 200)
+            })
             return {
               content: [
                 {
                   type: 'text' as const,
-                  text: JSON.stringify({ error: result.error, code: result.errorCode }),
+                  text: JSON.stringify(result.result, null, 2),
+                },
+              ],
+            }
+          } catch (err) {
+            console.error(`[MCP HTTP] ✗ Tool exception: ${tool.name}`, err)
+            return {
+              content: [
+                {
+                  type: 'text' as const,
+                  text: JSON.stringify({ error: err instanceof Error ? err.message : 'Unknown error', code: 'EXCEPTION' }),
                 },
               ],
               isError: true,
             }
-          }
-
-          return {
-            content: [
-              {
-                type: 'text' as const,
-                text: JSON.stringify(result.result, null, 2),
-              },
-            ],
           }
         }
       )
@@ -323,6 +339,19 @@ export async function runMcpHttpServer(options: McpHttpServerOptions): Promise<v
 
   await loadAllModuleTools()
 
+  // Generate and cache entity graph for understand_entity tool
+  try {
+    const { extractEntityGraph, cacheEntityGraph } = await import('./entity-graph')
+    const { getOrm } = await import('@open-mercato/shared/lib/db/mikro')
+
+    const orm = await getOrm()
+    const graph = await extractEntityGraph(orm)
+    cacheEntityGraph(graph)
+    console.error(`[MCP HTTP] Entity graph: ${graph.nodes.length} entities, ${graph.edges.length} relationships`)
+  } catch (error) {
+    console.error('[MCP HTTP] Entity graph generation skipped:', error instanceof Error ? error.message : error)
+  }
+
   // Index tools and API endpoints for hybrid search discovery (if search service available)
   try {
     const searchService = container.resolve('searchService') as SearchService
@@ -360,6 +389,8 @@ export async function runMcpHttpServer(options: McpHttpServerOptions): Promise<v
       res.end(JSON.stringify({ error: 'Not found' }))
       return
     }
+
+    console.error(`[MCP HTTP] ← Request: ${req.method} ${url.pathname}`)
 
     // Extract headers
     const headers: Record<string, string | undefined> = {}

@@ -68,7 +68,18 @@ export async function loadAllModuleTools(): Promise<void> {
   registerMcpTool(contextWhoamiTool, { moduleId: 'context' })
   console.error('[MCP Tools] Registered built-in context_whoami tool')
 
-  // 2. Load manual ai-tools.ts files from modules
+  // 2. Register entity graph tools
+  try {
+    const { entityGraphTools } = await import('./entity-graph-tools')
+    for (const tool of entityGraphTools) {
+      registerMcpTool(tool, { moduleId: 'schema' })
+    }
+    console.error(`[MCP Tools] Registered ${entityGraphTools.length} entity graph tools`)
+  } catch (error) {
+    console.error('[MCP Tools] Could not load entity graph tools:', error)
+  }
+
+  // 3. Load manual ai-tools.ts files from modules
   const moduleToolPaths = [
     { moduleId: 'search', importPath: '@open-mercato/search/modules/search/ai-tools' },
     // Add more modules here as they define ai-tools.ts
@@ -90,7 +101,7 @@ export async function loadAllModuleTools(): Promise<void> {
     }
   }
 
-  // 3. Load API discovery tools (api_discover, api_execute, api_schema)
+  // 4. Load API discovery tools (api_discover, api_execute)
   try {
     const apiToolCount = await loadApiDiscoveryTools()
     console.error(`[MCP Tools] Loaded ${apiToolCount} API discovery tools`)

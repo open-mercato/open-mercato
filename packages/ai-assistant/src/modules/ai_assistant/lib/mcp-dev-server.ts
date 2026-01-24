@@ -222,6 +222,20 @@ export async function runMcpDevServer(): Promise<void> {
   log('Loading tools...')
   await loadAllModuleTools()
 
+  // Generate and cache entity graph
+  try {
+    const { extractEntityGraph, cacheEntityGraph } = await import('./entity-graph')
+    const { getOrm } = await import('@open-mercato/shared/lib/db/mikro')
+
+    log('Generating entity relationship graph...')
+    const orm = await getOrm()
+    const graph = await extractEntityGraph(orm)
+    cacheEntityGraph(graph)
+    log(`Entity graph: ${graph.nodes.length} entities, ${graph.edges.length} relationships`)
+  } catch (error) {
+    log('Entity graph generation skipped:', error instanceof Error ? error.message : error)
+  }
+
   // Index tools for search (if search service available)
   try {
     const searchService = container.resolve('searchService') as SearchService

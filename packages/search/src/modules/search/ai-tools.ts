@@ -46,8 +46,16 @@ type AiToolDefinition = {
 
 const searchQueryTool: AiToolDefinition = {
   name: 'search_query',
-  description:
-    'Search across all data in Open Mercato. Searches customers, products, orders, and other entities using hybrid search (full-text, semantic, and keyword matching).',
+  description: `Search across all data in Open Mercato using hybrid search (full-text, semantic, keyword).
+
+⚠️ IMPORTANT: Before using this tool, FIRST call understand_entity for the entity type you're searching.
+This helps you understand the entity's fields, relationships, and how results connect to other data.
+
+WORKFLOW:
+1. Call understand_entity("Customer") or understand_entity("Product") first
+2. Then call search_query with your search term
+
+Searches customers, products, orders, deals, and other entities.`,
   inputSchema: z.object({
     query: z.string().min(1).describe('The search query text'),
     limit: z
@@ -147,8 +155,12 @@ const searchStatusTool: AiToolDefinition = {
 
 const searchGetTool: AiToolDefinition = {
   name: 'search_get',
-  description:
-    'Retrieve full record details by entity type and record ID. Use this after search_query to get complete data for a specific record.',
+  description: `Retrieve full record details by entity type and record ID.
+
+⚠️ TIP: If you need to understand the entity's relationships (what other data connects to this record),
+call understand_entity first to see the full relationship graph.
+
+Use this after search_query to get complete data for a specific record.`,
   inputSchema: z.object({
     entityType: z
       .string()
