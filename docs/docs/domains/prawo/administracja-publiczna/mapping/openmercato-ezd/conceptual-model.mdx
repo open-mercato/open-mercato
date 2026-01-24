@@ -11,11 +11,12 @@ Ten dokument opisuje model pojęciowy (nie techniczny) dla MVP.
 2. `incoming_shipment` – Przesyłka wpływająca
 3. `jrwa_class` – JRWA (klasa/pozycja)
 4. `case_register` – Spis spraw
-5. `case` – Sprawa (obejmuje również funkcjonalność "Koszulki" - rekordy bez przypisanego znaku sprawy)
-6. `document` – Dokument
-7. `chronological_location` – Skład chronologiczny: lokalizacja
-8. `record_link` – Powiązanie (neutralne)
-9. `case_party` – Strony (Case Parties)
+5. `case_template` – Szablon sprawy
+6. `case` – Sprawa (obejmuje również funkcjonalność "Koszulki" - rekordy bez przypisanego znaku sprawy)
+7. `document` – Dokument
+8. `chronological_location` – Skład chronologiczny: lokalizacja
+9. `record_link` – Powiązanie (neutralne)
+10. `case_party` – Strony (Case Parties)
 
 **Uwaga:** Sprawa i Koszulka są tą samą encją. Sprawa = Koszulka z przypisanym znakiem sprawy. Gdy rekord nie ma przypisanego znaku sprawy, funkcjonuje jako kontener roboczy/teczka tematyczna.
 
@@ -36,6 +37,9 @@ Nazwy techniczne są robocze; finalnie będą zależeć od nazwy modułu i istni
 
 - `case.jrwaClassId` (wymagane)
 - `case.caseRegisterId` (wymagane)
+- `case.caseTemplateId` (opcjonalne)
+  - Sprawa może być utworzona na podstawie szablonu sprawy
+  - Referencja zachowuje kontekst typu sprawy
 - `case.sign` (opcjonalne)
   - Znak sprawy – gdy jest pusty, rekord funkcjonuje jako "Koszulka" (kontener roboczy)
 
@@ -256,3 +260,67 @@ Minimalny zestaw ról stron (MVP):
 - Strona może występować w różnych rolach w tej samej sprawie (np. wnioskodawca i uczestnik)
 - Jeśli sprawa jest `read-only`, nie można dodawać/usuwać/modyfikować stron
 - Historia stron jest zachowana (audit log)
+
+## Szablony spraw (Case Templates)
+
+**Szablon sprawy** to mechanizm standaryzacji i konfiguracji różnych typów spraw w systemie.
+
+### Model konceptualny
+
+Szablon sprawy (`records.case_templates`) definiuje strukturę i reguły dla konkretnego typu sprawy:
+
+- **Identyfikacja**:
+  - `code` – unikalny kod szablonu (np. "WNIOSEK_DOTACJA", "SKARGA")
+  - `name` – nazwa wyświetlana
+  - `description` – opis przeznaczenia szablonu
+  
+- **Struktura danych**:
+  - `customFieldsDefinition` – definicja pól dodatkowych (JSON Schema lub podobny format)
+  - `requiredFields` – lista pól wymaganych przy tworzeniu sprawy
+  - `defaultValues` – domyślne wartości dla pól sprawy
+  
+- **Klasyfikacja**:
+  - `defaultJrwaClassId` – sugerowana klasa JRWA dla spraw tego typu
+  - `allowedJrwaClassIds` – ograniczenie dozwolonych klas JRWA (opcjonalne)
+  
+- **Konfiguracja stron**:
+  - `partyRoles` – definicja ról dla stron sprawy (np. wnioskodawca, uczestnik)
+  - `requiredPartyRoles` – role wymagane przy tworzeniu sprawy
+  
+- **Ustawienia UI**:
+  - `fieldOrder` – kolejność wyświetlania pól w formularzu
+  - `fieldGroups` – grupowanie pól w sekcje
+  - `fieldVisibility` – zasady widoczności pól (warunkowe pokazywanie/ukrywanie)
+
+### Relacje z innymi encjami
+
+- `case_template.defaultJrwaClassId` → `jrwa_class.id`
+  - Szablon może sugerować domyślną klasę JRWA
+  
+- `case.caseTemplateId` → `case_template.id`
+  - Sprawa utworzona na podstawie szablonu zachowuje referencję
+  - Pozwala na kontekst typu sprawy i ułatwia raportowanie
+
+### Korzyści z szablonów
+
+1. **Elastyczność bez zmian w kodzie**: Różne typy spraw mogą mieć różne struktury
+2. **Standaryzacja**: Spójność danych dla spraw tego samego typu
+3. **Ułatwienie dla użytkownika**: Predefiniowane pola przyspieszają pracę
+4. **Raportowanie**: Grupowanie i analiza według typu sprawy
+5. **Konfigurowalność**: Administratorzy tworzą nowe typy bez developerów
+
+### Zastąpienie koncepcji "dziedziny"
+
+Szablony spraw zastępują i rozszerzają wcześniejszą koncepcję "dziedziny" (domain):
+
+- **Dziedzina** była statycznym, zakodowanym podziałem na obszary tematyczne
+- **Szablon sprawy** to dynamiczny, konfigurowalny mechanizm
+- Większa elastyczność: jeden szablon obsługuje wiele przypadków
+- Możliwość przyszłego dziedziczenia między szablonami
+
+### Zasady spójności
+
+- Szablon jest wersjonowany – zmiana nie wpływa na istniejące sprawy
+- Sprawa może być utworzona bez szablonu (przypadki ad-hoc)
+- Szablon definiuje strukturę, ale nie workflow (osobny mechanizm)
+- Szablony mogą być aktywne/nieaktywne (kontrola dostępności w UI)

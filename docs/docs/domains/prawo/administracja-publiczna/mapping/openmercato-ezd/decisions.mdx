@@ -184,3 +184,32 @@ Format decyzji (ADR‑like):
   - RBAC: dostęp do stron przez uprawnienia do sprawy.
   - MVP: minimalny zestaw ról (wnioskodawca, uczestnik, obserwator, strona postępowania).
   - Przyszłość: możliwość "materializacji" strony ad-hoc jako pełnego podmiotu w rejestrze.
+
+## D-013: Szablony spraw zamiast dziedzin
+
+- Status: accepted
+- Kontekst:
+  - System musi obsługiwać różne typy spraw z różnymi strukturami danych i wymaganiami.
+  - Wcześniejsza koncepcja "dziedziny" (domain) była zbyt sztywna – wymagała zmian w kodzie przy dodawaniu nowych typów.
+  - Różne organizacje i jednostki mogą mieć różne potrzeby co do struktury spraw.
+  - Custom fields w OpenMercato umożliwiają dynamiczną konfigurację pól, ale brakuje mechanizmu grupowania i standaryzacji per typ sprawy.
+- Decyzja:
+  - Wprowadzamy **Szablon sprawy** (`records.case_templates`) jako encję w MVP.
+  - Szablon definiuje:
+    - Strukturę pól dodatkowych (custom fields definition)
+    - Wymagane i opcjonalne pola
+    - Domyślne wartości
+    - Sugerowaną klasę JRWA
+    - Role stron sprawy
+    - Konfigurację UI (kolejność, grupowanie, widoczność pól)
+  - Sprawa może być utworzona na podstawie szablonu (`case.caseTemplateId` opcjonalne).
+  - Szablony są wersjonowane – zmiana szablonu nie wpływa na istniejące sprawy.
+  - Szablony zastępują koncepcję "dziedziny" – zamiast statycznego podziału mamy dynamiczny, konfigurowalny mechanizm.
+- Konsekwencje:
+  - Encja `records.case_templates` z polami: `code`, `name`, `description`, `customFieldsDefinition`, `defaultJrwaClassId`, `partyRoles`, `fieldOrder`, `isActive`.
+  - CRUD dla szablonów: `/api/records/case-templates` (tylko administratorzy).
+  - Przy tworzeniu sprawy: opcjonalny parametr `caseTemplateId` – jeśli podany, system aplikuje definicję z szablonu.
+  - UI tworzenia sprawy: wybór szablonu z listy aktywnych szablonów, dynamiczne generowanie formularza na podstawie definicji.
+  - Raportowanie: możliwość filtrowania i grupowania spraw według `caseTemplateId`.
+  - Migracja z "dziedziny": istniejące "dziedziny" mogą być przekształcone w szablony podczas wdrożenia.
+  - Większa elastyczność: administratorzy mogą tworzyć i modyfikować szablony bez angażowania developerów.

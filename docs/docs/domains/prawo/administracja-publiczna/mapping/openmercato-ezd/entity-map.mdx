@@ -20,7 +20,8 @@ Uwaga: to tylko hipoteza do walidacji – finalna nazwa zależy od spójności z
 | RPW | Widok/numeracja | pola na przesyłce + lista + generator | Nowe | Bez osobnej tabeli/encji. Wykorzystuje mechanizm numeracji analogiczny do `salesDocumentNumberGenerator` z zakresem per Kancelaria. |
 | JRWA | Encja | `records.jrwa_classes` | Nowe | Drzewo klas + retencja. Sprawa ma JRWA. |
 | Spis spraw | Encja | `records.case_registers` | Nowe | Zakres numeracji do dopięcia |
-| Sprawa | Encja | `records.cases` | Nowe | **Uwaga:** Sprawa i Koszulka są tą samą encją. Sprawa = Koszulka z przypisanym znakiem sprawy. Znak sprawy jako pole opcjonalne; gdy jest pusty, rekord funkcjonuje jako "Koszulka" (kontener roboczy/teczka tematyczna) |
+| Szablon sprawy | Encja | `records.case_templates` | Nowe | Definiuje strukturę, pola i reguły dla konkretnego typu sprawy. Umożliwia standaryzację procesu zakładania spraw i dostosowanie systemu do różnych rodzajów postępowań bez modyfikacji kodu. Szablon określa: wymagane/opcjonalne pola custom fields, domyślne wartości, powiązania z JRWA, role stron. |
+| Sprawa | Encja | `records.cases` | Nowe | **Uwaga:** Sprawa i Koszulka są tą samą encją. Sprawa = Koszulka z przypisanym znakiem sprawy. Znak sprawy jako pole opcjonalne; gdy jest pusty, rekord funkcjonuje jako "Koszulka" (kontener roboczy/teczka tematyczna). Sprawa może być utworzona na podstawie szablonu sprawy. |
 | Powiązania (neutralne) | Encja | `records.record_links` | Nowe | Symetryczne linki między rekordami sprawy (niezależnie od tego, czy mają przypisany znak sprawy) |
 | Dokument | Encja | `records.documents` | Nowe | **Załącznik z metadanami**. Powiązania opcjonalne: przesyłka + (dokładnie jedna) koszulka **lub** sprawa. Wykorzystuje moduł `attachments` (core) do przechowywania plików |
 | Skład chronologiczny – lokalizacja | Encja | `records.chronological_locations` | Nowe | Z historią zmian przypisań |
@@ -102,3 +103,50 @@ Główny właściciel załącznika jest określany przez powiązanie dokumentu z
 - Przy tworzeniu dokumentu: upload plików poprzez moduł `attachments`, referencje zapisywane w `records.documents`
 - Przy aktualizacji dokumentu: możliwość dodawania/usuwania załączników
 - Przy usuwaniu dokumentu: polityka usuwania załączników do zdefiniowania (cascade delete lub orphan handling)
+
+## Szablony spraw (Case Templates)
+
+**Szablon sprawy** umożliwia standaryzację i dostosowanie procesu zakładania spraw do różnych typów postępowań bez modyfikacji kodu systemu.
+
+### Model konceptualny
+
+Szablon sprawy (`records.case_templates`) to definicja struktury i reguł dla konkretnego typu sprawy:
+
+- **Identyfikacja**: nazwa, kod, opis szablonu
+- **Struktura danych**: definicja pól custom fields (wymagane/opcjonalne, typy, walidacje)
+- **Wartości domyślne**: domyślne wartości dla pól sprawy
+- **Klasyfikacja**: powiązanie z klasą JRWA (opcjonalne lub wymagane)
+- **Role stron**: definicja ról dla stron sprawy (np. wnioskodawca, uczestnik)
+- **Konfiguracja**: ustawienia widoczności pól, kolejność wyświetlania
+
+### Relacje z innymi encjami
+
+- `case_template.jrwaClassId` (opcjonalne)
+  - Szablon może sugerować domyślną klasę JRWA dla spraw tworzonych na jego podstawie
+- `case.caseTemplateId` (opcjonalne)
+  - Sprawa może być utworzona na podstawie szablonu
+  - Referencja do szablonu pozwala na zachowanie kontekstu i ułatwia raportowanie
+
+### Korzyści z używania szablonów
+
+1. **Elastyczność**: Różne typy spraw (np. wniosek o dotację, skarga, postępowanie administracyjne) mogą mieć różne struktury danych bez zmian w kodzie
+2. **Standaryzacja**: Zapewnienie spójności danych dla spraw tego samego typu
+3. **Ułatwienie użytkownika**: Predefiniowane pola i wartości przyspieszają zakładanie spraw
+4. **Raportowanie**: Łatwiejsze grupowanie i analizowanie spraw według typu
+5. **Konfigurowalność**: Administratorzy mogą tworzyć nowe typy spraw bez angażowania developerów
+
+### Zastosowanie zamiast koncepcji "dziedziny"
+
+Szablony spraw zastępują i rozszerzają koncepcję "dziedziny" (domain):
+
+- **Dziedzina** była statycznym, zakodowanym podziałem na obszary tematyczne
+- **Szablon sprawy** to dynamiczny, konfigurowalny mechanizm definiowania typów spraw
+- Jeden szablon może obsługiwać wiele podobnych przypadków użycia
+- Możliwość tworzenia dziedziczenia między szablonami (w przyszłości)
+
+### Zasady spójności
+
+- Szablon jest niezmienny po utworzeniu spraw na jego podstawie (wersjonowanie)
+- Zmiana szablonu nie wpływa na istniejące sprawy (zachowanie historii)
+- Sprawa może być utworzona bez szablonu (dla przypadków ad-hoc)
+- Szablon definiuje strukturę, ale nie wymusza workflow (to osobny mechanizm)
