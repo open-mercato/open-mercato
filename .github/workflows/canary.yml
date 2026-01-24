@@ -87,14 +87,6 @@ jobs:
             \`\`\`bash
             npx create-mercato-app@${createAppVersion} my-app
             \`\`\`
-
-            ### Install packages
-
-            \`\`\`bash
-            npm install @open-mercato/shared@${createAppVersion}
-            # or
-            yarn add @open-mercato/shared@${createAppVersion}
-            \`\`\`
             `;
 
             // Find existing comment
