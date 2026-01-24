@@ -91,9 +91,11 @@ class IncomingShipmentNumberGenerator {
 // Format 1: RPW/2025/000001
 const format1 = 'RPW/{YYYY}/{SEQ:6}'
 
-// Format 2: RPW-K01/2025/01/0001 (z kodem Kancelarii - wymaga rozszerzenia tokenów)
-// Uwaga: Token {CODE} wymaga implementacji custom tokena dla kodu Kancelarii
-const format2 = 'RPW-K01/{YYYY}/{MM}/{SEQ:4}'  // lub RPW-{CODE} po rozszerzeniu
+// Format 2: RPW-K01/2025/01/0001
+// Uwaga: Token {CODE} wymaga rozszerzenia generatora o pobranie kodu Kancelarii.
+// Po implementacji można używać: 'RPW-{CODE}/{YYYY}/{MM}/{SEQ:4}'
+// Obecnie dla uproszczenia można użyć stałego prefiksu lub pobrać kod w runtime.
+const format2 = 'RPW-K01/{YYYY}/{MM}/{SEQ:4}'
 
 // Format 3: Zgodny z instrukcją kancelaryjną MKiDN
 const format3 = '{YYYY}/{SEQ:5}'
