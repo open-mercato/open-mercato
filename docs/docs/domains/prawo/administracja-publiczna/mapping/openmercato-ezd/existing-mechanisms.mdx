@@ -12,7 +12,7 @@ Ten dokument opisuje, jak wykorzystać istniejące mechanizmy OpenMercato dla po
 OpenMercato posiada sprawdzony mechanizm numeracji dokumentów sprzedażowych (`salesDocumentNumberGenerator`), który zapewnia:
 
 - **Atomic increment** – wykorzystuje sekwencje bazodanowe PostgreSQL z atomic operations
-- **Konfigurowalne formaty** – tokeny jak `{YYYY}`, `{MM}`, `{SEQ:N}`, `{RAND:N}`, `{GUID}`, `{NANOID:N}`
+- **Konfigurowalne formaty** – tokeny jak `{yyyy}`, `{mm}`, `{seq:N}`, `{rand:N}`, `{guid}`, `{nanoid:N}`, `{kind}` (tokeny są case-insensitive; parser sprowadza je do małych liter)
 - **Zakres per organizacja + tenant** – każda kombinacja `organizationId` + `tenantId` ma niezależną sekwencję
 - **Concurrency safety** – wykorzystuje `INSERT ... ON CONFLICT DO UPDATE` dla bezpieczeństwa współbieżności
 - **Diagnostyka** – możliwość podglądu/ustawienia następnego numeru dla administratorów
@@ -33,13 +33,13 @@ Zgodnie z decyzją **D-011**, RPW wykorzystuje analogiczny wzorzec numeracji:
   id: uuid
   organization_id: uuid  // zakres numeracji
   tenant_id: uuid        // zakres numeracji
-  office_id: uuid        // NOWE: zakres per Kancelaria
+  document_kind: text    // NOWE: scope per Kancelaria i per rok, np. `rpw:${officeId}:${yyyy}`
   current_value: integer // aktualny numer
   created_at: timestamp
   updated_at: timestamp
 }
 
-// Unikalność: (organization_id, tenant_id, office_id)
+// Unikalność: (organization_id, tenant_id, document_kind)
 ```
 
 #### Generator RPW
@@ -89,16 +89,14 @@ class IncomingShipmentNumberGenerator {
 
 ```typescript
 // Format 1: RPW/2025/000001
-const format1 = 'RPW/{YYYY}/{SEQ:6}'
+const format1 = 'RPW/{yyyy}/{seq:6}'
 
 // Format 2: RPW-K01/2025/01/0001
-// Uwaga: Token {CODE} wymaga rozszerzenia generatora o pobranie kodu Kancelarii.
-// Po implementacji można używać: 'RPW-{CODE}/{YYYY}/{MM}/{SEQ:4}'
-// Obecnie dla uproszczenia można użyć stałego prefiksu lub pobrać kod w runtime.
-const format2 = 'RPW-K01/{YYYY}/{MM}/{SEQ:4}'
+// Uwaga: prefiks (np. "K01") jest częścią stringa formatu; nie jest tokenem generatora.
+const format2 = 'RPW-K01/{yyyy}/{mm}/{seq:4}'
 
 // Format 3: Zgodny z instrukcją kancelaryjną MKiDN
-const format3 = '{YYYY}/{SEQ:5}'
+const format3 = '{yyyy}/{seq:5}'
 ```
 
 ### Zastosowanie dla RKW (Rejestr Przesyłek Wychodzących)
@@ -115,13 +113,13 @@ Analogicznie do RPW, RKW wykorzystuje ten sam wzorzec numeracji:
   id: uuid
   organization_id: uuid  // zakres numeracji
   tenant_id: uuid        // zakres numeracji
-  office_id: uuid        // zakres per Kancelaria
+  document_kind: text    // scope per Kancelaria i per rok, np. `rkw:${officeId}:${yyyy}`
   current_value: integer // aktualny numer
   created_at: timestamp
   updated_at: timestamp
 }
 
-// Unikalność: (organization_id, tenant_id, office_id)
+// Unikalność: (organization_id, tenant_id, document_kind)
 ```
 
 #### Generator RKW
@@ -153,14 +151,14 @@ class OutgoingShipmentNumberGenerator {
   }): Promise<number> {
     const rows = await this.em.getConnection().execute(
       `INSERT INTO outgoing_shipment_sequences 
-       (id, organization_id, tenant_id, office_id, current_value, created_at, updated_at)
+       (id, organization_id, tenant_id, document_kind, current_value, created_at, updated_at)
        VALUES (gen_random_uuid(), ?, ?, ?, 1, now(), now())
-       ON CONFLICT (organization_id, tenant_id, office_id)
+       ON CONFLICT (organization_id, tenant_id, document_kind)
        DO UPDATE SET 
          current_value = outgoing_shipment_sequences.current_value + 1,
          updated_at = now()
        RETURNING current_value`,
-      [scope.organizationId, scope.tenantId, scope.officeId]
+      [scope.organizationId, scope.tenantId, `rkw:${scope.officeId}:${new Date().getFullYear()}`]
     )
     return Number(rows[0].current_value)
   }
@@ -171,13 +169,13 @@ class OutgoingShipmentNumberGenerator {
 
 ```typescript
 // Format 1: RKW/2025/000001
-const format1 = 'RKW/{YYYY}/{SEQ:6}'
+const format1 = 'RKW/{yyyy}/{seq:6}'
 
 // Format 2: RKW-K01/2025/01/0001
-const format2 = 'RKW-K01/{YYYY}/{MM}/{SEQ:4}'
+const format2 = 'RKW-K01/{yyyy}/{mm}/{seq:4}'
 
 // Format 3: Zgodny z instrukcją kancelaryjną
-const format3 = '{YYYY}/{SEQ:5}'
+const format3 = '{yyyy}/{seq:5}'
 ```
 
 ### Zastosowanie dla znaków sprawy
@@ -829,7 +827,7 @@ const crud = makeCrudRoute({
           ...raw,
           rpwNumber: number,
           rpwSequence: sequence,
-          receivedDate: raw.receivedDate || new Date(),
+          receivedAt: raw.receivedAt || new Date(),
         }
       },
       response: ({ result }) => ({ id: result.shipmentId }),
@@ -866,7 +864,7 @@ const crud = makeCrudRoute({
       'rpwNumber',
       'rpwSequence',
       'officeId',
-      'receivedDate',
+      'receivedAt',
       'sender',
       'subject',
       'createdAt',
@@ -879,9 +877,9 @@ const crud = makeCrudRoute({
       }
       
       if (query.dateFrom || query.dateTo) {
-        where.receivedDate = {}
-        if (query.dateFrom) where.receivedDate.$gte = new Date(query.dateFrom)
-        if (query.dateTo) where.receivedDate.$lte = new Date(query.dateTo)
+        where.receivedAt = {}
+        if (query.dateFrom) where.receivedAt.$gte = new Date(query.dateFrom)
+        if (query.dateTo) where.receivedAt.$lte = new Date(query.dateTo)
       }
       
       if (query.search) {

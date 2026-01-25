@@ -15,14 +15,15 @@ Jednostka organizacyjna zarządzająca przesyłkami wpływającymi i wychodzący
 | `name` | string | tak | Pełna nazwa Kancelarii |
 | `description` | string | nie | Opis/zakres działania |
 | `isActive` | boolean | tak | Czy Kancelaria jest aktywna (domyślnie true) |
-| `rpwNumberFormat` | string | nie | Format numeracji RPW (jeśli brak, używany domyślny: "RPW/{YYYY}/{SEQ:6}") |
-| `rkwNumberFormat` | string | nie | Format numeracji RKW (jeśli brak, używany domyślny: "RKW/{YYYY}/{SEQ:6}"). RKW = rejestr przesyłek wychodzących |
+| `rpwNumberFormat` | string | nie | Format numeracji RPW (jeśli brak, używany domyślny: "RPW/{yyyy}/{seq:6}") |
+| `rkwNumberFormat` | string | nie | Format numeracji RKW (jeśli brak, używany domyślny: "RKW/{yyyy}/{seq:6}"). RKW = rejestr przesyłek wychodzących |
 
 Zasady:
 
 - Kod Kancelarii jest unikalny w zakresie organizacji
 - Nieaktywna Kancelaria nie może przyjmować nowych przesyłek wpływających ani obsługiwać przesyłek wychodzących
-- Format numeracji RPW i RKW wykorzystuje tokeny: `{YYYY}`, `{YY}`, `{MM}`, `{DD}`, `{SEQ:N}` (analogicznie do `salesDocumentNumberGenerator`)
+- Format numeracji RPW i RKW wykorzystuje tokeny zgodne z `salesDocumentNumberGenerator` (tokeny są case-insensitive; kanonicznie zapisujemy je małymi literami):
+  - `{yyyy}`, `{yy}`, `{mm}`, `{dd}`, `{hh}`, `{seq:N}`, `{rand:N}`, `{guid}`, `{nanoid:N}`, `{kind}`
 
 ## Przesyłka wpływająca (incoming shipment)
 
@@ -36,7 +37,7 @@ Zasady:
 | `senderId` lub `senderDisplayName` | string | tak* | jeśli nadawca anonimowy, przechowujemy displayName/minimum |
 | `senderAnonymous` | boolean | nie | domyślnie false |
 | `receivedAt` | date | tak | data wpływu |
-| `deliveryMethod` | enum | tak | `in_person` / `epuap` / `edoręczenia` (robocze) |
+| `deliveryMethod` | enum | tak | `in_person` / `epuap` / `e_doreczenia` (robocze) |
 | `postedAt` | date | nie | data nadania |
 | `senderReference` | string | nie | numer nadawczy |
 | `remarks` | string | nie | uwagi |
@@ -63,7 +64,7 @@ Zasady:
 | `recipientId` lub `recipientDisplayName` | string | tak* | jeśli odbiorca anonimowy, przechowujemy displayName/minimum |
 | `recipientAnonymous` | boolean | nie | domyślnie false |
 | `sentAt` | date | tak | data wysłania |
-| `deliveryMethod` | enum | tak | `in_person` / `epuap` / `edoręczenia` / `mail` (robocze) |
+| `deliveryMethod` | enum | tak | `in_person` / `epuap` / `e_doreczenia` / `mail` (robocze) |
 | `remarks` | string | nie | uwagi |
 | `accessLevel` | enum | tak | publiczny / częściowo / niepubliczny (robocze) |
 

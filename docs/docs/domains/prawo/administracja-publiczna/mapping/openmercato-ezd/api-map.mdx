@@ -131,20 +131,23 @@ Standardowe operacje na `/api/records/offices`:
 
 Każda Kancelaria może mieć własny format numeracji RPW (`rpwNumberFormat`):
 
-- Jeśli format jest pusty, używany jest domyślny: `"RPW/{YYYY}/{SEQ:6}"`
-- Format wykorzystuje tokeny analogiczne do `salesDocumentNumberGenerator`:
-  - `{YYYY}` – rok czterocyfrowy
-  - `{YY}` – rok dwucyfrowy
-  - `{MM}` – miesiąc dwucyfrowy
-  - `{DD}` – dzień dwucyfrowy
-  - `{SEQ:N}` – sekwencja z paddingiem (N cyfr)
-  - `{RAND:N}` – losowe cyfry
-  - `{NANOID:N}` – losowy identyfikator alfanumeryczny
+- Jeśli format jest pusty, używany jest domyślny: `"RPW/{yyyy}/{seq:6}"`
+- Format wykorzystuje tokeny zgodne z `salesDocumentNumberGenerator` (tokeny są case-insensitive; w dokumentacji zapisujemy je kanonicznie małymi literami):
+  - `{yyyy}` – rok czterocyfrowy
+  - `{yy}` – rok dwucyfrowy
+  - `{mm}` – miesiąc dwucyfrowy
+  - `{dd}` – dzień dwucyfrowy
+  - `{hh}` – godzina dwucyfrowa
+  - `{seq:N}` – sekwencja z paddingiem (N cyfr)
+  - `{rand:N}` – losowe cyfry
+  - `{guid}` – UUID
+  - `{nanoid:N}` – losowy identyfikator alfanumeryczny
+  - `{kind}` – wartość `documentKind` (jeśli używana w danym generatorze)
 
 Przykładowe formaty:
-- `"RPW/{YYYY}/{SEQ:6}"` → RPW/2026/000001
-- `"RPW-{CODE}/{YYYY}/{SEQ:4}"` → RPW-A/2026/0001 (gdzie {CODE} to kod Kancelarii)
-- `"{YYYY}-{MM}/RPW-{SEQ:5}"` → 2026-01/RPW-00001
+- `"RPW/{yyyy}/{seq:6}"` → RPW/2026/000001
+- `"RPW-K01/{yyyy}/{seq:4}"` → RPW-K01/2026/0001 (prefiks może być stały albo podstawiany w runtime przed formatowaniem)
+- `"{yyyy}-{mm}/RPW-{seq:5}"` → 2026-01/RPW-00001
 
 ### Uprawnienia i RBAC
 
@@ -196,7 +199,9 @@ interface RPWNumberGenerator {
 ### Implementacja
 
 - **Tabela sekwencji**: `incoming_shipment_sequences` (analogicznie do `sales_document_sequences`)
-  - Klucz: `(organization_id, tenant_id, office_id)`
+  - Klucz: `(organization_id, tenant_id, document_kind)`
+  - `document_kind` koduje scope per Kancelaria i per rok, np. `rpw:${officeId}:${yyyy}`
+    - dzięki temu sekwencja resetuje się rocznie bez dodawania osobnej kolumny `year`
   - Pole `current_value` z atomic increment
   - Obsługa concurrency przez `INSERT ... ON CONFLICT DO UPDATE`
 

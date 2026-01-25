@@ -133,7 +133,7 @@ Format decyzji (ADR‑like):
 - Decyzja:
   - **Kancelaria** jest osobną encją (`records.offices`) z własnymi ustawieniami.
   - Każda Kancelaria ma **niezależną sekwencję numeracji RPW**.
-  - Zakres numeracji RPW: organizacja + tenant + **officeId**.
+  - Zakres numeracji RPW: organizacja + tenant + **officeId** + **rok** (roczny scope jest kodowany w kluczu sekwencji / `documentKind`).
   - Kancelaria definiuje format numeracji RPW (opcjonalnie; domyślnie używany jest format globalny).
   - Przesyłka wpływająca jest zawsze powiązana z konkretną Kancelarią (`officeId` wymagane).
 - Konsekwencje:
@@ -151,14 +151,14 @@ Format decyzji (ADR‑like):
   - RPW wymaga analogicznej funkcjonalności: automatyczna numeracja, chronologiczność, unikalność.
 - Decyzja:
   - **RPW wykorzystuje wzorzec numeracji analogiczny do `salesDocumentNumberGenerator`**.
-  - Zakres numeracji: `organizationId` + `tenantId` + `officeId` (nowy wymiar: per Kancelaria).
-  - Format numeracji jest konfigurowalny per Kancelaria (tokeny: `{YYYY}`, `{MM}`, `{SEQ:N}`, etc.).
+  - Zakres numeracji: `organizationId` + `tenantId` + `documentKind`, gdzie `documentKind = rpw:${officeId}:${yyyy}` (per Kancelaria, rocznie).
+  - Format numeracji jest konfigurowalny per Kancelaria (tokeny zgodne z implementacją; case-insensitive, np. `{yyyy}`, `{mm}`, `{seq:N}`, `{rand:N}`, `{guid}`, `{nanoid:N}`).
   - Implementacja: tabela `incoming_shipment_sequences` z atomic increment.
   - Numer RPW jest generowany automatycznie przy tworzeniu przesyłki (pola `rpwNumber` i `rpwSequence` tylko do odczytu).
 - Konsekwencje:
   - Reuse sprawdzonego wzorca – mniejsze ryzyko błędów, spójność z resztą systemu.
   - Łatwiejsza implementacja – można wykorzystać kod z `salesDocumentNumberGenerator` jako punkt startowy.
-  - Format numeracji może być dostosowany do specyfiki organizacji (np. `RPW/{YYYY}/{SEQ:6}` lub `RPW-{CODE}/{YYYY}/{SEQ:4}`).
+  - Format numeracji może być dostosowany do specyfiki organizacji (np. `RPW/{yyyy}/{seq:6}` lub `RPW-K01/{yyyy}/{seq:4}`).
   - Endpoint diagnostyczny dla administratorów: podgląd/ustawienie następnego numeru.
 
 ## D-012: Strony (Case Parties) jako encja w MVP
