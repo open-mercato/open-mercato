@@ -1,11 +1,15 @@
 // Dock position for AI chat panel
-export type DockPosition = 'modal' | 'right' | 'left' | 'bottom'
+export type DockPosition = 'floating' | 'right' | 'left' | 'bottom'
+
+// Floating position for floating mode
+export type FloatingPosition = 'bottom-right' | 'bottom-left' | 'top-right' | 'top-left'
 
 // Dock state for persisting chat panel configuration
 export interface DockState {
   position: DockPosition
-  width: number // For left/right docking
-  height: number // For bottom docking
+  floatingPosition: FloatingPosition // For floating mode corner position
+  width: number // For left/right docking and floating mode
+  height: number // For bottom docking and floating mode
   isMinimized: boolean
 }
 

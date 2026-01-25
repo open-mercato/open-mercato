@@ -3,17 +3,25 @@
 import * as React from 'react'
 import { createPortal } from 'react-dom'
 import { Command } from 'cmdk'
-import { Loader2, Send, X, Minimize2, Maximize2, PanelRight, PanelLeft, PanelBottom, Layers } from 'lucide-react'
+import {
+  Loader2,
+  Send,
+  X,
+  Minimize2,
+  PanelRight,
+  PanelLeft,
+  PanelBottom,
+  MessageCircle,
+} from 'lucide-react'
 import { cn } from '@open-mercato/shared/lib/utils'
 import { Button } from '@open-mercato/ui/primitives/button'
-import { Dialog, DialogContent, DialogTitle } from '@open-mercato/ui/primitives/dialog'
-import { VisuallyHidden } from '@radix-ui/react-visually-hidden'
 import { useCommandPaletteContext } from '../CommandPalette/CommandPaletteProvider'
 import { CommandInput } from '../CommandPalette/CommandInput'
 import { CommandHeader } from '../CommandPalette/CommandHeader'
 import { CommandFooter } from '../CommandPalette/CommandFooter'
 import { ToolChatPage } from '../CommandPalette/ToolChatPage'
 import { DebugPanel } from '../CommandPalette/DebugPanel'
+import { AiDot } from '../AiDot'
 import type { DockPosition } from '../../types'
 import { useDockPosition } from '../../hooks/useDockPosition'
 
@@ -45,14 +53,18 @@ function RoutingIndicator() {
 interface DockControlsProps {
   position: DockPosition
   onPositionChange: (position: DockPosition) => void
-  isMinimized: boolean
   onMinimize: () => void
   onClose: () => void
 }
 
-function DockControls({ position, onPositionChange, isMinimized, onMinimize, onClose }: DockControlsProps) {
+function DockControls({
+  position,
+  onPositionChange,
+  onMinimize,
+  onClose,
+}: DockControlsProps) {
   const positions: { value: DockPosition; icon: React.ReactNode; label: string }[] = [
-    { value: 'modal', icon: <Layers className="h-3.5 w-3.5" />, label: 'Modal' },
+    { value: 'floating', icon: <MessageCircle className="h-3.5 w-3.5" />, label: 'Floating' },
     { value: 'right', icon: <PanelRight className="h-3.5 w-3.5" />, label: 'Dock Right' },
     { value: 'left', icon: <PanelLeft className="h-3.5 w-3.5" />, label: 'Dock Left' },
     { value: 'bottom', icon: <PanelBottom className="h-3.5 w-3.5" />, label: 'Dock Bottom' },
@@ -78,9 +90,9 @@ function DockControls({ position, onPositionChange, isMinimized, onMinimize, onC
         size="icon"
         className="h-6 w-6"
         onClick={onMinimize}
-        title={isMinimized ? 'Maximize' : 'Minimize'}
+        title="Minimize"
       >
-        {isMinimized ? <Maximize2 className="h-3.5 w-3.5" /> : <Minimize2 className="h-3.5 w-3.5" />}
+        <Minimize2 className="h-3.5 w-3.5" />
       </Button>
       <Button
         variant="ghost"
@@ -93,6 +105,11 @@ function DockControls({ position, onPositionChange, isMinimized, onMinimize, onC
       </Button>
     </div>
   )
+}
+
+const FLOATING_POSITION_STYLE: React.CSSProperties = {
+  bottom: 24,
+  right: 24,
 }
 
 export function DockableChat() {
@@ -122,7 +139,8 @@ export function DockableChat() {
     dockState,
     setPosition,
     toggleMinimized,
-    isModal,
+    setMinimized,
+    isFloating,
     isHydrated,
   } = useDockPosition()
 
@@ -153,12 +171,6 @@ export function DockableChat() {
       setTimeout(() => chatInputRef.current?.focus(), 50)
     }
   }, [phase])
-
-  const handleOpenChange = (open: boolean) => {
-    if (!open) {
-      close()
-    }
-  }
 
   const handleInputSubmit = async () => {
     const query = localInput.trim()
@@ -200,129 +212,138 @@ export function DockableChat() {
   // Don't render until hydrated to avoid SSR mismatch
   if (!isHydrated) return null
 
-  // Render as modal when in modal mode
-  if (isModal) {
-    return (
+  // When minimized in any mode, show the AiDot in bottom-right corner
+  if (isOpen && dockState.isMinimized) {
+    return typeof document !== 'undefined' ? createPortal(
+      <AiDot
+        onClick={() => setMinimized(false)}
+        isActive={isStreaming || isThinking}
+        hasMessages={messages.length > 0}
+        position="bottom-right"
+      />,
+      document.body
+    ) : null
+  }
+
+  // Render as floating panel when in floating mode
+  if (isFloating) {
+    if (!isOpen) return null
+
+    return typeof document !== 'undefined' ? createPortal(
       <>
-        {isOpen && showDebug && (
-          <div className="fixed inset-0 z-40 bg-black/50 backdrop-blur-sm pointer-events-none" />
-        )}
-        <Dialog open={isOpen} onOpenChange={handleOpenChange} modal={!showDebug}>
-          <DialogContent
-            className={cn(
-              'fixed left-1/2 top-[10vh] z-50 -translate-x-1/2',
-              'w-full max-w-2xl p-0',
-              'rounded-xl border bg-background shadow-2xl',
-              'flex flex-col'
+        <div
+          className={cn(
+            'fixed z-50',
+            'rounded-xl border bg-background shadow-2xl',
+            'flex flex-col',
+            'transition-all duration-200 ease-out'
+          )}
+          style={{
+            ...FLOATING_POSITION_STYLE,
+            width: dockState.width,
+            height: dockState.height,
+            maxHeight: 'calc(100vh - 48px)',
+          }}
+          onKeyDown={handleInputKeyDown}
+        >
+          <Command className="flex flex-col flex-1 min-h-0 rounded-xl overflow-hidden" shouldFilter={false}>
+            {/* Dock controls header */}
+            <div className="flex items-center justify-end px-2 py-1.5 border-b shrink-0">
+              <DockControls
+                position={dockState.position}
+                onPositionChange={setPosition}
+                onMinimize={toggleMinimized}
+                onClose={close}
+              />
+            </div>
+
+            <CommandHeader
+              phase={phase}
+              selectedTool={selectedTool}
+              onBack={reset}
+            />
+
+            {phase === 'idle' && (
+              <CommandInput
+                value={localInput}
+                onValueChange={setLocalInput}
+                mode="commands"
+                isLoading={isLoading}
+                placeholder="Ask me anything..."
+              />
             )}
-            style={{ maxHeight: 500, overflow: 'hidden' }}
-            onKeyDown={handleInputKeyDown}
-            onPointerDownOutside={(e) => {
-              if (showDebug) e.preventDefault()
-            }}
-            onInteractOutside={(e) => {
-              if (showDebug) e.preventDefault()
-            }}
-          >
-            <VisuallyHidden>
-              <DialogTitle>AI Command Palette</DialogTitle>
-            </VisuallyHidden>
-            <Command className="flex flex-col flex-1 min-h-0" shouldFilter={false}>
-              {/* Dock controls header */}
-              <div className="flex items-center justify-between px-3 py-2 border-b">
-                <span className="text-sm font-medium">AI Assistant</span>
-                <DockControls
-                  position={dockState.position}
-                  onPositionChange={setPosition}
-                  isMinimized={dockState.isMinimized}
-                  onMinimize={toggleMinimized}
-                  onClose={close}
-                />
-              </div>
 
-              <CommandHeader
-                phase={phase}
-                selectedTool={selectedTool}
-                onBack={reset}
-              />
-
-              {phase === 'idle' && (
-                <CommandInput
-                  value={localInput}
-                  onValueChange={setLocalInput}
-                  mode="commands"
-                  isLoading={isLoading}
-                  placeholder="Ask me anything or describe what you want to do..."
-                />
-              )}
-
-              <div className="flex-1 min-h-0 overflow-y-auto">
-                {phase === 'idle' && !localInput && <IdleState />}
-                {phase === 'routing' && <RoutingIndicator />}
-                {(phase === 'chatting' || phase === 'confirming' || phase === 'executing') && (
-                  <ToolChatPage
-                    tool={selectedTool}
-                    messages={messages}
-                    pendingToolCalls={pendingToolCalls}
-                    isStreaming={isStreaming}
-                    isThinking={isThinking}
-                    agentStatus={agentStatus}
-                    onApproveToolCall={approveToolCall}
-                    onRejectToolCall={rejectToolCall}
-                    pendingQuestion={pendingQuestion}
-                    onAnswerQuestion={answerQuestion}
-                  />
-                )}
-              </div>
-
+            <div className="flex-1 min-h-0 overflow-y-auto">
+              {phase === 'idle' && !localInput && <IdleState />}
+              {phase === 'routing' && <RoutingIndicator />}
               {(phase === 'chatting' || phase === 'confirming' || phase === 'executing') && (
-                <form onSubmit={handleChatSubmit} className="shrink-0 border-t p-3">
-                  <div className="flex items-center gap-2">
-                    <input
-                      ref={chatInputRef}
-                      type="text"
-                      value={chatInput}
-                      onChange={(e) => setChatInput(e.target.value)}
-                      onKeyDown={handleChatKeyDown}
-                      placeholder="Describe what you want to do..."
-                      className={cn(
-                        'flex-1 bg-muted rounded-lg px-4 py-2 text-sm outline-none',
-                        'focus:ring-2 focus:ring-ring',
-                        'disabled:opacity-50'
-                      )}
-                      disabled={isStreaming}
-                    />
-                    <Button
-                      type="submit"
-                      size="icon"
-                      disabled={!chatInput.trim() || isStreaming}
-                    >
-                      {isStreaming ? (
-                        <Loader2 className="h-4 w-4 animate-spin" />
-                      ) : (
-                        <Send className="h-4 w-4" />
-                      )}
-                    </Button>
-                  </div>
-                </form>
+                <ToolChatPage
+                  tool={selectedTool}
+                  messages={messages}
+                  pendingToolCalls={pendingToolCalls}
+                  isStreaming={isStreaming}
+                  isThinking={isThinking}
+                  agentStatus={agentStatus}
+                  onApproveToolCall={approveToolCall}
+                  onRejectToolCall={rejectToolCall}
+                  pendingQuestion={pendingQuestion}
+                  onAnswerQuestion={answerQuestion}
+                />
               )}
+            </div>
 
-              <CommandFooter
-                phase={phase}
-                connectionStatus={connectionStatus}
-                isSessionAuthorized={isSessionAuthorized}
-                showDebug={showDebug}
-                onToggleDebug={() => setShowDebug(!showDebug)}
-              />
-            </Command>
-          </DialogContent>
-        </Dialog>
+            {(phase === 'chatting' || phase === 'confirming' || phase === 'executing') && (
+              <form onSubmit={handleChatSubmit} className="shrink-0 border-t p-3">
+                <div className="flex items-center gap-2">
+                  <input
+                    ref={chatInputRef}
+                    type="text"
+                    value={chatInput}
+                    onChange={(e) => setChatInput(e.target.value)}
+                    onKeyDown={handleChatKeyDown}
+                    placeholder="Describe what you want to do..."
+                    className={cn(
+                      'flex-1 bg-muted rounded-lg px-4 py-2 text-sm outline-none',
+                      'focus:ring-2 focus:ring-ring',
+                      'disabled:opacity-50'
+                    )}
+                    disabled={isStreaming}
+                  />
+                  <Button
+                    type="submit"
+                    size="icon"
+                    disabled={!chatInput.trim() || isStreaming}
+                  >
+                    {isStreaming ? (
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                    ) : (
+                      <Send className="h-4 w-4" />
+                    )}
+                  </Button>
+                </div>
+              </form>
+            )}
 
-        {isOpen && showDebug && typeof document !== 'undefined' && createPortal(
+            <CommandFooter
+              phase={phase}
+              connectionStatus={connectionStatus}
+              isSessionAuthorized={isSessionAuthorized}
+              showDebug={showDebug}
+              onToggleDebug={() => setShowDebug(!showDebug)}
+            />
+          </Command>
+        </div>
+
+        {showDebug && (
           <div
             data-debug-panel
             className="fixed z-[9999] bg-gray-900 rounded-xl border border-gray-700 shadow-2xl flex flex-col overflow-hidden"
-            style={{ top: '80px', right: '20px', width: '400px', minWidth: '400px', maxWidth: '400px', maxHeight: 'calc(100vh - 100px)' }}
+            style={{
+              top: '24px',
+              left: '24px',
+              width: '400px',
+              maxHeight: 'calc(100vh - 48px)',
+            }}
           >
             <DebugPanel
               events={debugEvents}
@@ -330,17 +351,17 @@ export function DockableChat() {
               isOpen={true}
               onToggle={() => setShowDebug(false)}
             />
-          </div>,
-          document.body
+          </div>
         )}
-      </>
-    )
+      </>,
+      document.body
+    ) : null
   }
 
-  // Render as docked panel
+  // Render as docked panel (right, left, bottom)
   if (!isOpen) return null
 
-  const positionStyles: Record<Exclude<DockPosition, 'modal'>, React.CSSProperties> = {
+  const positionStyles: Record<Exclude<DockPosition, 'floating'>, React.CSSProperties> = {
     right: {
       position: 'fixed',
       top: 0,
@@ -367,7 +388,7 @@ export function DockableChat() {
     },
   }
 
-  const panelPosition = dockState.position as Exclude<DockPosition, 'modal'>
+  const panelPosition = dockState.position as Exclude<DockPosition, 'floating'>
 
   return typeof document !== 'undefined' ? createPortal(
     <div
@@ -381,12 +402,10 @@ export function DockableChat() {
       onKeyDown={handleInputKeyDown}
     >
       {/* Docked panel header */}
-      <div className="flex items-center justify-between px-3 py-2 border-b shrink-0">
-        <span className="text-sm font-medium">AI Assistant</span>
+      <div className="flex items-center justify-end px-2 py-1.5 border-b shrink-0">
         <DockControls
           position={dockState.position}
           onPositionChange={setPosition}
-          isMinimized={dockState.isMinimized}
           onMinimize={toggleMinimized}
           onClose={close}
         />

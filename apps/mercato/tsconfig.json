@@ -2,6 +2,7 @@
   "extends": "../../tsconfig.base.json",
   "compilerOptions": {
     "noEmit": true,
+    "allowImportingTsExtensions": true,
     "plugins": [{ "name": "next" }],
     "typeRoots": ["./types", "./node_modules/@types"],
     "verbatimModuleSyntax": false,
