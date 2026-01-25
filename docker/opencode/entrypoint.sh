@@ -80,30 +80,9 @@ cat > "$CONFIG_FILE" << EOF
     }
   },
   "permission": {
-    "bash": {
+   "bash": {
       "*": "deny"
-    },
-    "write": {
-      "*": "deny"
-    },
-    "edit": {
-      "*": "deny"
-    },
-    "read": {
-      "*": "deny"
-    },
-    "glob": {
-      "*": "deny"
-    },
-    "grep": {
-      "*": "deny"
-    },
-    "todoread": {
-      "*": "deny"
-    },
-    "todowrite": {
-      "*": "deny"
-    }
+   }
   },
   "server": {
     "port": 4096,

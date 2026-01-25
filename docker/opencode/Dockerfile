@@ -1,7 +1,11 @@
-FROM alpine:3.20
+FROM debian:bookworm-slim
 
-# Install dependencies (Alpine uses apk, not affected by Debian mirror issues)
-RUN apk add --no-cache curl ca-certificates bash shadow
+# Install dependencies
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    curl \
+    ca-certificates \
+    bash \
+    && rm -rf /var/lib/apt/lists/*
 
 # Install OpenCode and move to system path
 RUN curl -fsSL https://opencode.ai/install | bash && \
