@@ -1,11 +1,63 @@
 ---
-title: JRWA / wykaz akt (roboczo)
+title: JRWA / wykaz akt
 sidebar_position: 40
 ---
 
-Miejsce na opis struktury JRWA, zasad klasyfikacji oraz wymagań walidacyjnych.
+## Czym jest JRWA?
 
-Do zebrania:
-- Minimalny zestaw pól klasy (symbol, hasło, kategoria, okres, uwagi).
-- Reguły: kto może przypisać klasę, kiedy można zmienić, jak audytować.
-- Powiązanie klas z procesami i typami dokumentów.
+**JRWA (Jednolity Rzeczowy Wykaz Akt)** to klasyfikacja dokumentacji stosowana w podmiotach publicznych, która grupuje dokumentację według przedmiotu (rzeczy), a nie według struktury organizacyjnej podmiotu.
+
+## Struktura JRWA
+
+Każda klasa (pozycja) JRWA zawiera:
+- **Symbol klasyfikacyjny** (np. 130.1, 200.5) — identyfikator klasy
+- **Hasło klasyfikacyjne** — opis przedmiotu sprawy/dokumentacji
+- **Kategoria archiwalna** (A, B, BE itp.) — określa wartość archiwalną dokumentacji
+- **Okres przechowywania** — czas, przez który dokumentacja musi być przechowywana
+- **Uwagi** — dodatkowe informacje o zastosowaniu klasy
+
+## Rola JRWA w określaniu kategorii archiwalnej
+
+**KLUCZOWA ZASADA:** Kategoria archiwalna i okres przechowywania dokumentu **nie są ustalane bezpośrednio**, lecz **wynikają z przypisania dokumentu do odpowiedniej klasy JRWA**.
+
+### Proces klasyfikacji:
+
+1. **Klasyfikacja merytoryczna:**
+   - Pracownik merytoryczny analizuje treść i kontekst dokumentu
+   - Wybiera właściwą klasę JRWA odpowiadającą przedmiotowi sprawy/dokumentu
+   - Przypisuje wybrany symbol JRWA do dokumentu lub sprawy
+
+2. **Automatyczne określenie kategorii:**
+   - System automatycznie pobiera kategorię archiwalną z przypisanej klasy JRWA
+   - System automatycznie pobiera okres przechowywania z przypisanej klasy JRWA
+   - Nie ma potrzeby ręcznego wprowadzania tych danych
+
+3. **Weryfikacja kancelaryjna:**
+   - Kancelaria/rejestrator sprawdza poprawność przypisanej klasyfikacji
+   - W razie błędów — korekta klasyfikacji (zmiana klasy JRWA)
+
+## Wymagania systemowe
+
+### Minimalny zestaw pól klasy JRWA:
+- Symbol klasyfikacyjny (wymagany, unikalny)
+- Hasło klasyfikacyjne (wymagany)
+- Kategoria archiwalna (wymagany: A, B, BE, Bc itp.)
+- Okres przechowywania (wymagany, w latach lub "nieokreślony")
+- Uwagi (opcjonalny)
+- Status (aktywny/archiwalny)
+
+### Reguły biznesowe:
+- Kto może przypisać klasę: pracownik merytoryczny lub osoba uprawniona
+- Kiedy można zmienić: przed zamknięciem sprawy (z audytem zmian)
+- Jak audytować: każda zmiana klasyfikacji wymaga logowania (kto, kiedy, poprzednia wartość)
+
+### Powiązania:
+- Klasa JRWA ↔ Sprawa (jedna sprawa = jedna klasa JRWA)
+- Klasa JRWA ↔ Dokument ewidencjonowany (przez powiązanie ze sprawą lub bezpośrednio)
+- Klasa JRWA ↔ Typy dokumentów (mapowanie sugerowanych klas dla typów dokumentów)
+- Klasa JRWA ↔ Procesy biznesowe (mapowanie procesów do odpowiednich klas)
+
+## Źródła
+
+- Rozporządzenie MKiDN w sprawie instrukcji kancelaryjnej
+- Przykładowy JRWA: [zrodla/jrwa-mkidn-2025/index](zrodla/jrwa-mkidn-2025/index)

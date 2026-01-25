@@ -25,15 +25,44 @@ Pigułka grupuje reguły dotyczące tego, które dokumenty elektroniczne podlega
 - Sprawa (akta sprawy)
 - Metadane dokumentu
 - Rejestr rodzajów dokumentów ewidencjonowanych
+- JRWA (Jednolity Rzeczowy Wykaz Akt) — klasyfikacja zawierająca kategorie archiwalne
 
 ### Czynności
-- Ewidencjonuj dokument w systemie
+
+#### Czynności kancelaryjne (techniczno-administracyjne)
+Wykonywane przez kancelarię/rejestratora:
+- Ewidencjonuj dokument w systemie (nadanie numeru, wpisanie podstawowych metadanych)
+- Zarejestruj przesyłkę wpływającą/wychodzącą
 - Przypisz dokument do sprawy / akt sprawy
-- Oznacz kategorię archiwalną (A/B/…)
+- Weryfikuj kompletność metadanych technicznych
+
+#### Czynności merytoryczne (treściowo-decyzyjne)
+Wykonywane przez pracownika merytorycznego lub osobę uprawnioną:
+- Klasyfikuj dokument według JRWA (przypisanie symbolu klasyfikacji)
+- Ustal kategorię archiwalną dokumentu **na podstawie JRWA**
+  - Kategoria archiwalna (A, B, BE itp.) jest określona w JRWA dla danej klasy
+  - Przypisanie klasy JRWA automatycznie wyznacza kategorię archiwalną i okres przechowywania
+- Nadaj znak sprawy (jeśli sprawa powstaje na podstawie dokumentu)
+- Decyzja o powiązaniu dokumentu ze sprawą (kontekst merytoryczny)
+
+#### Czynności systemowe
 - Usuń dokument nieewidencjonowany (zgodnie z praktyką podmiotu)
+- Waliduj kompletność wymaganych metadanych
+- Nadzór nad zgodnością z instrukcją kancelaryjną
 
 ### Metadane
 - Flaga: `ewidencjonowany` (tak/nie)
-- Kategoria archiwalna
+- Klasa JRWA (symbol klasyfikacji)
+- Kategoria archiwalna (wynika z klasy JRWA)
+- Okres przechowywania (wynika z klasy JRWA)
 - Powiązanie dokument ↔ sprawa
 - Identyfikator/nazwa typu dokumentu (dla wykazu rodzajów dokumentów ewidencjonowanych)
+
+## Uwaga: Kategoria archiwalna a JRWA
+
+**Kluczowa zależność:** Kategoria archiwalna dokumentu nie jest nadawana arbitralnie, lecz **wynika z przypisania do odpowiedniej klasy JRWA**. Każda klasa w Jednolitym Rzeczowym Wykazie Akt ma już określoną kategorię archiwalną i okres przechowywania. 
+
+Proces:
+1. Pracownik merytoryczny klasyfikuje dokument według JRWA (wybiera właściwą klasę)
+2. System automatycznie przypisuje kategorię archiwalną i okres przechowywania na podstawie wybranej klasy JRWA
+3. Kancelaria weryfikuje poprawność klasyfikacji w ramach kontroli kancelaryjnej
