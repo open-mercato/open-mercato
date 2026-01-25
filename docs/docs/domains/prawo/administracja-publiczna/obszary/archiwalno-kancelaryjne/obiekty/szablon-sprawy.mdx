@@ -1,0 +1,78 @@
+---
+title: Szablon sprawy
+sidebar_position: 15
+---
+
+## Definicja
+**Szablon sprawy** (Case Template) to mechanizm standaryzacji i konfiguracji różnych typów spraw w systemie bez konieczności modyfikacji kodu.
+
+## Cel
+- Definiowanie struktury danych dla konkretnych typów spraw (np. wniosek o dotację, skarga, postępowanie administracyjne).
+- Standaryzacja procesu zakładania spraw i zapewnienie spójności danych.
+- Ułatwienie pracy użytkowników przez predefiniowane pola i wartości domyślne.
+- Umożliwienie administratorom tworzenia nowych typów spraw bez angażowania programistów.
+
+## Komponenty szablonu
+Szablon sprawy definiuje:
+
+### Identyfikacja
+- Kod szablonu (unikalny identyfikator, np. "WNIOSEK_DOTACJA", "SKARGA")
+- Nazwa wyświetlana
+- Opis przeznaczenia i zastosowania
+
+### Struktura danych
+- Definicja pól dodatkowych (custom fields)
+- Lista pól wymaganych przy tworzeniu sprawy
+- Domyślne wartości dla pól sprawy
+- Typy danych i walidacje
+
+### Klasyfikacja
+- Sugerowana klasa JRWA dla spraw tego typu
+- Opcjonalnie: ograniczenie dozwolonych klas JRWA
+
+### Konfiguracja stron
+- Definicja ról dla stron sprawy (wnioskodawca, uczestnik, obserwator, strona postępowania)
+- Role wymagane przy tworzeniu sprawy
+
+### Ustawienia interfejsu
+- Kolejność wyświetlania pól w formularzu
+- Grupowanie pól w sekcje
+- Zasady widoczności pól (warunkowe pokazywanie/ukrywanie)
+
+## Relacje
+- **JRWA**: Szablon może sugerować domyślną klasę JRWA dla spraw tworzonych na jego podstawie
+- **Sprawa**: Sprawa utworzona na podstawie szablonu zachowuje referencję do szablonu (ułatwia raportowanie i grupowanie)
+
+## Korzyści
+1. **Elastyczność bez zmian w kodzie**: Różne typy spraw mogą mieć różne struktury danych
+2. **Standaryzacja**: Zapewnienie spójności danych dla spraw tego samego typu
+3. **Ułatwienie użytkownika**: Predefiniowane pola przyspieszają zakładanie spraw
+4. **Raportowanie**: Łatwiejsze grupowanie i analizowanie spraw według typu
+5. **Konfigurowalność**: Administratorzy tworzą nowe typy bez developerów
+
+## Zastąpienie koncepcji "dziedziny"
+Szablony spraw zastępują i rozszerzają wcześniejszą koncepcję "dziedziny" (domain):
+- **Dziedzina** była statycznym, zakodowanym podziałem na obszary tematyczne
+- **Szablon sprawy** to dynamiczny, konfigurowalny mechanizm
+- Większa elastyczność: jeden szablon obsługuje wiele przypadków użycia
+- Możliwość przyszłego dziedziczenia między szablonami
+
+## Zasady spójności
+- Szablon jest wersjonowany – zmiana szablonu nie wpływa na istniejące sprawy (zachowanie historii)
+- Sprawa może być utworzona bez szablonu (dla przypadków ad-hoc)
+- Szablon definiuje strukturę danych, ale nie wymusza workflow (to osobny mechanizm - workflows)
+- Szablony mogą być aktywne/nieaktywne (kontrola dostępności w interfejsie użytkownika)
+
+## Przykłady zastosowania
+- **Wniosek o dotację**: Predefiniowane pola dla wnioskodawcy, kwoty, terminu realizacji
+- **Skarga**: Pola dla skarżącego, przedmiotu skargi, podstawy prawnej
+- **Postępowanie administracyjne**: Pola dla stron, decyzji, odwołań
+- **Sprawa kadrowa**: Pola dla pracownika, typu sprawy kadrowej, dat
+
+## Szczegóły techniczne
+Szczegółową tabelę pól znajdziesz w: [Słownik danych (MVP)](../../../mapping/openmercato-ezd/data-dictionary).
+
+## Źródła
+- Model konceptualny: [Model konceptualny](../../../mapping/openmercato-ezd/conceptual-model#szablony-spraw-case-templates)
+- Mapowanie encji: [Mapowanie encji](../../../mapping/openmercato-ezd/entity-map)
+- Decyzje projektowe: [Decisions](../../../mapping/openmercato-ezd/decisions)

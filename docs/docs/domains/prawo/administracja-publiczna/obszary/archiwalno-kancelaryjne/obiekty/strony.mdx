@@ -1,0 +1,87 @@
+---
+title: Strony
+sidebar_position: 30
+---
+
+## Definicja
+**Strony** (Case Parties) to podmioty zaangażowane w sprawę – osoby fizyczne, prawne lub jednostki organizacyjne uczestniczące w postępowaniu lub procesie administracyjnym.
+
+## Cel
+- Identyfikacja podmiotów uczestniczących w sprawie.
+- Określenie ról i odpowiedzialności stron w sprawie.
+- Przechowywanie danych kontaktowych i adresowych stron.
+- Zarządzanie historią zmian stron w sprawie (audit log).
+
+## Typy stron
+Każda strona ma określoną **rolę** w sprawie:
+
+### Role stron (MVP)
+- **Wnioskodawca** (`applicant`) – podmiot inicjujący sprawę
+- **Uczestnik** (`participant`) – podmiot uczestniczący w sprawie
+- **Obserwator** (`observer`) – podmiot informowany o przebiegu sprawy
+- **Strona postępowania** (`party_to_proceedings`) – podmiot będący stroną w postępowaniu administracyjnym
+
+### Typy podmiotów
+- **Osoba fizyczna** (`person`)
+- **Osoba prawna** (`legal_entity`)
+- **Jednostka organizacyjna** (`organizational_unit`)
+
+## Relacje
+- **Sprawa**: Każda strona jest powiązana z konkretną sprawą (niezależnie od tego, czy sprawa ma przypisany znak sprawy)
+- **Rejestr podmiotów**: Strona może być powiązana z podmiotem w zewnętrznym rejestrze (np. moduł `customers`) poprzez `partyId`
+- **Dane ad-hoc**: Jeśli podmiot nie jest zarejestrowany w systemie, przechowywana jest nazwa tekstowa (`partyDisplayName`)
+
+## Metadane strony
+Podstawowe pola:
+- Identyfikacja: referencja do podmiotu (`partyId`) LUB nazwa tekstowa (`partyDisplayName`)
+- Typ podmiotu: osoba fizyczna, prawna, jednostka organizacyjna
+- Rola w sprawie: wnioskodawca, uczestnik, obserwator, strona postępowania
+- Dane kontaktowe: email, telefon
+- Adres (jako tekst lub struktura JSON z komponentami)
+- Uwagi dodatkowe
+
+Szczegółową tabelę pól znajdziesz w: [Słownik danych (MVP)](../../../mapping/openmercato-ezd/data-dictionary#strony-case-parties).
+
+## Zasady spójności
+- Jedna sprawa może mieć wiele stron (relacja 1:N)
+- Ta sama strona może występować w różnych rolach w tej samej sprawie (np. wnioskodawca i uczestnik)
+- Jeśli sprawa jest w stanie `read-only`, nie można dodawać/usuwać/modyfikować stron
+- Historia zmian stron jest zachowana (audit log)
+- Wymagane jest `partyId` LUB `partyDisplayName` (co najmniej jedno)
+
+## Przykłady zastosowania
+
+### Wniosek o dotację
+- Wnioskodawca: organizacja pozarządowa (osoba prawna)
+- Uczestnik: partner projektu (osoba prawna)
+- Obserwator: organ nadzorujący (jednostka organizacyjna)
+
+### Postępowanie administracyjne
+- Strona postępowania: obywatel (osoba fizyczna)
+- Uczestnik: świadek (osoba fizyczna)
+- Obserwator: reprezentant prawny (osoba fizyczna)
+
+### Skarga
+- Wnioskodawca (skarżący): obywatel (osoba fizyczna)
+- Strona postępowania: jednostka administracyjna (jednostka organizacyjna)
+
+## Uprawnienia i dostęp
+- Dostęp do informacji o stronach jest kontrolowany przez uprawnienia do sprawy
+- Jeśli sprawa jest `read-only`, informacje o stronach są dostępne tylko do odczytu
+- Poziom dostępu sprawy (`accessLevel`) wpływa na widoczność danych stron
+
+## Cykl życia
+1. **Dodanie strony**: Przy tworzeniu sprawy lub w trakcie jej prowadzenia
+2. **Modyfikacja**: Aktualizacja danych kontaktowych, zmiany roli
+3. **Usunięcie**: Możliwe tylko jeśli sprawa nie jest `read-only`
+4. **Historia**: Wszystkie zmiany są rejestrowane w audit log
+
+## Powiązane czynności
+- Zakładanie sprawy (dodawanie wymaganych stron)
+- Aktualizacja danych stron
+- Zarządzanie rolami stron w sprawie
+
+## Źródła
+- Model konceptualny: [Model konceptualny](../../../mapping/openmercato-ezd/conceptual-model#strony-case-parties)
+- Mapowanie encji: [Mapowanie encji](../../../mapping/openmercato-ezd/entity-map)
+- Słownik danych: [Data dictionary](../../../mapping/openmercato-ezd/data-dictionary)
