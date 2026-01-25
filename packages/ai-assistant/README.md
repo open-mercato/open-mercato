@@ -2,6 +2,45 @@
 
 AI-powered assistance capabilities for Open Mercato, featuring MCP (Model Context Protocol) server integration and OpenCode as the AI backend.
 
+## Quick Start (5 minutes)
+
+### Step 1: Set Environment Variables
+
+Add these to your `.env` file:
+
+```bash
+# MCP Server API Key - can be ANY secure string you choose
+# This authenticates communication between OpenCode and the MCP server
+MCP_SERVER_API_KEY=my-super-secret-key-12345
+
+# OpenCode AI provider configuration
+OPENCODE_PROVIDER=anthropic
+OPENCODE_ANTHROPIC_API_KEY=sk-ant-api03-...
+```
+
+> **Important:** The `MCP_SERVER_API_KEY` is a shared secret between OpenCode and the MCP server. You can use any secure string - it doesn't need to be generated or obtained from anywhere. Just make sure it matches in both places.
+
+### Step 2: Start the Services
+
+```bash
+# Terminal 1: Start MCP server
+yarn mcp:serve
+
+# Terminal 2: Start OpenCode container
+docker-compose up opencode
+
+# Terminal 3: Start Next.js app
+yarn dev
+```
+
+### Step 3: Use the AI Assistant
+
+- **Keyboard:** Press `Cmd+J` (Mac) or `Ctrl+J` (Windows/Linux) to open AI chat
+- **Header:** Click the sparkles icon in the top header
+- **Search:** Press `Cmd+K` to open the command palette, then ask a question
+
+---
+
 ## Features
 
 - **MCP Server** - HTTP server exposing platform tools via Model Context Protocol
@@ -9,6 +48,56 @@ AI-powered assistance capabilities for Open Mercato, featuring MCP (Model Contex
 - **API Discovery Tools** - Meta-tools for dynamic API access (`api_discover`, `api_execute`, `api_schema`)
 - **Two-Tier Authentication** - Server-level API key + user-level session tokens
 - **Session Management** - Ephemeral API keys with configurable TTL for secure tool execution
+- **Dockable Chat Panel** - Resizable panel that can dock to right, left, bottom, or float as modal
+- **Keyboard Shortcuts** - Quick access via `Cmd+K` (palette) and `Cmd+J` (direct chat)
+
+---
+
+## Keyboard Shortcuts
+
+| Shortcut | Action |
+|----------|--------|
+| `Cmd+K` / `Ctrl+K` | Open command palette |
+| `Cmd+J` / `Ctrl+J` | Open AI chat directly |
+| `Escape` | Close palette or reset to idle |
+| `Enter` | Submit query |
+
+---
+
+## UI Components
+
+### Dockable Chat Panel
+
+The AI chat panel can be positioned in different modes:
+
+| Mode | Description |
+|------|-------------|
+| **Modal** | Centered overlay (default) |
+| **Dock Right** | Fixed panel on right side |
+| **Dock Left** | Fixed panel on left side |
+| **Dock Bottom** | Fixed panel at bottom |
+
+Click the position icons in the chat header to switch modes. Position preference is persisted in localStorage.
+
+### Integration
+
+```tsx
+import {
+  AiAssistantIntegration,
+  AiChatHeaderButton,
+} from '@open-mercato/ai-assistant/frontend'
+
+function Layout({ children }) {
+  return (
+    <AiAssistantIntegration tenantId={auth.tenantId} organizationId={auth.orgId}>
+      <Header>
+        <AiChatHeaderButton />
+      </Header>
+      {children}
+    </AiAssistantIntegration>
+  )
+}
+```
 
 ## Architecture Overview
 
@@ -187,31 +276,26 @@ flowchart LR
 
 ---
 
-## Quick Start
+## Detailed Configuration
 
-### 1. Configure Environment Variables
+### Environment Variables
 
 ```bash
-# MCP Server Authentication (required for production server)
+# MCP Server API Key (required for production)
+# This can be ANY secure string - just ensure it matches between .env and opencode.json
 MCP_SERVER_API_KEY=your-secure-server-key-here
 
 # OpenCode URL (default: http://localhost:4096)
 OPENCODE_URL=http://localhost:4096
 ```
 
-> **Note:** The `MCP_SERVER_API_KEY` must also be configured in OpenCode's `opencode.json` as the `x-api-key` header.
+> **Note:** The `MCP_SERVER_API_KEY` is a shared secret you define yourself. It must be configured:
+> 1. In your `.env` file (for the MCP server)
+> 2. In OpenCode's `opencode.json` as the `x-api-key` header
 
-### 2. Start the Stack
+### Verify Connectivity
 
 ```bash
-# Start MCP server (choose one)
-yarn mcp:dev      # Development mode - API key auth only
-yarn mcp:serve    # Production mode - API key + session tokens
-
-# Start OpenCode container
-docker start opencode-mvp
-
-# Verify connectivity
 curl http://localhost:3001/health          # MCP health
 curl http://localhost:4096/global/health   # OpenCode health
 curl http://localhost:4096/mcp             # MCP connection status

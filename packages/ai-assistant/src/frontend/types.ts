@@ -1,3 +1,14 @@
+// Dock position for AI chat panel
+export type DockPosition = 'modal' | 'right' | 'left' | 'bottom'
+
+// Dock state for persisting chat panel configuration
+export interface DockState {
+  position: DockPosition
+  width: number // For left/right docking
+  height: number // For bottom docking
+  isMinimized: boolean
+}
+
 // Phase-based state for intelligent routing
 export type PalettePhase =
   | 'idle'       // Empty, waiting for input
@@ -127,6 +138,7 @@ export interface CommandPaletteContextValue {
 
   // Navigation actions
   open: () => void
+  openChat: () => void
   close: () => void
   setInputValue: (value: string) => void
   setSelectedIndex: (index: number) => void

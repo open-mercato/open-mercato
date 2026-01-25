@@ -6,12 +6,18 @@ export {
   useCommandPaletteContext,
 } from './components/CommandPalette'
 
+export { AiChatButton } from './components/AiChatButton'
+export { AiChatHeaderButton } from './components/AiChatHeaderButton'
+export { AiAssistantIntegration } from './components/AiAssistantIntegration'
+export { DockableChat } from './components/DockableChat'
+
 // Hooks
 export {
   useCommandPalette,
   useMcpTools,
   usePageContext,
   useRecentActions,
+  useDockPosition,
 } from './hooks'
 
 // Types
@@ -26,6 +32,8 @@ export type {
   ChatMessage,
   CommandPaletteState,
   CommandPaletteContextValue,
+  DockPosition,
+  DockState,
 } from './types'
 
 // Utils
@@ -34,6 +42,7 @@ export { filterTools, groupToolsByModule, humanizeToolName } from './utils'
 // Constants
 export {
   COMMAND_PALETTE_SHORTCUT,
+  AI_CHAT_SHORTCUT,
   RECENT_ACTIONS_KEY,
   MAX_RECENT_ACTIONS,
 } from './constants'

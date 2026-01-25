@@ -19,7 +19,7 @@ import type {
   DebugEventType,
   OpenCodeQuestion,
 } from '../types'
-import { COMMAND_PALETTE_SHORTCUT } from '../constants'
+import { COMMAND_PALETTE_SHORTCUT, AI_CHAT_SHORTCUT } from '../constants'
 import { filterTools } from '../utils/toolMatcher'
 import { useMcpTools } from './useMcpTools'
 import { useRecentActions } from './useRecentActions'
@@ -277,6 +277,39 @@ export function useCommandPalette(options: UseCommandPaletteOptions) {
         }
       }
 
+      // Open directly to AI chat mode with Cmd+J or Ctrl+J
+      if (
+        (event.metaKey || event.ctrlKey) &&
+        event.key.toLowerCase() === AI_CHAT_SHORTCUT.key
+      ) {
+        event.preventDefault()
+        if (state.isOpen) {
+          // Already open - close it
+          setState((prev) => ({
+            ...prev,
+            isOpen: false,
+            phase: 'idle',
+            inputValue: '',
+            page: 'home',
+            selectedIndex: 0,
+            mode: 'commands',
+          }))
+          setSelectedTool(null)
+          setMessages([])
+          setPendingToolCalls([])
+        } else {
+          // Open directly in chatting phase
+          setState((prev) => ({
+            ...prev,
+            isOpen: true,
+            phase: 'chatting',
+            page: 'tool-chat',
+            inputValue: '',
+            mode: 'chat',
+          }))
+        }
+      }
+
       // Escape - reset or close
       if (event.key === 'Escape' && state.isOpen) {
         event.preventDefault()
@@ -318,6 +351,18 @@ export function useCommandPalette(options: UseCommandPaletteOptions) {
   // Actions
   const open = useCallback(() => {
     setState((prev) => ({ ...prev, isOpen: true }))
+  }, [])
+
+  // Open directly in chat mode (for Cmd+J / header button)
+  const openChat = useCallback(() => {
+    setState((prev) => ({
+      ...prev,
+      isOpen: true,
+      phase: 'chatting',
+      page: 'tool-chat',
+      inputValue: '',
+      mode: 'chat',
+    }))
   }, [])
 
   const close = useCallback(() => {
@@ -1349,6 +1394,7 @@ export function useCommandPalette(options: UseCommandPaletteOptions) {
 
     // Navigation actions
     open,
+    openChat,
     close,
     setIsOpen,
     setInputValue,
