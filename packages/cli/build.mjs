@@ -6,7 +6,11 @@ import { fileURLToPath } from 'node:url'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 
-const entryPoints = await glob(join(__dirname, 'src/**/*.ts'), { ignore: ['**/__tests__/**', '**/*.test.ts'] })
+function toGlobPath(path) {
+  return path.replace(/\\/g, '/')
+}
+
+const entryPoints = await glob(toGlobPath(join(__dirname, 'src/**/*.ts')), { ignore: ['**/__tests__/**', '**/*.test.ts'] })
 
 // Plugin to add .js extension to relative imports
 const addJsExtension = {
@@ -14,7 +18,7 @@ const addJsExtension = {
   setup(build) {
     build.onEnd(async (result) => {
       if (result.errors.length > 0) return
-      const outputFiles = await glob(join(__dirname, 'dist/**/*.js'))
+      const outputFiles = await glob(toGlobPath(join(__dirname, 'dist/**/*.js')))
       for (const file of outputFiles) {
         const fileDir = dirname(file)
         let content = readFileSync(file, 'utf-8')

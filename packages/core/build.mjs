@@ -6,7 +6,7 @@ import { fileURLToPath } from 'node:url'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 
-const entryPoints = await glob(join(__dirname, 'src/**/*.{ts,tsx}'), {
+const entryPoints = await glob(join(__dirname, 'src/**/*.{ts,tsx}').replace(/\\/g, '/'), {
   ignore: ['**/__tests__/**', '**/*.test.ts', '**/*.test.tsx']
 })
 
@@ -16,7 +16,7 @@ const addJsExtension = {
   setup(build) {
     build.onEnd(async (result) => {
       if (result.errors.length > 0) return
-      const outputFiles = await glob(join(__dirname, 'dist/**/*.js'))
+      const outputFiles = await glob(join(__dirname, 'dist/**/*.js').replace(/\\/g, '/'))
       for (const file of outputFiles) {
         const fileDir = dirname(file)
         let content = readFileSync(file, 'utf-8')
@@ -79,7 +79,7 @@ await esbuild.build({
 })
 
 // Copy JSON files from src to dist (esbuild doesn't handle non-entry JSON files)
-const jsonFiles = await glob(join(__dirname, 'src/**/*.json'), {
+const jsonFiles = await glob(join(__dirname, 'src/**/*.json').replace(/\\/g, '/'), {
   ignore: ['**/node_modules/**', '**/i18n/**'] // i18n files are handled differently
 })
 for (const jsonFile of jsonFiles) {

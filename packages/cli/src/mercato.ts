@@ -912,12 +912,21 @@ export async function run(argv = process.argv) {
 
           console.log('[server] Starting Open Mercato in dev mode...')
 
+          const isWsl = process.platform === 'linux' && (Boolean(process.env.WSL_DISTRO_NAME) || Boolean(process.env.WSL_INTEROP))
+
+          // Bind to 0.0.0.0 by default in WSL so the dev server is reachable from Windows.
+          const hostname = process.env.NEXT_HOST || process.env.HOST || (isWsl ? '0.0.0.0' : undefined)
+          const port = process.env.NEXT_PORT || process.env.PORT
+
           // Resolve paths relative to where node_modules are located
           const nextBin = path.join(nodeModulesBase, 'node_modules/next/dist/bin/next')
           const mercatoBin = path.join(nodeModulesBase, 'node_modules/@open-mercato/cli/bin/mercato')
 
           // Start Next.js dev
-          const nextProcess = spawn('node', [nextBin, 'dev', '--turbopack'], {
+          const nextArgs = [nextBin, 'dev', '--turbopack']
+          if (hostname) nextArgs.push('--hostname', hostname)
+          if (port) nextArgs.push('--port', port)
+          const nextProcess = spawn('node', nextArgs, {
             stdio: 'inherit',
             env: process.env,
             cwd: appDir,
@@ -977,12 +986,20 @@ export async function run(argv = process.argv) {
 
           console.log('[server] Starting Open Mercato in production mode...')
 
+          const isWsl = process.platform === 'linux' && (Boolean(process.env.WSL_DISTRO_NAME) || Boolean(process.env.WSL_INTEROP))
+
+          const hostname = process.env.NEXT_HOST || process.env.HOST || (isWsl ? '0.0.0.0' : undefined)
+          const port = process.env.NEXT_PORT || process.env.PORT
+
           // Resolve paths relative to where node_modules are located
           const nextBin = path.join(nodeModulesBase, 'node_modules/next/dist/bin/next')
           const mercatoBin = path.join(nodeModulesBase, 'node_modules/@open-mercato/cli/bin/mercato')
 
           // Start Next.js production server
-          const nextProcess = spawn('node', [nextBin, 'start'], {
+          const nextArgs = [nextBin, 'start']
+          if (hostname) nextArgs.push('--hostname', hostname)
+          if (port) nextArgs.push('--port', port)
+          const nextProcess = spawn('node', nextArgs, {
             stdio: 'inherit',
             env: process.env,
             cwd: appDir,

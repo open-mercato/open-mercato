@@ -4,7 +4,9 @@ sidebar_position: 5
 ---
 
 ## Definicja
-**Kancelaria** (Office) to jednostka organizacyjna odpowiedzialna za obsługę przesyłek wpływających i wychodzących w organizacji.
+**Kancelaria** (Office) to komórka organizacyjna odpowiedzialna za obsługę przesyłek wpływających i wychodzących w organizacji.
+
+W modelu OpenMercato kancelaria jest elementem struktury organizacyjnej (`directory.organizations`) – nie jest osobną encją w module `records`.
 
 ## Cel
 - Organizacja pracy kancelaryjnej w ramach jednostki administracyjnej.
@@ -14,21 +16,14 @@ sidebar_position: 5
 
 ## Wielokancelaryjność
 System obsługuje **wiele Kancelarii** w ramach jednej organizacji:
-- Każda Kancelaria ma niezależny zakres numeracji RPW i RKW.
-- Przesyłki zarejestrowane w różnych Kancelariach mają oddzielne numeracje.
+- Numer rejestru zawiera identyfikator kancelarii (komórki), aby rozróżnić miejsce obsługi wpływu/wysyłki.
 - Pracownicy są przypisani do konkretnych Kancelarii (określa dostęp do przesyłek).
 - Kancelaria może być aktywna lub nieaktywna (nieaktywna nie może przyjmować nowych przesyłek).
 
 ## Metadane Kancelarii
-Podstawowe pola:
-- **Kod** – identyfikator Kancelarii (unikalny w organizacji)
-- **Nazwa** – pełna nazwa Kancelarii
-- **Opis** – zakres działania
-- **Status** – czy Kancelaria jest aktywna (domyślnie `true`)
-- **Format RPW** – szablon numeracji przesyłek wpływających (np. `RPW/{yyyy}/{seq:6}`)
-- **Format RKW** – szablon numeracji przesyłek wychodzących (np. `RKW/{yyyy}/{seq:6}`)
+Metadane kancelarii wynikają z danych komórki organizacyjnej w module `directory` (np. nazwa, kod/symbol, aktywność).
 
-Szczegółową tabelę pól znajdziesz w: [Słownik danych (MVP)](../../../mapping/openmercato-ezd/data-dictionary#kancelaria-office).
+Szczegóły pól przesyłek i numeracji: [Słownik danych (MVP)](../../../mapping/openmercato-ezd/data-dictionary).
 
 ## Numeracja przesyłek
 Kancelaria definiuje **formaty numeracji** dla:
@@ -51,16 +46,15 @@ Format wykorzystuje tokeny (zgodne z `salesDocumentNumberGenerator`):
 **Tokeny są case-insensitive** (kanonicznie zapisujemy małymi literami).
 
 ### Przykłady formatów
-- `RPW/{yyyy}/{seq:6}` → `RPW/2026/000001`
-- `RKW-A/{yyyy}/{seq:4}` → `RKW-A/2026/0001` (Kancelaria A)
-- `{yyyy}-RPW-{seq:5}` → `2026-RPW-00001`
+- `RPW/{kanc_id}/{seq:5}/{yyyy}` → `RPW/K01/00001/2026`
+- `RKW/{kanc_id}/{seq:5}/{yyyy}` → `RKW/K01/00001/2026`
 
 ## Zakres numeracji
-Każda Kancelaria ma **niezależną sekwencję numeracji**:
-- Sekwencja jest roczna (resetowana przez `documentKind = rpw:${officeId}:${yyyy}`)
-- Unikalność numeru w zakresie: organizacja + tenant + Kancelaria + rok
+Zakres numeracji:
+- Sekwencja jest roczna (resetowana przez `documentKind = rpw:${yyyy}`)
+- Unikalność numeru w zakresie: organizacja + tenant + rok
 - Sekwencja nie jest resetowana przy usunięciu przesyłek (zachowanie audytu)
-- Chronologiczność: numery przydzielane chronologicznie w ramach Kancelarii
+- Chronologiczność: numery przydzielane chronologicznie
 
 ## Relacje z innymi obiektami
 - **Przesyłka wpływająca** → Każda przesyłka jest obsługiwana przez konkretną Kancelarię

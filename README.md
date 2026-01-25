@@ -181,6 +181,55 @@ yarn initialize # or yarn reinstall
 yarn dev
 ```
 
+
+### Quick Start (WSL2 on Windows, no Meilisearch / no vector search)
+
+This repo can run fully in WSL2 while staying reachable from your Windows browser.
+
+1) (Recommended) Work from the WSL filesystem for performance
+
+- Prefer cloning into `~/open-ezd` inside WSL instead of working under `/mnt/c/...`.
+
+2) Generate local env files (includes secrets + DB credentials)
+
+From WSL:
+
+```bash
+cd /path/to/open-ezd
+bash scripts/dev/wsl-bootstrap.sh --force
+```
+
+This creates:
+
+- `docker/.env.dev` (used by `docker-compose.yml`)
+- `apps/mercato/.env` (used by the app)
+
+Defaults:
+
+- Meilisearch is not used (don't set `MEILISEARCH_HOST`, don't start the container)
+- Vector/semantic search is disabled (don't set `OPENAI_API_KEY` / other embedding providers)
+
+3) Start dependencies (Postgres + Redis only)
+
+```bash
+docker compose --env-file docker/.env.dev -f docker-compose.yml up -d postgres redis
+```
+
+4) Build + generate + migrate + run
+
+```bash
+corepack yarn install
+corepack yarn build:packages
+corepack yarn generate
+corepack yarn db:migrate
+corepack yarn initialize --no-examples
+corepack yarn dev
+```
+
+Open from Windows: `http://localhost:3000`
+
+API docs smoke test: `http://localhost:3000/api/docs/openapi`
+
 ### Quick Start (Legacy)
 
 ```bash

@@ -123,24 +123,19 @@ Format decyzji (ADR‑like):
 	- Przy usuwaniu dokumentu należy rozważyć politykę usuwania powiązanych załączników (cascade delete lub orphan handling).
 
 
-## D-010: Kancelaria jako encja z niezależną numeracją RPW
+## D-010: Kancelaria jako komórka organizacyjna (bez encji `records.offices`)
 
 - Status: accepted
 - Kontekst:
-  - System musi obsługiwać wiele Kancelarii (jednostek organizacyjnych) w ramach jednej organizacji.
-  - Różne Kancelarie mogą mieć różne zakresy odpowiedzialności i uprawnienia.
-  - Numeracja RPW powinna być niezależna dla każdej Kancelarii (chronologiczność w ramach Kancelarii).
+  - System musi obsługiwać wiele kancelarii/sekretariatów w ramach jednej organizacji.
+  - Kancelaria jest elementem struktury organizacyjnej, do której są przypisani użytkownicy.
 - Decyzja:
-  - **Kancelaria** jest osobną encją (`records.offices`) z własnymi ustawieniami.
-  - Każda Kancelaria ma **niezależną sekwencję numeracji RPW**.
-  - Zakres numeracji RPW: organizacja + tenant + **officeId** + **rok** (roczny scope jest kodowany w kluczu sekwencji / `documentKind`).
-  - Kancelaria definiuje format numeracji RPW (opcjonalnie; domyślnie używany jest format globalny).
-  - Przesyłka wpływająca jest zawsze powiązana z konkretną Kancelarią (`officeId` wymagane).
+  - **Kancelaria** jest reprezentowana jako komórka organizacyjna w `directory.organizations`.
+  - Nie wprowadzamy osobnej encji `records.offices`.
+  - Przesyłka wpływająca przechowuje wskazanie kancelarii przez `receivingOrgUnitId`.
 - Konsekwencje:
-  - Model danych: encja `records.offices` z polami: `code`, `name`, `description`, `isActive`, `rpwNumberFormat`.
-  - Generator numerów RPW przyjmuje `officeId` jako część zakresu (analogicznie do `salesDocumentNumberGenerator`).
-  - RBAC: użytkownik ma dostęp tylko do przesyłek/spraw z Kancelarii, do których jest przypisany.
-  - Migracja: istniejące organizacje z jedną Kancelarią otrzymają domyślną Kancelarię ("Kancelaria główna").
+  - RBAC: użytkownik ma dostęp tylko do przesyłek w scope komórek organizacyjnych, do których jest przypisany.
+  - Numeracja RPW/RKW i uprawnienia bazują na strukturze organizacyjnej (bez CRUD dla kancelarii w `records`).
 
 ## D-011: RPW wykorzystuje wzorzec numeracji z OpenMercato
 
@@ -151,15 +146,15 @@ Format decyzji (ADR‑like):
   - RPW wymaga analogicznej funkcjonalności: automatyczna numeracja, chronologiczność, unikalność.
 - Decyzja:
   - **RPW wykorzystuje wzorzec numeracji analogiczny do `salesDocumentNumberGenerator`**.
-  - Zakres numeracji: `organizationId` + `tenantId` + `documentKind`, gdzie `documentKind = rpw:${officeId}:${yyyy}` (per Kancelaria, rocznie).
-  - Format numeracji jest konfigurowalny per Kancelaria (tokeny zgodne z implementacją; case-insensitive, np. `{yyyy}`, `{mm}`, `{seq:N}`, `{rand:N}`, `{guid}`, `{nanoid:N}`).
+  - Zakres numeracji: `organizationId` + `tenantId` + `documentKind`, gdzie `documentKind = rpw:${yyyy}` (rocznie).
+  - Format numeru jest narzucony: `RPW/{kanc_id}/{seq:5}/{yyyy}`.
   - Implementacja: tabela `incoming_shipment_sequences` z atomic increment.
-  - Numer RPW jest generowany automatycznie przy tworzeniu przesyłki (pola `rpwNumber` i `rpwSequence` tylko do odczytu).
+  - Numer RPW jest nadawany wyłącznie w osobnej akcji „Zarejestruj wpływ”.
 - Konsekwencje:
   - Reuse sprawdzonego wzorca – mniejsze ryzyko błędów, spójność z resztą systemu.
   - Łatwiejsza implementacja – można wykorzystać kod z `salesDocumentNumberGenerator` jako punkt startowy.
-  - Format numeracji może być dostosowany do specyfiki organizacji (np. `RPW/{yyyy}/{seq:6}` lub `RPW-K01/{yyyy}/{seq:4}`).
-  - Endpoint diagnostyczny dla administratorów: podgląd/ustawienie następnego numeru.
+  - Niezmienność numeru: po rejestracji RPW nie podlega edycji.
+  - Opcjonalnie: endpoint diagnostyczny dla administratorów: podgląd/ustawienie następnego numeru.
 
 ## D-012: Strony (Case Parties) jako encja w MVP
 

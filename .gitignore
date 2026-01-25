@@ -91,3 +91,7 @@ packages/cache/node_modules/*
 newrelic_agent.log
 /generated/
 .queue
+
+# docker-compose local env (generated)
+docker/.env.dev
+!docker/.env.dev.example

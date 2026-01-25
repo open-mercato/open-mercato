@@ -79,7 +79,7 @@ await esbuild.build({
 })
 
 // Copy JSON files from src to dist (esbuild doesn't handle non-entry JSON files)
-const jsonFiles = await glob(join(__dirname, 'src/**/*.json'), {
+const jsonFiles = await glob(join(__dirname, 'src/**/*.json').replace(/\\/g, '/'), {
   ignore: ['**/node_modules/**']
 })
 for (const jsonFile of jsonFiles) {

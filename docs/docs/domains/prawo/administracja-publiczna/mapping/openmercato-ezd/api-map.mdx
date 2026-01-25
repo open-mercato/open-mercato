@@ -15,8 +15,8 @@ Ten dokument opisuje minimalny zestaw endpointów CRUD dla MVP.
 
 | Zasób | Endpoint (docelowy) | Uwagi |
 |---|---|---|
-| Kancelarie (Offices) | `/api/records/offices` | Jednostki organizacyjne zarządzające przesyłkami. Definiują zakres numeracji RPW i uprawnienia. |
-| Przesyłki wpływające | `/api/records/incoming-shipments` | RPW jako numeracja na rekordzie (wykorzystuje generator analogiczny do `salesDocumentNumberGenerator` z zakresem per Kancelaria) |
+| Komórki organizacyjne („kancelarie”) | `/api/directory/organizations` | Kancelaria jest elementem struktury organizacyjnej (bez `records.offices`). Użytkownicy są przypisani do komórek organizacyjnych. |
+| Przesyłki wpływające | `/api/records/incoming-shipments` | RPW jako numeracja na rekordzie, nadawana w osobnej akcji „Zarejestruj wpływ” (wzorzec jak `salesDocumentNumberGenerator`) |
 | Dokumenty | `/api/records/documents` | dokument może istnieć sam |
 | Koszulki | `/api/records/folders` | koszulka → sprawa 1:1 (patrz niżej) |
 | Sprawy | `/api/records/cases` | nie inicjujemy automatycznie z przesyłki |
@@ -28,6 +28,14 @@ Ten dokument opisuje minimalny zestaw endpointów CRUD dla MVP.
 | Strony (Case Parties) | `/api/records/case-parties` | podmioty zaangażowane w sprawę; RBAC przez sprawę |
 
 ## Operacje „na granicy CRUD"
+
+### Rejestracja wpływu (nadanie RPW)
+
+Nadanie numeru RPW jest osobnym krokiem (poza CRUD):
+
+- `POST /api/records/incoming-shipments/{id}/register` – nadaje RPW, ustawia status `registered`
+
+W MVP traktujemy to jako prostą akcję procesową bez workflow.
 
 ### Read-only (zamknięcie / otwarcie)
 
@@ -115,56 +123,12 @@ Implementacja RBAC w module `records` musi zapewnić, że użytkownik pobierają
 
 
 
-## Kancelaria (Office): wielokancelaryjność i uprawnienia
+## Kancelaria (komórka organizacyjna): wielokancelaryjność i RBAC
 
-### Operacje CRUD
+Kancelaria jest reprezentowana jako komórka organizacyjna w module `directory`.
 
-Standardowe operacje na `/api/records/offices`:
-
-- `POST /api/records/offices` – tworzenie nowej Kancelarii
-- `GET /api/records/offices` – lista Kancelarii (z filtrowaniem po `isActive`)
-- `GET /api/records/offices/{id}` – pobieranie szczegółów Kancelarii
-- `PATCH/PUT /api/records/offices/{id}` – aktualizacja Kancelarii
-- `DELETE /api/records/offices/{id}` – usuwanie Kancelarii (tylko jeśli brak powiązanych przesyłek)
-
-### Konfiguracja numeracji RPW
-
-Każda Kancelaria może mieć własny format numeracji RPW (`rpwNumberFormat`):
-
-- Jeśli format jest pusty, używany jest domyślny: `"RPW/{yyyy}/{seq:6}"`
-- Format wykorzystuje tokeny zgodne z `salesDocumentNumberGenerator` (tokeny są case-insensitive; w dokumentacji zapisujemy je kanonicznie małymi literami):
-  - `{yyyy}` – rok czterocyfrowy
-  - `{yy}` – rok dwucyfrowy
-  - `{mm}` – miesiąc dwucyfrowy
-  - `{dd}` – dzień dwucyfrowy
-  - `{hh}` – godzina dwucyfrowa
-  - `{seq:N}` – sekwencja z paddingiem (N cyfr)
-  - `{rand:N}` – losowe cyfry
-  - `{guid}` – UUID
-  - `{nanoid:N}` – losowy identyfikator alfanumeryczny
-  - `{kind}` – wartość `documentKind` (jeśli używana w danym generatorze)
-
-Przykładowe formaty:
-- `"RPW/{yyyy}/{seq:6}"` → RPW/2026/000001
-- `"RPW-K01/{yyyy}/{seq:4}"` → RPW-K01/2026/0001 (prefiks może być stały albo podstawiany w runtime przed formatowaniem)
-- `"{yyyy}-{mm}/RPW-{seq:5}"` → 2026-01/RPW-00001
-
-### Uprawnienia i RBAC
-
-Dostęp do zasobów EZD jest kontrolowany przez przynależność do Kancelarii:
-
-1. **Przypisanie pracownika do Kancelarii**:
-   - Relacja N:M (pracownik może być w wielu Kancelariach)
-   - Realizacja: `office_members` lub wykorzystanie RBAC z OpenMercato
-
-2. **Kontrola dostępu**:
-   - Użytkownik widzi tylko przesyłki/dokumenty z Kancelarii, do których jest przypisany
-   - Dodatkowe filtry: poziom dostępu dokumentu, status sprawy (read-only)
-
-3. **Role w Kancelarii** (do doprecyzowania):
-   - Administrator Kancelarii (zarządza konfiguracją, użytkownikami)
-   - Pracownik Kancelarii (obsługa przesyłek, edycja)
-   - Czytelnik (tylko odczyt)
+- brak dedykowanego CRUD `/api/records/offices`
+- użytkownik ma dostęp do przesyłek/dokumentów w scope komórek organizacyjnych, do których jest przypisany
 
 ## RPW: numeracja z wykorzystaniem mechanizmów OpenMercato
 
@@ -178,7 +142,7 @@ interface RPWNumberGenerator {
   scope: {
     organizationId: string
     tenantId: string
-    officeId: string  // Nowy wymiar - per Kancelaria
+    year: number
   }
   
   // Generowanie numeru
@@ -200,18 +164,18 @@ interface RPWNumberGenerator {
 
 - **Tabela sekwencji**: `incoming_shipment_sequences` (analogicznie do `sales_document_sequences`)
   - Klucz: `(organization_id, tenant_id, document_kind)`
-  - `document_kind` koduje scope per Kancelaria i per rok, np. `rpw:${officeId}:${yyyy}`
+  - `document_kind` koduje scope roczny, np. `rpw:${yyyy}`
     - dzięki temu sekwencja resetuje się rocznie bez dodawania osobnej kolumny `year`
   - Pole `current_value` z atomic increment
   - Obsługa concurrency przez `INSERT ... ON CONFLICT DO UPDATE`
 
-- **Generowanie przy tworzeniu przesyłki**:
-  - Automatyczne wywołanie generatora w `POST /api/records/incoming-shipments`
-  - Pola `rpwNumber` i `rpwSequence` są tylko do odczytu (nie można ich edytować)
+- **Generowanie w akcji „Zarejestruj wpływ”**:
+  - Wywołanie generatora w `POST /api/records/incoming-shipments/{id}/register`
+  - Pola `rpwNumber` (i ewentualnie `rpwSequence`) są tylko do odczytu (nie można ich edytować)
 
-- **Endpoint diagnostyczny** (opcjonalnie):
-  - `GET /api/records/offices/{id}/rpw-sequence` – podgląd następnego numeru
-  - `POST /api/records/offices/{id}/rpw-sequence` – ustawienie następnego numeru (wymaga uprawnień administratora)
+Uwagi:
+- format numeru RPW jest narzucony: `RPW/{kanc_id}/{seq:5}/{yyyy}`
+- `kanc_id` jest identyfikatorem komórki organizacyjnej (zob. backlog decyzji wdrożeniowych)
 
 ### Rejestracja chronologiczna
 
@@ -219,8 +183,9 @@ Pole `hasChronologicalRegistration: boolean` na przesyłce:
 
 - Aktualizacja przez `PATCH /api/records/incoming-shipments/{id}`
 - Proces:
-  1. Przesyłka otrzymuje numer RPW przy utworzeniu (automatycznie)
-  2. Rejestracja w składzie chronologicznym to osobny krok (ustawienie `hasChronologicalRegistration = true`)
+  1. Przesyłka powstaje jako `draft`
+  2. Nadanie RPW: `POST /api/records/incoming-shipments/{id}/register`
+  3. Rejestracja w składzie chronologicznym to osobny krok (ustawienie `hasChronologicalRegistration = true`)
   3. Opcjonalnie: przypisanie lokalizacji fizycznej (dla przesyłek papierowych)
 
 ## Strony (Case Parties): zarządzanie podmiotami sprawy

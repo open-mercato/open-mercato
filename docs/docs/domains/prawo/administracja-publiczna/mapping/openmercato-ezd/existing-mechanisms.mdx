@@ -33,7 +33,7 @@ Zgodnie z decyzją **D-011**, RPW wykorzystuje analogiczny wzorzec numeracji:
   id: uuid
   organization_id: uuid  // zakres numeracji
   tenant_id: uuid        // zakres numeracji
-  document_kind: text    // NOWE: scope per Kancelaria i per rok, np. `rpw:${officeId}:${yyyy}`
+  document_kind: text    // scope roczny, np. `rpw:${yyyy}`
   current_value: integer // aktualny numer
   created_at: timestamp
   updated_at: timestamp
@@ -49,17 +49,17 @@ class IncomingShipmentNumberGenerator {
   async generate(params: {
     organizationId: string
     tenantId: string
-    officeId: string      // dodatkowy wymiar zakresu
-    format?: string | null
+    receivingOrgUnitId: string // kancelaria jako komórka organizacyjna
   }): Promise<{ number: string; format: string; sequence: number }> {
-    // 1. Pobierz format z ustawień Kancelarii lub użyj domyślnego
-    const format = params.format || await this.getOfficeRpwFormat(params.officeId)
+    // 1. Format numeru RPW jest narzucony
+    const format = 'RPW/{kanc_id}/{seq:5}/{yyyy}'
+    const kancId = await this.resolveKancId(params.receivingOrgUnitId)
     
     // 2. Claim sequence (atomic)
     const sequence = await this.claimSequence(params)
     
     // 3. Format number z tokenami
-    const number = this.formatNumber(format, { sequence, date: new Date() })
+    const number = this.formatNumber(format, { sequence, date: new Date(), kancId })
     
     return { number, format, sequence }
   }
@@ -67,20 +67,28 @@ class IncomingShipmentNumberGenerator {
   private async claimSequence(scope: {
     organizationId: string
     tenantId: string
-    officeId: string
+    receivingOrgUnitId: string
   }): Promise<number> {
+    const year = new Date().getFullYear()
+    const documentKind = `rpw:${year}`
     const rows = await this.em.getConnection().execute(
       `INSERT INTO incoming_shipment_sequences 
-       (id, organization_id, tenant_id, office_id, current_value, created_at, updated_at)
+       (id, organization_id, tenant_id, document_kind, current_value, created_at, updated_at)
        VALUES (gen_random_uuid(), ?, ?, ?, 1, now(), now())
-       ON CONFLICT (organization_id, tenant_id, office_id)
+       ON CONFLICT (organization_id, tenant_id, document_kind)
        DO UPDATE SET 
          current_value = incoming_shipment_sequences.current_value + 1,
          updated_at = now()
        RETURNING current_value`,
-      [scope.organizationId, scope.tenantId, scope.officeId]
+      [scope.organizationId, scope.tenantId, documentKind]
     )
     return Number(rows[0].current_value)
+  }
+
+  private async resolveKancId(receivingOrgUnitId: string): Promise<string> {
+    // kanc_id pochodzi ze struktury organizacyjnej (np. symbol/kod komórki)
+    // szczegóły mapowania są doprecyzowane w backlogu wdrożeniowym
+    return receivingOrgUnitId
   }
 }
 ```
@@ -113,7 +121,7 @@ Analogicznie do RPW, RKW wykorzystuje ten sam wzorzec numeracji:
   id: uuid
   organization_id: uuid  // zakres numeracji
   tenant_id: uuid        // zakres numeracji
-  document_kind: text    // scope per Kancelaria i per rok, np. `rkw:${officeId}:${yyyy}`
+  document_kind: text    // scope roczny, np. `rkw:${yyyy}`
   current_value: integer // aktualny numer
   created_at: timestamp
   updated_at: timestamp
@@ -129,17 +137,17 @@ class OutgoingShipmentNumberGenerator {
   async generate(params: {
     organizationId: string
     tenantId: string
-    officeId: string      // dodatkowy wymiar zakresu
-    format?: string | null
+    sendingOrgUnitId: string // kancelaria jako komórka organizacyjna
   }): Promise<{ number: string; format: string; sequence: number }> {
-    // 1. Pobierz format z ustawień Kancelarii lub użyj domyślnego
-    const format = params.format || await this.getOfficeRkwFormat(params.officeId)
+    // 1. Format numeru RKW jest narzucony
+    const format = 'RKW/{kanc_id}/{seq:5}/{yyyy}'
+    const kancId = await this.resolveKancId(params.sendingOrgUnitId)
     
     // 2. Claim sequence (atomic)
     const sequence = await this.claimSequence(params)
     
     // 3. Format number z tokenami
-    const number = this.formatNumber(format, { sequence, date: new Date() })
+    const number = this.formatNumber(format, { sequence, date: new Date(), kancId })
     
     return { number, format, sequence }
   }
@@ -147,8 +155,10 @@ class OutgoingShipmentNumberGenerator {
   private async claimSequence(scope: {
     organizationId: string
     tenantId: string
-    officeId: string
+    sendingOrgUnitId: string
   }): Promise<number> {
+    const year = new Date().getFullYear()
+    const documentKind = `rkw:${year}`
     const rows = await this.em.getConnection().execute(
       `INSERT INTO outgoing_shipment_sequences 
        (id, organization_id, tenant_id, document_kind, current_value, created_at, updated_at)
@@ -158,9 +168,13 @@ class OutgoingShipmentNumberGenerator {
          current_value = outgoing_shipment_sequences.current_value + 1,
          updated_at = now()
        RETURNING current_value`,
-      [scope.organizationId, scope.tenantId, `rkw:${scope.officeId}:${new Date().getFullYear()}`]
+      [scope.organizationId, scope.tenantId, documentKind]
     )
     return Number(rows[0].current_value)
+  }
+
+  private async resolveKancId(sendingOrgUnitId: string): Promise<string> {
+    return sendingOrgUnitId
   }
 }
 ```
@@ -184,13 +198,13 @@ Analogiczny mechanizm może być użyty dla numeracji znaków sprawy:
 
 ```typescript
 // Tabela: case_number_sequences
-// Zakres: (organization_id, tenant_id, office_id, jrwa_class_id, year)
+// Zakres: (organization_id, tenant_id, org_unit_id, jrwa_class_id, year)
 
 class CaseNumberGenerator {
   async generate(params: {
     organizationId: string
     tenantId: string
-    officeId: string
+    orgUnitId: string
     jrwaClassId: string    // klasa JRWA
     year?: number           // rok (domyślnie bieżący)
   }): Promise<string> {
@@ -412,88 +426,31 @@ Moduł `directory` zarządza hierarchią organizacji (tenants i organizations):
 }
 ```
 
-### Zastosowanie dla Kancelarii (Office)
+### Zastosowanie dla Kancelarii (komórka organizacyjna)
 
-Zgodnie z decyzją **D-010**, Kancelaria jest jednostką organizacyjną zarządzającą przesyłkami:
+Zgodnie z decyzją **D-010**, kancelaria jest reprezentowana jako komórka organizacyjna w `directory.organizations`.
 
-```typescript
-// Encja: records.offices
-{
-  id: uuid
-  organizationId: uuid         // powiązanie z organizacją
-  tenantId: uuid
-  
-  code: string                 // kod Kancelarii (np. "K01", "MAIN")
-  name: string                 // nazwa Kancelarii
-  description: string | null
-  isActive: boolean
-  
-  // Konfiguracja numeracji RPW
-  rpwNumberFormat: string | null  // opcjonalny format; jeśli null, użyj domyślnego
-  
-  // RBAC: użytkownicy przypisani do Kancelarii
-  // (można rozszerzyć o pole userIds lub osobną tabelę office_members)
-  
-  createdAt: timestamp
-  updatedAt: timestamp
-  deletedAt: timestamp | null
-}
-```
+- nie tworzymy encji `records.offices`
+- rekordy `records.*` przechowują wskazanie kancelarii przez pola typu `...OrgUnitId`
 
 ### Zakres uprawnień per Kancelaria
 
 ```typescript
-// RBAC: użytkownik ma dostęp tylko do przesyłek/spraw z przypisanych Kancelarii
+// RBAC: użytkownik ma dostęp tylko do przesyłek/spraw w scope przypisanych komórek organizacyjnych
 
-async function resolveUserOffices(
+async function resolveUserOrgUnits(
   userId: string,
   organizationId: string
 ): Promise<string[]> {
-  // Zwraca listę officeIds, do których użytkownik ma dostęp
-  // Może być:
-  // 1. Relacja many-to-many: office_members(user_id, office_id)
-  // 2. Custom field na użytkowniku: user.cf_assigned_offices
-  // 3. Role-based: user z rolą "office_manager" ma dostęp do wszystkich
+  // Zwraca listę orgUnitIds, do których użytkownik ma dostęp.
 }
 
 // W zapytaniach o przesyłki/sprawy:
-const userOffices = await resolveUserOffices(auth.sub, organizationId)
+const userOrgUnits = await resolveUserOrgUnits(auth.sub, organizationId)
 const where = {
   organizationId,
   tenantId,
-  officeId: { $in: userOffices }  // filtrowanie per Kancelaria
-}
-```
-
-### Migracja istniejących organizacji
-
-```typescript
-// Przy wdrożeniu modułu records:
-// Każda istniejąca organizacja otrzymuje domyślną Kancelarię
-
-async function createDefaultOffices(em: EntityManager) {
-  const organizations = await em.find(Organization, { deletedAt: null })
-  
-  for (const org of organizations) {
-    const existingOffice = await em.findOne(Office, {
-      organizationId: org.id,
-      tenantId: org.tenantId
-    })
-    
-    if (!existingOffice) {
-      const office = em.create(Office, {
-        organizationId: org.id,
-        tenantId: org.tenantId,
-        code: 'MAIN',
-        name: 'Kancelaria główna',
-        isActive: true,
-        rpwNumberFormat: null  // użyje domyślnego
-      })
-      em.persist(office)
-    }
-  }
-  
-  await em.flush()
+  receivingOrgUnitId: { $in: userOrgUnits }  // filtrowanie per komórka organizacyjna
 }
 ```
 
@@ -562,7 +519,6 @@ Zgodnie z decyzją **D-008**, **Dokument** w module `records` jest **załącznik
   id: uuid
   organizationId: uuid
   tenantId: uuid
-  officeId: uuid               // Kancelaria
   
   // Metadane dokumentu
   title: string                // tytuł/nazwa dokumentu
@@ -815,23 +771,25 @@ const crud = makeCrudRoute({
       commandId: 'records.incoming_shipments.create',
       schema: incomingShipmentCreateSchema,
       mapInput: async ({ raw, ctx }) => {
-        // Generuj numer RPW automatycznie
-        const generator = ctx.container.resolve('incomingShipmentNumberGenerator')
-        const { number, sequence } = await generator.generate({
-          organizationId: ctx.selectedOrganizationId,
-          tenantId: ctx.auth.tenantId,
-          officeId: raw.officeId,
-        })
-        
         return {
           ...raw,
-          rpwNumber: number,
-          rpwSequence: sequence,
-          receivedAt: raw.receivedAt || new Date(),
+          status: raw.status || 'draft',
         }
       },
       response: ({ result }) => ({ id: result.shipmentId }),
       status: 201,
+    },
+
+    register: {
+      commandId: 'records.incoming_shipments.register',
+      schema: z.object({ id: z.string().uuid() }),
+      mapInput: async ({ parsed, ctx }) => ({
+        id: parsed.id,
+        organizationId: ctx.selectedOrganizationId,
+        tenantId: ctx.auth.tenantId,
+      }),
+      response: () => ({ ok: true }),
+      status: 200,
     },
     
     update: {
@@ -853,7 +811,7 @@ const crud = makeCrudRoute({
     schema: z.object({
       page: z.coerce.number().min(1).default(1),
       pageSize: z.coerce.number().min(1).max(200).default(50),
-      officeId: z.string().uuid().optional(),
+      receivingOrgUnitId: z.string().uuid().optional(),
       dateFrom: z.string().optional(),
       dateTo: z.string().optional(),
       search: z.string().optional(),
@@ -863,7 +821,7 @@ const crud = makeCrudRoute({
       'id',
       'rpwNumber',
       'rpwSequence',
-      'officeId',
+      'receivingOrgUnitId',
       'receivedAt',
       'sender',
       'subject',
@@ -872,8 +830,8 @@ const crud = makeCrudRoute({
     buildFilters: (query, ctx) => {
       const where: any = {}
       
-      if (query.officeId) {
-        where.officeId = query.officeId
+      if (query.receivingOrgUnitId) {
+        where.receivingOrgUnitId = query.receivingOrgUnitId
       }
       
       if (query.dateFrom || query.dateTo) {
@@ -962,7 +920,7 @@ const crud = makeCrudRoute({
           sign = await generator.generate({
             organizationId: ctx.selectedOrganizationId,
             tenantId: ctx.auth.tenantId,
-            officeId: raw.officeId,
+            orgUnitId: raw.orgUnitId,
             jrwaClassId: raw.jrwaClassId,
           })
         }
@@ -1018,7 +976,7 @@ const crud = makeCrudRoute({
     schema: z.object({
       page: z.coerce.number().min(1).default(1),
       pageSize: z.coerce.number().min(1).max(200).default(50),
-      officeId: z.string().uuid().optional(),
+      orgUnitId: z.string().uuid().optional(),
       jrwaClassId: z.string().uuid().optional(),
       status: z.enum(['open', 'closed', 'archived']).optional(),
       hasSign: z.enum(['yes', 'no']).optional(),  // filtruj sprawy vs koszulki
@@ -1029,7 +987,7 @@ const crud = makeCrudRoute({
       'id',
       'sign',
       'title',
-      'officeId',
+      'orgUnitId',
       'jrwaClassId',
       'status',
       'isReadOnly',
@@ -1038,7 +996,7 @@ const crud = makeCrudRoute({
     buildFilters: (query, ctx) => {
       const where: any = {}
       
-      if (query.officeId) where.officeId = query.officeId
+      if (query.orgUnitId) where.orgUnitId = query.orgUnitId
       if (query.jrwaClassId) where.jrwaClassId = query.jrwaClassId
       if (query.status) where.status = query.status
       
@@ -1104,9 +1062,9 @@ Istniejące mechanizmy OpenMercato zapewniają solidne fundamenty dla implementa
 
 **Zalecenia:**
 
-1. **Numeracja**: Zaadaptuj `salesDocumentNumberGenerator` dla RPW i znaków sprawy (zakres per Kancelaria + JRWA).
+1. **Numeracja**: Zaadaptuj `salesDocumentNumberGenerator` dla RPW i znaków sprawy (RPW: per organizacja+rok; znaki sprawy: per JRWA+rok, ewentualnie per komórka org.).
 2. **Hierarchia**: Wykorzystaj `categoryHierarchy` dla JRWA (analogiczny model z closure table).
-3. **Jednostki org.**: Stwórz encję `records.offices` z referencją do `directory.organizations`.
+3. **Jednostki org.**: Użyj `directory.organizations` jako źródła komórek organizacyjnych (bez encji `records.offices`).
 4. **Załączniki**: Dokumenty w EZD są **załącznikami z metadanymi** – używaj modułu `attachments`.
 5. **CRUD**: Wykorzystaj `makeCrudRoute` dla wszystkich 10 encji MVP – oszczędność kodu, spójność API, automatyczne side effects.
 

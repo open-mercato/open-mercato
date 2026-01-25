@@ -28,23 +28,20 @@ Pola metadanych wynikają z instrukcji (minimalne zestawy metadanych). Przykład
 Szczegółową tabelę pól (Pole/Znaczenie/Typ/Wymagalność/Źródło/Kto uzupełnia/Reguły) znajdziesz w: [Słownik danych (MVP)](../../../mapping/openmercato-ezd/data-dictionary#przesyłka-wychodząca-outgoing-shipment).
 
 ## RKW (Rejestr Przesyłek Wychodzących)
-**RKW** to rejestr chronologiczny przesyłek wychodzących prowadzony przez każdą Kancelarię:
+**RKW** to rejestr chronologiczny przesyłek wychodzących prowadzony w organizacji (z rozróżnieniem kancelarii jako komórki organizacyjnej):
 - Numeracja automatyczna z wykorzystaniem wzorca analogicznego do `salesDocumentNumberGenerator`.
-- Zakres numeracji: per Kancelaria + organizacja + tenant.
+- Zakres numeracji: organizacja + tenant (sekwencja roczna).
 - Format konfigurowalny przez szablon (tokeny: rok, sekwencja, etc.).
-- Sekwencja roczna resetowana przez `documentKind = rkw:${officeId}:${yyyy}`.
+- Sekwencja roczna resetowana przez `documentKind = rkw:${yyyy}`.
 
 Przykładowe numery:
-- `RKW/2026/000001`
-- `RKW/2026/000002`
-- Kancelaria A: `RKW-A/2026/000001`
-- Kancelaria B: `RKW-B/2026/000001`
+- `RKW/{kanc_id}/{seq:5}/{yyyy}`
+- `RKW/K01/00001/2026`
 
 ## Kancelaria (wielokancelaryjność)
 System obsługuje **wiele Kancelarii** w ramach jednej organizacji:
-- Każda Kancelaria definiuje niezależny zakres numeracji RKW.
 - Kancelaria określa uprawnienia dostępu pracowników do przesyłek.
-- Format numeracji RKW jest konfigurowalny na poziomie Kancelarii.
+- Numer zawiera identyfikator kancelarii (komórki organizacyjnej) w segmencie `kanc_id`.
 
 ## Źródła
 - Szczegóły techniczne: [Słownik danych (MVP)](../../../mapping/openmercato-ezd/data-dictionary)

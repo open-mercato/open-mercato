@@ -34,12 +34,14 @@ W MVP (CRUD) procesy dokumentujemy, ale nie implementujemy.
 
 Jednostka organizacyjna odpowiedzialna za obsługę przesyłek wpływających i wychodzących w ramach organizacji.
 
+W modelu OpenMercato kancelaria jest reprezentowana jako **komórka organizacyjna** w `directory.organizations` (bez osobnej encji `records.offices`).
+
 **Kluczowe cechy:**
 
 - Organizacja może mieć wiele Kancelarii
-- Każda Kancelaria ma niezależną sekwencję numeracji RPW (przesyłki wpływające) i RKW (przesyłki wychodzące)
+- Numeracja RPW/RKW jest liczona w scope organizacji (sekwencja roczna); numer zawiera identyfikator komórki organizacyjnej
 - Kancelaria określa zakres uprawnień pracowników (RBAC)
-- Kancelaria może mieć własny format numeracji RPW i RKW
+- Format numerów rejestrów jest narzucony (np. RPW: `RPW/{kanc_id}/{seq:5}/{yyyy}`)
 
 **Przypadki użycia:**
 
@@ -49,13 +51,12 @@ Jednostka organizacyjna odpowiedzialna za obsługę przesyłek wpływających i 
 
 ### Numeracja RPW i RKW per Kancelaria
 
-Każda Kancelaria ma własne sekwencje numeracji RPW i RKW.
+Numer zawiera identyfikator kancelarii (komórki organizacyjnej), ale mechanizm sekwencji jest implementowany jako roczny scope numeracji.
 
 **Zakres numeracji:**
 
-- Organizacja + Tenant + Kancelaria
-- Sekwencje są niezależne dla każdej Kancelarii
-- Formaty numeracji są konfigurowalne per Kancelaria
+- Organizacja + Tenant + rok
+- Komórka organizacyjna wpływa na segment `kanc_id` w numerze
 
 **Przykład:**
 

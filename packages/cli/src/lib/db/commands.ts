@@ -1,5 +1,6 @@
 import path from 'node:path'
 import fs from 'node:fs'
+import { pathToFileURL } from 'node:url'
 import { MikroORM, type Logger } from '@mikro-orm/core'
 import { Migrator } from '@mikro-orm/migrations'
 import { PostgreSqlDriver } from '@mikro-orm/postgresql'
@@ -87,7 +88,7 @@ async function loadModuleEntities(entry: ModuleEntry, resolver: PackageResolver)
         const fromApp = base.startsWith(roots.appBase)
         // For @app modules, use file:// URL since @/ alias doesn't work in Node.js runtime
         const importPath = (isAppModule && fromApp)
-          ? `file://${p.replace(/\.ts$/, '.js')}`
+          ? pathToFileURL(p.replace(/\.ts$/, '.js')).href
           : `${fromApp ? imps.appBase : imps.pkgBase}/${sub}/${f.replace(/\.ts$/, '')}`
         try {
           const mod = await import(importPath)

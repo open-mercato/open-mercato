@@ -7,10 +7,9 @@ Ten dokument opisuje model pojęciowy (nie techniczny) dla MVP.
 
 ## Encje (MVP)
 
-1. `office` – Kancelaria (Office)
-2. `incoming_shipment` – Przesyłka wpływająca
-3. `outgoing_shipment` – Przesyłka wychodząca
-4. `jrwa_class` – JRWA (klasa/pozycja)
+1. `incoming_shipment` – Przesyłka wpływająca
+2. `outgoing_shipment` – Przesyłka wychodząca
+3. `jrwa_class` – JRWA (klasa/pozycja)
 5. `case_register` – Spis spraw
 6. `case_template` – Szablon sprawy
 7. `case` – Sprawa (obejmuje również funkcjonalność "Koszulki" - rekordy bez przypisanego znaku sprawy)
@@ -25,13 +24,12 @@ Nazwy techniczne są robocze; finalnie będą zależeć od nazwy modułu i istni
 
 ## Relacje (przez ID)
 
-- `incoming_shipment.officeId` (wymagane)
-  - Każda przesyłka wpływająca jest obsługiwana przez konkretną Kancelarię
-  - Kancelaria określa zakres numeracji RPW i uprawnienia dostępu
+- `incoming_shipment.receivingOrgUnitId` (wymagane)
+  - Każda przesyłka wpływająca jest obsługiwana przez konkretną komórkę organizacyjną („kancelarię”) ze struktury organizacyjnej
+  - Komórka organizacyjna jest elementem `directory.organizations` (bez osobnej encji `records.offices`)
 
-- `outgoing_shipment.officeId` (wymagane)
-  - Każda przesyłka wychodząca jest obsługiwana przez konkretną Kancelarię
-  - Kancelaria określa zakres numeracji RKW i uprawnienia dostępu
+- `outgoing_shipment.sendingOrgUnitId` (wymagane)
+  - Każda przesyłka wychodząca jest obsługiwana przez konkretną komórkę organizacyjną („kancelarię”) ze struktury organizacyjnej
 
 - `document.incomingShipmentId` (opcjonalne)
 - `document.outgoingShipmentId` (opcjonalne)
@@ -98,34 +96,13 @@ To rozdzielenie pozwala:
 - mieć słownik lokalizacji,
 - utrzymywać historię bez nadpisywania.
 
-## Kancelaria (Office): wielokancelaryjność
+## Kancelaria jako komórka organizacyjna
 
-System obsługuje **wiele Kancelarii** w ramach jednej organizacji.
+System obsługuje wielokancelaryjność poprzez **strukturę organizacyjną**.
 
-### Model konceptualny Kancelarii
-
-- Każda Kancelaria jest **jednostką organizacyjną** odpowiedzialną za obsługę przesyłek wpływających.
-- Kancelaria definiuje **zakres numeracji RPW** – przesyłki rejestrowane w różnych Kancelariach mają niezależne numeracje.
-- Kancelaria określa **uprawnienia dostępu** – pracownicy przypisani do Kancelarii mają dostęp do przesyłek obsługiwanych przez tę Kancelarię.
-
-### Relacje z innymi encjami
-
-- **Przesyłka wpływająca** → Kancelaria (każda przesyłka jest obsługiwana przez konkretną Kancelarię)
-- **Pracownik/Użytkownik** → Kancelaria (przypisanie określa uprawnienia dostępu)
-- **RPW numeracja** → Kancelaria (sekwencja numeracji jest niezależna dla każdej Kancelarii)
-
-### Uprawnienia i RBAC
-
-Dostęp do zasobów EZD jest kontrolowany przez:
-
-1. **Przynależność do Kancelarii**: Pracownik może być przypisany do jednej lub wielu Kancelarii
-2. **Rola w Kancelarii**: Określa poziom uprawnień (odczyt, edycja, zarządzanie)
-3. **Poziom dostępu rekordu**: Publiczny, częściowo ograniczony, niepubliczny
-
-Użytkownik ma dostęp do przesyłki/dokumentu, jeśli:
-- Jest przypisany do Kancelarii obsługującej przesyłkę
-- Jego rola w Kancelarii pozwala na daną operację
-- Poziom dostępu rekordu nie blokuje dostępu
+- „Kancelaria” = komórka organizacyjna w `directory.organizations`.
+- Przypisanie pracowników do komórki organizacyjnej determinuje dostęp do przesyłek.
+- Nie wprowadzamy osobnej encji `records.offices`.
 
 ## RPW: numeracja wykorzystująca mechanizmy OpenMercato
 
@@ -136,7 +113,7 @@ Użytkownik ma dostęp do przesyłki/dokumentu, jeśli:
 System RPW wykorzystuje **wzorzec numeracji dokumentów** z OpenMercato (analogiczny do `salesDocumentNumberGenerator`):
 
 - **Sekwencja**: Automatyczna numeracja z wykorzystaniem sekwencji bazodanowych
-- **Zakres numeracji**: Per Kancelaria + organizacja + tenant
+- **Zakres unikalności numeru**: Per organizacja + tenant (sekwencja resetowana rocznie)
 - **Format konfigurowalny**: Szablony z tokenami (rok, miesiąc, sekwencja, etc.)
 - **Bezpieczeństwo**: Atomic increment z obsługą concurrency
 
@@ -144,11 +121,11 @@ System RPW wykorzystuje **wzorzec numeracji dokumentów** z OpenMercato (analogi
 
 ```typescript
 // Zakres numeracji (scope) – zgodny z mechaniką sekwencji z `salesDocumentNumberGenerator`
-// Uwaga: scope per Kancelaria i per rok jest kodowany w `documentKind`.
+// Uwaga: scope roczny jest kodowany w `documentKind`.
 {
   organizationId: string    // Organizacja
   tenantId: string          // Tenant (multi-tenant support)
-  documentKind: string      // np. `rpw:${officeId}:${yyyy}` (roczny scope)
+  documentKind: string      // np. `rpw:${yyyy}` (roczny scope)
 }
 
 // Format numeracji (konfigurowalny)
@@ -156,29 +133,26 @@ System RPW wykorzystuje **wzorzec numeracji dokumentów** z OpenMercato (analogi
   rpwNumberFormat: string   // np. "RPW/{yyyy}/{seq:6}"
 }
 
-// Przykładowe numery:
-// - RPW/2026/000001
-// - RPW/2026/000002
-// - Kancelaria A: RPW-A/2026/000001
-// - Kancelaria B: RPW-B/2026/000001
+// Przykładowe numery (format narzucony):
+// - RPW/{kanc_id}/{seq:5}/{yyyy}
+// - RPW/K01/00001/2026
 ```
 
 ### Zasady numeracji
 
-1. **Niezależność Kancelarii**: Każda Kancelaria ma własną sekwencję numeracji RPW
-2. **Roczny scope**: Sekwencja resetuje się rocznie przez `documentKind = rpw:${officeId}:${yyyy}`
-3. **Chronologiczność**: Numery są przydzielane chronologicznie w ramach Kancelarii
-4. **Unikalność**: Numer RPW jest unikalny w zakresie: organizacja + tenant + Kancelaria + rok (wynikowo, przez `documentKind`)
+1. **Roczny scope**: Sekwencja resetuje się rocznie przez `documentKind = rpw:${yyyy}`
+2. **Chronologiczność**: Numery są przydzielane chronologicznie
+3. **Unikalność**: Numer RPW jest unikalny w zakresie: organizacja + tenant + rok
 5. **Ciągłość**: Sekwencja nie jest resetowana przy usunięciu przesyłek (audit trail)
 
 ### Rejestracja chronologiczna
 
 Przesyłka ma pole `hasChronologicalRegistration: boolean` oznaczające, że została zarejestrowana w składzie chronologicznym.
 
-Proces rejestracji chronologicznej:
-1. Przesyłka otrzymuje numer RPW przy utworzeniu (automatycznie)
-2. Rejestracja w składzie chronologicznym jest osobnym krokiem (oznaczenie `hasChronologicalRegistration = true`)
-3. Rejestracja może obejmować przypisanie lokalizacji fizycznej (jeśli dotyczy przesyłki papierowej)
+Proces rejestracji wpływu (RPW) jest osobnym krokiem:
+1. Przesyłka powstaje jako `draft` (bez RPW)
+2. Akcja „Zarejestruj wpływ” nadaje numer RPW i ustawia status `registered`
+3. Rejestracja w składzie chronologicznym może być osobnym krokiem (oznaczenie `hasChronologicalRegistration = true`)
 
 ## Oznaczenia przesyłki (zamiast statusów)
 

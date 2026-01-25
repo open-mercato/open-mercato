@@ -23,7 +23,7 @@ Nie obejmuje na start:
 
 ## Encje MVP (domenowo)
 
-- Kancelaria (Office) – jednostka organizacyjna zarządzająca przesyłkami wpływającymi i wychodzącymi
+- Kancelaria (Office) – komórka organizacyjna w `directory` (bez osobnej encji `records.offices`)
 - Przesyłka wpływająca
 - Przesyłka wychodząca
 - JRWA
@@ -48,7 +48,7 @@ Uwaga: RPW (rejestr przesyłek wpływających) i RKW (rejestr przesyłek wychodz
 
 - Brak relacji ORM między modułami: powiązania realizujemy przez pola typu `...Id`.
 - Każdy rekord jest scope’owany tenantem/organizacją (jeśli dotyczy środowiska uruchomieniowego).
-- UI/UX nie jest celem tego dokumentu – tu opisujemy model, API i decyzje.
+- UI/UX nie jest głównym celem tego dokumentu – tu opisujemy model, API i decyzje (ale MVP przewiduje minimalne strony backoffice dla przesyłek i JRWA).
 
 ## Otwarte kwestie (do dopięcia)
 

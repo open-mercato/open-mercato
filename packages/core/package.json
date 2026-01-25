@@ -29,6 +29,10 @@
       "types": "./src/modules/customers/index.ts",
       "default": "./dist/modules/customers/index.js"
     },
+    "./modules/records": {
+      "types": "./src/modules/records/index.ts",
+      "default": "./dist/modules/records/index.js"
+    },
     "./modules/customers/commands": {
       "types": "./src/modules/customers/commands/index.ts",
       "default": "./dist/modules/customers/commands/index.js"

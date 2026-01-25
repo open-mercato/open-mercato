@@ -5,25 +5,12 @@ sidebar_position: 70
 
 Ten dokument definiuje minimalne pola dla encji MVP oraz ich źródła (np. Pakiet A).
 
-## Kancelaria (Office)
+## Kancelaria / komórka organizacyjna
 
-Jednostka organizacyjna zarządzająca przesyłkami wpływającymi i wychodzącymi. System obsługuje wiele Kancelarii w ramach jednej organizacji.
+W MVP nie modelujemy kancelarii jako osobnej encji w module `records`.
 
-| Pole | Typ | Wymagane | Uwagi |
-|---|---|---:|---|
-| `code` | string | tak | Kod identyfikacyjny Kancelarii (unikalny w organizacji) |
-| `name` | string | tak | Pełna nazwa Kancelarii |
-| `description` | string | nie | Opis/zakres działania |
-| `isActive` | boolean | tak | Czy Kancelaria jest aktywna (domyślnie true) |
-| `rpwNumberFormat` | string | nie | Format numeracji RPW (jeśli brak, używany domyślny: `RPW/{yyyy}/{seq:6}`) |
-| `rkwNumberFormat` | string | nie | Format numeracji RKW (jeśli brak, używany domyślny: `RKW/{yyyy}/{seq:6}`). RKW = rejestr przesyłek wychodzących |
-
-Zasady:
-
-- Kod Kancelarii jest unikalny w zakresie organizacji
-- Nieaktywna Kancelaria nie może przyjmować nowych przesyłek wpływających ani obsługiwać przesyłek wychodzących
-- Format numeracji RPW i RKW wykorzystuje tokeny zgodne z `salesDocumentNumberGenerator` (tokeny są case-insensitive; kanonicznie zapisujemy je małymi literami):
-  - `{yyyy}`, `{yy}`, `{mm}`, `{dd}`, `{hh}`, `{seq:N}`, `{rand:N}`, `{guid}`, `{nanoid:N}`, `{kind}`
+- „Kancelaria” = komórka organizacyjna w `directory.organizations`.
+- Przesyłki przechowują ID komórki organizacyjnej (wskazanie kancelarii) w polu `...OrgUnitId`.
 
 ## Przesyłka wpływająca (incoming shipment)
 
@@ -31,13 +18,16 @@ Zasady:
 
 | Pole | Typ | Wymagane | Uwagi |
 |---|---|---:|---|
-| `officeId` | uuid | tak | Kancelaria obsługująca przesyłkę (zakres numeracji RPW) |
-| `rpwNumber` | string | tak (auto) | Numer RPW - generowany automatycznie wg formatu Kancelarii |
-| `rpwSequence` | number | tak (auto) | Pozycja w sekwencji RPW (per Kancelaria) |
+| `receivingOrgUnitId` | uuid | tak | Komórka organizacyjna („kancelaria”) obsługująca wpływ |
+| `subject` | string | tak | Temat |
 | `senderId` lub `senderDisplayName` | string | tak* | jeśli nadawca anonimowy, przechowujemy displayName/minimum |
 | `senderAnonymous` | boolean | nie | domyślnie false |
-| `receivedAt` | date | tak | data wpływu |
-| `deliveryMethod` | enum | tak | `in_person` / `epuap` / `e_doreczenia` (robocze) |
+| `receivedAt` | date | tak** | data wpływu (wymagana najpóźniej na etapie rejestracji RPW) |
+| `deliveryMethod` | enum | tak | typ wpływu (np. `paper` / `epuap` / `email` – robocze) |
+| `status` | enum | tak | `draft` / `registered` |
+| `attachmentIds` | uuid[] | tak | załączniki (w MVP wymagane; reguła min. 1) |
+| `rpwNumber` | string | tak*** | Numer RPW nadawany w akcji „Zarejestruj wpływ”; w `draft` może być pusty |
+| `rpwSequence` | number | nie | Pozycja w sekwencji (wewnętrzna; opcjonalna) |
 | `postedAt` | date | nie | data nadania |
 | `senderReference` | string | nie | numer nadawczy |
 | `remarks` | string | nie | uwagi |
@@ -51,6 +41,10 @@ Zasady:
 
 `*` Wymagalność nadawcy: doprecyzować regułę (senderId vs senderDisplayName) na podstawie trybu „nadawca anonimowy”.
 
+`**` W praktyce: `receivedAt` jest wymagane do rejestracji RPW.
+
+`***` Format numeru RPW jest narzucony: `RPW/{kanc_id}/{seq:5}/{yyyy}`.
+
 
 ## Przesyłka wychodząca (outgoing shipment)
 
@@ -58,7 +52,7 @@ Zasady:
 
 | Pole | Typ | Wymagane | Uwagi |
 |---|---|---:|---|
-| `officeId` | uuid | tak | Kancelaria obsługująca przesyłkę (zakres numeracji RKW) |
+| `sendingOrgUnitId` | uuid | tak | Komórka organizacyjna („kancelaria”) obsługująca wysyłkę |
 | `rkwNumber` | string | tak (auto) | Numer RKW - generowany automatycznie wg formatu Kancelarii |
 | `rkwSequence` | number | tak (auto) | Pozycja w sekwencji RKW (per Kancelaria) |
 | `recipientId` lub `recipientDisplayName` | string | tak* | jeśli odbiorca anonimowy, przechowujemy displayName/minimum |
