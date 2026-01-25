@@ -9,7 +9,7 @@ Ten dokument opisuje **granice** oraz **definicję MVP** dla mapowania kancelary
 
 MVP obejmuje:
 
-- CRUD dla 11 encji MVP (w tym encja szablonów spraw, lokalizacji chronologicznej i historia przypisań),
+- CRUD dla 11 encji MVP (w tym encja szablonów spraw, lokalizacji chronologicznej, przesyłek wychodzących i stron),
 - listy z paginacją i filtrowaniem po podstawowych polach,
 - walidacje wejścia (Zod + OpenAPI),
 - audyt podstawowych zmian (jeśli jest standardem w CRUD).
@@ -23,8 +23,9 @@ Nie obejmuje na start:
 
 ## Encje MVP (domenowo)
 
-- Kancelaria (Office) – jednostka organizacyjna zarządzająca przesyłkami
+- Kancelaria (Office) – jednostka organizacyjna zarządzająca przesyłkami wpływającymi i wychodzącymi
 - Przesyłka wpływająca
+- Przesyłka wychodząca
 - JRWA
 - Spis spraw
 - Szablon sprawy – definiuje strukturę i reguły dla różnych typów spraw
@@ -34,7 +35,7 @@ Nie obejmuje na start:
 - Skład chronologiczny – lokalizacja (jako encja z historią zmian)
 - Strony (Case Parties) – podmioty zaangażowane w sprawę
 
-Uwaga: RPW jest traktowany jako **widok/numeracja**, a nie osobna encja.
+Uwaga: RPW (rejestr przesyłek wpływających) i RKW (rejestr przesyłek wychodzących) są traktowane jako **widok/numeracja**, a nie osobne encje.
 
 **Uwaga:** Sprawa i Koszulka są tą samą encją (`records.cases`). Gdy rekord nie ma przypisanego znaku sprawy, funkcjonuje jako kontener roboczy/teczka tematyczna.
 

@@ -1,0 +1,56 @@
+---
+title: Przesyłka wychodząca
+sidebar_position: 25
+---
+
+## Definicja
+**Przesyłka wychodząca** to zdarzenie/obiekt rejestrowany przy wysyłaniu; ma własne metadane i jest powiązana z dokumentami wychodzącymi.
+
+## Cel
+- Udokumentowanie wysłania (do kogo/co/kiedy/jak wysłano).
+- Nadanie identyfikatora w rejestrze przesyłek wychodzących (RKW).
+- Zasilenie dalszych procesów: śledzenie doręczeń, zarządzanie korespondencją wychodzącą.
+
+## Relacje
+- Może być powiązana ze **Sprawą** (niezależnie od tego, czy sprawa ma przypisany znak sprawy).
+- Zawiera/wiąże **Dokumenty** (w tym odwzorowania cyfrowe papieru i załączniki).
+- Jest obsługiwana przez konkretną **Kancelarię** (jednostkę organizacyjną).
+
+## Metadane (minimalny zestaw)
+Pola metadanych wynikają z instrukcji (minimalne zestawy metadanych). Przykładowe grupy:
+- Odbiorca + adres.
+- Daty: data wysłania.
+- Identyfikatory: unikatowy identyfikator w systemie (RKW/ID).
+- Sposób doręczenia: osobiście, ePUAP, e-Doręczenia (system e_doreczenia), poczta tradycyjna.
+- Opis: uwagi.
+- Dostęp/klasyfikacja dostępu.
+
+Szczegółową tabelę pól (Pole/Znaczenie/Typ/Wymagalność/Źródło/Kto uzupełnia/Reguły) znajdziesz w: [Słownik danych (MVP)](../../../mapping/openmercato-ezd/data-dictionary#przesyłka-wychodząca-outgoing-shipment).
+
+## RKW (Rejestr Przesyłek Wychodzących)
+**RKW** to rejestr chronologiczny przesyłek wychodzących prowadzony przez każdą Kancelarię:
+- Numeracja automatyczna z wykorzystaniem wzorca analogicznego do `salesDocumentNumberGenerator`.
+- Zakres numeracji: per Kancelaria + organizacja + tenant.
+- Format konfigurowalny przez szablon (tokeny: rok, sekwencja, etc.).
+- Sekwencja roczna resetowana przez `documentKind = rkw:${officeId}:${yyyy}`.
+
+Przykładowe numery:
+- `RKW/2026/000001`
+- `RKW/2026/000002`
+- Kancelaria A: `RKW-A/2026/000001`
+- Kancelaria B: `RKW-B/2026/000001`
+
+## Kancelaria (wielokancelaryjność)
+System obsługuje **wiele Kancelarii** w ramach jednej organizacji:
+- Każda Kancelaria definiuje niezależny zakres numeracji RKW.
+- Kancelaria określa uprawnienia dostępu pracowników do przesyłek.
+- Format numeracji RKW jest konfigurowalny na poziomie Kancelarii.
+
+## Źródła
+- Szczegóły techniczne: [Słownik danych (MVP)](../../../mapping/openmercato-ezd/data-dictionary)
+- Mapowanie encji: [Mapowanie encji](../../../mapping/openmercato-ezd/entity-map)
+- Model konceptualny: [Model konceptualny](../../../mapping/openmercato-ezd/conceptual-model)
+
+## Mapowanie OpenMercato ↔ EZD
+- Słownik danych (MVP): [data-dictionary](../../../mapping/openmercato-ezd/data-dictionary)
+- Mapowanie encji: [entity-map](../../../mapping/openmercato-ezd/entity-map)

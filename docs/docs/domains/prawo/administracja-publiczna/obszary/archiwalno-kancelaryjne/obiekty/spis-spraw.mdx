@@ -1,0 +1,123 @@
+---
+title: Spis spraw
+sidebar_position: 12
+---
+
+## Definicja
+**Spis spraw** (Case Register) to rejestr służący do numeracji i klasyfikacji spraw w organizacji. Definiuje zakres numeracji dla znaków spraw.
+
+## Cel
+- Organizacja numeracji spraw według określonych kryteriów (rok, klasa JRWA, jednostka organizacyjna).
+- Zapewnienie unikalności znaków spraw w ramach określonego zakresu.
+- Ułatwienie zarządzania sprawami według kategorii (np. sprawy z danego roku, sprawy określonej klasy JRWA).
+
+## Metadane spisu spraw
+Podstawowe pola:
+- **Nazwa** – nazwa spisu (np. "Spis spraw 2026", "Spis spraw klasy WD-9821")
+- **Rok** – rok obowiązywania spisu (jeśli numeracja roczna)
+- **Klasa JRWA** – powiązanie z klasą JRWA (jeśli spis per JRWA)
+
+Szczegółową tabelę pól znajdziesz w: [Słownik danych (MVP)](../../../mapping/openmercato-ezd/data-dictionary#spis-spraw).
+
+## Rodzaje spisów spraw
+W zależności od praktyki organizacyjnej, spis spraw może być:
+
+### Spis roczny
+- Zakres: wszystkie sprawy w danym roku
+- Nazwa: np. "Spis spraw 2026"
+- Rok: `2026`
+- Klasa JRWA: brak ograniczenia
+
+### Spis per klasa JRWA
+- Zakres: sprawy określonej klasy JRWA
+- Nazwa: np. "Spis spraw klasy WD-9821"
+- Rok: opcjonalnie (jeśli również roczny)
+- Klasa JRWA: konkretna klasa (np. `WD-9821`)
+
+### Spis kombinowany
+- Zakres: sprawy określonej klasy JRWA w danym roku
+- Nazwa: np. "Spis spraw klasy WD-9821/2026"
+- Rok: `2026`
+- Klasa JRWA: `WD-9821`
+
+## Relacje z innymi obiektami
+- **Sprawa** → Każda sprawa jest przypisana do spisu spraw (`caseRegisterId`)
+- **JRWA** → Spis spraw może być powiązany z klasą JRWA (`jrwaClassId`)
+
+## Zakres numeracji
+Spis spraw definiuje zakres unikalności dla znaków spraw:
+- Znak sprawy musi być unikalny w ramach spisu spraw
+- Spis może być ograniczony rokiem i/lub klasą JRWA
+- Numeracja spraw jest chronologiczna w ramach spisu
+
+### Przykłady znaków spraw
+W zależności od przyjętej konwencji organizacyjnej:
+- `WD-9821.1.2026` – klasa JRWA + numer w spisie + rok
+- `2026/001/WD-9821` – rok + numer + klasa JRWA
+- `001/2026` – numer + rok (bez klasy w znaku, ale sprawa ma przypisaną JRWA)
+
+## Zasady spójności
+- Nazwa spisu jest opisowa (dla użytkownika)
+- Jeśli spis jest roczny, pole `year` jest wymagane
+- Jeśli spis jest per klasa JRWA, pole `jrwaClassId` jest wymagane
+- Spis może być zarówno roczny jak i per klasa JRWA jednocześnie
+- Znak sprawy jest budowany według schematu przyjętego w organizacji (nie jest określony centralnie)
+
+## Przykłady zastosowania
+
+### Przykład 1: Spis roczny (wszystkie sprawy)
+```
+Nazwa: "Spis spraw 2026"
+Rok: 2026
+Klasa JRWA: brak
+
+Sprawy:
+- 001/2026 (klasa WD-9821)
+- 002/2026 (klasa WD-1234)
+- 003/2026 (klasa WD-9821)
+```
+
+### Przykład 2: Spis per klasa JRWA
+```
+Nazwa: "Spis spraw klasy WD-9821"
+Rok: brak (wieloletni)
+Klasa JRWA: WD-9821
+
+Sprawy:
+- WD-9821.1 (rok 2025)
+- WD-9821.2 (rok 2025)
+- WD-9821.3 (rok 2026)
+```
+
+### Przykład 3: Spis kombinowany (rok + JRWA)
+```
+Nazwa: "Spis spraw klasy WD-9821/2026"
+Rok: 2026
+Klasa JRWA: WD-9821
+
+Sprawy:
+- WD-9821.1.2026
+- WD-9821.2.2026
+- WD-9821.3.2026
+```
+
+## Powiązane czynności
+- Zakładanie sprawy (wybór spisu spraw)
+- Nadanie znaku sprawy (zgodnie z konwencją spisu)
+- Zarządzanie spisami spraw (tworzenie, zamykanie)
+
+## Różnice w praktykach organizacyjnych
+Sposób prowadzenia spisów spraw różni się w zależności od:
+- Rozmiaru organizacji
+- Przyjętej instrukcji kancelaryjnej
+- Struktury JRWA
+- Konwencji numeracji znaków spraw
+
+Zobacz przykłady w instrukcjach:
+- [MKiDN 2021](../zrodla/instrukcja-kancelaryjna-mkidn-2021/index)
+- [MC 2024](../zrodla/instrukcja-kancelaryjna-ministerstwo-cyfryzacji-2024/index)
+
+## Źródła
+- Model konceptualny: [Model konceptualny](../../../mapping/openmercato-ezd/conceptual-model)
+- Mapowanie encji: [Mapowanie encji](../../../mapping/openmercato-ezd/entity-map)
+- Słownik danych: [Data dictionary](../../../mapping/openmercato-ezd/data-dictionary)

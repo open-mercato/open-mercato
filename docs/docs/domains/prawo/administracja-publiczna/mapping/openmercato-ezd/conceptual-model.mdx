@@ -9,14 +9,15 @@ Ten dokument opisuje model pojęciowy (nie techniczny) dla MVP.
 
 1. `office` – Kancelaria (Office)
 2. `incoming_shipment` – Przesyłka wpływająca
-3. `jrwa_class` – JRWA (klasa/pozycja)
-4. `case_register` – Spis spraw
-5. `case_template` – Szablon sprawy
-6. `case` – Sprawa (obejmuje również funkcjonalność "Koszulki" - rekordy bez przypisanego znaku sprawy)
-7. `document` – Dokument
-8. `chronological_location` – Skład chronologiczny: lokalizacja
-9. `record_link` – Powiązanie (neutralne)
-10. `case_party` – Strony (Case Parties)
+3. `outgoing_shipment` – Przesyłka wychodząca
+4. `jrwa_class` – JRWA (klasa/pozycja)
+5. `case_register` – Spis spraw
+6. `case_template` – Szablon sprawy
+7. `case` – Sprawa (obejmuje również funkcjonalność "Koszulki" - rekordy bez przypisanego znaku sprawy)
+8. `document` – Dokument
+9. `chronological_location` – Skład chronologiczny: lokalizacja
+10. `record_link` – Powiązanie (neutralne)
+11. `case_party` – Strony (Case Parties)
 
 **Uwaga:** Sprawa i Koszulka są tą samą encją. Sprawa = Koszulka z przypisanym znakiem sprawy. Gdy rekord nie ma przypisanego znaku sprawy, funkcjonuje jako kontener roboczy/teczka tematyczna.
 
@@ -28,7 +29,13 @@ Nazwy techniczne są robocze; finalnie będą zależeć od nazwy modułu i istni
   - Każda przesyłka wpływająca jest obsługiwana przez konkretną Kancelarię
   - Kancelaria określa zakres numeracji RPW i uprawnienia dostępu
 
+- `outgoing_shipment.officeId` (wymagane)
+  - Każda przesyłka wychodząca jest obsługiwana przez konkretną Kancelarię
+  - Kancelaria określa zakres numeracji RKW i uprawnienia dostępu
+
 - `document.incomingShipmentId` (opcjonalne)
+- `document.outgoingShipmentId` (opcjonalne)
+  - Dokument może mieć zarówno `incomingShipmentId` jak i `outgoingShipmentId` (dokument wpływający i odpowiedź wychodząca to jeden rekord z dwoma numerami przesyłek)
 - `document.caseId` (opcjonalne)
   - Dokument może być przypięty do sprawy (niezależnie od tego, czy sprawa ma przypisany znak sprawy).
 - `document.attachmentIds` (tablica, opcjonalne)

@@ -1,0 +1,110 @@
+---
+title: Dokument
+sidebar_position: 35
+---
+
+## Definicja
+**Dokument** to nośnik treści w systemie EZD – w praktyce jest to plik (lub zbiór plików) z dodatkowymi metadanymi kancelaryjno-archiwalnymi.
+
+## Cel
+- Przechowywanie treści dokumentów (papierowych i elektronicznych) wraz z ich metadanymi.
+- Powiązanie dokumentów z przesyłkami wpływającymi/wychodzącymi i sprawami.
+- Klasyfikacja dokumentów według poziomu dostępu.
+- Zarządzanie załącznikami dokumentów (fizyczne pliki).
+
+## Model konceptualny
+Dokument jest **załącznikiem z metadanymi**:
+- **Encja `records.documents`** przechowuje metadane dokumentu (identyfikacja, daty, klasyfikacja, powiązania)
+- **Moduł `attachments` (core)** zarządza fizycznymi plikami (upload, download, przechowywanie)
+
+## Metadane dokumentu
+Podstawowe grupy pól:
+- **Identyfikacja**: tytuł, rodzaj dokumentu (`kind`), znak na dokumencie
+- **Daty**: data dokumentu, data wpływu (jeśli dotyczy)
+- **Klasyfikacja**: poziom dostępu (publiczny/częściowo/niepubliczny)
+- **Powiązania**: 
+  - Przesyłka wpływająca (`incomingShipmentId`)
+  - Przesyłka wychodząca (`outgoingShipmentId`)
+  - Sprawa (`caseId`) - niezależnie od tego, czy ma przypisany znak sprawy
+- **Załączniki**: referencje do plików (`attachmentIds`) z modułu `attachments`
+
+Szczegółową tabelę pól znajdziesz w: [Słownik danych (MVP)](../../../mapping/openmercato-ezd/data-dictionary#dokument).
+
+## Relacje z innymi obiektami
+
+### Dokument → Przesyłki
+Dokument może być powiązany z:
+- **Przesyłką wpływającą** (`incomingShipmentId`) – dokument otrzymany
+- **Przesyłką wychodzącą** (`outgoingShipmentId`) – dokument wysłany
+- **Obiema jednocześnie** – dokument wpływający i odpowiedź wychodząca to jeden rekord z dwoma numerami przesyłek
+
+### Dokument → Sprawa
+- Dokument może być przypięty do sprawy (niezależnie od tego, czy sprawa ma przypisany znak sprawy)
+- Dokument może być przypięty niezależnie od przesyłki
+- Dokument może funkcjonować bez przypisania do sprawy (dokument „przyniesiony", nieprzypisany jeszcze)
+
+### Dokument → Załączniki
+- Dokument może mieć jeden lub więcej załączników (plików)
+- Relacja realizowana przez pole `attachmentIds`
+- Główny właściciel załączników określany przez kontekst dokumentu:
+  - Dokument powiązany z przesyłką → właściciel: przesyłka (wpływająca lub wychodząca)
+  - Dokument powiązany ze sprawą → właściciel: sprawa (niezależnie od tego, czy ma przypisany znak sprawy)
+  - Dokument samodzielny → właściciel: dokument
+
+## Zasady spójności
+- Dokument może istnieć bez przesyłki
+- Dokument może być przypięty do sprawy niezależnie od przesyłki
+- Przesyłka nie inicjuje sprawy automatycznie
+- Jeśli właściciel dokumentu (sprawa) jest `read-only`, dokument nie może być modyfikowany
+- Historia zmian dokumentów jest zachowana (audit log)
+
+## Poziomy dostępu
+Dokument ma określony poziom dostępu:
+- **Publiczny** – dostępny dla wszystkich uprawnionych użytkowników
+- **Częściowo ograniczony** – dostępny dla określonych grup/ról
+- **Niepubliczny** – dostępny tylko dla wybranych użytkowników
+
+Poziom dostępu dokumentu wpływa na:
+- Widoczność w listach i wyszukiwaniu
+- Możliwość podglądu treści
+- Dostęp do załączników
+
+## Uprawnienia i RBAC
+Dostęp do dokumentu i jego załączników jest kontrolowany przez:
+1. **Uprawnienia do głównego właściciela** (przesyłka/sprawa/dokument)
+2. **Poziom dostępu dokumentu** (`accessLevel`)
+3. **Status właściciela** (np. sprawa w stanie `read-only`)
+
+Użytkownik ma dostęp do załączników dokumentu, jeśli:
+- Ma uprawnienia do odczytu głównego właściciela
+- Poziom dostępu dokumentu pozwala na odczyt
+- Główny właściciel nie jest w stanie blokującym dostęp
+
+## Cykl życia
+1. **Tworzenie**: Upload plików przez moduł `attachments`, referencje zapisywane w `records.documents`
+2. **Aktualizacja**: Możliwość dodawania/usuwania załączników (jeśli właściciel nie jest `read-only`)
+3. **Usuwanie**: Polityka usuwania załączników do zdefiniowania (cascade delete lub orphan handling)
+
+## Przykłady zastosowania
+
+### Dokument wpływający
+- Przesyłka wpływająca z pismem urzędowym
+- `incomingShipmentId` → referencja do przesyłki
+- `caseId` → przypięty do sprawy po dekretacji
+- `attachmentIds` → skan pisma + załączniki
+
+### Odpowiedź wychodząca na pismo
+- Ten sam dokument ma:
+  - `incomingShipmentId` → oryginalne pismo wpływające
+  - `outgoingShipmentId` → odpowiedź wychodząca
+- Jeden rekord z dwoma numerami przesyłek
+
+### Dokument wewnętrzny
+- Notatka służbowa utworzona w systemie
+- `caseId` → przypięta do sprawy
+- Brak `incomingShipmentId` i `outgoingShipmentId`
+
+## Źródła
+- Model konceptualny: [Model konceptualny](../../../mapping/openmercato-ezd/conceptual-model#dokument-jako-załącznik-z-metadanymi)
+- Mapowanie encji: [Mapowanie encji](../../../mapping/openmercato-ezd/entity-map#załączniki-i-dokumenty)
+- Słownik danych: [Data dictionary](../../../mapping/openmercato-ezd/data-dictionary)
