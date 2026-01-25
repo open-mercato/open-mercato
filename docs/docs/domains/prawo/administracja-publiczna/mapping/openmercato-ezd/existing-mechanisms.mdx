@@ -101,6 +101,85 @@ const format2 = 'RPW-K01/{YYYY}/{MM}/{SEQ:4}'
 const format3 = '{YYYY}/{SEQ:5}'
 ```
 
+### Zastosowanie dla RKW (Rejestr Przesyłek Wychodzących)
+
+**Nota terminologiczna:** RKW = rejestr przesyłek wychodzących (terminologia projektowa dla spójności ze źródłami).
+
+Analogicznie do RPW, RKW wykorzystuje ten sam wzorzec numeracji:
+
+#### Model danych
+
+```typescript
+// Tabela: outgoing_shipment_sequences
+{
+  id: uuid
+  organization_id: uuid  // zakres numeracji
+  tenant_id: uuid        // zakres numeracji
+  office_id: uuid        // zakres per Kancelaria
+  current_value: integer // aktualny numer
+  created_at: timestamp
+  updated_at: timestamp
+}
+
+// Unikalność: (organization_id, tenant_id, office_id)
+```
+
+#### Generator RKW
+
+```typescript
+class OutgoingShipmentNumberGenerator {
+  async generate(params: {
+    organizationId: string
+    tenantId: string
+    officeId: string      // dodatkowy wymiar zakresu
+    format?: string | null
+  }): Promise<{ number: string; format: string; sequence: number }> {
+    // 1. Pobierz format z ustawień Kancelarii lub użyj domyślnego
+    const format = params.format || await this.getOfficeRkwFormat(params.officeId)
+    
+    // 2. Claim sequence (atomic)
+    const sequence = await this.claimSequence(params)
+    
+    // 3. Format number z tokenami
+    const number = this.formatNumber(format, { sequence, date: new Date() })
+    
+    return { number, format, sequence }
+  }
+  
+  private async claimSequence(scope: {
+    organizationId: string
+    tenantId: string
+    officeId: string
+  }): Promise<number> {
+    const rows = await this.em.getConnection().execute(
+      `INSERT INTO outgoing_shipment_sequences 
+       (id, organization_id, tenant_id, office_id, current_value, created_at, updated_at)
+       VALUES (gen_random_uuid(), ?, ?, ?, 1, now(), now())
+       ON CONFLICT (organization_id, tenant_id, office_id)
+       DO UPDATE SET 
+         current_value = outgoing_shipment_sequences.current_value + 1,
+         updated_at = now()
+       RETURNING current_value`,
+      [scope.organizationId, scope.tenantId, scope.officeId]
+    )
+    return Number(rows[0].current_value)
+  }
+}
+```
+
+#### Przykładowe formaty RKW
+
+```typescript
+// Format 1: RKW/2025/000001
+const format1 = 'RKW/{YYYY}/{SEQ:6}'
+
+// Format 2: RKW-K01/2025/01/0001
+const format2 = 'RKW-K01/{YYYY}/{MM}/{SEQ:4}'
+
+// Format 3: Zgodny z instrukcją kancelaryjną
+const format3 = '{YYYY}/{SEQ:5}'
+```
+
 ### Zastosowanie dla znaków sprawy
 
 Analogiczny mechanizm może być użyty dla numeracji znaków sprawy:
