@@ -1,0 +1,109 @@
+---
+title: Kancelaria
+sidebar_position: 5
+---
+
+## Definicja
+**Kancelaria** (Office) to jednostka organizacyjna odpowiedzialna za obsługę przesyłek wpływających i wychodzących w organizacji.
+
+## Cel
+- Organizacja pracy kancelaryjnej w ramach jednostki administracyjnej.
+- Definiowanie zakresu numeracji przesyłek (RPW dla wpływających, RKW dla wychodzących).
+- Określanie uprawnień dostępu pracowników do przesyłek.
+- Umożliwienie wielokancelaryjności w ramach jednej organizacji.
+
+## Wielokancelaryjność
+System obsługuje **wiele Kancelarii** w ramach jednej organizacji:
+- Każda Kancelaria ma niezależny zakres numeracji RPW i RKW.
+- Przesyłki zarejestrowane w różnych Kancelariach mają oddzielne numeracje.
+- Pracownicy są przypisani do konkretnych Kancelarii (określa dostęp do przesyłek).
+- Kancelaria może być aktywna lub nieaktywna (nieaktywna nie może przyjmować nowych przesyłek).
+
+## Metadane Kancelarii
+Podstawowe pola:
+- **Kod** – identyfikator Kancelarii (unikalny w organizacji)
+- **Nazwa** – pełna nazwa Kancelarii
+- **Opis** – zakres działania
+- **Status** – czy Kancelaria jest aktywna (domyślnie `true`)
+- **Format RPW** – szablon numeracji przesyłek wpływających (np. `RPW/{yyyy}/{seq:6}`)
+- **Format RKW** – szablon numeracji przesyłek wychodzących (np. `RKW/{yyyy}/{seq:6}`)
+
+Szczegółową tabelę pól znajdziesz w: [Słownik danych (MVP)](../../../mapping/openmercato-ezd/data-dictionary#kancelaria-office).
+
+## Numeracja przesyłek
+Kancelaria definiuje **formaty numeracji** dla:
+- **RPW (Rejestr Przesyłek Wpływających)** – automatyczna numeracja przesyłek wpływających
+- **RKW (Rejestr Przesyłek Wychodzących)** – automatyczna numeracja przesyłek wychodzących
+
+### Wzorce numeracji
+Format wykorzystuje tokeny (zgodne z `salesDocumentNumberGenerator`):
+- `{yyyy}` – rok (4 cyfry)
+- `{yy}` – rok (2 cyfry)
+- `{mm}` – miesiąc
+- `{dd}` – dzień
+- `{hh}` – godzina
+- `{seq:N}` – sekwencja (N cyfr z zerami wiodącymi)
+- `{rand:N}` – losowe znaki
+- `{guid}` – globalny identyfikator
+- `{nanoid:N}` – nanoid o długości N
+- `{kind}` – typ dokumentu
+
+**Tokeny są case-insensitive** (kanonicznie zapisujemy małymi literami).
+
+### Przykłady formatów
+- `RPW/{yyyy}/{seq:6}` → `RPW/2026/000001`
+- `RKW-A/{yyyy}/{seq:4}` → `RKW-A/2026/0001` (Kancelaria A)
+- `{yyyy}-RPW-{seq:5}` → `2026-RPW-00001`
+
+## Zakres numeracji
+Każda Kancelaria ma **niezależną sekwencję numeracji**:
+- Sekwencja jest roczna (resetowana przez `documentKind = rpw:${officeId}:${yyyy}`)
+- Unikalność numeru w zakresie: organizacja + tenant + Kancelaria + rok
+- Sekwencja nie jest resetowana przy usunięciu przesyłek (zachowanie audytu)
+- Chronologiczność: numery przydzielane chronologicznie w ramach Kancelarii
+
+## Relacje z innymi obiektami
+- **Przesyłka wpływająca** → Każda przesyłka jest obsługiwana przez konkretną Kancelarię
+- **Przesyłka wychodząca** → Każda przesyłka jest wysyłana przez konkretną Kancelarię
+- **Pracownik/Użytkownik** → Przypisanie określa uprawnienia dostępu do przesyłek
+
+## Uprawnienia i RBAC
+Dostęp do zasobów EZD jest kontrolowany przez przynależność do Kancelarii:
+
+1. **Przynależność**: Pracownik może być przypisany do jednej lub wielu Kancelarii
+2. **Rola w Kancelarii**: Określa poziom uprawnień (odczyt, edycja, zarządzanie)
+3. **Poziom dostępu rekordu**: Publiczny, częściowo ograniczony, niepubliczny
+
+Użytkownik ma dostęp do przesyłki/dokumentu, jeśli:
+- Jest przypisany do Kancelarii obsługującej przesyłkę
+- Jego rola w Kancelarii pozwala na daną operację
+- Poziom dostępu rekordu nie blokuje dostępu
+
+## Zasady spójności
+- Kod Kancelarii jest unikalny w zakresie organizacji
+- Nieaktywna Kancelaria nie może przyjmować nowych przesyłek wpływających ani obsługiwać przesyłek wychodzących
+- Format numeracji RPW i RKW może być różny dla różnych Kancelarii (elastyczność organizacyjna)
+- Jeśli format nie jest określony, używany jest domyślny: `RPW/{yyyy}/{seq:6}` lub `RKW/{yyyy}/{seq:6}`
+
+## Przykłady zastosowania
+
+### Organizacja z jedną Kancelarią
+- Kod: `MAIN`
+- Nazwa: `Kancelaria Główna`
+- Format RPW: `RPW/{yyyy}/{seq:6}`
+- Format RKW: `RKW/{yyyy}/{seq:6}`
+
+### Organizacja z wieloma Kancelariami
+- **Kancelaria A** (Wydział A):
+  - Kod: `WA`
+  - Format RPW: `RPW-WA/{yyyy}/{seq:5}`
+- **Kancelaria B** (Wydział B):
+  - Kod: `WB`
+  - Format RPW: `RPW-WB/{yyyy}/{seq:5}`
+
+Przesyłki w obu kancelariach mają niezależne numeracje.
+
+## Źródła
+- Model konceptualny: [Model konceptualny](../../../mapping/openmercato-ezd/conceptual-model#kancelaria-office-wielokancelaryjność)
+- Mapowanie encji: [Mapowanie encji](../../../mapping/openmercato-ezd/entity-map)
+- Słownik danych: [Data dictionary](../../../mapping/openmercato-ezd/data-dictionary)

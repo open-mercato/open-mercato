@@ -1,0 +1,125 @@
+---
+title: Skład chronologiczny
+sidebar_position: 45
+---
+
+## Definicja
+**Skład chronologiczny** to miejsce przechowywania fizycznych dokumentów i akt (papier, nośniki elektroniczne) w archiwum zakładowym lub magazynie.
+
+## Cel
+- Określenie fizycznej lokalizacji dokumentów i akt sprawy.
+- Ułatwienie odnalezienia dokumentów w magazynie/archiwum.
+- Prowadzenie historii zmian lokalizacji (audit trail).
+- Wsparcie dla procesu udostępniania, wycofywania i brakowania dokumentów.
+
+## Model konceptualny
+System rozdziela **lokalizację** od **przypisania**:
+
+### Lokalizacja (miejsce)
+Opisuje fizyczne miejsce przechowywania:
+- Kod lokalizacji (np. `MAG-01`, `REGAŁ-A-PÓŁKA-3`)
+- Opis lokalizacji (opcjonalnie)
+
+### Przypisanie (historia)
+Przechowuje historię przypisań dokumentów do lokalizacji:
+- Dokument/Sprawa → Lokalizacja
+- Okres ważności (od kiedy - do kiedy)
+- Uwagi (np. powód zmiany lokalizacji)
+
+To rozdzielenie pozwala:
+- Mieć słownik lokalizacji (fizyczne miejsca)
+- Utrzymywać historię bez nadpisywania (każde przeniesienie dokumentu jest zapisane)
+
+## Metadane lokalizacji
+Podstawowe pola dla **lokalizacji**:
+- **Kod** – identyfikator miejsca (np. `MAG-01`, `REGAŁ-A`)
+- **Opis** – opis lokalizacji (opcjonalnie)
+
+Szczegółowe pola dla **przypisania** (historia):
+- **ID dokumentu** (`documentId`) – referencja do dokumentu
+- **ID lokalizacji** (`locationId`) – referencja do lokalizacji
+- **Data od** (`validFrom`) – kiedy dokument trafił do tej lokalizacji
+- **Data do** (`validTo`) – kiedy dokument opuścił tę lokalizację (null = aktualne)
+- **Uwagi** (`note`) – opcjonalne uwagi (np. powód przeniesienia)
+
+Szczegółową tabelę pól znajdziesz w: [Słownik danych (MVP)](../../../mapping/openmercato-ezd/data-dictionary#skład-chronologiczny-lokalizacja).
+
+## Relacje z innymi obiektami
+- **Dokument** → Lokalizacja (dokument może być przypisany do lokalizacji fizycznej)
+- **Sprawa** → Lokalizacja (akta sprawy mogą być przechowywane w lokalizacji)
+
+## Historia lokalizacji
+System przechowuje **pełną historię** przypisań:
+- Każde przeniesienie dokumentu/akt tworzy nowy rekord przypisania
+- Poprzednie przypisanie jest zamykane (`validTo` = data przeniesienia)
+- Aktualne przypisanie ma `validTo = null`
+
+### Przykład historii
+```
+Dokument: "Wniosek A"
+
+Historia przypisań:
+1. MAG-01 (2025-01-15 → 2025-06-30) – pierwotne odłożenie
+2. MAG-02 (2025-07-01 → 2026-01-10) – przeniesienie do innego magazynu
+3. REGAŁ-A (2026-01-11 → null) – aktualna lokalizacja
+```
+
+## Neutralność metadanych
+Plan obiektów ([plan-obiektow-i-pol](../plan-obiektow-i-pol)) definiuje neutralny zestaw pól dla składu chronologicznego:
+- `skladChronologicznyId` – magazyn/skład
+- `pojemnik` – pudło/segregator/pojemnik
+- `pozycja` – półka/przegroda/slot
+- `dataOdlozenia` – kiedy odłożono
+- `opis` – opcjonalnie
+
+Te pola są **metadanymi** powiązanymi z dokumentem lub sprawą, nie osobnymi bytami domenowymi.
+
+## Przykłady zastosowania
+
+### Dokument papierowy
+```
+Dokument: "Pismo urzędowe nr 123"
+Lokalizacja: "MAG-01, Pojemnik P-2025-07, Półka A3"
+Data odłożenia: 2025-07-15
+```
+
+### Akta sprawy
+```
+Sprawa: "Postępowanie administracyjne 001/2026"
+Lokalizacja: "Archiwum zakładowe, Regał R-5, Półka 12, Pudło AZ-2026-001"
+Data odłożenia: 2027-03-20 (po zakończeniu sprawy)
+```
+
+### Przeniesienie do archiwum państwowego
+```
+Dokument: "Akta sprawy 123/2020"
+
+Historia:
+1. Archiwum zakładowe (2020-12-01 → 2026-05-30)
+2. Przekazane do archiwum państwowego (2026-06-01 → null)
+```
+
+## Papier vs. elektronika
+- **Dokument elektroniczny**: Lokalizacja nie jest wymagana (przechowywanie w systemie)
+- **Dokument papierowy**: Lokalizacja pomaga w odnalezieniu fizycznego dokumentu
+- **Dokument hybrydowy**: Może mieć zarówno plik elektroniczny (w systemie) jak i lokalizację fizyczną (dla papieru)
+
+## Procesy związane z lokalizacją
+- **Odłożenie do składu** – pierwsze przypisanie lokalizacji
+- **Przeniesienie** – zmiana lokalizacji (np. reorganizacja magazynu)
+- **Udostępnienie** – tymczasowe wycofanie z lokalizacji
+- **Zwrot** – przywrócenie do lokalizacji po udostępnieniu
+- **Przekazanie do archiwum** – zmiana lokalizacji na archiwum państwowe
+- **Brakowanie** – usunięcie z lokalizacji (wraz z zaznaczeniem w systemie)
+
+## Powiązane czynności
+- Rejestracja chronologiczna (przypisanie lokalizacji)
+- Udostępnianie dokumentów (historia wycofań i zwrotów)
+- Brakowanie dokumentów (zamknięcie lokalizacji)
+- Inwentaryzacja składu (weryfikacja zgodności systemu z rzeczywistością)
+
+## Źródła
+- Plan obiektów i pól: [Plan obiektów i pól](../plan-obiektow-i-pol#specjalny-przypadek-papiernośniki-jako-metadane)
+- Model konceptualny: [Model konceptualny](../../../mapping/openmercato-ezd/conceptual-model#skład-chronologiczny-lokalizacja-i-historia)
+- Mapowanie encji: [Mapowanie encji](../../../mapping/openmercato-ezd/entity-map)
+- Słownik danych: [Data dictionary](../../../mapping/openmercato-ezd/data-dictionary)

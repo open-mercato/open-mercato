@@ -1,0 +1,103 @@
+---
+title: Powiązanie
+sidebar_position: 40
+---
+
+## Definicja
+**Powiązanie** (Record Link) to mechanizm łączenia ze sobą rekordów spraw (niezależnie od tego, czy mają przypisany znak sprawy) w celu pokazania ich wzajemnych relacji.
+
+## Cel
+- Wskazanie związków między sprawami (np. sprawy powiązane tematycznie, sprawy następcze).
+- Umożliwienie nawigacji między powiązanymi sprawami w interfejsie użytkownika.
+- Zachowanie historii relacji między sprawami (audit trail).
+
+## Charakterystyka
+Powiązanie jest **neutralne** i **symetryczne**:
+- **Neutralne** – nie ma typu/etykiety (np. "sprawa poprzedzająca", "sprawa następcza")
+- **Symetryczne** – jeśli A jest powiązane z B, to B jest powiązane z A (jedna para A↔B, nie dwie osobne)
+
+## Metadane powiązania
+Podstawowe pola:
+- **Typ A** (`aType`) – typ rekordu A (zawsze `case`)
+- **ID A** (`aId`) – identyfikator rekordu A
+- **Typ B** (`bType`) – typ rekordu B (zawsze `case`)
+- **ID B** (`bId`) – identyfikator rekordu B
+- **Data utworzenia** (`createdAt`) – kiedy powiązanie zostało utworzone (audit/porządek chronologiczny)
+
+Szczegółową tabelę pól znajdziesz w: [Słownik danych (MVP)](../../../mapping/openmercato-ezd/data-dictionary#powiązanie-record-link).
+
+## Zasady spójności
+Powiązanie musi spełniać następujące reguły:
+
+### 1. Symetryczność
+- Powiązanie A↔B jest przechowywane jako **jedna para**
+- Nie tworzymy osobnych rekordów dla A→B i B→A
+- Rekomendacja: kanoniczne uporządkowanie par (np. alfabetycznie po ID), żeby uniknąć duplikatów
+
+### 2. Brak pętli
+- Rekord nie może być powiązany sam ze sobą: A ≠ B
+- Walidacja przy tworzeniu powiązania
+
+### 3. Unikalne pary
+- Para (A, B) może istnieć tylko raz
+- Walidacja zapobiega duplikatom
+
+### 4. Niezależność od znaku sprawy
+- Powiązanie działa zarówno dla spraw ze znakiem sprawy, jak i dla "koszulek" (bez znaku)
+- Powiązanie może łączyć sprawę ze znakiem z koszulką
+
+## Przykłady zastosowania
+
+### Sprawy powiązane tematycznie
+```
+Sprawa A: "Wniosek o dotację 2025"
+Sprawa B: "Rozliczenie dotacji 2025"
+
+Powiązanie A↔B pokazuje, że obie sprawy dotyczą tego samego tematu.
+```
+
+### Sprawa i koszulka
+```
+Sprawa A: "Postępowanie administracyjne nr 123/2026" (ma znak sprawy)
+Koszulka B: "Materiały przygotowawcze" (bez znaku sprawy)
+
+Powiązanie A↔B łączy sprawę formalną z materiałami roboczymi.
+```
+
+### Sprawy następcze
+```
+Sprawa A: "Wniosek pierwotny"
+Sprawa B: "Wniosek uzupełniający"
+
+Powiązanie A↔B pokazuje kontynuację.
+```
+
+## Interfejs użytkownika
+Powiązania są widoczne w interfejsie sprawy jako:
+- Lista powiązanych spraw (z linkami do ich szczegółów)
+- Możliwość dodawania/usuwania powiązań (jeśli sprawa nie jest `read-only`)
+- Historia powiązań (kiedy utworzone, przez kogo)
+
+## Uprawnienia
+- Użytkownik może tworzyć powiązania tylko między sprawami, do których ma dostęp
+- Jeśli sprawa jest `read-only`, nie można dodawać/usuwać powiązań do/z niej
+- Historia powiązań jest zachowana (audit log)
+
+## Ograniczenia MVP
+W wersji MVP powiązania są **neutralne** (bez typu/etykiety).
+
+Przyszłe rozszerzenia mogą obejmować:
+- Typy powiązań (np. "sprawa poprzedzająca", "sprawa następcza", "sprawa pokrewna")
+- Kierunkowość (jeśli typ powiązania tego wymaga)
+- Metadane powiązania (np. opis relacji, uzasadnienie)
+
+## Dlaczego neutralne powiązania?
+W MVP celowo nie definiujemy typów powiązań, ponieważ:
+1. Praktyki organizacyjne różnią się (różne organizacje mogą mieć różne potrzeby)
+2. Prostota implementacji i UI (mniej decyzji dla użytkownika)
+3. Możliwość rozszerzenia w przyszłości (gdy zbierzemy feedback o rzeczywistych potrzebach)
+
+## Źródła
+- Model konceptualny: [Model konceptualny](../../../mapping/openmercato-ezd/conceptual-model#zasady-spójności-mvp)
+- Mapowanie encji: [Mapowanie encji](../../../mapping/openmercato-ezd/entity-map)
+- Słownik danych: [Data dictionary](../../../mapping/openmercato-ezd/data-dictionary)
