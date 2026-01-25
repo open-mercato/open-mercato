@@ -26,12 +26,6 @@ services:
     working_dir: /app/apps/mercato
     ports:
       - "${APP_PORT:-5050}:3000"
-    labels:
-      - "traefik.enable=true"
-      - "traefik.http.routers.mercato-app.rule=Host(`${APP_DOMAIN:-localhost}`)"
-      - "traefik.http.routers.mercato-app.entrypoints=websecure"
-      - "traefik.http.routers.mercato-app.tls.certresolver=letsencrypt"
-      - "traefik.http.services.mercato-app.loadbalancer.server.port=3000"
     environment:
       NODE_ENV: development
       DATABASE_URL: postgres://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/${POSTGRES_DB:-open-mercato}
