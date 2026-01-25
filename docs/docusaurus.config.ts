@@ -52,6 +52,11 @@ const config: Config = {
         docs: {
           sidebarPath: require.resolve('./sidebars.ts'),
           routeBasePath: '/',
+          // We intentionally keep some doc trees under underscore-prefixed folders
+          // (e.g. `domains/_sources`). Docusaurus excludes these by default, which
+          // makes sidebar doc ids invalid. We only exclude underscore-prefixed JS/TS
+          // helper files, not markdown content.
+          exclude: ['**/_*.{js,jsx,ts,tsx}'],
           editUrl: 'https://github.com/open-mercato/open-mercato/tree/main/docs',
           showLastUpdateAuthor: true,
           showLastUpdateTime: true,
