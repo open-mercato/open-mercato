@@ -30,7 +30,7 @@ services:
       NODE_ENV: development
       DATABASE_URL: postgres://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/${POSTGRES_DB:-open-mercato}
       JWT_SECRET: ${JWT_SECRET:-JWT}
-      APP_URL: http://localhost:5050
+      APP_URL: http://localhost:3000
       CACHE_REDIS_URL: redis://redis:6379
       SELF_SERVICE_ONBOARDING_ENABLED: "false"
       OPENAI_API_KEY: ${OPENAI_API_KEY}
