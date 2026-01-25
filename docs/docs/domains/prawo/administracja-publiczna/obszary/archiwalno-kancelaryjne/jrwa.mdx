@@ -5,7 +5,24 @@ sidebar_position: 40
 
 Miejsce na opis struktury JRWA, zasad klasyfikacji oraz wymagań walidacyjnych.
 
-Do zebrania:
-- Minimalny zestaw pól klasy (symbol, hasło, kategoria, okres, uwagi).
+## Minimalny zestaw pól klasy JRWA (roboczo)
+
+- `symbol` (np. „1230”)
+- `title` (hasło klasy)
+- `retentionCategory` (kategoria archiwalna / kwalifikacja, np. A/B/BE)
+- `retentionYears` (okres przechowywania, jeśli dotyczy)
+
+## Konfiguracja pakietu archiwalnego (domyślnie na klasie JRWA)
+
+Założenie projektowe: **wariant pakietu archiwalnego jest wybierany na podstawie przypisanego JRWA** (domyślnie na klasie).
+
+Dodajemy pole:
+
+- `archivalPackageVariant: package_a | package_b`
+
+Uwaga terminologiczna: `retentionCategory` (A/B/BE…) i `archivalPackageVariant` (package_a/package_b) to dwie różne osie i celowo nie używamy tych samych wartości, żeby uniknąć kolizji znaczeń.
+
+## Do zebrania
+
 - Reguły: kto może przypisać klasę, kiedy można zmienić, jak audytować.
 - Powiązanie klas z procesami i typami dokumentów.

@@ -1,0 +1,36 @@
+---
+title: Rejestracja przesyłki wpływającej
+sidebar_position: 30
+---
+
+## Cel / trigger
+Czynność uruchamiana przy wpływie przesyłki do organizacji, aby:
+- przypisać metadane opisujące przesyłkę,
+- nadać automatyczny unikatowy identyfikator w rejestrze przesyłek wpływających,
+- umożliwić dalsze kroki (rozdział, dekretacja, założenie sprawy lub dołączenie do sprawy).
+
+## Role
+- Punkt kancelaryjny / kancelaria ogólna / sekretariat.
+- (Opcjonalnie) prowadzący sprawę – w szczególności dla kanałów elektronicznych, jeśli organizacja tak ustali.
+
+## Wejścia
+- Obiekt: [../obiekty/przesylka-wplywajaca](../obiekty/przesylka-wplywajaca)
+- Kontekst klasyfikacji: JRWA (domyślnie wpływa na `archivalPackageVariant` na klasie JRWA).
+
+## Kroki (minimum)
+1. Rejestracja przesyłki: przypisanie minimalnego zestawu metadanych.
+2. Nadanie identyfikatora/numeru w rejestrze przesyłek wpływających.
+3. (Jeśli dotyczy) wykonanie odwzorowania cyfrowego i dołączenie do metadanych.
+4. Rozdział do właściwych komórek/osób (manualny lub automatyczny).
+
+## Wyjścia
+- Zarejestrowana przesyłka wpływająca + metadane.
+- Powiązane dokumenty/załączniki.
+
+## Kontrole
+- Uzupełnialność metadanych w toku sprawy.
+- Rozdzielenie pojęć: `retentionCategory` (retencja) ≠ `archivalPackageVariant` (wariant pakietu metadanych).
+
+## Źródła
+- MKiDN 2021, rejestracja i numeracja przesyłek wpływających: [../zrodla/instrukcja-kancelaryjna-mkidn-2021/rozdzial-02-przyjmowanie-przesylek](../zrodla/instrukcja-kancelaryjna-mkidn-2021/rozdzial-02-przyjmowanie-przesylek)
+- MC 2024, § 11 (rejestracja = metadane, identyfikator): [../zrodla/instrukcja-kancelaryjna-ministerstwo-cyfryzacji-2024/zal-01-instrukcja](../zrodla/instrukcja-kancelaryjna-ministerstwo-cyfryzacji-2024/zal-01-instrukcja)

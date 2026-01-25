@@ -184,6 +184,24 @@ const sidebars: SidebarsConfig = {
                         "domains/prawo/administracja-publiczna/obszary/archiwalno-kancelaryjne/jrwa",
                         "domains/prawo/administracja-publiczna/obszary/archiwalno-kancelaryjne/retention",
                         "domains/prawo/administracja-publiczna/obszary/archiwalno-kancelaryjne/checklist",
+                        "domains/prawo/administracja-publiczna/obszary/archiwalno-kancelaryjne/obiekty-i-czynnosci",
+                        "domains/prawo/administracja-publiczna/obszary/archiwalno-kancelaryjne/plan-obiektow-i-pol",
+                        {
+                          type: "category",
+                          label: "Obiekty biznesowe",
+                          items: [
+                            "domains/prawo/administracja-publiczna/obszary/archiwalno-kancelaryjne/obiekty/index",
+                            "domains/prawo/administracja-publiczna/obszary/archiwalno-kancelaryjne/obiekty/przesylka-wplywajaca",
+                          ],
+                        },
+                        {
+                          type: "category",
+                          label: "Czynności / zdarzenia",
+                          items: [
+                            "domains/prawo/administracja-publiczna/obszary/archiwalno-kancelaryjne/czynnosci/index",
+                            "domains/prawo/administracja-publiczna/obszary/archiwalno-kancelaryjne/czynnosci/rejestracja-przesylki-wplywajacej",
+                          ],
+                        },
                       ],
                     },
                     {

@@ -1,0 +1,41 @@
+---
+title: Przesyłka wpływająca
+sidebar_position: 20
+---
+
+## Definicja
+**Przesyłka wpływająca** to zdarzenie/obiekt rejestrowany przy wpływie; ma własne metadane i może inicjować sprawę.
+
+## Cel
+- Udokumentowanie wpływu (kto/co/kiedy/jak dostarczono).
+- Nadanie identyfikatora w rejestrze przesyłek wpływających.
+- Zasilenie dalszych procesów: dekretacja, inicjacja/uzupełnienie sprawy, włączenie dokumentów.
+
+## Relacje
+- Może inicjować **Sprawę** lub zostać dołączona do sprawy już istniejącej.
+- Zawiera/wiąże **Dokumenty** (w tym odwzorowania cyfrowe papieru i załączniki).
+
+## Metadane (minimalny zestaw)
+Pola metadanych wynikają z instrukcji (minimalne zestawy metadanych). Przykładowe grupy:
+- Nadawca + adres.
+- Daty: data na piśmie, data nadania (opc.), data wpływu.
+- Identyfikatory: unikatowy identyfikator w systemie (RPW/ID), znak nadany przez nadawcę.
+- Opis: tytuł, rodzaj dokumentu, uwagi.
+- Dostęp/klasyfikacja dostępu.
+
+Jeżeli potrzebujesz tabeli pól (Pole/Znaczenie/Typ/Wymagalność/Źródło/Kto uzupełnia/Reguły), użyj wzorca z: [../plan-obiektow-i-pol](../plan-obiektow-i-pol).
+
+## Pakiet archiwalny a JRWA (reguła domyślna)
+W projekcie przyjmujemy, że **wariant pakietu archiwalnego zależy od przypisanego JRWA** (na klasie JRWA jako domyślna konfiguracja):
+- `archivalPackageVariant: package_a | package_b`
+
+Uwaga: to pole jest rozdzielone od retencji (`retentionCategory: A/B/BE...`) żeby nie mieszać dwóch różnych osi znaczeniowych.
+
+## Źródła
+- Minimalny zestaw metadanych przesyłki wpływającej (MKiDN 2021): [../zrodla/instrukcja-kancelaryjna-mkidn-2021/zalacznik-a-metadane-przesylka-wplywajaca](../zrodla/instrukcja-kancelaryjna-mkidn-2021/zalacznik-a-metadane-przesylka-wplywajaca)
+- Przyjmowanie/rejestracja przesyłek (MKiDN 2021): [../zrodla/instrukcja-kancelaryjna-mkidn-2021/rozdzial-02-przyjmowanie-przesylek](../zrodla/instrukcja-kancelaryjna-mkidn-2021/rozdzial-02-przyjmowanie-przesylek)
+- Minimalny zestaw metadanych (MC 2024, Załącznik nr 1, Część A): [../zrodla/instrukcja-kancelaryjna-ministerstwo-cyfryzacji-2024/zal-01-instrukcja](../zrodla/instrukcja-kancelaryjna-ministerstwo-cyfryzacji-2024/zal-01-instrukcja)
+
+## Mapowanie OpenMercato ↔ EZD
+- Słownik danych (MVP): [../../../mapping/openmercato-ezd/data-dictionary](../../../mapping/openmercato-ezd/data-dictionary)
+- Przykłady payloadów Pakiet A/B: [../../../mapping/openmercato-ezd/examples-archival-packages](../../../mapping/openmercato-ezd/examples-archival-packages)
