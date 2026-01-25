@@ -1,0 +1,58 @@
+---
+title: Zakładanie sprawy i nadanie znaku sprawy
+---
+
+Ta strona opisuje neutralną czynność: **utworzenie sprawy** oraz (opcjonalnie) **nadanie znaku sprawy** zgodnie z regułami instrukcji kancelaryjnej.
+
+## Kontekst
+- Sprawa jest podstawową jednostką prowadzenia czynności i grupowania dokumentacji.
+- Znak sprawy jest identyfikatorem sprawy budowanym według reguł instrukcji kancelaryjnej.
+- W tym projekcie **Sprawa i Koszulka są jednym obiektem**; nadanie znaku sprawy to „przejście” z trybu roboczego do formalnej sprawy.
+
+Zobacz obiekt: [Sprawa / Koszulka](../obiekty/sprawa-koszulka).
+
+## Uczestnicy
+- Pracownik merytoryczny (zakłada sprawę, prowadzi akta).
+- Kancelaria / rejestrator (jeśli w organizacji istnieje rola weryfikacji i nadawania znaku).
+
+## Wejścia i warunki wstępne
+- Określony temat sprawy (tytuł/opis).
+- Wybrana **klasa JRWA** (albo możliwość wskazania jej w trakcie).
+- Zdefiniowane reguły numeracji/spisu spraw (organizacyjne).
+
+## Przebieg (neutralnie)
+1. Utwórz rekord sprawy (może powstać jako „koszulka” – bez znaku).
+2. Uzupełnij metadane sprawy (co najmniej tytuł, komórka/komórka merytoryczna wg potrzeb, JRWA jeśli wymagane na wejściu).
+3. Jeśli sprawa ma być formalnie prowadzona w spisie spraw: nadaj **znak sprawy**.
+4. Zapisz rekord; od tego momentu znak sprawy jest widoczny w UI i używany w powiązaniach/wyszukiwaniu.
+
+## Reguły (wynikające z instrukcji)
+Poniżej opisujemy reguły na poziomie systemowym, bez narzucania jednego konkretnego formatu.
+
+### Znak sprawy
+- Znak sprawy jest tworzony na podstawie przyjętych zasad instrukcji kancelaryjnej (lokalne warianty mogą różnić się szczegółami).
+- Znak sprawy powinien być **jednoznaczny** w przyjętym zakresie (np. rok + komórka + symbol JRWA + kolejny numer).
+- Znak sprawy powinien być trwały (zmiany muszą być audytowalne, a w praktyce zwykle ograniczane).
+
+### Spis spraw i numeracja
+- Nadanie znaku sprawy z reguły jest powiązane z wpisem do spisu spraw dla danej klasyfikacji/komórki.
+- Numeracja powinna wspierać ciągłość i unikalność (np. per rok / per komórka / per klasa JRWA – zależnie od instrukcji lokalnej).
+
+### Tryb roboczy (bez znaku)
+- System powinien dopuszczać utworzenie sprawy bez znaku (koszulka) i późniejsze nadanie znaku.
+- Dokumenty mogą być dopinane do sprawy także wtedy, gdy znak nie jest jeszcze nadany (o ile organizacja tak pracuje).
+
+## Wynik
+- Rekord sprawy istnieje w systemie.
+- Opcjonalnie: ma przypisany znak sprawy i figuruje w spisie spraw.
+
+## Powiązane
+- Obiekt: [Sprawa / Koszulka](../obiekty/sprawa-koszulka)
+- JRWA: [JRWA / wykaz akt](../jrwa)
+- Metoda uzupełniania pól: [Plan obiektów i pól](../plan-obiektow-i-pol)
+- Mapowanie: [Data dictionary](../../../mapping/openmercato-ezd/data-dictionary)
+
+## Źródła
+- Przykładowe instrukcje kancelaryjne (reguły spisu spraw i znaków spraw):
+  - [MKiDN 2021](../zrodla/instrukcja-kancelaryjna-mkidn-2021/index)
+  - [MC 2024](../zrodla/instrukcja-kancelaryjna-ministerstwo-cyfryzacji-2024/index)

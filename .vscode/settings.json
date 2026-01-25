@@ -1,6 +1,12 @@
 {
     "chatgpt.openOnStartup": true,
     "chat.tools.terminal.autoApprove": {
-        "corepack": true
+        "corepack": true,
+        "/^npm run -w docs typecheck$/": {
+            "approve": true,
+            "matchCommandLine": true
+        },
+        "yarn -s build": true,
+        "npm install": true
     }
 }

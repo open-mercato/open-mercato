@@ -192,6 +192,7 @@ const sidebars: SidebarsConfig = {
                           items: [
                             "domains/prawo/administracja-publiczna/obszary/archiwalno-kancelaryjne/obiekty/index",
                             "domains/prawo/administracja-publiczna/obszary/archiwalno-kancelaryjne/obiekty/przesylka-wplywajaca",
+                            "domains/prawo/administracja-publiczna/obszary/archiwalno-kancelaryjne/obiekty/sprawa-koszulka",
                           ],
                         },
                         {
@@ -200,6 +201,7 @@ const sidebars: SidebarsConfig = {
                           items: [
                             "domains/prawo/administracja-publiczna/obszary/archiwalno-kancelaryjne/czynnosci/index",
                             "domains/prawo/administracja-publiczna/obszary/archiwalno-kancelaryjne/czynnosci/rejestracja-przesylki-wplywajacej",
+                            "domains/prawo/administracja-publiczna/obszary/archiwalno-kancelaryjne/czynnosci/zakladanie-sprawy-i-nadanie-znaku-sprawy",
                           ],
                         },
                       ],

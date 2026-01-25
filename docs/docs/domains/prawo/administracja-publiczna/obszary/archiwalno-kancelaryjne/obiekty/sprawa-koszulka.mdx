@@ -1,0 +1,48 @@
+---
+title: Sprawa / Koszulka
+---
+
+Ten dokument opisuje neutralny obiekt domenowy **Sprawa / Koszulka** w obszarze archiwalno‑kancelaryjnym.
+
+## Definicja
+- **Sprawa**: podstawowa jednostka prowadzenia czynności i grupowania dokumentacji.
+- **Koszulka**: tryb roboczy tego samego obiektu (kontener/teczka tematyczna) przed nadaniem znaku sprawy.
+
+Założenie projektowe (mapowanie): **Sprawa i Koszulka są tą samą encją**, a różnica wynika wyłącznie z tego, czy rekord ma przypisany znak sprawy.
+Zobacz decyzję: [D-009: Ujednolicenie Sprawa = Koszulka](../../../mapping/openmercato-ezd/decisions#d-009-ujednolicenie-sprawa--koszulka).
+
+## Po co istnieje?
+- Grupuje dokumenty (przesyłki i dokumenty wewnętrzne) w ramach jednego tematu/problemu.
+- Umożliwia prowadzenie metadanych sprawy (klasyfikacja JRWA, kwalifikacja archiwalna, status).
+- Jest osią nawigacji dla „akt sprawy” (lista i układ dokumentów).
+
+## Minimalne pola (MVP)
+Nie duplikujemy tu tabeli pól. Zobacz słownik danych:
+- [Data dictionary: Sprawa](../../../mapping/openmercato-ezd/data-dictionary)
+
+## Tryb roboczy (Koszulka)
+„Koszulka” to ten sam rekord co „Sprawa”, ale:
+- nie ma jeszcze nadanego **znaku sprawy** (`sign` jest pusty),
+- służy jako kontener roboczy/teczka tematyczna (np. do gromadzenia materiałów przed formalnym wszczęciem sprawy).
+
+W praktyce to pozwala:
+- dopiąć dokumenty wcześniej, a znak sprawy nadać później,
+- prowadzić sprawy, które w danym kontekście nie wymagają formalnego znaku (jeśli organizacja dopuszcza takie podejście).
+
+## Zasady i powiązania
+- **Klasa JRWA**: sprawa jest klasyfikowana do jednej klasy JRWA.
+- **Kategoria archiwalna i retencja**: wynikają z JRWA (nie ustawiane niezależnie).
+- **Akta sprawy**: zbiór dokumentów powiązanych ze sprawą (także gdy `sign` jest pusty).
+- **Read-only / zamknięcie**: zamknięcie powinno blokować modyfikacje metadanych sprawy oraz dopinanie/odpinanie dokumentów.
+
+## Warianty / przykłady
+- W zależności od organizacji i instrukcji lokalnej zasady tworzenia spraw i budowania znaku sprawy mogą się różnić (prefiksy, numeracje, zakres spisu spraw).
+- Znak sprawy jest konstruowany w oparciu o przyjęty schemat klasyfikacji i numeracji; szczegóły opisujemy w czynności.
+
+## Powiązane czynności
+- [Zakładanie sprawy i nadanie znaku sprawy](../czynnosci/zakladanie-sprawy-i-nadanie-znaku-sprawy)
+
+## Źródła
+- Instrukcje przykładowe (reguły budowy znaków, prowadzenia spisu spraw):
+  - [MKiDN 2021](../zrodla/instrukcja-kancelaryjna-mkidn-2021/index)
+  - [MC 2024](../zrodla/instrukcja-kancelaryjna-ministerstwo-cyfryzacji-2024/index)
