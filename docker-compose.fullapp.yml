@@ -25,7 +25,7 @@ services:
       yarn start"
     working_dir: /app/apps/mercato
     ports:
-      - "3000:3000"
+      - "3000:5050"
     environment:
       NODE_ENV: development
       DATABASE_URL: postgres://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/${POSTGRES_DB:-open-mercato}
