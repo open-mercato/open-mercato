@@ -236,7 +236,7 @@ export async function runMcpDevServer(): Promise<void> {
     log('Entity graph generation skipped:', error instanceof Error ? error.message : error)
   }
 
-  // Index tools for search (if search service available)
+  // Index tools, API endpoints, and entity schemas for search (if search service available)
   try {
     const searchService = container.resolve('searchService') as SearchService
     await indexToolsForSearch(searchService)
@@ -245,6 +245,21 @@ export async function runMcpDevServer(): Promise<void> {
     const endpointCount = await indexApiEndpoints(searchService)
     if (endpointCount > 0) {
       log(`Indexed ${endpointCount} API endpoints for discovery`)
+    }
+
+    // Index entity schemas for discover_schema tool
+    try {
+      const { extractEntityGraph, cacheEntityGraph, getCachedEntityGraph } = await import('./entity-graph')
+      const { indexEntitiesForSearch } = await import('./entity-index')
+      const graph = getCachedEntityGraph()
+      if (graph) {
+        const { count } = await indexEntitiesForSearch(searchService, graph)
+        if (count > 0) {
+          log(`Indexed ${count} entity schemas for discovery`)
+        }
+      }
+    } catch (entityError) {
+      log('Entity schema indexing skipped:', entityError instanceof Error ? entityError.message : entityError)
     }
   } catch {
     log('Search indexing skipped (search service not available)')

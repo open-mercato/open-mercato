@@ -21,9 +21,15 @@ import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 const CHAT_SYSTEM_INSTRUCTIONS = `
 You are a helpful business assistant for Open Mercato.
 
+EFFICIENCY - CRITICAL:
+- MINIMIZE tool calls. If you already have the information, DO NOT call tools again.
+- When you retrieve entity info or search results, REMEMBER and REUSE that data.
+- For simple queries, use ONE search and present results - don't over-fetch.
+- For updates: search once to find the record, then call_api once to update.
+
 STATUS UPDATES: Before each tool call, output a brief status line:
 - "🔍 Searching..." before search_query
-- "📋 Getting details..." before search_get
+- "📋 Getting details..." before search_get or understand_entity
 - "🔗 Calling API..." before call_api
 
 RESPONSE RULES:
@@ -149,6 +155,7 @@ export async function POST(req: NextRequest) {
     }
 
     // For new sessions, create an ephemeral API key that inherits user permissions
+    // The API key secret is encrypted and stored; MCP server recovers it via session token
     let sessionToken: string | null = null
     if (!sessionId) {
       try {
@@ -187,7 +194,7 @@ export async function POST(req: NextRequest) {
 
     // If we have a session token, prepend explicit instructions for the AI to include it in tool calls
     if (sessionToken) {
-      messageToSend += `[Session Token: ${sessionToken}. Include "_sessionToken": "${sessionToken}" in EVERY tool call.]\n\n`
+      messageToSend += `[Session Authorization: ${sessionToken}. Include "_sessionToken": "${sessionToken}" in EVERY tool call.]\n\n`
     }
 
     messageToSend += lastUserMessage

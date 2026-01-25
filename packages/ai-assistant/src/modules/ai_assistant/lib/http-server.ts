@@ -12,7 +12,7 @@ import { jsonSchemaToZod, toSafeZodSchema } from './schema-utils'
 import type { McpServerConfig, McpToolContext } from './types'
 import type { SearchService } from '@open-mercato/search/service'
 import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
-import { findApiKeyBySessionToken } from '@open-mercato/core/modules/api_keys/services/apiKeyService'
+import { findSessionApiKeyWithSecret } from '@open-mercato/core/modules/api_keys/services/apiKeyService'
 
 /**
  * Options for the HTTP MCP server.
@@ -28,6 +28,7 @@ export type McpHttpServerOptions = {
 /**
  * Resolve user context from session token.
  * Returns null if session token is invalid or expired.
+ * Includes the decrypted API key secret for making authenticated API calls.
  */
 async function resolveSessionContext(
   sessionToken: string,
@@ -38,14 +39,16 @@ async function resolveSessionContext(
     const em = baseContext.container.resolve<EntityManager>('em')
     const rbacService = baseContext.container.resolve<RbacService>('rbacService')
 
-    // Look up ephemeral key by session token
-    const sessionKey = await findApiKeyBySessionToken(em, sessionToken)
-    if (!sessionKey) {
+    // Look up ephemeral key by session token with decrypted secret
+    const sessionResult = await findSessionApiKeyWithSecret(em, sessionToken)
+    if (!sessionResult) {
       if (debug) {
-        console.error(`[MCP HTTP] Session token not found or expired: ${sessionToken}`)
+        console.error(`[MCP HTTP] Session token not found, expired, or secret unavailable: ${sessionToken}`)
       }
       return null
     }
+
+    const { key: sessionKey, secret: sessionSecret } = sessionResult
 
     // Load ACL for the session user
     const userId = sessionKey.sessionUserId || sessionKey.createdBy
@@ -67,6 +70,7 @@ async function resolveSessionContext(
         organizationId: sessionKey.organizationId,
         features: acl.features.length,
         isSuperAdmin: acl.isSuperAdmin,
+        hasSessionSecret: !!sessionSecret,
       })
     }
 
@@ -77,7 +81,8 @@ async function resolveSessionContext(
       container: baseContext.container,
       userFeatures: acl.features,
       isSuperAdmin: acl.isSuperAdmin,
-      apiKeySecret: baseContext.apiKeySecret,
+      // Use the decrypted session secret for API calls (not the MCP server key)
+      apiKeySecret: sessionSecret,
     }
   } catch (error) {
     if (debug) {
@@ -180,6 +185,7 @@ function createMcpServerForRequest(
           if (sessionToken) {
             const sessionContext = await resolveSessionContext(sessionToken, toolContext, config.debug)
             if (sessionContext) {
+              // Session context includes the decrypted API key secret
               effectiveContext = sessionContext
             } else {
               // Session token expired - return user-friendly error for AI to relay
@@ -352,18 +358,33 @@ export async function runMcpHttpServer(options: McpHttpServerOptions): Promise<v
     console.error('[MCP HTTP] Entity graph generation skipped:', error instanceof Error ? error.message : error)
   }
 
-  // Index tools and API endpoints for hybrid search discovery (if search service available)
+  // Index tools, API endpoints, and entity schemas for hybrid search discovery (if search service available)
   try {
     const searchService = container.resolve('searchService') as SearchService
 
     // Index MCP tools
     await indexToolsForSearch(searchService)
 
-    // Index API endpoints for api_discover
+    // Index API endpoints for find_api
     const { indexApiEndpoints } = await import('./api-endpoint-index')
     const endpointCount = await indexApiEndpoints(searchService)
     if (endpointCount > 0) {
       console.error(`[MCP HTTP] Indexed ${endpointCount} API endpoints for hybrid search`)
+    }
+
+    // Index entity schemas for discover_schema
+    try {
+      const { getCachedEntityGraph } = await import('./entity-graph')
+      const { indexEntitiesForSearch } = await import('./entity-index')
+      const graph = getCachedEntityGraph()
+      if (graph) {
+        const { count } = await indexEntitiesForSearch(searchService, graph)
+        if (count > 0) {
+          console.error(`[MCP HTTP] Indexed ${count} entity schemas for hybrid search`)
+        }
+      }
+    } catch (entityError) {
+      console.error('[MCP HTTP] Entity schema indexing skipped:', entityError instanceof Error ? entityError.message : entityError)
     }
   } catch (error) {
     // Search service might not be configured - discovery will use fallback

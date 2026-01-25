@@ -40,22 +40,7 @@ function registerApiDiscoverTool(): void {
   registerMcpTool(
     {
       name: 'find_api',
-      description: `Search for API endpoints by keyword. Use AFTER understand_entity if you need more endpoint options.
-
-NOTE: understand_entity already returns the main CRUD endpoints for an entity.
-Use find_api only when:
-- understand_entity didn't show the endpoint you need
-- You need to search for a specific action across modules
-- You're looking for non-CRUD endpoints
-
-OUTPUT includes:
-- method, path, operationId
-- requestBody schema with required fields
-
-EXAMPLES:
-- "customer comments" - Find comment-related APIs
-- "export orders" - Find export functionality
-- "bulk update" - Find bulk operations`,
+      description: `Search for API endpoints by keyword. Use when you need to find specific endpoints not covered by standard CRUD paths.`,
       inputSchema: z.object({
         query: z
           .string()
@@ -133,25 +118,10 @@ function registerApiExecuteTool(): void {
   registerMcpTool(
     {
       name: 'call_api',
-      description: `Execute an API call. Use AFTER understand_entity to get the endpoint path and required fields.
+      description: `Execute an API call. Confirm with user before POST/PUT/DELETE operations.
 
-⚠️ WARNING: This tool can MODIFY and DELETE data!
-
-WORKFLOW:
-1. FIRST: Call understand_entity to get fields and endpoints
-2. For mutations (POST/PUT/DELETE): Confirm with user
-3. Then call this tool with the endpoint from understand_entity
-
-METHODS:
-- GET: Read data (safe)
-- POST: Create new record
-- PUT/PATCH: Update record
-- DELETE: Remove record (ALWAYS confirm first!)
-
-PARAMETERS:
-- method: HTTP method
-- path: API path from understand_entity (e.g., /api/customers/companies)
-- body: Request body with required fields from understand_entity`,
+Common paths: /api/customers/companies, /api/customers/people, /api/sales/orders
+For updates, include the record ID in the path (e.g., /api/customers/companies/123)`,
       inputSchema: z.object({
         method: z.enum(['GET', 'POST', 'PUT', 'PATCH', 'DELETE']).describe('HTTP method'),
         path: z

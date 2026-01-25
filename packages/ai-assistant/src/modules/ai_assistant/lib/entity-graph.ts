@@ -304,45 +304,6 @@ export function inferModuleFromEntity(className: string, tableName: string): str
 }
 
 /**
- * Convert entity class name to expected API path pattern.
- *
- * Examples:
- * - SalesOrder → /api/sales/orders
- * - CatalogProduct → /api/catalog/products
- * - CustomerCompany → /api/customers/companies
- */
-export function entityNameToApiPath(className: string, tableName: string): string {
-  const module = inferModuleFromEntity(className, tableName)
-
-  // Extract resource name from table (e.g., 'sales_orders' → 'orders')
-  const tableParts = tableName.split('_')
-  let resource: string
-
-  if (tableParts.length > 1) {
-    // Remove module prefix from table name
-    resource = tableParts.slice(1).join('_').replace(/_/g, '-')
-  } else {
-    // Fallback: derive from class name
-    const nameWithoutSuffix = className
-      .replace(/Entity$/, '')
-      .replace(/Model$/, '')
-
-    // Convert PascalCase to kebab-case and pluralize
-    resource = nameWithoutSuffix
-      .replace(/([A-Z])/g, '-$1')
-      .toLowerCase()
-      .replace(/^-/, '')
-
-    // Simple pluralization
-    if (!resource.endsWith('s')) {
-      resource += 's'
-    }
-  }
-
-  return `/api/${module}/${resource}`
-}
-
-/**
  * Get both outgoing and incoming relationships for an entity.
  */
 export function getEntityRelationships(
