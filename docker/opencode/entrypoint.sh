@@ -79,7 +79,32 @@ cat > "$CONFIG_FILE" << EOF
       "enabled": true
     }
   },
-  "permission": "allow",
+  "permission": {
+    "bash": {
+      "*": "deny"
+    },
+    "write": {
+      "*": "deny"
+    },
+    "edit": {
+      "*": "deny"
+    },
+    "read": {
+      "*": "deny"
+    },
+    "glob": {
+      "*": "deny"
+    },
+    "grep": {
+      "*": "deny"
+    },
+    "todoread": {
+      "*": "deny"
+    },
+    "todowrite": {
+      "*": "deny"
+    }
+  },
   "server": {
     "port": 4096,
     "hostname": "0.0.0.0"
