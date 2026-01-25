@@ -88,6 +88,45 @@ import { CustomFieldDef } from '@open-mercato/core/modules/entities/data/entitie
 import type { SalesOrderEntity } from '@open-mercato/core/modules/sales'
 ```
 
+## Documentation and Specifications
+
+Architecture Decision Records (ADR) and feature specifications are maintained in the `.ai/specs/` folder. This serves as the source of truth for design decisions and module specifications.
+
+### Spec Files
+- Location: `.ai/specs/<module-name>.md` (e.g., `.ai/specs/notifications-module.md`)
+- Each spec documents the module's purpose, architecture, API contracts, data models, and implementation details.
+- Specs should include a **Changelog** section at the bottom to track evolution over time.
+
+### When Developing Features
+1. **Before coding**: Check if a spec exists for the module you're modifying. Read it to understand the design intent.
+2. **When adding features**: Update the corresponding spec file with:
+   - New functionality description
+   - API changes
+   - Data model updates
+   - A changelog entry with date and summary
+3. **When creating new modules**: Create a new spec file at `.ai/specs/<module-name>.md` before or alongside implementation.
+
+### Spec Changelog Format
+Each spec should maintain a changelog at the bottom:
+```markdown
+## Changelog
+
+### 2026-01-23
+- Added email notification channel support
+- Updated notification preferences API
+
+### 2026-01-15
+- Initial specification
+```
+
+### Auto-generating Specs
+Even when not explicitly asked to update specs, agents should:
+- Generate or update the spec when implementing significant changes
+- Keep specs synchronized with the actual implementation
+- Document any architectural decisions made during development
+
+This ensures the `.ai/specs/` folder remains a reliable reference for understanding module behavior and history.
+
 ## Conventions
 - Modules: plural, snake_case (folders and `id`). Special cases: `auth`, `example`.
 - JS/TS fields and identifiers: camelCase.
@@ -301,7 +340,7 @@ All module paths below use `src/modules/<module>/` as a shorthand. In practice:
 - New CRUD forms should use `CrudForm` wired to CRUD factory/commands APIs and be shared between create/edit flows.
 - Prefer reusing components from the shared `packages/ui` package before introducing new UI primitives.
 - For new `DataTable` columns, set `meta.truncate` and `meta.maxWidth` in the column config when you need specific truncation behavior; only rely on defaults when those are not set.
-- When you create new UI check reusable components before creating UI from scratch @.ai/spec/ui-reusable-components.md
+- When you create new UI check reusable components before creating UI from scratch (see `.ai/specs/ui-reusable-components.md`)
 
 ### Type Safety Addendum
 - Centralize reusable types and constants (e.g., custom field kinds) in `packages/shared` and import them everywhere to avoid drift.
