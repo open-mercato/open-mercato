@@ -19,6 +19,8 @@ services:
   app:
     build:
       context: .
+      args:
+        - CONTAINER_PORT=${CONTAINER_PORT:-3000}
     image: open-mercato/app:dev
     command: >
       sh -c "yarn mercato init &&
