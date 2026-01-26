@@ -5,6 +5,8 @@ import { X, Bell, AlertTriangle, CheckCircle2, XCircle, Info, Loader2 } from 'lu
 import { Button } from '../../primitives/button'
 import { cn } from '@open-mercato/shared/lib/utils'
 import type { NotificationDto } from './types'
+import type { NotificationRendererProps, NotificationTypeAction } from '@open-mercato/shared/modules/notifications/types'
+import type { ComponentType } from 'react'
 
 export type NotificationItemProps = {
   notification: NotificationDto
@@ -12,6 +14,34 @@ export type NotificationItemProps = {
   onExecuteAction: (actionId: string) => Promise<{ href?: string }>
   onDismiss: () => Promise<void>
   t: (key: string, fallback?: string) => string
+  /**
+   * Optional custom renderer component for this notification type.
+   * When provided, this component will be used instead of the default rendering.
+   *
+   * Custom renderers receive full control over the notification's appearance while
+   * still having access to action handlers and notification data.
+   *
+   * @example
+   * ```tsx
+   * // In your module's notifications.client.ts
+   * export const salesNotificationTypes = [
+   *   {
+   *     type: 'sales.order.created',
+   *     Renderer: SalesOrderCreatedRenderer,
+   *     // ...other fields
+   *   }
+   * ]
+   *
+   * // Usage in NotificationPanel
+   * const renderer = salesNotificationTypes.find(t => t.type === notification.type)?.Renderer
+   * <NotificationItem
+   *   notification={notification}
+   *   customRenderer={renderer}
+   *   ...
+   * />
+   * ```
+   */
+  customRenderer?: ComponentType<NotificationRendererProps>
 }
 
 function formatTimeAgo(dateString: string): string {
@@ -49,6 +79,7 @@ export function NotificationItem({
   onExecuteAction,
   onDismiss,
   t,
+  customRenderer: CustomRenderer,
 }: NotificationItemProps) {
   const router = useRouter()
   const [executing, setExecuting] = React.useState<string | null>(null)
@@ -67,8 +98,8 @@ export function NotificationItem({
     }
   }
 
-  const handleAction = async (actionId: string, event: React.MouseEvent) => {
-    event.stopPropagation()
+  const handleAction = async (actionId: string, event?: React.MouseEvent) => {
+    event?.stopPropagation()
     setExecuting(actionId)
     try {
       const result = await onExecuteAction(actionId)
@@ -80,9 +111,41 @@ export function NotificationItem({
     }
   }
 
-  const handleDismiss = async (event: React.MouseEvent) => {
-    event.stopPropagation()
+  const handleDismiss = async (event?: React.MouseEvent) => {
+    event?.stopPropagation()
     await onDismiss()
+  }
+
+  // Convert notification actions to the format expected by custom renderers
+  const rendererActions: NotificationTypeAction[] = notification.actions.map((action) => ({
+    id: action.id,
+    labelKey: action.label, // Use label as labelKey for compatibility
+    variant: action.variant as NotificationTypeAction['variant'],
+    icon: action.icon,
+  }))
+
+  // Use custom renderer if provided
+  if (CustomRenderer) {
+    return (
+      <CustomRenderer
+        notification={{
+          id: notification.id,
+          type: notification.type,
+          title: notification.title,
+          body: notification.body,
+          icon: notification.icon,
+          severity: notification.severity,
+          status: notification.status,
+          sourceModule: notification.sourceModule,
+          sourceEntityType: notification.sourceEntityType,
+          sourceEntityId: notification.sourceEntityId,
+          createdAt: notification.createdAt,
+        }}
+        onAction={handleAction}
+        onDismiss={handleDismiss}
+        actions={rendererActions}
+      />
+    )
   }
 
   return (

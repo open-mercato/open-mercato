@@ -2,9 +2,142 @@
 
 ## Overview
 
-The Notifications module provides actionable in-app notifications with module-extensible types and actions. Users receive real-time notifications about events requiring their attention (e.g., approval requests, system alerts) and can take actions directly from the notification panel.
+The Notifications module provides actionable in-app notifications with **i18n-first design**, module-extensible types, and command bus integration. Users receive real-time notifications about events requiring their attention (e.g., approval requests, system alerts) and can take actions directly from the notification panel.
 
 **Package Location:** `packages/core/src/modules/notifications/`
+
+## ⭐ i18n-First Design Philosophy
+
+**CRITICAL**: This module follows an **i18n-first approach**. All notifications MUST use i18n keys (`titleKey`, `bodyKey`) with optional variable interpolation, rather than hardcoded text. This ensures notifications are properly translated for all users.
+
+### Key Principles
+
+1. **Define notification types in `notifications.ts`** with i18n keys (`titleKey`, `bodyKey`)
+2. **Use `buildNotificationFromType()` helper** to create properly i18n'd notifications
+3. **Store i18n keys in database** - translation happens at display time
+4. **Provide template variables** for dynamic content interpolation (`titleVariables`, `bodyVariables`)
+
+### Quick Example
+
+```typescript
+// ❌ WRONG: Hardcoded text
+await notificationService.create({
+  recipientUserId: user.id,
+  type: 'order.shipped',
+  title: 'Your order has been shipped',  // ❌ Hardcoded English text
+  body: `Order #${orderNumber} is on its way`,
+  //... rest
+}, ctx)
+
+// ✅ CORRECT: i18n-first with keys
+import { getNotificationType } from '@/.mercato/generated/notifications.generated'
+import { buildNotificationFromType } from '@open-mercato/core/modules/notifications/lib/notificationBuilder'
+
+const typeDef = getNotificationType('order.shipped')!
+const notification = buildNotificationFromType(typeDef, {
+  recipientUserId: user.id,
+  titleVariables: { orderNumber: order.number },
+  bodyVariables: { trackingUrl: order.trackingUrl },
+  sourceEntityId: order.id,
+})
+await notificationService.create(notification, ctx)
+```
+
+### Complete Workflow Example
+
+**Step 1: Define notification types with i18n keys**
+
+```typescript
+// packages/core/src/modules/sales/notifications.ts
+import type { NotificationTypeDefinition } from '@open-mercato/shared/modules/notifications/types'
+
+export const notificationTypes: NotificationTypeDefinition[] = [
+  {
+    type: 'sales.order.shipped',
+    module: 'sales',
+    titleKey: 'sales.notifications.order.shipped.title',
+    bodyKey: 'sales.notifications.order.shipped.body',
+    icon: 'truck',
+    severity: 'info',
+    actions: [
+      {
+        id: 'track',
+        labelKey: 'sales.actions.trackShipment',
+        variant: 'default',
+        icon: 'map-pin',
+        href: '/backend/sales/tracking/{trackingNumber}',  // {variable} for interpolation
+      },
+    ],
+    linkHref: '/backend/sales/orders/{orderId}',
+    expiresAfterHours: 168,  // 7 days
+  },
+]
+
+export default notificationTypes
+```
+
+**Step 2: Add i18n translations**
+
+```json
+// packages/core/src/modules/sales/i18n/en.json
+{
+  "sales.notifications.order.shipped.title": "Order #{orderNumber} shipped",
+  "sales.notifications.order.shipped.body": "Your order has been shipped and is on its way. Track it at {trackingUrl}",
+  "sales.actions.trackShipment": "Track Shipment"
+}
+```
+
+**Step 3: Create notification using the helper**
+
+```typescript
+// packages/core/src/modules/sales/subscribers/order-shipped.ts
+import { getNotificationType } from '@/.mercato/generated/notifications.generated'
+import { buildNotificationFromType } from '@open-mercato/core/modules/notifications/lib/notificationBuilder'
+
+export const metadata = {
+  event: 'sales.order.shipped',
+  id: 'sales:order-shipped-notification',
+}
+
+export default async function handle(payload: {
+  orderId: string
+  orderNumber: string
+  customerId: string
+  trackingNumber: string
+  trackingUrl: string
+  tenantId: string
+  organizationId?: string
+}, ctx: { resolve: <T>(name: string) => T }) {
+  const notificationService = ctx.resolve<NotificationService>('notificationService')
+
+  // Get the type definition
+  const typeDef = getNotificationType('sales.order.shipped')
+  if (!typeDef) return
+
+  // Build notification with variables
+  const input = buildNotificationFromType(typeDef, {
+    recipientUserId: payload.customerId,
+    titleVariables: { orderNumber: payload.orderNumber },
+    bodyVariables: { trackingUrl: payload.trackingUrl },
+    sourceEntityType: 'sales_order',
+    sourceEntityId: payload.orderId,
+    linkHref: `/backend/sales/orders/${payload.orderId}`,
+  })
+
+  // Create the notification
+  await notificationService.create(input, {
+    tenantId: payload.tenantId,
+    organizationId: payload.organizationId,
+  })
+}
+```
+
+**Step 4: Translation at display time** (automatic)
+
+The frontend components automatically resolve i18n keys when displaying:
+- `titleKey` + `titleVariables` → translated title
+- `bodyKey` + `bodyVariables` → translated body
+- Action `labelKey` → translated action label
 
 ---
 
@@ -2191,7 +2324,7 @@ async createForFeature(input, ctx) {
 
 ## Changelog
 
-### 2026-01-26 (Implementation Complete)
+### 2026-01-26 (i18n-First Refactoring Complete)
 - ✅ **Complete backend infrastructure implemented**
   - Database entity with proper indexes and multi-tenant support
   - Migration file created and ready
@@ -2243,6 +2376,13 @@ async createForFeature(input, ctx) {
   - Notification type definitions use i18n keys
   - Action labels support i18n
   - Client components use i18n context
+- ✅ **i18n-first refactoring**
+  - Added `titleKey`, `bodyKey`, `titleVariables`, `bodyVariables` to entity
+  - Updated all validators to support i18n keys + fallback text
+  - Updated service, worker, and all creation methods for i18n support
+  - Created `buildNotificationFromType()` helper functions
+  - Migration `Migration20260126150000` adds i18n columns
+  - Spec updated with i18n-first philosophy and examples
 - **Next steps (future enhancements)**
   - Add comprehensive test suite
   - Create more example notification types in other modules
@@ -2250,3 +2390,4 @@ async createForFeature(input, ctx) {
   - Implement push notifications via WebSockets or SSE
   - Add notification grouping/threading
   - Email digest options
+  - Add API endpoint to resolve i18n keys at display time

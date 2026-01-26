@@ -6,6 +6,22 @@ import { Tabs, TabsList, TabsTrigger } from '../../primitives/tabs'
 import { cn } from '@open-mercato/shared/lib/utils'
 import { NotificationItem } from './NotificationItem'
 import type { NotificationDto } from './types'
+import type { NotificationRendererProps } from '@open-mercato/shared/modules/notifications/types'
+import type { ComponentType } from 'react'
+
+/**
+ * Map of notification type to custom renderer component.
+ * Used to provide custom rendering for specific notification types.
+ *
+ * @example
+ * ```tsx
+ * const customRenderers = {
+ *   'sales.order.created': SalesOrderCreatedRenderer,
+ *   'sales.quote.created': SalesQuoteCreatedRenderer,
+ * }
+ * ```
+ */
+export type NotificationRenderers = Record<string, ComponentType<NotificationRendererProps>>
 
 export type NotificationPanelProps = {
   open: boolean
@@ -18,6 +34,26 @@ export type NotificationPanelProps = {
   onDismiss: (id: string) => Promise<void>
   onMarkAllRead: () => Promise<void>
   t: (key: string, fallback?: string) => string
+  /**
+   * Optional map of notification type to custom renderer component.
+   * When a notification's type matches a key in this map, the corresponding
+   * renderer will be used instead of the default NotificationItem rendering.
+   *
+   * @example
+   * ```tsx
+   * import { salesNotificationTypes } from '@open-mercato/core/modules/sales/notifications.client'
+   *
+   * // Build renderers map from notification types
+   * const renderers = Object.fromEntries(
+   *   salesNotificationTypes
+   *     .filter(t => t.Renderer)
+   *     .map(t => [t.type, t.Renderer!])
+   * )
+   *
+   * <NotificationPanel customRenderers={renderers} ... />
+   * ```
+   */
+  customRenderers?: NotificationRenderers
 }
 
 export function NotificationPanel({
@@ -30,6 +66,7 @@ export function NotificationPanel({
   onDismiss,
   onMarkAllRead,
   t,
+  customRenderers,
 }: NotificationPanelProps) {
   const [filter, setFilter] = React.useState<'all' | 'unread' | 'action'>('all')
   const [markingAllRead, setMarkingAllRead] = React.useState(false)
@@ -151,6 +188,7 @@ export function NotificationPanel({
                     onExecuteAction={(actionId) => onExecuteAction(notification.id, actionId)}
                     onDismiss={() => onDismiss(notification.id)}
                     t={t}
+                    customRenderer={customRenderers?.[notification.type]}
                   />
                 ))}
               </div>
