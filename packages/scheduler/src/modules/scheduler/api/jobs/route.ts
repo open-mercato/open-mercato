@@ -1,12 +1,21 @@
 import { z } from 'zod'
 import { makeCrudRoute } from '@open-mercato/shared/lib/crud/factory'
+import { resolveCrudRecordId } from '@open-mercato/shared/lib/api/scoped'
+import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
+import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { ScheduledJob } from '../../data/entities.js'
 import {
   scheduleCreateSchema,
   scheduleUpdateSchema,
+  scheduleDeleteSchema,
   scheduleListQuerySchema,
 } from '../../data/validators.js'
 import { escapeLikePattern } from '@open-mercato/shared/lib/db/escapeLikePattern'
+import {
+  createSchedulerCrudOpenApi,
+  createPagedListResponseSchema,
+  defaultOkResponseSchema,
+} from '../openapi.js'
 
 const rawBodySchema = z.object({}).passthrough()
 
@@ -43,6 +52,7 @@ const crud = makeCrudRoute({
       'target_type',
       'target_queue',
       'target_command',
+      'target_payload',
       'require_feature',
       'is_enabled',
       'last_run_at',
@@ -60,6 +70,10 @@ const crud = makeCrudRoute({
     },
     buildFilters: async (query, ctx) => {
       const filters: Record<string, any> = {}
+
+      if (query.id) {
+        filters.id = { $eq: query.id }
+      }
 
       if (query.search) {
         filters.$or = [
@@ -135,10 +149,13 @@ const crud = makeCrudRoute({
     delete: {
       commandId: 'scheduler.jobs.delete',
       schema: rawBodySchema,
-      mapInput: async ({ raw }) => {
-        const id = raw?.id
+      mapInput: async ({ parsed, ctx }) => {
+        const { translate } = await resolveTranslations()
+        const id = resolveCrudRecordId(parsed, ctx, translate)
         if (!id) {
-          throw new Error('Schedule id is required')
+          throw new CrudHttpError(400, { 
+            error: translate('scheduler.errors.id_required', 'Schedule id is required') 
+          })
         }
         return { id }
       },
@@ -149,158 +166,49 @@ const crud = makeCrudRoute({
 
 export const { GET, POST, PUT, DELETE } = crud
 
+// Response schemas
+const scheduledJobListItemSchema = z.object({
+  id: z.string().uuid(),
+  name: z.string(),
+  description: z.string().nullable(),
+  scopeType: z.enum(['system', 'organization', 'tenant']),
+  organizationId: z.string().uuid().nullable(),
+  tenantId: z.string().uuid().nullable(),
+  scheduleType: z.enum(['cron', 'interval']),
+  scheduleValue: z.string(),
+  timezone: z.string(),
+  targetType: z.enum(['queue', 'command']),
+  targetQueue: z.string().nullable(),
+  targetCommand: z.string().nullable(),
+  targetPayload: z.record(z.string(), z.unknown()).nullable(),
+  requireFeature: z.string().nullable(),
+  isEnabled: z.boolean(),
+  lastRunAt: z.string().nullable(),
+  nextRunAt: z.string().nullable(),
+  sourceType: z.enum(['user', 'module']),
+  sourceModule: z.string().nullable(),
+  createdAt: z.string(),
+  updatedAt: z.string(),
+})
+
 // OpenAPI specification
-export const openApi = {
-  GET: {
-    tags: ['Scheduler'],
-    summary: 'List scheduled jobs',
-    description: 'Get a paginated list of scheduled jobs',
-    parameters: [
-      { name: 'page', in: 'query', schema: { type: 'integer', minimum: 1, default: 1 } },
-      { name: 'pageSize', in: 'query', schema: { type: 'integer', minimum: 1, maximum: 100, default: 20 } },
-      { name: 'search', in: 'query', schema: { type: 'string' } },
-      { name: 'scopeType', in: 'query', schema: { type: 'string', enum: ['system', 'organization', 'tenant'] } },
-      { name: 'isEnabled', in: 'query', schema: { type: 'boolean' } },
-      { name: 'sourceType', in: 'query', schema: { type: 'string', enum: ['user', 'module'] } },
-      { name: 'sourceModule', in: 'query', schema: { type: 'string' } },
-    ],
-    responses: {
-      200: {
-        description: 'List of scheduled jobs',
-        content: {
-          'application/json': {
-            schema: {
-              type: 'object',
-              properties: {
-                data: { type: 'array', items: { type: 'object' } },
-                total: { type: 'integer' },
-                page: { type: 'integer' },
-                pageSize: { type: 'integer' },
-              },
-            },
-          },
-        },
-      },
-    },
+export const openApi = createSchedulerCrudOpenApi({
+  resourceName: 'ScheduledJob',
+  pluralName: 'ScheduledJobs',
+  querySchema: scheduleListQuerySchema,
+  listResponseSchema: createPagedListResponseSchema(scheduledJobListItemSchema),
+  create: {
+    schema: scheduleCreateSchema,
+    description: 'Creates a new scheduled job with cron or interval-based scheduling.',
   },
-  POST: {
-    tags: ['Scheduler'],
-    summary: 'Create a scheduled job',
-    requestBody: {
-      required: true,
-      content: {
-        'application/json': {
-          schema: {
-            type: 'object',
-            required: ['name', 'scopeType', 'scheduleType', 'scheduleValue', 'targetType'],
-            properties: {
-              name: { type: 'string' },
-              description: { type: 'string', nullable: true },
-              scopeType: { type: 'string', enum: ['system', 'organization', 'tenant'] },
-              organizationId: { type: 'string', format: 'uuid', nullable: true },
-              tenantId: { type: 'string', format: 'uuid', nullable: true },
-              scheduleType: { type: 'string', enum: ['cron', 'interval'] },
-              scheduleValue: { type: 'string' },
-              timezone: { type: 'string', default: 'UTC' },
-              targetType: { type: 'string', enum: ['queue', 'command'] },
-              targetQueue: { type: 'string', nullable: true },
-              targetCommand: { type: 'string', nullable: true },
-              targetPayload: { type: 'object', nullable: true },
-              requireFeature: { type: 'string', nullable: true },
-              isEnabled: { type: 'boolean', default: true },
-            },
-          },
-        },
-      },
-    },
-    responses: {
-      201: {
-        description: 'Schedule created',
-        content: {
-          'application/json': {
-            schema: {
-              type: 'object',
-              properties: {
-                id: { type: 'string', format: 'uuid' },
-              },
-            },
-          },
-        },
-      },
-    },
+  update: {
+    schema: scheduleUpdateSchema,
+    responseSchema: defaultOkResponseSchema,
+    description: 'Updates an existing scheduled job by ID.',
   },
-  PUT: {
-    tags: ['Scheduler'],
-    summary: 'Update a scheduled job',
-    requestBody: {
-      required: true,
-      content: {
-        'application/json': {
-          schema: {
-            type: 'object',
-            required: ['id'],
-            properties: {
-              id: { type: 'string', format: 'uuid' },
-              name: { type: 'string' },
-              description: { type: 'string', nullable: true },
-              scheduleType: { type: 'string', enum: ['cron', 'interval'] },
-              scheduleValue: { type: 'string' },
-              timezone: { type: 'string' },
-              targetPayload: { type: 'object', nullable: true },
-              requireFeature: { type: 'string', nullable: true },
-              isEnabled: { type: 'boolean' },
-            },
-          },
-        },
-      },
-    },
-    responses: {
-      200: {
-        description: 'Schedule updated',
-        content: {
-          'application/json': {
-            schema: {
-              type: 'object',
-              properties: {
-                ok: { type: 'boolean' },
-              },
-            },
-          },
-        },
-      },
-    },
+  del: {
+    schema: scheduleDeleteSchema,
+    responseSchema: defaultOkResponseSchema,
+    description: 'Deletes a scheduled job by ID.',
   },
-  DELETE: {
-    tags: ['Scheduler'],
-    summary: 'Delete a scheduled job',
-    requestBody: {
-      required: true,
-      content: {
-        'application/json': {
-          schema: {
-            type: 'object',
-            required: ['id'],
-            properties: {
-              id: { type: 'string', format: 'uuid' },
-            },
-          },
-        },
-      },
-    },
-    responses: {
-      200: {
-        description: 'Schedule deleted',
-        content: {
-          'application/json': {
-            schema: {
-              type: 'object',
-              properties: {
-                ok: { type: 'boolean' },
-              },
-            },
-          },
-        },
-      },
-    },
-  },
-}
+})

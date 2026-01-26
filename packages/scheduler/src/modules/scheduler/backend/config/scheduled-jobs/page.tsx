@@ -231,6 +231,10 @@ export default function SchedulerPage() {
   const rowActions = React.useCallback(
     (row: ScheduleRow): RowActionItem[] => [
       {
+        label: t('scheduler.action.view', 'View Details'),
+        onSelect: () => router.push(`/backend/config/scheduled-jobs/${row.id}`),
+      },
+      {
         label: t('scheduler.action.edit', 'Edit'),
         onSelect: () => router.push(`/backend/config/scheduled-jobs/${row.id}/edit`),
       },
@@ -259,6 +263,7 @@ export default function SchedulerPage() {
           }
           columns={columns}
           data={rows}
+          onRowClick={(row) => router.push(`/backend/config/scheduled-jobs/${row.id}`)}
           rowActions={(row) => <RowActions items={rowActions(row)} />}
           pagination={{ page, pageSize, total, totalPages, onPageChange: setPage }}
           isLoading={isLoading}

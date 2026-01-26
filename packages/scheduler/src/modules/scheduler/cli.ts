@@ -72,28 +72,26 @@ const statusCommand: ModuleCli = {
 
     const totalCount = await em.count(ScheduledJob, { deletedAt: null })
     const enabledCount = await em.count(ScheduledJob, { isEnabled: true, deletedAt: null })
-    const disabledCount = await em.count(ScheduledJob, { isEnabled: false, deletedAt: null })
-
     const dueCount = await em.count(ScheduledJob, {
       isEnabled: true,
       deletedAt: null,
       nextRunAt: { $lte: new Date() },
     })
 
-    const strategy = process.env.SCHEDULER_STRATEGY || 'local'
-    const pollInterval = parseInt(process.env.SCHEDULER_POLL_INTERVAL_MS || '30000', 10)
-    const enabled = process.env.SCHEDULER_ENABLED !== 'false'
+    const queueStrategy = process.env.QUEUE_STRATEGY || 'local'
 
     console.log('\n📊 Scheduler Status\n')
-    console.log('Configuration:')
-    console.log(`  Strategy: ${strategy}`)
-    console.log(`  Poll Interval: ${pollInterval}ms (${Math.round(pollInterval / 1000)}s)`)
-    console.log(`  Engine Enabled: ${enabled ? '✓ Yes' : '✗ No'}`)
+    console.log('Strategy:', queueStrategy === 'async' ? 'BullMQ (async)' : 'Local (polling)')
+    
+    if (queueStrategy === 'local') {
+      const pollInterval = parseInt(process.env.SCHEDULER_POLL_INTERVAL_MS || '30000', 10)
+      console.log('Poll Interval:', `${Math.round(pollInterval / 1000)}s`)
+    }
+    
     console.log('')
     console.log('Schedules:')
     console.log(`  Total: ${totalCount}`)
     console.log(`  Enabled: ${enabledCount}`)
-    console.log(`  Disabled: ${disabledCount}`)
     console.log(`  Due Now: ${dueCount}`)
     console.log('')
   },
@@ -157,23 +155,18 @@ const startCommand: ModuleCli = {
         const bullmqService = resolve('bullmqSchedulerService') as any
         
         if (!bullmqService) {
-          console.error('❌ BullMQSchedulerService not registered.')
-          console.error('   Make sure QUEUE_STRATEGY=async is set.')
+          console.error('❌ BullMQSchedulerService not available.')
+          console.error('   Set QUEUE_STRATEGY=async and configure REDIS_URL.')
           process.exit(1)
         }
-
-        console.log('Configuration:')
-        console.log(`  Queue Strategy: ${queueStrategy}`)
-        console.log(`  Redis URL: ${process.env.REDIS_URL || process.env.QUEUE_REDIS_URL || 'default'}`)
-        console.log('')
 
         // Sync all enabled schedules with BullMQ
         await bullmqService.syncAll()
 
         console.log('✓ Scheduler sync completed')
         console.log('')
-        console.log('BullMQ is now managing all schedules.')
-        console.log('Make sure workers are running to process scheduled jobs:')
+        console.log('BullMQ is managing all schedules.')
+        console.log('Start workers to process jobs:')
         console.log('  yarn mercato worker:start')
         console.log('')
       } catch (error: any) {
@@ -186,32 +179,27 @@ const startCommand: ModuleCli = {
         const localService = resolve('localSchedulerService') as any
         
         if (!localService) {
-          console.error('❌ LocalSchedulerService not registered.')
-          console.error('   Make sure QUEUE_STRATEGY=local is set (or omitted).')
+          console.error('❌ LocalSchedulerService not available.')
+          console.error('   This should not happen in local mode.')
           process.exit(1)
         }
 
         const pollInterval = parseInt(process.env.SCHEDULER_POLL_INTERVAL_MS || '30000', 10)
 
-        console.log('Configuration:')
-        console.log(`  Queue Strategy: ${queueStrategy}`)
-        console.log(`  Poll Interval: ${pollInterval}ms (${Math.round(pollInterval / 1000)}s)`)
-        console.log('')
-
         // Start the local polling engine
         await localService.start()
 
-        console.log('✓ Local scheduler engine started')
-        console.log('')
-        console.log('The scheduler will poll for due schedules every', Math.round(pollInterval / 1000), 'seconds.')
+        console.log('✓ Local scheduler started (polling every', Math.round(pollInterval / 1000), 'seconds)')
         console.log('Press Ctrl+C to stop.')
+        console.log('')
+        console.log('💡 Tip: For production, use QUEUE_STRATEGY=async with Redis.')
         console.log('')
 
         // Keep the process alive and handle graceful shutdown
         const gracefulShutdown = async () => {
-          console.log('\n📛 Shutting down scheduler...')
+          console.log('\n📛 Shutting down...')
           await localService.stop()
-          console.log('✓ Scheduler stopped')
+          console.log('✓ Stopped')
           process.exit(0)
         }
 

@@ -1,9 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { z } from 'zod'
+import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { EntityManager } from '@mikro-orm/core'
-import type { Queue } from '@open-mercato/queue'
-import { ScheduledJob, ScheduledJobRun } from '../../data/entities.js'
+import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
+import { createQueue } from '@open-mercato/queue'
+import { ScheduledJob } from '../../data/entities.js'
 import { scheduleTriggerSchema } from '../../data/validators.js'
+import type { ExecuteSchedulePayload } from '../../workers/execute-schedule.worker.js'
 
 export const metadata = {
   requireAuth: true,
@@ -13,15 +17,18 @@ export const metadata = {
 /**
  * POST /api/scheduler/trigger
  * Manually trigger a schedule
+ * 
+ * This enqueues the schedule execution job in BullMQ.
+ * Execution history is tracked in BullMQ job state.
  */
 export async function POST(req: NextRequest) {
-  const container = await createRequestContainer()
-  const em = container.resolve<EntityManager>('em')
-  const auth = container.resolve<any>('auth')
-
-  if (!auth?.userId) {
+  const auth = await getAuthFromRequest(req)
+  if (!auth?.sub) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
+
+  const container = await createRequestContainer()
+  const em = container.resolve<EntityManager>('em')
 
   try {
     const body = await req.json()
@@ -42,75 +49,53 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Access denied' }, { status: 403 })
     }
 
-    if (!auth.isSuperAdmin && schedule.organizationId && schedule.organizationId !== auth.organizationId) {
+    if (schedule.organizationId && schedule.organizationId !== auth.orgId) {
       return NextResponse.json({ error: 'Access denied' }, { status: 403 })
     }
 
-    // Create run record
-    const run = em.create(ScheduledJobRun, {
-      scheduledJobId: schedule.id,
-      organizationId: schedule.organizationId || null,
-      tenantId: schedule.tenantId || null,
-      triggerType: 'manual',
-      triggeredByUserId: input.userId || auth.userId,
-      status: 'running',
-      payload: schedule.targetPayload,
-      startedAt: new Date(),
-      createdAt: new Date(),
-    })
-    em.persist(run)
-    await em.flush()
-
-    try {
-      // Enqueue job
-      if (schedule.targetType === 'queue' && schedule.targetQueue) {
-        // Resolve queue from container
-        const queueName = schedule.targetQueue
-        const queue = container.resolve<Queue<any>>(`${queueName}Queue`)
-        
-        if (!queue) {
-          throw new Error(`Queue not found: ${queueName}`)
-        }
-
-        const jobId = await queue.enqueue({
-          ...(schedule.targetPayload ?? {}),
-          tenantId: schedule.tenantId,
-          organizationId: schedule.organizationId,
-        })
-
-        run.queueJobId = jobId
-        run.queueName = schedule.targetQueue
-      }
-
-      // Mark as completed
-      run.status = 'completed'
-      run.finishedAt = new Date()
-      run.durationMs = run.finishedAt.getTime() - run.startedAt.getTime()
-      await em.flush()
-
-      return NextResponse.json({
-        ok: true,
-        runId: run.id,
-        queueJobId: run.queueJobId,
-      })
-    } catch (error) {
-      // Log error
-      run.status = 'failed'
-      run.errorMessage = error instanceof Error ? error.message : 'Unknown error'
-      run.errorStack = error instanceof Error ? error.stack : undefined
-      run.finishedAt = new Date()
-      run.durationMs = run.finishedAt.getTime() - run.startedAt.getTime()
-      await em.flush()
-
+    // Check if using async queue strategy
+    const queueStrategy = (process.env.QUEUE_STRATEGY || 'local') as 'local' | 'async'
+    
+    if (queueStrategy !== 'async') {
       return NextResponse.json(
-        {
-          error: 'Failed to trigger schedule',
-          message: error instanceof Error ? error.message : 'Unknown error',
-          runId: run.id,
+        { 
+          error: 'Manual trigger requires QUEUE_STRATEGY=async',
+          message: 'Execution history and manual triggers are only available with BullMQ (async strategy)'
         },
-        { status: 500 }
+        { status: 400 }
       )
     }
+
+    // Enqueue execution job to scheduler-execution queue
+    const executionQueue = createQueue<ExecuteSchedulePayload>('scheduler-execution', queueStrategy, {
+      connection: { url: process.env.REDIS_URL || process.env.QUEUE_REDIS_URL },
+    })
+
+    const payload: ExecuteSchedulePayload = {
+      scheduleId: schedule.id,
+      tenantId: schedule.tenantId,
+      organizationId: schedule.organizationId,
+      scopeType: schedule.scopeType,
+      triggerType: 'manual',
+      triggeredByUserId: input.userId || auth.sub,
+    }
+
+    const jobId = await executionQueue.enqueue(payload)
+    await executionQueue.close()
+
+    console.log('[scheduler:trigger] Manually triggered schedule:', {
+      scheduleId: schedule.id,
+      scheduleName: schedule.name,
+      jobId,
+      triggeredBy: input.userId || auth.sub,
+    })
+
+    return NextResponse.json({
+      ok: true,
+      jobId, // BullMQ job ID
+      message: 'Schedule queued for execution',
+    })
+
   } catch (error) {
     console.error('[scheduler:trigger] Error:', error)
     return NextResponse.json(
@@ -120,49 +105,45 @@ export async function POST(req: NextRequest) {
   }
 }
 
+// Response schemas
+const triggerResponseSchema = z.object({
+  ok: z.boolean(),
+  jobId: z.string(),
+  message: z.string(),
+})
+
+const errorResponseSchema = z.object({
+  error: z.string(),
+  message: z.string().optional(),
+})
+
 // OpenAPI specification
-export const openApi = {
-  POST: {
-    tags: ['Scheduler'],
-    summary: 'Manually trigger a schedule',
-    description: 'Execute a schedule immediately, bypassing the normal schedule time',
-    requestBody: {
-      required: true,
-      content: {
-        'application/json': {
-          schema: {
-            type: 'object',
-            required: ['id'],
-            properties: {
-              id: { type: 'string', format: 'uuid' },
-              userId: { type: 'string', format: 'uuid' },
-            },
-          },
+export const openApi: OpenApiRouteDoc = {
+  tag: 'Scheduler',
+  summary: 'Manually trigger a schedule',
+  description: 'Execute a schedule immediately by enqueueing it in the scheduler-execution queue. Requires QUEUE_STRATEGY=async.',
+  methods: {
+    POST: {
+      operationId: 'triggerScheduledJob',
+      summary: 'Manually trigger a schedule',
+      description: 'Executes a scheduled job immediately, bypassing the scheduled time. Only works with async queue strategy.',
+      requestBody: {
+        schema: scheduleTriggerSchema,
+        contentType: 'application/json',
+      },
+      responses: [
+        {
+          status: 200,
+          description: 'Schedule triggered successfully',
+          schema: triggerResponseSchema,
         },
-      },
-    },
-    responses: {
-      200: {
-        description: 'Schedule triggered successfully',
-        content: {
-          'application/json': {
-            schema: {
-              type: 'object',
-              properties: {
-                ok: { type: 'boolean' },
-                runId: { type: 'string', format: 'uuid' },
-                queueJobId: { type: 'string' },
-              },
-            },
-          },
-        },
-      },
-      404: {
-        description: 'Schedule not found',
-      },
-      403: {
-        description: 'Access denied',
-      },
+      ],
+      errors: [
+        { status: 400, description: 'Invalid request or local strategy not supported', schema: errorResponseSchema },
+        { status: 401, description: 'Unauthorized', schema: errorResponseSchema },
+        { status: 403, description: 'Access denied', schema: errorResponseSchema },
+        { status: 404, description: 'Schedule not found', schema: errorResponseSchema },
+      ],
     },
   },
 }

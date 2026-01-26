@@ -47,6 +47,9 @@ export async function createRequestContainer(): Promise<AppContainer> {
   const container = createContainer({ injectionMode: InjectionMode.CLASSIC })
   // Core registrations
   container.register({
+    // Self-reference: allows workers and other contexts to access the container
+    // This is required for command execution in workers (CommandBus needs container)
+    container: asValue(container),
     em: asValue(em),
     queryEngine: asValue(new BasicQueryEngine(em, undefined, () => {
       try { return container.resolve('tenantEncryptionService') as any } catch { return null }
