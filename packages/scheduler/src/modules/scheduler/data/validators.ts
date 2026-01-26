@@ -115,6 +115,9 @@ export const scheduleUpdateSchema = z.object({
   scheduleValue: z.string().min(1).optional(),
   timezone: z.string().optional(),
   
+  targetType: z.enum(['queue', 'command']).optional(),
+  targetQueue: z.string().optional().nullable(),
+  targetCommand: z.string().optional().nullable(),
   targetPayload: z.record(z.string(), z.unknown()).optional().nullable(),
   requireFeature: z.string().optional().nullable(),
   
@@ -136,6 +139,35 @@ export const scheduleUpdateSchema = z.object({
     {
       message: 'Invalid schedule value. For cron: use valid cron expression (e.g., "0 0 * * *"). For interval: use <number><unit> format (e.g., "15m", "2h", "1d")',
       path: ['scheduleValue'],
+    }
+  )
+  .refine(
+    (data) => {
+      // If targetType is provided, ensure appropriate target is set
+      if (data.targetType === 'queue') {
+        return data.targetQueue !== undefined
+      }
+      if (data.targetType === 'command') {
+        return data.targetCommand !== undefined
+      }
+      return true
+    },
+    {
+      message: 'When changing target type, you must provide the corresponding targetQueue or targetCommand',
+      path: ['targetType'],
+    }
+  )
+  .refine(
+    (data) => {
+      // Validate that command exists if targetCommand is provided
+      if (data.targetCommand) {
+        return validateCommandExists(data.targetCommand)
+      }
+      return true
+    },
+    {
+      message: 'Command does not exist. Please ensure the command is registered before updating.',
+      path: ['targetCommand'],
     }
   )
 

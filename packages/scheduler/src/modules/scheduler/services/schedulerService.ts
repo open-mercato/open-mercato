@@ -175,6 +175,25 @@ export class SchedulerService {
     if (changes.requireFeature !== undefined) schedule.requireFeature = changes.requireFeature || null
     if (changes.isEnabled !== undefined) schedule.isEnabled = changes.isEnabled
     
+    // Handle target type changes - clear stale values when switching between queue and command
+    if (changes.targetType !== undefined) {
+      schedule.targetType = changes.targetType
+      
+      if (changes.targetType === 'queue') {
+        // Switching to queue: set new queue and clear command
+        if (changes.targetQueue !== undefined) schedule.targetQueue = changes.targetQueue || null
+        schedule.targetCommand = null
+      } else if (changes.targetType === 'command') {
+        // Switching to command: set new command and clear queue
+        if (changes.targetCommand !== undefined) schedule.targetCommand = changes.targetCommand || null
+        schedule.targetQueue = null
+      }
+    } else {
+      // targetType not changing, but allow updating individual target fields
+      if (changes.targetQueue !== undefined) schedule.targetQueue = changes.targetQueue || null
+      if (changes.targetCommand !== undefined) schedule.targetCommand = changes.targetCommand || null
+    }
+    
     // Recalculate next run if schedule changed
     if (changes.scheduleType !== undefined || changes.scheduleValue !== undefined || changes.timezone !== undefined) {
       const nextRunAt = calculateNextRun(

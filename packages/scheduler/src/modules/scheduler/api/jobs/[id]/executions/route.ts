@@ -69,64 +69,66 @@ export async function GET(
       connection: redisUrl as any,
     })
 
-    // Get completed and failed jobs
-    // BullMQ doesn't have direct filtering, so we fetch recent jobs and filter client-side
-    const pageSize = parseInt(req.nextUrl.searchParams.get('pageSize') || '20', 10)
-    const limit = Math.min(pageSize, 100) // Cap at 100
+    try {
+      // Get completed and failed jobs
+      // BullMQ doesn't have direct filtering, so we fetch recent jobs and filter client-side
+      const pageSize = parseInt(req.nextUrl.searchParams.get('pageSize') || '20', 10)
+      const limit = Math.min(pageSize, 100) // Cap at 100
 
-    const [completed, failed, active, waiting, delayed] = await Promise.all([
-      queue.getCompleted(0, limit - 1),
-      queue.getFailed(0, limit - 1),
-      queue.getActive(0, limit - 1),
-      queue.getWaiting(0, limit - 1),
-      queue.getDelayed(0, limit - 1),
-    ])
+      const [completed, failed, active, waiting, delayed] = await Promise.all([
+        queue.getCompleted(0, limit - 1),
+        queue.getFailed(0, limit - 1),
+        queue.getActive(0, limit - 1),
+        queue.getWaiting(0, limit - 1),
+        queue.getDelayed(0, limit - 1),
+      ])
 
-    // Combine all jobs and filter by scheduleId
-    const allJobs = [...completed, ...failed, ...active, ...waiting, ...delayed]
-    const filteredJobs = allJobs
-      .filter(job => {
-        const data = job.data as any
-        return data?.payload?.scheduleId === scheduleId || data?.scheduleId === scheduleId
+      // Combine all jobs and filter by scheduleId
+      const allJobs = [...completed, ...failed, ...active, ...waiting, ...delayed]
+      const filteredJobs = allJobs
+        .filter(job => {
+          const data = job.data as any
+          return data?.payload?.scheduleId === scheduleId || data?.scheduleId === scheduleId
+        })
+        .slice(0, limit)
+
+      // Get state for each job (parallel)
+      const jobsWithState = await Promise.all(
+        filteredJobs.map(async (job) => {
+          const state = await job.getState()
+          const data = job.data as any
+          
+          return {
+            id: job.id,
+            scheduleId: data?.payload?.scheduleId || data?.scheduleId,
+            startedAt: job.processedOn ? new Date(job.processedOn).toISOString() : new Date(job.timestamp).toISOString(),
+            finishedAt: job.finishedOn ? new Date(job.finishedOn).toISOString() : null,
+            status: state === 'completed' ? 'completed' : state === 'failed' ? 'failed' : state === 'active' ? 'running' : 'waiting',
+            triggerType: data?.payload?.triggerType || data?.triggerType || 'scheduled',
+            triggeredByUserId: data?.payload?.triggeredByUserId || data?.triggeredByUserId || null,
+            errorMessage: job.failedReason || null,
+            errorStack: job.stacktrace ? job.stacktrace.join('\n') : null,
+            durationMs: (job.finishedOn && job.processedOn) ? (job.finishedOn - job.processedOn) : null,
+            queueJobId: job.id,
+            queueName: 'scheduler-execution',
+            attemptsMade: job.attemptsMade,
+            result: job.returnvalue,
+          }
+        })
+      )
+
+      // Sort by startedAt descending (most recent first)
+      jobsWithState.sort((a, b) => new Date(b.startedAt).getTime() - new Date(a.startedAt).getTime())
+
+      return NextResponse.json({
+        items: jobsWithState,
+        total: jobsWithState.length,
+        page: 1,
+        pageSize: limit,
       })
-      .slice(0, limit)
-
-    // Get state for each job (parallel)
-    const jobsWithState = await Promise.all(
-      filteredJobs.map(async (job) => {
-        const state = await job.getState()
-        const data = job.data as any
-        
-        return {
-          id: job.id,
-          scheduleId: data?.payload?.scheduleId || data?.scheduleId,
-          startedAt: job.processedOn ? new Date(job.processedOn).toISOString() : new Date(job.timestamp).toISOString(),
-          finishedAt: job.finishedOn ? new Date(job.finishedOn).toISOString() : null,
-          status: state === 'completed' ? 'completed' : state === 'failed' ? 'failed' : state === 'active' ? 'running' : 'waiting',
-          triggerType: data?.payload?.triggerType || data?.triggerType || 'scheduled',
-          triggeredByUserId: data?.payload?.triggeredByUserId || data?.triggeredByUserId || null,
-          errorMessage: job.failedReason || null,
-          errorStack: job.stacktrace ? job.stacktrace.join('\n') : null,
-          durationMs: (job.finishedOn && job.processedOn) ? (job.finishedOn - job.processedOn) : null,
-          queueJobId: job.id,
-          queueName: 'scheduler-execution',
-          attemptsMade: job.attemptsMade,
-          result: job.returnvalue,
-        }
-      })
-    )
-
-    // Sort by startedAt descending (most recent first)
-    jobsWithState.sort((a, b) => new Date(b.startedAt).getTime() - new Date(a.startedAt).getTime())
-
-    await queue.close()
-
-    return NextResponse.json({
-      items: jobsWithState,
-      total: jobsWithState.length,
-      page: 1,
-      pageSize: limit,
-    })
+    } finally {
+      await queue.close()
+    }
 
   } catch (error: any) {
     console.error('[scheduler:executions] Error fetching execution history:', error)
