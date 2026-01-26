@@ -21,6 +21,12 @@
           "title": "New Sales Quote",
           "body": "Sales quote {quoteNumber} has been created{total}"
         }
+      },
+      "renderer": {
+        "viewOrder": "View Order",
+        "viewQuote": "View Quote",
+        "assignedToYou": "Assigned to you",
+        "pendingReview": "Pending review"
       }
     },
     "quotes": {

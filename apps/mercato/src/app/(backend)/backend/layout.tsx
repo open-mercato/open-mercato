@@ -302,9 +302,9 @@ export default async function BackendLayout({ children, params }: { children: Re
   const rightHeaderContent = (
     <>
       <GlobalSearchDialog embeddingConfigured={embeddingConfigured} missingConfigMessage={missingConfigMessage} />
-      <NotificationBellWrapper />
       <OrganizationSwitcher />
       <UserMenu email={auth?.email} />
+      <NotificationBellWrapper />
     </>
   )
 

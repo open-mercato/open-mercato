@@ -1,5 +1,25 @@
-import type { NotificationTypeDefinition } from '@open-mercato/shared/modules/notifications/types'
+import type { NotificationTypeDefinition, NotificationTypeAction } from '@open-mercato/shared/modules/notifications/types'
 import type { CreateNotificationInput, CreateBatchNotificationInput, CreateRoleNotificationInput, CreateFeatureNotificationInput } from '../data/validators'
+
+/**
+ * Transform type definition actions to API input actions.
+ * Type definitions use labelKey (i18n-first), while API input uses label with optional labelKey.
+ */
+function mapActions(actions: NotificationTypeAction[] | undefined) {
+  if (!actions || actions.length === 0) return undefined
+  return actions.map((action) => ({
+    id: action.id,
+    // Use labelKey as fallback label - will be resolved at display time
+    label: action.labelKey,
+    labelKey: action.labelKey,
+    variant: action.variant,
+    icon: action.icon,
+    commandId: action.commandId,
+    href: action.href,
+    confirmRequired: action.confirmRequired,
+    confirmMessage: action.confirmMessageKey,
+  }))
+}
 
 /**
  * Build a notification input from a type definition with i18n support.
@@ -36,7 +56,7 @@ export function buildNotificationFromType(
     body: typeDef.bodyKey,
     icon: typeDef.icon,
     severity: typeDef.severity,
-    actions: typeDef.actions,
+    actions: mapActions(typeDef.actions),
     primaryActionId: typeDef.primaryActionId,
     sourceModule: typeDef.module,
     sourceEntityType: options.sourceEntityType,
@@ -78,7 +98,7 @@ export function buildBatchNotificationFromType(
     body: typeDef.bodyKey,
     icon: typeDef.icon,
     severity: typeDef.severity,
-    actions: typeDef.actions,
+    actions: mapActions(typeDef.actions),
     primaryActionId: typeDef.primaryActionId,
     sourceModule: typeDef.module,
     sourceEntityType: options.sourceEntityType,
@@ -120,7 +140,7 @@ export function buildRoleNotificationFromType(
     body: typeDef.bodyKey,
     icon: typeDef.icon,
     severity: typeDef.severity,
-    actions: typeDef.actions,
+    actions: mapActions(typeDef.actions),
     primaryActionId: typeDef.primaryActionId,
     sourceModule: typeDef.module,
     sourceEntityType: options.sourceEntityType,
@@ -162,7 +182,7 @@ export function buildFeatureNotificationFromType(
     body: typeDef.bodyKey,
     icon: typeDef.icon,
     severity: typeDef.severity,
-    actions: typeDef.actions,
+    actions: mapActions(typeDef.actions),
     primaryActionId: typeDef.primaryActionId,
     sourceModule: typeDef.module,
     sourceEntityType: options.sourceEntityType,

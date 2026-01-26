@@ -198,6 +198,25 @@ All module paths below use `src/modules/<module>/` as a shorthand. In practice:
   - Runtime access: `getOrmEntities`, `getDiRegistrars`, `getModules`, `getCliModules`, `getEntityIds`, `getDashboardWidgets`, `getInjectionWidgets`, `getCoreInjectionWidgets`/`getCoreInjectionTables`.
   - Tests: use `bootstrapTest` from `@open-mercato/shared/lib/testing/bootstrap` to register only what the test needs.
 - Widget injection is the preferred way to build inter-module UI extensions. Declare widgets under `src/modules/<module>/widgets/injection`, map them to slots via `widgets/injection-table.ts`, and keep metadata in colocated `*.meta.ts` files when needed. Avoid coupling modules directly—inject UI instead. Hosts expose consistent spot ids (`crud-form:<entityId>`, `data-table:<tableId>[:header|:footer]`, `admin.page:<path>:before|after`), and widgets can opt into grouped cards or tabs via `placement.kind`.
+- **Notifications**: Modules can define notification types and custom UI renderers for in-app notifications.
+  - **Notification types**: Declare in `src/modules/<module>/notifications.ts` exporting `notificationTypes: NotificationTypeDefinition[]`. Auto-discovered by the generator and aggregated into `notifications.generated.ts`.
+  - **Notification subscribers**: Create event subscribers in `src/modules/<module>/subscribers/` to emit notifications when domain events occur (e.g., `sales.order.created`).
+  - **Custom notification renderers** (client-side): Declare in `src/modules/<module>/notifications.client.ts` with React component renderers. Store renderer components in `src/modules/<module>/widgets/notifications/`.
+  - **File structure example** (sales module):
+    ```
+    packages/core/src/modules/sales/
+    ├── notifications.ts                    # Server-side type definitions (for generator)
+    ├── notifications.client.ts             # Client-side types with Renderer components
+    ├── subscribers/
+    │   ├── order-created-notification.ts   # Subscribes to sales.order.created
+    │   └── quote-created-notification.ts   # Subscribes to sales.quote.created
+    └── widgets/
+        └── notifications/
+            ├── index.ts
+            ├── SalesOrderCreatedRenderer.tsx
+            └── SalesQuoteCreatedRenderer.tsx
+    ```
+  - **i18n**: Add notification-related translations to `src/modules/<module>/i18n/<locale>.json` under `<module>.notifications.*` keys.
 - Reuse the shared custom-field helpers from `packages/shared` (e.g., `splitCustomFieldPayload`, `normalizeCustomFieldValues`, `normalizeCustomFieldResponse`) instead of re-implementing cf_* parsing or normalization.
 - When submitting CRUD forms, collect custom-field payloads via `collectCustomFieldValues()` from `@open-mercato/ui/backend/utils/customFieldValues` instead of ad-hoc loops. Pass `{ transform }` to normalize values (e.g., `normalizeCustomFieldSubmitValue`) and always reuse this helper for both `cf_` and `cf:` prefixed keys so forms stay consistent.
 - Custom entities CRUD: follow the customers module API patterns (CRUD factory + query engine). Always wire custom field helpers for create/update/response normalization, and set `indexer: { entityType }` in `makeCrudRoute` so custom entities stay indexed and custom fields remain queryable.

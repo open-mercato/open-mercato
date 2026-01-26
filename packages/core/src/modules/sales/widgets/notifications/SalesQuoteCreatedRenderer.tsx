@@ -4,9 +4,10 @@ import * as React from 'react'
 import { FileText, ExternalLink, DollarSign, User, Calendar } from 'lucide-react'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { cn } from '@open-mercato/shared/lib/utils'
+import { useT } from '@open-mercato/shared/lib/i18n/context'
 import type { NotificationRendererProps } from '@open-mercato/shared/modules/notifications/types'
 
-function formatTimeAgo(dateString: string): string {
+function formatTimeAgo(dateString: string, t: (key: string, fallback?: string) => string): string {
   const date = new Date(dateString)
   const now = new Date()
   const diffMs = now.getTime() - date.getTime()
@@ -14,10 +15,10 @@ function formatTimeAgo(dateString: string): string {
   const diffHours = Math.floor(diffMs / 3600000)
   const diffDays = Math.floor(diffMs / 86400000)
 
-  if (diffMins < 1) return 'just now'
-  if (diffMins < 60) return `${diffMins}m ago`
-  if (diffHours < 24) return `${diffHours}h ago`
-  if (diffDays < 7) return `${diffDays}d ago`
+  if (diffMins < 1) return t('common.time.justNow', 'just now')
+  if (diffMins < 60) return t('common.time.minutesAgo', '{count}m ago').replace('{count}', String(diffMins))
+  if (diffHours < 24) return t('common.time.hoursAgo', '{count}h ago').replace('{count}', String(diffHours))
+  if (diffDays < 7) return t('common.time.daysAgo', '{count}d ago').replace('{count}', String(diffDays))
   return date.toLocaleDateString()
 }
 
@@ -36,6 +37,7 @@ export function SalesQuoteCreatedRenderer({
   onAction,
   onDismiss,
 }: NotificationRendererProps) {
+  const t = useT()
   const [executing, setExecuting] = React.useState(false)
   const isUnread = notification.status === 'unread'
   const details = parseQuoteDetails(notification.body)
@@ -84,7 +86,7 @@ export function SalesQuoteCreatedRenderer({
             </div>
             <span className="flex-shrink-0 text-xs text-muted-foreground flex items-center gap-1">
               <Calendar className="h-3 w-3" />
-              {formatTimeAgo(notification.createdAt)}
+              {formatTimeAgo(notification.createdAt, t)}
             </span>
           </div>
 
@@ -97,7 +99,7 @@ export function SalesQuoteCreatedRenderer({
             )}
             <div className="flex items-center gap-1">
               <User className="h-3 w-3" />
-              <span>Pending review</span>
+              <span>{t('sales.notifications.renderer.pendingReview', 'Pending review')}</span>
             </div>
           </div>
 
@@ -113,7 +115,7 @@ export function SalesQuoteCreatedRenderer({
               className="gap-1"
             >
               <ExternalLink className="h-3 w-3" />
-              View Quote
+              {t('sales.notifications.renderer.viewQuote', 'View Quote')}
             </Button>
             <Button
               variant="ghost"
@@ -123,7 +125,7 @@ export function SalesQuoteCreatedRenderer({
                 onDismiss()
               }}
             >
-              Dismiss
+              {t('notifications.dismiss', 'Dismiss')}
             </Button>
           </div>
         </div>

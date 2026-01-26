@@ -42,6 +42,10 @@
       "types": "./src/backend/injection/widgetRegistry.ts",
       "default": "./dist/backend/injection/widgetRegistry.js"
     },
+    "./backend/notifications": {
+      "types": "./src/backend/notifications/index.ts",
+      "default": "./dist/backend/notifications/index.js"
+    },
     "./*.ts": {
       "types": "./src/*.ts",
       "default": "./dist/*.js"

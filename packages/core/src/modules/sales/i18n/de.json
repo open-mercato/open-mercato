@@ -21,6 +21,12 @@
           "title": "Neues Angebot",
           "body": "Angebot {quoteNumber} wurde erstellt{total}"
         }
+      },
+      "renderer": {
+        "viewOrder": "Bestellung anzeigen",
+        "viewQuote": "Angebot anzeigen",
+        "assignedToYou": "Ihnen zugewiesen",
+        "pendingReview": "Ausstehende Prüfung"
       }
     },
     "quotes": {

@@ -2324,6 +2324,28 @@ async createForFeature(input, ctx) {
 
 ## Changelog
 
+### 2026-01-26 (Sales Module Notification Implementation)
+- ✅ **Sales module notification types implemented**
+  - `sales.order.created` - Notifies users with `sales.orders.manage` feature when orders are created
+  - `sales.quote.created` - Notifies users with `sales.quotes.manage` feature when quotes are created
+  - Event-driven subscriber pattern with async queue processing
+- ✅ **Custom notification renderers for sales module**
+  - `SalesOrderCreatedRenderer` - Custom UI with order number badge, total display, blue theme
+  - `SalesQuoteCreatedRenderer` - Custom UI with quote number badge, pending review status, amber theme
+  - Full i18n support with `useT()` hook
+  - Located in `packages/core/src/modules/sales/widgets/notifications/`
+- ✅ **NotificationItem/Panel updated to support custom renderers**
+  - Added `customRenderer` prop to `NotificationItem`
+  - Added `customRenderers` map prop to `NotificationPanel`
+  - Custom renderers receive `NotificationRendererProps` for full control
+- ✅ **Documentation updated**
+  - AGENTS.md updated with notification file structure guidance
+  - Notifications module documentation updated with custom renderer section
+  - Sales module demonstrates full notification implementation pattern
+- ✅ **i18n translations in 4 languages**
+  - Added `sales.notifications.renderer.*` keys (en, de, es, pl)
+  - Renderer buttons and labels fully localized
+
 ### 2026-01-26 (i18n-First Refactoring Complete)
 - ✅ **Complete backend infrastructure implemented**
   - Database entity with proper indexes and multi-tenant support

@@ -21,6 +21,12 @@
           "title": "Nueva cotización",
           "body": "La cotización {quoteNumber} ha sido creada{total}"
         }
+      },
+      "renderer": {
+        "viewOrder": "Ver pedido",
+        "viewQuote": "Ver cotización",
+        "assignedToYou": "Asignado a usted",
+        "pendingReview": "Pendiente de revisión"
       }
     },
     "quotes": {

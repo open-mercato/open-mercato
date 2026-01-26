@@ -765,6 +765,243 @@ The slide-out panel showing all notifications with filtering.
 - Mark all as read button
 - Individual notification actions
 - Click to navigate to source entity
+- Support for custom renderers per notification type
+
+## Custom Notification Renderers
+
+Modules can provide custom React components to render their notifications with specialized UI. This allows for richer notification displays with module-specific styling, icons, and layouts.
+
+### Defining Custom Renderers
+
+Create a client-side file that exports notification types with custom renderers:
+
+```typescript
+// packages/core/src/modules/sales/notifications.client.ts
+'use client'
+
+import type { NotificationTypeDefinition } from '@open-mercato/shared/modules/notifications/types'
+import { SalesOrderCreatedRenderer } from './widgets/notifications/SalesOrderCreatedRenderer'
+import { SalesQuoteCreatedRenderer } from './widgets/notifications/SalesQuoteCreatedRenderer'
+
+export const salesNotificationTypes: NotificationTypeDefinition[] = [
+  {
+    type: 'sales.order.created',
+    module: 'sales',
+    titleKey: 'sales.notifications.order.created.title',
+    icon: 'shopping-cart',
+    severity: 'info',
+    actions: [
+      {
+        id: 'view',
+        labelKey: 'common.view',
+        variant: 'outline',
+        href: '/backend/sales/orders/{sourceEntityId}',
+      },
+    ],
+    linkHref: '/backend/sales/orders/{sourceEntityId}',
+    Renderer: SalesOrderCreatedRenderer, // Custom renderer component
+    expiresAfterHours: 168,
+  },
+  {
+    type: 'sales.quote.created',
+    module: 'sales',
+    Renderer: SalesQuoteCreatedRenderer,
+    // ...other fields
+  },
+]
+
+export default salesNotificationTypes
+```
+
+### Creating a Custom Renderer Component
+
+Custom renderers receive notification data and action handlers:
+
+```tsx
+// packages/core/src/modules/sales/widgets/notifications/SalesOrderCreatedRenderer.tsx
+'use client'
+
+import * as React from 'react'
+import { ShoppingCart, ExternalLink, DollarSign, Calendar } from 'lucide-react'
+import { Button } from '@open-mercato/ui/primitives/button'
+import { cn } from '@open-mercato/shared/lib/utils'
+import type { NotificationRendererProps } from '@open-mercato/shared/modules/notifications/types'
+
+export function SalesOrderCreatedRenderer({
+  notification,
+  onAction,
+  onDismiss,
+}: NotificationRendererProps) {
+  const [executing, setExecuting] = React.useState(false)
+  const isUnread = notification.status === 'unread'
+
+  // Parse order details from notification body
+  const orderNumber = notification.body?.match(/order\s+([A-Z0-9\-\/]+)/i)?.[1]
+  const total = notification.body?.match(/\(([^)]+)\)/)?.[1]
+
+  const handleView = async () => {
+    setExecuting(true)
+    try {
+      await onAction('view')
+    } finally {
+      setExecuting(false)
+    }
+  }
+
+  return (
+    <div
+      className={cn(
+        'group relative px-4 py-3 hover:bg-muted/50 cursor-pointer',
+        'border-l-4 border-l-blue-500',
+        isUnread && 'bg-blue-50/50 dark:bg-blue-950/20'
+      )}
+      onClick={handleView}
+    >
+      {isUnread && (
+        <div className="absolute left-1.5 top-1/2 -translate-y-1/2 h-2 w-2 rounded-full bg-primary" />
+      )}
+
+      <div className="flex gap-3">
+        {/* Custom icon with colored background */}
+        <div className="flex-shrink-0 mt-0.5">
+          <div className="h-10 w-10 rounded-lg bg-blue-100 dark:bg-blue-900/40 flex items-center justify-center">
+            <ShoppingCart className="h-5 w-5 text-blue-600 dark:text-blue-400" />
+          </div>
+        </div>
+
+        <div className="flex-1 min-w-0">
+          <div className="flex items-start justify-between gap-2">
+            <div>
+              <h4 className={cn('text-sm font-medium', isUnread && 'font-semibold')}>
+                {notification.title}
+              </h4>
+              {/* Order number badge */}
+              {orderNumber && (
+                <span className="text-xs font-mono text-muted-foreground bg-muted px-1.5 py-0.5 rounded">
+                  #{orderNumber}
+                </span>
+              )}
+            </div>
+            <span className="text-xs text-muted-foreground flex items-center gap-1">
+              <Calendar className="h-3 w-3" />
+              {formatTimeAgo(notification.createdAt)}
+            </span>
+          </div>
+
+          {/* Order total display */}
+          {total && (
+            <div className="mt-2 flex items-center gap-1 text-xs text-muted-foreground">
+              <DollarSign className="h-3 w-3" />
+              <span className="font-medium text-foreground">{total}</span>
+            </div>
+          )}
+
+          {/* Action buttons */}
+          <div className="mt-3 flex gap-2">
+            <Button
+              variant="default"
+              size="sm"
+              onClick={(e) => { e.stopPropagation(); handleView() }}
+              disabled={executing}
+              className="gap-1"
+            >
+              <ExternalLink className="h-3 w-3" />
+              View Order
+            </Button>
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={(e) => { e.stopPropagation(); onDismiss() }}
+            >
+              Dismiss
+            </Button>
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
+```
+
+### NotificationRendererProps Interface
+
+Custom renderers receive the following props:
+
+```typescript
+type NotificationRendererProps = {
+  notification: {
+    id: string
+    type: string
+    title: string
+    body?: string | null
+    icon?: string | null
+    severity: string
+    status: string
+    sourceModule?: string | null
+    sourceEntityType?: string | null
+    sourceEntityId?: string | null
+    createdAt: string
+  }
+  onAction: (actionId: string) => Promise<void>
+  onDismiss: () => Promise<void>
+  actions: NotificationTypeAction[]
+}
+```
+
+### Using Custom Renderers in NotificationPanel
+
+Pass a renderers map to NotificationPanel to enable custom rendering:
+
+```tsx
+import { salesNotificationTypes } from '@open-mercato/core/modules/sales/notifications.client'
+import { NotificationPanel } from '@open-mercato/ui/backend/notifications'
+
+// Build renderers map from notification types
+const customRenderers = Object.fromEntries(
+  salesNotificationTypes
+    .filter(t => t.Renderer)
+    .map(t => [t.type, t.Renderer!])
+)
+
+// In your component
+<NotificationPanel
+  notifications={notifications}
+  customRenderers={customRenderers}
+  // ...other props
+/>
+```
+
+### Example: Sales Module Notifications
+
+The sales module demonstrates custom renderers for order and quote creation notifications:
+
+**Order Created Notification:**
+- Blue left border to indicate sales context
+- Order number displayed as a badge
+- Total amount prominently shown
+- Custom icon with colored background
+- "View Order" primary action
+
+**Quote Created Notification:**
+- Amber left border for quote context
+- Quote number badge
+- "Pending review" status indicator
+- "View Quote" primary action
+
+Files:
+- `packages/core/src/modules/sales/notifications.ts` - Server-side type definitions
+- `packages/core/src/modules/sales/notifications.client.ts` - Client-side with renderers
+- `packages/core/src/modules/sales/widgets/notifications/SalesOrderCreatedRenderer.tsx`
+- `packages/core/src/modules/sales/widgets/notifications/SalesQuoteCreatedRenderer.tsx`
+
+### Best Practices for Custom Renderers
+
+1. **Keep server/client separation**: Use `notifications.ts` for server-side type definitions (generator) and `notifications.client.ts` for client-side renderers
+2. **Handle loading states**: Show loading indicators when executing actions
+3. **Preserve accessibility**: Include proper ARIA labels and keyboard navigation
+4. **Match design system**: Use existing UI components and color tokens
+5. **Parse notification data**: Extract structured data from title/body for richer display
+6. **Handle all statuses**: Account for unread, read, actioned, and dismissed states
 
 ## How Users Receive Notifications
 

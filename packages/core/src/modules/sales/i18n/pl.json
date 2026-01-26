@@ -21,6 +21,12 @@
           "title": "Nowa oferta",
           "body": "Oferta {quoteNumber} została utworzona{total}"
         }
+      },
+      "renderer": {
+        "viewOrder": "Zobacz zamówienie",
+        "viewQuote": "Zobacz ofertę",
+        "assignedToYou": "Przypisane do Ciebie",
+        "pendingReview": "Oczekuje na przegląd"
       }
     },
     "quotes": {
