@@ -11,6 +11,7 @@ import type { DataEngine } from '@open-mercato/shared/lib/data/engine'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { deriveResourceFromCommandId, invalidateCrudCache } from '@open-mercato/shared/lib/crud/cache'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
+import type { NotificationService } from '../../notifications/lib/notificationService'
 import { setRecordCustomFields } from '@open-mercato/core/modules/entities/lib/helpers'
 import { loadCustomFieldValues } from '@open-mercato/shared/lib/crud/custom-fields'
 import { normalizeCustomFieldValues } from '@open-mercato/shared/lib/custom-fields/normalize'
@@ -3111,17 +3112,36 @@ const createQuoteCommand: CommandHandler<QuoteCreateInput, { quoteId: string }> 
     })
     await em.flush()
 
-    // Emit notification event for quote creation
-    if (eventBus) {
-      await eventBus.emit('sales.quote.created', {
-        quoteId: quote.id,
-        quoteNumber: quote.quoteNumber,
-        tenantId: quote.tenantId,
-        organizationId: quote.organizationId,
-        customerId: quote.customerEntityId ?? null,
-        grandTotalGross: quote.grandTotalGrossAmount,
-        currencyCode: quote.currencyCode,
-      })
+    // Create notification for users with sales.quotes.manage feature
+    try {
+      const notificationService = ctx.container.resolve('notificationService') as NotificationService
+      const { t } = await resolveTranslations()
+      const totalDisplay = quote.grandTotalGrossAmount && quote.currencyCode
+        ? ` (${quote.grandTotalGrossAmount} ${quote.currencyCode})`
+        : ''
+      await notificationService.createForFeature(
+        {
+          requiredFeature: 'sales.quotes.manage',
+          type: 'sales.quote.created',
+          title: t('sales.notifications.quote.created.title', 'New Sales Quote'),
+          body: t('sales.notifications.quote.created.body', 'Sales quote {quoteNumber} has been created{total}', {
+            quoteNumber: quote.quoteNumber,
+            total: totalDisplay,
+          }),
+          icon: 'file-text',
+          severity: 'info',
+          sourceModule: 'sales',
+          sourceEntityType: 'sales:quote',
+          sourceEntityId: quote.id,
+          linkHref: `/backend/sales/quotes/${quote.id}`,
+        },
+        {
+          tenantId: quote.tenantId,
+          organizationId: quote.organizationId ?? null,
+        }
+      )
+    } catch {
+      // Notification creation is non-critical, don't fail the command
     }
 
     return { quoteId: quote.id }
@@ -3795,17 +3815,36 @@ const createOrderCommand: CommandHandler<OrderCreateInput, { orderId: string }> 
     })
     await em.flush()
 
-    // Emit notification event for order creation
-    if (eventBus) {
-      await eventBus.emit('sales.order.created', {
-        orderId: order.id,
-        orderNumber: order.orderNumber,
-        tenantId: order.tenantId,
-        organizationId: order.organizationId,
-        customerId: order.customerEntityId ?? null,
-        grandTotalGross: order.grandTotalGrossAmount,
-        currencyCode: order.currencyCode,
-      })
+    // Create notification for users with sales.orders.manage feature
+    try {
+      const notificationService = ctx.container.resolve('notificationService') as NotificationService
+      const { t } = await resolveTranslations()
+      const totalDisplay = order.grandTotalGrossAmount && order.currencyCode
+        ? ` (${order.grandTotalGrossAmount} ${order.currencyCode})`
+        : ''
+      await notificationService.createForFeature(
+        {
+          requiredFeature: 'sales.orders.manage',
+          type: 'sales.order.created',
+          title: t('sales.notifications.order.created.title', 'New Sales Order'),
+          body: t('sales.notifications.order.created.body', 'Sales order {orderNumber} has been created{total}', {
+            orderNumber: order.orderNumber,
+            total: totalDisplay,
+          }),
+          icon: 'shopping-cart',
+          severity: 'info',
+          sourceModule: 'sales',
+          sourceEntityType: 'sales:order',
+          sourceEntityId: order.id,
+          linkHref: `/backend/sales/orders/${order.id}`,
+        },
+        {
+          tenantId: order.tenantId,
+          organizationId: order.organizationId ?? null,
+        }
+      )
+    } catch {
+      // Notification creation is non-critical, don't fail the command
     }
 
     return { orderId: order.id }

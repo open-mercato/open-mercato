@@ -21,6 +21,7 @@ import {
 } from '../data/validators'
 import { ensureOrganizationScope, ensureTenantScope, extractUndoPayload, requireTeamMember } from './shared'
 import { E } from '#generated/entities.ids.generated'
+import type { NotificationService } from '../../notifications/lib/notificationService'
 
 const leaveRequestCrudIndexer: CrudIndexerConfig<StaffLeaveRequest> = {
   entityType: E.staff.staff_leave_request,
@@ -257,6 +258,58 @@ const createLeaveRequestCommand: CommandHandler<StaffLeaveRequestCreateInput, { 
       },
       indexer: leaveRequestCrudIndexer,
     })
+
+    // Create notification for users who can approve/reject leave requests
+    try {
+      const notificationService = ctx.container.resolve('notificationService') as NotificationService
+      const { t } = await resolveTranslations()
+      const memberName = member.displayName || 'Team member'
+      const startDateStr = request.startDate.toLocaleDateString()
+      const endDateStr = request.endDate.toLocaleDateString()
+
+      await notificationService.createForFeature(
+        {
+          requiredFeature: 'staff.leave_requests.manage',
+          type: 'staff.leave_request.pending',
+          title: t('staff.notifications.leaveRequest.pending.title', 'Leave Request Pending'),
+          body: t('staff.notifications.leaveRequest.pending.body', '{memberName} has requested leave from {startDate} to {endDate}', {
+            memberName,
+            startDate: startDateStr,
+            endDate: endDateStr,
+          }),
+          icon: 'calendar-off',
+          severity: 'warning',
+          sourceModule: 'staff',
+          sourceEntityType: 'staff:leave_request',
+          sourceEntityId: request.id,
+          linkHref: `/backend/staff/leave-requests/${request.id}`,
+          actions: [
+            {
+              id: 'approve',
+              label: t('staff.notifications.leaveRequest.actions.approve', 'Approve'),
+              labelKey: 'staff.notifications.leaveRequest.actions.approve',
+              variant: 'default',
+              icon: 'check',
+              commandId: 'staff.leave-requests.accept',
+            },
+            {
+              id: 'reject',
+              label: t('staff.notifications.leaveRequest.actions.reject', 'Reject'),
+              labelKey: 'staff.notifications.leaveRequest.actions.reject',
+              variant: 'destructive',
+              icon: 'x',
+              commandId: 'staff.leave-requests.reject',
+            },
+          ],
+        },
+        {
+          tenantId: request.tenantId,
+          organizationId: request.organizationId,
+        }
+      )
+    } catch {
+      // Notification creation is non-critical, don't fail the command
+    }
 
     return { requestId: request.id }
   },
