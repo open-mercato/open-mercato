@@ -3,6 +3,7 @@ import { ScheduledJob } from '../data/entities'
 import { recalculateNextRun } from './nextRunCalculator'
 import { parseCronExpression } from './cronParser'
 import { parseInterval } from './intervalParser'
+import { getRedisUrl, parseRedisUrl } from './redisConnection'
 
 // Import BullMQ directly for repeatable jobs functionality
 type BullQueue = any // We'll use dynamic import to avoid hard dependency
@@ -32,7 +33,7 @@ export class BullMQSchedulerService {
     private em: () => EntityManager,
   ) {
     // Get Redis URL from environment
-    this.redisUrl = process.env.REDIS_URL || process.env.QUEUE_REDIS_URL || 'redis://localhost:6379'
+    this.redisUrl = getRedisUrl()
   }
 
   /**
@@ -42,9 +43,8 @@ export class BullMQSchedulerService {
     if (!this.queue) {
       try {
         const { Queue } = await import('bullmq')
-        this.queue = new Queue('scheduler-execution', {
-          connection: this.redisUrl as any,
-        })
+        const connection = parseRedisUrl(this.redisUrl)
+        this.queue = new Queue('scheduler-execution', { connection })
       } catch (error: any) {
         throw new Error('BullMQ is required for async scheduler. Install it with: npm install bullmq')
       }

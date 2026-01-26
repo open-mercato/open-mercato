@@ -125,6 +125,20 @@ export const scheduleUpdateSchema = z.object({
 })
   .refine(
     (data) => {
+      // If scheduleValue is provided, scheduleType must also be provided
+      // This ensures we can validate the value against its type
+      if (data.scheduleValue !== undefined && data.scheduleType === undefined) {
+        return false
+      }
+      return true
+    },
+    {
+      message: 'scheduleType is required when updating scheduleValue',
+      path: ['scheduleType'],
+    }
+  )
+  .refine(
+    (data) => {
       // If scheduleValue is provided, validate it based on scheduleType
       if (data.scheduleValue && data.scheduleType) {
         if (data.scheduleType === 'cron') {
