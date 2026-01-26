@@ -8,6 +8,7 @@
     "build": "node build.mjs",
     "watch": "node watch.mjs",
     "test": "jest --config jest.config.cjs",
+    "test:args": "node -e \"console.log('Args:', process.argv.slice(2))\"",
     "typecheck": "tsc --noEmit"
   },
   "exports": {
@@ -61,8 +62,7 @@
     "@open-mercato/events": "workspace:*",
     "@open-mercato/queue": "workspace:*",
     "@open-mercato/shared": "workspace:*",
-    "cron-parser": "^4.9.0",
-    "redlock": "^4.2.0"
+    "cron-parser": "^4.9.0"
   },
   "peerDependencies": {
     "ioredis": "^5.0.0"

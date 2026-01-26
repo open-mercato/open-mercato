@@ -1,6 +1,14 @@
 import { z } from 'zod'
 import { validateCron } from '../services/cronParser'
 import { validateInterval } from '../services/intervalParser'
+import { commandRegistry } from '@open-mercato/shared/lib/commands'
+
+/**
+ * Validate that a command exists in the command registry
+ */
+function validateCommandExists(commandId: string): boolean {
+  return commandRegistry.has(commandId)
+}
 
 /**
  * Base schedule fields
@@ -81,6 +89,19 @@ export const scheduleCreateSchema = scheduleBaseSchema
       path: ['scheduleValue'],
     }
   )
+  .refine(
+    (data) => {
+      // Validate that command exists if targetType is 'command'
+      if (data.targetType === 'command' && data.targetCommand) {
+        return validateCommandExists(data.targetCommand)
+      }
+      return true
+    },
+    {
+      message: 'Command does not exist. Please ensure the command is registered before creating a schedule.',
+      path: ['targetCommand'],
+    }
+  )
 
 /**
  * Update schedule schema (all fields optional except id)
@@ -131,6 +152,7 @@ export const scheduleDeleteSchema = z.object({
 export const scheduleListQuerySchema = z.object({
   page: z.coerce.number().int().min(1).default(1),
   pageSize: z.coerce.number().int().min(1).max(100).default(20),
+  id: z.string().uuid().optional(),
   search: z.string().optional(),
   scopeType: z.enum(['system', 'organization', 'tenant']).optional(),
   isEnabled: z.coerce.boolean().optional(),

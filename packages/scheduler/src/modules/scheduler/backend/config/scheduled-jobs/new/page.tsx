@@ -22,6 +22,7 @@ type ScheduleFormValues = {
   targetType: 'queue' | 'command'
   targetQueue?: string
   targetCommand?: string
+  targetPayload?: string // JSON string
   isEnabled: boolean
 }
 
@@ -58,6 +59,18 @@ export default function NewSchedulePage() {
         targetType: z.enum(['queue', 'command']),
         targetQueue: z.string().optional(),
         targetCommand: z.string().optional(),
+        targetPayload: z.string().optional().refine(
+          (val) => {
+            if (!val || val.trim() === '') return true
+            try {
+              JSON.parse(val)
+              return true
+            } catch {
+              return false
+            }
+          },
+          { message: t('scheduler.form.target_payload.invalid_json', 'Must be valid JSON') }
+        ),
         isEnabled: z.boolean(),
       }),
     [t]
@@ -132,6 +145,7 @@ export default function NewSchedulePage() {
           const targetType = values?.targetType as string | undefined
           const targetQueue = (values?.targetQueue as string) || ''
           const targetCommand = (values?.targetCommand as string) || ''
+          const targetPayload = (values?.targetPayload as string) || ''
 
           return (
             <div className="space-y-4">
@@ -165,6 +179,13 @@ export default function NewSchedulePage() {
           )
         },
       },
+      {
+        id: 'targetPayload',
+        type: 'textarea',
+        label: t('scheduler.form.target_payload', 'Job Arguments (JSON)'),
+        placeholder: t('scheduler.form.target_payload.placeholder', '{\n  "message": "Hello",\n  "value": 42\n}'),
+        description: t('scheduler.form.target_payload.description', 'Optional JSON object with arguments to pass to the command or queue job. Must be valid JSON format.'),
+      },
     ],
     [t, loadTimezoneOptions]
   )
@@ -184,7 +205,7 @@ export default function NewSchedulePage() {
       {
         id: 'target',
         title: t('scheduler.form.group.target', 'Target Configuration'),
-        fields: ['targetType', 'targetFields'],
+        fields: ['targetType', 'targetFields', 'targetPayload'],
       },
     ],
     [t]
@@ -213,10 +234,10 @@ export default function NewSchedulePage() {
           submitLabel={t('scheduler.form.submit', 'Create Schedule')}
           cancelHref="/backend/config/scheduled-jobs"
           schema={formSchema}
-          contentHeader={
-            <div className="flex items-center justify-end gap-2 mb-4">
-              <Label htmlFor="enabled-switch" className="text-sm font-medium">
-                {t('scheduler.form.is_enabled', 'Enabled')}
+          extraActions={
+            <div className="flex items-center gap-2">
+              <Label htmlFor="enabled-switch" className="text-sm font-medium cursor-pointer">
+                {isEnabled ? t('scheduler.form.enabled', 'Enabled') : t('scheduler.form.disabled', 'Disabled')}
               </Label>
               <Switch
                 id="enabled-switch"
@@ -226,9 +247,24 @@ export default function NewSchedulePage() {
             </div>
           }
           onSubmit={async (values) => {
+            // Parse targetPayload from JSON string to object
+            let targetPayload = null
+            if (values.targetPayload && values.targetPayload.trim()) {
+              try {
+                targetPayload = JSON.parse(values.targetPayload)
+              } catch (error) {
+                // Should not happen due to schema validation, but handle gracefully
+                console.error('Failed to parse targetPayload JSON:', error)
+              }
+            }
+
             await createCrud<{ id?: string }>(
               'scheduler/jobs',
-              { ...values, isEnabled }
+              { 
+                ...values, 
+                targetPayload,
+                isEnabled 
+              }
             )
 
             flash(t('scheduler.success.created', 'Schedule created successfully'), 'success')

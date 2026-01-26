@@ -97,6 +97,12 @@ npm install @open-mercato/scheduler
 
 ### Registering a Schedule (Module Integration)
 
+The scheduler supports two target types:
+- **Queue-based**: Enqueues a job to a queue worker
+- **Command-based**: Executes a registered command directly
+
+#### Queue-Based Schedule Example
+
 ```typescript
 import { SchedulerService } from '@open-mercato/scheduler'
 
@@ -127,6 +133,40 @@ export class CurrencySetupService {
   }
 }
 ```
+
+#### Command-Based Schedule Example
+
+```typescript
+import { SchedulerService } from '@open-mercato/scheduler'
+
+export class ReportingService {
+  constructor(private schedulerService: SchedulerService) {}
+
+  async enableDailyReports(config: ReportConfig) {
+    await this.schedulerService.register({
+      id: `reports:daily:${config.organizationId}`,
+      name: 'Generate Daily Reports',
+      scopeType: 'organization',
+      organizationId: config.organizationId,
+      tenantId: config.tenantId,
+      scheduleType: 'cron',
+      scheduleValue: '0 9 * * *', // Every day at 9 AM
+      targetType: 'command',
+      targetCommand: 'reports.generate.daily', // Must be a registered command
+      targetPayload: { 
+        reportType: 'daily',
+        recipients: config.recipients 
+      },
+      sourceModule: 'reports',
+    })
+  }
+}
+```
+
+**Important**: When using `targetType: 'command'`:
+- The command must be registered via `registerCommand()` before creating the schedule
+- Validation will fail if the command doesn't exist
+- Commands run with full tenant/organization scope but without user authentication
 
 ### Starting the Scheduler
 
