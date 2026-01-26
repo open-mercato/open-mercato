@@ -79,25 +79,37 @@ export async function loadAllModuleTools(): Promise<void> {
     console.error('[MCP Tools] Could not load entity graph tools:', error)
   }
 
-  // 3. Load manual ai-tools.ts files from modules
-  const moduleToolPaths = [
-    { moduleId: 'search', importPath: '@open-mercato/search/modules/search/ai-tools' },
-    // Add more modules here as they define ai-tools.ts
-  ]
+  // 3. Load auto-discovered ai-tools.ts files from modules
+  // Tools are discovered by the generator and registered in ai-tools.generated.ts
+  try {
+    const path = await import('node:path')
+    const { pathToFileURL } = await import('node:url')
+    const generatedPath = path.resolve(process.cwd(), '.mercato/generated/ai-tools.generated.ts')
 
-  for (const { moduleId, importPath } of moduleToolPaths) {
-    try {
-      const module = await import(importPath)
-      const tools = module.aiTools ?? module.default ?? []
+    // Dynamic import requires file:// URL for absolute paths
+    const { aiToolConfigEntries } = (await import(pathToFileURL(generatedPath).href)) as {
+      aiToolConfigEntries: Array<{ moduleId: string; tools: unknown[] }>
+    }
 
+    let totalTools = 0
+    for (const { moduleId, tools } of aiToolConfigEntries) {
       if (Array.isArray(tools) && tools.length > 0) {
-        loadModuleTools(moduleId, tools)
+        loadModuleTools(moduleId, tools as ModuleAiTool[])
+        totalTools += tools.length
         console.error(`[MCP Tools] Loaded ${tools.length} tools from ${moduleId}`)
       }
-    } catch (error) {
-      // Module might not have ai-tools.ts or import failed
-      // This is not an error - modules can optionally provide tools
-      console.error(`[MCP Tools] Could not load tools from ${moduleId}:`, error)
+    }
+    if (totalTools === 0) {
+      console.error(`[MCP Tools] No module tools found in generated registry`)
+    }
+  } catch (error) {
+    // Generated file might not exist yet (first run) or be empty
+    // This is expected when no modules have ai-tools.ts files
+    const errorMessage = error instanceof Error ? error.message : String(error)
+    if (errorMessage.includes('Cannot find module') || errorMessage.includes('ENOENT')) {
+      console.error(`[MCP Tools] No auto-discovered tools (run npm run modules:prepare to generate)`)
+    } else {
+      console.error(`[MCP Tools] Could not load auto-discovered tools:`, error)
     }
   }
 

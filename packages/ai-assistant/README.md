@@ -1,30 +1,82 @@
 # AI Assistant Module
 
-AI-powered assistance capabilities for Open Mercato, featuring MCP (Model Context Protocol) server integration and OpenCode as the AI backend.
+AI-powered chat and tool execution for Open Mercato, using MCP (Model Context Protocol) for tool discovery and execution.
 
-## Quick Start (5 minutes)
+## What This Module Does
 
-### Step 1: Set Environment Variables
+- **AI Chat Interface**: Dockable chat panel (`Cmd+J`) for natural language interaction
+- **MCP Server**: Exposes platform tools to AI agents via Model Context Protocol
+- **API Discovery**: Meta-tools (`api_discover`, `api_execute`, `api_schema`) for dynamic API access
+- **OpenCode Integration**: Go-based AI backend for processing requests and executing tools
 
-Add these to your `.env` file:
+## Quick Start
+
+### Prerequisites
+
+- Node.js 20+
+- Docker (for OpenCode)
+- An LLM API key (Anthropic, OpenAI, or Google)
+- An Open Mercato API key (created via Backend > Settings > API Keys)
+
+### Step 1: Configure LLM Provider
+
+Add your LLM provider configuration to `.env`. You need both the provider selection and its API key:
 
 ```bash
-# MCP Server API Key - can be ANY secure string you choose
-# This authenticates communication between OpenCode and the MCP server
-MCP_SERVER_API_KEY=my-super-secret-key-12345
+# Choose ONE provider and set BOTH values
 
-# OpenCode AI provider configuration
+# Option A: Anthropic
 OPENCODE_PROVIDER=anthropic
-OPENCODE_ANTHROPIC_API_KEY=sk-ant-api03-...
+ANTHROPIC_API_KEY=sk-ant-api03-...
+
+# Option B: OpenAI
+# OPENCODE_PROVIDER=openai
+# OPENAI_API_KEY=sk-...
+
+# Option C: Google
+# OPENCODE_PROVIDER=google
+# GOOGLE_API_KEY=AIza...
 ```
 
-> **Important:** The `MCP_SERVER_API_KEY` is a shared secret between OpenCode and the MCP server. You can use any secure string - it doesn't need to be generated or obtained from anywhere. Just make sure it matches in both places.
+### Step 2: Configure MCP Server
 
-### Step 2: Start the Services
+The MCP server authenticates requests using an Open Mercato API key:
+
+1. Log into Open Mercato backend
+2. Go to **Settings > API Keys**
+3. Create a new API key with appropriate permissions
+4. Copy the key (starts with `omk_`) and add it to `.env`:
 
 ```bash
-# Terminal 1: Start MCP server
-yarn mcp:serve
+# .env
+MCP_SERVER_API_KEY=omk_your_api_key_here
+```
+
+### Step 3: Create .mcp.json for Claude Code Integration (Optional)
+
+If you want to use Claude Code with your MCP server, create `.mcp.json` in the project root:
+
+```json
+{
+  "mcpServers": {
+    "open-mercato": {
+      "type": "http",
+      "url": "http://localhost:3001/mcp",
+      "headers": {
+        "x-api-key": "omk_your_api_key_here"
+      }
+    }
+  }
+}
+```
+
+The `x-api-key` should be an Open Mercato API key created in the backend admin (Settings > API Keys).
+
+### Step 4: Start Services
+
+```bash
+# Terminal 1: Start MCP development server
+yarn mcp:dev
 
 # Terminal 2: Start OpenCode container
 docker-compose up opencode
@@ -33,51 +85,167 @@ docker-compose up opencode
 yarn dev
 ```
 
-### Step 3: Use the AI Assistant
+### Step 5: Verify Setup
 
-- **Keyboard:** Press `Cmd+J` (Mac) or `Ctrl+J` (Windows/Linux) to open AI chat
-- **Header:** Click the sparkles icon in the top header
-- **Search:** Press `Cmd+K` to open the command palette, then ask a question
+```bash
+# Check MCP server health
+curl http://localhost:3001/health
 
----
+# Check OpenCode health
+curl http://localhost:4096/global/health
 
-## Features
+# Check MCP connection from OpenCode
+curl http://localhost:4096/mcp
+```
 
-- **MCP Server** - HTTP server exposing platform tools via Model Context Protocol
-- **OpenCode Integration** - AI backend for natural language processing and tool execution
-- **API Discovery Tools** - Meta-tools for dynamic API access (`api_discover`, `api_execute`, `api_schema`)
-- **Two-Tier Authentication** - Server-level API key + user-level session tokens
-- **Session Management** - Ephemeral API keys with configurable TTL for secure tool execution
-- **Dockable Chat Panel** - Resizable panel that can dock to right, left, bottom, or float as modal
-- **Keyboard Shortcuts** - Quick access via `Cmd+K` (palette) and `Cmd+J` (direct chat)
+### Step 6: Use the AI Assistant
 
----
-
-## Keyboard Shortcuts
-
-| Shortcut | Action |
-|----------|--------|
-| `Cmd+K` / `Ctrl+K` | Open command palette |
-| `Cmd+J` / `Ctrl+J` | Open AI chat directly |
-| `Escape` | Close palette or reset to idle |
-| `Enter` | Submit query |
+- **Keyboard**: Press `Cmd+J` (Mac) or `Ctrl+J` (Windows/Linux)
+- **Header**: Click the sparkles icon
+- **Command Palette**: Press `Cmd+K` and type a question
 
 ---
 
-## UI Components
+## Configuration Reference
 
-### Dockable Chat Panel
+### Environment Variables
 
-The AI chat panel can be positioned in different modes:
+| Variable | Required | Default | Description |
+|----------|----------|---------|-------------|
+| `ANTHROPIC_API_KEY` | If using Anthropic | - | Anthropic API key |
+| `OPENAI_API_KEY` | If using OpenAI | - | OpenAI API key |
+| `GOOGLE_API_KEY` | If using Google | - | Google API key |
+| `OPENCODE_PROVIDER` | Yes | - | LLM provider: `anthropic`, `openai`, or `google` |
+| `OPENCODE_MODEL` | No | See table below | Override the model for selected provider |
+| `MCP_SERVER_API_KEY` | For production | - | Open Mercato API key (`omk_...`) for MCP server auth |
+| `MCP_DEV_PORT` | No | `3001` | Port for development MCP server |
+| `MCP_DEBUG` | No | `false` | Enable debug logging |
+| `OPENCODE_URL` | No | `http://localhost:4096` | OpenCode server URL |
 
-| Mode | Description |
+### Models by Provider
+
+If `OPENCODE_MODEL` is not set, these models are used:
+
+| Provider | Model | Context Window |
+|----------|---------------|----------------|
+| `anthropic` | `claude-haiku-4-5-20251001` | 200K tokens |
+| `openai` | `gpt-5-mini` | 128K tokens |
+| `google` | `gemini-3-flash-preview` | 1M tokens |
+
+### .mcp.json Configuration
+
+For Claude Code integration, create `.mcp.json` in the project root:
+
+```json
+{
+  "mcpServers": {
+    "open-mercato": {
+      "type": "http",
+      "url": "http://localhost:3001/mcp",
+      "headers": {
+        "x-api-key": "omk_your_api_key_here"
+      }
+    }
+  }
+}
+```
+
+The `x-api-key` value must be a valid Open Mercato API key:
+1. Log into Open Mercato backend
+2. Go to Settings > API Keys
+3. Create a new API key with appropriate permissions
+4. Copy the key (starts with `omk_`)
+
+---
+
+## Architecture
+
+### High-Level Flow
+
+```
+Browser (Cmd+J)
+    |
+    v
+/api/chat (SSE stream)
+    |
+    v
+OpenCode Server (:4096)
+    |
+    v
+MCP Server (:3001)
+    |
+    v
+Platform Tools (customers, sales, catalog, search...)
+```
+
+### Components
+
+1. **Chat UI** - Dockable panel in the frontend
+2. **Chat API** (`/api/chat`) - SSE endpoint that bridges frontend to OpenCode
+3. **OpenCode** - Go-based AI agent running in Docker
+4. **MCP Server** - HTTP server exposing tools via Model Context Protocol
+5. **Tool Registry** - Registered tools from all modules
+
+### MCP Server Modes
+
+#### Development Server (`yarn mcp:dev`)
+
+For local development and Claude Code integration:
+
+- Authenticates once at startup using API key from `.mcp.json`
+- No session tokens required per request
+- Tools filtered by API key permissions at startup
+- Port: 3001 (or `MCP_DEV_PORT`)
+
+```bash
+yarn mcp:dev
+```
+
+#### Production Server (`yarn mcp:serve`)
+
+For web-based AI chat interface:
+
+- Two-tier authentication:
+  1. Server-level: `x-api-key` header validated against `MCP_SERVER_API_KEY`
+  2. User-level: `_sessionToken` parameter in each tool call
+- Per-request permission checks
+- Session tokens auto-generated with 2-hour TTL
+
+```bash
+yarn mcp:serve  # Uses MCP_SERVER_API_KEY from .env
+```
+
+### Comparison
+
+| Feature | Dev (`mcp:dev`) | Production (`mcp:serve`) |
+|---------|-----------------|-------------------------|
+| Auth | API key only | API key + session tokens |
+| Permission check | Once at startup | Per tool call |
+| Session tokens | Not required | Required |
+| Use case | Claude Code, local dev | Web AI chat |
+
+---
+
+## API Discovery Tools
+
+Instead of exposing hundreds of individual API endpoints as tools, the module provides three meta-tools for dynamic API discovery and execution:
+
+| Tool | Description |
 |------|-------------|
-| **Modal** | Centered overlay (default) |
-| **Dock Right** | Fixed panel on right side |
-| **Dock Left** | Fixed panel on left side |
-| **Dock Bottom** | Fixed panel at bottom |
+| `api_discover` | Search for APIs by keyword, module, or HTTP method |
+| `api_schema` | Get detailed schema for a specific endpoint |
+| `api_execute` | Execute an API call with parameters |
 
-Click the position icons in the chat header to switch modes. Position preference is persisted in localStorage.
+### Example Workflow
+
+1. User asks: "Find all customers in New York"
+2. AI calls `api_discover("customers search")`
+3. AI calls `api_schema("/api/v1/customers")` to see parameters
+4. AI calls `api_execute({ method: "GET", path: "/api/v1/customers", query: { city: "New York" } })`
+
+---
+
+## Frontend Components
 
 ### Integration
 
@@ -99,561 +267,105 @@ function Layout({ children }) {
 }
 ```
 
-## Architecture Overview
+### Keyboard Shortcuts
 
-```mermaid
-graph TB
-    subgraph "Web Application"
-        ChatAPI["/api/chat (SSE)"]
-        SessionMgr[Session Token Manager]
-    end
+| Shortcut | Action |
+|----------|--------|
+| `Cmd+J` / `Ctrl+J` | Open AI chat directly |
+| `Cmd+K` / `Ctrl+K` | Open command palette |
+| `Escape` | Close chat or reset |
+| `Enter` | Submit message |
 
-    subgraph "OpenCode Server :4096"
-        OC[OpenCode Agent]
-        SSE[SSE /event endpoint]
-        Sessions[Session Manager]
-    end
+### Dockable Chat Panel
 
-    subgraph "MCP HTTP Server :3001"
-        MCPEndpoint["/mcp endpoint"]
-        ServerAuth[Server Auth<br/>x-api-key]
-        UserAuth[User Auth<br/>_sessionToken]
-        Tools[Tool Registry]
-    end
+The chat panel supports multiple positions:
 
-    subgraph "Open Mercato Platform"
-        Customers[Customers]
-        Sales[Sales]
-        Catalog[Catalog]
-        Search[Search]
-    end
-
-    ChatAPI -->|"Create session token"| SessionMgr
-    ChatAPI -->|"HTTP POST"| OC
-    ChatAPI <-->|"SSE Subscribe"| SSE
-    OC -->|"MCP Protocol"| MCPEndpoint
-    MCPEndpoint --> ServerAuth
-    ServerAuth --> UserAuth
-    UserAuth --> Tools
-    Tools --> Customers
-    Tools --> Sales
-    Tools --> Catalog
-    Tools --> Search
-```
-
-## Message Flow
-
-```mermaid
-sequenceDiagram
-    participant User
-    participant API as /api/chat
-    participant DB as Database
-    participant OC as OpenCode :4096
-    participant MCP as MCP Server :3001
-
-    User->>API: POST {messages, sessionId?}
-
-    alt New Chat Session
-        API->>DB: createSessionApiKey(userId, roles)
-        DB-->>API: sessionToken (sess_xxx)
-        API->>API: Inject token into message
-    end
-
-    API-->>User: SSE: {type: 'thinking'}
-    API->>OC: POST /session/{id}/message
-
-    loop Tool Execution
-        OC->>MCP: Tool call with _sessionToken
-        MCP->>MCP: Validate x-api-key (Tier 1)
-        MCP->>DB: findApiKeyBySessionToken()
-        DB-->>MCP: User's roles & permissions
-        MCP->>MCP: Check tool permissions
-        MCP-->>OC: Tool result
-    end
-
-    OC-->>API: SSE: message.part.updated
-    API-->>User: SSE: {type: 'text', content: '...'}
-    OC-->>API: SSE: session.status = idle
-    API-->>User: SSE: {type: 'done', sessionId}
-```
-
-## Two-Tier Authentication
-
-```mermaid
-graph TB
-    subgraph "Tier 1: Server Authentication"
-        Request[Incoming Request]
-        CheckKey{x-api-key header?}
-        ValidateKey[Compare with<br/>MCP_SERVER_API_KEY]
-        RejectServer[401 Unauthorized]
-    end
-
-    subgraph "Tier 2: User Authentication"
-        ExtractToken[Extract _sessionToken<br/>from tool args]
-        LookupToken[findApiKeyBySessionToken]
-        LoadACL[rbacService.loadAcl]
-        CheckPerms{Has required<br/>features?}
-        RejectUser[403 Insufficient Permissions]
-    end
-
-    subgraph "Execution"
-        Execute[Execute Tool<br/>with User Context]
-        Result[Return Result]
-    end
-
-    Request --> CheckKey
-    CheckKey -->|No| RejectServer
-    CheckKey -->|Yes| ValidateKey
-    ValidateKey -->|Invalid| RejectServer
-    ValidateKey -->|Valid| ExtractToken
-    ExtractToken --> LookupToken
-    LookupToken -->|Not found/expired| RejectUser
-    LookupToken -->|Found| LoadACL
-    LoadACL --> CheckPerms
-    CheckPerms -->|No| RejectUser
-    CheckPerms -->|Yes| Execute
-    Execute --> Result
-```
-
-## Session Token Flow
-
-```mermaid
-sequenceDiagram
-    participant User
-    participant API as /api/chat
-    participant DB as api_keys table
-    participant OC as OpenCode
-    participant MCP as MCP Server
-
-    Note over User,MCP: New Chat Session
-    User->>API: POST /api/chat (first message)
-    API->>API: Get user's role IDs from JWT
-    API->>DB: createSessionApiKey({<br/>sessionToken,<br/>userId,<br/>userRoles,<br/>ttlMinutes: 120<br/>})
-    DB-->>API: Ephemeral key created
-    API->>OC: Message with session token
-
-    Note over OC,MCP: Tool Execution
-    OC->>MCP: Tool call with _sessionToken: "sess_xxx"
-    MCP->>MCP: Validate MCP_SERVER_API_KEY
-    MCP->>DB: findApiKeyBySessionToken()
-    DB-->>MCP: Session key with user's roles
-    MCP->>MCP: Load ACL from session key
-    MCP->>MCP: Check tool permissions
-    MCP-->>OC: Tool result
-```
-
-## API Discovery Tools
-
-```mermaid
-flowchart LR
-    subgraph "User Query"
-        Q[User: "Find customers in New York"]
-    end
-
-    subgraph "AI Processing"
-        A1[api_discover<br/>'customers search']
-        A2[api_schema<br/>'/api/v1/customers']
-        A3[api_execute<br/>GET /api/v1/customers]
-    end
-
-    subgraph "Results"
-        R[15 customers found]
-        Response[AI: "I found 15 customers<br/>in New York..."]
-    end
-
-    Q --> A1
-    A1 -->|"Found endpoints"| A2
-    A2 -->|"Got schema"| A3
-    A3 --> R
-    R --> Response
-```
-
-| Tool | Description |
+| Mode | Description |
 |------|-------------|
-| `api_discover` | Search for APIs by keyword, module, or HTTP method |
-| `api_schema` | Get detailed schema for a specific endpoint |
-| `api_execute` | Execute an API call with parameters |
+| Modal | Centered overlay (default) |
+| Dock Right | Fixed panel on right side |
+| Dock Left | Fixed panel on left side |
+| Dock Bottom | Fixed panel at bottom |
+
+Position preference is persisted in localStorage.
 
 ---
 
-## Detailed Configuration
+## Module AI Tools
 
-### Environment Variables
+Modules can expose AI tools by creating an `ai-tools.ts` file. These tools are **automatically discovered** by the generator and loaded at MCP server startup - no manual registration required.
 
-```bash
-# MCP Server API Key (required for production)
-# This can be ANY secure string - just ensure it matches between .env and opencode.json
-MCP_SERVER_API_KEY=your-secure-server-key-here
+### File Location
 
-# OpenCode URL (default: http://localhost:4096)
-OPENCODE_URL=http://localhost:4096
-```
+Create the file at: `src/modules/<module>/ai-tools.ts`
 
-> **Note:** The `MCP_SERVER_API_KEY` is a shared secret you define yourself. It must be configured:
-> 1. In your `.env` file (for the MCP server)
-> 2. In OpenCode's `opencode.json` as the `x-api-key` header
+For packages: `packages/<package>/src/modules/<module>/ai-tools.ts`
 
-### Verify Connectivity
+### Structure
 
-```bash
-curl http://localhost:3001/health          # MCP health
-curl http://localhost:4096/global/health   # OpenCode health
-curl http://localhost:4096/mcp             # MCP connection status
-```
+```typescript
+import { z } from 'zod'
+import type { McpToolContext } from '@open-mercato/ai-assistant'
 
----
-
-## MCP Server Modes
-
-The module provides two MCP HTTP server modes for different use cases:
-
-### Development Server (`yarn mcp:dev`)
-
-A simplified HTTP server for local development. Authenticates once at startup using an API key.
-
-**Features:**
-- HTTP transport on port 3001 (configurable via `MCP_DEV_PORT`)
-- Direct API key authentication (no session tokens needed)
-- Tools filtered by API key permissions at startup
-- Ideal for local testing and development
-
-**Configuration (`.mcp.json`):**
-```json
-{
-  "mcpServers": {
-    "open-mercato": {
-      "type": "http",
-      "url": "http://localhost:3001/mcp",
-      "headers": {
-        "x-api-key": "omk_your_api_key_here"
-      }
-    }
-  }
+type AiToolDefinition = {
+  name: string                    // Tool name (module_action format, no dots)
+  description: string             // Human-readable description
+  inputSchema: z.ZodType<any>     // Zod schema for input validation
+  requiredFeatures?: string[]     // ACL features required
+  handler: (input: any, ctx: McpToolContext) => Promise<unknown>
 }
+
+export const aiTools: AiToolDefinition[] = [
+  {
+    name: 'my_module_action',
+    description: 'Description of what this tool does',
+    inputSchema: z.object({
+      param1: z.string().describe('Description of param1'),
+      param2: z.number().optional(),
+    }),
+    requiredFeatures: ['my_module.action'],
+    handler: async (input, ctx) => {
+      const service = ctx.container.resolve('myService')
+      return { success: true }
+    },
+  },
+]
 ```
 
-**Running:**
+### Auto-Discovery
+
+Tools are automatically discovered when you run the module generator:
+
 ```bash
-# API key from .mcp.json headers.x-api-key
+npm run modules:prepare
+```
+
+This scans all modules for `ai-tools.ts` files and generates `ai-tools.generated.ts` in `.mercato/generated/`.
+
+### Registration Flow
+
+1. Create `ai-tools.ts` in your module
+2. Run `npm run modules:prepare` (or it runs automatically during `predev`/`prebuild`)
+3. Tools are available in the MCP server
+
+**Example**: See `packages/search/src/modules/search/ai-tools.ts` for a complete implementation with search-related tools.
+
+---
+
+## CLI Commands
+
+```bash
+# Start development MCP server (for Claude Code)
 yarn mcp:dev
 
-# Or from environment variable
-OPEN_MERCATO_API_KEY=omk_xxx yarn mcp:dev
+# Start production MCP server (for web chat)
+yarn mcp:serve
 
-# Custom port
-MCP_DEV_PORT=3002 yarn mcp:dev
+# List all available MCP tools
+yarn mercato ai_assistant mcp:list-tools
 
-# Enable debug logging
-MCP_DEBUG=true yarn mcp:dev
-```
-
-**Endpoints:**
-- `POST http://localhost:3001/mcp` - MCP protocol endpoint
-- `GET http://localhost:3001/health` - Health check
-
-### Production Server (`yarn mcp:serve`)
-
-A stateless HTTP server for production use. Requires two-tier authentication.
-
-**Features:**
-- HTTP transport on port 3001
-- Two-tier authentication:
-  1. Server-level: `x-api-key` header validated against `MCP_SERVER_API_KEY`
-  2. User-level: `_sessionToken` parameter in each tool call
-- Per-request permission checks based on user's session
-- Ephemeral session tokens with 120-minute TTL
-
-**Environment Variables:**
-```bash
-MCP_SERVER_API_KEY=your-secure-server-key-here
-```
-
-**How it works:**
-1. Chat API creates a session token for the logged-in user
-2. OpenCode connects with static `MCP_SERVER_API_KEY`
-3. Each tool call includes `_sessionToken` in arguments
-4. MCP server resolves user permissions from session token
-5. Tool executes with user's ACL context
-
-### Comparison
-
-| Feature | Dev (`mcp:dev`) | Production (`mcp:serve`) |
-|---------|-----------------|-------------------------|
-| Authentication | API key only | API key + session tokens |
-| Permission Check | Once at startup | Per tool call |
-| Session Tokens | Not required | Required (`_sessionToken`) |
-| Use Case | Local development | Web AI chat interface |
-| User Context | From API key | From session token |
-
----
-
-## OpenCode Integration
-
-The AI Assistant uses **OpenCode** as the AI agent backend. OpenCode is a Go-based headless AI agent that connects to our MCP server for tool access.
-
-### OpenCode SSE Events
-
-```mermaid
-graph LR
-    subgraph "Session Events"
-        SE1[session.status: busy]
-        SE2[session.status: idle]
-        SE3[session.status: waiting]
-    end
-
-    subgraph "Message Events"
-        ME1[message.updated]
-        ME2[message.part.updated]
-    end
-
-    subgraph "Question Events"
-        QE1[question.asked]
-    end
-
-    subgraph "Handlers"
-        H1[Emit 'thinking']
-        H2[Emit 'text' / 'tool-call']
-        H3[Emit 'question']
-        H4[Emit 'done']
-    end
-
-    SE1 --> H1
-    SE2 --> H4
-    SE3 --> H3
-    ME2 --> H2
-    QE1 --> H3
-```
-
-### OpenCode Configuration
-
-**Environment Variables:**
-```bash
-# Provider selection (required)
-OPENCODE_PROVIDER=anthropic  # Options: anthropic, openai, google
-
-# Model override (optional - uses provider default if not set)
-OPENCODE_MODEL=
-
-# Provider API keys (set the one matching OPENCODE_PROVIDER)
-OPENCODE_ANTHROPIC_API_KEY=sk-ant-...
-OPENCODE_OPENAI_API_KEY=sk-...
-OPENCODE_GOOGLE_API_KEY=AIza...
-```
-
-**Default Models by Provider:**
-
-| Provider | Default Model | Context Window |
-|----------|---------------|----------------|
-| `anthropic` | `claude-haiku-4-5-20251001` | 200K tokens |
-| `openai` | `gpt-5-mini` | 128K tokens |
-| `google` | `gemini-3-flash-preview` | 1M tokens |
-
-**Example `opencode.json`:**
-```json
-{
-  "provider": "anthropic",
-  "model": "claude-haiku-4-5-20251001",
-  "mcp": {
-    "open-mercato": {
-      "type": "sse",
-      "url": "http://host.docker.internal:3001/mcp",
-      "headers": {
-        "x-api-key": "your-secure-server-key-here"
-      }
-    }
-  }
-}
-```
-
-### OpenCode API Reference
-
-| Endpoint | Method | Purpose |
-|----------|--------|---------|
-| `/event` | GET | SSE event stream |
-| `/session` | POST | Create new session |
-| `/session/{id}` | GET | Get session |
-| `/session/{id}/message` | POST | Send message |
-| `/question` | GET | List pending questions |
-| `/question/{id}/reply` | POST | Answer question |
-| `/global/health` | GET | Health check |
-| `/mcp` | GET | MCP connection status |
-
----
-
-## API Key Entity Extension
-
-The `api_keys` table includes session-specific fields:
-
-```typescript
-@Entity({ tableName: 'api_keys' })
-export class ApiKey {
-  // ... existing fields ...
-
-  @Property({ name: 'session_token', type: 'text', nullable: true })
-  sessionToken?: string | null
-
-  @Property({ name: 'session_user_id', type: 'uuid', nullable: true })
-  sessionUserId?: string | null
-}
-```
-
-### Session Key Service Functions
-
-```typescript
-// Generate a unique session token
-generateSessionToken(): string  // Returns: "sess_xxxxxxxx..."
-
-// Create an ephemeral API key for a chat session
-createSessionApiKey(em, {
-  sessionToken: string,
-  userId: string,
-  userRoles: string[],      // Role IDs (not names)
-  tenantId?: string | null,
-  organizationId?: string | null,
-  ttlMinutes?: number       // Default: 120
-}): Promise<{ keyId, secret, sessionToken }>
-
-// Look up a session key
-findApiKeyBySessionToken(em, sessionToken): Promise<ApiKey | null>
-
-// Delete a session key
-deleteSessionApiKey(em, sessionToken): Promise<void>
-```
-
----
-
-## API Routes
-
-| Route | Method | Description |
-|-------|--------|-------------|
-| `/api/chat` | POST | Streaming chat with AI (SSE) |
-| `/api/tools` | GET | List all available tools |
-| `/api/tools/execute` | POST | Execute a specific tool |
-| `/api/settings` | GET/POST | AI provider configuration |
-| `/api/mcp-servers` | GET/POST | External MCP server management |
-| `/api/mcp-servers/[id]` | GET/PUT/DELETE | Single MCP server operations |
-
-### Chat API Request/Response
-
-**Request**:
-```typescript
-{
-  messages: Array<{ role: 'user' | 'assistant'; content: string }>
-  sessionId?: string  // Optional, for continuing conversation
-}
-```
-
-**SSE Events**:
-```typescript
-type ChatSSEEvent =
-  | { type: 'thinking' }
-  | { type: 'text'; content: string }
-  | { type: 'tool-call'; id: string; toolName: string; args: unknown }
-  | { type: 'tool-result'; id: string; toolName: string; result: unknown }
-  | { type: 'question'; question: OpenCodeQuestion }
-  | { type: 'metadata'; model?: string; provider?: string; tokens?: { input: number; output: number } }
-  | { type: 'done'; sessionId?: string }
-  | { type: 'error'; error: string }
-```
-
----
-
-## Directory Structure
-
-```
-packages/ai-assistant/
-├── src/
-│   ├── index.ts                    # Package exports
-│   ├── di.ts                       # Dependency injection setup
-│   ├── types.ts                    # Shared TypeScript types
-│   │
-│   ├── modules/ai_assistant/
-│   │   ├── index.ts                # Module exports
-│   │   ├── acl.ts                  # Permission definitions
-│   │   ├── cli.ts                  # CLI commands (mcp:serve, mcp:dev)
-│   │   ├── di.ts                   # Module DI container
-│   │   │
-│   │   ├── lib/
-│   │   │   ├── opencode-client.ts      # OpenCode server client
-│   │   │   ├── opencode-handlers.ts    # Request handlers for OpenCode
-│   │   │   ├── api-discovery-tools.ts  # api_discover, api_execute, api_schema
-│   │   │   ├── api-endpoint-index.ts   # OpenAPI endpoint indexing
-│   │   │   ├── http-server.ts          # MCP HTTP server implementation
-│   │   │   ├── mcp-server.ts           # MCP stdio server implementation
-│   │   │   ├── tool-registry.ts        # Global tool registration
-│   │   │   ├── tool-executor.ts        # Tool execution logic
-│   │   │   ├── tool-loader.ts          # Discovers tools from modules
-│   │   │   ├── mcp-tool-adapter.ts     # Converts MCP tools to AI SDK format
-│   │   │   └── types.ts                # Module-specific types
-│   │   │
-│   │   ├── api/chat/
-│   │   │   └── route.ts            # POST /api/chat handler
-│   │   │
-│   │   └── frontend/components/
-│   │       ├── AiAssistantSettingsPageClient.tsx
-│   │       └── McpServersSection.tsx
-│   │
-│   └── frontend/
-│       ├── index.ts                # Frontend exports
-│       ├── types.ts                # Frontend TypeScript types
-│       └── hooks/
-│           └── useMcpTools.ts      # Tool fetching and execution
-│
-├── AGENTS.md                       # Technical guide for AI agents
-└── README.md                       # This file
-```
-
----
-
-## Registering Tools
-
-```mermaid
-flowchart LR
-    subgraph Modules
-        M1[customers/ai-tools.ts]
-        M2[sales/ai-tools.ts]
-        M3[search/ai-tools.ts]
-    end
-
-    subgraph Registration
-        R[registerMcpTool]
-        TR[Tool Registry]
-    end
-
-    subgraph Runtime
-        MCP[MCP Server]
-        ACL[ACL Check]
-        Exec[Execute Handler]
-    end
-
-    M1 -->|registerMcpTool| R
-    M2 -->|registerMcpTool| R
-    M3 -->|registerMcpTool| R
-    R --> TR
-    TR --> MCP
-    MCP --> ACL
-    ACL --> Exec
-```
-
-Register tools via `registerMcpTool()`:
-
-```typescript
-import { registerMcpTool } from '@open-mercato/ai-assistant/tools'
-import { z } from 'zod'
-
-registerMcpTool({
-  name: 'my_module_action',
-  description: 'Description of what this tool does',
-  inputSchema: z.object({
-    param1: z.string().describe('Description of param1'),
-    param2: z.number().optional(),
-  }),
-  requiredFeatures: ['my_module.action'],
-  handler: async (input, ctx) => {
-    const service = ctx.container.resolve('myService')
-    return { success: true, data: result }
-  }
-}, { moduleId: 'my_module' })
+# List tools with descriptions
+yarn mercato ai_assistant mcp:list-tools --verbose
 ```
 
 ---
@@ -673,51 +385,145 @@ registerMcpTool({
 
 ## Troubleshooting
 
-| Symptom | Likely Cause | Fix |
-|---------|--------------|-----|
-| "Agent is working..." forever | OpenCode not responding | Check `curl http://localhost:4096/global/health` |
-| "MCP connection failed" | MCP server not running | Start with `yarn mcp:serve` or `yarn mcp:dev` |
-| Empty response | OpenCode not connected to MCP | Check `curl http://localhost:4096/mcp` |
-| "Unauthorized" error | Missing/invalid API key | Check x-api-key in opencode.json matches MCP_SERVER_API_KEY |
-| "Session expired" errors | Session token TTL exceeded | Start new chat session (creates new 120-min token) |
-| Tools fail with UNAUTHORIZED | Missing _sessionToken | Verify AI is passing token in tool args |
-| "Insufficient permissions" | User lacks required features | Check user's role assignments |
+### Verify Connectivity
+
+```bash
+# MCP server health
+curl http://localhost:3001/health
+# Expected: {"status":"ok","mode":"development","tools":10}
+
+# OpenCode health
+curl http://localhost:4096/global/health
+# Expected: {"healthy":true,"version":"..."}
+
+# MCP connection from OpenCode
+curl http://localhost:4096/mcp
+# Expected: {"open-mercato":{"status":"connected"}}
+```
+
+### Debug Mode
+
+Enable debug logging:
+
+```bash
+MCP_DEBUG=true yarn mcp:dev
+```
+
+In the chat UI, click "Debug" in the footer to see tool calls and results.
 
 ---
 
-## Technical Notes
+## Directory Structure
 
-### Zod 4 Schema Handling
-
-The module includes handling for Zod 4 schemas with the Vercel AI SDK. See [AGENTS.md](./AGENTS.md) for implementation details.
-
-### Docker Configuration
-
-```yaml
-# docker-compose.yml
-services:
-  opencode:
-    build: ./docker/opencode
-    container_name: mercato-opencode
-    ports:
-      - "${OPENCODE_PORT:-4096}:4096"
-    environment:
-      # Provider selection (anthropic, openai, google)
-      OPENCODE_PROVIDER: ${OPENCODE_PROVIDER:-anthropic}
-      OPENCODE_MODEL: ${OPENCODE_MODEL:-}
-      # Provider API keys (set the one matching OPENCODE_PROVIDER)
-      ANTHROPIC_API_KEY: ${OPENCODE_ANTHROPIC_API_KEY:-}
-      OPENAI_API_KEY: ${OPENCODE_OPENAI_API_KEY:-}
-      GOOGLE_GENERATIVE_AI_API_KEY: ${OPENCODE_GOOGLE_API_KEY:-}
-      # MCP configuration
-      OPENCODE_MCP_URL: ${OPENCODE_MCP_URL:-http://host.docker.internal:3001/mcp}
-      MCP_SERVER_API_KEY: ${MCP_SERVER_API_KEY:-}
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
+```
+packages/ai-assistant/
+├── src/
+│   ├── index.ts                    # Package exports
+│   ├── di.ts                       # Dependency injection
+│   ├── types.ts                    # Shared types
+│   │
+│   ├── modules/ai_assistant/
+│   │   ├── acl.ts                  # Permission definitions
+│   │   ├── cli.ts                  # CLI commands
+│   │   │
+│   │   ├── lib/
+│   │   │   ├── opencode-client.ts      # OpenCode API client
+│   │   │   ├── opencode-handlers.ts    # Request handlers
+│   │   │   ├── api-discovery-tools.ts  # api_discover, api_execute, api_schema
+│   │   │   ├── http-server.ts          # MCP HTTP server
+│   │   │   ├── mcp-dev-server.ts       # Development MCP server
+│   │   │   └── tool-registry.ts        # Tool registration
+│   │   │
+│   │   └── api/chat/
+│   │       └── route.ts            # POST /api/chat handler
+│   │
+│   └── frontend/
+│       ├── index.ts                # Frontend exports
+│       ├── components/
+│       │   ├── DockableChat/       # Main chat component
+│       │   ├── AiAssistantIntegration.tsx
+│       │   └── AiChatHeaderButton.tsx
+│       └── hooks/
+│           ├── useCommandPalette.ts
+│           └── useMcpTools.ts
+│
+└── README.md                       # This file
 ```
 
 ---
 
-## License
+## API Routes
 
-Proprietary - Open Mercato
+| Route | Method | Description |
+|-------|--------|-------------|
+| `/api/chat` | POST | Streaming chat with AI (SSE) |
+| `/api/tools` | GET | List available tools |
+| `/api/tools/execute` | POST | Execute a specific tool |
+| `/api/settings` | GET | AI provider configuration |
+| `/api/mcp-servers` | GET/POST | External MCP server management |
+
+### Chat API
+
+**Request:**
+```typescript
+{
+  messages: Array<{ role: 'user' | 'assistant'; content: string }>
+  sessionId?: string  // For continuing conversation
+}
+```
+
+**SSE Events:**
+```typescript
+| { type: 'thinking' }
+| { type: 'text'; content: string }
+| { type: 'tool-call'; id: string; toolName: string; args: unknown }
+| { type: 'tool-result'; id: string; result: unknown }
+| { type: 'done'; sessionId: string }
+| { type: 'error'; error: string }
+```
+
+---
+
+## Session Management
+
+### How Sessions Work
+
+1. **First message**: Chat API creates a session token (2-hour TTL)
+2. **Token injection**: Token is injected into the message for OpenCode
+3. **Tool calls**: Each tool call includes `_sessionToken` parameter
+4. **Permission check**: MCP server resolves user permissions from token
+5. **Expiry**: After 2 hours of inactivity, session expires
+
+### Session Expiry
+
+When a session expires, the AI receives:
+> "Your chat session has expired. Please close and reopen the chat window to continue."
+
+The AI will relay this message naturally to the user.
+
+---
+
+## Docker Configuration
+
+The OpenCode container is configured via `docker-compose.yml`. It reads environment variables from your `.env` file:
+
+```yaml
+services:
+  opencode:
+    build: ./docker/opencode
+    environment:
+      OPENCODE_PROVIDER: ${OPENCODE_PROVIDER}        # Required
+      OPENCODE_MODEL: ${OPENCODE_MODEL:-}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}      # Set if using anthropic
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}            # Set if using openai
+      GOOGLE_GENERATIVE_AI_API_KEY: ${GOOGLE_API_KEY:-}  # Set if using google
+      OPENCODE_MCP_URL: ${OPENCODE_MCP_URL:-http://host.docker.internal:3001/mcp}
+      MCP_SERVER_API_KEY: ${MCP_SERVER_API_KEY}      # Required
+    ports:
+      - "4096:4096"
+```
+
+Start with:
+```bash
+docker-compose up opencode
+```
