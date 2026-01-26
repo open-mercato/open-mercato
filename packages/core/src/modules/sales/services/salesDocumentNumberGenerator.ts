@@ -32,20 +32,23 @@ const DEFAULT_SEQUENCE_START = 1
 
 const createNanoId = (size = 12) => {
   const alphabet = '0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz'
-  const bytes = randomBytes(Math.max(1, Math.min(size, 64)))
+  const maxValid = 256 - (256 % alphabet.length) // 248 for alphabet.length=62
   let id = ''
-  for (let i = 0; i < bytes.length && id.length < size; i += 1) {
-    id += alphabet[bytes[i] % alphabet.length]
+  while (id.length < size) {
+    const byte = randomBytes(1)[0]
+    if (byte >= maxValid) continue // rejection sampling to avoid bias
+    id += alphabet[byte % alphabet.length]
   }
   return id
 }
 
 const generateRandomDigits = (size = 4) => {
   const length = Math.max(1, Math.min(size, 12))
-  const digits = []
-  const bytes = randomBytes(length)
-  for (let i = 0; i < length; i += 1) {
-    digits.push((bytes[i] % 10).toString())
+  const digits: string[] = []
+  while (digits.length < length) {
+    const byte = randomBytes(1)[0]
+    if (byte >= 250) continue // rejection sampling: only use 0-249 which divides evenly by 10
+    digits.push((byte % 10).toString())
   }
   return digits.join('')
 }

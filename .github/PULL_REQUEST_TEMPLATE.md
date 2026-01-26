@@ -11,6 +11,19 @@ Provide a concise description of the problem and the proposed solution.
 
 - bullet the key code or documentation updates
 
+## Specification
+
+<!-- We follow spec-driven development. Please check if a spec exists and update it accordingly. -->
+
+**Does a spec exist for this feature/module?**
+- [ ] Yes
+- [ ] No (created a new spec)
+- [ ] N/A (minor change, no spec needed)
+
+**Spec file path:**
+<!-- Example: .ai/specs/notifications-module.md -->
+
+
 ## Testing
 
 List the tests or commands you ran to validate the change.
@@ -21,6 +34,7 @@ List the tests or commands you ran to validate the change.
 - [ ] I have read and accept the Open Mercato Contributor License Agreement (see `docs/cla.md`).
 - [ ] I updated documentation, locales, or generators if the change requires it.
 - [ ] I added or adjusted tests that cover the change.
+- [ ] I created or updated the spec in `.ai/specs/` with a changelog entry (if applicable).
 
 ## Linked issues
 

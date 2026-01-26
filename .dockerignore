@@ -1,18 +1,71 @@
-node_modules
-.next
-.next/cache
-dist
-coverage
-tmp
-docs/.next
+# Git and version control
 .git
 .gitignore
+.github
+
+# IDE and editor files
 .vscode
-*.log
-docs/node_modules
-docs/build
+.idea
 *.swp
 *.swo
 **/.DS_Store
-Dockerfile*
+
+# Build outputs (will be rebuilt in container)
+node_modules
+**/node_modules
+.next
+**/.next
+dist
+**/dist
+coverage
+**/coverage
+.turbo
+**/.turbo
+
+# Generated files (will be regenerated)
+apps/mercato/.mercato/generated
+packages/core/generated
+
+# Local development files
+.env
+.env.local
+.env.*.local
+*.log
+tmp
+.queue
+**/.queue
+
+# Yarn cache and state files
+.yarn/install-state.gz
+.yarn/cache
+.pnp.*
+
+# Documentation build artifacts (source needed for docs image)
+docs/build
+docs/.docusaurus
+apps/docs/build
+apps/docs/.docusaurus
+
+# Docker files (exclude root, allow app-specific)
+Dockerfile
 docker-compose*.yml
+
+# Test files
+**/*.test.ts
+**/*.test.tsx
+**/*.spec.ts
+**/*.spec.tsx
+**/__tests__
+**/tests
+
+# Development certificates
+certs
+
+# Data directories (should be mounted as volumes)
+data
+storage
+apps/mercato/storage
+
+# CI/CD
+.github
+.vscode
