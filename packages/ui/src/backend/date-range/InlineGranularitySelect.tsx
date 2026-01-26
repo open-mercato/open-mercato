@@ -2,7 +2,7 @@
 
 import * as React from 'react'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
-import type { DateGranularity } from '../../lib/aggregations'
+import type { DateGranularity } from '@open-mercato/shared/modules/analytics'
 
 export type InlineGranularitySelectProps = {
   value: DateGranularity

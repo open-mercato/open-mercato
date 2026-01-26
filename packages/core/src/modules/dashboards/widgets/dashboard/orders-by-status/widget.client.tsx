@@ -4,12 +4,14 @@ import * as React from 'react'
 import type { DashboardWidgetComponentProps } from '@open-mercato/shared/modules/dashboard/widgets'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
-import { PieChart, type PieChartDataItem } from '../../../components/charts/PieChart'
-import { DateRangeSelect } from '../../../components/settings/DateRangeSelect'
-import { InlineDateRangeSelect } from '../../../components/settings/InlineDateRangeSelect'
+import { PieChart, type PieChartDataItem } from '@open-mercato/ui/backend/charts'
+import {
+  DateRangeSelect,
+  InlineDateRangeSelect,
+  type DateRangePreset,
+} from '@open-mercato/ui/backend/date-range'
 import { DEFAULT_SETTINGS, hydrateSettings, type OrdersByStatusSettings } from './config'
 import type { WidgetDataResponse } from '../../../services/widgetDataService'
-import type { DateRangePreset } from '../../../lib/dateRanges'
 
 async function fetchOrdersByStatusData(settings: OrdersByStatusSettings): Promise<WidgetDataResponse> {
   const body = {

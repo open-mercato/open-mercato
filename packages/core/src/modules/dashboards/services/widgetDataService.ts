@@ -1,4 +1,6 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
+import type { CacheStrategy } from '@open-mercato/cache'
+import { createHash } from 'node:crypto'
 import {
   type DateRangePreset,
   resolveDateRange,
@@ -6,14 +8,15 @@ import {
   calculatePercentageChange,
   determineChangeDirection,
   isValidDateRangePreset,
-} from '../lib/dateRanges'
+} from '@open-mercato/ui/backend/date-range'
 import {
   type AggregateFunction,
   type DateGranularity,
   buildAggregationQuery,
-  isValidEntityType,
-  getFieldMapping,
 } from '../lib/aggregations'
+import type { AnalyticsRegistry } from './analyticsRegistry'
+
+const WIDGET_DATA_CACHE_TTL = 120_000
 
 const SAFE_IDENTIFIER_PATTERN = /^[a-zA-Z_][a-zA-Z0-9_]*$/
 
@@ -55,26 +58,6 @@ export type WidgetDataItem = {
   value: number | null
 }
 
-type LabelResolverConfig = {
-  table: string
-  idColumn: string
-  labelColumn: string
-}
-
-const LABEL_RESOLVER_CONFIG: Record<string, Record<string, LabelResolverConfig>> = {
-  'sales:order_lines': {
-    productId: { table: 'catalog_products', idColumn: 'id', labelColumn: 'title' },
-    productVariantId: { table: 'catalog_product_variants', idColumn: 'id', labelColumn: 'name' },
-  },
-  'sales:orders': {
-    customerEntityId: { table: 'customer_entities', idColumn: 'id', labelColumn: 'display_name' },
-    channelId: { table: 'sales_channels', idColumn: 'id', labelColumn: 'name' },
-  },
-  'customers:deals': {
-    customerEntityId: { table: 'customer_entities', idColumn: 'id', labelColumn: 'display_name' },
-  },
-}
-
 export type WidgetDataResponse = {
   value: number | null
   data: WidgetDataItem[]
@@ -97,19 +80,46 @@ export type WidgetDataScope = {
 export type WidgetDataServiceOptions = {
   em: EntityManager
   scope: WidgetDataScope
+  registry: AnalyticsRegistry
+  cache?: CacheStrategy
 }
 
 export class WidgetDataService {
   private em: EntityManager
   private scope: WidgetDataScope
+  private registry: AnalyticsRegistry
+  private cache?: CacheStrategy
 
   constructor(options: WidgetDataServiceOptions) {
     this.em = options.em
     this.scope = options.scope
+    this.registry = options.registry
+    this.cache = options.cache
+  }
+
+  private buildCacheKey(request: WidgetDataRequest): string {
+    const hash = createHash('sha256')
+    hash.update(JSON.stringify({ request, scope: this.scope }))
+    return `widget-data:${hash.digest('hex').slice(0, 16)}`
+  }
+
+  private getCacheTags(entityType: string): string[] {
+    return ['widget-data', `widget-data:${entityType}`]
   }
 
   async fetchWidgetData(request: WidgetDataRequest): Promise<WidgetDataResponse> {
     this.validateRequest(request)
+
+    if (this.cache) {
+      const cacheKey = this.buildCacheKey(request)
+      try {
+        const cached = await this.cache.get(cacheKey)
+        if (cached && typeof cached === 'object' && 'value' in (cached as object)) {
+          return cached as WidgetDataResponse
+        }
+      } catch {
+      }
+    }
 
     const now = new Date()
     let dateRangeResolved: { start: Date; end: Date } | undefined
@@ -146,11 +156,20 @@ export class WidgetDataService {
       }
     }
 
+    if (this.cache) {
+      const cacheKey = this.buildCacheKey(request)
+      const tags = this.getCacheTags(request.entityType)
+      try {
+        await this.cache.set(cacheKey, response, { ttl: WIDGET_DATA_CACHE_TTL, tags })
+      } catch {
+      }
+    }
+
     return response
   }
 
   private validateRequest(request: WidgetDataRequest): void {
-    if (!isValidEntityType(request.entityType)) {
+    if (!this.registry.isValidEntityType(request.entityType)) {
       throw new Error(`Invalid entity type: ${request.entityType}`)
     }
 
@@ -158,7 +177,7 @@ export class WidgetDataService {
       throw new Error('Metric field and aggregate are required')
     }
 
-    const metricMapping = getFieldMapping(request.entityType, request.metric.field)
+    const metricMapping = this.registry.getFieldMapping(request.entityType, request.metric.field)
     if (!metricMapping) {
       throw new Error(`Invalid metric field: ${request.metric.field} for entity type: ${request.entityType}`)
     }
@@ -173,10 +192,10 @@ export class WidgetDataService {
     }
 
     if (request.groupBy) {
-      const groupMapping = getFieldMapping(request.entityType, request.groupBy.field)
+      const groupMapping = this.registry.getFieldMapping(request.entityType, request.groupBy.field)
       if (!groupMapping) {
         const [baseField] = request.groupBy.field.split('.')
-        const baseMapping = getFieldMapping(request.entityType, baseField)
+        const baseMapping = this.registry.getFieldMapping(request.entityType, baseField)
         if (!baseMapping || baseMapping.type !== 'jsonb') {
           throw new Error(`Invalid groupBy field: ${request.groupBy.field}`)
         }
@@ -195,6 +214,7 @@ export class WidgetDataService {
       dateRange: dateRange && request.dateRange ? { field: request.dateRange.field, ...dateRange } : undefined,
       filters: request.filters,
       scope: this.scope,
+      registry: this.registry,
     })
 
     if (!query) {
@@ -227,7 +247,7 @@ export class WidgetDataService {
     entityType: string,
     groupByField: string,
   ): Promise<WidgetDataItem[]> {
-    const config = LABEL_RESOLVER_CONFIG[entityType]?.[groupByField]
+    const config = this.registry.getLabelResolverConfig(entityType, groupByField)
 
     if (!config) {
       return data.map((item) => ({
@@ -273,7 +293,7 @@ export class WidgetDataService {
           ? labelMap.get(item.groupKey)!
           : undefined,
       }))
-    } catch (err) {
+    } catch {
       return data.map((item) => ({
         ...item,
         groupLabel: undefined,
@@ -282,6 +302,11 @@ export class WidgetDataService {
   }
 }
 
-export function createWidgetDataService(em: EntityManager, scope: WidgetDataScope): WidgetDataService {
-  return new WidgetDataService({ em, scope })
+export function createWidgetDataService(
+  em: EntityManager,
+  scope: WidgetDataScope,
+  registry: AnalyticsRegistry,
+  cache?: CacheStrategy,
+): WidgetDataService {
+  return new WidgetDataService({ em, scope, registry, cache })
 }

@@ -4,11 +4,10 @@ import * as React from 'react'
 import type { DashboardWidgetComponentProps } from '@open-mercato/shared/modules/dashboard/widgets'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
-import { BarChart, type BarChartDataItem } from '../../../components/charts/BarChart'
-import { DateRangeSelect } from '../../../components/settings/DateRangeSelect'
+import { BarChart, type BarChartDataItem } from '@open-mercato/ui/backend/charts'
+import { DateRangeSelect, type DateRangePreset } from '@open-mercato/ui/backend/date-range'
 import { DEFAULT_SETTINGS, hydrateSettings, type SalesByRegionSettings } from './config'
 import type { WidgetDataResponse } from '../../../services/widgetDataService'
-import type { DateRangePreset } from '../../../lib/dateRanges'
 import { formatCurrencyCompact } from '../../../lib/formatters'
 
 async function fetchSalesByRegionData(settings: SalesByRegionSettings): Promise<WidgetDataResponse> {

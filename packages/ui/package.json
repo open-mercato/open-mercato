@@ -38,6 +38,14 @@
       "types": "./src/backend/inputs/index.ts",
       "default": "./dist/backend/inputs/index.js"
     },
+    "./backend/charts": {
+      "types": "./src/backend/charts/index.ts",
+      "default": "./dist/backend/charts/index.js"
+    },
+    "./backend/date-range": {
+      "types": "./src/backend/date-range/index.ts",
+      "default": "./dist/backend/date-range/index.js"
+    },
     "./backend/injection/widgetRegistry": {
       "types": "./src/backend/injection/widgetRegistry.ts",
       "default": "./dist/backend/injection/widgetRegistry.js"

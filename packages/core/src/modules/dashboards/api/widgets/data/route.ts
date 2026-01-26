@@ -1,23 +1,17 @@
 import { NextResponse } from 'next/server'
 import { z } from 'zod'
 import type { EntityManager } from '@mikro-orm/postgresql'
+import type { CacheStrategy } from '@open-mercato/cache'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/directory/utils/organizationScope'
 import { createWidgetDataService, type WidgetDataRequest } from '../../../services/widgetDataService'
+import type { AnalyticsRegistry } from '../../../services/analyticsRegistry'
 import type { OpenApiMethodDoc, OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { dashboardsTag, dashboardsErrorSchema } from '../../openapi'
 
 export const metadata = {
   POST: { requireAuth: true, requireFeatures: ['analytics.view'] },
-}
-
-const ENTITY_FEATURE_MAP: Record<string, string[]> = {
-  'sales:orders': ['sales.orders.view'],
-  'sales:order_lines': ['sales.orders.view'],
-  'customers:entities': ['customers.view'],
-  'customers:deals': ['customers.deals.view'],
-  'catalog:products': ['catalog.view'],
 }
 
 const aggregateFunctionSchema = z.enum(['count', 'sum', 'avg', 'min', 'max'])
@@ -131,9 +125,10 @@ export async function POST(req: Request) {
   }
 
   const container = await createRequestContainer()
+  const analyticsRegistry = container.resolve<AnalyticsRegistry>('analyticsRegistry')
 
-  const entityFeatures = ENTITY_FEATURE_MAP[parsed.data.entityType]
-  if (entityFeatures) {
+  const entityFeatures = analyticsRegistry.getRequiredFeatures(parsed.data.entityType)
+  if (entityFeatures && entityFeatures.length > 0) {
     const rbacService = container.resolve<{
       userHasAllFeatures: (
         userId: string,
@@ -172,11 +167,8 @@ export async function POST(req: Request) {
   })()
 
   try {
-    const service = createWidgetDataService(em, {
-      tenantId,
-      organizationIds,
-    })
-
+    const cache = container.resolve<CacheStrategy>('cache')
+    const service = createWidgetDataService(em, { tenantId, organizationIds }, analyticsRegistry, cache)
     const result = await service.fetchWidgetData(parsed.data as WidgetDataRequest)
     return NextResponse.json(result)
   } catch (err) {

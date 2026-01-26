@@ -2,7 +2,7 @@
 
 import * as React from 'react'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
-import { DATE_RANGE_OPTIONS, type DateRangePreset } from '../../lib/dateRanges'
+import { DATE_RANGE_OPTIONS, type DateRangePreset } from './dateRanges'
 
 export type InlineDateRangeSelectProps = {
   value: DateRangePreset

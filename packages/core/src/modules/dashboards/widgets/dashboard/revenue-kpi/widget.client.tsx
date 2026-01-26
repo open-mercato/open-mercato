@@ -4,12 +4,15 @@ import * as React from 'react'
 import type { DashboardWidgetComponentProps } from '@open-mercato/shared/modules/dashboard/widgets'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
-import { KpiCard, type KpiTrend } from '../../../components/charts/KpiCard'
-import { DateRangeSelect } from '../../../components/settings/DateRangeSelect'
-import { InlineDateRangeSelect } from '../../../components/settings/InlineDateRangeSelect'
+import { KpiCard, type KpiTrend } from '@open-mercato/ui/backend/charts'
+import {
+  DateRangeSelect,
+  InlineDateRangeSelect,
+  type DateRangePreset,
+  getComparisonLabelKey,
+} from '@open-mercato/ui/backend/date-range'
 import { DEFAULT_SETTINGS, hydrateSettings, type RevenueKpiSettings } from './config'
 import type { WidgetDataResponse } from '../../../services/widgetDataService'
-import { type DateRangePreset, getComparisonLabelKey } from '../../../lib/dateRanges'
 import { formatCurrency } from '../../../lib/formatters'
 
 async function fetchRevenueData(settings: RevenueKpiSettings): Promise<WidgetDataResponse> {

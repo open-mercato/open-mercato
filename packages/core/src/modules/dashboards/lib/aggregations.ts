@@ -1,4 +1,5 @@
-import type { DateRange } from './dateRanges'
+import type { AnalyticsRegistry } from '../services/analyticsRegistry'
+import type { AnalyticsEntityTypeConfig, AnalyticsFieldMapping } from '@open-mercato/shared/modules/analytics'
 
 export type AggregateFunction = 'count' | 'sum' | 'avg' | 'min' | 'max'
 export type DateGranularity = 'day' | 'week' | 'month' | 'quarter' | 'year'
@@ -19,112 +20,9 @@ function isSafeIdentifier(value: string): boolean {
   return SAFE_IDENTIFIER_PATTERN.test(value)
 }
 
-export type EntityTypeConfig = {
-  tableName: string
-  schema?: string
-  dateField: string
-  defaultScopeFields: string[]
-}
-
-export const ENTITY_TYPE_CONFIG: Record<string, EntityTypeConfig> = {
-  'sales:orders': {
-    tableName: 'sales_orders',
-    dateField: 'placed_at',
-    defaultScopeFields: ['tenant_id', 'organization_id'],
-  },
-  'sales:order_lines': {
-    tableName: 'sales_order_lines',
-    dateField: 'created_at',
-    defaultScopeFields: ['tenant_id', 'organization_id'],
-  },
-  'customers:entities': {
-    tableName: 'customer_entities',
-    dateField: 'created_at',
-    defaultScopeFields: ['tenant_id', 'organization_id'],
-  },
-  'customers:deals': {
-    tableName: 'customer_deals',
-    dateField: 'created_at',
-    defaultScopeFields: ['tenant_id', 'organization_id'],
-  },
-  'catalog:products': {
-    tableName: 'products',
-    dateField: 'created_at',
-    defaultScopeFields: ['tenant_id', 'organization_id'],
-  },
-}
-
-export function isValidEntityType(entityType: string): boolean {
-  return entityType in ENTITY_TYPE_CONFIG
-}
-
-export function getEntityTypeConfig(entityType: string): EntityTypeConfig | null {
-  return ENTITY_TYPE_CONFIG[entityType] ?? null
-}
-
-export type FieldMapping = {
-  dbColumn: string
-  type: 'numeric' | 'text' | 'uuid' | 'timestamp' | 'jsonb'
-}
-
-export const FIELD_MAPPINGS: Record<string, Record<string, FieldMapping>> = {
-  'sales:orders': {
-    id: { dbColumn: 'id', type: 'uuid' },
-    grandTotalGrossAmount: { dbColumn: 'grand_total_gross_amount', type: 'numeric' },
-    grandTotalNetAmount: { dbColumn: 'grand_total_net_amount', type: 'numeric' },
-    subtotalGrossAmount: { dbColumn: 'subtotal_gross_amount', type: 'numeric' },
-    subtotalNetAmount: { dbColumn: 'subtotal_net_amount', type: 'numeric' },
-    discountTotalAmount: { dbColumn: 'discount_total_amount', type: 'numeric' },
-    taxTotalAmount: { dbColumn: 'tax_total_amount', type: 'numeric' },
-    lineItemCount: { dbColumn: 'line_item_count', type: 'numeric' },
-    status: { dbColumn: 'status', type: 'text' },
-    fulfillmentStatus: { dbColumn: 'fulfillment_status', type: 'text' },
-    paymentStatus: { dbColumn: 'payment_status', type: 'text' },
-    customerEntityId: { dbColumn: 'customer_entity_id', type: 'uuid' },
-    channelId: { dbColumn: 'channel_id', type: 'uuid' },
-    placedAt: { dbColumn: 'placed_at', type: 'timestamp' },
-    currencyCode: { dbColumn: 'currency_code', type: 'text' },
-    shippingAddressSnapshot: { dbColumn: 'shipping_address_snapshot', type: 'jsonb' },
-  },
-  'sales:order_lines': {
-    id: { dbColumn: 'id', type: 'uuid' },
-    totalGrossAmount: { dbColumn: 'total_gross_amount', type: 'numeric' },
-    totalNetAmount: { dbColumn: 'total_net_amount', type: 'numeric' },
-    unitGrossPrice: { dbColumn: 'unit_gross_price', type: 'numeric' },
-    quantity: { dbColumn: 'quantity', type: 'numeric' },
-    productId: { dbColumn: 'product_id', type: 'uuid' },
-    productVariantId: { dbColumn: 'product_variant_id', type: 'uuid' },
-    status: { dbColumn: 'status', type: 'text' },
-    createdAt: { dbColumn: 'created_at', type: 'timestamp' },
-  },
-  'customers:entities': {
-    id: { dbColumn: 'id', type: 'uuid' },
-    kind: { dbColumn: 'kind', type: 'text' },
-    status: { dbColumn: 'status', type: 'text' },
-    lifecycleStage: { dbColumn: 'lifecycle_stage', type: 'text' },
-    createdAt: { dbColumn: 'created_at', type: 'timestamp' },
-    displayName: { dbColumn: 'display_name', type: 'text' },
-  },
-  'customers:deals': {
-    id: { dbColumn: 'id', type: 'uuid' },
-    valueAmount: { dbColumn: 'value_amount', type: 'numeric' },
-    status: { dbColumn: 'status', type: 'text' },
-    pipelineStage: { dbColumn: 'pipeline_stage', type: 'text' },
-    probability: { dbColumn: 'probability', type: 'numeric' },
-    createdAt: { dbColumn: 'created_at', type: 'timestamp' },
-    expectedCloseAt: { dbColumn: 'expected_close_at', type: 'timestamp' },
-  },
-  'catalog:products': {
-    id: { dbColumn: 'id', type: 'uuid' },
-    name: { dbColumn: 'name', type: 'text' },
-    status: { dbColumn: 'status', type: 'text' },
-    createdAt: { dbColumn: 'created_at', type: 'timestamp' },
-  },
-}
-
-export function getFieldMapping(entityType: string, field: string): FieldMapping | null {
-  return FIELD_MAPPINGS[entityType]?.[field] ?? null
-}
+// Re-export types from shared module for convenience
+export type EntityTypeConfig = AnalyticsEntityTypeConfig
+export type FieldMapping = AnalyticsFieldMapping
 
 export function buildAggregateExpression(aggregate: AggregateFunction, column: string): string {
   switch (aggregate) {
@@ -195,13 +93,16 @@ export type BuildAggregationQueryOptions = {
     tenantId: string
     organizationIds?: string[]
   }
+  /** Analytics registry for resolving entity and field configurations */
+  registry: AnalyticsRegistry
 }
 
 export function buildAggregationQuery(options: BuildAggregationQueryOptions): AggregationQuery | null {
-  const config = getEntityTypeConfig(options.entityType)
+  const { registry } = options
+  const config = registry.getEntityTypeConfig(options.entityType)
   if (!config) return null
 
-  const metricMapping = getFieldMapping(options.entityType, options.metric.field)
+  const metricMapping = registry.getFieldMapping(options.entityType, options.metric.field)
   if (!metricMapping) return null
 
   const params: unknown[] = []
@@ -215,13 +116,13 @@ export function buildAggregationQuery(options: BuildAggregationQueryOptions): Ag
   let limitClause = ''
 
   if (options.groupBy) {
-    let groupMapping = getFieldMapping(options.entityType, options.groupBy.field)
+    let groupMapping = registry.getFieldMapping(options.entityType, options.groupBy.field)
     let groupExpr: string | null = null
 
     // Handle JSONB path notation (e.g., shippingAddressSnapshot.region)
     if (!groupMapping && options.groupBy.field.includes('.')) {
       const [baseField, ...pathParts] = options.groupBy.field.split('.')
-      const baseMapping = getFieldMapping(options.entityType, baseField)
+      const baseMapping = registry.getFieldMapping(options.entityType, baseField)
       if (baseMapping?.type === 'jsonb') {
         groupExpr = buildJsonbFieldExpression(baseMapping.dbColumn, pathParts.join('.'))
       }
@@ -257,7 +158,7 @@ export function buildAggregationQuery(options: BuildAggregationQueryOptions): Ag
   whereClauses.push(`deleted_at IS NULL`)
 
   if (options.dateRange) {
-    const dateMapping = getFieldMapping(options.entityType, options.dateRange.field)
+    const dateMapping = registry.getFieldMapping(options.entityType, options.dateRange.field)
     if (dateMapping) {
       whereClauses.push(`${dateMapping.dbColumn} >= ?`)
       params.push(options.dateRange.start)
@@ -268,7 +169,7 @@ export function buildAggregationQuery(options: BuildAggregationQueryOptions): Ag
 
   if (options.filters) {
     for (const filter of options.filters) {
-      const filterMapping = getFieldMapping(options.entityType, filter.field)
+      const filterMapping = registry.getFieldMapping(options.entityType, filter.field)
       if (!filterMapping) continue
 
       switch (filter.operator) {

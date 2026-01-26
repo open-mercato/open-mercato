@@ -4,13 +4,15 @@ import * as React from 'react'
 import type { DashboardWidgetComponentProps } from '@open-mercato/shared/modules/dashboard/widgets'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { useT, useLocale } from '@open-mercato/shared/lib/i18n/context'
-import { LineChart, type LineChartDataItem } from '../../../components/charts/LineChart'
-import { DateRangeSelect } from '../../../components/settings/DateRangeSelect'
-import { InlineDateRangeSelect } from '../../../components/settings/InlineDateRangeSelect'
+import { LineChart, type LineChartDataItem } from '@open-mercato/ui/backend/charts'
+import {
+  DateRangeSelect,
+  InlineDateRangeSelect,
+  type DateRangePreset,
+} from '@open-mercato/ui/backend/date-range'
+import type { DateGranularity } from '@open-mercato/shared/modules/analytics'
 import { DEFAULT_SETTINGS, hydrateSettings, type RevenueTrendSettings } from './config'
 import type { WidgetDataResponse } from '../../../services/widgetDataService'
-import type { DateRangePreset } from '../../../lib/dateRanges'
-import type { DateGranularity } from '../../../lib/aggregations'
 import { formatCurrencyCompact } from '../../../lib/formatters'
 
 async function fetchRevenueTrendData(settings: RevenueTrendSettings): Promise<WidgetDataResponse> {

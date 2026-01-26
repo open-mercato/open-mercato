@@ -1,4 +1,4 @@
-import { type DateRangePreset, isValidDateRangePreset } from '../../../lib/dateRanges'
+import { type DateRangePreset, isValidDateRangePreset } from '@open-mercato/ui/backend/date-range'
 
 export type OrdersKpiSettings = {
   dateRange: DateRangePreset
