@@ -164,6 +164,7 @@ export interface CommandPaletteContextValue {
   sendMessage: (content: string) => Promise<void>
   sendAgenticMessage: (content: string) => Promise<void>
   clearMessages: () => void
+  stopExecution: () => void
 
   // Legacy compatibility
   setMode: (mode: CommandPaletteMode) => void

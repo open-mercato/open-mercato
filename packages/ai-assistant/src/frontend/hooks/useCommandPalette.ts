@@ -972,6 +972,11 @@ export function useCommandPalette(options: UseCommandPaletteOptions) {
       setAgentStatus({ type: 'thinking' })
 
       try {
+        // Create abort controller for this stream
+        currentStreamController.current?.abort()
+        const controller = new AbortController()
+        currentStreamController.current = controller
+
         // Send to chat API with OpenCode session for context persistence
         const response = await fetch('/api/ai_assistant/chat', {
           method: 'POST',
@@ -983,6 +988,7 @@ export function useCommandPalette(options: UseCommandPaletteOptions) {
             })),
             sessionId: opencodeSessionIdRef.current,
           }),
+          signal: controller.signal,
         })
 
         if (!response.ok) {
@@ -1191,6 +1197,10 @@ export function useCommandPalette(options: UseCommandPaletteOptions) {
         // Finalize the assistant message
         setMessages((prev) => prev.map((m) => (m.id === 'streaming' ? { ...m, id: generateId() } : m)))
       } catch (error) {
+        // Ignore AbortError - this happens when we intentionally cancel the stream
+        if (error instanceof Error && error.name === 'AbortError') {
+          return
+        }
         console.error('Tool chat error:', error)
         setAgentStatus({ type: 'idle' })
         setMessages((prev) => [
@@ -1396,6 +1406,29 @@ export function useCommandPalette(options: UseCommandPaletteOptions) {
     setPendingToolCalls([])
   }, [])
 
+  // Stop/cancel the current streaming execution
+  const stopExecution = useCallback(() => {
+    // Abort the current stream
+    currentStreamController.current?.abort()
+    currentStreamController.current = null
+
+    // Reset streaming state
+    setState((prev) => ({ ...prev, isStreaming: false }))
+    setAgentStatus({ type: 'idle' })
+    setIsThinking(false)
+
+    // Add cancellation message to chat
+    setMessages((prev) => [
+      ...prev.map((m) => (m.id === 'streaming' ? { ...m, id: generateId() } : m)), // Finalize any streaming message
+      {
+        id: generateId(),
+        role: 'system' as const,
+        content: 'Execution stopped by user.',
+        createdAt: new Date(),
+      },
+    ])
+  }, [])
+
   return {
     // State
     state: {
@@ -1442,6 +1475,7 @@ export function useCommandPalette(options: UseCommandPaletteOptions) {
     sendMessage,
     sendAgenticMessage,
     clearMessages,
+    stopExecution,
 
     // Legacy compatibility
     setMode,

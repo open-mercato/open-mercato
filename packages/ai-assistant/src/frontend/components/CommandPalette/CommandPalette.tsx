@@ -3,7 +3,7 @@
 import * as React from 'react'
 import { createPortal } from 'react-dom'
 import { Command } from 'cmdk'
-import { Loader2, Send } from 'lucide-react'
+import { Loader2, Send, Square } from 'lucide-react'
 import { cn } from '@open-mercato/shared/lib/utils'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Dialog, DialogContent, DialogTitle } from '@open-mercato/ui/primitives/dialog'
@@ -54,6 +54,7 @@ export function CommandPalette() {
     handleSubmit,
     reset,
     sendAgenticMessage,
+    stopExecution,
     approveToolCall,
     rejectToolCall,
     debugEvents,
@@ -231,12 +232,14 @@ export function CommandPalette() {
                     disabled={isStreaming}
                   />
                   <Button
-                    type="submit"
+                    type={isStreaming ? 'button' : 'submit'}
                     size="icon"
-                    disabled={!chatInput.trim() || isStreaming}
+                    variant={isStreaming ? 'destructive' : 'default'}
+                    onClick={isStreaming ? stopExecution : undefined}
+                    disabled={!isStreaming && !chatInput.trim()}
                   >
                     {isStreaming ? (
-                      <Loader2 className="h-4 w-4 animate-spin" />
+                      <Square className="h-4 w-4" />
                     ) : (
                       <Send className="h-4 w-4" />
                     )}

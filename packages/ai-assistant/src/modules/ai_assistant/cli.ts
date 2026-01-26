@@ -126,27 +126,15 @@ const mcpServe: ModuleCli = {
   },
 }
 
+const MCP_DEFAULT_PORT = 3001
+
 const mcpServeHttp: ModuleCli = {
   command: 'mcp:serve-http',
   async run(rest) {
     const args = parseArgs(rest)
-    const port = parseInt(String(args.port ?? ''), 10)
+    const portArg = parseInt(String(args.port ?? ''), 10)
+    const port = !portArg || isNaN(portArg) ? MCP_DEFAULT_PORT : portArg
     const debug = args.debug === true || args.debug === 'true'
-
-    if (!port || isNaN(port)) {
-      console.error('Usage: mercato ai_assistant mcp:serve-http --port <port> [options]')
-      console.error('')
-      console.error('Options:')
-      console.error('  --port <number>    Port to listen on (required)')
-      console.error('  --debug            Enable debug logging')
-      console.error('')
-      console.error('Authentication:')
-      console.error('  Clients must provide API key via x-api-key header')
-      console.error('')
-      console.error('Example:')
-      console.error('  mercato ai_assistant mcp:serve-http --port 3001')
-      return
-    }
 
     await ensureBootstrap()
     const container = await createRequestContainer()

@@ -192,37 +192,47 @@ Platform Tools (customers, sales, catalog, search...)
 
 For local development and Claude Code integration:
 
-- Authenticates once at startup using API key from `.mcp.json`
+- Authenticates **once at startup** using API key from `.mcp.json`
 - No session tokens required per request
 - Tools filtered by API key permissions at startup
-- Port: 3001 (or `MCP_DEV_PORT`)
+- **Default port: 3001** (configurable via `MCP_DEV_PORT` env var)
+- No port argument needed
 
 ```bash
+# Start on default port 3001
 yarn mcp:dev
+
+# Or override port via environment variable
+MCP_DEV_PORT=3002 yarn mcp:dev
 ```
 
 #### Production Server (`yarn mcp:serve`)
 
 For web-based AI chat interface:
 
-- Two-tier authentication:
-  1. Server-level: `x-api-key` header validated against `MCP_SERVER_API_KEY`
-  2. User-level: `_sessionToken` parameter in each tool call
+- **Requires `--port` argument** (no default port)
+- Clients authenticate via `x-api-key` header on each request
+- API keys validated against database
 - Per-request permission checks
-- Session tokens auto-generated with 2-hour TTL
+- Supports session tokens for user-level auth
 
 ```bash
-yarn mcp:serve  # Uses MCP_SERVER_API_KEY from .env
+# Start on specified port (required)
+yarn mcp:serve -- --port 3001
+
+# With debug logging
+yarn mcp:serve -- --port 3001 --debug
 ```
 
 ### Comparison
 
 | Feature | Dev (`mcp:dev`) | Production (`mcp:serve`) |
 |---------|-----------------|-------------------------|
-| Auth | API key only | API key + session tokens |
-| Permission check | Once at startup | Per tool call |
-| Session tokens | Not required | Required |
-| Use case | Claude Code, local dev | Web AI chat |
+| Port | Default 3001 (`MCP_DEV_PORT`) | **Required** (`--port`) |
+| Auth source | `.mcp.json` file | `x-api-key` header per request |
+| Permission check | Once at startup | Per request |
+| Session tokens | Not required | Optional (for user-level auth) |
+| Use case | Claude Code, local dev | Web AI chat, production |
 
 ---
 
@@ -356,16 +366,24 @@ This scans all modules for `ai-tools.ts` files and generates `ai-tools.generated
 
 ```bash
 # Start development MCP server (for Claude Code)
+# Uses API key from .mcp.json, default port 3001
 yarn mcp:dev
 
 # Start production MCP server (for web chat)
-yarn mcp:serve
+# Requires --port argument
+yarn mcp:serve -- --port 3001
 
 # List all available MCP tools
 yarn mercato ai_assistant mcp:list-tools
 
 # List tools with descriptions
 yarn mercato ai_assistant mcp:list-tools --verbose
+
+# Extract entity relationship graph
+yarn mercato ai_assistant entity-graph
+yarn mercato ai_assistant entity-graph --format json
+yarn mercato ai_assistant entity-graph --module sales
+yarn mercato ai_assistant entity-graph --entity SalesOrder
 ```
 
 ---

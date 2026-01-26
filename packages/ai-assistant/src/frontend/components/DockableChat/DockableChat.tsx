@@ -6,6 +6,7 @@ import { Command } from 'cmdk'
 import {
   Loader2,
   Send,
+  Square,
   X,
   Minimize2,
   PanelRight,
@@ -125,6 +126,7 @@ export function DockableChat() {
     reset,
     handleSubmit,
     sendAgenticMessage,
+    stopExecution,
     approveToolCall,
     rejectToolCall,
     debugEvents,
@@ -310,12 +312,14 @@ export function DockableChat() {
                     disabled={isStreaming}
                   />
                   <Button
-                    type="submit"
+                    type={isStreaming ? 'button' : 'submit'}
                     size="icon"
-                    disabled={!chatInput.trim() || isStreaming}
+                    variant={isStreaming ? 'destructive' : 'default'}
+                    onClick={isStreaming ? stopExecution : undefined}
+                    disabled={!isStreaming && !chatInput.trim()}
                   >
                     {isStreaming ? (
-                      <Loader2 className="h-4 w-4 animate-spin" />
+                      <Square className="h-4 w-4" />
                     ) : (
                       <Send className="h-4 w-4" />
                     )}
@@ -467,12 +471,14 @@ export function DockableChat() {
                     disabled={isStreaming}
                   />
                   <Button
-                    type="submit"
+                    type={isStreaming ? 'button' : 'submit'}
                     size="icon"
-                    disabled={!chatInput.trim() || isStreaming}
+                    variant={isStreaming ? 'destructive' : 'default'}
+                    onClick={isStreaming ? stopExecution : undefined}
+                    disabled={!isStreaming && !chatInput.trim()}
                   >
                     {isStreaming ? (
-                      <Loader2 className="h-4 w-4 animate-spin" />
+                      <Square className="h-4 w-4" />
                     ) : (
                       <Send className="h-4 w-4" />
                     )}
