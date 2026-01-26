@@ -5,6 +5,14 @@ import type { CreateNotificationInput, CreateBatchNotificationInput, CreateRoleN
 import type { NotificationDto, NotificationPollData } from '@open-mercato/shared/modules/notifications/types'
 import { NOTIFICATION_EVENTS } from './events'
 
+const DEBUG = process.env.NOTIFICATIONS_DEBUG === 'true'
+
+function debug(...args: unknown[]): void {
+  if (DEBUG) {
+    console.log('[notifications]', ...args)
+  }
+}
+
 function getKnex(em: EntityManager): Knex {
   return em.getConnection().getKnex()
 }
@@ -64,7 +72,13 @@ export interface NotificationService {
 export interface NotificationServiceDeps {
   em: EntityManager
   eventBus: { emit: (event: string, payload: unknown) => Promise<void> }
-  commandBus?: { execute: (commandId: string, payload: unknown) => Promise<{ result: unknown }> }
+  commandBus?: {
+    execute: (
+      commandId: string,
+      options: { input: unknown; ctx: unknown; metadata?: unknown }
+    ) => Promise<{ result: unknown }>
+  }
+  container?: { resolve: (name: string) => unknown }
 }
 
 function toDto(notification: Notification): NotificationDto {
@@ -94,7 +108,7 @@ function toDto(notification: Notification): NotificationDto {
 }
 
 export function createNotificationService(deps: NotificationServiceDeps): NotificationService {
-  const { em: rootEm, eventBus, commandBus } = deps
+  const { em: rootEm, eventBus, commandBus, container } = deps
 
   return {
     async create(input, ctx) {
@@ -304,11 +318,11 @@ export function createNotificationService(deps: NotificationServiceDeps): Notifi
       const recipientUserIds = Array.from(userIdsSet)
 
       if (recipientUserIds.length === 0) {
-        console.log('[notifications] No users found with feature:', input.requiredFeature, 'in tenant:', ctx.tenantId)
+        debug('No users found with feature:', input.requiredFeature, 'in tenant:', ctx.tenantId)
         return []
       }
 
-      console.log('[notifications] Creating notifications for', recipientUserIds.length, 'user(s) with feature:', input.requiredFeature)
+      debug('Creating notifications for', recipientUserIds.length, 'user(s) with feature:', input.requiredFeature)
 
       const notifications: Notification[] = []
 
@@ -435,14 +449,28 @@ export function createNotificationService(deps: NotificationServiceDeps): Notifi
 
       let result: unknown = null
 
-      if (action.commandId && commandBus) {
+      if (action.commandId && commandBus && container) {
         const commandInput = {
           id: notification.sourceEntityId,
           ...input.payload,
         }
 
+        // Build a CommandRuntimeContext from the notification service context
+        const commandCtx = {
+          container,
+          auth: {
+            sub: ctx.userId,
+            tenantId: ctx.tenantId,
+            orgId: ctx.organizationId,
+          },
+          organizationScope: null,
+          selectedOrganizationId: ctx.organizationId ?? null,
+          organizationIds: ctx.organizationId ? [ctx.organizationId] : null,
+        }
+
         const commandResult = await commandBus.execute(action.commandId, {
           input: commandInput,
+          ctx: commandCtx,
           metadata: {
             tenantId: ctx.tenantId,
             organizationId: ctx.organizationId,
@@ -558,6 +586,15 @@ export function resolveNotificationService(container: {
 }): NotificationService {
   const em = container.resolve('em') as EntityManager
   const eventBus = container.resolve('eventBus') as { emit: (event: string, payload: unknown) => Promise<void> }
-  const commandBus = container.resolve('commandBus') as { execute: (commandId: string, payload: unknown) => Promise<{ result: unknown }> } | undefined
-  return createNotificationService({ em, eventBus, commandBus })
+
+  // commandBus may not be registered in all contexts, so resolve it safely
+  let commandBus: NotificationServiceDeps['commandBus']
+  try {
+    commandBus = container.resolve('commandBus') as typeof commandBus
+  } catch {
+    // commandBus not available - actions with commandId won't work
+    commandBus = undefined
+  }
+
+  return createNotificationService({ em, eventBus, commandBus, container })
 }
