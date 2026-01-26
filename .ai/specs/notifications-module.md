@@ -322,6 +322,23 @@ export const createBatchNotificationSchema = z.object({
   expiresAt: z.string().datetime().optional(),
 })
 
+export const createRoleNotificationSchema = z.object({
+  roleId: z.string().uuid(),
+  type: z.string().min(1).max(100),
+  title: z.string().min(1).max(500),
+  body: z.string().max(2000).optional(),
+  icon: z.string().max(100).optional(),
+  severity: notificationSeveritySchema.optional().default('info'),
+  actions: z.array(notificationActionSchema).optional(),
+  primaryActionId: z.string().optional(),
+  sourceModule: z.string().optional(),
+  sourceEntityType: z.string().optional(),
+  sourceEntityId: z.string().uuid().optional(),
+  linkHref: z.string().optional(),
+  groupKey: z.string().optional(),
+  expiresAt: z.string().datetime().optional(),
+})
+
 export const listNotificationsSchema = z.object({
   status: z.union([notificationStatusSchema, z.array(notificationStatusSchema)]).optional(),
   type: z.string().optional(),
@@ -340,6 +357,7 @@ export const executeActionSchema = z.object({
 
 export type CreateNotificationInput = z.infer<typeof createNotificationSchema>
 export type CreateBatchNotificationInput = z.infer<typeof createBatchNotificationSchema>
+export type CreateRoleNotificationInput = z.infer<typeof createRoleNotificationSchema>
 export type ListNotificationsInput = z.infer<typeof listNotificationsSchema>
 export type ExecuteActionInput = z.infer<typeof executeActionSchema>
 ```
@@ -536,6 +554,11 @@ export interface NotificationService {
    * Create notifications for multiple recipients
    */
   createBatch(input: CreateBatchNotificationInput, ctx: NotificationServiceContext): Promise<Notification[]>
+
+  /**
+   * Create notifications for all users within a role
+   */
+  createForRole(input: CreateRoleNotificationInput, ctx: NotificationServiceContext): Promise<Notification[]>
 
   /**
    * Mark notification as read
@@ -1698,6 +1721,167 @@ async function findApprovers(em: EntityManager, requesterId: string, tenantId: s
 
 ---
 
+## Role-Based Notifications
+
+Send notifications to all users within a specific role in the organization.
+
+### Route: `/api/notifications/role`
+
+```typescript
+// packages/core/src/modules/notifications/api/role/route.ts
+import { resolveRequestContext } from '@open-mercato/shared/lib/api/context'
+import type { NotificationService } from '../../lib/notificationService'
+import { createRoleNotificationSchema } from '../../data/validators'
+
+export const metadata = {
+  POST: { requireAuth: true, requireFeatures: ['notifications.create'] },
+}
+
+export async function POST(req: Request) {
+  const { ctx } = await resolveRequestContext(req)
+  const notificationService = ctx.container.resolve('notificationService') as NotificationService
+
+  const body = await req.json().catch(() => ({}))
+  const input = createRoleNotificationSchema.parse(body)
+
+  const notifications = await notificationService.createForRole(input, {
+    tenantId: ctx.auth?.tenantId ?? '',
+    organizationId: ctx.selectedOrganizationId ?? null,
+    userId: ctx.auth?.sub ?? null,
+  })
+
+  return Response.json({
+    ok: true,
+    count: notifications.length,
+    ids: notifications.map((n) => n.id),
+  }, { status: 201 })
+}
+
+export const openApi = {
+  POST: {
+    summary: 'Create notifications for all users in a role',
+    description: 'Send the same notification to all users who have the specified role within the organization',
+    tags: ['Notifications'],
+    responses: {
+      201: { description: 'Notifications created for all users in the role' },
+    },
+  },
+}
+```
+
+### Usage Example: Notify All Managers
+
+```typescript
+// Notify all users with the "Manager" role
+const notificationService = ctx.container.resolve<NotificationService>('notificationService')
+
+await notificationService.createForRole({
+  roleId: 'manager-role-uuid',
+  type: 'sales.quarterly_report.ready',
+  title: 'Quarterly Sales Report Available',
+  body: 'The Q4 2025 sales report is now ready for review',
+  icon: 'file-text',
+  severity: 'info',
+  linkHref: '/backend/reports/quarterly/q4-2025',
+}, {
+  tenantId: ctx.auth.tenantId,
+  organizationId: ctx.selectedOrganizationId,
+})
+```
+
+### Usage Example: Via Queue
+
+```typescript
+import { createQueue } from '@open-mercato/queue'
+import type { CreateRoleNotificationJob } from '@open-mercato/core/modules/notifications/workers/create-notification.worker'
+
+const queue = createQueue('notifications', 'async')
+
+await queue.enqueue({
+  type: 'create-role',
+  input: {
+    roleId: 'admin-role-uuid',
+    type: 'system.maintenance',
+    title: 'System Maintenance Scheduled',
+    body: 'The system will be offline for maintenance on Sunday 2AM-4AM',
+    icon: 'wrench',
+    severity: 'warning',
+  },
+  tenantId: ctx.auth.tenantId,
+  organizationId: ctx.selectedOrganizationId,
+})
+```
+
+### Service Implementation
+
+The `createForRole` method queries all active users who have the specified role and creates individual notifications for each:
+
+```typescript
+async createForRole(input, ctx) {
+  const em = rootEm.fork()
+
+  // Find all users with the specified role in the tenant
+  const knex = em.getConnection().getKnex()
+  const userRoles = await knex('user_roles')
+    .join('users', 'user_roles.user_id', 'users.id')
+    .where('user_roles.role_id', input.roleId)
+    .whereNull('user_roles.deleted_at')
+    .whereNull('users.deleted_at')
+    .where('users.tenant_id', ctx.tenantId)
+    .select('users.id as user_id')
+
+  if (userRoles.length === 0) {
+    return []
+  }
+
+  const recipientUserIds = userRoles.map(row => row.user_id)
+  const notifications: Notification[] = []
+
+  // Create notification for each user in the role
+  for (const recipientUserId of recipientUserIds) {
+    const notification = em.create(Notification, {
+      recipientUserId,
+      type: input.type,
+      title: input.title,
+      body: input.body,
+      icon: input.icon,
+      severity: input.severity ?? 'info',
+      actionData: input.actions ? {
+        actions: input.actions,
+        primaryActionId: input.primaryActionId,
+      } : null,
+      sourceModule: input.sourceModule,
+      sourceEntityType: input.sourceEntityType,
+      sourceEntityId: input.sourceEntityId,
+      linkHref: input.linkHref,
+      groupKey: input.groupKey,
+      expiresAt: input.expiresAt ? new Date(input.expiresAt) : null,
+      tenantId: ctx.tenantId,
+      organizationId: ctx.organizationId,
+    })
+    notifications.push(notification)
+  }
+
+  await em.persistAndFlush(notifications)
+
+  // Emit created event for each notification
+  for (const notification of notifications) {
+    await eventBus.emit(NOTIFICATION_EVENTS.CREATED, {
+      notificationId: notification.id,
+      recipientUserId: notification.recipientUserId,
+      type: notification.type,
+      title: notification.title,
+      tenantId: ctx.tenantId,
+      organizationId: ctx.organizationId,
+    })
+  }
+
+  return notifications
+}
+```
+
+---
+
 ## Test Scenarios
 
 | Scenario | Given | When | Then |
@@ -1711,3 +1895,15 @@ async function findApprovers(em: EntityManager, requesterId: string, tenantId: s
 | Mark all read | User clicks "Mark all read" | PUT /api/notifications/mark-all-read | All unread marked read |
 | Navigate to source | User clicks notification | onClick handler | Navigates to linkHref |
 | New notification toast | New notification arrives | Poll detects new ID | Toast shown, badge pulses |
+| Create role notification | Admin sends notification to role | POST /api/notifications/role | Notifications created for all users in role |
+
+---
+
+## Changelog
+
+### 2026-01-26
+- Added role-based notifications support
+- New API endpoint `/api/notifications/role` to send notifications to all users within a role
+- New validator `createRoleNotificationSchema` for role-based notification inputs
+- New service method `createForRole()` to create notifications for all users in a role
+- Updated specification with role-based notification examples and usage patterns

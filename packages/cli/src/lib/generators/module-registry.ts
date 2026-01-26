@@ -35,6 +35,8 @@ export async function generateModuleRegistry(options: ModuleRegistryOptions): Pr
   const injectionTablesChecksumFile = path.join(outputDir, 'injection-tables.generated.checksum')
   const searchOutFile = path.join(outputDir, 'search.generated.ts')
   const searchChecksumFile = path.join(outputDir, 'search.generated.checksum')
+  const notificationsOutFile = path.join(outputDir, 'notifications.generated.ts')
+  const notificationsChecksumFile = path.join(outputDir, 'notifications.generated.checksum')
 
   const enabled = resolver.loadEnabledModules()
   const imports: string[] = []
@@ -47,6 +49,8 @@ export async function generateModuleRegistry(options: ModuleRegistryOptions): Pr
   const allInjectionTables: Array<{ moduleId: string; importPath: string; importName: string }> = []
   const searchConfigs: string[] = []
   const searchImports: string[] = []
+  const notificationTypes: string[] = []
+  const notificationImports: string[] = []
 
   for (const entry of enabled) {
     const modId = entry.id

@@ -245,7 +245,7 @@ export default async function BackendLayout({ children, params }: { children: Re
         }
       }
       // For API key auth, use userId (the actual user) if available
-      const effectiveUserId = auth.isApiKey ? auth.userId : auth.sub
+      const effectiveUserId: string | undefined = auth.isApiKey ? auth.userId : auth.sub
       if (effectiveUserId) {
         sidebarPreference = await loadSidebarPreference(em, {
           userId: effectiveUserId,

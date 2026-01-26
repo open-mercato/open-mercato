@@ -14,6 +14,7 @@ export type AuthContext = {
   email?: string
   roles?: string[]
   isApiKey?: boolean
+  userId?: string
   keyId?: string
   keyName?: string
   [k: string]: unknown
@@ -143,7 +144,7 @@ async function resolveApiKeyAuth(secret: string): Promise<AuthContext> {
       isApiKey: true,
       keyId: record.id,
       keyName: record.name,
-      userId: actualUserId,
+      ...(actualUserId ? { userId: actualUserId } : {}),
     }
   } catch {
     return null

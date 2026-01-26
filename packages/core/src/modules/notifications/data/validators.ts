@@ -49,6 +49,40 @@ export const createBatchNotificationSchema = z.object({
   expiresAt: z.string().datetime().optional(),
 })
 
+export const createRoleNotificationSchema = z.object({
+  roleId: z.string().uuid(),
+  type: z.string().min(1).max(100),
+  title: z.string().min(1).max(500),
+  body: z.string().max(2000).optional(),
+  icon: z.string().max(100).optional(),
+  severity: notificationSeveritySchema.optional().default('info'),
+  actions: z.array(notificationActionSchema).optional(),
+  primaryActionId: z.string().optional(),
+  sourceModule: z.string().optional(),
+  sourceEntityType: z.string().optional(),
+  sourceEntityId: z.string().uuid().optional(),
+  linkHref: z.string().optional(),
+  groupKey: z.string().optional(),
+  expiresAt: z.string().datetime().optional(),
+})
+
+export const createFeatureNotificationSchema = z.object({
+  requiredFeature: z.string().min(1).max(100),
+  type: z.string().min(1).max(100),
+  title: z.string().min(1).max(500),
+  body: z.string().max(2000).optional(),
+  icon: z.string().max(100).optional(),
+  severity: notificationSeveritySchema.optional().default('info'),
+  actions: z.array(notificationActionSchema).optional(),
+  primaryActionId: z.string().optional(),
+  sourceModule: z.string().optional(),
+  sourceEntityType: z.string().optional(),
+  sourceEntityId: z.string().uuid().optional(),
+  linkHref: z.string().optional(),
+  groupKey: z.string().optional(),
+  expiresAt: z.string().datetime().optional(),
+})
+
 export const listNotificationsSchema = z.object({
   status: z.union([notificationStatusSchema, z.array(notificationStatusSchema)]).optional(),
   type: z.string().optional(),
@@ -62,10 +96,12 @@ export const listNotificationsSchema = z.object({
 
 export const executeActionSchema = z.object({
   actionId: z.string().min(1),
-  payload: z.record(z.unknown()).optional(),
+  payload: z.record(z.string(), z.unknown()).optional(),
 })
 
 export type CreateNotificationInput = z.infer<typeof createNotificationSchema>
 export type CreateBatchNotificationInput = z.infer<typeof createBatchNotificationSchema>
+export type CreateRoleNotificationInput = z.infer<typeof createRoleNotificationSchema>
+export type CreateFeatureNotificationInput = z.infer<typeof createFeatureNotificationSchema>
 export type ListNotificationsInput = z.infer<typeof listNotificationsSchema>
 export type ExecuteActionInput = z.infer<typeof executeActionSchema>
