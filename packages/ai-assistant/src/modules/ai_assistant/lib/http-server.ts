@@ -12,7 +12,7 @@ import { jsonSchemaToZod, toSafeZodSchema } from './schema-utils'
 import type { McpServerConfig, McpToolContext } from './types'
 import type { SearchService } from '@open-mercato/search/service'
 import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
-import { findSessionApiKeyWithSecret } from '@open-mercato/core/modules/api_keys/services/apiKeyService'
+import { findApiKeyBySecret, findSessionApiKeyWithSecret } from '@open-mercato/core/modules/api_keys/services/apiKeyService'
 
 /**
  * Options for the HTTP MCP server.
@@ -21,8 +21,6 @@ export type McpHttpServerOptions = {
   config: McpServerConfig
   container: AwilixContainer
   port: number
-  /** Static API key for server-level authentication (from env MCP_SERVER_API_KEY) */
-  serverApiKey?: string
 }
 
 /**
@@ -419,7 +417,7 @@ export async function runMcpHttpServer(options: McpHttpServerOptions): Promise<v
       headers[key] = Array.isArray(value) ? value[0] : value
     }
 
-    // Server-level authentication with static API key
+    // Server-level authentication via database lookup
     const providedApiKey = extractApiKeyFromHeaders(headers)
     if (!providedApiKey) {
       res.writeHead(401, { 'Content-Type': 'application/json' })
@@ -427,31 +425,25 @@ export async function runMcpHttpServer(options: McpHttpServerOptions): Promise<v
       return
     }
 
-    // Check against static server API key (from env MCP_SERVER_API_KEY)
-    const serverApiKey = options.serverApiKey || process.env.MCP_SERVER_API_KEY
-    if (!serverApiKey) {
-      console.error('[MCP HTTP] Warning: MCP_SERVER_API_KEY not configured, rejecting all requests')
-      res.writeHead(500, { 'Content-Type': 'application/json' })
-      res.end(JSON.stringify({ error: 'MCP server not properly configured' }))
-      return
-    }
-
-    if (providedApiKey !== serverApiKey) {
+    // Validate API key against database (prefix lookup + bcrypt verify + expiry check)
+    const em = container.resolve<EntityManager>('em')
+    const apiKeyRecord = await findApiKeyBySecret(em, providedApiKey)
+    if (!apiKeyRecord) {
       res.writeHead(401, { 'Content-Type': 'application/json' })
-      res.end(JSON.stringify({ error: 'Invalid API key' }))
+      res.end(JSON.stringify({ error: 'Invalid or expired API key' }))
       return
     }
 
     if (config.debug) {
-      console.error(`[MCP HTTP] Server-level auth passed (${req.method})`)
+      console.error(`[MCP HTTP] Server-level auth passed (${req.method}) - API key: ${apiKeyRecord.keyPrefix}...`)
     }
 
-    // Create base tool context (will be overridden by session token per-tool)
-    // Start with minimal permissions - session tokens provide user-level auth
+    // Create base tool context using API key's tenant/org scope
+    // Session tokens can override with user-specific permissions
     const toolContext: McpToolContext = {
-      tenantId: null,
-      organizationId: null,
-      userId: null,
+      tenantId: apiKeyRecord.tenantId ?? null,
+      organizationId: apiKeyRecord.organizationId ?? null,
+      userId: apiKeyRecord.createdBy ?? null,
       container,
       userFeatures: [],
       isSuperAdmin: false,
@@ -520,14 +512,13 @@ export async function runMcpHttpServer(options: McpHttpServerOptions): Promise<v
   })
 
   const toolCount = getToolRegistry().listToolNames().length
-  const serverKeyConfigured = !!(options.serverApiKey || process.env.MCP_SERVER_API_KEY)
 
   console.error(`[MCP HTTP] Starting ${config.name} v${config.version}`)
   console.error(`[MCP HTTP] Endpoint: http://localhost:${port}/mcp`)
   console.error(`[MCP HTTP] Health: http://localhost:${port}/health`)
   console.error(`[MCP HTTP] Tools registered: ${toolCount}`)
   console.error(`[MCP HTTP] Mode: Stateless (new server per request)`)
-  console.error(`[MCP HTTP] Server Auth: ${serverKeyConfigured ? 'MCP_SERVER_API_KEY configured' : 'WARNING: MCP_SERVER_API_KEY not set!'}`)
+  console.error(`[MCP HTTP] Server Auth: API key validated against database (x-api-key header)`)
   console.error(`[MCP HTTP] User Auth: Session token in _sessionToken parameter`)
 
   // Return a Promise that keeps the process alive until shutdown
