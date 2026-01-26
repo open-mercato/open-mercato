@@ -18,7 +18,13 @@ export const notificationActionSchema = z.object({
 export const createNotificationSchema = z.object({
   recipientUserId: z.string().uuid(),
   type: z.string().min(1).max(100),
-  title: z.string().min(1).max(500),
+  // i18n-first approach: provide keys and variables
+  titleKey: z.string().min(1).max(200).optional(),
+  bodyKey: z.string().min(1).max(200).optional(),
+  titleVariables: z.record(z.string(), z.string()).optional(),
+  bodyVariables: z.record(z.string(), z.string()).optional(),
+  // Fallback: provide resolved text (for backward compatibility or when keys not available)
+  title: z.string().min(1).max(500).optional(),
   body: z.string().max(2000).optional(),
   icon: z.string().max(100).optional(),
   severity: notificationSeveritySchema.optional().default('info'),
@@ -30,12 +36,19 @@ export const createNotificationSchema = z.object({
   linkHref: z.string().optional(),
   groupKey: z.string().optional(),
   expiresAt: z.string().datetime().optional(),
-})
+}).refine(
+  (data) => data.titleKey || data.title,
+  { message: 'Either titleKey or title must be provided' }
+)
 
 export const createBatchNotificationSchema = z.object({
   recipientUserIds: z.array(z.string().uuid()).min(1).max(1000),
   type: z.string().min(1).max(100),
-  title: z.string().min(1).max(500),
+  titleKey: z.string().min(1).max(200).optional(),
+  bodyKey: z.string().min(1).max(200).optional(),
+  titleVariables: z.record(z.string(), z.string()).optional(),
+  bodyVariables: z.record(z.string(), z.string()).optional(),
+  title: z.string().min(1).max(500).optional(),
   body: z.string().max(2000).optional(),
   icon: z.string().max(100).optional(),
   severity: notificationSeveritySchema.optional().default('info'),
@@ -47,12 +60,19 @@ export const createBatchNotificationSchema = z.object({
   linkHref: z.string().optional(),
   groupKey: z.string().optional(),
   expiresAt: z.string().datetime().optional(),
-})
+}).refine(
+  (data) => data.titleKey || data.title,
+  { message: 'Either titleKey or title must be provided' }
+)
 
 export const createRoleNotificationSchema = z.object({
   roleId: z.string().uuid(),
   type: z.string().min(1).max(100),
-  title: z.string().min(1).max(500),
+  titleKey: z.string().min(1).max(200).optional(),
+  bodyKey: z.string().min(1).max(200).optional(),
+  titleVariables: z.record(z.string(), z.string()).optional(),
+  bodyVariables: z.record(z.string(), z.string()).optional(),
+  title: z.string().min(1).max(500).optional(),
   body: z.string().max(2000).optional(),
   icon: z.string().max(100).optional(),
   severity: notificationSeveritySchema.optional().default('info'),
@@ -64,12 +84,19 @@ export const createRoleNotificationSchema = z.object({
   linkHref: z.string().optional(),
   groupKey: z.string().optional(),
   expiresAt: z.string().datetime().optional(),
-})
+}).refine(
+  (data) => data.titleKey || data.title,
+  { message: 'Either titleKey or title must be provided' }
+)
 
 export const createFeatureNotificationSchema = z.object({
   requiredFeature: z.string().min(1).max(100),
   type: z.string().min(1).max(100),
-  title: z.string().min(1).max(500),
+  titleKey: z.string().min(1).max(200).optional(),
+  bodyKey: z.string().min(1).max(200).optional(),
+  titleVariables: z.record(z.string(), z.string()).optional(),
+  bodyVariables: z.record(z.string(), z.string()).optional(),
+  title: z.string().min(1).max(500).optional(),
   body: z.string().max(2000).optional(),
   icon: z.string().max(100).optional(),
   severity: notificationSeveritySchema.optional().default('info'),
@@ -81,7 +108,10 @@ export const createFeatureNotificationSchema = z.object({
   linkHref: z.string().optional(),
   groupKey: z.string().optional(),
   expiresAt: z.string().datetime().optional(),
-})
+}).refine(
+  (data) => data.titleKey || data.title,
+  { message: 'Either titleKey or title must be provided' }
+)
 
 export const listNotificationsSchema = z.object({
   status: z.union([notificationStatusSchema, z.array(notificationStatusSchema)]).optional(),

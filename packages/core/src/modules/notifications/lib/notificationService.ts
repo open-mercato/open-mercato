@@ -102,7 +102,13 @@ export function createNotificationService(deps: NotificationServiceDeps): Notifi
       const notification = em.create(Notification, {
         recipientUserId: input.recipientUserId,
         type: input.type,
-        title: input.title,
+        // i18n-first: store keys and variables for translation at display time
+        titleKey: input.titleKey,
+        bodyKey: input.bodyKey,
+        titleVariables: input.titleVariables,
+        bodyVariables: input.bodyVariables,
+        // Fallback text (required for backward compatibility)
+        title: input.title || input.titleKey || '',
         body: input.body,
         icon: input.icon,
         severity: input.severity ?? 'info',
@@ -142,7 +148,11 @@ export function createNotificationService(deps: NotificationServiceDeps): Notifi
         const notification = em.create(Notification, {
           recipientUserId,
           type: input.type,
-          title: input.title,
+          titleKey: input.titleKey,
+          bodyKey: input.bodyKey,
+          titleVariables: input.titleVariables,
+          bodyVariables: input.bodyVariables,
+          title: input.title || input.titleKey || '',
           body: input.body,
           icon: input.icon,
           severity: input.severity ?? 'info',
@@ -201,7 +211,11 @@ export function createNotificationService(deps: NotificationServiceDeps): Notifi
         const notification = em.create(Notification, {
           recipientUserId,
           type: input.type,
-          title: input.title,
+          titleKey: input.titleKey,
+          bodyKey: input.bodyKey,
+          titleVariables: input.titleVariables,
+          bodyVariables: input.bodyVariables,
+          title: input.title || input.titleKey || '',
           body: input.body,
           icon: input.icon,
           severity: input.severity ?? 'info',
@@ -299,7 +313,11 @@ export function createNotificationService(deps: NotificationServiceDeps): Notifi
         const notification = em.create(Notification, {
           recipientUserId,
           type: input.type,
-          title: input.title,
+          titleKey: input.titleKey,
+          bodyKey: input.bodyKey,
+          titleVariables: input.titleVariables,
+          bodyVariables: input.bodyVariables,
+          title: input.title || input.titleKey || '',
           body: input.body,
           icon: input.icon,
           severity: input.severity ?? 'info',

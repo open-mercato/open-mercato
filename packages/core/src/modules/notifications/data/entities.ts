@@ -22,6 +22,21 @@ export class Notification {
   @Property({ name: 'type', type: 'text' })
   type!: string
 
+  // i18n keys (preferred for i18n-first approach)
+  @Property({ name: 'title_key', type: 'text', nullable: true })
+  titleKey?: string | null
+
+  @Property({ name: 'body_key', type: 'text', nullable: true })
+  bodyKey?: string | null
+
+  // Template variables for i18n interpolation (stored as JSONB)
+  @Property({ name: 'title_variables', type: 'json', nullable: true })
+  titleVariables?: Record<string, string> | null
+
+  @Property({ name: 'body_variables', type: 'json', nullable: true })
+  bodyVariables?: Record<string, string> | null
+
+  // Fallback text (for backward compatibility or when keys are not available)
   @Property({ name: 'title', type: 'text' })
   title!: string
 

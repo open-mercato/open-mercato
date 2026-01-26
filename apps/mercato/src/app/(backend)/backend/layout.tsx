@@ -10,6 +10,7 @@ import type { AdminNavItem } from '@open-mercato/ui/backend/utils/nav'
 import { UserMenu } from '@open-mercato/ui/backend/UserMenu'
 import { GlobalSearchDialog } from '@open-mercato/search/modules/search/frontend'
 import OrganizationSwitcher from '@/components/OrganizationSwitcher'
+import { NotificationBellWrapper } from '@/components/NotificationBellWrapper'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { I18nProvider } from '@open-mercato/shared/lib/i18n/context'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
@@ -301,6 +302,7 @@ export default async function BackendLayout({ children, params }: { children: Re
   const rightHeaderContent = (
     <>
       <GlobalSearchDialog embeddingConfigured={embeddingConfigured} missingConfigMessage={missingConfigMessage} />
+      <NotificationBellWrapper />
       <OrganizationSwitcher />
       <UserMenu email={auth?.email} />
     </>

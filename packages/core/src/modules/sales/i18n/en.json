@@ -9,6 +9,20 @@
       "title": "Sales Management",
       "description": "Quotes, orders, fulfillment, invoicing, and payments connected to the product catalog."
     },
+    "notifications": {
+      "order": {
+        "created": {
+          "title": "New Sales Order",
+          "body": "Sales order {orderNumber} has been created{total}"
+        }
+      },
+      "quote": {
+        "created": {
+          "title": "New Sales Quote",
+          "body": "Sales quote {quoteNumber} has been created{total}"
+        }
+      }
+    },
     "quotes": {
       "send": {
         "action": "Send to customer",

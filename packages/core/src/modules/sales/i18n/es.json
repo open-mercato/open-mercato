@@ -9,6 +9,20 @@
       "title": "Gestión de ventas",
       "description": "Cotizaciones, pedidos, cumplimiento, facturación y pagos conectados al catálogo de productos."
     },
+    "notifications": {
+      "order": {
+        "created": {
+          "title": "Nuevo pedido de venta",
+          "body": "El pedido {orderNumber} ha sido creado{total}"
+        }
+      },
+      "quote": {
+        "created": {
+          "title": "Nueva cotización",
+          "body": "La cotización {quoteNumber} ha sido creada{total}"
+        }
+      }
+    },
     "quotes": {
       "send": {
         "action": "Enviar al cliente",

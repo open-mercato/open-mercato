@@ -9,6 +9,20 @@
       "title": "Vertriebsmanagement",
       "description": "Angebote, Aufträge, Fulfillment, Rechnungsstellung und Zahlungen verbunden mit dem Produktkatalog."
     },
+    "notifications": {
+      "order": {
+        "created": {
+          "title": "Neue Bestellung",
+          "body": "Bestellung {orderNumber} wurde erstellt{total}"
+        }
+      },
+      "quote": {
+        "created": {
+          "title": "Neues Angebot",
+          "body": "Angebot {quoteNumber} wurde erstellt{total}"
+        }
+      }
+    },
     "quotes": {
       "send": {
         "action": "An Kunden senden",

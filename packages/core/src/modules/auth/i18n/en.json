@@ -95,5 +95,20 @@
   "auth.email.resetPassword.title": "Reset your password",
   "auth.email.resetPassword.body": "Click the link below to set a new password. This link will expire in 60 minutes.",
   "auth.email.resetPassword.cta": "Set a new password",
-  "auth.email.resetPassword.hint": "If you didn't request this, you can safely ignore this email."
+  "auth.email.resetPassword.hint": "If you didn't request this, you can safely ignore this email.",
+  "auth.notifications.passwordReset.requested.title": "Password reset requested",
+  "auth.notifications.passwordReset.requested.body": "A password reset link has been sent to your email",
+  "auth.notifications.passwordReset.completed.title": "Password successfully changed",
+  "auth.notifications.passwordReset.completed.body": "Your password has been updated successfully",
+  "auth.notifications.account.locked.title": "Account locked",
+  "auth.notifications.account.locked.body": "Your account has been locked due to security reasons. Please contact support.",
+  "auth.notifications.login.newDevice.title": "New device login detected",
+  "auth.notifications.login.newDevice.body": "A new login from an unrecognized device was detected on your account",
+  "auth.notifications.role.assigned.title": "New role assigned",
+  "auth.notifications.role.assigned.body": "You have been assigned a new role with additional permissions",
+  "auth.notifications.role.revoked.title": "Role removed",
+  "auth.notifications.role.revoked.body": "A role has been removed from your account",
+  "auth.actions.contactSupport": "Contact Support",
+  "auth.actions.viewSessions": "View Sessions",
+  "auth.actions.viewPermissions": "View Permissions"
 }

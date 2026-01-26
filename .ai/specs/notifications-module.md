@@ -339,6 +339,23 @@ export const createRoleNotificationSchema = z.object({
   expiresAt: z.string().datetime().optional(),
 })
 
+export const createFeatureNotificationSchema = z.object({
+  requiredFeature: z.string().min(1).max(100),
+  type: z.string().min(1).max(100),
+  title: z.string().min(1).max(500),
+  body: z.string().max(2000).optional(),
+  icon: z.string().max(100).optional(),
+  severity: notificationSeveritySchema.optional().default('info'),
+  actions: z.array(notificationActionSchema).optional(),
+  primaryActionId: z.string().optional(),
+  sourceModule: z.string().optional(),
+  sourceEntityType: z.string().optional(),
+  sourceEntityId: z.string().uuid().optional(),
+  linkHref: z.string().optional(),
+  groupKey: z.string().optional(),
+  expiresAt: z.string().datetime().optional(),
+})
+
 export const listNotificationsSchema = z.object({
   status: z.union([notificationStatusSchema, z.array(notificationStatusSchema)]).optional(),
   type: z.string().optional(),
@@ -358,6 +375,7 @@ export const executeActionSchema = z.object({
 export type CreateNotificationInput = z.infer<typeof createNotificationSchema>
 export type CreateBatchNotificationInput = z.infer<typeof createBatchNotificationSchema>
 export type CreateRoleNotificationInput = z.infer<typeof createRoleNotificationSchema>
+export type CreateFeatureNotificationInput = z.infer<typeof createFeatureNotificationSchema>
 export type ListNotificationsInput = z.infer<typeof listNotificationsSchema>
 export type ExecuteActionInput = z.infer<typeof executeActionSchema>
 ```
@@ -559,6 +577,11 @@ export interface NotificationService {
    * Create notifications for all users within a role
    */
   createForRole(input: CreateRoleNotificationInput, ctx: NotificationServiceContext): Promise<Notification[]>
+
+  /**
+   * Create notifications for all users with a specific feature/permission
+   */
+  createForFeature(input: CreateFeatureNotificationInput, ctx: NotificationServiceContext): Promise<Notification[]>
 
   /**
    * Mark notification as read
@@ -1882,6 +1905,272 @@ async createForRole(input, ctx) {
 
 ---
 
+## Feature-Based (Permission-Based) Notifications
+
+Send notifications to all users who have a specific ACL permission/feature, regardless of which role grants them that permission.
+
+### Route: `/api/notifications/feature`
+
+```typescript
+// packages/core/src/modules/notifications/api/feature/route.ts
+import { resolveRequestContext } from '@open-mercato/shared/lib/api/context'
+import type { NotificationService } from '../../lib/notificationService'
+import { createFeatureNotificationSchema } from '../../data/validators'
+
+export const metadata = {
+  POST: { requireAuth: true, requireFeatures: ['notifications.create'] },
+}
+
+export async function POST(req: Request) {
+  const { ctx } = await resolveRequestContext(req)
+  const notificationService = ctx.container.resolve('notificationService') as NotificationService
+
+  const body = await req.json().catch(() => ({}))
+  const input = createFeatureNotificationSchema.parse(body)
+
+  const notifications = await notificationService.createForFeature(input, {
+    tenantId: ctx.auth?.tenantId ?? '',
+    organizationId: ctx.selectedOrganizationId ?? null,
+    userId: ctx.auth?.sub ?? null,
+  })
+
+  return Response.json({
+    ok: true,
+    count: notifications.length,
+    ids: notifications.map((n) => n.id),
+  }, { status: 201 })
+}
+
+export const openApi = {
+  POST: {
+    summary: 'Create notifications for all users with a specific feature/permission',
+    description: 'Send the same notification to all users who have the specified feature permission (via role ACL or user ACL). Supports wildcard matching.',
+    tags: ['Notifications'],
+    responses: {
+      201: { description: 'Notifications created for all users with the required feature' },
+    },
+  },
+}
+```
+
+### Usage Example: Leave Request Approval Workflow
+
+When a staff member submits a leave request, notify all users who have permission to approve it:
+
+```typescript
+// packages/core/src/modules/staff/subscribers/leave-request-approval-notification.ts
+import { createQueue } from '@open-mercato/queue'
+import type { CreateFeatureNotificationJob } from '@open-mercato/core/modules/notifications/workers/create-notification.worker'
+
+export const metadata = {
+  event: 'staff.leave_request.created',
+  id: 'staff:leave-request-approval-notification',
+  persistent: true,
+}
+
+export default async function handle(
+  payload: {
+    leaveRequestId: string
+    employeeName: string
+    startDate: string
+    endDate: string
+    tenantId: string
+    organizationId?: string
+  },
+  ctx: { resolve: <T>(name: string) => T }
+): Promise<void> {
+  const queue = createQueue('notifications', 'async')
+
+  // Notify all users who can approve leave requests
+  // This includes:
+  // - Users with direct "staff.leave_requests.approve" permission
+  // - Users with "staff.*" wildcard permission
+  // - Super admins
+  await queue.enqueue({
+    type: 'create-feature',
+    input: {
+      requiredFeature: 'staff.leave_requests.approve',
+      type: 'staff.leave_request.pending_approval',
+      title: 'Leave request pending approval',
+      body: `${payload.employeeName} requested leave from ${payload.startDate} to ${payload.endDate}`,
+      icon: 'calendar-clock',
+      severity: 'warning',
+      actions: [
+        {
+          id: 'approve',
+          label: 'Approve',
+          variant: 'default',
+          commandId: 'staff.leave_requests.approve',
+          icon: 'check',
+        },
+        {
+          id: 'reject',
+          label: 'Reject',
+          variant: 'destructive',
+          commandId: 'staff.leave_requests.reject',
+          confirmRequired: true,
+          confirmMessage: 'Are you sure you want to reject this leave request?',
+          icon: 'x',
+        },
+        {
+          id: 'view',
+          label: 'View Details',
+          variant: 'outline',
+          href: `/backend/staff/leave-requests/${payload.leaveRequestId}`,
+          icon: 'external-link',
+        },
+      ],
+      primaryActionId: 'approve',
+      sourceModule: 'staff',
+      sourceEntityType: 'leave_request',
+      sourceEntityId: payload.leaveRequestId,
+      linkHref: `/backend/staff/leave-requests/${payload.leaveRequestId}`,
+      expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(), // 7 days
+    },
+    tenantId: payload.tenantId,
+    organizationId: payload.organizationId,
+  })
+}
+```
+
+### How Permission Matching Works
+
+The system queries users based on their ACL permissions:
+
+1. **User ACL**: Direct permissions assigned to individual users
+2. **Role ACL**: Permissions granted through roles
+3. **Super Admin**: Users with `isSuperAdmin` flag always receive notifications
+4. **Wildcard Matching**: Supports patterns like `staff.*` matching `staff.leave_requests.approve`
+
+```typescript
+// Feature matching logic
+function hasFeature(features: string[], requiredFeature: string): boolean {
+  for (const feature of features) {
+    // Exact match: "staff.leave_requests.approve" === "staff.leave_requests.approve"
+    if (feature === requiredFeature) {
+      return true
+    }
+
+    // Wildcard match: "staff.*" matches "staff.leave_requests.approve"
+    if (feature.endsWith('.*')) {
+      const prefix = feature.slice(0, -2)
+      if (requiredFeature.startsWith(prefix + '.')) {
+        return true
+      }
+    }
+  }
+
+  return false
+}
+```
+
+### Service Implementation
+
+```typescript
+async createForFeature(input, ctx) {
+  const em = rootEm.fork()
+  const knex = getKnex(em)
+
+  const userIdsSet = new Set<string>()
+
+  // Query 1: Users with direct user ACL
+  const userAcls = await knex('user_acls')
+    .join('users', 'user_acls.user_id', 'users.id')
+    .where('user_acls.tenant_id', ctx.tenantId)
+    .whereNull('user_acls.deleted_at')
+    .whereNull('users.deleted_at')
+    .where('users.tenant_id', ctx.tenantId)
+    .select('users.id as user_id', 'user_acls.features_json', 'user_acls.is_super_admin')
+
+  for (const row of userAcls) {
+    if (row.is_super_admin) {
+      userIdsSet.add(row.user_id)
+    } else if (row.features_json && Array.isArray(row.features_json)) {
+      if (hasFeature(row.features_json, input.requiredFeature)) {
+        userIdsSet.add(row.user_id)
+      }
+    }
+  }
+
+  // Query 2: Users with role ACL
+  const roleAcls = await knex('role_acls')
+    .join('user_roles', 'role_acls.role_id', 'user_roles.role_id')
+    .join('users', 'user_roles.user_id', 'users.id')
+    .where('role_acls.tenant_id', ctx.tenantId)
+    .whereNull('role_acls.deleted_at')
+    .whereNull('user_roles.deleted_at')
+    .whereNull('users.deleted_at')
+    .where('users.tenant_id', ctx.tenantId)
+    .select('users.id as user_id', 'role_acls.features_json', 'role_acls.is_super_admin')
+
+  for (const row of roleAcls) {
+    if (row.is_super_admin) {
+      userIdsSet.add(row.user_id)
+    } else if (row.features_json && Array.isArray(row.features_json)) {
+      if (hasFeature(row.features_json, input.requiredFeature)) {
+        userIdsSet.add(row.user_id)
+      }
+    }
+  }
+
+  const recipientUserIds = Array.from(userIdsSet)
+
+  if (recipientUserIds.length === 0) {
+    return []
+  }
+
+  // Create notifications for all matching users...
+  const notifications: Notification[] = []
+  for (const recipientUserId of recipientUserIds) {
+    const notification = em.create(Notification, {
+      recipientUserId,
+      type: input.type,
+      title: input.title,
+      body: input.body,
+      icon: input.icon,
+      severity: input.severity ?? 'info',
+      actionData: input.actions ? {
+        actions: input.actions,
+        primaryActionId: input.primaryActionId,
+      } : null,
+      sourceModule: input.sourceModule,
+      sourceEntityType: input.sourceEntityType,
+      sourceEntityId: input.sourceEntityId,
+      linkHref: input.linkHref,
+      groupKey: input.groupKey,
+      expiresAt: input.expiresAt ? new Date(input.expiresAt) : null,
+      tenantId: ctx.tenantId,
+      organizationId: ctx.organizationId,
+    })
+    notifications.push(notification)
+  }
+
+  await em.persistAndFlush(notifications)
+
+  for (const notification of notifications) {
+    await eventBus.emit(NOTIFICATION_EVENTS.CREATED, {
+      notificationId: notification.id,
+      recipientUserId: notification.recipientUserId,
+      type: notification.type,
+      title: notification.title,
+      tenantId: ctx.tenantId,
+      organizationId: ctx.organizationId,
+    })
+  }
+
+  return notifications
+}
+```
+
+### Use Cases
+
+- **Approval Workflows**: Notify all users who can approve specific actions (leave requests, purchase orders, expense reports)
+- **Permission-Based Alerts**: Alert users with specific administrative permissions about system events
+- **Flexible Routing**: Send notifications based on capabilities rather than fixed roles
+- **Multi-Role Support**: Reach users through any role or direct permission that grants the required feature
+
+---
+
 ## Test Scenarios
 
 | Scenario | Given | When | Then |
@@ -1896,14 +2185,68 @@ async createForRole(input, ctx) {
 | Navigate to source | User clicks notification | onClick handler | Navigates to linkHref |
 | New notification toast | New notification arrives | Poll detects new ID | Toast shown, badge pulses |
 | Create role notification | Admin sends notification to role | POST /api/notifications/role | Notifications created for all users in role |
+| Create feature notification | System sends notification by permission | POST /api/notifications/feature | Notifications created for all users with required feature |
 
 ---
 
 ## Changelog
 
-### 2026-01-26
-- Added role-based notifications support
-- New API endpoint `/api/notifications/role` to send notifications to all users within a role
-- New validator `createRoleNotificationSchema` for role-based notification inputs
-- New service method `createForRole()` to create notifications for all users in a role
-- Updated specification with role-based notification examples and usage patterns
+### 2026-01-26 (Implementation Complete)
+- ✅ **Complete backend infrastructure implemented**
+  - Database entity with proper indexes and multi-tenant support
+  - Migration file created and ready
+  - Full service layer with all CRUD operations
+  - DI registration configured
+  - ACL features defined (`notifications.view`, `notifications.create`, `notifications.manage`)
+  - Event definitions for lifecycle tracking
+- ✅ **All API endpoints implemented**
+  - Main CRUD route (`/api/notifications`)
+  - Unread count (`/api/notifications/unread-count`)
+  - Mark as read (`/api/notifications/[id]/read`)
+  - Execute action with command bus integration (`/api/notifications/[id]/action`)
+  - Dismiss (`/api/notifications/[id]/dismiss`)
+  - Mark all read (`/api/notifications/mark-all-read`)
+  - Batch creation (`/api/notifications/batch`)
+  - Role-based notifications (`/api/notifications/role`)
+  - Feature-based notifications (`/api/notifications/feature`)
+  - All endpoints include OpenAPI specifications
+- ✅ **Frontend components fully integrated**
+  - NotificationBell component with badge and pulse animation
+  - NotificationPanel with filtering (all/unread/action required)
+  - NotificationItem with inline actions
+  - useNotificationsPoll hook with automatic 5-second polling
+  - DOM events for cross-component communication
+  - Integrated into main backend layout header
+- ✅ **Generator system for notification types**
+  - Created `notifications.generated.ts` generator
+  - Auto-discovers `notifications.ts` files from modules
+  - Generates type registry with `getNotificationTypes()` and `getNotificationType()` helpers
+  - Follows same pattern as search.generated.ts
+- ✅ **Example notification types (auth module)**
+  - Password reset (requested/completed)
+  - Account locked notifications
+  - New device login alerts
+  - Role assignment/revocation notifications
+  - Full i18n support in 4 languages (en, de, es, pl)
+- ✅ **Worker infrastructure**
+  - Notification creation worker (single, batch, role, feature)
+  - Cleanup expired notifications job type
+  - CLI command `cleanup-expired` for scheduled execution
+  - Queue-based async processing
+- ✅ **Advanced targeting options**
+  - Send to individual users
+  - Send to multiple users (batch, up to 1000)
+  - Send to all users in a role
+  - Send to all users with a specific feature/permission (with wildcard support)
+- ✅ **Internationalization**
+  - Translation files in 4 languages (en, de, es, pl)
+  - Notification type definitions use i18n keys
+  - Action labels support i18n
+  - Client components use i18n context
+- **Next steps (future enhancements)**
+  - Add comprehensive test suite
+  - Create more example notification types in other modules
+  - Add notification preferences/settings page
+  - Implement push notifications via WebSockets or SSE
+  - Add notification grouping/threading
+  - Email digest options

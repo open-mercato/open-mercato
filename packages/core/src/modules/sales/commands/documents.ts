@@ -3111,6 +3111,19 @@ const createQuoteCommand: CommandHandler<QuoteCreateInput, { quoteId: string }> 
     })
     await em.flush()
 
+    // Emit notification event for quote creation
+    if (eventBus) {
+      await eventBus.emit('sales.quote.created', {
+        quoteId: quote.id,
+        quoteNumber: quote.quoteNumber,
+        tenantId: quote.tenantId,
+        organizationId: quote.organizationId,
+        customerId: quote.customerEntityId ?? null,
+        grandTotalGross: quote.grandTotalGrossAmount,
+        currencyCode: quote.currencyCode,
+      })
+    }
+
     return { quoteId: quote.id }
   },
   captureAfter: async (_input, result, ctx) => {
@@ -3781,6 +3794,19 @@ const createOrderCommand: CommandHandler<OrderCreateInput, { orderId: string }> 
       tagIds: parsed.tags,
     })
     await em.flush()
+
+    // Emit notification event for order creation
+    if (eventBus) {
+      await eventBus.emit('sales.order.created', {
+        orderId: order.id,
+        orderNumber: order.orderNumber,
+        tenantId: order.tenantId,
+        organizationId: order.organizationId,
+        customerId: order.customerEntityId ?? null,
+        grandTotalGross: order.grandTotalGrossAmount,
+        currencyCode: order.currencyCode,
+      })
+    }
 
     return { orderId: order.id }
   },

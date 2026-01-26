@@ -313,6 +313,176 @@ When you create a role-based notification:
 }
 ```
 
+## Feature-Based (Permission-Based) Notifications
+
+Send notifications to all users who have a specific permission, regardless of their role. This is the **recommended approach** for approval workflows and permission-based notifications.
+
+```typescript
+await notificationService.createForFeature({
+  requiredFeature: 'staff.leave_requests.approve', // The required permission
+  type: 'staff.leave_request.pending_approval',
+  title: 'Leave request pending approval',
+  body: 'John Doe requested leave from Jan 15 to Jan 20',
+  icon: 'calendar-clock',
+  severity: 'warning',
+  actions: [
+    {
+      id: 'approve',
+      label: 'Approve',
+      variant: 'default',
+      commandId: 'staff.leave_requests.approve',
+      icon: 'check',
+    },
+    {
+      id: 'reject',
+      label: 'Reject',
+      variant: 'destructive',
+      commandId: 'staff.leave_requests.reject',
+      confirmRequired: true,
+      icon: 'x',
+    },
+  ],
+  primaryActionId: 'approve',
+  linkHref: '/backend/staff/leave-requests/123',
+}, {
+  tenantId: ctx.auth.tenantId,
+  organizationId: ctx.selectedOrganizationId,
+})
+```
+
+Or via API:
+
+```typescript
+await apiCall('/api/notifications/feature', {
+  method: 'POST',
+  body: JSON.stringify({
+    requiredFeature: 'sales.orders.approve',
+    type: 'sales.order.pending_approval',
+    title: 'Order needs approval',
+    body: 'Order #12345 worth $5,000 requires approval',
+    icon: 'shopping-cart',
+    severity: 'warning',
+  }),
+})
+```
+
+### Leave Request Example (Complete Workflow)
+
+Here's a complete example of notifying approvers when a leave request is created:
+
+```typescript
+// packages/core/src/modules/staff/subscribers/leave-request-approval-notification.ts
+import { createQueue } from '@open-mercato/queue'
+import type { CreateFeatureNotificationJob } from '@open-mercato/core/modules/notifications/workers/create-notification.worker'
+
+export const metadata = {
+  event: 'staff.leave_request.created',
+  id: 'staff:leave-request-approval-notification',
+  persistent: true,
+}
+
+export default async function handle(
+  payload: {
+    leaveRequestId: string
+    employeeName: string
+    startDate: string
+    endDate: string
+    tenantId: string
+    organizationId?: string
+  },
+  ctx: { resolve: <T>(name: string) => T }
+): Promise<void> {
+  const queue = createQueue('notifications', 'async')
+
+  // Notify all users who can approve leave requests
+  // This includes:
+  // - Users with direct "staff.leave_requests.approve" permission
+  // - Users with "staff.*" wildcard permission
+  // - Super admins
+  await queue.enqueue({
+    type: 'create-feature',
+    input: {
+      requiredFeature: 'staff.leave_requests.approve',
+      type: 'staff.leave_request.pending_approval',
+      title: 'Leave request pending approval',
+      body: `${payload.employeeName} requested leave from ${payload.startDate} to ${payload.endDate}`,
+      icon: 'calendar-clock',
+      severity: 'warning',
+      actions: [
+        {
+          id: 'approve',
+          label: 'Approve',
+          variant: 'default',
+          commandId: 'staff.leave_requests.approve',
+          icon: 'check',
+        },
+        {
+          id: 'reject',
+          label: 'Reject',
+          variant: 'destructive',
+          commandId: 'staff.leave_requests.reject',
+          confirmRequired: true,
+          confirmMessage: 'Are you sure you want to reject this leave request?',
+          icon: 'x',
+        },
+        {
+          id: 'view',
+          label: 'View Details',
+          variant: 'outline',
+          href: `/backend/staff/leave-requests/${payload.leaveRequestId}`,
+          icon: 'external-link',
+        },
+      ],
+      primaryActionId: 'approve',
+      sourceModule: 'staff',
+      sourceEntityType: 'leave_request',
+      sourceEntityId: payload.leaveRequestId,
+      linkHref: `/backend/staff/leave-requests/${payload.leaveRequestId}`,
+      expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(),
+    },
+    tenantId: payload.tenantId,
+    organizationId: payload.organizationId,
+  })
+}
+```
+
+### How Permission Matching Works
+
+The system finds users based on their ACL permissions:
+
+1. **Direct User ACL**: Individual permissions assigned to specific users
+2. **Role ACL**: Permissions granted through role membership
+3. **Super Admin**: Users with `isSuperAdmin` flag always match
+4. **Wildcard Support**: `staff.*` matches any `staff.` permission like `staff.leave_requests.approve`
+
+**Example Scenarios:**
+
+- User has role "HR Manager" with permission `staff.leave_requests.approve` → ✅ Gets notification
+- User has direct permission `staff.*` → ✅ Gets notification (wildcard match)
+- User has role "Admin" with `isSuperAdmin: true` → ✅ Gets notification
+- User has role "Employee" with no relevant permissions → ❌ No notification
+- User has permission `sales.orders.approve` → ❌ No notification (different module)
+
+### Use Cases for Feature-Based Notifications
+
+- **Approval Workflows**: Leave requests, purchase orders, expense reports
+- **Administrative Alerts**: System changes requiring specific permissions
+- **Compliance Notifications**: Alerts for users with audit or compliance access
+- **Security Events**: Notify users with security management permissions
+- **Flexible Routing**: Route based on capability, not fixed organizational structure
+
+### Comparison: Role vs Feature Notifications
+
+| Aspect | Role-Based | Feature-Based |
+|--------|------------|---------------|
+| **Target** | All users in a role | All users with a permission |
+| **Use Case** | Department announcements, team updates | Approval workflows, permission-based alerts |
+| **Flexibility** | Fixed by role membership | Works across multiple roles |
+| **Example** | "All Managers" | "Anyone who can approve orders" |
+| **API** | `POST /api/notifications/role` | `POST /api/notifications/feature` |
+
+**Recommendation:** Use feature-based notifications for workflows requiring specific permissions (approvals, administrative actions). Use role-based for general announcements to organizational groups.
+
 ## Severity Levels
 
 Notifications support four severity levels that affect visual styling:
@@ -475,6 +645,12 @@ interface NotificationService {
 
   // Create notifications for multiple recipients
   createBatch(input: CreateBatchNotificationInput, ctx: NotificationServiceContext): Promise<Notification[]>
+
+  // Create notifications for all users in a role
+  createForRole(input: CreateRoleNotificationInput, ctx: NotificationServiceContext): Promise<Notification[]>
+
+  // Create notifications for all users with a specific permission
+  createForFeature(input: CreateFeatureNotificationInput, ctx: NotificationServiceContext): Promise<Notification[]>
 
   // Mark notification as read
   markAsRead(notificationId: string, ctx: NotificationServiceContext): Promise<Notification>
