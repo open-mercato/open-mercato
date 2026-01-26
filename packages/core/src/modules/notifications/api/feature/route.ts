@@ -1,6 +1,6 @@
 import { z } from 'zod'
 import { resolveRequestContext } from '@open-mercato/shared/lib/api/context'
-import type { NotificationService } from '../../lib/notificationService'
+import { resolveNotificationService } from '../../lib/notificationService'
 import { createFeatureNotificationSchema } from '../../data/validators'
 
 export const metadata = {
@@ -9,7 +9,7 @@ export const metadata = {
 
 export async function POST(req: Request) {
   const { ctx } = await resolveRequestContext(req)
-  const notificationService = ctx.container.resolve('notificationService') as NotificationService
+  const notificationService = resolveNotificationService(ctx.container)
 
   const body = await req.json().catch(() => ({}))
   const input = createFeatureNotificationSchema.parse(body)

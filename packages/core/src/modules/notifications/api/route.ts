@@ -3,7 +3,7 @@ import { resolveRequestContext } from '@open-mercato/shared/lib/api/context'
 import type { EntityManager } from '@mikro-orm/core'
 import { Notification } from '../data/entities'
 import { listNotificationsSchema, createNotificationSchema } from '../data/validators'
-import type { NotificationService } from '../lib/notificationService'
+import { resolveNotificationService } from '../lib/notificationService'
 import {
   buildNotificationsCrudOpenApi,
   createPagedListResponseSchema,
@@ -92,7 +92,7 @@ export async function GET(req: Request) {
 
 export async function POST(req: Request) {
   const { ctx } = await resolveRequestContext(req)
-  const notificationService = ctx.container.resolve('notificationService') as NotificationService
+  const notificationService = resolveNotificationService(ctx.container)
 
   const body = await req.json().catch(() => ({}))
   const input = createNotificationSchema.parse(body)

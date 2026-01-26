@@ -1,5 +1,5 @@
 import { resolveRequestContext } from '@open-mercato/shared/lib/api/context'
-import type { NotificationService } from '../../lib/notificationService'
+import { resolveNotificationService } from '../../lib/notificationService'
 import { okResponseSchema } from '../openapi'
 import { z } from 'zod'
 
@@ -9,7 +9,7 @@ export const metadata = {
 
 export async function PUT(req: Request) {
   const { ctx } = await resolveRequestContext(req)
-  const notificationService = ctx.container.resolve('notificationService') as NotificationService
+  const notificationService = resolveNotificationService(ctx.container)
 
   const count = await notificationService.markAllAsRead({
     tenantId: ctx.auth?.tenantId ?? '',

@@ -1,5 +1,5 @@
 import { resolveRequestContext } from '@open-mercato/shared/lib/api/context'
-import type { NotificationService } from '../../../lib/notificationService'
+import { resolveNotificationService } from '../../../lib/notificationService'
 import { executeActionSchema } from '../../../data/validators'
 import { actionResultResponseSchema } from '../../openapi'
 
@@ -10,7 +10,7 @@ export const metadata = {
 export async function POST(req: Request, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params
   const { ctx } = await resolveRequestContext(req)
-  const notificationService = ctx.container.resolve('notificationService') as NotificationService
+  const notificationService = resolveNotificationService(ctx.container)
 
   const body = await req.json().catch(() => ({}))
   const input = executeActionSchema.parse(body)

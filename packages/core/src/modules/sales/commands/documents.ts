@@ -11,7 +11,7 @@ import type { DataEngine } from '@open-mercato/shared/lib/data/engine'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { deriveResourceFromCommandId, invalidateCrudCache } from '@open-mercato/shared/lib/crud/cache'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
-import type { NotificationService } from '../../notifications/lib/notificationService'
+import { resolveNotificationService } from '../../notifications/lib/notificationService'
 import { setRecordCustomFields } from '@open-mercato/core/modules/entities/lib/helpers'
 import { loadCustomFieldValues } from '@open-mercato/shared/lib/crud/custom-fields'
 import { normalizeCustomFieldValues } from '@open-mercato/shared/lib/custom-fields/normalize'
@@ -3114,7 +3114,7 @@ const createQuoteCommand: CommandHandler<QuoteCreateInput, { quoteId: string }> 
 
     // Create notification for users with sales.quotes.manage feature
     try {
-      const notificationService = ctx.container.resolve('notificationService') as NotificationService
+      const notificationService = resolveNotificationService(ctx.container)
       const { t } = await resolveTranslations()
       const totalDisplay = quote.grandTotalGrossAmount && quote.currencyCode
         ? ` (${quote.grandTotalGrossAmount} ${quote.currencyCode})`
@@ -3140,8 +3140,9 @@ const createQuoteCommand: CommandHandler<QuoteCreateInput, { quoteId: string }> 
           organizationId: quote.organizationId ?? null,
         }
       )
-    } catch {
+    } catch (err) {
       // Notification creation is non-critical, don't fail the command
+      console.error('[sales.quotes.create] Failed to create notification:', err)
     }
 
     return { quoteId: quote.id }
@@ -3817,7 +3818,7 @@ const createOrderCommand: CommandHandler<OrderCreateInput, { orderId: string }> 
 
     // Create notification for users with sales.orders.manage feature
     try {
-      const notificationService = ctx.container.resolve('notificationService') as NotificationService
+      const notificationService = resolveNotificationService(ctx.container)
       const { t } = await resolveTranslations()
       const totalDisplay = order.grandTotalGrossAmount && order.currencyCode
         ? ` (${order.grandTotalGrossAmount} ${order.currencyCode})`
@@ -3843,8 +3844,9 @@ const createOrderCommand: CommandHandler<OrderCreateInput, { orderId: string }> 
           organizationId: order.organizationId ?? null,
         }
       )
-    } catch {
+    } catch (err) {
       // Notification creation is non-critical, don't fail the command
+      console.error('[sales.orders.create] Failed to create notification:', err)
     }
 
     return { orderId: order.id }

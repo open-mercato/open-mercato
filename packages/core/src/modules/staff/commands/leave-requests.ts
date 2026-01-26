@@ -21,7 +21,7 @@ import {
 } from '../data/validators'
 import { ensureOrganizationScope, ensureTenantScope, extractUndoPayload, requireTeamMember } from './shared'
 import { E } from '#generated/entities.ids.generated'
-import type { NotificationService } from '../../notifications/lib/notificationService'
+import { resolveNotificationService } from '../../notifications/lib/notificationService'
 
 const leaveRequestCrudIndexer: CrudIndexerConfig<StaffLeaveRequest> = {
   entityType: E.staff.staff_leave_request,
@@ -261,7 +261,7 @@ const createLeaveRequestCommand: CommandHandler<StaffLeaveRequestCreateInput, { 
 
     // Create notification for users who can approve/reject leave requests
     try {
-      const notificationService = ctx.container.resolve('notificationService') as NotificationService
+      const notificationService = resolveNotificationService(ctx.container)
       const { t } = await resolveTranslations()
       const memberName = member.displayName || 'Team member'
       const startDateStr = request.startDate.toLocaleDateString()

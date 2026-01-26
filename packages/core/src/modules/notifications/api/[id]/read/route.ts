@@ -1,5 +1,5 @@
 import { resolveRequestContext } from '@open-mercato/shared/lib/api/context'
-import type { NotificationService } from '../../../lib/notificationService'
+import { resolveNotificationService } from '../../../lib/notificationService'
 import { okResponseSchema } from '../../openapi'
 
 export const metadata = {
@@ -9,7 +9,7 @@ export const metadata = {
 export async function PUT(req: Request, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params
   const { ctx } = await resolveRequestContext(req)
-  const notificationService = ctx.container.resolve('notificationService') as NotificationService
+  const notificationService = resolveNotificationService(ctx.container)
 
   await notificationService.markAsRead(id, {
     tenantId: ctx.auth?.tenantId ?? '',

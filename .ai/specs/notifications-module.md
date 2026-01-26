@@ -1800,16 +1800,47 @@ export const features = [
 // packages/core/src/modules/notifications/di.ts
 import type { AwilixContainer } from 'awilix'
 import { asFunction } from 'awilix'
-import { createNotificationService } from './lib/notificationServiceImpl'
+import { createNotificationService } from './lib/notificationService'
 
 export function register(container: AwilixContainer): void {
   container.register({
     notificationService: asFunction(({ em, eventBus, commandBus }) =>
-      createNotificationService(em, eventBus, commandBus)
+      createNotificationService({ em, eventBus, commandBus })
     ).scoped(),
   })
 }
 ```
+
+---
+
+## Using Notification Service (IMPORTANT)
+
+**Do NOT resolve the notification service from DI directly.** Due to DI scoping issues, always use the `resolveNotificationService` helper:
+
+```typescript
+// ✅ CORRECT: Use the helper function
+import { resolveNotificationService } from '@open-mercato/core/modules/notifications/lib/notificationService'
+
+// In API routes:
+export async function POST(req: Request) {
+  const { ctx } = await resolveRequestContext(req)
+  const notificationService = resolveNotificationService(ctx.container)
+  // ...
+}
+
+// In commands:
+execute: async (input, ctx) => {
+  const notificationService = resolveNotificationService(ctx.container)
+  await notificationService.createForFeature({...}, {...})
+}
+```
+
+```typescript
+// ❌ WRONG: Do not resolve from DI directly (will fail with undefined em)
+const notificationService = ctx.container.resolve('notificationService') as NotificationService
+```
+
+The `resolveNotificationService` helper properly resolves `em`, `eventBus`, and `commandBus` from the container and creates a fresh service instance.
 
 ---
 
@@ -2323,6 +2354,19 @@ async createForFeature(input, ctx) {
 ---
 
 ## Changelog
+
+### 2026-01-26 (Service Resolution Fix)
+- ✅ **Fixed notification service resolution issue**
+  - Added `resolveNotificationService` helper to properly create service instances
+  - Updated all API routes to use the helper instead of direct DI resolution
+  - Updated sales/staff commands to use the helper
+  - Fixed "Cannot read properties of undefined (reading 'fork')" error
+- ✅ **Debug logging controlled by environment variable**
+  - Added `NOTIFICATIONS_DEBUG` environment variable (default: false)
+  - Console logs only appear when debug mode is enabled
+- ✅ **Documentation updated**
+  - Added section explaining proper usage of `resolveNotificationService`
+  - Added warning about not using direct DI resolution
 
 ### 2026-01-26 (Sales Module Notification Implementation)
 - ✅ **Sales module notification types implemented**

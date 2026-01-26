@@ -304,8 +304,11 @@ export function createNotificationService(deps: NotificationServiceDeps): Notifi
       const recipientUserIds = Array.from(userIdsSet)
 
       if (recipientUserIds.length === 0) {
+        console.log('[notifications] No users found with feature:', input.requiredFeature, 'in tenant:', ctx.tenantId)
         return []
       }
+
+      console.log('[notifications] Creating notifications for', recipientUserIds.length, 'user(s) with feature:', input.requiredFeature)
 
       const notifications: Notification[] = []
 
@@ -544,4 +547,17 @@ export function createNotificationService(deps: NotificationServiceDeps): Notifi
       return result
     },
   }
+}
+
+/**
+ * Helper to create notification service from a DI container.
+ * Use this in API routes and commands to avoid DI resolution issues.
+ */
+export function resolveNotificationService(container: {
+  resolve: (name: string) => unknown
+}): NotificationService {
+  const em = container.resolve('em') as EntityManager
+  const eventBus = container.resolve('eventBus') as { emit: (event: string, payload: unknown) => Promise<void> }
+  const commandBus = container.resolve('commandBus') as { execute: (commandId: string, payload: unknown) => Promise<{ result: unknown }> } | undefined
+  return createNotificationService({ em, eventBus, commandBus })
 }
