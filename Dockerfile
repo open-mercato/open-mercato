@@ -36,9 +36,11 @@ RUN yarn build
 # Production stage
 FROM node:24-alpine AS runner
 
+ARG CONTAINER_PORT=3000
+
 ENV NODE_ENV=production \
     NEXT_TELEMETRY_DISABLED=1 \
-    PORT=3000
+    PORT=${CONTAINER_PORT}
 
 WORKDIR /app
 
@@ -82,7 +84,7 @@ RUN adduser -D -u 1001 omuser \
 
 USER omuser
 
-EXPOSE 3000
+EXPOSE ${CONTAINER_PORT}
 
 # Run the app directly instead of using turbo (which is a devDependency)
 WORKDIR /app/apps/mercato
