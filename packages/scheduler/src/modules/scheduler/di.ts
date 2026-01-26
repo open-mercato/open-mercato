@@ -69,6 +69,9 @@ export function register(container: AppContainer) {
       .singleton()
       .inject(() => ({
         em: () => container.resolve('em'),
+        bullmqService: queueStrategy === 'async' 
+          ? container.resolve('bullmqSchedulerService')
+          : undefined,
       })),
   })
 }

@@ -77,7 +77,13 @@ function ensureTenantScope(ctx: any, tenantId: string | null | undefined) {
 }
 
 function ensureOrganizationScope(ctx: any, organizationId: string | null | undefined) {
-  if (!ctx.auth?.isSuperAdmin && organizationId && ctx.auth?.organizationId && ctx.auth.organizationId !== organizationId) {
+  // Super admins bypass all checks
+  if (ctx.auth?.isSuperAdmin) {
+    return
+  }
+  
+  // If schedule has an org ID, user must have matching org ID
+  if (organizationId && organizationId !== ctx.auth?.organizationId) {
     throw new Error('Organization mismatch')
   }
 }
@@ -201,6 +207,25 @@ const updateScheduleCommand: CommandHandler<ScheduleUpdateInput, { ok: boolean }
     if (input.targetPayload !== undefined) schedule.targetPayload = input.targetPayload ?? null
     if (input.requireFeature !== undefined) schedule.requireFeature = input.requireFeature || null
     if (input.isEnabled !== undefined) schedule.isEnabled = input.isEnabled
+    
+    // Handle target type changes - clear stale values when switching between queue and command
+    if (input.targetType !== undefined) {
+      schedule.targetType = input.targetType
+      
+      if (input.targetType === 'queue') {
+        // Switching to queue: set new queue and clear command
+        if (input.targetQueue !== undefined) schedule.targetQueue = input.targetQueue
+        schedule.targetCommand = null
+      } else if (input.targetType === 'command') {
+        // Switching to command: set new command and clear queue
+        if (input.targetCommand !== undefined) schedule.targetCommand = input.targetCommand
+        schedule.targetQueue = null
+      }
+    } else {
+      // targetType not changing, but allow updating individual target fields
+      if (input.targetQueue !== undefined) schedule.targetQueue = input.targetQueue
+      if (input.targetCommand !== undefined) schedule.targetCommand = input.targetCommand
+    }
 
     // Recalculate next run if schedule changed
     if (input.scheduleType !== undefined || input.scheduleValue !== undefined || input.timezone !== undefined) {
