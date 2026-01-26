@@ -8,7 +8,6 @@ import {
   buildNotificationsCrudOpenApi,
   createPagedListResponseSchema,
   notificationItemSchema,
-  okResponseSchema,
 } from './openapi'
 
 export const metadata = {
