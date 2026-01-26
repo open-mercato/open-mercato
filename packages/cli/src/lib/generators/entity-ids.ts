@@ -127,7 +127,7 @@ function writeEntityFieldsRegistry(generatedRoot: string, fieldsByEntity: Entity
 
   // Always write the file, even if empty, to prevent TypeScript import errors
   const imports = entities.length > 0
-    ? entities.map((e) => `import * as ${toVar(e)} from './entities/${e}/index'`).join('\n')
+    ? entities.map((e) => `import * as ${toVar(e)} from './entities/${e}/index.ts'`).join('\n')
     : ''
   const registryEntries = entities.length > 0
     ? entities.map((e) => `  ${toVar(e)}`).join(',\n')
