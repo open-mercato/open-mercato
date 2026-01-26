@@ -36,6 +36,7 @@ export function AiAssistantIntegration({
     <CommandPaletteProvider
       tenantId={tenantId ?? ''}
       organizationId={organizationId}
+      disableKeyboardShortcut={false}
     >
       {children}
       <DockableChat />

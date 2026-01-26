@@ -40,11 +40,15 @@ function registerApiDiscoverTool(): void {
   registerMcpTool(
     {
       name: 'find_api',
-      description: `Search for API endpoints by keyword. Use when you need to find specific endpoints not covered by standard CRUD paths.`,
+      description: `Search for API endpoints. Use discover_schema first to understand entity fields, then find_api to get the endpoint schema.
+
+Returns: path, method, operationId, parameters, and requestBody schema showing required fields and structure.
+
+Workflow: discover_schema("Company") → understand fields → find_api("update company") → see request body schema → call_api`,
       inputSchema: z.object({
         query: z
           .string()
-          .describe('Natural language query to find relevant endpoints (e.g., "create customer", "list orders")'),
+          .describe('Natural language query to find endpoints (e.g., "update company", "create order", "list customers")'),
         method: z
           .enum(['GET', 'POST', 'PUT', 'PATCH', 'DELETE'])
           .optional()
@@ -65,9 +69,9 @@ function registerApiDiscoverTool(): void {
             message: 'No matching endpoints found. Try different search terms.',
             endpoints: [],
             suggestions: [
-              'Try broader terms like "customer" or "order"',
-              'Use method filter to narrow results (e.g., method: "POST")',
-              'Use list_entities to find entity names, then understand_entity to get endpoints',
+              'Try broader terms like "customer", "company", "order", or "sales"',
+              'Use method filter to narrow results (e.g., method: "PUT" for updates)',
+              'Use discover_schema to find entity names first, then search for those entity names',
             ],
           }
         }
@@ -103,7 +107,7 @@ function registerApiDiscoverTool(): void {
           success: true,
           message: `Found ${results.length} matching endpoint(s)`,
           endpoints: results,
-          hint: 'Use call_api with method, path, and body to execute the endpoint.',
+          hint: 'Use call_api with the method, path, and body structure shown in requestBody schema above.',
         }
       },
     },
@@ -118,15 +122,14 @@ function registerApiExecuteTool(): void {
   registerMcpTool(
     {
       name: 'call_api',
-      description: `Execute an API call. Confirm with user before POST/PUT/DELETE operations.
+      description: `Execute an API call using path and body structure from find_api results.
 
-Common paths: /api/customers/companies, /api/customers/people, /api/sales/orders
-For updates, include the record ID in the path (e.g., /api/customers/companies/123)`,
+Confirm with user before POST/PUT/DELETE operations.`,
       inputSchema: z.object({
-        method: z.enum(['GET', 'POST', 'PUT', 'PATCH', 'DELETE']).describe('HTTP method'),
+        method: z.enum(['GET', 'POST', 'PUT', 'PATCH', 'DELETE']).describe('HTTP method from find_api result'),
         path: z
           .string()
-          .describe('API path with parameters replaced (e.g., /customers/123, /orders)'),
+          .describe('API path from find_api result (e.g., /api/customers/companies)'),
         query: z
           .record(z.string(), z.string())
           .optional()
@@ -134,7 +137,7 @@ For updates, include the record ID in the path (e.g., /api/customers/companies/1
         body: z
           .record(z.string(), z.unknown())
           .optional()
-          .describe('Request body for POST/PUT/PATCH requests'),
+          .describe('Request body matching the schema from find_api'),
       }),
       requiredFeatures: [], // ACL checked at API level
       handler: async (

@@ -17,17 +17,36 @@ const log = (message: string, ...args: unknown[]) => {
 }
 
 async function getApiKeyFromMcpJson(): Promise<string | undefined> {
-  const { readFile } = await import('node:fs/promises')
-  const { resolve } = await import('node:path')
+  const { readFile, access } = await import('node:fs/promises')
+  const { resolve, dirname } = await import('node:path')
+
+  // Search for .mcp.json starting from cwd and walking up to project root
+  const findMcpJson = async (startDir: string): Promise<string | null> => {
+    let dir = startDir
+    const root = resolve('/')
+    while (dir !== root) {
+      const candidate = resolve(dir, '.mcp.json')
+      try {
+        await access(candidate)
+        return candidate
+      } catch {
+        dir = dirname(dir)
+      }
+    }
+    return null
+  }
 
   try {
-    const mcpJsonPath = resolve(process.cwd(), '.mcp.json')
+    const mcpJsonPath = await findMcpJson(process.cwd())
+    if (!mcpJsonPath) {
+      return undefined
+    }
+
     const content = await readFile(mcpJsonPath, 'utf-8')
     const config = JSON.parse(content)
     const serverConfig = config?.mcpServers?.['open-mercato']
 
-    // Check env.OPEN_MERCATO_API_KEY first, then headers.x-api-key (HTTP style)
-    return serverConfig?.env?.OPEN_MERCATO_API_KEY ?? serverConfig?.headers?.['x-api-key']
+    return serverConfig?.headers?.['x-api-key']
   } catch {
     return undefined
   }
@@ -170,30 +189,38 @@ function createDevMcpServer(
  * Development MCP server for Claude Code integration.
  *
  * This server uses HTTP transport and authenticates via the
- * OPEN_MERCATO_API_KEY environment variable, .mcp.json file,
- * or x-api-key header.
+ * x-api-key header configured in .mcp.json file.
  *
  * Usage:
- *   OPEN_MERCATO_API_KEY=omk_xxx yarn mcp:dev
+ *   yarn mcp:dev
  *
- * Or configure in .mcp.json for Claude Code with HTTP transport.
+ * Configure in .mcp.json for Claude Code with HTTP transport.
  */
 export async function runMcpDevServer(): Promise<void> {
-  const envApiKey = process.env.OPEN_MERCATO_API_KEY || (await getApiKeyFromMcpJson())
+  const apiKey = await getApiKeyFromMcpJson()
   const port = parseInt(process.env.MCP_DEV_PORT ?? '', 10) || DEFAULT_PORT
   const debug = process.env.MCP_DEBUG === 'true'
 
-  if (!envApiKey) {
-    log('Error: OPEN_MERCATO_API_KEY environment variable is required')
+  if (!apiKey) {
+    log('Error: API key not found in .mcp.json')
     log('')
     log('To get an API key:')
     log('  1. Log into Open Mercato as an admin')
     log('  2. Go to Settings > API Keys')
     log('  3. Create a new key with the required permissions')
     log('')
-    log('Then either:')
-    log('  - Set environment variable: export OPEN_MERCATO_API_KEY=omk_xxx...')
-    log('  - Or configure in .mcp.json with headers.x-api-key')
+    log('Then configure in .mcp.json:')
+    log('  {')
+    log('    "mcpServers": {')
+    log('      "open-mercato": {')
+    log('        "type": "http",')
+    log('        "url": "http://localhost:3001/mcp",')
+    log('        "headers": {')
+    log('          "x-api-key": "omk_your_api_key_here"')
+    log('        }')
+    log('      }')
+    log('    }')
+    log('  }')
     process.exit(1)
   }
 
@@ -205,7 +232,7 @@ export async function runMcpDevServer(): Promise<void> {
 
   // Authenticate the API key upfront
   log('Authenticating API key...')
-  const authResult = await authenticateMcpRequest(envApiKey, container)
+  const authResult = await authenticateMcpRequest(apiKey, container)
 
   if (!authResult.success) {
     log(`Authentication failed: ${authResult.error}`)
@@ -273,7 +300,7 @@ export async function runMcpDevServer(): Promise<void> {
     container,
     userFeatures: authResult.features,
     isSuperAdmin: authResult.isSuperAdmin,
-    apiKeySecret: envApiKey,
+    apiKeySecret: apiKey,
   }
 
   const httpServer = createServer(async (req: IncomingMessage, res: ServerResponse) => {
@@ -312,7 +339,7 @@ export async function runMcpDevServer(): Promise<void> {
     }
 
     // Validate against the configured API key
-    if (providedApiKey !== envApiKey) {
+    if (providedApiKey !== apiKey) {
       res.writeHead(401, { 'Content-Type': 'application/json' })
       res.end(JSON.stringify({ error: 'Invalid API key' }))
       return

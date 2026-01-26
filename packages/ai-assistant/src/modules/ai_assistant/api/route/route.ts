@@ -49,8 +49,8 @@ function createRoutingModel(providerId: ChatProviderId) {
       return anthropic(modelId) as unknown as Parameters<typeof generateObject>[0]['model']
     }
     case 'google': {
-      const apiKey = process.env.GOOGLE_GENERATIVE_AI_API_KEY
-      if (!apiKey) throw new Error('GOOGLE_GENERATIVE_AI_API_KEY not configured')
+      const apiKey = process.env.GOOGLE_API_KEY
+      if (!apiKey) throw new Error('GOOGLE_API_KEY not configured')
       const google = createGoogleGenerativeAI({ apiKey })
       return google(modelId) as unknown as Parameters<typeof generateObject>[0]['model']
     }

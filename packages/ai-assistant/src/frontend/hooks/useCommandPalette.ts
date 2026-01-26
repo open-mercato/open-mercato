@@ -24,6 +24,7 @@ import { filterTools } from '../utils/toolMatcher'
 import { useMcpTools } from './useMcpTools'
 import { useRecentActions } from './useRecentActions'
 import { useRecentTools } from './useRecentTools'
+import { useAiAssistantVisibility } from './useAiAssistantVisibility'
 
 interface UseCommandPaletteOptions {
   pageContext: PageContext | null
@@ -84,6 +85,9 @@ function getToolPrompt(tool: ToolInfo): string {
 
 export function useCommandPalette(options: UseCommandPaletteOptions) {
   const { pageContext, selectedEntities = [], disableKeyboardShortcut = false } = options
+
+  // Check if AI assistant is enabled (for Cmd+J shortcut)
+  const { isEnabled: isAiAssistantEnabled } = useAiAssistantVisibility()
 
   // Core state with phase-based navigation for intelligent routing
   const [state, setState] = useState<CommandPaletteState>({
@@ -238,6 +242,23 @@ export function useCommandPalette(options: UseCommandPaletteOptions) {
     return filterTools(tools, query)
   }, [tools, state.inputValue])
 
+  // Listen for global open-chat event (from settings page, etc.)
+  useEffect(() => {
+    const handleOpenChat = () => {
+      setState((prev) => ({
+        ...prev,
+        isOpen: true,
+        phase: 'chatting',
+        page: 'tool-chat',
+        inputValue: '',
+        mode: 'chat',
+      }))
+    }
+
+    window.addEventListener('om:open-ai-chat', handleOpenChat)
+    return () => window.removeEventListener('om:open-ai-chat', handleOpenChat)
+  }, [])
+
   // Keyboard shortcut handler
   useEffect(() => {
     if (disableKeyboardShortcut) return
@@ -277,11 +298,15 @@ export function useCommandPalette(options: UseCommandPaletteOptions) {
         }
       }
 
-      // Open directly to AI chat mode with Cmd+J or Ctrl+J
+      // Open directly to AI chat mode with Cmd+J or Ctrl+J (only if enabled)
       if (
         (event.metaKey || event.ctrlKey) &&
         event.key.toLowerCase() === AI_CHAT_SHORTCUT.key
       ) {
+        // Skip if AI assistant is disabled (but allow closing if already open)
+        if (!isAiAssistantEnabled && !state.isOpen) {
+          return
+        }
         event.preventDefault()
         if (state.isOpen) {
           // Already open - close it
@@ -346,7 +371,7 @@ export function useCommandPalette(options: UseCommandPaletteOptions) {
 
     window.addEventListener('keydown', handleKeyDown)
     return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [state.isOpen, state.phase, state.inputValue, disableKeyboardShortcut])
+  }, [state.isOpen, state.phase, state.inputValue, disableKeyboardShortcut, isAiAssistantEnabled])
 
   // Actions
   const open = useCallback(() => {

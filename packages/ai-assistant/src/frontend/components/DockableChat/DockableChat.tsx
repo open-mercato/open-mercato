@@ -65,9 +65,9 @@ function DockControls({
 }: DockControlsProps) {
   const positions: { value: DockPosition; icon: React.ReactNode; label: string }[] = [
     { value: 'floating', icon: <MessageCircle className="h-3.5 w-3.5" />, label: 'Floating' },
-    { value: 'right', icon: <PanelRight className="h-3.5 w-3.5" />, label: 'Dock Right' },
     { value: 'left', icon: <PanelLeft className="h-3.5 w-3.5" />, label: 'Dock Left' },
     { value: 'bottom', icon: <PanelBottom className="h-3.5 w-3.5" />, label: 'Dock Bottom' },
+    { value: 'right', icon: <PanelRight className="h-3.5 w-3.5" />, label: 'Dock Right' },
   ]
 
   return (

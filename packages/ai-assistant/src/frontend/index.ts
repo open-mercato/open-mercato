@@ -18,6 +18,7 @@ export {
   usePageContext,
   useRecentActions,
   useDockPosition,
+  useAiAssistantVisibility,
 } from './hooks'
 
 // Types

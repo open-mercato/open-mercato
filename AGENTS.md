@@ -193,7 +193,7 @@ All module paths below use `src/modules/<module>/` as a shorthand. In practice:
   - `defineLink()` with `entityId()` or `linkable()` for module-to-module extensions.
   - `defineFields()` with `cf.*` helpers for field sets.
 - Generated registries now flow through DI bindings. Generated files are in `apps/mercato/.mercato/generated/`. Do not import generated files inside packages; only the app bootstrap should import and register them.
-  - Generated files: `modules.generated.ts`, `entities.generated.ts`, `di.generated.ts`, `entities.ids.generated.ts`, `dashboard-widgets.generated.ts`, `injection-widgets.generated.ts`, `injection-tables.generated.ts`, `search.generated.ts`, `modules.cli.generated.ts`
+  - Generated files: `modules.generated.ts`, `entities.generated.ts`, `di.generated.ts`, `entities.ids.generated.ts`, `dashboard-widgets.generated.ts`, `injection-widgets.generated.ts`, `injection-tables.generated.ts`, `search.generated.ts`, `ai-tools.generated.ts`, `modules.cli.generated.ts`
   - Bootstrap registration: `registerOrmEntities`, `registerDiRegistrars`, `registerModules`/`registerCliModules`, `registerEntityIds`, `registerDashboardWidgets`, `registerInjectionWidgets`, `registerCoreInjectionWidgets`/`registerCoreInjectionTables`.
   - Runtime access: `getOrmEntities`, `getDiRegistrars`, `getModules`, `getCliModules`, `getEntityIds`, `getDashboardWidgets`, `getInjectionWidgets`, `getCoreInjectionWidgets`/`getCoreInjectionTables`.
   - Tests: use `bootstrapTest` from `@open-mercato/shared/lib/testing/bootstrap` to register only what the test needs.
@@ -474,10 +474,9 @@ See `packages/search/src/modules/search/README.md` for full documentation.
 The AI Assistant provides two MCP HTTP server modes:
 
 #### Development Server (`yarn mcp:dev`)
-For local development and Claude Code integration. Authenticates once at startup using an API key - no session tokens required per request.
+For local development and Claude Code integration. Authenticates once at startup using an API key from `.mcp.json` - no session tokens required per request.
 
 ```bash
-# Reads API key from .mcp.json headers.x-api-key or OPEN_MERCATO_API_KEY env
 yarn mcp:dev
 ```
 
@@ -497,7 +496,6 @@ yarn mcp:dev
 ```
 
 **Environment variables:**
-- `OPEN_MERCATO_API_KEY` - API key (alternative to .mcp.json)
 - `MCP_DEV_PORT` - Port (default: 3001)
 - `MCP_DEBUG` - Enable debug logging (`true`/`false`)
 
@@ -551,6 +549,43 @@ yarn mercato ai_assistant mcp:list-tools --verbose
 - Session validation: `packages/ai-assistant/src/modules/ai_assistant/lib/http-server.ts`
 - API key service: `packages/core/src/modules/api_keys/services/apiKeyService.ts`
 - CLI commands: `packages/ai-assistant/src/modules/ai_assistant/cli.ts`
+- Tool loader: `packages/ai-assistant/src/modules/ai_assistant/lib/tool-loader.ts`
+
+### Module AI Tools
+
+Modules can expose AI tools via MCP by creating an `ai-tools.ts` file. Tools are **auto-discovered** by the generator - no manual registration required.
+
+**File location**: `src/modules/<module>/ai-tools.ts` (for packages: `packages/<package>/src/modules/<module>/ai-tools.ts`)
+
+**Structure**:
+```typescript
+import { z } from 'zod'
+import type { AiToolDefinition } from '@open-mercato/ai-assistant'
+
+export const aiTools: AiToolDefinition[] = [
+  {
+    name: 'module_action',          // No dots allowed, use underscores
+    description: 'What this tool does',
+    inputSchema: z.object({
+      param: z.string().describe('Parameter description'),
+    }),
+    requiredFeatures: ['module.feature'],  // ACL features required
+    handler: async (input, ctx) => {
+      const service = ctx.container.resolve('myService')
+      return { success: true }
+    },
+  },
+]
+```
+
+**Registration flow**:
+1. Create `ai-tools.ts` in your module
+2. Run `npm run modules:prepare` (generates `ai-tools.generated.ts`)
+3. Tools are automatically loaded at MCP server startup
+
+**Generated file**: `apps/mercato/.mercato/generated/ai-tools.generated.ts`
+
+**Example**: See `packages/search/src/modules/search/ai-tools.ts` for search-related tools.
 
 ### MCP Tools Reference
 
