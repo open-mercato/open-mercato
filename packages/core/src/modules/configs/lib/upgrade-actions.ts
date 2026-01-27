@@ -4,13 +4,8 @@ import type { AwilixContainer } from 'awilix'
 import { Role, RoleAcl } from '@open-mercato/core/modules/auth/data/entities'
 import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
 import { reindexModules } from '@open-mercato/core/modules/configs/lib/reindex-helpers'
-import { installExampleCatalogData, type CatalogSeedScope } from '@open-mercato/core/modules/catalog/lib/seeds'
-import { seedSalesExamples } from '@open-mercato/core/modules/sales/seed/examples'
-import { seedExampleCurrencies } from '@open-mercato/core/modules/currencies/lib/seeds'
-import { seedExampleWorkflows } from '@open-mercato/core/modules/workflows/lib/seeds'
-import { seedPlannerAvailabilityRuleSetDefaults, seedPlannerUnavailabilityReasons } from '@open-mercato/core/modules/planner/lib/seeds'
-import { seedResourcesAddressTypes, seedResourcesCapacityUnits, seedResourcesResourceExamples } from '@open-mercato/core/modules/resources/lib/seeds'
-import { seedStaffTeamExamples } from '@open-mercato/core/modules/staff/lib/seeds'
+// Optional module imports are loaded dynamically inside each upgrade action
+// so the app does not crash when a module is disabled.
 import { collectCrudCacheStats, purgeCrudCacheSegment } from '@open-mercato/shared/lib/crud/cache-stats'
 import { isCrudCacheEnabled, resolveCrudCache } from '@open-mercato/shared/lib/crud/cache'
 import * as semver from 'semver'
@@ -91,7 +86,9 @@ async function ensureVectorSearchEncryptionMap(
   return true
 }
 
-export type UpgradeActionContext = CatalogSeedScope & {
+export type UpgradeActionContext = {
+  tenantId: string
+  organizationId: string
   container: AwilixContainer
   em: EntityManager
 }
@@ -155,6 +152,7 @@ export const upgradeActions: UpgradeActionDefinition[] = [
     successKey: 'upgrades.v034.success',
     loadingKey: 'upgrades.v034.loading',
     async run({ container, em, tenantId, organizationId }) {
+      const { installExampleCatalogData } = await import('@open-mercato/core/modules/catalog/lib/seeds')
       await installExampleCatalogData(container, { tenantId, organizationId }, em)
       const vectorService = resolveVectorService(container)
       await reindexModules(em, ['catalog'], { tenantId, organizationId, vectorService })
@@ -214,6 +212,7 @@ export const upgradeActions: UpgradeActionDefinition[] = [
     successKey: 'upgrades.v036.success',
     loadingKey: 'upgrades.v036.loading',
     async run({ container, em, tenantId, organizationId }) {
+      const { seedSalesExamples } = await import('@open-mercato/core/modules/sales/seed/examples')
       await em.transactional(async (tem) => {
         await seedSalesExamples(tem, container, { tenantId, organizationId })
       })
@@ -263,6 +262,8 @@ export const upgradeActions: UpgradeActionDefinition[] = [
       const normalizedTenantId = tenantId.trim()
       const scope = { tenantId, organizationId }
       await em.transactional(async (tem) => {
+        const { seedExampleCurrencies } = await import('@open-mercato/core/modules/currencies/lib/seeds')
+        const { seedExampleWorkflows } = await import('@open-mercato/core/modules/workflows/lib/seeds')
         await seedExampleCurrencies(tem, scope)
         await seedExampleWorkflows(tem, scope)
 
@@ -316,6 +317,9 @@ export const upgradeActions: UpgradeActionDefinition[] = [
       const normalizedTenantId = tenantId.trim()
       const scope = { tenantId, organizationId }
       await em.transactional(async (tem) => {
+        const { seedPlannerAvailabilityRuleSetDefaults, seedPlannerUnavailabilityReasons } = await import('@open-mercato/core/modules/planner/lib/seeds')
+        const { seedStaffTeamExamples } = await import('@open-mercato/core/modules/staff/lib/seeds')
+        const { seedResourcesAddressTypes, seedResourcesCapacityUnits, seedResourcesResourceExamples } = await import('@open-mercato/core/modules/resources/lib/seeds')
         await seedPlannerAvailabilityRuleSetDefaults(tem, scope)
         await seedPlannerUnavailabilityReasons(tem, scope)
         await seedStaffTeamExamples(tem, scope)
