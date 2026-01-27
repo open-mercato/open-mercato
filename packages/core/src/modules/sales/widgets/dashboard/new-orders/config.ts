@@ -16,10 +16,9 @@ export function hydrateSalesNewOrdersSettings(raw: unknown): SalesNewOrdersSetti
   if (!raw || typeof raw !== 'object') return { ...DEFAULT_SETTINGS }
   const input = raw as Partial<SalesNewOrdersSettings>
   const parsedPageSize = Number(input.pageSize)
-  const pageSize =
-    Number.isFinite(parsedPageSize) && parsedPageSize >= 1 && parsedPageSize <= 20
-      ? Math.floor(parsedPageSize)
-      : DEFAULT_SETTINGS.pageSize
+  const pageSize = Number.isFinite(parsedPageSize)
+    ? Math.min(20, Math.max(1, Math.floor(parsedPageSize)))
+    : DEFAULT_SETTINGS.pageSize
 
   const datePeriod: DatePeriodOption =
     input.datePeriod === 'last24h' ||
