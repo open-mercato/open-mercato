@@ -21,7 +21,6 @@
   "notifications.delivery.email.actionNotice": "Actions are available in Open Mercato and are read-only in this email.",
   "notifications.delivery.email.openCta": "Open notification center",
   "notifications.delivery.email.footer": "Open Mercato notifications",
-  "notifications.delivery.sms.message": "Open Mercato notification: {title}. View: {url}",
   "notifications.delivery.settings.invalid": "Invalid delivery settings",
   "notifications.settings.pageTitle": "Notification Delivery",
   "notifications.settings.pageDescription": "Configure delivery strategies for in-app notifications.",
@@ -34,7 +33,7 @@
   "notifications.settings.core.title": "Core delivery",
   "notifications.settings.core.description": "Control the default notification center and panel link used by external channels.",
   "notifications.settings.core.appUrl": "Application URL",
-  "notifications.settings.core.appUrlHint": "Used to build absolute links in email and SMS notifications.",
+  "notifications.settings.core.appUrlHint": "Used to build absolute links in email notifications.",
   "notifications.settings.core.panelPath": "Notification panel path",
   "notifications.settings.core.panelPathHint": "Relative path for the read-only notification panel.",
   "notifications.settings.core.databaseLabel": "In-app notifications",
@@ -45,11 +44,5 @@
   "notifications.settings.email.enabledHint": "Email actions are read-only and link back to the notification center.",
   "notifications.settings.email.from": "From address",
   "notifications.settings.email.replyTo": "Reply-to",
-  "notifications.settings.email.subjectPrefix": "Subject prefix",
-  "notifications.settings.sms.title": "SMS strategy",
-  "notifications.settings.sms.description": "Send webhook payloads for SMS delivery through your provider.",
-  "notifications.settings.sms.enabledLabel": "Enable SMS delivery",
-  "notifications.settings.sms.enabledHint": "Webhook payloads include the notification and panel link.",
-  "notifications.settings.sms.webhookUrl": "Webhook URL",
-  "notifications.settings.sms.from": "Sender ID"
+  "notifications.settings.email.subjectPrefix": "Subject prefix"
 }

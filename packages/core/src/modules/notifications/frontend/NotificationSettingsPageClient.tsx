@@ -17,7 +17,6 @@ type NotificationDeliveryConfig = {
   strategies: {
     database: { enabled: boolean }
     email: { enabled: boolean; from?: string; replyTo?: string; subjectPrefix?: string }
-    sms: { enabled: boolean; webhookUrl?: string; from?: string }
   }
 }
 
@@ -31,7 +30,6 @@ const emptySettings: NotificationDeliveryConfig = {
   strategies: {
     database: { enabled: true },
     email: { enabled: true },
-    sms: { enabled: false },
   },
 }
 
@@ -149,7 +147,7 @@ export function NotificationSettingsPageClient() {
               placeholder="https://app.open-mercato.com"
               onChange={(event) => updateSettings({ appUrl: event.target.value || undefined })}
             />
-            <p className="text-xs text-muted-foreground">{t('notifications.settings.core.appUrlHint', 'Used to build absolute links in email and SMS notifications.')}</p>
+            <p className="text-xs text-muted-foreground">{t('notifications.settings.core.appUrlHint', 'Used to build absolute links in email notifications.')}</p>
           </div>
           <div className="space-y-2">
             <Label htmlFor="notifications-panel-path">{t('notifications.settings.core.panelPath', 'Notification panel path')}</Label>
@@ -215,43 +213,6 @@ export function NotificationSettingsPageClient() {
               value={settings.strategies.email.subjectPrefix ?? ''}
               placeholder="[Open Mercato]"
               onChange={(event) => updateStrategy('email', { subjectPrefix: event.target.value || undefined })}
-            />
-          </div>
-        </CardContent>
-      </Card>
-
-      <Card>
-        <CardHeader>
-          <CardTitle>{t('notifications.settings.sms.title', 'SMS strategy')}</CardTitle>
-          <CardDescription>{t('notifications.settings.sms.description', 'Send webhook payloads for SMS delivery through your provider.')}</CardDescription>
-        </CardHeader>
-        <CardContent className="grid gap-4 md:grid-cols-2">
-          <div className="flex items-center justify-between rounded-lg border p-3 md:col-span-2">
-            <div>
-              <p className="text-sm font-medium">{t('notifications.settings.sms.enabledLabel', 'Enable SMS delivery')}</p>
-              <p className="text-xs text-muted-foreground">{t('notifications.settings.sms.enabledHint', 'Webhook payloads include the notification and panel link.')}</p>
-            </div>
-            <Switch
-              checked={settings.strategies.sms.enabled}
-              onCheckedChange={(checked) => updateStrategy('sms', { enabled: checked })}
-            />
-          </div>
-          <div className="space-y-2">
-            <Label htmlFor="notifications-sms-webhook">{t('notifications.settings.sms.webhookUrl', 'Webhook URL')}</Label>
-            <Input
-              id="notifications-sms-webhook"
-              value={settings.strategies.sms.webhookUrl ?? ''}
-              placeholder="https://hooks.your-sms-provider.com/notify"
-              onChange={(event) => updateStrategy('sms', { webhookUrl: event.target.value || undefined })}
-            />
-          </div>
-          <div className="space-y-2">
-            <Label htmlFor="notifications-sms-from">{t('notifications.settings.sms.from', 'Sender ID')}</Label>
-            <Input
-              id="notifications-sms-from"
-              value={settings.strategies.sms.from ?? ''}
-              placeholder="OpenMercato"
-              onChange={(event) => updateStrategy('sms', { from: event.target.value || undefined })}
             />
           </div>
         </CardContent>

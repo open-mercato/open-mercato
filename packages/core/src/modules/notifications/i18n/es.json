@@ -21,7 +21,6 @@
   "notifications.delivery.email.actionNotice": "Las acciones están disponibles en Open Mercato y son de solo lectura en este correo.",
   "notifications.delivery.email.openCta": "Abrir centro de notificaciones",
   "notifications.delivery.email.footer": "Notificaciones de Open Mercato",
-  "notifications.delivery.sms.message": "Notificación de Open Mercato: {title}. Ver: {url}",
   "notifications.delivery.settings.invalid": "Configuración de entrega no válida",
   "notifications.settings.pageTitle": "Entrega de notificaciones",
   "notifications.settings.pageDescription": "Configura las estrategias de entrega para las notificaciones en la app.",
@@ -34,7 +33,7 @@
   "notifications.settings.core.title": "Entrega principal",
   "notifications.settings.core.description": "Controla el centro de notificaciones y el enlace del panel para canales externos.",
   "notifications.settings.core.appUrl": "URL de la aplicación",
-  "notifications.settings.core.appUrlHint": "Se usa para construir enlaces absolutos en notificaciones por email y SMS.",
+  "notifications.settings.core.appUrlHint": "Se usa para construir enlaces absolutos en notificaciones por email.",
   "notifications.settings.core.panelPath": "Ruta del panel de notificaciones",
   "notifications.settings.core.panelPathHint": "Ruta relativa para el panel de notificaciones de solo lectura.",
   "notifications.settings.core.databaseLabel": "Notificaciones en la app",
@@ -45,11 +44,5 @@
   "notifications.settings.email.enabledHint": "Las acciones del email son de solo lectura y enlazan al centro de notificaciones.",
   "notifications.settings.email.from": "Dirección del remitente",
   "notifications.settings.email.replyTo": "Responder a",
-  "notifications.settings.email.subjectPrefix": "Prefijo de asunto",
-  "notifications.settings.sms.title": "Estrategia de SMS",
-  "notifications.settings.sms.description": "Envía payloads webhook para entrega SMS a través de tu proveedor.",
-  "notifications.settings.sms.enabledLabel": "Habilitar entrega por SMS",
-  "notifications.settings.sms.enabledHint": "Los payloads webhook incluyen la notificación y el enlace del panel.",
-  "notifications.settings.sms.webhookUrl": "URL del webhook",
-  "notifications.settings.sms.from": "ID del remitente"
+  "notifications.settings.email.subjectPrefix": "Prefijo de asunto"
 }

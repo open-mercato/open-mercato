@@ -21,7 +21,6 @@
   "notifications.delivery.email.actionNotice": "Aktionen sind in Open Mercato verfügbar und in dieser E-Mail schreibgeschützt.",
   "notifications.delivery.email.openCta": "Benachrichtigungszentrum öffnen",
   "notifications.delivery.email.footer": "Open Mercato Benachrichtigungen",
-  "notifications.delivery.sms.message": "Open Mercato Benachrichtigung: {title}. Ansicht: {url}",
   "notifications.delivery.settings.invalid": "Ungültige Zustelleinstellungen",
   "notifications.settings.pageTitle": "Benachrichtigungszustellung",
   "notifications.settings.pageDescription": "Zustellstrategien für In-App-Benachrichtigungen konfigurieren.",
@@ -34,7 +33,7 @@
   "notifications.settings.core.title": "Kernzustellung",
   "notifications.settings.core.description": "Standard-Benachrichtigungszentrum und Panel-Link für externe Kanäle steuern.",
   "notifications.settings.core.appUrl": "Anwendungs-URL",
-  "notifications.settings.core.appUrlHint": "Wird verwendet, um absolute Links in E-Mail- und SMS-Benachrichtigungen zu erstellen.",
+  "notifications.settings.core.appUrlHint": "Wird verwendet, um absolute Links in E-Mail-Benachrichtigungen zu erstellen.",
   "notifications.settings.core.panelPath": "Pfad des Benachrichtigungspanels",
   "notifications.settings.core.panelPathHint": "Relativer Pfad für das schreibgeschützte Benachrichtigungspanel.",
   "notifications.settings.core.databaseLabel": "In-App-Benachrichtigungen",
@@ -45,11 +44,5 @@
   "notifications.settings.email.enabledHint": "E-Mail-Aktionen sind schreibgeschützt und verlinken zurück zum Benachrichtigungszentrum.",
   "notifications.settings.email.from": "Absenderadresse",
   "notifications.settings.email.replyTo": "Antwortadresse",
-  "notifications.settings.email.subjectPrefix": "Betreffpräfix",
-  "notifications.settings.sms.title": "SMS-Strategie",
-  "notifications.settings.sms.description": "Webhook-Payloads für SMS-Zustellung über Ihren Anbieter senden.",
-  "notifications.settings.sms.enabledLabel": "SMS-Zustellung aktivieren",
-  "notifications.settings.sms.enabledHint": "Webhook-Payloads enthalten die Benachrichtigung und den Panel-Link.",
-  "notifications.settings.sms.webhookUrl": "Webhook-URL",
-  "notifications.settings.sms.from": "Absenderkennung"
+  "notifications.settings.email.subjectPrefix": "Betreffpräfix"
 }

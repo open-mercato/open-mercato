@@ -14,18 +14,12 @@ export type NotificationEmailDeliveryConfig = NotificationDeliveryStrategyState 
   subjectPrefix?: string
 }
 
-export type NotificationSmsDeliveryConfig = NotificationDeliveryStrategyState & {
-  webhookUrl?: string
-  from?: string
-}
-
 export type NotificationDeliveryConfig = {
   appUrl?: string
   panelPath: string
   strategies: {
     database: NotificationDeliveryStrategyState
     email: NotificationEmailDeliveryConfig
-    sms: NotificationSmsDeliveryConfig
   }
 }
 
@@ -44,23 +38,17 @@ const resolveEnvDefaults = () => {
   )
   const panelPath = envString(process.env.NOTIFICATIONS_PANEL_PATH)
   const emailEnabled = parseBooleanWithDefault(process.env.NOTIFICATIONS_EMAIL_ENABLED, true)
-  const smsEnabled = parseBooleanWithDefault(process.env.NOTIFICATIONS_SMS_ENABLED, false)
   const emailFrom = envString(process.env.NOTIFICATIONS_EMAIL_FROM || process.env.EMAIL_FROM)
   const emailReplyTo = envString(process.env.NOTIFICATIONS_EMAIL_REPLY_TO || process.env.ADMIN_EMAIL)
   const emailSubjectPrefix = envString(process.env.NOTIFICATIONS_EMAIL_SUBJECT_PREFIX)
-  const smsWebhookUrl = envString(process.env.NOTIFICATIONS_SMS_WEBHOOK_URL)
-  const smsFrom = envString(process.env.NOTIFICATIONS_SMS_FROM)
 
   return {
     appUrl,
     panelPath,
     emailEnabled,
-    smsEnabled,
     emailFrom,
     emailReplyTo,
     emailSubjectPrefix,
-    smsWebhookUrl,
-    smsFrom,
   }
 }
 
@@ -76,11 +64,6 @@ export const DEFAULT_NOTIFICATION_DELIVERY_CONFIG: NotificationDeliveryConfig = 
         from: env.emailFrom,
         replyTo: env.emailReplyTo,
         subjectPrefix: env.emailSubjectPrefix,
-      },
-      sms: {
-        enabled: env.smsEnabled,
-        webhookUrl: env.smsWebhookUrl,
-        from: env.smsFrom,
       },
     },
   }
@@ -107,11 +90,6 @@ const normalizeDeliveryConfig = (input?: unknown | null): NotificationDeliveryCo
         from: strategies.email?.from,
         replyTo: strategies.email?.replyTo,
         subjectPrefix: strategies.email?.subjectPrefix,
-      },
-      sms: {
-        enabled: strategies.sms?.enabled ?? DEFAULT_NOTIFICATION_DELIVERY_CONFIG.strategies.sms.enabled,
-        webhookUrl: strategies.sms?.webhookUrl,
-        from: strategies.sms?.from,
       },
     },
   }

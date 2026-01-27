@@ -65,17 +65,10 @@ const resolveRecipient = async (em: EntityManager, notification: Notification) =
   }
 }
 
-const sendSmsWebhook = async (webhookUrl: string, payload: Record<string, unknown>) => {
-  await fetch(webhookUrl, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(payload),
-  })
-}
 
 export default async function handle(payload: NotificationCreatedPayload, ctx: ResolverContext) {
   const deliveryConfig = await resolveNotificationDeliveryConfig(ctx, { defaultValue: DEFAULT_NOTIFICATION_DELIVERY_CONFIG })
-  if (!deliveryConfig.strategies.email.enabled && !deliveryConfig.strategies.sms.enabled) {
+  if (!deliveryConfig.strategies.email.enabled) {
     return
   }
 
@@ -130,26 +123,5 @@ export default async function handle(payload: NotificationCreatedPayload, ctx: R
     }
   }
 
-  if (deliveryConfig.strategies.sms.enabled && deliveryConfig.strategies.sms.webhookUrl) {
-    const message = t('notifications.delivery.sms.message', 'Open Mercato notification: {title}. View: {url}', {
-      title,
-      url: panelLink,
-    })
-    try {
-      await sendSmsWebhook(deliveryConfig.strategies.sms.webhookUrl, {
-        notificationId: notification.id,
-        recipientUserId: notification.recipientUserId,
-        recipientEmail: recipient?.email ?? null,
-        tenantId: notification.tenantId,
-        organizationId: notification.organizationId ?? null,
-        title,
-        body,
-        message,
-        panelUrl: panelLink,
-        from: deliveryConfig.strategies.sms.from ?? null,
-      })
-    } catch (error) {
-      console.error('[notifications] sms webhook delivery failed', error)
-    }
-  }
+  return
 }
