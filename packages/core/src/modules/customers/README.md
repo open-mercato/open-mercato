@@ -45,5 +45,6 @@ npm run db:generate
 ```
 - Re-run code generators to sync metadata:
   ```bash
-  npm run modules:prepare
+  yarn build:packages
+  yarn generate
   ```

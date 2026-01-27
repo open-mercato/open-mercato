@@ -222,7 +222,7 @@ All module paths below use `src/modules/<module>/` as a shorthand. In practice:
   - `di.generated.ts` (DI registrars)
   - `entities.ids.generated.ts` (entity ID registry)
   - `search.generated.ts` (search configurations)
-  - Run `npm run modules:prepare` or rely on `predev`/`prebuild`.
+- Run `yarn build:packages` then `yarn generate` (or rely on `predev`/`prebuild`).
 - Query index coverage:
   - Every CRUD route that should emit index/refresh events must configure `indexer: { entityType }` in `makeCrudRoute` (see sales orders/lines/payments/shipments, catalog products, customer deals).
   - Partial coverage warnings in the UI mean the index is missing records—ensure the route has `indexer` enabled and rerun a reindex task if needed.
