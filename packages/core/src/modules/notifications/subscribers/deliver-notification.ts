@@ -7,11 +7,22 @@ import NotificationEmail from '../emails/NotificationEmail'
 import { loadDictionary } from '@open-mercato/shared/lib/i18n/server'
 import { createFallbackTranslator } from '@open-mercato/shared/lib/i18n/translate'
 import { defaultLocale } from '@open-mercato/shared/lib/i18n/config'
+import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { User } from '../../auth/data/entities'
+import type { TenantDataEncryptionService } from '@open-mercato/shared/lib/encryption/tenantDataEncryptionService'
 
 export const metadata = {
   event: NOTIFICATION_EVENTS.CREATED,
   persistent: true,
   id: 'notifications:deliver',
+}
+
+const DEBUG = process.env.NOTIFICATIONS_DEBUG === 'true'
+
+function debug(...args: unknown[]): void {
+  if (DEBUG) {
+    console.log('[notifications]', ...args)
+  }
 }
 
 type NotificationCreatedPayload = {
@@ -52,12 +63,30 @@ const resolveNotificationCopy = async (
   return { title, body, t }
 }
 
-const resolveRecipient = async (em: EntityManager, notification: Notification) => {
-  const knex = em.getConnection().getKnex()
-  const record = await knex('users')
-    .where({ id: notification.recipientUserId, tenant_id: notification.tenantId })
-    .whereNull('deleted_at')
-    .first(['email', 'name'])
+const resolveRecipient = async (
+  em: EntityManager,
+  notification: Notification,
+  encryptionService?: TenantDataEncryptionService | null,
+) => {
+  const where: Partial<User> & { deletedAt?: null } = {
+    id: notification.recipientUserId,
+    tenantId: notification.tenantId,
+    deletedAt: null,
+  }
+  if (notification.organizationId) {
+    where.organizationId = notification.organizationId
+  }
+  const record = await findOneWithDecryption(
+    em,
+    User,
+    where,
+    undefined,
+    {
+      tenantId: notification.tenantId,
+      organizationId: notification.organizationId ?? null,
+      encryptionService: encryptionService ?? null,
+    },
+  )
   if (!record) return null
   return {
     email: typeof record.email === 'string' ? record.email : null,
@@ -67,8 +96,10 @@ const resolveRecipient = async (em: EntityManager, notification: Notification) =
 
 
 export default async function handle(payload: NotificationCreatedPayload, ctx: ResolverContext) {
+  debug('deliver notification event', payload)
   const deliveryConfig = await resolveNotificationDeliveryConfig(ctx, { defaultValue: DEFAULT_NOTIFICATION_DELIVERY_CONFIG })
   if (!deliveryConfig.strategies.email.enabled) {
+    debug('email delivery disabled')
     return
   }
 
@@ -78,12 +109,28 @@ export default async function handle(payload: NotificationCreatedPayload, ctx: R
     tenantId: payload.tenantId,
     organizationId: payload.organizationId ?? null,
   })
-  if (!notification) return
+  if (!notification) {
+    debug('notification not found', payload.notificationId)
+    return
+  }
 
-  const recipient = await resolveRecipient(em, notification)
+  let encryptionService: TenantDataEncryptionService | null = null
+  try {
+    encryptionService = ctx.resolve<TenantDataEncryptionService>('tenantEncryptionService')
+  } catch {
+    encryptionService = null
+  }
+
+  const recipient = await resolveRecipient(em, notification, encryptionService)
+  if (!recipient?.email) {
+    debug('recipient has no email', notification.recipientUserId)
+  }
   const { title, body, t } = await resolveNotificationCopy(notification)
   const panelUrl = resolveNotificationPanelUrl(deliveryConfig)
-  if (!panelUrl) return
+  if (!panelUrl) {
+    debug('missing panelUrl; check appUrl/panelPath settings')
+    return
+  }
 
   const panelLink = buildPanelLink(panelUrl, notification.id)
   const actionLinks = (notification.actionData?.actions ?? []).map((action) => ({
@@ -105,6 +152,7 @@ export default async function handle(payload: NotificationCreatedPayload, ctx: R
     }
 
     try {
+      debug('sending email', { to: recipient.email, from: deliveryConfig.strategies.email.from, subject })
       await sendEmail({
         to: recipient.email,
         subject,

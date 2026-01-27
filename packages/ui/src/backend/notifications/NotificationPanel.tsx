@@ -1,6 +1,6 @@
 "use client"
 import * as React from 'react'
-import { X, Bell, CheckCheck, Loader2 } from 'lucide-react'
+import { X, Bell, CheckCheck, Loader2, RotateCcw } from 'lucide-react'
 import { Button } from '../../primitives/button'
 import { Tabs, TabsList, TabsTrigger } from '../../primitives/tabs'
 import { NotificationItem } from './NotificationItem'
@@ -179,6 +179,7 @@ export function NotificationPanel({
                   {t('notifications.toast.dismissed', 'Notification dismissed')}
                 </span>
                 <Button variant="ghost" size="sm" onClick={() => onUndoDismiss()}>
+                  <RotateCcw className="mr-1 h-3 w-3" />
                   {t('notifications.actions.undo', 'Undo')}
                 </Button>
               </div>
