@@ -92,23 +92,27 @@ async function loadQuotes(settings: SalesNewQuotesSettings): Promise<QuoteItem[]
   return rawItems
     .map((item: unknown): QuoteItem | null => {
       if (!item || typeof item !== 'object') return null
-      const data = item as any
+      const data = item as Record<string, unknown>
+      if (typeof data.id !== 'string' || typeof data.createdAt !== 'string') return null
+      const netAmount = data.netAmount
+      const grossAmount = data.grossAmount
       return {
-        id: typeof data.id === 'string' ? data.id : null,
+        id: data.id,
         quoteNumber: typeof data.quoteNumber === 'string' ? data.quoteNumber : '',
         status: typeof data.status === 'string' ? data.status : null,
         customerName: typeof data.customerName === 'string' ? data.customerName : null,
         customerEntityId: typeof data.customerEntityId === 'string' ? data.customerEntityId : null,
         validFrom: typeof data.validFrom === 'string' ? data.validFrom : null,
         validUntil: typeof data.validUntil === 'string' ? data.validUntil : null,
-        netAmount: typeof data.netAmount === 'string' ? data.netAmount : '0',
-        grossAmount: typeof data.grossAmount === 'string' ? data.grossAmount : '0',
+        netAmount: typeof netAmount === 'string' ? netAmount : typeof netAmount === 'number' ? String(netAmount) : '0',
+        grossAmount:
+          typeof grossAmount === 'string' ? grossAmount : typeof grossAmount === 'number' ? String(grossAmount) : '0',
         currency: typeof data.currency === 'string' ? data.currency : null,
-        createdAt: typeof data.createdAt === 'string' ? data.createdAt : '',
+        createdAt: data.createdAt,
         convertedOrderId: typeof data.convertedOrderId === 'string' ? data.convertedOrderId : null,
       }
     })
-    .filter((item: QuoteItem | null): item is QuoteItem => !!item && !!item.id && !!item.createdAt)
+    .filter((item: QuoteItem | null): item is QuoteItem => !!item)
 }
 
 const SalesNewQuotesWidget: React.FC<DashboardWidgetComponentProps<SalesNewQuotesSettings>> = ({
