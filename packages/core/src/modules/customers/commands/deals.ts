@@ -326,10 +326,11 @@ const updateDealCommand: CommandHandler<DealUpdateInput, { dealId: string }> = {
 
     // Send notifications for deal won/lost status changes
     const newStatus = record.status
-    if (previousStatus !== newStatus && (newStatus === 'won' || newStatus === 'lost') && record.ownerUserId) {
+    const normalizedStatus = newStatus === 'win' ? 'won' : newStatus === 'loose' ? 'lost' : newStatus
+    if (previousStatus !== newStatus && (normalizedStatus === 'won' || normalizedStatus === 'lost') && record.ownerUserId) {
       try {
         const notificationService = resolveNotificationService(ctx.container)
-        const notificationType = newStatus === 'won' ? 'customers.deal.won' : 'customers.deal.lost'
+        const notificationType = normalizedStatus === 'won' ? 'customers.deal.won' : 'customers.deal.lost'
         const typeDef = notificationTypes.find((type) => type.type === notificationType)
         if (typeDef) {
           const valueDisplay = record.valueAmount && record.valueCurrency

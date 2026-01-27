@@ -310,6 +310,7 @@
   "ui.rowActions.openActions": "Abrir acciones",
   "ui.userMenu.userFallback": "Usuario",
   "ui.userMenu.loggedInAs": "Conectado como:",
+  "ui.userMenu.profile": "Perfil",
   "ui.userMenu.logout": "Cerrar sesión",
   "ui.contextHelp.hide": "Ocultar",
   "ui.contextHelp.show": "Mostrar",

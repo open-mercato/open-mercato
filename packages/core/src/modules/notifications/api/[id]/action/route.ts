@@ -1,6 +1,7 @@
 import { executeActionSchema } from '../../../data/validators'
 import { actionResultResponseSchema } from '../../openapi'
 import { resolveNotificationContext } from '../../../lib/routeHelpers'
+import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 
 export const metadata = {
   POST: { requireAuth: true },
@@ -25,7 +26,9 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
       href,
     })
   } catch (error) {
-    const message = error instanceof Error ? error.message : 'Action failed'
+    const { t } = await resolveTranslations()
+    const fallback = t('notifications.error.action', 'Failed to execute action')
+    const message = error instanceof Error && error.message ? error.message : fallback
     return Response.json({ error: message }, { status: 400 })
   }
 }
