@@ -44,7 +44,7 @@ type HandlerContext = { resolve: <T = unknown>(name: string) => T }
 export default async function executeScheduleWorker(
   job: QueuedJob<ExecuteSchedulePayload>,
   ctx: JobContext & HandlerContext,
-): Promise<{ success: boolean; result?: any }> {
+): Promise<void> {
   console.debug('[scheduler:execute] Processing job:', {
     jobId: ctx.jobId,
     attemptNumber: ctx.attemptNumber,
@@ -75,7 +75,7 @@ export default async function executeScheduleWorker(
 
   if (!schedule) {
     console.log(`[scheduler:worker] Schedule not found or deleted: ${scheduleId}`)
-    return { success: false }
+    return
   }
 
   // CRITICAL: Verify scope integrity - ensure payload scope matches database
@@ -113,7 +113,7 @@ export default async function executeScheduleWorker(
       tenantId: schedule.tenantId,
       organizationId: schedule.organizationId,
     })
-    return { success: false }
+    return
   }
 
   // Emit started event
@@ -141,11 +141,9 @@ export default async function executeScheduleWorker(
       })
 
       console.debug(`[scheduler:worker] Schedule skipped - feature not enabled: ${schedule.requireFeature}`)
-      return { success: false }
+      return
     }
   }
-
-  let result: any
 
   // Enqueue target job or execute command
   if (schedule.targetType === 'queue' && schedule.targetQueue) {
@@ -183,8 +181,6 @@ export default async function executeScheduleWorker(
       targetQueue: schedule.targetQueue,
       queueJobId: targetJobId,
     })
-
-    result = { queueJobId: targetJobId, queueName: schedule.targetQueue }
 
   } else if (schedule.targetType === 'command' && schedule.targetCommand) {
     // Execute command through CommandBus
@@ -238,11 +234,7 @@ export default async function executeScheduleWorker(
       result: commandResult.result,
     })
 
-    result = commandResult.result
-
   } else {
     throw new Error('Invalid target configuration')
   }
-
-  return { success: true, result }
 }
