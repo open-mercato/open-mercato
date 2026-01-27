@@ -42,7 +42,7 @@ services:
       MEILISEARCH_HOST: http://meilisearch:7700
       MEILISEARCH_API_KEY: ${MEILISEARCH_MASTER_KEY:-meilisearch-dev-key}
       # Initialization control (see docker/entrypoint.sh for options)
-      INIT_FLAGS: "--no-examples"
+      INIT_FLAGS: "" #if you don't want to have examples use: "--no-examples"
       # Set SKIP_INIT=true if database is already initialized
       # SKIP_INIT: "true"
     depends_on:
