@@ -5576,8 +5576,12 @@ __metadata:
     "@types/node": "npm:^20.0.0"
     cron-parser: "npm:^4.9.0"
     jest: "npm:^30.2.0"
-    redlock: "npm:^4.2.0"
     ts-jest: "npm:^29.4.6"
+  peerDependencies:
+    ioredis: ^5.0.0
+  peerDependenciesMeta:
+    ioredis:
+      optional: true
   languageName: unknown
   linkType: soft
 
@@ -10035,13 +10039,6 @@ __metadata:
     inherits: "npm:^2.0.4"
     readable-stream: "npm:^3.4.0"
   checksum: 10/b7904e66ed0bdfc813c06ea6c3e35eafecb104369dbf5356d0f416af90c1546de3b74e5b63506f0629acf5e16a6f87c3798f16233dcff086e9129383aa02ab55
-  languageName: node
-  linkType: hard
-
-"bluebird@npm:^3.7.2":
-  version: 3.7.2
-  resolution: "bluebird@npm:3.7.2"
-  checksum: 10/007c7bad22c5d799c8dd49c85b47d012a1fe3045be57447721e6afbd1d5be43237af1db62e26cb9b0d9ba812d2e4ca3bac82f6d7e016b6b88de06ee25ceb96e7
   languageName: node
   linkType: hard
 
@@ -21869,15 +21866,6 @@ __metadata:
   dependencies:
     redis-errors: "npm:^1.0.0"
   checksum: 10/b10846844b4267f19ce1a6529465819c3d78c3e89db7eb0c3bb4eb19f83784797ec411274d15a77dbe08038b48f95f76014b83ca366dc955a016a3a0a0234650
-  languageName: node
-  linkType: hard
-
-"redlock@npm:^4.2.0":
-  version: 4.2.0
-  resolution: "redlock@npm:4.2.0"
-  dependencies:
-    bluebird: "npm:^3.7.2"
-  checksum: 10/32e8b5a4f69bc44a65ff877829b6e8cb7fe4d265caf4c226498b0e5bf8ce999fcf3de183b04d44ecec148070f68beadf08a8570c84ad2e1919d5d20ae6b65fa9
   languageName: node
   linkType: hard
 
