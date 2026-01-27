@@ -1,9 +1,9 @@
 import type { EntityManager } from '@mikro-orm/core'
 import { ScheduledJob } from '../data/entities'
-import { recalculateNextRun } from './nextRunCalculator'
-import { parseCronExpression } from './cronParser'
-import { parseInterval } from './intervalParser'
-import { getRedisUrl, parseRedisUrl } from './redisConnection'
+import { recalculateNextRun } from '../lib/nextRunCalculator'
+import { parseCronExpression } from '../lib/cronParser'
+import { parseInterval } from '../lib/intervalParser'
+import { getRedisUrl, parseRedisUrl } from '../lib/redisConnection'
 
 // Import BullMQ directly for repeatable jobs functionality
 type BullQueue = any // We'll use dynamic import to avoid hard dependency
@@ -60,7 +60,7 @@ export class BullMQSchedulerService {
    */
   async register(schedule: ScheduledJob, options: { skipNextRunUpdate?: boolean } = {}): Promise<void> {
     if (!schedule.isEnabled) {
-      console.log(`[scheduler:bullmq] Skipping disabled schedule: ${schedule.id}`)
+      console.debug(`[scheduler:bullmq] Skipping disabled schedule: ${schedule.id}`)
       return
     }
 
@@ -104,7 +104,7 @@ export class BullMQSchedulerService {
         createdAt: new Date().toISOString(),
       }
       
-      console.log(`[scheduler:bullmq] Adding repeatable job with data:`, {
+      console.debug(`[scheduler:bullmq] Adding repeatable job with data:`, {
         jobName,
         scheduleId: schedule.id,
         scopeType: schedule.scopeType,
@@ -131,7 +131,7 @@ export class BullMQSchedulerService {
         }
       )
 
-      console.log(`[scheduler:bullmq] Registered schedule: ${schedule.name} (${schedule.id})`, {
+      console.debug(`[scheduler:bullmq] Registered schedule: ${schedule.name} (${schedule.id})`, {
         type: schedule.scheduleType,
         pattern: schedule.scheduleValue,
         timezone: schedule.timezone,
@@ -156,13 +156,13 @@ export class BullMQSchedulerService {
         for (const job of repeatableJobs) {
           if (job.id === `schedule-${scheduleId}` || job.name === `schedule-${scheduleId}`) {
             await queue.removeRepeatableByKey?.(job.key)
-            console.log(`[scheduler:bullmq] Unregistered schedule: ${scheduleId}`)
+            console.debug(`[scheduler:bullmq] Unregistered schedule: ${scheduleId}`)
             return
           }
         }
       }
 
-      console.log(`[scheduler:bullmq] No repeatable job found for schedule: ${scheduleId}`)
+      console.debug(`[scheduler:bullmq] No repeatable job found for schedule: ${scheduleId}`)
     } catch (error: any) {
       console.error(`[scheduler:bullmq] Failed to unregister schedule: ${scheduleId}`, error)
       throw error
@@ -177,7 +177,7 @@ export class BullMQSchedulerService {
     const em = this.em().fork()
     const queue = await this.getQueue()
     
-    console.log('[scheduler:bullmq] Starting full sync...')
+    console.debug('[scheduler:bullmq] Starting full sync...')
 
     // Get all BullMQ repeatable jobs
     const repeatableJobs = await queue.getRepeatableJobs?.() || []
@@ -198,7 +198,7 @@ export class BullMQSchedulerService {
     // Register schedules that exist in DB but not in BullMQ
     for (const schedule of dbSchedules) {
       if (!bullmqScheduleIds.has(schedule.id)) {
-        console.log(`[scheduler:bullmq] Registering missing schedule: ${schedule.name}`)
+        console.debug(`[scheduler:bullmq] Registering missing schedule: ${schedule.name}`)
         await this.register(schedule)
       }
     }
@@ -211,7 +211,7 @@ export class BullMQSchedulerService {
       }
     }
 
-    console.log(`[scheduler:bullmq] Sync complete - ${dbSchedules.length} schedules active`)
+    console.debug(`[scheduler:bullmq] Sync complete - ${dbSchedules.length} schedules active`)
   }
 
   /**

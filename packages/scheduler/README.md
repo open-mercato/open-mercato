@@ -46,29 +46,33 @@ Uses BullMQ repeatable jobs for exact timing and distributed locking:
 - Lower database load
 - Production-grade reliability
 
-#### 2. **Local Strategy** (Development)
+#### 2. **Local Strategy** (Development) ✅
 
 Uses PostgreSQL polling for simple local development:
 
-- **Database Polling**: Checks for due schedules every 30s (configurable)
-- **PostgreSQL Advisory Locks**: Prevents duplicate execution in single instance
-- **Direct Execution**: `LocalSchedulerService` enqueues jobs directly
+- **Database Polling**: Checks for due schedules every 30s (configurable via `SCHEDULER_POLL_INTERVAL_MS`)
+- **PostgreSQL Advisory Locks**: Prevents duplicate execution within single instance
+- **Direct Execution**: `LocalSchedulerService` enqueues jobs to queues or executes commands directly
 - **No Redis Required**: Perfect for local development
+- **Full Event Support**: Emits same events as async strategy (`scheduler.job.started/completed/failed/skipped`)
+- **Feature Flag Support**: Respects `requireFeature` checks via RBAC service
 
 **Requirements:**
 - PostgreSQL only
 - `QUEUE_STRATEGY=local` (default)
 
 **Benefits:**
-- No Redis dependency
-- Simpler setup for local dev
-- Identical events and history logging
+- ✅ No Redis dependency
+- ✅ Simpler setup for local dev
+- ✅ Identical events and history logging
+- ✅ Supports both queue and command targets
+- ✅ Automatic nextRunAt calculation
 
 **Drawbacks:**
-- Polling delay (up to 30s)
-- Higher database load
-- Single instance only
-- No distributed locking
+- ⚠️ Polling delay (configurable, default 30s)
+- ⚠️ Higher database load (constant polling)
+- ⚠️ Single instance only (no distributed locking across servers)
+- ⚠️ Less precise timing than async strategy
 
 ### Key Components
 

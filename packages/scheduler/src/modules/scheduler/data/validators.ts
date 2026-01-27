@@ -1,6 +1,6 @@
 import { z } from 'zod'
-import { validateCron } from '../services/cronParser'
-import { validateInterval } from '../services/intervalParser'
+import { validateCron } from '../lib/cronParser'
+import { validateInterval } from '../lib/intervalParser'
 import { commandRegistry } from '@open-mercato/shared/lib/commands'
 
 /**

@@ -45,7 +45,7 @@ export default async function executeScheduleWorker(
   job: QueuedJob<ExecuteSchedulePayload>,
   ctx: JobContext & HandlerContext,
 ): Promise<{ success: boolean; result?: any }> {
-  console.log('[scheduler:execute] Processing job:', {
+  console.debug('[scheduler:execute] Processing job:', {
     jobId: ctx.jobId,
     attemptNumber: ctx.attemptNumber,
   })
@@ -106,7 +106,7 @@ export default async function executeScheduleWorker(
 
   // Check if schedule is still enabled
   if (!schedule.isEnabled) {
-    console.log(`[scheduler:worker] Schedule is disabled: ${scheduleId}`)
+    console.debug(`[scheduler:worker] Schedule is disabled: ${scheduleId}`)
     await eventBus.emit('scheduler.job.skipped', {
       scheduleId: schedule.id,
       reason: 'Schedule is disabled',
@@ -140,7 +140,7 @@ export default async function executeScheduleWorker(
         organizationId: schedule.organizationId,
       })
 
-      console.log(`[scheduler:worker] Schedule skipped - feature not enabled: ${schedule.requireFeature}`)
+      console.debug(`[scheduler:worker] Schedule skipped - feature not enabled: ${schedule.requireFeature}`)
       return { success: false }
     }
   }
@@ -178,7 +178,7 @@ export default async function executeScheduleWorker(
       organizationId: schedule.organizationId,
     })
 
-    console.log(`[scheduler:worker] Successfully enqueued job`, {
+    console.debug(`[scheduler:worker] Successfully enqueued job`, {
       scheduleId: schedule.id,
       targetQueue: schedule.targetQueue,
       queueJobId: targetJobId,
@@ -232,7 +232,7 @@ export default async function executeScheduleWorker(
       organizationId: schedule.organizationId,
     })
     
-    console.log(`[scheduler:worker] Successfully executed command`, {
+    console.debug(`[scheduler:worker] Successfully executed command`, {
       scheduleId: schedule.id,
       commandId: schedule.targetCommand,
       result: commandResult.result,

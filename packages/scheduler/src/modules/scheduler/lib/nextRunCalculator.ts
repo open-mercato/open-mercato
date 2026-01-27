@@ -18,7 +18,11 @@ export function calculateNextRun(
   }
   
   if (scheduleType === 'interval') {
-    return calculateNextRunFromInterval(scheduleValue, baseDate)
+    try {
+      return calculateNextRunFromInterval(scheduleValue, baseDate)
+    } catch {
+      return null
+    }
   }
   
   return null

@@ -1,6 +1,6 @@
 import type { EntityManager } from '@mikro-orm/core'
 import { ScheduledJob } from '../data/entities.js'
-import { calculateNextRun } from './nextRunCalculator.js'
+import { calculateNextRun } from '../lib/nextRunCalculator.js'
 import type { BullMQSchedulerService } from './bullmqSchedulerService.js'
 
 export interface ScheduleRegistration {

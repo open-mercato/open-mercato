@@ -2,7 +2,7 @@ import { registerCommand } from '@open-mercato/shared/lib/commands'
 import type { CommandHandler } from '@open-mercato/shared/lib/commands'
 import type { EntityManager } from '@mikro-orm/core'
 import { ScheduledJob } from '../data/entities.js'
-import { calculateNextRun } from '../services/nextRunCalculator.js'
+import { calculateNextRun } from '../lib/nextRunCalculator.js'
 import type {
   ScheduleCreateInput,
   ScheduleUpdateInput,
