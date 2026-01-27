@@ -34,6 +34,7 @@ export async function generateModuleEntities(options: ModuleEntitiesOptions): Pr
     const modId = entry.id
     const roots = resolver.getModulePaths(entry)
     const imp = resolver.getModuleImportBase(entry)
+    const isAppModule = entry.from === '@app'
 
     // prefer app override data/, fallback to core data/, then legacy db/
     const appData = path.join(roots.appBase, 'data')
@@ -59,7 +60,6 @@ export async function generateModuleEntities(options: ModuleEntitiesOptions): Pr
     const importName = `E_${toVar(modId)}_${n++}`
     const sub = path.basename(found.base) // 'data' or 'db'
     const fromApp = found.base.startsWith(roots.appBase)
-    const isAppModule = entry.from === '@app'
     // For @app modules, use relative path to ensure it works both in Next.js and Node.js CLI context
     // From .mercato/generated/, the relative path to src/modules/ is ../src/modules/
     let relImport: string

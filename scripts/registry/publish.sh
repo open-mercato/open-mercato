@@ -28,6 +28,7 @@ PACKAGES=(
   "onboarding"
   "ai-assistant"
   "cli"
+  "create-app"
 )
 
 echo "=========================================="
@@ -39,10 +40,10 @@ echo ""
 # Step 1: Unpublish all existing versions
 echo "Step 1: Removing existing packages..."
 for pkg in "${PACKAGES[@]}"; do
-  PKG_NAME="@open-mercato/$pkg"
-  # Get current version from package.json
+  # Get actual package name and version from package.json
+  PKG_NAME=$(jq -r '.name' "$ROOT_DIR/packages/$pkg/package.json" 2>/dev/null)
   VERSION=$(jq -r '.version' "$ROOT_DIR/packages/$pkg/package.json" 2>/dev/null)
-  if [ -n "$VERSION" ] && [ "$VERSION" != "null" ]; then
+  if [ -n "$VERSION" ] && [ "$VERSION" != "null" ] && [ -n "$PKG_NAME" ] && [ "$PKG_NAME" != "null" ]; then
     echo "  Unpublishing $PKG_NAME@$VERSION..."
     npm unpublish "$PKG_NAME@$VERSION" --registry "$REGISTRY_URL" --force 2>/dev/null || true
   fi
@@ -59,14 +60,14 @@ echo ""
 echo "Step 3: Publishing packages..."
 for pkg in "${PACKAGES[@]}"; do
   PKG_DIR="$ROOT_DIR/packages/$pkg"
-  PKG_NAME="@open-mercato/$pkg"
+  PKG_NAME=$(jq -r '.name' "$PKG_DIR/package.json" 2>/dev/null)
 
   if [ -d "$PKG_DIR" ]; then
     echo "  Publishing $PKG_NAME..."
     cd "$PKG_DIR"
 
     # Clean any existing tarballs
-    rm -f *.tgz @open-mercato-*.tgz 2>/dev/null
+    rm -f *.tgz @open-mercato-*.tgz create-mercato-app-*.tgz 2>/dev/null
 
     # Use yarn pack to create tarball with workspace:* resolved
     yarn pack --out "package.tgz" >/dev/null 2>&1

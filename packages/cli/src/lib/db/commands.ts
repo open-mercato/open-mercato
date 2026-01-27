@@ -106,26 +106,22 @@ async function loadModuleEntities(entry: ModuleEntry, resolver: PackageResolver)
 }
 
 function getMigrationsPath(entry: ModuleEntry, resolver: PackageResolver): string {
-  const from = entry.from || '@open-mercato/core'
-  let pkgModRoot: string
+  const roots = resolver.getModulePaths(entry)
 
-  if (from === '@open-mercato/core') {
-    pkgModRoot = path.join(resolver.getRootDir(), 'packages/core/src/modules', entry.id)
-  } else if (/^@open-mercato\//.test(from)) {
-    const segs = from.split('/')
-    if (segs.length > 1 && segs[1]) {
-      pkgModRoot = path.join(resolver.getRootDir(), `packages/${segs[1]}/src/modules`, entry.id)
-    } else {
-      pkgModRoot = path.join(resolver.getRootDir(), 'packages/core/src/modules', entry.id)
-    }
-  } else if (from === '@app') {
-    // For @app modules, use the app directory not the monorepo root
-    pkgModRoot = path.join(resolver.getAppDir(), 'src/modules', entry.id)
-  } else {
-    pkgModRoot = path.join(resolver.getRootDir(), 'packages/core/src/modules', entry.id)
+  if (entry.from === '@app') {
+    // @app modules: use src/ (user's TypeScript source)
+    return path.join(roots.appBase, 'migrations')
   }
 
-  return path.join(pkgModRoot, 'migrations')
+  // Package modules: in standalone mode, use dist/ (compiled JS) since Node.js
+  // can't run TypeScript from node_modules. In monorepo, use src/ (TypeScript).
+  if (!resolver.isMonorepo()) {
+    // Replace src/modules with dist/modules for standalone apps
+    const distPath = roots.pkgBase.replace('/src/modules/', '/dist/modules/')
+    return path.join(distPath, 'migrations')
+  }
+
+  return path.join(roots.pkgBase, 'migrations')
 }
 
 export interface DbOptions {

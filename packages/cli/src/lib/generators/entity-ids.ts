@@ -172,6 +172,7 @@ export async function generateEntityIds(options: EntityIdsOptions): Promise<Gene
     const roots = resolver.getModulePaths(entry)
     const imps = resolver.getModuleImportBase(entry)
     const group: GroupKey = (entry.from as GroupKey) || '@open-mercato/core'
+    const isAppModule = entry.from === '@app'
 
     // Locate entities definition file (prefer app override)
     const appData = path.join(roots.appBase, 'data')
@@ -198,37 +199,16 @@ export async function generateEntityIds(options: EntityIdsOptions): Promise<Gene
     }
 
     // No entities file found -> still register module id
-    if (!importPath) {
+    if (!filePath) {
       modulesDict[modId] = modId
       groupedModulesDict[group] = groupedModulesDict[group] || {}
       groupedModulesDict[group][modId] = modId
       continue
     }
 
-    // Get exported class names - either via dynamic import or TypeScript parsing
-    let exportNames: string[]
-    const isAppModule = entry.from === '@app'
-
-    if (isAppModule && filePath) {
-      // For @app modules, parse TypeScript source directly
-      // since Node.js can't import TypeScript files (path alias @/ doesn't resolve at runtime)
-      exportNames = parseExportedClassNamesFromFile(filePath)
-    } else {
-      // For package modules, use dynamic import
-      let mod: Record<string, unknown>
-      try {
-        mod = await import(importPath)
-      } catch (err) {
-        // Module import failed, record error and skip
-        const errorMessage = err instanceof Error ? err.message : String(err)
-        result.errors.push(`Failed to import ${importPath}: ${errorMessage}`)
-        modulesDict[modId] = modId
-        groupedModulesDict[group] = groupedModulesDict[group] || {}
-        groupedModulesDict[group][modId] = modId
-        continue
-      }
-      exportNames = Object.keys(mod).filter((k) => typeof mod[k] === 'function')
-    }
+    // Get exported class names by parsing TypeScript source directly
+    // Since we always read from src/, we can parse TypeScript files
+    const exportNames = parseExportedClassNamesFromFile(filePath)
 
     const entityNames = exportNames
       .map((k) => toSnake(k))
@@ -248,12 +228,10 @@ export async function generateEntityIds(options: EntityIdsOptions): Promise<Gene
       grouped[group][modId][en] = `${modId}:${en}`
     }
 
-    if (filePath) {
-      // exportNames already contains only class/function names from either source
-      const entityFieldMap = parseEntityFieldsFromFile(filePath, exportNames)
-      fieldsByGroup[group] = fieldsByGroup[group] || {}
-      fieldsByGroup[group][modId] = entityFieldMap
-    }
+    // Parse entity fields from TypeScript source
+    const entityFieldMap = parseEntityFieldsFromFile(filePath, exportNames)
+    fieldsByGroup[group] = fieldsByGroup[group] || {}
+    fieldsByGroup[group][modId] = entityFieldMap
   }
 
   // Write consolidated output

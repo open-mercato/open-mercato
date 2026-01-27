@@ -34,6 +34,8 @@ export async function generateModuleDi(options: ModuleDiOptions): Promise<Genera
     const modId = entry.id
     const roots = resolver.getModulePaths(entry)
     const imp = resolver.getModuleImportBase(entry)
+    const isAppModule = entry.from === '@app'
+
     const appDi = path.join(roots.appBase, 'di.ts')
     const pkgDi = path.join(roots.pkgBase, 'di.ts')
     const useApp = fs.existsSync(appDi)
@@ -43,7 +45,6 @@ export async function generateModuleDi(options: ModuleDiOptions): Promise<Genera
     if (useApp) {
       // For @app modules, use relative path to work in both Next.js and Node.js CLI context
       // From .mercato/generated/, go up two levels (../..) to reach the app root, then into src/modules/
-      const isAppModule = entry.from === '@app'
       const importPath = isAppModule ? `../../src/modules/${modId}/di` : `${imp.appBase}/di`
       imports.push(`import * as ${importName} from '${importPath}'`)
       registrars.push(`${importName}.register`)

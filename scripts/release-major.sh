@@ -11,7 +11,7 @@ yarn build:packages
 echo "==> Generating..."
 yarn generate
 
-echo "==> Rebuilding packages..."
+echo "==> Rebuilding packages with generated files..."
 yarn build:packages
 
 echo "==> Publishing with @latest tag..."
