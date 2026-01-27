@@ -5,7 +5,7 @@ import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { EntityManager } from '@mikro-orm/core'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { ScheduledJob } from '../../../../data/entities.js'
-import { getRedisConnection } from '../../../../services/redisConnection.js'
+import { getRedisConnection } from '../../../../lib/redisConnection.js'
 
 export const metadata = {
   requireAuth: true,

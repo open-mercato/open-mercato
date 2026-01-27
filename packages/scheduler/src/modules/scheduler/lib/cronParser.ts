@@ -16,6 +16,14 @@ export function parseCronExpression(
   timezone: string = 'UTC',
   currentDate?: Date
 ): CronParseResult {
+  // Explicitly reject empty strings
+  if (!cronExpression || cronExpression.trim() === '') {
+    return {
+      isValid: false,
+      error: 'Cron expression cannot be empty',
+    }
+  }
+  
   try {
     const interval = parseExpression(cronExpression, {
       currentDate: currentDate || new Date(),
@@ -64,8 +72,21 @@ export function getNextOccurrences(
 
 /**
  * Validate a cron expression
+ * Only supports standard 5-field cron format (minute hour day month weekday)
  */
 export function validateCron(cronExpression: string): boolean {
+  // Explicitly reject empty strings
+  if (!cronExpression || cronExpression.trim() === '') {
+    return false
+  }
+  
+  // Check for exactly 5 fields (standard cron format)
+  // Split by whitespace and filter out empty strings
+  const fields = cronExpression.trim().split(/\s+/).filter(f => f.length > 0)
+  if (fields.length !== 5) {
+    return false
+  }
+  
   try {
     parseExpression(cronExpression)
     return true

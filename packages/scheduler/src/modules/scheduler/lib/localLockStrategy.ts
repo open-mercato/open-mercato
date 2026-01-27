@@ -14,8 +14,9 @@ export class LocalLockStrategy {
     const hash = this.hashString(key)
     
     try {
-      const result = await em.getConnection().execute(
-        'SELECT pg_try_advisory_lock($1) as acquired',
+      // Use MikroORM's execute with proper parameter binding
+      const result = await em.getConnection().execute<{ acquired: boolean }[]>(
+        `SELECT pg_try_advisory_lock(?) as acquired`,
         [hash]
       )
       return result[0]?.acquired === true
@@ -34,7 +35,7 @@ export class LocalLockStrategy {
     
     try {
       await em.getConnection().execute(
-        'SELECT pg_advisory_unlock($1)',
+        `SELECT pg_advisory_unlock(?)`,
         [hash]
       )
     } catch (error) {

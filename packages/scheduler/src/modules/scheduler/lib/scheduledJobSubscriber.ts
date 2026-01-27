@@ -3,7 +3,7 @@ import type {
   EventSubscriber, 
   FlushEventArgs 
 } from '@mikro-orm/core'
-import { ScheduledJob } from './entities'
+import { ScheduledJob } from '../data/entities'
 
 /**
  * MikroORM Event Subscriber for ScheduledJob

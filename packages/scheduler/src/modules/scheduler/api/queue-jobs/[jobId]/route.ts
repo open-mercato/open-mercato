@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { z } from 'zod'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
-import { getRedisConnection } from '../../../services/redisConnection.js'
+import { getRedisConnection } from '../../../lib/redisConnection.js'
 
 export const metadata = {
   requireAuth: true,

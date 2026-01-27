@@ -4,7 +4,7 @@ import { createQueue } from '@open-mercato/queue'
 import { SchedulerService } from './services/schedulerService.js'
 import { BullMQSchedulerService } from './services/bullmqSchedulerService.js'
 import { LocalSchedulerService } from './services/localSchedulerService.js'
-import { ScheduledJobSubscriber } from './data/scheduledJobSubscriber.js'
+import { ScheduledJobSubscriber } from './lib/scheduledJobSubscriber.js'
 
 /**
  * Scheduler module DI registration
