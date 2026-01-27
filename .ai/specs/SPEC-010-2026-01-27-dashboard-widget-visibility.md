@@ -4,6 +4,8 @@
 **Module:** `dashboards`
 **Status:** Implemented
 
+> **Note:** This specification documents an **existing, fully implemented feature**. It serves as a reference guide for developers creating new dashboard widgets. All functionality described here is already operational in the codebase. Use this spec to understand how to configure feature-based visibility when building new widgets.
+
 ## Overview
 
 Dashboard widgets support feature-based access control, automatically hiding widgets from users who don't have the required permissions. This ensures that users only see widgets relevant to their role and capabilities, maintaining a clean and secure user experience.
@@ -560,6 +562,10 @@ curl -H "Authorization: Bearer <token>" \
 ## Changelog
 
 ### 2026-01-27
-- Initial specification
-- Documented existing feature-based filtering implementation
-- Added examples and troubleshooting guide
+
+- Initial specification documenting existing implementation
+- Added reference guide for developers building new widgets
+- Documented feature-based filtering implementation with code references
+- Added configuration examples from customers, catalog, and sales modules
+- Included comprehensive testing scenarios and troubleshooting guide
+- Clarified that this is documentation of a fully implemented feature
