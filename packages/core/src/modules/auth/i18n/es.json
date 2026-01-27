@@ -95,5 +95,20 @@
   "auth.email.resetPassword.title": "Restablecer tu contraseña",
   "auth.email.resetPassword.body": "Haz clic en el siguiente enlace para establecer una nueva contraseña. Este enlace caducará en 60 minutos.",
   "auth.email.resetPassword.cta": "Establecer nueva contraseña",
-  "auth.email.resetPassword.hint": "Si no solicitaste esto, puedes ignorar este correo de forma segura."
+  "auth.email.resetPassword.hint": "Si no solicitaste esto, puedes ignorar este correo de forma segura.",
+  "auth.notifications.passwordReset.requested.title": "Solicitud de restablecimiento de contraseña",
+  "auth.notifications.passwordReset.requested.body": "Se ha enviado un enlace de restablecimiento de contraseña a tu correo electrónico",
+  "auth.notifications.passwordReset.completed.title": "Contraseña cambiada correctamente",
+  "auth.notifications.passwordReset.completed.body": "Tu contraseña se actualizó correctamente",
+  "auth.notifications.account.locked.title": "Cuenta bloqueada",
+  "auth.notifications.account.locked.body": "Tu cuenta ha sido bloqueada por razones de seguridad. Ponte en contacto con soporte.",
+  "auth.notifications.login.newDevice.title": "Nuevo inicio de sesión detectado",
+  "auth.notifications.login.newDevice.body": "Se detectó un inicio de sesión desde un dispositivo no reconocido en tu cuenta",
+  "auth.notifications.role.assigned.title": "Nuevo rol asignado",
+  "auth.notifications.role.assigned.body": "Se te ha asignado un nuevo rol con permisos adicionales",
+  "auth.notifications.role.revoked.title": "Rol eliminado",
+  "auth.notifications.role.revoked.body": "Se ha eliminado un rol de tu cuenta",
+  "auth.actions.contactSupport": "Contactar soporte",
+  "auth.actions.viewSessions": "Ver sesiones",
+  "auth.actions.viewPermissions": "Ver permisos"
 }

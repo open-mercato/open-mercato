@@ -27,6 +27,9 @@ import {
 import { normalizeTenantId } from '@open-mercato/core/modules/auth/lib/tenantAccess'
 import { computeEmailHash } from '@open-mercato/core/modules/auth/lib/emailHash'
 import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { buildNotificationFromType } from '@open-mercato/core/modules/notifications/lib/notificationBuilder'
+import { resolveNotificationService } from '@open-mercato/core/modules/notifications/lib/notificationService'
+import notificationTypes from '@open-mercato/core/modules/auth/notifications'
 
 type SerializedUser = {
   email: string
@@ -105,6 +108,46 @@ export const userCrudIndexer: CrudIndexerConfig = {
   }),
 }
 
+async function notifyRoleChanges(
+  ctx: CommandRuntimeContext,
+  user: User,
+  assignedRoles: string[],
+  revokedRoles: string[],
+): Promise<void> {
+  const tenantId = user.tenantId ? String(user.tenantId) : null
+  if (!tenantId) return
+  const organizationId = user.organizationId ? String(user.organizationId) : null
+
+  try {
+    const notificationService = resolveNotificationService(ctx.container)
+    if (assignedRoles.length) {
+      const assignedType = notificationTypes.find((type) => type.type === 'auth.role.assigned')
+      if (assignedType) {
+        const notificationInput = buildNotificationFromType(assignedType, {
+          recipientUserId: String(user.id),
+          sourceEntityType: 'auth:user',
+          sourceEntityId: String(user.id),
+        })
+        await notificationService.create(notificationInput, { tenantId, organizationId })
+      }
+    }
+
+    if (revokedRoles.length) {
+      const revokedType = notificationTypes.find((type) => type.type === 'auth.role.revoked')
+      if (revokedType) {
+        const notificationInput = buildNotificationFromType(revokedType, {
+          recipientUserId: String(user.id),
+          sourceEntityType: 'auth:user',
+          sourceEntityId: String(user.id),
+        })
+        await notificationService.create(notificationInput, { tenantId, organizationId })
+      }
+    }
+  } catch (err) {
+    console.error('[auth.users.roles] Failed to create notification:', err)
+  }
+}
+
 const createUserCommand: CommandHandler<Record<string, unknown>, User> = {
   id: 'auth.users.create',
   async execute(rawInput, ctx) {
@@ -147,8 +190,10 @@ const createUserCommand: CommandHandler<Record<string, unknown>, User> = {
       throw error
     }
 
+    let assignedRoles: string[] = []
     if (Array.isArray(parsed.roles) && parsed.roles.length) {
       await syncUserRoles(em, user, parsed.roles, tenantId)
+      assignedRoles = await loadUserRoleNames(em, String(user.id))
     }
 
     await setCustomFieldsIfAny({
@@ -172,6 +217,10 @@ const createUserCommand: CommandHandler<Record<string, unknown>, User> = {
       events: userCrudEvents,
       indexer: userCrudIndexer,
     })
+
+    if (assignedRoles.length) {
+      await notifyRoleChanges(ctx, user, assignedRoles, [])
+    }
 
     return user
   },
@@ -288,6 +337,9 @@ const updateUserCommand: CommandHandler<Record<string, unknown>, User> = {
   async execute(rawInput, ctx) {
     const { parsed, custom } = parseWithCustomFields(updateSchema, rawInput)
     const em = (ctx.container.resolve('em') as EntityManager)
+    const rolesBefore = Array.isArray(parsed.roles)
+      ? await loadUserRoleNames(em, parsed.id)
+      : null
 
     if (parsed.email !== undefined) {
       const emailHash = computeEmailHash(parsed.email)
@@ -376,6 +428,14 @@ const updateUserCommand: CommandHandler<Record<string, unknown>, User> = {
       events: userCrudEvents,
       indexer: userCrudIndexer,
     })
+
+    if (Array.isArray(parsed.roles) && rolesBefore) {
+      const rolesAfter = await loadUserRoleNames(em, String(user.id))
+      const { assigned, revoked } = diffRoleChanges(rolesBefore, rolesAfter)
+      if (assigned.length || revoked.length) {
+        await notifyRoleChanges(ctx, user, assigned, revoked)
+      }
+    }
 
     await invalidateUserCache(ctx, parsed.id)
 
@@ -770,6 +830,14 @@ async function invalidateUserCache(ctx: CommandRuntimeContext, userId: string) {
   } catch {
     // cache not available
   }
+}
+
+function diffRoleChanges(before: string[], after: string[]) {
+  const beforeSet = new Set(before)
+  const afterSet = new Set(after)
+  const assigned = after.filter((role) => !beforeSet.has(role))
+  const revoked = before.filter((role) => !afterSet.has(role))
+  return { assigned, revoked }
 }
 
 function arrayEquals(left: string[] | undefined, right: string[]): boolean {

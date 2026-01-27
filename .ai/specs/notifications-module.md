@@ -2410,6 +2410,9 @@ External channels (email) link to a dedicated backend route (`/backend/notificat
 
 ## Changelog
 
+### 2026-01-27
+- Added auth module notifications for password reset and role assignment changes
+
 ### 2026-02-02
 - Added delivery strategy configuration (database + email by default)
 - Added notification delivery subscriber with Resend email templates

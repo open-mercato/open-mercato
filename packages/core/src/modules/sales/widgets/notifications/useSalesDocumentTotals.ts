@@ -12,7 +12,7 @@ type DocumentTotals = {
 
 type DocumentListResponse = {
   items?: Array<{
-    grandTotalGrossAmount?: number | null
+    grandTotalGrossAmount?: number | string | null
     currencyCode?: string | null
   }>
 }

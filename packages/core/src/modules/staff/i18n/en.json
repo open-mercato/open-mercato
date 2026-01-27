@@ -878,5 +878,9 @@
   "staff.myAvailability.readOnly.body": "Use leave requests to request changes.",
   "staff.teamMembers.self.createTitle": "Create my profile",
   "staff.teamMembers.self.created": "Profile created.",
-  "staff.teamMembers.self.exists": "Team member profile already exists."
+  "staff.teamMembers.self.exists": "Team member profile already exists.",
+  "staff.notifications.leaveRequest.approved.title": "Leave Request Approved",
+  "staff.notifications.leaveRequest.approved.body": "Your leave request from {startDate} to {endDate} has been approved",
+  "staff.notifications.leaveRequest.rejected.title": "Leave Request Rejected",
+  "staff.notifications.leaveRequest.rejected.body": "Your leave request from {startDate} to {endDate} has been rejected{reason, select, other { - {reason}}}"
 }

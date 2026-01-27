@@ -1,6 +1,6 @@
 import type { ModuleConfigService } from '@open-mercato/core/modules/configs/lib/module-config-service'
 import { parseBooleanWithDefault } from '@open-mercato/shared/lib/boolean'
-import { notificationDeliveryConfigSchema } from '../data/validators'
+import { notificationDeliveryConfigSchema, type NotificationDeliveryConfigInput } from '../data/validators'
 
 export const NOTIFICATIONS_DELIVERY_CONFIG_KEY = 'delivery_strategies'
 
@@ -120,7 +120,7 @@ export async function resolveNotificationDeliveryConfig(
 
 export async function saveNotificationDeliveryConfig(
   resolver: Resolver,
-  config: NotificationDeliveryConfig
+  config: NotificationDeliveryConfigInput
 ): Promise<void> {
   let service: ModuleConfigService
   try {

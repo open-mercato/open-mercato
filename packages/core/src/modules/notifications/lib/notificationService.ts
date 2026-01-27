@@ -17,7 +17,7 @@ function debug(...args: unknown[]): void {
 }
 
 function getKnex(em: EntityManager): Knex {
-  return em.getConnection().getKnex()
+  return (em.getConnection() as unknown as { getKnex: () => Knex }).getKnex()
 }
 
 export interface NotificationServiceContext {

@@ -95,5 +95,20 @@
   "auth.email.resetPassword.title": "Passwort zurücksetzen",
   "auth.email.resetPassword.body": "Klicken Sie auf den Link unten, um ein neues Passwort festzulegen. Dieser Link läuft in 60 Minuten ab.",
   "auth.email.resetPassword.cta": "Neues Passwort festlegen",
-  "auth.email.resetPassword.hint": "Wenn Sie dies nicht angefordert haben, können Sie diese E-Mail ignorieren."
+  "auth.email.resetPassword.hint": "Wenn Sie dies nicht angefordert haben, können Sie diese E-Mail ignorieren.",
+  "auth.notifications.passwordReset.requested.title": "Passwort-Zurücksetzung angefordert",
+  "auth.notifications.passwordReset.requested.body": "Ein Link zum Zurücksetzen des Passworts wurde an Ihre E-Mail gesendet",
+  "auth.notifications.passwordReset.completed.title": "Passwort erfolgreich geändert",
+  "auth.notifications.passwordReset.completed.body": "Ihr Passwort wurde erfolgreich aktualisiert",
+  "auth.notifications.account.locked.title": "Konto gesperrt",
+  "auth.notifications.account.locked.body": "Ihr Konto wurde aus Sicherheitsgründen gesperrt. Bitte wenden Sie sich an den Support.",
+  "auth.notifications.login.newDevice.title": "Neues Gerät erkannt",
+  "auth.notifications.login.newDevice.body": "Es wurde eine Anmeldung von einem unbekannten Gerät für Ihr Konto erkannt",
+  "auth.notifications.role.assigned.title": "Neue Rolle zugewiesen",
+  "auth.notifications.role.assigned.body": "Ihnen wurde eine neue Rolle mit zusätzlichen Berechtigungen zugewiesen",
+  "auth.notifications.role.revoked.title": "Rolle entfernt",
+  "auth.notifications.role.revoked.body": "Eine Rolle wurde von Ihrem Konto entfernt",
+  "auth.actions.contactSupport": "Support kontaktieren",
+  "auth.actions.viewSessions": "Sitzungen anzeigen",
+  "auth.actions.viewPermissions": "Berechtigungen anzeigen"
 }

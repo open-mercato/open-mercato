@@ -95,5 +95,20 @@
   "auth.email.resetPassword.title": "Zresetuj swoje hasło",
   "auth.email.resetPassword.body": "Kliknij poniższy link, aby ustawić nowe hasło. Link wygaśnie za 60 minut.",
   "auth.email.resetPassword.cta": "Ustaw nowe hasło",
-  "auth.email.resetPassword.hint": "Jeśli nie prosiłeś o tę wiadomość, możesz ją bezpiecznie zignorować."
+  "auth.email.resetPassword.hint": "Jeśli nie prosiłeś o tę wiadomość, możesz ją bezpiecznie zignorować.",
+  "auth.notifications.passwordReset.requested.title": "Żądanie resetu hasła",
+  "auth.notifications.passwordReset.requested.body": "Link do resetu hasła został wysłany na Twój adres e-mail",
+  "auth.notifications.passwordReset.completed.title": "Hasło zmienione pomyślnie",
+  "auth.notifications.passwordReset.completed.body": "Twoje hasło zostało pomyślnie zaktualizowane",
+  "auth.notifications.account.locked.title": "Konto zablokowane",
+  "auth.notifications.account.locked.body": "Twoje konto zostało zablokowane z powodów bezpieczeństwa. Skontaktuj się z pomocą techniczną.",
+  "auth.notifications.login.newDevice.title": "Wykryto logowanie z nowego urządzenia",
+  "auth.notifications.login.newDevice.body": "Wykryto logowanie z nieznanego urządzenia na Twoim koncie",
+  "auth.notifications.role.assigned.title": "Przypisano nową rolę",
+  "auth.notifications.role.assigned.body": "Przypisano Ci nową rolę z dodatkowymi uprawnieniami",
+  "auth.notifications.role.revoked.title": "Rola usunięta",
+  "auth.notifications.role.revoked.body": "Z Twojego konta usunięto rolę",
+  "auth.actions.contactSupport": "Skontaktuj się z pomocą",
+  "auth.actions.viewSessions": "Zobacz sesje",
+  "auth.actions.viewPermissions": "Zobacz uprawnienia"
 }

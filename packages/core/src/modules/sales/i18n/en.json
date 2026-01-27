@@ -1536,5 +1536,9 @@
   "sales.search.badge.deliveryWindow": "Delivery window",
   "sales.search.badge.paymentMethod": "Payment method",
   "sales.search.badge.taxRate": "Tax rate",
-  "sales.search.badge.documentTag": "Document tag"
+  "sales.search.badge.documentTag": "Document tag",
+  "sales.notifications.payment.received.title": "Payment Received",
+  "sales.notifications.payment.received.body": "Payment of {amount} received for order #{orderNumber}",
+  "sales.notifications.quote.expiring.title": "Quote Expiring Soon",
+  "sales.notifications.quote.expiring.body": "Quote #{quoteNumber} expires in {daysUntilExpiry} days ({expiresAt})"
 }
