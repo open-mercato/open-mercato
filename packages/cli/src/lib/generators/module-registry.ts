@@ -101,16 +101,18 @@ export async function generateModuleRegistry(options: ModuleRegistryOptions): Pr
     const fePkg = path.join(roots.pkgBase, 'frontend')
     if (fs.existsSync(feApp) || fs.existsSync(fePkg)) {
       const found: string[] = []
-      const walk = (dir: string, rel: string[] = []) => {
+      const walkFe = (dir: string, rel: string[] = []) => {
         for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
           if (e.isDirectory()) {
             if (e.name === '__tests__' || e.name === '__mocks__') continue
-            walk(path.join(dir, e.name), [...rel, e.name])
-          } else if (e.isFile() && e.name.endsWith('.tsx')) found.push([...rel, e.name].join('/'))
+            walkFe(path.join(dir, e.name), [...rel, e.name])
+          } else if (e.isFile() && e.name.endsWith('.tsx')) {
+            found.push([...rel, e.name].join('/'))
+          }
         }
       }
-      if (fs.existsSync(fePkg)) walk(fePkg)
-      if (fs.existsSync(feApp)) walk(feApp)
+      if (fs.existsSync(fePkg)) walkFe(fePkg)
+      if (fs.existsSync(feApp)) walkFe(feApp)
       let files = Array.from(new Set(found))
       // Ensure static routes win over dynamic ones (e.g., 'create' before '[id]')
       const isDynamic = (p: string) => /\/(\[|\[\[\.\.\.)/.test(p) || /^\[/.test(p)
@@ -152,7 +154,7 @@ export async function generateModuleRegistry(options: ModuleRegistryOptions): Pr
           `{ pattern: '${routePath || '/'}', requireAuth: (${metaExpr})?.requireAuth, requireRoles: (${metaExpr})?.requireRoles, requireFeatures: (${metaExpr})?.requireFeatures, title: (${metaExpr})?.pageTitle ?? (${metaExpr})?.title, titleKey: (${metaExpr})?.pageTitleKey ?? (${metaExpr})?.titleKey, group: (${metaExpr})?.pageGroup ?? (${metaExpr})?.group, groupKey: (${metaExpr})?.pageGroupKey ?? (${metaExpr})?.groupKey, icon: (${metaExpr})?.icon, order: (${metaExpr})?.pageOrder ?? (${metaExpr})?.order, priority: (${metaExpr})?.pagePriority ?? (${metaExpr})?.priority, navHidden: (${metaExpr})?.navHidden, visible: (${metaExpr})?.visible, enabled: (${metaExpr})?.enabled, breadcrumb: (${metaExpr})?.breadcrumb, Component: ${importName} }`
         )
       }
-      // Back-compat direct files
+      // Back-compat direct files (old-style pages like login.tsx instead of login/page.tsx)
       for (const rel of files.filter((f) => !f.endsWith('/page.tsx') && f !== 'page.tsx')) {
         const segs = rel.split('/')
         const file = segs.pop()!
@@ -165,7 +167,7 @@ export async function generateModuleRegistry(options: ModuleRegistryOptions): Pr
         const importPath = `${fromApp ? appImportBase : imps.pkgBase}/frontend/${[...segs, name].join('/')}`
         const routePath = '/' + (routeSegs.join('/') || '')
         const metaCandidates = [
-          path.join(fromApp ? feApp : fePkg, ...segs, name + '.meta.ts'),
+          path.join(fromApp ? feApp : fePkg, ...segs, `${name}.meta.ts`),
           path.join(fromApp ? feApp : fePkg, ...segs, 'meta.ts'),
         ]
         const metaPath = metaCandidates.find((p) => fs.existsSync(p))
@@ -265,16 +267,18 @@ export async function generateModuleRegistry(options: ModuleRegistryOptions): Pr
     const bePkg = path.join(roots.pkgBase, 'backend')
     if (fs.existsSync(beApp) || fs.existsSync(bePkg)) {
       const found: string[] = []
-      const walk = (dir: string, rel: string[] = []) => {
+      const walkBe = (dir: string, rel: string[] = []) => {
         for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
           if (e.isDirectory()) {
             if (e.name === '__tests__' || e.name === '__mocks__') continue
-            walk(path.join(dir, e.name), [...rel, e.name])
-          } else if (e.isFile() && e.name.endsWith('.tsx')) found.push([...rel, e.name].join('/'))
+            walkBe(path.join(dir, e.name), [...rel, e.name])
+          } else if (e.isFile() && e.name.endsWith('.tsx')) {
+            found.push([...rel, e.name].join('/'))
+          }
         }
       }
-      if (fs.existsSync(bePkg)) walk(bePkg)
-      if (fs.existsSync(beApp)) walk(beApp)
+      if (fs.existsSync(bePkg)) walkBe(bePkg)
+      if (fs.existsSync(beApp)) walkBe(beApp)
       let files = Array.from(new Set(found))
       const isDynamic = (p: string) => /\/(\[|\[\[\.\.\.)/.test(p) || /^\[/.test(p)
       files.sort((a, b) => {
@@ -283,7 +287,7 @@ export async function generateModuleRegistry(options: ModuleRegistryOptions): Pr
         if (ad !== bd) return ad - bd
         return a.localeCompare(b)
       })
-      // Next-style
+      // Next-style page.tsx
       for (const rel of files.filter((f) => f.endsWith('/page.tsx') || f === 'page.tsx')) {
         const segs = rel.split('/')
         segs.pop()
@@ -315,7 +319,7 @@ export async function generateModuleRegistry(options: ModuleRegistryOptions): Pr
           `{ pattern: '${routePath}', requireAuth: (${metaExpr})?.requireAuth, requireRoles: (${metaExpr})?.requireRoles, requireFeatures: (${metaExpr})?.requireFeatures, title: (${metaExpr})?.pageTitle ?? (${metaExpr})?.title, titleKey: (${metaExpr})?.pageTitleKey ?? (${metaExpr})?.titleKey, group: (${metaExpr})?.pageGroup ?? (${metaExpr})?.group, groupKey: (${metaExpr})?.pageGroupKey ?? (${metaExpr})?.groupKey, icon: (${metaExpr})?.icon, order: (${metaExpr})?.pageOrder ?? (${metaExpr})?.order, priority: (${metaExpr})?.pagePriority ?? (${metaExpr})?.priority, navHidden: (${metaExpr})?.navHidden, visible: (${metaExpr})?.visible, enabled: (${metaExpr})?.enabled, breadcrumb: (${metaExpr})?.breadcrumb, Component: ${importName} }`
         )
       }
-      // Direct files
+      // Direct files (back-compat for old-style pages like login.tsx instead of login/page.tsx)
       for (const rel of files.filter((f) => !f.endsWith('/page.tsx') && f !== 'page.tsx')) {
         const segs = rel.split('/')
         const file = segs.pop()!
@@ -327,7 +331,7 @@ export async function generateModuleRegistry(options: ModuleRegistryOptions): Pr
         const importPath = `${fromApp ? appImportBase : imps.pkgBase}/backend/${[...segs, name].join('/')}`
         const routePath = '/backend/' + [modId, ...segs, name].filter(Boolean).join('/')
         const metaCandidates = [
-          path.join(fromApp ? beApp : bePkg, ...segs, name + '.meta.ts'),
+          path.join(fromApp ? beApp : bePkg, ...segs, `${name}.meta.ts`),
           path.join(fromApp ? beApp : bePkg, ...segs, 'meta.ts'),
         ]
         const metaPath = metaCandidates.find((p) => fs.existsSync(p))
@@ -356,16 +360,16 @@ export async function generateModuleRegistry(options: ModuleRegistryOptions): Pr
     if (fs.existsSync(apiApp) || fs.existsSync(apiPkg)) {
       // route.ts aggregations
       const routeFiles: string[] = []
-      const walk = (dir: string, rel: string[] = []) => {
+      const walkApi = (dir: string, rel: string[] = []) => {
         for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
           if (e.isDirectory()) {
             if (e.name === '__tests__' || e.name === '__mocks__') continue
-            walk(path.join(dir, e.name), [...rel, e.name])
+            walkApi(path.join(dir, e.name), [...rel, e.name])
           } else if (e.isFile() && e.name === 'route.ts') routeFiles.push([...rel, e.name].join('/'))
         }
       }
-      if (fs.existsSync(apiPkg)) walk(apiPkg)
-      if (fs.existsSync(apiApp)) walk(apiApp)
+      if (fs.existsSync(apiPkg)) walkApi(apiPkg)
+      if (fs.existsSync(apiApp)) walkApi(apiApp)
       const routeList = Array.from(new Set(routeFiles))
       const isDynamicRoute = (p: string) => p.split('/').some((seg) => /\[|\[\[\.\.\./.test(seg))
       routeList.sort((a, b) => {
@@ -433,6 +437,7 @@ export async function generateModuleRegistry(options: ModuleRegistryOptions): Pr
         const coreMethodDir = path.join(apiPkg, method.toLowerCase())
         const appMethodDir = path.join(apiApp, method.toLowerCase())
         const methodDir = fs.existsSync(appMethodDir) ? appMethodDir : coreMethodDir
+        const methodIsApp = fs.existsSync(appMethodDir)
         if (!fs.existsSync(methodDir)) continue
         const apiFiles: string[] = []
         const walk2 = (dir: string, rel: string[] = []) => {
@@ -515,19 +520,19 @@ export async function generateModuleRegistry(options: ModuleRegistryOptions): Pr
     const subPkg = path.join(roots.pkgBase, 'subscribers')
     if (fs.existsSync(subApp) || fs.existsSync(subPkg)) {
       const found: string[] = []
-      const walk = (dir: string, rel: string[] = []) => {
+      const walkSub = (dir: string, rel: string[] = []) => {
         for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
           if (e.isDirectory()) {
             if (e.name === '__tests__' || e.name === '__mocks__') continue
-            walk(path.join(dir, e.name), [...rel, e.name])
+            walkSub(path.join(dir, e.name), [...rel, e.name])
           } else if (e.isFile() && e.name.endsWith('.ts')) {
             if (/\.(test|spec)\.ts$/.test(e.name)) continue
             found.push([...rel, e.name].join('/'))
           }
         }
       }
-      if (fs.existsSync(subPkg)) walk(subPkg)
-      if (fs.existsSync(subApp)) walk(subApp)
+      if (fs.existsSync(subPkg)) walkSub(subPkg)
+      if (fs.existsSync(subApp)) walkSub(subApp)
       const files = Array.from(new Set(found))
       for (const rel of files) {
         const segs = rel.split('/')
@@ -553,19 +558,19 @@ export async function generateModuleRegistry(options: ModuleRegistryOptions): Pr
       const wrkPkg = path.join(roots.pkgBase, 'workers')
       if (fs.existsSync(wrkApp) || fs.existsSync(wrkPkg)) {
         const found: string[] = []
-        const walk = (dir: string, rel: string[] = []) => {
+        const walkWrk = (dir: string, rel: string[] = []) => {
           for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
             if (e.isDirectory()) {
               if (e.name === '__tests__' || e.name === '__mocks__') continue
-              walk(path.join(dir, e.name), [...rel, e.name])
+              walkWrk(path.join(dir, e.name), [...rel, e.name])
             } else if (e.isFile() && e.name.endsWith('.ts')) {
               if (/\.(test|spec)\.ts$/.test(e.name)) continue
               found.push([...rel, e.name].join('/'))
             }
           }
         }
-        if (fs.existsSync(wrkPkg)) walk(wrkPkg)
-        if (fs.existsSync(wrkApp)) walk(wrkApp)
+        if (fs.existsSync(wrkPkg)) walkWrk(wrkPkg)
+        if (fs.existsSync(wrkApp)) walkWrk(wrkApp)
         const files = Array.from(new Set(found))
         for (const rel of files) {
           const segs = rel.split('/')
@@ -1065,19 +1070,19 @@ export async function generateModuleRegistryCli(options: ModuleRegistryOptions):
     const subPkg = path.join(roots.pkgBase, 'subscribers')
     if (fs.existsSync(subApp) || fs.existsSync(subPkg)) {
       const found: string[] = []
-      const walk = (dir: string, rel: string[] = []) => {
+      const walkSub = (dir: string, rel: string[] = []) => {
         for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
           if (e.isDirectory()) {
             if (e.name === '__tests__' || e.name === '__mocks__') continue
-            walk(path.join(dir, e.name), [...rel, e.name])
+            walkSub(path.join(dir, e.name), [...rel, e.name])
           } else if (e.isFile() && e.name.endsWith('.ts')) {
             if (/\.(test|spec)\.ts$/.test(e.name)) continue
             found.push([...rel, e.name].join('/'))
           }
         }
       }
-      if (fs.existsSync(subPkg)) walk(subPkg)
-      if (fs.existsSync(subApp)) walk(subApp)
+      if (fs.existsSync(subPkg)) walkSub(subPkg)
+      if (fs.existsSync(subApp)) walkSub(subApp)
       const files = Array.from(new Set(found))
       for (const rel of files) {
         const segs = rel.split('/')
@@ -1103,19 +1108,19 @@ export async function generateModuleRegistryCli(options: ModuleRegistryOptions):
       const wrkPkg = path.join(roots.pkgBase, 'workers')
       if (fs.existsSync(wrkApp) || fs.existsSync(wrkPkg)) {
         const found: string[] = []
-        const walk = (dir: string, rel: string[] = []) => {
+        const walkWrk = (dir: string, rel: string[] = []) => {
           for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
             if (e.isDirectory()) {
               if (e.name === '__tests__' || e.name === '__mocks__') continue
-              walk(path.join(dir, e.name), [...rel, e.name])
+              walkWrk(path.join(dir, e.name), [...rel, e.name])
             } else if (e.isFile() && e.name.endsWith('.ts')) {
               if (/\.(test|spec)\.ts$/.test(e.name)) continue
               found.push([...rel, e.name].join('/'))
             }
           }
         }
-        if (fs.existsSync(wrkPkg)) walk(wrkPkg)
-        if (fs.existsSync(wrkApp)) walk(wrkApp)
+        if (fs.existsSync(wrkPkg)) walkWrk(wrkPkg)
+        if (fs.existsSync(wrkApp)) walkWrk(wrkApp)
         const files = Array.from(new Set(found))
         for (const rel of files) {
           const segs = rel.split('/')
