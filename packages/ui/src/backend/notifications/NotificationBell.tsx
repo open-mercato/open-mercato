@@ -23,6 +23,8 @@ export function NotificationBell({ className, t, customRenderers }: Notification
     markAsRead,
     executeAction,
     dismiss,
+    dismissUndo,
+    undoDismiss,
     markAllRead,
   } = useNotificationsPoll()
   const prevCountRef = React.useRef(unreadCount)
@@ -66,6 +68,8 @@ export function NotificationBell({ className, t, customRenderers }: Notification
         onMarkAsRead={markAsRead}
         onExecuteAction={executeAction}
         onDismiss={dismiss}
+        dismissUndo={dismissUndo}
+        onUndoDismiss={undoDismiss}
         onMarkAllRead={markAllRead}
         t={t}
         customRenderers={customRenderers}

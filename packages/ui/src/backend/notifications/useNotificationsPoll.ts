@@ -17,6 +17,8 @@ export type UseNotificationsPollResult = {
   markAsRead: (id: string) => Promise<void>
   executeAction: (id: string, actionId: string) => Promise<{ href?: string }>
   dismiss: (id: string) => Promise<void>
+  dismissUndo: { notification: NotificationDto; previousStatus: 'read' | 'unread' } | null
+  undoDismiss: () => Promise<void>
   markAllRead: () => Promise<void>
 }
 
@@ -30,6 +32,11 @@ export function useNotificationsPoll(): UseNotificationsPollResult {
   const [error, setError] = React.useState<string | null>(null)
   const lastIdRef = React.useRef<string | null>(null)
   const prevUnreadRef = React.useRef(0)
+  const [dismissUndo, setDismissUndo] = React.useState<{
+    notification: NotificationDto
+    previousStatus: 'read' | 'unread'
+  } | null>(null)
+  const dismissUndoTimerRef = React.useRef<number | null>(null)
 
   const fetchNotifications = React.useCallback(async () => {
     try {
@@ -124,9 +131,53 @@ export function useNotificationsPoll(): UseNotificationsPollResult {
       if (notification?.status === 'unread') {
         setUnreadCount((prev) => Math.max(0, prev - 1))
       }
+      if (notification) {
+        const previousStatus = notification.status === 'unread' ? 'unread' : 'read'
+        setDismissUndo({ notification, previousStatus })
+        if (dismissUndoTimerRef.current) {
+          window.clearTimeout(dismissUndoTimerRef.current)
+        }
+        dismissUndoTimerRef.current = window.setTimeout(() => {
+          setDismissUndo(null)
+        }, 6000)
+      }
     },
     [notifications]
   )
+
+  const undoDismiss = React.useCallback(async () => {
+    if (!dismissUndo) return
+    await apiCall(`/api/notifications/${dismissUndo.notification.id}/restore`, {
+      method: 'PUT',
+      body: JSON.stringify({ status: dismissUndo.previousStatus }),
+    })
+
+    setNotifications((prev) => {
+      const next = [
+        {
+          ...dismissUndo.notification,
+          status: dismissUndo.previousStatus,
+          readAt:
+            dismissUndo.previousStatus === 'unread'
+              ? null
+              : dismissUndo.notification.readAt ?? new Date().toISOString(),
+        },
+        ...prev.filter((n) => n.id !== dismissUndo.notification.id),
+      ]
+      return next.sort(
+        (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+      )
+    })
+
+    if (dismissUndo.previousStatus === 'unread') {
+      setUnreadCount((prev) => prev + 1)
+    }
+
+    if (dismissUndoTimerRef.current) {
+      window.clearTimeout(dismissUndoTimerRef.current)
+    }
+    setDismissUndo(null)
+  }, [dismissUndo])
 
   const markAllRead = React.useCallback(async () => {
     await apiCall('/api/notifications/mark-all-read', { method: 'PUT' })
@@ -150,6 +201,8 @@ export function useNotificationsPoll(): UseNotificationsPollResult {
     markAsRead,
     executeAction,
     dismiss,
+    dismissUndo,
+    undoDismiss,
     markAllRead,
   }
 }

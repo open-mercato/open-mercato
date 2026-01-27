@@ -34,6 +34,11 @@ export interface NotificationService {
   markAsRead(notificationId: string, ctx: NotificationServiceContext): Promise<Notification>
   markAllAsRead(ctx: NotificationServiceContext): Promise<number>
   dismiss(notificationId: string, ctx: NotificationServiceContext): Promise<Notification>
+  restoreDismissed(
+    notificationId: string,
+    status: 'read' | 'unread' | undefined,
+    ctx: NotificationServiceContext
+  ): Promise<Notification>
   executeAction(
     notificationId: string,
     input: ExecuteActionInput,
@@ -202,6 +207,40 @@ export function createNotificationService(deps: NotificationServiceDeps): Notifi
         notificationId: notification.id,
         userId: ctx.userId,
         tenantId: ctx.tenantId,
+      })
+
+      return notification
+    },
+
+    async restoreDismissed(notificationId, status, ctx) {
+      const em = rootEm.fork()
+      const notification = await em.findOneOrFail(Notification, {
+        id: notificationId,
+        recipientUserId: ctx.userId,
+        tenantId: ctx.tenantId,
+      })
+
+      if (notification.status !== 'dismissed') {
+        return notification
+      }
+
+      const targetStatus = status ?? 'read'
+      notification.status = targetStatus
+      notification.dismissedAt = null
+
+      if (targetStatus === 'unread') {
+        notification.readAt = null
+      } else if (!notification.readAt) {
+        notification.readAt = new Date()
+      }
+
+      await em.flush()
+
+      await eventBus.emit(NOTIFICATION_EVENTS.RESTORED, {
+        notificationId: notification.id,
+        userId: ctx.userId,
+        tenantId: ctx.tenantId,
+        status: targetStatus,
       })
 
       return notification

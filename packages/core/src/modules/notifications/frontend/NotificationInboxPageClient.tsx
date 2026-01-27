@@ -15,6 +15,8 @@ export function NotificationInboxPageClient() {
     markAsRead,
     executeAction,
     dismiss,
+    dismissUndo,
+    undoDismiss,
     markAllRead,
   } = useNotificationsPoll()
 
@@ -29,6 +31,8 @@ export function NotificationInboxPageClient() {
       onMarkAsRead={markAsRead}
       onExecuteAction={executeAction}
       onDismiss={dismiss}
+      dismissUndo={dismissUndo}
+      onUndoDismiss={undoDismiss}
       onMarkAllRead={markAllRead}
       t={t}
     />

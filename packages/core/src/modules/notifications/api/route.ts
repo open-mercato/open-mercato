@@ -30,6 +30,8 @@ export async function GET(req: Request) {
 
   if (input.status) {
     filters.status = Array.isArray(input.status) ? { $in: input.status } : input.status
+  } else {
+    filters.status = { $ne: 'dismissed' }
   }
   if (input.type) {
     filters.type = input.type

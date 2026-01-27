@@ -3,6 +3,7 @@ export const NOTIFICATION_EVENTS = {
   READ: 'notifications.read',
   ACTIONED: 'notifications.actioned',
   DISMISSED: 'notifications.dismissed',
+  RESTORED: 'notifications.restored',
   EXPIRED: 'notifications.expired',
 } as const
 
@@ -32,6 +33,13 @@ export type NotificationDismissedPayload = {
   notificationId: string
   userId: string
   tenantId: string
+}
+
+export type NotificationRestoredPayload = {
+  notificationId: string
+  userId: string
+  tenantId: string
+  status: 'read' | 'unread'
 }
 
 export type NotificationExpiredPayload = {

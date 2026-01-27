@@ -2417,6 +2417,8 @@ External channels (email) link to a dedicated backend route (`/backend/notificat
 
 ### 2026-01-27
 - Enforced same-origin relative path validation for `linkHref` and action `href` inputs
+- Excluded dismissed notifications from default list results unless explicitly filtered
+- Added dismiss undo flow with restore API and client-side undo banner
 
 ### 2026-01-27
 - Updated documentation examples to use `resolveNotificationService(ctx.container)` instead of direct DI resolution

@@ -78,6 +78,10 @@ export const executeActionSchema = z.object({
   payload: z.record(z.string(), z.unknown()).optional(),
 })
 
+export const restoreNotificationSchema = z.object({
+  status: z.enum(['read', 'unread']).optional(),
+})
+
 const notificationDeliveryStrategySchema = z.object({
   enabled: z.boolean().optional(),
 })

@@ -30,6 +30,8 @@ export type NotificationPanelProps = {
   onMarkAsRead: (id: string) => Promise<void>
   onExecuteAction: (id: string, actionId: string) => Promise<{ href?: string }>
   onDismiss: (id: string) => Promise<void>
+  dismissUndo?: { notification: NotificationDto; previousStatus: 'read' | 'unread' } | null
+  onUndoDismiss?: () => Promise<void>
   onMarkAllRead: () => Promise<void>
   t: TranslateFn
   /**
@@ -62,6 +64,8 @@ export function NotificationPanel({
   onMarkAsRead,
   onExecuteAction,
   onDismiss,
+  dismissUndo,
+  onUndoDismiss,
   onMarkAllRead,
   t,
   customRenderers,
@@ -167,6 +171,19 @@ export function NotificationPanel({
               </TabsTrigger>
             </TabsList>
           </Tabs>
+
+          {dismissUndo && onUndoDismiss && (
+            <div className="border-b bg-muted/40 px-4 py-2 text-sm">
+              <div className="flex items-center justify-between gap-3">
+                <span>
+                  {t('notifications.toast.dismissed', 'Notification dismissed')}
+                </span>
+                <Button variant="ghost" size="sm" onClick={() => onUndoDismiss()}>
+                  {t('notifications.actions.undo', 'Undo')}
+                </Button>
+              </div>
+            </div>
+          )}
 
           <div className="flex-1 overflow-y-auto">
             {filteredNotifications.length === 0 ? (
