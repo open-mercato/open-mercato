@@ -2,6 +2,7 @@
 
 import * as React from 'react'
 import { FileText, ExternalLink, DollarSign, User, Calendar } from 'lucide-react'
+import { useRouter } from 'next/navigation'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { cn } from '@open-mercato/shared/lib/utils'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
@@ -26,7 +27,11 @@ function formatTimeAgo(dateString: string, t: (key: string, fallback?: string) =
 
 function normalizeTotal(value?: string | null): string | null {
   if (!value) return null
-  return value.replace(/^[\s(]+|[)]+$/g, '').trim()
+  let trimmed = value.trim()
+  if (trimmed.startsWith('(') && trimmed.endsWith(')')) {
+    trimmed = trimmed.slice(1, -1).trim()
+  }
+  return trimmed.length ? trimmed : null
 }
 
 export function SalesQuoteCreatedRenderer({
@@ -35,10 +40,13 @@ export function SalesQuoteCreatedRenderer({
   onDismiss,
 }: NotificationRendererProps) {
   const t = useT()
+  const router = useRouter()
   const [executing, setExecuting] = React.useState(false)
   const isUnread = notification.status === 'unread'
   const quoteNumber = notification.bodyVariables?.quoteNumber ?? notification.titleVariables?.quoteNumber
-  const fallbackTotal = normalizeTotal(notification.bodyVariables?.totalAmount ?? notification.bodyVariables?.total ?? null)
+  const fallbackTotal =
+    normalizeTotal(notification.bodyVariables?.totalAmount ?? null) ??
+    normalizeTotal(notification.bodyVariables?.total ?? null)
   const { totals } = useSalesDocumentTotals('quote', notification.sourceEntityId)
 
   const currentTotal =
@@ -46,10 +54,16 @@ export function SalesQuoteCreatedRenderer({
       ? formatMoney(totals.grandTotalGrossAmount, totals.currencyCode)
       : fallbackTotal
 
+  const viewAction = actions.find((action) => action.id === 'view') ?? actions[0] ?? null
+
   const handleView = async () => {
+    if (!viewAction) {
+      if (notification.linkHref) router.push(notification.linkHref)
+      return
+    }
     setExecuting(true)
     try {
-      await onAction('view')
+      await onAction(viewAction.id)
     } finally {
       setExecuting(false)
     }
@@ -115,7 +129,7 @@ export function SalesQuoteCreatedRenderer({
                 e.stopPropagation()
                 handleView()
               }}
-              disabled={executing}
+              disabled={executing || (!viewAction && !notification.linkHref)}
               className="gap-1"
             >
               <ExternalLink className="h-3 w-3" />

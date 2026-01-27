@@ -51,7 +51,7 @@ const normalizeDeliveryConfig = (input?: unknown | null): NotificationDeliveryCo
     panelPath: value.panelPath ?? DEFAULT_NOTIFICATION_DELIVERY_CONFIG.panelPath,
     strategies: {
       database: {
-        enabled: strategies.database?.enabled ?? DEFAULT_NOTIFICATION_DELIVERY_CONFIG.strategies.database.enabled,
+        enabled: DEFAULT_NOTIFICATION_DELIVERY_CONFIG.strategies.database.enabled,
       },
       email: {
         enabled: strategies.email?.enabled ?? DEFAULT_NOTIFICATION_DELIVERY_CONFIG.strategies.email.enabled,
@@ -115,4 +115,3 @@ export function resolveNotificationPanelUrl(config: NotificationDeliveryConfig):
   }
   return `${base.replace(/\/$/, '')}${config.panelPath}`
 }
-

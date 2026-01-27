@@ -167,6 +167,7 @@ export function NotificationSettingsPageClient() {
             </div>
             <Switch
               checked={settings.strategies.database.enabled}
+              disabled
               onCheckedChange={(checked) => updateStrategy('database', { enabled: checked })}
             />
           </div>

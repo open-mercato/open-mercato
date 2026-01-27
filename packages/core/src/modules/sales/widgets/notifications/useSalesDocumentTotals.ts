@@ -20,7 +20,7 @@ type DocumentListResponse = {
 const REFRESH_INTERVAL_MS = 30000
 
 function buildDocumentTotalsUrl(kind: DocumentKind, documentId: string) {
-  const params = new URLSearchParams({ id: documentId, pageSize: '1' })
+  const params = new URLSearchParams({ id: documentId, page: '1', pageSize: '1' })
   const collection = kind === 'order' ? 'orders' : 'quotes'
   return `/api/sales/${collection}?${params.toString()}`
 }
@@ -28,9 +28,16 @@ function buildDocumentTotalsUrl(kind: DocumentKind, documentId: string) {
 function extractTotals(payload: DocumentListResponse | null): DocumentTotals | null {
   const item = payload?.items?.[0]
   if (!item) return null
+  const rawAmount = item.grandTotalGrossAmount
+  let grandTotalGrossAmount: number | null = null
+  if (typeof rawAmount === 'number') {
+    grandTotalGrossAmount = Number.isNaN(rawAmount) ? null : rawAmount
+  } else if (typeof rawAmount === 'string' && rawAmount.trim().length) {
+    const parsed = Number(rawAmount)
+    grandTotalGrossAmount = Number.isNaN(parsed) ? null : parsed
+  }
   return {
-    grandTotalGrossAmount:
-      typeof item.grandTotalGrossAmount === 'number' ? item.grandTotalGrossAmount : null,
+    grandTotalGrossAmount,
     currencyCode: typeof item.currencyCode === 'string' ? item.currencyCode : null,
   }
 }
@@ -47,10 +54,17 @@ export function useSalesDocumentTotals(kind: DocumentKind, documentId?: string |
     let active = true
 
     const loadTotals = async () => {
-      const call = await apiCall<DocumentListResponse>(buildDocumentTotalsUrl(kind, documentId))
-      if (active && call.ok) {
-        const nextTotals = extractTotals(call.result ?? null)
-        if (nextTotals) setTotals(nextTotals)
+      try {
+        const call = await apiCall<DocumentListResponse>(buildDocumentTotalsUrl(kind, documentId))
+        if (!active) return
+        if (call.ok) {
+          const nextTotals = extractTotals(call.result ?? null)
+          setTotals(nextTotals)
+        }
+      } catch {
+        if (active) {
+          setTotals(null)
+        }
       }
     }
 
