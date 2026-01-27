@@ -2,18 +2,19 @@
  * @jest-environment node
  */
 import {
-  isValidGranularity,
-  isValidAggregate,
-  isValidEntityType,
-  getEntityTypeConfig,
-  getFieldMapping,
   buildAggregateExpression,
   buildDateTruncExpression,
   buildJsonbFieldExpression,
   buildAggregationQuery,
-  ENTITY_TYPE_CONFIG,
-  FIELD_MAPPINGS,
+  isValidGranularity,
+  isValidAggregate,
 } from '../aggregations'
+import { createAnalyticsRegistry } from '../../services/analyticsRegistry'
+import { analyticsConfig as salesAnalyticsConfig } from '../../../sales/analytics'
+import { analyticsConfig as customersAnalyticsConfig } from '../../../customers/analytics'
+import { analyticsConfig as catalogAnalyticsConfig } from '../../../catalog/analytics'
+
+const testRegistry = createAnalyticsRegistry([salesAnalyticsConfig, customersAnalyticsConfig, catalogAnalyticsConfig])
 
 describe('aggregations', () => {
   describe('isValidGranularity', () => {
@@ -51,49 +52,49 @@ describe('aggregations', () => {
     })
   })
 
-  describe('isValidEntityType', () => {
+  describe('isValidEntityType (via registry)', () => {
     it('returns true for valid entity types', () => {
-      expect(isValidEntityType('sales:orders')).toBe(true)
-      expect(isValidEntityType('sales:order_lines')).toBe(true)
-      expect(isValidEntityType('customers:entities')).toBe(true)
-      expect(isValidEntityType('customers:deals')).toBe(true)
-      expect(isValidEntityType('catalog:products')).toBe(true)
+      expect(testRegistry.isValidEntityType('sales:orders')).toBe(true)
+      expect(testRegistry.isValidEntityType('sales:order_lines')).toBe(true)
+      expect(testRegistry.isValidEntityType('customers:entities')).toBe(true)
+      expect(testRegistry.isValidEntityType('customers:deals')).toBe(true)
+      expect(testRegistry.isValidEntityType('catalog:products')).toBe(true)
     })
 
     it('returns false for invalid entity types', () => {
-      expect(isValidEntityType('invalid')).toBe(false)
-      expect(isValidEntityType('sales:invalid')).toBe(false)
-      expect(isValidEntityType('')).toBe(false)
+      expect(testRegistry.isValidEntityType('invalid')).toBe(false)
+      expect(testRegistry.isValidEntityType('sales:invalid')).toBe(false)
+      expect(testRegistry.isValidEntityType('')).toBe(false)
     })
   })
 
-  describe('getEntityTypeConfig', () => {
+  describe('getEntityTypeConfig (via registry)', () => {
     it('returns config for valid entity types', () => {
-      const config = getEntityTypeConfig('sales:orders')
+      const config = testRegistry.getEntityTypeConfig('sales:orders')
       expect(config).not.toBeNull()
       expect(config?.tableName).toBe('sales_orders')
       expect(config?.dateField).toBe('placed_at')
     })
 
     it('returns null for invalid entity types', () => {
-      expect(getEntityTypeConfig('invalid')).toBeNull()
+      expect(testRegistry.getEntityTypeConfig('invalid')).toBeNull()
     })
   })
 
-  describe('getFieldMapping', () => {
+  describe('getFieldMapping (via registry)', () => {
     it('returns mapping for valid fields', () => {
-      const mapping = getFieldMapping('sales:orders', 'grandTotalGrossAmount')
+      const mapping = testRegistry.getFieldMapping('sales:orders', 'grandTotalGrossAmount')
       expect(mapping).not.toBeNull()
       expect(mapping?.dbColumn).toBe('grand_total_gross_amount')
       expect(mapping?.type).toBe('numeric')
     })
 
     it('returns null for invalid fields', () => {
-      expect(getFieldMapping('sales:orders', 'invalidField')).toBeNull()
+      expect(testRegistry.getFieldMapping('sales:orders', 'invalidField')).toBeNull()
     })
 
     it('returns null for invalid entity types', () => {
-      expect(getFieldMapping('invalid', 'grandTotalGrossAmount')).toBeNull()
+      expect(testRegistry.getFieldMapping('invalid', 'grandTotalGrossAmount')).toBeNull()
     })
   })
 
@@ -165,6 +166,7 @@ describe('aggregations', () => {
       entityType: 'sales:orders',
       metric: { field: 'grandTotalGrossAmount', aggregate: 'sum' as const },
       scope: { tenantId: 'tenant-123' },
+      registry: testRegistry,
     }
 
     it('builds basic aggregation query', () => {
@@ -279,36 +281,43 @@ describe('aggregations', () => {
     })
   })
 
-  describe('ENTITY_TYPE_CONFIG', () => {
+  describe('entity type configs (via registry)', () => {
     it('has all expected entity types', () => {
-      expect(Object.keys(ENTITY_TYPE_CONFIG)).toEqual([
-        'sales:orders',
-        'sales:order_lines',
-        'customers:entities',
-        'customers:deals',
-        'catalog:products',
-      ])
+      const entityIds = testRegistry.getAllEntityConfigs().map((c) => c.entityId)
+      expect(entityIds).toEqual(
+        expect.arrayContaining([
+          'sales:orders',
+          'sales:order_lines',
+          'customers:entities',
+          'customers:deals',
+          'catalog:products',
+        ]),
+      )
+      expect(entityIds).toHaveLength(5)
     })
 
     it('each config has required fields', () => {
-      Object.values(ENTITY_TYPE_CONFIG).forEach((config) => {
-        expect(config.tableName).toBeDefined()
-        expect(config.dateField).toBeDefined()
-        expect(config.defaultScopeFields).toBeDefined()
-        expect(Array.isArray(config.defaultScopeFields)).toBe(true)
+      testRegistry.getAllEntityConfigs().forEach((entityConfig) => {
+        expect(entityConfig.entityConfig.tableName).toBeDefined()
+        expect(entityConfig.entityConfig.dateField).toBeDefined()
+        expect(entityConfig.entityConfig.defaultScopeFields).toBeDefined()
+        expect(Array.isArray(entityConfig.entityConfig.defaultScopeFields)).toBe(true)
       })
     })
   })
 
-  describe('FIELD_MAPPINGS', () => {
+  describe('field mappings (via registry)', () => {
     it('has mappings for all entity types', () => {
-      Object.keys(ENTITY_TYPE_CONFIG).forEach((entityType) => {
-        expect(FIELD_MAPPINGS[entityType]).toBeDefined()
+      testRegistry.getAllEntityConfigs().forEach((entityConfig) => {
+        const mappings = testRegistry.getAllFieldMappings(entityConfig.entityId)
+        expect(mappings).toBeDefined()
       })
     })
 
     it('sales:orders has expected fields', () => {
-      const fields = Object.keys(FIELD_MAPPINGS['sales:orders'])
+      const mappings = testRegistry.getAllFieldMappings('sales:orders')
+      expect(mappings).not.toBeNull()
+      const fields = Object.keys(mappings!)
       expect(fields).toContain('id')
       expect(fields).toContain('grandTotalGrossAmount')
       expect(fields).toContain('status')

@@ -86,14 +86,9 @@ describe('dateRanges', () => {
 
     it('resolves "last_7_days" to 7 day range ending today', () => {
       const range = resolveDateRange('last_7_days', referenceDate)
-      const startDay = range.start.getDate()
-      const endDay = range.end.getDate()
-      const startMonth = range.start.getMonth()
-      const endMonth = range.end.getMonth()
-      // Start should be 6 days before reference (for 7 days inclusive)
       expect(range.start.getHours()).toBe(0)
       expect(range.end.getHours()).toBe(23)
-      expect(endMonth).toBe(referenceDate.getMonth())
+      expect(range.end.getMonth()).toBe(referenceDate.getMonth())
     })
 
     it('resolves "last_30_days" to 30 day range ending today', () => {
