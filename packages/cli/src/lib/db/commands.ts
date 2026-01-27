@@ -106,25 +106,9 @@ async function loadModuleEntities(entry: ModuleEntry, resolver: PackageResolver)
 }
 
 function getMigrationsPath(entry: ModuleEntry, resolver: PackageResolver): string {
-  const from = entry.from || '@open-mercato/core'
-  let pkgModRoot: string
-
-  if (from === '@open-mercato/core') {
-    pkgModRoot = path.join(resolver.getRootDir(), 'packages/core/src/modules', entry.id)
-  } else if (/^@open-mercato\//.test(from)) {
-    const segs = from.split('/')
-    if (segs.length > 1 && segs[1]) {
-      pkgModRoot = path.join(resolver.getRootDir(), `packages/${segs[1]}/src/modules`, entry.id)
-    } else {
-      pkgModRoot = path.join(resolver.getRootDir(), 'packages/core/src/modules', entry.id)
-    }
-  } else if (from === '@app') {
-    // For @app modules, use the app directory not the monorepo root
-    pkgModRoot = path.join(resolver.getAppDir(), 'src/modules', entry.id)
-  } else {
-    pkgModRoot = path.join(resolver.getRootDir(), 'packages/core/src/modules', entry.id)
-  }
-
+  const roots = resolver.getModulePaths(entry)
+  // For @app modules, use appBase (user's source); for packages, use pkgBase
+  const pkgModRoot = entry.from === '@app' ? roots.appBase : roots.pkgBase
   return path.join(pkgModRoot, 'migrations')
 }
 
