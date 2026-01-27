@@ -199,7 +199,7 @@ export async function generateEntityIds(options: EntityIdsOptions): Promise<Gene
     }
 
     // No entities file found -> still register module id
-    if (!importPath) {
+    if (!filePath) {
       modulesDict[modId] = modId
       groupedModulesDict[group] = groupedModulesDict[group] || {}
       groupedModulesDict[group][modId] = modId
