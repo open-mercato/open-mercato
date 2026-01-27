@@ -13,17 +13,13 @@ echo "==> Setting version to ${CANARY_VERSION}..."
 yarn workspaces foreach -A --no-private version "$CANARY_VERSION"
 echo "==> Version set successfully"
 
-echo "==> Building packages..."
-yarn build:packages
-echo "==> Build completed"
-
 echo "==> Generating..."
 yarn generate
 echo "==> Generate completed"
 
-echo "==> Rebuilding packages..."
+echo "==> Building packages..."
 yarn build:packages
-echo "==> Rebuild completed"
+echo "==> Build completed"
 
 echo "==> Publishing packages..."
 yarn workspaces foreach -A --no-private npm publish --access public

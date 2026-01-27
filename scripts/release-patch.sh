@@ -5,13 +5,10 @@ set -euo pipefail
 echo "==> Bumping patch version..."
 yarn workspaces foreach -A --no-private version patch
 
-echo "==> Building packages..."
-yarn build:packages
-
 echo "==> Generating..."
 yarn generate
 
-echo "==> Rebuilding packages..."
+echo "==> Building packages..."
 yarn build:packages
 
 echo "==> Publishing with @latest tag..."

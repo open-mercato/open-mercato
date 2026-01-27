@@ -27,13 +27,10 @@ jobs:
       - name: Install dependencies
         run: yarn install --immutable
 
-      - name: Building packages
-        run: yarn build:packages
-
       - name: Prepare generated modules
         run: yarn generate
 
-      - name: Rebuild packages with generated files
+      - name: Build packages
         run: yarn build:packages
 
       - name: Checking types
