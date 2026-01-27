@@ -5,7 +5,11 @@ import type { CacheStrategy } from '@open-mercato/cache'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/directory/utils/organizationScope'
-import { createWidgetDataService, type WidgetDataRequest } from '../../../services/widgetDataService'
+import {
+  createWidgetDataService,
+  type WidgetDataRequest,
+  WidgetDataValidationError,
+} from '../../../services/widgetDataService'
 import type { AnalyticsRegistry } from '../../../services/analyticsRegistry'
 import type { OpenApiMethodDoc, OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { dashboardsTag, dashboardsErrorSchema } from '../../openapi'
@@ -173,6 +177,9 @@ export async function POST(req: Request) {
     return NextResponse.json(result)
   } catch (err) {
     console.error('[widgets/data] Error:', err)
+    if (err instanceof WidgetDataValidationError) {
+      return NextResponse.json({ error: err.message }, { status: 400 })
+    }
     return NextResponse.json(
       { error: 'An error occurred while processing your request' },
       { status: 500 },

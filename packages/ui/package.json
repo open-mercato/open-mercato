@@ -91,7 +91,8 @@
     "@open-mercato/shared": "workspace:*",
     "@radix-ui/react-tooltip": "^1.2.8",
     "date-fns": "^4.1.0",
-    "react-big-calendar": "^1.19.4"
+    "react-big-calendar": "^1.19.4",
+    "recharts": "^2.15.0"
   },
   "peerDependencies": {
     "react": ">=18.0.0",

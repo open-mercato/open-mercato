@@ -20,6 +20,13 @@ const WIDGET_DATA_CACHE_TTL = 120_000
 
 const SAFE_IDENTIFIER_PATTERN = /^[a-zA-Z_][a-zA-Z0-9_]*$/
 
+export class WidgetDataValidationError extends Error {
+  constructor(message: string) {
+    super(message)
+    this.name = 'WidgetDataValidationError'
+  }
+}
+
 function assertSafeIdentifier(value: string, name: string): void {
   if (!SAFE_IDENTIFIER_PATTERN.test(value)) {
     throw new Error(`Invalid ${name}: ${value}`)
@@ -170,25 +177,27 @@ export class WidgetDataService {
 
   private validateRequest(request: WidgetDataRequest): void {
     if (!this.registry.isValidEntityType(request.entityType)) {
-      throw new Error(`Invalid entity type: ${request.entityType}`)
+      throw new WidgetDataValidationError(`Invalid entity type: ${request.entityType}`)
     }
 
     if (!request.metric?.field || !request.metric?.aggregate) {
-      throw new Error('Metric field and aggregate are required')
+      throw new WidgetDataValidationError('Metric field and aggregate are required')
     }
 
     const metricMapping = this.registry.getFieldMapping(request.entityType, request.metric.field)
     if (!metricMapping) {
-      throw new Error(`Invalid metric field: ${request.metric.field} for entity type: ${request.entityType}`)
+      throw new WidgetDataValidationError(
+        `Invalid metric field: ${request.metric.field} for entity type: ${request.entityType}`
+      )
     }
 
     const validAggregates: AggregateFunction[] = ['count', 'sum', 'avg', 'min', 'max']
     if (!validAggregates.includes(request.metric.aggregate)) {
-      throw new Error(`Invalid aggregate function: ${request.metric.aggregate}`)
+      throw new WidgetDataValidationError(`Invalid aggregate function: ${request.metric.aggregate}`)
     }
 
     if (request.dateRange && !isValidDateRangePreset(request.dateRange.preset)) {
-      throw new Error(`Invalid date range preset: ${request.dateRange.preset}`)
+      throw new WidgetDataValidationError(`Invalid date range preset: ${request.dateRange.preset}`)
     }
 
     if (request.groupBy) {
@@ -197,7 +206,7 @@ export class WidgetDataService {
         const [baseField] = request.groupBy.field.split('.')
         const baseMapping = this.registry.getFieldMapping(request.entityType, baseField)
         if (!baseMapping || baseMapping.type !== 'jsonb') {
-          throw new Error(`Invalid groupBy field: ${request.groupBy.field}`)
+          throw new WidgetDataValidationError(`Invalid groupBy field: ${request.groupBy.field}`)
         }
       }
     }
@@ -273,9 +282,17 @@ export class WidgetDataService {
     assertSafeIdentifier(config.idColumn, 'id column')
     assertSafeIdentifier(config.labelColumn, 'label column')
 
-    const sql = `SELECT "${config.idColumn}" as id, "${config.labelColumn}" as label FROM "${config.table}" WHERE "${config.idColumn}" = ANY(?::uuid[]) AND tenant_id = ?`
-    const pgArray = `{${uniqueIds.join(',')}}`
-    const params = [pgArray, this.scope.tenantId]
+    const clauses = [`"${config.idColumn}" = ANY(?::uuid[])`, 'tenant_id = ?']
+    const params: unknown[] = [`{${uniqueIds.join(',')}}`, this.scope.tenantId]
+
+    if (this.scope.organizationIds && this.scope.organizationIds.length > 0) {
+      clauses.push('organization_id = ANY(?::uuid[])')
+      params.push(`{${this.scope.organizationIds.join(',')}}`)
+    }
+
+    const sql = `SELECT "${config.idColumn}" as id, "${config.labelColumn}" as label FROM "${config.table}" WHERE ${clauses.join(
+      ' AND ',
+    )}`
 
     try {
       const labelRows = await this.em.getConnection().execute(sql, params)
