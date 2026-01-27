@@ -3,6 +3,7 @@
   "search.config.nav.hybridSearch": "Configuración de búsqueda",
   "search.config.nav.embeddings": "Embeddings",
   "search.messages.missingConfig": "La búsqueda requiere configurar un proveedor de embeddings para la búsqueda semántica.",
+  "search.dialog.title": "Búsqueda Global",
   "search.dialog.actions.search": "Buscar",
   "search.dialog.actions.openGlobalSearch": "Abrir búsqueda global",
   "search.dialog.actions.cancel": "Cancelar (Esc)",
