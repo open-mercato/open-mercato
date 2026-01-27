@@ -5,13 +5,16 @@ import { Button } from '../../primitives/button'
 import { cn } from '@open-mercato/shared/lib/utils'
 import { useNotificationsPoll } from './useNotificationsPoll'
 import { NotificationPanel } from './NotificationPanel'
+import type { TranslateFn } from '@open-mercato/shared/lib/i18n/context'
+import type { NotificationRenderers } from './NotificationPanel'
 
 export type NotificationBellProps = {
   className?: string
-  t: (key: string, fallback?: string) => string
+  t: TranslateFn
+  customRenderers?: NotificationRenderers
 }
 
-export function NotificationBell({ className, t }: NotificationBellProps) {
+export function NotificationBell({ className, t, customRenderers }: NotificationBellProps) {
   const [panelOpen, setPanelOpen] = React.useState(false)
   const {
     unreadCount,
@@ -35,10 +38,7 @@ export function NotificationBell({ className, t }: NotificationBellProps) {
   }, [unreadCount, hasNew])
 
   const ariaLabel = unreadCount > 0
-    ? t('notifications.badge.unread', '{count} unread notifications').replace(
-        '{count}',
-        String(unreadCount)
-      )
+    ? t('notifications.badge.unread', '{count} unread notifications', { count: unreadCount })
     : t('notifications.title', 'Notifications')
 
   return (
@@ -68,6 +68,7 @@ export function NotificationBell({ className, t }: NotificationBellProps) {
         onDismiss={dismiss}
         onMarkAllRead={markAllRead}
         t={t}
+        customRenderers={customRenderers}
       />
     </>
   )

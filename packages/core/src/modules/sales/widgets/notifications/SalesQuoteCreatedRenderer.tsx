@@ -24,14 +24,9 @@ function formatTimeAgo(dateString: string, t: (key: string, fallback?: string) =
   return date.toLocaleDateString()
 }
 
-function parseQuoteDetails(body?: string | null): { quoteNumber?: string; total?: string } {
-  if (!body) return {}
-  const quoteMatch = body.match(/quote\s+([A-Z0-9\-\/]+)/i)
-  const totalMatch = body.match(/\(([^)]+)\)/)
-  return {
-    quoteNumber: quoteMatch?.[1],
-    total: totalMatch?.[1],
-  }
+function normalizeTotal(value?: string | null): string | null {
+  if (!value) return null
+  return value.replace(/^[\s(]+|[)]+$/g, '').trim()
 }
 
 export function SalesQuoteCreatedRenderer({
@@ -42,13 +37,14 @@ export function SalesQuoteCreatedRenderer({
   const t = useT()
   const [executing, setExecuting] = React.useState(false)
   const isUnread = notification.status === 'unread'
-  const details = parseQuoteDetails(notification.body)
+  const quoteNumber = notification.bodyVariables?.quoteNumber ?? notification.titleVariables?.quoteNumber
+  const fallbackTotal = normalizeTotal(notification.bodyVariables?.totalAmount ?? notification.bodyVariables?.total ?? null)
   const { totals } = useSalesDocumentTotals('quote', notification.sourceEntityId)
 
   const currentTotal =
     totals && typeof totals.grandTotalGrossAmount === 'number'
       ? formatMoney(totals.grandTotalGrossAmount, totals.currencyCode)
-      : details.total ?? null
+      : fallbackTotal
 
   const handleView = async () => {
     setExecuting(true)
@@ -84,10 +80,10 @@ export function SalesQuoteCreatedRenderer({
               <h4 className={cn('text-sm font-medium', isUnread && 'font-semibold')}>
                 {notification.title}
               </h4>
-              {details.quoteNumber && (
+              {quoteNumber && (
                 <div className="flex items-center gap-1 mt-0.5">
                   <span className="text-xs font-mono text-muted-foreground bg-muted px-1.5 py-0.5 rounded">
-                    #{details.quoteNumber}
+                    #{quoteNumber}
                   </span>
                 </div>
               )}

@@ -5,6 +5,7 @@ import { Button } from '../../primitives/button'
 import { Tabs, TabsList, TabsTrigger } from '../../primitives/tabs'
 import { NotificationItem } from './NotificationItem'
 import type { NotificationDto, NotificationRendererProps } from '@open-mercato/shared/modules/notifications/types'
+import type { TranslateFn } from '@open-mercato/shared/lib/i18n/context'
 import type { ComponentType } from 'react'
 
 /**
@@ -30,7 +31,7 @@ export type NotificationPanelProps = {
   onExecuteAction: (id: string, actionId: string) => Promise<{ href?: string }>
   onDismiss: (id: string) => Promise<void>
   onMarkAllRead: () => Promise<void>
-  t: (key: string, fallback?: string) => string
+  t: TranslateFn
   /**
    * Optional map of notification type to custom renderer component.
    * When a notification's type matches a key in this map, the corresponding

@@ -135,9 +135,35 @@ export const executeActionSchema = z.object({
   payload: z.record(z.string(), z.unknown()).optional(),
 })
 
+const notificationDeliveryStrategySchema = z.object({
+  enabled: z.boolean().optional(),
+})
+
+const notificationDeliveryEmailSchema = notificationDeliveryStrategySchema.extend({
+  from: z.string().trim().min(1).optional(),
+  replyTo: z.string().trim().min(1).optional(),
+  subjectPrefix: z.string().trim().min(1).optional(),
+})
+
+const notificationDeliverySmsSchema = notificationDeliveryStrategySchema.extend({
+  webhookUrl: z.string().url().optional(),
+  from: z.string().trim().min(1).optional(),
+})
+
+export const notificationDeliveryConfigSchema = z.object({
+  appUrl: z.string().url().optional(),
+  panelPath: safeRelativeHrefSchema.optional(),
+  strategies: z.object({
+    database: notificationDeliveryStrategySchema.optional(),
+    email: notificationDeliveryEmailSchema.optional(),
+    sms: notificationDeliverySmsSchema.optional(),
+  }).optional(),
+})
+
 export type CreateNotificationInput = z.infer<typeof createNotificationSchema>
 export type CreateBatchNotificationInput = z.infer<typeof createBatchNotificationSchema>
 export type CreateRoleNotificationInput = z.infer<typeof createRoleNotificationSchema>
 export type CreateFeatureNotificationInput = z.infer<typeof createFeatureNotificationSchema>
 export type ListNotificationsInput = z.infer<typeof listNotificationsSchema>
 export type ExecuteActionInput = z.infer<typeof executeActionSchema>
+export type NotificationDeliveryConfigInput = z.infer<typeof notificationDeliveryConfigSchema>

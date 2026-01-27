@@ -1,10 +1,12 @@
-import type { EntityManager } from '@mikro-orm/postgresql'
+import type { EntityManager } from '@mikro-orm/core'
 import type { Knex } from 'knex'
 import { Notification } from '../data/entities'
 import type { CreateNotificationInput, CreateBatchNotificationInput, CreateRoleNotificationInput, CreateFeatureNotificationInput, ExecuteActionInput } from '../data/validators'
-import type { NotificationDto, NotificationPollData } from '@open-mercato/shared/modules/notifications/types'
+import type { NotificationPollData } from '@open-mercato/shared/modules/notifications/types'
 import { NOTIFICATION_EVENTS } from './events'
-import { assertSafeNotificationHref, sanitizeNotificationActions } from './safeHref'
+import { buildNotificationEntity, emitNotificationCreated, emitNotificationCreatedBatch } from './notificationFactory'
+import { toNotificationDto } from './notificationMapper'
+import { getRecipientUserIdsForFeature, getRecipientUserIdsForRole } from './notificationRecipients'
 
 const DEBUG = process.env.NOTIFICATIONS_DEBUG === 'true'
 
@@ -16,29 +18,6 @@ function debug(...args: unknown[]): void {
 
 function getKnex(em: EntityManager): Knex {
   return em.getConnection().getKnex()
-}
-
-/**
- * Check if a user has a specific feature based on their features list
- * Supports wildcard matching (e.g., "staff.*" matches "staff.leave_requests.accept")
- */
-function hasFeature(features: string[], requiredFeature: string): boolean {
-  for (const feature of features) {
-    // Exact match
-    if (feature === requiredFeature) {
-      return true
-    }
-
-    // Wildcard match (e.g., "staff.*" matches "staff.leave_requests.accept")
-    if (feature.endsWith('.*')) {
-      const prefix = feature.slice(0, -2)
-      if (requiredFeature.startsWith(prefix + '.')) {
-        return true
-      }
-    }
-  }
-
-  return false
 }
 
 export interface NotificationServiceContext {
@@ -82,192 +61,59 @@ export interface NotificationServiceDeps {
   container?: { resolve: (name: string) => unknown }
 }
 
-function toDto(notification: Notification): NotificationDto {
-  return {
-    id: notification.id,
-    type: notification.type,
-    title: notification.title,
-    body: notification.body,
-    icon: notification.icon,
-    severity: notification.severity,
-    status: notification.status,
-    actions: notification.actionData?.actions?.map((action) => ({
-      id: action.id,
-      label: action.label,
-      variant: action.variant,
-      icon: action.icon,
-    })) ?? [],
-    primaryActionId: notification.actionData?.primaryActionId,
-    sourceModule: notification.sourceModule,
-    sourceEntityType: notification.sourceEntityType,
-    sourceEntityId: notification.sourceEntityId,
-    linkHref: notification.linkHref,
-    createdAt: notification.createdAt.toISOString(),
-    readAt: notification.readAt?.toISOString() ?? null,
-    actionTaken: notification.actionTaken,
-  }
-}
-
 export function createNotificationService(deps: NotificationServiceDeps): NotificationService {
   const { em: rootEm, eventBus, commandBus, container } = deps
 
   return {
     async create(input, ctx) {
       const em = rootEm.fork()
-      const actions = sanitizeNotificationActions(input.actions)
-      const linkHref = assertSafeNotificationHref(input.linkHref)
-      const notification = em.create(Notification, {
-        recipientUserId: input.recipientUserId,
-        type: input.type,
-        // i18n-first: store keys and variables for translation at display time
-        titleKey: input.titleKey,
-        bodyKey: input.bodyKey,
-        titleVariables: input.titleVariables,
-        bodyVariables: input.bodyVariables,
-        // Fallback text (required for backward compatibility)
-        title: input.title || input.titleKey || '',
-        body: input.body,
-        icon: input.icon,
-        severity: input.severity ?? 'info',
-        actionData: actions ? {
-          actions,
-          primaryActionId: input.primaryActionId,
-        } : null,
-        sourceModule: input.sourceModule,
-        sourceEntityType: input.sourceEntityType,
-        sourceEntityId: input.sourceEntityId,
-        linkHref,
-        groupKey: input.groupKey,
-        expiresAt: input.expiresAt ? new Date(input.expiresAt) : null,
-        tenantId: ctx.tenantId,
-        organizationId: ctx.organizationId,
-      })
+      const { recipientUserId, ...content } = input
+      const notification = buildNotificationEntity(em, content, recipientUserId, ctx)
 
       await em.persistAndFlush(notification)
 
-      await eventBus.emit(NOTIFICATION_EVENTS.CREATED, {
-        notificationId: notification.id,
-        recipientUserId: notification.recipientUserId,
-        type: notification.type,
-        title: notification.title,
-        tenantId: ctx.tenantId,
-        organizationId: ctx.organizationId,
-      })
+      await emitNotificationCreated(eventBus, notification, ctx)
 
       return notification
     },
 
     async createBatch(input, ctx) {
       const em = rootEm.fork()
-      const actions = sanitizeNotificationActions(input.actions)
-      const linkHref = assertSafeNotificationHref(input.linkHref)
+      const { recipientUserIds, ...content } = input
       const notifications: Notification[] = []
 
-      for (const recipientUserId of input.recipientUserIds) {
-        const notification = em.create(Notification, {
-          recipientUserId,
-          type: input.type,
-          titleKey: input.titleKey,
-          bodyKey: input.bodyKey,
-          titleVariables: input.titleVariables,
-          bodyVariables: input.bodyVariables,
-          title: input.title || input.titleKey || '',
-          body: input.body,
-          icon: input.icon,
-          severity: input.severity ?? 'info',
-          actionData: actions ? {
-            actions,
-            primaryActionId: input.primaryActionId,
-          } : null,
-          sourceModule: input.sourceModule,
-          sourceEntityType: input.sourceEntityType,
-          sourceEntityId: input.sourceEntityId,
-          linkHref,
-          groupKey: input.groupKey,
-          expiresAt: input.expiresAt ? new Date(input.expiresAt) : null,
-          tenantId: ctx.tenantId,
-          organizationId: ctx.organizationId,
-        })
+      for (const recipientUserId of recipientUserIds) {
+        const notification = buildNotificationEntity(em, content, recipientUserId, ctx)
         notifications.push(notification)
       }
 
       await em.persistAndFlush(notifications)
 
-      for (const notification of notifications) {
-        await eventBus.emit(NOTIFICATION_EVENTS.CREATED, {
-          notificationId: notification.id,
-          recipientUserId: notification.recipientUserId,
-          type: notification.type,
-          title: notification.title,
-          tenantId: ctx.tenantId,
-          organizationId: ctx.organizationId,
-        })
-      }
+      await emitNotificationCreatedBatch(eventBus, notifications, ctx)
 
       return notifications
     },
 
     async createForRole(input, ctx) {
       const em = rootEm.fork()
-      const actions = sanitizeNotificationActions(input.actions)
-      const linkHref = assertSafeNotificationHref(input.linkHref)
 
       const knex = getKnex(em)
-      const userRoles = await knex('user_roles')
-        .join('users', 'user_roles.user_id', 'users.id')
-        .where('user_roles.role_id', input.roleId)
-        .whereNull('user_roles.deleted_at')
-        .whereNull('users.deleted_at')
-        .where('users.tenant_id', ctx.tenantId)
-        .select('users.id as user_id')
-
-      if (userRoles.length === 0) {
+      const recipientUserIds = await getRecipientUserIdsForRole(knex, ctx.tenantId, input.roleId)
+      if (recipientUserIds.length === 0) {
         return []
       }
 
-      const recipientUserIds = userRoles.map((row: { user_id: string }) => row.user_id)
+      const { roleId: _roleId, ...content } = input
       const notifications: Notification[] = []
 
       for (const recipientUserId of recipientUserIds) {
-        const notification = em.create(Notification, {
-          recipientUserId,
-          type: input.type,
-          titleKey: input.titleKey,
-          bodyKey: input.bodyKey,
-          titleVariables: input.titleVariables,
-          bodyVariables: input.bodyVariables,
-          title: input.title || input.titleKey || '',
-          body: input.body,
-          icon: input.icon,
-          severity: input.severity ?? 'info',
-          actionData: actions ? {
-            actions,
-            primaryActionId: input.primaryActionId,
-          } : null,
-          sourceModule: input.sourceModule,
-          sourceEntityType: input.sourceEntityType,
-          sourceEntityId: input.sourceEntityId,
-          linkHref,
-          groupKey: input.groupKey,
-          expiresAt: input.expiresAt ? new Date(input.expiresAt) : null,
-          tenantId: ctx.tenantId,
-          organizationId: ctx.organizationId,
-        })
+        const notification = buildNotificationEntity(em, content, recipientUserId, ctx)
         notifications.push(notification)
       }
 
       await em.persistAndFlush(notifications)
 
-      for (const notification of notifications) {
-        await eventBus.emit(NOTIFICATION_EVENTS.CREATED, {
-          notificationId: notification.id,
-          recipientUserId: notification.recipientUserId,
-          type: notification.type,
-          title: notification.title,
-          tenantId: ctx.tenantId,
-          organizationId: ctx.organizationId,
-        })
-      }
+      await emitNotificationCreatedBatch(eventBus, notifications, ctx)
 
       return notifications
     },
@@ -275,56 +121,7 @@ export function createNotificationService(deps: NotificationServiceDeps): Notifi
     async createForFeature(input, ctx) {
       const em = rootEm.fork()
       const knex = getKnex(em)
-      const actions = sanitizeNotificationActions(input.actions)
-      const linkHref = assertSafeNotificationHref(input.linkHref)
-
-      // Find all users with the required feature
-      // This includes:
-      // 1. Users with direct user ACL granting the feature or is_super_admin
-      // 2. Users with roles that have the feature or is_super_admin
-      const userIdsSet = new Set<string>()
-
-      // Query 1: Users with direct user ACL
-      const userAcls = await knex('user_acls')
-        .join('users', 'user_acls.user_id', 'users.id')
-        .where('user_acls.tenant_id', ctx.tenantId)
-        .whereNull('user_acls.deleted_at')
-        .whereNull('users.deleted_at')
-        .where('users.tenant_id', ctx.tenantId)
-        .select('users.id as user_id', 'user_acls.features_json', 'user_acls.is_super_admin')
-
-      for (const row of userAcls) {
-        if (row.is_super_admin) {
-          userIdsSet.add(row.user_id)
-        } else if (row.features_json && Array.isArray(row.features_json)) {
-          if (hasFeature(row.features_json, input.requiredFeature)) {
-            userIdsSet.add(row.user_id)
-          }
-        }
-      }
-
-      // Query 2: Users with role ACL
-      const roleAcls = await knex('role_acls')
-        .join('user_roles', 'role_acls.role_id', 'user_roles.role_id')
-        .join('users', 'user_roles.user_id', 'users.id')
-        .where('role_acls.tenant_id', ctx.tenantId)
-        .whereNull('role_acls.deleted_at')
-        .whereNull('user_roles.deleted_at')
-        .whereNull('users.deleted_at')
-        .where('users.tenant_id', ctx.tenantId)
-        .select('users.id as user_id', 'role_acls.features_json', 'role_acls.is_super_admin')
-
-      for (const row of roleAcls) {
-        if (row.is_super_admin) {
-          userIdsSet.add(row.user_id)
-        } else if (row.features_json && Array.isArray(row.features_json)) {
-          if (hasFeature(row.features_json, input.requiredFeature)) {
-            userIdsSet.add(row.user_id)
-          }
-        }
-      }
-
-      const recipientUserIds = Array.from(userIdsSet)
+      const recipientUserIds = await getRecipientUserIdsForFeature(knex, ctx.tenantId, input.requiredFeature)
 
       if (recipientUserIds.length === 0) {
         debug('No users found with feature:', input.requiredFeature, 'in tenant:', ctx.tenantId)
@@ -333,48 +130,17 @@ export function createNotificationService(deps: NotificationServiceDeps): Notifi
 
       debug('Creating notifications for', recipientUserIds.length, 'user(s) with feature:', input.requiredFeature)
 
+      const { requiredFeature: _requiredFeature, ...content } = input
       const notifications: Notification[] = []
 
       for (const recipientUserId of recipientUserIds) {
-        const notification = em.create(Notification, {
-          recipientUserId,
-          type: input.type,
-          titleKey: input.titleKey,
-          bodyKey: input.bodyKey,
-          titleVariables: input.titleVariables,
-          bodyVariables: input.bodyVariables,
-          title: input.title || input.titleKey || '',
-          body: input.body,
-          icon: input.icon,
-          severity: input.severity ?? 'info',
-          actionData: actions ? {
-            actions,
-            primaryActionId: input.primaryActionId,
-          } : null,
-          sourceModule: input.sourceModule,
-          sourceEntityType: input.sourceEntityType,
-          sourceEntityId: input.sourceEntityId,
-          linkHref,
-          groupKey: input.groupKey,
-          expiresAt: input.expiresAt ? new Date(input.expiresAt) : null,
-          tenantId: ctx.tenantId,
-          organizationId: ctx.organizationId,
-        })
+        const notification = buildNotificationEntity(em, content, recipientUserId, ctx)
         notifications.push(notification)
       }
 
       await em.persistAndFlush(notifications)
 
-      for (const notification of notifications) {
-        await eventBus.emit(NOTIFICATION_EVENTS.CREATED, {
-          notificationId: notification.id,
-          recipientUserId: notification.recipientUserId,
-          type: notification.type,
-          title: notification.title,
-          tenantId: ctx.tenantId,
-          organizationId: ctx.organizationId,
-        })
-      }
+      await emitNotificationCreatedBatch(eventBus, notifications, ctx)
 
       return notifications
     },
@@ -543,7 +309,7 @@ export function createNotificationService(deps: NotificationServiceDeps): Notifi
         }),
       ])
 
-      const recent = notifications.map(toDto)
+      const recent = notifications.map(toNotificationDto)
       const hasNew = since ? recent.length > 0 : false
 
       return {

@@ -2360,7 +2360,47 @@ async createForFeature(input, ctx) {
 
 ---
 
+## Delivery Strategies
+
+Notifications can be delivered through multiple strategies at the same time. The **database strategy** (in-app panel) remains the default, while optional **email** and **SMS webhook** strategies can be enabled in parallel.
+
+### Module Config (Global)
+
+Settings are stored in the module config service under:
+
+- `moduleId`: `notifications`
+- `name`: `delivery_strategies`
+
+```json
+{
+  "appUrl": "https://app.open-mercato.com",
+  "panelPath": "/backend/notifications",
+  "strategies": {
+    "database": { "enabled": true },
+    "email": { "enabled": true, "from": "notifications@open-mercato.com", "replyTo": "support@open-mercato.com", "subjectPrefix": "[Open Mercato]" },
+    "sms": { "enabled": false, "webhookUrl": "https://hooks.your-sms-provider.com/notify", "from": "OpenMercato" }
+  }
+}
+```
+
+### Behavior
+
+- **Database strategy**: stores notifications in the `notifications` table (existing behavior).
+- **Email strategy**: sends a Resend email using React templates. Actions are **read-only** and link to `/backend/notifications` for full context.
+- **SMS strategy**: posts a webhook payload for external SMS delivery. Payload includes the notification, recipient metadata, and the panel link.
+
+### Admin Panel Link
+
+External channels (email/SMS) link to a dedicated backend route (`/backend/notifications`) that renders the notification panel in isolation.
+
+---
+
 ## Changelog
+
+### 2026-02-02
+- Added delivery strategy configuration (database + email by default, optional SMS webhook)
+- Added notification delivery subscriber with Resend email templates
+- Added backend notification panel link and delivery settings page
 
 ### 2026-01-27
 - Enforced same-origin relative path validation for `linkHref` and action `href` inputs

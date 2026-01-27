@@ -24,14 +24,9 @@ function formatTimeAgo(dateString: string, t: (key: string, fallback?: string) =
   return date.toLocaleDateString()
 }
 
-function parseOrderDetails(body?: string | null): { orderNumber?: string; total?: string } {
-  if (!body) return {}
-  const orderMatch = body.match(/order\s+([A-Z0-9\-\/]+)/i)
-  const totalMatch = body.match(/\(([^)]+)\)/)
-  return {
-    orderNumber: orderMatch?.[1],
-    total: totalMatch?.[1],
-  }
+function normalizeTotal(value?: string | null): string | null {
+  if (!value) return null
+  return value.replace(/^[\s(]+|[)]+$/g, '').trim()
 }
 
 export function SalesOrderCreatedRenderer({
@@ -42,13 +37,14 @@ export function SalesOrderCreatedRenderer({
   const t = useT()
   const [executing, setExecuting] = React.useState(false)
   const isUnread = notification.status === 'unread'
-  const details = parseOrderDetails(notification.body)
+  const orderNumber = notification.bodyVariables?.orderNumber ?? notification.titleVariables?.orderNumber
+  const fallbackTotal = normalizeTotal(notification.bodyVariables?.totalAmount ?? notification.bodyVariables?.total ?? null)
   const { totals } = useSalesDocumentTotals('order', notification.sourceEntityId)
 
   const currentTotal =
     totals && typeof totals.grandTotalGrossAmount === 'number'
       ? formatMoney(totals.grandTotalGrossAmount, totals.currencyCode)
-      : details.total ?? null
+      : fallbackTotal
 
   const handleView = async () => {
     setExecuting(true)
@@ -84,10 +80,10 @@ export function SalesOrderCreatedRenderer({
               <h4 className={cn('text-sm font-medium', isUnread && 'font-semibold')}>
                 {notification.title}
               </h4>
-              {details.orderNumber && (
+              {orderNumber && (
                 <div className="flex items-center gap-1 mt-0.5">
                   <span className="text-xs font-mono text-muted-foreground bg-muted px-1.5 py-0.5 rounded">
-                    #{details.orderNumber}
+                    #{orderNumber}
                   </span>
                 </div>
               )}

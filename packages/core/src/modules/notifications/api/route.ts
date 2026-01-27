@@ -4,6 +4,7 @@ import type { EntityManager } from '@mikro-orm/core'
 import { Notification } from '../data/entities'
 import { listNotificationsSchema, createNotificationSchema } from '../data/validators'
 import { resolveNotificationService } from '../lib/notificationService'
+import { toNotificationDto } from '../lib/notificationMapper'
 import {
   buildNotificationsCrudOpenApi,
   createPagedListResponseSchema,
@@ -56,29 +57,7 @@ export async function GET(req: Request) {
     em.count(Notification, filters),
   ])
 
-  const items = notifications.map((notification) => ({
-    id: notification.id,
-    type: notification.type,
-    title: notification.title,
-    body: notification.body,
-    icon: notification.icon,
-    severity: notification.severity,
-    status: notification.status,
-    actions: notification.actionData?.actions?.map((action) => ({
-      id: action.id,
-      label: action.label,
-      variant: action.variant,
-      icon: action.icon,
-    })) ?? [],
-    primaryActionId: notification.actionData?.primaryActionId,
-    sourceModule: notification.sourceModule,
-    sourceEntityType: notification.sourceEntityType,
-    sourceEntityId: notification.sourceEntityId,
-    linkHref: notification.linkHref,
-    createdAt: notification.createdAt.toISOString(),
-    readAt: notification.readAt?.toISOString() ?? null,
-    actionTaken: notification.actionTaken,
-  }))
+  const items = notifications.map(toNotificationDto)
 
   return Response.json({
     items,

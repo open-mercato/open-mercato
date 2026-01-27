@@ -37,12 +37,17 @@ export type NotificationRendererProps = {
     type: string
     title: string
     body?: string | null
+    titleKey?: string | null
+    bodyKey?: string | null
+    titleVariables?: Record<string, string> | null
+    bodyVariables?: Record<string, string> | null
     icon?: string | null
     severity: string
     status: string
     sourceModule?: string | null
     sourceEntityType?: string | null
     sourceEntityId?: string | null
+    linkHref?: string | null
     createdAt: string
   }
   onAction: (actionId: string) => Promise<void>
@@ -69,12 +74,17 @@ export type NotificationDto = {
   type: string
   title: string
   body?: string | null
+  titleKey?: string | null
+  bodyKey?: string | null
+  titleVariables?: Record<string, string> | null
+  bodyVariables?: Record<string, string> | null
   icon?: string | null
   severity: string
   status: string
   actions: Array<{
     id: string
     label: string
+    labelKey?: string
     variant?: string
     icon?: string
   }>

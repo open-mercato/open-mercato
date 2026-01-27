@@ -5,6 +5,7 @@ import { X, Bell, AlertTriangle, CheckCircle2, XCircle, Info, Loader2 } from 'lu
 import { Button } from '../../primitives/button'
 import { cn } from '@open-mercato/shared/lib/utils'
 import type { NotificationDto, NotificationRendererProps, NotificationTypeAction } from '@open-mercato/shared/modules/notifications/types'
+import type { TranslateFn } from '@open-mercato/shared/lib/i18n/context'
 import type { ComponentType } from 'react'
 
 export type NotificationItemProps = {
@@ -12,7 +13,7 @@ export type NotificationItemProps = {
   onMarkAsRead: () => Promise<void>
   onExecuteAction: (actionId: string) => Promise<{ href?: string }>
   onDismiss: () => Promise<void>
-  t: (key: string, fallback?: string) => string
+  t: TranslateFn
   /**
    * Optional custom renderer component for this notification type.
    * When provided, this component will be used instead of the default rendering.
@@ -58,6 +59,22 @@ function formatTimeAgo(dateString: string): string {
   return date.toLocaleDateString()
 }
 
+function resolveNotificationText(params: {
+  key?: string | null
+  fallback?: string | null
+  variables?: Record<string, string> | null
+  t: TranslateFn
+}): string {
+  const { key, fallback, variables, t } = params
+  if (key) {
+    return t(key, fallback ?? key, variables ?? undefined)
+  }
+  if (fallback) {
+    return t(fallback, variables ?? undefined)
+  }
+  return ''
+}
+
 const severityIcons = {
   info: Info,
   warning: AlertTriangle,
@@ -87,6 +104,18 @@ export function NotificationItem({
   const hasActions = notification.actions && notification.actions.length > 0
   const severity = notification.severity as keyof typeof severityIcons
   const IconComponent = severityIcons[severity] ?? Bell
+  const titleText = resolveNotificationText({
+    key: notification.titleKey,
+    fallback: notification.title,
+    variables: notification.titleVariables ?? undefined,
+    t,
+  })
+  const bodyText = resolveNotificationText({
+    key: notification.bodyKey,
+    fallback: notification.body ?? undefined,
+    variables: notification.bodyVariables ?? undefined,
+    t,
+  })
 
   const handleClick = async () => {
     if (isUnread) {
@@ -118,7 +147,7 @@ export function NotificationItem({
   // Convert notification actions to the format expected by custom renderers
   const rendererActions: NotificationTypeAction[] = notification.actions.map((action) => ({
     id: action.id,
-    labelKey: action.label, // Use label as labelKey for compatibility
+    labelKey: action.labelKey ?? action.label,
     variant: action.variant as NotificationTypeAction['variant'],
     icon: action.icon,
   }))
@@ -130,14 +159,19 @@ export function NotificationItem({
         notification={{
           id: notification.id,
           type: notification.type,
-          title: notification.title,
-          body: notification.body,
+          title: titleText,
+          body: bodyText || null,
+          titleKey: notification.titleKey,
+          bodyKey: notification.bodyKey,
+          titleVariables: notification.titleVariables ?? null,
+          bodyVariables: notification.bodyVariables ?? null,
           icon: notification.icon,
           severity: notification.severity,
           status: notification.status,
           sourceModule: notification.sourceModule,
           sourceEntityType: notification.sourceEntityType,
           sourceEntityId: notification.sourceEntityId,
+          linkHref: notification.linkHref ?? null,
           createdAt: notification.createdAt,
         }}
         onAction={handleAction}
@@ -172,16 +206,16 @@ export function NotificationItem({
         <div className="flex-1 min-w-0">
           <div className="flex items-start justify-between gap-2">
             <h4 className={cn('text-sm font-medium', isUnread && 'font-semibold')}>
-              {notification.title}
+              {titleText}
             </h4>
             <span className="flex-shrink-0 text-xs text-muted-foreground">
               {formatTimeAgo(notification.createdAt)}
             </span>
           </div>
 
-          {notification.body && (
+          {bodyText && (
             <p className="mt-1 text-sm text-muted-foreground line-clamp-2">
-              {notification.body}
+              {bodyText}
             </p>
           )}
 
@@ -198,7 +232,9 @@ export function NotificationItem({
                   onClick={(event) => handleAction(action.id, event)}
                   disabled={executing !== null}
                 >
-                  {action.label}
+                  {action.labelKey
+                    ? t(action.labelKey, action.label)
+                    : t(action.label, action.label)}
                   {executing === action.id && (
                     <Loader2 className="ml-1 h-3 w-3 animate-spin" />
                   )}
@@ -209,10 +245,9 @@ export function NotificationItem({
 
           {notification.status === 'actioned' && notification.actionTaken && (
             <p className="mt-1 text-xs text-muted-foreground italic">
-              {t('notifications.actionTaken', 'Action taken: {action}').replace(
-                '{action}',
-                notification.actionTaken
-              )}
+              {t('notifications.actionTaken', 'Action taken: {action}', {
+                action: notification.actionTaken,
+              })}
             </p>
           )}
         </div>
