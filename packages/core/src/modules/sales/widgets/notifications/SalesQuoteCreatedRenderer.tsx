@@ -6,6 +6,8 @@ import { Button } from '@open-mercato/ui/primitives/button'
 import { cn } from '@open-mercato/shared/lib/utils'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import type { NotificationRendererProps } from '@open-mercato/shared/modules/notifications/types'
+import { formatMoney } from '../../components/documents/lineItemUtils'
+import { useSalesDocumentTotals } from './useSalesDocumentTotals'
 
 function formatTimeAgo(dateString: string, t: (key: string, fallback?: string) => string): string {
   const date = new Date(dateString)
@@ -41,6 +43,12 @@ export function SalesQuoteCreatedRenderer({
   const [executing, setExecuting] = React.useState(false)
   const isUnread = notification.status === 'unread'
   const details = parseQuoteDetails(notification.body)
+  const { totals } = useSalesDocumentTotals('quote', notification.sourceEntityId)
+
+  const currentTotal =
+    totals && typeof totals.grandTotalGrossAmount === 'number'
+      ? formatMoney(totals.grandTotalGrossAmount, totals.currencyCode)
+      : details.total ?? null
 
   const handleView = async () => {
     setExecuting(true)
@@ -91,10 +99,10 @@ export function SalesQuoteCreatedRenderer({
           </div>
 
           <div className="mt-2 flex items-center gap-4 text-xs text-muted-foreground">
-            {details.total && (
+            {currentTotal && (
               <div className="flex items-center gap-1">
                 <DollarSign className="h-3 w-3" />
-                <span className="font-medium text-foreground">{details.total}</span>
+                <span className="font-medium text-foreground">{currentTotal}</span>
               </div>
             )}
             <div className="flex items-center gap-1">
@@ -125,7 +133,7 @@ export function SalesQuoteCreatedRenderer({
                 onDismiss()
               }}
             >
-              {t('notifications.dismiss', 'Dismiss')}
+              {t('notifications.actions.dismiss', 'Dismiss')}
             </Button>
           </div>
         </div>

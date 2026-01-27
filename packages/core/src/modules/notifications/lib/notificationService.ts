@@ -4,6 +4,7 @@ import { Notification } from '../data/entities'
 import type { CreateNotificationInput, CreateBatchNotificationInput, CreateRoleNotificationInput, CreateFeatureNotificationInput, ExecuteActionInput } from '../data/validators'
 import type { NotificationDto, NotificationPollData } from '@open-mercato/shared/modules/notifications/types'
 import { NOTIFICATION_EVENTS } from './events'
+import { assertSafeNotificationHref, sanitizeNotificationActions } from './safeHref'
 
 const DEBUG = process.env.NOTIFICATIONS_DEBUG === 'true'
 
@@ -113,6 +114,8 @@ export function createNotificationService(deps: NotificationServiceDeps): Notifi
   return {
     async create(input, ctx) {
       const em = rootEm.fork()
+      const actions = sanitizeNotificationActions(input.actions)
+      const linkHref = assertSafeNotificationHref(input.linkHref)
       const notification = em.create(Notification, {
         recipientUserId: input.recipientUserId,
         type: input.type,
@@ -126,14 +129,14 @@ export function createNotificationService(deps: NotificationServiceDeps): Notifi
         body: input.body,
         icon: input.icon,
         severity: input.severity ?? 'info',
-        actionData: input.actions ? {
-          actions: input.actions,
+        actionData: actions ? {
+          actions,
           primaryActionId: input.primaryActionId,
         } : null,
         sourceModule: input.sourceModule,
         sourceEntityType: input.sourceEntityType,
         sourceEntityId: input.sourceEntityId,
-        linkHref: input.linkHref,
+        linkHref,
         groupKey: input.groupKey,
         expiresAt: input.expiresAt ? new Date(input.expiresAt) : null,
         tenantId: ctx.tenantId,
@@ -156,6 +159,8 @@ export function createNotificationService(deps: NotificationServiceDeps): Notifi
 
     async createBatch(input, ctx) {
       const em = rootEm.fork()
+      const actions = sanitizeNotificationActions(input.actions)
+      const linkHref = assertSafeNotificationHref(input.linkHref)
       const notifications: Notification[] = []
 
       for (const recipientUserId of input.recipientUserIds) {
@@ -170,14 +175,14 @@ export function createNotificationService(deps: NotificationServiceDeps): Notifi
           body: input.body,
           icon: input.icon,
           severity: input.severity ?? 'info',
-          actionData: input.actions ? {
-            actions: input.actions,
+          actionData: actions ? {
+            actions,
             primaryActionId: input.primaryActionId,
           } : null,
           sourceModule: input.sourceModule,
           sourceEntityType: input.sourceEntityType,
           sourceEntityId: input.sourceEntityId,
-          linkHref: input.linkHref,
+          linkHref,
           groupKey: input.groupKey,
           expiresAt: input.expiresAt ? new Date(input.expiresAt) : null,
           tenantId: ctx.tenantId,
@@ -204,6 +209,8 @@ export function createNotificationService(deps: NotificationServiceDeps): Notifi
 
     async createForRole(input, ctx) {
       const em = rootEm.fork()
+      const actions = sanitizeNotificationActions(input.actions)
+      const linkHref = assertSafeNotificationHref(input.linkHref)
 
       const knex = getKnex(em)
       const userRoles = await knex('user_roles')
@@ -233,14 +240,14 @@ export function createNotificationService(deps: NotificationServiceDeps): Notifi
           body: input.body,
           icon: input.icon,
           severity: input.severity ?? 'info',
-          actionData: input.actions ? {
-            actions: input.actions,
+          actionData: actions ? {
+            actions,
             primaryActionId: input.primaryActionId,
           } : null,
           sourceModule: input.sourceModule,
           sourceEntityType: input.sourceEntityType,
           sourceEntityId: input.sourceEntityId,
-          linkHref: input.linkHref,
+          linkHref,
           groupKey: input.groupKey,
           expiresAt: input.expiresAt ? new Date(input.expiresAt) : null,
           tenantId: ctx.tenantId,
@@ -268,6 +275,8 @@ export function createNotificationService(deps: NotificationServiceDeps): Notifi
     async createForFeature(input, ctx) {
       const em = rootEm.fork()
       const knex = getKnex(em)
+      const actions = sanitizeNotificationActions(input.actions)
+      const linkHref = assertSafeNotificationHref(input.linkHref)
 
       // Find all users with the required feature
       // This includes:
@@ -338,14 +347,14 @@ export function createNotificationService(deps: NotificationServiceDeps): Notifi
           body: input.body,
           icon: input.icon,
           severity: input.severity ?? 'info',
-          actionData: input.actions ? {
-            actions: input.actions,
+          actionData: actions ? {
+            actions,
             primaryActionId: input.primaryActionId,
           } : null,
           sourceModule: input.sourceModule,
           sourceEntityType: input.sourceEntityType,
           sourceEntityId: input.sourceEntityId,
-          linkHref: input.linkHref,
+          linkHref,
           groupKey: input.groupKey,
           expiresAt: input.expiresAt ? new Date(input.expiresAt) : null,
           tenantId: ctx.tenantId,

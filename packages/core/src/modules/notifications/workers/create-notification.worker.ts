@@ -3,6 +3,7 @@ import type { Knex } from 'knex'
 import { Notification } from '../data/entities'
 import type { CreateNotificationInput, CreateRoleNotificationInput, CreateFeatureNotificationInput } from '../data/validators'
 import { NOTIFICATION_EVENTS } from '../lib/events'
+import { assertSafeNotificationHref, sanitizeNotificationActions } from '../lib/safeHref'
 
 function getKnex(em: EntityManager): Knex {
   return (em.getConnection() as unknown as { getKnex: () => Knex }).getKnex()
@@ -80,6 +81,8 @@ export default async function handle(
     const em = (ctx.resolve('em') as EntityManager).fork()
     const eventBus = ctx.resolve('eventBus') as { emit: (event: string, payload: unknown) => Promise<void> }
     const { input, tenantId, organizationId } = payload
+    const actions = sanitizeNotificationActions(input.actions)
+    const linkHref = assertSafeNotificationHref(input.linkHref)
 
     const notification = em.create(Notification, {
       recipientUserId: input.recipientUserId,
@@ -92,16 +95,16 @@ export default async function handle(
       body: input.body,
       icon: input.icon,
       severity: input.severity ?? 'info',
-      actionData: input.actions
+      actionData: actions
         ? {
-            actions: input.actions,
+            actions,
             primaryActionId: input.primaryActionId,
           }
         : null,
       sourceModule: input.sourceModule,
       sourceEntityType: input.sourceEntityType,
       sourceEntityId: input.sourceEntityId,
-      linkHref: input.linkHref,
+      linkHref,
       groupKey: input.groupKey,
       expiresAt: input.expiresAt ? new Date(input.expiresAt) : null,
       tenantId,
@@ -122,6 +125,8 @@ export default async function handle(
     const em = (ctx.resolve('em') as EntityManager).fork()
     const eventBus = ctx.resolve('eventBus') as { emit: (event: string, payload: unknown) => Promise<void> }
     const { input, tenantId, organizationId } = payload
+    const actions = sanitizeNotificationActions(input.actions)
+    const linkHref = assertSafeNotificationHref(input.linkHref)
 
     const knex = getKnex(em)
     const userRoles = await knex('user_roles')
@@ -149,16 +154,16 @@ export default async function handle(
         body: input.body,
         icon: input.icon,
         severity: input.severity ?? 'info',
-        actionData: input.actions
+        actionData: actions
           ? {
-              actions: input.actions,
+              actions,
               primaryActionId: input.primaryActionId,
             }
           : null,
         sourceModule: input.sourceModule,
         sourceEntityType: input.sourceEntityType,
         sourceEntityId: input.sourceEntityId,
-        linkHref: input.linkHref,
+        linkHref,
         groupKey: input.groupKey,
         expiresAt: input.expiresAt ? new Date(input.expiresAt) : null,
         tenantId,
@@ -183,6 +188,8 @@ export default async function handle(
     const em = (ctx.resolve('em') as EntityManager).fork()
     const eventBus = ctx.resolve('eventBus') as { emit: (event: string, payload: unknown) => Promise<void> }
     const { input, tenantId, organizationId } = payload
+    const actions = sanitizeNotificationActions(input.actions)
+    const linkHref = assertSafeNotificationHref(input.linkHref)
 
     const knex = getKnex(em)
 
@@ -248,16 +255,16 @@ export default async function handle(
         body: input.body,
         icon: input.icon,
         severity: input.severity ?? 'info',
-        actionData: input.actions
+        actionData: actions
           ? {
-              actions: input.actions,
+              actions,
               primaryActionId: input.primaryActionId,
             }
           : null,
         sourceModule: input.sourceModule,
         sourceEntityType: input.sourceEntityType,
         sourceEntityId: input.sourceEntityId,
-        linkHref: input.linkHref,
+        linkHref,
         groupKey: input.groupKey,
         expiresAt: input.expiresAt ? new Date(input.expiresAt) : null,
         tenantId,

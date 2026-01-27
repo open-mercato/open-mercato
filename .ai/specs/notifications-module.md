@@ -405,9 +405,15 @@ CREATE INDEX notifications_group_idx
 ```typescript
 // packages/core/src/modules/notifications/data/validators.ts
 import { z } from 'zod'
+import { isSafeNotificationHref } from '../lib/safeHref'
 
 export const notificationStatusSchema = z.enum(['unread', 'read', 'actioned', 'dismissed'])
 export const notificationSeveritySchema = z.enum(['info', 'warning', 'success', 'error'])
+
+export const safeRelativeHrefSchema = z.string().min(1).refine(
+  (href) => isSafeNotificationHref(href),
+  { message: 'Href must be a same-origin relative path starting with /' }
+)
 
 export const notificationActionSchema = z.object({
   id: z.string().min(1),
@@ -416,7 +422,7 @@ export const notificationActionSchema = z.object({
   variant: z.enum(['default', 'secondary', 'destructive', 'outline', 'ghost']).optional(),
   icon: z.string().optional(),
   commandId: z.string().optional(),
-  href: z.string().optional(),
+  href: safeRelativeHrefSchema.optional(),
   confirmRequired: z.boolean().optional(),
   confirmMessage: z.string().optional(),
 })
@@ -433,7 +439,7 @@ export const createNotificationSchema = z.object({
   sourceModule: z.string().optional(),
   sourceEntityType: z.string().optional(),
   sourceEntityId: z.string().uuid().optional(),
-  linkHref: z.string().optional(),
+  linkHref: safeRelativeHrefSchema.optional(),
   groupKey: z.string().optional(),
   expiresAt: z.string().datetime().optional(),
 })
@@ -450,7 +456,7 @@ export const createBatchNotificationSchema = z.object({
   sourceModule: z.string().optional(),
   sourceEntityType: z.string().optional(),
   sourceEntityId: z.string().uuid().optional(),
-  linkHref: z.string().optional(),
+  linkHref: safeRelativeHrefSchema.optional(),
   groupKey: z.string().optional(),
   expiresAt: z.string().datetime().optional(),
 })
@@ -467,7 +473,7 @@ export const createRoleNotificationSchema = z.object({
   sourceModule: z.string().optional(),
   sourceEntityType: z.string().optional(),
   sourceEntityId: z.string().uuid().optional(),
-  linkHref: z.string().optional(),
+  linkHref: safeRelativeHrefSchema.optional(),
   groupKey: z.string().optional(),
   expiresAt: z.string().datetime().optional(),
 })
@@ -484,7 +490,7 @@ export const createFeatureNotificationSchema = z.object({
   sourceModule: z.string().optional(),
   sourceEntityType: z.string().optional(),
   sourceEntityId: z.string().uuid().optional(),
-  linkHref: z.string().optional(),
+  linkHref: safeRelativeHrefSchema.optional(),
   groupKey: z.string().optional(),
   expiresAt: z.string().datetime().optional(),
 })
@@ -531,7 +537,7 @@ export type NotificationTypeAction = {
   variant?: 'default' | 'secondary' | 'destructive' | 'outline' | 'ghost'
   icon?: string
   commandId?: string
-  href?: string // Supports {sourceEntityId}, {tenantId}, {organizationId} interpolation
+  href?: string // Same-origin relative path starting with /, supports {sourceEntityId} interpolation
   confirmRequired?: boolean
   confirmMessageKey?: string
 }
@@ -545,7 +551,7 @@ export type NotificationTypeDefinition = {
   severity: 'info' | 'warning' | 'success' | 'error'
   actions: NotificationTypeAction[]
   primaryActionId?: string
-  linkHref?: string                     // Default link for this type
+  linkHref?: string                     // Same-origin relative path starting with /, supports {sourceEntityId}
   Renderer?: ComponentType<NotificationRendererProps>  // Custom renderer
   expiresAfterHours?: number            // Auto-expire after N hours
 }
@@ -1836,8 +1842,7 @@ execute: async (input, ctx) => {
 ```
 
 ```typescript
-// ❌ WRONG: Do not resolve from DI directly (will fail with undefined em)
-const notificationService = ctx.container.resolve('notificationService') as NotificationService
+// ❌ WRONG: Do not bypass the helper; use resolveNotificationService(ctx.container) instead.
 ```
 
 The `resolveNotificationService` helper properly resolves `em`, `eventBus`, and `commandBus` from the container and creates a fresh service instance.
@@ -1917,7 +1922,7 @@ Send notifications to all users within a specific role in the organization.
 ```typescript
 // packages/core/src/modules/notifications/api/role/route.ts
 import { resolveRequestContext } from '@open-mercato/shared/lib/api/context'
-import type { NotificationService } from '../../lib/notificationService'
+import { resolveNotificationService } from '../../lib/notificationService'
 import { createRoleNotificationSchema } from '../../data/validators'
 
 export const metadata = {
@@ -1926,7 +1931,7 @@ export const metadata = {
 
 export async function POST(req: Request) {
   const { ctx } = await resolveRequestContext(req)
-  const notificationService = ctx.container.resolve('notificationService') as NotificationService
+  const notificationService = resolveNotificationService(ctx.container)
 
   const body = await req.json().catch(() => ({}))
   const input = createRoleNotificationSchema.parse(body)
@@ -1960,7 +1965,9 @@ export const openApi = {
 
 ```typescript
 // Notify all users with the "Manager" role
-const notificationService = ctx.container.resolve<NotificationService>('notificationService')
+import { resolveNotificationService } from '@open-mercato/core/modules/notifications/lib/notificationService'
+
+const notificationService = resolveNotificationService(ctx.container)
 
 await notificationService.createForRole({
   roleId: 'manager-role-uuid',
@@ -2078,7 +2085,7 @@ Send notifications to all users who have a specific ACL permission/feature, rega
 ```typescript
 // packages/core/src/modules/notifications/api/feature/route.ts
 import { resolveRequestContext } from '@open-mercato/shared/lib/api/context'
-import type { NotificationService } from '../../lib/notificationService'
+import { resolveNotificationService } from '../../lib/notificationService'
 import { createFeatureNotificationSchema } from '../../data/validators'
 
 export const metadata = {
@@ -2087,7 +2094,7 @@ export const metadata = {
 
 export async function POST(req: Request) {
   const { ctx } = await resolveRequestContext(req)
-  const notificationService = ctx.container.resolve('notificationService') as NotificationService
+  const notificationService = resolveNotificationService(ctx.container)
 
   const body = await req.json().catch(() => ({}))
   const input = createFeatureNotificationSchema.parse(body)
@@ -2354,6 +2361,12 @@ async createForFeature(input, ctx) {
 ---
 
 ## Changelog
+
+### 2026-01-27
+- Enforced same-origin relative path validation for `linkHref` and action `href` inputs
+
+### 2026-01-27
+- Updated documentation examples to use `resolveNotificationService(ctx.container)` instead of direct DI resolution
 
 ### 2026-01-26 (Service Resolution Fix)
 - ✅ **Fixed notification service resolution issue**

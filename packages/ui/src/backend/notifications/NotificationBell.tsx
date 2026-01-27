@@ -17,7 +17,6 @@ export function NotificationBell({ className, t }: NotificationBellProps) {
     unreadCount,
     hasNew,
     notifications,
-    refresh,
     markAsRead,
     executeAction,
     dismiss,
@@ -64,7 +63,6 @@ export function NotificationBell({ className, t }: NotificationBellProps) {
         onOpenChange={setPanelOpen}
         notifications={notifications}
         unreadCount={unreadCount}
-        onRefresh={refresh}
         onMarkAsRead={markAsRead}
         onExecuteAction={executeAction}
         onDismiss={dismiss}

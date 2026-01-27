@@ -3,10 +3,8 @@ import * as React from 'react'
 import { X, Bell, CheckCheck, Loader2 } from 'lucide-react'
 import { Button } from '../../primitives/button'
 import { Tabs, TabsList, TabsTrigger } from '../../primitives/tabs'
-import { cn } from '@open-mercato/shared/lib/utils'
 import { NotificationItem } from './NotificationItem'
-import type { NotificationDto } from './types'
-import type { NotificationRendererProps } from '@open-mercato/shared/modules/notifications/types'
+import type { NotificationDto, NotificationRendererProps } from '@open-mercato/shared/modules/notifications/types'
 import type { ComponentType } from 'react'
 
 /**
@@ -28,7 +26,6 @@ export type NotificationPanelProps = {
   onOpenChange: (open: boolean) => void
   notifications: NotificationDto[]
   unreadCount: number
-  onRefresh: () => void
   onMarkAsRead: (id: string) => Promise<void>
   onExecuteAction: (id: string, actionId: string) => Promise<{ href?: string }>
   onDismiss: (id: string) => Promise<void>
@@ -70,7 +67,6 @@ export function NotificationPanel({
 }: NotificationPanelProps) {
   const [filter, setFilter] = React.useState<'all' | 'unread' | 'action'>('all')
   const [markingAllRead, setMarkingAllRead] = React.useState(false)
-  const panelRef = React.useRef<HTMLDivElement>(null)
 
   const filteredNotifications = React.useMemo(() => {
     switch (filter) {
@@ -115,7 +111,6 @@ export function NotificationPanel({
       />
 
       <div
-        ref={panelRef}
         className="fixed right-0 top-0 z-50 h-full w-full max-w-md border-l bg-background shadow-lg"
         role="dialog"
         aria-modal="true"

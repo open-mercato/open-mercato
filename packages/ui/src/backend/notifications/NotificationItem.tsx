@@ -4,8 +4,7 @@ import { useRouter } from 'next/navigation'
 import { X, Bell, AlertTriangle, CheckCircle2, XCircle, Info, Loader2 } from 'lucide-react'
 import { Button } from '../../primitives/button'
 import { cn } from '@open-mercato/shared/lib/utils'
-import type { NotificationDto } from './types'
-import type { NotificationRendererProps, NotificationTypeAction } from '@open-mercato/shared/modules/notifications/types'
+import type { NotificationDto, NotificationRendererProps, NotificationTypeAction } from '@open-mercato/shared/modules/notifications/types'
 import type { ComponentType } from 'react'
 
 export type NotificationItemProps = {

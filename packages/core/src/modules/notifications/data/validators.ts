@@ -1,7 +1,13 @@
 import { z } from 'zod'
+import { isSafeNotificationHref } from '../lib/safeHref'
 
 export const notificationStatusSchema = z.enum(['unread', 'read', 'actioned', 'dismissed'])
 export const notificationSeveritySchema = z.enum(['info', 'warning', 'success', 'error'])
+
+export const safeRelativeHrefSchema = z.string().min(1).refine(
+  (href) => isSafeNotificationHref(href),
+  { message: 'Href must be a same-origin relative path starting with /' }
+)
 
 export const notificationActionSchema = z.object({
   id: z.string().min(1),
@@ -10,7 +16,7 @@ export const notificationActionSchema = z.object({
   variant: z.enum(['default', 'secondary', 'destructive', 'outline', 'ghost']).optional(),
   icon: z.string().optional(),
   commandId: z.string().optional(),
-  href: z.string().optional(),
+  href: safeRelativeHrefSchema.optional(),
   confirmRequired: z.boolean().optional(),
   confirmMessage: z.string().optional(),
 })
@@ -33,7 +39,7 @@ export const createNotificationSchema = z.object({
   sourceModule: z.string().optional(),
   sourceEntityType: z.string().optional(),
   sourceEntityId: z.string().uuid().optional(),
-  linkHref: z.string().optional(),
+  linkHref: safeRelativeHrefSchema.optional(),
   groupKey: z.string().optional(),
   expiresAt: z.string().datetime().optional(),
 }).refine(
@@ -57,7 +63,7 @@ export const createBatchNotificationSchema = z.object({
   sourceModule: z.string().optional(),
   sourceEntityType: z.string().optional(),
   sourceEntityId: z.string().uuid().optional(),
-  linkHref: z.string().optional(),
+  linkHref: safeRelativeHrefSchema.optional(),
   groupKey: z.string().optional(),
   expiresAt: z.string().datetime().optional(),
 }).refine(
@@ -81,7 +87,7 @@ export const createRoleNotificationSchema = z.object({
   sourceModule: z.string().optional(),
   sourceEntityType: z.string().optional(),
   sourceEntityId: z.string().uuid().optional(),
-  linkHref: z.string().optional(),
+  linkHref: safeRelativeHrefSchema.optional(),
   groupKey: z.string().optional(),
   expiresAt: z.string().datetime().optional(),
 }).refine(
@@ -105,7 +111,7 @@ export const createFeatureNotificationSchema = z.object({
   sourceModule: z.string().optional(),
   sourceEntityType: z.string().optional(),
   sourceEntityId: z.string().uuid().optional(),
-  linkHref: z.string().optional(),
+  linkHref: safeRelativeHrefSchema.optional(),
   groupKey: z.string().optional(),
   expiresAt: z.string().datetime().optional(),
 }).refine(

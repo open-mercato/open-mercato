@@ -10,4 +10,4 @@ export type { NotificationItemProps } from './NotificationItem'
 export { useNotificationsPoll } from './useNotificationsPoll'
 export type { UseNotificationsPollResult } from './useNotificationsPoll'
 
-export type { NotificationDto } from './types'
+export type { NotificationDto } from '@open-mercato/shared/modules/notifications/types'

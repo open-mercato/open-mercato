@@ -5,7 +5,7 @@ import {
   subscribeNotificationNew,
   emitNotificationCountChanged,
 } from '@open-mercato/shared/lib/frontend/notificationEvents'
-import type { NotificationDto } from './types'
+import type { NotificationDto } from '@open-mercato/shared/modules/notifications/types'
 
 export type UseNotificationsPollResult = {
   notifications: NotificationDto[]
