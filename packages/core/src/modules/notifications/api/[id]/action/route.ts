@@ -1,5 +1,5 @@
 import { executeActionSchema } from '../../../data/validators'
-import { actionResultResponseSchema } from '../../openapi'
+import { actionResultResponseSchema, errorResponseSchema } from '../../openapi'
 import { resolveNotificationContext } from '../../../lib/routeHelpers'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 
@@ -64,6 +64,11 @@ export const openApi = {
       },
       400: {
         description: 'Action not found or failed',
+        content: {
+          'application/json': {
+            schema: errorResponseSchema,
+          },
+        },
       },
     },
   },

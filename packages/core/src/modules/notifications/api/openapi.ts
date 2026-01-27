@@ -1,6 +1,11 @@
 import { z } from 'zod'
 import { createCrudOpenApiFactory, createPagedListResponseSchema } from '@open-mercato/shared/lib/openapi/crud'
-import { listNotificationsSchema, createNotificationSchema, executeActionSchema } from '../data/validators'
+import {
+  listNotificationsSchema,
+  createNotificationSchema,
+  executeActionSchema,
+  notificationDeliveryConfigSchema,
+} from '../data/validators'
 
 export const buildNotificationsCrudOpenApi = createCrudOpenApiFactory({
   defaultTag: 'Notifications',
@@ -39,6 +44,10 @@ export const okResponseSchema = z.object({
   ok: z.boolean(),
 })
 
+export const errorResponseSchema = z.object({
+  error: z.string(),
+})
+
 export const unreadCountResponseSchema = z.object({
   unreadCount: z.number(),
 })
@@ -49,4 +58,19 @@ export const actionResultResponseSchema = z.object({
   href: z.string().optional(),
 })
 
-export { createPagedListResponseSchema, listNotificationsSchema, createNotificationSchema, executeActionSchema }
+export const notificationSettingsResponseSchema = z.object({
+  settings: notificationDeliveryConfigSchema,
+})
+
+export const notificationSettingsUpdateResponseSchema = z.object({
+  ok: z.boolean(),
+  settings: notificationDeliveryConfigSchema,
+})
+
+export {
+  createPagedListResponseSchema,
+  listNotificationsSchema,
+  createNotificationSchema,
+  executeActionSchema,
+  notificationDeliveryConfigSchema,
+}

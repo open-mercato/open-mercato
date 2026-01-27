@@ -4,6 +4,11 @@ import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { notificationDeliveryConfigSchema } from '../../data/validators'
 import {
+  errorResponseSchema,
+  notificationSettingsResponseSchema,
+  notificationSettingsUpdateResponseSchema,
+} from '../openapi'
+import {
   DEFAULT_NOTIFICATION_DELIVERY_CONFIG,
   resolveNotificationDeliveryConfig,
   saveNotificationDeliveryConfig,
@@ -85,14 +90,68 @@ export const openApi = {
     summary: 'Get notification delivery settings',
     tags: ['Notifications'],
     responses: {
-      200: { description: 'Current delivery settings' },
+      200: {
+        description: 'Current delivery settings',
+        content: {
+          'application/json': {
+            schema: notificationSettingsResponseSchema,
+          },
+        },
+      },
+      401: {
+        description: 'Unauthorized',
+        content: {
+          'application/json': {
+            schema: errorResponseSchema,
+          },
+        },
+      },
     },
   },
   POST: {
     summary: 'Update notification delivery settings',
     tags: ['Notifications'],
+    requestBody: {
+      required: true,
+      content: {
+        'application/json': {
+          schema: notificationDeliveryConfigSchema,
+        },
+      },
+    },
     responses: {
-      200: { description: 'Delivery settings updated' },
+      200: {
+        description: 'Delivery settings updated',
+        content: {
+          'application/json': {
+            schema: notificationSettingsUpdateResponseSchema,
+          },
+        },
+      },
+      400: {
+        description: 'Invalid request body',
+        content: {
+          'application/json': {
+            schema: errorResponseSchema,
+          },
+        },
+      },
+      401: {
+        description: 'Unauthorized',
+        content: {
+          'application/json': {
+            schema: errorResponseSchema,
+          },
+        },
+      },
+      500: {
+        description: 'Internal error',
+        content: {
+          'application/json': {
+            schema: errorResponseSchema,
+          },
+        },
+      },
     },
   },
 }
