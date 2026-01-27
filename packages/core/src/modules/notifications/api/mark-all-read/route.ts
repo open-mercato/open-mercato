@@ -1,21 +1,14 @@
-import { resolveRequestContext } from '@open-mercato/shared/lib/api/context'
-import { resolveNotificationService } from '../../lib/notificationService'
-import { okResponseSchema } from '../openapi'
 import { z } from 'zod'
+import { resolveNotificationContext } from '../../lib/routeHelpers'
 
 export const metadata = {
   PUT: { requireAuth: true },
 }
 
 export async function PUT(req: Request) {
-  const { ctx } = await resolveRequestContext(req)
-  const notificationService = resolveNotificationService(ctx.container)
+  const { service, scope } = await resolveNotificationContext(req)
 
-  const count = await notificationService.markAllAsRead({
-    tenantId: ctx.auth?.tenantId ?? '',
-    organizationId: ctx.selectedOrganizationId ?? null,
-    userId: ctx.auth?.sub ?? null,
-  })
+  const count = await service.markAllAsRead(scope)
 
   return Response.json({ ok: true, count })
 }

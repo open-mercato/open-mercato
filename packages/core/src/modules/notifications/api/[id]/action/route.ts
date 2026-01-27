@@ -1,7 +1,6 @@
-import { resolveRequestContext } from '@open-mercato/shared/lib/api/context'
-import { resolveNotificationService } from '../../../lib/notificationService'
 import { executeActionSchema } from '../../../data/validators'
 import { actionResultResponseSchema } from '../../openapi'
+import { resolveNotificationContext } from '../../../lib/routeHelpers'
 
 export const metadata = {
   POST: { requireAuth: true },
@@ -9,18 +8,13 @@ export const metadata = {
 
 export async function POST(req: Request, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params
-  const { ctx } = await resolveRequestContext(req)
-  const notificationService = resolveNotificationService(ctx.container)
+  const { service, scope } = await resolveNotificationContext(req)
 
   const body = await req.json().catch(() => ({}))
   const input = executeActionSchema.parse(body)
 
   try {
-    const { notification, result } = await notificationService.executeAction(id, input, {
-      tenantId: ctx.auth?.tenantId ?? '',
-      organizationId: ctx.selectedOrganizationId ?? null,
-      userId: ctx.auth?.sub ?? null,
-    })
+    const { notification, result } = await service.executeAction(id, input, scope)
 
     const action = notification.actionData?.actions?.find((a) => a.id === input.actionId)
     const href = action?.href?.replace('{sourceEntityId}', notification.sourceEntityId ?? '')

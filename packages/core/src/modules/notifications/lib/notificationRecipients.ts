@@ -1,10 +1,37 @@
 import type { Knex } from 'knex'
 import { hasFeature } from '@open-mercato/shared/security/features'
 
+interface AclRow {
+  user_id: string
+  features_json: unknown
+  is_super_admin: boolean
+}
+
 function normalizeFeatures(features: unknown): string[] | undefined {
   if (!Array.isArray(features)) return undefined
   const normalized = features.filter((feature): feature is string => typeof feature === 'string')
   return normalized.length ? normalized : undefined
+}
+
+/**
+ * Extract user IDs from ACL rows that have the required feature or are super admins.
+ */
+function collectUsersWithFeature(
+  userIdsSet: Set<string>,
+  rows: AclRow[],
+  requiredFeature: string
+): void {
+  for (const row of rows) {
+    if (row.is_super_admin) {
+      userIdsSet.add(row.user_id)
+      continue
+    }
+
+    const features = normalizeFeatures(row.features_json)
+    if (features && hasFeature(features, requiredFeature)) {
+      userIdsSet.add(row.user_id)
+    }
+  }
 }
 
 export async function getRecipientUserIdsForRole(
@@ -38,17 +65,7 @@ export async function getRecipientUserIdsForFeature(
     .where('users.tenant_id', tenantId)
     .select('users.id as user_id', 'user_acls.features_json', 'user_acls.is_super_admin')
 
-  for (const row of userAcls) {
-    if (row.is_super_admin) {
-      userIdsSet.add(row.user_id)
-      continue
-    }
-
-    const features = normalizeFeatures(row.features_json)
-    if (features && hasFeature(features, requiredFeature)) {
-      userIdsSet.add(row.user_id)
-    }
-  }
+  collectUsersWithFeature(userIdsSet, userAcls, requiredFeature)
 
   const roleAcls = await knex('role_acls')
     .join('user_roles', 'role_acls.role_id', 'user_roles.role_id')
@@ -60,17 +77,7 @@ export async function getRecipientUserIdsForFeature(
     .where('users.tenant_id', tenantId)
     .select('users.id as user_id', 'role_acls.features_json', 'role_acls.is_super_admin')
 
-  for (const row of roleAcls) {
-    if (row.is_super_admin) {
-      userIdsSet.add(row.user_id)
-      continue
-    }
-
-    const features = normalizeFeatures(row.features_json)
-    if (features && hasFeature(features, requiredFeature)) {
-      userIdsSet.add(row.user_id)
-    }
-  }
+  collectUsersWithFeature(userIdsSet, roleAcls, requiredFeature)
 
   return Array.from(userIdsSet)
 }

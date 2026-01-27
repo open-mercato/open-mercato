@@ -1,10 +1,9 @@
 import { z } from 'zod'
-import { resolveRequestContext } from '@open-mercato/shared/lib/api/context'
 import type { EntityManager } from '@mikro-orm/core'
 import { Notification } from '../data/entities'
 import { listNotificationsSchema, createNotificationSchema } from '../data/validators'
-import { resolveNotificationService } from '../lib/notificationService'
 import { toNotificationDto } from '../lib/notificationMapper'
+import { resolveNotificationContext } from '../lib/routeHelpers'
 import {
   buildNotificationsCrudOpenApi,
   createPagedListResponseSchema,
@@ -17,7 +16,7 @@ export const metadata = {
 }
 
 export async function GET(req: Request) {
-  const { ctx } = await resolveRequestContext(req)
+  const { ctx, scope } = await resolveNotificationContext(req)
   const em = ctx.container.resolve('em') as EntityManager
 
   const url = new URL(req.url)
@@ -25,8 +24,8 @@ export async function GET(req: Request) {
   const input = listNotificationsSchema.parse(queryParams)
 
   const filters: Record<string, unknown> = {
-    recipientUserId: ctx.auth?.sub,
-    tenantId: ctx.auth?.tenantId,
+    recipientUserId: scope.userId,
+    tenantId: scope.tenantId,
   }
 
   if (input.status) {
@@ -69,17 +68,12 @@ export async function GET(req: Request) {
 }
 
 export async function POST(req: Request) {
-  const { ctx } = await resolveRequestContext(req)
-  const notificationService = resolveNotificationService(ctx.container)
+  const { service, scope } = await resolveNotificationContext(req)
 
   const body = await req.json().catch(() => ({}))
   const input = createNotificationSchema.parse(body)
 
-  const notification = await notificationService.create(input, {
-    tenantId: ctx.auth?.tenantId ?? '',
-    organizationId: ctx.selectedOrganizationId ?? null,
-    userId: ctx.auth?.sub ?? null,
-  })
+  const notification = await service.create(input, scope)
 
   return Response.json({ id: notification.id }, { status: 201 })
 }

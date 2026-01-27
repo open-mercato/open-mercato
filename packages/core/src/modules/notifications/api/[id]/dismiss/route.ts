@@ -1,46 +1,12 @@
-import { resolveRequestContext } from '@open-mercato/shared/lib/api/context'
-import { resolveNotificationService } from '../../../lib/notificationService'
-import { okResponseSchema } from '../../openapi'
+import { createSingleNotificationActionRoute, createSingleNotificationActionOpenApi } from '../../../lib/routeHelpers'
 
 export const metadata = {
   PUT: { requireAuth: true },
 }
 
-export async function PUT(req: Request, { params }: { params: Promise<{ id: string }> }) {
-  const { id } = await params
-  const { ctx } = await resolveRequestContext(req)
-  const notificationService = resolveNotificationService(ctx.container)
+export const PUT = createSingleNotificationActionRoute('dismiss')
 
-  await notificationService.dismiss(id, {
-    tenantId: ctx.auth?.tenantId ?? '',
-    organizationId: ctx.selectedOrganizationId ?? null,
-    userId: ctx.auth?.sub ?? null,
-  })
-
-  return Response.json({ ok: true })
-}
-
-export const openApi = {
-  PUT: {
-    summary: 'Dismiss notification',
-    tags: ['Notifications'],
-    parameters: [
-      {
-        name: 'id',
-        in: 'path',
-        required: true,
-        schema: { type: 'string', format: 'uuid' },
-      },
-    ],
-    responses: {
-      200: {
-        description: 'Notification dismissed',
-        content: {
-          'application/json': {
-            schema: okResponseSchema,
-          },
-        },
-      },
-    },
-  },
-}
+export const openApi = createSingleNotificationActionOpenApi(
+  'Dismiss notification',
+  'Notification dismissed'
+)

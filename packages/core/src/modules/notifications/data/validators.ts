@@ -21,15 +21,12 @@ export const notificationActionSchema = z.object({
   confirmMessage: z.string().optional(),
 })
 
-export const createNotificationSchema = z.object({
-  recipientUserId: z.string().uuid(),
+const baseNotificationFieldsSchema = z.object({
   type: z.string().min(1).max(100),
-  // i18n-first approach: provide keys and variables
   titleKey: z.string().min(1).max(200).optional(),
   bodyKey: z.string().min(1).max(200).optional(),
   titleVariables: z.record(z.string(), z.string()).optional(),
   bodyVariables: z.record(z.string(), z.string()).optional(),
-  // Fallback: provide resolved text (for backward compatibility or when keys not available)
   title: z.string().min(1).max(500).optional(),
   body: z.string().max(2000).optional(),
   icon: z.string().max(100).optional(),
@@ -42,82 +39,28 @@ export const createNotificationSchema = z.object({
   linkHref: safeRelativeHrefSchema.optional(),
   groupKey: z.string().optional(),
   expiresAt: z.string().datetime().optional(),
-}).refine(
-  (data) => data.titleKey || data.title,
-  { message: 'Either titleKey or title must be provided' }
-)
+})
 
-export const createBatchNotificationSchema = z.object({
-  recipientUserIds: z.array(z.string().uuid()).min(1).max(1000),
-  type: z.string().min(1).max(100),
-  titleKey: z.string().min(1).max(200).optional(),
-  bodyKey: z.string().min(1).max(200).optional(),
-  titleVariables: z.record(z.string(), z.string()).optional(),
-  bodyVariables: z.record(z.string(), z.string()).optional(),
-  title: z.string().min(1).max(500).optional(),
-  body: z.string().max(2000).optional(),
-  icon: z.string().max(100).optional(),
-  severity: notificationSeveritySchema.optional().default('info'),
-  actions: z.array(notificationActionSchema).optional(),
-  primaryActionId: z.string().optional(),
-  sourceModule: z.string().optional(),
-  sourceEntityType: z.string().optional(),
-  sourceEntityId: z.string().uuid().optional(),
-  linkHref: safeRelativeHrefSchema.optional(),
-  groupKey: z.string().optional(),
-  expiresAt: z.string().datetime().optional(),
-}).refine(
-  (data) => data.titleKey || data.title,
-  { message: 'Either titleKey or title must be provided' }
-)
+const titleRequiredRefinement = {
+  refine: (data: { titleKey?: string; title?: string }) => data.titleKey || data.title,
+  message: 'Either titleKey or title must be provided',
+} as const
 
-export const createRoleNotificationSchema = z.object({
-  roleId: z.string().uuid(),
-  type: z.string().min(1).max(100),
-  titleKey: z.string().min(1).max(200).optional(),
-  bodyKey: z.string().min(1).max(200).optional(),
-  titleVariables: z.record(z.string(), z.string()).optional(),
-  bodyVariables: z.record(z.string(), z.string()).optional(),
-  title: z.string().min(1).max(500).optional(),
-  body: z.string().max(2000).optional(),
-  icon: z.string().max(100).optional(),
-  severity: notificationSeveritySchema.optional().default('info'),
-  actions: z.array(notificationActionSchema).optional(),
-  primaryActionId: z.string().optional(),
-  sourceModule: z.string().optional(),
-  sourceEntityType: z.string().optional(),
-  sourceEntityId: z.string().uuid().optional(),
-  linkHref: safeRelativeHrefSchema.optional(),
-  groupKey: z.string().optional(),
-  expiresAt: z.string().datetime().optional(),
-}).refine(
-  (data) => data.titleKey || data.title,
-  { message: 'Either titleKey or title must be provided' }
-)
+export const createNotificationSchema = baseNotificationFieldsSchema
+  .extend({ recipientUserId: z.string().uuid() })
+  .refine(titleRequiredRefinement.refine, { message: titleRequiredRefinement.message })
 
-export const createFeatureNotificationSchema = z.object({
-  requiredFeature: z.string().min(1).max(100),
-  type: z.string().min(1).max(100),
-  titleKey: z.string().min(1).max(200).optional(),
-  bodyKey: z.string().min(1).max(200).optional(),
-  titleVariables: z.record(z.string(), z.string()).optional(),
-  bodyVariables: z.record(z.string(), z.string()).optional(),
-  title: z.string().min(1).max(500).optional(),
-  body: z.string().max(2000).optional(),
-  icon: z.string().max(100).optional(),
-  severity: notificationSeveritySchema.optional().default('info'),
-  actions: z.array(notificationActionSchema).optional(),
-  primaryActionId: z.string().optional(),
-  sourceModule: z.string().optional(),
-  sourceEntityType: z.string().optional(),
-  sourceEntityId: z.string().uuid().optional(),
-  linkHref: safeRelativeHrefSchema.optional(),
-  groupKey: z.string().optional(),
-  expiresAt: z.string().datetime().optional(),
-}).refine(
-  (data) => data.titleKey || data.title,
-  { message: 'Either titleKey or title must be provided' }
-)
+export const createBatchNotificationSchema = baseNotificationFieldsSchema
+  .extend({ recipientUserIds: z.array(z.string().uuid()).min(1).max(1000) })
+  .refine(titleRequiredRefinement.refine, { message: titleRequiredRefinement.message })
+
+export const createRoleNotificationSchema = baseNotificationFieldsSchema
+  .extend({ roleId: z.string().uuid() })
+  .refine(titleRequiredRefinement.refine, { message: titleRequiredRefinement.message })
+
+export const createFeatureNotificationSchema = baseNotificationFieldsSchema
+  .extend({ requiredFeature: z.string().min(1).max(100) })
+  .refine(titleRequiredRefinement.refine, { message: titleRequiredRefinement.message })
 
 export const listNotificationsSchema = z.object({
   status: z.union([notificationStatusSchema, z.array(notificationStatusSchema)]).optional(),
@@ -145,18 +88,12 @@ const notificationDeliveryEmailSchema = notificationDeliveryStrategySchema.exten
   subjectPrefix: z.string().trim().min(1).optional(),
 })
 
-const notificationDeliverySmsSchema = notificationDeliveryStrategySchema.extend({
-  webhookUrl: z.string().url().optional(),
-  from: z.string().trim().min(1).optional(),
-})
-
 export const notificationDeliveryConfigSchema = z.object({
   appUrl: z.string().url().optional(),
   panelPath: safeRelativeHrefSchema.optional(),
   strategies: z.object({
     database: notificationDeliveryStrategySchema.optional(),
     email: notificationDeliveryEmailSchema.optional(),
-    sms: notificationDeliverySmsSchema.optional(),
   }).optional(),
 })
 

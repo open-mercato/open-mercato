@@ -2383,6 +2383,25 @@ Settings are stored in the module config service under:
 }
 ```
 
+### Environment Defaults
+
+When module config is empty, delivery defaults are derived from environment variables:
+
+| Env Var | Purpose | Default |
+|---------|---------|---------|
+| `NOTIFICATIONS_APP_URL` | Base URL for panel links | (none) |
+| `APPLICATION_URL` | Base URL fallback for panel links | (none) |
+| `NOTIFICATIONS_PANEL_PATH` | Panel path used by external channels | `/backend/notifications` |
+| `NOTIFICATIONS_EMAIL_ENABLED` | Enable email delivery | `true` |
+| `NOTIFICATIONS_EMAIL_FROM` | Override "from" address | `EMAIL_FROM` |
+| `NOTIFICATIONS_EMAIL_REPLY_TO` | Reply-to address | `ADMIN_EMAIL` |
+| `NOTIFICATIONS_EMAIL_SUBJECT_PREFIX` | Subject prefix | (none) |
+| `NOTIFICATIONS_SMS_ENABLED` | Enable SMS delivery | `false` |
+| `NOTIFICATIONS_SMS_WEBHOOK_URL` | SMS webhook URL | (none) |
+| `NOTIFICATIONS_SMS_FROM` | SMS sender ID | (none) |
+
+These defaults can be overridden via the Notification Delivery settings page (stored in module config).
+
 ### Behavior
 
 - **Database strategy**: stores notifications in the `notifications` table (existing behavior).
