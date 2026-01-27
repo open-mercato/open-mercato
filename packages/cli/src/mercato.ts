@@ -47,17 +47,30 @@ async function runModuleCommand(
   allModules: Module[],
   moduleName: string,
   commandName: string,
-  args: string[] = []
+  args: string[] = [],
+  options: { optional?: boolean } = {},
 ): Promise<void> {
   const mod = allModules.find((m) => m.id === moduleName)
   if (!mod) {
+    if (options.optional) {
+      console.log(`⏭️  Skipping "${moduleName}:${commandName}" — module not enabled`)
+      return
+    }
     throw new Error(`Module not found: "${moduleName}"`)
   }
   if (!mod.cli || mod.cli.length === 0) {
+    if (options.optional) {
+      console.log(`⏭️  Skipping "${moduleName}:${commandName}" — module has no CLI commands`)
+      return
+    }
     throw new Error(`Module "${moduleName}" has no CLI commands`)
   }
   const cmd = mod.cli.find((c) => c.command === commandName)
   if (!cmd) {
+    if (options.optional) {
+      console.log(`⏭️  Skipping "${moduleName}:${commandName}" — command not found`)
+      return
+    }
     throw new Error(`Command "${commandName}" not found in module "${moduleName}"`)
   }
   await cmd.run(args)
@@ -339,12 +352,12 @@ export async function run(argv = process.argv) {
           )
           const stressArgs = ['--tenant', tenantId, '--org', orgId, '--count', String(stressTestCount)]
           if (stressTestLite) stressArgs.push('--lite')
-          await runModuleCommand(allModules, 'customers', 'seed-stresstest', stressArgs)
+          await runModuleCommand(allModules, 'customers', 'seed-stresstest', stressArgs, { optional: true })
           console.log(`✅ Stress test customers seeded (requested ${stressTestCount})\n`)
         }
 
         console.log('🧩 Enabling default dashboard widgets...')
-        await runModuleCommand(allModules, 'dashboards', 'seed-defaults', ['--tenant', tenantId])
+        await runModuleCommand(allModules, 'dashboards', 'seed-defaults', ['--tenant', tenantId], { optional: true })
         console.log('✅ Dashboard widgets enabled\n')
 
       } else {
@@ -355,12 +368,12 @@ export async function run(argv = process.argv) {
       const vectorArgs = tenantId
         ? ['--tenant', tenantId, ...(orgId ? ['--org', orgId] : [])]
         : ['--purgeFirst=false']
-      await runModuleCommand(allModules, 'search', 'reindex', vectorArgs)
+      await runModuleCommand(allModules, 'search', 'reindex', vectorArgs, { optional: true })
       console.log('✅ Search indexes built\n')
 
       console.log('🔍 Rebuilding query indexes...')
       const queryIndexArgs = ['--force', ...(tenantId ? ['--tenant', tenantId] : [])]
-      await runModuleCommand(allModules, 'query_index', 'reindex', queryIndexArgs)
+      await runModuleCommand(allModules, 'query_index', 'reindex', queryIndexArgs, { optional: true })
       console.log('✅ Query indexes rebuilt\n')
 
       // Derive admin/employee only when the provided email is a superadmin email

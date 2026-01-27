@@ -1,4 +1,4 @@
-# SPEC-011: Decouple Module Setup from `setup-app.ts`
+# SPEC-012: Decouple Module Setup from `setup-app.ts`
 
 ## Problem
 
@@ -359,13 +359,26 @@ Pass modules registry to `setupInitialTenant`.
 
 ---
 
-## Step 8: Update `upgrade-actions.ts` (phase 2, separate PR)
+## Step 8: Harden `upgrade-actions.ts` for disabled modules (Phase 2)
 
-The upgrade actions file has similar coupling but is architecturally different (versioned, one-time). Options:
-- **Short-term**: Wrap each import in a dynamic `import()` with try/catch so missing modules don't crash.
-- **Long-term**: Add an `upgrades.ts` convention per module, auto-discovered like `setup.ts`.
+**File:** `packages/core/src/modules/configs/lib/upgrade-actions.ts`
 
-Out of scope for the initial PR.
+The upgrade actions file uses dynamic `import()` calls to load seed functions from optional modules. If a module is disabled (not in the build), the import fails and crashes the entire upgrade flow.
+
+### Fix applied
+Each dynamic import is wrapped in try/catch. When an import fails, a `console.warn` is logged and the seed portion is skipped. Role ACL changes (auth module, always present) still execute.
+
+### Imports wrapped
+
+| Upgrade Action | Version | Imports Wrapped | Behavior on Failure |
+|----------------|---------|-----------------|---------------------|
+| `configs.upgrades.catalog.examples` | v0.3.4 | `catalog/lib/seeds` | Early return, skip entire action |
+| `configs.upgrades.sales.examples` | v0.3.6 | `sales/seed/examples` | Early return, skip entire action |
+| `configs.upgrades.examples.currencies_workflows` | v0.3.13 | `currencies/lib/seeds`, `workflows/lib/seeds` | Skip individual seeds, role ACL changes still run |
+| `configs.upgrades.examples.planner_staff_resources` | v0.4.1 | `planner/lib/seeds`, `staff/lib/seeds`, `resources/lib/seeds` | Skip individual seeds, role ACL changes still run |
+
+### Pattern
+For actions with a single module dependency (catalog, sales), the action returns early if the import fails. For actions with multiple module dependencies plus role ACL logic (currencies_workflows, planner_staff_resources), imports are hoisted before `em.transactional()`, each seed call is guarded with `if (fn)`, and role ACL logic always executes.
 
 ---
 
@@ -443,10 +456,69 @@ If a module like `sales` is **not enabled**, its `setup.ts` is never discovered 
 
 ---
 
+## Implementation Status
+
+### Completed (Phase 1)
+
+| Step | Status | Notes |
+|------|--------|-------|
+| Step 1: `ModuleSetupConfig` type | Done | `packages/shared/src/modules/setup.ts` |
+| Step 2: `Module.setup` field | Done | Added to `packages/shared/src/modules/registry.ts` |
+| Step 3: Generator discovery | Done | `packages/cli/src/lib/generators/module-registry.ts` discovers `setup.ts` |
+| Step 4: Module `setup.ts` files | Done | 23 files created (21 core + 1 search + 1 example) |
+| Step 5a: Remove sales imports from `setup-app.ts` | Done | No direct sales entity imports |
+| Step 5b: Delete `ensureSalesNumberingDefaults()` | Done | Moved to `sales/setup.ts` `onTenantCreated` |
+| Step 5c: Accept modules param | Done | `SetupInitialTenantOptions.modules?: Module[]` |
+| Step 5d: Refactor `ensureDefaultRoleAcls()` | Done | Merges `defaultRoleFeatures` from modules |
+| Step 5e: Module `onTenantCreated` hooks | Done | Loop in `setupInitialTenant()` |
+| Step 5f: Fallback via `tryGetModules()` | Done | Falls back to `getModules()` from registry |
+| Step 7a: Onboarding verify | Done | Uses `getModules()` + `seedDefaults`/`seedExamples` hooks |
+| Step 8: Decoupling test | Done | `packages/core/src/__tests__/module-decoupling.test.ts` |
+| ACL test fix | Done | `cli-setup-acl.test.ts` registers modules for feature assertions |
+| AGENTS.md updated | Done | Module Setup Convention section added |
+
+### Completed (Phase 2)
+
+| Step | Status | Notes |
+|------|--------|-------|
+| `mercato init` resilience | Done | `runModuleCommand` accepts `{ optional: true }` — 4 callers updated (customers, dashboards, search, query_index) |
+| `upgrade-actions.ts` hardening | Done | 7 dynamic imports wrapped in try/catch across 4 upgrade actions |
+
+### Key files
+
+| File | Role |
+|------|------|
+| `packages/shared/src/modules/setup.ts` | `ModuleSetupConfig` type |
+| `packages/shared/src/modules/registry.ts` | `Module.setup` field |
+| `packages/cli/src/lib/generators/module-registry.ts` | Discovers `setup.ts` at module root |
+| `packages/core/src/modules/auth/lib/setup-app.ts` | Iterates modules for ACLs + `onTenantCreated` |
+| `packages/cli/src/mercato.ts` | `runModuleCommand` with `{ optional }` flag for resilient init |
+| `packages/core/src/modules/configs/lib/upgrade-actions.ts` | Dynamic imports wrapped in try/catch for disabled modules |
+| `packages/core/src/__tests__/module-decoupling.test.ts` | Verifies decoupling with disabled modules |
+| `packages/core/src/modules/auth/__tests__/cli-setup-acl.test.ts` | Verifies role ACL seeding from module configs |
+
+### Module setup files
+
+All 23 `setup.ts` files are located at:
+- `packages/core/src/modules/{auth,entities,attachments,query_index,feature_toggles,configs,audit_logs,directory,dictionaries,dashboards,api_keys,perspectives,business_rules,customers,currencies,staff,resources,planner,workflows,catalog,sales}/setup.ts`
+- `packages/search/src/modules/search/setup.ts`
+- `apps/mercato/src/modules/example/setup.ts`
+
+---
+
 ## Changelog
 
-### 2026-01-27
+### 2026-01-27 (Phase 2)
+- `mercato.ts`: Added `{ optional }` flag to `runModuleCommand`; 4 callers updated (customers, dashboards, search, query_index) to skip gracefully when module is disabled
+- `upgrade-actions.ts`: Wrapped 7 dynamic imports in try/catch across 4 upgrade actions (catalog, sales, currencies+workflows, planner+staff+resources); role ACL changes still execute when seed modules are absent
+- Updated Step 8 section with implementation details and pattern description
+- Marked Phase 2 as complete
+
+### 2026-01-27 (Phase 1)
 - Initial specification
 - Added `--no-examples` analysis: three lifecycle hooks (`onTenantCreated`, `seedDefaults`, `seedExamples`)
 - Added `mercato init` decoupling (Step 6) with dependency-ordered seed loops
 - Added behavior flowchart for `--no-examples`
+- Marked Phase 1 as complete: type, generator, 23 setup.ts files, refactored setup-app.ts, decoupling test, ACL test fix
+- Added AGENTS.md documentation for the setup.ts convention
+- Documented remaining Phase 2 work (mercato init refactor, upgrade-actions hardening)
