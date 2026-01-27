@@ -90,24 +90,32 @@ import type { SalesOrderEntity } from '@open-mercato/core/modules/sales'
 
 ## Documentation and Specifications
 
-Architecture Decision Records (ADR) and feature specifications are maintained in the `.ai/specs/` folder. This serves as the source of truth for design decisions and module specifications.
+Architecture Decision Records (ADRs) and feature specifications are maintained in the `.ai/specs/` folder. This serves as the source of truth for design decisions and module specifications.
 
 ### Spec Files
-- Location: `.ai/specs/<module-name>.md` (e.g., `.ai/specs/notifications-module.md`)
+
+- **Naming convention**: `SPEC-{number}-{date}-{title}.md` (e.g., `SPEC-003-2026-01-23-notifications-module.md`)
+- **Number**: Sequential identifier (001, 002, 003, etc.)
+- **Date**: Creation date in ISO format (YYYY-MM-DD)
+- **Title**: Descriptive kebab-case title
 - Each spec documents the module's purpose, architecture, API contracts, data models, and implementation details.
 - Specs should include a **Changelog** section at the bottom to track evolution over time.
+- See [`.ai/specs/README.md`](.ai/specs/README.md) for the full specification directory.
 
 ### When Developing Features
-1. **Before coding**: Check if a spec exists for the module you're modifying. Read it to understand the design intent.
+
+1. **Before coding**: Check if a spec exists for the module you're modifying. Browse [`.ai/specs/README.md`](.ai/specs/README.md) or search for `SPEC-*-{module-name}.md` files.
 2. **When adding features**: Update the corresponding spec file with:
    - New functionality description
    - API changes
    - Data model updates
    - A changelog entry with date and summary
-3. **When creating new modules**: Create a new spec file at `.ai/specs/<module-name>.md` before or alongside implementation.
+3. **When creating new modules**: Create a new spec file at `.ai/specs/SPEC-{next-number}-{YYYY-MM-DD}-{module-name}.md` before or alongside implementation, and update the directory table in [`.ai/specs/README.md`](.ai/specs/README.md).
 
 ### Spec Changelog Format
+
 Each spec should maintain a changelog at the bottom:
+
 ```markdown
 ## Changelog
 
@@ -120,10 +128,13 @@ Each spec should maintain a changelog at the bottom:
 ```
 
 ### Auto-generating Specs
+
 Even when not explicitly asked to update specs, agents should:
+
 - Generate or update the spec when implementing significant changes
 - Keep specs synchronized with the actual implementation
 - Document any architectural decisions made during development
+- Update the spec directory table in [`.ai/specs/README.md`](.ai/specs/README.md) when creating new specs
 
 This ensures the `.ai/specs/` folder remains a reliable reference for understanding module behavior and history.
 
@@ -359,7 +370,7 @@ All module paths below use `src/modules/<module>/` as a shorthand. In practice:
 - New CRUD forms should use `CrudForm` wired to CRUD factory/commands APIs and be shared between create/edit flows.
 - Prefer reusing components from the shared `packages/ui` package before introducing new UI primitives.
 - For new `DataTable` columns, set `meta.truncate` and `meta.maxWidth` in the column config when you need specific truncation behavior; only rely on defaults when those are not set.
-- When you create new UI check reusable components before creating UI from scratch (see `.ai/specs/ui-reusable-components.md`)
+- When you create new UI check reusable components before creating UI from scratch (see [`.ai/specs/SPEC-001-2026-01-21-ui-reusable-components.md`](.ai/specs/SPEC-001-2026-01-21-ui-reusable-components.md))
 
 ### Type Safety Addendum
 - Centralize reusable types and constants (e.g., custom field kinds) in `packages/shared` and import them everywhere to avoid drift.

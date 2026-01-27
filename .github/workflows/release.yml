@@ -1,39 +1,117 @@
-name: Release New Version
+name: Release
 
 on:
-  push:
-    branches: [main]
+  workflow_dispatch:
+    inputs:
+      bump:
+        description: 'Version bump type'
+        required: true
+        type: choice
+        options:
+          - patch
+          - minor
+          - major
 
 permissions:
   contents: write
   id-token: write
-  pull-requests: write
-  issues: write
+
+concurrency: ${{ github.workflow }}-${{ github.ref }}
 
 jobs:
   release:
-    name: Semantic Release
+    name: Release
     runs-on: ubuntu-latest
+    # Only allow releases from main branch
+    if: github.ref == 'refs/heads/main'
+    env:
+      YARN_NPM_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version: '24'
 
       - name: Enable Corepack
         run: corepack enable
 
+      - name: Configure npm authentication
+        run: |
+          echo "//registry.npmjs.org/:_authToken=${NPM_TOKEN}" > .npmrc
+          echo "access=public" >> .npmrc
+        env:
+          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
+
       - name: Install dependencies
         run: yarn install --immutable
 
-      - name: Run semantic release
+      - name: Configure git
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+      - name: Release ${{ inputs.bump }}
         id: release
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: yarn semantic-release
+        run: |
+          ./scripts/release-${{ inputs.bump }}.sh 2>&1 | tee release-output.txt
+
+          # Get the new version from the first package
+          NEW_VERSION=$(cat packages/shared/package.json | jq -r '.version')
+          echo "version=$NEW_VERSION" >> $GITHUB_OUTPUT
+
+          # Build packages list from package.json files
+          PACKAGES_JSON=$(find packages -name package.json -not -path "*/node_modules/*" -exec cat {} \; | \
+            jq -s '[.[] | select(.private != true) | {name: .name, version: .version}]')
+
+          echo "packages_json<<EOF" >> $GITHUB_OUTPUT
+          echo "$PACKAGES_JSON" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+
+      - name: Commit version changes
+        run: |
+          git add -A
+          git commit -m "chore: release v${{ steps.release.outputs.version }}"
+          git push
+
+      - name: Create git tag
+        run: |
+          git tag "v${{ steps.release.outputs.version }}"
+          git push origin "v${{ steps.release.outputs.version }}"
+
+      - name: Create GitHub Release
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const packages = ${{ steps.release.outputs.packages_json }};
+            const version = '${{ steps.release.outputs.version }}';
+
+            let releaseNotes = '## Published Packages\n\n';
+            releaseNotes += '| Package | Version |\n|---------|---------|';
+            for (const pkg of packages) {
+              releaseNotes += `\n| \`${pkg.name}\` | \`${pkg.version}\` |`;
+            }
+
+            releaseNotes += '\n\n### Install\n\n```bash\n';
+            releaseNotes += 'npm install @open-mercato/shared@' + version + '\n';
+            releaseNotes += '# or\n';
+            releaseNotes += 'yarn add @open-mercato/shared@' + version + '\n';
+            releaseNotes += '```';
+
+            await github.rest.repos.createRelease({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              tag_name: `v${version}`,
+              name: `v${version}`,
+              body: releaseNotes,
+              draft: false,
+              prerelease: false
+            });
+
+            console.log(`Created release v${version}`);

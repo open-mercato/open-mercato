@@ -1,11 +1,7 @@
-FROM ubuntu:24.04
-
-ENV DEBIAN_FRONTEND=noninteractive
-
+FROM debian:bookworm-slim
 # Install dependencies
-RUN apt-get update && apt-get install -y \
-    curl \
-    ca-certificates \
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    curl ca-certificates bash passwd \
     && rm -rf /var/lib/apt/lists/*
 
 # Install OpenCode and move to system path

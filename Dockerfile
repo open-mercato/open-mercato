@@ -1,14 +1,12 @@
-FROM node:24-bookworm-slim AS builder
+FROM node:24-alpine AS builder
 
 ENV NODE_ENV=production \
     NEXT_TELEMETRY_DISABLED=1
 
 WORKDIR /app
 
-# Install system deps required by optional native modules
-RUN apt-get update \
- && apt-get install -y --no-install-recommends python3 build-essential ca-certificates openssl \
- && rm -rf /var/lib/apt/lists/*
+# Install system deps required by optional native modules (Alpine uses apk)
+RUN apk add --no-cache python3 make g++ ca-certificates openssl
 
 # Enable Corepack for Yarn
 RUN corepack enable
@@ -31,28 +29,23 @@ COPY newrelic.js ./
 COPY jest.config.cjs jest.setup.ts jest.dom.setup.ts ./
 COPY eslint.config.mjs ./
 
-# Build packages first
-RUN yarn build:packages
-
-# Generate module registry files (required before building the app)
-RUN yarn generate
 
 # Build the app
-RUN yarn build:app
+RUN yarn build
 
 # Production stage
-FROM node:24-bookworm-slim AS runner
+FROM node:24-alpine AS runner
+
+ARG CONTAINER_PORT=3000
 
 ENV NODE_ENV=production \
     NEXT_TELEMETRY_DISABLED=1 \
-    PORT=3000
+    PORT=${CONTAINER_PORT}
 
 WORKDIR /app
 
-# Install only production system dependencies
-RUN apt-get update \
- && apt-get install -y --no-install-recommends ca-certificates openssl \
- && rm -rf /var/lib/apt/lists/*
+# Install only production system dependencies (Alpine uses apk)
+RUN apk add --no-cache ca-certificates openssl
 
 # Enable Corepack for Yarn
 RUN corepack enable
@@ -85,17 +78,13 @@ COPY --from=builder /app/apps/mercato/types ./apps/mercato/types
 # Copy runtime configuration files
 COPY --from=builder /app/newrelic.js ./
 
-# Copy entrypoint script
-COPY docker/entrypoint.sh /app/entrypoint.sh
-RUN chmod +x /app/entrypoint.sh
-
-# Drop root privileges
-RUN useradd --create-home --uid 1001 omuser \
+# Drop root privileges (Alpine uses adduser instead of useradd)
+RUN adduser -D -u 1001 omuser \
  && chown -R omuser:omuser /app
 
 USER omuser
 
-EXPOSE 3000
+EXPOSE ${CONTAINER_PORT}
 
 # Run the app directly instead of using turbo (which is a devDependency)
 WORKDIR /app/apps/mercato

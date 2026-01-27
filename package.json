@@ -34,7 +34,11 @@
     "mcp:serve": "turbo run mcp:serve --filter=@open-mercato/ai-assistant",
     "mcp:dev": "turbo run mcp:dev --filter=@open-mercato/ai-assistant",
     "registry:setup-user": "./scripts/registry/setup-user.sh",
-    "registry:publish": "./scripts/registry/publish.sh"
+    "registry:publish": "./scripts/registry/publish.sh",
+    "release:canary": "./scripts/release-canary.sh",
+    "release:patch": "./scripts/release-patch.sh",
+    "release:minor": "./scripts/release-minor.sh",
+    "release:major": "./scripts/release-major.sh"
   },
   "dependencies": {
     "@ai-sdk/openai": "^2.0.80",
@@ -75,12 +79,6 @@
   },
   "devDependencies": {
     "@eslint/eslintrc": "^3.3.3",
-    "@semantic-release/changelog": "^6.0.3",
-    "@semantic-release/commit-analyzer": "^13.0.0",
-    "@semantic-release/exec": "^7.1.0",
-    "@semantic-release/git": "^10.0.1",
-    "@semantic-release/github": "^12.0.2",
-    "@semantic-release/release-notes-generator": "^14.0.1",
     "@types/better-sqlite3": "^7.6.11",
     "@types/jest": "^30.0.0",
     "@types/node": "^20.0.0",
@@ -94,7 +92,6 @@
     "jest": "^30.2.0",
     "jest-environment-jsdom": "^30.2.0",
     "openapi-typescript": "^7.10.1",
-    "semantic-release": "^25.0.2",
     "ts-jest": "^29.4.6",
     "ts-node": "^10.9.2",
     "tsconfig-paths": "^4.2.0",
@@ -106,32 +103,5 @@
     "pg": "8.16.3",
     "zod": "4.1.13",
     "lodash-es": "4.17.23"
-  },
-  "release": {
-    "branches": [
-      "main"
-    ],
-    "plugins": [
-      "@semantic-release/commit-analyzer",
-      "@semantic-release/release-notes-generator",
-      "@semantic-release/changelog",
-      [
-        "@semantic-release/exec",
-        {
-          "verifyReleaseCmd": "echo ${nextRelease.version} > .VERSION"
-        }
-      ],
-      [
-        "@semantic-release/git",
-        {
-          "assets": [
-            "CHANGELOG.md",
-            "README.md"
-          ],
-          "message": "chore(release): ${nextRelease.version} [skip ci]\n\n${nextRelease.notes}"
-        }
-      ],
-      "@semantic-release/github"
-    ]
   }
 }

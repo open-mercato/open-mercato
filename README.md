@@ -282,13 +282,13 @@ Open Mercato follows a **spec-first development approach**. Before implementing 
 
 ### How It Works
 
-1. **Before coding**: Check if a spec exists at `.ai/specs/<module-name>.md`
+1. **Before coding**: Check if a spec exists in `.ai/specs/` (named `SPEC-###-YYYY-MM-DD-title.md`)
 2. **New features**: Create or update the spec with your design before implementation
 3. **After changes**: Update the spec's changelog with a dated summary
 
-Example specs: `notifications-module.md`, `messages-module.md`, `ui-reusable-components.md`
+**Naming convention**: Specs use the format `SPEC-{number}-{date}-{title}.md` (e.g., `SPEC-007-2026-01-26-sidebar-reorganization.md`)
 
-See [`.ai/specs/AGENTS.md`](.ai/specs/AGENTS.md) for detailed guidelines on maintaining specs.
+See [`.ai/specs/README.md`](.ai/specs/README.md) for the full specification directory and [`.ai/specs/AGENTS.md`](.ai/specs/AGENTS.md) for detailed guidelines on maintaining specs.
 
 ## Join us on Discord
 
