@@ -35,7 +35,7 @@ ANTHROPIC_API_KEY=sk-ant-api03-...
 
 # Option C: Google
 # OPENCODE_PROVIDER=google
-# GOOGLE_API_KEY=AIza...
+# GOOGLE_GENERATIVE_AI_API_KEY=AIza...
 ```
 
 ### Step 2: Configure MCP Server
@@ -114,7 +114,7 @@ curl http://localhost:4096/mcp
 |----------|----------|---------|-------------|
 | `ANTHROPIC_API_KEY` | If using Anthropic | - | Anthropic API key |
 | `OPENAI_API_KEY` | If using OpenAI | - | OpenAI API key |
-| `GOOGLE_API_KEY` | If using Google | - | Google API key |
+| `GOOGLE_GENERATIVE_AI_API_KEY` | If using Google | - | Google Generative AI API key |
 | `OPENCODE_PROVIDER` | Yes | - | LLM provider: `anthropic`, `openai`, or `google` |
 | `OPENCODE_MODEL` | No | See table below | Override the model for selected provider |
 | `MCP_SERVER_API_KEY` | For production | - | Open Mercato API key (`omk_...`) for MCP server auth |
@@ -534,7 +534,7 @@ services:
       OPENCODE_MODEL: ${OPENCODE_MODEL:-}
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}      # Set if using anthropic
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}            # Set if using openai
-      GOOGLE_GENERATIVE_AI_API_KEY: ${GOOGLE_API_KEY:-}  # Set if using google
+      GOOGLE_GENERATIVE_AI_API_KEY: ${GOOGLE_GENERATIVE_AI_API_KEY:-}  # Set if using google
       OPENCODE_MCP_URL: ${OPENCODE_MCP_URL:-http://host.docker.internal:3001/mcp}
       MCP_SERVER_API_KEY: ${MCP_SERVER_API_KEY}      # Required
     ports:

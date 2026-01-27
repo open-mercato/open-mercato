@@ -19,8 +19,8 @@ const PROVIDERS = {
   },
   google: {
     name: 'Google',
-    defaultModel: 'gemini-2.0-flash',
-    envKeys: ['GOOGLE_API_KEY'],
+    defaultModel: 'gemini-3-flash',
+    envKeys: ['GOOGLE_GENERATIVE_AI_API_KEY'],
   },
 } as const
 

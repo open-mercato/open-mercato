@@ -44,7 +44,7 @@ export const CHAT_PROVIDERS: Record<ChatProviderId, ChatProviderInfo> = {
   },
   google: {
     name: 'Google',
-    envKeyRequired: 'GOOGLE_API_KEY',
+    envKeyRequired: 'GOOGLE_GENERATIVE_AI_API_KEY',
     defaultModel: 'gemini-3-flash-preview',
     models: [
       { id: 'gemini-3-flash-preview', name: 'Gemini 3 Flash Preview', contextWindow: 1048576 },
@@ -65,7 +65,7 @@ export function isProviderConfigured(providerId: ChatProviderId): boolean {
     case 'anthropic':
       return Boolean(process.env.ANTHROPIC_API_KEY?.trim())
     case 'google':
-      return Boolean(process.env.GOOGLE_API_KEY?.trim())
+      return Boolean(process.env.GOOGLE_GENERATIVE_AI_API_KEY?.trim())
     default:
       return false
   }
