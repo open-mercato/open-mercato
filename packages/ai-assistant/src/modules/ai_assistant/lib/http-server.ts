@@ -220,10 +220,12 @@ function createMcpServerForRequest(
 
           // Check if user has required permissions for this tool
           if (tool.requiredFeatures?.length) {
+            const rbacService = effectiveContext.container.resolve<RbacService>('rbacService')
             const hasAccess = hasRequiredFeatures(
               tool.requiredFeatures,
               effectiveContext.userFeatures,
-              effectiveContext.isSuperAdmin
+              effectiveContext.isSuperAdmin,
+              rbacService
             )
             if (!hasAccess) {
               return {

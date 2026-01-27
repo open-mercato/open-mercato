@@ -9,6 +9,7 @@ import { authenticateMcpRequest, extractApiKeyFromHeaders, hasRequiredFeatures }
 import { jsonSchemaToZod } from './schema-utils'
 import type { McpToolContext } from './types'
 import type { SearchService } from '@open-mercato/search/service'
+import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
 
 const DEFAULT_PORT = 3001
 
@@ -105,8 +106,9 @@ function createDevMcpServer(
   const tools = Array.from(registry.getTools().values())
 
   // Filter tools based on API key permissions
+  const rbacService = toolContext.container.resolve<RbacService>('rbacService')
   const accessibleTools = tools.filter((tool) =>
-    hasRequiredFeatures(tool.requiredFeatures, authFeatures, isSuperAdmin)
+    hasRequiredFeatures(tool.requiredFeatures, authFeatures, isSuperAdmin, rbacService)
   )
 
   if (debug) {
