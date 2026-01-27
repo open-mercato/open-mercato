@@ -287,6 +287,47 @@ export async function dbMigrate(resolver: PackageResolver, options: DbOptions = 
   }
 
   console.log(results.join('\n'))
+
+  // Auto-sync RLS policies for any newly created tenant-scoped tables.
+  // Runs when RLS_ENABLED is set OR when existing policies are already present
+  // (i.e. the initial RLS migration has been applied previously).
+  await syncRlsAfterMigrate()
+}
+
+async function syncRlsAfterMigrate(): Promise<void> {
+  try {
+    const { isRlsEnabled } = await import('@open-mercato/shared/lib/db/rls')
+    const { syncRlsPolicies, hasAnyRlsPolicies } = await import('@open-mercato/shared/lib/db/rls-sync')
+    const knex = (await import('knex')).default({
+      client: 'pg',
+      connection: getClientUrl(),
+      pool: { min: 1, max: 2 },
+    })
+    try {
+      const rlsExplicitlyEnabled = isRlsEnabled()
+      const policiesExist = !rlsExplicitlyEnabled ? await hasAnyRlsPolicies(knex) : true
+
+      if (!rlsExplicitlyEnabled && !policiesExist) {
+        return
+      }
+
+      const result = await syncRlsPolicies(knex, { quiet: QUIET_MODE })
+      if (result.policiesCreated.length > 0 && !QUIET_MODE) {
+        console.log(`\nRLS: Synced ${result.policiesCreated.length} new policy(ies): ${result.policiesCreated.join(', ')}`)
+      }
+      if (result.failed.length > 0 && !QUIET_MODE) {
+        console.warn(`RLS: ${result.failed.length} table(s) failed policy creation`)
+      }
+    } finally {
+      await knex.destroy()
+    }
+  } catch (err) {
+    // Non-fatal: RLS sync failure should not block migrations
+    if (!QUIET_MODE) {
+      const message = err instanceof Error ? err.message : String(err)
+      console.warn(`[rls-sync] Post-migration RLS sync skipped:`, message)
+    }
+  }
 }
 
 export async function dbGreenfield(resolver: PackageResolver, options: GreenfieldOptions): Promise<void> {

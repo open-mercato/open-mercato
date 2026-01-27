@@ -237,6 +237,15 @@ All module paths below use `src/modules/<module>/` as a shorthand. In practice:
 - Never expose cross-tenant data from API handlers.
 - Authentication must attach organization context explicitly.
 
+## Row-Level Security (RLS)
+- RLS provides database-level tenant isolation as defense-in-depth. Even if application code omits a tenant filter, PostgreSQL policies block cross-tenant reads/writes.
+- **Do NOT remove application-level `tenant_id` filtering**—keep both layers (defense-in-depth).
+- Controlled by `RLS_ENABLED` env var (`true` to activate context setting; policies exist in the DB regardless).
+- RLS policies are auto-synced: after every `dbMigrate()` run (and therefore `mercato init`), any new table with a `tenant_id` column automatically receives an `rls_tenant_isolation_<table>` policy.
+- Manual sync: run `yarn mercato db rls-sync` (supports `--dry-run`).
+- Context is set via `setRlsContext()` in CRUD factory `withCtx()`, `BasicQueryEngine`, and `HybridQueryEngine`.
+- Spec: `.ai/specs/row-level-security.md`; helpers: `packages/shared/src/lib/db/rls.ts`, `packages/shared/src/lib/db/rls-sync.ts`.
+
 ## Security and Quality
 - Validate all inputs with `zod`.
 - Place validators next to entities (per module) in `src/modules/<module>/data/validators.ts`.

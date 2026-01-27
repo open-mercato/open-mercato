@@ -217,6 +217,14 @@ SET row_security = off;
 
 ## Changelog
 
+### 2026-01-27
+- Added auto-sync: `dbMigrate()` now automatically creates RLS policies for new tables with `tenant_id`
+- Added reusable sync utility: `packages/shared/src/lib/db/rls-sync.ts` (`syncRlsPolicies`, `hasAnyRlsPolicies`)
+- Added reusable SQL builders: `buildRlsPolicySql()`, `rlsPolicyName()` in `packages/shared/src/lib/db/rls.ts`
+- Added standalone CLI command: `yarn mercato db rls-sync` (supports `--dry-run`)
+- Sync runs when `RLS_ENABLED=true` or when existing `rls_tenant_isolation_*` policies are detected
+- Documented RLS conventions in `AGENTS.md`
+
 ### 2026-01-23
 - Initial implementation
 - RLS helper module with context management

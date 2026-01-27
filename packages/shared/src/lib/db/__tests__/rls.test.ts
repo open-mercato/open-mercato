@@ -8,6 +8,9 @@ import {
   withRlsContext,
   RLS_TENANT_VAR,
   RLS_ORG_VAR,
+  RLS_POLICY_PREFIX,
+  rlsPolicyName,
+  buildRlsPolicySql,
 } from '../rls'
 
 describe('RLS Helper Module', () => {
@@ -267,6 +270,64 @@ describe('RLS Helper Module', () => {
       const fn = jest.fn().mockRejectedValue(error)
 
       await expect(withRlsContext(mockKnex, 'tenant-123', null, fn)).rejects.toThrow('Test error')
+    })
+  })
+
+  describe('RLS_POLICY_PREFIX', () => {
+    test('has expected value', () => {
+      expect(RLS_POLICY_PREFIX).toBe('rls_tenant_isolation_')
+    })
+  })
+
+  describe('rlsPolicyName', () => {
+    test('builds policy name from table name', () => {
+      expect(rlsPolicyName('users')).toBe('rls_tenant_isolation_users')
+    })
+
+    test('handles underscored table names', () => {
+      expect(rlsPolicyName('sales_orders')).toBe('rls_tenant_isolation_sales_orders')
+    })
+  })
+
+  describe('buildRlsPolicySql', () => {
+    test('returns three SQL statements', () => {
+      const statements = buildRlsPolicySql('orders', false)
+      expect(statements).toHaveLength(3)
+    })
+
+    test('first statement enables RLS', () => {
+      const statements = buildRlsPolicySql('orders', false)
+      expect(statements[0]).toBe('ALTER TABLE "orders" ENABLE ROW LEVEL SECURITY;')
+    })
+
+    test('second statement forces RLS', () => {
+      const statements = buildRlsPolicySql('orders', false)
+      expect(statements[1]).toBe('ALTER TABLE "orders" FORCE ROW LEVEL SECURITY;')
+    })
+
+    test('non-nullable policy requires tenant match', () => {
+      const statements = buildRlsPolicySql('orders', false)
+      const policySql = statements[2]
+      expect(policySql).toContain('CREATE POLICY "rls_tenant_isolation_orders"')
+      expect(policySql).toContain('ON "orders"')
+      expect(policySql).toContain('FOR ALL')
+      expect(policySql).toContain("current_setting('app.current_tenant_id', true)")
+      expect(policySql).toContain('tenant_id = ')
+      expect(policySql).not.toContain('tenant_id IS NULL')
+    })
+
+    test('nullable policy allows NULL tenant_id rows', () => {
+      const statements = buildRlsPolicySql('roles', true)
+      const policySql = statements[2]
+      expect(policySql).toContain('CREATE POLICY "rls_tenant_isolation_roles"')
+      expect(policySql).toContain('tenant_id IS NULL OR')
+      expect(policySql).toContain("current_setting('app.current_tenant_id', true)")
+    })
+
+    test('includes WITH CHECK clause', () => {
+      const statements = buildRlsPolicySql('orders', false)
+      const policySql = statements[2]
+      expect(policySql).toContain('WITH CHECK')
     })
   })
 })

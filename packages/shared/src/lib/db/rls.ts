@@ -144,3 +144,49 @@ export async function withRlsContext<T>(
   await setRlsContext(knex, tenantId, organizationId)
   return fn()
 }
+
+// ---------------------------------------------------------------------------
+// RLS Policy Templates
+// ---------------------------------------------------------------------------
+
+/** Naming convention for tenant isolation policies */
+export const RLS_POLICY_PREFIX = 'rls_tenant_isolation_'
+
+/**
+ * Build the policy name for a given table.
+ */
+export function rlsPolicyName(tableName: string): string {
+  return `${RLS_POLICY_PREFIX}${tableName}`
+}
+
+/**
+ * Generate the SQL statements required to enable RLS and create a tenant
+ * isolation policy on a single table.
+ *
+ * @param tableName - The target table (must be a valid identifier)
+ * @param nullable  - Whether the `tenant_id` column is nullable.
+ *                    When nullable, rows with `tenant_id IS NULL` (system data)
+ *                    remain visible to all sessions.
+ * @returns An array of SQL strings to execute in order.
+ */
+export function buildRlsPolicySql(tableName: string, nullable: boolean): string[] {
+  const policyName = rlsPolicyName(tableName)
+
+  const enableSql = `ALTER TABLE "${tableName}" ENABLE ROW LEVEL SECURITY;`
+  const forceSql = `ALTER TABLE "${tableName}" FORCE ROW LEVEL SECURITY;`
+
+  const tenantMatch = `
+    NULLIF(current_setting('${RLS_TENANT_VAR}', true), '') IS NOT NULL
+    AND tenant_id = current_setting('${RLS_TENANT_VAR}', true)::UUID`
+
+  const usingClause = nullable
+    ? `tenant_id IS NULL OR (${tenantMatch.trim()})`
+    : tenantMatch.trim()
+
+  const policySql = `CREATE POLICY "${policyName}" ON "${tableName}"
+  FOR ALL
+  USING (${usingClause})
+  WITH CHECK (${usingClause});`
+
+  return [enableSql, forceSql, policySql]
+}
