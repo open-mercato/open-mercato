@@ -107,9 +107,21 @@ async function loadModuleEntities(entry: ModuleEntry, resolver: PackageResolver)
 
 function getMigrationsPath(entry: ModuleEntry, resolver: PackageResolver): string {
   const roots = resolver.getModulePaths(entry)
-  // For @app modules, use appBase (user's source); for packages, use pkgBase
-  const pkgModRoot = entry.from === '@app' ? roots.appBase : roots.pkgBase
-  return path.join(pkgModRoot, 'migrations')
+
+  if (entry.from === '@app') {
+    // @app modules: use src/ (user's TypeScript source)
+    return path.join(roots.appBase, 'migrations')
+  }
+
+  // Package modules: in standalone mode, use dist/ (compiled JS) since Node.js
+  // can't run TypeScript from node_modules. In monorepo, use src/ (TypeScript).
+  if (!resolver.isMonorepo()) {
+    // Replace src/modules with dist/modules for standalone apps
+    const distPath = roots.pkgBase.replace('/src/modules/', '/dist/modules/')
+    return path.join(distPath, 'migrations')
+  }
+
+  return path.join(roots.pkgBase, 'migrations')
 }
 
 export interface DbOptions {
