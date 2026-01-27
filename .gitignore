@@ -91,6 +91,7 @@ package-lock.json
 
 # Claude Code MCP config (may contain API keys)
 .mcp.json
+.vscode/settings.json
 packages/cache/node_modules/*
 newrelic_agent.log
 /generated/
