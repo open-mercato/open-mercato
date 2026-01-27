@@ -280,7 +280,7 @@ export async function generateOpenApi(options: GenerateOpenApiOptions): Promise<
   // Check if unchanged
   const existingChecksums = readChecksumRecord(checksumFile)
   if (existingChecksums && existingChecksums.content === checksum && fs.existsSync(outFile)) {
-    result.skipped = true
+    result.filesUnchanged.push(outFile)
     if (!quiet) {
       console.log(`[OpenAPI] Skipped (unchanged): ${outFile}`)
     }
@@ -291,11 +291,10 @@ export async function generateOpenApi(options: GenerateOpenApiOptions): Promise<
   fs.writeFileSync(outFile, output)
   writeChecksumRecord(checksumFile, { content: checksum, structure: '' })
 
-  result.written = true
-  result.outputPath = outFile
+  result.filesWritten.push(outFile)
 
   if (!quiet) {
-    logGenerationResult('[OpenAPI]', outFile, result)
+    logGenerationResult(outFile, true)
     console.log(`[OpenAPI] Generated ${pathCount} API paths`)
   }
 

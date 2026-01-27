@@ -276,7 +276,7 @@ export async function runMcpDevServer(): Promise<void> {
 
     // Index entity schemas for discover_schema tool
     try {
-      const { extractEntityGraph, cacheEntityGraph, getCachedEntityGraph } = await import('./entity-graph')
+      const { getCachedEntityGraph } = await import('./entity-graph')
       const { indexEntitiesForSearch } = await import('./entity-index')
       const graph = getCachedEntityGraph()
       if (graph) {

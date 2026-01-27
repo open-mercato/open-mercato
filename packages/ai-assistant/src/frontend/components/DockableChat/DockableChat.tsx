@@ -149,7 +149,6 @@ export function DockableChat() {
   const {
     isOpen,
     phase,
-    inputValue,
     isLoading,
     isStreaming,
     connectionStatus,
