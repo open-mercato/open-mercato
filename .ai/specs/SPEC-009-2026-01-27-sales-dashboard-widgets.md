@@ -1,7 +1,7 @@
 # SPEC-009: Sales Dashboard Widgets
 
 **Date:** 2026-01-27
-**Status:** Draft
+**Status:** Implemented
 **Module:** `sales`
 **Type:** Feature Specification
 
@@ -1365,3 +1365,5 @@ Using Playwright or similar:
 - Defined widget structure, API contracts, and UI components
 - Established date period selection patterns
 - Documented access control and internationalization requirements
+### 2026-01-27
+- Implemented sales dashboard widgets, shared date range helpers, and widget APIs
