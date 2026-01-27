@@ -1,12 +1,11 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
 import * as fs from 'fs'
 import * as path from 'path'
+import { fileURLToPath } from 'node:url'
 import { WorkflowDefinition, type WorkflowDefinitionData } from '../data/entities'
 import { BusinessRule, type RuleType } from '@open-mercato/core/modules/business_rules/data/entities'
-import checkoutDemoDefinition from '../examples/checkout-demo-definition.json'
-import guardRulesExample from '../examples/guard-rules-example.json'
-import salesPipelineDefinition from '../examples/sales-pipeline-definition.json'
-import simpleApprovalDefinition from '../examples/simple-approval-definition.json'
+
+const __esmDirname = path.dirname(fileURLToPath(import.meta.url))
 
 export type WorkflowSeedScope = { tenantId: string; organizationId: string }
 
@@ -46,20 +45,9 @@ type GuardRuleSeed = {
   labelsJson?: Record<string, string>
 }
 
-const embeddedSeeds: Record<string, unknown> = {
-  'checkout-demo-definition.json': checkoutDemoDefinition,
-  'guard-rules-example.json': guardRulesExample,
-  'sales-pipeline-definition.json': salesPipelineDefinition,
-  'simple-approval-definition.json': simpleApprovalDefinition,
-}
-
 function readExampleJson<T>(fileName: string): T {
-  const embedded = embeddedSeeds[fileName]
-  if (embedded) {
-    return embedded as T
-  }
   const candidates = [
-    path.join(__dirname, '..', 'examples', fileName),
+    path.join(__esmDirname, '..', 'examples', fileName),
     path.join(process.cwd(), 'packages', 'core', 'src', 'modules', 'workflows', 'examples', fileName),
     path.join(process.cwd(), 'src', 'modules', 'workflows', 'examples', fileName),
   ]
