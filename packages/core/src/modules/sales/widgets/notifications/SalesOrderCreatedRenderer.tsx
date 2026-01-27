@@ -38,6 +38,7 @@ export function SalesOrderCreatedRenderer({
   notification,
   onAction,
   onDismiss,
+  actions = [],
 }: NotificationRendererProps) {
   const t = useT()
   const router = useRouter()
