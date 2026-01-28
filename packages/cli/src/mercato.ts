@@ -416,6 +416,15 @@ export async function run(argv = process.argv) {
         await runModuleCommand(allModules, 'dashboards', 'seed-defaults', ['--tenant', tenantId])
         console.log('✅ Dashboard widgets enabled\n')
 
+        console.log('📊 Enabling analytics widgets for admin and employee roles...')
+        await runModuleCommand(allModules, 'dashboards', 'enable-analytics-widgets', [
+          '--tenant',
+          tenantId,
+          '--roles',
+          'admin,employee',
+        ])
+        console.log('✅ Analytics widgets enabled for roles\n')
+
       } else {
         console.log('⚠️  Could not get organization ID or tenant ID, skipping seeding steps\n')
       }

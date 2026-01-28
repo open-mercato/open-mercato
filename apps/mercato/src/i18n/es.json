@@ -386,6 +386,10 @@
   "upgrades.v041.cta": "Instalar datos de planner, staff y resources",
   "upgrades.v041.loading": "Instalando…",
   "upgrades.v041.success": "Datos de planner, staff y resources instalados.",
+  "upgrades.v042.message": "La versión {{version}} se ha instalado. Habilita los widgets de analíticas para los roles admin y empleado.",
+  "upgrades.v042.cta": "Habilitar widgets de analíticas para admin y empleado",
+  "upgrades.v042.loading": "Actualizando…",
+  "upgrades.v042.success": "Widgets de analíticas habilitados para admin y empleado.",
   "upgrades.runFailed": "No pudimos ejecutar esta acción de actualización.",
   "upgrades.loading": "Cargando actualización…"
 }

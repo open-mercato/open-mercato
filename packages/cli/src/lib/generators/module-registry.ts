@@ -266,7 +266,12 @@ export async function generateModuleRegistry(options: ModuleRegistryOptions): Pr
         const importPath = hasApp ? `${appImportBase}/notifications` : `${imps.pkgBase}/notifications`
         const importStmt = `import * as ${importName} from '${importPath}'`
         notificationImports.push(importStmt)
-        notificationTypes.push(`{ moduleId: '${modId}', types: (${importName}.default ?? ${importName}.notificationTypes ?? ${importName}.types ?? []) }`)
+        notificationTypes.push(
+          `{ moduleId: '${modId}', types: (${importName}.default ?? ${importName}.notificationTypes ?? ${importName}.types ?? []) }`
+        )
+      }
+    }
+
     // Analytics module configuration: module root analytics.ts
     {
       const appFile = path.join(roots.appBase, 'analytics.ts')

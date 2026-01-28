@@ -64,3 +64,4 @@ Setup complete: { tenantId: '...', organizationId: '...' }
 - **Missing options** – the command prints the usage line and exits if `--orgName`, `--email`, or `--password` are not provided.
 - **Existing data** – rerunning the command against an existing tenant will update user passwords and assignments rather than duplicating records.
 - **Role mismatches** – ensure `mercato auth seed-roles` ran previously if you override the default role list.
+- **Password policies** – the command enforces the configured password policy. Update `OM_PASSWORD_MIN_LENGTH`, `OM_PASSWORD_REQUIRE_DIGIT`, `OM_PASSWORD_REQUIRE_UPPERCASE`, and `OM_PASSWORD_REQUIRE_SPECIAL` to customize the rules.

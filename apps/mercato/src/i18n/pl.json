@@ -385,6 +385,10 @@
   "upgrades.v041.cta": "Zainstaluj dane planner, staff i resources",
   "upgrades.v041.loading": "Instalowanie…",
   "upgrades.v041.success": "Dane planner, staff i resources zostały zainstalowane.",
+  "upgrades.v042.message": "Wersja {{version}} została zainstalowana. Włącz widżety analityczne dla ról admin i pracownik.",
+  "upgrades.v042.cta": "Włącz widżety analityczne dla ról admin i pracownik",
+  "upgrades.v042.loading": "Aktualizowanie…",
+  "upgrades.v042.success": "Widżety analityczne włączone dla ról admin i pracownik.",
   "upgrades.runFailed": "Nie udało się uruchomić tej akcji aktualizacji.",
   "upgrades.loading": "Ładowanie aktualizacji…"
 }

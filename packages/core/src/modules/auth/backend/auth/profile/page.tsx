@@ -11,6 +11,7 @@ import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { LoadingMessage, ErrorMessage } from '@open-mercato/ui/backend/detail'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { buildPasswordSchema, formatPasswordRequirements, getPasswordPolicy } from '@open-mercato/shared/lib/auth/passwordPolicy'
 
 type ProfileResponse = {
   email?: string | null
@@ -35,6 +36,16 @@ export default function AuthProfilePage() {
   const [email, setEmail] = React.useState('')
   const [formKey, setFormKey] = React.useState(0)
   const formId = React.useId()
+  const passwordPolicy = React.useMemo(() => getPasswordPolicy(), [])
+  const passwordRequirements = React.useMemo(
+    () => formatPasswordRequirements(passwordPolicy, t),
+    [passwordPolicy, t],
+  )
+  const passwordDescription = React.useMemo(() => (
+    passwordRequirements
+      ? t('auth.password.requirements.help', 'Password requirements: {requirements}', { requirements: passwordRequirements })
+      : undefined
+  ), [passwordRequirements, t])
 
   React.useEffect(() => {
     let cancelled = false
@@ -59,25 +70,37 @@ export default function AuthProfilePage() {
 
   const fields = React.useMemo<CrudField[]>(() => [
     { id: 'email', label: t('auth.profile.form.email', 'Email'), type: 'text', required: true },
-    { id: 'password', label: t('auth.profile.form.password', 'New password'), type: 'text' },
+    {
+      id: 'password',
+      label: t('auth.profile.form.password', 'New password'),
+      type: 'text',
+      description: passwordDescription,
+    },
     { id: 'confirmPassword', label: t('auth.profile.form.confirmPassword', 'Confirm new password'), type: 'text' },
-  ], [t])
+  ], [passwordDescription, t])
 
-  const schema = React.useMemo(() => z.object({
-    email: z.string().trim().min(1, t('auth.profile.form.errors.emailRequired', 'Email is required.')),
-    password: z.string().optional(),
-    confirmPassword: z.string().optional(),
-  }).superRefine((values, ctx) => {
-    const password = values.password?.trim() ?? ''
-    const confirmPassword = values.confirmPassword?.trim() ?? ''
-    if ((password || confirmPassword) && password !== confirmPassword) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        message: t('auth.profile.form.errors.passwordMismatch', 'Passwords do not match.'),
-        path: ['confirmPassword'],
-      })
-    }
-  }), [t])
+  const schema = React.useMemo(() => {
+    const passwordSchema = buildPasswordSchema({
+      policy: passwordPolicy,
+      message: t('auth.profile.form.errors.passwordRequirements', 'Password must meet the requirements.'),
+    })
+    const optionalPasswordSchema = z.union([z.literal(''), passwordSchema]).optional()
+    return z.object({
+      email: z.string().trim().min(1, t('auth.profile.form.errors.emailRequired', 'Email is required.')),
+      password: optionalPasswordSchema,
+      confirmPassword: z.string().optional(),
+    }).superRefine((values, ctx) => {
+      const password = values.password?.trim() ?? ''
+      const confirmPassword = values.confirmPassword?.trim() ?? ''
+      if ((password || confirmPassword) && password !== confirmPassword) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: t('auth.profile.form.errors.passwordMismatch', 'Passwords do not match.'),
+          path: ['confirmPassword'],
+        })
+      }
+    })
+  }, [passwordPolicy, t])
 
   const handleSubmit = React.useCallback(async (values: ProfileFormValues) => {
     const nextEmail = values.email?.trim() ?? ''

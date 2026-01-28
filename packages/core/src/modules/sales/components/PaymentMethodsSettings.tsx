@@ -526,8 +526,8 @@ export function PaymentMethodsSettings() {
           rowActions={(row) => (
             <RowActions
               items={[
-                { label: translations.actions.edit, onSelect: () => openEdit(row) },
-                { label: translations.actions.delete, destructive: true, onSelect: () => deleteEntry(row) },
+                { id: 'edit', label: translations.actions.edit, onSelect: () => openEdit(row) },
+                { id: 'delete', label: translations.actions.delete, destructive: true, onSelect: () => deleteEntry(row) },
               ]}
             />
           )}

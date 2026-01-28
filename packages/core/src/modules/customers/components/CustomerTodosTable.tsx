@@ -253,6 +253,7 @@ export function CustomerTodosTable(): React.JSX.Element {
           <RowActions
             items={[
               {
+                id: 'open-customer',
                 label: t('customers.workPlan.customerTodos.table.actions.openCustomer'),
                 href: customerLink,
               },

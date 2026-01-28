@@ -4,6 +4,7 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import { DashboardRoleWidgets } from '@open-mercato/core/modules/dashboards/data/entities'
 import { Role } from '@open-mercato/core/modules/auth/data/entities'
 import { loadAllWidgets } from '@open-mercato/core/modules/dashboards/lib/widgets'
+import { appendWidgetsToRoles, resolveAnalyticsWidgetIds } from '@open-mercato/core/modules/dashboards/lib/role-widgets'
 import { seedAnalyticsData } from './seed/analytics'
 
 type Args = Record<string, string>
@@ -117,6 +118,45 @@ const seedDefaults: ModuleCli = {
       widgetIds: widgetCsv ? widgetCsv.split(',').map((id) => id.trim()).filter(Boolean) : undefined,
       logger: (message) => console.log(message),
     })
+  },
+}
+
+const enableAnalyticsWidgets: ModuleCli = {
+  command: 'enable-analytics-widgets',
+  async run(rest) {
+    const args = parseArgs(rest)
+    const tenantId = args.tenant || args.tenantId || null
+    const organizationId = args.organization || args.organizationId || args.org || null
+    const roleCsv = args.roles || 'admin,employee'
+    if (!tenantId) {
+      console.error('Usage: mercato dashboards enable-analytics-widgets --tenant <tenantId> [--org <orgId>] [--roles admin,employee]')
+      return
+    }
+
+    const roleNames = roleCsv
+      .split(',')
+      .map((name) => name.trim())
+      .filter(Boolean)
+
+    if (!roleNames.length) {
+      console.log('No roles provided, nothing to update.')
+      return
+    }
+
+    const { resolve } = await createRequestContainer()
+    const em = resolve('em') as EntityManager
+    const widgetIds = await resolveAnalyticsWidgetIds()
+
+    const updated = await appendWidgetsToRoles(em, {
+      tenantId,
+      organizationId,
+      roleNames,
+      widgetIds,
+    })
+
+    if (!updated) {
+      console.log('No dashboard role widgets updated.')
+    }
   },
 }
 
@@ -282,4 +322,4 @@ const debugAnalytics: ModuleCli = {
   },
 }
 
-export default [seedDefaults, seedAnalytics, debugAnalytics]
+export default [seedDefaults, enableAnalyticsWidgets, seedAnalytics, debugAnalytics]

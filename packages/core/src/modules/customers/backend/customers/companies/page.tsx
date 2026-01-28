@@ -597,14 +597,17 @@ export default function CustomersCompaniesPage() {
             <RowActions
               items={[
                 {
+                  id: 'view',
                   label: t('customers.companies.list.actions.view'),
                   onSelect: () => { router.push(`/backend/customers/companies/${row.id}`) },
                 },
                 {
+                  id: 'open-new-tab',
                   label: t('customers.companies.list.actions.openInNewTab'),
                   onSelect: () => window.open(`/backend/customers/companies/${row.id}`, '_blank', 'noopener'),
                 },
                 {
+                  id: 'delete',
                   label: t('customers.companies.list.actions.delete'),
                   destructive: true,
                   onSelect: () => handleDelete(row),

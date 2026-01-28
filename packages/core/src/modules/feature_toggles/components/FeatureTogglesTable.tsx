@@ -205,12 +205,11 @@ export function FeatureTogglesTable() {
       }}
       rowActions={(row) => (
         <RowActions items={[
-          { label: t('common.edit', 'Edit'), href: `/backend/feature-toggles/global/${row.id}/edit` },
-          { label: t('common.view', 'Overrides'), href: `/backend/feature-toggles/global/${row.id}` },
-          { label: t('common.delete', 'Delete'), destructive: true, onSelect: () => { void handleDelete(row) } },
+          { id: 'edit', label: t('common.edit', 'Edit'), href: `/backend/feature-toggles/global/${row.id}/edit` },
+          { id: 'view', label: t('common.view', 'Overrides'), href: `/backend/feature-toggles/global/${row.id}` },
+          { id: 'delete', label: t('common.delete', 'Delete'), destructive: true, onSelect: () => { void handleDelete(row) } },
         ]} />
       )}
     />
   )
 }
-

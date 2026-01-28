@@ -561,6 +561,9 @@ curl -H "Authorization: Bearer <token>" \
 
 ## Changelog
 
+### 2026-01-28
+- Added upgrade/init handling to append analytics widgets to admin and employee role visibility.
+
 ### 2026-01-27
 
 - Initial specification documenting existing implementation

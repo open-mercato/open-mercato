@@ -30,6 +30,7 @@ import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/
 import { buildNotificationFromType } from '@open-mercato/core/modules/notifications/lib/notificationBuilder'
 import { resolveNotificationService } from '@open-mercato/core/modules/notifications/lib/notificationService'
 import notificationTypes from '@open-mercato/core/modules/auth/notifications'
+import { buildPasswordSchema } from '@open-mercato/shared/lib/auth/passwordPolicy'
 
 type SerializedUser = {
   email: string
@@ -66,9 +67,11 @@ type UserSnapshots = {
   undo: UserUndoSnapshot
 }
 
+const passwordSchema = buildPasswordSchema()
+
 const createSchema = z.object({
   email: z.string().email(),
-  password: z.string().min(6),
+  password: passwordSchema,
   organizationId: z.string().uuid(),
   roles: z.array(z.string()).optional(),
 })
@@ -76,7 +79,7 @@ const createSchema = z.object({
 const updateSchema = z.object({
   id: z.string().uuid(),
   email: z.string().email().optional(),
-  password: z.string().min(6).optional(),
+  password: passwordSchema.optional(),
   organizationId: z.string().uuid().optional(),
   roles: z.array(z.string()).optional(),
 })

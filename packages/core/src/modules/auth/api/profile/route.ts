@@ -11,14 +11,17 @@ import { AuthService } from '@open-mercato/core/modules/auth/services/authServic
 import { User } from '@open-mercato/core/modules/auth/data/entities'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { buildPasswordSchema } from '@open-mercato/shared/lib/auth/passwordPolicy'
 
 const profileResponseSchema = z.object({
   email: z.string().email(),
 })
 
+const passwordSchema = buildPasswordSchema()
+
 const updateSchema = z.object({
   email: z.string().email().optional(),
-  password: z.string().min(6).optional(),
+  password: passwordSchema.optional(),
 }).refine((data) => Boolean(data.email || data.password), {
   message: 'Provide an email or password.',
   path: ['email'],

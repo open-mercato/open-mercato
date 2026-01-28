@@ -385,6 +385,10 @@
   "upgrades.v041.cta": "Planner-, Staff- und Resources-Daten installieren",
   "upgrades.v041.loading": "Installiere…",
   "upgrades.v041.success": "Planner-, Staff- und Resources-Daten installiert.",
+  "upgrades.v042.message": "Version {{version}} wurde installiert. Analytics-Widgets für Admin- und Mitarbeiter-Rollen aktivieren.",
+  "upgrades.v042.cta": "Analytics-Widgets für Admin- und Mitarbeiter-Rollen aktivieren",
+  "upgrades.v042.loading": "Aktualisiere…",
+  "upgrades.v042.success": "Analytics-Widgets für Admin- und Mitarbeiter-Rollen aktiviert.",
   "upgrades.runFailed": "Die Upgrade-Aktion konnte nicht ausgeführt werden.",
   "upgrades.loading": "Upgrade wird geladen…"
 }

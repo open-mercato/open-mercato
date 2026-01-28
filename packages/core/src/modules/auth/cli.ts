@@ -16,6 +16,7 @@ import { decryptWithAesGcm } from '@open-mercato/shared/lib/encryption/aes'
 import { env } from 'process'
 import type { KmsService, TenantDek } from '@open-mercato/shared/lib/encryption/kms'
 import crypto from 'node:crypto'
+import { formatPasswordRequirements, getPasswordPolicy, validatePassword } from '@open-mercato/shared/lib/auth/passwordPolicy'
 
 const addUser: ModuleCli = {
   command: 'add-user',
@@ -34,6 +35,7 @@ const addUser: ModuleCli = {
       console.error('Usage: mercato auth add-user --email <email> --password <password> --organizationId <id> [--roles customer,employee]')
       return
     }
+    if (!ensurePasswordPolicy(password)) return
     const { resolve } = await createRequestContainer()
     const em = resolve('em') as any
     const org =
@@ -100,6 +102,16 @@ function normalizeKeyInput(value: string): string {
 function hashSecret(value: string | null | undefined): string | null {
   if (!value) return null
   return crypto.createHash('sha256').update(normalizeKeyInput(value)).digest('hex').slice(0, 12)
+}
+
+function ensurePasswordPolicy(password: string): boolean {
+  const policy = getPasswordPolicy()
+  const result = validatePassword(password, policy)
+  if (result.ok) return true
+  const requirements = formatPasswordRequirements(policy, (_key, fallback) => fallback)
+  const suffix = requirements ? `: ${requirements}` : ''
+  console.error(`Password does not meet the requirements${suffix}.`)
+  return false
 }
 
 async function withEncryptionDebugDisabled<T>(fn: () => Promise<T>): Promise<T> {
@@ -406,6 +418,7 @@ const setupApp: ModuleCli = {
       console.error('Usage: mercato auth setup --orgName <name> --email <email> --password <password> [--roles superadmin,admin,employee]')
       return
     }
+    if (!ensurePasswordPolicy(password)) return
     const { resolve } = await createRequestContainer()
     const em = resolve<EntityManager>('em')
     const roleNames = rolesCsv
@@ -595,6 +608,7 @@ const setPassword: ModuleCli = {
       console.error('Usage: mercato auth set-password --email <email> --password <newPassword>')
       return
     }
+    if (!ensurePasswordPolicy(password)) return
     
     const { resolve } = await createRequestContainer()
     const em = resolve('em') as any
