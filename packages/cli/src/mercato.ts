@@ -904,6 +904,40 @@ export async function run(argv = process.argv) {
           await dbGreenfield(resolver, { yes })
         },
       },
+      {
+        command: 'rls-sync',
+        run: async (args: string[]) => {
+          const dryRun = args.includes('--dry-run')
+          const { syncRlsPolicies } = await import('@open-mercato/shared/lib/db/rls-sync')
+          const knex = (await import('knex')).default({
+            client: 'pg',
+            connection: (() => {
+              const url = process.env.DATABASE_URL || process.env.MIKRO_ORM_CLIENT_URL
+              if (!url) throw new Error('DATABASE_URL or MIKRO_ORM_CLIENT_URL is required')
+              return url
+            })(),
+            pool: { min: 1, max: 2 },
+          })
+          try {
+            const result = await syncRlsPolicies(knex, { dryRun })
+            console.log(`\nRLS Sync ${dryRun ? '(dry run) ' : ''}complete:`)
+            console.log(`  Tables checked:    ${result.tablesChecked}`)
+            console.log(`  Already covered:   ${result.alreadyCovered.length}`)
+            console.log(`  Policies created:  ${result.policiesCreated.length}`)
+            if (result.policiesCreated.length > 0) {
+              console.log(`  New policies:      ${result.policiesCreated.join(', ')}`)
+            }
+            if (result.failed.length > 0) {
+              console.log(`  Failed:            ${result.failed.length}`)
+              for (const { table, error } of result.failed) {
+                console.log(`    - ${table}: ${error}`)
+              }
+            }
+          } finally {
+            await knex.destroy()
+          }
+        },
+      },
     ],
   } as any)
 

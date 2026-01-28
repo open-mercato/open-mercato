@@ -10,6 +10,7 @@ import { createProfiler, shouldEnableProfiler, type Profiler } from '@open-merca
 import type { VectorIndexService } from '@open-mercato/search/vector'
 import { decryptIndexDocCustomFields } from '@open-mercato/shared/lib/encryption/indexDoc'
 import { parseBooleanToken, parseBooleanWithDefault } from '@open-mercato/shared/lib/boolean'
+import { isRlsEnabled, setRlsContext } from '@open-mercato/shared/lib/db/rls'
 import {
   applyJoinFilters,
   normalizeFilters,
@@ -153,6 +154,16 @@ export class HybridQueryEngine implements QueryEngine {
 
       const knex = this.getKnex()
       profiler.mark('query:knex_ready')
+
+      // Set RLS context for database-level tenant isolation (defense-in-depth)
+      if (isRlsEnabled() && opts.tenantId) {
+        try {
+          await setRlsContext(knex, opts.tenantId, opts.organizationId ?? null)
+        } catch {
+          // Best-effort: don't fail query if RLS context setting fails
+        }
+      }
+
       const baseTable = resolveEntityTableName(this.em, entity)
       profiler.mark('query:base_table_resolved')
       const searchConfig = resolveSearchConfig()
