@@ -33,6 +33,18 @@ export interface McpToolDefinition<TInput = unknown, TOutput = unknown> {
 }
 
 /**
+ * Alias for McpToolDefinition - use in ai-tools.ts files.
+ *
+ * @example
+ * ```typescript
+ * import type { AiToolDefinition } from '@open-mercato/ai-assistant'
+ *
+ * export const aiTools: AiToolDefinition[] = [...]
+ * ```
+ */
+export type AiToolDefinition<TInput = unknown, TOutput = unknown> = McpToolDefinition<TInput, TOutput>
+
+/**
  * Options for tool registration.
  */
 export interface ToolRegistrationOptions {

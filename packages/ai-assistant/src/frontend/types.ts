@@ -1,3 +1,18 @@
+// Dock position for AI chat panel
+export type DockPosition = 'floating' | 'right' | 'left' | 'bottom'
+
+// Floating position for floating mode
+export type FloatingPosition = 'bottom-right' | 'bottom-left' | 'top-right' | 'top-left'
+
+// Dock state for persisting chat panel configuration
+export interface DockState {
+  position: DockPosition
+  floatingPosition: FloatingPosition // For floating mode corner position
+  width: number // For left/right docking and floating mode
+  height: number // For bottom docking and floating mode
+  isMinimized: boolean
+}
+
 // Phase-based state for intelligent routing
 export type PalettePhase =
   | 'idle'       // Empty, waiting for input
@@ -5,6 +20,14 @@ export type PalettePhase =
   | 'chatting'   // Smart model conversation for tool params
   | 'confirming' // Waiting for user to approve tool call
   | 'executing'  // Tool running
+
+// Agent status for showing what the AI is currently doing
+export type AgentStatus =
+  | { type: 'idle' }
+  | { type: 'thinking' }
+  | { type: 'tool'; toolName: string }
+  | { type: 'executing' }  // Generic status when tools are running but name is unknown
+  | { type: 'responding' }
 
 // Page-based navigation for Raycast-style interface (deprecated, use PalettePhase)
 export type CommandPalettePage = 'home' | 'tool-chat'
@@ -97,6 +120,7 @@ export interface CommandPaletteState {
 export interface CommandPaletteContextValue {
   state: CommandPaletteState
   isThinking: boolean
+  agentStatus: AgentStatus
   isSessionAuthorized: boolean
   pageContext: PageContext | null
   selectedEntities: SelectedEntity[]
@@ -118,6 +142,7 @@ export interface CommandPaletteContextValue {
 
   // Navigation actions
   open: () => void
+  openChat: () => void
   close: () => void
   setInputValue: (value: string) => void
   setSelectedIndex: (index: number) => void
@@ -139,6 +164,7 @@ export interface CommandPaletteContextValue {
   sendMessage: (content: string) => Promise<void>
   sendAgenticMessage: (content: string) => Promise<void>
   clearMessages: () => void
+  stopExecution: () => void
 
   // Legacy compatibility
   setMode: (mode: CommandPaletteMode) => void

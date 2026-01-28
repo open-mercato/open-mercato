@@ -1,11 +1,10 @@
 {
   "mcpServers": {
     "open-mercato": {
-      "type": "stdio",
-      "command": "yarn",
-      "args": ["mcp:dev"],
-      "env": {
-        "OPEN_MERCATO_API_KEY": "${OPEN_MERCATO_API_KEY}"
+      "type": "http",
+      "url": "http://localhost:3001/mcp",
+      "headers": {
+        "x-api-key": "omk_..."
       }
     }
   }

@@ -38,6 +38,10 @@ export class ApiKey {
   @Property({ name: 'session_user_id', type: 'uuid', nullable: true })
   sessionUserId?: string | null
 
+  /** Encrypted API key secret for session keys (recoverable for API calls) */
+  @Property({ name: 'session_secret_encrypted', type: 'text', nullable: true })
+  sessionSecretEncrypted?: string | null
+
   @Property({ name: 'last_used_at', type: Date, nullable: true })
   lastUsedAt?: Date | null
 

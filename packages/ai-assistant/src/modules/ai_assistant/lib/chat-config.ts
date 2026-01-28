@@ -29,40 +29,32 @@ export const CHAT_PROVIDERS: Record<ChatProviderId, ChatProviderInfo> = {
   openai: {
     name: 'OpenAI',
     envKeyRequired: 'OPENAI_API_KEY',
-    defaultModel: 'gpt-4o',
+    defaultModel: 'gpt-5-mini',
     models: [
-      { id: 'gpt-4o', name: 'GPT-4o', contextWindow: 128000 },
-      { id: 'gpt-4o-mini', name: 'GPT-4o Mini', contextWindow: 128000 },
-      { id: 'gpt-4-turbo', name: 'GPT-4 Turbo', contextWindow: 128000 },
-      { id: 'gpt-3.5-turbo', name: 'GPT-3.5 Turbo', contextWindow: 16385 },
+      { id: 'gpt-5-mini', name: 'GPT-5 Mini', contextWindow: 128000 },
     ],
   },
   anthropic: {
     name: 'Anthropic',
     envKeyRequired: 'ANTHROPIC_API_KEY',
-    defaultModel: 'claude-sonnet-4-5-20250929',
+    defaultModel: 'claude-haiku-4-5-20251001',
     models: [
-      { id: 'claude-sonnet-4-5-20250929', name: 'Claude Sonnet 4.5', contextWindow: 200000 },
-      { id: 'claude-sonnet-4-20250514', name: 'Claude Sonnet 4', contextWindow: 200000 },
-      { id: 'claude-3-5-sonnet-20241022', name: 'Claude 3.5 Sonnet', contextWindow: 200000 },
-      { id: 'claude-3-5-haiku-20241022', name: 'Claude 3.5 Haiku', contextWindow: 200000 },
+      { id: 'claude-haiku-4-5-20251001', name: 'Claude Haiku 4.5', contextWindow: 200000 },
     ],
   },
   google: {
     name: 'Google',
     envKeyRequired: 'GOOGLE_GENERATIVE_AI_API_KEY',
-    defaultModel: 'gemini-1.5-pro',
+    defaultModel: 'gemini-3-flash-preview',
     models: [
-      { id: 'gemini-1.5-pro', name: 'Gemini 1.5 Pro', contextWindow: 2097152 },
-      { id: 'gemini-1.5-flash', name: 'Gemini 1.5 Flash', contextWindow: 1048576 },
-      { id: 'gemini-pro', name: 'Gemini Pro', contextWindow: 32000 },
+      { id: 'gemini-3-flash-preview', name: 'Gemini 3 Flash Preview', contextWindow: 1048576 },
     ],
   },
 }
 
 export const DEFAULT_CHAT_CONFIG: Omit<ChatProviderConfig, 'updatedAt'> = {
   providerId: 'openai',
-  model: 'gpt-4o',
+  model: 'gpt-5-mini',
 }
 
 // Provider configuration checks

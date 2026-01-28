@@ -27,9 +27,9 @@ const RouteResultSchema = z.object({
 
 // Fast/cheap models for each provider
 const ROUTING_MODELS: Record<ChatProviderId, string> = {
-  anthropic: 'claude-3-5-haiku-20241022',
-  openai: 'gpt-4o-mini',
-  google: 'gemini-1.5-flash',
+  anthropic: 'claude-haiku-4-5-20251001',
+  openai: 'gpt-5-mini',
+  google: 'gemini-3-flash',
 }
 
 function createRoutingModel(providerId: ChatProviderId) {

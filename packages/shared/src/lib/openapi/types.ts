@@ -50,7 +50,6 @@ export type OpenApiRouteDoc = {
   description?: string
   pathParams?: ZodTypeAny
   methods: Partial<Record<OpenApiHttpMethod, OpenApiMethodDoc>>
-  extensions?: Record<string, unknown>
 }
 
 export type OpenApiDocumentOptions = {

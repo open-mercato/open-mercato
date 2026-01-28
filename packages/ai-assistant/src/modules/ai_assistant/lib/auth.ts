@@ -1,5 +1,6 @@
 import type { AwilixContainer } from 'awilix'
 import type { EntityManager } from '@mikro-orm/postgresql'
+import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
 
 /**
  * Successful authentication result.
@@ -122,16 +123,24 @@ export async function authenticateMcpRequest(
  * @param requiredFeatures - List of features required for access
  * @param userFeatures - List of features the user has
  * @param isSuperAdmin - Whether the user is a super admin
+ * @param rbacService - Optional RbacService to delegate feature matching
  * @returns True if user has access
  */
 export function hasRequiredFeatures(
   requiredFeatures: string[] | undefined,
   userFeatures: string[],
-  isSuperAdmin: boolean
+  isSuperAdmin: boolean,
+  rbacService?: RbacService
 ): boolean {
   if (isSuperAdmin) return true
   if (!requiredFeatures?.length) return true
 
+  // Delegate to RbacService if provided
+  if (rbacService) {
+    return rbacService.hasAllFeatures(requiredFeatures, userFeatures)
+  }
+
+  // Fallback for cases without rbacService (keeps backward compatibility)
   return requiredFeatures.every((required) => {
     if (userFeatures.includes(required)) return true
     if (userFeatures.includes('*')) return true

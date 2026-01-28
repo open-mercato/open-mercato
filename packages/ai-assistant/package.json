@@ -7,7 +7,7 @@
     "build": "node build.mjs",
     "watch": "node watch.mjs",
     "mcp:dev": "mercato ai_assistant mcp:dev",
-    "mcp:serve-http": "mercato ai_assistant mcp:serve-http"
+    "mcp:serve": "mercato ai_assistant mcp:serve-http"
   },
   "exports": {
     ".": "./dist/index.js",

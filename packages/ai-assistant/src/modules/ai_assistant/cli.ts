@@ -126,27 +126,15 @@ const mcpServe: ModuleCli = {
   },
 }
 
+const MCP_DEFAULT_PORT = 3001
+
 const mcpServeHttp: ModuleCli = {
   command: 'mcp:serve-http',
   async run(rest) {
     const args = parseArgs(rest)
-    const port = parseInt(String(args.port ?? ''), 10)
+    const portArg = parseInt(String(args.port ?? ''), 10)
+    const port = !portArg || isNaN(portArg) ? MCP_DEFAULT_PORT : portArg
     const debug = args.debug === true || args.debug === 'true'
-
-    if (!port || isNaN(port)) {
-      console.error('Usage: mercato ai_assistant mcp:serve-http --port <port> [options]')
-      console.error('')
-      console.error('Options:')
-      console.error('  --port <number>    Port to listen on (required)')
-      console.error('  --debug            Enable debug logging')
-      console.error('')
-      console.error('Authentication:')
-      console.error('  Clients must provide API key via x-api-key header')
-      console.error('')
-      console.error('Example:')
-      console.error('  mercato ai_assistant mcp:serve-http --port 3001')
-      return
-    }
 
     await ensureBootstrap()
     const container = await createRequestContainer()
@@ -179,6 +167,9 @@ const listTools: ModuleCli = {
   async run(rest) {
     const args = parseArgs(rest)
     const verbose = args.verbose === true || args.verbose === 'true'
+
+    // Ensure bootstrap runs so modules are registered for API discovery
+    await ensureBootstrap()
 
     const { loadAllModuleTools } = await import('./lib/tool-loader')
     await loadAllModuleTools()
@@ -230,4 +221,54 @@ const listTools: ModuleCli = {
   },
 }
 
-export default [mcpServe, mcpServeHttp, mcpDev, listTools]
+const entityGraph: ModuleCli = {
+  command: 'entity-graph',
+  async run(rest) {
+    const args = parseArgs(rest)
+    const format = String(args.format ?? 'triples') as 'json' | 'triples'
+    const entity = args.entity ? String(args.entity) : undefined
+    const module = args.module ? String(args.module) : undefined
+
+    await ensureBootstrap()
+
+    const { getOrm } = await import('@open-mercato/shared/lib/db/mikro')
+    const { extractEntityGraph, formatGraphAsTriples, filterGraphByEntity, filterGraphByModule } = await import(
+      './lib/entity-graph'
+    )
+
+    console.log('[Entity Graph] Extracting from MikroORM metadata...')
+
+    const orm = await getOrm()
+    const graph = await extractEntityGraph(orm)
+
+    // Apply filters
+    let edges = graph.edges
+
+    if (entity) {
+      edges = filterGraphByEntity(graph, entity)
+      console.log(`[Entity Graph] Filtered by entity: ${entity}`)
+    }
+
+    if (module) {
+      const filteredGraph = { ...graph, edges }
+      edges = filterGraphByModule(filteredGraph, module)
+      console.log(`[Entity Graph] Filtered by module: ${module}`)
+    }
+
+    const filteredGraph = { ...graph, edges }
+
+    if (format === 'json') {
+      console.log(JSON.stringify(filteredGraph, null, 2))
+    } else {
+      const triples = formatGraphAsTriples(filteredGraph)
+      console.log('')
+      for (const triple of triples) {
+        console.log(triple)
+      }
+    }
+
+    console.log(`\n[Entity Graph] ${graph.nodes.length} entities, ${edges.length} relationships`)
+  },
+}
+
+export default [mcpServe, mcpServeHttp, mcpDev, listTools, entityGraph]

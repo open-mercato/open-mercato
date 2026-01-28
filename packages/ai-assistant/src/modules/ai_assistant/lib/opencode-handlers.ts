@@ -43,8 +43,10 @@ export type OpenCodeHealthResponse = {
   search?: {
     available: boolean
     driver: string | null // 'meilisearch' or null
+    url: string | null // Meilisearch URL
   }
   url: string
+  mcpUrl: string
   message?: string
 }
 
@@ -85,11 +87,15 @@ export async function handleOpenCodeMessage(
 export async function handleOpenCodeHealth(): Promise<OpenCodeHealthResponse> {
   const client = getClient()
   const url = process.env.OPENCODE_URL ?? 'http://localhost:4096'
+  // MCP_URL is the full URL (e.g., https://mcp.example.com), fallback to localhost with port
+  const mcpUrl = process.env.MCP_URL ?? `http://localhost:${process.env.MCP_DEV_PORT ?? '3001'}`
+  const meilisearchHost = process.env.MEILISEARCH_HOST ?? null
 
   // Check search service availability
-  let searchStatus: { available: boolean; driver: string | null } = {
+  let searchStatus: { available: boolean; driver: string | null; url: string | null } = {
     available: false,
     driver: null,
+    url: meilisearchHost,
   }
   try {
     const { createRequestContainer } = await import('@open-mercato/shared/lib/di/container')
@@ -101,6 +107,7 @@ export async function handleOpenCodeHealth(): Promise<OpenCodeHealthResponse> {
     searchStatus = {
       available,
       driver: available ? 'meilisearch' : null,
+      url: meilisearchHost,
     }
   } catch {
     // Search service not available
@@ -115,6 +122,7 @@ export async function handleOpenCodeHealth(): Promise<OpenCodeHealthResponse> {
       mcp,
       search: searchStatus,
       url,
+      mcpUrl,
     }
   } catch (error) {
     return {
@@ -122,6 +130,7 @@ export async function handleOpenCodeHealth(): Promise<OpenCodeHealthResponse> {
       search: searchStatus,
       message: error instanceof Error ? error.message : 'OpenCode not reachable',
       url,
+      mcpUrl,
     }
   }
 }

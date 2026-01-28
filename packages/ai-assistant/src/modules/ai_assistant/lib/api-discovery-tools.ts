@@ -2,7 +2,10 @@
  * API Discovery Tools
  *
  * Meta-tools for discovering and executing API endpoints via search.
- * Replaces 400+ individual endpoint tools with 3 flexible tools.
+ *
+ * 2 tools total:
+ * - find_api: Search for endpoints (includes schema summary)
+ * - call_api: Execute an endpoint
  */
 
 import { z } from 'zod'
@@ -10,9 +13,8 @@ import { registerMcpTool } from './tool-registry'
 import type { McpToolContext } from './types'
 import {
   getApiEndpoints,
-  getEndpointByOperationId,
   searchEndpoints,
-  type ApiEndpoint,
+  simplifyRequestBodySchema,
 } from './api-endpoint-index'
 
 /**
@@ -23,41 +25,30 @@ export async function loadApiDiscoveryTools(): Promise<number> {
   const endpoints = await getApiEndpoints()
   console.error(`[API Discovery] ${endpoints.length} endpoints available for discovery`)
 
-  // Register the three discovery tools
+  // Register the two discovery tools
   registerApiDiscoverTool()
   registerApiExecuteTool()
-  registerApiSchemaTool()
 
-  return 3
+  return 2
 }
 
 /**
- * api_discover - Find relevant API endpoints based on a query
+ * find_api - Find relevant API endpoints based on a query.
+ * Enhanced to include request body schema summary.
  */
 function registerApiDiscoverTool(): void {
   registerMcpTool(
     {
-      name: 'api_discover',
-      description: `Find API endpoints in Open Mercato by keyword or action.
+      name: 'find_api',
+      description: `Search for API endpoints. Use discover_schema first to understand entity fields, then find_api to get the endpoint schema.
 
-CAPABILITIES: This tool searches 400+ endpoints that can CREATE, READ, UPDATE, and DELETE
-data across all modules (customers, products, orders, shipments, invoices, etc.).
+Returns: path, method, operationId, parameters, and requestBody schema showing required fields and structure.
 
-SEARCH: Uses hybrid search (fulltext + vector) for best results. You can filter by HTTP method.
-
-EXAMPLES:
-- "customer endpoints" - Find all customer-related APIs
-- "create order" - Find endpoint to create new orders
-- "delete product" - Find endpoint to delete products (confirm with user before executing!)
-- "update company name" - Find endpoint to modify companies
-- "search customers" - Find search/list endpoints
-
-Returns: method, path, description, and operationId for each match.
-Use operationId with api_schema to get detailed parameter info before calling api_execute.`,
+Workflow: discover_schema("Company") → understand fields → find_api("update company") → see request body schema → call_api`,
       inputSchema: z.object({
         query: z
           .string()
-          .describe('Natural language query to find relevant endpoints (e.g., "customer list")'),
+          .describe('Natural language query to find endpoints (e.g., "update company", "create order", "list customers")'),
         method: z
           .enum(['GET', 'POST', 'PUT', 'PATCH', 'DELETE'])
           .optional()
@@ -77,30 +68,46 @@ Use operationId with api_schema to get detailed parameter info before calling ap
             success: true,
             message: 'No matching endpoints found. Try different search terms.',
             endpoints: [],
+            suggestions: [
+              'Try broader terms like "customer", "company", "order", or "sales"',
+              'Use method filter to narrow results (e.g., method: "PUT" for updates)',
+              'Use discover_schema to find entity names first, then search for those entity names',
+            ],
           }
         }
 
-        // Format results for LLM consumption
-        const results = matches.map((endpoint) => ({
-          operationId: endpoint.operationId,
-          method: endpoint.method,
-          path: endpoint.path,
-          description: endpoint.description || endpoint.summary,
-          tags: endpoint.tags,
-          parameters: endpoint.parameters.map((p) => ({
-            name: p.name,
-            in: p.in,
-            required: p.required,
-            type: p.type,
-          })),
-          hasRequestBody: endpoint.requestBodySchema !== null,
-        }))
+        // Format results for LLM consumption - now includes schema
+        const results = matches.map((endpoint) => {
+          const result: Record<string, unknown> = {
+            operationId: endpoint.operationId,
+            method: endpoint.method,
+            path: endpoint.path,
+            description: endpoint.description || endpoint.summary,
+            tags: endpoint.tags,
+            parameters: endpoint.parameters.map((p) => ({
+              name: p.name,
+              in: p.in,
+              required: p.required,
+              type: p.type,
+            })),
+          }
+
+          // Include request body schema for mutation endpoints
+          if (endpoint.requestBodySchema) {
+            const simplifiedSchema = simplifyRequestBodySchema(endpoint.requestBodySchema)
+            if (simplifiedSchema) {
+              result.requestBody = simplifiedSchema
+            }
+          }
+
+          return result
+        })
 
         return {
           success: true,
           message: `Found ${results.length} matching endpoint(s)`,
           endpoints: results,
-          hint: 'Use api_schema to get detailed parameter info, or api_execute to call an endpoint',
+          hint: 'Use call_api with the method, path, and body structure shown in requestBody schema above.',
         }
       },
     },
@@ -109,38 +116,20 @@ Use operationId with api_schema to get detailed parameter info before calling ap
 }
 
 /**
- * api_execute - Execute an API endpoint
+ * call_api - Execute an API endpoint
  */
 function registerApiExecuteTool(): void {
   registerMcpTool(
     {
-      name: 'api_execute',
-      description: `Execute an API call to CREATE, READ, UPDATE, or DELETE data in Open Mercato.
+      name: 'call_api',
+      description: `Execute an API call using path and body structure from find_api results.
 
-WARNING: This tool can MODIFY and DELETE data. Be careful with mutations!
-
-METHODS:
-- GET: Read/search data (safe, no confirmation needed)
-- POST: Create new records (confirm data with user first)
-- PUT/PATCH: Update existing records (confirm changes with user)
-- DELETE: Remove records permanently (ALWAYS confirm with user before executing!)
-
-WORKFLOW:
-1. First use api_discover to find the right endpoint
-2. Use api_schema to understand required parameters
-3. For POST/PUT/PATCH/DELETE: Confirm with user what will be changed
-4. Execute the call with proper parameters
-
-PARAMETERS:
-- method: HTTP method (GET, POST, PUT, PATCH, DELETE)
-- path: API path with parameters replaced (e.g., /customers/companies/123)
-- query: Query parameters as key-value object (for GET requests and filtering)
-- body: Request body for POST/PUT/PATCH (object with required fields)`,
+Confirm with user before POST/PUT/DELETE operations.`,
       inputSchema: z.object({
-        method: z.enum(['GET', 'POST', 'PUT', 'PATCH', 'DELETE']).describe('HTTP method'),
+        method: z.enum(['GET', 'POST', 'PUT', 'PATCH', 'DELETE']).describe('HTTP method from find_api result'),
         path: z
           .string()
-          .describe('API path with parameters replaced (e.g., /customers/123, /orders)'),
+          .describe('API path from find_api result (e.g., /api/customers/companies)'),
         query: z
           .record(z.string(), z.string())
           .optional()
@@ -148,7 +137,7 @@ PARAMETERS:
         body: z
           .record(z.string(), z.unknown())
           .optional()
-          .describe('Request body for POST/PUT/PATCH requests'),
+          .describe('Request body matching the schema from find_api'),
       }),
       requiredFeatures: [], // ACL checked at API level
       handler: async (
@@ -237,89 +226,6 @@ PARAMETERS:
     },
     { moduleId: 'api' }
   )
-}
-
-/**
- * api_schema - Get detailed schema for an endpoint
- */
-function registerApiSchemaTool(): void {
-  registerMcpTool(
-    {
-      name: 'api_schema',
-      description: `Get detailed schema for an API endpoint before executing it.
-
-IMPORTANT: Always check the schema before calling POST, PUT, PATCH, or DELETE endpoints
-to understand what parameters are required.
-
-USAGE:
-- Use the operationId from api_discover results
-- Returns: path parameters, query parameters, and request body schema
-- Shows which fields are required vs optional
-- Includes field types and descriptions
-
-This helps you construct the correct api_execute call with all required data.`,
-      inputSchema: z.object({
-        operationId: z.string().describe('Operation ID from api_discover results'),
-      }),
-      requiredFeatures: [],
-      handler: async (input: { operationId: string }) => {
-        const endpoint = await getEndpointByOperationId(input.operationId)
-
-        if (!endpoint) {
-          return {
-            success: false,
-            error: `Endpoint not found: ${input.operationId}`,
-            hint: 'Use api_discover to find available endpoints',
-          }
-        }
-
-        return {
-          success: true,
-          endpoint: {
-            operationId: endpoint.operationId,
-            method: endpoint.method,
-            path: endpoint.path,
-            description: endpoint.description,
-            tags: endpoint.tags,
-            deprecated: endpoint.deprecated,
-            requiredFeatures: endpoint.requiredFeatures,
-            parameters: endpoint.parameters,
-            requestBodySchema: endpoint.requestBodySchema,
-          },
-          usage: buildUsageExample(endpoint),
-        }
-      },
-    },
-    { moduleId: 'api' }
-  )
-}
-
-/**
- * Build usage example for an endpoint
- */
-function buildUsageExample(endpoint: ApiEndpoint): string {
-  const pathParams = endpoint.parameters.filter((p) => p.in === 'path')
-  const queryParams = endpoint.parameters.filter((p) => p.in === 'query')
-
-  let example = `api_execute with:\n  method: "${endpoint.method}"\n  path: "${endpoint.path}"`
-
-  if (pathParams.length > 0) {
-    example += `\n  (replace ${pathParams.map((p) => `{${p.name}}`).join(', ')} in path)`
-  }
-
-  if (queryParams.length > 0) {
-    const queryExample = queryParams
-      .slice(0, 3)
-      .map((p) => `"${p.name}": "..."`)
-      .join(', ')
-    example += `\n  query: { ${queryExample} }`
-  }
-
-  if (endpoint.requestBodySchema) {
-    example += `\n  body: { ... } (see requestBodySchema above)`
-  }
-
-  return example
 }
 
 /**

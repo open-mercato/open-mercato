@@ -27,6 +27,7 @@ import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacS
 import { resolveFeatureCheckContext } from '@open-mercato/core/modules/directory/utils/organizationScope'
 import { APP_VERSION } from '@open-mercato/shared/lib/version'
 import { PageInjectionBoundary } from '@open-mercato/ui/backend/injection/PageInjectionBoundary'
+import { AiAssistantIntegration, AiChatHeaderButton } from '@open-mercato/ai-assistant/frontend'
 
 type NavItem = {
   href: string
@@ -296,6 +297,7 @@ export default async function BackendLayout({ children, params }: { children: Re
 
   const rightHeaderContent = (
     <>
+      <AiChatHeaderButton />
       <GlobalSearchDialog embeddingConfigured={embeddingConfigured} missingConfigMessage={missingConfigMessage} />
       <OrganizationSwitcher />
       <UserMenu email={auth?.email} />
@@ -318,22 +320,27 @@ export default async function BackendLayout({ children, params }: { children: Re
     <>
       <Script async src="https://w.appzi.io/w.js?token=TtIV6" strategy="afterInteractive" />
       <I18nProvider locale={locale} dict={dict}>
-        <AppShell
-          key={path}
-          productName={productName}
-          email={auth?.email}
-          groups={groups}
-          currentTitle={currentTitle}
-          breadcrumb={breadcrumb}
-          sidebarCollapsedDefault={initialCollapsed}
-          rightHeaderSlot={rightHeaderContent}
-          adminNavApi="/api/auth/admin/nav"
-          version={APP_VERSION}
+        <AiAssistantIntegration
+          tenantId={auth?.tenantId ?? null}
+          organizationId={auth?.orgId ?? null}
         >
-          <PageInjectionBoundary path={path} context={injectionContext}>
-            {children}
-          </PageInjectionBoundary>
-        </AppShell>
+          <AppShell
+            key={path}
+            productName={productName}
+            email={auth?.email}
+            groups={groups}
+            currentTitle={currentTitle}
+            breadcrumb={breadcrumb}
+            sidebarCollapsedDefault={initialCollapsed}
+            rightHeaderSlot={rightHeaderContent}
+            adminNavApi="/api/auth/admin/nav"
+            version={APP_VERSION}
+          >
+            <PageInjectionBoundary path={path} context={injectionContext}>
+              {children}
+            </PageInjectionBoundary>
+          </AppShell>
+        </AiAssistantIntegration>
       </I18nProvider>
     </>
   )

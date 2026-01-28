@@ -36,7 +36,7 @@ export async function GET(req: NextRequest) {
     const allTools = Array.from(registry.getTools().values())
 
     const accessibleTools = allTools.filter((tool) =>
-      hasRequiredFeatures(tool.requiredFeatures, acl.features, acl.isSuperAdmin)
+      hasRequiredFeatures(tool.requiredFeatures, acl.features, acl.isSuperAdmin, rbacService)
     )
 
     const tools = accessibleTools.map((tool) => {

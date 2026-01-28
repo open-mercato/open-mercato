@@ -2,6 +2,7 @@
 
 import { useState, useCallback, useEffect, useMemo, useRef } from 'react'
 import type {
+  AgentStatus,
   CommandPaletteMode,
   CommandPalettePage,
   CommandPaletteState,
@@ -18,11 +19,12 @@ import type {
   DebugEventType,
   OpenCodeQuestion,
 } from '../types'
-import { COMMAND_PALETTE_SHORTCUT } from '../constants'
+import { COMMAND_PALETTE_SHORTCUT, AI_CHAT_SHORTCUT } from '../constants'
 import { filterTools } from '../utils/toolMatcher'
 import { useMcpTools } from './useMcpTools'
 import { useRecentActions } from './useRecentActions'
 import { useRecentTools } from './useRecentTools'
+import { useAiAssistantVisibility } from './useAiAssistantVisibility'
 
 interface UseCommandPaletteOptions {
   pageContext: PageContext | null
@@ -84,6 +86,9 @@ function getToolPrompt(tool: ToolInfo): string {
 export function useCommandPalette(options: UseCommandPaletteOptions) {
   const { pageContext, selectedEntities = [], disableKeyboardShortcut = false } = options
 
+  // Check if AI assistant is enabled (for Cmd+J shortcut)
+  const { isEnabled: isAiAssistantEnabled } = useAiAssistantVisibility()
+
   // Core state with phase-based navigation for intelligent routing
   const [state, setState] = useState<CommandPaletteState>({
     isOpen: false,
@@ -134,6 +139,7 @@ export function useCommandPalette(options: UseCommandPaletteOptions) {
   const [opencodeSessionId, setOpencodeSessionId] = useState<string | null>(null)
   const opencodeSessionIdRef = useRef<string | null>(null)
   const [isThinking, setIsThinking] = useState(false)
+  const [agentStatus, setAgentStatus] = useState<AgentStatus>({ type: 'idle' })
   const [isSessionAuthorized, setIsSessionAuthorized] = useState(false)
 
   // Pending question from OpenCode requiring user confirmation
@@ -236,6 +242,23 @@ export function useCommandPalette(options: UseCommandPaletteOptions) {
     return filterTools(tools, query)
   }, [tools, state.inputValue])
 
+  // Listen for global open-chat event (from settings page, etc.)
+  useEffect(() => {
+    const handleOpenChat = () => {
+      setState((prev) => ({
+        ...prev,
+        isOpen: true,
+        phase: 'chatting',
+        page: 'tool-chat',
+        inputValue: '',
+        mode: 'chat',
+      }))
+    }
+
+    window.addEventListener('om:open-ai-chat', handleOpenChat)
+    return () => window.removeEventListener('om:open-ai-chat', handleOpenChat)
+  }, [])
+
   // Keyboard shortcut handler
   useEffect(() => {
     if (disableKeyboardShortcut) return
@@ -275,6 +298,43 @@ export function useCommandPalette(options: UseCommandPaletteOptions) {
         }
       }
 
+      // Open directly to AI chat mode with Cmd+J or Ctrl+J (only if enabled)
+      if (
+        (event.metaKey || event.ctrlKey) &&
+        event.key.toLowerCase() === AI_CHAT_SHORTCUT.key
+      ) {
+        // Skip if AI assistant is disabled (but allow closing if already open)
+        if (!isAiAssistantEnabled && !state.isOpen) {
+          return
+        }
+        event.preventDefault()
+        if (state.isOpen) {
+          // Already open - close it
+          setState((prev) => ({
+            ...prev,
+            isOpen: false,
+            phase: 'idle',
+            inputValue: '',
+            page: 'home',
+            selectedIndex: 0,
+            mode: 'commands',
+          }))
+          setSelectedTool(null)
+          setMessages([])
+          setPendingToolCalls([])
+        } else {
+          // Open directly in chatting phase
+          setState((prev) => ({
+            ...prev,
+            isOpen: true,
+            phase: 'chatting',
+            page: 'tool-chat',
+            inputValue: '',
+            mode: 'chat',
+          }))
+        }
+      }
+
       // Escape - reset or close
       if (event.key === 'Escape' && state.isOpen) {
         event.preventDefault()
@@ -311,11 +371,23 @@ export function useCommandPalette(options: UseCommandPaletteOptions) {
 
     window.addEventListener('keydown', handleKeyDown)
     return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [state.isOpen, state.phase, state.inputValue, disableKeyboardShortcut])
+  }, [state.isOpen, state.phase, state.inputValue, disableKeyboardShortcut, isAiAssistantEnabled])
 
   // Actions
   const open = useCallback(() => {
     setState((prev) => ({ ...prev, isOpen: true }))
+  }, [])
+
+  // Open directly in chat mode (for Cmd+J / header button)
+  const openChat = useCallback(() => {
+    setState((prev) => ({
+      ...prev,
+      isOpen: true,
+      phase: 'chatting',
+      page: 'tool-chat',
+      inputValue: '',
+      mode: 'chat',
+    }))
   }, [])
 
   const close = useCallback(() => {
@@ -333,6 +405,7 @@ export function useCommandPalette(options: UseCommandPaletteOptions) {
     setPendingToolCalls([])
     updateOpencodeSessionId(null)
     setIsSessionAuthorized(false)
+    setAgentStatus({ type: 'idle' })
     // Don't reset initialContext - it stays valid for the session
   }, [updateOpencodeSessionId])
 
@@ -351,6 +424,7 @@ export function useCommandPalette(options: UseCommandPaletteOptions) {
     setPendingToolCalls([])
     updateOpencodeSessionId(null)
     setIsSessionAuthorized(false)
+    setAgentStatus({ type: 'idle' })
   }, [updateOpencodeSessionId])
 
   const setIsOpen = useCallback(
@@ -447,8 +521,6 @@ export function useCommandPalette(options: UseCommandPaletteOptions) {
   // Start agentic chat - AI has access to all tools
   const startAgenticChat = useCallback(
     async (initialQuery: string) => {
-      console.log('[startAgenticChat] Starting with query:', initialQuery)
-
       setState((prev) => ({
         ...prev,
         phase: 'chatting',
@@ -459,6 +531,7 @@ export function useCommandPalette(options: UseCommandPaletteOptions) {
 
       // Send the initial query to the chat API
       setState((prev) => ({ ...prev, isStreaming: true }))
+      setAgentStatus({ type: 'thinking' })
 
       try {
         const userMessage: ChatMessage = {
@@ -474,7 +547,6 @@ export function useCommandPalette(options: UseCommandPaletteOptions) {
         const controller = new AbortController()
         currentStreamController.current = controller
 
-        console.log('[startAgenticChat] Sending request to /api/ai_assistant/chat with mode: agentic')
         const response = await fetch('/api/ai_assistant/chat', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -487,8 +559,6 @@ export function useCommandPalette(options: UseCommandPaletteOptions) {
           }),
           signal: controller.signal,
         })
-
-        console.log('[startAgenticChat] Response status:', response.status, 'ok:', response.ok)
 
         if (!response.ok) {
           const errorText = await response.text()
@@ -509,31 +579,23 @@ export function useCommandPalette(options: UseCommandPaletteOptions) {
 
         while (true) {
           const { done, value } = await reader.read()
-          if (done) {
-            console.log('[startAgenticChat] Stream done after', chunkCount, 'chunks')
-            break
-          }
+          if (done) break
 
           chunkCount++
           const rawChunk = decoder.decode(value, { stream: true })
           buffer += rawChunk
-          console.log('[startAgenticChat] Chunk', chunkCount, 'raw:', rawChunk.substring(0, 200))
 
           const lines = buffer.split('\n')
           buffer = lines.pop() || ''
 
           for (const line of lines) {
-            console.log('[startAgenticChat] Processing line:', line.substring(0, 100))
             if (line.startsWith('data: ')) {
               const data = line.slice(6)
-              if (data === '[DONE]') {
-                console.log('[startAgenticChat] Received [DONE]')
-                continue
-              }
+              if (data === '[DONE]') continue
 
               try {
                 const event = JSON.parse(data)
-                console.log('[startAgenticChat] Parsed event:', event.type, event)
+
 
                 // Track all events for debug panel (except question - handled separately with enriched data)
                 if (event.type !== 'question') {
@@ -541,8 +603,9 @@ export function useCommandPalette(options: UseCommandPaletteOptions) {
                 }
 
                 if (event.type === 'text') {
-                  // Text received - no longer thinking
+                  // Text received - now responding
                   setIsThinking(false)
+                  setAgentStatus({ type: 'responding' })
 
                   // Check if we need to start a new message (e.g., after answering a question)
                   if (shouldStartNewMessage.current) {
@@ -553,7 +616,6 @@ export function useCommandPalette(options: UseCommandPaletteOptions) {
                   }
 
                   assistantContent += event.content || ''
-                  console.log('[startAgenticChat] Text content now:', assistantContent.substring(0, 100))
                   setMessages((prev) => {
                     const existingAssistant = prev.find((m) => m.id === 'streaming')
                     if (existingAssistant) {
@@ -574,16 +636,14 @@ export function useCommandPalette(options: UseCommandPaletteOptions) {
                   })
                 } else if (event.type === 'tool-call') {
                   // Tool calls are executed SERVER-SIDE via the AI SDK's maxSteps feature
-                  // The AI will interpret the results and generate a human-friendly response
-                  // We only need to show a visual indicator for dangerous tools that need confirmation
-                  console.log('[startAgenticChat] Tool call event (executed server-side):', event.toolName)
                   const toolName = event.toolName as string
                   const toolArgs = event.args ?? {}
 
-                  // For dangerous tools, show a confirmation indicator (though server already executed)
-                  // This is mainly for UX feedback - in future, dangerous tools should require confirmation
+                  // Update status to show the tool being used
+                  setAgentStatus({ type: 'tool', toolName })
+
+                  // For dangerous tools, show a confirmation indicator
                   if (!isToolSafeToAutoExecute(toolName)) {
-                    console.log('[startAgenticChat] Dangerous tool was executed:', toolName)
                     // Note: Server already executed this - just show visual feedback
                     setPendingToolCalls((prev) => [
                       ...prev,
@@ -596,33 +656,39 @@ export function useCommandPalette(options: UseCommandPaletteOptions) {
                     ])
                   }
                   // Safe tools: no action needed, server handled execution and AI interprets results
+                } else if (event.type === 'debug') {
+                  // Handle debug events for agent status updates
+                  const debugEvent = event as { partType?: string; data?: Record<string, unknown> }
+
+                  // Handle step-start: indicates tool execution beginning
+                  if (debugEvent.partType === 'step-start') {
+                    setAgentStatus({ type: 'executing' })
+                  }
+                  // Handle step-finish: tools completed
+                  if (debugEvent.partType === 'step-finish' && debugEvent.data?.reason === 'tool-calls') {
+                    // Tools finished, back to thinking for next step
+                    setAgentStatus({ type: 'thinking' })
+                  }
                 } else if (event.type === 'error') {
                   console.error('[startAgenticChat] Error event:', event.error)
+                  setAgentStatus({ type: 'idle' })
                 } else if (event.type === 'done') {
-                  console.log('[startAgenticChat] Done event received, sessionId:', event.sessionId)
-                  // DIAGNOSTIC: Log done event details
-                  console.log('[startAgenticChat] DIAGNOSTIC - Done event:', {
-                    eventSessionId: event.sessionId,
-                    currentRefValue: opencodeSessionIdRef.current,
-                    willUpdate: !!event.sessionId,
-                  })
                   setIsThinking(false)
+                  setAgentStatus({ type: 'idle' })
                   setState((prev) => ({ ...prev, isStreaming: false }))
                   // Save session ID for conversation continuity
                   if (event.sessionId) {
                     updateOpencodeSessionId(event.sessionId)
-                    // DIAGNOSTIC: Verify ref was updated
-                    console.log('[startAgenticChat] DIAGNOSTIC - After update, ref value:', opencodeSessionIdRef.current)
                   }
                 } else if (event.type === 'question') {
                   // OpenCode is asking for confirmation
                   const question = event.question as OpenCodeQuestion
                   // Skip if already answered
                   if (answeredQuestionIds.current.has(question.id)) {
-                    console.log('[startAgenticChat] Skipping already-answered question:', question.id)
+                    // Already answered
                   } else {
-                    console.log('[startAgenticChat] Question event:', question.id, 'questions:', question.questions)
                     setIsThinking(false)
+                    setAgentStatus({ type: 'idle' })
                     setState((prev) => ({ ...prev, isStreaming: false }))
                     setPendingQuestion(question)
                     // Save session ID for conversation continuity
@@ -642,7 +708,6 @@ export function useCommandPalette(options: UseCommandPaletteOptions) {
                   }
                 } else if (event.type === 'session-authorized') {
                   // Session has been authorized with ephemeral API key
-                  console.log('[startAgenticChat] Session authorized:', event.sessionToken)
                   setIsSessionAuthorized(true)
                 }
               } catch (parseError) {
@@ -652,16 +717,15 @@ export function useCommandPalette(options: UseCommandPaletteOptions) {
           }
         }
 
-        console.log('[startAgenticChat] Final assistant content:', assistantContent)
         // Finalize the assistant message
         setMessages((prev) => prev.map((m) => (m.id === 'streaming' ? { ...m, id: generateId() } : m)))
       } catch (error) {
-        // Ignore AbortError - this happens when we intentionally cancel the stream (e.g., answering a question)
+        // Ignore AbortError - this happens when we intentionally cancel the stream
         if (error instanceof Error && error.name === 'AbortError') {
-          console.log('[startAgenticChat] Stream aborted (intentional)')
           return
         }
         console.error('[startAgenticChat] Error:', error)
+        setAgentStatus({ type: 'idle' })
         setMessages((prev) => [
           ...prev,
           {
@@ -673,6 +737,7 @@ export function useCommandPalette(options: UseCommandPaletteOptions) {
         ])
       } finally {
         setState((prev) => ({ ...prev, isStreaming: false }))
+        setAgentStatus({ type: 'idle' })
       }
     },
     [pageContext, initialContext, availableEntities, executeToolApi, addDebugEvent, updateOpencodeSessionId]
@@ -904,14 +969,13 @@ export function useCommandPalette(options: UseCommandPaletteOptions) {
       setMessages((prev) => [...prev, userMessage])
       setState((prev) => ({ ...prev, isStreaming: true }))
       setIsThinking(true)
+      setAgentStatus({ type: 'thinking' })
 
       try {
-        // DIAGNOSTIC: Log what we're about to send
-        console.log('[sendAgenticMessage] DIAGNOSTIC - About to send request:', {
-          sessionId: opencodeSessionIdRef.current,
-          messagesLength: messages.length + 1,
-          lastMessageContent: userMessage.content.substring(0, 50) + '...',
-        })
+        // Create abort controller for this stream
+        currentStreamController.current?.abort()
+        const controller = new AbortController()
+        currentStreamController.current = controller
 
         // Send to chat API with OpenCode session for context persistence
         const response = await fetch('/api/ai_assistant/chat', {
@@ -924,6 +988,7 @@ export function useCommandPalette(options: UseCommandPaletteOptions) {
             })),
             sessionId: opencodeSessionIdRef.current,
           }),
+          signal: controller.signal,
         })
 
         if (!response.ok) {
@@ -958,6 +1023,7 @@ export function useCommandPalette(options: UseCommandPaletteOptions) {
               try {
                 const event = JSON.parse(data)
 
+
                 // Track all events for debug panel (except question - handled separately with enriched data)
                 if (event.type !== 'question') {
                   addDebugEvent(event.type as DebugEventType, event)
@@ -966,9 +1032,9 @@ export function useCommandPalette(options: UseCommandPaletteOptions) {
                 if (event.type === 'thinking') {
                   // OpenCode is processing - keep thinking state active
                   setIsThinking(true)
+                  setAgentStatus({ type: 'thinking' })
                 } else if (event.type === 'session-authorized') {
                   // Session has been authorized with ephemeral API key
-                  console.log('[sendAgenticMessage] Session authorized:', event.sessionToken)
                   setIsSessionAuthorized(true)
                 } else if (event.type === 'text') {
                   // Check if we need to start a new message (e.g., after answering a question)
@@ -979,8 +1045,9 @@ export function useCommandPalette(options: UseCommandPaletteOptions) {
                     assistantContent = '' // Reset for new message
                   }
 
-                  // Text received - no longer thinking
+                  // Text received - now responding
                   setIsThinking(false)
+                  setAgentStatus({ type: 'responding' })
                   assistantContent += event.content || ''
                   // Update assistant message in real-time
                   setMessages((prev) => {
@@ -1006,6 +1073,7 @@ export function useCommandPalette(options: UseCommandPaletteOptions) {
                 } else if (event.type === 'done') {
                   // Stream complete - save session ID for conversation persistence
                   setIsThinking(false)
+                  setAgentStatus({ type: 'idle' })
                   setState((prev) => ({ ...prev, isStreaming: false }))
                   if (event.sessionId) {
                     updateOpencodeSessionId(event.sessionId)
@@ -1013,6 +1081,7 @@ export function useCommandPalette(options: UseCommandPaletteOptions) {
                 } else if (event.type === 'error') {
                   // Handle error event
                   setIsThinking(false)
+                  setAgentStatus({ type: 'idle' })
                   setMessages((prev) => [
                     ...prev,
                     {
@@ -1024,14 +1093,14 @@ export function useCommandPalette(options: UseCommandPaletteOptions) {
                   ])
                 } else if (event.type === 'tool-call') {
                   // Tool calls are executed SERVER-SIDE via the AI SDK's maxSteps feature
-                  // The AI will interpret the results and generate a human-friendly response
-                  console.log('[sendAgenticMessage] Tool call event (executed server-side):', event.toolName)
                   const toolName = event.toolName as string
                   const toolArgs = event.args ?? {}
 
+                  // Update status to show the tool being used
+                  setAgentStatus({ type: 'tool', toolName })
+
                   // For dangerous tools, show visual feedback (server already executed)
                   if (!isToolSafeToAutoExecute(toolName)) {
-                    console.log('[sendAgenticMessage] Dangerous tool was executed:', toolName)
                     setPendingToolCalls((prev) => [
                       ...prev,
                       { id: event.id, toolName, args: toolArgs, status: 'completed' as const },
@@ -1043,10 +1112,10 @@ export function useCommandPalette(options: UseCommandPaletteOptions) {
                   const question = event.question as OpenCodeQuestion
                   // Skip if already answered
                   if (answeredQuestionIds.current.has(question.id)) {
-                    console.log('[sendAgenticMessage] Skipping already-answered question:', question.id)
+                    // Already answered
                   } else {
-                    console.log('[sendAgenticMessage] Question event:', question.id, 'questions:', question.questions)
                     setIsThinking(false)
+                    setAgentStatus({ type: 'idle' })
                     setState((prev) => ({ ...prev, isStreaming: false }))
                     setPendingQuestion(question)
                     // Add enriched debug event with question details visible at top level
@@ -1059,6 +1128,19 @@ export function useCommandPalette(options: UseCommandPaletteOptions) {
                       options: question.questions?.[0]?.options?.map(o => o.label) || [],
                       fullQuestion: question,
                     })
+                  }
+                } else if (event.type === 'debug') {
+                  // Handle debug events for agent status updates
+                  const debugEvent = event as { partType?: string; data?: Record<string, unknown> }
+
+                  // Handle step-start: indicates tool execution beginning
+                  if (debugEvent.partType === 'step-start') {
+                    setAgentStatus({ type: 'executing' })
+                  }
+                  // Handle step-finish: tools completed
+                  if (debugEvent.partType === 'step-finish' && debugEvent.data?.reason === 'tool-calls') {
+                    // Tools finished, back to thinking for next step
+                    setAgentStatus({ type: 'thinking' })
                   }
                 }
               } catch {
@@ -1115,7 +1197,12 @@ export function useCommandPalette(options: UseCommandPaletteOptions) {
         // Finalize the assistant message
         setMessages((prev) => prev.map((m) => (m.id === 'streaming' ? { ...m, id: generateId() } : m)))
       } catch (error) {
+        // Ignore AbortError - this happens when we intentionally cancel the stream
+        if (error instanceof Error && error.name === 'AbortError') {
+          return
+        }
         console.error('Tool chat error:', error)
+        setAgentStatus({ type: 'idle' })
         setMessages((prev) => [
           ...prev,
           {
@@ -1128,6 +1215,7 @@ export function useCommandPalette(options: UseCommandPaletteOptions) {
       } finally {
         setState((prev) => ({ ...prev, isStreaming: false }))
         setIsThinking(false)
+        setAgentStatus({ type: 'idle' })
       }
     },
     [messages, addDebugEvent, updateOpencodeSessionId]
@@ -1138,20 +1226,11 @@ export function useCommandPalette(options: UseCommandPaletteOptions) {
     async (query: string) => {
       if (!query.trim()) return
 
-      // DIAGNOSTIC: Log session check
-      console.log('[handleSubmit] DIAGNOSTIC - Session check:', {
-        refValue: opencodeSessionIdRef.current,
-        willContinue: !!opencodeSessionIdRef.current,
-        query: query.substring(0, 50) + '...',
-      })
-
       // If we have an existing session, continue the conversation
       // Use ref to get latest value (avoids stale closure issues)
       if (opencodeSessionIdRef.current) {
-        console.log('[handleSubmit] Continuing session with query:', query, 'sessionId:', opencodeSessionIdRef.current)
         await sendAgenticMessage(query)
       } else {
-        console.log('[handleSubmit] Starting new agentic chat with query:', query)
         // Start new agentic session where AI has access to all tools
         await startAgenticChat(query)
       }
@@ -1165,8 +1244,6 @@ export function useCommandPalette(options: UseCommandPaletteOptions) {
     async (answer: number) => {
       if (!pendingQuestion) return
 
-      console.log('[answerQuestion] Answering question:', pendingQuestion.id, 'with:', answer)
-
       // Mark question as answered BEFORE sending - prevents duplicate display
       const questionId = pendingQuestion.id
       answeredQuestionIds.current.add(questionId)
@@ -1177,6 +1254,7 @@ export function useCommandPalette(options: UseCommandPaletteOptions) {
       // Clear the pending question UI and show thinking state
       setPendingQuestion(null)
       setIsThinking(true)
+      setAgentStatus({ type: 'thinking' })
 
       // Add visual feedback of the answer
       const selectedOption = pendingQuestion.questions[0]?.options[answer]
@@ -1211,11 +1289,11 @@ export function useCommandPalette(options: UseCommandPaletteOptions) {
         }
 
         // Answer sent successfully - the original stream will handle the response
-        console.log('[answerQuestion] Answer sent, original stream will receive response')
         // Note: isThinking stays true until the original stream sends 'done' or more 'text'
       } catch (error) {
         console.error('[answerQuestion] Error:', error)
         setIsThinking(false)
+        setAgentStatus({ type: 'idle' })
         setMessages((prev) => [
           ...prev,
           {
@@ -1328,6 +1406,29 @@ export function useCommandPalette(options: UseCommandPaletteOptions) {
     setPendingToolCalls([])
   }, [])
 
+  // Stop/cancel the current streaming execution
+  const stopExecution = useCallback(() => {
+    // Abort the current stream
+    currentStreamController.current?.abort()
+    currentStreamController.current = null
+
+    // Reset streaming state
+    setState((prev) => ({ ...prev, isStreaming: false }))
+    setAgentStatus({ type: 'idle' })
+    setIsThinking(false)
+
+    // Add cancellation message to chat
+    setMessages((prev) => [
+      ...prev.map((m) => (m.id === 'streaming' ? { ...m, id: generateId() } : m)), // Finalize any streaming message
+      {
+        id: generateId(),
+        role: 'system' as const,
+        content: 'Execution stopped by user.',
+        createdAt: new Date(),
+      },
+    ])
+  }, [])
+
   return {
     // State
     state: {
@@ -1335,6 +1436,7 @@ export function useCommandPalette(options: UseCommandPaletteOptions) {
       isLoading: state.isLoading || toolsLoading,
     },
     isThinking,
+    agentStatus,
     isSessionAuthorized,
     pageContext,
     selectedEntities,
@@ -1350,6 +1452,7 @@ export function useCommandPalette(options: UseCommandPaletteOptions) {
 
     // Navigation actions
     open,
+    openChat,
     close,
     setIsOpen,
     setInputValue,
@@ -1372,6 +1475,7 @@ export function useCommandPalette(options: UseCommandPaletteOptions) {
     sendMessage,
     sendAgenticMessage,
     clearMessages,
+    stopExecution,
 
     // Legacy compatibility
     setMode,
