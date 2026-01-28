@@ -67,7 +67,13 @@ export async function GET(request: NextRequest) {
     }
 
     if (status) {
-      where.status = status
+      // Handle comma-separated status values
+      const statusValues = status.split(',').map(s => s.trim()).filter(Boolean)
+      if (statusValues.length === 1) {
+        where.status = statusValues[0]
+      } else if (statusValues.length > 1) {
+        where.status = { $in: statusValues }
+      }
     }
 
     if (assignedTo) {

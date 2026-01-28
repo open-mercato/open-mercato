@@ -125,6 +125,9 @@ type SeedScope = { tenantId: string; organizationId: string }
 
 const ORDER_STATUS_DEFAULTS: SalesDictionarySeed[] = [
   { value: 'draft', label: 'Draft', color: '#94a3b8', icon: 'lucide:file-pen-line' },
+  { value: 'pending_approval', label: 'Pending Approval', color: '#f59e0b', icon: 'lucide:hourglass' },
+  { value: 'approved', label: 'Approved', color: '#16a34a', icon: 'lucide:check-circle' },
+  { value: 'rejected', label: 'Rejected', color: '#ef4444', icon: 'lucide:x-circle' },
   { value: 'sent', label: 'Sent', color: '#0ea5e9', icon: 'lucide:send' },
   { value: 'confirmed', label: 'Confirmed', color: '#2563eb', icon: 'lucide:badge-check' },
   { value: 'in_fulfillment', label: 'In fulfillment', color: '#f59e0b', icon: 'lucide:loader-2' },

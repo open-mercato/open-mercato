@@ -72,7 +72,6 @@ export default function UserTasksListPage() {
       params.set('offset', offset.toString())
 
       if (filterValues.status) params.set('status', filterValues.status as string)
-      if (filterValues.myTasks === 'true') params.set('myTasks', 'true')
       if (filterValues.overdue === 'true') params.set('overdue', 'true')
       if (filterValues.workflowInstanceId) params.set('workflowInstanceId', filterValues.workflowInstanceId as string)
 
@@ -155,10 +154,10 @@ export default function UserTasksListPage() {
       label: t('workflows.tasks.filters.status'),
       options: [
         { label: t('common.all'), value: '' },
-        { label: t('workflows.tasks.status.PENDING'), value: 'PENDING' },
-        { label: t('workflows.tasks.status.IN_PROGRESS'), value: 'IN_PROGRESS' },
-        { label: t('workflows.tasks.status.COMPLETED'), value: 'COMPLETED' },
-        { label: t('workflows.tasks.status.CANCELLED'), value: 'CANCELLED' },
+        { label: t('workflows.tasks.statuses.PENDING'), value: 'PENDING' },
+        { label: t('workflows.tasks.statuses.IN_PROGRESS'), value: 'IN_PROGRESS' },
+        { label: t('workflows.tasks.statuses.COMPLETED'), value: 'COMPLETED' },
+        { label: t('workflows.tasks.statuses.CANCELLED'), value: 'CANCELLED' },
       ],
     },
     {
@@ -214,7 +213,7 @@ export default function UserTasksListPage() {
       accessorKey: 'status',
       cell: ({ row }) => (
         <span className={`inline-flex items-center px-2 py-1 rounded text-xs font-medium ${getStatusBadgeClass(row.original.status)}`}>
-          {t(`workflows.tasks.status.${row.original.status}`)}
+          {t(`workflows.tasks.statuses.${row.original.status}`)}
         </span>
       ),
     },

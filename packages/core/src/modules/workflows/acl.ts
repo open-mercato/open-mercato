@@ -19,10 +19,8 @@ export const features = [
   { id: 'workflows.tasks.complete', title: 'Complete workflow tasks', module: moduleId },
   { id: 'workflows.signals.send', title: 'Send workflow signals', module: moduleId },
   { id: 'workflows.events.view', title: 'View workflow events', module: moduleId },
-  { id: 'workflows.triggers.view', title: 'View event triggers', module: moduleId },
-  { id: 'workflows.triggers.create', title: 'Create event triggers', module: moduleId },
-  { id: 'workflows.triggers.edit', title: 'Edit event triggers', module: moduleId },
-  { id: 'workflows.triggers.delete', title: 'Delete event triggers', module: moduleId },
+  // Note: Event triggers are now embedded in workflow definitions.
+  // Trigger management permissions are covered by workflows.definitions.edit
 ]
 
 export default features

@@ -15,6 +15,7 @@ import {
   type TriggerFilterCondition,
   type TriggerContextMapping,
   type WorkflowEventTriggerConfig,
+  type WorkflowDefinitionTrigger,
 } from '../data/entities'
 import { startWorkflow, executeWorkflow } from './workflow-executor'
 
@@ -36,8 +37,28 @@ export interface ProcessTriggersResult {
   instances: Array<{ triggerId: string; instanceId: string }>
 }
 
+/**
+ * Unified trigger interface for both legacy (entity) and embedded (definition) triggers
+ */
+export interface UnifiedTrigger {
+  id: string  // For legacy: entity ID, for embedded: `${definitionId}:${triggerId}`
+  triggerId: string
+  name: string
+  description?: string | null
+  eventPattern: string
+  config: WorkflowEventTriggerConfig | null
+  enabled: boolean
+  priority: number
+  workflowDefinitionId: string
+  workflowId: string
+  workflowVersion: number
+  source: 'legacy' | 'embedded'
+  tenantId: string
+  organizationId: string
+}
+
 interface CachedTriggers {
-  triggers: WorkflowEventTrigger[]
+  triggers: UnifiedTrigger[]
   cachedAt: number
 }
 
@@ -213,24 +234,15 @@ function getCacheKey(tenantId: string, organizationId: string): string {
 }
 
 /**
- * Load enabled triggers for a tenant/organization with caching.
+ * Load legacy triggers from WorkflowEventTrigger entity table.
+ * For backward compatibility with existing triggers.
  */
-export async function loadTriggersForTenant(
+async function loadLegacyTriggers(
   em: EntityManager,
   tenantId: string,
-  organizationId: string,
-  cacheService?: CacheService
-): Promise<WorkflowEventTrigger[]> {
-  const cacheKey = getCacheKey(tenantId, organizationId)
-
-  // Check in-memory cache
-  const cached = triggerCache.get(cacheKey)
-  if (cached && Date.now() - cached.cachedAt < TRIGGER_CACHE_TTL) {
-    return cached.triggers
-  }
-
-  // Load from database
-  const triggers = await em.find(
+  organizationId: string
+): Promise<UnifiedTrigger[]> {
+  const legacyTriggers = await em.find(
     WorkflowEventTrigger,
     {
       tenantId,
@@ -243,18 +255,131 @@ export async function loadTriggersForTenant(
     }
   )
 
-  // Update cache
-  triggerCache.set(cacheKey, {
-    triggers,
-    cachedAt: Date.now(),
-  })
+  // Get definitions for these triggers to get workflowId
+  const definitionIds = [...new Set(legacyTriggers.map(t => t.workflowDefinitionId))]
+  const definitions = definitionIds.length > 0 ? await em.find(WorkflowDefinition, {
+    id: { $in: definitionIds },
+    enabled: true,
+    deletedAt: null,
+  }) : []
+  const definitionMap = new Map(definitions.map(d => [d.id, d]))
+
+  return legacyTriggers
+    .filter(t => definitionMap.has(t.workflowDefinitionId))
+    .map(t => {
+      const def = definitionMap.get(t.workflowDefinitionId)!
+      return {
+        id: t.id,
+        triggerId: t.id,
+        name: t.name,
+        description: t.description,
+        eventPattern: t.eventPattern,
+        config: t.config ?? null,
+        enabled: t.enabled,
+        priority: t.priority,
+        workflowDefinitionId: t.workflowDefinitionId,
+        workflowId: def.workflowId,
+        workflowVersion: def.version,
+        source: 'legacy' as const,
+        tenantId: t.tenantId,
+        organizationId: t.organizationId,
+      }
+    })
+}
+
+/**
+ * Load embedded triggers from workflow definitions.
+ * New triggers are embedded directly in the definition JSONB.
+ */
+async function loadEmbeddedTriggers(
+  em: EntityManager,
+  tenantId: string,
+  organizationId: string
+): Promise<UnifiedTrigger[]> {
+  // Load all enabled definitions that may have triggers
+  const definitions = await em.find(
+    WorkflowDefinition,
+    {
+      tenantId,
+      organizationId,
+      enabled: true,
+      deletedAt: null,
+    }
+  )
+
+  const triggers: UnifiedTrigger[] = []
+
+  for (const def of definitions) {
+    const embeddedTriggers = def.definition?.triggers as WorkflowDefinitionTrigger[] | undefined
+    if (!embeddedTriggers || embeddedTriggers.length === 0) continue
+
+    for (const trigger of embeddedTriggers) {
+      if (!trigger.enabled) continue
+
+      triggers.push({
+        id: `${def.id}:${trigger.triggerId}`,
+        triggerId: trigger.triggerId,
+        name: trigger.name,
+        description: trigger.description ?? null,
+        eventPattern: trigger.eventPattern,
+        config: trigger.config ?? null,
+        enabled: trigger.enabled,
+        priority: trigger.priority,
+        workflowDefinitionId: def.id,
+        workflowId: def.workflowId,
+        workflowVersion: def.version,
+        source: 'embedded' as const,
+        tenantId,
+        organizationId,
+      })
+    }
+  }
 
   return triggers
 }
 
 /**
+ * Load all enabled triggers for a tenant/organization with caching.
+ * Merges both legacy (entity) triggers and embedded (definition) triggers.
+ */
+export async function loadTriggersForTenant(
+  em: EntityManager,
+  tenantId: string,
+  organizationId: string,
+  cacheService?: CacheService
+): Promise<UnifiedTrigger[]> {
+  const cacheKey = getCacheKey(tenantId, organizationId)
+
+  // Check in-memory cache
+  const cached = triggerCache.get(cacheKey)
+  if (cached && Date.now() - cached.cachedAt < TRIGGER_CACHE_TTL) {
+    return cached.triggers
+  }
+
+  // Load from both sources
+  const [legacyTriggers, embeddedTriggers] = await Promise.all([
+    loadLegacyTriggers(em, tenantId, organizationId),
+    loadEmbeddedTriggers(em, tenantId, organizationId),
+  ])
+
+  // Merge and sort by priority (higher first)
+  const allTriggers = [...legacyTriggers, ...embeddedTriggers]
+    .sort((a, b) => b.priority - a.priority)
+
+  // Update cache
+  triggerCache.set(cacheKey, {
+    triggers: allTriggers,
+    cachedAt: Date.now(),
+  })
+
+  return allTriggers
+}
+
+/**
  * Invalidate trigger cache for a tenant/organization.
- * Call this when triggers are created/updated/deleted.
+ * Call this when:
+ * - Legacy triggers are created/updated/deleted
+ * - Workflow definitions with embedded triggers are created/updated/deleted
  */
 export function invalidateTriggerCache(tenantId: string, organizationId?: string): void {
   if (organizationId) {
@@ -281,7 +406,7 @@ export function invalidateTriggerCache(tenantId: string, organizationId?: string
 export async function findMatchingTriggers(
   em: EntityManager,
   context: EventTriggerContext
-): Promise<WorkflowEventTrigger[]> {
+): Promise<UnifiedTrigger[]> {
   const triggers = await loadTriggersForTenant(
     em,
     context.tenantId,
@@ -295,8 +420,7 @@ export async function findMatchingTriggers(
     }
 
     // Check filter conditions
-    const config = trigger.config as WorkflowEventTriggerConfig | null
-    if (!evaluateFilterConditions(config?.filterConditions, context.payload)) {
+    if (!evaluateFilterConditions(trigger.config?.filterConditions, context.payload)) {
       return false
     }
 
@@ -313,10 +437,9 @@ export async function findMatchingTriggers(
  */
 async function checkConcurrencyLimit(
   em: EntityManager,
-  trigger: WorkflowEventTrigger
+  trigger: UnifiedTrigger
 ): Promise<boolean> {
-  const config = trigger.config as WorkflowEventTriggerConfig | null
-  const maxInstances = config?.maxConcurrentInstances
+  const maxInstances = trigger.config?.maxConcurrentInstances
 
   if (!maxInstances) return true // No limit
 
@@ -354,26 +477,9 @@ export async function processEventTriggers(
     return result
   }
 
-  // Validate workflow definitions exist
-  const definitionIds = [...new Set(triggers.map(t => t.workflowDefinitionId))]
-  const definitions = await em.find(WorkflowDefinition, {
-    id: { $in: definitionIds },
-    enabled: true,
-    deletedAt: null,
-  })
-
-  const validDefinitionIds = new Set(definitions.map(d => d.id))
-
-  // Process each trigger
+  // Process each trigger (definitions already validated during loading)
   for (const trigger of triggers) {
     try {
-      // Check if definition is valid
-      if (!validDefinitionIds.has(trigger.workflowDefinitionId)) {
-        console.warn(`[workflow-trigger] Skipping trigger "${trigger.name}": workflow definition not found or disabled`)
-        result.skipped++
-        continue
-      }
-
       // Check concurrency limit
       const canStart = await checkConcurrencyLimit(em, trigger)
       if (!canStart) {
@@ -382,15 +488,18 @@ export async function processEventTriggers(
         continue
       }
 
-      // Get definition
-      const definition = definitions.find(d => d.id === trigger.workflowDefinitionId)!
-
       // Map event payload to workflow context
-      const config = trigger.config as WorkflowEventTriggerConfig | null
-      const mappedContext = mapEventToContext(config?.contextMapping, context.payload)
+      const mappedContext = mapEventToContext(trigger.config?.contextMapping, context.payload)
 
-      // Include event metadata in context
+      // Extract entity info from payload for metadata
+      const payloadId = context.payload?.id as string | undefined
+      const payloadEntityType = context.payload?.entityType as string | undefined
+
+      // Include event metadata and payload in context
       const initialContext = {
+        // Include raw event payload fields (e.g., id, organizationId, tenantId)
+        ...context.payload,
+        // Override with explicit mappings if provided
         ...mappedContext,
         __trigger: {
           triggerId: trigger.id,
@@ -398,20 +507,25 @@ export async function processEventTriggers(
           eventName: context.eventName,
           eventPayload: context.payload,
           triggeredAt: new Date().toISOString(),
+          source: trigger.source,
         },
       }
 
       // Start workflow
       const instance = await startWorkflow(em, {
-        workflowId: definition.workflowId,
-        version: definition.version,
+        workflowId: trigger.workflowId,
+        version: trigger.workflowVersion,
         initialContext,
         metadata: {
           initiatedBy: `trigger:${trigger.id}`,
+          // Include entityId and entityType for widget discovery
+          entityId: payloadId,
+          entityType: payloadEntityType || trigger.config?.entityType,
           labels: {
             trigger_id: trigger.id,
             trigger_name: trigger.name,
             event_name: context.eventName,
+            trigger_source: trigger.source,
           },
         },
         tenantId: context.tenantId,
