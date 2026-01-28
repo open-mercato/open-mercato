@@ -13,6 +13,7 @@ import {
 } from '@open-mercato/ui/primitives/dialog'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
+import { useT } from '@open-mercato/shared/lib/i18n/context'
 
 type Props = {
   open: boolean
@@ -25,6 +26,7 @@ type SessionKeyResponse = {
 }
 
 export default function SessionKeyDialog({ open, onOpenChange }: Props) {
+  const t = useT()
   const [sessionToken, setSessionToken] = useState<string | null>(null)
   const [expiresAt, setExpiresAt] = useState<string | null>(null)
   const [isGenerating, setIsGenerating] = useState(false)
@@ -43,10 +45,10 @@ export default function SessionKeyDialog({ open, onOpenChange }: Props) {
         setSessionToken(res.result.sessionToken)
         setExpiresAt(res.result.expiresAt)
       } else {
-        setError('Failed to generate session key')
+        setError(t('ai_assistant.session.error.failed'))
       }
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to generate session key')
+      setError(err instanceof Error ? err.message : t('ai_assistant.session.error.failed'))
     } finally {
       setIsGenerating(false)
     }
@@ -107,7 +109,7 @@ Workflow (use this order):
   }
 
   const formatExpiry = (isoDate: string | null) => {
-    if (!isoDate) return '2 hours from now'
+    if (!isoDate) return t('ai_assistant.session.expiresDefault')
     const date = new Date(isoDate)
     return date.toLocaleString()
   }
@@ -118,10 +120,10 @@ Workflow (use this order):
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <Key className="h-5 w-5" />
-            Session API Key
+            {t('ai_assistant.session.title')}
           </DialogTitle>
           <DialogDescription>
-            Generate a temporary session token for programmatic LLM tool access.
+            {t('ai_assistant.session.description')}
           </DialogDescription>
         </DialogHeader>
 
@@ -129,17 +131,17 @@ Workflow (use this order):
           {isGenerating && !sessionToken ? (
             <div className="flex items-center justify-center py-8 text-muted-foreground">
               <RefreshCw className="h-5 w-5 animate-spin mr-2" />
-              Generating session key...
+              {t('ai_assistant.session.generating')}
             </div>
           ) : sessionToken ? (
             <>
               {/* Session Token */}
               <div className="space-y-2">
                 <div className="flex items-center justify-between">
-                  <span className="text-sm font-medium">Session Token</span>
+                  <span className="text-sm font-medium">{t('ai_assistant.session.tokenLabel')}</span>
                   <Button variant="outline" size="sm" onClick={copyToken} className="gap-1.5">
                     {copiedToken ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
-                    {copiedToken ? 'Copied!' : 'Copy'}
+                    {copiedToken ? t('ai_assistant.session.copied') : t('ai_assistant.session.copy')}
                   </Button>
                 </div>
                 <code className="block text-xs bg-muted px-3 py-2 rounded font-mono break-all">
@@ -150,7 +152,7 @@ Workflow (use this order):
               {/* Expiry Info */}
               <div className="flex items-center gap-2 text-sm text-muted-foreground">
                 <Clock className="h-4 w-4" />
-                <span>Expires: {formatExpiry(expiresAt)}</span>
+                <span>{t('ai_assistant.session.expires')} {formatExpiry(expiresAt)}</span>
               </div>
 
               {/* Separator */}
@@ -159,14 +161,14 @@ Workflow (use this order):
               {/* LLM Instructions */}
               <div className="space-y-2">
                 <div className="flex items-center justify-between">
-                  <span className="text-sm font-medium">LLM Instructions</span>
+                  <span className="text-sm font-medium">{t('ai_assistant.session.llmInstructions')}</span>
                   <Button variant="outline" size="sm" onClick={copyInstructions} className="gap-1.5">
                     {copiedInstructions ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
-                    {copiedInstructions ? 'Copied!' : 'Copy'}
+                    {copiedInstructions ? t('ai_assistant.session.copied') : t('ai_assistant.session.copy')}
                   </Button>
                 </div>
                 <p className="text-xs text-muted-foreground">
-                  Copy this to your system prompt:
+                  {t('ai_assistant.session.copyToSystemPrompt')}
                 </p>
                 <pre className="bg-muted/50 rounded-lg p-4 text-xs font-mono overflow-x-auto border whitespace-pre-wrap">
                   {llmInstructions}
@@ -192,11 +194,11 @@ Workflow (use this order):
               className="gap-1.5"
             >
               <RefreshCw className={`h-4 w-4 ${isGenerating ? 'animate-spin' : ''}`} />
-              Generate New
+              {t('ai_assistant.session.generateNew')}
             </Button>
           )}
           <Button variant="outline" onClick={handleClose}>
-            Close
+            {t('ai_assistant.session.close')}
           </Button>
         </DialogFooter>
       </DialogContent>

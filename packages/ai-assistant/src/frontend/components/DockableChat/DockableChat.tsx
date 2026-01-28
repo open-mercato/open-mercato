@@ -16,6 +16,7 @@ import {
 } from 'lucide-react'
 import { cn } from '@open-mercato/shared/lib/utils'
 import { Button } from '@open-mercato/ui/primitives/button'
+import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { useCommandPaletteContext } from '../CommandPalette/CommandPaletteProvider'
 import { CommandInput } from '../CommandPalette/CommandInput'
 import { CommandHeader } from '../CommandPalette/CommandHeader'
@@ -28,14 +29,15 @@ import { useDockPosition } from '../../hooks/useDockPosition'
 
 // Idle state - shown when palette is open but no query submitted
 function IdleState() {
+  const t = useT()
   return (
     <div className="py-8 px-4 text-center text-muted-foreground">
-      <p className="mb-2">Ask me anything or describe what you want to do.</p>
-      <p className="text-sm">Examples:</p>
+      <p className="mb-2">{t('ai_assistant.chat.idleTitle')}</p>
+      <p className="text-sm">{t('ai_assistant.chat.idleExamples')}</p>
       <ul className="text-sm mt-2 space-y-1">
-        <li>&quot;Search for customers in New York&quot;</li>
-        <li>&quot;Create a new product&quot;</li>
-        <li>&quot;Show me recent orders&quot;</li>
+        <li>&quot;{t('ai_assistant.chat.example.search')}&quot;</li>
+        <li>&quot;{t('ai_assistant.chat.example.create')}&quot;</li>
+        <li>&quot;{t('ai_assistant.chat.example.show')}&quot;</li>
       </ul>
     </div>
   )
@@ -43,10 +45,11 @@ function IdleState() {
 
 // Routing indicator - shown while fast model analyzes intent
 function RoutingIndicator() {
+  const t = useT()
   return (
     <div className="py-8 flex items-center justify-center gap-2">
       <Loader2 className="h-4 w-4 animate-spin" />
-      <span className="text-sm text-muted-foreground">Analyzing request...</span>
+      <span className="text-sm text-muted-foreground">{t('ai_assistant.status.analyzing')}</span>
     </div>
   )
 }
@@ -64,11 +67,12 @@ function DockControls({
   onMinimize,
   onClose,
 }: DockControlsProps) {
-  const positions: { value: DockPosition; icon: React.ReactNode; label: string }[] = [
-    { value: 'floating', icon: <MessageCircle className="h-3.5 w-3.5" />, label: 'Floating' },
-    { value: 'left', icon: <PanelLeft className="h-3.5 w-3.5" />, label: 'Dock Left' },
-    { value: 'bottom', icon: <PanelBottom className="h-3.5 w-3.5" />, label: 'Dock Bottom' },
-    { value: 'right', icon: <PanelRight className="h-3.5 w-3.5" />, label: 'Dock Right' },
+  const t = useT()
+  const positions: { value: DockPosition; icon: React.ReactNode; labelKey: string }[] = [
+    { value: 'floating', icon: <MessageCircle className="h-3.5 w-3.5" />, labelKey: 'ai_assistant.dock.floating' },
+    { value: 'left', icon: <PanelLeft className="h-3.5 w-3.5" />, labelKey: 'ai_assistant.dock.left' },
+    { value: 'bottom', icon: <PanelBottom className="h-3.5 w-3.5" />, labelKey: 'ai_assistant.dock.bottom' },
+    { value: 'right', icon: <PanelRight className="h-3.5 w-3.5" />, labelKey: 'ai_assistant.dock.right' },
   ]
 
   return (
@@ -80,7 +84,7 @@ function DockControls({
           size="icon"
           className={cn('h-6 w-6', position === pos.value && 'bg-accent')}
           onClick={() => onPositionChange(pos.value)}
-          title={pos.label}
+          title={t(pos.labelKey)}
         >
           {pos.icon}
         </Button>
@@ -91,7 +95,7 @@ function DockControls({
         size="icon"
         className="h-6 w-6"
         onClick={onMinimize}
-        title="Minimize"
+        title={t('ai_assistant.dock.minimize')}
       >
         <Minimize2 className="h-3.5 w-3.5" />
       </Button>
@@ -100,7 +104,7 @@ function DockControls({
         size="icon"
         className="h-6 w-6"
         onClick={onClose}
-        title="Close"
+        title={t('ai_assistant.dock.close')}
       >
         <X className="h-3.5 w-3.5" />
       </Button>
@@ -114,6 +118,7 @@ const FLOATING_POSITION_STYLE: React.CSSProperties = {
 }
 
 export function DockableChat() {
+  const t = useT()
   const {
     state,
     isThinking,
@@ -270,7 +275,7 @@ export function DockableChat() {
                 onValueChange={setLocalInput}
                 mode="commands"
                 isLoading={isLoading}
-                placeholder="Ask me anything..."
+                placeholder={t('ai_assistant.chat.placeholder')}
               />
             )}
 
@@ -302,7 +307,7 @@ export function DockableChat() {
                     value={chatInput}
                     onChange={(e) => setChatInput(e.target.value)}
                     onKeyDown={handleChatKeyDown}
-                    placeholder="Describe what you want to do..."
+                    placeholder={t('ai_assistant.chat.describePlaceholder')}
                     className={cn(
                       'flex-1 bg-muted rounded-lg px-4 py-2 text-sm outline-none',
                       'focus:ring-2 focus:ring-ring',
@@ -429,7 +434,7 @@ export function DockableChat() {
                 onValueChange={setLocalInput}
                 mode="commands"
                 isLoading={isLoading}
-                placeholder="Ask me anything..."
+                placeholder={t('ai_assistant.chat.placeholder')}
               />
             )}
 
@@ -461,7 +466,7 @@ export function DockableChat() {
                     value={chatInput}
                     onChange={(e) => setChatInput(e.target.value)}
                     onKeyDown={handleChatKeyDown}
-                    placeholder="Describe what you want to do..."
+                    placeholder={t('ai_assistant.chat.describePlaceholder')}
                     className={cn(
                       'flex-1 bg-muted rounded-lg px-4 py-2 text-sm outline-none',
                       'focus:ring-2 focus:ring-ring',

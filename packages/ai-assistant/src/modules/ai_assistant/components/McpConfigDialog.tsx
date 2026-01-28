@@ -13,6 +13,7 @@ import {
 } from '@open-mercato/ui/primitives/dialog'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
+import { useT } from '@open-mercato/shared/lib/i18n/context'
 
 type Props = {
   open: boolean
@@ -28,6 +29,7 @@ type ApiKeyResponse = {
 }
 
 export default function McpConfigDialog({ open, onOpenChange, mcpUrl }: Props) {
+  const t = useT()
   const [apiKey, setApiKey] = useState<string | null>(null)
   const [isGenerating, setIsGenerating] = useState(false)
   const [copiedConfig, setCopiedConfig] = useState(false)
@@ -48,10 +50,10 @@ export default function McpConfigDialog({ open, onOpenChange, mcpUrl }: Props) {
       if (res.ok && res.result?.secret) {
         setApiKey(res.result.secret)
       } else {
-        setError('Failed to generate API key')
+        setError(t('ai_assistant.mcp.error.failed'))
       }
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to generate API key')
+      setError(err instanceof Error ? err.message : t('ai_assistant.mcp.error.failed'))
     } finally {
       setIsGenerating(false)
     }
@@ -109,10 +111,10 @@ export default function McpConfigDialog({ open, onOpenChange, mcpUrl }: Props) {
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <Settings className="h-5 w-5" />
-            MCP Configuration
+            {t('ai_assistant.mcp.title')}
           </DialogTitle>
           <DialogDescription>
-            Add this to your <code className="text-xs bg-muted px-1 py-0.5 rounded">~/.mcp.json</code> file for Claude Code or other MCP clients.
+            {t('ai_assistant.mcp.description')}
           </DialogDescription>
         </DialogHeader>
 
@@ -126,7 +128,7 @@ export default function McpConfigDialog({ open, onOpenChange, mcpUrl }: Props) {
 
           {/* API Key Section */}
           <div className="flex items-center gap-3 flex-wrap">
-            <span className="text-sm text-muted-foreground">API Key:</span>
+            <span className="text-sm text-muted-foreground">{t('ai_assistant.mcp.apiKeyLabel')}</span>
             {apiKey ? (
               <>
                 <code className="text-xs bg-muted px-2 py-1 rounded font-mono truncate max-w-[200px]">
@@ -134,11 +136,11 @@ export default function McpConfigDialog({ open, onOpenChange, mcpUrl }: Props) {
                 </code>
                 <Button variant="outline" size="sm" onClick={copyKey} className="gap-1.5">
                   {copiedKey ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
-                  {copiedKey ? 'Copied!' : 'Copy Key'}
+                  {copiedKey ? t('ai_assistant.mcp.copied') : t('ai_assistant.mcp.copyKey')}
                 </Button>
               </>
             ) : (
-              <span className="text-sm text-muted-foreground italic">Not generated</span>
+              <span className="text-sm text-muted-foreground italic">{t('ai_assistant.mcp.notGenerated')}</span>
             )}
             <Button
               variant="outline"
@@ -148,7 +150,7 @@ export default function McpConfigDialog({ open, onOpenChange, mcpUrl }: Props) {
               className="gap-1.5"
             >
               <RefreshCw className={`h-3.5 w-3.5 ${isGenerating ? 'animate-spin' : ''}`} />
-              {apiKey ? 'Generate New' : 'Generate API Key'}
+              {apiKey ? t('ai_assistant.mcp.generateNew') : t('ai_assistant.mcp.generateApiKey')}
             </Button>
           </div>
 
@@ -163,7 +165,7 @@ export default function McpConfigDialog({ open, onOpenChange, mcpUrl }: Props) {
             <div className="flex items-start gap-2 p-3 bg-amber-50 dark:bg-amber-900/20 rounded-lg border border-amber-200 dark:border-amber-800">
               <AlertTriangle className="h-4 w-4 text-amber-600 dark:text-amber-400 mt-0.5 shrink-0" />
               <p className="text-sm text-amber-700 dark:text-amber-300">
-                Save this key now - it won't be shown again!
+                {t('ai_assistant.mcp.saveKeyWarning')}
               </p>
             </div>
           )}
@@ -171,11 +173,11 @@ export default function McpConfigDialog({ open, onOpenChange, mcpUrl }: Props) {
 
         <DialogFooter>
           <Button variant="outline" onClick={handleClose}>
-            Close
+            {t('ai_assistant.mcp.close')}
           </Button>
           <Button onClick={copyConfig} className="gap-1.5">
             {copiedConfig ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
-            {copiedConfig ? 'Copied!' : 'Copy Config'}
+            {copiedConfig ? t('ai_assistant.mcp.copied') : t('ai_assistant.mcp.copyConfig')}
           </Button>
         </DialogFooter>
       </DialogContent>

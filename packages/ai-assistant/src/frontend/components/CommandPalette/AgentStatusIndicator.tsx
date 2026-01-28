@@ -1,6 +1,7 @@
 'use client'
 
 import { Loader2 } from 'lucide-react'
+import { useT } from '@open-mercato/shared/lib/i18n/context'
 import type { AgentStatus } from '../../types'
 
 interface AgentStatusIndicatorProps {
@@ -8,25 +9,27 @@ interface AgentStatusIndicatorProps {
 }
 
 export function AgentStatusIndicator({ status }: AgentStatusIndicatorProps) {
+  const t = useT()
+
   if (status.type === 'idle') return null
 
   // Get display text based on status type
   let message: string
   switch (status.type) {
     case 'thinking':
-      message = 'Thinking...'
+      message = t('ai_assistant.status.thinking')
       break
     case 'responding':
-      message = 'Responding...'
+      message = t('ai_assistant.status.responding')
       break
     case 'tool':
       message = status.toolName
       break
     case 'executing':
-      message = 'Executing tools...'
+      message = t('ai_assistant.status.executing')
       break
     default:
-      message = 'Working...'
+      message = t('ai_assistant.status.working')
   }
 
   return (
