@@ -26,9 +26,9 @@ export const DEFAULT_ATTACHMENT_PARTITIONS: AttachmentPartitionSeed[] = [
   },
 ]
 
-const PRODUCT_MEDIA_ENTITY_IDS = new Set<string>([
-  E.catalog.catalog_product,
-])
+const PRODUCT_MEDIA_ENTITY_IDS = new Set<string>(
+  [(E as any).catalog?.catalog_product].filter(Boolean) as string[]
+)
 
 const FALLBACK_PARTITION = 'privateAttachments'
 

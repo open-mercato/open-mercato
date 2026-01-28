@@ -1,5 +1,35 @@
 /** @jest-environment node */
+import { registerModules } from '@open-mercato/shared/lib/modules/registry'
+import type { Module } from '@open-mercato/shared/modules/registry'
 import cli from '@open-mercato/core/modules/auth/cli'
+
+// Register modules so that ensureDefaultRoleAcls can read defaultRoleFeatures
+const testModules: Module[] = [
+  { id: 'auth', setup: { defaultRoleFeatures: { admin: ['auth.*'] } } },
+  { id: 'entities', setup: { defaultRoleFeatures: { admin: ['entities.*'] } } },
+  { id: 'attachments', setup: { defaultRoleFeatures: { admin: ['attachments.*', 'attachments.view', 'attachments.manage'] } } },
+  { id: 'query_index', setup: { defaultRoleFeatures: { admin: ['query_index.*'] } } },
+  { id: 'configs', setup: { defaultRoleFeatures: { admin: ['configs.system_status.view', 'configs.cache.view', 'configs.cache.manage', 'configs.manage'] } } },
+  { id: 'directory', setup: { defaultRoleFeatures: { superadmin: ['directory.tenants.*'], admin: ['directory.organizations.view', 'directory.organizations.manage'] } } },
+  { id: 'customers', setup: { defaultRoleFeatures: { admin: ['customers.*', 'customers.people.view', 'customers.people.manage', 'customers.companies.view', 'customers.companies.manage', 'customers.deals.view', 'customers.deals.manage'], employee: ['customers.*', 'customers.people.view', 'customers.people.manage', 'customers.companies.view', 'customers.companies.manage'] } } },
+  { id: 'catalog', setup: { defaultRoleFeatures: { admin: ['catalog.*', 'catalog.variants.manage', 'catalog.pricing.manage'], employee: ['catalog.*', 'catalog.variants.manage', 'catalog.pricing.manage'] } } },
+  { id: 'sales', setup: { defaultRoleFeatures: { admin: ['sales.*'], employee: ['sales.*'] } } },
+  { id: 'dictionaries', setup: { defaultRoleFeatures: { admin: ['dictionaries.view', 'dictionaries.manage'], employee: ['dictionaries.view'] } } },
+  { id: 'audit_logs', setup: { defaultRoleFeatures: { admin: ['audit_logs.*'], employee: ['audit_logs.undo_self'] } } },
+  { id: 'dashboards', setup: { defaultRoleFeatures: { admin: ['dashboards.*', 'dashboards.admin.assign-widgets'], employee: ['dashboards.view', 'dashboards.configure'] } } },
+  { id: 'api_keys', setup: { defaultRoleFeatures: { admin: ['api_keys.*'] } } },
+  { id: 'perspectives', setup: { defaultRoleFeatures: { admin: ['perspectives.use', 'perspectives.role_defaults'], employee: ['perspectives.use'] } } },
+  { id: 'feature_toggles', setup: { defaultRoleFeatures: { admin: ['feature_toggles.*'] } } },
+  { id: 'business_rules', setup: { defaultRoleFeatures: { admin: ['business_rules.*'] } } },
+  { id: 'workflows', setup: { defaultRoleFeatures: { admin: ['workflows.*'] } } },
+  { id: 'search', setup: { defaultRoleFeatures: { admin: ['search.*', 'vector.*'], employee: ['vector.*'] } } },
+  { id: 'currencies', setup: { defaultRoleFeatures: { admin: ['currencies.*'] } } },
+  { id: 'planner', setup: { defaultRoleFeatures: { admin: ['planner.*'], employee: ['planner.view'] } } },
+  { id: 'resources', setup: { defaultRoleFeatures: { admin: ['resources.*'] } } },
+  { id: 'staff', setup: { defaultRoleFeatures: { admin: ['staff.*', 'staff.leave_requests.manage'], employee: ['staff.leave_requests.send', 'staff.my_availability.view', 'staff.my_availability.manage', 'staff.my_leave_requests.view', 'staff.my_leave_requests.send'] } } },
+  { id: 'example', setup: { defaultRoleFeatures: { admin: ['example.*'], employee: ['example.*', 'example.widgets.*'] } } },
+]
+registerModules(testModules)
 
 // Mock DI container and EM
 const persistAndFlush = jest.fn()

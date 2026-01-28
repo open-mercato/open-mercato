@@ -193,6 +193,7 @@ All module paths below use `src/modules/<module>/` as a shorthand. In practice:
 - Optional CLI at `src/modules/<module>/cli.ts` default export
 - Optional metadata at `src/modules/<module>/index.ts` exporting `metadata`
 - Optional features at `src/modules/<module>/acl.ts` exporting `features`
+- Optional setup at `src/modules/<module>/setup.ts` exporting `setup` (see [Module Setup Convention](#module-setup-convention) below)
 - Optional custom entities at `src/modules/<module>/ce.ts` exporting `entities`
 - Optional DI registrar at `src/modules/<module>/di.ts` exporting `register(container)`
 - Optional upgrade actions: declare once per version in `packages/core/src/modules/configs/lib/upgrade-actions.ts`; actions are auto-discovered by the backend upgrade banner and stored per tenant/organization in `upgrade_action_runs`. Keep them idempotent, reuse module helpers (e.g., catalog seeds), and do not introduce new features—access is guarded by `configs.manage`.
@@ -366,8 +367,124 @@ All module paths below use `src/modules/<module>/` as a shorthand. In practice:
   - Request scoping helpers (`withScopedPayload`, `parseScopedCommandInput`, etc.) live in `packages/shared/src/lib/api/scoped.ts`. Import from there instead of redefining per module so tenants/organization enforcement stays consistent. Prefer `createScopedApiHelpers()` to tailor module-specific translations while keeping behaviour aligned.
 - Catalog price selection, channel scoping, and layered overrides must use the helpers exported from `packages/core/src/modules/catalog/lib/pricing.ts`. Reuse `selectBestPrice`, `resolvePriceVariantId`, etc., instead of reimplementing scoring logic. If you need to customize the algorithm, register a resolver via `registerCatalogPricingResolver(resolver, { priority })` so your logic composes with the default `resolveCatalogPrice` pipeline. The helper now emits `catalog.pricing.resolve.before|after` events; reach for the DI token `catalogPricingService` when you need to resolve prices so overrides (event-driven or service swaps) take effect.
 - Order/quote totals must be computed through the DI-provided `salesCalculationService`, which wraps the existing `salesCalculations` registry and dispatches `sales.line.calculate.*` / `sales.document.calculate.*` events. Never reimplement document math inline; register line/totals calculators or override the service via DI.
-- When adding new module features in `acl.ts`, mirror them in the `mercato init` role seeding (see `packages/core/src/modules/auth/cli.ts`) so the default admin role ships with immediate access to the capabilities you just enabled.
+- When adding new module features in `acl.ts`, also declare them in `setup.ts` `defaultRoleFeatures` so the admin/employee roles are automatically seeded with those features during tenant creation (see [Module Setup Convention](#module-setup-convention)).
 - `ce.ts` files only describe custom entities or seed default custom-field sets. Always reference generated ids (`E.<module>.<entity>`) so system entities stay aligned with `generated/entities.ids.generated.ts`. System tables (e.g. catalog/sales documents) are auto-discovered from ORM metadata—exporting them in `ce.ts` is just for labeling/field seeding and will not register them as user-defined entities.
+
+## Module Setup Convention
+
+Every module that participates in tenant initialization **must** declare a `setup.ts` file at its root (`src/modules/<module>/setup.ts`). The generator auto-discovers these files and includes them in `modules.generated.ts`. This is the mechanism that keeps modules decoupled — no module should be hardcoded in `setup-app.ts`, `mercato init`, or onboarding flows.
+
+See [SPEC-011](.ai/specs/SPEC-012-2026-01-27-decouple-module-setup.md) for the full architecture decision record.
+
+### Type definition
+
+The `ModuleSetupConfig` type is defined in `packages/shared/src/modules/setup.ts`:
+
+```typescript
+import type { ModuleSetupConfig } from '@open-mercato/shared/modules/setup'
+```
+
+### The `setup.ts` contract
+
+```typescript
+// src/modules/<module>/setup.ts
+import type { ModuleSetupConfig } from '@open-mercato/shared/modules/setup'
+
+export const setup: ModuleSetupConfig = {
+  // 1. Declarative: which features each default role gets
+  defaultRoleFeatures: {
+    superadmin: ['my_module.admin_only_feature'],
+    admin: ['my_module.*'],
+    employee: ['my_module.view'],
+  },
+
+  // 2. Called inside setupInitialTenant() after tenant/org is created.
+  //    For lightweight structural defaults: settings rows, numbering sequences.
+  //    Must be idempotent. Always runs.
+  async onTenantCreated({ em, tenantId, organizationId }) {
+    // Seed settings, sequences, or config rows
+  },
+
+  // 3. Called during mercato init / onboarding after tenant exists.
+  //    For reference data: dictionaries, tax rates, statuses, units.
+  //    Always runs (not gated by --no-examples).
+  async seedDefaults({ em, tenantId, organizationId, container }) {
+    // Seed structural/reference data
+  },
+
+  // 4. Called during mercato init / onboarding ONLY when examples are requested.
+  //    For demo data: sample products, customers, orders.
+  async seedExamples({ em, tenantId, organizationId, container }) {
+    // Seed example/demo data
+  },
+}
+
+export default setup
+```
+
+### Lifecycle hooks
+
+| Hook | When it runs | Gate | Use case |
+|------|-------------|------|----------|
+| `onTenantCreated` | Inside `setupInitialTenant()`, after tenant+org created | Always | Settings rows, numbering sequences, lightweight config |
+| `seedDefaults` | After tenant setup, during init/onboarding | Always | Dictionaries, tax rates, statuses, units, address types |
+| `seedExamples` | After `seedDefaults`, during init/onboarding | Skipped with `--no-examples` | Demo products, customers, orders |
+| `defaultRoleFeatures` | Declarative, merged during `ensureDefaultRoleAcls()` | Always | Role ACL feature assignments |
+
+### When to create a `setup.ts`
+
+Create a `setup.ts` when your module needs any of the following:
+- **Default role features** — the admin/employee/superadmin roles should have access to your module's features after tenant creation.
+- **Tenant initialization** — your module needs settings, sequences, or config rows created when a new tenant is provisioned.
+- **Structural seed data** — your module has reference data (dictionaries, statuses, units) that every tenant needs.
+- **Example data** — your module can provide demo data for new installs.
+
+### Keeping modules decoupled
+
+The `setup.ts` convention replaces hardcoded imports in `setup-app.ts`, `mercato init`, and onboarding verify. Follow these rules:
+
+1. **Never hardcode module-specific logic in `setup-app.ts`**. If a module needs initialization, add it to that module's `setup.ts`.
+2. **Never directly import another module's seed functions** from `mercato init` or onboarding. The `seedDefaults`/`seedExamples` hooks handle this automatically.
+3. **Access entity IDs with optional chaining** when referencing other modules: `(E as any).catalog?.catalog_product`. This ensures the code doesn't crash if the referenced module is disabled.
+4. **Use `getEntityIds()` at runtime** (not import-time) when building lookups that reference other modules' entities. This allows the code to adapt to which modules are enabled.
+
+### Adding features to default roles
+
+When you add new features in `acl.ts`, also add them to `setup.ts` `defaultRoleFeatures`:
+
+```typescript
+// acl.ts
+export const features = [
+  { id: 'my_module.view', title: 'View items', module: 'my_module' },
+  { id: 'my_module.manage', title: 'Manage items', module: 'my_module' },
+]
+
+// setup.ts
+export const setup: ModuleSetupConfig = {
+  defaultRoleFeatures: {
+    admin: ['my_module.*'],
+    employee: ['my_module.view'],
+  },
+}
+```
+
+This replaces the old pattern of editing `setup-app.ts` to add features to the hardcoded role arrays.
+
+### Testing with disabled modules
+
+The module-decoupling test (`packages/core/src/__tests__/module-decoupling.test.ts`) verifies that the app works when optional modules are disabled. When writing tests that depend on the module registry:
+
+```typescript
+import { registerModules } from '@open-mercato/shared/lib/modules/registry'
+import type { Module } from '@open-mercato/shared/modules/registry'
+
+// Register modules before test runs
+const testModules: Module[] = [
+  { id: 'auth', setup: { defaultRoleFeatures: { admin: ['auth.*'] } } },
+  // ... other modules your test needs
+]
+registerModules(testModules)
+```
 
 ## Search Module Configuration
 - **Every module with searchable entities MUST provide a `search.ts` file** at `src/modules/<module>/search.ts` or `packages/<package>/src/modules/<module>/search.ts`.

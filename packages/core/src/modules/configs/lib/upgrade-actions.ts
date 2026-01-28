@@ -4,13 +4,8 @@ import type { AwilixContainer } from 'awilix'
 import { Role, RoleAcl } from '@open-mercato/core/modules/auth/data/entities'
 import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
 import { reindexModules } from '@open-mercato/core/modules/configs/lib/reindex-helpers'
-import { installExampleCatalogData, type CatalogSeedScope } from '@open-mercato/core/modules/catalog/lib/seeds'
-import { seedSalesExamples } from '@open-mercato/core/modules/sales/seed/examples'
-import { seedExampleCurrencies } from '@open-mercato/core/modules/currencies/lib/seeds'
-import { seedExampleWorkflows } from '@open-mercato/core/modules/workflows/lib/seeds'
-import { seedPlannerAvailabilityRuleSetDefaults, seedPlannerUnavailabilityReasons } from '@open-mercato/core/modules/planner/lib/seeds'
-import { seedResourcesAddressTypes, seedResourcesCapacityUnits, seedResourcesResourceExamples } from '@open-mercato/core/modules/resources/lib/seeds'
-import { seedStaffTeamExamples } from '@open-mercato/core/modules/staff/lib/seeds'
+// Optional module imports are loaded dynamically inside each upgrade action
+// so the app does not crash when a module is disabled.
 import { collectCrudCacheStats, purgeCrudCacheSegment } from '@open-mercato/shared/lib/crud/cache-stats'
 import { isCrudCacheEnabled, resolveCrudCache } from '@open-mercato/shared/lib/crud/cache'
 import * as semver from 'semver'
@@ -91,7 +86,9 @@ async function ensureVectorSearchEncryptionMap(
   return true
 }
 
-export type UpgradeActionContext = CatalogSeedScope & {
+export type UpgradeActionContext = {
+  tenantId: string
+  organizationId: string
   container: AwilixContainer
   em: EntityManager
 }
@@ -155,6 +152,14 @@ export const upgradeActions: UpgradeActionDefinition[] = [
     successKey: 'upgrades.v034.success',
     loadingKey: 'upgrades.v034.loading',
     async run({ container, em, tenantId, organizationId }) {
+      let installExampleCatalogData: typeof import('@open-mercato/core/modules/catalog/lib/seeds')['installExampleCatalogData'] | undefined
+      try {
+        const catalogSeeds = await import('@open-mercato/core/modules/catalog/lib/seeds')
+        installExampleCatalogData = catalogSeeds.installExampleCatalogData
+      } catch {
+        console.warn('[upgrade-actions] catalog module not available, skipping catalog example data')
+        return
+      }
       await installExampleCatalogData(container, { tenantId, organizationId }, em)
       const vectorService = resolveVectorService(container)
       await reindexModules(em, ['catalog'], { tenantId, organizationId, vectorService })
@@ -214,8 +219,16 @@ export const upgradeActions: UpgradeActionDefinition[] = [
     successKey: 'upgrades.v036.success',
     loadingKey: 'upgrades.v036.loading',
     async run({ container, em, tenantId, organizationId }) {
+      let seedSalesExamples: typeof import('@open-mercato/core/modules/sales/seed/examples')['seedSalesExamples'] | undefined
+      try {
+        const salesSeeds = await import('@open-mercato/core/modules/sales/seed/examples')
+        seedSalesExamples = salesSeeds.seedSalesExamples
+      } catch {
+        console.warn('[upgrade-actions] sales module not available, skipping sales example data')
+        return
+      }
       await em.transactional(async (tem) => {
-        await seedSalesExamples(tem, container, { tenantId, organizationId })
+        await seedSalesExamples!(tem, container, { tenantId, organizationId })
       })
       const vectorService = resolveVectorService(container)
       await reindexModules(em, ['sales', 'catalog'], { tenantId, organizationId, vectorService })
@@ -262,9 +275,26 @@ export const upgradeActions: UpgradeActionDefinition[] = [
     async run({ container, em, tenantId, organizationId }) {
       const normalizedTenantId = tenantId.trim()
       const scope = { tenantId, organizationId }
+
+      let seedExampleCurrencies: typeof import('@open-mercato/core/modules/currencies/lib/seeds')['seedExampleCurrencies'] | undefined
+      try {
+        const currenciesSeeds = await import('@open-mercato/core/modules/currencies/lib/seeds')
+        seedExampleCurrencies = currenciesSeeds.seedExampleCurrencies
+      } catch {
+        console.warn('[upgrade-actions] currencies module not available, skipping currency seeding')
+      }
+
+      let seedExampleWorkflows: typeof import('@open-mercato/core/modules/workflows/lib/seeds')['seedExampleWorkflows'] | undefined
+      try {
+        const workflowsSeeds = await import('@open-mercato/core/modules/workflows/lib/seeds')
+        seedExampleWorkflows = workflowsSeeds.seedExampleWorkflows
+      } catch {
+        console.warn('[upgrade-actions] workflows module not available, skipping workflow seeding')
+      }
+
       await em.transactional(async (tem) => {
-        await seedExampleCurrencies(tem, scope)
-        await seedExampleWorkflows(tem, scope)
+        if (seedExampleCurrencies) await seedExampleCurrencies(tem, scope)
+        if (seedExampleWorkflows) await seedExampleWorkflows(tem, scope)
 
         const adminRole = await tem.findOne(Role, { name: 'admin', tenantId: normalizedTenantId, deletedAt: null })
         if (!adminRole) return
@@ -315,13 +345,44 @@ export const upgradeActions: UpgradeActionDefinition[] = [
     async run({ container, em, tenantId, organizationId }) {
       const normalizedTenantId = tenantId.trim()
       const scope = { tenantId, organizationId }
+
+      let seedPlannerAvailabilityRuleSetDefaults: typeof import('@open-mercato/core/modules/planner/lib/seeds')['seedPlannerAvailabilityRuleSetDefaults'] | undefined
+      let seedPlannerUnavailabilityReasons: typeof import('@open-mercato/core/modules/planner/lib/seeds')['seedPlannerUnavailabilityReasons'] | undefined
+      try {
+        const plannerSeeds = await import('@open-mercato/core/modules/planner/lib/seeds')
+        seedPlannerAvailabilityRuleSetDefaults = plannerSeeds.seedPlannerAvailabilityRuleSetDefaults
+        seedPlannerUnavailabilityReasons = plannerSeeds.seedPlannerUnavailabilityReasons
+      } catch {
+        console.warn('[upgrade-actions] planner module not available, skipping planner seeding')
+      }
+
+      let seedStaffTeamExamples: typeof import('@open-mercato/core/modules/staff/lib/seeds')['seedStaffTeamExamples'] | undefined
+      try {
+        const staffSeeds = await import('@open-mercato/core/modules/staff/lib/seeds')
+        seedStaffTeamExamples = staffSeeds.seedStaffTeamExamples
+      } catch {
+        console.warn('[upgrade-actions] staff module not available, skipping staff seeding')
+      }
+
+      let seedResourcesAddressTypes: typeof import('@open-mercato/core/modules/resources/lib/seeds')['seedResourcesAddressTypes'] | undefined
+      let seedResourcesCapacityUnits: typeof import('@open-mercato/core/modules/resources/lib/seeds')['seedResourcesCapacityUnits'] | undefined
+      let seedResourcesResourceExamples: typeof import('@open-mercato/core/modules/resources/lib/seeds')['seedResourcesResourceExamples'] | undefined
+      try {
+        const resourcesSeeds = await import('@open-mercato/core/modules/resources/lib/seeds')
+        seedResourcesAddressTypes = resourcesSeeds.seedResourcesAddressTypes
+        seedResourcesCapacityUnits = resourcesSeeds.seedResourcesCapacityUnits
+        seedResourcesResourceExamples = resourcesSeeds.seedResourcesResourceExamples
+      } catch {
+        console.warn('[upgrade-actions] resources module not available, skipping resources seeding')
+      }
+
       await em.transactional(async (tem) => {
-        await seedPlannerAvailabilityRuleSetDefaults(tem, scope)
-        await seedPlannerUnavailabilityReasons(tem, scope)
-        await seedStaffTeamExamples(tem, scope)
-        await seedResourcesCapacityUnits(tem, scope)
-        await seedResourcesAddressTypes(tem, scope)
-        await seedResourcesResourceExamples(tem, scope)
+        if (seedPlannerAvailabilityRuleSetDefaults) await seedPlannerAvailabilityRuleSetDefaults(tem, scope)
+        if (seedPlannerUnavailabilityReasons) await seedPlannerUnavailabilityReasons(tem, scope)
+        if (seedStaffTeamExamples) await seedStaffTeamExamples(tem, scope)
+        if (seedResourcesCapacityUnits) await seedResourcesCapacityUnits(tem, scope)
+        if (seedResourcesAddressTypes) await seedResourcesAddressTypes(tem, scope)
+        if (seedResourcesResourceExamples) await seedResourcesResourceExamples(tem, scope)
 
         const adminRole = await tem.findOne(Role, { name: 'admin', tenantId: normalizedTenantId, deletedAt: null })
         if (!adminRole) return

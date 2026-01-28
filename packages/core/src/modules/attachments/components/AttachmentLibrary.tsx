@@ -893,8 +893,8 @@ export function AttachmentLibrary() {
               {assignments.map((assignment) => {
                 const label = assignment.label?.trim() || assignment.id
                 const hideType =
-                  assignment.type === E.catalog.catalog_product ||
-                  assignment.type === E.catalog.catalog_product_variant
+                  assignment.type === (E as any).catalog?.catalog_product ||
+                  assignment.type === (E as any).catalog?.catalog_product_variant
                 const content = hideType ? label : `${assignment.type}: ${label}`
                 return assignment.href ? (
                   <a

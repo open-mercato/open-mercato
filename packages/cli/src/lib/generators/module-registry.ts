@@ -82,6 +82,7 @@ export async function generateModuleRegistry(options: ModuleRegistryOptions): Pr
     const dashboardWidgets: string[] = []
     const injectionWidgets: string[] = []
     let injectionTableImportName: string | null = null
+    let setupImportName: string | null = null
 
     // Module metadata: index.ts (overrideable)
     const appIndex = path.join(roots.appBase, 'index.ts')
@@ -264,6 +265,20 @@ export async function generateModuleRegistry(options: ModuleRegistryOptions): Pr
         imports.push(importStmt)
         analyticsImports.push(importStmt)
         analyticsImportName = importName
+      }
+    }
+
+    // Module setup configuration: module root setup.ts
+    {
+      const appFile = path.join(roots.appBase, 'setup.ts')
+      const pkgFile = path.join(roots.pkgBase, 'setup.ts')
+      const hasApp = fs.existsSync(appFile)
+      const hasPkg = fs.existsSync(pkgFile)
+      if (hasApp || hasPkg) {
+        const importName = `SETUP_${toVar(modId)}_${importId++}`
+        const importPath = hasApp ? `${appImportBase}/setup` : `${imps.pkgBase}/setup`
+        imports.push(`import * as ${importName} from '${importPath}'`)
+        setupImportName = importName
       }
     }
 
@@ -737,6 +752,7 @@ export async function generateModuleRegistry(options: ModuleRegistryOptions): Pr
       ${featuresImportName ? `features: ((${featuresImportName}.default ?? ${featuresImportName}.features) as any) || [],` : ''}
       ${customEntitiesImportName ? `customEntities: ((${customEntitiesImportName}.default ?? ${customEntitiesImportName}.entities) as any) || [],` : ''}
       ${dashboardWidgets.length ? `dashboardWidgets: [${dashboardWidgets.join(', ')}],` : ''}
+      ${setupImportName ? `setup: (${setupImportName}.default ?? ${setupImportName}.setup) || undefined,` : ''}
     }`)
   }
 
@@ -980,6 +996,7 @@ export async function generateModuleRegistryCli(options: ModuleRegistryOptions):
     let featuresImportName: string | null = null
     let customEntitiesImportName: string | null = null
     let vectorImportName: string | null = null
+    let setupImportName: string | null = null
     let customFieldSetsExpr: string = '[]'
 
     // Module metadata: index.ts (overrideable)
@@ -998,6 +1015,20 @@ export async function generateModuleRegistryCli(options: ModuleRegistryOptions):
           mod?.metadata && Array.isArray(mod.metadata.requires) ? mod.metadata.requires : undefined
         if (reqs && reqs.length) requiresByModule.set(modId, reqs)
       } catch {}
+    }
+
+    // Module setup configuration: module root setup.ts
+    {
+      const appFile = path.join(roots.appBase, 'setup.ts')
+      const pkgFile = path.join(roots.pkgBase, 'setup.ts')
+      const hasApp = fs.existsSync(appFile)
+      const hasPkg = fs.existsSync(pkgFile)
+      if (hasApp || hasPkg) {
+        const importName = `SETUP_${toVar(modId)}_${importId++}`
+        const importPath = hasApp ? `${appImportBase}/setup` : `${imps.pkgBase}/setup`
+        imports.push(`import * as ${importName} from '${importPath}'`)
+        setupImportName = importName
+      }
     }
 
     // Entity extensions: src/modules/<module>/data/extensions.ts
@@ -1215,6 +1246,7 @@ export async function generateModuleRegistryCli(options: ModuleRegistryOptions):
       ${featuresImportName ? `features: ((${featuresImportName}.default ?? ${featuresImportName}.features) as any) || [],` : ''}
       ${customEntitiesImportName ? `customEntities: ((${customEntitiesImportName}.default ?? ${customEntitiesImportName}.entities) as any) || [],` : ''}
       ${vectorImportName ? `vector: (${vectorImportName}.default ?? ${vectorImportName}.vectorConfig ?? ${vectorImportName}.config ?? undefined),` : ''}
+      ${setupImportName ? `setup: (${setupImportName}.default ?? ${setupImportName}.setup) || undefined,` : ''}
     }`)
   }
 

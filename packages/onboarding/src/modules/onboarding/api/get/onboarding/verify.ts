@@ -5,12 +5,8 @@ import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { onboardingVerifySchema } from '@open-mercato/onboarding/modules/onboarding/data/validators'
 import { OnboardingService } from '@open-mercato/onboarding/modules/onboarding/lib/service'
 import { setupInitialTenant } from '@open-mercato/core/modules/auth/lib/setup-app'
-import {
-  seedCustomerDictionaries,
-  seedCustomerExamples,
-  seedCurrencyDictionary,
-} from '@open-mercato/core/modules/customers/cli'
 import { seedDashboardDefaultsForTenant } from '@open-mercato/core/modules/dashboards/cli'
+import { getModules } from '@open-mercato/shared/lib/modules/registry'
 import { AuthService } from '@open-mercato/core/modules/auth/services/authService'
 import { signJwt } from '@open-mercato/shared/lib/auth/jwt'
 import { reindexEntity } from '@open-mercato/core/modules/query_index/lib/reindexer'
@@ -82,9 +78,18 @@ export async function GET(req: Request) {
     const resolvedUserId = String(user.id)
     userId = resolvedUserId
 
-    await seedCustomerDictionaries(em, { tenantId, organizationId })
-    await seedCurrencyDictionary(em, { tenantId, organizationId })
-    await seedCustomerExamples(em, container, { tenantId, organizationId })
+    // Call module seedDefaults + seedExamples hooks
+    const modules = getModules()
+    for (const mod of modules) {
+      if (mod.setup?.seedDefaults) {
+        await mod.setup.seedDefaults({ em, tenantId, organizationId, container })
+      }
+    }
+    for (const mod of modules) {
+      if (mod.setup?.seedExamples) {
+        await mod.setup.seedExamples({ em, tenantId, organizationId, container })
+      }
+    }
     await seedDashboardDefaultsForTenant(em, { tenantId, organizationId, logger: () => {} })
 
     if (tenantId) {
