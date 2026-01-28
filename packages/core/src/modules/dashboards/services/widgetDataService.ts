@@ -315,16 +315,34 @@ export class WidgetDataService {
           { tenantId: this.scope.tenantId, organizationId: this.resolveOrganizationId() },
         )
 
+        const encryptionService = resolveTenantEncryptionService(this.em as any)
+        const dek = encryptionService?.isEnabled() ? await encryptionService.getDek(this.scope.tenantId) : null
+        let hasEncryptedLabels = false
+        let hasDecryptedLabels = false
+
         const labelMap = new Map<string, string>()
         for (const record of records as Array<Record<string, unknown>>) {
           const id = record[idProp]
-          const label = record[labelProp]
-          if (typeof id === 'string' && label != null && label !== '') {
-            labelMap.set(id, String(label))
+          let labelValue = record[labelProp]
+          if (typeof labelValue === 'string' && this.isEncryptedPayload(labelValue)) {
+            hasEncryptedLabels = true
+            if (dek?.key) {
+              const decrypted = this.decryptWithDek(labelValue, dek.key)
+              if (decrypted !== null) {
+                labelValue = decrypted
+                hasDecryptedLabels = true
+              }
+            }
+          } else if (labelValue != null && labelValue !== '') {
+            hasDecryptedLabels = true
+          }
+
+          if (typeof id === 'string' && labelValue != null && labelValue !== '') {
+            labelMap.set(id, String(labelValue))
           }
         }
 
-        if (labelMap.size > 0) {
+        if (labelMap.size > 0 && (!hasEncryptedLabels || hasDecryptedLabels)) {
           return data.map((item) => ({
             ...item,
             groupLabel: typeof item.groupKey === 'string' && labelMap.has(item.groupKey)
@@ -374,7 +392,7 @@ export class WidgetDataService {
         }
 
         if (labelValue && dek?.key && this.isEncryptedPayload(labelValue)) {
-          const decrypted = decryptWithAesGcm(labelValue, dek.key)
+          const decrypted = this.decryptWithDek(labelValue, dek.key)
           if (decrypted !== null) {
             labelValue = decrypted
           }
@@ -444,6 +462,13 @@ export class WidgetDataService {
   private isEncryptedPayload(value: string): boolean {
     const parts = value.split(':')
     return parts.length === 4 && parts[3] === 'v1'
+  }
+
+  private decryptWithDek(value: string, dek: string): string | null {
+    const first = decryptWithAesGcm(value, dek)
+    if (first === null) return null
+    if (!this.isEncryptedPayload(first)) return first
+    return decryptWithAesGcm(first, dek) ?? first
   }
 }
 
