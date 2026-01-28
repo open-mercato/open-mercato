@@ -11,6 +11,7 @@ import { seedExampleWorkflows } from '@open-mercato/core/modules/workflows/lib/s
 import { seedPlannerAvailabilityRuleSetDefaults, seedPlannerUnavailabilityReasons } from '@open-mercato/core/modules/planner/lib/seeds'
 import { seedResourcesAddressTypes, seedResourcesCapacityUnits, seedResourcesResourceExamples } from '@open-mercato/core/modules/resources/lib/seeds'
 import { seedStaffTeamExamples } from '@open-mercato/core/modules/staff/lib/seeds'
+import { appendWidgetsToRoles, resolveAnalyticsWidgetIds } from '@open-mercato/core/modules/dashboards/lib/role-widgets'
 import { collectCrudCacheStats, purgeCrudCacheSegment } from '@open-mercato/shared/lib/crud/cache-stats'
 import { isCrudCacheEnabled, resolveCrudCache } from '@open-mercato/shared/lib/crud/cache'
 import * as semver from 'semver'
@@ -368,6 +369,23 @@ export const upgradeActions: UpgradeActionDefinition[] = [
 
       const vectorService = resolveVectorService(container)
       await reindexModules(em, ['planner', 'staff', 'resources'], { tenantId, organizationId, vectorService })
+    },
+  },
+  {
+    id: 'configs.upgrades.dashboards.analytics_widgets',
+    version: '0.4.2',
+    messageKey: 'upgrades.v042.message',
+    ctaKey: 'upgrades.v042.cta',
+    successKey: 'upgrades.v042.success',
+    loadingKey: 'upgrades.v042.loading',
+    async run({ em, tenantId, organizationId }) {
+      const widgetIds = await resolveAnalyticsWidgetIds()
+      await appendWidgetsToRoles(em, {
+        tenantId,
+        organizationId,
+        roleNames: ['admin', 'employee'],
+        widgetIds,
+      })
     },
   },
 ]

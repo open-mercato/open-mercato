@@ -160,8 +160,8 @@ export default function DirectoryTenantsPage() {
             canManage ? (
               <RowActions
                 items={[
-                  { label: t('common.edit', 'Edit'), href: `/backend/directory/tenants/${row.id}/edit` },
-                  { label: t('common.delete', 'Delete'), destructive: true, onSelect: () => handleDelete(row) },
+                  { id: 'edit', label: t('common.edit', 'Edit'), href: `/backend/directory/tenants/${row.id}/edit` },
+                  { id: 'delete', label: t('common.delete', 'Delete'), destructive: true, onSelect: () => handleDelete(row) },
                 ]}
               />
             ) : null

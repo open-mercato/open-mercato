@@ -175,7 +175,7 @@ export default function ApiKeysListPage() {
           perspective={{ tableId: 'api_keys.list' }}
           rowActions={(row) => (
             <RowActions items={[
-              { label: t('common.delete'), destructive: true, onSelect: () => { void handleDelete(row) } },
+              { id: 'delete', label: t('common.delete'), destructive: true, onSelect: () => { void handleDelete(row) } },
             ]} />
           )}
           pagination={{ page, pageSize: 20, total, totalPages, onPageChange: setPage }}

@@ -117,9 +117,9 @@ export default function RolesListPage() {
           onSearchChange={(v) => { setSearch(v); setPage(1) }}
           rowActions={(row) => (
             <RowActions items={[
-              { label: t('common.edit', 'Edit'), href: `/backend/roles/${row.id}/edit` },
-              { label: t('auth.roles.list.actions.showUsers', 'Show users'), href: `/backend/users?roleId=${encodeURIComponent(row.id)}` },
-              { label: t('common.delete', 'Delete'), destructive: true, onSelect: () => { void handleDelete(row) } },
+              { id: 'edit', label: t('common.edit', 'Edit'), href: `/backend/roles/${row.id}/edit` },
+              { id: 'show-users', label: t('auth.roles.list.actions.showUsers', 'Show users'), href: `/backend/users?roleId=${encodeURIComponent(row.id)}` },
+              { id: 'delete', label: t('common.delete', 'Delete'), destructive: true, onSelect: () => { void handleDelete(row) } },
             ]} />
           )}
           sortable

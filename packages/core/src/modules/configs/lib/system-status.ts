@@ -19,7 +19,14 @@ type SystemStatusVariableDefinition = {
   defaultValue: string | null
 }
 
-const CATEGORY_ORDER: SystemStatusCategoryKey[] = ['profiling', 'logging', 'caching', 'query_index', 'entities']
+const CATEGORY_ORDER: SystemStatusCategoryKey[] = [
+  'profiling',
+  'logging',
+  'security',
+  'caching',
+  'query_index',
+  'entities',
+]
 
 const CATEGORY_METADATA: Record<
   SystemStatusCategoryKey,
@@ -32,6 +39,10 @@ const CATEGORY_METADATA: Record<
   logging: {
     labelKey: 'configs.systemStatus.categories.logging',
     descriptionKey: 'configs.systemStatus.categories.loggingDescription',
+  },
+  security: {
+    labelKey: 'configs.systemStatus.categories.security',
+    descriptionKey: 'configs.systemStatus.categories.securityDescription',
   },
   caching: {
     labelKey: 'configs.systemStatus.categories.caching',
@@ -112,6 +123,42 @@ export const SYSTEM_STATUS_VARIABLES: SystemStatusVariableDefinition[] = [
     descriptionKey: 'configs.systemStatus.variables.logLevel.description',
     docUrl: `${SYSTEM_STATUS_DOC_BASE}#log_level`,
     defaultValue: '',
+  },
+  {
+    key: 'OM_PASSWORD_MIN_LENGTH',
+    category: 'security',
+    kind: 'string',
+    labelKey: 'configs.systemStatus.variables.passwordMinLength.label',
+    descriptionKey: 'configs.systemStatus.variables.passwordMinLength.description',
+    docUrl: `${SYSTEM_STATUS_DOC_BASE}#om_password_min_length`,
+    defaultValue: '6',
+  },
+  {
+    key: 'OM_PASSWORD_REQUIRE_DIGIT',
+    category: 'security',
+    kind: 'boolean',
+    labelKey: 'configs.systemStatus.variables.passwordRequireDigit.label',
+    descriptionKey: 'configs.systemStatus.variables.passwordRequireDigit.description',
+    docUrl: `${SYSTEM_STATUS_DOC_BASE}#om_password_require_digit`,
+    defaultValue: 'true',
+  },
+  {
+    key: 'OM_PASSWORD_REQUIRE_UPPERCASE',
+    category: 'security',
+    kind: 'boolean',
+    labelKey: 'configs.systemStatus.variables.passwordRequireUppercase.label',
+    descriptionKey: 'configs.systemStatus.variables.passwordRequireUppercase.description',
+    docUrl: `${SYSTEM_STATUS_DOC_BASE}#om_password_require_uppercase`,
+    defaultValue: 'true',
+  },
+  {
+    key: 'OM_PASSWORD_REQUIRE_SPECIAL',
+    category: 'security',
+    kind: 'boolean',
+    labelKey: 'configs.systemStatus.variables.passwordRequireSpecial.label',
+    descriptionKey: 'configs.systemStatus.variables.passwordRequireSpecial.description',
+    docUrl: `${SYSTEM_STATUS_DOC_BASE}#om_password_require_special`,
+    defaultValue: 'true',
   },
   {
     key: 'ENABLE_CRUD_API_CACHE',

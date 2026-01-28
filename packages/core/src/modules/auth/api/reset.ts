@@ -6,6 +6,9 @@ import { AuthService } from '@open-mercato/core/modules/auth/services/authServic
 import { sendEmail } from '@open-mercato/shared/lib/email/send'
 import ResetPasswordEmail from '@open-mercato/core/modules/auth/emails/ResetPasswordEmail'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
+import { buildNotificationFromType } from '@open-mercato/core/modules/notifications/lib/notificationBuilder'
+import { resolveNotificationService } from '@open-mercato/core/modules/notifications/lib/notificationService'
+import notificationTypes from '@open-mercato/core/modules/auth/notifications'
 import { z } from 'zod'
 
 // validation via requestPasswordResetSchema
@@ -35,6 +38,26 @@ export async function POST(req: Request) {
   }
 
   await sendEmail({ to: user.email, subject, react: ResetPasswordEmail({ resetUrl, copy }) })
+  try {
+    const tenantId = user.tenantId ? String(user.tenantId) : null
+    if (tenantId) {
+      const notificationService = resolveNotificationService(c)
+      const typeDef = notificationTypes.find((type) => type.type === 'auth.password_reset.requested')
+      if (typeDef) {
+        const notificationInput = buildNotificationFromType(typeDef, {
+          recipientUserId: String(user.id),
+          sourceEntityType: 'auth:user',
+          sourceEntityId: String(user.id),
+        })
+        await notificationService.create(notificationInput, {
+          tenantId,
+          organizationId: user.organizationId ? String(user.organizationId) : null,
+        })
+      }
+    }
+  } catch (err) {
+    console.error('[auth.reset] Failed to create notification:', err)
+  }
   return NextResponse.json({ ok: true })
 }
 

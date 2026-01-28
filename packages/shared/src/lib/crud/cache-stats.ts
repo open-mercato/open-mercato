@@ -17,6 +17,8 @@ export type CrudCacheStats = {
 }
 
 const CRUD_CACHE_PATTERN = 'crud|*'
+const WIDGET_CACHE_PATTERN = 'widget-data:*'
+const WIDGET_CACHE_SEGMENT = 'widget-data'
 export const CRUD_CACHE_STATS_KEY = 'crud-cache-stats'
 
 function sanitizeSegment(value: string): string {
@@ -71,6 +73,23 @@ function parseCrudCacheKey(key: string): {
   }
 }
 
+function parseWidgetCacheKey(key: string): {
+  resource: string | null
+  method: string | null
+  path: string | null
+  segment: string | null
+} {
+  if (!key.startsWith('widget-data:')) {
+    return { resource: null, method: null, path: null, segment: null }
+  }
+  return {
+    segment: WIDGET_CACHE_SEGMENT,
+    resource: 'dashboards.widgets',
+    method: 'POST',
+    path: '/api/dashboards/widgets/data',
+  }
+}
+
 export function deriveCrudSegmentTag(resource: string, request: Request): string {
   const url = new URL(request.url)
   const pathSegment = normalizePathSegment(url.pathname, resource)
@@ -80,13 +99,13 @@ export function deriveCrudSegmentTag(resource: string, request: Request): string
 }
 
 export async function collectCrudCacheStats(cache: CacheStrategy): Promise<CrudCacheStats> {
-  const analyses = await analyzeCacheSegments(cache, {
+  const crudAnalyses = await analyzeCacheSegments(cache, {
     keysPattern: CRUD_CACHE_PATTERN,
     deriveSegment: (key) => parseCrudCacheKey(key).segment,
     filterKey: (key) => key !== CRUD_CACHE_STATS_KEY,
   })
 
-  const segments: CrudCacheSegmentInfo[] = analyses.map(({ segment, keys }) => {
+  const crudSegments: CrudCacheSegmentInfo[] = crudAnalyses.map(({ segment, keys }) => {
     const sample = keys[0] ?? null
     const details = sample ? parseCrudCacheKey(sample) : { resource: null, method: null, path: null, segment: null }
     return {
@@ -99,6 +118,25 @@ export async function collectCrudCacheStats(cache: CacheStrategy): Promise<CrudC
     }
   })
 
+  const widgetAnalyses = await analyzeCacheSegments(cache, {
+    keysPattern: WIDGET_CACHE_PATTERN,
+    deriveSegment: (key) => parseWidgetCacheKey(key).segment,
+  })
+
+  const widgetSegments: CrudCacheSegmentInfo[] = widgetAnalyses.map(({ segment, keys }) => {
+    const sample = keys[0] ?? null
+    const details = sample ? parseWidgetCacheKey(sample) : { resource: null, method: null, path: null, segment: null }
+    return {
+      segment,
+      resource: details.resource,
+      method: details.method,
+      path: details.path,
+      keyCount: keys.length,
+      keys,
+    }
+  })
+
+  const segments = [...crudSegments, ...widgetSegments].sort((a, b) => a.segment.localeCompare(b.segment))
   const stats: CrudCacheStats = {
     generatedAt: new Date().toISOString(),
     segments,
@@ -115,6 +153,16 @@ export async function collectCrudCacheStats(cache: CacheStrategy): Promise<CrudC
 }
 
 export async function purgeCrudCacheSegment(cache: CacheStrategy, segment: string): Promise<{ deleted: number; keys: string[] }> {
+  if (segment === WIDGET_CACHE_SEGMENT) {
+    return purgeCacheSegment(
+      cache,
+      {
+        keysPattern: WIDGET_CACHE_PATTERN,
+        deriveSegment: (key) => parseWidgetCacheKey(key).segment,
+      },
+      segment,
+    )
+  }
   return purgeCacheSegment(
     cache,
     {

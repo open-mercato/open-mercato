@@ -196,14 +196,17 @@ export default function RuleSetsListPage() {
         <RowActions
           items={[
             {
+              id: 'edit',
               label: t('common.edit'),
               href: `/backend/sets/${row.original.id}`,
             },
             {
+              id: row.original.enabled ? 'disable' : 'enable',
               label: row.original.enabled ? t('common.disable') : t('common.enable'),
               onSelect: () => handleToggleEnabled(row.original.id, row.original.enabled),
             },
             {
+              id: 'delete',
               label: t('common.delete'),
               onSelect: () => handleDelete(row.original.id, row.original.setName),
               destructive: true,

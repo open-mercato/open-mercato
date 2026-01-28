@@ -1,4 +1,5 @@
 import type { EntityManager } from '@mikro-orm/core'
+import type { EventBus } from '@open-mercato/events'
 import { BusinessRule, RuleExecutionLog, type RuleType } from '../data/entities'
 import * as ruleEvaluator from './rule-evaluator'
 import * as actionExecutor from './action-executor'
@@ -85,6 +86,19 @@ export interface RuleDiscoveryOptions {
   ruleType?: RuleType
 }
 
+export type RuleEngineExecutionOptions = {
+  eventBus?: Pick<EventBus, 'emitEvent'> | null
+}
+
+type RuleExecutionFailedPayload = {
+  ruleId: string
+  ruleName: string
+  entityType?: string | null
+  errorMessage?: string | null
+  tenantId: string
+  organizationId?: string | null
+}
+
 /**
  * Execute a function with a timeout
  */
@@ -113,7 +127,8 @@ async function withTimeout<T>(
  */
 export async function executeRules(
   em: EntityManager,
-  context: RuleEngineContext
+  context: RuleEngineContext,
+  options: RuleEngineExecutionOptions = {}
 ): Promise<RuleEngineResult> {
   // Validate input
   const validation = ruleEngineContextSchema.safeParse(context)
@@ -159,7 +174,7 @@ export async function executeRules(
     const executionPromise = (async () => {
       for (const rule of rules) {
       try {
-        const ruleResult = await executeSingleRule(em, rule, context)
+        const ruleResult = await executeSingleRule(em, rule, context, options)
         executedRules.push(ruleResult)
 
         if (ruleResult.logId) {
@@ -176,6 +191,17 @@ export async function executeRules(
         errors.push(
           `Unexpected error in rule execution [ruleId=${rule.ruleId}, type=${rule.ruleType}]: ${errorMessage}`
         )
+
+        if (!context.dryRun) {
+          await emitRuleExecutionFailed(options.eventBus, {
+            ruleId: rule.ruleId,
+            ruleName: rule.ruleName,
+            entityType: context.entityType ?? null,
+            errorMessage,
+            tenantId: context.tenantId,
+            organizationId: context.organizationId ?? null,
+          })
+        }
 
         executedRules.push({
           rule,
@@ -233,7 +259,8 @@ export async function executeRules(
 export async function executeSingleRule(
   em: EntityManager,
   rule: BusinessRule,
-  context: RuleEngineContext
+  context: RuleEngineContext,
+  options: RuleEngineExecutionOptions = {}
 ): Promise<RuleExecutionResult> {
   const startTime = Date.now()
 
@@ -268,6 +295,15 @@ export async function executeSingleRule(
             actionsExecuted: null,
             executionTime,
             error: result.error,
+          })
+
+          await emitRuleExecutionFailed(options.eventBus, {
+            ruleId: rule.ruleId,
+            ruleName: rule.ruleName,
+            entityType: context.entityType ?? null,
+            errorMessage: result.error ?? null,
+            tenantId: context.tenantId,
+            organizationId: context.organizationId ?? null,
           })
         }
 
@@ -345,6 +381,15 @@ export async function executeSingleRule(
         actionsExecuted: null,
         executionTime,
         error: enhancedError,
+      })
+
+      await emitRuleExecutionFailed(options.eventBus, {
+        ruleId: rule.ruleId,
+        ruleName: rule.ruleName,
+        entityType: context.entityType ?? null,
+        errorMessage: enhancedError,
+        tenantId: context.tenantId,
+        organizationId: context.organizationId ?? null,
       })
     }
 
@@ -543,4 +588,13 @@ export async function logRuleExecution(
   await em.persistAndFlush(log)
 
   return log.id
+}
+
+async function emitRuleExecutionFailed(
+  eventBus: Pick<EventBus, 'emitEvent'> | null | undefined,
+  payload: RuleExecutionFailedPayload
+): Promise<void> {
+  if (!eventBus?.emitEvent) return
+
+  await eventBus.emitEvent('business_rules.rule.execution_failed', payload).catch(() => undefined)
 }

@@ -345,8 +345,8 @@ export default function StaffTeamRolesPage() {
           rowActions={(row) => row.kind === 'role' ? (
             <RowActions
               items={[
-                { label: labels.actions.edit, onSelect: () => { router.push(`/backend/staff/team-roles/${row.id}/edit`) } },
-                { label: labels.actions.delete, destructive: true, onSelect: () => { void handleDelete(row) } },
+                { id: 'edit', label: labels.actions.edit, onSelect: () => { router.push(`/backend/staff/team-roles/${row.id}/edit`) } },
+                { id: 'delete', label: labels.actions.delete, destructive: true, onSelect: () => { void handleDelete(row) } },
               ]}
             />
           ) : null}

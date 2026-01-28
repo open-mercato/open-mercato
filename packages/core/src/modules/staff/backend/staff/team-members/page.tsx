@@ -434,7 +434,7 @@ export default function StaffTeamMembersPage() {
             <RowActions
               items={[
                 { id: 'edit', label: labels.actions.edit, onSelect: () => { router.push(`/backend/staff/team-members/${row.id}`) } },
-                { label: labels.actions.delete, destructive: true, onSelect: () => { void handleDelete(row) } },
+                { id: 'delete', label: labels.actions.delete, destructive: true, onSelect: () => { void handleDelete(row) } },
               ]}
             />
           ) : null}

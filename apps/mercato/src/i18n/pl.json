@@ -9,6 +9,7 @@
   "common.close": "Zamknij",
   "common.delete": "Usuń",
   "common.edit": "Edytuj",
+  "common.view": "Zobacz",
   "common.export": "Eksportuj",
   "common.yes": "Tak",
   "common.no": "Nie",
@@ -309,6 +310,8 @@
   "ui.rowActions.openActions": "Otwórz akcje",
   "ui.userMenu.userFallback": "Użytkownik",
   "ui.userMenu.loggedInAs": "Zalogowany jako:",
+  "ui.userMenu.profile": "Profil",
+  "ui.userMenu.changePassword": "Zmiana hasła",
   "ui.userMenu.logout": "Wyloguj",
   "ui.contextHelp.hide": "Ukryj",
   "ui.contextHelp.show": "Pokaż",
@@ -382,6 +385,10 @@
   "upgrades.v041.cta": "Zainstaluj dane planner, staff i resources",
   "upgrades.v041.loading": "Instalowanie…",
   "upgrades.v041.success": "Dane planner, staff i resources zostały zainstalowane.",
+  "upgrades.v042.message": "Wersja {{version}} została zainstalowana. Włącz widżety analityczne dla ról admin i pracownik.",
+  "upgrades.v042.cta": "Włącz widżety analityczne dla ról admin i pracownik",
+  "upgrades.v042.loading": "Aktualizowanie…",
+  "upgrades.v042.success": "Widżety analityczne włączone dla ról admin i pracownik.",
   "upgrades.runFailed": "Nie udało się uruchomić tej akcji aktualizacji.",
   "upgrades.loading": "Ładowanie aktualizacji…"
 }

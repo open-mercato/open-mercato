@@ -63,6 +63,24 @@ Optional override for cache time-to-live in milliseconds. Leave blank to use per
 **Default:** `./data/cache.db`  
 Filesystem path for the SQLite cache file used when `CACHE_STRATEGY=sqlite`. Ensure the process has write permissions at this location.
 
+## Authentication {#authentication}
+
+### OM_PASSWORD_MIN_LENGTH {#om_password_min_length}
+**Default:** `6`  
+Minimum length enforced for new passwords (onboarding, user CRUD, password reset, CLI). To keep the frontend requirement hint aligned, set `NEXT_PUBLIC_OM_PASSWORD_MIN_LENGTH` to the same value.
+
+### OM_PASSWORD_REQUIRE_DIGIT {#om_password_require_digit}
+**Default:** `true`  
+Require at least one digit in new passwords. Mirror in `NEXT_PUBLIC_OM_PASSWORD_REQUIRE_DIGIT` to surface the requirement in frontend helpers.
+
+### OM_PASSWORD_REQUIRE_UPPERCASE {#om_password_require_uppercase}
+**Default:** `true`  
+Require at least one uppercase letter in new passwords. Mirror in `NEXT_PUBLIC_OM_PASSWORD_REQUIRE_UPPERCASE` for frontend display.
+
+### OM_PASSWORD_REQUIRE_SPECIAL {#om_password_require_special}
+**Default:** `true`  
+Require at least one special character in new passwords. Mirror in `NEXT_PUBLIC_OM_PASSWORD_REQUIRE_SPECIAL` for frontend display.
+
 ## Query index maintenance {#query-index}
 
 ### SCHEDULE_AUTO_REINDEX {#schedule_auto_reindex}
@@ -82,4 +100,3 @@ Allows the hybrid engine to serve results even when coverage is partial. Respons
 ### ENTITIES_BACKCOMPAT_EAV_FOR_CUSTOM {#entities_backcompat_eav_for_custom}
 **Default:** `false`  
 Mirrors custom-entity writes into the legacy EAV tables. Enable only when migrating integrations that still depend on the older schema.
-

@@ -797,6 +797,10 @@
   "staff.teams.tabs.details": "Details",
   "staff.teams.tabs.label": "Team sections",
   "staff.teams.tabs.members": "Team members",
+  "staff.notifications.leaveRequest.pending.title": "Leave Request Pending",
+  "staff.notifications.leaveRequest.pending.body": "{memberName} has requested leave from {startDate} to {endDate}",
+  "staff.notifications.leaveRequest.actions.approve": "Approve",
+  "staff.notifications.leaveRequest.actions.reject": "Reject",
   "staff.leaveRequests.page.title": "Leave requests",
   "staff.leaveRequests.page.description": "Review leave requests from your team.",
   "staff.leaveRequests.my.title": "My leave requests",
@@ -874,5 +878,9 @@
   "staff.myAvailability.readOnly.body": "Use leave requests to request changes.",
   "staff.teamMembers.self.createTitle": "Create my profile",
   "staff.teamMembers.self.created": "Profile created.",
-  "staff.teamMembers.self.exists": "Team member profile already exists."
+  "staff.teamMembers.self.exists": "Team member profile already exists.",
+  "staff.notifications.leaveRequest.approved.title": "Leave Request Approved",
+  "staff.notifications.leaveRequest.approved.body": "Your leave request from {startDate} to {endDate} has been approved",
+  "staff.notifications.leaveRequest.rejected.title": "Leave Request Rejected",
+  "staff.notifications.leaveRequest.rejected.body": "Your leave request from {startDate} to {endDate} has been rejected{reason, select, other { - {reason}}}"
 }

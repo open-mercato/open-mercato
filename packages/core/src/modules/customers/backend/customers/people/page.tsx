@@ -614,14 +614,17 @@ export default function CustomersPeoplePage() {
             <RowActions
               items={[
                 {
+                  id: 'view',
                   label: t('customers.people.list.actions.view'),
                   onSelect: () => { router.push(`/backend/customers/people/${row.id}`) },
                 },
                 {
+                  id: 'open-new-tab',
                   label: t('customers.people.list.actions.openInNewTab'),
                   onSelect: () => window.open(`/backend/customers/people/${row.id}`, '_blank', 'noopener'),
                 },
                 {
+                  id: 'delete',
                   label: t('customers.people.list.actions.delete'),
                   destructive: true,
                   onSelect: () => handleDelete(row),

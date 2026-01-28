@@ -889,10 +889,12 @@ export default function CustomersDealsPage() {
               <RowActions
                 items={[
                   {
+                    id: 'edit',
                     label: t('customers.deals.list.actions.edit', 'Edit'),
                     onSelect: () => { router.push(`/backend/customers/deals/${row.id}`) },
                   },
                   {
+                    id: 'open-new-tab',
                     label: t('customers.deals.list.actions.openInNewTab', 'Open in new tab'),
                     onSelect: () => {
                       if (typeof window !== 'undefined') {
@@ -901,6 +903,7 @@ export default function CustomersDealsPage() {
                     },
                   },
                   {
+                    id: 'delete',
                     label: isDeleting
                       ? t('customers.deals.list.actions.deleting', 'Deleting…')
                       : t('customers.deals.list.actions.delete', 'Delete'),

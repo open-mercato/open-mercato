@@ -264,14 +264,17 @@ export default function RulesListPage() {
         <RowActions
           items={[
             {
+              id: 'edit',
               label: t('common.edit'),
               href: `/backend/rules/${row.original.id}`,
             },
             {
+              id: row.original.enabled ? 'disable' : 'enable',
               label: row.original.enabled ? t('common.disable') : t('common.enable'),
               onSelect: () => handleToggleEnabled(row.original.id, row.original.enabled),
             },
             {
+              id: 'duplicate',
               label: t('common.duplicate'),
               onSelect: () => {
                 // TODO: Implement duplicate functionality in Step 5.2
@@ -279,6 +282,7 @@ export default function RulesListPage() {
               },
             },
             {
+              id: 'delete',
               label: t('common.delete'),
               onSelect: () => handleDelete(row.original.id, row.original.ruleName),
               destructive: true,

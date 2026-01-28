@@ -273,8 +273,9 @@ export default function UserTasksListPage() {
       id: 'actions',
       header: '',
       cell: ({ row }) => {
-        const items: Array<{label: string; href?: string; onSelect?: () => void}> = [
+        const items: Array<{ id: string; label: string; href?: string; onSelect?: () => void }> = [
           {
+            id: 'view',
             label: t('workflows.tasks.actions.viewDetails'),
             href: `/backend/tasks/${row.original.id}`,
           },
@@ -288,6 +289,7 @@ export default function UserTasksListPage() {
           row.original.assignedToRoles.length > 0
         ) {
           items.push({
+            id: 'claim',
             label: t('workflows.tasks.actions.claim'),
             onSelect: () => handleClaim(row.original.id, row.original.taskName),
           })
@@ -296,6 +298,7 @@ export default function UserTasksListPage() {
         // Allow completing if task is in progress or pending
         if (row.original.status === 'PENDING' || row.original.status === 'IN_PROGRESS') {
           items.push({
+            id: 'complete',
             label: t('workflows.tasks.actions.complete'),
             href: `/backend/tasks/${row.original.id}`,
           })

@@ -4,6 +4,7 @@ import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { EntityManager } from '@mikro-orm/postgresql'
+import type { EventBus } from '@open-mercato/events'
 import { ruleEngineContextSchema } from '../../data/validators'
 import * as ruleEngine from '../../lib/rule-engine'
 
@@ -46,6 +47,12 @@ export async function POST(req: Request) {
 
   const container = await createRequestContainer()
   const em = container.resolve('em') as EntityManager
+  let eventBus: EventBus | null = null
+  try {
+    eventBus = container.resolve('eventBus') as EventBus
+  } catch {
+    eventBus = null
+  }
 
   let body: any
   try {
@@ -85,7 +92,7 @@ export async function POST(req: Request) {
   }
 
   try {
-    const result = await ruleEngine.executeRules(em, context)
+    const result = await ruleEngine.executeRules(em, context, { eventBus })
 
     const response = {
       allowed: result.allowed,

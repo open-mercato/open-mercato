@@ -274,22 +274,27 @@ export default function WorkflowDefinitionsListPage() {
         <RowActions
           items={[
             {
+              id: 'edit',
               label: t('common.edit'),
               href: `/backend/definitions/${row.original.id}`,
             },
             {
+              id: 'edit-visual',
               label: t('workflows.actions.editVisually'),
               href: `/backend/definitions/visual-editor?id=${row.original.id}`,
             },
             {
+              id: row.original.enabled ? 'disable' : 'enable',
               label: row.original.enabled ? t('common.disable') : t('common.enable'),
               onSelect: () => handleToggleEnabled(row.original.id, row.original.enabled),
             },
             {
+              id: 'duplicate',
               label: t('common.duplicate'),
               onSelect: () => handleDuplicate(row.original),
             },
             {
+              id: 'delete',
               label: t('common.delete'),
               onSelect: () => handleDelete(row.original.id, row.original.workflowName),
               destructive: true,

@@ -191,10 +191,12 @@ export default function SalesChannelsPage() {
             <RowActions
               items={[
                 {
+                  id: 'edit',
                   label: t('sales.channels.table.actions.edit', 'Edit'),
                   href: `/backend/sales/channels/${row.id}/edit`,
                 },
                 {
+                  id: 'delete',
                   label: t('sales.channels.table.actions.delete', 'Delete'),
                   onSelect: () => handleDelete(row),
                 },

@@ -1,0 +1,1147 @@
+---
+title: Notifications System
+description: Create actionable in-app notifications with module-extensible types and real-time delivery
+---
+
+# Notifications System
+
+The Notifications module provides actionable in-app notifications that allow users to receive real-time updates and take actions directly from the notification panel. Notifications are automatically delivered to users via polling, with no manual refresh required.
+
+## Overview
+
+- **Location**: `packages/core/src/modules/notifications/`
+- **Package**: `@open-mercato/core`
+- **Real-time delivery**: Automatic polling every 5 seconds
+- **Actionable**: Notifications can execute commands or navigate to pages
+- **Module-extensible**: Any module can define notification types and emit notifications
+- **Persistent**: All notifications are stored in the database
+
+## Key Features
+
+- Real-time badge updates showing unread count
+- Slide-out notification panel with filtering
+- Action buttons that execute commands or navigate
+- Severity levels for visual styling (info, warning, success, error)
+- Auto-expiry for time-sensitive notifications
+- Batch notifications to multiple recipients
+- Event-driven architecture for decoupled creation
+
+## Quick Start
+
+### 1. Direct Service Call (Synchronous)
+
+Use the notification service when you need immediate notification creation:
+
+```typescript
+import type { NotificationService } from '@open-mercato/core/modules/notifications'
+
+// In your API route or service
+const notificationService = ctx.container.resolve<NotificationService>('notificationService')
+
+await notificationService.create({
+  recipientUserId: 'user-uuid',
+  type: 'your_module.event_type',
+  title: 'Your notification title',
+  body: 'Optional description text',
+  icon: 'bell', // Lucide icon name
+  severity: 'info', // 'info' | 'warning' | 'success' | 'error'
+  sourceModule: 'your_module',
+  sourceEntityType: 'your_entity',
+  sourceEntityId: 'entity-uuid',
+  linkHref: '/backend/your-module/items/entity-uuid',
+}, {
+  tenantId: ctx.auth.tenantId,
+  organizationId: ctx.selectedOrganizationId,
+})
+```
+
+### 2. Queue Worker (Recommended)
+
+For better performance and decoupling, use the queue system:
+
+```typescript
+import { createQueue } from '@open-mercato/queue'
+import type { CreateNotificationJob } from '@open-mercato/core/modules/notifications/workers/create-notification.worker'
+
+const queue = createQueue<CreateNotificationJob>('notifications', 'async')
+
+await queue.enqueue({
+  type: 'create',
+  input: {
+    recipientUserId: 'user-uuid',
+    type: 'your_module.event_type',
+    title: 'Your notification title',
+    body: 'Optional description',
+    icon: 'bell',
+    severity: 'info',
+  },
+  tenantId: ctx.auth.tenantId,
+  organizationId: ctx.selectedOrganizationId,
+})
+```
+
+### 3. Event Subscriber Pattern (Best for Cross-Module)
+
+Create a subscriber that listens to domain events and creates notifications:
+
+```typescript
+// packages/core/src/modules/your_module/subscribers/your-notification.ts
+import type { EntityManager } from '@mikro-orm/core'
+import { createQueue } from '@open-mercato/queue'
+import type { CreateNotificationJob } from '@open-mercato/core/modules/notifications/workers/create-notification.worker'
+
+export const metadata = {
+  event: 'your_module.something_happened',
+  id: 'your_module:notification',
+  persistent: true,
+}
+
+export default async function handle(
+  payload: {
+    entityId: string
+    recipientUserId: string
+    tenantId: string
+    organizationId?: string
+  },
+  ctx: { resolve: <T>(name: string) => T }
+): Promise<void> {
+  const queue = createQueue<CreateNotificationJob>('notifications', 'async')
+
+  await queue.enqueue({
+    type: 'create',
+    input: {
+      recipientUserId: payload.recipientUserId,
+      type: 'your_module.notification_type',
+      title: 'Something happened!',
+      body: 'Check it out',
+      icon: 'bell',
+      severity: 'info',
+      sourceModule: 'your_module',
+      sourceEntityType: 'your_entity',
+      sourceEntityId: payload.entityId,
+      linkHref: `/backend/your-module/items/${payload.entityId}`,
+    },
+    tenantId: payload.tenantId,
+    organizationId: payload.organizationId,
+  })
+}
+```
+
+## Notification Input Schema
+
+### Required Fields
+
+```typescript
+{
+  recipientUserId: string      // UUID of the user to notify
+  type: string                 // Notification type (e.g., 'sales.order.pending')
+  title: string                // Main notification text (max 500 chars)
+}
+```
+
+### Optional Fields
+
+```typescript
+{
+  body?: string                // Additional description (max 2000 chars)
+  icon?: string                // Lucide icon name (e.g., 'calendar-clock', 'alert-circle')
+  severity?: 'info' | 'warning' | 'success' | 'error'  // Visual styling (default: 'info')
+
+  // Actions (buttons in the notification)
+  actions?: Array<{
+    id: string                 // Unique action ID
+    label: string              // Button text
+    variant?: 'default' | 'secondary' | 'destructive' | 'outline' | 'ghost'
+    icon?: string              // Optional icon
+    commandId?: string         // Command to execute (e.g., 'sales.orders.approve')
+    href?: string              // Or URL to navigate to
+    confirmRequired?: boolean  // Show confirmation dialog
+    confirmMessage?: string    // Confirmation text
+  }>
+  primaryActionId?: string     // Which action is highlighted
+
+  // Source entity tracking
+  sourceModule?: string        // Module that created the notification
+  sourceEntityType?: string    // Entity type (e.g., 'order', 'leave_request')
+  sourceEntityId?: string      // Entity UUID
+  linkHref?: string            // URL to navigate when clicking notification
+
+  // Organization
+  groupKey?: string            // Key for collapsing similar notifications
+  expiresAt?: string           // ISO date string for auto-expiry
+}
+```
+
+## Custom Delivery Strategies
+
+Modules can inject additional delivery strategies (push notifications, SMS, webhooks) by registering a handler in their `di.ts` file. You can register multiple strategies; each `id` maps to an entry under `strategies.custom` so they can be enabled independently.
+
+```typescript
+// packages/core/src/modules/your_module/di.ts
+import type { AppContainer } from '@open-mercato/shared/lib/di/container'
+import { registerNotificationDeliveryStrategy } from '@open-mercato/core/modules/notifications/lib/deliveryStrategies'
+
+export function register(_container: AppContainer): void {
+  registerNotificationDeliveryStrategy({
+    id: 'push',
+    label: 'Push notifications',
+    defaultEnabled: false,
+    async deliver({ notification, panelLink, resolve }) {
+      if (!panelLink) return
+      const pushService = resolve<{ send: (payload: { userId: string; title: string; body?: string; url?: string }) => Promise<void> }>('pushService')
+      await pushService.send({
+        userId: notification.recipientUserId,
+        title: notification.title ?? 'New notification',
+        body: notification.body ?? undefined,
+        url: panelLink,
+      })
+    },
+  })
+}
+```
+
+Enable custom strategies via the module config entry for `notifications.delivery_strategies`:
+
+```json
+{
+  "strategies": {
+    "custom": {
+      "push": { "enabled": true, "config": { "provider": "expo" } }
+    }
+  }
+}
+```
+
+Custom strategies run alongside the built-in database and email delivery when enabled.
+
+## Adding Actions to Notifications
+
+Actions allow users to take immediate action from the notification panel:
+
+### Command-Based Actions
+
+Execute a command when clicked:
+
+```typescript
+actions: [
+  {
+    id: 'approve',
+    label: 'Approve',
+    variant: 'default',
+    commandId: 'sales.orders.approve', // Command to execute
+    icon: 'check',
+  },
+  {
+    id: 'reject',
+    label: 'Reject',
+    variant: 'destructive',
+    commandId: 'sales.orders.reject',
+    confirmRequired: true,
+    confirmMessage: 'Are you sure you want to reject this order?',
+    icon: 'x',
+  },
+]
+```
+
+### Navigation Actions
+
+Navigate to a page when clicked:
+
+```typescript
+actions: [
+  {
+    id: 'view',
+    label: 'View Details',
+    variant: 'outline',
+    href: '/backend/sales/orders/{sourceEntityId}', // {sourceEntityId} is replaced
+    icon: 'external-link',
+  },
+]
+```
+
+## Batch Notifications
+
+Send the same notification to multiple users:
+
+```typescript
+await notificationService.createBatch({
+  recipientUserIds: ['user-1', 'user-2', 'user-3'], // Up to 1000 users
+  type: 'system.announcement',
+  title: 'System Maintenance Scheduled',
+  body: 'The system will be offline on Saturday at 2 AM',
+  icon: 'megaphone',
+  severity: 'warning',
+}, {
+  tenantId: ctx.auth.tenantId,
+  organizationId: ctx.selectedOrganizationId,
+})
+```
+
+Or via API:
+
+```typescript
+await apiCall('/api/notifications/batch', {
+  method: 'POST',
+  body: JSON.stringify({
+    recipientUserIds: ['user-1', 'user-2', 'user-3'],
+    type: 'system.announcement',
+    title: 'System Maintenance Scheduled',
+    body: 'The system will be offline on Saturday at 2 AM',
+    icon: 'megaphone',
+    severity: 'warning',
+  }),
+})
+```
+
+## Role-Based Notifications
+
+Send notifications to all users within a specific role in your organization:
+
+```typescript
+await notificationService.createForRole({
+  roleId: 'manager-role-uuid', // The role ID
+  type: 'sales.quarterly_report.ready',
+  title: 'Quarterly Sales Report Available',
+  body: 'The Q4 2025 sales report is now ready for review',
+  icon: 'file-text',
+  severity: 'info',
+  linkHref: '/backend/reports/quarterly/q4-2025',
+}, {
+  tenantId: ctx.auth.tenantId,
+  organizationId: ctx.selectedOrganizationId,
+})
+```
+
+Or via API:
+
+```typescript
+await apiCall('/api/notifications/role', {
+  method: 'POST',
+  body: JSON.stringify({
+    roleId: 'admin-role-uuid',
+    type: 'system.maintenance',
+    title: 'System Maintenance Scheduled',
+    body: 'The system will be offline for maintenance on Sunday 2AM-4AM',
+    icon: 'wrench',
+    severity: 'warning',
+  }),
+})
+```
+
+### Use Cases for Role-Based Notifications
+
+- **System Announcements**: Notify all admins about system changes
+- **Report Distribution**: Send quarterly reports to all managers
+- **Training Reminders**: Notify all users in a training group
+- **Approval Workflows**: Alert all approvers in a role about pending items
+- **Department Updates**: Share updates with all members of a department role
+
+### How It Works
+
+When you create a role-based notification:
+
+1. The system queries all active users who have the specified role
+2. Individual notifications are created for each user
+3. Each user receives their own notification instance
+4. Users can independently read, dismiss, or action their notification
+5. The response includes the count and IDs of all created notifications
+
+```typescript
+// Response example
+{
+  ok: true,
+  count: 15,  // 15 users had the "Manager" role
+  ids: ['notification-id-1', 'notification-id-2', ...] // All notification IDs
+}
+```
+
+## Feature-Based (Permission-Based) Notifications
+
+Send notifications to all users who have a specific permission, regardless of their role. This is the **recommended approach** for approval workflows and permission-based notifications.
+
+```typescript
+await notificationService.createForFeature({
+  requiredFeature: 'staff.leave_requests.approve', // The required permission
+  type: 'staff.leave_request.pending_approval',
+  title: 'Leave request pending approval',
+  body: 'John Doe requested leave from Jan 15 to Jan 20',
+  icon: 'calendar-clock',
+  severity: 'warning',
+  actions: [
+    {
+      id: 'approve',
+      label: 'Approve',
+      variant: 'default',
+      commandId: 'staff.leave_requests.approve',
+      icon: 'check',
+    },
+    {
+      id: 'reject',
+      label: 'Reject',
+      variant: 'destructive',
+      commandId: 'staff.leave_requests.reject',
+      confirmRequired: true,
+      icon: 'x',
+    },
+  ],
+  primaryActionId: 'approve',
+  linkHref: '/backend/staff/leave-requests/123',
+}, {
+  tenantId: ctx.auth.tenantId,
+  organizationId: ctx.selectedOrganizationId,
+})
+```
+
+Or via API:
+
+```typescript
+await apiCall('/api/notifications/feature', {
+  method: 'POST',
+  body: JSON.stringify({
+    requiredFeature: 'sales.orders.approve',
+    type: 'sales.order.pending_approval',
+    title: 'Order needs approval',
+    body: 'Order #12345 worth $5,000 requires approval',
+    icon: 'shopping-cart',
+    severity: 'warning',
+  }),
+})
+```
+
+### Leave Request Example (Complete Workflow)
+
+Here's a complete example of notifying approvers when a leave request is created:
+
+```typescript
+// packages/core/src/modules/staff/subscribers/leave-request-approval-notification.ts
+import { createQueue } from '@open-mercato/queue'
+import type { CreateFeatureNotificationJob } from '@open-mercato/core/modules/notifications/workers/create-notification.worker'
+
+export const metadata = {
+  event: 'staff.leave_request.created',
+  id: 'staff:leave-request-approval-notification',
+  persistent: true,
+}
+
+export default async function handle(
+  payload: {
+    leaveRequestId: string
+    employeeName: string
+    startDate: string
+    endDate: string
+    tenantId: string
+    organizationId?: string
+  },
+  ctx: { resolve: <T>(name: string) => T }
+): Promise<void> {
+  const queue = createQueue('notifications', 'async')
+
+  // Notify all users who can approve leave requests
+  // This includes:
+  // - Users with direct "staff.leave_requests.approve" permission
+  // - Users with "staff.*" wildcard permission
+  // - Super admins
+  await queue.enqueue({
+    type: 'create-feature',
+    input: {
+      requiredFeature: 'staff.leave_requests.approve',
+      type: 'staff.leave_request.pending_approval',
+      title: 'Leave request pending approval',
+      body: `${payload.employeeName} requested leave from ${payload.startDate} to ${payload.endDate}`,
+      icon: 'calendar-clock',
+      severity: 'warning',
+      actions: [
+        {
+          id: 'approve',
+          label: 'Approve',
+          variant: 'default',
+          commandId: 'staff.leave_requests.approve',
+          icon: 'check',
+        },
+        {
+          id: 'reject',
+          label: 'Reject',
+          variant: 'destructive',
+          commandId: 'staff.leave_requests.reject',
+          confirmRequired: true,
+          confirmMessage: 'Are you sure you want to reject this leave request?',
+          icon: 'x',
+        },
+        {
+          id: 'view',
+          label: 'View Details',
+          variant: 'outline',
+          href: `/backend/staff/leave-requests/${payload.leaveRequestId}`,
+          icon: 'external-link',
+        },
+      ],
+      primaryActionId: 'approve',
+      sourceModule: 'staff',
+      sourceEntityType: 'leave_request',
+      sourceEntityId: payload.leaveRequestId,
+      linkHref: `/backend/staff/leave-requests/${payload.leaveRequestId}`,
+      expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(),
+    },
+    tenantId: payload.tenantId,
+    organizationId: payload.organizationId,
+  })
+}
+```
+
+### How Permission Matching Works
+
+The system finds users based on their ACL permissions:
+
+1. **Direct User ACL**: Individual permissions assigned to specific users
+2. **Role ACL**: Permissions granted through role membership
+3. **Super Admin**: Users with `isSuperAdmin` flag always match
+4. **Wildcard Support**: `staff.*` matches any `staff.` permission like `staff.leave_requests.approve`
+
+**Example Scenarios:**
+
+- User has role "HR Manager" with permission `staff.leave_requests.approve` → ✅ Gets notification
+- User has direct permission `staff.*` → ✅ Gets notification (wildcard match)
+- User has role "Admin" with `isSuperAdmin: true` → ✅ Gets notification
+- User has role "Employee" with no relevant permissions → ❌ No notification
+- User has permission `sales.orders.approve` → ❌ No notification (different module)
+
+### Use Cases for Feature-Based Notifications
+
+- **Approval Workflows**: Leave requests, purchase orders, expense reports
+- **Administrative Alerts**: System changes requiring specific permissions
+- **Compliance Notifications**: Alerts for users with audit or compliance access
+- **Security Events**: Notify users with security management permissions
+- **Flexible Routing**: Route based on capability, not fixed organizational structure
+
+### Comparison: Role vs Feature Notifications
+
+| Aspect | Role-Based | Feature-Based |
+|--------|------------|---------------|
+| **Target** | All users in a role | All users with a permission |
+| **Use Case** | Department announcements, team updates | Approval workflows, permission-based alerts |
+| **Flexibility** | Fixed by role membership | Works across multiple roles |
+| **Example** | "All Managers" | "Anyone who can approve orders" |
+| **API** | `POST /api/notifications/role` | `POST /api/notifications/feature` |
+
+**Recommendation:** Use feature-based notifications for workflows requiring specific permissions (approvals, administrative actions). Use role-based for general announcements to organizational groups.
+
+## Severity Levels
+
+Notifications support four severity levels that affect visual styling:
+
+| Severity | Color | Use Case |
+|----------|-------|----------|
+| `info` | Blue | General information, FYI notifications |
+| `warning` | Amber | Warnings, pending approvals, time-sensitive |
+| `success` | Green | Confirmations, approvals, completed actions |
+| `error` | Red | Errors, rejections, failed operations |
+
+```typescript
+// Examples
+severity: 'info'    // Order created (blue)
+severity: 'warning' // Approval needed (amber)
+severity: 'success' // Order approved (green)
+severity: 'error'   // Payment failed (red)
+```
+
+## Icon Selection
+
+Use any Lucide icon name. Common examples:
+
+```typescript
+// General
+icon: 'bell'           // Default notification
+icon: 'info'           // Information
+icon: 'alert-circle'   // Warning
+
+// Calendar & Time
+icon: 'calendar-clock' // Scheduled events
+icon: 'calendar-check' // Approved dates
+icon: 'calendar-x'     // Rejected dates
+
+// Commerce
+icon: 'shopping-cart'  // Orders
+icon: 'package'        // Shipments
+icon: 'credit-card'    // Payments
+
+// Status
+icon: 'check-circle'   // Success
+icon: 'x-circle'       // Error
+icon: 'clock'          // Pending
+```
+
+See [Lucide Icons](https://lucide.dev/icons/) for the full list.
+
+## Auto-Expiry
+
+Set notifications to automatically dismiss after a certain time:
+
+```typescript
+// Expires in 7 days
+expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString()
+
+// Expires in 24 hours
+expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString()
+```
+
+Expired notifications are automatically marked as dismissed by a cleanup worker.
+
+## Real-World Example: Order Approval Workflow
+
+Here's a complete example of using notifications in an order approval workflow:
+
+### 1. Emit Domain Event
+
+```typescript
+// When order is created
+await eventBus.emit('sales.order.created', {
+  orderId: order.id,
+  customerId: order.customerId,
+  totalAmount: order.totalAmount,
+  tenantId: ctx.tenantId,
+  organizationId: ctx.organizationId,
+})
+```
+
+### 2. Subscriber Creates Notification
+
+```typescript
+// packages/core/src/modules/sales/subscribers/order-approval-notification.ts
+export const metadata = {
+  event: 'sales.order.created',
+  id: 'sales:order-approval-notification',
+  persistent: true,
+}
+
+export default async function handle(payload, ctx) {
+  const em = ctx.resolve('em').fork()
+  const queue = createQueue('notifications', 'async')
+
+  // Find managers who need to approve
+  const managers = await findApprovers(em, payload.tenantId)
+
+  for (const manager of managers) {
+    await queue.enqueue({
+      type: 'create',
+      input: {
+        recipientUserId: manager.userId,
+        type: 'sales.order.pending_approval',
+        title: 'New order needs approval',
+        body: `Order ${payload.orderId} worth $${payload.totalAmount} requires your approval`,
+        icon: 'shopping-cart',
+        severity: 'warning',
+        actions: [
+          {
+            id: 'approve',
+            label: 'Approve',
+            variant: 'default',
+            commandId: 'sales.orders.approve',
+            icon: 'check',
+          },
+          {
+            id: 'reject',
+            label: 'Reject',
+            variant: 'destructive',
+            commandId: 'sales.orders.reject',
+            confirmRequired: true,
+            confirmMessage: 'Are you sure you want to reject this order?',
+            icon: 'x',
+          },
+          {
+            id: 'view',
+            label: 'View Details',
+            variant: 'outline',
+            href: `/backend/sales/orders/${payload.orderId}`,
+            icon: 'external-link',
+          },
+        ],
+        primaryActionId: 'approve',
+        sourceModule: 'sales',
+        sourceEntityType: 'order',
+        sourceEntityId: payload.orderId,
+        linkHref: `/backend/sales/orders/${payload.orderId}`,
+        expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(), // 7 days
+      },
+      tenantId: payload.tenantId,
+      organizationId: payload.organizationId,
+    })
+  }
+}
+```
+
+### 3. User Takes Action
+
+When the user clicks "Approve" in the notification:
+1. The command `sales.orders.approve` is executed
+2. The notification status changes to `actioned`
+3. The notification shows "Action taken: approve"
+
+## Service API Reference
+
+### NotificationService Interface
+
+```typescript
+interface NotificationService {
+  // Create single notification
+  create(input: CreateNotificationInput, ctx: NotificationServiceContext): Promise<Notification>
+
+  // Create notifications for multiple recipients
+  createBatch(input: CreateBatchNotificationInput, ctx: NotificationServiceContext): Promise<Notification[]>
+
+  // Create notifications for all users in a role
+  createForRole(input: CreateRoleNotificationInput, ctx: NotificationServiceContext): Promise<Notification[]>
+
+  // Create notifications for all users with a specific permission
+  createForFeature(input: CreateFeatureNotificationInput, ctx: NotificationServiceContext): Promise<Notification[]>
+
+  // Mark notification as read
+  markAsRead(notificationId: string, ctx: NotificationServiceContext): Promise<Notification>
+
+  // Mark all user's notifications as read
+  markAllAsRead(ctx: NotificationServiceContext): Promise<number>
+
+  // Dismiss notification
+  dismiss(notificationId: string, ctx: NotificationServiceContext): Promise<Notification>
+
+  // Execute notification action
+  executeAction(
+    notificationId: string,
+    input: ExecuteActionInput,
+    ctx: NotificationServiceContext
+  ): Promise<{ notification: Notification; result: unknown }>
+
+  // Get unread count for user
+  getUnreadCount(ctx: NotificationServiceContext): Promise<number>
+
+  // Get notifications for polling
+  getPollData(ctx: NotificationServiceContext, since?: string): Promise<NotificationPollData>
+
+  // Clean up expired notifications
+  cleanupExpired(): Promise<number>
+
+  // Delete notifications by source entity
+  deleteBySource(
+    sourceEntityType: string,
+    sourceEntityId: string,
+    ctx: NotificationServiceContext
+  ): Promise<number>
+}
+```
+
+## Queue Worker
+
+The notifications queue worker processes notification creation jobs:
+
+**Queue Name**: `notifications`
+**Worker File**: `packages/core/src/modules/notifications/workers/create-notification.worker.ts`
+**Concurrency**: 5 (configurable via `WORKERS_NOTIFICATIONS_CONCURRENCY`)
+
+### Job Types
+
+```typescript
+type CreateNotificationJob = {
+  type: 'create'
+  input: CreateNotificationInput
+  tenantId: string
+  organizationId?: string | null
+}
+
+type CleanupExpiredJob = {
+  type: 'cleanup-expired'
+}
+```
+
+### Running the Worker
+
+```bash
+# Development (auto-spawned)
+yarn dev
+
+# Production (separate process)
+yarn mercato queue worker notifications
+
+# Custom concurrency
+WORKERS_NOTIFICATIONS_CONCURRENCY=10 yarn mercato queue worker notifications
+```
+
+## Events
+
+The notifications module emits the following events:
+
+| Event | Payload | When |
+|-------|---------|------|
+| `notifications.created` | `{ notificationId, recipientUserId, type, title, tenantId, organizationId }` | Notification created |
+| `notifications.read` | `{ notificationId, userId, tenantId }` | Notification marked as read |
+| `notifications.actioned` | `{ notificationId, actionId, userId, tenantId }` | Action executed |
+| `notifications.dismissed` | `{ notificationId, userId, tenantId }` | Notification dismissed |
+
+## API Endpoints
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `GET` | `/api/notifications` | List notifications (paginated) |
+| `POST` | `/api/notifications` | Create notification |
+| `GET` | `/api/notifications/unread-count` | Get unread count |
+| `PUT` | `/api/notifications/:id/read` | Mark as read |
+| `POST` | `/api/notifications/:id/action` | Execute action |
+| `PUT` | `/api/notifications/:id/dismiss` | Dismiss notification |
+| `PUT` | `/api/notifications/mark-all-read` | Mark all as read |
+
+## Frontend Components
+
+The notifications UI is automatically included in the backend layout:
+
+### NotificationBell
+
+Shows the bell icon with unread badge in the header.
+
+**Location**: `packages/ui/src/backend/notifications/NotificationBell.tsx`
+**Usage**: Automatically rendered in backend layout
+
+### NotificationPanel
+
+The slide-out panel showing all notifications with filtering.
+
+**Features**:
+- Filter tabs (All, Unread, Action Required)
+- Mark all as read button
+- Individual notification actions
+- Click to navigate to source entity
+- Support for custom renderers per notification type
+
+## Custom Notification Renderers
+
+Modules can provide custom React components to render their notifications with specialized UI. This allows for richer notification displays with module-specific styling, icons, and layouts.
+
+### Defining Custom Renderers
+
+Create a client-side file that exports notification types with custom renderers:
+
+```typescript
+// packages/core/src/modules/sales/notifications.client.ts
+'use client'
+
+import type { NotificationTypeDefinition } from '@open-mercato/shared/modules/notifications/types'
+import { SalesOrderCreatedRenderer } from './widgets/notifications/SalesOrderCreatedRenderer'
+import { SalesQuoteCreatedRenderer } from './widgets/notifications/SalesQuoteCreatedRenderer'
+
+export const salesNotificationTypes: NotificationTypeDefinition[] = [
+  {
+    type: 'sales.order.created',
+    module: 'sales',
+    titleKey: 'sales.notifications.order.created.title',
+    icon: 'shopping-cart',
+    severity: 'info',
+    actions: [
+      {
+        id: 'view',
+        labelKey: 'common.view',
+        variant: 'outline',
+        href: '/backend/sales/orders/{sourceEntityId}',
+      },
+    ],
+    linkHref: '/backend/sales/orders/{sourceEntityId}',
+    Renderer: SalesOrderCreatedRenderer, // Custom renderer component
+    expiresAfterHours: 168,
+  },
+  {
+    type: 'sales.quote.created',
+    module: 'sales',
+    Renderer: SalesQuoteCreatedRenderer,
+    // ...other fields
+  },
+]
+
+export default salesNotificationTypes
+```
+
+### Creating a Custom Renderer Component
+
+Custom renderers receive notification data and action handlers:
+
+```tsx
+// packages/core/src/modules/sales/widgets/notifications/SalesOrderCreatedRenderer.tsx
+'use client'
+
+import * as React from 'react'
+import { ShoppingCart, ExternalLink, DollarSign, Calendar } from 'lucide-react'
+import { Button } from '@open-mercato/ui/primitives/button'
+import { cn } from '@open-mercato/shared/lib/utils'
+import type { NotificationRendererProps } from '@open-mercato/shared/modules/notifications/types'
+
+export function SalesOrderCreatedRenderer({
+  notification,
+  onAction,
+  onDismiss,
+}: NotificationRendererProps) {
+  const [executing, setExecuting] = React.useState(false)
+  const isUnread = notification.status === 'unread'
+
+  // Parse order details from notification body
+  const orderNumber = notification.body?.match(/order\s+([A-Z0-9\-\/]+)/i)?.[1]
+  const total = notification.body?.match(/\(([^)]+)\)/)?.[1]
+
+  const handleView = async () => {
+    setExecuting(true)
+    try {
+      await onAction('view')
+    } finally {
+      setExecuting(false)
+    }
+  }
+
+  return (
+    <div
+      className={cn(
+        'group relative px-4 py-3 hover:bg-muted/50 cursor-pointer',
+        'border-l-4 border-l-blue-500',
+        isUnread && 'bg-blue-50/50 dark:bg-blue-950/20'
+      )}
+      onClick={handleView}
+    >
+      {isUnread && (
+        <div className="absolute left-1.5 top-1/2 -translate-y-1/2 h-2 w-2 rounded-full bg-primary" />
+      )}
+
+      <div className="flex gap-3">
+        {/* Custom icon with colored background */}
+        <div className="flex-shrink-0 mt-0.5">
+          <div className="h-10 w-10 rounded-lg bg-blue-100 dark:bg-blue-900/40 flex items-center justify-center">
+            <ShoppingCart className="h-5 w-5 text-blue-600 dark:text-blue-400" />
+          </div>
+        </div>
+
+        <div className="flex-1 min-w-0">
+          <div className="flex items-start justify-between gap-2">
+            <div>
+              <h4 className={cn('text-sm font-medium', isUnread && 'font-semibold')}>
+                {notification.title}
+              </h4>
+              {/* Order number badge */}
+              {orderNumber && (
+                <span className="text-xs font-mono text-muted-foreground bg-muted px-1.5 py-0.5 rounded">
+                  #{orderNumber}
+                </span>
+              )}
+            </div>
+            <span className="text-xs text-muted-foreground flex items-center gap-1">
+              <Calendar className="h-3 w-3" />
+              {formatTimeAgo(notification.createdAt)}
+            </span>
+          </div>
+
+          {/* Order total display */}
+          {total && (
+            <div className="mt-2 flex items-center gap-1 text-xs text-muted-foreground">
+              <DollarSign className="h-3 w-3" />
+              <span className="font-medium text-foreground">{total}</span>
+            </div>
+          )}
+
+          {/* Action buttons */}
+          <div className="mt-3 flex gap-2">
+            <Button
+              variant="default"
+              size="sm"
+              onClick={(e) => { e.stopPropagation(); handleView() }}
+              disabled={executing}
+              className="gap-1"
+            >
+              <ExternalLink className="h-3 w-3" />
+              View Order
+            </Button>
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={(e) => { e.stopPropagation(); onDismiss() }}
+            >
+              Dismiss
+            </Button>
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
+```
+
+### NotificationRendererProps Interface
+
+Custom renderers receive the following props:
+
+```typescript
+type NotificationRendererProps = {
+  notification: {
+    id: string
+    type: string
+    title: string
+    body?: string | null
+    icon?: string | null
+    severity: string
+    status: string
+    sourceModule?: string | null
+    sourceEntityType?: string | null
+    sourceEntityId?: string | null
+    createdAt: string
+  }
+  onAction: (actionId: string) => Promise<void>
+  onDismiss: () => Promise<void>
+  actions: NotificationTypeAction[]
+}
+```
+
+### Using Custom Renderers in NotificationPanel
+
+Pass a renderers map to NotificationPanel to enable custom rendering:
+
+```tsx
+import { salesNotificationTypes } from '@open-mercato/core/modules/sales/notifications.client'
+import { NotificationPanel } from '@open-mercato/ui/backend/notifications'
+
+// Build renderers map from notification types
+const customRenderers = Object.fromEntries(
+  salesNotificationTypes
+    .filter(t => t.Renderer)
+    .map(t => [t.type, t.Renderer!])
+)
+
+// In your component
+<NotificationPanel
+  notifications={notifications}
+  customRenderers={customRenderers}
+  // ...other props
+/>
+```
+
+### Example: Sales Module Notifications
+
+The sales module demonstrates custom renderers for order and quote creation notifications:
+
+**Order Created Notification:**
+- Blue left border to indicate sales context
+- Order number displayed as a badge
+- Total amount prominently shown
+- Custom icon with colored background
+- "View Order" primary action
+
+**Quote Created Notification:**
+- Amber left border for quote context
+- Quote number badge
+- "Pending review" status indicator
+- "View Quote" primary action
+
+Files:
+- `packages/core/src/modules/sales/notifications.ts` - Server-side type definitions
+- `packages/core/src/modules/sales/notifications.client.ts` - Client-side with renderers
+- `packages/core/src/modules/sales/widgets/notifications/SalesOrderCreatedRenderer.tsx`
+- `packages/core/src/modules/sales/widgets/notifications/SalesQuoteCreatedRenderer.tsx`
+
+### Best Practices for Custom Renderers
+
+1. **Keep server/client separation**: Use `notifications.ts` for server-side type definitions (generator) and `notifications.client.ts` for client-side renderers
+2. **Handle loading states**: Show loading indicators when executing actions
+3. **Preserve accessibility**: Include proper ARIA labels and keyboard navigation
+4. **Match design system**: Use existing UI components and color tokens
+5. **Parse notification data**: Extract structured data from title/body for richer display
+6. **Handle all statuses**: Account for unread, read, actioned, and dismissed states
+
+## How Users Receive Notifications
+
+Users receive notifications **automatically without any action required**:
+
+1. **Automatic Polling**: The system polls every 5 seconds for new notifications
+2. **Badge Update**: The bell icon badge updates with the unread count
+3. **Visual Feedback**: New notifications trigger a pulse animation on the bell icon
+4. **No Manual Refresh**: Users don't need to click or refresh anything
+
+## Best Practices
+
+### 1. Use Descriptive Types
+
+```typescript
+// Good: Clear hierarchy
+type: 'sales.order.pending_approval'
+type: 'sales.order.approved'
+type: 'sales.order.rejected'
+
+// Bad: Vague
+type: 'order_notification'
+```
+
+### 2. Provide Context in Body
+
+```typescript
+// Good: Specific details
+title: 'Order needs approval'
+body: 'Order #12345 worth $1,250.00 from Acme Corp requires your approval'
+
+// Bad: Too vague
+title: 'Action required'
+body: 'Please check your orders'
+```
+
+### 3. Choose Appropriate Severity
+
+```typescript
+// Good: Matches urgency
+severity: 'warning' // For pending approvals
+severity: 'error'   // For failures
+severity: 'success' // For confirmations
+severity: 'info'    // For FYI updates
+
+// Bad: Mismatched
+severity: 'error'   // For a simple FYI message
+```
+
+### 4. Use Event-Driven Architecture
+
+Prefer event subscribers over direct calls to keep modules decoupled:
+
+```typescript
+// Good: Decoupled via events
+await eventBus.emit('order.created', orderData)
+// Subscriber in notifications module creates notification
+
+// Bad: Direct coupling
+import { notificationService } from '@open-mercato/core/modules/notifications'
+await notificationService.create(...)
+```
+
+### 5. Set Reasonable Expiry Times
+
+```typescript
+// Good: Match notification lifetime to action window
+expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000)  // 7 days for approvals
+expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000)      // 24 hours for time-sensitive
+
+// Bad: No expiry for time-sensitive notifications
+expiresAt: undefined // Stays forever even if no longer relevant
+```
+
+## Troubleshooting
+
+### Notifications not appearing
+
+1. Check queue worker is running: `yarn mercato queue status notifications`
+2. Verify events are being emitted: Check event logs
+3. Ensure user has correct `recipientUserId`
+4. Check browser console for polling errors
+
+### Actions not executing
+
+1. Verify command ID exists: Check command registry
+2. Ensure user has permission to execute command
+3. Check command handler for errors
+4. Look at notification `actionResult` field for error details
+
+### High unread counts
+
+1. Users may not be dismissing old notifications
+2. Consider setting `expiresAt` for time-sensitive notifications
+3. Run cleanup: `yarn mercato notifications cleanup-expired`
+
+## Related Documentation
+
+- [Events & Subscribers](../events/overview.mdx) - Event publishing system
+- [Queue & Workers](../events/queue-workers.mdx) - Background job processing
+- [Commands](../commands/overview.mdx) - Command execution from actions

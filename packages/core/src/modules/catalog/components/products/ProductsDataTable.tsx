@@ -650,10 +650,12 @@ export default function ProductsDataTable() {
         <RowActions
           items={[
             {
+              id: 'edit',
               label: t('catalog.products.table.actions.edit', 'Edit'),
               href: `/backend/catalog/products/${row.id}`,
             },
             {
+              id: 'delete',
               label: t('catalog.products.table.actions.delete', 'Delete'),
               destructive: true,
               onSelect: () => {

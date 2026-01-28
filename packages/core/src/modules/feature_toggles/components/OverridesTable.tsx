@@ -161,7 +161,7 @@ export default function OverridesTable() {
             }}
             rowActions={(row) => (
                 <RowActions items={[
-                    { label: t('common.edit', 'Edit'), href: `/backend/feature-toggles/global/${row.toggleId}` },
+                    { id: 'edit', label: t('common.edit', 'Edit'), href: `/backend/feature-toggles/global/${row.toggleId}` },
                 ]} />
             )}
             error={error ? error.message : undefined}

@@ -295,8 +295,9 @@ export function SalesDocumentPaymentsSection({
           return (
             <RowActions
               items={[
-                { label: editActionLabel, onSelect: () => openEditPayment(row.original) },
+                { id: 'edit', label: editActionLabel, onSelect: () => openEditPayment(row.original) },
                 {
+                  id: 'delete',
                   label: deleteActionLabel,
                   destructive: true,
                   onSelect: () => void handleDelete(row.original),

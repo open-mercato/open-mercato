@@ -654,6 +654,57 @@ describe('Rule Engine (Unit Tests)', () => {
       expect(result.errors).toBeDefined()
       expect(result.errors![0]).toContain('Rule count limit exceeded')
     })
+
+    test('should emit execution_failed event when rule evaluation fails', async () => {
+      const mockRule: Partial<BusinessRule> = {
+        id: 'rule-1',
+        ruleId: 'TEST-001',
+        ruleName: 'Test Rule',
+        ruleType: 'ACTION',
+        entityType: 'WorkOrder',
+        conditionExpression: { field: 'status', operator: '=', value: 'RELEASED' },
+        enabled: true,
+        tenantId: testTenantId,
+        organizationId: testOrgId,
+      }
+
+      mockEm.find.mockResolvedValue([mockRule as BusinessRule])
+      mockEm.create.mockReturnValue({ id: 'log-1' } as any)
+      mockEm.persistAndFlush.mockResolvedValue(undefined)
+
+      jest.mocked(ruleEvaluator.evaluateSingleRule).mockResolvedValue({
+        rule: mockRule as BusinessRule,
+        conditionsPassed: false,
+        evaluationCompleted: false,
+        evaluationTime: 1,
+        error: 'Evaluation error',
+      })
+
+      const eventBus = { emitEvent: jest.fn().mockResolvedValue(undefined) }
+
+      const context: RuleEngineContext = {
+        entityType: 'WorkOrder',
+        entityId: testEntityId,
+        data: { status: 'RELEASED' },
+        tenantId: testTenantId,
+        organizationId: testOrgId,
+        dryRun: false,
+      }
+
+      await ruleEngine.executeRules(mockEm, context, { eventBus })
+
+      expect(eventBus.emitEvent).toHaveBeenCalledWith(
+        'business_rules.rule.execution_failed',
+        expect.objectContaining({
+          ruleId: 'TEST-001',
+          ruleName: 'Test Rule',
+          entityType: 'WorkOrder',
+          errorMessage: 'Evaluation error',
+          tenantId: testTenantId,
+          organizationId: testOrgId,
+        })
+      )
+    })
   })
 
   describe('logRuleExecution', () => {

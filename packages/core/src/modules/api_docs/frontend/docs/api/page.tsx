@@ -2,6 +2,7 @@ import ApiDocsExplorer from './Explorer'
 import { getModules } from '@open-mercato/shared/lib/i18n/server'
 import { buildOpenApiDocument } from '@open-mercato/shared/lib/openapi'
 import { resolveApiDocsBaseUrl } from '@open-mercato/core/modules/api_docs/lib/resources'
+import { APP_VERSION } from '@open-mercato/shared/lib/version'
 
 type ExplorerOperation = {
   id: string
@@ -54,7 +55,7 @@ export default async function ApiDocsViewerPage() {
   const modules = getModules()
   const doc = buildOpenApiDocument(modules, {
     title: 'Open Mercato API',
-    version: '1.0.0',
+    version: APP_VERSION,
     description: 'Auto-generated OpenAPI definition for all enabled modules.',
     servers: [{ url: baseUrl, description: 'Default environment' }],
     baseUrlForExamples: baseUrl,
@@ -67,7 +68,7 @@ export default async function ApiDocsViewerPage() {
   return (
     <ApiDocsExplorer
       title={doc.info?.title ?? 'Open Mercato API'}
-      version={doc.info?.version ?? '1.0.0'}
+      version={doc.info?.version ?? APP_VERSION}
       description={doc.info?.description}
       operations={operations}
       tagOrder={tagOrder}

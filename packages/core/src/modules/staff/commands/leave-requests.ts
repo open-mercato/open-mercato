@@ -21,6 +21,9 @@ import {
 } from '../data/validators'
 import { ensureOrganizationScope, ensureTenantScope, extractUndoPayload, requireTeamMember } from './shared'
 import { E } from '#generated/entities.ids.generated'
+import { resolveNotificationService } from '../../notifications/lib/notificationService'
+import { buildFeatureNotificationFromType, buildNotificationFromType } from '../../notifications/lib/notificationBuilder'
+import { notificationTypes } from '../notifications'
 
 const leaveRequestCrudIndexer: CrudIndexerConfig<StaffLeaveRequest> = {
   entityType: E.staff.staff_leave_request,
@@ -257,6 +260,36 @@ const createLeaveRequestCommand: CommandHandler<StaffLeaveRequestCreateInput, { 
       },
       indexer: leaveRequestCrudIndexer,
     })
+
+    // Create notification for users who can approve/reject leave requests
+    try {
+      const notificationService = resolveNotificationService(ctx.container)
+      const typeDef = notificationTypes.find((type) => type.type === 'staff.leave_request.pending')
+      if (typeDef) {
+        const memberName = member.displayName || 'Team member'
+        const startDateStr = request.startDate.toLocaleDateString()
+        const endDateStr = request.endDate.toLocaleDateString()
+
+        const notificationInput = buildFeatureNotificationFromType(typeDef, {
+          requiredFeature: 'staff.leave_requests.manage',
+          bodyVariables: {
+            memberName,
+            startDate: startDateStr,
+            endDate: endDateStr,
+          },
+          sourceEntityType: 'staff:leave_request',
+          sourceEntityId: request.id,
+          linkHref: `/backend/staff/leave-requests/${request.id}`,
+        })
+
+        await notificationService.createForFeature(notificationInput, {
+          tenantId: request.tenantId,
+          organizationId: request.organizationId,
+        })
+      }
+    } catch {
+      // Notification creation is non-critical, don't fail the command
+    }
 
     return { requestId: request.id }
   },
@@ -575,6 +608,36 @@ const acceptLeaveRequestCommand: CommandHandler<StaffLeaveRequestDecisionInput, 
       ruleIds: createdRuleIds,
     })
 
+    // Send notification to the requester
+    if (request.submittedByUserId) {
+      try {
+        const notificationService = resolveNotificationService(ctx.container)
+        const typeDef = notificationTypes.find((type) => type.type === 'staff.leave_request.approved')
+        if (typeDef) {
+          const startDateStr = request.startDate.toLocaleDateString()
+          const endDateStr = request.endDate.toLocaleDateString()
+
+          const notificationInput = buildNotificationFromType(typeDef, {
+            recipientUserId: request.submittedByUserId,
+            bodyVariables: {
+              startDate: startDateStr,
+              endDate: endDateStr,
+            },
+            sourceEntityType: 'staff:leave_request',
+            sourceEntityId: request.id,
+            linkHref: `/backend/staff/leave-requests/${request.id}`,
+          })
+
+          await notificationService.create(notificationInput, {
+            tenantId: request.tenantId,
+            organizationId: request.organizationId,
+          })
+        }
+      } catch {
+        // Notification creation is non-critical, don't fail the command
+      }
+    }
+
     return { requestId: request.id, ruleIds: createdRuleIds }
   },
   buildLog: async ({ result, ctx, snapshots }) => {
@@ -695,6 +758,37 @@ const rejectLeaveRequestCommand: CommandHandler<StaffLeaveRequestDecisionInput, 
       },
       indexer: leaveRequestCrudIndexer,
     })
+
+    // Send notification to the requester
+    if (request.submittedByUserId) {
+      try {
+        const notificationService = resolveNotificationService(ctx.container)
+        const typeDef = notificationTypes.find((type) => type.type === 'staff.leave_request.rejected')
+        if (typeDef) {
+          const startDateStr = request.startDate.toLocaleDateString()
+          const endDateStr = request.endDate.toLocaleDateString()
+
+          const notificationInput = buildNotificationFromType(typeDef, {
+            recipientUserId: request.submittedByUserId,
+            bodyVariables: {
+              startDate: startDateStr,
+              endDate: endDateStr,
+              reason: request.decisionComment ?? '',
+            },
+            sourceEntityType: 'staff:leave_request',
+            sourceEntityId: request.id,
+            linkHref: `/backend/staff/leave-requests/${request.id}`,
+          })
+
+          await notificationService.create(notificationInput, {
+            tenantId: request.tenantId,
+            organizationId: request.organizationId,
+          })
+        }
+      } catch {
+        // Notification creation is non-critical, don't fail the command
+      }
+    }
 
     return { requestId: request.id }
   },

@@ -266,10 +266,10 @@ export default function ResourcesResourceTypesPage() {
           rowActions={(row) => (
             <RowActions
               items={[
-                { label: translations.actions.edit, href: `/backend/resources/resource-types/${row.id}/edit` },
+                { id: 'edit', label: translations.actions.edit, href: `/backend/resources/resource-types/${row.id}/edit` },
                 ...(row.resourceCount > 0
                   ? []
-                  : [{ label: translations.actions.delete, destructive: true, onSelect: () => handleDelete(row) }]),
+                  : [{ id: 'delete', label: translations.actions.delete, destructive: true, onSelect: () => handleDelete(row) }]),
               ]}
             />
           )}

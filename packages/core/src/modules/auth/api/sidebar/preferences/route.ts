@@ -64,12 +64,16 @@ export async function GET(req: Request) {
     { tenantId: auth.tenantId ?? null, organizationId: auth.orgId ?? null },
   ) ?? false
 
-  const settings = await loadSidebarPreference(em, {
-    userId: auth.sub,
-    tenantId: auth.tenantId ?? null,
-    organizationId: auth.orgId ?? null,
-    locale,
-  })
+  // For API key auth, use userId (the actual user) if available
+  const effectiveUserId = auth.isApiKey ? auth.userId : auth.sub
+  const settings = effectiveUserId
+    ? await loadSidebarPreference(em, {
+        userId: effectiveUserId,
+        tenantId: auth.tenantId ?? null,
+        organizationId: auth.orgId ?? null,
+        locale,
+      })
+    : null
 
   let rolesPayload: Array<{ id: string; name: string; hasPreference: boolean }> = []
   if (canApplyToRoles) {
@@ -92,11 +96,11 @@ export async function GET(req: Request) {
   return NextResponse.json({
     locale,
     settings: {
-      version: settings.version ?? SIDEBAR_PREFERENCES_VERSION,
-      groupOrder: settings.groupOrder ?? [],
-      groupLabels: settings.groupLabels ?? {},
-      itemLabels: settings.itemLabels ?? {},
-      hiddenItems: settings.hiddenItems ?? [],
+      version: settings?.version ?? SIDEBAR_PREFERENCES_VERSION,
+      groupOrder: settings?.groupOrder ?? [],
+      groupLabels: settings?.groupLabels ?? {},
+      itemLabels: settings?.itemLabels ?? {},
+      hiddenItems: settings?.hiddenItems ?? [],
     },
     canApplyToRoles,
     roles: rolesPayload,
@@ -106,6 +110,11 @@ export async function GET(req: Request) {
 export async function PUT(req: Request) {
   const auth = await getAuthFromRequest(req)
   if (!auth) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  // For API key auth, use userId (the actual user) if available
+  const effectiveUserId = auth.isApiKey ? auth.userId : auth.sub
+  if (!effectiveUserId) {
+    return NextResponse.json({ error: 'Cannot save preferences: no user associated with this API key' }, { status: 403 })
+  }
 
   let parsedBody: unknown
   try {
@@ -182,7 +191,7 @@ export async function PUT(req: Request) {
   }
 
   const settings = await saveSidebarPreference(em, {
-    userId: auth.sub,
+    userId: effectiveUserId,
     tenantId: auth.tenantId ?? null,
     organizationId: auth.orgId ?? null,
     locale,

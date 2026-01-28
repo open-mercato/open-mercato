@@ -12,6 +12,7 @@ import VerificationEmail from '@open-mercato/onboarding/modules/onboarding/email
 import AdminNotificationEmail from '@open-mercato/onboarding/modules/onboarding/emails/AdminNotificationEmail'
 import { User } from '@open-mercato/core/modules/auth/data/entities'
 import type { OpenApiMethodDoc, OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
+import { formatPasswordRequirements, getPasswordPolicy } from '@open-mercato/shared/lib/auth/passwordPolicy'
 
 export const metadata = {
   POST: {
@@ -39,6 +40,11 @@ export async function POST(req: Request) {
     : defaultLocale
   const dict = await loadDictionary(locale)
   const translate = createFallbackTranslator(dict)
+  const passwordRequirements = formatPasswordRequirements(
+    getPasswordPolicy(),
+    translate,
+    'onboarding.password.requirements',
+  )
 
   const parsed = onboardingStartSchema.safeParse(payload)
   if (!parsed.success) {
@@ -60,7 +66,11 @@ export async function POST(req: Request) {
           fieldErrors.organizationName = translate('onboarding.errors.organizationNameRequired', 'Organization name is required.')
           break
         case 'password':
-          fieldErrors.password = translate('onboarding.errors.passwordRequired', 'Password must be at least 6 characters.')
+          fieldErrors.password = translate(
+            'onboarding.errors.passwordRequired',
+            'Password must meet the requirements: {requirements}.',
+            { requirements: passwordRequirements },
+          )
           break
         case 'confirmPassword':
           fieldErrors.confirmPassword = translate('onboarding.errors.passwordMismatch', 'Passwords must match.')

@@ -14,6 +14,7 @@ export type AuthContext = {
   email?: string
   roles?: string[]
   isApiKey?: boolean
+  userId?: string
   keyId?: string
   keyName?: string
   [k: string]: unknown
@@ -132,6 +133,9 @@ async function resolveApiKeyAuth(secret: string): Promise<AuthContext> {
       // best-effort update; ignore write failures
     }
 
+    // For session keys, use sessionUserId; for regular keys, use createdBy
+    const actualUserId = record.sessionUserId ?? record.createdBy ?? null
+
     return {
       sub: `api_key:${record.id}`,
       tenantId: record.tenantId ?? null,
@@ -140,6 +144,7 @@ async function resolveApiKeyAuth(secret: string): Promise<AuthContext> {
       isApiKey: true,
       keyId: record.id,
       keyName: record.name,
+      ...(actualUserId ? { userId: actualUserId } : {}),
     }
   } catch {
     return null

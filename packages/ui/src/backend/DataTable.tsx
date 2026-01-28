@@ -59,14 +59,25 @@ export type DataTableRefreshButton = {
   disabled?: boolean
 }
 
-// Helper function to extract edit action from RowActions items
-function extractEditAction(items: RowActionItem[]): RowActionItem | null {
-  const byId = items.find((item) => item.id === 'edit' && (item.href || item.onSelect))
-  if (byId) return byId
-  return items.find((item) =>
-    item.label.toLowerCase() === 'edit' &&
-    (item.href || item.onSelect)
-  ) || null
+const DEFAULT_ROW_CLICK_ACTION_IDS = ['edit', 'open']
+
+function resolveDefaultRowAction(items: RowActionItem[], preferredIds: string[]): RowActionItem | null {
+  for (const preferredId of preferredIds) {
+    const match = items.find((item) => item.id === preferredId && (item.href || item.onSelect))
+    if (match) return match
+  }
+  for (const preferredId of preferredIds) {
+    const match = items.find((item) => item.label.toLowerCase() === preferredId && (item.href || item.onSelect))
+    if (match) return match
+  }
+  return null
+}
+
+function pickDefaultRowAction(node: React.ReactNode, preferredIds: string[]): RowActionItem | null {
+  if (!React.isValidElement(node)) return null
+  const items = (node.props as { items?: RowActionItem[] }).items
+  if (!Array.isArray(items)) return null
+  return resolveDefaultRowAction(items, preferredIds)
 }
 
 export type DataTableExportFormat = 'csv' | 'json' | 'xml' | 'markdown'
@@ -118,8 +129,11 @@ export type DataTableProps<T> = {
   // Optional per-row actions renderer. When provided, an extra trailing column is rendered.
   rowActions?: (row: T) => React.ReactNode
   // Optional row click handler. When provided, rows become clickable and show pointer cursor.
-  // If not provided but rowActions contains an 'Edit' action, it will be used as the default row click handler.
+  // If not provided, DataTable will execute the first row action whose id matches rowClickActionIds.
   onRowClick?: (row: T) => void
+  // Preferred action ids for default row clicks (applies when onRowClick is not set).
+  // Defaults to ['edit', 'open'].
+  rowClickActionIds?: string[]
   // Disable row click navigation when rowActions are present.
   disableRowClick?: boolean
 
@@ -554,6 +568,7 @@ export function DataTable<T>({
   error,
   rowActions,
   onRowClick,
+  rowClickActionIds,
   disableRowClick = false,
   searchValue,
   onSearchChange,
@@ -575,6 +590,7 @@ export function DataTable<T>({
 }: DataTableProps<T>) {
   const t = useT()
   const router = useRouter()
+  const resolvedRowClickActionIds = rowClickActionIds ?? DEFAULT_ROW_CLICK_ACTION_IDS
   const lastScopeRef = React.useRef<OrganizationScopeChangedDetail | null>(null)
   const hasInitializedScopeRef = React.useRef(false)
   React.useEffect(() => {
@@ -1598,7 +1614,9 @@ export function DataTable<T>({
               </TableRow>
             ) : table.getRowModel().rows.length ? (
               table.getRowModel().rows.map((row) => {
-                const isClickable = !disableRowClick && (onRowClick || (rowActions && rowActions(row.original as T)))
+                const rowActionsElement = rowActions ? rowActions(row.original as T) : null
+                const defaultRowAction = onRowClick ? null : pickDefaultRowAction(rowActionsElement, resolvedRowClickActionIds)
+                const isClickable = !disableRowClick && (onRowClick || defaultRowAction)
                 
                 return (
                   <TableRow 
@@ -1613,20 +1631,11 @@ export function DataTable<T>({
                       
                       if (onRowClick) {
                         onRowClick(row.original as T)
-                      } else if (rowActions) {
-                        // Auto-extract and execute edit action
-                        const rowActionsElement = rowActions(row.original as T)
-                        if (React.isValidElement(rowActionsElement) && 
-                            'items' in (rowActionsElement.props as any) && 
-                            Array.isArray((rowActionsElement.props as any).items)) {
-                          const editAction = extractEditAction((rowActionsElement.props as any).items as RowActionItem[])
-                          if (editAction) {
-                            if (editAction.href) {
-                              router.push(editAction.href)
-                            } else if (editAction.onSelect) {
-                              editAction.onSelect()
-                            }
-                          }
+                      } else if (defaultRowAction) {
+                        if (defaultRowAction.href) {
+                          router.push(defaultRowAction.href)
+                        } else if (defaultRowAction.onSelect) {
+                          defaultRowAction.onSelect()
                         }
                       }
                     } : undefined}
@@ -1679,7 +1688,7 @@ export function DataTable<T>({
                     })}
                     {rowActions ? (
                       <TableCell className="text-right whitespace-nowrap" data-actions-cell>
-                        {rowActions(row.original as T)}
+                        {rowActionsElement}
                       </TableCell>
                     ) : null}
                   </TableRow>

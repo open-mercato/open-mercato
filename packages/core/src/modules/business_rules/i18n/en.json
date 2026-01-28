@@ -367,5 +367,7 @@
   "business_rules.components.conditionRow.field.comparisonPlaceholder": "e.g., user.role",
   "business_rules.components.conditionRow.value.help": "Use JSON for arrays: [\"a\",\"b\"]",
   "business_rules.components.conditionRow.field.comparisonHelp": "Field path to compare with",
-  "business_rules.components.conditionRow.deleteCondition": "Delete condition"
+  "business_rules.components.conditionRow.deleteCondition": "Delete condition",
+  "businessRules.notifications.rule.executionFailed.title": "Business Rule Failed",
+  "businessRules.notifications.rule.executionFailed.body": "Rule \"{ruleName}\" failed to execute{entityType, select, other { on {entityType}}}: {errorMessage}"
 }

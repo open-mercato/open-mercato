@@ -333,8 +333,8 @@ export function AdjustmentKindSettings() {
           rowActions={(entry) => (
             <RowActions
               items={[
-                { label: labels.edit, onSelect: () => openDialog({ mode: 'edit', entry }) },
-                { label: labels.delete, destructive: true, onSelect: () => { void handleDelete(entry) } },
+                { id: 'edit', label: labels.edit, onSelect: () => openDialog({ mode: 'edit', entry }) },
+                { id: 'delete', label: labels.delete, destructive: true, onSelect: () => { void handleDelete(entry) } },
               ]}
             />
           )}

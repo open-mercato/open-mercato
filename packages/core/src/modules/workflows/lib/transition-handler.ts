@@ -12,6 +12,7 @@
 
 import { EntityManager } from '@mikro-orm/core'
 import type { AwilixContainer } from 'awilix'
+import type { EventBus } from '@open-mercato/events'
 import {
   WorkflowInstance,
   WorkflowDefinition,
@@ -271,6 +272,13 @@ export async function executeTransition(
   context: TransitionExecutionContext
 ): Promise<TransitionExecutionResult> {
   try {
+    let eventBus: Pick<EventBus, 'emitEvent'> | null = null
+    try {
+      eventBus = container.resolve('eventBus') as EventBus
+    } catch {
+      eventBus = null
+    }
+
     // First, evaluate if transition is valid
     const evaluation = await evaluateTransition(
       em,
@@ -294,7 +302,8 @@ export async function executeTransition(
       em,
       instance,
       transition,
-      context
+      context,
+      eventBus
     )
 
     if (!preConditionsResult.allowed) {
@@ -505,7 +514,8 @@ export async function executeTransition(
       em,
       instance,
       transition,
-      context
+      context,
+      eventBus
     )
 
     if (!postConditionsResult.allowed) {
@@ -659,7 +669,8 @@ async function evaluatePreConditions(
   em: EntityManager,
   instance: WorkflowInstance,
   transition: any,
-  context: TransitionExecutionContext
+  context: TransitionExecutionContext,
+  eventBus: Pick<EventBus, 'emitEvent'> | null
 ): Promise<ruleEngine.RuleEngineResult> {
   try {
     // Load workflow definition to get workflow ID
@@ -698,7 +709,7 @@ async function evaluatePreConditions(
     }
 
     // Execute rules - only GUARD rules will affect the 'allowed' status
-    const result = await ruleEngine.executeRules(em, ruleContext)
+    const result = await ruleEngine.executeRules(em, ruleContext, { eventBus })
 
     return result
   } catch (error) {
@@ -728,7 +739,8 @@ async function evaluatePostConditions(
   em: EntityManager,
   instance: WorkflowInstance,
   transition: any,
-  context: TransitionExecutionContext
+  context: TransitionExecutionContext,
+  eventBus: Pick<EventBus, 'emitEvent'> | null
 ): Promise<ruleEngine.RuleEngineResult> {
   try {
     // Load workflow definition to get workflow ID
@@ -767,7 +779,7 @@ async function evaluatePostConditions(
     }
 
     // Execute rules
-    const result = await ruleEngine.executeRules(em, ruleContext)
+    const result = await ruleEngine.executeRules(em, ruleContext, { eventBus })
 
     return result
   } catch (error) {

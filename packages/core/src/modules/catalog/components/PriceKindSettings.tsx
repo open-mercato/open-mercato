@@ -420,10 +420,12 @@ export function PriceKindSettings() {
             <RowActions
               items={[
                 {
+                  id: 'edit',
                   label: t('catalog.priceKinds.actions.edit', 'Edit'),
                   onSelect: () => openDialog({ mode: 'edit', entry }),
                 },
                 {
+                  id: 'delete',
                   label: t('catalog.priceKinds.actions.delete', 'Delete'),
                   destructive: true,
                   onSelect: () => { void handleDelete(entry) },

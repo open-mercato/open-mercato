@@ -11,6 +11,7 @@ import { TenantSelect } from '@open-mercato/core/modules/directory/components/Te
 import { fetchRoleOptions } from '@open-mercato/core/modules/auth/backend/users/roleOptions'
 import { Spinner } from '@open-mercato/ui/primitives/spinner'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { formatPasswordRequirements, getPasswordPolicy } from '@open-mercato/shared/lib/auth/passwordPolicy'
 
 type CreateUserFormValues = {
   email: string
@@ -84,6 +85,16 @@ export default function CreateUserPage() {
   const [selectedWidgets, setSelectedWidgets] = React.useState<string[]>([])
   const [selectedTenantId, setSelectedTenantId] = React.useState<string | null>(null)
   const [actorIsSuperAdmin, setActorIsSuperAdmin] = React.useState(false)
+  const passwordPolicy = React.useMemo(() => getPasswordPolicy(), [])
+  const passwordRequirements = React.useMemo(
+    () => formatPasswordRequirements(passwordPolicy, t),
+    [passwordPolicy, t],
+  )
+  const passwordDescription = React.useMemo(() => (
+    passwordRequirements
+      ? t('auth.password.requirements.help', 'Password requirements: {requirements}', { requirements: passwordRequirements })
+      : undefined
+  ), [passwordRequirements, t])
 
   React.useEffect(() => {
     let cancelled = false
@@ -156,7 +167,13 @@ export default function CreateUserPage() {
   const fields: CrudField[] = React.useMemo(() => {
     const items: CrudField[] = [
       { id: 'email', label: t('auth.users.form.field.email', 'Email'), type: 'text', required: true },
-      { id: 'password', label: t('auth.users.form.field.password', 'Password'), type: 'text', required: true },
+      {
+        id: 'password',
+        label: t('auth.users.form.field.password', 'Password'),
+        type: 'text',
+        required: true,
+        description: passwordDescription,
+      },
     ]
     if (actorIsSuperAdmin) {
       items.push({
@@ -203,7 +220,7 @@ export default function CreateUserPage() {
     })
     items.push({ id: 'roles', label: t('auth.users.form.field.roles', 'Roles'), type: 'tags', loadOptions: loadRoleOptions })
     return items
-  }, [actorIsSuperAdmin, loadRoleOptions, selectedTenantId, t])
+  }, [actorIsSuperAdmin, loadRoleOptions, passwordDescription, selectedTenantId, t])
 
   const detailFieldIds = React.useMemo(() => {
     const base: string[] = ['email', 'password', 'organizationId', 'roles']

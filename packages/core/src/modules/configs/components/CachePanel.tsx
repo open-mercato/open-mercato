@@ -194,7 +194,7 @@ export function CachePanel() {
         <header className="space-y-1">
           <h2 className="text-lg font-semibold">{t('configs.cache.title', 'Cache overview')}</h2>
           <p className="text-sm text-muted-foreground">
-            {t('configs.cache.description', 'Inspect cached CRUD responses and clear segments when necessary.')}
+            {t('configs.cache.description', 'Inspect cached responses and clear segments when necessary.')}
           </p>
         </header>
         <div className="flex items-center gap-2 text-sm text-muted-foreground">
@@ -211,7 +211,7 @@ export function CachePanel() {
         <header className="space-y-1">
           <h2 className="text-lg font-semibold">{t('configs.cache.title', 'Cache overview')}</h2>
           <p className="text-sm text-muted-foreground">
-            {t('configs.cache.description', 'Inspect cached CRUD responses and clear segments when necessary.')}
+            {t('configs.cache.description', 'Inspect cached responses and clear segments when necessary.')}
           </p>
         </header>
         <div className="rounded border border-red-200 bg-red-50 p-3 text-sm text-red-700">
@@ -235,7 +235,7 @@ export function CachePanel() {
         <div className="space-y-1">
           <h2 className="text-lg font-semibold">{t('configs.cache.title', 'Cache overview')}</h2>
           <p className="text-sm text-muted-foreground">
-            {t('configs.cache.description', 'Inspect cached CRUD responses and clear segments when necessary.')}
+            {t('configs.cache.description', 'Inspect cached responses and clear segments when necessary.')}
           </p>
           {stats ? (
             <>
@@ -342,7 +342,7 @@ export function CachePanel() {
           </div>
         ) : (
           <p className="text-sm text-muted-foreground">
-            {t('configs.cache.empty', 'No cached CRUD responses for this tenant.')}
+            {t('configs.cache.empty', 'No cached responses for this tenant.')}
           </p>
         )}
       </div>

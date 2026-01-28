@@ -681,5 +681,7 @@
         "deleteError": "Failed to delete variant."
       }
     }
-  }
+  },
+  "catalog.notifications.product.lowStock.title": "Low Stock Alert",
+  "catalog.notifications.product.lowStock.body": "{productName}{sku, select, other { ({sku})}} is running low on stock ({currentStock} remaining, threshold: {threshold})"
 }

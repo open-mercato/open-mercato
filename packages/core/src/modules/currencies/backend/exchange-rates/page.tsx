@@ -279,10 +279,12 @@ export default function ExchangeRatesPage() {
             <RowActions
               items={[
                 {
+                  id: 'edit',
                   label: t('common.edit'),
                   href: `/backend/exchange-rates/${row.id}`,
                 },
                 {
+                  id: 'delete',
                   label: t('common.delete'),
                   destructive: true,
                   onSelect: () => handleDelete(row),

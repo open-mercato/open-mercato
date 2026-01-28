@@ -275,10 +275,10 @@ export default function StaffTeamsPage() {
           rowActions={(row) => (
             <RowActions
               items={[
-                { label: labels.actions.edit, href: `/backend/staff/teams/${row.id}/edit` },
+                { id: 'edit', label: labels.actions.edit, href: `/backend/staff/teams/${row.id}/edit` },
                 ...(row.memberCount > 0
                   ? []
-                  : [{ label: labels.actions.delete, destructive: true, onSelect: () => { void handleDelete(row) } }]),
+                  : [{ id: 'delete', label: labels.actions.delete, destructive: true, onSelect: () => { void handleDelete(row) } }]),
               ]}
             />
           )}

@@ -35,6 +35,9 @@ import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import type { CrudIndexerConfig } from '@open-mercato/shared/lib/crud/types'
 import { E } from '#generated/entities.ids.generated'
 import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { resolveNotificationService } from '../../notifications/lib/notificationService'
+import { buildNotificationFromType } from '../../notifications/lib/notificationBuilder'
+import { notificationTypes } from '../notifications'
 
 const DEAL_ENTITY_ID = 'customers:customer_deal'
 const dealCrudIndexer: CrudIndexerConfig<CustomerDeal> = {
@@ -281,6 +284,8 @@ const updateDealCommand: CommandHandler<DealUpdateInput, { dealId: string }> = {
     ensureTenantScope(ctx, record.tenantId)
     ensureOrganizationScope(ctx, record.organizationId)
 
+    const previousStatus = record.status
+
     if (parsed.title !== undefined) record.title = parsed.title
     if (parsed.description !== undefined) record.description = parsed.description ?? null
     if (parsed.status !== undefined) record.status = parsed.status ?? record.status
@@ -318,6 +323,40 @@ const updateDealCommand: CommandHandler<DealUpdateInput, { dealId: string }> = {
       },
       indexer: dealCrudIndexer,
     })
+
+    // Send notifications for deal won/lost status changes
+    const newStatus = record.status
+    const normalizedStatus = newStatus === 'win' ? 'won' : newStatus === 'loose' ? 'lost' : newStatus
+    if (previousStatus !== newStatus && (normalizedStatus === 'won' || normalizedStatus === 'lost') && record.ownerUserId) {
+      try {
+        const notificationService = resolveNotificationService(ctx.container)
+        const notificationType = normalizedStatus === 'won' ? 'customers.deal.won' : 'customers.deal.lost'
+        const typeDef = notificationTypes.find((type) => type.type === notificationType)
+        if (typeDef) {
+          const valueDisplay = record.valueAmount && record.valueCurrency
+            ? `${record.valueCurrency} ${record.valueAmount}`
+            : ''
+
+          const notificationInput = buildNotificationFromType(typeDef, {
+            recipientUserId: record.ownerUserId,
+            bodyVariables: {
+              dealTitle: record.title,
+              dealValue: valueDisplay,
+            },
+            sourceEntityType: 'customers:customer_deal',
+            sourceEntityId: record.id,
+            linkHref: `/backend/customers/deals/${record.id}`,
+          })
+
+          await notificationService.create(notificationInput, {
+            tenantId: record.tenantId,
+            organizationId: record.organizationId,
+          })
+        }
+      } catch {
+        // Notification creation is non-critical, don't fail the command
+      }
+    }
 
     return { dealId: record.id }
   },

@@ -10,6 +10,7 @@ import { useT, useLocale } from '@open-mercato/shared/lib/i18n/context'
 import { translateWithFallback } from '@open-mercato/shared/lib/i18n/translate'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { onboardingStartSchema } from '@open-mercato/onboarding/modules/onboarding/data/validators'
+import { formatPasswordRequirements, getPasswordPolicy } from '@open-mercato/shared/lib/auth/passwordPolicy'
 
 type SubmissionState = 'idle' | 'loading' | 'success'
 type FieldErrors = Partial<Record<
@@ -27,6 +28,15 @@ export default function OnboardingPage() {
   const [fieldErrors, setFieldErrors] = useState<FieldErrors>({})
   const [termsAccepted, setTermsAccepted] = useState(false)
   const [emailSubmitted, setEmailSubmitted] = useState<string | null>(null)
+  const passwordPolicy = getPasswordPolicy()
+  const passwordRequirements = formatPasswordRequirements(passwordPolicy, translate, 'onboarding.password.requirements')
+  const passwordDescription = passwordRequirements
+    ? translate(
+        'onboarding.password.requirements.help',
+        'Password requirements: {requirements}',
+        { requirements: passwordRequirements },
+      )
+    : ''
 
   async function onSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault()
@@ -66,7 +76,11 @@ export default function OnboardingPage() {
             issueMap.organizationName = translate('onboarding.errors.organizationNameRequired', 'Organization name is required.')
             break
           case 'password':
-            issueMap.password = translate('onboarding.errors.passwordRequired', 'Password must be at least 6 characters.')
+            issueMap.password = translate(
+              'onboarding.errors.passwordRequired',
+              'Password must meet the requirements: {requirements}.',
+              { requirements: passwordRequirements },
+            )
             break
           case 'confirmPassword':
             issueMap.confirmPassword = translate('onboarding.errors.passwordMismatch', 'Passwords must match.')
@@ -236,10 +250,14 @@ export default function OnboardingPage() {
                 required
                 disabled={disabled}
                 autoComplete="new-password"
+                minLength={passwordPolicy.minLength}
                 aria-invalid={Boolean(fieldErrors.password)}
                 aria-describedby={fieldErrors.password ? 'password-error' : undefined}
                 className={fieldErrors.password ? 'border-red-500 focus-visible:ring-red-500' : undefined}
               />
+              {passwordDescription ? (
+                <p className="text-xs text-muted-foreground">{passwordDescription}</p>
+              ) : null}
               {fieldErrors.password && (
                 <p id="password-error" className="text-xs text-red-600">{fieldErrors.password}</p>
               )}

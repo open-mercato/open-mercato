@@ -34,7 +34,7 @@ Alternatively, you can run the steps manually:
 If you ran `yarn initialize`, this step is already done. Otherwise:
 - Seed default roles: `yarn mercato auth seed-roles`
 - Create the first tenant/org/admin:
-  - `yarn mercato auth setup --orgName "Acme" --email admin@acme.com --password secret --roles superadmin,admin`
+  - `yarn mercato auth setup --orgName "Acme" --email admin@acme.com --password secret --roles superadmin,admin --skip-password-policy`
 
 ## 4) Run the App
 - `yarn dev`

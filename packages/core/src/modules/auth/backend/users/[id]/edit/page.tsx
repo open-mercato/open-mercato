@@ -10,8 +10,9 @@ import { AclEditor, type AclData } from '@open-mercato/core/modules/auth/compone
 import { OrganizationSelect } from '@open-mercato/core/modules/directory/components/OrganizationSelect'
 import { TenantSelect } from '@open-mercato/core/modules/directory/components/TenantSelect'
 import { fetchRoleOptions } from '@open-mercato/core/modules/auth/backend/users/roleOptions'
-import { WidgetVisibilityEditor } from '@open-mercato/core/modules/dashboards/components/WidgetVisibilityEditor'
+import { WidgetVisibilityEditor, type WidgetVisibilityEditorHandle } from '@open-mercato/core/modules/dashboards/components/WidgetVisibilityEditor'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { formatPasswordRequirements, getPasswordPolicy } from '@open-mercato/shared/lib/auth/passwordPolicy'
 
 type EditUserFormValues = {
   email: string
@@ -108,6 +109,17 @@ export default function EditUserPage({ params }: { params?: { id?: string } }) {
   const [aclData, setAclData] = React.useState<AclData>({ isSuperAdmin: false, features: [], organizations: null })
   const [customFieldValues, setCustomFieldValues] = React.useState<Record<string, unknown>>({})
   const [actorIsSuperAdmin, setActorIsSuperAdmin] = React.useState(false)
+  const widgetEditorRef = React.useRef<WidgetVisibilityEditorHandle | null>(null)
+  const passwordPolicy = React.useMemo(() => getPasswordPolicy(), [])
+  const passwordRequirements = React.useMemo(
+    () => formatPasswordRequirements(passwordPolicy, t),
+    [passwordPolicy, t],
+  )
+  const passwordDescription = React.useMemo(() => (
+    passwordRequirements
+      ? t('auth.password.requirements.help', 'Password requirements: {requirements}', { requirements: passwordRequirements })
+      : undefined
+  ), [passwordRequirements, t])
 
   React.useEffect(() => {
     if (!id) {
@@ -201,7 +213,12 @@ export default function EditUserPage({ params }: { params?: { id?: string } }) {
   const fields: CrudField[] = React.useMemo(() => {
     const items: CrudField[] = [
       { id: 'email', label: t('auth.users.form.field.email', 'Email'), type: 'text', required: true },
-      { id: 'password', label: t('auth.users.form.field.password', 'Password'), type: 'text' },
+      {
+        id: 'password',
+        label: t('auth.users.form.field.password', 'Password'),
+        type: 'text',
+        description: passwordDescription,
+      },
     ]
     if (actorIsSuperAdmin) {
       items.push({
@@ -251,7 +268,7 @@ export default function EditUserPage({ params }: { params?: { id?: string } }) {
     })
     items.push({ id: 'roles', label: t('auth.users.form.field.roles', 'Roles'), type: 'tags', loadOptions: loadRoleOptions })
     return items
-  }, [actorIsSuperAdmin, loadRoleOptions, preloadedTenants, selectedOrgId, selectedTenantId, t])
+  }, [actorIsSuperAdmin, loadRoleOptions, passwordDescription, preloadedTenants, selectedOrgId, selectedTenantId, t])
 
   const detailFieldIds = React.useMemo(() => {
     const base: string[] = ['email', 'password', 'organizationId', 'roles']
@@ -292,6 +309,7 @@ export default function EditUserPage({ params }: { params?: { id?: string } }) {
             targetId={String(id)}
             tenantId={selectedTenantId ?? null}
             organizationId={initialUser?.organizationId ?? null}
+            ref={widgetEditorRef}
           />
         ) : null
       ),
@@ -354,6 +372,7 @@ export default function EditUserPage({ params }: { params?: { id?: string } }) {
             await updateCrud('auth/users/acl', { userId: id, ...aclData }, {
               errorMessage: t('auth.users.form.errors.aclUpdate', 'Failed to update user access control'),
             })
+            await widgetEditorRef.current?.save()
             try { window.dispatchEvent(new Event('om:refresh-sidebar')) } catch {}
           }}
           onDelete={async () => {

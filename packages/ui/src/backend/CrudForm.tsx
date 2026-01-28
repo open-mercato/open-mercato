@@ -132,6 +132,7 @@ export type CrudFormProps<TValues extends Record<string, unknown>> = {
   fields: CrudField[]
   initialValues?: Partial<TValues>
   submitLabel?: string
+  formId?: string
   customFieldsLoadingMessage?: string
   cancelHref?: string
   successRedirect?: string
@@ -160,6 +161,8 @@ export type CrudFormProps<TValues extends Record<string, unknown>> = {
   customEntity?: boolean
   // Embedded mode hides outer chrome; useful for inline sections
   embedded?: boolean
+  // Hide the footer action bar (Save/Cancel/Delete) when embedding in a custom layout
+  hideFooterActions?: boolean
   // Optional custom content injected between the header actions and the form body
   contentHeader?: React.ReactNode
   // Optional mapping of entityId -> form value key storing the selected fieldset code
@@ -257,6 +260,7 @@ export function CrudForm<TValues extends Record<string, unknown>>({
   fields,
   initialValues,
   submitLabel,
+  formId: providedFormId,
   customFieldsLoadingMessage,
   cancelHref,
   successRedirect,
@@ -274,6 +278,7 @@ export function CrudForm<TValues extends Record<string, unknown>>({
   loadingMessage,
   customEntity = false,
   embedded = false,
+  hideFooterActions = false,
   extraActions,
   contentHeader,
   customFieldsetBindings,
@@ -301,7 +306,8 @@ export function CrudForm<TValues extends Record<string, unknown>>({
   const deleteSuccessMessage = t('ui.forms.flash.deleteSuccess')
   const deleteErrorMessage = t('ui.forms.flash.deleteError')
   const saveErrorMessage = t('ui.forms.flash.saveError')
-  const formId = React.useId()
+  const internalFormId = React.useId()
+  const formId = providedFormId ?? internalFormId
   const [values, setValues] = React.useState<CrudFormValues<TValues>>(
     () => ({ ...(initialValues ?? {}) } as CrudFormValues<TValues>)
   )
@@ -1551,7 +1557,7 @@ export function CrudForm<TValues extends Record<string, unknown>>({
           isLoading={isLoading}
           loadingMessage={resolvedLoadingMessage}
           spinnerSize="md"
-            className="min-h-[400px]"
+          className={embedded ? 'min-h-[1px]' : 'min-h-[400px]'}
           >
             <form id={formId} onSubmit={handleSubmit} className={`space-y-4 ${dialogFormPadding}`}>
             {resolvedInjectionSpotId ? (
@@ -1573,27 +1579,29 @@ export function CrudForm<TValues extends Record<string, unknown>>({
               {hasSecondaryColumn ? <div className="space-y-3">{col2Content}</div> : null}
             </div>
             {formError ? <div className="text-sm text-red-600">{formError}</div> : null}
-            <div className={`flex items-center ${embedded ? 'justify-end' : 'justify-between'} gap-2 ${dialogFooterClass}`}>
-              {embedded ? null : <div />}
-              <div className="flex items-center gap-2">
-                {extraActions}
-                {!embedded && showDelete ? (
-                  <Button type="button" variant="outline" onClick={handleDelete} className="text-red-600 border-red-200 hover:bg-red-50 rounded">
-                    <Trash2 className="size-4 mr-2" />
-                    {deleteLabel}
+            {hideFooterActions ? null : (
+              <div className={`flex items-center ${embedded ? 'justify-end' : 'justify-between'} gap-2 ${dialogFooterClass}`}>
+                {embedded ? null : <div />}
+                <div className="flex items-center gap-2">
+                  {extraActions}
+                  {!embedded && showDelete ? (
+                    <Button type="button" variant="outline" onClick={handleDelete} className="text-red-600 border-red-200 hover:bg-red-50 rounded">
+                      <Trash2 className="size-4 mr-2" />
+                      {deleteLabel}
+                    </Button>
+                  ) : null}
+                  {!embedded && cancelHref ? (
+                    <Link href={cancelHref} className="h-9 inline-flex items-center rounded border px-3 text-sm">
+                      {cancelLabel}
+                    </Link>
+                  ) : null}
+                  <Button type="submit" disabled={pending}>
+                    <Save className="size-4 mr-2" />
+                    {pending ? savingLabel : resolvedSubmitLabel}
                   </Button>
-                ) : null}
-                {!embedded && cancelHref ? (
-                  <Link href={cancelHref} className="h-9 inline-flex items-center rounded border px-3 text-sm">
-                    {cancelLabel}
-                  </Link>
-                ) : null}
-                <Button type="submit" disabled={pending}>
-                  <Save className="size-4 mr-2" />
-                  {pending ? savingLabel : resolvedSubmitLabel}
-                </Button>
+                </div>
               </div>
-            </div>
+            )}
           </form>
         </DataLoader>
         {fieldsetManagerDialog}
@@ -1639,7 +1647,7 @@ export function CrudForm<TValues extends Record<string, unknown>>({
         isLoading={isLoading}
         loadingMessage={resolvedLoadingMessage}
         spinnerSize="md"
-        className="min-h-[400px]"
+        className={embedded ? 'min-h-[1px]' : 'min-h-[400px]'}
       >
         <div>
           <form
@@ -1681,24 +1689,26 @@ export function CrudForm<TValues extends Record<string, unknown>>({
               })}
             </div>
             {formError ? <div className="text-sm text-red-600">{formError}</div> : null}
-            <div className={`flex items-center ${embedded ? 'justify-end' : 'justify-end'} gap-2 ${dialogFooterClass}`}>
-              {extraActions}
-              {!embedded && showDelete ? (
-                <Button type="button" variant="outline" onClick={handleDelete} className="text-red-600 border-red-200 hover:bg-red-50">
-                  <Trash2 className="size-4 mr-2" />
-                  {deleteLabel}
+            {hideFooterActions ? null : (
+              <div className={`flex items-center ${embedded ? 'justify-end' : 'justify-end'} gap-2 ${dialogFooterClass}`}>
+                {extraActions}
+                {!embedded && showDelete ? (
+                  <Button type="button" variant="outline" onClick={handleDelete} className="text-red-600 border-red-200 hover:bg-red-50">
+                    <Trash2 className="size-4 mr-2" />
+                    {deleteLabel}
+                  </Button>
+                ) : null}
+                {!embedded && cancelHref ? (
+                  <Link href={cancelHref} className="h-9 inline-flex items-center rounded border px-3 text-sm">
+                    {cancelLabel}
+                  </Link>
+                ) : null}
+                <Button type="submit" disabled={pending}>
+                  <Save className="size-4 mr-2" />
+                  {pending ? savingLabel : resolvedSubmitLabel}
                 </Button>
-              ) : null}
-              {!embedded && cancelHref ? (
-                <Link href={cancelHref} className="h-9 inline-flex items-center rounded border px-3 text-sm">
-                  {cancelLabel}
-                </Link>
-              ) : null}
-              <Button type="submit" disabled={pending}>
-                <Save className="size-4 mr-2" />
-                {pending ? savingLabel : resolvedSubmitLabel}
-              </Button>
-            </div>
+              </div>
+            )}
           </form>
         </div>
       </DataLoader>

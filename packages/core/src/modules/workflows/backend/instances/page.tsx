@@ -266,8 +266,9 @@ export default function WorkflowInstancesListPage() {
       id: 'actions',
       header: '',
       cell: ({ row }) => {
-        const items: Array<{label: string; href?: string; onSelect?: () => void}> = [
+        const items: Array<{ id: string; label: string; href?: string; onSelect?: () => void }> = [
           {
+            id: 'view',
             label: t('workflows.instances.actions.viewDetails'),
             href: `/backend/instances/${row.original.id}`,
           },
@@ -275,6 +276,7 @@ export default function WorkflowInstancesListPage() {
 
         if (row.original.status === 'RUNNING' || row.original.status === 'PAUSED') {
           items.push({
+            id: 'cancel',
             label: t('workflows.instances.actions.cancel'),
             onSelect: () => handleCancel(row.original.id, row.original.workflowId),
           })
@@ -282,6 +284,7 @@ export default function WorkflowInstancesListPage() {
 
         if (row.original.status === 'FAILED') {
           items.push({
+            id: 'retry',
             label: t('workflows.instances.actions.retry'),
             onSelect: () => handleRetry(row.original.id, row.original.workflowId),
           })

@@ -171,12 +171,14 @@ export function DictionaryTable({
               const items: RowActionItem[] = []
               if (onEdit) {
                 items.push({
+                  id: 'edit',
                   label: translations.editLabel,
                   onSelect: () => onEdit(entry),
                 })
               }
               if (onDelete) {
                 items.push({
+                  id: 'delete',
                   label: translations.deleteLabel,
                   onSelect: () => onDelete(entry),
                   destructive: true,

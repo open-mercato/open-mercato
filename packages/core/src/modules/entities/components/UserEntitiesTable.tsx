@@ -110,8 +110,8 @@ export default function UserEntitiesTable() {
       rowActions={(row) => (
         <RowActions
           items={[
-            { label: t('common.edit', 'Edit'), href: `/backend/entities/user/${encodeURIComponent(row.entityId)}` },
-            { label: t('entities.user.table.actions.showRecords', 'Show records'), href: `/backend/entities/user/${encodeURIComponent(row.entityId)}/records` },
+            { id: 'edit', label: t('common.edit', 'Edit'), href: `/backend/entities/user/${encodeURIComponent(row.entityId)}` },
+            { id: 'show-records', label: t('entities.user.table.actions.showRecords', 'Show records'), href: `/backend/entities/user/${encodeURIComponent(row.entityId)}/records` },
           ]}
         />
       )}
