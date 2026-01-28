@@ -302,7 +302,11 @@ export default async function BackendLayout({ children, params }: { children: Re
     </>
   )
 
-  const productName = translate('appShell.productName', 'Open Mercato')
+  const deployEnv = process.env.DEPLOY_ENV
+  const baseProductName = translate('appShell.productName', 'Open Mercato')
+  const productName = deployEnv && deployEnv !== 'local'
+    ? `${baseProductName} (${deployEnv.charAt(0).toUpperCase() + deployEnv.slice(1)})`
+    : baseProductName
   const injectionContext = {
     path,
     userId: auth?.sub ?? null,
