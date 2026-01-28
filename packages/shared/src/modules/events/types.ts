@@ -95,8 +95,8 @@ export interface EventModuleConfig<TEventIds extends string = string> {
 export interface CreateModuleEventsOptions<TEventIds extends string> {
   /** Module identifier (e.g., 'customers', 'sales') */
   moduleId: string
-  /** Array of event definitions */
-  events: Array<Omit<EventDefinition, 'module'> & { id: TEventIds }>
+  /** Array of event definitions (supports readonly arrays from `as const`) */
+  events: ReadonlyArray<Omit<EventDefinition, 'module'> & { id: TEventIds }>
   /** If true, throw on undeclared events. If false (default), log warning */
   strict?: boolean
 }

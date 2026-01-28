@@ -134,14 +134,9 @@ export const openApi: OpenApiRouteDoc = {
     POST: {
       summary: 'Execute a specific rule by its database UUID',
       description: 'Directly executes a specific business rule identified by its UUID, bypassing the normal entityType/eventType discovery mechanism. Useful for workflows and targeted rule execution.',
-      pathParams: [
-        {
-          name: 'ruleId',
-          description: 'The database UUID of the business rule to execute',
-          required: true,
-          schema: z.uuid(),
-        },
-      ],
+      pathParams: z.object({
+        ruleId: z.string().uuid().describe('The database UUID of the business rule to execute'),
+      }),
       requestBody: {
         contentType: 'application/json',
         schema: executeByIdRequestSchema,
