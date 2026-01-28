@@ -6,7 +6,7 @@ import { useQuery } from '@tanstack/react-query'
 import { Bot, Loader2, CheckCircle2, XCircle, ChevronDown, ChevronRight, Server, Wrench, Eye, EyeOff, Database, Link2, Settings, Key } from 'lucide-react'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Switch } from '@open-mercato/ui/primitives/switch'
-import { useAiAssistantVisibility } from '../../../../frontend/hooks/useAiAssistantVisibility'
+import { useAiAssistantVisibility } from '../../../frontend/hooks/useAiAssistantVisibility'
 import McpConfigDialog from './McpConfigDialog'
 import SessionKeyDialog from './SessionKeyDialog'
 
