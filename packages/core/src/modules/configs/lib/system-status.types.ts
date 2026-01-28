@@ -1,6 +1,7 @@
 export type SystemStatusCategoryKey =
   | 'profiling'
   | 'logging'
+  | 'security'
   | 'caching'
   | 'query_index'
   | 'entities'

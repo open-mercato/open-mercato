@@ -1,8 +1,10 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { CacheStrategy } from '@open-mercato/cache'
 import { createHash } from 'node:crypto'
+import { decryptWithAesGcm } from '@open-mercato/shared/lib/encryption/aes'
 import { resolveTenantEncryptionService } from '@open-mercato/shared/lib/encryption/customFieldValues'
 import { resolveEntityIdFromMetadata } from '@open-mercato/shared/lib/encryption/entityIds'
+import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import {
   type DateRangePreset,
   resolveDateRange,
@@ -284,6 +286,57 @@ export class WidgetDataService {
     assertSafeIdentifier(config.idColumn, 'id column')
     assertSafeIdentifier(config.labelColumn, 'label column')
 
+    const meta = this.resolveEntityMetadata(config.table)
+    const idProp = meta ? this.resolveEntityPropertyName(meta, config.idColumn) : null
+    const labelProp = meta ? this.resolveEntityPropertyName(meta, config.labelColumn) : null
+    const tenantProp = meta
+      ? (this.resolveEntityPropertyName(meta, 'tenant_id') ?? this.resolveEntityPropertyName(meta, 'tenantId'))
+      : null
+    const organizationProp = meta
+      ? (this.resolveEntityPropertyName(meta, 'organization_id') ?? this.resolveEntityPropertyName(meta, 'organizationId'))
+      : null
+    const entityName = meta ? ((meta as any).class ?? meta.className ?? meta.name) : null
+
+    if (meta && idProp && labelProp && tenantProp && entityName) {
+      const where: Record<string, unknown> = {
+        [idProp]: { $in: uniqueIds },
+        [tenantProp]: this.scope.tenantId,
+      }
+      if (organizationProp && this.scope.organizationIds && this.scope.organizationIds.length > 0) {
+        where[organizationProp] = { $in: this.scope.organizationIds }
+      }
+
+      try {
+        const records = await findWithDecryption(
+          this.em,
+          entityName,
+          where,
+          { fields: [idProp, labelProp, tenantProp, organizationProp].filter(Boolean) },
+          { tenantId: this.scope.tenantId, organizationId: this.resolveOrganizationId() },
+        )
+
+        const labelMap = new Map<string, string>()
+        for (const record of records as Array<Record<string, unknown>>) {
+          const id = record[idProp]
+          const label = record[labelProp]
+          if (typeof id === 'string' && label != null && label !== '') {
+            labelMap.set(id, String(label))
+          }
+        }
+
+        if (labelMap.size > 0) {
+          return data.map((item) => ({
+            ...item,
+            groupLabel: typeof item.groupKey === 'string' && labelMap.has(item.groupKey)
+              ? labelMap.get(item.groupKey)!
+              : undefined,
+          }))
+        }
+      } catch {
+        // fall through to SQL resolution
+      }
+    }
+
     const clauses = [`"${config.idColumn}" = ANY(?::uuid[])`, 'tenant_id = ?']
     const params: unknown[] = [`{${uniqueIds.join(',')}}`, this.scope.tenantId]
 
@@ -292,30 +345,38 @@ export class WidgetDataService {
       params.push(`{${this.scope.organizationIds.join(',')}}`)
     }
 
-    const sql = `SELECT "${config.idColumn}" as id, "${config.labelColumn}" as label FROM "${config.table}" WHERE ${clauses.join(
+    const sql = `SELECT "${config.idColumn}" as id, "${config.labelColumn}" as label, tenant_id, organization_id FROM "${config.table}" WHERE ${clauses.join(
       ' AND ',
     )}`
 
     try {
       const labelRows = await this.em.getConnection().execute(sql, params)
-      const meta = this.resolveEntityMetadata(config.table)
       const entityId = this.resolveEntityId(meta)
       const encryptionService = resolveTenantEncryptionService(this.em as any)
       const organizationId = this.resolveOrganizationId()
+      const dek = encryptionService?.isEnabled() ? await encryptionService.getDek(this.scope.tenantId) : null
 
       const labelMap = new Map<string, string>()
-      for (const row of labelRows as Array<{ id: string; label: string | null }>) {
+      for (const row of labelRows as Array<{ id: string; label: string | null; tenant_id?: string | null; organization_id?: string | null }>) {
         let labelValue = row.label
         if (entityId && encryptionService?.isEnabled() && labelValue != null) {
+          const rowOrgId = row.organization_id ?? organizationId ?? null
           const decrypted = await encryptionService.decryptEntityPayload(
             entityId,
             { [config.labelColumn]: labelValue },
             this.scope.tenantId,
-            organizationId,
+            rowOrgId,
           )
           const resolved = decrypted[config.labelColumn]
           if (typeof resolved === 'string' || typeof resolved === 'number') {
             labelValue = String(resolved)
+          }
+        }
+
+        if (labelValue && dek?.key && this.isEncryptedPayload(labelValue)) {
+          const decrypted = decryptWithAesGcm(labelValue, dek.key)
+          if (decrypted !== null) {
+            labelValue = decrypted
           }
         }
 
@@ -359,6 +420,18 @@ export class WidgetDataService {
     return match ?? null
   }
 
+  private resolveEntityPropertyName(meta: Record<string, any>, columnName: string): string | null {
+    const properties = meta?.properties ? Object.values(meta.properties) : []
+    for (const prop of properties as Array<Record<string, any>>) {
+      const fieldName = prop?.fieldName
+      const fieldNames = prop?.fieldNames
+      if (typeof fieldName === 'string' && fieldName === columnName) return prop?.name ?? null
+      if (Array.isArray(fieldNames) && fieldNames.includes(columnName)) return prop?.name ?? null
+      if (prop?.name === columnName) return prop?.name ?? null
+    }
+    return null
+  }
+
   private resolveEntityId(meta: Record<string, any> | null): string | null {
     if (!meta) return null
     try {
@@ -366,6 +439,11 @@ export class WidgetDataService {
     } catch {
       return null
     }
+  }
+
+  private isEncryptedPayload(value: string): boolean {
+    const parts = value.split(':')
+    return parts.length === 4 && parts[3] === 'v1'
   }
 }
 
