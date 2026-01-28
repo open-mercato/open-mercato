@@ -38,6 +38,14 @@
       "types": "./src/backend/inputs/index.ts",
       "default": "./dist/backend/inputs/index.js"
     },
+    "./backend/charts": {
+      "types": "./src/backend/charts/index.ts",
+      "default": "./dist/backend/charts/index.js"
+    },
+    "./backend/date-range": {
+      "types": "./src/backend/date-range/index.ts",
+      "default": "./dist/backend/date-range/index.js"
+    },
     "./backend/injection/widgetRegistry": {
       "types": "./src/backend/injection/widgetRegistry.ts",
       "default": "./dist/backend/injection/widgetRegistry.js"
@@ -87,7 +95,8 @@
     "@open-mercato/shared": "workspace:*",
     "@radix-ui/react-tooltip": "^1.2.8",
     "date-fns": "^4.1.0",
-    "react-big-calendar": "^1.19.4"
+    "react-big-calendar": "^1.19.4",
+    "recharts": "^2.15.0"
   },
   "peerDependencies": {
     "react": ">=18.0.0",

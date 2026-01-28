@@ -45,6 +45,7 @@ Files like `AGENTS.md` and `CLAUDE.md` use UPPERCASE names and are not numberedâ
 | [SPEC-008](SPEC-008-2026-01-27-product-quality-widget.md) | 2026-01-27 | Product Quality Widget | Dashboard widget for tracking products with missing images/descriptions |
 | [SPEC-009](SPEC-009-2026-01-27-sales-dashboard-widgets.md) | 2026-01-27 | Sales Dashboard Widgets | New Orders and New Quotes dashboard widgets with date period filtering |
 | [SPEC-010](SPEC-010-2026-01-27-dashboard-widget-visibility.md) | 2026-01-27 | Dashboard Widget Visibility | Feature-based access control for dashboard widgets |
+| [SPEC-008](SPEC-011-2026-01-26-dashboard-analytics-widgets.md) | 2026-01-26 | Dashboard Analytics Widgets | Analytics widgets, registry, and shared chart/date-range UI |
 
 ## Specification Structure
 
