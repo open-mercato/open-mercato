@@ -74,6 +74,19 @@ export type ModuleEventEmitter<TEventIds extends string> = (
 ) => Promise<void>
 
 /**
+ * Base module events configuration for registry use.
+ * Uses a general string emitter to avoid contravariance issues when collecting configs.
+ */
+export interface EventModuleConfigBase {
+  /** Module identifier */
+  moduleId: string
+  /** Declared events */
+  events: EventDefinition[]
+  /** Event emitter - accepts any string for registry compatibility */
+  emit: (eventId: string, payload: EventPayload, options?: EmitOptions) => Promise<void>
+}
+
+/**
  * Module events configuration returned by events.ts
  */
 export interface EventModuleConfig<TEventIds extends string = string> {
