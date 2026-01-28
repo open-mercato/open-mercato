@@ -9,8 +9,6 @@ services:
     restart: unless-stopped
     environment:
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}
-    ports:
-      - "${OPENCODE_PORT:-4096}:4096"
     extra_hosts:
       - "host.docker.internal:host-gateway"
     networks:
@@ -59,8 +57,7 @@ services:
       POSTGRES_USER: ${POSTGRES_USER:-postgres}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
       POSTGRES_DB: ${POSTGRES_DB:-open-mercato}
-    ports:
-      - "${POSTGRES_PORT:-5432}:5432"
+    # ports not exposed - only accessible within docker network
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
@@ -74,8 +71,7 @@ services:
   redis:
     image: redis:7-alpine
     container_name: mercato-redis-${DEPLOY_ENV:-local}
-    ports:
-      - "${REDIS_PORT:-6379}:6379"
+    # ports not exposed - only accessible within docker network
     volumes:
       - redis_data:/data
     healthcheck:
@@ -94,8 +90,7 @@ services:
       MEILI_ENV: development
       MEILI_MASTER_KEY: ${MEILISEARCH_MASTER_KEY:-meilisearch-dev-key}
       MEILI_NO_ANALYTICS: "true"
-    ports:
-      - "${MEILISEARCH_PORT:-7700}:7700"
+    # ports not exposed - only accessible within docker network
     volumes:
       - meilisearch_data:/meili_data
     healthcheck:
