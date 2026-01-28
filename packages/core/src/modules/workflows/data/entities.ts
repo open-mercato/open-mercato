@@ -85,6 +85,23 @@ export interface WorkflowEventTriggerConfig {
   maxConcurrentInstances?: number // Limit concurrent instances
 }
 
+/**
+ * WorkflowDefinitionTrigger - Embedded trigger configuration
+ *
+ * Triggers are now embedded directly in the workflow definition,
+ * allowing users to configure event-based workflow starts during
+ * workflow creation in the visual editor.
+ */
+export interface WorkflowDefinitionTrigger {
+  triggerId: string
+  name: string
+  description?: string | null
+  eventPattern: string // e.g., "sales.orders.created", "customers.*"
+  config?: WorkflowEventTriggerConfig | null
+  enabled: boolean
+  priority: number
+}
+
 // ============================================================================
 // JSONB Structure Interfaces
 // ============================================================================
@@ -92,6 +109,7 @@ export interface WorkflowEventTriggerConfig {
 export interface WorkflowDefinitionData {
   steps: any[] // WorkflowStep[] - will define schema in validators.ts
   transitions: any[] // WorkflowTransition[] - will define schema in validators.ts
+  triggers?: WorkflowDefinitionTrigger[] // Event triggers for automatic workflow start
   activities?: any[] // ActivityDefinition[] - will define schema in validators.ts
   queries?: any[]
   signals?: any[]

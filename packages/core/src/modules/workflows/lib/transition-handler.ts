@@ -194,11 +194,15 @@ export async function evaluateTransition(
 /**
  * Find all valid transitions from current step
  *
+ * This function evaluates both inline conditions AND preConditions (business rules)
+ * to determine which transitions are truly valid. This is important for decision
+ * branching where multiple transitions exist with different preConditions.
+ *
  * @param em - Entity manager
  * @param instance - Workflow instance
  * @param fromStepId - Current step ID
  * @param context - Evaluation context
- * @returns Array of evaluation results for all transitions
+ * @returns Array of evaluation results for all transitions, sorted by priority (desc)
  */
 export async function findValidTransitions(
   em: EntityManager,
@@ -216,16 +220,17 @@ export async function findValidTransitions(
       return []
     }
 
-    // Find all transitions from current step
-    const transitions = (definition.definition.transitions || []).filter(
-      (t: any) => t.fromStepId === fromStepId
-    )
+    // Find all transitions from current step, sorted by priority (highest first)
+    const transitions = (definition.definition.transitions || [])
+      .filter((t: any) => t.fromStepId === fromStepId)
+      .sort((a: any, b: any) => (b.priority || 0) - (a.priority || 0))
 
-    // Evaluate each transition
+    // Evaluate each transition including preConditions
     const results: TransitionEvaluationResult[] = []
 
     for (const transition of transitions) {
-      const result = await evaluateTransition(
+      // First check inline condition
+      const conditionResult = await evaluateTransition(
         em,
         instance,
         fromStepId,
@@ -233,7 +238,42 @@ export async function findValidTransitions(
         context
       )
 
-      results.push(result)
+      if (!conditionResult.isValid) {
+        results.push(conditionResult)
+        continue
+      }
+
+      // Also evaluate preConditions if they exist
+      const preConditions = transition.preConditions || []
+      if (preConditions.length > 0) {
+        const preConditionsResult = await evaluatePreConditions(
+          em,
+          instance,
+          transition,
+          context as TransitionExecutionContext
+        )
+
+        if (!preConditionsResult.allowed) {
+          // Transition is invalid due to preConditions
+          const failedRules = preConditionsResult.executedRules
+            .filter((r) => !r.conditionResult)
+            .map((r) => r.rule.ruleId || r.rule.ruleName)
+
+          results.push({
+            isValid: false,
+            transition,
+            reason: `Pre-conditions failed: ${failedRules.join(', ')}`,
+            failedConditions: failedRules,
+          })
+          continue
+        }
+      }
+
+      // Transition is valid (both condition and preConditions passed)
+      results.push({
+        ...conditionResult,
+        transition,
+      })
     }
 
     return results

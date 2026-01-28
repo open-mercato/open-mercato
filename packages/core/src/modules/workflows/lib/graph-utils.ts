@@ -205,12 +205,20 @@ export function definitionToGraph(
   definition: WorkflowDefinition['definition'],
   options: DefinitionToGraphOptions = {}
 ): { nodes: Node[]; edges: Edge[] } {
-  const { autoLayout = true, layoutSpacing = { vertical: 250, horizontal: 100 } } = options
+  const { autoLayout = true, layoutSpacing = { vertical: 200, horizontal: 300 } } = options
+
+  // Build step map for quick lookup
+  const stepMap = new Map(definition.steps.map(step => [step.stepId, step]))
+
+  // Calculate smart layout positions if autoLayout is enabled
+  const positions = autoLayout
+    ? calculateSmartLayout(definition.steps, definition.transitions, layoutSpacing)
+    : null
 
   // Convert steps to nodes
   const nodes: Node[] = definition.steps.map((step, index) => {
     // Determine position
-    let position = { x: 250, y: 50 + index * layoutSpacing.vertical }
+    let position = positions?.get(step.stepId) || { x: 250, y: 50 + index * layoutSpacing.vertical }
 
     // Use stored position if available and not auto-layouting
     if (!autoLayout && (step as any)._editorPosition) {
@@ -324,6 +332,113 @@ export function definitionToGraph(
   })
 
   return { nodes, edges }
+}
+
+/**
+ * Calculate smart layout positions for workflow nodes
+ * Uses a layered/hierarchical layout algorithm that:
+ * 1. Assigns levels (ranks) to nodes based on graph topology
+ * 2. Spreads sibling nodes horizontally at the same level
+ * 3. Centers merge points below their incoming nodes
+ */
+function calculateSmartLayout(
+  steps: any[],
+  transitions: any[],
+  spacing: { vertical: number; horizontal: number }
+): Map<string, { x: number; y: number }> {
+  const positions = new Map<string, { x: number; y: number }>()
+
+  if (steps.length === 0) return positions
+
+  // Build adjacency lists
+  const outgoing = new Map<string, string[]>() // node -> children
+  const incoming = new Map<string, string[]>() // node -> parents
+
+  for (const step of steps) {
+    outgoing.set(step.stepId, [])
+    incoming.set(step.stepId, [])
+  }
+
+  for (const t of transitions) {
+    const children = outgoing.get(t.fromStepId) || []
+    children.push(t.toStepId)
+    outgoing.set(t.fromStepId, children)
+
+    const parents = incoming.get(t.toStepId) || []
+    parents.push(t.fromStepId)
+    incoming.set(t.toStepId, parents)
+  }
+
+  // Find start node(s) - nodes with no incoming edges
+  const startNodes = steps.filter(s => (incoming.get(s.stepId) || []).length === 0)
+  if (startNodes.length === 0) {
+    // Fallback: use first step as start
+    startNodes.push(steps[0])
+  }
+
+  // Assign levels using BFS (longest path from start)
+  const levels = new Map<string, number>()
+  const queue: Array<{ id: string; level: number }> = []
+
+  for (const start of startNodes) {
+    queue.push({ id: start.stepId, level: 0 })
+  }
+
+  while (queue.length > 0) {
+    const { id, level } = queue.shift()!
+    const currentLevel = levels.get(id)
+
+    // Take the maximum level (longest path)
+    if (currentLevel === undefined || level > currentLevel) {
+      levels.set(id, level)
+    }
+
+    const children = outgoing.get(id) || []
+    for (const child of children) {
+      queue.push({ id: child, level: level + 1 })
+    }
+  }
+
+  // Group nodes by level
+  const nodesByLevel = new Map<number, string[]>()
+  for (const [nodeId, level] of levels) {
+    const nodesAtLevel = nodesByLevel.get(level) || []
+    nodesAtLevel.push(nodeId)
+    nodesByLevel.set(level, nodesAtLevel)
+  }
+
+  // Calculate positions
+  const centerX = 400 // Center line for the graph
+  const startY = 50
+
+  for (const [level, nodeIds] of nodesByLevel) {
+    const count = nodeIds.length
+    const y = startY + level * spacing.vertical
+
+    if (count === 1) {
+      // Single node at this level - center it
+      positions.set(nodeIds[0], { x: centerX, y })
+    } else {
+      // Multiple nodes at this level - spread them horizontally
+      const totalWidth = (count - 1) * spacing.horizontal
+      const startX = centerX - totalWidth / 2
+
+      // Sort nodes by their parent's position for consistent ordering
+      nodeIds.sort((a, b) => {
+        const parentsA = incoming.get(a) || []
+        const parentsB = incoming.get(b) || []
+        const parentPosA = parentsA.length > 0 ? (positions.get(parentsA[0])?.x || 0) : 0
+        const parentPosB = parentsB.length > 0 ? (positions.get(parentsB[0])?.x || 0) : 0
+        return parentPosA - parentPosB
+      })
+
+      nodeIds.forEach((nodeId, idx) => {
+        positions.set(nodeId, { x: startX + idx * spacing.horizontal, y })
+      })
+    }
+  }
+
+  return positions
 }
 
 /**

@@ -64,7 +64,15 @@ export default async function handle(
 
   try {
     em = ctx.resolve<EntityManager>('em')
-    container = ctx.resolve<AwilixContainer>('container')
+    // Create a minimal container wrapper using the resolve function
+    // This avoids the need to register 'container' as a self-reference in DI
+    container = {
+      resolve: ctx.resolve,
+      // Provide minimal AwilixContainer interface for type compatibility
+      cradle: new Proxy({}, {
+        get: (_target, prop: string) => ctx.resolve(prop),
+      }),
+    } as unknown as AwilixContainer
   } catch (error) {
     // DI not available - skip
     console.warn(`[workflow-trigger] Cannot resolve dependencies for event "${eventName}":`, error)

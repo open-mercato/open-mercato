@@ -161,6 +161,7 @@
       "title": "Workflow Instances",
       "singular": "Workflow Instance",
       "plural": "Workflow Instances",
+      "duration": "Duration",
       "fields": {
         "instanceId": "Instance ID",
         "workflowId": "Workflow ID",
@@ -563,6 +564,55 @@
         "CompensationCompleted": "Compensation Completed"
       }
     },
+    "triggers": {
+      "title": "Event Triggers",
+      "add": "Add Trigger",
+      "description": "Configure events that automatically start this workflow. When a matching event occurs in the system, a new workflow instance will be created with the mapped context.",
+      "empty": {
+        "title": "No triggers configured",
+        "description": "Click \"Add Trigger\" to create an event trigger that automatically starts this workflow."
+      },
+      "dialog": {
+        "create": {
+          "title": "Create Event Trigger"
+        },
+        "edit": {
+          "title": "Edit Event Trigger"
+        },
+        "description": "Configure when this workflow should be automatically started based on system events."
+      },
+      "delete": {
+        "title": "Delete Event Trigger?",
+        "description": "This will remove the event trigger. The change will take effect when you save the workflow definition."
+      },
+      "fields": {
+        "name": "Name",
+        "description": "Description",
+        "eventPattern": "Event Pattern",
+        "enabled": "Enabled",
+        "priority": "Priority",
+        "filterConditions": "Filter Conditions",
+        "contextMapping": "Context Mapping",
+        "debounceMs": "Debounce (ms)",
+        "maxConcurrent": "Max Concurrent Instances"
+      },
+      "placeholders": {
+        "name": "Order Created Trigger",
+        "description": "Describe when this trigger should fire...",
+        "quickSelect": "Quick select...",
+        "unlimited": "Unlimited"
+      },
+      "hints": {
+        "priority": "Higher priority triggers execute first",
+        "eventPattern": "Use * as wildcard: \"sales.orders.*\" matches any order event",
+        "filterConditions": "Only trigger when the event payload matches these conditions (all must match)",
+        "contextMapping": "Map values from the event payload to the workflow's initial context",
+        "debounce": "Delay to prevent rapid re-triggers",
+        "maxConcurrent": "Limit simultaneous workflow instances"
+      },
+      "addCondition": "Add Condition",
+      "addMapping": "Add Mapping"
+    },
     "common": {
       "save": "Save",
       "cancel": "Cancel",
@@ -628,6 +678,27 @@
       "loadFailed": "Failed to load workflows",
       "duplicateNotYetImplemented": "Duplicate functionality is not yet implemented"
     }
+  },
+  "orderApproval": {
+    "groupLabel": "Order Approval",
+    "groupDescription": "Review and approve or reject this order",
+    "pendingTitle": "Pending Approval",
+    "pendingDescription": "This order requires approval before processing",
+    "decisionLabel": "Decision",
+    "approveButton": "Approve",
+    "rejectButton": "Reject",
+    "commentsLabel": "Comments",
+    "commentsPlaceholder": "Add optional comments...",
+    "approvedStatus": "Approved",
+    "rejectedStatus": "Rejected",
+    "requestApproval": "Request Approval",
+    "submitDecision": "Submit Decision",
+    "noWorkflowActive": "No approval workflow is active for this order.",
+    "processing": "Workflow is processing...",
+    "completed": "Approval workflow completed.",
+    "startError": "Failed to start approval workflow",
+    "completeError": "Failed to complete approval task",
+    "missingStatuses": "Missing order status entries. Please ensure pending_approval, approved, and rejected statuses exist in the sales.order_status dictionary."
   },
   "common": {
     "all": "All",

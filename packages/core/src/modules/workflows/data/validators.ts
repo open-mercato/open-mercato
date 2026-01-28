@@ -215,10 +215,43 @@ export const workflowTransitionSchema = z.object({
   priority: z.number().int().min(0).max(9999).default(0),
 })
 
+// Workflow definition trigger schema (embedded in definition)
+// Note: Uses forward reference pattern since eventPatternSchema and eventTriggerConfigSchema are defined later
+export const workflowDefinitionTriggerSchema = z.object({
+  triggerId: z.string().min(1).max(100).regex(/^[a-z0-9_-]+$/, 'Trigger ID must contain only lowercase letters, numbers, hyphens, and underscores'),
+  name: z.string().min(1).max(255),
+  description: z.string().max(2000).optional().nullable(),
+  eventPattern: z.string()
+    .min(1, 'Event pattern is required')
+    .max(255, 'Event pattern must be at most 255 characters')
+    .regex(
+      /^(\*|[a-z0-9_]+(\.[a-z0-9_*]+)*)$/i,
+      'Event pattern must be "*" or a dot-separated pattern with optional wildcards (e.g., "customers.people.created", "sales.orders.*")'
+    ),
+  config: z.object({
+    filterConditions: z.array(z.object({
+      field: z.string().min(1).max(255),
+      operator: z.enum(['eq', 'neq', 'gt', 'gte', 'lt', 'lte', 'contains', 'startsWith', 'endsWith', 'in', 'notIn', 'exists', 'notExists', 'regex']),
+      value: z.any(),
+    })).max(20).optional(),
+    contextMapping: z.array(z.object({
+      targetKey: z.string().min(1).max(100),
+      sourceExpression: z.string().min(1).max(255),
+      defaultValue: z.any().optional(),
+    })).max(50).optional(),
+    debounceMs: z.number().int().min(0).max(3600000).optional(),
+    maxConcurrentInstances: z.number().int().min(1).max(1000).optional(),
+  }).optional().nullable(),
+  enabled: z.boolean().default(true),
+  priority: z.number().int().min(0).max(9999).default(0),
+})
+export type WorkflowDefinitionTrigger = z.infer<typeof workflowDefinitionTriggerSchema>
+
 // Workflow definition data (JSONB structure)
 export const workflowDefinitionDataSchema = z.object({
   steps: z.array(workflowStepSchema).min(2, 'Workflow must have at least START and END steps'),
   transitions: z.array(workflowTransitionSchema).min(1, 'Workflow must have at least one transition'),
+  triggers: z.array(workflowDefinitionTriggerSchema).optional(), // Event triggers for automatic workflow start
   queries: z.array(z.any()).optional(), // For Phase 7
   signals: z.array(z.any()).optional(), // For Phase 9
   timers: z.array(z.any()).optional(), // For Phase 9

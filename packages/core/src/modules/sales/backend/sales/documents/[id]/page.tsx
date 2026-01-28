@@ -50,6 +50,9 @@ import {
   emitSalesDocumentTotalsRefresh,
   subscribeSalesDocumentTotalsRefresh,
 } from '@open-mercato/core/modules/sales/lib/frontend/documentTotalsEvents'
+import {
+  subscribeSalesDocumentDataRefresh,
+} from '@open-mercato/core/modules/sales/lib/frontend/documentDataEvents'
 import type { CommentSummary, SectionAction } from '@open-mercato/ui/backend/detail'
 import { ICON_SUGGESTIONS } from '@open-mercato/core/modules/customers/lib/dictionaries'
 import { readMarkdownPreferenceCookie, writeMarkdownPreferenceCookie } from '@open-mercato/core/modules/customers/lib/markdownPreference'
@@ -2599,6 +2602,19 @@ export default function SalesDocumentDetailPage({
         void refreshDocumentTotals()
       }),
     [kind, record?.id, refreshDocumentTotals],
+  )
+
+  // Subscribe to document data refresh events (e.g., from workflow status updates)
+  React.useEffect(
+    () =>
+      subscribeSalesDocumentDataRefresh((detail) => {
+        if (!record?.id) return
+        if (detail.documentId !== record.id) return
+        if (detail.kind && detail.kind !== kind) return
+        // Increment reloadKey to trigger a full document reload
+        setReloadKey((prev) => prev + 1)
+      }),
+    [kind, record?.id],
   )
 
   const statusDictionaryMap = React.useMemo(

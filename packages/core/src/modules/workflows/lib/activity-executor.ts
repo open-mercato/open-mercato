@@ -448,7 +448,30 @@ export async function executeEmitEvent(
 /**
  * UPDATE_ENTITY activity handler
  *
- * Updates an entity via query engine
+ * Updates an entity via CommandBus for proper audit logging, undo support, and side effects.
+ *
+ * Config format:
+ * ```json
+ * {
+ *   "commandId": "sales.documents.update",
+ *   "input": {
+ *     "id": "{{context.orderId}}",
+ *     "statusEntryId": "{{context.approvedStatusId}}"
+ *   }
+ * }
+ * ```
+ *
+ * Alternative format with statusValue (auto-resolves to statusEntryId):
+ * ```json
+ * {
+ *   "commandId": "sales.orders.update",
+ *   "statusDictionary": "sales.order_status",
+ *   "input": {
+ *     "id": "{{context.id}}",
+ *     "statusValue": "pending_approval"
+ *   }
+ * }
+ * ```
  */
 export async function executeUpdateEntity(
   em: EntityManager,
@@ -456,29 +479,119 @@ export async function executeUpdateEntity(
   context: ActivityContext,
   container: AwilixContainer
 ): Promise<any> {
-  const { entityType, entityId, updates } = config
+  const { commandId, input, statusDictionary } = config
 
-  if (!entityType || !entityId || !updates) {
-    throw new Error('UPDATE_ENTITY requires "entityType", "entityId", and "updates" fields')
+  if (!commandId) {
+    throw new Error('UPDATE_ENTITY requires "commandId" field (e.g., "sales.documents.update")')
   }
 
-  // Get query engine from container
-  const queryEngine = container.resolve('queryEngine')
-
-  if (!queryEngine || typeof queryEngine.update !== 'function') {
-    throw new Error('Query engine not available in container')
+  if (!input || typeof input !== 'object') {
+    throw new Error('UPDATE_ENTITY requires "input" object with entity data')
   }
 
-  // Execute update with tenant scoping
-  await queryEngine.update({
-    entity: entityType,
-    where: { id: entityId },
-    data: updates,
-    tenantId: context.workflowInstance.tenantId,
-    organizationId: context.workflowInstance.organizationId,
+  // Resolve CommandBus from container
+  const commandBus = container.resolve('commandBus') as any
+
+  if (!commandBus || typeof commandBus.execute !== 'function') {
+    throw new Error('CommandBus not available in container')
+  }
+
+  // Prepare final input, resolving statusValue if provided
+  let finalInput = { ...input }
+
+  // If statusValue is provided with a statusDictionary, resolve it to statusEntryId
+  if (finalInput.statusValue && statusDictionary) {
+    const statusEntryId = await resolveDictionaryEntryId(
+      em,
+      statusDictionary,
+      finalInput.statusValue,
+      context.workflowInstance.tenantId,
+      context.workflowInstance.organizationId
+    )
+    if (statusEntryId) {
+      finalInput.statusEntryId = statusEntryId
+    }
+    delete finalInput.statusValue
+  }
+
+  // Build synthetic CommandRuntimeContext for workflow execution
+  // Use nil UUID for system actions when no user context is available
+  const SYSTEM_USER_ID = '00000000-0000-0000-0000-000000000000'
+  const ctx = {
+    container,
+    auth: {
+      sub: context.userId || SYSTEM_USER_ID,
+      tenantId: context.workflowInstance.tenantId,
+      orgId: context.workflowInstance.organizationId,
+      isSuperAdmin: false,
+    },
+    organizationScope: null,
+    selectedOrganizationId: context.workflowInstance.organizationId,
+    organizationIds: context.workflowInstance.organizationId
+      ? [context.workflowInstance.organizationId]
+      : null,
+  }
+
+  // Execute the command
+  const { result, logEntry } = await commandBus.execute(commandId, {
+    input: finalInput,
+    ctx,
   })
 
-  return { updated: true, entityType, entityId, updates }
+  return {
+    executed: true,
+    commandId,
+    result,
+    logEntryId: logEntry?.id,
+  }
+}
+
+/**
+ * Helper to resolve dictionary entry ID by value
+ */
+async function resolveDictionaryEntryId(
+  em: EntityManager,
+  dictionaryKey: string,
+  value: string,
+  tenantId: string,
+  organizationId: string
+): Promise<string | null> {
+  try {
+    // Import here to avoid circular dependencies
+    const { Dictionary, DictionaryEntry } = await import('@open-mercato/core/modules/dictionaries/data/entities')
+
+    // Find the dictionary
+    const dictionary = await em.findOne(Dictionary, {
+      key: dictionaryKey,
+      tenantId,
+      organizationId,
+      deletedAt: null,
+    })
+
+    if (!dictionary) {
+      console.warn(`[UPDATE_ENTITY] Dictionary not found: ${dictionaryKey}`)
+      return null
+    }
+
+    // Find the entry by normalized value
+    const normalizedValue = value.toLowerCase().trim()
+    const entry = await em.findOne(DictionaryEntry, {
+      dictionary: dictionary.id,
+      tenantId,
+      organizationId,
+      normalizedValue,
+    })
+
+    if (!entry) {
+      console.warn(`[UPDATE_ENTITY] Dictionary entry not found: ${dictionaryKey}/${value}`)
+      return null
+    }
+
+    return entry.id
+  } catch (error) {
+    console.error(`[UPDATE_ENTITY] Error resolving dictionary entry:`, error)
+    return null
+  }
 }
 
 /**
