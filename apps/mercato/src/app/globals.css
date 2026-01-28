@@ -82,6 +82,17 @@ TODO: Fix that latter to have reference by the package names
   --chart-3: oklch(0.398 0.07 227.392);
   --chart-4: oklch(0.828 0.189 84.429);
   --chart-5: oklch(0.769 0.188 70.08);
+  /* Chart named colors - light theme */
+  --chart-blue: oklch(0.546 0.245 262.881);
+  --chart-emerald: oklch(0.596 0.145 163.225);
+  --chart-amber: oklch(0.769 0.188 70.08);
+  --chart-rose: oklch(0.645 0.246 16.439);
+  --chart-violet: oklch(0.606 0.25 292.717);
+  --chart-cyan: oklch(0.715 0.143 215.221);
+  --chart-indigo: oklch(0.511 0.262 276.966);
+  --chart-pink: oklch(0.656 0.241 354.308);
+  --chart-teal: oklch(0.627 0.134 175.001);
+  --chart-orange: oklch(0.705 0.213 47.604);
   --sidebar: oklch(0.985 0 0);
   --sidebar-foreground: oklch(0.145 0 0);
   --sidebar-primary: oklch(0.205 0 0);
@@ -116,6 +127,17 @@ TODO: Fix that latter to have reference by the package names
   --chart-3: oklch(0.769 0.188 70.08);
   --chart-4: oklch(0.627 0.265 303.9);
   --chart-5: oklch(0.645 0.246 16.439);
+  /* Chart named colors - dark theme (increased lightness) */
+  --chart-blue: oklch(0.623 0.214 259.815);
+  --chart-emerald: oklch(0.696 0.17 162.48);
+  --chart-amber: oklch(0.82 0.16 84.429);
+  --chart-rose: oklch(0.712 0.194 13.428);
+  --chart-violet: oklch(0.702 0.183 293.541);
+  --chart-cyan: oklch(0.789 0.154 211.53);
+  --chart-indigo: oklch(0.585 0.233 277.117);
+  --chart-pink: oklch(0.718 0.202 349.761);
+  --chart-teal: oklch(0.704 0.14 180.72);
+  --chart-orange: oklch(0.792 0.184 56.043);
   --sidebar: oklch(0.205 0 0);
   --sidebar-foreground: oklch(0.985 0 0);
   --sidebar-primary: oklch(0.488 0.243 264.376);
