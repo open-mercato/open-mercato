@@ -311,6 +311,7 @@
   "ui.userMenu.userFallback": "User",
   "ui.userMenu.loggedInAs": "Logged in as:",
   "ui.userMenu.profile": "Profile",
+  "ui.userMenu.changePassword": "Change password",
   "ui.userMenu.logout": "Logout",
   "ui.contextHelp.hide": "Hide",
   "ui.contextHelp.show": "Show",

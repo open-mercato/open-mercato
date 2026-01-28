@@ -1,12 +1,15 @@
 "use client"
 import * as React from 'react'
 import { useRouter } from 'next/navigation'
+import { z } from 'zod'
+import { Save } from 'lucide-react'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { CrudForm, type CrudField } from '@open-mercato/ui/backend/CrudForm'
 import { apiCall, readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 import { createCrudFormError } from '@open-mercato/ui/backend/utils/serverErrors'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { LoadingMessage, ErrorMessage } from '@open-mercato/ui/backend/detail'
+import { Button } from '@open-mercato/ui/primitives/button'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 
 type ProfileResponse = {
@@ -31,6 +34,7 @@ export default function AuthProfilePage() {
   const [error, setError] = React.useState<string | null>(null)
   const [email, setEmail] = React.useState('')
   const [formKey, setFormKey] = React.useState(0)
+  const formId = React.useId()
 
   React.useEffect(() => {
     let cancelled = false
@@ -59,22 +63,25 @@ export default function AuthProfilePage() {
     { id: 'confirmPassword', label: t('auth.profile.form.confirmPassword', 'Confirm new password'), type: 'text' },
   ], [t])
 
+  const schema = React.useMemo(() => z.object({
+    email: z.string().trim().min(1, t('auth.profile.form.errors.emailRequired', 'Email is required.')),
+    password: z.string().optional(),
+    confirmPassword: z.string().optional(),
+  }).superRefine((values, ctx) => {
+    const password = values.password?.trim() ?? ''
+    const confirmPassword = values.confirmPassword?.trim() ?? ''
+    if ((password || confirmPassword) && password !== confirmPassword) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: t('auth.profile.form.errors.passwordMismatch', 'Passwords do not match.'),
+        path: ['confirmPassword'],
+      })
+    }
+  }), [t])
+
   const handleSubmit = React.useCallback(async (values: ProfileFormValues) => {
     const nextEmail = values.email?.trim() ?? ''
     const password = values.password?.trim() ?? ''
-    const confirmPassword = values.confirmPassword?.trim() ?? ''
-
-    if (!nextEmail) {
-      const message = t('auth.profile.form.errors.emailRequired', 'Email is required.')
-      throw createCrudFormError(message, { email: message })
-    }
-
-    if (password || confirmPassword) {
-      if (password !== confirmPassword) {
-        const message = t('auth.profile.form.errors.passwordMismatch', 'Passwords do not match.')
-        throw createCrudFormError(message, { confirmPassword: message })
-      }
-    }
 
     if (!password && nextEmail === email) {
       throw createCrudFormError(t('auth.profile.form.errors.noChanges', 'No changes to save.'))
@@ -108,18 +115,35 @@ export default function AuthProfilePage() {
         ) : error ? (
           <ErrorMessage label={error} />
         ) : (
-          <CrudForm<ProfileFormValues>
-            key={formKey}
-            title={t('auth.profile.title', 'Profile')}
-            fields={fields}
-            initialValues={{
-              email,
-              password: '',
-              confirmPassword: '',
-            }}
-            submitLabel={t('auth.profile.form.save', 'Save changes')}
-            onSubmit={handleSubmit}
-          />
+          <section className="space-y-6 rounded-lg border bg-background p-6">
+            <header className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+              <div className="space-y-1">
+                <h2 className="text-lg font-semibold">{t('auth.profile.title', 'Profile')}</h2>
+                <p className="text-sm text-muted-foreground">
+                  {t('auth.profile.subtitle', 'Change password')}
+                </p>
+              </div>
+              <Button type="submit" form={formId}>
+                <Save className="size-4 mr-2" />
+                {t('auth.profile.form.save', 'Save changes')}
+              </Button>
+            </header>
+            <CrudForm<ProfileFormValues>
+              key={formKey}
+              formId={formId}
+              schema={schema}
+              fields={fields}
+              initialValues={{
+                email,
+                password: '',
+                confirmPassword: '',
+              }}
+              submitLabel={t('auth.profile.form.save', 'Save changes')}
+              onSubmit={handleSubmit}
+              embedded
+              hideFooterActions
+            />
+          </section>
         )}
       </PageBody>
     </Page>

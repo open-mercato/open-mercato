@@ -81,6 +81,7 @@
   "auth.users.form.errors.aclUpdate": "No se pudo actualizar el control de acceso del usuario",
   "auth.users.form.errors.delete": "No se pudo eliminar el usuario",
   "auth.profile.title": "Perfil",
+  "auth.profile.subtitle": "Cambiar contraseña",
   "auth.profile.form.email": "Correo electrónico",
   "auth.profile.form.password": "Nueva contraseña",
   "auth.profile.form.confirmPassword": "Confirmar nueva contraseña",

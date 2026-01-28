@@ -78,10 +78,6 @@ COPY --from=builder /app/apps/mercato/types ./apps/mercato/types
 # Copy runtime configuration files
 COPY --from=builder /app/newrelic.js ./
 
-# Copy entrypoint script
-COPY docker/entrypoint.sh /app/entrypoint.sh
-RUN chmod +x /app/entrypoint.sh
-
 # Drop root privileges (Alpine uses adduser instead of useradd)
 RUN adduser -D -u 1001 omuser \
  && chown -R omuser:omuser /app

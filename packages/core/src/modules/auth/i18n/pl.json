@@ -81,6 +81,7 @@
   "auth.users.form.errors.aclUpdate": "Nie udało się zaktualizować uprawnień użytkownika",
   "auth.users.form.errors.delete": "Nie udało się usunąć użytkownika",
   "auth.profile.title": "Profil",
+  "auth.profile.subtitle": "Zmiana hasła",
   "auth.profile.form.email": "Email",
   "auth.profile.form.password": "Nowe hasło",
   "auth.profile.form.confirmPassword": "Potwierdź nowe hasło",

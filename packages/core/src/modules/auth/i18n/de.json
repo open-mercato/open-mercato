@@ -81,6 +81,7 @@
   "auth.users.form.errors.aclUpdate": "Aktualisierung der Benutzerberechtigungen fehlgeschlagen",
   "auth.users.form.errors.delete": "Benutzer konnte nicht gelöscht werden",
   "auth.profile.title": "Profil",
+  "auth.profile.subtitle": "Passwort ändern",
   "auth.profile.form.email": "E-Mail",
   "auth.profile.form.password": "Neues Passwort",
   "auth.profile.form.confirmPassword": "Neues Passwort bestätigen",

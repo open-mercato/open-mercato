@@ -81,6 +81,7 @@
   "auth.users.form.errors.aclUpdate": "Failed to update user access control",
   "auth.users.form.errors.delete": "Failed to delete user",
   "auth.profile.title": "Profile",
+  "auth.profile.subtitle": "Change password",
   "auth.profile.form.email": "Email",
   "auth.profile.form.password": "New password",
   "auth.profile.form.confirmPassword": "Confirm new password",

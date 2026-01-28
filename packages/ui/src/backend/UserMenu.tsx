@@ -1,7 +1,7 @@
 "use client"
 import * as React from 'react'
 import Link from 'next/link'
-import { User, LogOut } from 'lucide-react'
+import { User, LogOut, Key } from 'lucide-react'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 
 export function UserMenu({ email }: { email?: string }) {
@@ -114,8 +114,10 @@ export function UserMenu({ email }: { email?: string }) {
               }
             }}
           >
-            <span>{t('ui.userMenu.profile', 'Profile')}</span>
+            <Key className="size-4" />
+            <span>{t('ui.userMenu.changePassword', 'Change password')}</span>
           </Link>
+          <div className="my-1 border-t" aria-hidden="true" />
           <form action="/api/auth/logout" method="POST">
             <button
               ref={logoutButtonRef}

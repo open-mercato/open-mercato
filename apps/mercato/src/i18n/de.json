@@ -310,6 +310,7 @@
   "ui.userMenu.userFallback": "Benutzer",
   "ui.userMenu.loggedInAs": "Angemeldet als:",
   "ui.userMenu.profile": "Profil",
+  "ui.userMenu.changePassword": "Passwort ändern",
   "ui.userMenu.logout": "Abmelden",
   "ui.contextHelp.hide": "Ausblenden",
   "ui.contextHelp.show": "Anzeigen",
