@@ -5,7 +5,7 @@ services:
     build:
       context: ./docker/opencode
     image: opencode-mvp
-    container_name: mercato-opencode
+    container_name: mercato-opencode-${DEPLOY_ENV:-local}
     restart: unless-stopped
     environment:
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}
@@ -53,7 +53,7 @@ services:
 
   postgres:
     image: pgvector/pgvector:pg17-trixie
-    container_name: mercato-postgres
+    container_name: mercato-postgres-${DEPLOY_ENV:-local}
     restart: unless-stopped
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-postgres}
@@ -73,7 +73,7 @@ services:
 
   redis:
     image: redis:7-alpine
-    container_name: mercato-redis
+    container_name: mercato-redis-${DEPLOY_ENV:-local}
     ports:
       - "${REDIS_PORT:-6379}:6379"
     volumes:
@@ -88,7 +88,7 @@ services:
 
   meilisearch:
     image: getmeili/meilisearch:v1.11
-    container_name: mercato-meilisearch
+    container_name: mercato-meilisearch-${DEPLOY_ENV:-local}
     restart: unless-stopped
     environment:
       MEILI_ENV: development
@@ -108,13 +108,13 @@ services:
 
 volumes:
   postgres_data:
-    name: mercato-postgres-data
+    name: mercato-postgres-data-${DEPLOY_ENV:-local}
   redis_data:
-    name: mercato-redis-data
+    name: mercato-redis-data-${DEPLOY_ENV:-local}
   meilisearch_data:
-    name: mercato-meilisearch-data
+    name: mercato-meilisearch-data-${DEPLOY_ENV:-local}
 
 networks:
   mercato-network-fullapp:
-    name: mercato-network-fullapp
+    name: mercato-network-${DEPLOY_ENV:-local}
     driver: bridge
