@@ -462,15 +462,35 @@ describe('Transition Handler (Unit Tests)', () => {
     })
 
     test('should reject transition if pre-conditions fail', async () => {
-      mockEm.findOne
-        .mockResolvedValueOnce(mockDefinition) // evaluateTransition
-        .mockResolvedValueOnce(mockDefinition) // evaluatePreConditions
+      // Create a definition with preConditions
+      const definitionWithPreConditions = {
+        ...mockDefinition,
+        definition: {
+          ...mockDefinition.definition,
+          transitions: [
+            { fromStepId: 'start', toStepId: 'step-1' },
+            {
+              fromStepId: 'step-1',
+              toStepId: 'step-2',
+              preConditions: [{ ruleId: 'test-guard-rule', required: true }],
+            },
+            { fromStepId: 'step-2', toStepId: 'end' },
+          ],
+        },
+      }
 
-      ;(ruleEngine.executeRules as jest.Mock).mockResolvedValueOnce({
-        allowed: false,
-        executedRules: [],
-        totalExecutionTime: 10,
-        errors: ['Pre-condition rule failed'],
+      mockEm.findOne
+        .mockResolvedValueOnce(definitionWithPreConditions) // evaluateTransition
+        .mockResolvedValueOnce(definitionWithPreConditions) // evaluatePreConditions
+
+      ;(ruleEngine.executeRuleByRuleId as jest.Mock).mockResolvedValueOnce({
+        success: false,
+        ruleId: 'test-guard-rule',
+        ruleName: 'Test Guard Rule',
+        conditionResult: false,
+        actionsExecuted: null,
+        executionTime: 10,
+        error: undefined,
       })
 
       mockEm.create.mockReturnValue({} as any)
@@ -491,15 +511,35 @@ describe('Transition Handler (Unit Tests)', () => {
     })
 
     test('should log transition rejection event', async () => {
-      mockEm.findOne
-        .mockResolvedValueOnce(mockDefinition)
-        .mockResolvedValueOnce(mockDefinition)
+      // Create a definition with preConditions
+      const definitionWithPreConditions = {
+        ...mockDefinition,
+        definition: {
+          ...mockDefinition.definition,
+          transitions: [
+            { fromStepId: 'start', toStepId: 'step-1' },
+            {
+              fromStepId: 'step-1',
+              toStepId: 'step-2',
+              preConditions: [{ ruleId: 'test-guard-rule', required: true }],
+            },
+            { fromStepId: 'step-2', toStepId: 'end' },
+          ],
+        },
+      }
 
-      ;(ruleEngine.executeRules as jest.Mock).mockResolvedValueOnce({
-        allowed: false,
-        executedRules: [],
-        totalExecutionTime: 10,
-        errors: ['Rule XYZ failed'],
+      mockEm.findOne
+        .mockResolvedValueOnce(definitionWithPreConditions)
+        .mockResolvedValueOnce(definitionWithPreConditions)
+
+      ;(ruleEngine.executeRuleByRuleId as jest.Mock).mockResolvedValueOnce({
+        success: false,
+        ruleId: 'test-guard-rule',
+        ruleName: 'Test Guard Rule',
+        conditionResult: false,
+        actionsExecuted: null,
+        executionTime: 10,
+        error: undefined,
       })
 
       mockEm.create.mockReturnValue({} as any)
@@ -527,27 +567,36 @@ describe('Transition Handler (Unit Tests)', () => {
     })
 
     test('should execute transition even if post-conditions fail (warning only)', async () => {
-      mockEm.findOne.mockReset()
-      mockEm.findOne
-        .mockResolvedValueOnce(mockDefinition)
-        .mockResolvedValueOnce(mockDefinition)
-        .mockResolvedValueOnce(mockDefinition)
-        .mockResolvedValueOnce(mockDefinition)
-        .mockResolvedValueOnce(mockDefinition)
-        .mockResolvedValue(mockDefinition)
+      // Create a definition with postConditions
+      const definitionWithPostConditions = {
+        ...mockDefinition,
+        definition: {
+          ...mockDefinition.definition,
+          transitions: [
+            { fromStepId: 'start', toStepId: 'step-1' },
+            {
+              fromStepId: 'step-1',
+              toStepId: 'step-2',
+              postConditions: [{ ruleId: 'test-post-rule', required: true }],
+            },
+            { fromStepId: 'step-2', toStepId: 'end' },
+          ],
+        },
+      }
 
-      ;(ruleEngine.executeRules as jest.Mock)
-        .mockResolvedValueOnce({
-          allowed: true,
-          executedRules: [],
-          totalExecutionTime: 10,
-        })
-        .mockResolvedValueOnce({
-          allowed: false, // Post-condition failed
-          executedRules: [],
-          totalExecutionTime: 5,
-          errors: ['Post-condition rule failed'],
-        })
+      mockEm.findOne.mockReset()
+      mockEm.findOne.mockResolvedValue(definitionWithPostConditions)
+
+      // Post-condition fails
+      ;(ruleEngine.executeRuleByRuleId as jest.Mock).mockResolvedValueOnce({
+        success: false,
+        ruleId: 'test-post-rule',
+        ruleName: 'Test Post Rule',
+        conditionResult: false,
+        actionsExecuted: null,
+        executionTime: 5,
+        error: undefined,
+      })
 
       mockEm.create.mockReturnValue({} as any)
 
@@ -709,22 +758,33 @@ describe('Transition Handler (Unit Tests)', () => {
 
   describe('Business Rules Integration', () => {
     test('should call rule engine for pre-conditions with correct entityType', async () => {
-      mockEm.findOne
-        .mockResolvedValueOnce(mockDefinition)
-        .mockResolvedValueOnce(mockDefinition)
-        .mockResolvedValueOnce(mockDefinition)
+      // Create a definition with preConditions
+      const definitionWithPreConditions = {
+        ...mockDefinition,
+        definition: {
+          ...mockDefinition.definition,
+          transitions: [
+            { fromStepId: 'start', toStepId: 'step-1' },
+            {
+              fromStepId: 'step-1',
+              toStepId: 'step-2',
+              preConditions: [{ ruleId: 'test-guard-rule', required: true }],
+            },
+            { fromStepId: 'step-2', toStepId: 'end' },
+          ],
+        },
+      }
 
-      ;(ruleEngine.executeRules as jest.Mock)
-        .mockResolvedValueOnce({
-          allowed: true,
-          executedRules: [],
-          totalExecutionTime: 10,
-        })
-        .mockResolvedValueOnce({
-          allowed: true,
-          executedRules: [],
-          totalExecutionTime: 5,
-        })
+      mockEm.findOne.mockResolvedValue(definitionWithPreConditions)
+
+      ;(ruleEngine.executeRuleByRuleId as jest.Mock).mockResolvedValueOnce({
+        success: true,
+        ruleId: 'test-guard-rule',
+        ruleName: 'Test Guard Rule',
+        conditionResult: true,
+        actionsExecuted: null,
+        executionTime: 10,
+      })
 
       mockEm.create.mockReturnValue({} as any)
 
@@ -737,9 +797,10 @@ describe('Transition Handler (Unit Tests)', () => {
         { workflowContext: {} }
       )
 
-      expect(ruleEngine.executeRules).toHaveBeenCalledWith(
+      expect(ruleEngine.executeRuleByRuleId).toHaveBeenCalledWith(
         mockEm,
         expect.objectContaining({
+          ruleId: 'test-guard-rule',
           entityType: 'workflow:simple-approval:transition',
           eventType: 'pre_transition',
           data: expect.objectContaining({
@@ -751,26 +812,34 @@ describe('Transition Handler (Unit Tests)', () => {
     })
 
     test('should call rule engine for post-conditions with correct eventType', async () => {
-      mockEm.findOne.mockReset()
-      mockEm.findOne
-        .mockResolvedValueOnce(mockDefinition)
-        .mockResolvedValueOnce(mockDefinition)
-        .mockResolvedValueOnce(mockDefinition)
-        .mockResolvedValueOnce(mockDefinition)
-        .mockResolvedValueOnce(mockDefinition)
-        .mockResolvedValue(mockDefinition)
+      // Create a definition with postConditions
+      const definitionWithPostConditions = {
+        ...mockDefinition,
+        definition: {
+          ...mockDefinition.definition,
+          transitions: [
+            { fromStepId: 'start', toStepId: 'step-1' },
+            {
+              fromStepId: 'step-1',
+              toStepId: 'step-2',
+              postConditions: [{ ruleId: 'test-post-rule', required: true }],
+            },
+            { fromStepId: 'step-2', toStepId: 'end' },
+          ],
+        },
+      }
 
-      ;(ruleEngine.executeRules as jest.Mock)
-        .mockResolvedValueOnce({
-          allowed: true,
-          executedRules: [],
-          totalExecutionTime: 10,
-        })
-        .mockResolvedValueOnce({
-          allowed: true,
-          executedRules: [],
-          totalExecutionTime: 5,
-        })
+      mockEm.findOne.mockReset()
+      mockEm.findOne.mockResolvedValue(definitionWithPostConditions)
+
+      ;(ruleEngine.executeRuleByRuleId as jest.Mock).mockResolvedValueOnce({
+        success: true,
+        ruleId: 'test-post-rule',
+        ruleName: 'Test Post Rule',
+        conditionResult: true,
+        actionsExecuted: null,
+        executionTime: 5,
+      })
 
       mockEm.create.mockReturnValue({} as any)
 
@@ -783,11 +852,11 @@ describe('Transition Handler (Unit Tests)', () => {
         { workflowContext: {} }
       )
 
-      // Check second call to executeRules (post-conditions)
-      expect(ruleEngine.executeRules).toHaveBeenNthCalledWith(
-        2,
+      // Check call to executeRuleByRuleId for post-conditions
+      expect(ruleEngine.executeRuleByRuleId).toHaveBeenCalledWith(
         mockEm,
         expect.objectContaining({
+          ruleId: 'test-post-rule',
           entityType: 'workflow:simple-approval:transition',
           eventType: 'post_transition',
         })
@@ -795,22 +864,33 @@ describe('Transition Handler (Unit Tests)', () => {
     })
 
     test('should pass workflow context and trigger data to rule engine', async () => {
-      mockEm.findOne
-        .mockResolvedValueOnce(mockDefinition)
-        .mockResolvedValueOnce(mockDefinition)
-        .mockResolvedValueOnce(mockDefinition)
+      // Create a definition with preConditions
+      const definitionWithPreConditions = {
+        ...mockDefinition,
+        definition: {
+          ...mockDefinition.definition,
+          transitions: [
+            { fromStepId: 'start', toStepId: 'step-1' },
+            {
+              fromStepId: 'step-1',
+              toStepId: 'step-2',
+              preConditions: [{ ruleId: 'test-guard-rule', required: true }],
+            },
+            { fromStepId: 'step-2', toStepId: 'end' },
+          ],
+        },
+      }
 
-      ;(ruleEngine.executeRules as jest.Mock)
-        .mockResolvedValueOnce({
-          allowed: true,
-          executedRules: [],
-          totalExecutionTime: 10,
-        })
-        .mockResolvedValueOnce({
-          allowed: true,
-          executedRules: [],
-          totalExecutionTime: 5,
-        })
+      mockEm.findOne.mockResolvedValue(definitionWithPreConditions)
+
+      ;(ruleEngine.executeRuleByRuleId as jest.Mock).mockResolvedValueOnce({
+        success: true,
+        ruleId: 'test-guard-rule',
+        ruleName: 'Test Guard Rule',
+        conditionResult: true,
+        actionsExecuted: null,
+        executionTime: 10,
+      })
 
       mockEm.create.mockReturnValue({} as any)
 
@@ -830,7 +910,7 @@ describe('Transition Handler (Unit Tests)', () => {
         }
       )
 
-      expect(ruleEngine.executeRules).toHaveBeenCalledWith(
+      expect(ruleEngine.executeRuleByRuleId).toHaveBeenCalledWith(
         mockEm,
         expect.objectContaining({
           data: expect.objectContaining({
