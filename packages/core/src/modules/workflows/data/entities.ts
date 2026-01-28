@@ -83,6 +83,7 @@ export interface WorkflowEventTriggerConfig {
   contextMapping?: TriggerContextMapping[]
   debounceMs?: number // Debounce rapid events
   maxConcurrentInstances?: number // Limit concurrent instances
+  entityType?: string // Entity type for workflow instance metadata (e.g., "SalesOrder")
 }
 
 /**

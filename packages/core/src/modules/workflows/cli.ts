@@ -2,7 +2,7 @@ import type { ModuleCli } from '@open-mercato/shared/modules/registry'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { WorkflowDefinition } from './data/entities'
-import { BusinessRule } from '@open-mercato/core/modules/business_rules/data/entities'
+import { BusinessRule, type RuleType } from '@open-mercato/core/modules/business_rules/data/entities'
 import * as fs from 'fs'
 import * as path from 'path'
 import { fileURLToPath } from 'url'
@@ -308,7 +308,13 @@ const seedOrderApproval: ModuleCli = {
       const guardRulesData = JSON.parse(fs.readFileSync(guardRulesPath, 'utf8')) as Array<{
         ruleId: string
         ruleName: string
-        [key: string]: unknown
+        ruleType: RuleType
+        entityType: string
+        description?: string
+        eventType?: string
+        conditionExpression?: Record<string, unknown>
+        enabled?: boolean
+        priority?: number
       }>
 
       let rulesSeeded = 0
