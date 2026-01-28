@@ -20,7 +20,7 @@ export const metadata = {
   pageOrder: 100,
   icon: createIcon,
   breadcrumb: [
-    { label: 'Workflows', labelKey: 'workflows.module.name', href: '/backend/workflows/definitions' },
+    { label: 'Workflows', labelKey: 'workflows.module.name', href: '/backend/definitions' },
     { label: 'Create', labelKey: 'workflows.common.create' },
   ],
 }

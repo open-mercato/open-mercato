@@ -287,3 +287,43 @@ export const ruleDiscoveryOptionsSchema = z.object({
 })
 
 export type RuleDiscoveryOptionsInput = z.infer<typeof ruleDiscoveryOptionsSchema>
+
+// Direct Rule Execution Context Schema (for executing a specific rule by ID)
+export const directRuleExecutionContextSchema = z.object({
+  ruleId: z.uuid('ruleId must be a valid UUID'),
+  data: z.any(),
+  user: z.looseObject({
+    id: z.string().optional(),
+    email: z.string().optional(),
+    role: z.string().optional(),
+  }).optional(),
+  tenantId: z.uuid('tenantId must be a valid UUID'),
+  organizationId: z.uuid('organizationId must be a valid UUID'),
+  executedBy: z.string().optional(),
+  dryRun: z.boolean().optional(),
+  entityType: z.string().optional(),
+  entityId: z.string().optional(),
+  eventType: z.string().optional(),
+})
+
+export type DirectRuleExecutionContextInput = z.infer<typeof directRuleExecutionContextSchema>
+
+// Rule ID Execution Context Schema (for executing a specific rule by its string rule_id identifier)
+export const ruleIdExecutionContextSchema = z.object({
+  ruleId: z.string().min(1, 'ruleId must be a non-empty string').max(50),
+  data: z.any(),
+  user: z.looseObject({
+    id: z.string().optional(),
+    email: z.string().optional(),
+    role: z.string().optional(),
+  }).optional(),
+  tenantId: z.uuid('tenantId must be a valid UUID'),
+  organizationId: z.uuid('organizationId must be a valid UUID'),
+  executedBy: z.string().optional(),
+  dryRun: z.boolean().optional(),
+  entityType: z.string().optional(),
+  entityId: z.string().optional(),
+  eventType: z.string().optional(),
+})
+
+export type RuleIdExecutionContextInput = z.infer<typeof ruleIdExecutionContextSchema>

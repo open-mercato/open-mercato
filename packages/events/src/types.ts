@@ -23,6 +23,8 @@ export type SubscriberMeta = {
 export type SubscriberContext = {
   /** DI container resolve function */
   resolve: <T = unknown>(name: string) => T
+  /** Event name (useful for wildcard handlers to know which event was triggered) */
+  eventName?: string
 }
 
 /** Event handler function signature */

@@ -1,0 +1,664 @@
+"use client"
+
+import * as React from 'react'
+import { useState, useCallback } from 'react'
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import { Button } from '@open-mercato/ui/primitives/button'
+import { Input } from '@open-mercato/ui/primitives/input'
+import { Textarea } from '@open-mercato/ui/primitives/textarea'
+import { Label } from '@open-mercato/ui/primitives/label'
+import { Switch } from '@open-mercato/ui/primitives/switch'
+import { Spinner } from '@open-mercato/ui/primitives/spinner'
+import { Badge } from '@open-mercato/ui/primitives/badge'
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@open-mercato/ui/primitives/dialog'
+import { Alert, AlertDescription, AlertTitle } from '@open-mercato/ui/primitives/alert'
+import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
+import { flash } from '@open-mercato/ui/backend/FlashMessages'
+import { EventSelect } from '@open-mercato/ui/backend/inputs/EventSelect'
+import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { Plus, Trash2, Edit2, Zap, AlertCircle, X } from 'lucide-react'
+
+interface EventTrigger {
+  id: string
+  name: string
+  description?: string | null
+  eventPattern: string
+  config?: {
+    filterConditions?: Array<{
+      field: string
+      operator: string
+      value: unknown
+    }>
+    contextMapping?: Array<{
+      targetKey: string
+      sourceExpression: string
+      defaultValue?: unknown
+    }>
+    debounceMs?: number
+    maxConcurrentInstances?: number
+  } | null
+  enabled: boolean
+  priority: number
+  workflowDefinitionId: string
+  createdAt: string
+  updatedAt: string
+}
+
+interface EventTriggersEditorProps {
+  workflowDefinitionId: string
+  workflowId?: string
+  className?: string
+}
+
+const FILTER_OPERATORS = [
+  { value: 'eq', label: 'Equals' },
+  { value: 'neq', label: 'Not Equals' },
+  { value: 'gt', label: 'Greater Than' },
+  { value: 'gte', label: 'Greater Than or Equal' },
+  { value: 'lt', label: 'Less Than' },
+  { value: 'lte', label: 'Less Than or Equal' },
+  { value: 'contains', label: 'Contains' },
+  { value: 'startsWith', label: 'Starts With' },
+  { value: 'endsWith', label: 'Ends With' },
+  { value: 'in', label: 'In (array)' },
+  { value: 'notIn', label: 'Not In (array)' },
+  { value: 'exists', label: 'Exists' },
+  { value: 'notExists', label: 'Not Exists' },
+  { value: 'regex', label: 'Regex Match' },
+]
+
+type TriggerFormValues = {
+  name: string
+  description: string
+  eventPattern: string
+  enabled: boolean
+  priority: number
+  filterConditions: Array<{ field: string; operator: string; value: string }>
+  contextMappings: Array<{ targetKey: string; sourceExpression: string; defaultValue: string }>
+  debounceMs: string
+  maxConcurrentInstances: string
+}
+
+const defaultFormValues: TriggerFormValues = {
+  name: '',
+  description: '',
+  eventPattern: '',
+  enabled: true,
+  priority: 0,
+  filterConditions: [],
+  contextMappings: [],
+  debounceMs: '',
+  maxConcurrentInstances: '',
+}
+
+export function EventTriggersEditor({
+  workflowDefinitionId,
+  workflowId,
+  className,
+}: EventTriggersEditorProps) {
+  const t = useT()
+  const queryClient = useQueryClient()
+  const [showDialog, setShowDialog] = useState(false)
+  const [editingTrigger, setEditingTrigger] = useState<EventTrigger | null>(null)
+  const [formValues, setFormValues] = useState<TriggerFormValues>(defaultFormValues)
+  const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null)
+
+  // Fetch triggers for this workflow definition
+  const { data: triggersData, isLoading } = useQuery({
+    queryKey: ['workflow-triggers', workflowDefinitionId],
+    queryFn: async () => {
+      const result = await apiCall<{ data: EventTrigger[]; pagination: any }>(
+        `/api/workflows/triggers?workflowDefinitionId=${workflowDefinitionId}&limit=100`
+      )
+      if (!result.ok) {
+        throw new Error('Failed to load triggers')
+      }
+      return result.result?.data || []
+    },
+    enabled: !!workflowDefinitionId,
+  })
+
+  const triggers = triggersData || []
+
+  // Create trigger mutation
+  const createMutation = useMutation({
+    mutationFn: async (values: TriggerFormValues) => {
+      const payload = buildTriggerPayload(values)
+      const result = await apiCall<{ data: EventTrigger; error?: string }>(
+        '/api/workflows/triggers',
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            ...payload,
+            workflowDefinitionId,
+          }),
+        }
+      )
+      if (!result.ok) {
+        throw new Error(result.result?.error || 'Failed to create trigger')
+      }
+      return result.result?.data
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['workflow-triggers', workflowDefinitionId] })
+      flash('Event trigger created successfully', 'success')
+      handleCloseDialog()
+    },
+    onError: (error: Error) => {
+      flash(error.message, 'error')
+    },
+  })
+
+  // Update trigger mutation
+  const updateMutation = useMutation({
+    mutationFn: async ({ id, values }: { id: string; values: TriggerFormValues }) => {
+      const payload = buildTriggerPayload(values)
+      const result = await apiCall<{ data: EventTrigger; error?: string }>(
+        `/api/workflows/triggers/${id}`,
+        {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload),
+        }
+      )
+      if (!result.ok) {
+        throw new Error(result.result?.error || 'Failed to update trigger')
+      }
+      return result.result?.data
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['workflow-triggers', workflowDefinitionId] })
+      flash('Event trigger updated successfully', 'success')
+      handleCloseDialog()
+    },
+    onError: (error: Error) => {
+      flash(error.message, 'error')
+    },
+  })
+
+  // Delete trigger mutation
+  const deleteMutation = useMutation({
+    mutationFn: async (id: string) => {
+      const result = await apiCall<{ error?: string }>(
+        `/api/workflows/triggers/${id}`,
+        { method: 'DELETE' }
+      )
+      if (!result.ok) {
+        throw new Error(result.result?.error || 'Failed to delete trigger')
+      }
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['workflow-triggers', workflowDefinitionId] })
+      flash('Event trigger deleted successfully', 'success')
+      setDeleteConfirmId(null)
+    },
+    onError: (error: Error) => {
+      flash(error.message, 'error')
+    },
+  })
+
+  // Build API payload from form values
+  const buildTriggerPayload = useCallback((values: TriggerFormValues) => {
+    const config: EventTrigger['config'] = {}
+
+    if (values.filterConditions.length > 0) {
+      config.filterConditions = values.filterConditions.map(fc => ({
+        field: fc.field,
+        operator: fc.operator,
+        value: parseConditionValue(fc.value),
+      }))
+    }
+
+    if (values.contextMappings.length > 0) {
+      config.contextMapping = values.contextMappings.map(cm => ({
+        targetKey: cm.targetKey,
+        sourceExpression: cm.sourceExpression,
+        defaultValue: cm.defaultValue ? parseConditionValue(cm.defaultValue) : undefined,
+      }))
+    }
+
+    if (values.debounceMs) {
+      config.debounceMs = parseInt(values.debounceMs, 10)
+    }
+
+    if (values.maxConcurrentInstances) {
+      config.maxConcurrentInstances = parseInt(values.maxConcurrentInstances, 10)
+    }
+
+    return {
+      name: values.name,
+      description: values.description || null,
+      eventPattern: values.eventPattern,
+      enabled: values.enabled,
+      priority: values.priority,
+      config: Object.keys(config).length > 0 ? config : null,
+    }
+  }, [])
+
+  // Parse condition value (try JSON, fallback to string)
+  const parseConditionValue = (value: string): unknown => {
+    try {
+      return JSON.parse(value)
+    } catch {
+      return value
+    }
+  }
+
+  // Open dialog for creating new trigger
+  const handleCreateNew = useCallback(() => {
+    setEditingTrigger(null)
+    setFormValues(defaultFormValues)
+    setShowDialog(true)
+  }, [])
+
+  // Open dialog for editing trigger
+  const handleEdit = useCallback((trigger: EventTrigger) => {
+    setEditingTrigger(trigger)
+    setFormValues({
+      name: trigger.name,
+      description: trigger.description || '',
+      eventPattern: trigger.eventPattern,
+      enabled: trigger.enabled,
+      priority: trigger.priority,
+      filterConditions: trigger.config?.filterConditions?.map(fc => ({
+        field: fc.field,
+        operator: fc.operator,
+        value: typeof fc.value === 'string' ? fc.value : JSON.stringify(fc.value),
+      })) || [],
+      contextMappings: trigger.config?.contextMapping?.map(cm => ({
+        targetKey: cm.targetKey,
+        sourceExpression: cm.sourceExpression,
+        defaultValue: cm.defaultValue !== undefined
+          ? (typeof cm.defaultValue === 'string' ? cm.defaultValue : JSON.stringify(cm.defaultValue))
+          : '',
+      })) || [],
+      debounceMs: trigger.config?.debounceMs?.toString() || '',
+      maxConcurrentInstances: trigger.config?.maxConcurrentInstances?.toString() || '',
+    })
+    setShowDialog(true)
+  }, [])
+
+  // Close dialog
+  const handleCloseDialog = useCallback(() => {
+    setShowDialog(false)
+    setEditingTrigger(null)
+    setFormValues(defaultFormValues)
+  }, [])
+
+  // Submit form
+  const handleSubmit = useCallback(() => {
+    if (!formValues.name.trim()) {
+      flash('Name is required', 'error')
+      return
+    }
+    if (!formValues.eventPattern.trim()) {
+      flash('Event pattern is required', 'error')
+      return
+    }
+
+    if (editingTrigger) {
+      updateMutation.mutate({ id: editingTrigger.id, values: formValues })
+    } else {
+      createMutation.mutate(formValues)
+    }
+  }, [formValues, editingTrigger, createMutation, updateMutation])
+
+  // Add filter condition
+  const addFilterCondition = useCallback(() => {
+    setFormValues(prev => ({
+      ...prev,
+      filterConditions: [...prev.filterConditions, { field: '', operator: 'eq', value: '' }],
+    }))
+  }, [])
+
+  // Remove filter condition
+  const removeFilterCondition = useCallback((index: number) => {
+    setFormValues(prev => ({
+      ...prev,
+      filterConditions: prev.filterConditions.filter((_, i) => i !== index),
+    }))
+  }, [])
+
+  // Update filter condition
+  const updateFilterCondition = useCallback((index: number, field: string, value: string) => {
+    setFormValues(prev => ({
+      ...prev,
+      filterConditions: prev.filterConditions.map((fc, i) =>
+        i === index ? { ...fc, [field]: value } : fc
+      ),
+    }))
+  }, [])
+
+  // Add context mapping
+  const addContextMapping = useCallback(() => {
+    setFormValues(prev => ({
+      ...prev,
+      contextMappings: [...prev.contextMappings, { targetKey: '', sourceExpression: '', defaultValue: '' }],
+    }))
+  }, [])
+
+  // Remove context mapping
+  const removeContextMapping = useCallback((index: number) => {
+    setFormValues(prev => ({
+      ...prev,
+      contextMappings: prev.contextMappings.filter((_, i) => i !== index),
+    }))
+  }, [])
+
+  // Update context mapping
+  const updateContextMapping = useCallback((index: number, field: string, value: string) => {
+    setFormValues(prev => ({
+      ...prev,
+      contextMappings: prev.contextMappings.map((cm, i) =>
+        i === index ? { ...cm, [field]: value } : cm
+      ),
+    }))
+  }, [])
+
+  const isSaving = createMutation.isPending || updateMutation.isPending
+
+  return (
+    <div className={className}>
+      <div className="rounded-lg border bg-card p-4">
+        <div className="flex items-center justify-between mb-4">
+          <div className="flex items-center gap-2">
+            <Zap className="w-5 h-5 text-amber-500" />
+            <h3 className="text-sm font-semibold uppercase text-muted-foreground">Event Triggers</h3>
+          </div>
+          <Button size="sm" variant="outline" onClick={handleCreateNew}>
+            <Plus className="w-4 h-4 mr-1" />
+            Add Trigger
+          </Button>
+        </div>
+
+        <p className="text-xs text-muted-foreground mb-4">
+          Configure events that automatically start this workflow. When a matching event occurs in the system,
+          a new workflow instance will be created with the mapped context.
+        </p>
+
+        {isLoading ? (
+          <div className="flex items-center justify-center py-8">
+            <Spinner className="w-6 h-6" />
+          </div>
+        ) : triggers.length === 0 ? (
+          <Alert variant="info">
+            <AlertCircle className="w-4 h-4" />
+            <AlertTitle>No triggers configured</AlertTitle>
+            <AlertDescription>
+              Click "Add Trigger" to create an event trigger that automatically starts this workflow.
+            </AlertDescription>
+          </Alert>
+        ) : (
+          <div className="space-y-2">
+            {triggers.map(trigger => (
+              <div
+                key={trigger.id}
+                className="flex items-center justify-between p-3 rounded-lg border bg-background hover:bg-accent/50 transition-colors"
+              >
+                <div className="flex items-center gap-3">
+                  <Badge variant={trigger.enabled ? 'default' : 'secondary'}>
+                    {trigger.enabled ? 'Active' : 'Disabled'}
+                  </Badge>
+                  <div>
+                    <div className="font-medium text-sm">{trigger.name}</div>
+                    <code className="text-xs text-muted-foreground">{trigger.eventPattern}</code>
+                  </div>
+                </div>
+                <div className="flex items-center gap-2">
+                  <Button size="sm" variant="ghost" onClick={() => handleEdit(trigger)}>
+                    <Edit2 className="w-4 h-4" />
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    className="text-destructive hover:text-destructive"
+                    onClick={() => setDeleteConfirmId(trigger.id)}
+                  >
+                    <Trash2 className="w-4 h-4" />
+                  </Button>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* Create/Edit Dialog */}
+      <Dialog open={showDialog} onOpenChange={setShowDialog}>
+        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>
+              {editingTrigger ? 'Edit Event Trigger' : 'Create Event Trigger'}
+            </DialogTitle>
+            <DialogDescription>
+              Configure when this workflow should be automatically started based on system events.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-4 py-4">
+            {/* Basic Info */}
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-1">
+                <Label htmlFor="trigger-name">Name *</Label>
+                <Input
+                  id="trigger-name"
+                  value={formValues.name}
+                  onChange={e => setFormValues(prev => ({ ...prev, name: e.target.value }))}
+                  placeholder="Order Approval Trigger"
+                />
+              </div>
+              <div className="space-y-1">
+                <Label htmlFor="trigger-priority">Priority</Label>
+                <Input
+                  id="trigger-priority"
+                  type="number"
+                  value={formValues.priority}
+                  onChange={e => setFormValues(prev => ({ ...prev, priority: parseInt(e.target.value) || 0 }))}
+                  placeholder="0"
+                />
+                <p className="text-xs text-muted-foreground">Higher priority triggers execute first</p>
+              </div>
+            </div>
+
+            <div className="space-y-1">
+              <Label htmlFor="trigger-description">Description</Label>
+              <Textarea
+                id="trigger-description"
+                value={formValues.description}
+                onChange={e => setFormValues(prev => ({ ...prev, description: e.target.value }))}
+                placeholder="Describe when this trigger should fire..."
+                rows={2}
+              />
+            </div>
+
+            {/* Event Pattern */}
+            <div className="space-y-1">
+              <Label htmlFor="trigger-pattern">Event Pattern *</Label>
+              <div className="flex gap-2">
+                <Input
+                  id="trigger-pattern"
+                  value={formValues.eventPattern}
+                  onChange={e => setFormValues(prev => ({ ...prev, eventPattern: e.target.value }))}
+                  placeholder="sales.orders.updated"
+                  className="flex-1"
+                />
+                <EventSelect
+                  value=""
+                  onChange={(eventId) => setFormValues(prev => ({ ...prev, eventPattern: eventId }))}
+                  placeholder="Quick select..."
+                  className="w-[200px]"
+                />
+              </div>
+              <p className="text-xs text-muted-foreground">
+                Use * as wildcard: "sales.orders.*" matches any order event
+              </p>
+            </div>
+
+            {/* Enabled Switch */}
+            <div className="flex items-center gap-2">
+              <Switch
+                id="trigger-enabled"
+                checked={formValues.enabled}
+                onCheckedChange={checked => setFormValues(prev => ({ ...prev, enabled: checked }))}
+              />
+              <Label htmlFor="trigger-enabled">Enabled</Label>
+            </div>
+
+            {/* Filter Conditions */}
+            <div className="space-y-2">
+              <div className="flex items-center justify-between">
+                <Label>Filter Conditions</Label>
+                <Button size="sm" variant="ghost" onClick={addFilterCondition}>
+                  <Plus className="w-4 h-4 mr-1" />
+                  Add Condition
+                </Button>
+              </div>
+              <p className="text-xs text-muted-foreground">
+                Only trigger when the event payload matches these conditions (all must match)
+              </p>
+              {formValues.filterConditions.map((fc, index) => (
+                <div key={index} className="flex items-center gap-2">
+                  <Input
+                    value={fc.field}
+                    onChange={e => updateFilterCondition(index, 'field', e.target.value)}
+                    placeholder="status"
+                    className="w-1/3"
+                  />
+                  <select
+                    value={fc.operator}
+                    onChange={(e: React.ChangeEvent<HTMLSelectElement>) => updateFilterCondition(index, 'operator', e.target.value)}
+                    className="h-10 w-[140px] rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
+                  >
+                    {FILTER_OPERATORS.map(op => (
+                      <option key={op.value} value={op.value}>
+                        {op.label}
+                      </option>
+                    ))}
+                  </select>
+                  <Input
+                    value={fc.value}
+                    onChange={e => updateFilterCondition(index, 'value', e.target.value)}
+                    placeholder="submitted"
+                    className="flex-1"
+                  />
+                  <Button size="icon" variant="ghost" onClick={() => removeFilterCondition(index)}>
+                    <X className="w-4 h-4" />
+                  </Button>
+                </div>
+              ))}
+            </div>
+
+            {/* Context Mapping */}
+            <div className="space-y-2">
+              <div className="flex items-center justify-between">
+                <Label>Context Mapping</Label>
+                <Button size="sm" variant="ghost" onClick={addContextMapping}>
+                  <Plus className="w-4 h-4 mr-1" />
+                  Add Mapping
+                </Button>
+              </div>
+              <p className="text-xs text-muted-foreground">
+                Map values from the event payload to the workflow's initial context
+              </p>
+              {formValues.contextMappings.map((cm, index) => (
+                <div key={index} className="flex items-center gap-2">
+                  <Input
+                    value={cm.targetKey}
+                    onChange={e => updateContextMapping(index, 'targetKey', e.target.value)}
+                    placeholder="orderId"
+                    className="w-1/3"
+                  />
+                  <span className="text-muted-foreground">=</span>
+                  <Input
+                    value={cm.sourceExpression}
+                    onChange={e => updateContextMapping(index, 'sourceExpression', e.target.value)}
+                    placeholder="id"
+                    className="flex-1"
+                  />
+                  <Input
+                    value={cm.defaultValue}
+                    onChange={e => updateContextMapping(index, 'defaultValue', e.target.value)}
+                    placeholder="default"
+                    className="w-24"
+                  />
+                  <Button size="icon" variant="ghost" onClick={() => removeContextMapping(index)}>
+                    <X className="w-4 h-4" />
+                  </Button>
+                </div>
+              ))}
+            </div>
+
+            {/* Advanced Options */}
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-1">
+                <Label htmlFor="trigger-debounce">Debounce (ms)</Label>
+                <Input
+                  id="trigger-debounce"
+                  type="number"
+                  value={formValues.debounceMs}
+                  onChange={e => setFormValues(prev => ({ ...prev, debounceMs: e.target.value }))}
+                  placeholder="0"
+                />
+                <p className="text-xs text-muted-foreground">Delay to prevent rapid re-triggers</p>
+              </div>
+              <div className="space-y-1">
+                <Label htmlFor="trigger-max-concurrent">Max Concurrent Instances</Label>
+                <Input
+                  id="trigger-max-concurrent"
+                  type="number"
+                  value={formValues.maxConcurrentInstances}
+                  onChange={e => setFormValues(prev => ({ ...prev, maxConcurrentInstances: e.target.value }))}
+                  placeholder="Unlimited"
+                />
+                <p className="text-xs text-muted-foreground">Limit simultaneous workflow instances</p>
+              </div>
+            </div>
+          </div>
+
+          <DialogFooter>
+            <Button variant="outline" onClick={handleCloseDialog} disabled={isSaving}>
+              Cancel
+            </Button>
+            <Button onClick={handleSubmit} disabled={isSaving}>
+              {isSaving ? <Spinner className="w-4 h-4 mr-2" /> : null}
+              {editingTrigger ? 'Update' : 'Create'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Delete Confirmation Dialog */}
+      <Dialog open={!!deleteConfirmId} onOpenChange={() => setDeleteConfirmId(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Delete Event Trigger?</DialogTitle>
+            <DialogDescription>
+              This will permanently delete the event trigger. Workflows will no longer be automatically started by this trigger.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setDeleteConfirmId(null)}>
+              Cancel
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={() => deleteConfirmId && deleteMutation.mutate(deleteConfirmId)}
+              disabled={deleteMutation.isPending}
+            >
+              {deleteMutation.isPending ? <Spinner className="w-4 h-4 mr-2" /> : null}
+              Delete
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </div>
+  )
+}

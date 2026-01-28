@@ -70,19 +70,33 @@ export async function GET(request: NextRequest) {
     }
 
     if (status) {
-      where.status = status
+      // Support comma-separated status values (e.g., "RUNNING,PAUSED,WAITING_FOR_ACTIVITIES")
+      const statuses = status.split(',').map(s => s.trim()).filter(Boolean)
+      if (statuses.length === 1) {
+        where.status = statuses[0]
+      } else if (statuses.length > 1) {
+        where.status = { $in: statuses }
+      }
     }
 
     if (correlationKey) {
       where.correlationKey = correlationKey
     }
 
-    if (entityType) {
-      where['metadata.entityType'] = entityType
-    }
-
-    if (entityId) {
-      where['metadata.entityId'] = entityId
+    // For JSONB metadata filtering, use $contains with explicit key-value pairs
+    // MikroORM's dot notation creates table joins, not JSON access
+    if (entityType || entityId) {
+      where.$and = where.$and || []
+      if (entityType) {
+        where.$and.push({
+          metadata: { $contains: { entityType: entityType } }
+        })
+      }
+      if (entityId) {
+        where.$and.push({
+          metadata: { $contains: { entityId: entityId } }
+        })
+      }
     }
 
     const [instances, total] = await em.findAndCount(

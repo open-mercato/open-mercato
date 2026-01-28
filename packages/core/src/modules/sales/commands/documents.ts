@@ -4,7 +4,7 @@ import { randomUUID } from 'crypto'
 import { z } from 'zod'
 import { registerCommand } from '@open-mercato/shared/lib/commands'
 import type { CommandHandler } from '@open-mercato/shared/lib/commands'
-import { emitCrudSideEffects, requireId } from '@open-mercato/shared/lib/commands/helpers'
+import { emitCrudSideEffects, requireId, type CrudEventsConfig } from '@open-mercato/shared/lib/commands/helpers'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { EventBus } from '@open-mercato/events'
 import type { DataEngine } from '@open-mercato/shared/lib/data/engine'
@@ -88,6 +88,29 @@ import { resolveDictionaryEntryValue } from '../lib/dictionaries'
 import { resolveStatusEntryIdByValue } from '../lib/statusHelpers'
 import { SalesDocumentNumberGenerator } from '../services/salesDocumentNumberGenerator'
 import { loadSalesSettings } from './settings'
+
+// CRUD events configuration for workflow triggers
+const orderCrudEvents: CrudEventsConfig<SalesOrder> = {
+  module: 'sales',
+  entity: 'orders',
+  persistent: true,
+  buildPayload: (ctx) => ({
+    id: ctx.identifiers.id,
+    organizationId: ctx.identifiers.organizationId,
+    tenantId: ctx.identifiers.tenantId,
+  }),
+}
+
+const quoteCrudEvents: CrudEventsConfig<SalesQuote> = {
+  module: 'sales',
+  entity: 'quotes',
+  persistent: true,
+  buildPayload: (ctx) => ({
+    id: ctx.identifiers.id,
+    organizationId: ctx.identifiers.organizationId,
+    tenantId: ctx.identifiers.tenantId,
+  }),
+}
 
 type DocumentAddressSnapshot = {
   id: string
@@ -3111,6 +3134,31 @@ const createQuoteCommand: CommandHandler<QuoteCreateInput, { quoteId: string }> 
     })
     await em.flush()
 
+    // Emit CRUD side effects to trigger workflow event listeners
+    const dataEngine = ctx.container.resolve('dataEngine') as DataEngine
+    await emitCrudSideEffects({
+      dataEngine,
+      action: 'created',
+      entity: quote,
+      identifiers: {
+        id: quote.id,
+        organizationId: quote.organizationId,
+        tenantId: quote.tenantId,
+      },
+      events: quoteCrudEvents,
+      indexer: { entityType: E.sales.sales_quote },
+    })
+
+    // Invalidate cache
+    const resourceKind = deriveResourceFromCommandId(createQuoteCommand.id) ?? 'sales.quote'
+    await invalidateCrudCache(
+      ctx.container,
+      resourceKind,
+      { id: quote.id, organizationId: quote.organizationId, tenantId: quote.tenantId },
+      ctx.auth?.tenantId ?? null,
+      'created'
+    )
+
     return { quoteId: quote.id }
   },
   captureAfter: async (_input, result, ctx) => {
@@ -3781,6 +3829,31 @@ const createOrderCommand: CommandHandler<OrderCreateInput, { orderId: string }> 
       tagIds: parsed.tags,
     })
     await em.flush()
+
+    // Emit CRUD side effects to trigger workflow event listeners
+    const dataEngine = ctx.container.resolve('dataEngine') as DataEngine
+    await emitCrudSideEffects({
+      dataEngine,
+      action: 'created',
+      entity: order,
+      identifiers: {
+        id: order.id,
+        organizationId: order.organizationId,
+        tenantId: order.tenantId,
+      },
+      events: orderCrudEvents,
+      indexer: { entityType: E.sales.sales_order },
+    })
+
+    // Invalidate cache
+    const resourceKind = deriveResourceFromCommandId(createOrderCommand.id) ?? 'sales.order'
+    await invalidateCrudCache(
+      ctx.container,
+      resourceKind,
+      { id: order.id, organizationId: order.organizationId, tenantId: order.tenantId },
+      ctx.auth?.tenantId ?? null,
+      'created'
+    )
 
     return { orderId: order.id }
   },

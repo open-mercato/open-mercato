@@ -137,11 +137,7 @@
         "priority": 100,
         "preConditions": [
           {
-            "ruleId": "cart_not_empty",
-            "required": true
-          },
-          {
-            "ruleId": "inventory_available",
+            "ruleId": "workflow_checkout_cart_not_empty",
             "required": true
           }
         ],

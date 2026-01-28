@@ -19,7 +19,7 @@ export const metadata = {
   pageOrder: 150,
   icon: visualEditorIcon,
   breadcrumb: [
-    { label: 'Workflows', labelKey: 'workflows.module.name', href: '/backend/workflows/definitions' },
+    { label: 'Workflows', labelKey: 'workflows.module.name', href: '/backend/definitions' },
     { label: 'Visual Editor', labelKey: 'workflows.backend.definitions.visual_editor.title' },
   ],
 }
