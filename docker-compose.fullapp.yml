@@ -19,7 +19,7 @@ services:
       context: .
       args:
         - CONTAINER_PORT=${CONTAINER_PORT:-3000}
-    image: open-mercato/app:dev
+    image: open-mercato/app:${DEPLOY_ENV:-local}
     command: >
       sh -c "yarn mercato init &&
       yarn start"
