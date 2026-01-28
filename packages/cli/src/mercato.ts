@@ -253,15 +253,28 @@ export async function run(argv = process.argv) {
       const email = findArgValue(['--email='], 'superadmin@acme.com')
       const password = findArgValue(['--password='], 'secret')
       const roles = findArgValue(['--roles='], 'superadmin,admin,employee')
+      const skipPasswordPolicyRaw = initArgs.find((arg) =>
+        arg === '--skip-password-policy' ||
+        arg.startsWith('--skip-password-policy=') ||
+        arg === '--allow-weak-password' ||
+        arg.startsWith('--allow-weak-password=')
+      )
+      const skipPasswordPolicy = skipPasswordPolicyRaw
+        ? parseBooleanToken(skipPasswordPolicyRaw.split('=')[1] ?? 'true') ?? true
+        : true
 
       console.log('🔐 Setting up RBAC and users...')
       // Run auth setup command via CLI
-      await runModuleCommand(allModules, 'auth', 'setup', [
+      const setupArgs = [
         '--orgName', orgName,
         '--email', email,
         '--password', password,
         '--roles', roles,
-      ])
+      ]
+      if (skipPasswordPolicy) {
+        setupArgs.push('--skip-password-policy')
+      }
+      await runModuleCommand(allModules, 'auth', 'setup', setupArgs)
       // Query DB to get tenant/org IDs using pg directly
       const { Client } = await import('pg')
       const dbUrl = process.env.DATABASE_URL
@@ -275,6 +288,9 @@ export async function run(argv = process.argv) {
       await pgClient.end()
       const tenantId = orgResult?.rows?.[0]?.tenant_id ?? null
       const orgId = orgResult?.rows?.[0]?.org_id ?? null
+      if (!tenantId || !orgId) {
+        throw new Error('Auth setup failed to create a tenant/org. Aborting init.')
+      }
       console.log('✅ RBAC setup complete:', { tenantId, organizationId: orgId }, '\n')
 
       console.log('🎛️  Seeding feature toggle defaults...')

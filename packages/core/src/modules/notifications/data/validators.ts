@@ -92,12 +92,17 @@ const notificationDeliveryEmailSchema = notificationDeliveryStrategySchema.exten
   subjectPrefix: z.string().trim().min(1).optional(),
 })
 
+const notificationDeliveryCustomSchema = notificationDeliveryStrategySchema.extend({
+  config: z.unknown().optional(),
+})
+
 export const notificationDeliveryConfigSchema = z.object({
   appUrl: z.string().url().optional(),
   panelPath: safeRelativeHrefSchema.optional(),
   strategies: z.object({
     database: notificationDeliveryStrategySchema.optional(),
     email: notificationDeliveryEmailSchema.optional(),
+    custom: z.record(z.string(), notificationDeliveryCustomSchema).optional(),
   }).optional(),
 })
 

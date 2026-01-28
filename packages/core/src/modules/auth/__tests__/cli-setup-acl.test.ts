@@ -46,7 +46,7 @@ describe('auth CLI setup seeds ACLs', () => {
     findOneOrFail.mockImplementation(async (_: any, where: any) => ({ id: 'role-' + where.name, name: where.name }))
 
     // Act
-    await setup.run(['--orgName', 'Acme', '--email', 'root@acme.com', '--password', 'secret'])
+    await setup.run(['--orgName', 'Acme', '--email', 'root@acme.com', '--password', 'secret', '--skip-password-policy'])
 
     // Assert: persistAndFlush was called to create three RoleAcl rows with expected flags/features
     const calls = persistAndFlush.mock.calls.map((c) => c[0])

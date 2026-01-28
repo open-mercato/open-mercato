@@ -14,5 +14,12 @@ export async function sendEmail({ to, subject, react, from, replyTo }: SendEmail
   if (!apiKey) throw new Error('RESEND_API_KEY is not set')
   const resend = new Resend(apiKey)
   const fromAddr = from || process.env.EMAIL_FROM || 'no-reply@localhost'
-  await resend.emails.send({ to, subject, from: fromAddr, react, replyTo })
+  const payload = {
+    to,
+    subject,
+    from: fromAddr,
+    react,
+    ...(replyTo ? { reply_to: replyTo } : {}),
+  }
+  await resend.emails.send(payload)
 }

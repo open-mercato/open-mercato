@@ -172,6 +172,48 @@ export default async function handle(
 }
 ```
 
+## Custom Delivery Strategies
+
+Modules can inject additional delivery strategies (push notifications, SMS, webhooks) by registering a handler in their `di.ts` file. You can register multiple strategies; each `id` maps to an entry under `strategies.custom` so they can be enabled independently.
+
+```typescript
+// packages/core/src/modules/your_module/di.ts
+import type { AppContainer } from '@open-mercato/shared/lib/di/container'
+import { registerNotificationDeliveryStrategy } from '@open-mercato/core/modules/notifications/lib/deliveryStrategies'
+
+export function register(_container: AppContainer): void {
+  registerNotificationDeliveryStrategy({
+    id: 'push',
+    label: 'Push notifications',
+    defaultEnabled: false,
+    async deliver({ notification, panelLink, resolve }) {
+      if (!panelLink) return
+      const pushService = resolve<{ send: (payload: { userId: string; title: string; body?: string; url?: string }) => Promise<void> }>('pushService')
+      await pushService.send({
+        userId: notification.recipientUserId,
+        title: notification.title ?? 'New notification',
+        body: notification.body ?? undefined,
+        url: panelLink,
+      })
+    },
+  })
+}
+```
+
+Enable custom strategies via the module config entry for `notifications.delivery_strategies`:
+
+```json
+{
+  "strategies": {
+    "custom": {
+      "push": { "enabled": true, "config": { "provider": "expo" } }
+    }
+  }
+}
+```
+
+Custom strategies run alongside the built-in database and email delivery when enabled.
+
 ## Adding Actions to Notifications
 
 Actions allow users to take immediate action from the notification panel:

@@ -2402,6 +2402,46 @@ These defaults can be overridden via the Notification Delivery settings page (st
 - **Database strategy**: stores notifications in the `notifications` table (existing behavior).
 - **Email strategy**: sends a Resend email using React templates. Actions are **read-only** and link to `/backend/notifications` for full context.
 
+### Custom Strategies (Module Injection)
+
+Modules can inject additional delivery strategies (e.g., push notifications, SMS, webhooks) by registering a strategy handler. Multiple strategies can be registered at once; each `id` maps to an entry under `strategies.custom` so they can be enabled independently per tenant. Strategies are invoked after the core email delivery.
+
+```typescript
+// packages/core/src/modules/your_module/di.ts
+import type { AppContainer } from '@open-mercato/shared/lib/di/container'
+import { registerNotificationDeliveryStrategy } from '@open-mercato/core/modules/notifications/lib/deliveryStrategies'
+
+export function register(_container: AppContainer): void {
+  registerNotificationDeliveryStrategy({
+    id: 'push',
+    label: 'Push notifications',
+    defaultEnabled: false,
+    async deliver({ notification, recipient, panelLink, config, resolve }) {
+      if (!panelLink) return
+      const pushService = resolve<{ send: (payload: { userId: string; title: string; body?: string; url?: string }) => Promise<void> }>('pushService')
+      await pushService.send({
+        userId: notification.recipientUserId,
+        title: notification.title ?? 'New notification',
+        body: notification.body ?? undefined,
+        url: panelLink,
+      })
+    },
+  })
+}
+```
+
+Enable the strategy in module config (stored under `notifications.delivery_strategies`):
+
+```json
+{
+  "strategies": {
+    "custom": {
+      "push": { "enabled": true, "config": { "provider": "expo" } }
+    }
+  }
+}
+```
+
 ### Admin Panel Link
 
 External channels (email) link to a dedicated backend route (`/backend/notifications`) that renders the notification panel in isolation.
@@ -2417,6 +2457,9 @@ External channels (email) link to a dedicated backend route (`/backend/notificat
 - Added delivery strategy configuration (database + email by default)
 - Added notification delivery subscriber with Resend email templates
 - Added backend notification panel link and delivery settings page
+
+### 2026-02-05
+- Added delivery strategy registry for module-injected channels (push, SMS, etc.)
 
 ### 2026-01-27
 - Enforced same-origin relative path validation for `linkHref` and action `href` inputs

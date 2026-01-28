@@ -17,6 +17,7 @@ import { env } from 'process'
 import type { KmsService, TenantDek } from '@open-mercato/shared/lib/encryption/kms'
 import crypto from 'node:crypto'
 import { formatPasswordRequirements, getPasswordPolicy, validatePassword } from '@open-mercato/shared/lib/auth/passwordPolicy'
+import { parseBooleanToken } from '@open-mercato/shared/lib/boolean'
 
 const addUser: ModuleCli = {
   command: 'add-user',
@@ -404,21 +405,33 @@ const addOrganization: ModuleCli = {
 const setupApp: ModuleCli = {
   command: 'setup',
   async run(rest) {
-    const args: Record<string, string> = {}
-    for (let i = 0; i < rest.length; i += 2) {
-      const k = rest[i]?.replace(/^--/, '')
-      const v = rest[i + 1]
-      if (k) args[k] = v
-    }
-    const orgName = args.orgName || args.name
-    const email = args.email
-    const password = args.password
-    const rolesCsv = (args.roles ?? 'superadmin,admin,employee').trim()
+    const args = parseArgs(rest)
+    const orgName = typeof args.orgName === 'string'
+      ? args.orgName
+      : typeof args.name === 'string'
+        ? args.name
+        : undefined
+    const email = typeof args.email === 'string' ? args.email : undefined
+    const password = typeof args.password === 'string' ? args.password : undefined
+    const rolesCsv = typeof args.roles === 'string'
+      ? args.roles.trim()
+      : 'superadmin,admin,employee'
+    const skipPasswordPolicyRaw =
+      args['skip-password-policy'] ??
+      args.skipPasswordPolicy ??
+      args['allow-weak-password'] ??
+      args.allowWeakPassword
+    const skipPasswordPolicy = typeof skipPasswordPolicyRaw === 'boolean'
+      ? skipPasswordPolicyRaw
+      : parseBooleanToken(typeof skipPasswordPolicyRaw === 'string' ? skipPasswordPolicyRaw : null) ?? false
     if (!orgName || !email || !password) {
-      console.error('Usage: mercato auth setup --orgName <name> --email <email> --password <password> [--roles superadmin,admin,employee]')
+      console.error('Usage: mercato auth setup --orgName <name> --email <email> --password <password> [--roles superadmin,admin,employee] [--skip-password-policy]')
       return
     }
-    if (!ensurePasswordPolicy(password)) return
+    if (!skipPasswordPolicy && !ensurePasswordPolicy(password)) return
+    if (skipPasswordPolicy) {
+      console.warn('⚠️  Password policy validation skipped for setup.')
+    }
     const { resolve } = await createRequestContainer()
     const em = resolve<EntityManager>('em')
     const roleNames = rolesCsv

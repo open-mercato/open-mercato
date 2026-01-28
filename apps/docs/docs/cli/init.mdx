@@ -9,7 +9,7 @@ The `yarn initialize` script wraps the Open Mercato CLI `mercato init` command a
 ## Usage
 
 ```bash
-yarn initialize [--org=<name>] [--email=<address>] [--password=<value>] [--roles=<csv>] [--no-examples] [--stresstest] [--lite] [-n <count>] [--count=<count>] [--reinstall|-r]
+yarn initialize [--org=<name>] [--email=<address>] [--password=<value>] [--roles=<csv>] [--skip-password-policy] [--no-examples] [--stresstest] [--lite] [-n <count>] [--count=<count>] [--reinstall|-r]
 ```
 
 Ensure `DATABASE_URL` points to the Postgres instance you want to initialize before running the command.
@@ -22,6 +22,7 @@ Ensure `DATABASE_URL` points to the Postgres instance you want to initialize bef
 | `--email` | Superadmin login email. If the local part is `superadmin`, companion `admin@…` and `employee@…` accounts are also provisioned. | `superadmin@acme.com` |
 | `--password` | Password applied to all seeded accounts. | `secret` |
 | `--roles` | Comma-separated list of roles ensured before user creation. | `superadmin,admin,employee` |
+| `--skip-password-policy` | Skip password policy validation during `auth setup` (useful for demo defaults like `secret`). | off |
 | `--no-examples` | Skip demo CRM seeders (companies, people, deals, activities, todos). Alias: `--no-exampls`. | off |
 | `--stresstest` | Generate a high-volume synthetic CRM dataset (contacts, companies, deals, activities, notes) in addition to the curated examples. | off |
 | `--lite` | When paired with `--stresstest`, skips deals, activities, notes, and custom fields for faster high-volume contact generation. | off |

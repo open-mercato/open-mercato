@@ -17,6 +17,7 @@ type NotificationDeliveryConfig = {
   strategies: {
     database: { enabled: boolean }
     email: { enabled: boolean; from?: string; replyTo?: string; subjectPrefix?: string }
+    custom?: Record<string, { enabled?: boolean; config?: unknown }>
   }
 }
 
@@ -30,6 +31,7 @@ const emptySettings: NotificationDeliveryConfig = {
   strategies: {
     database: { enabled: true },
     email: { enabled: true },
+    custom: {},
   },
 }
 

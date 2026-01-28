@@ -8,6 +8,10 @@ export type NotificationDeliveryStrategyState = {
   enabled: boolean
 }
 
+export type NotificationCustomDeliveryConfig = NotificationDeliveryStrategyState & {
+  config?: unknown
+}
+
 export type NotificationEmailDeliveryConfig = NotificationDeliveryStrategyState & {
   from?: string
   replyTo?: string
@@ -20,6 +24,7 @@ export type NotificationDeliveryConfig = {
   strategies: {
     database: NotificationDeliveryStrategyState
     email: NotificationEmailDeliveryConfig
+    custom?: Record<string, NotificationCustomDeliveryConfig>
   }
 }
 
@@ -65,6 +70,7 @@ export const DEFAULT_NOTIFICATION_DELIVERY_CONFIG: NotificationDeliveryConfig = 
         replyTo: env.emailReplyTo,
         subjectPrefix: env.emailSubjectPrefix,
       },
+      custom: {},
     },
   }
 })()
@@ -91,6 +97,7 @@ const normalizeDeliveryConfig = (input?: unknown | null): NotificationDeliveryCo
         replyTo: strategies.email?.replyTo,
         subjectPrefix: strategies.email?.subjectPrefix,
       },
+      custom: strategies.custom ?? {},
     },
   }
 }

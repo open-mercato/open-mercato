@@ -9,7 +9,7 @@ description: Creates a tenant, organization, and seed users with optional derive
 ## Usage
 
 ```bash
-yarn mercato auth setup --orgName "<organization>" --email "<superadmin@email>" --password "<password>" [--roles superadmin,admin,employee]
+yarn mercato auth setup --orgName "<organization>" --email "<superadmin@email>" --password "<password>" [--roles superadmin,admin,employee] [--skip-password-policy]
 ```
 
 Aliases: `--name` for `--orgName`.
@@ -22,6 +22,7 @@ Aliases: `--name` for `--orgName`.
 | `--email` | Primary superadmin email. If the local part is exactly `superadmin`, additional `admin@…` and `employee@…` users are derived automatically. | _(required)_ |
 | `--password` | Password applied to all seeded users. | _(required)_ |
 | `--roles` | Comma-separated list of roles to ensure exist before assignment. | `superadmin,admin,employee` |
+| `--skip-password-policy` | Skip password policy validation (useful for demo defaults like `secret`). | off |
 
 ## Behavior
 
@@ -64,4 +65,4 @@ Setup complete: { tenantId: '...', organizationId: '...' }
 - **Missing options** – the command prints the usage line and exits if `--orgName`, `--email`, or `--password` are not provided.
 - **Existing data** – rerunning the command against an existing tenant will update user passwords and assignments rather than duplicating records.
 - **Role mismatches** – ensure `mercato auth seed-roles` ran previously if you override the default role list.
-- **Password policies** – the command enforces the configured password policy. Update `OM_PASSWORD_MIN_LENGTH`, `OM_PASSWORD_REQUIRE_DIGIT`, `OM_PASSWORD_REQUIRE_UPPERCASE`, and `OM_PASSWORD_REQUIRE_SPECIAL` to customize the rules.
+- **Password policies** – the command enforces the configured password policy unless you pass `--skip-password-policy`. Update `OM_PASSWORD_MIN_LENGTH`, `OM_PASSWORD_REQUIRE_DIGIT`, `OM_PASSWORD_REQUIRE_UPPERCASE`, and `OM_PASSWORD_REQUIRE_SPECIAL` to customize the rules.

@@ -2,6 +2,7 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import { Notification } from '../data/entities'
 import { NOTIFICATION_EVENTS } from '../lib/events'
 import { DEFAULT_NOTIFICATION_DELIVERY_CONFIG, resolveNotificationDeliveryConfig, resolveNotificationPanelUrl } from '../lib/deliveryConfig'
+import { getNotificationDeliveryStrategies } from '../lib/deliveryStrategies'
 import { sendEmail } from '@open-mercato/shared/lib/email/send'
 import NotificationEmail from '../emails/NotificationEmail'
 import { loadDictionary } from '@open-mercato/shared/lib/i18n/server'
@@ -100,7 +101,6 @@ export default async function handle(payload: NotificationCreatedPayload, ctx: R
   const deliveryConfig = await resolveNotificationDeliveryConfig(ctx, { defaultValue: DEFAULT_NOTIFICATION_DELIVERY_CONFIG })
   if (!deliveryConfig.strategies.email.enabled) {
     debug('email delivery disabled')
-    return
   }
 
   const em = ctx.resolve('em') as EntityManager
@@ -121,7 +121,7 @@ export default async function handle(payload: NotificationCreatedPayload, ctx: R
     encryptionService = null
   }
 
-  const recipient = await resolveRecipient(em, notification, encryptionService)
+  const recipient = (await resolveRecipient(em, notification, encryptionService)) ?? { email: null, name: null }
   if (!recipient?.email) {
     debug('recipient has no email', notification.recipientUserId)
   }
@@ -129,17 +129,18 @@ export default async function handle(payload: NotificationCreatedPayload, ctx: R
   const panelUrl = resolveNotificationPanelUrl(deliveryConfig)
   if (!panelUrl) {
     debug('missing panelUrl; check appUrl/panelPath settings')
-    return
   }
 
-  const panelLink = buildPanelLink(panelUrl, notification.id)
-  const actionLinks = (notification.actionData?.actions ?? []).map((action) => ({
-    id: action.id,
-    label: action.labelKey ? t(action.labelKey, action.label) : action.label,
-    href: panelLink,
-  }))
+  const panelLink = panelUrl ? buildPanelLink(panelUrl, notification.id) : null
+  const actionLinks = panelLink
+    ? (notification.actionData?.actions ?? []).map((action) => ({
+        id: action.id,
+        label: action.labelKey ? t(action.labelKey, action.label) : action.label,
+        href: panelLink,
+      }))
+    : []
 
-  if (deliveryConfig.strategies.email.enabled && recipient?.email) {
+  if (deliveryConfig.strategies.email.enabled && recipient?.email && panelLink) {
     const subjectPrefix = deliveryConfig.strategies.email.subjectPrefix?.trim()
     const subject = subjectPrefix ? `${subjectPrefix} ${title}` : title
     const copy = {
@@ -168,6 +169,34 @@ export default async function handle(payload: NotificationCreatedPayload, ctx: R
       })
     } catch (error) {
       console.error('[notifications] email delivery failed', error)
+    }
+  }
+
+  const strategyConfigs = deliveryConfig.strategies.custom ?? {}
+  const strategies = getNotificationDeliveryStrategies()
+  for (const strategy of strategies) {
+    const strategyConfig = strategyConfigs[strategy.id]
+    const enabled = strategyConfig?.enabled ?? strategy.defaultEnabled ?? false
+    if (!enabled) {
+      debug('custom delivery disabled', strategy.id)
+      continue
+    }
+    try {
+      await strategy.deliver({
+        notification,
+        recipient,
+        title,
+        body,
+        panelUrl,
+        panelLink,
+        actionLinks,
+        deliveryConfig,
+        config: strategyConfig ?? {},
+        resolve: ctx.resolve,
+        t,
+      })
+    } catch (error) {
+      console.error(`[notifications] delivery strategy failed (${strategy.id})`, error)
     }
   }
 
