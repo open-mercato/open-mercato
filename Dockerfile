@@ -89,4 +89,3 @@ EXPOSE ${CONTAINER_PORT}
 # Run the app directly instead of using turbo (which is a devDependency)
 WORKDIR /app/apps/mercato
 CMD ["yarn", "start"]
-
