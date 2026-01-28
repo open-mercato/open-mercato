@@ -244,39 +244,18 @@ function detectMonorepoFromNodeModules(appDir: string): { isMonorepo: boolean; m
   }
 }
 
-function detectMonorepoFromLayout(startDir: string): string | null {
-  let dir = startDir
-  while (dir !== path.dirname(dir)) {
-    const packagesRoot = path.join(dir, 'packages', 'core', 'src', 'modules')
-    const appsRoot = path.join(dir, 'apps')
-    if (fs.existsSync(packagesRoot) && fs.existsSync(appsRoot)) {
-      return dir
-    }
-    dir = path.dirname(dir)
-  }
-  return null
-}
-
 export function createResolver(cwd: string = process.cwd()): PackageResolver {
   // First detect if we're in a monorepo by checking if node_modules packages are symlinks
-  const detected = detectMonorepoFromNodeModules(cwd)
-  let isMonorepo = detected.isMonorepo
-  let rootDir = detected.monorepoRoot ?? cwd
-  if (!isMonorepo) {
-    const layoutRoot = detectMonorepoFromLayout(cwd)
-    if (layoutRoot) {
-      isMonorepo = true
-      rootDir = layoutRoot
-    }
-  }
+  const { isMonorepo: _isMonorepo, monorepoRoot } = detectMonorepoFromNodeModules(cwd)
+  const rootDir = monorepoRoot ?? cwd
 
   // The app directory depends on context:
   // - In monorepo: use detectAppDir to find apps/mercato or similar
   // - In production: app is at cwd
-  const appDir = isMonorepo ? detectAppDir(rootDir, true) : cwd
+  const appDir = _isMonorepo ? detectAppDir(rootDir, true) : cwd
 
   return {
-    isMonorepo: () => isMonorepo,
+    isMonorepo: () => _isMonorepo,
 
     getRootDir: () => rootDir,
 
@@ -290,7 +269,7 @@ export function createResolver(cwd: string = process.cwd()): PackageResolver {
     getModulesConfigPath: () => path.join(appDir, 'src', 'modules.ts'),
 
     discoverPackages: () => {
-      return isMonorepo
+      return _isMonorepo
         ? discoverPackagesInMonorepo(rootDir)
         : discoverPackagesInNodeModules(rootDir)
     },
@@ -299,7 +278,7 @@ export function createResolver(cwd: string = process.cwd()): PackageResolver {
 
     getModulePaths: (entry: ModuleEntry) => {
       const appBase = path.resolve(appDir, 'src/modules', entry.id)
-      const pkgModulesRoot = pkgDirFor(rootDir, entry.from, isMonorepo)
+      const pkgModulesRoot = pkgDirFor(rootDir, entry.from, _isMonorepo)
       const pkgBase = path.join(pkgModulesRoot, entry.id)
       return { appBase, pkgBase }
     },
@@ -318,12 +297,12 @@ export function createResolver(cwd: string = process.cwd()): PackageResolver {
         // App output goes to .mercato/generated
         return path.join(appDir, '.mercato', 'generated')
       }
-      const pkgRoot = pkgRootFor(rootDir, packageName, isMonorepo)
+      const pkgRoot = pkgRootFor(rootDir, packageName, _isMonorepo)
       return path.join(pkgRoot, 'generated')
     },
 
     getPackageRoot: (from?: string) => {
-      return pkgRootFor(rootDir, from, isMonorepo)
+      return pkgRootFor(rootDir, from, _isMonorepo)
     },
   }
 }
