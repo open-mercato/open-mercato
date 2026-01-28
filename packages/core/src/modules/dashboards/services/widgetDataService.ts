@@ -1,6 +1,8 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { CacheStrategy } from '@open-mercato/cache'
 import { createHash } from 'node:crypto'
+import { resolveTenantEncryptionService } from '@open-mercato/shared/lib/encryption/customFieldValues'
+import { resolveEntityIdFromMetadata } from '@open-mercato/shared/lib/encryption/entityIds'
 import {
   type DateRangePreset,
   resolveDateRange,
@@ -296,11 +298,29 @@ export class WidgetDataService {
 
     try {
       const labelRows = await this.em.getConnection().execute(sql, params)
+      const meta = this.resolveEntityMetadata(config.table)
+      const entityId = this.resolveEntityId(meta)
+      const encryptionService = resolveTenantEncryptionService(this.em as any)
+      const organizationId = this.resolveOrganizationId()
 
       const labelMap = new Map<string, string>()
       for (const row of labelRows as Array<{ id: string; label: string | null }>) {
-        if (row.id && row.label != null && row.label !== '') {
-          labelMap.set(row.id, row.label)
+        let labelValue = row.label
+        if (entityId && encryptionService?.isEnabled() && labelValue != null) {
+          const decrypted = await encryptionService.decryptEntityPayload(
+            entityId,
+            { [config.labelColumn]: labelValue },
+            this.scope.tenantId,
+            organizationId,
+          )
+          const resolved = decrypted[config.labelColumn]
+          if (typeof resolved === 'string' || typeof resolved === 'number') {
+            labelValue = String(resolved)
+          }
+        }
+
+        if (row.id && labelValue != null && labelValue !== '') {
+          labelMap.set(row.id, labelValue)
         }
       }
 
@@ -315,6 +335,36 @@ export class WidgetDataService {
         ...item,
         groupLabel: undefined,
       }))
+    }
+  }
+
+  private resolveOrganizationId(): string | null {
+    if (!this.scope.organizationIds || this.scope.organizationIds.length !== 1) return null
+    return this.scope.organizationIds[0] ?? null
+  }
+
+  private resolveEntityMetadata(tableName: string): Record<string, any> | null {
+    const registry = (this.em as any)?.getMetadata?.()
+    if (!registry) return null
+    const entries =
+      (typeof registry.getAll === 'function' && registry.getAll()) ||
+      (Array.isArray(registry.metadata) ? registry.metadata : Object.values(registry.metadata ?? {}))
+    const metas = Array.isArray(entries) ? entries : Object.values(entries ?? {})
+    const match = metas.find((meta: any) => {
+      const table = meta?.tableName ?? meta?.collection
+      if (typeof table !== 'string') return false
+      if (table === tableName) return true
+      return table.split('.').pop() === tableName
+    })
+    return match ?? null
+  }
+
+  private resolveEntityId(meta: Record<string, any> | null): string | null {
+    if (!meta) return null
+    try {
+      return resolveEntityIdFromMetadata(meta as any)
+    } catch {
+      return null
     }
   }
 }

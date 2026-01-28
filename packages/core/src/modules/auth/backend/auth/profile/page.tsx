@@ -24,8 +24,8 @@ type ProfileUpdateResponse = {
 
 type ProfileFormValues = {
   email: string
-  password: string
-  confirmPassword: string
+  password?: string
+  confirmPassword?: string
 }
 
 export default function AuthProfilePage() {

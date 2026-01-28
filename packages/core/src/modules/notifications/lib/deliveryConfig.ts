@@ -8,7 +8,8 @@ export type NotificationDeliveryStrategyState = {
   enabled: boolean
 }
 
-export type NotificationCustomDeliveryConfig = NotificationDeliveryStrategyState & {
+export type NotificationCustomDeliveryConfig = {
+  enabled?: boolean
   config?: unknown
 }
 

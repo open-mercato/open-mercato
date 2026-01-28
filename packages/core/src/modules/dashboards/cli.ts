@@ -42,15 +42,25 @@ export async function seedDashboardDefaultsForTenant(
   const widgetMap = new Map(widgets.map((widget) => [widget.metadata.id, widget]))
   const resolvedWidgetIds = widgetIds && widgetIds.length
     ? widgetIds.filter((id) => widgetMap.has(id))
-    : widgets.filter((widget) => widget.metadata.defaultEnabled).map((widget) => widget.metadata.id)
+    : null
+  const defaultWidgetIds = widgets
+    .filter((widget) => widget.metadata.defaultEnabled)
+    .map((widget) => widget.metadata.id)
+  const allWidgetIds = widgets.map((widget) => widget.metadata.id)
 
-  if (!resolvedWidgetIds.length) {
+  if (resolvedWidgetIds && resolvedWidgetIds.length === 0) {
     log('No widgets resolved for dashboard seeding.')
     return false
   }
 
   await em.transactional(async (tem) => {
     for (const roleName of roleNames) {
+      const isAdminRole = roleName === 'admin' || roleName === 'superadmin'
+      const roleWidgetIds = resolvedWidgetIds ?? (isAdminRole ? allWidgetIds : defaultWidgetIds)
+      if (!roleWidgetIds.length) {
+        log(`No widgets resolved for role "${roleName}".`)
+        continue
+      }
       const role = await tem.findOne(Role, { name: roleName })
       if (!role) {
         log(`Skipping role "${roleName}" (not found)`)
@@ -63,7 +73,7 @@ export async function seedDashboardDefaultsForTenant(
         deletedAt: null,
       })
       if (existing) {
-        existing.widgetIdsJson = resolvedWidgetIds
+        existing.widgetIdsJson = roleWidgetIds
         tem.persist(existing)
         log(`Updated dashboard widgets for role "${roleName}"`)
       } else {
@@ -71,7 +81,7 @@ export async function seedDashboardDefaultsForTenant(
           roleId: String(role.id),
           tenantId,
           organizationId,
-          widgetIdsJson: resolvedWidgetIds,
+          widgetIdsJson: roleWidgetIds,
           createdAt: new Date(),
           updatedAt: null,
           deletedAt: null,
