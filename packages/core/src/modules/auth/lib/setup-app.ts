@@ -190,8 +190,8 @@ export async function setupInitialTenant(
       const employeeOverride = readEnvValue(DERIVED_EMAIL_ENV.employee)
       const adminEmail = adminOverride ?? (domain ? `admin@${domain}` : '')
       const employeeEmail = employeeOverride ?? (domain ? `employee@${domain}` : '')
-      const adminPassword = readEnvValue('OM_INIT_ADMIN_PASSWORD')
-      const employeePassword = readEnvValue('OM_INIT_EMPLOYEE_PASSWORD')
+      const adminPassword = readEnvValue('OM_INIT_ADMIN_PASSWORD') || 'secret'
+      const employeePassword = readEnvValue('OM_INIT_EMPLOYEE_PASSWORD') || 'secret'
       const adminPasswordHash = adminPassword ? await resolvePasswordHash({ email: adminEmail, password: adminPassword }) : null
       const employeePasswordHash = employeePassword
         ? await resolvePasswordHash({ email: employeeEmail, password: employeePassword })
