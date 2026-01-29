@@ -71,3 +71,4 @@ Safari prefetch requests can trigger onboarding activation twice, resulting in d
 
 ### 2026-01-28
 - Added onboarding activation processing lock and tenant-aware login flow.
+- Surface verification email delivery failures and allow immediate retry when email sending fails.

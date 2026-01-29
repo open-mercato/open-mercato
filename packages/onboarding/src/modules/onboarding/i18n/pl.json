@@ -52,6 +52,7 @@
       "passwordRequired": "Password must meet the requirements: {requirements}.",
       "passwordMismatch": "Passwords must match.",
       "termsRequired": "Please accept the terms to continue.",
+      "emailSendFailed": "We could not send the verification email. Please try again or contact support.",
       "emailExists": "We already have an account with this email. Try signing in or resetting your password.",
       "pendingRequest": "We already have a pending verification. Please try again in about {minutes} minutes or contact the administrator."
     }

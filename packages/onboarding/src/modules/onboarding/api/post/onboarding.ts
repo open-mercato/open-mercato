@@ -145,7 +145,20 @@ export async function POST(req: Request) {
       footer: translate('onboarding.email.footer', 'Open Mercato · Tenant onboarding service'),
     }
     const emailReact = VerificationEmail({ verifyUrl, copy: emailCopy })
-    await sendEmail({ to: request.email, subject, react: emailReact })
+    try {
+      await sendEmail({ to: request.email, subject, react: emailReact })
+    } catch (err) {
+      request.lastEmailSentAt = null
+      await em.flush()
+      console.error('[onboarding.start] verification email failed', err)
+      return NextResponse.json({
+        ok: false,
+        error: translate(
+          'onboarding.errors.emailSendFailed',
+          'We could not send the verification email. Please try again or contact support.',
+        ),
+      }, { status: 502 })
+    }
 
     const adminEmail = process.env.ADMIN_EMAIL || 'piotr@catchthetornado.com'
     const adminSubject = translate('onboarding.email.adminSubject', 'New self-service onboarding request')
@@ -160,11 +173,15 @@ export async function POST(req: Request) {
       }),
       footer: translate('onboarding.email.adminFooter', 'You can review the tenant after verification is complete.'),
     }
-    await sendEmail({
-      to: adminEmail,
-      subject: adminSubject,
-      react: AdminNotificationEmail({ copy: adminCopy }),
-    })
+    try {
+      await sendEmail({
+        to: adminEmail,
+        subject: adminSubject,
+        react: AdminNotificationEmail({ copy: adminCopy }),
+      })
+    } catch (err) {
+      console.error('[onboarding.start] admin email failed', err)
+    }
 
     return NextResponse.json({ ok: true, email: request.email })
   } catch (error) {
