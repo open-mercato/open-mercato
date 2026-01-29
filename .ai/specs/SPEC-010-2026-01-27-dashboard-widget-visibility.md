@@ -202,7 +202,9 @@ export const features = [
 File: `packages/core/src/modules/<module>/widgets/dashboard/<widget-name>/widget.ts`
 
 ```typescript
-import type { DashboardWidgetModule } from '@open-mercato/shared/modules/dashboard/widgets'
+import { lazyDashboardWidget, type DashboardWidgetModule } from '@open-mercato/shared/modules/dashboard/widgets'
+
+const MyWidgetComponent = lazyDashboardWidget(() => import('./widget.client'))
 
 const widget: DashboardWidgetModule = {
   metadata: {
@@ -560,6 +562,12 @@ curl -H "Authorization: Bearer <token>" \
 ---
 
 ## Changelog
+
+### 2026-01-29
+- Documented `lazyDashboardWidget` usage to avoid importing client components during CLI discovery.
+
+### 2026-01-28
+- Added upgrade/init handling to append analytics widgets to admin and employee role visibility.
 
 ### 2026-01-27
 

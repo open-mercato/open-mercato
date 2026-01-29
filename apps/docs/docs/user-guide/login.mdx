@@ -9,7 +9,7 @@ Logging in is the first touchpoint for every operator. The authentication flow r
 
 ## Sign-in experience
 
-- **Email & password** – standard credentials validated against the tenant's directory. Password policies can be enforced per organization via configuration.
+- **Email & password** – standard credentials validated against the tenant's directory. Password policies are configured via environment variables (see the [System status variables](../framework/operations/system-status) guide).
 - **Organization context** – after signing in, users see the organizations they are allowed to operate. Selecting one sets both organization and tenant scopes for the session.
 - **Remember me** – sessions persist according to the environment configuration (JWT expiration + refresh tokens).
 

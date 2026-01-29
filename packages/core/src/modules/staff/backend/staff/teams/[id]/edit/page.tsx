@@ -369,8 +369,8 @@ export default function StaffTeamEditPage({ params }: { params?: { id?: string }
               rowActions={(row) => (
                 <RowActions
                   items={[
-                    { label: memberLabels.actions.edit, onSelect: () => { router.push(`/backend/staff/team-members/${row.id}`) } },
-                    { label: memberLabels.actions.unassign, onSelect: () => { void handleUnassignMember(row) } },
+                    { id: 'edit', label: memberLabels.actions.edit, onSelect: () => { router.push(`/backend/staff/team-members/${row.id}`) } },
+                    { id: 'unassign', label: memberLabels.actions.unassign, onSelect: () => { void handleUnassignMember(row) } },
                   ]}
                 />
               )}

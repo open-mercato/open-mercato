@@ -8,6 +8,7 @@ import type { Module } from '@open-mercato/shared/modules/registry'
 import { getCliModules, hasCliModules, registerCliModules } from './registry'
 export { getCliModules, hasCliModules, registerCliModules }
 import { parseBooleanToken } from '@open-mercato/shared/lib/boolean'
+import { resolveInitDerivedSecrets } from './lib/init-secrets'
 import type { ChildProcess } from 'node:child_process'
 import path from 'node:path'
 import fs from 'node:fs'
@@ -109,6 +110,12 @@ export async function run(argv = process.argv) {
     try {
       const initArgs = parts.slice(1).filter(Boolean)
       const reinstall = initArgs.includes('--reinstall') || initArgs.includes('-r')
+      process.env.OM_INIT_FLOW = 'true'
+      if (reinstall) {
+        process.env.OM_INIT_REINSTALL = 'true'
+      } else if (process.env.OM_INIT_REINSTALL) {
+        delete process.env.OM_INIT_REINSTALL
+      }
       const skipExamples = initArgs.includes('--no-examples') || initArgs.includes('--no-exampls')
       const stressTestEnabled =
         initArgs.includes('--stresstest') || initArgs.includes('--stress-test')
@@ -263,19 +270,48 @@ export async function run(argv = process.argv) {
         }
         return fallback
       }
+      const readEnvDefault = (key: string) => {
+        const value = process.env[key]
+        if (typeof value === 'string' && value.trim().length > 0) return value.trim()
+        return undefined
+      }
+      const defaultEmail = readEnvDefault('OM_INIT_SUPERADMIN_EMAIL') ?? 'superadmin@acme.com'
+      const defaultPassword = readEnvDefault('OM_INIT_SUPERADMIN_PASSWORD') ?? 'secret'
       const orgName = findArgValue(['--org=', '--orgName='], 'Acme Corp')
-      const email = findArgValue(['--email='], 'superadmin@acme.com')
-      const password = findArgValue(['--password='], 'secret')
+      const email = findArgValue(['--email='], defaultEmail)
+      const password = findArgValue(['--password='], defaultPassword)
+      const derivedSecrets = resolveInitDerivedSecrets({ email, env: process.env })
+      const adminEmailDerived = derivedSecrets.adminEmail
+      const employeeEmailDerived = derivedSecrets.employeeEmail
+      if (adminEmailDerived && derivedSecrets.adminPassword) {
+        process.env.OM_INIT_ADMIN_PASSWORD = derivedSecrets.adminPassword
+      }
+      if (employeeEmailDerived && derivedSecrets.employeePassword) {
+        process.env.OM_INIT_EMPLOYEE_PASSWORD = derivedSecrets.employeePassword
+      }
       const roles = findArgValue(['--roles='], 'superadmin,admin,employee')
+      const skipPasswordPolicyRaw = initArgs.find((arg) =>
+        arg === '--skip-password-policy' ||
+        arg.startsWith('--skip-password-policy=') ||
+        arg === '--allow-weak-password' ||
+        arg.startsWith('--allow-weak-password=')
+      )
+      const skipPasswordPolicy = skipPasswordPolicyRaw
+        ? parseBooleanToken(skipPasswordPolicyRaw.split('=')[1] ?? 'true') ?? true
+        : true
 
       console.log('🔐 Setting up RBAC and users...')
       // Run auth setup command via CLI
-      await runModuleCommand(allModules, 'auth', 'setup', [
+      const setupArgs = [
         '--orgName', orgName,
         '--email', email,
         '--password', password,
         '--roles', roles,
-      ])
+      ]
+      if (skipPasswordPolicy) {
+        setupArgs.push('--skip-password-policy')
+      }
+      await runModuleCommand(allModules, 'auth', 'setup', setupArgs)
       // Query DB to get tenant/org IDs using pg directly
       const { Client } = await import('pg')
       const dbUrl = process.env.DATABASE_URL
@@ -289,6 +325,9 @@ export async function run(argv = process.argv) {
       await pgClient.end()
       const tenantId = orgResult?.rows?.[0]?.tenant_id ?? null
       const orgId = orgResult?.rows?.[0]?.org_id ?? null
+      if (!tenantId || !orgId) {
+        throw new Error('Auth setup failed to create a tenant/org. Aborting init.')
+      }
       console.log('✅ RBAC setup complete:', { tenantId, organizationId: orgId }, '\n')
 
       console.log('🎛️  Seeding feature toggle defaults...')
@@ -361,6 +400,15 @@ export async function run(argv = process.argv) {
         await runModuleCommand(allModules, 'dashboards', 'seed-defaults', ['--tenant', tenantId], { optional: true })
         console.log('✅ Dashboard widgets enabled\n')
 
+        console.log('📊 Enabling analytics widgets for admin and employee roles...')
+        await runModuleCommand(allModules, 'dashboards', 'enable-analytics-widgets', [
+          '--tenant',
+          tenantId,
+          '--roles',
+          'admin,employee',
+        ])
+        console.log('✅ Analytics widgets enabled for roles\n')
+
       } else {
         console.log('⚠️  Could not get organization ID or tenant ID, skipping seeding steps\n')
       }
@@ -377,11 +425,19 @@ export async function run(argv = process.argv) {
       await runModuleCommand(allModules, 'query_index', 'reindex', queryIndexArgs, { optional: true })
       console.log('✅ Query indexes rebuilt\n')
 
-      // Derive admin/employee only when the provided email is a superadmin email
-      const [local, domain] = String(email).split('@')
-      const isSuperadminLocal = (local || '').toLowerCase() === 'superadmin' && !!domain
-      const adminEmailDerived = isSuperadminLocal ? `admin@${domain}` : null
-      const employeeEmailDerived = isSuperadminLocal ? `employee@${domain}` : null
+      const adminPasswordOverride = derivedSecrets.adminPassword
+      const employeePasswordOverride = derivedSecrets.employeePassword
+      const createdUsers: Array<{ label: string; icon: string; email: string }> = []
+      const createdPasswords = new Map<string, string>()
+      const pushUser = (label: string, icon: string, value: string | null, passwordValue: string) => {
+        if (!value) return
+        if (createdUsers.some((entry) => entry.email.toLowerCase() === value.toLowerCase())) return
+        createdUsers.push({ label, icon, email: value })
+        createdPasswords.set(value.toLowerCase(), passwordValue)
+      }
+      pushUser('Superadmin', '👑', email, password)
+      pushUser('Admin', '🧰', adminEmailDerived, adminPasswordOverride ?? password)
+      pushUser('Employee', '👷', employeeEmailDerived, employeePasswordOverride ?? password)
 
       // Simplified success message: we know which users were created
       console.log('🎉 App initialization complete!\n')
@@ -392,15 +448,12 @@ export async function run(argv = process.argv) {
       console.log('║    yarn dev                                                  ║')
       console.log('║                                                              ║')
       console.log('║  Users created:                                              ║')
-      console.log(`║    👑 Superadmin: ${email.padEnd(42)} ║`)
-      console.log(`║       Password: ${password.padEnd(44)} ║`)
-      if (adminEmailDerived) {
-        console.log(`║    🧰 Admin:      ${adminEmailDerived.padEnd(42)} ║`)
-        console.log(`║       Password: ${password.padEnd(44)} ║`)
-      }
-      if (employeeEmailDerived) {
-        console.log(`║    👷 Employee:   ${employeeEmailDerived.padEnd(42)} ║`)
-        console.log(`║       Password: ${password.padEnd(44)} ║`)
+      for (const entry of createdUsers) {
+        const label = `${entry.icon} ${entry.label}:`
+        const labelPad = label.padEnd(13)
+        const entryPassword = createdPasswords.get(entry.email.toLowerCase()) ?? password
+        console.log(`║    ${labelPad}${entry.email.padEnd(42)} ║`)
+        console.log(`║       Password: ${entryPassword.padEnd(44)} ║`)
       }
       console.log('║                                                              ║')
       console.log('║  Happy coding!                                               ║')

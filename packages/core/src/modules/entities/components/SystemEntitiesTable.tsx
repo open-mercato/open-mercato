@@ -88,7 +88,7 @@ export default function SystemEntitiesTable() {
       rowActions={(row) => (
         <RowActions
           items={[
-            { label: 'Edit', href: `/backend/entities/system/${encodeURIComponent(row.entityId)}` },
+            { id: 'edit', label: 'Edit', href: `/backend/entities/system/${encodeURIComponent(row.entityId)}` },
           ]}
         />
       )}

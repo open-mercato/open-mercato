@@ -676,5 +676,7 @@
       "success": "Sub-workflow completed successfully",
       "failed": "Sub-workflow failed"
     }
-  }
+  },
+  "workflows.notifications.task.assigned.title": "Task Assigned",
+  "workflows.notifications.task.assigned.body": "You have been assigned to task \"{taskName}\" in workflow \"{workflowName}\"{dueDate, select, other { (due: {dueDate})}}"
 }

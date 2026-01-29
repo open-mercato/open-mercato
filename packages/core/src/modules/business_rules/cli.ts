@@ -44,6 +44,7 @@ const seedGuardRules: ModuleCli = {
       const rulesPath = path.join(__dirname, '../workflows/examples', 'guard-rules-example.json')
       const rulesData = JSON.parse(fs.readFileSync(rulesPath, 'utf8'))
 
+      console.log('🧠 Seeding guard rules...')
       let seededCount = 0
       let skippedCount = 0
 
@@ -73,7 +74,7 @@ const seedGuardRules: ModuleCli = {
         seededCount++
       }
 
-      console.log(`\n✓ Guard rules seeding complete:`)
+      console.log(`\n✅ Guard rules seeding complete:`)
       console.log(`  - Seeded: ${seededCount}`)
       console.log(`  - Skipped (existing): ${skippedCount}`)
       console.log(`  - Total: ${rulesData.length}`)

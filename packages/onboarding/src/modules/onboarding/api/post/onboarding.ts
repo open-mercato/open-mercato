@@ -12,6 +12,7 @@ import VerificationEmail from '@open-mercato/onboarding/modules/onboarding/email
 import AdminNotificationEmail from '@open-mercato/onboarding/modules/onboarding/emails/AdminNotificationEmail'
 import { User } from '@open-mercato/core/modules/auth/data/entities'
 import type { OpenApiMethodDoc, OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
+import { formatPasswordRequirements, getPasswordPolicy } from '@open-mercato/shared/lib/auth/passwordPolicy'
 
 export const metadata = {
   POST: {
@@ -39,6 +40,11 @@ export async function POST(req: Request) {
     : defaultLocale
   const dict = await loadDictionary(locale)
   const translate = createFallbackTranslator(dict)
+  const passwordRequirements = formatPasswordRequirements(
+    getPasswordPolicy(),
+    translate,
+    'onboarding.password.requirements',
+  )
 
   const parsed = onboardingStartSchema.safeParse(payload)
   if (!parsed.success) {
@@ -60,7 +66,11 @@ export async function POST(req: Request) {
           fieldErrors.organizationName = translate('onboarding.errors.organizationNameRequired', 'Organization name is required.')
           break
         case 'password':
-          fieldErrors.password = translate('onboarding.errors.passwordRequired', 'Password must be at least 6 characters.')
+          fieldErrors.password = translate(
+            'onboarding.errors.passwordRequired',
+            'Password must meet the requirements: {requirements}.',
+            { requirements: passwordRequirements },
+          )
           break
         case 'confirmPassword':
           fieldErrors.confirmPassword = translate('onboarding.errors.passwordMismatch', 'Passwords must match.')
@@ -135,7 +145,20 @@ export async function POST(req: Request) {
       footer: translate('onboarding.email.footer', 'Open Mercato · Tenant onboarding service'),
     }
     const emailReact = VerificationEmail({ verifyUrl, copy: emailCopy })
-    await sendEmail({ to: request.email, subject, react: emailReact })
+    try {
+      await sendEmail({ to: request.email, subject, react: emailReact })
+    } catch (err) {
+      request.lastEmailSentAt = null
+      await em.flush()
+      console.error('[onboarding.start] verification email failed', err)
+      return NextResponse.json({
+        ok: false,
+        error: translate(
+          'onboarding.errors.emailSendFailed',
+          'We could not send the verification email. Please try again or contact support.',
+        ),
+      }, { status: 502 })
+    }
 
     const adminEmail = process.env.ADMIN_EMAIL || 'piotr@catchthetornado.com'
     const adminSubject = translate('onboarding.email.adminSubject', 'New self-service onboarding request')
@@ -150,11 +173,15 @@ export async function POST(req: Request) {
       }),
       footer: translate('onboarding.email.adminFooter', 'You can review the tenant after verification is complete.'),
     }
-    await sendEmail({
-      to: adminEmail,
-      subject: adminSubject,
-      react: AdminNotificationEmail({ copy: adminCopy }),
-    })
+    try {
+      await sendEmail({
+        to: adminEmail,
+        subject: adminSubject,
+        react: AdminNotificationEmail({ copy: adminCopy }),
+      })
+    } catch (err) {
+      console.error('[onboarding.start] admin email failed', err)
+    }
 
     return NextResponse.json({ ok: true, email: request.email })
   } catch (error) {

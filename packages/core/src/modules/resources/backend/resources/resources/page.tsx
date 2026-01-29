@@ -481,8 +481,8 @@ export default function ResourcesResourcesPage() {
             if (!canManage || row.rowKind !== 'resource') return null
             return (
               <RowActions items={[
-                { label: t('common.edit', 'Edit'), href: `/backend/resources/resources/${encodeURIComponent(row.id)}` },
-                { label: t('common.delete', 'Delete'), destructive: true, onSelect: () => { void handleDelete(row) } },
+                { id: 'edit', label: t('common.edit', 'Edit'), href: `/backend/resources/resources/${encodeURIComponent(row.id)}` },
+                { id: 'delete', label: t('common.delete', 'Delete'), destructive: true, onSelect: () => { void handleDelete(row) } },
               ]} />
             )
           }}

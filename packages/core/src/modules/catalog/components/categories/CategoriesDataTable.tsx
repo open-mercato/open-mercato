@@ -221,8 +221,8 @@ export default function CategoriesDataTable() {
         canManage ? (
           <RowActions
             items={[
-              { label: t('catalog.categories.list.actions.edit', 'Edit'), href: `/backend/catalog/categories/${row.id}/edit` },
-              { label: t('catalog.categories.list.actions.delete', 'Delete'), destructive: true, onSelect: () => handleDelete(row) },
+              { id: 'edit', label: t('catalog.categories.list.actions.edit', 'Edit'), href: `/backend/catalog/categories/${row.id}/edit` },
+              { id: 'delete', label: t('catalog.categories.list.actions.delete', 'Delete'), destructive: true, onSelect: () => handleDelete(row) },
             ]}
           />
         ) : null

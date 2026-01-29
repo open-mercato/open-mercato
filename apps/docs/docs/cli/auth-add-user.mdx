@@ -50,4 +50,4 @@ User created with id 7c2a91be-7f06-4c6e-9c28-2507a5e5992e
 
 - **Unknown organization** – confirm the UUID exists (`yarn mercato auth list-orgs`) and that the CLI can connect to the database.
 - **Role typos** – misspelled roles are created automatically. If you need tenant-specific roles, create them beforehand and omit from other tenants.
-- **Password policies** – validation happens in the consuming app; the CLI simply hashes whatever password you provide.
+- **Password policies** – the CLI enforces the same rules as the app. Configure them with `OM_PASSWORD_MIN_LENGTH`, `OM_PASSWORD_REQUIRE_DIGIT`, `OM_PASSWORD_REQUIRE_UPPERCASE`, and `OM_PASSWORD_REQUIRE_SPECIAL`.

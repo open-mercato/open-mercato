@@ -44,9 +44,13 @@ type UserProps = BaseProps & {
 
 type WidgetVisibilityEditorProps = RoleProps | UserProps
 
+export type WidgetVisibilityEditorHandle = {
+  save: () => Promise<void>
+}
+
 const EMPTY: string[] = []
 
-export function WidgetVisibilityEditor(props: WidgetVisibilityEditorProps) {
+export const WidgetVisibilityEditor = React.forwardRef<WidgetVisibilityEditorHandle, WidgetVisibilityEditorProps>(function WidgetVisibilityEditor(props, ref) {
   const t = useT()
   const { kind, targetId, tenantId, organizationId } = props
   const [catalog, setCatalog] = React.useState<WidgetCatalogItem[]>([])
@@ -59,6 +63,15 @@ export function WidgetVisibilityEditor(props: WidgetVisibilityEditorProps) {
   const [mode, setMode] = React.useState<'inherit' | 'override'>('inherit')
   const [originalMode, setOriginalMode] = React.useState<'inherit' | 'override'>('inherit')
   const [effective, setEffective] = React.useState<string[]>(EMPTY)
+
+  const dirty = React.useMemo(() => {
+    if (kind === 'user') {
+      if (mode !== originalMode) return true
+      if (mode === 'override') return selected.join('|') !== original.join('|')
+      return false
+    }
+    return selected.join('|') !== original.join('|')
+  }, [kind, mode, original, originalMode, selected])
 
   const loadCatalog = React.useCallback(async () => {
     const data = await readApiResultOrThrow<{ items?: unknown[] }>(
@@ -149,6 +162,9 @@ export function WidgetVisibilityEditor(props: WidgetVisibilityEditorProps) {
   }, [original, originalMode])
 
   const save = React.useCallback(async () => {
+    if (loading) return
+    if (error && catalog.length === 0) return
+    if (!dirty) return
     setSaving(true)
     setError(null)
     try {
@@ -202,16 +218,9 @@ export function WidgetVisibilityEditor(props: WidgetVisibilityEditorProps) {
     } finally {
       setSaving(false)
     }
-  }, [kind, mode, organizationId, selected, t, targetId, tenantId])
+  }, [catalog.length, dirty, error, kind, loading, mode, organizationId, selected, t, targetId, tenantId])
 
-  const dirty = React.useMemo(() => {
-    if (kind === 'user') {
-      if (mode !== originalMode) return true
-      if (mode === 'override') return selected.join('|') !== original.join('|')
-      return false
-    }
-    return selected.join('|') !== original.join('|')
-  }, [kind, mode, original, originalMode, selected])
+  React.useImperativeHandle(ref, () => ({ save }), [save])
 
   if (loading) {
     return (
@@ -297,4 +306,6 @@ export function WidgetVisibilityEditor(props: WidgetVisibilityEditorProps) {
       </div>
     </div>
   )
-}
+})
+
+WidgetVisibilityEditor.displayName = 'WidgetVisibilityEditor'

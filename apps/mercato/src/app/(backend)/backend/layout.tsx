@@ -10,6 +10,7 @@ import type { AdminNavItem } from '@open-mercato/ui/backend/utils/nav'
 import { UserMenu } from '@open-mercato/ui/backend/UserMenu'
 import { GlobalSearchDialog } from '@open-mercato/search/modules/search/frontend'
 import OrganizationSwitcher from '@/components/OrganizationSwitcher'
+import { NotificationBellWrapper } from '@/components/NotificationBellWrapper'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { I18nProvider } from '@open-mercato/shared/lib/i18n/context'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
@@ -245,12 +246,16 @@ export default async function BackendLayout({ children, params }: { children: Re
           })
         }
       }
-      sidebarPreference = await loadSidebarPreference(em, {
-        userId: auth.sub,
-        tenantId: auth.tenantId ?? null,
-        organizationId: auth.orgId ?? null,
-        locale,
-      })
+      // For API key auth, use userId (the actual user) if available
+      const effectiveUserId: string | undefined = auth.isApiKey ? auth.userId : auth.sub
+      if (effectiveUserId) {
+        sidebarPreference = await loadSidebarPreference(em, {
+          userId: effectiveUserId,
+          tenantId: auth.tenantId ?? null,
+          organizationId: auth.orgId ?? null,
+          locale,
+        })
+      }
     } catch {
       // ignore preference loading failures; render with default navigation
     }
@@ -301,6 +306,7 @@ export default async function BackendLayout({ children, params }: { children: Re
       <GlobalSearchDialog embeddingConfigured={embeddingConfigured} missingConfigMessage={missingConfigMessage} />
       <OrganizationSwitcher />
       <UserMenu email={auth?.email} />
+      <NotificationBellWrapper />
     </>
   )
 

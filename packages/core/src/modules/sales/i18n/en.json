@@ -9,6 +9,26 @@
       "title": "Sales Management",
       "description": "Quotes, orders, fulfillment, invoicing, and payments connected to the product catalog."
     },
+    "notifications": {
+      "order": {
+        "created": {
+          "title": "New Sales Order",
+          "body": "Sales order {orderNumber} has been created{total}"
+        }
+      },
+      "quote": {
+        "created": {
+          "title": "New Sales Quote",
+          "body": "Sales quote {quoteNumber} has been created{total}"
+        }
+      },
+      "renderer": {
+        "viewOrder": "View Order",
+        "viewQuote": "View Quote",
+        "assignedToYou": "Assigned to you",
+        "pendingReview": "Pending review"
+      }
+    },
     "quotes": {
       "send": {
         "action": "Send to customer",
@@ -1516,5 +1536,9 @@
   "sales.search.badge.deliveryWindow": "Delivery window",
   "sales.search.badge.paymentMethod": "Payment method",
   "sales.search.badge.taxRate": "Tax rate",
-  "sales.search.badge.documentTag": "Document tag"
+  "sales.search.badge.documentTag": "Document tag",
+  "sales.notifications.payment.received.title": "Payment Received",
+  "sales.notifications.payment.received.body": "Payment of {amount} received for order #{orderNumber}",
+  "sales.notifications.quote.expiring.title": "Quote Expiring Soon",
+  "sales.notifications.quote.expiring.body": "Quote #{quoteNumber} expires in {daysUntilExpiry} days ({expiresAt})"
 }

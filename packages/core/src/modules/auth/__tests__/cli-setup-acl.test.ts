@@ -1,5 +1,6 @@
 /** @jest-environment node */
 import { registerModules } from '@open-mercato/shared/lib/modules/registry'
+import { registerCliModules } from '@open-mercato/shared/modules/registry'
 import type { Module } from '@open-mercato/shared/modules/registry'
 import cli from '@open-mercato/core/modules/auth/cli'
 
@@ -30,6 +31,7 @@ const testModules: Module[] = [
   { id: 'example', setup: { defaultRoleFeatures: { admin: ['example.*'], employee: ['example.*', 'example.widgets.*'] } } },
 ]
 registerModules(testModules)
+registerCliModules(testModules)
 
 // Mock DI container and EM
 const persistAndFlush = jest.fn()
@@ -76,7 +78,7 @@ describe('auth CLI setup seeds ACLs', () => {
     findOneOrFail.mockImplementation(async (_: any, where: any) => ({ id: 'role-' + where.name, name: where.name }))
 
     // Act
-    await setup.run(['--orgName', 'Acme', '--email', 'root@acme.com', '--password', 'secret'])
+    await setup.run(['--orgName', 'Acme', '--email', 'root@acme.com', '--password', 'secret', '--skip-password-policy'])
 
     // Assert: persistAndFlush was called to create three RoleAcl rows with expected flags/features
     const calls = persistAndFlush.mock.calls.map((c) => c[0])
