@@ -21,5 +21,14 @@ export async function sendEmail({ to, subject, react, from, replyTo }: SendEmail
     react,
     ...(replyTo ? { reply_to: replyTo } : {}),
   }
-  await resend.emails.send(payload)
+  const result = await resend.emails.send(payload)
+  const errorMessage =
+    typeof (result as any)?.error === 'string'
+      ? (result as any).error
+      : typeof (result as any)?.error?.message === 'string'
+        ? (result as any).error.message
+        : null
+  if (errorMessage) {
+    throw new Error(`RESEND_SEND_FAILED: ${errorMessage}`)
+  }
 }
