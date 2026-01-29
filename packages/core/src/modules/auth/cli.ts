@@ -18,6 +18,7 @@ import type { KmsService, TenantDek } from '@open-mercato/shared/lib/encryption/
 import crypto from 'node:crypto'
 import { formatPasswordRequirements, getPasswordPolicy, validatePassword } from '@open-mercato/shared/lib/auth/passwordPolicy'
 import { parseBooleanToken } from '@open-mercato/shared/lib/boolean'
+import { getCliModules } from '@open-mercato/shared/modules/registry'
 
 const addUser: ModuleCli = {
   command: 'add-user',
@@ -444,6 +445,7 @@ const setupApp: ModuleCli = {
         roleNames,
         primaryUser: { email, password, confirm: true },
         includeDerivedUsers: true,
+        modules: getCliModules(),
       })
 
       if (result.reusedExistingUser) {
