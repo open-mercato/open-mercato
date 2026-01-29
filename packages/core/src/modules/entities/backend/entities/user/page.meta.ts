@@ -16,4 +16,5 @@ export const metadata = {
   pageGroupKey: 'entities.nav.group',
   pageOrder: 12,
   icon: userIcon,
+  pageContext: 'settings' as const,
 }

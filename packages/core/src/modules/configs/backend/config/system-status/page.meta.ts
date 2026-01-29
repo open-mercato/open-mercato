@@ -25,6 +25,7 @@ export const metadata = {
   pageGroupKey: 'backend.nav.configuration',
   pageOrder: 120,
   icon: heartbeatIcon,
+  pageContext: 'settings' as const,
   breadcrumb: [
     { label: 'System status', labelKey: 'configs.config.nav.systemStatus' },
   ],

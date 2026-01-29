@@ -7,7 +7,7 @@ import { getAuthFromCookies } from '@open-mercato/shared/lib/auth/server'
 import { AppShell } from '@open-mercato/ui/backend/AppShell'
 import { buildAdminNav } from '@open-mercato/ui/backend/utils/nav'
 import type { AdminNavItem } from '@open-mercato/ui/backend/utils/nav'
-import { UserMenu } from '@open-mercato/ui/backend/UserMenu'
+import { ProfileDropdown } from '@open-mercato/ui/backend/ProfileDropdown'
 import { GlobalSearchDialog } from '@open-mercato/search/modules/search/frontend'
 import OrganizationSwitcher from '@/components/OrganizationSwitcher'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
@@ -35,6 +35,7 @@ type NavItem = {
   enabled: boolean
   hidden?: boolean
   icon?: ReactNode
+  pageContext?: 'main' | 'settings' | 'profile'
   children?: NavItem[]
 }
 
@@ -179,6 +180,7 @@ export default async function BackendLayout({ children, params }: { children: Re
     enabled: item.enabled,
     hidden: item.hidden,
     icon: item.icon,
+    pageContext: item.pageContext,
     children: item.children?.map(mapItem),
   })
 
@@ -266,6 +268,7 @@ export default async function BackendLayout({ children, params }: { children: Re
     enabled: item.enabled,
     hidden: item.hidden,
     icon: item.icon,
+    pageContext: item.pageContext,
     children: item.children?.map(materializeItem),
   })
 
@@ -298,7 +301,7 @@ export default async function BackendLayout({ children, params }: { children: Re
     <>
       <GlobalSearchDialog embeddingConfigured={embeddingConfigured} missingConfigMessage={missingConfigMessage} />
       <OrganizationSwitcher />
-      <UserMenu email={auth?.email} />
+      <ProfileDropdown email={auth?.email} settingsHref="/backend/settings" />
     </>
   )
 

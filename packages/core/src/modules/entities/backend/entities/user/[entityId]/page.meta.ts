@@ -4,4 +4,5 @@ export const metadata = {
   pageTitle: 'Edit Definitions',
   pageGroup: 'Data designer',
   navHidden: true,
+  pageContext: 'settings' as const,
 }

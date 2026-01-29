@@ -6,4 +6,5 @@ export const metadata = {
   pageGroup: 'Data designer',
   pageGroupKey: 'entities.nav.group',
   pageOrder: 60,
+  pageContext: 'settings' as const,
 }

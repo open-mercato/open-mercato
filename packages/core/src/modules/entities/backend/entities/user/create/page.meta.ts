@@ -17,6 +17,7 @@ export const metadata = {
   pageGroupKey: 'entities.nav.group',
   pageOrder: 11,
   icon: filePlusIcon,
+  pageContext: 'settings' as const,
   breadcrumb: [
     { label: 'User Entities', labelKey: 'entities.nav.userEntities', href: '/backend/entities/user' },
     { label: 'Create', labelKey: 'common.create' },

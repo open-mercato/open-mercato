@@ -3,6 +3,7 @@ export const metadata = {
   requireFeatures: ['workflows.view_instances'],
   pageTitle: 'Workflow Instance Details',
   pageTitleKey: 'workflows.instances.singular',
+  pageContext: 'settings' as const,
   breadcrumb: [
     { label: 'Workflows', labelKey: 'workflows.module.name', href: '/backend/workflows/definitions' },
     { label: 'Instances', labelKey: 'workflows.instances.plural', href: '/backend/workflows/instances' },

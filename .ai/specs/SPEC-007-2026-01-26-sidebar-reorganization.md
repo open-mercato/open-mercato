@@ -4,8 +4,8 @@
 
 This specification describes the reorganization of the backend admin panel sidebar to improve user experience by reducing clutter and minimizing the need for constant scrolling. The main proposal is to move the Configuration module (including system settings) and Workflows module into a dedicated user profile/settings area.
 
-**Status:** Proposed  
-**Priority:** High (UX improvement)  
+**Status:** Implemented (Phase 1 & 2)
+**Priority:** High (UX improvement)
 **Package Location:** `packages/ui/src/backend/AppShell.tsx`, various module `*.meta.ts` files
 
 ---
@@ -426,6 +426,20 @@ function MainNav({ groups }: { groups: NavGroup[] }) {
 ---
 
 ## Changelog
+
+### 2026-01-29
+- Implemented Phase 1 & 2
+- Added `pageContext` metadata field to `PageMetadata` type in `packages/shared/src/modules/registry.ts`
+- Created `CollapsibleNavSection` component at `packages/ui/src/backend/CollapsibleNavSection.tsx`
+- Created `ProfileDropdown` component at `packages/ui/src/backend/ProfileDropdown.tsx`
+- Created `SettingsNavigation` component at `packages/ui/src/backend/settings/SettingsNavigation.tsx`
+- Created Settings hub page at `packages/core/src/modules/auth/backend/settings/`
+- Updated `AppShell` to filter navigation by `pageContext` and render collapsible settings section
+- Updated 46 page.meta.ts files to add `pageContext: 'settings'` for admin modules (including API Keys)
+- Added i18n translations for all 4 locales (en, de, es, pl)
+- Integrated localStorage persistence for settings section collapse state
+- Added `requireFeatures` to Settings hub page cards for feature-based visibility
+- Added `userFeatures` prop to `SettingsNavigation` for client-side feature filtering
 
 ### 2026-01-26
 - Initial specification

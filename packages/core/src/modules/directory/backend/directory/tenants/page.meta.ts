@@ -16,5 +16,6 @@ export const metadata = {
   pageGroupKey: 'directory.nav.group',
   pageOrder: 20,
   icon: tenantsIcon,
+  pageContext: 'settings' as const,
   breadcrumb: [{ label: 'Tenants', labelKey: 'directory.nav.tenants' }],
 }

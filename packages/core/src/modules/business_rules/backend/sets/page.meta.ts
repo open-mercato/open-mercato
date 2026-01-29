@@ -20,5 +20,6 @@ export const metadata = {
   requireFeatures: ['business_rules.view'],
   pageOrder: 120,
   icon: setsIcon,
+  pageContext: 'settings' as const,
   breadcrumb: [{label: 'Rule Sets', labelKey: 'rules.nav.sets'}],
 }

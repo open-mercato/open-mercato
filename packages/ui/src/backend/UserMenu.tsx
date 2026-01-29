@@ -3,6 +3,9 @@ import * as React from 'react'
 import { User, LogOut } from 'lucide-react'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 
+export { ProfileDropdown } from './ProfileDropdown'
+export type { ProfileDropdownProps, ProfileMenuItem } from './ProfileDropdown'
+
 export function UserMenu({ email }: { email?: string }) {
   const t = useT()
   const [open, setOpen] = React.useState(false)

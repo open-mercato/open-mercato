@@ -13,6 +13,8 @@ import { UpgradeActionBanner } from './upgrades/UpgradeActionBanner'
 import { PartialIndexBanner } from './indexes/PartialIndexBanner'
 import { useLocale, useT } from '@open-mercato/shared/lib/i18n/context'
 import { slugifySidebarId } from '@open-mercato/shared/modules/navigation/sidebarPreferences'
+import { CollapsibleNavSection } from './CollapsibleNavSection'
+import type { CollapsibleNavGroup, CollapsibleNavItem } from './CollapsibleNavSection'
 
 export type AppShellProps = {
   productName?: string
@@ -28,6 +30,7 @@ export type AppShellProps = {
       icon?: React.ReactNode
       enabled?: boolean
       hidden?: boolean
+      pageContext?: 'main' | 'settings' | 'profile'
       children?: {
         href: string
         title: string
@@ -35,6 +38,7 @@ export type AppShellProps = {
         icon?: React.ReactNode
         enabled?: boolean
         hidden?: boolean
+        pageContext?: 'main' | 'settings' | 'profile'
       }[]
     }[]
   }[]
@@ -46,6 +50,8 @@ export type AppShellProps = {
   // Optional: full admin nav API to refresh sidebar client-side
   adminNavApi?: string
   version?: string
+  // Settings section configuration
+  settingsSectionTitle?: string
 }
 
 type Breadcrumb = Array<{ label: string; href?: string }>
@@ -129,7 +135,7 @@ function Chevron({ open }: { open: boolean }) {
   )
 }
 
-export function AppShell({ productName, email, groups, rightHeaderSlot, children, sidebarCollapsedDefault = false, currentTitle, breadcrumb, adminNavApi, version }: AppShellProps) {
+export function AppShell({ productName, email, groups, rightHeaderSlot, children, sidebarCollapsedDefault = false, currentTitle, breadcrumb, adminNavApi, version, settingsSectionTitle }: AppShellProps) {
   const pathname = usePathname()
   const t = useT()
   const locale = useLocale()
@@ -487,6 +493,7 @@ export function AppShell({ productName, email, groups, rightHeaderSlot, children
           enabled: i.enabled,
           hidden: i.hidden,
           icon: i.icon ?? iconMap.get(i.href),
+          pageContext: i.pageContext,
           children: i.children?.map((c) => ({
             href: c.href,
             title: c.title,
@@ -494,6 +501,7 @@ export function AppShell({ productName, email, groups, rightHeaderSlot, children
             enabled: c.enabled,
             hidden: c.hidden,
             icon: c.icon ?? iconMap.get(c.href),
+            pageContext: c.pageContext,
           })),
         })),
       }))
@@ -534,19 +542,25 @@ export function AppShell({ productName, email, groups, rightHeaderSlot, children
     function mergePreservingIcons(oldG: AppShellProps['groups'], newG: AppShellProps['groups']): AppShellProps['groups'] {
       const iconMap = indexIcons(oldG)
       const merged = newG.map((g) => ({
+        id: g.id,
         name: g.name,
+        defaultName: g.defaultName,
         items: g.items.map((i) => ({
           href: i.href,
           title: i.title,
+          defaultTitle: i.defaultTitle,
           enabled: i.enabled,
           hidden: i.hidden,
           icon: i.icon ?? iconMap.get(i.href),
+          pageContext: i.pageContext,
           children: i.children?.map((c) => ({
             href: c.href,
             title: c.title,
+            defaultTitle: c.defaultTitle,
             enabled: c.enabled,
             hidden: c.hidden,
             icon: c.icon ?? iconMap.get(c.href),
+            pageContext: c.pageContext,
           })),
         })),
       }))
@@ -770,88 +784,149 @@ export function AppShell({ productName, email, groups, rightHeaderSlot, children
           {customizing ? (
             customizationEditor
           ) : (
-            <nav className="flex flex-col gap-2">
-              {navGroups.map((g, gi) => {
-                const groupId = resolveGroupKey(g)
-                const open = openGroups[groupId] !== false
-                const visibleItems = g.items.filter((item) => item.hidden !== true)
-                if (visibleItems.length === 0) return null
-                return (
-                  <div key={groupId}>
-                    <button
-                      type="button"
-                      onClick={() => toggleGroup(groupId)}
-                      className={`w-full ${compact ? 'px-0 justify-center' : 'px-2 justify-between'} flex items-center text-xs uppercase text-muted-foreground/90 py-2`}
-                      aria-expanded={open}
-                    >
-                      {!compact && <span>{g.name}</span>}
-                      {!compact && <Chevron open={open} />}
-                    </button>
-                    {open && (
-                      <div className={`flex flex-col ${compact ? 'items-center' : ''} gap-1 ${!compact ? 'pl-1' : ''}`}>
-                        {visibleItems.map((i) => {
-                          const childItems = (i.children ?? []).filter((child) => child.hidden !== true)
-                          const showChildren = !!pathname && childItems.length > 0 && pathname.startsWith(i.href)
-                          const hasActiveChild = !!(pathname && childItems.some((c) => pathname.startsWith(c.href)))
-                          const isParentActive = (pathname === i.href) || (showChildren && !hasActiveChild)
-                          const base = compact ? 'w-10 h-10 justify-center' : 'px-2 py-1 gap-2'
-                          return (
-                            <React.Fragment key={i.href}>
-                              <Link
-                                href={i.href}
-                                className={`relative text-sm rounded inline-flex items-center ${base} ${
-                                  isParentActive ? 'bg-background border shadow-sm' : 'hover:bg-accent hover:text-accent-foreground'
-                                } ${i.enabled === false ? 'pointer-events-none opacity-50' : ''}`}
-                                aria-disabled={i.enabled === false}
-                                title={compact ? i.title : undefined}
-                                onClick={() => setMobileOpen(false)}
-                              >
-                                {isParentActive ? (
-                                  <span className="absolute left-0 top-1 bottom-1 w-0.5 rounded bg-foreground" />
-                                ) : null}
-                                <span className={`flex items-center justify-center shrink-0 ${compact ? '' : 'text-muted-foreground'}`}>
-                                  {i.icon ?? DefaultIcon}
-                                </span>
-                                {!compact && <span>{i.title}</span>}
-                              </Link>
-                              {showChildren ? (
-                                <div className={`flex flex-col ${compact ? 'items-center' : ''} gap-1 ${!compact ? 'pl-4' : ''}`}>
-                                  {childItems.map((c) => {
-                                    const childActive = pathname?.startsWith(c.href)
-                                    const childBase = compact ? 'w-10 h-8 justify-center' : 'px-2 py-1 gap-2'
-                                    return (
-                                      <Link
-                                        key={c.href}
-                                        href={c.href}
-                                        className={`relative text-sm rounded inline-flex items-center ${childBase} ${
-                                          childActive ? 'bg-background border shadow-sm' : 'hover:bg-accent hover:text-accent-foreground'
-                                        } ${c.enabled === false ? 'pointer-events-none opacity-50' : ''}`}
-                                        aria-disabled={c.enabled === false}
-                                        title={compact ? c.title : undefined}
-                                        onClick={() => setMobileOpen(false)}
-                                      >
-                                        {childActive ? (
-                                          <span className="absolute left-0 top-1 bottom-1 w-0.5 rounded bg-foreground" />
-                                        ) : null}
-                                        <span className={`flex items-center justify-center shrink-0 ${compact ? '' : 'text-muted-foreground'}`}>
-                                          {c.icon ?? (c.href.includes('/backend/entities/user/') && c.href.endsWith('/records') ? DataTableIcon : DefaultIcon)}
-                                        </span>
-                                        {!compact && <span>{c.title}</span>}
-                                      </Link>
-                                    )
-                                  })}
-                                </div>
-                              ) : null}
-                            </React.Fragment>
-                          )
-                        })}
-                      </div>
-                    )}
-                    {gi !== lastVisibleGroupIndex && <div className="my-2 border-t border-dotted" />}
-                  </div>
-                )
-              })}
-            </nav>
+            (() => {
+              // Filter groups and items by pageContext
+              const isMainItem = (item: SidebarItem) => !item.pageContext || item.pageContext === 'main'
+              const isSettingsItem = (item: SidebarItem) => item.pageContext === 'settings'
+
+              // Main groups: filter to only include main items
+              const mainGroups = navGroups.map((g) => ({
+                ...g,
+                items: g.items.filter((item) => isMainItem(item) && item.hidden !== true),
+              })).filter((g) => g.items.length > 0)
+
+              // Settings groups: collect all settings items grouped by their group
+              const settingsGroupMap = new Map<string, { id: string; name: string; items: SidebarItem[] }>()
+              for (const g of navGroups) {
+                const settingsItems = g.items.filter((item) => isSettingsItem(item) && item.hidden !== true)
+                if (settingsItems.length > 0) {
+                  const groupId = resolveGroupKey(g)
+                  if (!settingsGroupMap.has(groupId)) {
+                    settingsGroupMap.set(groupId, { id: groupId, name: g.name, items: [] })
+                  }
+                  settingsGroupMap.get(groupId)!.items.push(...settingsItems)
+                }
+              }
+              const settingsGroups: CollapsibleNavGroup[] = Array.from(settingsGroupMap.values()).map((sg) => ({
+                id: sg.id,
+                name: sg.name,
+                items: sg.items.map((item): CollapsibleNavItem => ({
+                  href: item.href,
+                  title: item.title,
+                  icon: item.icon,
+                  enabled: item.enabled,
+                  hidden: item.hidden,
+                  children: item.children?.map((c): CollapsibleNavItem => ({
+                    href: c.href,
+                    title: c.title,
+                    icon: c.icon,
+                    enabled: c.enabled,
+                    hidden: c.hidden,
+                  })),
+                })),
+              }))
+
+              const mainLastVisibleGroupIndex = (() => {
+                for (let idx = mainGroups.length - 1; idx >= 0; idx -= 1) {
+                  if (mainGroups[idx].items.some((item) => item.hidden !== true)) return idx
+                }
+                return -1
+              })()
+
+              return (
+                <>
+                  <nav className="flex flex-col gap-2">
+                    {mainGroups.map((g, gi) => {
+                      const groupId = resolveGroupKey(g)
+                      const open = openGroups[groupId] !== false
+                      const visibleItems = g.items.filter((item) => item.hidden !== true)
+                      if (visibleItems.length === 0) return null
+                      return (
+                        <div key={groupId}>
+                          <button
+                            type="button"
+                            onClick={() => toggleGroup(groupId)}
+                            className={`w-full ${compact ? 'px-0 justify-center' : 'px-2 justify-between'} flex items-center text-xs uppercase text-muted-foreground/90 py-2`}
+                            aria-expanded={open}
+                          >
+                            {!compact && <span>{g.name}</span>}
+                            {!compact && <Chevron open={open} />}
+                          </button>
+                          {open && (
+                            <div className={`flex flex-col ${compact ? 'items-center' : ''} gap-1 ${!compact ? 'pl-1' : ''}`}>
+                              {visibleItems.map((i) => {
+                                const childItems = (i.children ?? []).filter((child) => child.hidden !== true)
+                                const showChildren = !!pathname && childItems.length > 0 && pathname.startsWith(i.href)
+                                const hasActiveChild = !!(pathname && childItems.some((c) => pathname.startsWith(c.href)))
+                                const isParentActive = (pathname === i.href) || (showChildren && !hasActiveChild)
+                                const base = compact ? 'w-10 h-10 justify-center' : 'px-2 py-1 gap-2'
+                                return (
+                                  <React.Fragment key={i.href}>
+                                    <Link
+                                      href={i.href}
+                                      className={`relative text-sm rounded inline-flex items-center ${base} ${
+                                        isParentActive ? 'bg-background border shadow-sm' : 'hover:bg-accent hover:text-accent-foreground'
+                                      } ${i.enabled === false ? 'pointer-events-none opacity-50' : ''}`}
+                                      aria-disabled={i.enabled === false}
+                                      title={compact ? i.title : undefined}
+                                      onClick={() => setMobileOpen(false)}
+                                    >
+                                      {isParentActive ? (
+                                        <span className="absolute left-0 top-1 bottom-1 w-0.5 rounded bg-foreground" />
+                                      ) : null}
+                                      <span className={`flex items-center justify-center shrink-0 ${compact ? '' : 'text-muted-foreground'}`}>
+                                        {i.icon ?? DefaultIcon}
+                                      </span>
+                                      {!compact && <span>{i.title}</span>}
+                                    </Link>
+                                    {showChildren ? (
+                                      <div className={`flex flex-col ${compact ? 'items-center' : ''} gap-1 ${!compact ? 'pl-4' : ''}`}>
+                                        {childItems.map((c) => {
+                                          const childActive = pathname?.startsWith(c.href)
+                                          const childBase = compact ? 'w-10 h-8 justify-center' : 'px-2 py-1 gap-2'
+                                          return (
+                                            <Link
+                                              key={c.href}
+                                              href={c.href}
+                                              className={`relative text-sm rounded inline-flex items-center ${childBase} ${
+                                                childActive ? 'bg-background border shadow-sm' : 'hover:bg-accent hover:text-accent-foreground'
+                                              } ${c.enabled === false ? 'pointer-events-none opacity-50' : ''}`}
+                                              aria-disabled={c.enabled === false}
+                                              title={compact ? c.title : undefined}
+                                              onClick={() => setMobileOpen(false)}
+                                            >
+                                              {childActive ? (
+                                                <span className="absolute left-0 top-1 bottom-1 w-0.5 rounded bg-foreground" />
+                                              ) : null}
+                                              <span className={`flex items-center justify-center shrink-0 ${compact ? '' : 'text-muted-foreground'}`}>
+                                                {c.icon ?? (c.href.includes('/backend/entities/user/') && c.href.endsWith('/records') ? DataTableIcon : DefaultIcon)}
+                                              </span>
+                                              {!compact && <span>{c.title}</span>}
+                                            </Link>
+                                          )
+                                        })}
+                                      </div>
+                                    ) : null}
+                                  </React.Fragment>
+                                )
+                              })}
+                            </div>
+                          )}
+                          {gi !== mainLastVisibleGroupIndex && <div className="my-2 border-t border-dotted" />}
+                        </div>
+                      )
+                    })}
+                  </nav>
+                  {settingsGroups.length > 0 && (
+                    <CollapsibleNavSection
+                      title={settingsSectionTitle ?? t('backend.nav.settings', 'Settings')}
+                      groups={settingsGroups}
+                      compact={compact}
+                    />
+                  )}
+                </>
+              )
+            })()
           )}
         </div>
         {!customizing && (
@@ -1006,6 +1081,7 @@ AppShell.cloneGroups = function cloneGroups(groups: AppShellProps['groups']): Ap
     icon: item.icon,
     enabled: item.enabled,
     hidden: item.hidden,
+    pageContext: item.pageContext,
     children: item.children ? item.children.map((child) => cloneItem(child)) : undefined,
   })
   return groups.map((group) => ({

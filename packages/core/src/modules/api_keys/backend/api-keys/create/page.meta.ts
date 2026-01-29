@@ -6,6 +6,7 @@ export const metadata = {
   pageGroup: 'Auth',
   pageGroupKey: 'auth.nav.group',
   navHidden: true,
+  pageContext: 'settings' as const,
   breadcrumb: [
     { label: 'API Keys', labelKey: 'api_keys.nav.apiKeys', href: '/backend/api-keys' },
     { label: 'Create', labelKey: 'common.create' },

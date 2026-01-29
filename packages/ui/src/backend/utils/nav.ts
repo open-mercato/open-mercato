@@ -16,6 +16,7 @@ export type AdminNavItem = {
   priority?: number
   icon?: ReactNode
   children?: AdminNavItem[]
+  pageContext?: 'main' | 'settings' | 'profile'
 }
 
 export type AdminNavFeatureChecker = (features: string[]) => Promise<Iterable<string> | null | undefined>
@@ -150,6 +151,7 @@ export async function buildAdminNav(
       const order = (r as any).order as number | undefined
       const priority = ((r as any).priority as number | undefined) ?? order
       let icon = (r as any).icon as ReactNode | undefined
+      const pageContext = (r as any).pageContext as 'main' | 'settings' | 'profile' | undefined
       entries.push({
         group: displayGroup,
         groupId,
@@ -163,6 +165,7 @@ export async function buildAdminNav(
         order,
         priority,
         icon,
+        pageContext,
       })
     }
   }
