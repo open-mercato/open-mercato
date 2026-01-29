@@ -1,5 +1,5 @@
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
-import { AiAssistantSettingsPageClient } from '../../../frontend/components/AiAssistantSettingsPageClient'
+import { AiAssistantSettingsPageClient } from '../../../components/AiAssistantSettingsPageClient'
 
 export default async function AiAssistantSettingsPage() {
   return (

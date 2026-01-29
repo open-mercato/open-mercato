@@ -108,6 +108,43 @@ Open Mercato is a new‑era, AI‑supportive platform for shipping enterprise‑
 
 Read more on the [Open Mercato Architecture](https://docs.openmercato.com/architecture/system-overview)
 
+## AI Assistant
+
+Open Mercato includes a built-in AI Assistant that can discover and interact with your data model and APIs. The assistant uses MCP (Model Context Protocol) to expose tools for schema discovery and API execution.
+
+<table>
+  <tr>
+    <td><a href="apps/docs/static/screenshots/open-mercato-ai-assistant-chat.png"><img src="apps/docs/static/screenshots/open-mercato-ai-assistant-chat.png" alt="AI Assistant chat interface" width="260"/></a></td>
+    <td><a href="apps/docs/static/screenshots/open-mercato-ai-assistant-settings.png"><img src="apps/docs/static/screenshots/open-mercato-ai-assistant-settings.png" alt="AI Assistant settings" width="260"/></a></td>
+    <td><a href="apps/docs/static/screenshots/open-mercato-ai-assistant-mcp.png"><img src="apps/docs/static/screenshots/open-mercato-ai-assistant-mcp.png" alt="AI Assistant MCP tools" width="260"/></a></td>
+  </tr>
+  <tr>
+    <td style="text-align:center;">Chat Interface</td>
+    <td style="text-align:center;">Settings</td>
+    <td style="text-align:center;">MCP Tools</td>
+  </tr>
+</table>
+
+**Key capabilities:**
+- 🔍 **Schema Discovery** – Query database entity schemas including fields, types, and relationships
+- 🔗 **API Discovery** – Search for API endpoints using natural language queries
+- ⚡ **API Execution** – Execute API calls with automatic tenant context and authentication
+- 🧠 **Hybrid Search** – Uses Meilisearch for fast fulltext + vector search across schemas and endpoints
+
+**MCP Tools:**
+| Tool | Purpose |
+|------|---------|
+| `discover_schema` | Search entity schemas by name or keyword |
+| `find_api` | Find API endpoints by natural language query |
+| `call_api` | Execute API calls with tenant context |
+| `context_whoami` | Get current authentication context |
+
+**Integration modes:**
+- **Development** (`yarn mcp:dev`) – For Claude Code and local development with API key auth
+- **Production** (`yarn mcp:serve`) – For web AI chat with session tokens
+
+See the [AI Assistant specification](.ai/specs/SPEC-011-2026-01-27-ai-assistant-schema-discovery.md) for detailed documentation on entity extraction, OpenAPI integration, and search indexing.
+
 ## Data Encryption
 
 Open Mercato ships with tenant-scoped, field-level data encryption so PII and sensitive business data stay protected while you keep the flexibility of custom entities and fields. Encryption maps live in the admin UI/database, letting you pick which system and custom columns are encrypted; MikroORM hooks automatically encrypt on write and decrypt on read while keeping deterministic hashes (e.g., `email_hash`) for lookups.
