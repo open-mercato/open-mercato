@@ -20,13 +20,22 @@ export const metadata = {
   },
 }
 
+function clearAuthCookies(response: NextResponse) {
+  response.cookies.set('auth_token', '', { path: '/', maxAge: 0 })
+  response.cookies.set('session_token', '', { path: '/', maxAge: 0 })
+  response.cookies.set('om_login_tenant', '', { path: '/', maxAge: 0 })
+}
+
 function redirectWithStatus(baseUrl: string, status: string) {
-  return NextResponse.redirect(`${baseUrl}/onboarding?status=${encodeURIComponent(status)}`)
+  const response = NextResponse.redirect(`${baseUrl}/onboarding?status=${encodeURIComponent(status)}`)
+  clearAuthCookies(response)
+  return response
 }
 
 function redirectToLogin(baseUrl: string, tenantId: string | null) {
   const tenantParam = tenantId ? `?tenant=${encodeURIComponent(tenantId)}` : ''
   const response = NextResponse.redirect(`${baseUrl}/login${tenantParam}`)
+  clearAuthCookies(response)
   if (tenantId) {
     response.cookies.set('om_login_tenant', tenantId, {
       httpOnly: false,
