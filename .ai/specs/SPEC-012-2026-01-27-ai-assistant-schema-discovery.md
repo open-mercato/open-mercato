@@ -1,4 +1,4 @@
-# SPEC-011: AI Assistant Schema & API Discovery
+# SPEC-012: AI Assistant Schema & API Discovery
 
 ## Overview
 

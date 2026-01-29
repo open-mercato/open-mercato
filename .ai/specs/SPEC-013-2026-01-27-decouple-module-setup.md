@@ -1,4 +1,4 @@
-# SPEC-012: Decouple Module Setup from `setup-app.ts`
+# SPEC-013: Decouple Module Setup from `setup-app.ts`
 
 ## Problem
 

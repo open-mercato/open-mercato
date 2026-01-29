@@ -393,7 +393,7 @@ All module paths below use `src/modules/<module>/` as a shorthand. In practice:
 
 Every module that participates in tenant initialization **must** declare a `setup.ts` file at its root (`src/modules/<module>/setup.ts`). The generator auto-discovers these files and includes them in `modules.generated.ts`. This is the mechanism that keeps modules decoupled — no module should be hardcoded in `setup-app.ts`, `mercato init`, or onboarding flows.
 
-See [SPEC-011](.ai/specs/SPEC-012-2026-01-27-decouple-module-setup.md) for the full architecture decision record.
+See [SPEC-013](.ai/specs/SPEC-013-2026-01-27-decouple-module-setup.md) for the full architecture decision record.
 
 ### Type definition
 

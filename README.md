@@ -150,7 +150,7 @@ Open Mercato includes a built-in AI Assistant that can discover and interact wit
 - **Development** (`yarn mcp:dev`) – For Claude Code and local development with API key auth
 - **Production** (`yarn mcp:serve`) – For web AI chat with session tokens
 
-See the [AI Assistant specification](.ai/specs/SPEC-011-2026-01-27-ai-assistant-schema-discovery.md) for detailed documentation on entity extraction, OpenAPI integration, and search indexing.
+See the [AI Assistant specification](.ai/specs/SPEC-012-2026-01-27-ai-assistant-schema-discovery.md) for detailed documentation on entity extraction, OpenAPI integration, and search indexing.
 
 ## Data Encryption
 
