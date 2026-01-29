@@ -32,14 +32,23 @@ services:
       PORT: ${CONTAINER_PORT:-3000}
       DATABASE_URL: postgres://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@mercato-postgres-${DEPLOY_ENV:-local}:5432/${POSTGRES_DB:-open-mercato}
       JWT_SECRET: ${JWT_SECRET:-JWT}
-      APP_URL: http://localhost:${CONTAINER_PORT:-3000}
+      APP_URL: ${APP_URL:-http://localhost:3000}
       CACHE_REDIS_URL: redis://mercato-redis-${DEPLOY_ENV:-local}:6379
-      SELF_SERVICE_ONBOARDING_ENABLED: "false"
-      OPENAI_API_KEY: ${OPENAI_API_KEY}
-      DEMO_MODE: "true"
       CACHE_STRATEGY: redis
+      ENABLE_CRUD_API_CACHE: ${ENABLE_CRUD_API_CACHE:-true}
+      OPENAI_API_KEY: ${OPENAI_API_KEY}
       MEILISEARCH_HOST: http://mercato-meilisearch-${DEPLOY_ENV:-local}:7700
       MEILISEARCH_API_KEY: ${MEILISEARCH_MASTER_KEY:-meilisearch-dev-key}
+      NEXT_PUBLIC_UPGRADE_ACTIONS_ENABLED: ${NEXT_PUBLIC_UPGRADE_ACTIONS_ENABLED:-true}
+      UPGRADE_ACTIONS_ENABLED: ${UPGRADE_ACTIONS_ENABLED:-true}
+      SELF_SERVICE_ONBOARDING_ENABLED: ${SELF_SERVICE_ONBOARDING_ENABLED:-true}
+      DEMO_MODE: ${DEMO_MODE:-true}
+      RESEND_API_KEY: ${RESEND_API_KEY:-}
+      EMAIL_FROM: ${EMAIL_FROM:-}
+      NEW_RELIC_APP_NAME: ${NEW_RELIC_APP_NAME:-}
+      NEW_RELIC_LICENSE_KEY: ${NEW_RELIC_LICENSE_KEY:-}
+      TENANT_DATA_ENCRYPTION_KEY: ${TENANT_DATA_ENCRYPTION_KEY:-}
+      ADMIN_EMAIL: ${ADMIN_EMAIL:-admin@example.com}
     depends_on:
       postgres:
         condition: service_healthy
