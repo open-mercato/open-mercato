@@ -56,7 +56,7 @@ const seedDemo: ModuleCli = {
       })
 
       if (existing) {
-        console.log(`✓ Demo workflow '${demoData.workflowId}' already exists (ID: ${existing.id})`)
+        console.log(`ℹ️  Demo workflow '${demoData.workflowId}' already exists (ID: ${existing.id})`)
         return
       }
 
@@ -69,7 +69,7 @@ const seedDemo: ModuleCli = {
 
       await em.persistAndFlush(workflow)
 
-      console.log(`✓ Seeded demo workflow: ${workflow.workflowName}`)
+      console.log(`✅ Seeded demo workflow: ${workflow.workflowName}`)
       console.log(`  - ID: ${workflow.id}`)
       console.log(`  - Workflow ID: ${workflow.workflowId}`)
       console.log(`  - Version: ${workflow.version}`)
@@ -107,15 +107,15 @@ const seedDemoWithRules: ModuleCli = {
       return
     }
 
-    console.log('Seeding demo workflow with guard rules...\n')
+      console.log('🧩 Seeding demo workflow with guard rules...\n')
 
     try {
       // Seed the workflow definition
-      console.log('1. Seeding demo workflow...')
+      console.log('1. 🧩 Seeding demo workflow...')
       await seedDemo.run(rest)
 
       // Seed the guard rules
-      console.log('\n2. Seeding guard rules...')
+      console.log('\n2. 🧠 Seeding guard rules...')
       const { resolve } = await createRequestContainer()
       const em = resolve<EntityManager>('em')
 
@@ -153,7 +153,7 @@ const seedDemoWithRules: ModuleCli = {
         seededCount++
       }
 
-      console.log(`\n✓ Demo workflow with guard rules seeded successfully!`)
+      console.log(`\n✅ Demo workflow with guard rules seeded successfully!`)
       console.log(`  - Workflow: checkout_simple_v1`)
       console.log(`  - Guard rules seeded: ${seededCount}`)
       console.log(`  - Guard rules skipped: ${skippedCount}`)
@@ -195,7 +195,7 @@ const seedSalesPipeline: ModuleCli = {
       })
 
       if (existing) {
-        console.log(`✓ Sales pipeline workflow '${pipelineData.workflowId}' already exists (ID: ${existing.id})`)
+        console.log(`ℹ️  Sales pipeline workflow '${pipelineData.workflowId}' already exists (ID: ${existing.id})`)
         return
       }
 
@@ -208,7 +208,7 @@ const seedSalesPipeline: ModuleCli = {
 
       await em.persistAndFlush(workflow)
 
-      console.log(`✓ Seeded sales pipeline workflow: ${workflow.workflowName}`)
+      console.log(`✅ Seeded sales pipeline workflow: ${workflow.workflowName}`)
       console.log(`  - ID: ${workflow.id}`)
       console.log(`  - Workflow ID: ${workflow.workflowId}`)
       console.log(`  - Version: ${workflow.version}`)
@@ -255,7 +255,7 @@ const seedSimpleApproval: ModuleCli = {
       })
 
       if (existing) {
-        console.log(`✓ Simple approval workflow '${approvalData.workflowId}' already exists (ID: ${existing.id})`)
+        console.log(`ℹ️  Simple approval workflow '${approvalData.workflowId}' already exists (ID: ${existing.id})`)
         return
       }
 
@@ -268,7 +268,7 @@ const seedSimpleApproval: ModuleCli = {
 
       await em.persistAndFlush(workflow)
 
-      console.log(`✓ Seeded simple approval workflow: ${workflow.workflowName}`)
+      console.log(`✅ Seeded simple approval workflow: ${workflow.workflowName}`)
       console.log(`  - ID: ${workflow.id}`)
       console.log(`  - Workflow ID: ${workflow.workflowId}`)
       console.log(`  - Version: ${workflow.version}`)
@@ -351,7 +351,7 @@ const seedAll: ModuleCli = {
       return
     }
 
-    console.log('Seeding all example workflows...\n')
+    console.log('🧩 Seeding all example workflows...\n')
 
     try {
       // Seed demo checkout with rules
@@ -366,7 +366,7 @@ const seedAll: ModuleCli = {
       await seedSimpleApproval.run(rest)
       console.log('')
 
-      console.log('✓ All example workflows seeded successfully!')
+      console.log('✅ All example workflows seeded successfully!')
     } catch (error) {
       console.error('Error seeding workflows:', error)
       throw error

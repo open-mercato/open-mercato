@@ -18,6 +18,29 @@ export class AuthService {
     } as any)
   }
 
+  async findUsersByEmail(email: string) {
+    const emailHash = computeEmailHash(email)
+    return this.em.find(User, {
+      deletedAt: null,
+      $or: [
+        { email },
+        { emailHash },
+      ],
+    } as any)
+  }
+
+  async findUserByEmailAndTenant(email: string, tenantId: string) {
+    const emailHash = computeEmailHash(email)
+    return this.em.findOne(User, {
+      tenantId,
+      deletedAt: null,
+      $or: [
+        { email },
+        { emailHash },
+      ],
+    } as any)
+  }
+
   async verifyPassword(user: User, password: string) {
     if (!user.passwordHash) return false
     return compare(password, user.passwordHash)

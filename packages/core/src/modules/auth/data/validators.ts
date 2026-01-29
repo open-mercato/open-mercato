@@ -8,6 +8,7 @@ export const userLoginSchema = z.object({
   email: z.string().email(),
   password: z.string().min(6),
   requireRole: z.string().optional(),
+  tenantId: z.string().uuid().optional(),
 })
 
 export const requestPasswordResetSchema = z.object({

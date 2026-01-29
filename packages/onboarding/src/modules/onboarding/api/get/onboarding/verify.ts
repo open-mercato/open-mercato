@@ -11,8 +11,6 @@ import {
   seedCurrencyDictionary,
 } from '@open-mercato/core/modules/customers/cli'
 import { seedDashboardDefaultsForTenant } from '@open-mercato/core/modules/dashboards/cli'
-import { AuthService } from '@open-mercato/core/modules/auth/services/authService'
-import { signJwt } from '@open-mercato/shared/lib/auth/jwt'
 import { reindexEntity } from '@open-mercato/core/modules/query_index/lib/reindexer'
 import { purgeIndexScope } from '@open-mercato/core/modules/query_index/lib/purge'
 import { refreshCoverageSnapshot } from '@open-mercato/core/modules/query_index/lib/coverage'
@@ -31,6 +29,21 @@ function redirectWithStatus(baseUrl: string, status: string) {
   return NextResponse.redirect(`${baseUrl}/onboarding?status=${encodeURIComponent(status)}`)
 }
 
+function redirectToLogin(baseUrl: string, tenantId: string | null) {
+  const tenantParam = tenantId ? `?tenant=${encodeURIComponent(tenantId)}` : ''
+  const response = NextResponse.redirect(`${baseUrl}/login${tenantParam}`)
+  if (tenantId) {
+    response.cookies.set('om_login_tenant', tenantId, {
+      httpOnly: false,
+      sameSite: 'lax',
+      secure: process.env.NODE_ENV === 'production',
+      path: '/',
+      maxAge: 60 * 60 * 24 * 14,
+    })
+  }
+  return response
+}
+
 export async function GET(req: Request) {
   const url = new URL(req.url)
   const baseUrl = process.env.APP_URL || `${url.protocol}//${url.host}`
@@ -43,12 +56,32 @@ export async function GET(req: Request) {
   const container = await createRequestContainer()
   const em = (container.resolve('em') as EntityManager)
   const service = new OnboardingService(em)
-  const request = await service.findPendingByToken(parsed.data.token)
+  const request = await service.findByToken(parsed.data.token)
   if (!request) {
     return redirectWithStatus(baseUrl, 'invalid')
   }
+  if (request.expiresAt <= new Date() && request.status !== 'completed') {
+    return redirectWithStatus(baseUrl, 'invalid')
+  }
+  if (request.status === 'completed' && request.tenantId) {
+    return redirectToLogin(baseUrl, request.tenantId)
+  }
+  const lockWindowMs = 15 * 60 * 1000
+  const processingStartedAt = request.processingStartedAt?.getTime() ?? 0
+  const processingFresh = request.status === 'processing' && processingStartedAt > Date.now() - lockWindowMs
+  if (processingFresh) {
+    return redirectToLogin(baseUrl, request.tenantId ?? null)
+  }
+  if (request.status === 'processing' && !processingFresh) {
+    await service.resetProcessing(request)
+  }
+  if (request.status !== 'pending') {
+    return redirectWithStatus(baseUrl, 'invalid')
+  }
+  await service.startProcessing(request, new Date())
   if (!request.passwordHash) {
     console.error('[onboarding.verify] missing password hash for request', request.id)
+    await service.resetProcessing(request)
     return redirectWithStatus(baseUrl, 'error')
   }
 
@@ -81,6 +114,7 @@ export async function GET(req: Request) {
     const user = mainUserSnapshot.user
     const resolvedUserId = String(user.id)
     userId = resolvedUserId
+    await service.updateProvisioningIds(request, { tenantId, organizationId, userId: resolvedUserId })
 
     await seedCustomerDictionaries(em, { tenantId, organizationId })
     await seedCurrencyDictionary(em, { tenantId, organizationId })
@@ -156,43 +190,15 @@ export async function GET(req: Request) {
       }
     }
 
-    const authService = (container.resolve('authService') as AuthService)
-    await authService.updateLastLoginAt(user)
-    const roles = await authService.getUserRoles(user, tenantId)
-    const jwt = signJwt({
-      sub: String(user.id),
-      tenantId,
-      orgId: organizationId,
-      email: user.email,
-      roles,
-    })
-    const response = NextResponse.redirect(`${baseUrl}/backend`)
-    response.cookies.set('auth_token', jwt, {
-      httpOnly: true,
-      sameSite: 'lax',
-      secure: process.env.NODE_ENV === 'production',
-      path: '/',
-      maxAge: 60 * 60 * 8,
-    })
-
-    const rememberDays = Number(process.env.REMEMBER_ME_DAYS || '30')
-    const expiresAt = new Date(Date.now() + rememberDays * 24 * 60 * 60 * 1000)
-    const session = await authService.createSession(user, expiresAt)
-    response.cookies.set('session_token', session.token, {
-      httpOnly: true,
-      sameSite: 'lax',
-      secure: process.env.NODE_ENV === 'production',
-      path: '/',
-      expires: expiresAt,
-    })
-
     await service.markCompleted(request, { tenantId, organizationId, userId: resolvedUserId })
-    return response
+    return redirectToLogin(baseUrl, tenantId)
   } catch (error) {
     if (error instanceof Error && error.message === 'USER_EXISTS') {
+      await service.resetProcessing(request)
       return redirectWithStatus(baseUrl, 'already_exists')
     }
     console.error('[onboarding.verify] failed', error)
+    await service.resetProcessing(request)
     return redirectWithStatus(baseUrl, 'error')
   }
 }
@@ -207,11 +213,11 @@ const onboardingVerifyQuerySchema = z.object({
 
 const onboardingVerifyDoc: OpenApiMethodDoc = {
   summary: 'Verify onboarding token',
-  description: 'Validates the onboarding token, provisions the tenant, seeds demo data, and redirects the user to the dashboard.',
+  description: 'Validates the onboarding token, provisions the tenant, seeds demo data, and redirects the user to the login screen.',
   tags: [onboardingTag],
   query: onboardingVerifyQuerySchema,
   responses: [
-    { status: 302, description: 'Redirect to onboarding UI or dashboard' },
+    { status: 302, description: 'Redirect to onboarding UI or login' },
   ],
 }
 

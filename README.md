@@ -6,6 +6,8 @@
 
 **Start with 80% done.**
 
+[![Watch: What “Start with 80% done” means](https://img.youtube.com/vi/53jsDjAXXhQ/hqdefault.jpg)](https://www.youtube.com/watch?v=53jsDjAXXhQ)
+
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 [![Docs](https://img.shields.io/badge/docs-openmercato.com-1F7AE0.svg)](https://docs.openmercato.com/)
 [![PRs Welcome](https://img.shields.io/badge/PRs-welcome-ff69b4.svg)](https://github.com/open-mercato/open-mercato/issues)

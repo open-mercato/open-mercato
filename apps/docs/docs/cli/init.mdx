@@ -19,7 +19,7 @@ Ensure `DATABASE_URL` points to the Postgres instance you want to initialize bef
 | Option | Description | Default |
 | --- | --- | --- |
 | `--org`, `--orgName` | Name of the organization that will be created. | `Acme Corp` |
-| `--email` | Superadmin login email. If the local part is `superadmin`, companion `admin@…` and `employee@…` accounts are also provisioned. | `superadmin@acme.com` |
+| `--email` | Superadmin login email. Companion `admin@…` and `employee@…` accounts are also provisioned. | `superadmin@acme.com` |
 | `--password` | Password applied to all seeded accounts. | `secret` |
 | `--roles` | Comma-separated list of roles ensured before user creation. | `superadmin,admin,employee` |
 | `--skip-password-policy` | Skip password policy validation during `auth setup` (useful for demo defaults like `secret`). | off |
@@ -37,10 +37,13 @@ When you omit CLI flags, the init flow will read environment defaults for the se
 | --- | --- | --- |
 | `OM_INIT_SUPERADMIN_EMAIL` | Superadmin login email used when `--email` is not provided. | `superadmin@acme.com` |
 | `OM_INIT_SUPERADMIN_PASSWORD` | Password applied to all seeded accounts when `--password` is not provided. | `secret` |
-| `OM_INIT_ADMIN_EMAIL` | Derived admin account email override (used when the superadmin local part is `superadmin`). | `admin@<superadmin-domain>` |
-| `OM_INIT_EMPLOYEE_EMAIL` | Derived employee account email override (used when the superadmin local part is `superadmin`). | `employee@<superadmin-domain>` |
+| `OM_INIT_ADMIN_EMAIL` | Derived admin account email override. | `admin@<superadmin-domain>` |
+| `OM_INIT_EMPLOYEE_EMAIL` | Derived employee account email override. | `employee@<superadmin-domain>` |
+| `OM_INIT_ADMIN_PASSWORD` | Admin account password override. | `secret` |
+| `OM_INIT_EMPLOYEE_PASSWORD` | Employee account password override. | `secret` |
+| `OM_INIT_GENERATE_RANDOM_PASSWORD` | Generate random admin/employee passwords when overrides are missing. | `false` |
 
-If the email local part is `superadmin`, the derived `admin@…` and `employee@…` accounts still apply.
+Derived `admin@…` and `employee@…` accounts are created whenever `auth setup` runs (unless you disable derived users in custom flows).
 
 ## What the Command Does
 

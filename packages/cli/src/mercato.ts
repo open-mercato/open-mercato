@@ -8,6 +8,7 @@ import type { Module } from '@open-mercato/shared/modules/registry'
 import { getCliModules, hasCliModules, registerCliModules } from './registry'
 export { getCliModules, hasCliModules, registerCliModules }
 import { parseBooleanToken } from '@open-mercato/shared/lib/boolean'
+import { resolveInitDerivedSecrets } from './lib/init-secrets'
 import type { ChildProcess } from 'node:child_process'
 import path from 'node:path'
 import fs from 'node:fs'
@@ -96,6 +97,12 @@ export async function run(argv = process.argv) {
     try {
       const initArgs = parts.slice(1).filter(Boolean)
       const reinstall = initArgs.includes('--reinstall') || initArgs.includes('-r')
+      process.env.OM_INIT_FLOW = 'true'
+      if (reinstall) {
+        process.env.OM_INIT_REINSTALL = 'true'
+      } else if (process.env.OM_INIT_REINSTALL) {
+        delete process.env.OM_INIT_REINSTALL
+      }
       const skipExamples = initArgs.includes('--no-examples') || initArgs.includes('--no-exampls')
       const stressTestEnabled =
         initArgs.includes('--stresstest') || initArgs.includes('--stress-test')
@@ -259,6 +266,15 @@ export async function run(argv = process.argv) {
       const orgName = findArgValue(['--org=', '--orgName='], 'Acme Corp')
       const email = findArgValue(['--email='], defaultEmail)
       const password = findArgValue(['--password='], defaultPassword)
+      const derivedSecrets = resolveInitDerivedSecrets({ email, env: process.env })
+      const adminEmailDerived = derivedSecrets.adminEmail
+      const employeeEmailDerived = derivedSecrets.employeeEmail
+      if (adminEmailDerived && derivedSecrets.adminPassword) {
+        process.env.OM_INIT_ADMIN_PASSWORD = derivedSecrets.adminPassword
+      }
+      if (employeeEmailDerived && derivedSecrets.employeePassword) {
+        process.env.OM_INIT_EMPLOYEE_PASSWORD = derivedSecrets.employeePassword
+      }
       const roles = findArgValue(['--roles='], 'superadmin,admin,employee')
       const skipPasswordPolicyRaw = initArgs.find((arg) =>
         arg === '--skip-password-policy' ||
@@ -464,11 +480,19 @@ export async function run(argv = process.argv) {
       await runModuleCommand(allModules, 'query_index', 'reindex', queryIndexArgs)
       console.log('✅ Query indexes rebuilt\n')
 
-      // Derive admin/employee only when the provided email is a superadmin email
-      const [local, domain] = String(email).split('@')
-      const isSuperadminLocal = (local || '').toLowerCase() === 'superadmin' && !!domain
-      const adminEmailDerived = isSuperadminLocal ? `admin@${domain}` : null
-      const employeeEmailDerived = isSuperadminLocal ? `employee@${domain}` : null
+      const adminPasswordOverride = derivedSecrets.adminPassword
+      const employeePasswordOverride = derivedSecrets.employeePassword
+      const createdUsers: Array<{ label: string; icon: string; email: string }> = []
+      const createdPasswords = new Map<string, string>()
+      const pushUser = (label: string, icon: string, value: string | null, passwordValue: string) => {
+        if (!value) return
+        if (createdUsers.some((entry) => entry.email.toLowerCase() === value.toLowerCase())) return
+        createdUsers.push({ label, icon, email: value })
+        createdPasswords.set(value.toLowerCase(), passwordValue)
+      }
+      pushUser('Superadmin', '👑', email, password)
+      pushUser('Admin', '🧰', adminEmailDerived, adminPasswordOverride ?? password)
+      pushUser('Employee', '👷', employeeEmailDerived, employeePasswordOverride ?? password)
 
       // Simplified success message: we know which users were created
       console.log('🎉 App initialization complete!\n')
@@ -479,15 +503,12 @@ export async function run(argv = process.argv) {
       console.log('║    yarn dev                                                  ║')
       console.log('║                                                              ║')
       console.log('║  Users created:                                              ║')
-      console.log(`║    👑 Superadmin: ${email.padEnd(42)} ║`)
-      console.log(`║       Password: ${password.padEnd(44)} ║`)
-      if (adminEmailDerived) {
-        console.log(`║    🧰 Admin:      ${adminEmailDerived.padEnd(42)} ║`)
-        console.log(`║       Password: ${password.padEnd(44)} ║`)
-      }
-      if (employeeEmailDerived) {
-        console.log(`║    👷 Employee:   ${employeeEmailDerived.padEnd(42)} ║`)
-        console.log(`║       Password: ${password.padEnd(44)} ║`)
+      for (const entry of createdUsers) {
+        const label = `${entry.icon} ${entry.label}:`
+        const labelPad = label.padEnd(13)
+        const entryPassword = createdPasswords.get(entry.email.toLowerCase()) ?? password
+        console.log(`║    ${labelPad}${entry.email.padEnd(42)} ║`)
+        console.log(`║       Password: ${entryPassword.padEnd(44)} ║`)
       }
       console.log('║                                                              ║')
       console.log('║  Happy coding!                                               ║')

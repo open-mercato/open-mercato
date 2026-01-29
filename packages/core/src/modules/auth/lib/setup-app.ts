@@ -16,6 +16,7 @@ import { DEFAULT_ENCRYPTION_MAPS } from '@open-mercato/core/modules/entities/lib
 import { createKmsService } from '@open-mercato/shared/lib/encryption/kms'
 import { TenantDataEncryptionService } from '@open-mercato/shared/lib/encryption/tenantDataEncryptionService'
 import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { parseBooleanToken } from '@open-mercato/shared/lib/boolean'
 
 const DEFAULT_ROLE_NAMES = ['employee', 'admin', 'superadmin'] as const
 const DEMO_SUPERADMIN_EMAIL = 'superadmin@acme.com'
@@ -175,20 +176,28 @@ export async function setupInitialTenant(
   })
 
   if (!existingUser) {
-    const baseUsers: Array<{ email: string; roles: string[]; name?: string | null }> = [
+    const baseUsers: Array<{
+      email: string
+      roles: string[]
+      name?: string | null
+      passwordHash?: string | null
+    }> = [
       { email: primaryUser.email, roles: primaryRoles, name: resolvePrimaryName(primaryUser) },
     ]
     if (includeDerivedUsers) {
-      const [local, domain] = String(primaryUser.email).split('@')
-      const isSuperadminLocal = (local || '').toLowerCase() === 'superadmin' && !!domain
-      if (isSuperadminLocal) {
-        const adminOverride = readEnvValue(DERIVED_EMAIL_ENV.admin)
-        const employeeOverride = readEnvValue(DERIVED_EMAIL_ENV.employee)
-        const adminEmail = adminOverride ?? `admin@${domain}`
-        const employeeEmail = employeeOverride ?? `employee@${domain}`
-        addUniqueBaseUser(baseUsers, { email: adminEmail, roles: ['admin'] })
-        addUniqueBaseUser(baseUsers, { email: employeeEmail, roles: ['employee'] })
-      }
+      const [, domain] = String(primaryUser.email).split('@')
+      const adminOverride = readEnvValue(DERIVED_EMAIL_ENV.admin)
+      const employeeOverride = readEnvValue(DERIVED_EMAIL_ENV.employee)
+      const adminEmail = adminOverride ?? (domain ? `admin@${domain}` : '')
+      const employeeEmail = employeeOverride ?? (domain ? `employee@${domain}` : '')
+      const adminPassword = readEnvValue('OM_INIT_ADMIN_PASSWORD')
+      const employeePassword = readEnvValue('OM_INIT_EMPLOYEE_PASSWORD')
+      const adminPasswordHash = adminPassword ? await resolvePasswordHash({ email: adminEmail, password: adminPassword }) : null
+      const employeePasswordHash = employeePassword
+        ? await resolvePasswordHash({ email: employeeEmail, password: employeePassword })
+        : null
+      addUniqueBaseUser(baseUsers, { email: adminEmail, roles: ['admin'], passwordHash: adminPasswordHash })
+      addUniqueBaseUser(baseUsers, { email: employeeEmail, roles: ['employee'], passwordHash: employeePasswordHash })
     }
     const passwordHash = await resolvePasswordHash(primaryUser)
 
@@ -280,13 +289,14 @@ export async function setupInitialTenant(
       }
 
       for (const base of baseUsers) {
+        const resolvedPasswordHash = base.passwordHash ?? passwordHash
         let user = await tem.findOne(User, { email: base.email })
         const confirm = primaryUser.confirm ?? true
         const encryptedPayload = encryptionService
           ? await encryptionService.encryptEntityPayload('auth:user', { email: base.email }, tenantId, organizationId)
           : { email: base.email, emailHash: computeEmailHash(base.email) }
         if (user) {
-          user.passwordHash = passwordHash
+          user.passwordHash = resolvedPasswordHash
           user.organizationId = organizationId
           user.tenantId = tenantId
           if (isTenantDataEncryptionEnabled()) {
@@ -301,7 +311,7 @@ export async function setupInitialTenant(
           user = tem.create(User, {
             email: (encryptedPayload as any).email ?? base.email,
             emailHash: isTenantDataEncryptionEnabled() ? (encryptedPayload as any).emailHash ?? computeEmailHash(base.email) : undefined,
-            passwordHash,
+            passwordHash: resolvedPasswordHash,
             organizationId,
             tenantId,
             name: base.name ?? undefined,
@@ -357,13 +367,24 @@ function readEnvValue(key: string): string | undefined {
 }
 
 function addUniqueBaseUser(
-  baseUsers: Array<{ email: string; roles: string[]; name?: string | null }>,
-  entry: { email: string; roles: string[]; name?: string | null },
+  baseUsers: Array<{ email: string; roles: string[]; name?: string | null; passwordHash?: string | null }>,
+  entry: { email: string; roles: string[]; name?: string | null; passwordHash?: string | null },
 ) {
   if (!entry.email) return
   const normalized = entry.email.toLowerCase()
   if (baseUsers.some((user) => user.email.toLowerCase() === normalized)) return
   baseUsers.push(entry)
+}
+
+function isDemoModeEnabled(): boolean {
+  const parsed = parseBooleanToken(process.env.DEMO_MODE ?? '')
+  return parsed === false ? false : true
+}
+
+function shouldKeepDemoSuperadminDuringInit(): boolean {
+  if (process.env.OM_INIT_FLOW !== 'true') return false
+  if (!readEnvValue('OM_INIT_SUPERADMIN_EMAIL')) return false
+  return isDemoModeEnabled()
 }
 
 async function resolvePasswordHash(input: PrimaryUserInput): Promise<string | null> {
@@ -514,6 +535,7 @@ async function ensureRoleAclFor(
 
 async function deactivateDemoSuperAdminIfSelfOnboardingEnabled(em: EntityManager) {
   if (process.env.SELF_SERVICE_ONBOARDING_ENABLED !== 'true') return
+  if (shouldKeepDemoSuperadminDuringInit()) return
   try {
     const user = await em.findOne(User, { email: DEMO_SUPERADMIN_EMAIL })
     if (!user) return
