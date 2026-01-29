@@ -54,7 +54,7 @@ export function NotificationBell({ className, t, customRenderers }: Notification
       >
         <Bell className={cn('h-5 w-5', pulse && 'animate-pulse')} />
         {unreadCount > 0 && (
-          <span className="absolute -top-1 -right-1 flex h-5 w-5 items-center justify-center rounded-full bg-destructive text-[10px] font-medium text-destructive-foreground">
+          <span className="absolute -top-1 -right-1 flex h-5 w-5 items-center justify-center rounded-full bg-orange-500 text-[10px] font-medium text-white dark:bg-destructive dark:text-destructive-foreground">
             {unreadCount > 99 ? '99+' : unreadCount}
           </span>
         )}

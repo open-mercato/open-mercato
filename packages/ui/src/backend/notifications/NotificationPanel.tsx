@@ -127,7 +127,7 @@ export function NotificationPanel({
               <Bell className="h-5 w-5" />
               <h2 className="font-semibold">{t('notifications.title', 'Notifications')}</h2>
               {unreadCount > 0 && (
-                <span className="rounded-full bg-destructive px-2 py-0.5 text-xs text-destructive-foreground">
+                <span className="rounded-full bg-orange-500 px-2 py-0.5 text-xs text-white dark:bg-destructive dark:text-destructive-foreground">
                   {unreadCount}
                 </span>
               )}

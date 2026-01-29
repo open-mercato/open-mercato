@@ -16,6 +16,7 @@ import { parseBooleanToken } from '@open-mercato/shared/lib/boolean'
 
 const DEFAULT_ROLE_NAMES = ['employee', 'admin', 'superadmin'] as const
 const DEMO_SUPERADMIN_EMAIL = 'superadmin@acme.com'
+const DEFAULT_DERIVED_EMAIL_DOMAIN = DEMO_SUPERADMIN_EMAIL.split('@')[1] ?? 'acme.com'
 
 export type EnsureRolesOptions = {
   roleNames?: string[]
@@ -183,11 +184,10 @@ export async function setupInitialTenant(
       { email: primaryUser.email, roles: primaryRoles, name: resolvePrimaryName(primaryUser) },
     ]
     if (includeDerivedUsers) {
-      const [, domain] = String(primaryUser.email).split('@')
       const adminOverride = readEnvValue(DERIVED_EMAIL_ENV.admin)
       const employeeOverride = readEnvValue(DERIVED_EMAIL_ENV.employee)
-      const adminEmail = adminOverride ?? (domain ? `admin@${domain}` : '')
-      const employeeEmail = employeeOverride ?? (domain ? `employee@${domain}` : '')
+      const adminEmail = adminOverride ?? `admin@${DEFAULT_DERIVED_EMAIL_DOMAIN}`
+      const employeeEmail = employeeOverride ?? `employee@${DEFAULT_DERIVED_EMAIL_DOMAIN}`
       const adminPassword = readEnvValue('OM_INIT_ADMIN_PASSWORD') || 'secret'
       const employeePassword = readEnvValue('OM_INIT_EMPLOYEE_PASSWORD') || 'secret'
       const adminPasswordHash = adminPassword ? await resolvePasswordHash({ email: adminEmail, password: adminPassword }) : null
@@ -422,6 +422,12 @@ async function ensureDefaultRoleAcls(
     if (roleFeatures.admin) adminFeatures.push(...roleFeatures.admin)
     if (roleFeatures.employee) employeeFeatures.push(...roleFeatures.employee)
   }
+
+  console.log('✅ Seeded default role features', {
+    superadmin: superadminFeatures,
+    admin: adminFeatures,
+    employee: employeeFeatures,
+  })
 
   if (includeSuperadminRole && superadminRole) {
     await ensureRoleAclFor(em, superadminRole, tenantId, superadminFeatures, { isSuperAdmin: true })

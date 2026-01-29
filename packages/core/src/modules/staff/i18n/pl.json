@@ -799,6 +799,8 @@
   "staff.teams.tabs.members": "Cz\u0142onkowie zespo\u0142u",
   "staff.notifications.leaveRequest.pending.title": "Wniosek urlopowy oczekuje",
   "staff.notifications.leaveRequest.pending.body": "{memberName} zło\u017cył wniosek o urlop od {startDate} do {endDate}",
+  "staff.notifications.leaveRequest.approved.title": "Wniosek urlopowy zatwierdzony",
+  "staff.notifications.leaveRequest.approved.body": "Tw\u00f3j wniosek urlopowy od {startDate} do {endDate} zosta\u0142 zatwierdzony",
   "staff.notifications.leaveRequest.actions.approve": "Zatwierd\u017a",
   "staff.notifications.leaveRequest.actions.reject": "Odrzu\u0107",
   "staff.leaveRequests.page.title": "Wnioski urlopowe",

@@ -799,6 +799,8 @@
   "staff.teams.tabs.members": "Teammitglieder",
   "staff.notifications.leaveRequest.pending.title": "Urlaubsantrag ausstehend",
   "staff.notifications.leaveRequest.pending.body": "{memberName} hat Urlaub vom {startDate} bis {endDate} beantragt",
+  "staff.notifications.leaveRequest.approved.title": "Urlaubsantrag genehmigt",
+  "staff.notifications.leaveRequest.approved.body": "Dein Urlaubsantrag vom {startDate} bis {endDate} wurde genehmigt",
   "staff.notifications.leaveRequest.actions.approve": "Genehmigen",
   "staff.notifications.leaveRequest.actions.reject": "Ablehnen",
   "staff.leaveRequests.page.title": "Urlaubsantr\u00e4ge",

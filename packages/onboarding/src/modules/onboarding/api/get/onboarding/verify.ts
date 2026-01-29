@@ -8,15 +8,9 @@ import { setupInitialTenant } from '@open-mercato/core/modules/auth/lib/setup-ap
 import { reindexEntity } from '@open-mercato/core/modules/query_index/lib/reindexer'
 import { purgeIndexScope } from '@open-mercato/core/modules/query_index/lib/purge'
 import { refreshCoverageSnapshot } from '@open-mercato/core/modules/query_index/lib/coverage'
-import { seedResourcesCapacityUnits, seedResourcesResourceExamples } from '@open-mercato/core/modules/resources/lib/seeds'
-import { seedSalesAdjustmentKinds, seedSalesStatusDictionaries } from '@open-mercato/core/modules/sales/lib/dictionaries'
-import { seedSalesTaxRates } from '@open-mercato/core/modules/sales/lib/seeds'
-import { seedSalesExamples } from '@open-mercato/core/modules/sales/seed/examples'
-import { ensureExamplePaymentMethods, ensureExampleShippingMethods } from '@open-mercato/core/modules/sales/seed/examples-data'
-import { seedStaffTeamExamples } from '@open-mercato/core/modules/staff/lib/seeds'
-import { seedExampleWorkflows } from '@open-mercato/core/modules/workflows/lib/seeds'
 import { flattenSystemEntityIds } from '@open-mercato/shared/lib/entities/system-entities'
 import { getEntityIds } from '@open-mercato/shared/lib/encryption/entityIds'
+import { getModules } from '@open-mercato/shared/lib/modules/registry'
 import type { VectorIndexService } from '@open-mercato/search/vector'
 import type { OpenApiMethodDoc, OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 
@@ -105,6 +99,7 @@ export async function GET(req: Request) {
         hashedPassword: request.passwordHash,
         confirm: true,
       },
+      modules: getModules(),
     })
 
     tenantId = String(setupResult.tenantId)
