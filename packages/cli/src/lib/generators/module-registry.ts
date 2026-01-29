@@ -20,6 +20,52 @@ export interface ModuleRegistryOptions {
   quiet?: boolean
 }
 
+type DashboardWidgetEntry = {
+  moduleId: string
+  key: string
+  source: 'app' | 'package'
+  importPath: string
+}
+
+function scanDashboardWidgets(options: {
+  modId: string
+  roots: { appBase: string; pkgBase: string }
+  appImportBase: string
+  pkgImportBase: string
+}): DashboardWidgetEntry[] {
+  const { modId, roots, appImportBase, pkgImportBase } = options
+  const widgetApp = path.join(roots.appBase, 'widgets', 'dashboard')
+  const widgetPkg = path.join(roots.pkgBase, 'widgets', 'dashboard')
+  if (!fs.existsSync(widgetApp) && !fs.existsSync(widgetPkg)) return []
+
+  const found: string[] = []
+  const walk = (dir: string, rel: string[] = []) => {
+    for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+      if (entry.isDirectory()) {
+        if (entry.name === '__tests__' || entry.name === '__mocks__') continue
+        walk(path.join(dir, entry.name), [...rel, entry.name])
+      } else if (entry.isFile() && /^widget\.(t|j)sx?$/.test(entry.name)) {
+        found.push([...rel, entry.name].join('/'))
+      }
+    }
+  }
+  if (fs.existsSync(widgetPkg)) walk(widgetPkg)
+  if (fs.existsSync(widgetApp)) walk(widgetApp)
+
+  const files = Array.from(new Set(found)).sort()
+  return files.map((rel) => {
+    const appFile = path.join(widgetApp, ...rel.split('/'))
+    const fromApp = fs.existsSync(appFile)
+    const segs = rel.split('/')
+    const file = segs.pop()!
+    const base = file.replace(/\.(t|j)sx?$/, '')
+    const importPath = `${fromApp ? appImportBase : pkgImportBase}/widgets/dashboard/${[...segs, base].join('/')}`
+    const key = [modId, ...segs, base].filter(Boolean).join(':')
+    const source = fromApp ? 'app' : 'package'
+    return { moduleId: modId, key, source, importPath }
+  })
+}
+
 export async function generateModuleRegistry(options: ModuleRegistryOptions): Promise<GeneratorResult> {
   const { resolver, quiet = false } = options
   const result = createGeneratorResult()
@@ -679,39 +725,23 @@ export async function generateModuleRegistry(options: ModuleRegistryOptions): Pr
 
     // Dashboard widgets: src/modules/<module>/widgets/dashboard/**/widget.ts(x)
     {
-      const widgetApp = path.join(roots.appBase, 'widgets', 'dashboard')
-      const widgetPkg = path.join(roots.pkgBase, 'widgets', 'dashboard')
-      if (fs.existsSync(widgetApp) || fs.existsSync(widgetPkg)) {
-        const found: string[] = []
-        const walk = (dir: string, rel: string[] = []) => {
-          for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
-            if (e.isDirectory()) {
-              if (e.name === '__tests__' || e.name === '__mocks__') continue
-              walk(path.join(dir, e.name), [...rel, e.name])
-            } else if (e.isFile() && /^widget\.(t|j)sx?$/.test(e.name)) {
-              found.push([...rel, e.name].join('/'))
-            }
-          }
-        }
-        if (fs.existsSync(widgetPkg)) walk(widgetPkg)
-        if (fs.existsSync(widgetApp)) walk(widgetApp)
-        const files = Array.from(new Set(found)).sort()
-        for (const rel of files) {
-          const appFile = path.join(widgetApp, ...rel.split('/'))
-          const fromApp = fs.existsSync(appFile)
-          const segs = rel.split('/')
-          const file = segs.pop()!
-          const base = file.replace(/\.(t|j)sx?$/, '')
-          const importPath = `${fromApp ? appImportBase : imps.pkgBase}/widgets/dashboard/${[...segs, base].join('/')}`
-          const key = [modId, ...segs, base].filter(Boolean).join(':')
-          const source = fromApp ? 'app' : 'package'
-          dashboardWidgets.push(
-            `{ moduleId: '${modId}', key: '${key}', source: '${source}', loader: () => import('${importPath}').then((mod) => mod.default ?? mod) }`
-          )
-          const existing = allDashboardWidgets.get(key)
-          if (!existing || (existing.source !== 'app' && source === 'app')) {
-            allDashboardWidgets.set(key, { moduleId: modId, source, importPath })
-          }
+      const entries = scanDashboardWidgets({
+        modId,
+        roots,
+        appImportBase,
+        pkgImportBase: imps.pkgBase,
+      })
+      for (const entry of entries) {
+        dashboardWidgets.push(
+          `{ moduleId: '${entry.moduleId}', key: '${entry.key}', source: '${entry.source}', loader: () => import('${entry.importPath}').then((mod) => mod.default ?? mod) }`
+        )
+        const existing = allDashboardWidgets.get(entry.key)
+        if (!existing || (existing.source !== 'app' && entry.source === 'app')) {
+          allDashboardWidgets.set(entry.key, {
+            moduleId: entry.moduleId,
+            source: entry.source,
+            importPath: entry.importPath,
+          })
         }
       }
     }
@@ -1299,36 +1329,16 @@ export async function generateModuleRegistryCli(options: ModuleRegistryOptions):
 
     // Dashboard widgets: src/modules/<module>/widgets/dashboard/**/widget.ts(x)
     {
-      const widgetApp = path.join(roots.appBase, 'widgets', 'dashboard')
-      const widgetPkg = path.join(roots.pkgBase, 'widgets', 'dashboard')
-      if (fs.existsSync(widgetApp) || fs.existsSync(widgetPkg)) {
-        const found: string[] = []
-        const walk = (dir: string, rel: string[] = []) => {
-          for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
-            if (e.isDirectory()) {
-              if (e.name === '__tests__' || e.name === '__mocks__') continue
-              walk(path.join(dir, e.name), [...rel, e.name])
-            } else if (e.isFile() && /^widget\.(t|j)sx?$/.test(e.name)) {
-              found.push([...rel, e.name].join('/'))
-            }
-          }
-        }
-        if (fs.existsSync(widgetPkg)) walk(widgetPkg)
-        if (fs.existsSync(widgetApp)) walk(widgetApp)
-        const files = Array.from(new Set(found)).sort()
-        for (const rel of files) {
-          const appFile = path.join(widgetApp, ...rel.split('/'))
-          const fromApp = fs.existsSync(appFile)
-          const segs = rel.split('/')
-          const file = segs.pop()!
-          const base = file.replace(/\.(t|j)sx?$/, '')
-          const importPath = `${fromApp ? appImportBase : imps.pkgBase}/widgets/dashboard/${[...segs, base].join('/')}`
-          const key = [modId, ...segs, base].filter(Boolean).join(':')
-          const source = fromApp ? 'app' : 'package'
-          dashboardWidgets.push(
-            `{ moduleId: '${modId}', key: '${key}', source: '${source}', loader: () => import('${importPath}').then((mod) => mod.default ?? mod) }`
-          )
-        }
+      const entries = scanDashboardWidgets({
+        modId,
+        roots,
+        appImportBase,
+        pkgImportBase: imps.pkgBase,
+      })
+      for (const entry of entries) {
+        dashboardWidgets.push(
+          `{ moduleId: '${entry.moduleId}', key: '${entry.key}', source: '${entry.source}', loader: () => import('${entry.importPath}').then((mod) => mod.default ?? mod) }`
+        )
       }
     }
 

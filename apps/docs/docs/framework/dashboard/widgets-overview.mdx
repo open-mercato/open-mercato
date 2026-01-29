@@ -32,7 +32,21 @@ const widget: DashboardWidgetModule<MySettings> = {
 
 ### Client/server split
 
-Dashboard widgets run on the client, but the discovery phase happens in `node`. For example widgets we keep client React code in `widget.client.tsx` and export plain configuration helpers from a `config.ts` file. The server-facing `widget.ts` only stitches those pieces together. This guarantees that importing the module on the server never triggers React hook execution.
+Dashboard widgets run on the client, but the discovery phase happens in `node`. Keep client React code in `widget.client.tsx` and export plain configuration helpers from a `config.ts` file. The server-facing `widget.ts` should lazily reference the client component so CLI discovery never imports `next/*` modules.
+
+Use `lazyDashboardWidget` from `@open-mercato/shared/modules/dashboard/widgets`:
+
+```ts
+import { lazyDashboardWidget, type DashboardWidgetModule } from '@open-mercato/shared/modules/dashboard/widgets'
+import { DEFAULT_SETTINGS } from './config'
+
+const MyWidgetClient = lazyDashboardWidget(() => import('./widget.client'))
+
+const widget: DashboardWidgetModule = {
+  metadata: { /* ... */, defaultSettings: DEFAULT_SETTINGS },
+  Widget: MyWidgetClient,
+}
+```
 
 ## Discovery and runtime
 
