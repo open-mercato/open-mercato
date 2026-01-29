@@ -11,6 +11,7 @@ import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { translateWithFallback } from '@open-mercato/shared/lib/i18n/translate'
 import { clearAllOperations } from '@open-mercato/ui/backend/operations/store'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
+import { X } from 'lucide-react'
 
 const loginTenantKey = 'om_login_tenant'
 const loginTenantCookieMaxAge = 60 * 60 * 24 * 14
@@ -267,7 +268,8 @@ export default function LoginPage() {
             {showTenantInvalid ? (
               <div className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-center text-xs text-red-700">
                 <div className="font-medium">{translate('auth.login.errors.tenantInvalid', 'Tenant not found. Clear the tenant selection and try again.')}</div>
-                <Button type="button" variant="ghost" size="sm" className="mt-2 text-red-700" onClick={handleClearTenant}>
+                <Button type="button" variant="outline" size="sm" className="mt-2 border-red-300 text-red-700" onClick={handleClearTenant}>
+                  <X className="mr-2 size-4" aria-hidden="true" />
                   {translate('auth.login.tenantClear', 'Clear')}
                 </Button>
               </div>
@@ -280,7 +282,8 @@ export default function LoginPage() {
                         tenant: tenantName || tenantId,
                       })}
                 </div>
-                <Button type="button" variant="ghost" size="sm" className="mt-2 text-emerald-900" onClick={handleClearTenant}>
+                <Button type="button" variant="outline" size="sm" className="mt-2 border-emerald-300 text-emerald-900" onClick={handleClearTenant}>
+                  <X className="mr-2 size-4" aria-hidden="true" />
                   {translate('auth.login.tenantClear', 'Clear')}
                 </Button>
               </div>
