@@ -26,8 +26,8 @@ services:
         echo 'First run: full initialization...';
         yarn mercato init && mkdir -p /tmp/init-marker && touch /tmp/init-marker/.seeded;
       else
-        echo 'Subsequent run: skipping examples...';
-        yarn mercato init --no-examples;
+        echo 'Subsequent run: migrations only...';
+        yarn db:migrate;
       fi &&
       yarn start"
     volumes:
