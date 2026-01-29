@@ -15,7 +15,7 @@ Open Mercato is a new‑era, AI‑supportive platform for shipping enterprise‑
 
 **Buy vs. build?** Now, you can have best of both. Use **Open Mercato** enterprise ready business features like CRM, Sales, OMS, Encryption and build the remaining **20&percnt;** that really makes the difference for your business.
 
-[![Watch: What “Start with 80% done” means](https://img.youtube.com/vi/53jsDjAXXhQ/hqdefault.jpg)](https://www.youtube.com/watch?v=53jsDjAXXhQ)
+[![Watch: What “Start with 80% done” means](https://img.youtube.com/vi/53jsDjAXXhQ/maxresdefault.jpg)](https://www.youtube.com/watch?v=53jsDjAXXhQ)
 
 
 ## Core Use Cases
