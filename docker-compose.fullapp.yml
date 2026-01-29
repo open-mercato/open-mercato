@@ -21,7 +21,7 @@ services:
         - CONTAINER_PORT=${CONTAINER_PORT:-3000}
     image: open-mercato/app:${DEPLOY_ENV:-local}
     command: >
-      sh -c "yarn mercato init --email=${OM_INIT_SUPERADMIN_EMAIL:-superadmin@acme.com} --password=${OM_INIT_SUPERADMIN_PASSWORD:-password} &&
+      sh -c "yarn mercato init &&
       yarn start"
     working_dir: /app/apps/mercato
     ports:
