@@ -71,3 +71,5 @@ export const openApi: OpenApiRouteDoc = {
     GET: tenantLookupDoc,
   },
 }
+
+export default GET

@@ -4,16 +4,19 @@
 
 # Open Mercato
 
-**Start with 80% done.**
-
-[![Watch: What “Start with 80% done” means](https://img.youtube.com/vi/53jsDjAXXhQ/hqdefault.jpg)](https://www.youtube.com/watch?v=53jsDjAXXhQ)
-
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 [![Docs](https://img.shields.io/badge/docs-openmercato.com-1F7AE0.svg)](https://docs.openmercato.com/)
 [![PRs Welcome](https://img.shields.io/badge/PRs-welcome-ff69b4.svg)](https://github.com/open-mercato/open-mercato/issues)
 [![Built with Next.js](https://img.shields.io/badge/Built%20with-Next.js-black?logo=next.js)](https://nextjs.org/)
 
 Open Mercato is a new‑era, AI‑supportive platform for shipping enterprise‑grade CRMs, ERPs, and commerce backends. It’s modular, extensible, and designed so teams can mix their own modules, entities, and workflows while keeping the guardrails of a production-ready stack.
+
+## Start with 80% done.
+
+**Buy vs. build?** Now, you can have best of both. Use **Open Mercato** enterprise ready business features like CRM, Sales, OMS, Encryption and build the remaining **20&percnt;** that really makes the difference for your business.
+
+[![Watch: What “Start with 80% done” means](https://img.youtube.com/vi/53jsDjAXXhQ/hqdefault.jpg)](https://www.youtube.com/watch?v=53jsDjAXXhQ)
+
 
 ## Core Use Cases
 
@@ -174,6 +177,12 @@ cp apps/mercato/.env.example apps/mercato/.env # EDIT this file to set up your s
 yarn generate
 yarn initialize # or yarn reinstall
 yarn dev
+```
+
+For a fresh greenfield boot (build packages, generate registries, reinstall modules, then start dev), run:
+
+```bash
+yarn dev:greenfield
 ```
 
 ### Quick Start (Legacy)
