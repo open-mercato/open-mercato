@@ -87,6 +87,11 @@ type PrimaryUserInput = {
   confirm?: boolean
 }
 
+const DERIVED_EMAIL_ENV = {
+  admin: 'OM_INIT_ADMIN_EMAIL',
+  employee: 'OM_INIT_EMPLOYEE_EMAIL',
+} as const
+
 export type SetupInitialTenantOptions = {
   orgName: string
   primaryUser: PrimaryUserInput
@@ -177,8 +182,12 @@ export async function setupInitialTenant(
       const [local, domain] = String(primaryUser.email).split('@')
       const isSuperadminLocal = (local || '').toLowerCase() === 'superadmin' && !!domain
       if (isSuperadminLocal) {
-        baseUsers.push({ email: `admin@${domain}`, roles: ['admin'] })
-        baseUsers.push({ email: `employee@${domain}`, roles: ['employee'] })
+        const adminOverride = readEnvValue(DERIVED_EMAIL_ENV.admin)
+        const employeeOverride = readEnvValue(DERIVED_EMAIL_ENV.employee)
+        const adminEmail = adminOverride ?? `admin@${domain}`
+        const employeeEmail = employeeOverride ?? `employee@${domain}`
+        addUniqueBaseUser(baseUsers, { email: adminEmail, roles: ['admin'] })
+        addUniqueBaseUser(baseUsers, { email: employeeEmail, roles: ['employee'] })
       }
     }
     const passwordHash = await resolvePasswordHash(primaryUser)
@@ -338,6 +347,23 @@ function resolvePrimaryName(input: PrimaryUserInput): string | null {
   const parts = [input.firstName, input.lastName].map((value) => value?.trim()).filter(Boolean)
   if (parts.length) return parts.join(' ')
   return null
+}
+
+function readEnvValue(key: string): string | undefined {
+  const value = process.env[key]
+  if (typeof value !== 'string') return undefined
+  const trimmed = value.trim()
+  return trimmed.length > 0 ? trimmed : undefined
+}
+
+function addUniqueBaseUser(
+  baseUsers: Array<{ email: string; roles: string[]; name?: string | null }>,
+  entry: { email: string; roles: string[]; name?: string | null },
+) {
+  if (!entry.email) return
+  const normalized = entry.email.toLowerCase()
+  if (baseUsers.some((user) => user.email.toLowerCase() === normalized)) return
+  baseUsers.push(entry)
 }
 
 async function resolvePasswordHash(input: PrimaryUserInput): Promise<string | null> {

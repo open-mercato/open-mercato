@@ -249,9 +249,16 @@ export async function run(argv = process.argv) {
         }
         return fallback
       }
+      const readEnvDefault = (key: string) => {
+        const value = process.env[key]
+        if (typeof value === 'string' && value.trim().length > 0) return value.trim()
+        return undefined
+      }
+      const defaultEmail = readEnvDefault('OM_INIT_SUPERADMIN_EMAIL') ?? 'superadmin@acme.com'
+      const defaultPassword = readEnvDefault('OM_INIT_SUPERADMIN_PASSWORD') ?? 'secret'
       const orgName = findArgValue(['--org=', '--orgName='], 'Acme Corp')
-      const email = findArgValue(['--email='], 'superadmin@acme.com')
-      const password = findArgValue(['--password='], 'secret')
+      const email = findArgValue(['--email='], defaultEmail)
+      const password = findArgValue(['--password='], defaultPassword)
       const roles = findArgValue(['--roles='], 'superadmin,admin,employee')
       const skipPasswordPolicyRaw = initArgs.find((arg) =>
         arg === '--skip-password-policy' ||

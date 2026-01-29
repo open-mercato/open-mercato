@@ -29,6 +29,19 @@ Ensure `DATABASE_URL` points to the Postgres instance you want to initialize bef
 | `-n`, `--count`, `--stress-count`, `--stresstest-count` | Number of synthetic contacts to create when `--stresstest` is enabled. | `6000` |
 | `--reinstall`, `-r` | Drops every table in the target database before bootstrapping. Requires a valid `DATABASE_URL`. | off |
 
+## Environment Defaults
+
+When you omit CLI flags, the init flow will read environment defaults for the seeded accounts:
+
+| Variable | Description | Default |
+| --- | --- | --- |
+| `OM_INIT_SUPERADMIN_EMAIL` | Superadmin login email used when `--email` is not provided. | `superadmin@acme.com` |
+| `OM_INIT_SUPERADMIN_PASSWORD` | Password applied to all seeded accounts when `--password` is not provided. | `secret` |
+| `OM_INIT_ADMIN_EMAIL` | Derived admin account email override (used when the superadmin local part is `superadmin`). | `admin@<superadmin-domain>` |
+| `OM_INIT_EMPLOYEE_EMAIL` | Derived employee account email override (used when the superadmin local part is `superadmin`). | `employee@<superadmin-domain>` |
+
+If the email local part is `superadmin`, the derived `admin@…` and `employee@…` accounts still apply.
+
 ## What the Command Does
 
 1. Installs workspace dependencies with `yarn install`.

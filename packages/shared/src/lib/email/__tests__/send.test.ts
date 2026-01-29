@@ -1,14 +1,17 @@
 import React from 'react'
 import { sendEmail } from '../send'
 
-const sendMock = jest.fn().mockResolvedValue({ id: 'email-1' })
-const ResendMock = jest.fn().mockImplementation(() => ({
-  emails: { send: sendMock },
-}))
+var sendMock: jest.Mock
+var ResendMock: jest.Mock
 
-jest.mock('resend', () => ({
-  Resend: ResendMock,
-}))
+jest.mock('resend', () => {
+  sendMock = jest.fn().mockResolvedValue({ id: 'email-1' })
+  ResendMock = jest.fn().mockImplementation(() => ({
+    emails: { send: sendMock },
+  }))
+
+  return { Resend: ResendMock }
+})
 
 describe('sendEmail', () => {
   const originalEnv = process.env

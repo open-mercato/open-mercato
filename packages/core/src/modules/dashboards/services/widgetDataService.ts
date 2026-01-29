@@ -21,6 +21,8 @@ import {
 import type { AnalyticsRegistry } from './analyticsRegistry'
 
 const WIDGET_DATA_CACHE_TTL = 120_000
+const WIDGET_DATA_SEGMENT_TTL = 86_400_000
+const WIDGET_DATA_SEGMENT_KEY = 'widget-data:__segment__'
 
 const SAFE_IDENTIFIER_PATTERN = /^[a-zA-Z_][a-zA-Z0-9_]*$/
 
@@ -172,6 +174,11 @@ export class WidgetDataService {
       const tags = this.getCacheTags(request.entityType)
       try {
         await this.cache.set(cacheKey, response, { ttl: WIDGET_DATA_CACHE_TTL, tags })
+        await this.cache.set(
+          WIDGET_DATA_SEGMENT_KEY,
+          { updatedAt: response.metadata.fetchedAt },
+          { ttl: WIDGET_DATA_SEGMENT_TTL, tags: ['widget-data'] },
+        )
       } catch {
       }
     }
