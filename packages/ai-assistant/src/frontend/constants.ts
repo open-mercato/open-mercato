@@ -3,6 +3,11 @@ export const COMMAND_PALETTE_SHORTCUT = {
   meta: true, // Cmd on Mac, Ctrl on Windows/Linux
 } as const
 
+export const AI_CHAT_SHORTCUT = {
+  key: 'j',
+  meta: true, // Cmd on Mac, Ctrl on Windows/Linux
+} as const
+
 export const RECENT_ACTIONS_KEY = 'om:command-palette:recent-actions'
 export const MAX_RECENT_ACTIONS = 10
 
