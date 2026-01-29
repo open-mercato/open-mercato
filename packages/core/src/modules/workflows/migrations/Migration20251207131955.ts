@@ -2,150 +2,84 @@ import { Migration } from '@mikro-orm/migrations';
 
 export class Migration20251207131955 extends Migration {
 
+  /** Drop a foreign key constraint only when the owning table exists (safe for disabled modules). */
+  private dropConstraintIfTableExists(table: string, constraint: string): void {
+    this.addSql(`DO $$ BEGIN IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = '${table}') THEN ALTER TABLE "${table}" DROP CONSTRAINT IF EXISTS "${constraint}"; END IF; END $$;`)
+  }
+
   override async up(): Promise<void> {
-    this.addSql(`alter table "rule_execution_logs" drop constraint "rule_execution_logs_rule_id_foreign";`);
-
-    this.addSql(`alter table "rule_set_members" drop constraint "rule_set_members_rule_id_foreign";`);
-
-    this.addSql(`alter table "catalog_product_variant_prices" drop constraint "catalog_product_variant_prices_price_kind_id_foreign";`);
-
-    this.addSql(`alter table "catalog_product_category_assignments" drop constraint "catalog_product_category_assignments_category_id_foreign";`);
-
-    this.addSql(`alter table "catalog_product_variant_prices" drop constraint "catalog_product_variant_prices_offer_id_foreign";`);
-
-    this.addSql(`alter table "catalog_products" drop constraint "catalog_products_option_schema_id_foreign";`);
-
-    this.addSql(`alter table "catalog_product_tag_assignments" drop constraint "catalog_product_tag_assignments_tag_id_foreign";`);
-
-    this.addSql(`alter table "catalog_product_variant_option_values" drop constraint "catalog_product_variant_option_values_variant_id_foreign";`);
-
-    this.addSql(`alter table "catalog_product_variant_prices" drop constraint "catalog_product_variant_prices_variant_id_foreign";`);
-
-    this.addSql(`alter table "catalog_product_variant_relations" drop constraint "catalog_product_variant_relations_child_variant_id_foreign";`);
-
-    this.addSql(`alter table "catalog_product_variant_relations" drop constraint "catalog_product_variant_relations_parent_variant_id_foreign";`);
-
-    this.addSql(`alter table "catalog_product_category_assignments" drop constraint "catalog_product_category_assignments_product_id_foreign";`);
-
-    this.addSql(`alter table "catalog_product_offers" drop constraint "catalog_product_offers_product_id_foreign";`);
-
-    this.addSql(`alter table "catalog_product_options" drop constraint "catalog_product_options_product_id_foreign";`);
-
-    this.addSql(`alter table "catalog_product_relations" drop constraint "catalog_product_relations_child_product_id_foreign";`);
-
-    this.addSql(`alter table "catalog_product_relations" drop constraint "catalog_product_relations_parent_product_id_foreign";`);
-
-    this.addSql(`alter table "catalog_product_tag_assignments" drop constraint "catalog_product_tag_assignments_product_id_foreign";`);
-
-    this.addSql(`alter table "catalog_product_variant_prices" drop constraint "catalog_product_variant_prices_product_id_foreign";`);
-
-    this.addSql(`alter table "catalog_product_variants" drop constraint "catalog_product_variants_product_id_foreign";`);
-
-    this.addSql(`alter table "customer_activities" drop constraint "customer_activities_deal_id_foreign";`);
-
-    this.addSql(`alter table "customer_comments" drop constraint "customer_comments_deal_id_foreign";`);
-
-    this.addSql(`alter table "customer_deal_companies" drop constraint "customer_deal_companies_deal_id_foreign";`);
-
-    this.addSql(`alter table "customer_deal_people" drop constraint "customer_deal_people_deal_id_foreign";`);
-
-    this.addSql(`alter table "customer_activities" drop constraint "customer_activities_entity_id_foreign";`);
-
-    this.addSql(`alter table "customer_addresses" drop constraint "customer_addresses_entity_id_foreign";`);
-
-    this.addSql(`alter table "customer_comments" drop constraint "customer_comments_entity_id_foreign";`);
-
-    this.addSql(`alter table "customer_companies" drop constraint "customer_companies_entity_id_foreign";`);
-
-    this.addSql(`alter table "customer_deal_companies" drop constraint "customer_deal_companies_company_entity_id_foreign";`);
-
-    this.addSql(`alter table "customer_deal_people" drop constraint "customer_deal_people_person_entity_id_foreign";`);
-
-    this.addSql(`alter table "customer_people" drop constraint "customer_people_company_entity_id_foreign";`);
-
-    this.addSql(`alter table "customer_people" drop constraint "customer_people_entity_id_foreign";`);
-
-    this.addSql(`alter table "customer_tag_assignments" drop constraint "customer_tag_assignments_entity_id_foreign";`);
-
-    this.addSql(`alter table "customer_todo_links" drop constraint "customer_todo_links_entity_id_foreign";`);
-
-    this.addSql(`alter table "customer_tag_assignments" drop constraint "customer_tag_assignments_tag_id_foreign";`);
-
-    this.addSql(`alter table "dictionary_entries" drop constraint "dictionary_entries_dictionary_id_foreign";`);
-
-    this.addSql(`alter table "role_acls" drop constraint "role_acls_role_id_foreign";`);
-
-    this.addSql(`alter table "role_sidebar_preferences" drop constraint "role_sidebar_preferences_role_id_foreign";`);
-
-    this.addSql(`alter table "user_roles" drop constraint "user_roles_role_id_foreign";`);
-
-    this.addSql(`alter table "rule_set_members" drop constraint "rule_set_members_rule_set_id_foreign";`);
-
-    this.addSql(`alter table "sales_orders" drop constraint "sales_orders_channel_ref_id_foreign";`);
-
-    this.addSql(`alter table "sales_credit_memo_lines" drop constraint "sales_credit_memo_lines_credit_memo_id_foreign";`);
-
-    this.addSql(`alter table "sales_orders" drop constraint "sales_orders_delivery_window_ref_id_foreign";`);
-
-    this.addSql(`alter table "sales_credit_memos" drop constraint "sales_credit_memos_invoice_id_foreign";`);
-
-    this.addSql(`alter table "sales_invoice_lines" drop constraint "sales_invoice_lines_invoice_id_foreign";`);
-
-    this.addSql(`alter table "sales_payment_allocations" drop constraint "sales_payment_allocations_invoice_id_foreign";`);
-
-    this.addSql(`alter table "sales_credit_memo_lines" drop constraint "sales_credit_memo_lines_order_line_id_foreign";`);
-
-    this.addSql(`alter table "sales_invoice_lines" drop constraint "sales_invoice_lines_order_line_id_foreign";`);
-
-    this.addSql(`alter table "sales_order_adjustments" drop constraint "sales_order_adjustments_order_line_id_foreign";`);
-
-    this.addSql(`alter table "sales_shipment_items" drop constraint "sales_shipment_items_order_line_id_foreign";`);
-
-    this.addSql(`alter table "sales_credit_memos" drop constraint "sales_credit_memos_order_id_foreign";`);
-
-    this.addSql(`alter table "sales_invoices" drop constraint "sales_invoices_order_id_foreign";`);
-
-    this.addSql(`alter table "sales_notes" drop constraint "sales_notes_order_id_foreign";`);
-
-    this.addSql(`alter table "sales_order_adjustments" drop constraint "sales_order_adjustments_order_id_foreign";`);
-
-    this.addSql(`alter table "sales_order_lines" drop constraint "sales_order_lines_order_id_foreign";`);
-
-    this.addSql(`alter table "sales_payment_allocations" drop constraint "sales_payment_allocations_order_id_foreign";`);
-
-    this.addSql(`alter table "sales_payments" drop constraint "sales_payments_order_id_foreign";`);
-
-    this.addSql(`alter table "sales_shipments" drop constraint "sales_shipments_order_id_foreign";`);
-
-    this.addSql(`alter table "sales_orders" drop constraint "sales_orders_payment_method_ref_id_foreign";`);
-
-    this.addSql(`alter table "sales_payments" drop constraint "sales_payments_payment_method_id_foreign";`);
-
-    this.addSql(`alter table "sales_payment_allocations" drop constraint "sales_payment_allocations_payment_id_foreign";`);
-
-    this.addSql(`alter table "sales_quote_adjustments" drop constraint "sales_quote_adjustments_quote_line_id_foreign";`);
-
-    this.addSql(`alter table "sales_notes" drop constraint "sales_notes_quote_id_foreign";`);
-
-    this.addSql(`alter table "sales_quote_adjustments" drop constraint "sales_quote_adjustments_quote_id_foreign";`);
-
-    this.addSql(`alter table "sales_quote_lines" drop constraint "sales_quote_lines_quote_id_foreign";`);
-
-    this.addSql(`alter table "sales_shipment_items" drop constraint "sales_shipment_items_shipment_id_foreign";`);
-
-    this.addSql(`alter table "sales_orders" drop constraint "sales_orders_shipping_method_ref_id_foreign";`);
-
-    this.addSql(`alter table "organizations" drop constraint "organizations_tenant_id_foreign";`);
-
-    this.addSql(`alter table "password_resets" drop constraint "password_resets_user_id_foreign";`);
-
-    this.addSql(`alter table "sessions" drop constraint "sessions_user_id_foreign";`);
-
-    this.addSql(`alter table "user_acls" drop constraint "user_acls_user_id_foreign";`);
-
-    this.addSql(`alter table "user_roles" drop constraint "user_roles_user_id_foreign";`);
-
-    this.addSql(`alter table "user_sidebar_preferences" drop constraint "user_sidebar_preferences_user_id_foreign";`);
+    this.dropConstraintIfTableExists('rule_execution_logs', 'rule_execution_logs_rule_id_foreign');
+    this.dropConstraintIfTableExists('rule_set_members', 'rule_set_members_rule_id_foreign');
+    this.dropConstraintIfTableExists('catalog_product_variant_prices', 'catalog_product_variant_prices_price_kind_id_foreign');
+    this.dropConstraintIfTableExists('catalog_product_category_assignments', 'catalog_product_category_assignments_category_id_foreign');
+    this.dropConstraintIfTableExists('catalog_product_variant_prices', 'catalog_product_variant_prices_offer_id_foreign');
+    this.dropConstraintIfTableExists('catalog_products', 'catalog_products_option_schema_id_foreign');
+    this.dropConstraintIfTableExists('catalog_product_tag_assignments', 'catalog_product_tag_assignments_tag_id_foreign');
+    this.dropConstraintIfTableExists('catalog_product_variant_option_values', 'catalog_product_variant_option_values_variant_id_foreign');
+    this.dropConstraintIfTableExists('catalog_product_variant_prices', 'catalog_product_variant_prices_variant_id_foreign');
+    this.dropConstraintIfTableExists('catalog_product_variant_relations', 'catalog_product_variant_relations_child_variant_id_foreign');
+    this.dropConstraintIfTableExists('catalog_product_variant_relations', 'catalog_product_variant_relations_parent_variant_id_foreign');
+    this.dropConstraintIfTableExists('catalog_product_category_assignments', 'catalog_product_category_assignments_product_id_foreign');
+    this.dropConstraintIfTableExists('catalog_product_offers', 'catalog_product_offers_product_id_foreign');
+    this.dropConstraintIfTableExists('catalog_product_options', 'catalog_product_options_product_id_foreign');
+    this.dropConstraintIfTableExists('catalog_product_relations', 'catalog_product_relations_child_product_id_foreign');
+    this.dropConstraintIfTableExists('catalog_product_relations', 'catalog_product_relations_parent_product_id_foreign');
+    this.dropConstraintIfTableExists('catalog_product_tag_assignments', 'catalog_product_tag_assignments_product_id_foreign');
+    this.dropConstraintIfTableExists('catalog_product_variant_prices', 'catalog_product_variant_prices_product_id_foreign');
+    this.dropConstraintIfTableExists('catalog_product_variants', 'catalog_product_variants_product_id_foreign');
+    this.dropConstraintIfTableExists('customer_activities', 'customer_activities_deal_id_foreign');
+    this.dropConstraintIfTableExists('customer_comments', 'customer_comments_deal_id_foreign');
+    this.dropConstraintIfTableExists('customer_deal_companies', 'customer_deal_companies_deal_id_foreign');
+    this.dropConstraintIfTableExists('customer_deal_people', 'customer_deal_people_deal_id_foreign');
+    this.dropConstraintIfTableExists('customer_activities', 'customer_activities_entity_id_foreign');
+    this.dropConstraintIfTableExists('customer_addresses', 'customer_addresses_entity_id_foreign');
+    this.dropConstraintIfTableExists('customer_comments', 'customer_comments_entity_id_foreign');
+    this.dropConstraintIfTableExists('customer_companies', 'customer_companies_entity_id_foreign');
+    this.dropConstraintIfTableExists('customer_deal_companies', 'customer_deal_companies_company_entity_id_foreign');
+    this.dropConstraintIfTableExists('customer_deal_people', 'customer_deal_people_person_entity_id_foreign');
+    this.dropConstraintIfTableExists('customer_people', 'customer_people_company_entity_id_foreign');
+    this.dropConstraintIfTableExists('customer_people', 'customer_people_entity_id_foreign');
+    this.dropConstraintIfTableExists('customer_tag_assignments', 'customer_tag_assignments_entity_id_foreign');
+    this.dropConstraintIfTableExists('customer_todo_links', 'customer_todo_links_entity_id_foreign');
+    this.dropConstraintIfTableExists('customer_tag_assignments', 'customer_tag_assignments_tag_id_foreign');
+    this.dropConstraintIfTableExists('dictionary_entries', 'dictionary_entries_dictionary_id_foreign');
+    this.dropConstraintIfTableExists('role_acls', 'role_acls_role_id_foreign');
+    this.dropConstraintIfTableExists('role_sidebar_preferences', 'role_sidebar_preferences_role_id_foreign');
+    this.dropConstraintIfTableExists('user_roles', 'user_roles_role_id_foreign');
+    this.dropConstraintIfTableExists('rule_set_members', 'rule_set_members_rule_set_id_foreign');
+    this.dropConstraintIfTableExists('sales_orders', 'sales_orders_channel_ref_id_foreign');
+    this.dropConstraintIfTableExists('sales_credit_memo_lines', 'sales_credit_memo_lines_credit_memo_id_foreign');
+    this.dropConstraintIfTableExists('sales_orders', 'sales_orders_delivery_window_ref_id_foreign');
+    this.dropConstraintIfTableExists('sales_credit_memos', 'sales_credit_memos_invoice_id_foreign');
+    this.dropConstraintIfTableExists('sales_invoice_lines', 'sales_invoice_lines_invoice_id_foreign');
+    this.dropConstraintIfTableExists('sales_payment_allocations', 'sales_payment_allocations_invoice_id_foreign');
+    this.dropConstraintIfTableExists('sales_credit_memo_lines', 'sales_credit_memo_lines_order_line_id_foreign');
+    this.dropConstraintIfTableExists('sales_invoice_lines', 'sales_invoice_lines_order_line_id_foreign');
+    this.dropConstraintIfTableExists('sales_order_adjustments', 'sales_order_adjustments_order_line_id_foreign');
+    this.dropConstraintIfTableExists('sales_shipment_items', 'sales_shipment_items_order_line_id_foreign');
+    this.dropConstraintIfTableExists('sales_credit_memos', 'sales_credit_memos_order_id_foreign');
+    this.dropConstraintIfTableExists('sales_invoices', 'sales_invoices_order_id_foreign');
+    this.dropConstraintIfTableExists('sales_notes', 'sales_notes_order_id_foreign');
+    this.dropConstraintIfTableExists('sales_order_adjustments', 'sales_order_adjustments_order_id_foreign');
+    this.dropConstraintIfTableExists('sales_order_lines', 'sales_order_lines_order_id_foreign');
+    this.dropConstraintIfTableExists('sales_payment_allocations', 'sales_payment_allocations_order_id_foreign');
+    this.dropConstraintIfTableExists('sales_payments', 'sales_payments_order_id_foreign');
+    this.dropConstraintIfTableExists('sales_shipments', 'sales_shipments_order_id_foreign');
+    this.dropConstraintIfTableExists('sales_orders', 'sales_orders_payment_method_ref_id_foreign');
+    this.dropConstraintIfTableExists('sales_payments', 'sales_payments_payment_method_id_foreign');
+    this.dropConstraintIfTableExists('sales_payment_allocations', 'sales_payment_allocations_payment_id_foreign');
+    this.dropConstraintIfTableExists('sales_quote_adjustments', 'sales_quote_adjustments_quote_line_id_foreign');
+    this.dropConstraintIfTableExists('sales_notes', 'sales_notes_quote_id_foreign');
+    this.dropConstraintIfTableExists('sales_quote_adjustments', 'sales_quote_adjustments_quote_id_foreign');
+    this.dropConstraintIfTableExists('sales_quote_lines', 'sales_quote_lines_quote_id_foreign');
+    this.dropConstraintIfTableExists('sales_shipment_items', 'sales_shipment_items_shipment_id_foreign');
+    this.dropConstraintIfTableExists('sales_orders', 'sales_orders_shipping_method_ref_id_foreign');
+    this.dropConstraintIfTableExists('organizations', 'organizations_tenant_id_foreign');
+    this.dropConstraintIfTableExists('password_resets', 'password_resets_user_id_foreign');
+    this.dropConstraintIfTableExists('sessions', 'sessions_user_id_foreign');
+    this.dropConstraintIfTableExists('user_acls', 'user_acls_user_id_foreign');
+    this.dropConstraintIfTableExists('user_roles', 'user_roles_user_id_foreign');
+    this.dropConstraintIfTableExists('user_sidebar_preferences', 'user_sidebar_preferences_user_id_foreign');
 
     this.addSql(`create table "step_instances" ("id" uuid not null default gen_random_uuid(), "workflow_instance_id" uuid not null, "step_id" varchar(100) not null, "step_name" varchar(255) not null, "step_type" varchar(50) not null, "status" varchar(20) not null, "input_data" jsonb null, "output_data" jsonb null, "error_data" jsonb null, "entered_at" timestamptz null, "exited_at" timestamptz null, "execution_time_ms" int null, "retry_count" int not null default 0, "tenant_id" uuid not null, "organization_id" uuid not null, "created_at" timestamptz not null, "updated_at" timestamptz not null, constraint "step_instances_pkey" primary key ("id"));`);
     this.addSql(`create index "step_instances_tenant_org_idx" on "step_instances" ("tenant_id", "organization_id");`);
