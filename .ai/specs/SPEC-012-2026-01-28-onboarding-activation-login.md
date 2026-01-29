@@ -70,5 +70,6 @@ Safari prefetch requests can trigger onboarding activation twice, resulting in d
 ## Changelog
 
 ### 2026-01-28
+- Align onboarding provisioning with CLI example/data seeding (catalog, sales, staff, resources, workflows, planner, dashboards).
 - Added onboarding activation processing lock and tenant-aware login flow.
 - Surface verification email delivery failures and allow immediate retry when email sending fails.

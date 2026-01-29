@@ -10,10 +10,20 @@ import {
   seedCustomerExamples,
   seedCurrencyDictionary,
 } from '@open-mercato/core/modules/customers/cli'
+import { seedCatalogExamplesForScope, seedCatalogPriceKinds } from '@open-mercato/core/modules/catalog/lib/seeds'
 import { seedDashboardDefaultsForTenant } from '@open-mercato/core/modules/dashboards/cli'
+import { appendWidgetsToRoles, resolveAnalyticsWidgetIds } from '@open-mercato/core/modules/dashboards/lib/role-widgets'
+import { seedPlannerAvailabilityRuleSetDefaults, seedPlannerUnavailabilityReasons } from '@open-mercato/core/modules/planner/lib/seeds'
 import { reindexEntity } from '@open-mercato/core/modules/query_index/lib/reindexer'
 import { purgeIndexScope } from '@open-mercato/core/modules/query_index/lib/purge'
 import { refreshCoverageSnapshot } from '@open-mercato/core/modules/query_index/lib/coverage'
+import { seedResourcesCapacityUnits, seedResourcesResourceExamples } from '@open-mercato/core/modules/resources/lib/seeds'
+import { seedSalesAdjustmentKinds, seedSalesStatusDictionaries } from '@open-mercato/core/modules/sales/lib/dictionaries'
+import { seedSalesTaxRates } from '@open-mercato/core/modules/sales/lib/seeds'
+import { seedSalesExamples } from '@open-mercato/core/modules/sales/seed/examples'
+import { ensureExamplePaymentMethods, ensureExampleShippingMethods } from '@open-mercato/core/modules/sales/seed/examples-data'
+import { seedStaffTeamExamples } from '@open-mercato/core/modules/staff/lib/seeds'
+import { seedExampleWorkflows } from '@open-mercato/core/modules/workflows/lib/seeds'
 import { flattenSystemEntityIds } from '@open-mercato/shared/lib/entities/system-entities'
 import { getEntityIds } from '@open-mercato/shared/lib/encryption/entityIds'
 import type { VectorIndexService } from '@open-mercato/search/vector'
@@ -118,8 +128,38 @@ export async function GET(req: Request) {
 
     await seedCustomerDictionaries(em, { tenantId, organizationId })
     await seedCurrencyDictionary(em, { tenantId, organizationId })
+
+    await seedCatalogPriceKinds(em, { tenantId, organizationId })
+    await seedSalesTaxRates(em, { tenantId, organizationId })
+    await seedSalesStatusDictionaries(em, { tenantId, organizationId })
+    await seedSalesAdjustmentKinds(em, { tenantId, organizationId })
+    await ensureExampleShippingMethods(em, { tenantId, organizationId })
+    await ensureExamplePaymentMethods(em, { tenantId, organizationId })
+
     await seedCustomerExamples(em, container, { tenantId, organizationId })
+    await seedCatalogExamplesForScope(em, container, { tenantId, organizationId })
+    await seedSalesExamples(em, container, { tenantId, organizationId })
+    await seedStaffTeamExamples(em, { tenantId, organizationId })
+    await seedResourcesCapacityUnits(em, { tenantId, organizationId })
+    await seedResourcesResourceExamples(em, { tenantId, organizationId })
+
+    await seedPlannerUnavailabilityReasons(em, { tenantId, organizationId })
+    await seedPlannerAvailabilityRuleSetDefaults(em, { tenantId, organizationId })
+
+    try {
+      await seedExampleWorkflows(em, { tenantId, organizationId })
+    } catch (error) {
+      console.error('[onboarding.verify] failed to seed workflows', { tenantId, organizationId, error })
+    }
+
     await seedDashboardDefaultsForTenant(em, { tenantId, organizationId, logger: () => {} })
+    const analyticsWidgetIds = await resolveAnalyticsWidgetIds()
+    await appendWidgetsToRoles(em, {
+      tenantId,
+      organizationId,
+      roleNames: ['admin', 'employee'],
+      widgetIds: analyticsWidgetIds,
+    })
 
     if (tenantId) {
       let vectorService: VectorIndexService | null = null
