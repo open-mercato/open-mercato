@@ -21,16 +21,16 @@ services:
         - CONTAINER_PORT=${CONTAINER_PORT:-3000}
     image: open-mercato/app:${DEPLOY_ENV:-local}
     command: >
-      sh -c "if [ ! -f /data/init/.seeded ]; then
+      sh -c "if [ ! -f /app/.init-marker/.seeded ]; then
         echo 'First run: full initialization...';
-        yarn mercato init && mkdir -p /data/init && touch /data/init/.seeded;
+        yarn mercato init && touch /app/.init-marker/.seeded;
       else
         echo 'Subsequent run: skipping examples...';
         yarn mercato init --no-examples;
       fi &&
       yarn start"
     volumes:
-      - init_marker:/data/init
+      - init_marker:/app/.init-marker
     working_dir: /app/apps/mercato
     ports:
       - "${APP_PORT:-3000}:${CONTAINER_PORT:-3000}"
