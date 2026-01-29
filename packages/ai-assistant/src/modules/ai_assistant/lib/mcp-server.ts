@@ -11,6 +11,7 @@ import { loadAllModuleTools, indexToolsForSearch } from './tool-loader'
 import { authenticateMcpRequest, hasRequiredFeatures } from './auth'
 import type { McpServerOptions, McpToolContext } from './types'
 import type { SearchService } from '@open-mercato/search/service'
+import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
 
 /**
  * Create and configure an MCP server instance.
@@ -94,8 +95,9 @@ export async function createMcpServer(options: McpServerOptions): Promise<Server
     const tools = Array.from(registry.getTools().values())
 
     // Filter tools based on user permissions
+    const rbacService = container.resolve<RbacService>('rbacService')
     const accessibleTools = tools.filter((tool) =>
-      hasRequiredFeatures(tool.requiredFeatures, userFeatures, isSuperAdmin)
+      hasRequiredFeatures(tool.requiredFeatures, userFeatures, isSuperAdmin, rbacService)
     )
 
     if (config.debug) {

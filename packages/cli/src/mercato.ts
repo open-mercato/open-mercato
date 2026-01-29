@@ -48,17 +48,30 @@ async function runModuleCommand(
   allModules: Module[],
   moduleName: string,
   commandName: string,
-  args: string[] = []
+  args: string[] = [],
+  options: { optional?: boolean } = {},
 ): Promise<void> {
   const mod = allModules.find((m) => m.id === moduleName)
   if (!mod) {
+    if (options.optional) {
+      console.log(`⏭️  Skipping "${moduleName}:${commandName}" — module not enabled`)
+      return
+    }
     throw new Error(`Module not found: "${moduleName}"`)
   }
   if (!mod.cli || mod.cli.length === 0) {
+    if (options.optional) {
+      console.log(`⏭️  Skipping "${moduleName}:${commandName}" — module has no CLI commands`)
+      return
+    }
     throw new Error(`Module "${moduleName}" has no CLI commands`)
   }
   const cmd = mod.cli.find((c) => c.command === commandName)
   if (!cmd) {
+    if (options.optional) {
+      console.log(`⏭️  Skipping "${moduleName}:${commandName}" — command not found`)
+      return
+    }
     throw new Error(`Command "${commandName}" not found in module "${moduleName}"`)
   }
   await cmd.run(args)
@@ -213,13 +226,14 @@ export async function run(argv = process.argv) {
       // Step 1: Run generators directly (no process spawn)
       console.log('🔧 Preparing modules (registry, entities, DI)...')
       const { createResolver } = await import('./lib/resolver')
-      const { generateEntityIds, generateModuleRegistry, generateModuleRegistryCli, generateModuleEntities, generateModuleDi } = await import('./lib/generators')
+      const { generateEntityIds, generateModuleRegistry, generateModuleRegistryCli, generateModuleEntities, generateModuleDi, generateOpenApi } = await import('./lib/generators')
       const resolver = createResolver()
       await generateEntityIds({ resolver, quiet: true })
       await generateModuleRegistry({ resolver, quiet: true })
       await generateModuleRegistryCli({ resolver, quiet: true })
       await generateModuleEntities({ resolver, quiet: true })
       await generateModuleDi({ resolver, quiet: true })
+      await generateOpenApi({ resolver, quiet: true })
       console.log('✅ Modules prepared\n')
 
       // Step 3: Apply database migrations directly
@@ -335,30 +349,6 @@ export async function run(argv = process.argv) {
           console.log('🧩 ✅ Custom field definitions reinstalled\n')
         }
 
-        console.log('📚 Seeding customer dictionaries...')
-        await runModuleCommand(allModules, 'customers', 'seed-dictionaries', ['--tenant', tenantId, '--org', orgId])
-        console.log('📚 ✅ Customer dictionaries seeded\n')
-
-        console.log('🏠 Seeding staff address types...')
-        await runModuleCommand(allModules, 'staff', 'seed-address-types', ['--tenant', tenantId, '--org', orgId])
-        console.log('🏠 ✅ Staff address types seeded\n')
-
-        console.log('🏠 Seeding resources address types...')
-        await runModuleCommand(allModules, 'resources', 'seed-address-types', ['--tenant', tenantId, '--org', orgId])
-        console.log('🏠 ✅ Resources address types seeded\n')
-
-        console.log('📚 Seeding currencies...')
-        await runModuleCommand(allModules, 'currencies', 'seed', ['--tenant', tenantId, '--org', orgId])
-        console.log('📚 ✅ Currencies seeded\n')
-
-        console.log('📏 Seeding catalog units...')
-        await runModuleCommand(allModules, 'catalog', 'seed-units', ['--tenant', tenantId, '--org', orgId])
-        console.log('📏 ✅ Catalog units seeded\n')
-
-        console.log('🗓️  Seeding unavailability reasons...')
-        await runModuleCommand(allModules, 'planner', 'seed-unavailability-reasons', ['--tenant', tenantId, '--org', orgId])
-        console.log('🗓️  ✅ Unavailability reasons seeded\n')
-
         const parsedEncryption = parseBooleanToken(process.env.TENANT_DATA_ENCRYPTION ?? 'yes')
         const encryptionEnabled = parsedEncryption === null ? true : parsedEncryption
         if (encryptionEnabled) {
@@ -369,76 +359,31 @@ export async function run(argv = process.argv) {
           console.log('⚠️  TENANT_DATA_ENCRYPTION disabled; skipping encryption defaults.\n')
         }
 
-        console.log('🏷️  Seeding catalog price kinds...')
-        await runModuleCommand(allModules, 'catalog', 'seed-price-kinds', ['--tenant', tenantId, '--org', orgId])
-        console.log('🏷️ ✅ Catalog price kinds seeded\n')
-
-        console.log('💶 Seeding default tax rates...')
-        await runModuleCommand(allModules, 'sales', 'seed-tax-rates', ['--tenant', tenantId, '--org', orgId])
-        console.log('🧾 ✅ Tax rates seeded\n')
-
-        console.log('🚦 Seeding sales statuses...')
-        await runModuleCommand(allModules, 'sales', 'seed-statuses', ['--tenant', tenantId, '--org', orgId])
-        console.log('🚦 ✅ Sales statuses seeded\n')
-
-        console.log('⚙️  Seeding adjustment kinds...')
-        await runModuleCommand(allModules, 'sales', 'seed-adjustment-kinds', ['--tenant', tenantId, '--org', orgId])
-        console.log('⚙️  ✅ Adjustment kinds seeded\n')
-
-        console.log('🚚 Seeding shipping methods...')
-        await runModuleCommand(allModules, 'sales', 'seed-shipping-methods', ['--tenant', tenantId, '--org', orgId])
-        console.log('🚚 ✅ Shipping methods seeded\n')
-
-        console.log('💳 Seeding payment methods...')
-        await runModuleCommand(allModules, 'sales', 'seed-payment-methods', ['--tenant', tenantId, '--org', orgId])
-        console.log('💳 ✅ Payment methods seeded\n')
-
-        console.log('🔄 Seeding workflow definitions...')
-        try {
-          await runModuleCommand(allModules, 'workflows', 'seed-all', ['--tenant', tenantId, '--org', orgId])
-          console.log('✅ Workflows and business rules seeded\n')
-        } catch (err) {
-          console.error('⚠️  Workflow seeding failed (non-fatal):', err)
+        // Seed module defaults (structural data: dictionaries, tax rates, units, etc.)
+        console.log('📚 Seeding module defaults...')
+        const seedContainer = await createRequestContainer()
+        const seedEm = seedContainer.resolve('em') as any
+        const seedCtx = { em: seedEm, tenantId, organizationId: orgId, container: seedContainer }
+        for (const mod of allModules) {
+          if (mod.setup?.seedDefaults) {
+            console.log(`  📦 ${mod.id}...`)
+            await mod.setup.seedDefaults(seedCtx)
+          }
         }
+        console.log('✅ Module defaults seeded\n')
 
         if (skipExamples) {
           console.log('🚫 Example data seeding skipped (--no-examples)\n')
         } else {
-          console.log('🛍️  Seeding catalog examples...')
-          await runModuleCommand(allModules, 'catalog', 'seed-examples', ['--tenant', tenantId, '--org', orgId])
-          console.log('🛍️ ✅ Catalog examples seeded\n')
-
-          console.log('🏢 Seeding customer examples...')
-          await runModuleCommand(allModules, 'customers', 'seed-examples', ['--tenant', tenantId, '--org', orgId])
-          console.log('🏢 ✅ Customer examples seeded\n')
-
-          console.log('🧾 Seeding sales examples...')
-          await runModuleCommand(allModules, 'sales', 'seed-examples', ['--tenant', tenantId, '--org', orgId])
-          console.log('🧾 ✅ Sales examples seeded\n')
-
-          console.log('👥 Seeding staff examples...')
-          await runModuleCommand(allModules, 'staff', 'seed-examples', ['--tenant', tenantId, '--org', orgId])
-          console.log('👥 ✅ Staff examples seeded\n')
-
-          console.log('📦 Seeding resource capacity units...')
-          await runModuleCommand(allModules, 'resources', 'seed-capacity-units', ['--tenant', tenantId, '--org', orgId])
-          console.log('📦 ✅ Resource capacity units seeded\n')
-
-          console.log('🧰 Seeding resource examples...')
-          await runModuleCommand(allModules, 'resources', 'seed-examples', ['--tenant', tenantId, '--org', orgId])
-          console.log('🧰 ✅ Resource examples seeded\n')
-
-          console.log('🗓️  Seeding planner availability rulesets...')
-          await runModuleCommand(allModules, 'planner', 'seed-availability-rulesets', ['--tenant', tenantId, '--org', orgId])
-          console.log('🗓️  ✅ Planner availability rulesets seeded\n')
-
-          // Optional: seed example todos if the example module is enabled
-          const exampleModule = allModules.find((m) => m.id === 'example')
-          if (exampleModule && exampleModule.cli) {
-            console.log('📝 Seeding example todos...')
-            await runModuleCommand(allModules, 'example', 'seed-todos', ['--org', orgId, '--tenant', tenantId])
-            console.log('📝 ✅ Example todos seeded\n')
+          // Seed example data (demo products, customers, orders, etc.)
+          console.log('🎨 Seeding example data...')
+          for (const mod of allModules) {
+            if (mod.setup?.seedExamples) {
+              console.log(`  📦 ${mod.id}...`)
+              await mod.setup.seedExamples(seedCtx)
+            }
           }
+          console.log('✅ Example data seeded\n')
         }
 
         if (stressTestEnabled) {
@@ -447,12 +392,12 @@ export async function run(argv = process.argv) {
           )
           const stressArgs = ['--tenant', tenantId, '--org', orgId, '--count', String(stressTestCount)]
           if (stressTestLite) stressArgs.push('--lite')
-          await runModuleCommand(allModules, 'customers', 'seed-stresstest', stressArgs)
+          await runModuleCommand(allModules, 'customers', 'seed-stresstest', stressArgs, { optional: true })
           console.log(`✅ Stress test customers seeded (requested ${stressTestCount})\n`)
         }
 
         console.log('🧩 Enabling default dashboard widgets...')
-        await runModuleCommand(allModules, 'dashboards', 'seed-defaults', ['--tenant', tenantId])
+        await runModuleCommand(allModules, 'dashboards', 'seed-defaults', ['--tenant', tenantId], { optional: true })
         console.log('✅ Dashboard widgets enabled\n')
 
         console.log('📊 Enabling analytics widgets for admin and employee roles...')
@@ -472,12 +417,12 @@ export async function run(argv = process.argv) {
       const vectorArgs = tenantId
         ? ['--tenant', tenantId, ...(orgId ? ['--org', orgId] : [])]
         : ['--purgeFirst=false']
-      await runModuleCommand(allModules, 'search', 'reindex', vectorArgs)
+      await runModuleCommand(allModules, 'search', 'reindex', vectorArgs, { optional: true })
       console.log('✅ Search indexes built\n')
 
       console.log('🔍 Rebuilding query indexes...')
       const queryIndexArgs = ['--force', ...(tenantId ? ['--tenant', tenantId] : [])]
-      await runModuleCommand(allModules, 'query_index', 'reindex', queryIndexArgs)
+      await runModuleCommand(allModules, 'query_index', 'reindex', queryIndexArgs, { optional: true })
       console.log('✅ Query indexes rebuilt\n')
 
       const adminPasswordOverride = derivedSecrets.adminPassword
@@ -873,7 +818,7 @@ export async function run(argv = process.argv) {
         command: 'all',
         run: async (args: string[]) => {
           const { createResolver } = await import('./lib/resolver')
-          const { generateEntityIds, generateModuleRegistry, generateModuleRegistryCli, generateModuleEntities, generateModuleDi } = await import('./lib/generators')
+          const { generateEntityIds, generateModuleRegistry, generateModuleRegistryCli, generateModuleEntities, generateModuleDi, generateOpenApi } = await import('./lib/generators')
           const resolver = createResolver()
           const quiet = args.includes('--quiet') || args.includes('-q')
 
@@ -883,6 +828,7 @@ export async function run(argv = process.argv) {
           await generateModuleRegistryCli({ resolver, quiet })
           await generateModuleEntities({ resolver, quiet })
           await generateModuleDi({ resolver, quiet })
+          await generateOpenApi({ resolver, quiet })
           console.log('All generators completed.')
         },
       },

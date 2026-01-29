@@ -6,6 +6,7 @@ import { executeTool } from './tool-executor'
 import { loadAllModuleTools } from './tool-loader'
 import { authenticateMcpRequest, hasRequiredFeatures, type McpAuthSuccess } from './auth'
 import type { McpToolContext, McpClientInterface, ToolInfo, ToolResult, McpToolDefinition } from './types'
+import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
 
 /**
  * Options for creating an in-process MCP client.
@@ -128,8 +129,9 @@ export class InProcessMcpClient implements McpClientInterface {
     const registry = getToolRegistry()
     const tools = Array.from(registry.getTools().values())
 
+    const rbacService = this.container.resolve<RbacService>('rbacService')
     const accessibleTools = tools.filter((tool) =>
-      hasRequiredFeatures(tool.requiredFeatures, this.auth.features, this.auth.isSuperAdmin)
+      hasRequiredFeatures(tool.requiredFeatures, this.auth.features, this.auth.isSuperAdmin, rbacService)
     )
 
     return accessibleTools.map((tool) => ({
@@ -149,8 +151,9 @@ export class InProcessMcpClient implements McpClientInterface {
     const registry = getToolRegistry()
     const tools = Array.from(registry.getTools().values())
 
+    const rbacService = this.container.resolve<RbacService>('rbacService')
     const accessibleTools = tools.filter((tool) =>
-      hasRequiredFeatures(tool.requiredFeatures, this.auth.features, this.auth.isSuperAdmin)
+      hasRequiredFeatures(tool.requiredFeatures, this.auth.features, this.auth.isSuperAdmin, rbacService)
     )
 
     return accessibleTools.map((tool) => ({

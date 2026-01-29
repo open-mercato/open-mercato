@@ -5,15 +5,6 @@ import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { onboardingVerifySchema } from '@open-mercato/onboarding/modules/onboarding/data/validators'
 import { OnboardingService } from '@open-mercato/onboarding/modules/onboarding/lib/service'
 import { setupInitialTenant } from '@open-mercato/core/modules/auth/lib/setup-app'
-import {
-  seedCustomerDictionaries,
-  seedCustomerExamples,
-  seedCurrencyDictionary,
-} from '@open-mercato/core/modules/customers/cli'
-import { seedCatalogExamplesForScope, seedCatalogPriceKinds } from '@open-mercato/core/modules/catalog/lib/seeds'
-import { seedDashboardDefaultsForTenant } from '@open-mercato/core/modules/dashboards/cli'
-import { appendWidgetsToRoles, resolveAnalyticsWidgetIds } from '@open-mercato/core/modules/dashboards/lib/role-widgets'
-import { seedPlannerAvailabilityRuleSetDefaults, seedPlannerUnavailabilityReasons } from '@open-mercato/core/modules/planner/lib/seeds'
 import { reindexEntity } from '@open-mercato/core/modules/query_index/lib/reindexer'
 import { purgeIndexScope } from '@open-mercato/core/modules/query_index/lib/purge'
 import { refreshCoverageSnapshot } from '@open-mercato/core/modules/query_index/lib/coverage'
@@ -126,41 +117,18 @@ export async function GET(req: Request) {
     userId = resolvedUserId
     await service.updateProvisioningIds(request, { tenantId, organizationId, userId: resolvedUserId })
 
-    await seedCustomerDictionaries(em, { tenantId, organizationId })
-    await seedCurrencyDictionary(em, { tenantId, organizationId })
-
-    await seedCatalogPriceKinds(em, { tenantId, organizationId })
-    await seedSalesTaxRates(em, { tenantId, organizationId })
-    await seedSalesStatusDictionaries(em, { tenantId, organizationId })
-    await seedSalesAdjustmentKinds(em, { tenantId, organizationId })
-    await ensureExampleShippingMethods(em, { tenantId, organizationId })
-    await ensureExamplePaymentMethods(em, { tenantId, organizationId })
-
-    await seedCustomerExamples(em, container, { tenantId, organizationId })
-    await seedCatalogExamplesForScope(em, container, { tenantId, organizationId })
-    await seedSalesExamples(em, container, { tenantId, organizationId })
-    await seedStaffTeamExamples(em, { tenantId, organizationId })
-    await seedResourcesCapacityUnits(em, { tenantId, organizationId })
-    await seedResourcesResourceExamples(em, { tenantId, organizationId })
-
-    await seedPlannerUnavailabilityReasons(em, { tenantId, organizationId })
-    await seedPlannerAvailabilityRuleSetDefaults(em, { tenantId, organizationId })
-
-    try {
-      await seedExampleWorkflows(em, { tenantId, organizationId })
-    } catch (error) {
-      console.error('[onboarding.verify] failed to seed workflows', { tenantId, organizationId, error })
+    // Call module seedDefaults + seedExamples hooks
+    const modules = getModules()
+    for (const mod of modules) {
+      if (mod.setup?.seedDefaults) {
+        await mod.setup.seedDefaults({ em, tenantId, organizationId, container })
+      }
     }
-
-    await seedDashboardDefaultsForTenant(em, { tenantId, organizationId, logger: () => {} })
-    const analyticsWidgetIds = await resolveAnalyticsWidgetIds()
-    await appendWidgetsToRoles(em, {
-      tenantId,
-      organizationId,
-      roleNames: ['admin', 'employee'],
-      widgetIds: analyticsWidgetIds,
-    })
-
+    for (const mod of modules) {
+      if (mod.setup?.seedExamples) {
+        await mod.setup.seedExamples({ em, tenantId, organizationId, container })
+      }
+    }
     if (tenantId) {
       let vectorService: VectorIndexService | null = null
       try {
