@@ -58,6 +58,8 @@ async function decryptSessionSecret(
   return decryptWithAesGcm(encrypted, dek.key)
 }
 
+const BCRYPT_COST = 10
+
 export type CreateApiKeyInput = {
   name: string
   description?: string | null

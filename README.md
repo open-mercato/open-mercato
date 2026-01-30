@@ -169,6 +169,14 @@ The codebase is now organized into:
 - `packages/` - Shared libraries and modules (`@open-mercato/core`, `@open-mercato/ui`, `@open-mercato/shared`, `@open-mercato/cli`, `@open-mercato/cache`, `@open-mercato/events`, `@open-mercato/queue`, `@open-mercato/content`, `@open-mercato/onboarding`, `@open-mercato/search`)
 - `apps/` - Applications (main app in `apps/mercato`, docs in `apps/docs`)
 
+**Important note on storage:** The storage folder has been moved to the `apps/mercato` folder as well. If you instance has got any attachments uploaded, please make sure you run:
+
+```bash
+mv storage apps/mercato/storage
+```
+
+... from the root Open Mercato folder.
+
 ### Import Aliases
 
 Import aliases have changed from path-based to package-based imports:
@@ -238,6 +246,7 @@ This script prepares module registries, generates/applies migrations, seeds defa
 Navigate to `http://localhost:3000/backend` and sign in with the credentials printed by `yarn mercato init`.
 
 If you plan to use the self-service onboarding flow or send transactional emails, opt-in by setting the following environment variables in your `.env` file before starting the server (the onboarding toggle defaults to `false`):
+
 ```env
 RESEND_API_KEY=your_resend_api_key
 APP_URL=http://localhost:3000
