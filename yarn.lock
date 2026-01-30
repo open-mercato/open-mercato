@@ -5381,29 +5381,6 @@ __metadata:
   languageName: unknown
   linkType: soft
 
-"@open-mercato/ai-assistant@workspace:*, @open-mercato/ai-assistant@workspace:packages/ai-assistant":
-  version: 0.0.0-use.local
-  resolution: "@open-mercato/ai-assistant@workspace:packages/ai-assistant"
-  dependencies:
-    "@ai-sdk/anthropic": "npm:^3.0.12"
-    "@ai-sdk/google": "npm:^1.2.6"
-    "@ai-sdk/openai": "npm:^3.0.5"
-    "@modelcontextprotocol/sdk": "npm:^1.25.2"
-    "@open-mercato/cli": "workspace:*"
-    ai: "npm:^6.0.33"
-    cmdk: "npm:^1.0.0"
-    framer-motion: "npm:^11.0.0"
-    react-json-view-lite: "npm:^2.5.0"
-    react-markdown: "npm:^9.0.0"
-    tsx: "npm:^4.21.0"
-    zod-to-json-schema: "npm:^3.25.1"
-  peerDependencies:
-    "@open-mercato/shared": "workspace:*"
-    "@open-mercato/ui": "workspace:*"
-    zod: ">=3.23.0"
-  languageName: unknown
-  linkType: soft
-
 "@open-mercato/app@workspace:apps/mercato":
   version: 0.0.0-use.local
   resolution: "@open-mercato/app@workspace:apps/mercato"
@@ -9949,6 +9926,15 @@ __metadata:
   languageName: node
   linkType: hard
 
+"baseline-browser-mapping@npm:^2.8.3":
+  version: 2.9.19
+  resolution: "baseline-browser-mapping@npm:2.9.19"
+  bin:
+    baseline-browser-mapping: dist/cli.js
+  checksum: 10/8d7bbb7fe3d1ad50e04b127c819ba6d059c01ed0d2a7a5fc3327e23a8c42855fa3a8b510550c1fe1e37916147e6a390243566d3ef85bf6130c8ddfe5cc3db530
+  languageName: node
+  linkType: hard
+
 "baseline-browser-mapping@npm:^2.9.0":
   version: 2.9.17
   resolution: "baseline-browser-mapping@npm:2.9.17"
@@ -10719,21 +10705,6 @@ __metadata:
   version: 1.1.2
   resolution: "cluster-key-slot@npm:1.1.2"
   checksum: 10/516ed8b5e1a14d9c3a9c96c72ef6de2d70dfcdbaa0ec3a90bc7b9216c5457e39c09a5775750c272369070308542e671146120153062ab5f2f481bed5de2c925f
-  languageName: node
-  linkType: hard
-
-"cmdk@npm:^1.0.0":
-  version: 1.1.1
-  resolution: "cmdk@npm:1.1.1"
-  dependencies:
-    "@radix-ui/react-compose-refs": "npm:^1.1.1"
-    "@radix-ui/react-dialog": "npm:^1.1.6"
-    "@radix-ui/react-id": "npm:^1.1.0"
-    "@radix-ui/react-primitive": "npm:^2.0.2"
-  peerDependencies:
-    react: ^18 || ^19 || ^19.0.0-rc
-    react-dom: ^18 || ^19 || ^19.0.0-rc
-  checksum: 10/8f52beee4a6289d67138bdeb3b9833fb67fb06cfea53968803f31b6a39b09ca3c8698a302c6bf8286ee6cc0c8f5dc2c4e5a398450f48db7b9f2d1657f3c4bde2
   languageName: node
   linkType: hard
 
