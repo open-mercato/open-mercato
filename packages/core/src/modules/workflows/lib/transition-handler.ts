@@ -250,7 +250,8 @@ export async function findValidTransitions(
           em,
           instance,
           transition,
-          context as TransitionExecutionContext
+          context as TransitionExecutionContext,
+          null
         )
 
         if (!preConditionsResult.allowed) {
