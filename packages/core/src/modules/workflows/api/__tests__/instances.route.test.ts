@@ -194,11 +194,14 @@ describe('Workflow Instances API', () => {
       const request = new NextRequest('http://localhost/api/workflows/instances?entityType=order&entityId=order-123')
       await listInstances(request)
 
+      // The implementation uses JSONB $contains queries for metadata filtering
       expect(mockEm.findAndCount).toHaveBeenCalledWith(
         WorkflowInstance,
         expect.objectContaining({
-          'metadata.entityType': 'order',
-          'metadata.entityId': 'order-123',
+          $and: expect.arrayContaining([
+            { metadata: { $contains: { entityType: 'order' } } },
+            { metadata: { $contains: { entityId: 'order-123' } } },
+          ]),
         }),
         expect.any(Object)
       )

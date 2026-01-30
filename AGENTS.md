@@ -825,3 +825,75 @@ Types:
 - `HAS_MANY_MANY` / `BELONGS_TO_MANY` - ManyToMany
 
 The `?` suffix indicates nullable: `(Order)-[BELONGS_TO?:channel]->(Channel)`
+
+## Event Module Configuration
+
+Modules that emit events must declare them in an `events.ts` file for type safety, runtime validation, and workflow trigger discovery.
+
+### Creating Module Events
+
+**File**: `src/modules/<module>/events.ts`
+
+```typescript
+import { createModuleEvents } from '@open-mercato/shared/modules/events'
+
+const events = [
+  { id: 'customers.people.created', label: 'Customer (Person) Created', entity: 'people', category: 'crud' },
+  { id: 'customers.people.updated', label: 'Customer (Person) Updated', entity: 'people', category: 'crud' },
+  { id: 'customers.people.deleted', label: 'Customer (Person) Deleted', entity: 'people', category: 'crud' },
+  // Lifecycle events can be excluded from workflow triggers
+  { id: 'customers.pricing.resolve.before', label: 'Before Pricing Resolve', category: 'lifecycle', excludeFromTriggers: true },
+] as const
+
+export const eventsConfig = createModuleEvents({
+  moduleId: 'customers',
+  events,
+})
+
+// Export typed emit function for use in commands
+export const emitCustomersEvent = eventsConfig.emit
+
+// Export event IDs as a type for external use
+export type CustomersEventId = typeof events[number]['id']
+
+export default eventsConfig
+```
+
+### Event Definition Fields
+
+| Field | Required | Description |
+|-------|----------|-------------|
+| `id` | Yes | Event identifier (pattern: `module.entity.action`) |
+| `label` | Yes | Human-readable label for UI |
+| `description` | No | Optional detailed description |
+| `category` | No | `'crud'` \| `'lifecycle'` \| `'system'` \| `'custom'` |
+| `entity` | No | Associated entity name |
+| `excludeFromTriggers` | No | If `true`, hidden from workflow trigger selection |
+
+### TypeScript Enforcement
+
+Using `as const` with the events array provides compile-time safety:
+
+```typescript
+// ✅ Compiles - event is declared
+emitCustomersEvent('customers.people.created', { id: '123', tenantId: 'abc' })
+
+// ❌ TypeScript error - event not declared
+emitCustomersEvent('customers.people.exploded', { id: '123' })
+```
+
+### Runtime Validation
+
+Undeclared events trigger runtime warnings:
+```
+[events] Module "customers" tried to emit undeclared event "customers.people.exploded".
+Add it to the module's events.ts file first.
+```
+
+### Auto-Discovery
+
+Events are auto-discovered by generators and registered via `generated/events.generated.ts`. Run `npm run modules:prepare` after creating or modifying `events.ts` files.
+
+### UI Integration
+
+Use the `EventSelect` component from `@open-mercato/ui/backend/inputs/EventSelect` for event selection. It fetches declared events via the `/api/events` endpoint.
