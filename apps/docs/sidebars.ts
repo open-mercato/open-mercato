@@ -101,7 +101,11 @@ const sidebars: SidebarsConfig = {
     {
       type: "category",
       label: "Architecture",
-      items: ["architecture/system-overview", "architecture/data-encryption"],
+      items: [
+        "architecture/system-overview",
+        "architecture/data-encryption",
+        "architecture/row-level-security",
+      ],
     },
     {
       type: "category",

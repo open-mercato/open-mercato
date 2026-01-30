@@ -3,6 +3,7 @@ import type { AwilixContainer } from 'awilix'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { buildScopedWhere } from '@open-mercato/shared/lib/api/crud'
 import { getAuthFromCookies, getAuthFromRequest, type AuthContext } from '@open-mercato/shared/lib/auth/server'
+import { isRlsEnabled, setRlsContext } from '@open-mercato/shared/lib/db/rls'
 import type { QueryEngine, Where, Sort, Page, QueryCustomFieldSource, QueryJoinEdge } from '@open-mercato/shared/lib/query/types'
 import { SortDir } from '@open-mercato/shared/lib/query/types'
 import type { DataEngine } from '@open-mercato/shared/lib/data/engine'
@@ -867,6 +868,19 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
     } else {
       organizationIds = []
     }
+
+    // Set RLS context for database-level tenant isolation (defense-in-depth)
+    if (isRlsEnabled() && scopedTenantId) {
+      try {
+        const em = container.resolve('em') as EntityManager
+        const knex = (em as any).getConnection().getKnex()
+        await setRlsContext(knex, scopedTenantId, scopedOrgId)
+      } catch {
+        // Best-effort: don't block request if RLS context setting fails
+        // Application-level filtering still provides tenant isolation
+      }
+    }
+
     return { container, auth: scopedAuth, organizationScope: scope, selectedOrganizationId, organizationIds, request }
   }
 
