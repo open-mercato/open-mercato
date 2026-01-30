@@ -32,6 +32,7 @@ services:
       yarn start"
     volumes:
       - init_marker:/tmp/init-marker
+      - attachments_storage:/app/apps/mercato/storage
     working_dir: /app/apps/mercato
     ports:
       - "${APP_PORT:-3000}:${CONTAINER_PORT:-3000}"
@@ -134,6 +135,8 @@ volumes:
     name: mercato-meilisearch-data-${DEPLOY_ENV:-local}
   init_marker:
     name: mercato-init-marker-${DEPLOY_ENV:-local}
+  attachments_storage:
+    name: mercato-attachments-storage-${DEPLOY_ENV:-local}
 
 networks:
   mercato-network-fullapp:
