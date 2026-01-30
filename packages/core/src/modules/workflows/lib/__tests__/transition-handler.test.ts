@@ -807,8 +807,7 @@ describe('Transition Handler (Unit Tests)', () => {
             fromStepId: 'step-1',
             toStepId: 'step-2',
           }),
-        }),
-        expect.objectContaining({ eventBus: undefined })
+        })
       )
     })
 
@@ -860,8 +859,7 @@ describe('Transition Handler (Unit Tests)', () => {
           ruleId: 'test-post-rule',
           entityType: 'workflow:simple-approval:transition',
           eventType: 'post_transition',
-        }),
-        expect.objectContaining({ eventBus: undefined })
+        })
       )
     })
 
@@ -920,8 +918,7 @@ describe('Transition Handler (Unit Tests)', () => {
             triggerData,
           }),
           executedBy: 'user-123',
-        }),
-        expect.objectContaining({ eventBus: undefined })
+        })
       )
     })
   })
