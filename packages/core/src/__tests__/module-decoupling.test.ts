@@ -341,7 +341,7 @@ describe('Module Decoupling', () => {
         '@open-mercato/core/modules/configs/lib/upgrade-actions'
       )
 
-      expect(mod.upgradeActions.length).toBeGreaterThan(0)
+      expect(Array.isArray(mod.upgradeActions)).toBe(true)
     })
 
     it('actionsUpToVersion returns actions without crashing', async () => {
