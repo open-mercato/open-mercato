@@ -16,6 +16,9 @@ import { decryptWithAesGcm } from '@open-mercato/shared/lib/encryption/aes'
 import { env } from 'process'
 import type { KmsService, TenantDek } from '@open-mercato/shared/lib/encryption/kms'
 import crypto from 'node:crypto'
+import { formatPasswordRequirements, getPasswordPolicy, validatePassword } from '@open-mercato/shared/lib/auth/passwordPolicy'
+import { parseBooleanToken } from '@open-mercato/shared/lib/boolean'
+import { getCliModules } from '@open-mercato/shared/modules/registry'
 
 const addUser: ModuleCli = {
   command: 'add-user',
@@ -34,6 +37,7 @@ const addUser: ModuleCli = {
       console.error('Usage: mercato auth add-user --email <email> --password <password> --organizationId <id> [--roles customer,employee]')
       return
     }
+    if (!ensurePasswordPolicy(password)) return
     const { resolve } = await createRequestContainer()
     const em = resolve('em') as any
     const org =
@@ -100,6 +104,16 @@ function normalizeKeyInput(value: string): string {
 function hashSecret(value: string | null | undefined): string | null {
   if (!value) return null
   return crypto.createHash('sha256').update(normalizeKeyInput(value)).digest('hex').slice(0, 12)
+}
+
+function ensurePasswordPolicy(password: string): boolean {
+  const policy = getPasswordPolicy()
+  const result = validatePassword(password, policy)
+  if (result.ok) return true
+  const requirements = formatPasswordRequirements(policy, (_key, fallback) => fallback)
+  const suffix = requirements ? `: ${requirements}` : ''
+  console.error(`Password does not meet the requirements${suffix}.`)
+  return false
 }
 
 async function withEncryptionDebugDisabled<T>(fn: () => Promise<T>): Promise<T> {
@@ -392,19 +406,32 @@ const addOrganization: ModuleCli = {
 const setupApp: ModuleCli = {
   command: 'setup',
   async run(rest) {
-    const args: Record<string, string> = {}
-    for (let i = 0; i < rest.length; i += 2) {
-      const k = rest[i]?.replace(/^--/, '')
-      const v = rest[i + 1]
-      if (k) args[k] = v
-    }
-    const orgName = args.orgName || args.name
-    const email = args.email
-    const password = args.password
-    const rolesCsv = (args.roles ?? 'superadmin,admin,employee').trim()
+    const args = parseArgs(rest)
+    const orgName = typeof args.orgName === 'string'
+      ? args.orgName
+      : typeof args.name === 'string'
+        ? args.name
+        : undefined
+    const email = typeof args.email === 'string' ? args.email : undefined
+    const password = typeof args.password === 'string' ? args.password : undefined
+    const rolesCsv = typeof args.roles === 'string'
+      ? args.roles.trim()
+      : 'superadmin,admin,employee'
+    const skipPasswordPolicyRaw =
+      args['skip-password-policy'] ??
+      args.skipPasswordPolicy ??
+      args['allow-weak-password'] ??
+      args.allowWeakPassword
+    const skipPasswordPolicy = typeof skipPasswordPolicyRaw === 'boolean'
+      ? skipPasswordPolicyRaw
+      : parseBooleanToken(typeof skipPasswordPolicyRaw === 'string' ? skipPasswordPolicyRaw : null) ?? false
     if (!orgName || !email || !password) {
-      console.error('Usage: mercato auth setup --orgName <name> --email <email> --password <password> [--roles superadmin,admin,employee]')
+      console.error('Usage: mercato auth setup --orgName <name> --email <email> --password <password> [--roles superadmin,admin,employee] [--skip-password-policy]')
       return
+    }
+    if (!skipPasswordPolicy && !ensurePasswordPolicy(password)) return
+    if (skipPasswordPolicy) {
+      console.warn('⚠️  Password policy validation skipped for setup.')
     }
     const { resolve } = await createRequestContainer()
     const em = resolve<EntityManager>('em')
@@ -418,6 +445,7 @@ const setupApp: ModuleCli = {
         roleNames,
         primaryUser: { email, password, confirm: true },
         includeDerivedUsers: true,
+        modules: getCliModules(),
       })
 
       if (result.reusedExistingUser) {
@@ -595,6 +623,7 @@ const setPassword: ModuleCli = {
       console.error('Usage: mercato auth set-password --email <email> --password <newPassword>')
       return
     }
+    if (!ensurePasswordPolicy(password)) return
     
     const { resolve } = await createRequestContainer()
     const em = resolve('em') as any

@@ -334,10 +334,12 @@ export default function SalesChannelOffersListPage() {
               <RowActions
                 items={[
                   {
+                    id: 'edit',
                     label: t('sales.channels.offers.actions.edit', 'Edit'),
                     href: `/backend/sales/channels/${row.channelId}/offers/${row.id}/edit`,
                   },
                   {
+                    id: 'delete',
                     label: t('sales.channels.offers.actions.delete', 'Delete'),
                     onSelect: () => handleDelete(row),
                     destructive: true,

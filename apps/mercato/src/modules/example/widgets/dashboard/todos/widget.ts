@@ -1,6 +1,6 @@
-import type { DashboardWidgetModule } from '@open-mercato/shared/modules/dashboard/widgets'
-import TodoWidgetClient from './widget.client'
+import { lazyDashboardWidget, type DashboardWidgetModule } from '@open-mercato/shared/modules/dashboard/widgets'
 import { DEFAULT_SETTINGS, hydrateTodoSettings, type TodoSettings } from './config'
+const TodoWidgetClient = lazyDashboardWidget(() => import('./widget.client'))
 
 const widget: DashboardWidgetModule<TodoSettings> = {
   metadata: {

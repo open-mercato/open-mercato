@@ -13,6 +13,7 @@ TODO: Fix that latter to have reference by the package names
 @source "../../../../node_modules/@open-mercato/search/src/**/*.{ts,tsx}";
 @source "../../../../node_modules/@open-mercato/onboarding/src/**/*.{ts,tsx}";
 @source "../../../../node_modules/@open-mercato/content/src/**/*.{ts,tsx}";
+@source "../../../../node_modules/@open-mercato/ai-assistant/src/**/*.{ts,tsx}";
 
 @custom-variant dark (&:is(.dark *));
 
@@ -196,4 +197,117 @@ TODO: Fix that latter to have reference by the package names
 
 .animate-slide-in {
     animation: slide-in 0.3s ease-out;
+}
+
+/* AI Assistant dot animations */
+@keyframes ai-pulse {
+  0%, 100% {
+    transform: scale(1);
+  }
+  50% {
+    transform: scale(1.05);
+  }
+}
+
+@keyframes ai-pulse-active {
+  0%, 100% {
+    transform: scale(1);
+  }
+  50% {
+    transform: scale(1.1);
+  }
+}
+
+@keyframes ai-glow {
+  0%, 100% {
+    opacity: 0.5;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.8;
+    transform: scale(1.1);
+  }
+}
+
+@keyframes ai-glow-active {
+  0%, 100% {
+    opacity: 0.6;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 1;
+    transform: scale(1.2);
+  }
+}
+
+@keyframes ai-spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes ai-sparkle {
+  0%, 100% {
+    transform: scale(1) rotate(0deg);
+    opacity: 1;
+  }
+  50% {
+    transform: scale(1.1) rotate(15deg);
+    opacity: 0.9;
+  }
+}
+
+@keyframes ai-sparkle-active {
+  0%, 100% {
+    transform: scale(1) rotate(0deg);
+    opacity: 1;
+  }
+  25% {
+    transform: scale(1.2) rotate(10deg);
+    opacity: 1;
+  }
+  50% {
+    transform: scale(0.9) rotate(-10deg);
+    opacity: 0.8;
+  }
+  75% {
+    transform: scale(1.15) rotate(5deg);
+    opacity: 1;
+  }
+}
+
+.animate-ai-pulse {
+  animation: ai-pulse 3s ease-in-out infinite;
+}
+
+.animate-ai-pulse-active {
+  animation: ai-pulse-active 1.5s ease-in-out infinite;
+}
+
+.animate-ai-glow {
+  animation: ai-glow 3s ease-in-out infinite;
+}
+
+.animate-ai-glow-active {
+  animation: ai-glow-active 1.5s ease-in-out infinite;
+}
+
+.animate-ai-spin {
+  animation: ai-spin 8s linear infinite;
+}
+
+.animate-ai-sparkle {
+  animation: ai-sparkle 3s ease-in-out infinite;
+}
+
+.animate-ai-sparkle-active {
+  animation: ai-sparkle-active 1s ease-in-out infinite;
+}
+
+/* Conic gradient for AI dot */
+.bg-gradient-conic {
+  background: conic-gradient(from 0deg, var(--tw-gradient-stops));
 }

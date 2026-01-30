@@ -256,12 +256,14 @@ export default function CurrenciesPage() {
             <RowActions
               items={[
                 {
+                  id: 'edit',
                   label: t('common.edit'),
                   href: `/backend/currencies/${row.id}`,
                 },
                 ...(!row.isBase
                   ? [
                       {
+                        id: 'set-base',
                         label: t('currencies.list.actions.setBase'),
                         onSelect: () => handleSetBase(row),
                       },
@@ -270,6 +272,7 @@ export default function CurrenciesPage() {
                 ...(!row.isBase
                   ? [
                       {
+                        id: 'delete',
                         label: t('common.delete'),
                         destructive: true,
                         onSelect: () => handleDelete(row),

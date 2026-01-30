@@ -407,7 +407,7 @@ export function HybridSearchTable({
         rowActions={(row) => {
           const primaryHref = pickPrimaryLink(row)
           if (!primaryHref) return null
-          return <RowActions items={[{ label: t('search.table.actions.open', 'Open'), href: primaryHref }]} />
+          return <RowActions items={[{ id: 'open', label: t('search.table.actions.open', 'Open'), href: primaryHref }]} />
         }}
         embedded
       />

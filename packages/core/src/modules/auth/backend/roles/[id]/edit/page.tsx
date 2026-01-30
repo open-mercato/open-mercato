@@ -6,7 +6,7 @@ import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { deleteCrud, updateCrud } from '@open-mercato/ui/backend/utils/crud'
 import { collectCustomFieldValues } from '@open-mercato/ui/backend/utils/customFieldValues'
 import { AclEditor, type AclData } from '@open-mercato/core/modules/auth/components/AclEditor'
-import { WidgetVisibilityEditor } from '@open-mercato/core/modules/dashboards/components/WidgetVisibilityEditor'
+import { WidgetVisibilityEditor, type WidgetVisibilityEditorHandle } from '@open-mercato/core/modules/dashboards/components/WidgetVisibilityEditor'
 import { E } from '#generated/entities.ids.generated'
 import { TenantSelect } from '@open-mercato/core/modules/directory/components/TenantSelect'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
@@ -37,6 +37,7 @@ export default function EditRolePage({ params }: { params?: { id?: string } }) {
   const [aclData, setAclData] = React.useState<AclData>({ isSuperAdmin: false, features: [], organizations: null })
   const [actorIsSuperAdmin, setActorIsSuperAdmin] = React.useState(false)
   const [selectedTenantId, setSelectedTenantId] = React.useState<string | null>(null)
+  const widgetEditorRef = React.useRef<WidgetVisibilityEditorHandle | null>(null)
 
   React.useEffect(() => {
     if (!id) return
@@ -153,6 +154,7 @@ export default function EditRolePage({ params }: { params?: { id?: string } }) {
             kind="role"
             targetId={String(id)}
             tenantId={selectedTenantId ?? (initial?.tenantId ?? null)}
+            ref={widgetEditorRef}
           />
         )
         : null),
@@ -191,6 +193,7 @@ export default function EditRolePage({ params }: { params?: { id?: string } }) {
             await updateCrud('auth/roles/acl', { roleId: id, tenantId: effectiveTenantId, ...aclData }, {
               errorMessage: t('auth.roles.form.errors.aclUpdate', 'Failed to update role access control'),
             })
+            await widgetEditorRef.current?.save()
             try { window.dispatchEvent(new Event('om:refresh-sidebar')) } catch {}
           }}
           onDelete={async () => {

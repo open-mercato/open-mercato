@@ -20,6 +20,52 @@ export interface ModuleRegistryOptions {
   quiet?: boolean
 }
 
+type DashboardWidgetEntry = {
+  moduleId: string
+  key: string
+  source: 'app' | 'package'
+  importPath: string
+}
+
+function scanDashboardWidgets(options: {
+  modId: string
+  roots: { appBase: string; pkgBase: string }
+  appImportBase: string
+  pkgImportBase: string
+}): DashboardWidgetEntry[] {
+  const { modId, roots, appImportBase, pkgImportBase } = options
+  const widgetApp = path.join(roots.appBase, 'widgets', 'dashboard')
+  const widgetPkg = path.join(roots.pkgBase, 'widgets', 'dashboard')
+  if (!fs.existsSync(widgetApp) && !fs.existsSync(widgetPkg)) return []
+
+  const found: string[] = []
+  const walk = (dir: string, rel: string[] = []) => {
+    for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+      if (entry.isDirectory()) {
+        if (entry.name === '__tests__' || entry.name === '__mocks__') continue
+        walk(path.join(dir, entry.name), [...rel, entry.name])
+      } else if (entry.isFile() && /^widget\.(t|j)sx?$/.test(entry.name)) {
+        found.push([...rel, entry.name].join('/'))
+      }
+    }
+  }
+  if (fs.existsSync(widgetPkg)) walk(widgetPkg)
+  if (fs.existsSync(widgetApp)) walk(widgetApp)
+
+  const files = Array.from(new Set(found)).sort()
+  return files.map((rel) => {
+    const appFile = path.join(widgetApp, ...rel.split('/'))
+    const fromApp = fs.existsSync(appFile)
+    const segs = rel.split('/')
+    const file = segs.pop()!
+    const base = file.replace(/\.(t|j)sx?$/, '')
+    const importPath = `${fromApp ? appImportBase : pkgImportBase}/widgets/dashboard/${[...segs, base].join('/')}`
+    const key = [modId, ...segs, base].filter(Boolean).join(':')
+    const source = fromApp ? 'app' : 'package'
+    return { moduleId: modId, key, source, importPath }
+  })
+}
+
 export async function generateModuleRegistry(options: ModuleRegistryOptions): Promise<GeneratorResult> {
   const { resolver, quiet = false } = options
   const result = createGeneratorResult()
@@ -35,6 +81,12 @@ export async function generateModuleRegistry(options: ModuleRegistryOptions): Pr
   const injectionTablesChecksumFile = path.join(outputDir, 'injection-tables.generated.checksum')
   const searchOutFile = path.join(outputDir, 'search.generated.ts')
   const searchChecksumFile = path.join(outputDir, 'search.generated.checksum')
+  const notificationsOutFile = path.join(outputDir, 'notifications.generated.ts')
+  const notificationsChecksumFile = path.join(outputDir, 'notifications.generated.checksum')
+  const aiToolsOutFile = path.join(outputDir, 'ai-tools.generated.ts')
+  const aiToolsChecksumFile = path.join(outputDir, 'ai-tools.generated.checksum')
+  const eventsOutFile = path.join(outputDir, 'events.generated.ts')
+  const eventsChecksumFile = path.join(outputDir, 'events.generated.checksum')
   const analyticsOutFile = path.join(outputDir, 'analytics.generated.ts')
   const analyticsChecksumFile = path.join(outputDir, 'analytics.generated.checksum')
 
@@ -49,6 +101,12 @@ export async function generateModuleRegistry(options: ModuleRegistryOptions): Pr
   const allInjectionTables: Array<{ moduleId: string; importPath: string; importName: string }> = []
   const searchConfigs: string[] = []
   const searchImports: string[] = []
+  const notificationTypes: string[] = []
+  const notificationImports: string[] = []
+  const aiToolsConfigs: string[] = []
+  const aiToolsImports: string[] = []
+  const eventsConfigs: string[] = []
+  const eventsImports: string[] = []
   const analyticsConfigs: string[] = []
   const analyticsImports: string[] = []
 
@@ -77,11 +135,13 @@ export async function generateModuleRegistry(options: ModuleRegistryOptions): Pr
     let featuresImportName: string | null = null
     let customEntitiesImportName: string | null = null
     let searchImportName: string | null = null
+    let eventsImportName: string | null = null
     let analyticsImportName: string | null = null
     let customFieldSetsExpr: string = '[]'
     const dashboardWidgets: string[] = []
     const injectionWidgets: string[] = []
     let injectionTableImportName: string | null = null
+    let setupImportName: string | null = null
 
     // Module metadata: index.ts (overrideable)
     const appIndex = path.join(roots.appBase, 'index.ts')
@@ -251,6 +311,56 @@ export async function generateModuleRegistry(options: ModuleRegistryOptions): Pr
       }
     }
 
+    // Notification types: module root notifications.ts
+    {
+      const appFile = path.join(roots.appBase, 'notifications.ts')
+      const pkgFile = path.join(roots.pkgBase, 'notifications.ts')
+      const hasApp = fs.existsSync(appFile)
+      const hasPkg = fs.existsSync(pkgFile)
+      if (hasApp || hasPkg) {
+        const importName = `NOTIF_${toVar(modId)}_${importId++}`
+        const importPath = hasApp ? `${appImportBase}/notifications` : `${imps.pkgBase}/notifications`
+        const importStmt = `import * as ${importName} from '${importPath}'`
+        notificationImports.push(importStmt)
+        notificationTypes.push(
+          `{ moduleId: '${modId}', types: (${importName}.default ?? ${importName}.notificationTypes ?? ${importName}.types ?? []) }`
+        )
+      }
+    }
+
+    // AI Tools: module root ai-tools.ts
+    {
+      const appFile = path.join(roots.appBase, 'ai-tools.ts')
+      const pkgFile = path.join(roots.pkgBase, 'ai-tools.ts')
+      const hasApp = fs.existsSync(appFile)
+      const hasPkg = fs.existsSync(pkgFile)
+      if (hasApp || hasPkg) {
+        const importName = `AI_TOOLS_${toVar(modId)}_${importId++}`
+        const importPath = hasApp ? `${appImportBase}/ai-tools` : `${imps.pkgBase}/ai-tools`
+        const importStmt = `import * as ${importName} from '${importPath}'`
+        aiToolsImports.push(importStmt)
+        aiToolsConfigs.push(
+          `{ moduleId: '${modId}', tools: (${importName}.aiTools ?? ${importName}.default ?? []) }`
+        )
+      }
+    }
+
+    // Events module configuration: module root events.ts
+    {
+      const appFile = path.join(roots.appBase, 'events.ts')
+      const pkgFile = path.join(roots.pkgBase, 'events.ts')
+      const hasApp = fs.existsSync(appFile)
+      const hasPkg = fs.existsSync(pkgFile)
+      if (hasApp || hasPkg) {
+        const importName = `EVENTS_${toVar(modId)}_${importId++}`
+        const importPath = hasApp ? `${appImportBase}/events` : `${imps.pkgBase}/events`
+        const importStmt = `import * as ${importName} from '${importPath}'`
+        imports.push(importStmt)
+        eventsImports.push(importStmt)
+        eventsImportName = importName
+      }
+    }
+
     // Analytics module configuration: module root analytics.ts
     {
       const appFile = path.join(roots.appBase, 'analytics.ts')
@@ -264,6 +374,20 @@ export async function generateModuleRegistry(options: ModuleRegistryOptions): Pr
         imports.push(importStmt)
         analyticsImports.push(importStmt)
         analyticsImportName = importName
+      }
+    }
+
+    // Module setup configuration: module root setup.ts
+    {
+      const appFile = path.join(roots.appBase, 'setup.ts')
+      const pkgFile = path.join(roots.pkgBase, 'setup.ts')
+      const hasApp = fs.existsSync(appFile)
+      const hasPkg = fs.existsSync(pkgFile)
+      if (hasApp || hasPkg) {
+        const importName = `SETUP_${toVar(modId)}_${importId++}`
+        const importPath = hasApp ? `${appImportBase}/setup` : `${imps.pkgBase}/setup`
+        imports.push(`import * as ${importName} from '${importPath}'`)
+        setupImportName = importName
       }
     }
 
@@ -623,39 +747,23 @@ export async function generateModuleRegistry(options: ModuleRegistryOptions): Pr
 
     // Dashboard widgets: src/modules/<module>/widgets/dashboard/**/widget.ts(x)
     {
-      const widgetApp = path.join(roots.appBase, 'widgets', 'dashboard')
-      const widgetPkg = path.join(roots.pkgBase, 'widgets', 'dashboard')
-      if (fs.existsSync(widgetApp) || fs.existsSync(widgetPkg)) {
-        const found: string[] = []
-        const walk = (dir: string, rel: string[] = []) => {
-          for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
-            if (e.isDirectory()) {
-              if (e.name === '__tests__' || e.name === '__mocks__') continue
-              walk(path.join(dir, e.name), [...rel, e.name])
-            } else if (e.isFile() && /^widget\.(t|j)sx?$/.test(e.name)) {
-              found.push([...rel, e.name].join('/'))
-            }
-          }
-        }
-        if (fs.existsSync(widgetPkg)) walk(widgetPkg)
-        if (fs.existsSync(widgetApp)) walk(widgetApp)
-        const files = Array.from(new Set(found)).sort()
-        for (const rel of files) {
-          const appFile = path.join(widgetApp, ...rel.split('/'))
-          const fromApp = fs.existsSync(appFile)
-          const segs = rel.split('/')
-          const file = segs.pop()!
-          const base = file.replace(/\.(t|j)sx?$/, '')
-          const importPath = `${fromApp ? appImportBase : imps.pkgBase}/widgets/dashboard/${[...segs, base].join('/')}`
-          const key = [modId, ...segs, base].filter(Boolean).join(':')
-          const source = fromApp ? 'app' : 'package'
-          dashboardWidgets.push(
-            `{ moduleId: '${modId}', key: '${key}', source: '${source}', loader: () => import('${importPath}').then((mod) => mod.default ?? mod) }`
-          )
-          const existing = allDashboardWidgets.get(key)
-          if (!existing || (existing.source !== 'app' && source === 'app')) {
-            allDashboardWidgets.set(key, { moduleId: modId, source, importPath })
-          }
+      const entries = scanDashboardWidgets({
+        modId,
+        roots,
+        appImportBase,
+        pkgImportBase: imps.pkgBase,
+      })
+      for (const entry of entries) {
+        dashboardWidgets.push(
+          `{ moduleId: '${entry.moduleId}', key: '${entry.key}', source: '${entry.source}', loader: () => import('${entry.importPath}').then((mod) => mod.default ?? mod) }`
+        )
+        const existing = allDashboardWidgets.get(entry.key)
+        if (!existing || (existing.source !== 'app' && entry.source === 'app')) {
+          allDashboardWidgets.set(entry.key, {
+            moduleId: entry.moduleId,
+            source: entry.source,
+            importPath: entry.importPath,
+          })
         }
       }
     }
@@ -718,6 +826,10 @@ export async function generateModuleRegistry(options: ModuleRegistryOptions): Pr
       searchConfigs.push(`{ moduleId: '${modId}', config: (${searchImportName}.default ?? ${searchImportName}.searchConfig ?? ${searchImportName}.config ?? null) }`)
     }
 
+    if (eventsImportName) {
+      eventsConfigs.push(`{ moduleId: '${modId}', config: (${eventsImportName}.default ?? ${eventsImportName}.eventsConfig ?? null) as EventModuleConfigBase | null }`)
+    }
+
     if (analyticsImportName) {
       analyticsConfigs.push(`{ moduleId: '${modId}', config: (${analyticsImportName}.default ?? ${analyticsImportName}.analyticsConfig ?? ${analyticsImportName}.config ?? null) }`)
     }
@@ -737,6 +849,7 @@ export async function generateModuleRegistry(options: ModuleRegistryOptions): Pr
       ${featuresImportName ? `features: ((${featuresImportName}.default ?? ${featuresImportName}.features) as any) || [],` : ''}
       ${customEntitiesImportName ? `customEntities: ((${customEntitiesImportName}.default ?? ${customEntitiesImportName}.entities) as any) || [],` : ''}
       ${dashboardWidgets.length ? `dashboardWidgets: [${dashboardWidgets.join(', ')}],` : ''}
+      ${setupImportName ? `setup: (${setupImportName}.default ?? ${setupImportName}.setup) || undefined,` : ''}
     }`)
   }
 
@@ -775,6 +888,27 @@ const entries = entriesRaw.filter((entry): entry is { moduleId: string; config: 
 export const searchModuleConfigEntries = entries
 export const searchModuleConfigs: SearchModuleConfig[] = entries.map((entry) => entry.config)
 `
+  const eventsEntriesLiteral = eventsConfigs.join(',\n  ')
+  const eventsImportSection = eventsImports.join('\n')
+  const eventsOutput = `// AUTO-GENERATED by mercato generate registry
+import type { EventModuleConfigBase, EventDefinition } from '@open-mercato/shared/modules/events'
+${eventsImportSection ? `\n${eventsImportSection}\n` : '\n'}type EventConfigEntry = { moduleId: string; config: EventModuleConfigBase | null }
+
+const entriesRaw: EventConfigEntry[] = [
+${eventsEntriesLiteral ? `  ${eventsEntriesLiteral}\n` : ''}]
+const entries = entriesRaw.filter((e): e is { moduleId: string; config: EventModuleConfigBase } => e.config != null)
+
+export const eventModuleConfigEntries = entries
+export const eventModuleConfigs: EventModuleConfigBase[] = entries.map((e) => e.config)
+export const allEvents: EventDefinition[] = entries.flatMap((e) => e.config.events)
+
+// Runtime registry for validation
+const allDeclaredEventIds = new Set(allEvents.map((e) => e.id))
+export function isEventDeclared(eventId: string): boolean {
+  return allDeclaredEventIds.has(eventId)
+}
+`
+
   const analyticsEntriesLiteral = analyticsConfigs.join(',\n  ')
   const analyticsImportSection = analyticsImports.join('\n')
   const analyticsOutput = `// AUTO-GENERATED by mercato generate registry
@@ -787,6 +921,29 @@ const entries = entriesRaw.filter((entry): entry is { moduleId: string; config: 
 
 export const analyticsModuleConfigEntries = entries
 export const analyticsModuleConfigs: AnalyticsModuleConfig[] = entries.map((entry) => entry.config)
+`
+
+  const notificationEntriesLiteral = notificationTypes.join(',\n  ')
+  const notificationImportSection = notificationImports.join('\n')
+  const notificationsOutput = `// AUTO-GENERATED by mercato generate registry
+import type { NotificationTypeDefinition } from '@open-mercato/shared/modules/notifications/types'
+${notificationImportSection ? `\n${notificationImportSection}\n` : '\n'}type NotificationTypeEntry = { moduleId: string; types: NotificationTypeDefinition[] }
+
+const entriesRaw: NotificationTypeEntry[] = [
+${notificationEntriesLiteral ? `  ${notificationEntriesLiteral}\n` : ''}]
+
+const allTypes = entriesRaw.flatMap((entry) => entry.types)
+
+export const notificationTypeEntries = entriesRaw
+export const notificationTypes = allTypes
+
+export function getNotificationTypes(): NotificationTypeDefinition[] {
+  return allTypes
+}
+
+export function getNotificationType(type: string): NotificationTypeDefinition | undefined {
+  return allTypes.find((t) => t.type === type)
+}
 `
 
   // Validate module dependencies declared via ModuleInfo.requires
@@ -917,6 +1074,61 @@ ${injectionTableDecls.join(',\n')}
   }
   if (!quiet) logGenerationResult(path.relative(process.cwd(), searchOutFile), shouldWriteSearch)
 
+  // AI Tools generated file
+  const aiToolsOutput = `// AUTO-GENERATED by mercato generate registry
+${aiToolsImports.length ? aiToolsImports.join('\n') + '\n' : ''}
+type AiToolConfigEntry = { moduleId: string; tools: unknown[] }
+
+export const aiToolConfigEntries: AiToolConfigEntry[] = [
+${aiToolsConfigs.length ? '  ' + aiToolsConfigs.join(',\n  ') + '\n' : ''}].filter(e => Array.isArray(e.tools) && e.tools.length > 0)
+
+export const allAiTools = aiToolConfigEntries.flatMap(e => e.tools)
+`
+  const aiToolsChecksum = { content: calculateChecksum(aiToolsOutput), structure: structureChecksum }
+  const existingAiToolsChecksum = readChecksumRecord(aiToolsChecksumFile)
+  const shouldWriteAiTools =
+    !existingAiToolsChecksum ||
+    existingAiToolsChecksum.content !== aiToolsChecksum.content ||
+    existingAiToolsChecksum.structure !== aiToolsChecksum.structure
+  if (shouldWriteAiTools) {
+    fs.writeFileSync(aiToolsOutFile, aiToolsOutput)
+    writeChecksumRecord(aiToolsChecksumFile, aiToolsChecksum)
+    result.filesWritten.push(aiToolsOutFile)
+  } else {
+    result.filesUnchanged.push(aiToolsOutFile)
+  }
+  if (!quiet) logGenerationResult(path.relative(process.cwd(), aiToolsOutFile), shouldWriteAiTools)
+
+  const notificationsChecksum = { content: calculateChecksum(notificationsOutput), structure: structureChecksum }
+  const existingNotificationsChecksum = readChecksumRecord(notificationsChecksumFile)
+  const shouldWriteNotifications =
+    !existingNotificationsChecksum ||
+    existingNotificationsChecksum.content !== notificationsChecksum.content ||
+    existingNotificationsChecksum.structure !== notificationsChecksum.structure
+  if (shouldWriteNotifications) {
+    fs.writeFileSync(notificationsOutFile, notificationsOutput)
+    writeChecksumRecord(notificationsChecksumFile, notificationsChecksum)
+    result.filesWritten.push(notificationsOutFile)
+  } else {
+    result.filesUnchanged.push(notificationsOutFile)
+  }
+  if (!quiet) logGenerationResult(path.relative(process.cwd(), notificationsOutFile), shouldWriteNotifications)
+
+  const eventsChecksum = { content: calculateChecksum(eventsOutput), structure: structureChecksum }
+  const existingEventsChecksum = readChecksumRecord(eventsChecksumFile)
+  const shouldWriteEvents =
+    !existingEventsChecksum ||
+    existingEventsChecksum.content !== eventsChecksum.content ||
+    existingEventsChecksum.structure !== eventsChecksum.structure
+  if (shouldWriteEvents) {
+    fs.writeFileSync(eventsOutFile, eventsOutput)
+    writeChecksumRecord(eventsChecksumFile, eventsChecksum)
+    result.filesWritten.push(eventsOutFile)
+  } else {
+    result.filesUnchanged.push(eventsOutFile)
+  }
+  if (!quiet) logGenerationResult(path.relative(process.cwd(), eventsOutFile), shouldWriteEvents)
+
   const analyticsChecksum = { content: calculateChecksum(analyticsOutput), structure: structureChecksum }
   const existingAnalyticsChecksum = readChecksumRecord(analyticsChecksumFile)
   const shouldWriteAnalytics =
@@ -932,6 +1144,7 @@ ${injectionTableDecls.join(',\n')}
   }
   if (!quiet) logGenerationResult(path.relative(process.cwd(), analyticsOutFile), shouldWriteAnalytics)
 
+
   return result
 }
 
@@ -940,8 +1153,8 @@ ${injectionTableDecls.join(',\n')}
  * This produces modules.cli.generated.ts which can be loaded without Next.js runtime.
  *
  * Includes: module metadata, CLI commands, translations, subscribers, workers, entity extensions,
- *           features/ACL, custom entities, vector config, custom fields
- * Excludes: frontend routes, backend routes, API handlers, dashboard/injection widgets
+ *           features/ACL, custom entities, vector config, custom fields, dashboard widgets
+ * Excludes: frontend routes, backend routes, API handlers, injection widgets
  */
 export async function generateModuleRegistryCli(options: ModuleRegistryOptions): Promise<GeneratorResult> {
   const { resolver, quiet = false } = options
@@ -980,6 +1193,8 @@ export async function generateModuleRegistryCli(options: ModuleRegistryOptions):
     let featuresImportName: string | null = null
     let customEntitiesImportName: string | null = null
     let vectorImportName: string | null = null
+    const dashboardWidgets: string[] = []
+    let setupImportName: string | null = null
     let customFieldSetsExpr: string = '[]'
 
     // Module metadata: index.ts (overrideable)
@@ -998,6 +1213,20 @@ export async function generateModuleRegistryCli(options: ModuleRegistryOptions):
           mod?.metadata && Array.isArray(mod.metadata.requires) ? mod.metadata.requires : undefined
         if (reqs && reqs.length) requiresByModule.set(modId, reqs)
       } catch {}
+    }
+
+    // Module setup configuration: module root setup.ts
+    {
+      const appFile = path.join(roots.appBase, 'setup.ts')
+      const pkgFile = path.join(roots.pkgBase, 'setup.ts')
+      const hasApp = fs.existsSync(appFile)
+      const hasPkg = fs.existsSync(pkgFile)
+      if (hasApp || hasPkg) {
+        const importName = `SETUP_${toVar(modId)}_${importId++}`
+        const importPath = hasApp ? `${appImportBase}/setup` : `${imps.pkgBase}/setup`
+        imports.push(`import * as ${importName} from '${importPath}'`)
+        setupImportName = importName
+      }
     }
 
     // Entity extensions: src/modules/<module>/data/extensions.ts
@@ -1203,6 +1432,21 @@ export async function generateModuleRegistryCli(options: ModuleRegistryOptions):
       customFieldSetsExpr = parts.length ? `[...${parts.join(', ...')}]` : '[]'
     }
 
+    // Dashboard widgets: src/modules/<module>/widgets/dashboard/**/widget.ts(x)
+    {
+      const entries = scanDashboardWidgets({
+        modId,
+        roots,
+        appImportBase,
+        pkgImportBase: imps.pkgBase,
+      })
+      for (const entry of entries) {
+        dashboardWidgets.push(
+          `{ moduleId: '${entry.moduleId}', key: '${entry.key}', source: '${entry.source}', loader: () => import('${entry.importPath}').then((mod) => mod.default ?? mod) }`
+        )
+      }
+    }
+
     moduleDecls.push(`{
       id: '${modId}',
       ${infoImportName ? `info: ${infoImportName}.metadata,` : ''}
@@ -1214,12 +1458,14 @@ export async function generateModuleRegistryCli(options: ModuleRegistryOptions):
       customFieldSets: ${customFieldSetsExpr},
       ${featuresImportName ? `features: ((${featuresImportName}.default ?? ${featuresImportName}.features) as any) || [],` : ''}
       ${customEntitiesImportName ? `customEntities: ((${customEntitiesImportName}.default ?? ${customEntitiesImportName}.entities) as any) || [],` : ''}
+      ${dashboardWidgets.length ? `dashboardWidgets: [${dashboardWidgets.join(', ')}],` : ''}
       ${vectorImportName ? `vector: (${vectorImportName}.default ?? ${vectorImportName}.vectorConfig ?? ${vectorImportName}.config ?? undefined),` : ''}
+      ${setupImportName ? `setup: (${setupImportName}.default ?? ${setupImportName}.setup) || undefined,` : ''}
     }`)
   }
 
   const output = `// AUTO-GENERATED by mercato generate registry (CLI version)
-// This file excludes Next.js dependent code (routes, APIs, widgets)
+// This file excludes Next.js dependent code (routes, APIs, injection widgets)
 import type { Module } from '@open-mercato/shared/modules/registry'
 ${imports.join('\n')}
 

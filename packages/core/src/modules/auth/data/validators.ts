@@ -1,10 +1,14 @@
 import { z } from 'zod'
+import { buildPasswordSchema } from '@open-mercato/shared/lib/auth/passwordPolicy'
+
+const passwordSchema = buildPasswordSchema()
 
 // Core auth validators
 export const userLoginSchema = z.object({
   email: z.string().email(),
   password: z.string().min(6),
   requireRole: z.string().optional(),
+  tenantId: z.string().uuid().optional(),
 })
 
 export const requestPasswordResetSchema = z.object({
@@ -13,7 +17,7 @@ export const requestPasswordResetSchema = z.object({
 
 export const confirmPasswordResetSchema = z.object({
   token: z.string().min(10),
-  password: z.string().min(6),
+  password: passwordSchema,
 })
 
 export const sidebarPreferencesInputSchema = z.object({
@@ -29,7 +33,7 @@ export const sidebarPreferencesInputSchema = z.object({
 // Optional helpers for CLI or admin forms
 export const userCreateSchema = z.object({
   email: z.string().email(),
-  password: z.string().min(6),
+  password: passwordSchema,
   tenantId: z.string().uuid().optional(),
   organizationId: z.string().uuid(),
   rolesCsv: z.string().optional(),

@@ -2,6 +2,7 @@
   "name": "@open-mercato/app",
   "version": "0.4.1",
   "private": true,
+  "type": "module",
   "scripts": {
     "dev": "mercato server dev",
     "build": "next build",

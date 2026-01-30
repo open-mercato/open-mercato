@@ -338,8 +338,8 @@ export RECORD_ID="<record uuid>"`}</code></pre>
           rowActions={(row) => (
             <RowActions
               items={[
-                { label: 'Edit', href: `/backend/entities/user/${encodeURIComponent(entityId)}/records/${encodeURIComponent(String((row as any).id))}` },
-                { label: 'Delete', destructive: true, onSelect: async () => {
+                { id: 'edit', label: 'Edit', href: `/backend/entities/user/${encodeURIComponent(entityId)}/records/${encodeURIComponent(String((row as any).id))}` },
+                { id: 'delete', label: 'Delete', destructive: true, onSelect: async () => {
                   try {
                     if (typeof window !== 'undefined') {
                       const ok = window.confirm('Delete this record?')

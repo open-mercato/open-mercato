@@ -15,6 +15,7 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import { userCrudEvents, userCrudIndexer } from '@open-mercato/core/modules/auth/commands/users'
 import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { escapeLikePattern } from '@open-mercato/shared/lib/db/escapeLikePattern'
+import { buildPasswordSchema } from '@open-mercato/shared/lib/auth/passwordPolicy'
 
 const querySchema = z.object({
   id: z.string().uuid().optional(),
@@ -27,9 +28,11 @@ const querySchema = z.object({
 
 const rawBodySchema = z.object({}).passthrough()
 
+const passwordSchema = buildPasswordSchema()
+
 const userCreateSchema = z.object({
   email: z.string().email(),
-  password: z.string().min(6),
+  password: passwordSchema,
   organizationId: z.string().uuid(),
   roles: z.array(z.string()).optional(),
 })
@@ -37,7 +40,7 @@ const userCreateSchema = z.object({
 const userUpdateSchema = z.object({
   id: z.string().uuid(),
   email: z.string().email().optional(),
-  password: z.string().min(6).optional(),
+  password: passwordSchema.optional(),
   organizationId: z.string().uuid().optional(),
   roles: z.array(z.string()).optional(),
 })

@@ -12,6 +12,7 @@
 
 import { EntityManager } from '@mikro-orm/core'
 import type { AwilixContainer } from 'awilix'
+import type { EventBus } from '@open-mercato/events'
 import {
   WorkflowInstance,
   WorkflowDefinition,
@@ -19,7 +20,6 @@ import {
 } from '../data/entities'
 import * as ruleEvaluator from '../../business_rules/lib/rule-evaluator'
 import * as ruleEngine from '../../business_rules/lib/rule-engine'
-import type { RuleEngineContext } from '../../business_rules/lib/rule-engine'
 import * as activityExecutor from './activity-executor'
 import type { ActivityDefinition } from './activity-executor'
 import * as stepHandler from './step-handler'
@@ -194,11 +194,15 @@ export async function evaluateTransition(
 /**
  * Find all valid transitions from current step
  *
+ * This function evaluates both inline conditions AND preConditions (business rules)
+ * to determine which transitions are truly valid. This is important for decision
+ * branching where multiple transitions exist with different preConditions.
+ *
  * @param em - Entity manager
  * @param instance - Workflow instance
  * @param fromStepId - Current step ID
  * @param context - Evaluation context
- * @returns Array of evaluation results for all transitions
+ * @returns Array of evaluation results for all transitions, sorted by priority (desc)
  */
 export async function findValidTransitions(
   em: EntityManager,
@@ -216,16 +220,17 @@ export async function findValidTransitions(
       return []
     }
 
-    // Find all transitions from current step
-    const transitions = (definition.definition.transitions || []).filter(
-      (t: any) => t.fromStepId === fromStepId
-    )
+    // Find all transitions from current step, sorted by priority (highest first)
+    const transitions = (definition.definition.transitions || [])
+      .filter((t: any) => t.fromStepId === fromStepId)
+      .sort((a: any, b: any) => (b.priority || 0) - (a.priority || 0))
 
-    // Evaluate each transition
+    // Evaluate each transition including preConditions
     const results: TransitionEvaluationResult[] = []
 
     for (const transition of transitions) {
-      const result = await evaluateTransition(
+      // First check inline condition
+      const conditionResult = await evaluateTransition(
         em,
         instance,
         fromStepId,
@@ -233,7 +238,42 @@ export async function findValidTransitions(
         context
       )
 
-      results.push(result)
+      if (!conditionResult.isValid) {
+        results.push(conditionResult)
+        continue
+      }
+
+      // Also evaluate preConditions if they exist
+      const preConditions = transition.preConditions || []
+      if (preConditions.length > 0) {
+        const preConditionsResult = await evaluatePreConditions(
+          em,
+          instance,
+          transition,
+          context as TransitionExecutionContext
+        )
+
+        if (!preConditionsResult.allowed) {
+          // Transition is invalid due to preConditions
+          const failedRules = preConditionsResult.executedRules
+            .filter((r) => !r.conditionResult)
+            .map((r) => r.rule.ruleId || r.rule.ruleName)
+
+          results.push({
+            isValid: false,
+            transition,
+            reason: `Pre-conditions failed: ${failedRules.join(', ')}`,
+            failedConditions: failedRules,
+          })
+          continue
+        }
+      }
+
+      // Transition is valid (both condition and preConditions passed)
+      results.push({
+        ...conditionResult,
+        transition,
+      })
     }
 
     return results
@@ -271,6 +311,13 @@ export async function executeTransition(
   context: TransitionExecutionContext
 ): Promise<TransitionExecutionResult> {
   try {
+    let eventBus: Pick<EventBus, 'emitEvent'> | null = null
+    try {
+      eventBus = container.resolve('eventBus') as EventBus
+    } catch {
+      eventBus = null
+    }
+
     // First, evaluate if transition is valid
     const evaluation = await evaluateTransition(
       em,
@@ -294,7 +341,8 @@ export async function executeTransition(
       em,
       instance,
       transition,
-      context
+      context,
+      eventBus
     )
 
     if (!preConditionsResult.allowed) {
@@ -505,7 +553,8 @@ export async function executeTransition(
       em,
       instance,
       transition,
-      context
+      context,
+      eventBus
     )
 
     if (!postConditionsResult.allowed) {
@@ -649,6 +698,10 @@ async function evaluateTransitionConditions(
  * Pre-conditions are GUARD rules that must pass before transition can execute.
  * If any GUARD rule fails, the transition is blocked.
  *
+ * If the transition defines specific preConditions with ruleIds, those are
+ * executed directly via executeRuleByRuleId. Otherwise, falls back to
+ * discovery-based execution via executeRules.
+ *
  * @param em - Entity manager
  * @param instance - Workflow instance
  * @param transition - Transition definition
@@ -659,7 +712,8 @@ async function evaluatePreConditions(
   em: EntityManager,
   instance: WorkflowInstance,
   transition: any,
-  context: TransitionExecutionContext
+  context: TransitionExecutionContext,
+  eventBus: Pick<EventBus, 'emitEvent'> | null
 ): Promise<ruleEngine.RuleEngineResult> {
   try {
     // Load workflow definition to get workflow ID
@@ -675,32 +729,88 @@ async function evaluatePreConditions(
       }
     }
 
-    // Build rule engine context
-    const ruleContext: RuleEngineContext = {
-      entityType: `workflow:${definition.workflowId}:transition`,
-      entityId: transition.transitionId || `${transition.fromStepId}->${transition.toStepId}`,
-      eventType: 'pre_transition',
-      data: {
-        workflowInstanceId: instance.id,
-        workflowId: definition.workflowId,
-        fromStepId: transition.fromStepId,
-        toStepId: transition.toStepId,
-        workflowContext: {
-          ...instance.context,
-          ...context.workflowContext,
-        },
-        triggerData: context.triggerData,
-      },
-      user: context.userId ? { id: context.userId } : undefined,
-      tenantId: instance.tenantId,
-      organizationId: instance.organizationId,
-      executedBy: context.userId,
+    // Check if transition has specific preConditions defined
+    const preConditions = transition.preConditions || []
+
+    // If no pre-conditions defined, allow transition
+    if (preConditions.length === 0) {
+      return {
+        allowed: true,
+        executedRules: [],
+        totalExecutionTime: 0,
+      }
     }
 
-    // Execute rules - only GUARD rules will affect the 'allowed' status
-    const result = await ruleEngine.executeRules(em, ruleContext)
+    // Execute each pre-condition rule directly by ruleId
+    const startTime = Date.now()
+    const executedRules: ruleEngine.RuleExecutionResult[] = []
+    const errors: string[] = []
+    let allowed = true
 
-    return result
+    for (const condition of preConditions) {
+      const result = await ruleEngine.executeRuleByRuleId(em, {
+        ruleId: condition.ruleId,  // String identifier
+        data: {
+          workflowInstanceId: instance.id,
+          workflowId: definition.workflowId,
+          fromStepId: transition.fromStepId,
+          toStepId: transition.toStepId,
+          workflowContext: {
+            ...instance.context,
+            ...context.workflowContext,
+          },
+          triggerData: context.triggerData,
+        },
+        user: context.userId ? { id: context.userId } : undefined,
+        tenantId: instance.tenantId,
+        organizationId: instance.organizationId,
+        executedBy: context.userId,
+        entityType: `workflow:${definition.workflowId}:transition`,
+        entityId: transition.transitionId || `${transition.fromStepId}->${transition.toStepId}`,
+        eventType: 'pre_transition',
+      })
+
+      // Create a compatible RuleExecutionResult for tracking
+      // We don't have the full BusinessRule entity, but we can create a partial result
+      const ruleResult: ruleEngine.RuleExecutionResult = {
+        rule: {
+          ruleId: result.ruleId,
+          ruleName: result.ruleName,
+          ruleType: 'GUARD',
+        } as any,
+        conditionResult: result.conditionResult,
+        actionsExecuted: result.actionsExecuted,
+        executionTime: result.executionTime,
+        error: result.error,
+        logId: result.logId,
+      }
+      executedRules.push(ruleResult)
+
+      // Handle rule errors
+      if (result.error) {
+        // Rule not found, disabled, or other errors
+        const isRequired = condition.required !== false  // Default to required
+        if (isRequired) {
+          allowed = false
+          errors.push(`Rule '${result.ruleId}': ${result.error}`)
+        }
+        continue
+      }
+
+      // If required and condition failed, block transition
+      const isRequired = condition.required !== false  // Default to required
+      if (isRequired && !result.conditionResult) {
+        allowed = false
+        errors.push(`Pre-condition '${result.ruleName || result.ruleId}' failed`)
+      }
+    }
+
+    return {
+      allowed,
+      executedRules,
+      totalExecutionTime: Date.now() - startTime,
+      errors: errors.length > 0 ? errors : undefined,
+    }
   } catch (error) {
     console.error('Error evaluating pre-conditions:', error)
     return {
@@ -718,6 +828,9 @@ async function evaluatePreConditions(
  * Post-conditions are GUARD rules that should pass after transition executes.
  * Unlike pre-conditions, post-condition failures are logged but don't block the transition.
  *
+ * If the transition defines specific postConditions with ruleIds, those are
+ * executed directly via executeRuleByRuleId. Otherwise, returns allowed: true.
+ *
  * @param em - Entity manager
  * @param instance - Workflow instance
  * @param transition - Transition definition
@@ -728,7 +841,8 @@ async function evaluatePostConditions(
   em: EntityManager,
   instance: WorkflowInstance,
   transition: any,
-  context: TransitionExecutionContext
+  context: TransitionExecutionContext,
+  eventBus: Pick<EventBus, 'emitEvent'> | null
 ): Promise<ruleEngine.RuleEngineResult> {
   try {
     // Load workflow definition to get workflow ID
@@ -744,32 +858,83 @@ async function evaluatePostConditions(
       }
     }
 
-    // Build rule engine context
-    const ruleContext: RuleEngineContext = {
-      entityType: `workflow:${definition.workflowId}:transition`,
-      entityId: transition.transitionId || `${transition.fromStepId}->${transition.toStepId}`,
-      eventType: 'post_transition',
-      data: {
-        workflowInstanceId: instance.id,
-        workflowId: definition.workflowId,
-        fromStepId: transition.fromStepId,
-        toStepId: transition.toStepId,
-        workflowContext: {
-          ...instance.context,
-          ...context.workflowContext,
-        },
-        triggerData: context.triggerData,
-      },
-      user: context.userId ? { id: context.userId } : undefined,
-      tenantId: instance.tenantId,
-      organizationId: instance.organizationId,
-      executedBy: context.userId,
+    // Check if transition has specific postConditions defined
+    const postConditions = transition.postConditions || []
+
+    // If no post-conditions defined, allow
+    if (postConditions.length === 0) {
+      return {
+        allowed: true,
+        executedRules: [],
+        totalExecutionTime: 0,
+      }
     }
 
-    // Execute rules
-    const result = await ruleEngine.executeRules(em, ruleContext)
+    // Execute each post-condition rule directly by ruleId
+    const startTime = Date.now()
+    const executedRules: ruleEngine.RuleExecutionResult[] = []
+    const errors: string[] = []
+    let allowed = true
 
-    return result
+    for (const condition of postConditions) {
+      const result = await ruleEngine.executeRuleByRuleId(em, {
+        ruleId: condition.ruleId,  // String identifier
+        data: {
+          workflowInstanceId: instance.id,
+          workflowId: definition.workflowId,
+          fromStepId: transition.fromStepId,
+          toStepId: transition.toStepId,
+          workflowContext: {
+            ...instance.context,
+            ...context.workflowContext,
+          },
+          triggerData: context.triggerData,
+        },
+        user: context.userId ? { id: context.userId } : undefined,
+        tenantId: instance.tenantId,
+        organizationId: instance.organizationId,
+        executedBy: context.userId,
+        entityType: `workflow:${definition.workflowId}:transition`,
+        entityId: transition.transitionId || `${transition.fromStepId}->${transition.toStepId}`,
+        eventType: 'post_transition',
+      })
+
+      // Create a compatible RuleExecutionResult for tracking
+      const ruleResult: ruleEngine.RuleExecutionResult = {
+        rule: {
+          ruleId: result.ruleId,
+          ruleName: result.ruleName,
+          ruleType: 'GUARD',
+        } as any,
+        conditionResult: result.conditionResult,
+        actionsExecuted: result.actionsExecuted,
+        executionTime: result.executionTime,
+        error: result.error,
+        logId: result.logId,
+      }
+      executedRules.push(ruleResult)
+
+      // Handle rule errors
+      if (result.error) {
+        errors.push(`Rule '${result.ruleId}': ${result.error}`)
+        // Post-conditions don't block, but track the failure
+        allowed = false
+        continue
+      }
+
+      // Track condition failures (post-conditions are warnings, not blockers)
+      if (!result.conditionResult) {
+        allowed = false
+        errors.push(`Post-condition '${result.ruleName || result.ruleId}' failed`)
+      }
+    }
+
+    return {
+      allowed,
+      executedRules,
+      totalExecutionTime: Date.now() - startTime,
+      errors: errors.length > 0 ? errors : undefined,
+    }
   } catch (error) {
     console.error('Error evaluating post-conditions:', error)
     return {

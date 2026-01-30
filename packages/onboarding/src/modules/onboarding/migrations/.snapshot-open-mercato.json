@@ -99,6 +99,16 @@
           "nullable": true,
           "mappedType": "text"
         },
+        "processing_started_at": {
+          "name": "processing_started_at",
+          "type": "timestamptz",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": true,
+          "length": 6,
+          "mappedType": "datetime"
+        },
         "expires_at": {
           "name": "expires_at",
           "type": "timestamptz",

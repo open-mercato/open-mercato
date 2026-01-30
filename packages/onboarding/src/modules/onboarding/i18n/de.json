@@ -19,6 +19,16 @@
       "termsLink": "terms of service",
       "termsRequired": "Please accept the terms to continue."
     },
+    "password": {
+      "requirements": {
+        "help": "Password requirements: {requirements}",
+        "minLength": "At least {min} characters",
+        "digit": "One number",
+        "uppercase": "One uppercase letter",
+        "special": "One special character",
+        "separator": ", "
+      }
+    },
     "email": {
       "subject": "Confirm your email to finish onboarding",
       "preview": "Confirm your email to activate your Open Mercato workspace",
@@ -39,9 +49,10 @@
       "firstNameRequired": "First name is required.",
       "lastNameRequired": "Last name is required.",
       "organizationNameRequired": "Organization name is required.",
-      "passwordRequired": "Password must be at least 6 characters.",
+      "passwordRequired": "Password must meet the requirements: {requirements}.",
       "passwordMismatch": "Passwords must match.",
       "termsRequired": "Please accept the terms to continue.",
+      "emailSendFailed": "We could not send the verification email. Please try again or contact support.",
       "emailExists": "We already have an account with this email. Try signing in or resetting your password.",
       "pendingRequest": "We already have a pending verification. Please try again in about {minutes} minutes or contact the administrator."
     }

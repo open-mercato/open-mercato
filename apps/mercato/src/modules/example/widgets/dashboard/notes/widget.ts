@@ -1,6 +1,6 @@
-import type { DashboardWidgetModule } from '@open-mercato/shared/modules/dashboard/widgets'
-import NotesWidgetClient from './widget.client'
+import { lazyDashboardWidget, type DashboardWidgetModule } from '@open-mercato/shared/modules/dashboard/widgets'
 import { DEFAULT_SETTINGS, hydrateNotesSettings, type NotesSettings } from './config'
+const NotesWidgetClient = lazyDashboardWidget(() => import('./widget.client'))
 
 const widget: DashboardWidgetModule<NotesSettings> = {
   metadata: {

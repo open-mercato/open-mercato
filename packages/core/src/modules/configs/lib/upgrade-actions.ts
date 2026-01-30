@@ -1,98 +1,15 @@
-import { runWithCacheTenant } from '@open-mercato/cache'
 import type { EntityManager } from '@mikro-orm/postgresql'
-import type { AwilixContainer } from 'awilix'
-import { Role, RoleAcl } from '@open-mercato/core/modules/auth/data/entities'
-import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
-import { reindexModules } from '@open-mercato/core/modules/configs/lib/reindex-helpers'
-import { installExampleCatalogData, type CatalogSeedScope } from '@open-mercato/core/modules/catalog/lib/seeds'
-import { seedSalesExamples } from '@open-mercato/core/modules/sales/seed/examples'
-import { seedExampleCurrencies } from '@open-mercato/core/modules/currencies/lib/seeds'
-import { seedExampleWorkflows } from '@open-mercato/core/modules/workflows/lib/seeds'
-import { seedPlannerAvailabilityRuleSetDefaults, seedPlannerUnavailabilityReasons } from '@open-mercato/core/modules/planner/lib/seeds'
-import { seedResourcesAddressTypes, seedResourcesCapacityUnits, seedResourcesResourceExamples } from '@open-mercato/core/modules/resources/lib/seeds'
-import { seedStaffTeamExamples } from '@open-mercato/core/modules/staff/lib/seeds'
-import { collectCrudCacheStats, purgeCrudCacheSegment } from '@open-mercato/shared/lib/crud/cache-stats'
-import { isCrudCacheEnabled, resolveCrudCache } from '@open-mercato/shared/lib/crud/cache'
 import * as semver from 'semver'
-import type { VectorIndexService } from '@open-mercato/search/vector'
-import { EncryptionMap } from '@open-mercato/core/modules/entities/data/entities'
-import { DEFAULT_ENCRYPTION_MAPS } from '@open-mercato/core/modules/entities/lib/encryptionDefaults'
-import type { TenantDataEncryptionService } from '@open-mercato/shared/lib/encryption/tenantDataEncryptionService'
+import { getModules } from '@open-mercato/shared/lib/modules/registry'
+import type { Module } from '@open-mercato/shared/modules/registry'
+import type { AppContainer } from '@open-mercato/shared/lib/di/container'
+import { Role, RoleAcl } from '@open-mercato/core/modules/auth/data/entities'
+import { normalizeTenantId } from '@open-mercato/core/modules/auth/lib/tenantAccess'
 
-function resolveVectorService(container: AwilixContainer): VectorIndexService | null {
-  try {
-    return container.resolve<VectorIndexService>('vectorIndexService')
-  } catch {
-    return null
-  }
-}
-
-function resolveEncryptionService(container: AwilixContainer): TenantDataEncryptionService | null {
-  try {
-    return container.resolve<TenantDataEncryptionService>('tenantEncryptionService')
-  } catch {
-    return null
-  }
-}
-
-async function ensureVectorSearchEncryptionMap(
-  em: EntityManager,
-  tenantId: string,
-  organizationId: string | null,
-): Promise<boolean> {
-  const spec = DEFAULT_ENCRYPTION_MAPS.find((entry) => entry.entityId === 'vector:vector_search')
-  const required = spec?.fields ?? []
-  if (!required.length) return false
-
-  const repo = em.getRepository(EncryptionMap)
-  const existing = await repo.findOne({
-    entityId: 'vector:vector_search',
-    tenantId,
-    organizationId,
-    deletedAt: null,
-  })
-
-  if (!existing) {
-    em.persist(
-      em.create(EncryptionMap, {
-        entityId: 'vector:vector_search',
-        tenantId,
-        organizationId,
-        fieldsJson: required,
-        isActive: true,
-        createdAt: new Date(),
-        updatedAt: new Date(),
-      }),
-    )
-    await em.flush()
-    return true
-  }
-
-  const existingFields = Array.isArray(existing.fieldsJson) ? existing.fieldsJson : []
-  const byField = new Map<string, { field: string; hashField?: string | null }>()
-  for (const item of existingFields) {
-    if (!item?.field) continue
-    byField.set(item.field, item)
-  }
-  for (const req of required) {
-    if (!req?.field) continue
-    if (byField.has(req.field)) continue
-    byField.set(req.field, req)
-  }
-
-  const merged = Array.from(byField.values())
-  const changed = merged.length !== existingFields.length
-  if (!changed && existing.isActive) return false
-
-  existing.fieldsJson = merged
-  existing.isActive = true
-  existing.updatedAt = new Date()
-  await em.flush()
-  return true
-}
-
-export type UpgradeActionContext = CatalogSeedScope & {
-  container: AwilixContainer
+export type UpgradeActionContext = {
+  tenantId: string
+  organizationId: string
+  container: AppContainer
   em: EntityManager
 }
 
@@ -124,26 +41,108 @@ export function compareVersions(a: string, b: string): number {
   return semver.compare(cleanA, cleanB)
 }
 
-async function purgeCatalogCrudCache(container: AwilixContainer, tenantId: string | null) {
-  if (!isCrudCacheEnabled()) return
-  const cache = resolveCrudCache(container)
-  if (!cache) return
-  await runWithCacheTenant(tenantId ?? null, async () => {
-    const stats = await collectCrudCacheStats(cache)
-    const catalogSegments = stats.segments.filter((segment) => segment.resource?.startsWith('catalog.'))
-    if (!catalogSegments.length) return
-    for (const segment of catalogSegments) {
-      try {
-        await purgeCrudCacheSegment(cache, segment.segment)
-      } catch (error) {
-        console.warn('[upgrade-actions] failed to purge catalog cache segment', {
-          tenantId,
-          segment: segment.segment,
-          error,
-        })
-      }
-    }
-  })
+type RoleName = 'superadmin' | 'admin' | 'employee'
+
+function collectRoleFeatures(modules: Module[], moduleIds: string[]): Record<RoleName, string[]> {
+  const result: Record<RoleName, string[]> = {
+    superadmin: [],
+    admin: [],
+    employee: [],
+  }
+  const targetIds = new Set(moduleIds)
+  for (const mod of modules) {
+    if (!targetIds.has(mod.id)) continue
+    const roleFeatures = mod.setup?.defaultRoleFeatures
+    if (roleFeatures?.superadmin) result.superadmin.push(...roleFeatures.superadmin)
+    if (roleFeatures?.admin) result.admin.push(...roleFeatures.admin)
+    if (roleFeatures?.employee) result.employee.push(...roleFeatures.employee)
+  }
+  result.superadmin = Array.from(new Set(result.superadmin))
+  result.admin = Array.from(new Set(result.admin))
+  result.employee = Array.from(new Set(result.employee))
+  return result
+}
+
+async function findRoleByName(
+  em: EntityManager,
+  name: string,
+  tenantId: string | null,
+): Promise<Role | null> {
+  const normalizedTenant = normalizeTenantId(tenantId ?? null) ?? null
+  let role = await em.findOne(Role, { name, tenantId: normalizedTenant })
+  if (!role && normalizedTenant !== null) {
+    role = await em.findOne(Role, { name, tenantId: null })
+  }
+  return role
+}
+
+async function ensureRoleAclFor(
+  em: EntityManager,
+  role: Role,
+  tenantId: string,
+  features: string[],
+  options: { isSuperAdmin?: boolean } = {},
+) {
+  const existing = await em.findOne(RoleAcl, { role, tenantId })
+  if (!existing) {
+    const acl = em.create(RoleAcl, {
+      role,
+      tenantId,
+      featuresJson: features,
+      isSuperAdmin: !!options.isSuperAdmin,
+      createdAt: new Date(),
+    })
+    await em.persistAndFlush(acl)
+    return
+  }
+  const currentFeatures = Array.isArray(existing.featuresJson) ? existing.featuresJson : []
+  const merged = Array.from(new Set([...currentFeatures, ...features]))
+  const changed =
+    merged.length !== currentFeatures.length ||
+    merged.some((value, index) => value !== currentFeatures[index])
+  if (changed) existing.featuresJson = merged
+  if (options.isSuperAdmin && !existing.isSuperAdmin) {
+    existing.isSuperAdmin = true
+  }
+  if (changed || options.isSuperAdmin) {
+    await em.persistAndFlush(existing)
+  }
+}
+
+async function ensureRoleAclsForModules(
+  em: EntityManager,
+  tenantId: string,
+  moduleIds: string[],
+) {
+  const modules = getModules()
+  const roleFeatures = collectRoleFeatures(modules, moduleIds)
+  if (!roleFeatures.superadmin.length && !roleFeatures.admin.length && !roleFeatures.employee.length) {
+    return
+  }
+  const normalizedTenant = normalizeTenantId(tenantId) ?? null
+  const [superadminRole, adminRole, employeeRole] = await Promise.all([
+    findRoleByName(em, 'superadmin', normalizedTenant),
+    findRoleByName(em, 'admin', normalizedTenant),
+    findRoleByName(em, 'employee', normalizedTenant),
+  ])
+  if (superadminRole && roleFeatures.superadmin.length) {
+    await ensureRoleAclFor(em, superadminRole, tenantId, roleFeatures.superadmin, { isSuperAdmin: true })
+  }
+  if (adminRole && roleFeatures.admin.length) {
+    await ensureRoleAclFor(em, adminRole, tenantId, roleFeatures.admin)
+  }
+  if (employeeRole && roleFeatures.employee.length) {
+    await ensureRoleAclFor(em, employeeRole, tenantId, roleFeatures.employee)
+  }
+}
+
+async function safeImport<T>(label: string, loader: () => Promise<T>): Promise<T | null> {
+  try {
+    return await loader()
+  } catch (error) {
+    console.warn(`[upgrade-actions] Skipping ${label} because module import failed.`, error)
+    return null
+  }
 }
 
 export const upgradeActions: UpgradeActionDefinition[] = [
@@ -154,56 +153,16 @@ export const upgradeActions: UpgradeActionDefinition[] = [
     ctaKey: 'upgrades.v034.cta',
     successKey: 'upgrades.v034.success',
     loadingKey: 'upgrades.v034.loading',
-    async run({ container, em, tenantId, organizationId }) {
-      await installExampleCatalogData(container, { tenantId, organizationId }, em)
-      const vectorService = resolveVectorService(container)
-      await reindexModules(em, ['catalog'], { tenantId, organizationId, vectorService })
-    },
-  },
-  {
-    id: 'configs.upgrades.auth.admin_business_rules_acl',
-    version: '0.3.5',
-    messageKey: 'upgrades.v035.message',
-    ctaKey: 'upgrades.v035.cta',
-    successKey: 'upgrades.v035.success',
-    loadingKey: 'upgrades.v035.loading',
-    async run({ container, em, tenantId }) {
-      const normalizedTenantId = tenantId.trim()
-      await em.transactional(async (tem) => {
-        const adminRole = await tem.findOne(Role, { name: 'admin', tenantId: normalizedTenantId, deletedAt: null })
-        if (!adminRole) return
-
-        const roleAcls = await tem.find(RoleAcl, { role: adminRole, tenantId: normalizedTenantId, deletedAt: null })
-        let touched = false
-        if (!roleAcls.length) {
-          tem.persist(
-            tem.create(RoleAcl, {
-              role: adminRole,
-              tenantId: normalizedTenantId,
-              featuresJson: ['business_rules.*'],
-              isSuperAdmin: false,
-              createdAt: new Date(),
-              updatedAt: new Date(),
-            }),
-          )
-          touched = true
-        }
-
-        for (const acl of roleAcls) {
-          const features = Array.isArray(acl.featuresJson) ? [...acl.featuresJson] : []
-          if (features.includes('business_rules.*')) continue
-          acl.featuresJson = [...features, 'business_rules.*']
-          acl.updatedAt = new Date()
-          touched = true
-        }
-
-        if (touched) {
-          await tem.flush()
-        }
-      })
-
-      const rbac = container.resolve<RbacService>('rbacService')
-      await rbac.invalidateTenantCache(normalizedTenantId)
+    async run(ctx) {
+      const catalogSeeds = await safeImport('catalog examples', () =>
+        import('@open-mercato/core/modules/catalog/lib/seeds')
+      )
+      if (!catalogSeeds?.installExampleCatalogData) return
+      await catalogSeeds.installExampleCatalogData(
+        ctx.container,
+        { tenantId: ctx.tenantId, organizationId: ctx.organizationId },
+        ctx.em,
+      )
     },
   },
   {
@@ -213,43 +172,15 @@ export const upgradeActions: UpgradeActionDefinition[] = [
     ctaKey: 'upgrades.v036.cta',
     successKey: 'upgrades.v036.success',
     loadingKey: 'upgrades.v036.loading',
-    async run({ container, em, tenantId, organizationId }) {
-      await em.transactional(async (tem) => {
-        await seedSalesExamples(tem, container, { tenantId, organizationId })
+    async run(ctx) {
+      const salesSeeds = await safeImport('sales examples', () =>
+        import('@open-mercato/core/modules/sales/seed/examples')
+      )
+      if (!salesSeeds?.seedSalesExamples) return
+      await salesSeeds.seedSalesExamples(ctx.em, ctx.container, {
+        tenantId: ctx.tenantId,
+        organizationId: ctx.organizationId,
       })
-      const vectorService = resolveVectorService(container)
-      await reindexModules(em, ['sales', 'catalog'], { tenantId, organizationId, vectorService })
-      await purgeCatalogCrudCache(container, tenantId)
-    },
-  },
-  {
-    id: 'configs.upgrades.vector.encryption_vector_search',
-    version: '0.3.6',
-    messageKey: 'upgrades.v036_vector_encryption.message',
-    ctaKey: 'upgrades.v036_vector_encryption.cta',
-    successKey: 'upgrades.v036_vector_encryption.success',
-    loadingKey: 'upgrades.v036_vector_encryption.loading',
-    async run({ container, em, tenantId, organizationId }) {
-      const normalizedTenantId = tenantId.trim()
-      const normalizedOrgId = organizationId ?? null
-
-      const encryptionService = resolveEncryptionService(container)
-      if (!encryptionService?.isEnabled?.()) {
-        return
-      }
-
-      const updated = await em.transactional(async (tem) => {
-        return ensureVectorSearchEncryptionMap(tem, normalizedTenantId, normalizedOrgId)
-      })
-
-      if (updated) {
-        await encryptionService.invalidateMap('vector:vector_search', normalizedTenantId, normalizedOrgId)
-      }
-
-      const vectorService = resolveVectorService(container)
-      if (vectorService) {
-        await vectorService.reindexAll({ tenantId: normalizedTenantId, organizationId: normalizedOrgId, purgeFirst: false })
-      }
     },
   },
   {
@@ -259,50 +190,21 @@ export const upgradeActions: UpgradeActionDefinition[] = [
     ctaKey: 'upgrades.v0313.cta',
     successKey: 'upgrades.v0313.success',
     loadingKey: 'upgrades.v0313.loading',
-    async run({ container, em, tenantId, organizationId }) {
-      const normalizedTenantId = tenantId.trim()
-      const scope = { tenantId, organizationId }
-      await em.transactional(async (tem) => {
-        await seedExampleCurrencies(tem, scope)
-        await seedExampleWorkflows(tem, scope)
-
-        const adminRole = await tem.findOne(Role, { name: 'admin', tenantId: normalizedTenantId, deletedAt: null })
-        if (!adminRole) return
-
-        const roleAcls = await tem.find(RoleAcl, { role: adminRole, tenantId: normalizedTenantId, deletedAt: null })
-        let touched = false
-        if (!roleAcls.length) {
-          tem.persist(
-            tem.create(RoleAcl, {
-              role: adminRole,
-              tenantId: normalizedTenantId,
-              featuresJson: ['search.*', 'feature_toggles.*', 'currencies.*'],
-              isSuperAdmin: false,
-              createdAt: new Date(),
-              updatedAt: new Date(),
-            }),
-          )
-          touched = true
-        }
-
-        for (const acl of roleAcls) {
-          const features = Array.isArray(acl.featuresJson) ? [...acl.featuresJson] : []
-          const nextFeatures = new Set(features)
-          nextFeatures.add('search.*')
-          nextFeatures.add('feature_toggles.*')
-          nextFeatures.add('currencies.*')
-          if (nextFeatures.size === features.length) continue
-          acl.featuresJson = Array.from(nextFeatures)
-          acl.updatedAt = new Date()
-          touched = true
-        }
-
-        if (touched) {
-          await tem.flush()
-        }
-      })
-      const rbac = container.resolve<RbacService>('rbacService')
-      await rbac.invalidateTenantCache(normalizedTenantId)
+    async run(ctx) {
+      const currenciesSeeds = await safeImport('currencies examples', () =>
+        import('@open-mercato/core/modules/currencies/lib/seeds')
+      )
+      const workflowsSeeds = await safeImport('workflows examples', () =>
+        import('@open-mercato/core/modules/workflows/lib/seeds')
+      )
+      const scope = { tenantId: ctx.tenantId, organizationId: ctx.organizationId }
+      if (currenciesSeeds?.seedExampleCurrencies) {
+        await currenciesSeeds.seedExampleCurrencies(ctx.em, scope)
+      }
+      if (workflowsSeeds?.seedExampleWorkflows) {
+        await workflowsSeeds.seedExampleWorkflows(ctx.em, scope)
+      }
+      await ensureRoleAclsForModules(ctx.em, ctx.tenantId, ['currencies', 'workflows'])
     },
   },
   {
@@ -312,62 +214,27 @@ export const upgradeActions: UpgradeActionDefinition[] = [
     ctaKey: 'upgrades.v041.cta',
     successKey: 'upgrades.v041.success',
     loadingKey: 'upgrades.v041.loading',
-    async run({ container, em, tenantId, organizationId }) {
-      const normalizedTenantId = tenantId.trim()
-      const scope = { tenantId, organizationId }
-      await em.transactional(async (tem) => {
-        await seedPlannerAvailabilityRuleSetDefaults(tem, scope)
-        await seedPlannerUnavailabilityReasons(tem, scope)
-        await seedStaffTeamExamples(tem, scope)
-        await seedResourcesCapacityUnits(tem, scope)
-        await seedResourcesAddressTypes(tem, scope)
-        await seedResourcesResourceExamples(tem, scope)
-
-        const adminRole = await tem.findOne(Role, { name: 'admin', tenantId: normalizedTenantId, deletedAt: null })
-        if (!adminRole) return
-
-        const roleAcls = await tem.find(RoleAcl, { role: adminRole, tenantId: normalizedTenantId, deletedAt: null })
-        const addedFeatures = [
-          'staff.*',
-          'staff.leave_requests.manage',
-          'resources.*',
-          'planner.*',
-        ]
-        let touched = false
-        if (!roleAcls.length) {
-          tem.persist(
-            tem.create(RoleAcl, {
-              role: adminRole,
-              tenantId: normalizedTenantId,
-              featuresJson: addedFeatures,
-              isSuperAdmin: false,
-              createdAt: new Date(),
-              updatedAt: new Date(),
-            }),
-          )
-          touched = true
-        }
-
-        for (const acl of roleAcls) {
-          const features = Array.isArray(acl.featuresJson) ? [...acl.featuresJson] : []
-          const nextFeatures = new Set(features)
-          for (const feature of addedFeatures) nextFeatures.add(feature)
-          if (nextFeatures.size === features.length) continue
-          acl.featuresJson = Array.from(nextFeatures)
-          acl.updatedAt = new Date()
-          touched = true
-        }
-
-        if (touched) {
-          await tem.flush()
-        }
-      })
-
-      const rbac = container.resolve<RbacService>('rbacService')
-      await rbac.invalidateTenantCache(normalizedTenantId)
-
-      const vectorService = resolveVectorService(container)
-      await reindexModules(em, ['planner', 'staff', 'resources'], { tenantId, organizationId, vectorService })
+    async run(ctx) {
+      const plannerSeeds = await safeImport('planner examples', () =>
+        import('@open-mercato/core/modules/planner/lib/seeds')
+      )
+      const staffSeeds = await safeImport('staff examples', () =>
+        import('@open-mercato/core/modules/staff/lib/seeds')
+      )
+      const resourcesSeeds = await safeImport('resources examples', () =>
+        import('@open-mercato/core/modules/resources/lib/seeds')
+      )
+      const scope = { tenantId: ctx.tenantId, organizationId: ctx.organizationId }
+      if (plannerSeeds?.seedPlannerAvailabilityRuleSetDefaults) {
+        await plannerSeeds.seedPlannerAvailabilityRuleSetDefaults(ctx.em, scope)
+      }
+      if (staffSeeds?.seedStaffTeamExamples) {
+        await staffSeeds.seedStaffTeamExamples(ctx.em, scope)
+      }
+      if (resourcesSeeds?.seedResourcesResourceExamples) {
+        await resourcesSeeds.seedResourcesResourceExamples(ctx.em, scope)
+      }
+      await ensureRoleAclsForModules(ctx.em, ctx.tenantId, ['planner', 'staff', 'resources'])
     },
   },
 ]

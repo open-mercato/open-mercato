@@ -1,6 +1,10 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { CacheStrategy } from '@open-mercato/cache'
 import { createHash } from 'node:crypto'
+import { decryptWithAesGcm } from '@open-mercato/shared/lib/encryption/aes'
+import { resolveTenantEncryptionService } from '@open-mercato/shared/lib/encryption/customFieldValues'
+import { resolveEntityIdFromMetadata } from '@open-mercato/shared/lib/encryption/entityIds'
+import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import {
   type DateRangePreset,
   resolveDateRange,
@@ -17,6 +21,8 @@ import {
 import type { AnalyticsRegistry } from './analyticsRegistry'
 
 const WIDGET_DATA_CACHE_TTL = 120_000
+const WIDGET_DATA_SEGMENT_TTL = 86_400_000
+const WIDGET_DATA_SEGMENT_KEY = 'widget-data:__segment__'
 
 const SAFE_IDENTIFIER_PATTERN = /^[a-zA-Z_][a-zA-Z0-9_]*$/
 
@@ -168,6 +174,11 @@ export class WidgetDataService {
       const tags = this.getCacheTags(request.entityType)
       try {
         await this.cache.set(cacheKey, response, { ttl: WIDGET_DATA_CACHE_TTL, tags })
+        await this.cache.set(
+          WIDGET_DATA_SEGMENT_KEY,
+          { updatedAt: response.metadata.fetchedAt },
+          { ttl: WIDGET_DATA_SEGMENT_TTL, tags: ['widget-data'] },
+        )
       } catch {
       }
     }
@@ -282,6 +293,75 @@ export class WidgetDataService {
     assertSafeIdentifier(config.idColumn, 'id column')
     assertSafeIdentifier(config.labelColumn, 'label column')
 
+    const meta = this.resolveEntityMetadata(config.table)
+    const idProp = meta ? this.resolveEntityPropertyName(meta, config.idColumn) : null
+    const labelProp = meta ? this.resolveEntityPropertyName(meta, config.labelColumn) : null
+    const tenantProp = meta
+      ? (this.resolveEntityPropertyName(meta, 'tenant_id') ?? this.resolveEntityPropertyName(meta, 'tenantId'))
+      : null
+    const organizationProp = meta
+      ? (this.resolveEntityPropertyName(meta, 'organization_id') ?? this.resolveEntityPropertyName(meta, 'organizationId'))
+      : null
+    const entityName = meta ? ((meta as any).class ?? meta.className ?? meta.name) : null
+
+    if (meta && idProp && labelProp && tenantProp && entityName) {
+      const where: Record<string, unknown> = {
+        [idProp]: { $in: uniqueIds },
+        [tenantProp]: this.scope.tenantId,
+      }
+      if (organizationProp && this.scope.organizationIds && this.scope.organizationIds.length > 0) {
+        where[organizationProp] = { $in: this.scope.organizationIds }
+      }
+
+      try {
+        const records = await findWithDecryption(
+          this.em,
+          entityName,
+          where,
+          { fields: [idProp, labelProp, tenantProp, organizationProp].filter(Boolean) },
+          { tenantId: this.scope.tenantId, organizationId: this.resolveOrganizationId() },
+        )
+
+        const encryptionService = resolveTenantEncryptionService(this.em as any)
+        const dek = encryptionService?.isEnabled() ? await encryptionService.getDek(this.scope.tenantId) : null
+        let hasEncryptedLabels = false
+        let hasDecryptedLabels = false
+
+        const labelMap = new Map<string, string>()
+        for (const record of records as Array<Record<string, unknown>>) {
+          const id = record[idProp]
+          let labelValue = record[labelProp]
+          if (typeof labelValue === 'string' && this.isEncryptedPayload(labelValue)) {
+            hasEncryptedLabels = true
+            if (dek?.key) {
+              const decrypted = this.decryptWithDek(labelValue, dek.key)
+              if (decrypted !== null) {
+                labelValue = decrypted
+                hasDecryptedLabels = true
+              }
+            }
+          } else if (labelValue != null && labelValue !== '') {
+            hasDecryptedLabels = true
+          }
+
+          if (typeof id === 'string' && labelValue != null && labelValue !== '') {
+            labelMap.set(id, String(labelValue))
+          }
+        }
+
+        if (labelMap.size > 0 && (!hasEncryptedLabels || hasDecryptedLabels)) {
+          return data.map((item) => ({
+            ...item,
+            groupLabel: typeof item.groupKey === 'string' && labelMap.has(item.groupKey)
+              ? labelMap.get(item.groupKey)!
+              : undefined,
+          }))
+        }
+      } catch {
+        // fall through to SQL resolution
+      }
+    }
+
     const clauses = [`"${config.idColumn}" = ANY(?::uuid[])`, 'tenant_id = ?']
     const params: unknown[] = [`{${uniqueIds.join(',')}}`, this.scope.tenantId]
 
@@ -290,17 +370,43 @@ export class WidgetDataService {
       params.push(`{${this.scope.organizationIds.join(',')}}`)
     }
 
-    const sql = `SELECT "${config.idColumn}" as id, "${config.labelColumn}" as label FROM "${config.table}" WHERE ${clauses.join(
+    const sql = `SELECT "${config.idColumn}" as id, "${config.labelColumn}" as label, tenant_id, organization_id FROM "${config.table}" WHERE ${clauses.join(
       ' AND ',
     )}`
 
     try {
       const labelRows = await this.em.getConnection().execute(sql, params)
+      const entityId = this.resolveEntityId(meta)
+      const encryptionService = resolveTenantEncryptionService(this.em as any)
+      const organizationId = this.resolveOrganizationId()
+      const dek = encryptionService?.isEnabled() ? await encryptionService.getDek(this.scope.tenantId) : null
 
       const labelMap = new Map<string, string>()
-      for (const row of labelRows as Array<{ id: string; label: string | null }>) {
-        if (row.id && row.label != null && row.label !== '') {
-          labelMap.set(row.id, row.label)
+      for (const row of labelRows as Array<{ id: string; label: string | null; tenant_id?: string | null; organization_id?: string | null }>) {
+        let labelValue = row.label
+        if (entityId && encryptionService?.isEnabled() && labelValue != null) {
+          const rowOrgId = row.organization_id ?? organizationId ?? null
+          const decrypted = await encryptionService.decryptEntityPayload(
+            entityId,
+            { [config.labelColumn]: labelValue },
+            this.scope.tenantId,
+            rowOrgId,
+          )
+          const resolved = decrypted[config.labelColumn]
+          if (typeof resolved === 'string' || typeof resolved === 'number') {
+            labelValue = String(resolved)
+          }
+        }
+
+        if (labelValue && dek?.key && this.isEncryptedPayload(labelValue)) {
+          const decrypted = this.decryptWithDek(labelValue, dek.key)
+          if (decrypted !== null) {
+            labelValue = decrypted
+          }
+        }
+
+        if (row.id && labelValue != null && labelValue !== '') {
+          labelMap.set(row.id, labelValue)
         }
       }
 
@@ -316,6 +422,60 @@ export class WidgetDataService {
         groupLabel: undefined,
       }))
     }
+  }
+
+  private resolveOrganizationId(): string | null {
+    if (!this.scope.organizationIds || this.scope.organizationIds.length !== 1) return null
+    return this.scope.organizationIds[0] ?? null
+  }
+
+  private resolveEntityMetadata(tableName: string): Record<string, any> | null {
+    const registry = (this.em as any)?.getMetadata?.()
+    if (!registry) return null
+    const entries =
+      (typeof registry.getAll === 'function' && registry.getAll()) ||
+      (Array.isArray(registry.metadata) ? registry.metadata : Object.values(registry.metadata ?? {}))
+    const metas = Array.isArray(entries) ? entries : Object.values(entries ?? {})
+    const match = metas.find((meta: any) => {
+      const table = meta?.tableName ?? meta?.collection
+      if (typeof table !== 'string') return false
+      if (table === tableName) return true
+      return table.split('.').pop() === tableName
+    })
+    return match ?? null
+  }
+
+  private resolveEntityPropertyName(meta: Record<string, any>, columnName: string): string | null {
+    const properties = meta?.properties ? Object.values(meta.properties) : []
+    for (const prop of properties as Array<Record<string, any>>) {
+      const fieldName = prop?.fieldName
+      const fieldNames = prop?.fieldNames
+      if (typeof fieldName === 'string' && fieldName === columnName) return prop?.name ?? null
+      if (Array.isArray(fieldNames) && fieldNames.includes(columnName)) return prop?.name ?? null
+      if (prop?.name === columnName) return prop?.name ?? null
+    }
+    return null
+  }
+
+  private resolveEntityId(meta: Record<string, any> | null): string | null {
+    if (!meta) return null
+    try {
+      return resolveEntityIdFromMetadata(meta as any)
+    } catch {
+      return null
+    }
+  }
+
+  private isEncryptedPayload(value: string): boolean {
+    const parts = value.split(':')
+    return parts.length === 4 && parts[3] === 'v1'
+  }
+
+  private decryptWithDek(value: string, dek: string): string | null {
+    const first = decryptWithAesGcm(value, dek)
+    if (first === null) return null
+    if (!this.isEncryptedPayload(first)) return first
+    return decryptWithAesGcm(first, dek) ?? first
   }
 }
 

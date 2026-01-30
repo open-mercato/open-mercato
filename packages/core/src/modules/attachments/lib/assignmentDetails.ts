@@ -15,12 +15,16 @@ let _entityLinkSpecsCache: Record<string, AssignmentLinkSpec> | null = null
 function getEntityLinkSpecs(): Record<string, AssignmentLinkSpec> {
   if (_entityLinkSpecsCache) return _entityLinkSpecsCache
   const E = getEntityIds() as any
-  _entityLinkSpecsCache = {
-    [E.catalog.catalog_product]: {
+  const specs: Record<string, AssignmentLinkSpec> = {}
+
+  if (E.catalog?.catalog_product) {
+    specs[E.catalog.catalog_product] = {
       labelFields: ['title', 'sku', 'handle'],
       buildHref: (record) => buildSimpleHref('/backend/catalog/products', record.id),
-    },
-    [E.catalog.catalog_product_variant]: {
+    }
+  }
+  if (E.catalog?.catalog_product_variant) {
+    specs[E.catalog.catalog_product_variant] = {
       labelFields: ['name', 'sku'],
       extraFields: ['product_id'],
       buildHref: (record) => {
@@ -28,8 +32,10 @@ function getEntityLinkSpecs(): Record<string, AssignmentLinkSpec> {
         if (!productId) return null
         return `/backend/catalog/products/${encodeURIComponent(productId)}/variants/${encodeURIComponent(String(record.id ?? ''))}`
       },
-    },
-    [E.customers.customer_entity]: {
+    }
+  }
+  if (E.customers?.customer_entity) {
+    specs[E.customers.customer_entity] = {
       labelFields: ['display_name'],
       extraFields: ['kind'],
       buildHref: (record) => {
@@ -38,32 +44,42 @@ function getEntityLinkSpecs(): Record<string, AssignmentLinkSpec> {
         if (kind === 'person') return buildSimpleHref('/backend/customers/people', record.id)
         return null
       },
-    },
-    [E.customers.customer_person_profile]: {
+    }
+  }
+  if (E.customers?.customer_person_profile) {
+    specs[E.customers.customer_person_profile] = {
       labelFields: ['preferred_name', 'display_name', 'first_name', 'last_name'],
       extraFields: ['entity_id', 'first_name', 'last_name'],
       buildHref: (record) => {
         const entityId = readRecordValue(record, 'entity_id')
         return entityId ? buildSimpleHref('/backend/customers/people', entityId) : null
       },
-    },
-    [E.customers.customer_company_profile]: {
+    }
+  }
+  if (E.customers?.customer_company_profile) {
+    specs[E.customers.customer_company_profile] = {
       labelFields: ['brand_name', 'display_name', 'legal_name'],
       extraFields: ['entity_id'],
       buildHref: (record) => {
         const entityId = readRecordValue(record, 'entity_id')
         return entityId ? buildSimpleHref('/backend/customers/companies', entityId) : null
       },
-    },
-    [E.customers.customer_deal]: {
+    }
+  }
+  if (E.customers?.customer_deal) {
+    specs[E.customers.customer_deal] = {
       labelFields: ['title'],
       buildHref: (record) => buildSimpleHref('/backend/customers/deals', record.id),
-    },
-    [E.sales.sales_channel]: {
+    }
+  }
+  if (E.sales?.sales_channel) {
+    specs[E.sales.sales_channel] = {
       labelFields: ['name', 'title'],
       buildHref: (record) => buildSimpleHref('/backend/sales/channels', record.id, '/edit'),
-    },
+    }
   }
+
+  _entityLinkSpecsCache = specs
   return _entityLinkSpecsCache
 }
 
@@ -161,7 +177,7 @@ function isUuid(value: string | null | undefined): boolean {
 
 function filterIdsForEntity(entityId: string, ids: string[]): string[] {
   const E = getEntityIds() as any
-  if (entityId === E.catalog.catalog_product_variant || entityId === E.catalog.catalog_product) {
+  if (entityId === E.catalog?.catalog_product_variant || entityId === E.catalog?.catalog_product) {
     return ids.filter((id) => isUuid(id))
   }
   return ids
