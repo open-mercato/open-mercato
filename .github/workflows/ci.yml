@@ -1,4 +1,6 @@
 name: CI for Develop&Main
+permissions:
+  contents: read
 
 on:
   pull_request:
