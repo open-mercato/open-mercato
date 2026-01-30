@@ -46,8 +46,10 @@ type AiToolDefinition = {
 
 const searchQueryTool: AiToolDefinition = {
   name: 'search_query',
-  description:
-    'Search across all data in Open Mercato. Searches customers, products, orders, and other entities using hybrid search (full-text, semantic, and keyword matching).',
+  description: `Search across all data using hybrid search. Use this FIRST for finding records.
+
+Returns: title, subtitle, entityType, recordId, url for each match.
+Searches customers, products, orders, deals, and more in one call.`,
   inputSchema: z.object({
     query: z.string().min(1).describe('The search query text'),
     limit: z
@@ -147,8 +149,7 @@ const searchStatusTool: AiToolDefinition = {
 
 const searchGetTool: AiToolDefinition = {
   name: 'search_get',
-  description:
-    'Retrieve full record details by entity type and record ID. Use this after search_query to get complete data for a specific record.',
+  description: `Get full record details by entityType and recordId from search_query results.`,
   inputSchema: z.object({
     entityType: z
       .string()

@@ -17,15 +17,33 @@ export async function POST(req: Request) {
   const email = String(form.get('email') ?? '')
   const password = String(form.get('password') ?? '')
   const remember = parseBooleanToken(form.get('remember')?.toString()) === true
+  const tenantIdRaw = String(form.get('tenantId') ?? form.get('tenant') ?? '').trim()
   const requireRoleRaw = (String(form.get('requireRole') ?? form.get('role') ?? '')).trim()
   const requiredRoles = requireRoleRaw ? requireRoleRaw.split(',').map((s) => s.trim()).filter(Boolean) : []
-  const parsed = userLoginSchema.pick({ email: true, password: true }).safeParse({ email, password })
+  const parsed = userLoginSchema.pick({ email: true, password: true, tenantId: true }).safeParse({
+    email,
+    password,
+    tenantId: tenantIdRaw || undefined,
+  })
   if (!parsed.success) {
     return NextResponse.json({ ok: false, error: translate('auth.login.errors.invalidCredentials', 'Invalid credentials') }, { status: 400 })
   }
   const container = await createRequestContainer()
   const auth = (container.resolve('authService') as AuthService)
-  const user = await auth.findUserByEmail(parsed.data.email)
+  const tenantId = parsed.data.tenantId ?? null
+  let user = null
+  if (tenantId) {
+    user = await auth.findUserByEmailAndTenant(parsed.data.email, tenantId)
+  } else {
+    const users = await auth.findUsersByEmail(parsed.data.email)
+    if (users.length > 1) {
+      return NextResponse.json({
+        ok: false,
+        error: translate('auth.login.errors.tenantRequired', 'Use the login link provided with your tenant activation to continue.'),
+      }, { status: 400 })
+    }
+    user = users[0] ?? null
+  }
   if (!user || !user.passwordHash) {
     return NextResponse.json({ ok: false, error: translate('auth.login.errors.invalidCredentials', 'Invalid email or password') }, { status: 401 })
   }
@@ -35,26 +53,27 @@ export async function POST(req: Request) {
   }
   // Optional role requirement
   if (requiredRoles.length) {
-    const userRoleNames = await auth.getUserRoles(user, user.tenantId ? String(user.tenantId) : null)
+    const userRoleNames = await auth.getUserRoles(user, tenantId ?? (user.tenantId ? String(user.tenantId) : null))
     const authorized = requiredRoles.some(r => userRoleNames.includes(r))
     if (!authorized) {
       return NextResponse.json({ ok: false, error: translate('auth.login.errors.permissionDenied', 'Not authorized for this area') }, { status: 403 })
     }
   }
   await auth.updateLastLoginAt(user)
-  const userRoleNames = await auth.getUserRoles(user, user.tenantId ? String(user.tenantId) : null)
+  const resolvedTenantId = tenantId ?? (user.tenantId ? String(user.tenantId) : null)
+  const userRoleNames = await auth.getUserRoles(user, resolvedTenantId)
   try {
     const eventBus = (container.resolve('eventBus') as EventBus)
     void eventBus.emitEvent('query_index.coverage.warmup', {
-      tenantId: user.tenantId ? String(user.tenantId) : null,
+      tenantId: resolvedTenantId,
     }).catch(() => undefined)
   } catch {
     // optional warmup
   }
   const token = signJwt({ 
     sub: String(user.id), 
-    tenantId: user.tenantId ? String(user.tenantId) : null, 
-    orgId: user.organizationId ? String(user.organizationId) : null, 
+    tenantId: resolvedTenantId, 
+    orgId: user.organizationId ? String(user.organizationId) : null,
     email: user.email, 
     roles: userRoleNames 
   })

@@ -1,12 +1,11 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
 import * as fs from 'fs'
 import * as path from 'path'
+import { fileURLToPath } from 'node:url'
 import { WorkflowDefinition, type WorkflowDefinitionData } from '../data/entities'
 import { BusinessRule, type RuleType } from '@open-mercato/core/modules/business_rules/data/entities'
-import checkoutDemoDefinition from '../examples/checkout-demo-definition.json'
-import guardRulesExample from '../examples/guard-rules-example.json'
-import salesPipelineDefinition from '../examples/sales-pipeline-definition.json'
-import simpleApprovalDefinition from '../examples/simple-approval-definition.json'
+
+const __esmDirname = path.dirname(fileURLToPath(import.meta.url))
 
 export type WorkflowSeedScope = { tenantId: string; organizationId: string }
 
@@ -46,20 +45,9 @@ type GuardRuleSeed = {
   labelsJson?: Record<string, string>
 }
 
-const embeddedSeeds: Record<string, unknown> = {
-  'checkout-demo-definition.json': checkoutDemoDefinition,
-  'guard-rules-example.json': guardRulesExample,
-  'sales-pipeline-definition.json': salesPipelineDefinition,
-  'simple-approval-definition.json': simpleApprovalDefinition,
-}
-
 function readExampleJson<T>(fileName: string): T {
-  const embedded = embeddedSeeds[fileName]
-  if (embedded) {
-    return embedded as T
-  }
   const candidates = [
-    path.join(__dirname, '..', 'examples', fileName),
+    path.join(__esmDirname, '..', 'examples', fileName),
     path.join(process.cwd(), 'packages', 'core', 'src', 'modules', 'workflows', 'examples', fileName),
     path.join(process.cwd(), 'src', 'modules', 'workflows', 'examples', fileName),
   ]
@@ -90,16 +78,35 @@ async function seedWorkflowDefinition(
   })
 
   if (existing) {
-    // Check if the definition needs to be updated (e.g., missing preConditions on START step)
+    // Check if the definition needs to be updated by comparing steps and transitions
+    const seedStepCount = seed.definition.steps.length
+    const existingStepCount = existing.definition.steps.length
+    const seedTransitionCount = seed.definition.transitions.length
+    const existingTransitionCount = existing.definition.transitions.length
+
+    // Check for preConditions on transitions
+    const seedHasTransitionPreConditions = seed.definition.transitions.some(
+      (t: any) => t.preConditions && t.preConditions.length > 0
+    )
+    const existingHasTransitionPreConditions = existing.definition.transitions.some(
+      (t: any) => t.preConditions && t.preConditions.length > 0
+    )
+
+    // Check for preConditions on START step
     const seedStartStep = seed.definition.steps.find((s: any) => s.stepType === 'START')
     const existingStartStep = existing.definition.steps.find((s: any) => s.stepType === 'START')
+    const seedHasStartPreConditions = seedStartStep?.preConditions && seedStartStep.preConditions.length > 0
+    const existingHasStartPreConditions = existingStartStep?.preConditions && existingStartStep.preConditions.length > 0
 
-    const seedHasPreConditions = seedStartStep?.preConditions && seedStartStep.preConditions.length > 0
-    const existingHasPreConditions = existingStartStep?.preConditions && existingStartStep.preConditions.length > 0
+    // Update if structure has changed
+    const needsUpdate =
+      seedStepCount !== existingStepCount ||
+      seedTransitionCount !== existingTransitionCount ||
+      (seedHasStartPreConditions && !existingHasStartPreConditions) ||
+      (seedHasTransitionPreConditions && !existingHasTransitionPreConditions)
 
-    // Update if seed has preConditions but existing doesn't
-    if (seedHasPreConditions && !existingHasPreConditions) {
-      console.log(`[seed] Updating workflow ${workflowId} with preConditions`)
+    if (needsUpdate) {
+      console.log(`[seed] Updating workflow ${workflowId} (steps: ${existingStepCount}→${seedStepCount}, transitions: ${existingTransitionCount}→${seedTransitionCount})`)
       existing.definition = seed.definition
       await em.flush()
       return true
@@ -172,4 +179,6 @@ export async function seedExampleWorkflows(em: EntityManager, scope: WorkflowSee
   await seedGuardRules(em, scope, 'guard-rules-example.json')
   await seedWorkflowDefinition(em, scope, 'sales-pipeline-definition.json')
   await seedWorkflowDefinition(em, scope, 'simple-approval-definition.json')
+  await seedGuardRules(em, scope, 'order-approval-guard-rules.json')
+  await seedWorkflowDefinition(em, scope, 'order-approval-definition.json')
 }

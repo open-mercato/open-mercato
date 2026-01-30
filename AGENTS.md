@@ -90,24 +90,32 @@ import type { SalesOrderEntity } from '@open-mercato/core/modules/sales'
 
 ## Documentation and Specifications
 
-Architecture Decision Records (ADR) and feature specifications are maintained in the `.ai/specs/` folder. This serves as the source of truth for design decisions and module specifications.
+Architecture Decision Records (ADRs) and feature specifications are maintained in the `.ai/specs/` folder. This serves as the source of truth for design decisions and module specifications.
 
 ### Spec Files
-- Location: `.ai/specs/<module-name>.md` (e.g., `.ai/specs/notifications-module.md`)
+
+- **Naming convention**: `SPEC-{number}-{date}-{title}.md` (e.g., `SPEC-003-2026-01-23-notifications-module.md`)
+- **Number**: Sequential identifier (001, 002, 003, etc.)
+- **Date**: Creation date in ISO format (YYYY-MM-DD)
+- **Title**: Descriptive kebab-case title
 - Each spec documents the module's purpose, architecture, API contracts, data models, and implementation details.
 - Specs should include a **Changelog** section at the bottom to track evolution over time.
+- See [`.ai/specs/README.md`](.ai/specs/README.md) for the full specification directory.
 
 ### When Developing Features
-1. **Before coding**: Check if a spec exists for the module you're modifying. Read it to understand the design intent.
+
+1. **Before coding**: Check if a spec exists for the module you're modifying. Browse [`.ai/specs/README.md`](.ai/specs/README.md) or search for `SPEC-*-{module-name}.md` files.
 2. **When adding features**: Update the corresponding spec file with:
    - New functionality description
    - API changes
    - Data model updates
    - A changelog entry with date and summary
-3. **When creating new modules**: Create a new spec file at `.ai/specs/<module-name>.md` before or alongside implementation.
+3. **When creating new modules**: Create a new spec file at `.ai/specs/SPEC-{next-number}-{YYYY-MM-DD}-{module-name}.md` before or alongside implementation, and update the directory table in [`.ai/specs/README.md`](.ai/specs/README.md).
 
 ### Spec Changelog Format
+
 Each spec should maintain a changelog at the bottom:
+
 ```markdown
 ## Changelog
 
@@ -120,10 +128,13 @@ Each spec should maintain a changelog at the bottom:
 ```
 
 ### Auto-generating Specs
+
 Even when not explicitly asked to update specs, agents should:
+
 - Generate or update the spec when implementing significant changes
 - Keep specs synchronized with the actual implementation
 - Document any architectural decisions made during development
+- Update the spec directory table in [`.ai/specs/README.md`](.ai/specs/README.md) when creating new specs
 
 This ensures the `.ai/specs/` folder remains a reliable reference for understanding module behavior and history.
 
@@ -182,6 +193,7 @@ All module paths below use `src/modules/<module>/` as a shorthand. In practice:
 - Optional CLI at `src/modules/<module>/cli.ts` default export
 - Optional metadata at `src/modules/<module>/index.ts` exporting `metadata`
 - Optional features at `src/modules/<module>/acl.ts` exporting `features`
+- Optional setup at `src/modules/<module>/setup.ts` exporting `setup` (see [Module Setup Convention](#module-setup-convention) below)
 - Optional custom entities at `src/modules/<module>/ce.ts` exporting `entities`
 - Optional DI registrar at `src/modules/<module>/di.ts` exporting `register(container)`
 - Optional upgrade actions: declare once per version in `packages/core/src/modules/configs/lib/upgrade-actions.ts`; actions are auto-discovered by the backend upgrade banner and stored per tenant/organization in `upgrade_action_runs`. Keep them idempotent, reuse module helpers (e.g., catalog seeds), and do not introduce new features—access is guarded by `configs.manage`.
@@ -193,11 +205,30 @@ All module paths below use `src/modules/<module>/` as a shorthand. In practice:
   - `defineLink()` with `entityId()` or `linkable()` for module-to-module extensions.
   - `defineFields()` with `cf.*` helpers for field sets.
 - Generated registries now flow through DI bindings. Generated files are in `apps/mercato/.mercato/generated/`. Do not import generated files inside packages; only the app bootstrap should import and register them.
-  - Generated files: `modules.generated.ts`, `entities.generated.ts`, `di.generated.ts`, `entities.ids.generated.ts`, `dashboard-widgets.generated.ts`, `injection-widgets.generated.ts`, `injection-tables.generated.ts`, `search.generated.ts`, `modules.cli.generated.ts`
+  - Generated files: `modules.generated.ts`, `entities.generated.ts`, `di.generated.ts`, `entities.ids.generated.ts`, `dashboard-widgets.generated.ts`, `injection-widgets.generated.ts`, `injection-tables.generated.ts`, `search.generated.ts`, `ai-tools.generated.ts`, `modules.cli.generated.ts`
   - Bootstrap registration: `registerOrmEntities`, `registerDiRegistrars`, `registerModules`/`registerCliModules`, `registerEntityIds`, `registerDashboardWidgets`, `registerInjectionWidgets`, `registerCoreInjectionWidgets`/`registerCoreInjectionTables`.
   - Runtime access: `getOrmEntities`, `getDiRegistrars`, `getModules`, `getCliModules`, `getEntityIds`, `getDashboardWidgets`, `getInjectionWidgets`, `getCoreInjectionWidgets`/`getCoreInjectionTables`.
   - Tests: use `bootstrapTest` from `@open-mercato/shared/lib/testing/bootstrap` to register only what the test needs.
 - Widget injection is the preferred way to build inter-module UI extensions. Declare widgets under `src/modules/<module>/widgets/injection`, map them to slots via `widgets/injection-table.ts`, and keep metadata in colocated `*.meta.ts` files when needed. Avoid coupling modules directly—inject UI instead. Hosts expose consistent spot ids (`crud-form:<entityId>`, `data-table:<tableId>[:header|:footer]`, `admin.page:<path>:before|after`), and widgets can opt into grouped cards or tabs via `placement.kind`.
+- **Notifications**: Modules can define notification types and custom UI renderers for in-app notifications.
+  - **Notification types**: Declare in `src/modules/<module>/notifications.ts` exporting `notificationTypes: NotificationTypeDefinition[]`. Auto-discovered by the generator and aggregated into `notifications.generated.ts`.
+  - **Notification subscribers**: Create event subscribers in `src/modules/<module>/subscribers/` to emit notifications when domain events occur (e.g., `sales.order.created`).
+  - **Custom notification renderers** (client-side): Declare in `src/modules/<module>/notifications.client.ts` with React component renderers. Store renderer components in `src/modules/<module>/widgets/notifications/`.
+  - **File structure example** (sales module):
+    ```
+    packages/core/src/modules/sales/
+    ├── notifications.ts                    # Server-side type definitions (for generator)
+    ├── notifications.client.ts             # Client-side types with Renderer components
+    ├── subscribers/
+    │   ├── order-created-notification.ts   # Subscribes to sales.order.created
+    │   └── quote-created-notification.ts   # Subscribes to sales.quote.created
+    └── widgets/
+        └── notifications/
+            ├── index.ts
+            ├── SalesOrderCreatedRenderer.tsx
+            └── SalesQuoteCreatedRenderer.tsx
+    ```
+  - **i18n**: Add notification-related translations to `src/modules/<module>/i18n/<locale>.json` under `<module>.notifications.*` keys.
 - Reuse the shared custom-field helpers from `packages/shared` (e.g., `splitCustomFieldPayload`, `normalizeCustomFieldValues`, `normalizeCustomFieldResponse`) instead of re-implementing cf_* parsing or normalization.
 - When submitting CRUD forms, collect custom-field payloads via `collectCustomFieldValues()` from `@open-mercato/ui/backend/utils/customFieldValues` instead of ad-hoc loops. Pass `{ transform }` to normalize values (e.g., `normalizeCustomFieldSubmitValue`) and always reuse this helper for both `cf_` and `cf:` prefixed keys so forms stay consistent.
 - Custom entities CRUD: follow the customers module API patterns (CRUD factory + query engine). Always wire custom field helpers for create/update/response normalization, and set `indexer: { entityType }` in `makeCrudRoute` so custom entities stay indexed and custom fields remain queryable.
@@ -340,7 +371,7 @@ All module paths below use `src/modules/<module>/` as a shorthand. In practice:
 - New CRUD forms should use `CrudForm` wired to CRUD factory/commands APIs and be shared between create/edit flows.
 - Prefer reusing components from the shared `packages/ui` package before introducing new UI primitives.
 - For new `DataTable` columns, set `meta.truncate` and `meta.maxWidth` in the column config when you need specific truncation behavior; only rely on defaults when those are not set.
-- When you create new UI check reusable components before creating UI from scratch (see `.ai/specs/ui-reusable-components.md`)
+- When you create new UI check reusable components before creating UI from scratch (see [`.ai/specs/SPEC-001-2026-01-21-ui-reusable-components.md`](.ai/specs/SPEC-001-2026-01-21-ui-reusable-components.md))
 
 ### Type Safety Addendum
 - Centralize reusable types and constants (e.g., custom field kinds) in `packages/shared` and import them everywhere to avoid drift.
@@ -355,8 +386,124 @@ All module paths below use `src/modules/<module>/` as a shorthand. In practice:
   - Request scoping helpers (`withScopedPayload`, `parseScopedCommandInput`, etc.) live in `packages/shared/src/lib/api/scoped.ts`. Import from there instead of redefining per module so tenants/organization enforcement stays consistent. Prefer `createScopedApiHelpers()` to tailor module-specific translations while keeping behaviour aligned.
 - Catalog price selection, channel scoping, and layered overrides must use the helpers exported from `packages/core/src/modules/catalog/lib/pricing.ts`. Reuse `selectBestPrice`, `resolvePriceVariantId`, etc., instead of reimplementing scoring logic. If you need to customize the algorithm, register a resolver via `registerCatalogPricingResolver(resolver, { priority })` so your logic composes with the default `resolveCatalogPrice` pipeline. The helper now emits `catalog.pricing.resolve.before|after` events; reach for the DI token `catalogPricingService` when you need to resolve prices so overrides (event-driven or service swaps) take effect.
 - Order/quote totals must be computed through the DI-provided `salesCalculationService`, which wraps the existing `salesCalculations` registry and dispatches `sales.line.calculate.*` / `sales.document.calculate.*` events. Never reimplement document math inline; register line/totals calculators or override the service via DI.
-- When adding new module features in `acl.ts`, mirror them in the `mercato init` role seeding (see `packages/core/src/modules/auth/cli.ts`) so the default admin role ships with immediate access to the capabilities you just enabled.
+- When adding new module features in `acl.ts`, also declare them in `setup.ts` `defaultRoleFeatures` so the admin/employee roles are automatically seeded with those features during tenant creation (see [Module Setup Convention](#module-setup-convention)).
 - `ce.ts` files only describe custom entities or seed default custom-field sets. Always reference generated ids (`E.<module>.<entity>`) so system entities stay aligned with `generated/entities.ids.generated.ts`. System tables (e.g. catalog/sales documents) are auto-discovered from ORM metadata—exporting them in `ce.ts` is just for labeling/field seeding and will not register them as user-defined entities.
+
+## Module Setup Convention
+
+Every module that participates in tenant initialization **must** declare a `setup.ts` file at its root (`src/modules/<module>/setup.ts`). The generator auto-discovers these files and includes them in `modules.generated.ts`. This is the mechanism that keeps modules decoupled — no module should be hardcoded in `setup-app.ts`, `mercato init`, or onboarding flows.
+
+See [SPEC-013](.ai/specs/SPEC-013-2026-01-27-decouple-module-setup.md) for the full architecture decision record.
+
+### Type definition
+
+The `ModuleSetupConfig` type is defined in `packages/shared/src/modules/setup.ts`:
+
+```typescript
+import type { ModuleSetupConfig } from '@open-mercato/shared/modules/setup'
+```
+
+### The `setup.ts` contract
+
+```typescript
+// src/modules/<module>/setup.ts
+import type { ModuleSetupConfig } from '@open-mercato/shared/modules/setup'
+
+export const setup: ModuleSetupConfig = {
+  // 1. Declarative: which features each default role gets
+  defaultRoleFeatures: {
+    superadmin: ['my_module.admin_only_feature'],
+    admin: ['my_module.*'],
+    employee: ['my_module.view'],
+  },
+
+  // 2. Called inside setupInitialTenant() after tenant/org is created.
+  //    For lightweight structural defaults: settings rows, numbering sequences.
+  //    Must be idempotent. Always runs.
+  async onTenantCreated({ em, tenantId, organizationId }) {
+    // Seed settings, sequences, or config rows
+  },
+
+  // 3. Called during mercato init / onboarding after tenant exists.
+  //    For reference data: dictionaries, tax rates, statuses, units.
+  //    Always runs (not gated by --no-examples).
+  async seedDefaults({ em, tenantId, organizationId, container }) {
+    // Seed structural/reference data
+  },
+
+  // 4. Called during mercato init / onboarding ONLY when examples are requested.
+  //    For demo data: sample products, customers, orders.
+  async seedExamples({ em, tenantId, organizationId, container }) {
+    // Seed example/demo data
+  },
+}
+
+export default setup
+```
+
+### Lifecycle hooks
+
+| Hook | When it runs | Gate | Use case |
+|------|-------------|------|----------|
+| `onTenantCreated` | Inside `setupInitialTenant()`, after tenant+org created | Always | Settings rows, numbering sequences, lightweight config |
+| `seedDefaults` | After tenant setup, during init/onboarding | Always | Dictionaries, tax rates, statuses, units, address types |
+| `seedExamples` | After `seedDefaults`, during init/onboarding | Skipped with `--no-examples` | Demo products, customers, orders |
+| `defaultRoleFeatures` | Declarative, merged during `ensureDefaultRoleAcls()` | Always | Role ACL feature assignments |
+
+### When to create a `setup.ts`
+
+Create a `setup.ts` when your module needs any of the following:
+- **Default role features** — the admin/employee/superadmin roles should have access to your module's features after tenant creation.
+- **Tenant initialization** — your module needs settings, sequences, or config rows created when a new tenant is provisioned.
+- **Structural seed data** — your module has reference data (dictionaries, statuses, units) that every tenant needs.
+- **Example data** — your module can provide demo data for new installs.
+
+### Keeping modules decoupled
+
+The `setup.ts` convention replaces hardcoded imports in `setup-app.ts`, `mercato init`, and onboarding verify. Follow these rules:
+
+1. **Never hardcode module-specific logic in `setup-app.ts`**. If a module needs initialization, add it to that module's `setup.ts`.
+2. **Never directly import another module's seed functions** from `mercato init` or onboarding. The `seedDefaults`/`seedExamples` hooks handle this automatically.
+3. **Access entity IDs with optional chaining** when referencing other modules: `(E as any).catalog?.catalog_product`. This ensures the code doesn't crash if the referenced module is disabled.
+4. **Use `getEntityIds()` at runtime** (not import-time) when building lookups that reference other modules' entities. This allows the code to adapt to which modules are enabled.
+
+### Adding features to default roles
+
+When you add new features in `acl.ts`, also add them to `setup.ts` `defaultRoleFeatures`:
+
+```typescript
+// acl.ts
+export const features = [
+  { id: 'my_module.view', title: 'View items', module: 'my_module' },
+  { id: 'my_module.manage', title: 'Manage items', module: 'my_module' },
+]
+
+// setup.ts
+export const setup: ModuleSetupConfig = {
+  defaultRoleFeatures: {
+    admin: ['my_module.*'],
+    employee: ['my_module.view'],
+  },
+}
+```
+
+This replaces the old pattern of editing `setup-app.ts` to add features to the hardcoded role arrays.
+
+### Testing with disabled modules
+
+The module-decoupling test (`packages/core/src/__tests__/module-decoupling.test.ts`) verifies that the app works when optional modules are disabled. When writing tests that depend on the module registry:
+
+```typescript
+import { registerModules } from '@open-mercato/shared/lib/modules/registry'
+import type { Module } from '@open-mercato/shared/modules/registry'
+
+// Register modules before test runs
+const testModules: Module[] = [
+  { id: 'auth', setup: { defaultRoleFeatures: { admin: ['auth.*'] } } },
+  // ... other modules your test needs
+]
+registerModules(testModules)
+```
 
 ## Search Module Configuration
 - **Every module with searchable entities MUST provide a `search.ts` file** at `src/modules/<module>/search.ts` or `packages/<package>/src/modules/<module>/search.ts`.
@@ -474,10 +621,9 @@ See `packages/search/src/modules/search/README.md` for full documentation.
 The AI Assistant provides two MCP HTTP server modes:
 
 #### Development Server (`yarn mcp:dev`)
-For local development and Claude Code integration. Authenticates once at startup using an API key - no session tokens required per request.
+For local development and Claude Code integration. Authenticates once at startup using an API key from `.mcp.json` - no session tokens required per request.
 
 ```bash
-# Reads API key from .mcp.json headers.x-api-key or OPEN_MERCATO_API_KEY env
 yarn mcp:dev
 ```
 
@@ -497,7 +643,6 @@ yarn mcp:dev
 ```
 
 **Environment variables:**
-- `OPEN_MERCATO_API_KEY` - API key (alternative to .mcp.json)
 - `MCP_DEV_PORT` - Port (default: 3001)
 - `MCP_DEBUG` - Enable debug logging (`true`/`false`)
 
@@ -551,3 +696,204 @@ yarn mercato ai_assistant mcp:list-tools --verbose
 - Session validation: `packages/ai-assistant/src/modules/ai_assistant/lib/http-server.ts`
 - API key service: `packages/core/src/modules/api_keys/services/apiKeyService.ts`
 - CLI commands: `packages/ai-assistant/src/modules/ai_assistant/cli.ts`
+- Tool loader: `packages/ai-assistant/src/modules/ai_assistant/lib/tool-loader.ts`
+
+### Module AI Tools
+
+Modules can expose AI tools via MCP by creating an `ai-tools.ts` file. Tools are **auto-discovered** by the generator - no manual registration required.
+
+**File location**: `src/modules/<module>/ai-tools.ts` (for packages: `packages/<package>/src/modules/<module>/ai-tools.ts`)
+
+**Structure**:
+```typescript
+import { z } from 'zod'
+import type { AiToolDefinition } from '@open-mercato/ai-assistant'
+
+export const aiTools: AiToolDefinition[] = [
+  {
+    name: 'module_action',          // No dots allowed, use underscores
+    description: 'What this tool does',
+    inputSchema: z.object({
+      param: z.string().describe('Parameter description'),
+    }),
+    requiredFeatures: ['module.feature'],  // ACL features required
+    handler: async (input, ctx) => {
+      const service = ctx.container.resolve('myService')
+      return { success: true }
+    },
+  },
+]
+```
+
+**Registration flow**:
+1. Create `ai-tools.ts` in your module
+2. Run `npm run modules:prepare` (generates `ai-tools.generated.ts`)
+3. Tools are automatically loaded at MCP server startup
+
+**Generated file**: `apps/mercato/.mercato/generated/ai-tools.generated.ts`
+
+**Example**: See `packages/search/src/modules/search/ai-tools.ts` for search-related tools.
+
+### MCP Tools Reference
+
+The AI assistant exposes 4 core tools via MCP for understanding and interacting with the system:
+
+#### `entity_context` - Get full context for an entity
+
+Use when you need to understand a database entity (fields, relationships, API endpoints).
+
+**Input:** `{ "entity": "SalesOrder" }`
+
+**Output:**
+- `entity.fields` - All columns with types and nullability
+- `relationships` - Array of triples: `(Entity)-[TYPE:property]->(Target)`
+- `endpoints` - CRUD operations with paths and operationIds
+
+**Example usage:**
+```
+"I need to create a sales order"
+-> Call entity_context("SalesOrder")
+-> Get fields + POST endpoint
+-> Call api_execute with the endpoint
+```
+
+#### `schema_overview` - Discover entities and relationships
+
+Use for high-level exploration: what entities exist, how they relate.
+
+**Input:**
+- `{ }` - Get all entities grouped by module
+- `{ "module": "sales" }` - Filter to one module
+- `{ "includeGraph": true }` - Include relationship triples
+
+**Output:**
+- `stats` - Total entities, relationships, modules
+- `entities` - Entities grouped by module
+- `graph` - Relationship triples (if requested)
+
+**Example usage:**
+```
+"What entities are in the sales module?"
+-> Call schema_overview({ module: "sales" })
+```
+
+#### `api_discover` - Search API endpoints
+
+Use to find endpoints by natural language query. Returns schema summary.
+
+**Input:** `{ "query": "create order", "method": "POST" }`
+
+**Output:** Matching endpoints with:
+- `path`, `method`, `operationId`
+- `requestBody` - Schema with required fields and types
+
+**Example usage:**
+```
+"How do I update a customer?"
+-> Call api_discover({ query: "update customer" })
+```
+
+#### `api_execute` - Call an API endpoint
+
+Use to execute API operations after discovering the endpoint.
+
+**Input:**
+```json
+{
+  "method": "POST",
+  "path": "/api/sales/orders",
+  "body": { "customerId": "...", "lines": [...] }
+}
+```
+
+**Workflow pattern:**
+1. `entity_context` or `api_discover` -> understand the API
+2. `api_execute` -> make the call
+
+### Relationship Triple Format
+
+Relationships are always expressed as triples:
+```
+(SourceEntity)-[RELATIONSHIP_TYPE:propertyName]->(TargetEntity)
+```
+
+Types:
+- `BELONGS_TO` - ManyToOne (e.g., OrderLine belongs to Order)
+- `HAS_MANY` - OneToMany (e.g., Order has many Lines)
+- `HAS_ONE` - OneToOne owner
+- `BELONGS_TO_ONE` - OneToOne inverse
+- `HAS_MANY_MANY` / `BELONGS_TO_MANY` - ManyToMany
+
+The `?` suffix indicates nullable: `(Order)-[BELONGS_TO?:channel]->(Channel)`
+
+## Event Module Configuration
+
+Modules that emit events must declare them in an `events.ts` file for type safety, runtime validation, and workflow trigger discovery.
+
+### Creating Module Events
+
+**File**: `src/modules/<module>/events.ts`
+
+```typescript
+import { createModuleEvents } from '@open-mercato/shared/modules/events'
+
+const events = [
+  { id: 'customers.people.created', label: 'Customer (Person) Created', entity: 'people', category: 'crud' },
+  { id: 'customers.people.updated', label: 'Customer (Person) Updated', entity: 'people', category: 'crud' },
+  { id: 'customers.people.deleted', label: 'Customer (Person) Deleted', entity: 'people', category: 'crud' },
+  // Lifecycle events can be excluded from workflow triggers
+  { id: 'customers.pricing.resolve.before', label: 'Before Pricing Resolve', category: 'lifecycle', excludeFromTriggers: true },
+] as const
+
+export const eventsConfig = createModuleEvents({
+  moduleId: 'customers',
+  events,
+})
+
+// Export typed emit function for use in commands
+export const emitCustomersEvent = eventsConfig.emit
+
+// Export event IDs as a type for external use
+export type CustomersEventId = typeof events[number]['id']
+
+export default eventsConfig
+```
+
+### Event Definition Fields
+
+| Field | Required | Description |
+|-------|----------|-------------|
+| `id` | Yes | Event identifier (pattern: `module.entity.action`) |
+| `label` | Yes | Human-readable label for UI |
+| `description` | No | Optional detailed description |
+| `category` | No | `'crud'` \| `'lifecycle'` \| `'system'` \| `'custom'` |
+| `entity` | No | Associated entity name |
+| `excludeFromTriggers` | No | If `true`, hidden from workflow trigger selection |
+
+### TypeScript Enforcement
+
+Using `as const` with the events array provides compile-time safety:
+
+```typescript
+// ✅ Compiles - event is declared
+emitCustomersEvent('customers.people.created', { id: '123', tenantId: 'abc' })
+
+// ❌ TypeScript error - event not declared
+emitCustomersEvent('customers.people.exploded', { id: '123' })
+```
+
+### Runtime Validation
+
+Undeclared events trigger runtime warnings:
+```
+[events] Module "customers" tried to emit undeclared event "customers.people.exploded".
+Add it to the module's events.ts file first.
+```
+
+### Auto-Discovery
+
+Events are auto-discovered by generators and registered via `generated/events.generated.ts`. Run `npm run modules:prepare` after creating or modifying `events.ts` files.
+
+### UI Integration
+
+Use the `EventSelect` component from `@open-mercato/ui/backend/inputs/EventSelect` for event selection. It fetches declared events via the `/api/events` endpoint.

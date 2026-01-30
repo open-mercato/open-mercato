@@ -5,12 +5,10 @@ services:
     build:
       context: ./docker/opencode
     image: opencode-mvp
-    container_name: mercato-opencode
+    container_name: mercato-opencode-${DEPLOY_ENV:-local}
     restart: unless-stopped
     environment:
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}
-    ports:
-      - "${OPENCODE_PORT:-4096}:4096"
     extra_hosts:
       - "host.docker.internal:host-gateway"
     networks:
@@ -19,30 +17,52 @@ services:
   app:
     build:
       context: .
-    image: open-mercato/app:dev
+      args:
+        - CONTAINER_PORT=${CONTAINER_PORT:-3000}
+    image: open-mercato/app:${DEPLOY_ENV:-local}
+    user: "0"
     command: >
-      sh -c "yarn mercato init &&
+      sh -c "if [ ! -f /tmp/init-marker/.seeded ]; then
+        echo 'First run: full initialization...';
+        yarn mercato init && mkdir -p /tmp/init-marker && touch /tmp/init-marker/.seeded;
+      else
+        echo 'Subsequent run: migrations only...';
+        yarn db:migrate;
+      fi &&
       yarn start"
+    volumes:
+      - init_marker:/tmp/init-marker
     working_dir: /app/apps/mercato
     ports:
-      - "3000:3000"
-    volumes:
-      - ./apps/mercato/storage:/app/apps/mercato/storage
+      - "${APP_PORT:-3000}:${CONTAINER_PORT:-3000}"
     environment:
       TENANT_DATA_ENCRYPTION: ${TENANT_DATA_ENCRYPTION:-true}
       TENANT_DATA_ENCRYPTION_DEBUG: ${TENANT_DATA_ENCRYPTION_DEBUG:-false}
       TENANT_DATA_ENCRYPTION_FALLBACK_KEY: ${TENANT_DATA_ENCRYPTION_FALLBACK_KEY:-dev-tenant-encryption-fallback-key-32chars}
       NODE_ENV: development
-      DATABASE_URL: postgres://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/${POSTGRES_DB:-open-mercato}
+      DEPLOY_ENV: ${DEPLOY_ENV:-local}
+      PORT: ${CONTAINER_PORT:-3000}
+      DATABASE_URL: postgres://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@mercato-postgres-${DEPLOY_ENV:-local}:5432/${POSTGRES_DB:-open-mercato}
       JWT_SECRET: ${JWT_SECRET:-JWT}
-      APP_URL: http://localhost:3000
-      CACHE_REDIS_URL: redis://redis:6379
-      SELF_SERVICE_ONBOARDING_ENABLED: "false"
-      OPENAI_API_KEY: ${OPENAI_API_KEY}
-      DEMO_MODE: "true"
+      APP_URL: ${APP_URL:-http://localhost:3000}
+      CACHE_REDIS_URL: redis://mercato-redis-${DEPLOY_ENV:-local}:6379
       CACHE_STRATEGY: redis
-      MEILISEARCH_HOST: http://meilisearch:7700
+      ENABLE_CRUD_API_CACHE: ${ENABLE_CRUD_API_CACHE:-true}
+      OPENAI_API_KEY: ${OPENAI_API_KEY}
+      MEILISEARCH_HOST: http://mercato-meilisearch-${DEPLOY_ENV:-local}:7700
       MEILISEARCH_API_KEY: ${MEILISEARCH_MASTER_KEY:-meilisearch-dev-key}
+      NEXT_PUBLIC_UPGRADE_ACTIONS_ENABLED: ${NEXT_PUBLIC_UPGRADE_ACTIONS_ENABLED:-true}
+      UPGRADE_ACTIONS_ENABLED: ${UPGRADE_ACTIONS_ENABLED:-true}
+      SELF_SERVICE_ONBOARDING_ENABLED: ${SELF_SERVICE_ONBOARDING_ENABLED:-true}
+      DEMO_MODE: ${DEMO_MODE:-true}
+      RESEND_API_KEY: ${RESEND_API_KEY:-}
+      EMAIL_FROM: ${EMAIL_FROM:-}
+      NEW_RELIC_APP_NAME: ${NEW_RELIC_APP_NAME:-}
+      NEW_RELIC_LICENSE_KEY: ${NEW_RELIC_LICENSE_KEY:-}
+      TENANT_DATA_ENCRYPTION_KEY: ${TENANT_DATA_ENCRYPTION_KEY:-}
+      ADMIN_EMAIL: ${ADMIN_EMAIL:-admin@example.com}
+      OM_INIT_SUPERADMIN_EMAIL: ${OM_INIT_SUPERADMIN_EMAIL:-}
+      OM_INIT_SUPERADMIN_PASSWORD: ${OM_INIT_SUPERADMIN_PASSWORD:-password}
     depends_on:
       postgres:
         condition: service_healthy
@@ -55,14 +75,13 @@ services:
 
   postgres:
     image: pgvector/pgvector:pg17-trixie
-    container_name: mercato-postgres
+    container_name: mercato-postgres-${DEPLOY_ENV:-local}
     restart: unless-stopped
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-postgres}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
       POSTGRES_DB: ${POSTGRES_DB:-open-mercato}
-    ports:
-      - "${POSTGRES_PORT:-5432}:5432"
+    # ports not exposed - only accessible within docker network
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
@@ -75,9 +94,8 @@ services:
 
   redis:
     image: redis:7-alpine
-    container_name: mercato-redis
-    ports:
-      - "${REDIS_PORT:-6379}:6379"
+    container_name: mercato-redis-${DEPLOY_ENV:-local}
+    # ports not exposed - only accessible within docker network
     volumes:
       - redis_data:/data
     healthcheck:
@@ -90,14 +108,13 @@ services:
 
   meilisearch:
     image: getmeili/meilisearch:v1.11
-    container_name: mercato-meilisearch
+    container_name: mercato-meilisearch-${DEPLOY_ENV:-local}
     restart: unless-stopped
     environment:
       MEILI_ENV: development
       MEILI_MASTER_KEY: ${MEILISEARCH_MASTER_KEY:-meilisearch-dev-key}
       MEILI_NO_ANALYTICS: "true"
-    ports:
-      - "${MEILISEARCH_PORT:-7700}:7700"
+    # ports not exposed - only accessible within docker network
     volumes:
       - meilisearch_data:/meili_data
     healthcheck:
@@ -110,13 +127,15 @@ services:
 
 volumes:
   postgres_data:
-    name: mercato-postgres-data
+    name: mercato-postgres-data-${DEPLOY_ENV:-local}
   redis_data:
-    name: mercato-redis-data
+    name: mercato-redis-data-${DEPLOY_ENV:-local}
   meilisearch_data:
-    name: mercato-meilisearch-data
+    name: mercato-meilisearch-data-${DEPLOY_ENV:-local}
+  init_marker:
+    name: mercato-init-marker-${DEPLOY_ENV:-local}
 
 networks:
   mercato-network-fullapp:
-    name: mercato-network-fullapp
+    name: mercato-network-${DEPLOY_ENV:-local}
     driver: bridge

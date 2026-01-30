@@ -4,13 +4,15 @@ import { randomUUID } from 'crypto'
 import { z } from 'zod'
 import { registerCommand } from '@open-mercato/shared/lib/commands'
 import type { CommandHandler } from '@open-mercato/shared/lib/commands'
-import { emitCrudSideEffects, requireId } from '@open-mercato/shared/lib/commands/helpers'
+import { emitCrudSideEffects, requireId, type CrudEventsConfig } from '@open-mercato/shared/lib/commands/helpers'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { EventBus } from '@open-mercato/events'
 import type { DataEngine } from '@open-mercato/shared/lib/data/engine'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { deriveResourceFromCommandId, invalidateCrudCache } from '@open-mercato/shared/lib/crud/cache'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
+import { resolveNotificationService } from '../../notifications/lib/notificationService'
+import { buildFeatureNotificationFromType } from '../../notifications/lib/notificationBuilder'
 import { setRecordCustomFields } from '@open-mercato/core/modules/entities/lib/helpers'
 import { loadCustomFieldValues } from '@open-mercato/shared/lib/crud/custom-fields'
 import { normalizeCustomFieldValues } from '@open-mercato/shared/lib/custom-fields/normalize'
@@ -88,6 +90,30 @@ import { resolveDictionaryEntryValue } from '../lib/dictionaries'
 import { resolveStatusEntryIdByValue } from '../lib/statusHelpers'
 import { SalesDocumentNumberGenerator } from '../services/salesDocumentNumberGenerator'
 import { loadSalesSettings } from './settings'
+import { notificationTypes } from '../notifications'
+
+// CRUD events configuration for workflow triggers
+const orderCrudEvents: CrudEventsConfig<SalesOrder> = {
+  module: 'sales',
+  entity: 'orders',
+  persistent: true,
+  buildPayload: (ctx) => ({
+    id: ctx.identifiers.id,
+    organizationId: ctx.identifiers.organizationId,
+    tenantId: ctx.identifiers.tenantId,
+  }),
+}
+
+const quoteCrudEvents: CrudEventsConfig<SalesQuote> = {
+  module: 'sales',
+  entity: 'quotes',
+  persistent: true,
+  buildPayload: (ctx) => ({
+    id: ctx.identifiers.id,
+    organizationId: ctx.identifiers.organizationId,
+    tenantId: ctx.identifiers.tenantId,
+  }),
+}
 
 type DocumentAddressSnapshot = {
   id: string
@@ -3111,6 +3137,63 @@ const createQuoteCommand: CommandHandler<QuoteCreateInput, { quoteId: string }> 
     })
     await em.flush()
 
+    // Create notification for users with sales.quotes.manage feature
+    try {
+      const notificationService = resolveNotificationService(ctx.container)
+      const typeDef = notificationTypes.find((type) => type.type === 'sales.quote.created')
+      if (typeDef) {
+        const totalAmount = quote.grandTotalGrossAmount && quote.currencyCode
+          ? `${quote.grandTotalGrossAmount} ${quote.currencyCode}`
+          : ''
+        const totalDisplay = totalAmount ? ` (${totalAmount})` : ''
+        const notificationInput = buildFeatureNotificationFromType(typeDef, {
+          requiredFeature: 'sales.quotes.manage',
+          bodyVariables: {
+            quoteNumber: quote.quoteNumber,
+            total: totalDisplay,
+            totalAmount,
+          },
+          sourceEntityType: 'sales:quote',
+          sourceEntityId: quote.id,
+          linkHref: `/backend/sales/quotes/${quote.id}`,
+        })
+
+        await notificationService.createForFeature(notificationInput, {
+          tenantId: quote.tenantId,
+          organizationId: quote.organizationId ?? null,
+        })
+      }
+    } catch (err) {
+      // Notification creation is non-critical, don't fail the command
+      console.error('[sales.quotes.create] Failed to create notification:', err)
+    }
+
+    // Emit CRUD side effects to trigger workflow event listeners
+    const dataEngine = ctx.container.resolve('dataEngine') as DataEngine
+    await emitCrudSideEffects({
+      dataEngine,
+      action: 'created',
+      entity: quote,
+      identifiers: {
+        id: quote.id,
+        organizationId: quote.organizationId,
+        tenantId: quote.tenantId,
+      },
+      events: quoteCrudEvents,
+      indexer: { entityType: E.sales.sales_quote },
+    })
+
+    // Invalidate cache
+    const resourceKind = deriveResourceFromCommandId(createQuoteCommand.id) ?? 'sales.quote'
+    await invalidateCrudCache(
+      ctx.container,
+      resourceKind,
+      { id: quote.id, organizationId: quote.organizationId, tenantId: quote.tenantId },
+      ctx.auth?.tenantId ?? null,
+      'created'
+    )
+
+
     return { quoteId: quote.id }
   },
   captureAfter: async (_input, result, ctx) => {
@@ -3781,6 +3864,62 @@ const createOrderCommand: CommandHandler<OrderCreateInput, { orderId: string }> 
       tagIds: parsed.tags,
     })
     await em.flush()
+
+    // Create notification for users with sales.orders.manage feature
+    try {
+      const notificationService = resolveNotificationService(ctx.container)
+      const typeDef = notificationTypes.find((type) => type.type === 'sales.order.created')
+      if (typeDef) {
+        const totalAmount = order.grandTotalGrossAmount && order.currencyCode
+          ? `${order.grandTotalGrossAmount} ${order.currencyCode}`
+          : ''
+        const totalDisplay = totalAmount ? ` (${totalAmount})` : ''
+        const notificationInput = buildFeatureNotificationFromType(typeDef, {
+          requiredFeature: 'sales.orders.manage',
+          bodyVariables: {
+            orderNumber: order.orderNumber,
+            total: totalDisplay,
+            totalAmount,
+          },
+          sourceEntityType: 'sales:order',
+          sourceEntityId: order.id,
+          linkHref: `/backend/sales/orders/${order.id}`,
+        })
+
+        await notificationService.createForFeature(notificationInput, {
+          tenantId: order.tenantId,
+          organizationId: order.organizationId ?? null,
+        })
+      }
+    } catch (err) {
+      // Notification creation is non-critical, don't fail the command
+      console.error('[sales.orders.create] Failed to create notification:', err)
+    }
+
+    // Emit CRUD side effects to trigger workflow event listeners
+    const dataEngine = ctx.container.resolve('dataEngine') as DataEngine
+    await emitCrudSideEffects({
+      dataEngine,
+      action: 'created',
+      entity: order,
+      identifiers: {
+        id: order.id,
+        organizationId: order.organizationId,
+        tenantId: order.tenantId,
+      },
+      events: orderCrudEvents,
+      indexer: { entityType: E.sales.sales_order },
+    })
+
+    // Invalidate cache
+    const resourceKind = deriveResourceFromCommandId(createOrderCommand.id) ?? 'sales.order'
+    await invalidateCrudCache(
+      ctx.container,
+      resourceKind,
+      { id: order.id, organizationId: order.organizationId, tenantId: order.tenantId },
+      ctx.auth?.tenantId ?? null,
+      'created'
+    )
 
     return { orderId: order.id }
   },

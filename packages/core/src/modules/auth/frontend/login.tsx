@@ -1,14 +1,40 @@
 "use client"
-import { useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import Image from 'next/image'
 import Link from 'next/link'
 import { useRouter, useSearchParams } from 'next/navigation'
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@open-mercato/ui/primitives/card'
+import { Card, CardContent, CardHeader, CardDescription } from '@open-mercato/ui/primitives/card'
 import { Input } from '@open-mercato/ui/primitives/input'
 import { Label } from '@open-mercato/ui/primitives/label'
+import { Button } from '@open-mercato/ui/primitives/button'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { translateWithFallback } from '@open-mercato/shared/lib/i18n/translate'
 import { clearAllOperations } from '@open-mercato/ui/backend/operations/store'
+import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
+import { X } from 'lucide-react'
+
+const loginTenantKey = 'om_login_tenant'
+const loginTenantCookieMaxAge = 60 * 60 * 24 * 14
+
+function readTenantCookie() {
+  if (typeof document === 'undefined') return null
+  const entries = document.cookie.split(';')
+  for (const entry of entries) {
+    const [name, ...rest] = entry.trim().split('=')
+    if (name === loginTenantKey) return decodeURIComponent(rest.join('='))
+  }
+  return null
+}
+
+function setTenantCookie(value: string) {
+  if (typeof document === 'undefined') return
+  document.cookie = `${loginTenantKey}=${encodeURIComponent(value)}; path=/; max-age=${loginTenantCookieMaxAge}; samesite=lax`
+}
+
+function clearTenantCookie() {
+  if (typeof document === 'undefined') return
+  document.cookie = `${loginTenantKey}=; path=/; max-age=0; samesite=lax`
+}
 
 function extractErrorMessage(payload: unknown): string | null {
   if (!payload) return null
@@ -44,8 +70,11 @@ function looksLikeJsonString(value: string): boolean {
 
 export default function LoginPage() {
   const t = useT()
-  const translate = (key: string, fallback: string, params?: Record<string, string | number>) =>
-    translateWithFallback(t, key, fallback, params)
+  const translate = useCallback(
+    (key: string, fallback: string, params?: Record<string, string | number>) =>
+      translateWithFallback(t, key, fallback, params),
+    [t],
+  )
   const router = useRouter()
   const searchParams = useSearchParams()
   const requireRole = (searchParams.get('requireRole') || searchParams.get('role') || '').trim()
@@ -56,6 +85,80 @@ export default function LoginPage() {
   const translatedFeatures = requiredFeatures.map((feature) => translate(`features.${feature}`, feature))
   const [error, setError] = useState<string | null>(null)
   const [submitting, setSubmitting] = useState(false)
+  const [tenantId, setTenantId] = useState<string | null>(null)
+  const [tenantName, setTenantName] = useState<string | null>(null)
+  const [tenantLoading, setTenantLoading] = useState(false)
+  const [tenantInvalid, setTenantInvalid] = useState<string | null>(null)
+  const showTenantInvalid = tenantId != null && tenantInvalid === tenantId
+
+  useEffect(() => {
+    const tenantParam = (searchParams.get('tenant') || '').trim()
+    if (tenantParam) {
+      setTenantId(tenantParam)
+      window.localStorage.setItem(loginTenantKey, tenantParam)
+      setTenantCookie(tenantParam)
+      return
+    }
+    const storedTenant = window.localStorage.getItem(loginTenantKey) || readTenantCookie()
+    if (storedTenant) {
+      setTenantId(storedTenant)
+    }
+  }, [searchParams])
+
+  useEffect(() => {
+    if (!tenantId) {
+      setTenantName(null)
+      setTenantInvalid(null)
+      return
+    }
+    if (tenantInvalid === tenantId) {
+      setTenantName(null)
+      setTenantLoading(false)
+      return
+    }
+    let active = true
+    setTenantLoading(true)
+    setTenantInvalid(null)
+    apiCall<{ ok: boolean; tenant?: { id: string; name: string }; error?: string }>(
+      `/api/directory/tenants/lookup?tenantId=${encodeURIComponent(tenantId)}`,
+    )
+      .then(({ result }) => {
+        if (!active) return
+        if (result?.ok && result.tenant) {
+          setTenantName(result.tenant.name)
+          return
+        }
+        const message = translate('auth.login.errors.tenantInvalid', 'Tenant not found. Clear the tenant selection and try again.')
+        setTenantName(null)
+        setTenantInvalid(tenantId)
+        setError(null)
+      })
+      .catch(() => {
+        if (!active) return
+        setTenantName(null)
+        setTenantInvalid(tenantId)
+        setError(null)
+      })
+      .finally(() => {
+        if (active) setTenantLoading(false)
+      })
+    return () => {
+      active = false
+    }
+  }, [tenantId, translate])
+
+  function handleClearTenant() {
+    window.localStorage.removeItem(loginTenantKey)
+    clearTenantCookie()
+    setTenantId(null)
+    setTenantName(null)
+    setTenantInvalid(null)
+    const params = new URLSearchParams(searchParams)
+    params.delete('tenant')
+    setError(null)
+    const query = params.toString()
+    router.replace(query ? `/login?${query}` : '/login')
+  }
 
   async function onSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault()
@@ -141,6 +244,9 @@ export default function LoginPage() {
         </CardHeader>
         <CardContent>
           <form className="grid gap-3" onSubmit={onSubmit} noValidate>
+            {tenantId ? (
+              <input type="hidden" name="tenantId" value={tenantId} />
+            ) : null}
             {!!translatedRoles.length && (
               <div className="rounded-md border border-blue-200 bg-blue-50 px-3 py-2 text-center text-xs text-blue-900">
                 {translate(
@@ -159,7 +265,30 @@ export default function LoginPage() {
                 })}
               </div>
             )}
-            {error && (
+            {showTenantInvalid ? (
+              <div className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-center text-xs text-red-700">
+                <div className="font-medium">{translate('auth.login.errors.tenantInvalid', 'Tenant not found. Clear the tenant selection and try again.')}</div>
+                <Button type="button" variant="outline" size="sm" className="mt-2 border-red-300 text-red-700" onClick={handleClearTenant}>
+                  <X className="mr-2 size-4" aria-hidden="true" />
+                  {translate('auth.login.tenantClear', 'Clear')}
+                </Button>
+              </div>
+            ) : tenantId ? (
+              <div className="rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 text-center text-xs text-emerald-900">
+                <div className="font-medium">
+                  {tenantLoading
+                    ? translate('auth.login.tenantLoading', 'Loading tenant details...')
+                    : translate('auth.login.tenantBanner', "You're logging in to {tenant} tenant.", {
+                        tenant: tenantName || tenantId,
+                      })}
+                </div>
+                <Button type="button" variant="outline" size="sm" className="mt-2 border-emerald-300 text-emerald-900" onClick={handleClearTenant}>
+                  <X className="mr-2 size-4" aria-hidden="true" />
+                  {translate('auth.login.tenantClear', 'Clear')}
+                </Button>
+              </div>
+            ) : null}
+            {error && !showTenantInvalid && (
               <div className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-center text-sm text-red-700" role="alert" aria-live="polite">
                 {error}
               </div>

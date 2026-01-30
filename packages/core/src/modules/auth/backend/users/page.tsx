@@ -383,9 +383,9 @@ export default function UsersListPage() {
           perspective={{ tableId: 'auth.users.list' }}
           rowActions={(row) => (
             <RowActions items={[
-              { label: t('common.edit', 'Edit'), href: `/backend/users/${row.id}/edit` },
-              { label: t('auth.users.list.actions.showRoles', 'Show roles'), href: `/backend/roles?userId=${encodeURIComponent(row.id)}` },
-              { label: t('common.delete', 'Delete'), destructive: true, onSelect: () => { void handleDelete(row) } },
+              { id: 'edit', label: t('common.edit', 'Edit'), href: `/backend/users/${row.id}/edit` },
+              { id: 'show-roles', label: t('auth.users.list.actions.showRoles', 'Show roles'), href: `/backend/roles?userId=${encodeURIComponent(row.id)}` },
+              { id: 'delete', label: t('common.delete', 'Delete'), destructive: true, onSelect: () => { void handleDelete(row) } },
             ]} />
           )}
           pagination={{ page, pageSize: 50, total, totalPages, onPageChange: setPage }}

@@ -9,6 +9,26 @@
       "title": "Sprzedaż",
       "description": "Oferty, zamówienia, realizacja, fakturowanie i płatności powiązane z katalogiem produktów."
     },
+    "notifications": {
+      "order": {
+        "created": {
+          "title": "Nowe zamówienie",
+          "body": "Zamówienie {orderNumber} zostało utworzone{total}"
+        }
+      },
+      "quote": {
+        "created": {
+          "title": "Nowa oferta",
+          "body": "Oferta {quoteNumber} została utworzona{total}"
+        }
+      },
+      "renderer": {
+        "viewOrder": "Zobacz zamówienie",
+        "viewQuote": "Zobacz ofertę",
+        "assignedToYou": "Przypisane do Ciebie",
+        "pendingReview": "Oczekuje na przegląd"
+      }
+    },
     "quotes": {
       "send": {
         "action": "Wyślij do klienta",

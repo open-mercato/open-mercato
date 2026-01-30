@@ -2,6 +2,7 @@ import type { ModuleCli } from '@open-mercato/shared/modules/registry'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { ModuleConfigService } from './lib/module-config-service'
 import { parseBooleanToken } from '@open-mercato/shared/lib/boolean'
+import { DEFAULT_NOTIFICATION_DELIVERY_CONFIG, NOTIFICATIONS_DELIVERY_CONFIG_KEY } from '../notifications/lib/deliveryConfig'
 
 function envDisablesAutoIndexing(): boolean {
   const raw = process.env.DISABLE_VECTOR_SEARCH_AUTOINDEXING
@@ -30,6 +31,11 @@ const restoreDefaults: ModuleCli = {
             moduleId: 'vector',
             name: 'auto_index_enabled',
             value: defaultEnabled,
+          },
+          {
+            moduleId: 'notifications',
+            name: NOTIFICATIONS_DELIVERY_CONFIG_KEY,
+            value: DEFAULT_NOTIFICATION_DELIVERY_CONFIG,
           },
         ],
         { force: true },

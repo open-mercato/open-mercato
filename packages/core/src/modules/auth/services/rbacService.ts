@@ -69,7 +69,7 @@ export class RbacService {
     return granted === required
   }
 
-  private hasAllFeatures(required: string[], granted: string[]): boolean {
+  public hasAllFeatures(required: string[], granted: string[]): boolean {
     if (!required.length) return true
     if (!granted.length) return false
     return required.every((req) => granted.some((g) => this.matchFeature(req, g)))

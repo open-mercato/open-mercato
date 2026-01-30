@@ -1,15 +1,10 @@
 import type { ModuleCli } from '@open-mercato/shared/modules/registry'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { EntityManager } from '@mikro-orm/postgresql'
-import { SalesTaxRate } from './data/entities'
 import { seedSalesAdjustmentKinds, seedSalesStatusDictionaries } from './lib/dictionaries'
+import { seedSalesTaxRates } from './lib/seeds'
 import { ensureExamplePaymentMethods, ensureExampleShippingMethods } from './seed/examples-data'
 import { seedSalesExamples } from './seed/examples'
-
-const DEFAULT_TAX_RATES = [
-  { code: 'vat-23', name: '23% VAT', rate: '23' },
-  { code: 'vat-0', name: '0% VAT', rate: '0' },
-] as const
 
 function parseArgs(rest: string[]) {
   const args: Record<string, string> = {}
@@ -42,43 +37,7 @@ const seedTaxRatesCommand: ModuleCli = {
     const em = container.resolve('em') as EntityManager
     try {
       await em.transactional(async (tem) => {
-        const existing = await tem.find(SalesTaxRate, {
-          tenantId,
-          organizationId,
-          deletedAt: null,
-        })
-        const existingCodes = new Set(existing.map((entry) => entry.code.toLowerCase()))
-        const hasDefault = existing.some((entry) => entry.isDefault)
-        let assignedDefault = hasDefault
-        const now = new Date()
-        for (const def of DEFAULT_TAX_RATES) {
-          if (existingCodes.has(def.code)) continue
-          const shouldSetDefault = !assignedDefault
-          const record = tem.create(SalesTaxRate, {
-            organizationId,
-            tenantId,
-            name: def.name,
-            code: def.code,
-            rate: def.rate,
-            countryCode: null,
-            regionCode: null,
-            postalCode: null,
-            city: null,
-            customerGroupId: null,
-            productCategoryId: null,
-            channelId: null,
-            priority: 0,
-            isCompound: false,
-            isDefault: shouldSetDefault,
-            metadata: null,
-            startsAt: null,
-            endsAt: null,
-            createdAt: now,
-            updatedAt: now,
-          })
-          if (shouldSetDefault) assignedDefault = true
-          tem.persist(record)
-        }
+        await seedSalesTaxRates(tem, { tenantId, organizationId })
       })
       console.log('🧾 Tax rates seeded for organization', organizationId)
     } finally {

@@ -1,0 +1,32 @@
+[
+  {
+    "ruleId": "workflow_order_approval_check_approved",
+    "ruleName": "Check Decision is Approve",
+    "description": "Validates that the approval task decision is 'approve'",
+    "ruleType": "GUARD",
+    "entityType": "workflow:sales_order_approval_v1:transition",
+    "eventType": "pre_transition",
+    "conditionExpression": {
+      "field": "workflowContext.decision",
+      "operator": "=",
+      "value": "approve"
+    },
+    "enabled": true,
+    "priority": 100
+  },
+  {
+    "ruleId": "workflow_order_approval_check_rejected",
+    "ruleName": "Check Decision is Reject",
+    "description": "Validates that the approval task decision is 'reject'",
+    "ruleType": "GUARD",
+    "entityType": "workflow:sales_order_approval_v1:transition",
+    "eventType": "pre_transition",
+    "conditionExpression": {
+      "field": "workflowContext.decision",
+      "operator": "=",
+      "value": "reject"
+    },
+    "enabled": true,
+    "priority": 100
+  }
+]

@@ -366,13 +366,15 @@ export default function QueryIndexesTable() {
       onSortingChange={setSorting}
       perspective={{ tableId: 'query_index.status.list' }}
       rowActions={(row) => {
-        const items: Array<{ label: string; onSelect: () => void; destructive?: boolean }> = [
-          { label: t('query_index.table.actions.reindex'), onSelect: () => trigger('reindex', row.entityId) },
+        const items: Array<{ id: string; label: string; onSelect: () => void; destructive?: boolean }> = [
+          { id: 'reindex', label: t('query_index.table.actions.reindex'), onSelect: () => trigger('reindex', row.entityId) },
           {
+            id: 'reindex-force',
             label: t('query_index.table.actions.reindexForce'),
             onSelect: () => trigger('reindex', row.entityId, { force: true }),
           },
           {
+            id: 'purge',
             label: t('query_index.table.actions.purge'),
             destructive: true,
             onSelect: () => trigger('purge', row.entityId),
@@ -382,10 +384,12 @@ export default function QueryIndexesTable() {
         if (row.vectorEnabled) {
           items.push(
             {
+              id: 'vector-reindex',
               label: t('query_index.table.actions.vectorReindex'),
               onSelect: () => triggerVector('reindex', row.entityId),
             },
             {
+              id: 'vector-purge',
               label: t('query_index.table.actions.vectorPurge'),
               destructive: true,
               onSelect: () => triggerVector('purge', row.entityId),
@@ -396,10 +400,12 @@ export default function QueryIndexesTable() {
         if (row.fulltextEnabled) {
           items.push(
             {
+              id: 'fulltext-reindex',
               label: t('query_index.table.actions.fulltextReindex'),
               onSelect: () => triggerFulltext('reindex', row.entityId),
             },
             {
+              id: 'fulltext-purge',
               label: t('query_index.table.actions.fulltextPurge'),
               destructive: true,
               onSelect: () => triggerFulltext('purge', row.entityId),

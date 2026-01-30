@@ -427,10 +427,12 @@ export function SalesDocumentAdjustmentsSection({
       <RowActions
         items={[
           {
+            id: 'edit',
             label: t('ui.actions.edit', 'Edit'),
             onSelect: () => handleEdit(row),
           },
           {
+            id: 'delete',
             label: t('ui.actions.delete', 'Delete'),
             destructive: true,
             onSelect: () => handleDelete(row),

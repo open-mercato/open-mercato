@@ -22,7 +22,7 @@ export class OnboardingService {
     const existing = await this.em.findOne(OnboardingRequest, { email: input.email })
     if (existing) {
       const lastSentAt = existing.lastEmailSentAt ?? existing.updatedAt ?? existing.createdAt
-      if (existing.status === 'pending' && lastSentAt && lastSentAt.getTime() > Date.now() - 10 * 60 * 1000) {
+      if (['pending', 'processing'].includes(existing.status) && lastSentAt && lastSentAt.getTime() > Date.now() - 10 * 60 * 1000) {
         const remainingMs = 10 * 60 * 1000 - (Date.now() - lastSentAt.getTime())
         const waitMinutes = Math.max(1, Math.ceil(remainingMs / (60 * 1000)))
         throw new Error(`PENDING_REQUEST:${waitMinutes}`)
@@ -37,6 +37,7 @@ export class OnboardingService {
       existing.passwordHash = passwordHash
       existing.expiresAt = expiresAt
       existing.completedAt = null
+      existing.processingStartedAt = null
       existing.tenantId = null
       existing.organizationId = null
       existing.userId = null
@@ -56,6 +57,7 @@ export class OnboardingService {
       termsAccepted: true,
       passwordHash,
       expiresAt,
+      processingStartedAt: null,
       lastEmailSentAt: now,
       createdAt: now,
       updatedAt: now,
@@ -74,12 +76,37 @@ export class OnboardingService {
     })
   }
 
+  async findByToken(token: string) {
+    const tokenHash = hashToken(token)
+    return this.em.findOne(OnboardingRequest, { tokenHash })
+  }
+
+  async startProcessing(request: OnboardingRequest, startedAt: Date) {
+    request.status = 'processing'
+    request.processingStartedAt = startedAt
+    await this.em.flush()
+  }
+
+  async resetProcessing(request: OnboardingRequest) {
+    request.status = 'pending'
+    request.processingStartedAt = null
+    await this.em.flush()
+  }
+
+  async updateProvisioningIds(request: OnboardingRequest, data: { tenantId: string; organizationId: string; userId: string }) {
+    request.tenantId = data.tenantId
+    request.organizationId = data.organizationId
+    request.userId = data.userId
+    await this.em.flush()
+  }
+
   async markCompleted(request: OnboardingRequest, data: { tenantId: string; organizationId: string; userId: string }) {
     request.status = 'completed'
     request.completedAt = new Date()
     request.tenantId = data.tenantId
     request.organizationId = data.organizationId
     request.userId = data.userId
+    request.processingStartedAt = null
     request.passwordHash = null
     await this.em.flush()
   }

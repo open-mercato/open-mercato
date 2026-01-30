@@ -318,22 +318,24 @@ describe('Activity Executor (Unit Tests)', () => {
 
   describe('UPDATE_ENTITY activity', () => {
     test('should execute UPDATE_ENTITY activity successfully', async () => {
-      const mockQueryEngine = {
-        update: jest.fn().mockResolvedValue({ updated: 1 }),
+      const mockCommandBus = {
+        execute: jest.fn().mockResolvedValue({
+          result: { id: 'order-123', status: 'confirmed' },
+          logEntry: { id: 'log-123' },
+        }),
       }
 
-      mockContainer.resolve.mockReturnValue(mockQueryEngine)
+      mockContainer.resolve.mockReturnValue(mockCommandBus)
 
       const activity: ActivityDefinition = {
         activityId: 'activity-8',
         activityName: 'Update Order Status',
         activityType: 'UPDATE_ENTITY',
         config: {
-          entityType: 'orders',
-          entityId: 'order-123',
-          updates: {
-            status: 'confirmed',
-            confirmedAt: new Date().toISOString(),
+          commandId: 'sales.orders.update',
+          input: {
+            id: 'order-123',
+            statusEntryId: 'status-confirmed-id',
           },
         },
       }
@@ -346,21 +348,22 @@ describe('Activity Executor (Unit Tests)', () => {
       )
 
       expect(result.success).toBe(true)
-      expect(result.output.updated).toBe(true)
-      expect(mockQueryEngine.update).toHaveBeenCalledWith({
-        entity: 'orders',
-        where: { id: 'order-123' },
-        data: expect.objectContaining({
-          status: 'confirmed',
-        }),
-        tenantId: testTenantId,
-        organizationId: testOrgId,
-      })
+      expect(result.output.executed).toBe(true)
+      expect(result.output.commandId).toBe('sales.orders.update')
+      expect(mockCommandBus.execute).toHaveBeenCalledWith(
+        'sales.orders.update',
+        expect.objectContaining({
+          input: expect.objectContaining({
+            id: 'order-123',
+            statusEntryId: 'status-confirmed-id',
+          }),
+        })
+      )
     })
 
-    test('should fail UPDATE_ENTITY if query engine not available', async () => {
+    test('should fail UPDATE_ENTITY if command bus not available', async () => {
       mockContainer.resolve.mockImplementation(() => {
-        throw new Error('queryEngine not registered')
+        throw new Error('commandBus not registered')
       })
 
       const activity: ActivityDefinition = {
@@ -368,9 +371,8 @@ describe('Activity Executor (Unit Tests)', () => {
         activityName: 'Test Update',
         activityType: 'UPDATE_ENTITY',
         config: {
-          entityType: 'orders',
-          entityId: 'order-123',
-          updates: { status: 'confirmed' },
+          commandId: 'sales.orders.update',
+          input: { id: 'order-123', status: 'confirmed' },
         },
       }
 
@@ -382,23 +384,23 @@ describe('Activity Executor (Unit Tests)', () => {
       )
 
       expect(result.success).toBe(false)
-      expect(result.error).toContain('queryEngine not registered')
+      expect(result.error).toContain('commandBus not registered')
     })
 
     test('should fail UPDATE_ENTITY if missing required fields', async () => {
-      const mockQueryEngine = {
-        update: jest.fn().mockResolvedValue({ updated: 1 }),
+      const mockCommandBus = {
+        execute: jest.fn().mockResolvedValue({ result: {} }),
       }
 
-      mockContainer.resolve.mockReturnValue(mockQueryEngine)
+      mockContainer.resolve.mockReturnValue(mockCommandBus)
 
       const activity: ActivityDefinition = {
         activityId: 'activity-10',
         activityName: 'Invalid Update',
         activityType: 'UPDATE_ENTITY',
         config: {
-          entityType: 'orders',
-          // Missing entityId and updates
+          // Missing commandId
+          input: { id: 'order-123' },
         },
       }
 
@@ -410,7 +412,7 @@ describe('Activity Executor (Unit Tests)', () => {
       )
 
       expect(result.success).toBe(false)
-      expect(result.error).toContain('requires "entityType", "entityId", and "updates"')
+      expect(result.error).toContain('requires "commandId"')
     })
   })
 
@@ -1095,13 +1097,16 @@ describe('Activity Executor (Unit Tests)', () => {
         emitEvent: jest.fn().mockResolvedValue(undefined),
       }
 
-      const mockQueryEngine = {
-        update: jest.fn().mockResolvedValue({ updated: 1 }),
+      const mockCommandBus = {
+        execute: jest.fn().mockResolvedValue({
+          result: { id: 'order-123', status: 'confirmed' },
+          logEntry: { id: 'log-123' },
+        }),
       }
 
       mockContainer.resolve
         .mockReturnValueOnce(mockEventBus) // First activity
-        .mockReturnValueOnce(mockQueryEngine) // Second activity
+        .mockReturnValueOnce(mockCommandBus) // Second activity
 
       const activities: ActivityDefinition[] = [
         {
@@ -1118,9 +1123,11 @@ describe('Activity Executor (Unit Tests)', () => {
           activityName: 'Update Entity',
           activityType: 'UPDATE_ENTITY',
           config: {
-            entityType: 'orders',
-            entityId: 'order-123',
-            updates: { status: 'confirmed' },
+            commandId: 'sales.orders.update',
+            input: {
+              id: 'order-123',
+              statusEntryId: 'status-confirmed-id',
+            },
           },
         },
       ]

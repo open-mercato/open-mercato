@@ -1,1 +1,0 @@
-Regarding the UI implementation, we should re-use the NotesSection, AddressSection and other reusable components that are used in the customer module customer details and in other places throughout the application.

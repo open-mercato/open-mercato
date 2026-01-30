@@ -699,10 +699,12 @@ export function SalesDocumentsTable({ kind }: { kind: SalesDocumentKind }) {
             <RowActions
               items={[
                 {
+                  id: 'open',
                   label: t('sales.documents.list.table.open', 'Open'),
                   href: `/backend/sales/${resource}/${row.id}?kind=${kind}`,
                 },
                 {
+                  id: 'delete',
                   label:
                     kind === 'order'
                       ? t('sales.documents.list.table.deleteOrder', 'Delete order')

@@ -1,6 +1,7 @@
 import type { McpToolContext, ToolExecutionResult } from './types'
 import { getToolRegistry } from './tool-registry'
 import { hasRequiredFeatures } from './auth'
+import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
 
 /**
  * Execute a tool with full context and ACL checks.
@@ -23,10 +24,12 @@ export async function executeTool(
 
   // ACL check
   if (tool.requiredFeatures?.length) {
+    const rbacService = context.container.resolve<RbacService>('rbacService')
     const hasAccess = hasRequiredFeatures(
       tool.requiredFeatures,
       context.userFeatures,
-      context.isSuperAdmin
+      context.isSuperAdmin,
+      rbacService
     )
 
     if (!hasAccess) {

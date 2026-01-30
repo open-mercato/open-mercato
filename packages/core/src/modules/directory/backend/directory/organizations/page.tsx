@@ -235,8 +235,8 @@ export default function DirectoryOrganizationsPage() {
             canManage ? (
               <RowActions
                 items={[
-                  { label: t('directory.organizations.list.actions.edit', 'Edit'), href: `/backend/directory/organizations/${row.id}/edit` },
-                  { label: t('directory.organizations.list.actions.delete', 'Delete'), destructive: true, onSelect: () => handleDelete(row) },
+                  { id: 'edit', label: t('directory.organizations.list.actions.edit', 'Edit'), href: `/backend/directory/organizations/${row.id}/edit` },
+                  { id: 'delete', label: t('directory.organizations.list.actions.delete', 'Delete'), destructive: true, onSelect: () => handleDelete(row) },
                 ]}
               />
             ) : null
