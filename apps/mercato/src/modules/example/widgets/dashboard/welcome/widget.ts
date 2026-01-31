@@ -1,6 +1,6 @@
-import type { DashboardWidgetModule } from '@open-mercato/shared/modules/dashboard/widgets'
-import WelcomeWidgetClient from './widget.client'
+import { lazyDashboardWidget, type DashboardWidgetModule } from '@open-mercato/shared/modules/dashboard/widgets'
 import { DEFAULT_SETTINGS, hydrateWelcomeSettings, type WelcomeSettings } from './config'
+const WelcomeWidgetClient = lazyDashboardWidget(() => import('./widget.client'))
 
 const widget: DashboardWidgetModule<WelcomeSettings> = {
   metadata: {

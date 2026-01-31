@@ -68,7 +68,7 @@ async function checkAuthorization(
     return container
   }
 
-  if (auth) {
+  if (auth && methodMetadata?.requireAuth !== false) {
     const rawTenantCandidate = await extractTenantCandidate(req)
     if (rawTenantCandidate !== undefined) {
       const tenantCandidate = sanitizeTenantCandidate(rawTenantCandidate)

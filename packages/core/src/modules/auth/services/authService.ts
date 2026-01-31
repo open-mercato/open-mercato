@@ -18,6 +18,29 @@ export class AuthService {
     } as any)
   }
 
+  async findUsersByEmail(email: string) {
+    const emailHash = computeEmailHash(email)
+    return this.em.find(User, {
+      deletedAt: null,
+      $or: [
+        { email },
+        { emailHash },
+      ],
+    } as any)
+  }
+
+  async findUserByEmailAndTenant(email: string, tenantId: string) {
+    const emailHash = computeEmailHash(email)
+    return this.em.findOne(User, {
+      tenantId,
+      deletedAt: null,
+      $or: [
+        { email },
+        { emailHash },
+      ],
+    } as any)
+  }
+
   async verifyPassword(user: User, password: string) {
     if (!user.passwordHash) return false
     return compare(password, user.passwordHash)
@@ -75,15 +98,15 @@ export class AuthService {
     return { user, token }
   }
 
-  async confirmPasswordReset(token: string, newPassword: string) {
+  async confirmPasswordReset(token: string, newPassword: string): Promise<User | null> {
     const now = new Date()
     const row = await this.em.findOne(PasswordReset, { token })
-    if (!row || (row.usedAt && row.usedAt <= now) || row.expiresAt <= now) return false
+    if (!row || (row.usedAt && row.usedAt <= now) || row.expiresAt <= now) return null
     const user = await this.em.findOne(User, { id: row.user.id })
-    if (!user) return false
+    if (!user) return null
     user.passwordHash = await hash(newPassword, 10)
     row.usedAt = new Date()
     await this.em.flush()
-    return true
+    return user
   }
 }

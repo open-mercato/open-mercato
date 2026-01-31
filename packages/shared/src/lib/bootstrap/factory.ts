@@ -5,6 +5,7 @@ import { registerModules } from '../modules/registry'
 import { registerEntityIds } from '../encryption/entityIds'
 import { registerEntityFields } from '../encryption/entityFields'
 import { registerSearchModuleConfigs } from '../../modules/search'
+import { registerAnalyticsModuleConfigs } from '../../modules/analytics'
 
 let _bootstrapped = false
 
@@ -48,7 +49,12 @@ export function createBootstrap(data: BootstrapData, options: BootstrapOptions =
       registerSearchModuleConfigs(data.searchModuleConfigs)
     }
 
-    // === 6-7. UI Widgets and Optional packages (async to avoid circular deps) ===
+    // === 6. Analytics module configs (for dashboard widgets and analytics API) ===
+    if (data.analyticsModuleConfigs) {
+      registerAnalyticsModuleConfigs(data.analyticsModuleConfigs)
+    }
+
+    // === 7-8. UI Widgets and Optional packages (async to avoid circular deps) ===
     // Store the promise so CLI context can await it
     _asyncRegistrationPromise = registerWidgetsAndOptionalPackages(data, options)
     void _asyncRegistrationPromise

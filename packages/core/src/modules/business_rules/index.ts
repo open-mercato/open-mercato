@@ -8,3 +8,28 @@ export const metadata: ModuleInfo = {
   author: 'Patryk Lewczuk',
   license: 'Proprietary',
 }
+
+// Export rule engine types and functions for programmatic usage
+export {
+  executeRules,
+  executeRuleById,
+  executeRuleByRuleId,
+  executeSingleRule,
+  findApplicableRules,
+  logRuleExecution,
+  type RuleEngineContext,
+  type RuleEngineResult,
+  type RuleExecutionResult,
+  type RuleDiscoveryOptions,
+  type DirectRuleExecutionContext,
+  type DirectRuleExecutionResult,
+  type RuleIdExecutionContext,
+} from './lib/rule-engine'
+
+// Export validator schemas
+export {
+  directRuleExecutionContextSchema,
+  ruleIdExecutionContextSchema,
+  type DirectRuleExecutionContextInput,
+  type RuleIdExecutionContextInput,
+} from './data/validators'

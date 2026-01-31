@@ -893,8 +893,8 @@ export function AttachmentLibrary() {
               {assignments.map((assignment) => {
                 const label = assignment.label?.trim() || assignment.id
                 const hideType =
-                  assignment.type === E.catalog.catalog_product ||
-                  assignment.type === E.catalog.catalog_product_variant
+                  assignment.type === (E as any).catalog?.catalog_product ||
+                  assignment.type === (E as any).catalog?.catalog_product_variant
                 const content = hideType ? label : `${assignment.type}: ${label}`
                 return assignment.href ? (
                   <a
@@ -1056,6 +1056,7 @@ export function AttachmentLibrary() {
           <RowActions
             items={[
               {
+                id: 'open',
                 label: t('attachments.library.actions.open', 'Open'),
                 onSelect: () => {
                   if (!row.url) return
@@ -1063,10 +1064,12 @@ export function AttachmentLibrary() {
                 },
               },
               {
+                id: 'edit',
                 label: t('attachments.library.actions.edit', 'Edit metadata'),
                 onSelect: () => openMetadataDialog(row),
               },
               {
+                id: 'copy-url',
                 label: t('attachments.library.actions.copyUrl', 'Copy URL'),
                 onSelect: () => {
                   if (!row.url) {
@@ -1091,6 +1094,7 @@ export function AttachmentLibrary() {
                 },
               },
               {
+                id: 'delete',
                 label: t('attachments.library.actions.delete', 'Delete'),
                 destructive: true,
                 onSelect: () => openDeleteDialog(row),

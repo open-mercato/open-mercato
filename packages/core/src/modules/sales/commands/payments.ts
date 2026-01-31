@@ -35,6 +35,9 @@ import { invalidateCrudCache } from '@open-mercato/shared/lib/crud/cache'
 import { emitCrudSideEffects } from '@open-mercato/shared/lib/commands/helpers'
 import type { DataEngine } from '@open-mercato/shared/lib/data/engine'
 import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { resolveNotificationService } from '../../notifications/lib/notificationService'
+import { buildFeatureNotificationFromType } from '../../notifications/lib/notificationBuilder'
+import { notificationTypes } from '../notifications'
 
 export type PaymentAllocationSnapshot = {
   id: string
@@ -422,6 +425,36 @@ const createPaymentCommand: CommandHandler<
     const totals = await recomputeOrderPaymentTotals(em, order)
     await em.flush()
     await invalidateOrderCache(ctx.container, order, ctx.auth?.tenantId ?? null)
+
+    // Create notification for payment received
+    try {
+      const notificationService = resolveNotificationService(ctx.container)
+      const typeDef = notificationTypes.find((type) => type.type === 'sales.payment.received')
+      if (typeDef) {
+        const amountDisplay = payment.amount && payment.currencyCode
+          ? `${payment.currencyCode} ${payment.amount}`
+          : ''
+        const notificationInput = buildFeatureNotificationFromType(typeDef, {
+          requiredFeature: 'sales.orders.manage',
+          bodyVariables: {
+            orderNumber: order.orderNumber ?? '',
+            amount: amountDisplay,
+          },
+          sourceEntityType: 'sales:order',
+          sourceEntityId: order.id,
+          linkHref: `/backend/sales/orders/${order.id}`,
+        })
+
+        await notificationService.createForFeature(notificationInput, {
+          tenantId: payment.tenantId,
+          organizationId: payment.organizationId ?? null,
+        })
+      }
+    } catch (err) {
+      // Notification creation is non-critical, don't fail the command
+      console.error('[sales.payments.create] Failed to create notification:', err)
+    }
+
     return { paymentId: payment.id, orderTotals: totals }
   },
   captureAfter: async (_input, result, ctx) => {

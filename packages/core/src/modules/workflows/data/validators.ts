@@ -215,10 +215,43 @@ export const workflowTransitionSchema = z.object({
   priority: z.number().int().min(0).max(9999).default(0),
 })
 
+// Workflow definition trigger schema (embedded in definition)
+// Note: Uses forward reference pattern since eventPatternSchema and eventTriggerConfigSchema are defined later
+export const workflowDefinitionTriggerSchema = z.object({
+  triggerId: z.string().min(1).max(100).regex(/^[a-z0-9_-]+$/, 'Trigger ID must contain only lowercase letters, numbers, hyphens, and underscores'),
+  name: z.string().min(1).max(255),
+  description: z.string().max(2000).optional().nullable(),
+  eventPattern: z.string()
+    .min(1, 'Event pattern is required')
+    .max(255, 'Event pattern must be at most 255 characters')
+    .regex(
+      /^(\*|[a-z0-9_]+(\.[a-z0-9_*]+)*)$/i,
+      'Event pattern must be "*" or a dot-separated pattern with optional wildcards (e.g., "customers.people.created", "sales.orders.*")'
+    ),
+  config: z.object({
+    filterConditions: z.array(z.object({
+      field: z.string().min(1).max(255),
+      operator: z.enum(['eq', 'neq', 'gt', 'gte', 'lt', 'lte', 'contains', 'startsWith', 'endsWith', 'in', 'notIn', 'exists', 'notExists', 'regex']),
+      value: z.any(),
+    })).max(20).optional(),
+    contextMapping: z.array(z.object({
+      targetKey: z.string().min(1).max(100),
+      sourceExpression: z.string().min(1).max(255),
+      defaultValue: z.any().optional(),
+    })).max(50).optional(),
+    debounceMs: z.number().int().min(0).max(3600000).optional(),
+    maxConcurrentInstances: z.number().int().min(1).max(1000).optional(),
+  }).optional().nullable(),
+  enabled: z.boolean().default(true),
+  priority: z.number().int().min(0).max(9999).default(0),
+})
+export type WorkflowDefinitionTrigger = z.infer<typeof workflowDefinitionTriggerSchema>
+
 // Workflow definition data (JSONB structure)
 export const workflowDefinitionDataSchema = z.object({
   steps: z.array(workflowStepSchema).min(2, 'Workflow must have at least START and END steps'),
   transitions: z.array(workflowTransitionSchema).min(1, 'Workflow must have at least one transition'),
+  triggers: z.array(workflowDefinitionTriggerSchema).optional(), // Event triggers for automatic workflow start
   queries: z.array(z.any()).optional(), // For Phase 7
   signals: z.array(z.any()).optional(), // For Phase 9
   timers: z.array(z.any()).optional(), // For Phase 9
@@ -488,3 +521,108 @@ export const startWorkflowInputSchema = z.object({
 })
 
 export type StartWorkflowApiInput = z.infer<typeof startWorkflowInputSchema>
+
+// ============================================================================
+// WorkflowEventTrigger Schemas
+// ============================================================================
+
+export const triggerFilterOperatorSchema = z.enum([
+  'eq',
+  'neq',
+  'gt',
+  'gte',
+  'lt',
+  'lte',
+  'contains',
+  'startsWith',
+  'endsWith',
+  'in',
+  'notIn',
+  'exists',
+  'notExists',
+  'regex',
+])
+export type TriggerFilterOperator = z.infer<typeof triggerFilterOperatorSchema>
+
+export const triggerFilterConditionSchema = z.object({
+  field: z.string().min(1).max(255, 'Field path must be at most 255 characters'),
+  operator: triggerFilterOperatorSchema,
+  value: z.any(),
+})
+export type TriggerFilterCondition = z.infer<typeof triggerFilterConditionSchema>
+
+export const triggerContextMappingSchema = z.object({
+  targetKey: z.string().min(1).max(100, 'Target key must be at most 100 characters'),
+  sourceExpression: z.string().min(1).max(255, 'Source expression must be at most 255 characters'),
+  defaultValue: z.any().optional(),
+})
+export type TriggerContextMapping = z.infer<typeof triggerContextMappingSchema>
+
+export const eventTriggerConfigSchema = z.object({
+  filterConditions: z.array(triggerFilterConditionSchema).max(20, 'Maximum 20 filter conditions allowed').optional(),
+  contextMapping: z.array(triggerContextMappingSchema).max(50, 'Maximum 50 context mappings allowed').optional(),
+  debounceMs: z.number().int().min(0).max(3600000, 'Debounce cannot exceed 1 hour').optional(),
+  maxConcurrentInstances: z.number().int().min(1).max(1000, 'Max concurrent instances must be between 1 and 1000').optional(),
+})
+export type EventTriggerConfig = z.infer<typeof eventTriggerConfigSchema>
+
+export const eventPatternSchema = z.string()
+  .min(1, 'Event pattern is required')
+  .max(255, 'Event pattern must be at most 255 characters')
+  .regex(
+    /^(\*|[a-z0-9_]+(\.[a-z0-9_*]+)*)$/i,
+    'Event pattern must be "*" or a dot-separated pattern with optional wildcards (e.g., "customers.people.created", "sales.orders.*")'
+  )
+
+export const createEventTriggerSchema = z.object({
+  name: z.string().min(1).max(255),
+  description: z.string().max(2000).optional().nullable(),
+  workflowDefinitionId: uuid,
+  eventPattern: eventPatternSchema,
+  config: eventTriggerConfigSchema.optional().nullable(),
+  enabled: z.boolean().default(true),
+  priority: z.number().int().min(0).max(9999).default(0),
+  tenantId: uuid,
+  organizationId: uuid,
+  createdBy: z.string().max(255).optional().nullable(),
+})
+export type CreateEventTriggerInput = z.infer<typeof createEventTriggerSchema>
+
+// API input schema (omits tenant fields - injected from auth context)
+export const createEventTriggerInputSchema = z.object({
+  name: z.string().min(1).max(255),
+  description: z.string().max(2000).optional().nullable(),
+  workflowDefinitionId: uuid,
+  eventPattern: eventPatternSchema,
+  config: eventTriggerConfigSchema.optional().nullable(),
+  enabled: z.boolean().default(true).optional(),
+  priority: z.number().int().min(0).max(9999).default(0).optional(),
+})
+export type CreateEventTriggerApiInput = z.infer<typeof createEventTriggerInputSchema>
+
+export const updateEventTriggerSchema = createEventTriggerSchema.partial().extend({
+  id: uuid,
+})
+export type UpdateEventTriggerInput = z.infer<typeof updateEventTriggerSchema>
+
+// API update schema (omits tenant fields and allows partial updates)
+export const updateEventTriggerInputSchema = z.object({
+  name: z.string().min(1).max(255).optional(),
+  description: z.string().max(2000).optional().nullable(),
+  workflowDefinitionId: uuid.optional(),
+  eventPattern: eventPatternSchema.optional(),
+  config: eventTriggerConfigSchema.optional().nullable(),
+  enabled: z.boolean().optional(),
+  priority: z.number().int().min(0).max(9999).optional(),
+}).strict()
+export type UpdateEventTriggerApiInput = z.infer<typeof updateEventTriggerInputSchema>
+
+export const eventTriggerFilterSchema = z.object({
+  name: z.string().optional(),
+  workflowDefinitionId: uuid.optional(),
+  eventPattern: z.string().optional(),
+  enabled: z.boolean().optional(),
+  tenantId: uuid.optional(),
+  organizationId: uuid.optional(),
+})
+export type EventTriggerFilter = z.infer<typeof eventTriggerFilterSchema>

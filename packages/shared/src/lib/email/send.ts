@@ -6,13 +6,29 @@ export type SendEmailOptions = {
   subject: string
   react: React.ReactElement
   from?: string
+  replyTo?: string
 }
 
-export async function sendEmail({ to, subject, react, from }: SendEmailOptions) {
+export async function sendEmail({ to, subject, react, from, replyTo }: SendEmailOptions) {
   const apiKey = process.env.RESEND_API_KEY
   if (!apiKey) throw new Error('RESEND_API_KEY is not set')
   const resend = new Resend(apiKey)
   const fromAddr = from || process.env.EMAIL_FROM || 'no-reply@localhost'
-  await resend.emails.send({ to, subject, from: fromAddr, react })
+  const payload = {
+    to,
+    subject,
+    from: fromAddr,
+    react,
+    ...(replyTo ? { reply_to: replyTo } : {}),
+  }
+  const result = await resend.emails.send(payload)
+  const errorMessage =
+    typeof (result as any)?.error === 'string'
+      ? (result as any).error
+      : typeof (result as any)?.error?.message === 'string'
+        ? (result as any).error.message
+        : null
+  if (errorMessage) {
+    throw new Error(`RESEND_SEND_FAILED: ${errorMessage}`)
+  }
 }
-

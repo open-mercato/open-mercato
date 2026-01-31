@@ -128,45 +128,20 @@ export async function validateWorkflowStart(
   const validatedRules: ValidatedRule[] = []
 
   for (const condition of preConditions) {
-    const ruleContext: ruleEngine.RuleEngineContext = {
-      entityType: `workflow:${workflowId}:start`,
-      entityId: 'pre_start_validation',
-      eventType: 'validate_start',
+    // Execute rule directly by string rule_id
+    const result = await ruleEngine.executeRuleByRuleId(em, {
+      ruleId: condition.ruleId,  // String identifier like "workflow_checkout_inventory_available"
       data: {
         workflowId,
         workflowContext: context,
       },
       tenantId,
       organizationId,
+      entityType: `workflow:${workflowId}:start`,
+      entityId: 'pre_start_validation',
+      eventType: 'validate_start',
       dryRun: true, // Don't log execution during validation
-    }
-
-    // Find applicable rules for this context
-    const rules = await ruleEngine.findApplicableRules(em, {
-      entityType: ruleContext.entityType,
-      eventType: ruleContext.eventType,
-      tenantId,
-      organizationId,
-      ruleType: 'GUARD',
     })
-
-    const rule = rules.find(r => r.ruleId === condition.ruleId)
-
-    if (!rule) {
-      // Rule not found - if required, this is an error
-      if (condition.required) {
-        errors.push({
-          ruleId: condition.ruleId,
-          message: getLocalizedMessage(condition, null, locale, `Business rule '${condition.ruleId}' not found`),
-          code: 'RULE_NOT_FOUND',
-        })
-        validatedRules.push({ ruleId: condition.ruleId, passed: false })
-      }
-      continue
-    }
-
-    // Execute the single rule
-    const result = await ruleEngine.executeSingleRule(em, rule, ruleContext)
 
     validatedRules.push({
       ruleId: condition.ruleId,
@@ -174,13 +149,48 @@ export async function validateWorkflowStart(
       executionTime: result.executionTime,
     })
 
+    // Handle rule not found
+    if (result.error === 'Rule not found') {
+      if (condition.required) {
+        errors.push({
+          ruleId: condition.ruleId,
+          message: getLocalizedMessage(condition, null, locale, `Business rule not found: ${condition.ruleId}`),
+          code: 'RULE_NOT_FOUND',
+        })
+      }
+      continue
+    }
+
+    // Handle disabled rule
+    if (result.error === 'Rule is disabled') {
+      if (condition.required) {
+        errors.push({
+          ruleId: condition.ruleId,
+          message: getLocalizedMessage(condition, null, locale, `Business rule is disabled: ${result.ruleName}`),
+          code: 'RULE_DISABLED',
+        })
+      }
+      continue
+    }
+
+    // Handle other errors (not yet effective, expired, etc.)
+    if (result.error && condition.required) {
+      errors.push({
+        ruleId: condition.ruleId,
+        message: getLocalizedMessage(condition, null, locale, `Rule error: ${result.error}`),
+        code: 'RULE_ERROR',
+      })
+      continue
+    }
+
+    // Handle condition failure
     if (!result.conditionResult && condition.required) {
-      // Get localized message from condition, rule failure actions, or default
+      // Get localized message from condition or use default with rule name
       const message = getLocalizedMessage(
         condition,
-        rule,
+        null,
         locale,
-        `Pre-condition '${rule.ruleName || condition.ruleId}' failed`
+        `Pre-condition '${result.ruleName || condition.ruleId}' failed`
       )
       errors.push({
         ruleId: condition.ruleId,

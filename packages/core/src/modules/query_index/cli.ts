@@ -22,6 +22,50 @@ import type { VectorIndexService } from '@open-mercato/search/vector'
 
 type ParsedArgs = Record<string, string | boolean>
 
+type PartitionProgressInfo = { processed: number; total: number }
+
+function isIndexerVerbose(): boolean {
+  const parsed = parseBooleanToken(process.env.OM_INDEXER_VERBOSE ?? '')
+  return parsed === true
+}
+
+function createGroupedProgress(label: string, partitionTargets: number[]) {
+  const totals = new Map<number, number>()
+  const processed = new Map<number, number>()
+  let bar: ProgressBarHandle | null = null
+
+  const getTotals = () => {
+    let total = 0
+    let done = 0
+    for (const value of totals.values()) total += value
+    for (const value of processed.values()) done += value
+    return { total, done }
+  }
+
+  const tryInitBar = () => {
+    if (bar) return
+    if (totals.size < partitionTargets.length) return
+    const { total } = getTotals()
+    if (total <= 0) return
+    bar = createProgressBar(label, total) as ProgressBarHandle
+  }
+
+  return {
+    onProgress(partition: number, info: PartitionProgressInfo) {
+      processed.set(partition, info.processed)
+      if (!totals.has(partition)) totals.set(partition, info.total)
+      tryInitBar()
+      if (!bar) return
+      const { done } = getTotals()
+      bar.update(done)
+    },
+    complete() {
+      if (bar) bar.complete()
+    },
+    getTotals,
+  }
+}
+
 function parseArgs(rest: string[]): ParsedArgs {
   const args: ParsedArgs = {}
   for (let i = 0; i < rest.length; i += 1) {
@@ -550,8 +594,14 @@ const reindex: ModuleCli = {
           await purgeIndexScope(baseEm, { entityType: entity, organizationId: orgId, tenantId })
         }
         console.log(`Reindexing ${entity}${force ? ' (forced)' : ''} in ${partitionTargets.length} partition(s)...`)
-        const progressState = new Map<number, { last: number }>()
-        const renderProgress = (part: number, entityId: string, info: { processed: number; total: number }) => {
+        const verbose = isIndexerVerbose()
+        const progressState = verbose ? new Map<number, { last: number }>() : null
+        const groupedProgress =
+          !verbose && partitionTargets.length > 1
+            ? createGroupedProgress(`Reindexing ${entity}`, partitionTargets)
+            : null
+        const renderProgress = (part: number, entityId: string, info: PartitionProgressInfo) => {
+          if (!progressState) return
           const state = progressState.get(part) ?? { last: 0 }
           const now = Date.now()
           if (now - state.last < 1000 && info.processed < info.total) return
@@ -568,7 +618,7 @@ const reindex: ModuleCli = {
             const label = partitionTargets.length > 1 ? ` [partition ${part + 1}/${partitionCount}]` : ''
             if (partitionTargets.length === 1) {
               console.log(`  -> processing${label}`)
-            } else if (idx === 0) {
+            } else if (verbose && idx === 0) {
               console.log(`  -> processing partitions in parallel (count=${partitionTargets.length})`)
             }
             const partitionContainer = await createRequestContainer()
@@ -596,9 +646,14 @@ const reindex: ModuleCli = {
                 onProgress(info) {
                   if (useBar) {
                     if (info.total > 0 && !progressBar) {
-                    progressBar = createProgressBar(`Reindexing ${entity}${label}`, info.total) as ProgressBarHandle
+                      progressBar = createProgressBar(
+                        `Reindexing ${entity}${label}`,
+                        info.total,
+                      ) as ProgressBarHandle
                     }
                     progressBar?.update(info.processed)
+                  } else if (groupedProgress) {
+                    groupedProgress.onProgress(part, info)
                   } else {
                     renderProgress(part, entity, info)
                   }
@@ -607,7 +662,9 @@ const reindex: ModuleCli = {
               if (progressBar) {
                 (progressBar as ProgressBarHandle).complete()
               }
-              if (!useBar) {
+              if (!useBar && groupedProgress) {
+                groupedProgress.onProgress(part, { processed: partitionStats.processed, total: partitionStats.total })
+              } else if (!useBar) {
                 renderProgress(part, entity, { processed: partitionStats.processed, total: partitionStats.total })
               } else {
                 console.log(
@@ -622,6 +679,7 @@ const reindex: ModuleCli = {
             }
           }),
         )
+        groupedProgress?.complete()
         const totalProcessed = stats.reduce((acc, value) => acc + value, 0)
         console.log(`Finished ${entity}: processed ${totalProcessed} row(s) across ${partitionTargets.length} partition(s)`)
         await recordIndexerLog(
@@ -677,8 +735,14 @@ const reindex: ModuleCli = {
         console.log(
           `[${idx + 1}/${entityIds.length}] Reindexing ${id}${force ? ' (forced)' : ''} in ${partitionTargets.length} partition(s)...`,
         )
-        const progressState = new Map<number, { last: number }>()
-        const renderProgress = (part: number, entityId: string, info: { processed: number; total: number }) => {
+        const verbose = isIndexerVerbose()
+        const progressState = verbose ? new Map<number, { last: number }>() : null
+        const groupedProgress =
+          !verbose && partitionTargets.length > 1
+            ? createGroupedProgress(`Reindexing ${id}`, partitionTargets)
+            : null
+        const renderProgress = (part: number, entityId: string, info: PartitionProgressInfo) => {
+          if (!progressState) return
           const state = progressState.get(part) ?? { last: 0 }
           const now = Date.now()
           if (now - state.last < 1000 && info.processed < info.total) return
@@ -695,7 +759,7 @@ const reindex: ModuleCli = {
             const label = partitionTargets.length > 1 ? ` [partition ${part + 1}/${partitionCount}]` : ''
             if (partitionTargets.length === 1) {
               console.log(`  -> processing${label}`)
-            } else if (partitionIdx === 0) {
+            } else if (verbose && partitionIdx === 0) {
               console.log(`  -> processing partitions in parallel (count=${partitionTargets.length})`)
             }
             const partitionContainer = await createRequestContainer()
@@ -723,18 +787,22 @@ const reindex: ModuleCli = {
                 onProgress(info) {
                   if (useBar) {
                     if (info.total > 0 && !progressBar) {
-                    progressBar = createProgressBar(`Reindexing ${id}${label}`, info.total) as ProgressBarHandle
+                      progressBar = createProgressBar(`Reindexing ${id}${label}`, info.total) as ProgressBarHandle
                     }
                     progressBar?.update(info.processed)
+                  } else if (groupedProgress) {
+                    groupedProgress.onProgress(part, info)
                   } else {
                     renderProgress(part, id, info)
                   }
                 },
               })
-            if (progressBar) {
-              (progressBar as ProgressBarHandle).complete()
-            }
-              if (!useBar) {
+              if (progressBar) {
+                (progressBar as ProgressBarHandle).complete()
+              }
+              if (!useBar && groupedProgress) {
+                groupedProgress.onProgress(part, { processed: result.processed, total: result.total })
+              } else if (!useBar) {
                 renderProgress(part, id, { processed: result.processed, total: result.total })
               } else {
                 console.log(
@@ -749,6 +817,7 @@ const reindex: ModuleCli = {
             }
           }),
         )
+        groupedProgress?.complete()
         const totalProcessed = partitionResults.reduce((acc, value) => acc + value, 0)
         console.log(`  -> ${id} complete: processed ${totalProcessed} row(s) across ${partitionTargets.length} partition(s)`)
         await recordIndexerLog(

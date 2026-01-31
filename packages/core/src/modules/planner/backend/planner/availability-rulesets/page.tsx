@@ -202,8 +202,8 @@ export default function PlannerAvailabilityRuleSetsPage() {
           rowActions={(row) => (
             <RowActions
               items={[
-                { label: labels.actions.edit, href: `/backend/planner/availability-rulesets/${row.id}` },
-                { label: labels.actions.delete, destructive: true, onSelect: () => { void handleDelete(row) } },
+                { id: 'edit', label: labels.actions.edit, href: `/backend/planner/availability-rulesets/${row.id}` },
+                { id: 'delete', label: labels.actions.delete, destructive: true, onSelect: () => { void handleDelete(row) } },
               ]}
             />
           )}

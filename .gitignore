@@ -79,6 +79,7 @@ packages/*/src/**/*.jsx
 tmp/
 
 public/uploads/*
+apps/mercato/storage/*
 apps/mercato/storage/attachments/*
 storage
 apps/mercato/data
@@ -91,6 +92,7 @@ package-lock.json
 
 # Claude Code MCP config (may contain API keys)
 .mcp.json
+.vscode/settings.json
 packages/cache/node_modules/*
 newrelic_agent.log
 /generated/

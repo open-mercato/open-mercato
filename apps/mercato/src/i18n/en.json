@@ -9,6 +9,7 @@
   "common.close": "Close",
   "common.delete": "Delete",
   "common.edit": "Edit",
+  "common.view": "View",
   "common.export": "Export",
   "common.yes": "Yes",
   "common.no": "No",
@@ -309,6 +310,8 @@
   "ui.rowActions.openActions": "Open actions",
   "ui.userMenu.userFallback": "User",
   "ui.userMenu.loggedInAs": "Logged in as:",
+  "ui.userMenu.profile": "Profile",
+  "ui.userMenu.changePassword": "Change password",
   "ui.userMenu.logout": "Logout",
   "ui.contextHelp.hide": "Hide",
   "ui.contextHelp.show": "Show",
@@ -383,6 +386,10 @@
   "upgrades.v041.cta": "Seed planner, staff, and resources data",
   "upgrades.v041.loading": "Seeding…",
   "upgrades.v041.success": "Planner, staff, and resources data seeded.",
+  "upgrades.v042.message": "Version {{version}} has been installed. Enable analytics widgets for admin and employee roles.",
+  "upgrades.v042.cta": "Enable analytics widgets for admin and employee roles",
+  "upgrades.v042.loading": "Updating…",
+  "upgrades.v042.success": "Analytics widgets enabled for admin and employee roles.",
   "upgrades.runFailed": "We could not run this upgrade action.",
   "upgrades.loading": "Loading upgrade…"
 }

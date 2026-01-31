@@ -1,6 +1,5 @@
 "use client"
 import * as React from 'react'
-import { usePathname, useSearchParams } from 'next/navigation'
 
 export type FlashKind = 'success' | 'error' | 'warning' | 'info'
 
@@ -12,28 +11,75 @@ export function flash(message: string, type: FlashKind = 'info') {
   window.dispatchEvent(evt)
 }
 
+type HistoryMethod = History['pushState']
+
+function useLocationKey() {
+  const [locationKey, setLocationKey] = React.useState(() => {
+    if (typeof window === 'undefined') return ''
+    return window.location.href
+  })
+
+  React.useEffect(() => {
+    if (typeof window === 'undefined') return
+
+    let active = true
+    const updateLocation = () => {
+      if (!active) return
+      setLocationKey(window.location.href)
+    }
+
+    const originalPush: HistoryMethod = window.history.pushState.bind(window.history)
+    const originalReplace: HistoryMethod = window.history.replaceState.bind(window.history)
+
+    const pushState: HistoryMethod = (...args) => {
+      originalPush(...args)
+      updateLocation()
+    }
+
+    const replaceState: HistoryMethod = (...args) => {
+      originalReplace(...args)
+      updateLocation()
+    }
+
+    window.history.pushState = pushState
+    window.history.replaceState = replaceState
+    window.addEventListener('popstate', updateLocation)
+    window.addEventListener('hashchange', updateLocation)
+    updateLocation()
+
+    return () => {
+      active = false
+      window.history.pushState = originalPush
+      window.history.replaceState = originalReplace
+      window.removeEventListener('popstate', updateLocation)
+      window.removeEventListener('hashchange', updateLocation)
+    }
+  }, [])
+
+  return locationKey
+}
+
 function FlashMessagesInner() {
   const [msg, setMsg] = React.useState<string | null>(null)
   const [kind, setKind] = React.useState<FlashKind>('info')
-  const pathname = usePathname()
-  const searchParams = useSearchParams()
+  const locationKey = useLocationKey()
 
   // Read flash from URL on any navigation change (client-side too)
   React.useEffect(() => {
-    if (!searchParams) return
-    const m = searchParams.get('flash')
-    const t = (searchParams.get('type') as FlashKind | null) || 'success'
-    if (m) {
-      setMsg(m)
-      setKind(t)
-      const url = new URL(window.location.href)
+    if (typeof window === 'undefined') return
+    const url = new URL(window.location.href)
+    const message = url.searchParams.get('flash')
+    const type = (url.searchParams.get('type') as FlashKind | null) || 'success'
+    if (message) {
+      setMsg(message)
+      setKind(type)
       url.searchParams.delete('flash')
       url.searchParams.delete('type')
       window.history.replaceState({}, '', url.toString())
       const timer = setTimeout(() => setMsg(null), 3000)
       return () => clearTimeout(timer)
     }
-  }, [pathname, searchParams])
+  }, [locationKey])
 
   // Listen for programmatic flash events
   React.useEffect(() => {

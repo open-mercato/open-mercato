@@ -4,21 +4,19 @@ import { Role, RoleAcl, User, UserRole } from '@open-mercato/core/modules/auth/d
 import { Tenant, Organization } from '@open-mercato/core/modules/directory/data/entities'
 import { rebuildHierarchyForTenant } from '@open-mercato/core/modules/directory/lib/hierarchy'
 import { normalizeTenantId } from './tenantAccess'
-import { SalesSettings, SalesDocumentSequence } from '@open-mercato/core/modules/sales/data/entities'
-import {
-  DEFAULT_ORDER_NUMBER_FORMAT,
-  DEFAULT_QUOTE_NUMBER_FORMAT,
-} from '@open-mercato/core/modules/sales/lib/documentNumberTokens'
 import { computeEmailHash } from '@open-mercato/core/modules/auth/lib/emailHash'
+import type { Module } from '@open-mercato/shared/modules/registry'
 import { isEncryptionDebugEnabled, isTenantDataEncryptionEnabled } from '@open-mercato/shared/lib/encryption/toggles'
 import { EncryptionMap } from '@open-mercato/core/modules/entities/data/entities'
 import { DEFAULT_ENCRYPTION_MAPS } from '@open-mercato/core/modules/entities/lib/encryptionDefaults'
 import { createKmsService } from '@open-mercato/shared/lib/encryption/kms'
 import { TenantDataEncryptionService } from '@open-mercato/shared/lib/encryption/tenantDataEncryptionService'
 import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { parseBooleanToken } from '@open-mercato/shared/lib/boolean'
 
 const DEFAULT_ROLE_NAMES = ['employee', 'admin', 'superadmin'] as const
 const DEMO_SUPERADMIN_EMAIL = 'superadmin@acme.com'
+const DEFAULT_DERIVED_EMAIL_DOMAIN = DEMO_SUPERADMIN_EMAIL.split('@')[1] ?? 'acme.com'
 
 export type EnsureRolesOptions = {
   roleNames?: string[]
@@ -87,6 +85,11 @@ type PrimaryUserInput = {
   confirm?: boolean
 }
 
+const DERIVED_EMAIL_ENV = {
+  admin: 'OM_INIT_ADMIN_EMAIL',
+  employee: 'OM_INIT_EMPLOYEE_EMAIL',
+} as const
+
 export type SetupInitialTenantOptions = {
   orgName: string
   primaryUser: PrimaryUserInput
@@ -95,6 +98,8 @@ export type SetupInitialTenantOptions = {
   failIfUserExists?: boolean
   primaryUserRoles?: string[]
   includeSuperadminRole?: boolean
+  /** Optional list of enabled modules. When provided, module setup hooks are called. */
+  modules?: Module[]
 }
 
 export type SetupInitialTenantResult = {
@@ -170,16 +175,27 @@ export async function setupInitialTenant(
   })
 
   if (!existingUser) {
-    const baseUsers: Array<{ email: string; roles: string[]; name?: string | null }> = [
+    const baseUsers: Array<{
+      email: string
+      roles: string[]
+      name?: string | null
+      passwordHash?: string | null
+    }> = [
       { email: primaryUser.email, roles: primaryRoles, name: resolvePrimaryName(primaryUser) },
     ]
     if (includeDerivedUsers) {
-      const [local, domain] = String(primaryUser.email).split('@')
-      const isSuperadminLocal = (local || '').toLowerCase() === 'superadmin' && !!domain
-      if (isSuperadminLocal) {
-        baseUsers.push({ email: `admin@${domain}`, roles: ['admin'] })
-        baseUsers.push({ email: `employee@${domain}`, roles: ['employee'] })
-      }
+      const adminOverride = readEnvValue(DERIVED_EMAIL_ENV.admin)
+      const employeeOverride = readEnvValue(DERIVED_EMAIL_ENV.employee)
+      const adminEmail = adminOverride ?? `admin@${DEFAULT_DERIVED_EMAIL_DOMAIN}`
+      const employeeEmail = employeeOverride ?? `employee@${DEFAULT_DERIVED_EMAIL_DOMAIN}`
+      const adminPassword = readEnvValue('OM_INIT_ADMIN_PASSWORD') || 'secret'
+      const employeePassword = readEnvValue('OM_INIT_EMPLOYEE_PASSWORD') || 'secret'
+      const adminPasswordHash = adminPassword ? await resolvePasswordHash({ email: adminEmail, password: adminPassword }) : null
+      const employeePasswordHash = employeePassword
+        ? await resolvePasswordHash({ email: employeeEmail, password: employeePassword })
+        : null
+      addUniqueBaseUser(baseUsers, { email: adminEmail, roles: ['admin'], passwordHash: adminPasswordHash })
+      addUniqueBaseUser(baseUsers, { email: employeeEmail, roles: ['employee'], passwordHash: employeePasswordHash })
     }
     const passwordHash = await resolvePasswordHash(primaryUser)
 
@@ -271,13 +287,14 @@ export async function setupInitialTenant(
       }
 
       for (const base of baseUsers) {
+        const resolvedPasswordHash = base.passwordHash ?? passwordHash
         let user = await tem.findOne(User, { email: base.email })
         const confirm = primaryUser.confirm ?? true
         const encryptedPayload = encryptionService
           ? await encryptionService.encryptEntityPayload('auth:user', { email: base.email }, tenantId, organizationId)
           : { email: base.email, emailHash: computeEmailHash(base.email) }
         if (user) {
-          user.passwordHash = passwordHash
+          user.passwordHash = resolvedPasswordHash
           user.organizationId = organizationId
           user.tenantId = tenantId
           if (isTenantDataEncryptionEnabled()) {
@@ -292,7 +309,7 @@ export async function setupInitialTenant(
           user = tem.create(User, {
             email: (encryptedPayload as any).email ?? base.email,
             emailHash: isTenantDataEncryptionEnabled() ? (encryptedPayload as any).emailHash ?? computeEmailHash(base.email) : undefined,
-            passwordHash,
+            passwordHash: resolvedPasswordHash,
             organizationId,
             tenantId,
             name: base.name ?? undefined,
@@ -321,9 +338,16 @@ export async function setupInitialTenant(
     await rebuildHierarchyForTenant(em, tenantId)
   }
 
-  await ensureDefaultRoleAcls(em, tenantId, { includeSuperadminRole })
+  const resolvedModules = options.modules ?? tryGetModules()
+  await ensureDefaultRoleAcls(em, tenantId, resolvedModules, { includeSuperadminRole })
   await deactivateDemoSuperAdminIfSelfOnboardingEnabled(em)
-  await ensureSalesNumberingDefaults(em, { tenantId, organizationId })
+
+  // Call module onTenantCreated hooks
+  for (const mod of resolvedModules) {
+    if (mod.setup?.onTenantCreated) {
+      await mod.setup.onTenantCreated({ em, tenantId, organizationId })
+    }
+  }
 
   return {
     tenantId,
@@ -340,6 +364,34 @@ function resolvePrimaryName(input: PrimaryUserInput): string | null {
   return null
 }
 
+function readEnvValue(key: string): string | undefined {
+  const value = process.env[key]
+  if (typeof value !== 'string') return undefined
+  const trimmed = value.trim()
+  return trimmed.length > 0 ? trimmed : undefined
+}
+
+function addUniqueBaseUser(
+  baseUsers: Array<{ email: string; roles: string[]; name?: string | null; passwordHash?: string | null }>,
+  entry: { email: string; roles: string[]; name?: string | null; passwordHash?: string | null },
+) {
+  if (!entry.email) return
+  const normalized = entry.email.toLowerCase()
+  if (baseUsers.some((user) => user.email.toLowerCase() === normalized)) return
+  baseUsers.push(entry)
+}
+
+function isDemoModeEnabled(): boolean {
+  const parsed = parseBooleanToken(process.env.DEMO_MODE ?? '')
+  return parsed === false ? false : true
+}
+
+function shouldKeepDemoSuperadminDuringInit(): boolean {
+  if (process.env.OM_INIT_FLOW !== 'true') return false
+  if (!readEnvValue('OM_INIT_SUPERADMIN_EMAIL')) return false
+  return isDemoModeEnabled()
+}
+
 async function resolvePasswordHash(input: PrimaryUserInput): Promise<string | null> {
   if (typeof input.hashedPassword === 'string') return input.hashedPassword
   if (input.password) return hash(input.password, 10)
@@ -349,6 +401,7 @@ async function resolvePasswordHash(input: PrimaryUserInput): Promise<string | nu
 async function ensureDefaultRoleAcls(
   em: EntityManager,
   tenantId: string,
+  modules: Module[],
   options: { includeSuperadminRole?: boolean } = {},
 ) {
   const includeSuperadminRole = options.includeSuperadminRole ?? true
@@ -357,82 +410,33 @@ async function ensureDefaultRoleAcls(
   const adminRole = await findRoleByName(em, 'admin', roleTenantId)
   const employeeRole = await findRoleByName(em, 'employee', roleTenantId)
 
+  // Merge features from all enabled modules' setup configs
+  const superadminFeatures: string[] = []
+  const adminFeatures: string[] = []
+  const employeeFeatures: string[] = []
+
+  for (const mod of modules) {
+    const roleFeatures = mod.setup?.defaultRoleFeatures
+    if (!roleFeatures) continue
+    if (roleFeatures.superadmin) superadminFeatures.push(...roleFeatures.superadmin)
+    if (roleFeatures.admin) adminFeatures.push(...roleFeatures.admin)
+    if (roleFeatures.employee) employeeFeatures.push(...roleFeatures.employee)
+  }
+
+  console.log('✅ Seeded default role features', {
+    superadmin: superadminFeatures,
+    admin: adminFeatures,
+    employee: employeeFeatures,
+  })
+
   if (includeSuperadminRole && superadminRole) {
-    await ensureRoleAclFor(em, superadminRole, tenantId, ['directory.tenants.*'], { isSuperAdmin: true })
+    await ensureRoleAclFor(em, superadminRole, tenantId, superadminFeatures, { isSuperAdmin: true })
   }
   if (adminRole) {
-    const adminFeatures = [
-      'auth.*',
-      'entities.*',
-      'attachments.*',
-      'attachments.view',
-      'attachments.manage',
-      'query_index.*',
-      'search.*',
-      'vector.*',
-      'feature_toggles.*',
-      'configs.system_status.view',
-      'configs.cache.view',
-      'configs.cache.manage',
-      'configs.manage',
-      'catalog.*',
-      'catalog.variants.manage',
-      'catalog.pricing.manage',
-      'sales.*',
-      'audit_logs.*',
-      'directory.organizations.view',
-      'directory.organizations.manage',
-      'customers.*',
-      'customers.people.view',
-      'customers.people.manage',
-      'customers.companies.view',
-      'customers.companies.manage',
-      'customers.deals.view',
-      'customers.deals.manage',
-      'dictionaries.view',
-      'dictionaries.manage',
-      'example.*',
-      'dashboards.*',
-      'dashboards.admin.assign-widgets',
-      'api_keys.*',
-      'perspectives.use',
-      'perspectives.role_defaults',
-      'business_rules.*',
-      'workflows.*',
-      'currencies.*',
-      'staff.*',
-      'staff.leave_requests.manage',
-      'resources.*',
-      'planner.*',
-    ]
-    await ensureRoleAclFor(em, adminRole, tenantId, adminFeatures, { remove: ['directory.organizations.*', 'directory.tenants.*'] })
+    await ensureRoleAclFor(em, adminRole, tenantId, adminFeatures)
   }
   if (employeeRole) {
-    await ensureRoleAclFor(em, employeeRole, tenantId, [
-      'customers.*',
-      'customers.people.view',
-      'customers.people.manage',
-      'customers.companies.view',
-      'customers.companies.manage',
-      'vector.*',
-      'catalog.*',
-      'catalog.variants.manage',
-      'catalog.pricing.manage',
-      'sales.*',
-      'dictionaries.view',
-      'example.*',
-      'example.widgets.*',
-      'dashboards.view',
-      'dashboards.configure',
-      'audit_logs.undo_self',
-      'perspectives.use',
-      'staff.leave_requests.send',
-      'staff.my_availability.view',
-      'staff.my_availability.manage',
-      'staff.my_leave_requests.view',
-      'staff.my_leave_requests.send',
-      'planner.view',
-    ])
+    await ensureRoleAclFor(em, employeeRole, tenantId, employeeFeatures)
   }
 }
 
@@ -441,7 +445,7 @@ async function ensureRoleAclFor(
   role: Role,
   tenantId: string,
   features: string[],
-  options: { isSuperAdmin?: boolean; remove?: string[] } = {},
+  options: { isSuperAdmin?: boolean } = {},
 ) {
   const existing = await em.findOne(RoleAcl, { role, tenantId })
   if (!existing) {
@@ -457,24 +461,10 @@ async function ensureRoleAclFor(
   }
   const currentFeatures = Array.isArray(existing.featuresJson) ? existing.featuresJson : []
   const merged = Array.from(new Set([...currentFeatures, ...features]))
-  const removeSet = new Set(options.remove ?? [])
-  const sanitized =
-    removeSet.size
-      ? merged.filter((value) => {
-        if (removeSet.has(value)) return false
-        for (const entry of removeSet) {
-          if (entry.endsWith('.*')) {
-            const prefix = entry.slice(0, -1) // keep trailing dot
-            if (value === entry || value.startsWith(prefix)) return false
-          }
-        }
-        return true
-      })
-      : merged
   const changed =
-    sanitized.length !== currentFeatures.length ||
-    sanitized.some((value, index) => value !== currentFeatures[index])
-  if (changed) existing.featuresJson = sanitized
+    merged.length !== currentFeatures.length ||
+    merged.some((value, index) => value !== currentFeatures[index])
+  if (changed) existing.featuresJson = merged
   if (options.isSuperAdmin && !existing.isSuperAdmin) {
     existing.isSuperAdmin = true
   }
@@ -485,6 +475,7 @@ async function ensureRoleAclFor(
 
 async function deactivateDemoSuperAdminIfSelfOnboardingEnabled(em: EntityManager) {
   if (process.env.SELF_SERVICE_ONBOARDING_ENABLED !== 'true') return
+  if (shouldKeepDemoSuperadminDuringInit()) return
   try {
     const user = await em.findOne(User, { email: DEMO_SUPERADMIN_EMAIL })
     if (!user) return
@@ -505,84 +496,12 @@ async function deactivateDemoSuperAdminIfSelfOnboardingEnabled(em: EntityManager
   }
 }
 
-async function ensureSalesNumberingDefaults(
-  em: EntityManager,
-  scope: { tenantId: string; organizationId: string },
-) {
-  const repo = (em as any).getRepository?.(SalesSettings)
-  const findSettings = async () =>
-    repo?.findOne({
-      tenantId: scope.tenantId,
-      organizationId: scope.organizationId,
-    }) ??
-    (em as any).findOne?.(SalesSettings, {
-      tenantId: scope.tenantId,
-      organizationId: scope.organizationId,
-    })
-
-  const exists = await findSettings()
-  if (!exists) {
-    const settings =
-      repo?.create?.({
-        tenantId: scope.tenantId,
-        organizationId: scope.organizationId,
-        orderNumberFormat: DEFAULT_ORDER_NUMBER_FORMAT,
-        quoteNumberFormat: DEFAULT_QUOTE_NUMBER_FORMAT,
-        createdAt: new Date(),
-        updatedAt: new Date(),
-      }) ??
-      (em as any).create?.(SalesSettings, {
-        tenantId: scope.tenantId,
-        organizationId: scope.organizationId,
-        orderNumberFormat: DEFAULT_ORDER_NUMBER_FORMAT,
-        quoteNumberFormat: DEFAULT_QUOTE_NUMBER_FORMAT,
-        createdAt: new Date(),
-        updatedAt: new Date(),
-      })
-    if (settings && (em as any).persist) {
-      em.persist(settings)
-    }
-  }
-
-  const sequenceRepo = (em as any).getRepository?.(SalesDocumentSequence)
-  const kinds: Array<'order' | 'quote'> = ['order', 'quote']
-  for (const kind of kinds) {
-    const seq =
-      sequenceRepo?.findOne({
-        tenantId: scope.tenantId,
-        organizationId: scope.organizationId,
-        documentKind: kind,
-      }) ??
-      (em as any).findOne?.(SalesDocumentSequence, {
-        tenantId: scope.tenantId,
-        organizationId: scope.organizationId,
-        documentKind: kind,
-      })
-    if (!seq) {
-      const entry =
-        sequenceRepo?.create?.({
-          tenantId: scope.tenantId,
-          organizationId: scope.organizationId,
-          documentKind: kind,
-          currentValue: 0,
-          createdAt: new Date(),
-          updatedAt: new Date(),
-        }) ??
-        (em as any).create?.(SalesDocumentSequence, {
-          tenantId: scope.tenantId,
-          organizationId: scope.organizationId,
-          documentKind: kind,
-          currentValue: 0,
-          createdAt: new Date(),
-          updatedAt: new Date(),
-        })
-      if (entry && (em as any).persist) {
-        em.persist(entry)
-      }
-    }
-  }
-
-  if ((em as any).flush) {
-    await em.flush()
+/** Try to get modules from runtime registry; returns empty array if not yet registered. */
+function tryGetModules(): Module[] {
+  try {
+    const { getModules } = require('@open-mercato/shared/lib/modules/registry')
+    return getModules()
+  } catch {
+    return []
   }
 }

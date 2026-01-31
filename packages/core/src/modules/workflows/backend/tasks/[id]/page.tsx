@@ -381,7 +381,7 @@ export default function UserTaskDetailPage({ params }: { params: { id: string } 
                 task.status
               )}`}
             >
-              {t(`workflows.tasks.status.${task.status}`)}
+              {t(`workflows.tasks.statuses.${task.status}`)}
             </span>
           </div>
 

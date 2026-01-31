@@ -43,7 +43,7 @@ import {
   Activity,
 } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
-import { Dialog, DialogContent } from '@open-mercato/ui/primitives/dialog'
+import { Dialog, DialogContent, DialogTitle } from '@open-mercato/ui/primitives/dialog'
 import { Input } from '@open-mercato/ui/primitives/input'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { cn } from '@open-mercato/shared/lib/utils'
@@ -307,6 +307,9 @@ export function GlobalSearchDialog({
       </Button>
       <Dialog open={open} onOpenChange={setOpen}>
         <DialogContent className="max-w-xl p-0" aria-describedby="global-search-description">
+          <DialogTitle className="sr-only">
+            {t('search.dialog.title', 'Global Search')}
+          </DialogTitle>
           <span id="global-search-description" className="sr-only">
             {t('search.dialog.instructions')}
           </span>

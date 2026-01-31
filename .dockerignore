@@ -40,14 +40,15 @@ tmp
 .yarn/cache
 .pnp.*
 
-# Documentation (not needed in production)
-docs
-apps/docs
+# Documentation build artifacts (source needed for docs image)
+docs/build
+docs/.docusaurus
+apps/docs/build
+apps/docs/.docusaurus
 
-# Docker files
-Dockerfile*
+# Docker files (exclude root, allow app-specific)
+Dockerfile
 docker-compose*.yml
-.dockerignore
 
 # Test files
 **/*.test.ts
