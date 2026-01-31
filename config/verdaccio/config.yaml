@@ -23,6 +23,12 @@ packages:
     # No proxy - these are local packages only
     # Allow anonymous publish for local development
 
+  'create-mercato-app':
+    access: $all
+    publish: $all
+    unpublish: $all
+    # Allow anonymous publish for local development
+
   '@*/*':
     access: $all
     publish: $authenticated

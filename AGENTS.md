@@ -88,6 +88,139 @@ import { CustomFieldDef } from '@open-mercato/core/modules/entities/data/entitie
 import type { SalesOrderEntity } from '@open-mercato/core/modules/sales'
 ```
 
+## Standalone Applications
+
+### What is a Standalone App?
+
+A **standalone app** is a separate Next.js application created outside the monorepo that uses Open Mercato packages installed from npm (or a local registry like Verdaccio). This is how end users consume Open Mercato - they run `npx create-mercato-app my-app` to scaffold a new project.
+
+**Key differences from monorepo development:**
+
+| Aspect | Monorepo | Standalone App |
+|--------|----------|----------------|
+| Package source | Local workspace (`packages/`) | npm registry or Verdaccio |
+| Package format | TypeScript source (`src/`) | Compiled JavaScript (`dist/`) |
+| Generators read from | `src/modules/*.ts` | `dist/modules/*.js` |
+| Module location | `apps/mercato/src/modules/` | `src/modules/` (app root) |
+
+**Standalone app structure:**
+```
+my-app/
+├── src/
+│   └── modules/           # User's custom modules (.ts files)
+│       └── example/
+├── node_modules/
+│   └── @open-mercato/     # Installed packages (compiled .js)
+│       ├── core/
+│       ├── shared/
+│       └── ...
+├── .mercato/
+│   └── generated/         # Generated files from CLI
+└── package.json
+```
+
+### Testing with Verdaccio
+
+Verdaccio is a lightweight npm registry that allows testing package publishing locally before releasing to npm.
+
+#### 1. Start Verdaccio
+
+```bash
+# Start Verdaccio using docker-compose
+docker compose up -d verdaccio
+```
+
+Configuration is at `config/verdaccio/config.yaml`.
+
+#### 2. Setup Registry User
+
+```bash
+# Create a user for publishing (use any username/password, e.g., test/test)
+yarn registry:setup-user
+```
+
+#### 3. Build and Publish Packages
+
+```bash
+# Build and publish all packages to Verdaccio
+yarn registry:publish
+```
+
+This script (`scripts/registry/publish.sh`) handles everything:
+- Verifies Verdaccio is running
+- Unpublishes existing versions (allows republishing same version)
+- Builds all packages with `yarn build:packages`
+- Publishes each package in correct dependency order
+
+#### 4. Create and Test Standalone App
+
+```bash
+# Create new app (uses packages from Verdaccio)
+npx --registry http://localhost:4873 create-mercato-app@latest my-test-app
+cd my-test-app
+
+# Start database, install, initialize, and run
+docker compose up -d
+yarn install
+yarn initialize
+yarn dev
+```
+
+#### 5. Testing Workflow
+
+When making changes to packages:
+
+```bash
+# 1. Make changes in monorepo packages
+
+# 2. Republish to Verdaccio
+yarn registry:publish
+
+# 3. In standalone app, reinstall and test
+cd /path/to/my-test-app
+rm -rf node_modules .next
+yarn install
+yarn dev
+```
+
+#### Canary Releases
+
+For testing unreleased changes without bumping versions:
+
+```bash
+# Publish canary version (includes commit hash)
+./scripts/release-canary.sh
+
+# Creates version like: 0.4.2-canary-abc1234567
+# Test with:
+npx create-mercato-app@0.4.2-canary-abc1234567 my-test-app
+```
+
+#### Cleanup
+
+```bash
+# Reset npm registry
+npm config delete @open-mercato:registry
+
+# Stop Verdaccio
+docker stop verdaccio && docker rm verdaccio
+```
+
+### Important Considerations for Package Development
+
+1. **Type declarations must be available**: Packages export types from `src/` but runtime code from `dist/`. Ensure `@types/*` dependencies needed by source files are in `dependencies` (not `devDependencies`) so they're installed in standalone apps.
+
+2. **Generators read compiled files**: In standalone apps, CLI generators scan `node_modules/@open-mercato/*/dist/modules/` for `.js` files. Ensure packages are built before publishing.
+
+3. **Test both environments**: Always test changes in both monorepo (`yarn dev`) and standalone app (via Verdaccio) before releasing.
+
+4. **Build order matters**: The correct build sequence is:
+   ```bash
+   yarn build:packages   # Build packages first (CLI needs this)
+   yarn generate         # Run generators
+   yarn build:packages   # Rebuild with generated files
+   ```
+
 ## Documentation and Specifications
 
 Architecture Decision Records (ADRs) and feature specifications are maintained in the `.ai/specs/` folder. This serves as the source of truth for design decisions and module specifications.

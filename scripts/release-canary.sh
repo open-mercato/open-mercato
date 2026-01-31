@@ -21,7 +21,7 @@ echo "==> Generating..."
 yarn generate
 echo "==> Generate completed"
 
-echo "==> Rebuilding packages..."
+echo "==> Rebuilding packages with generated files..."
 yarn build:packages
 echo "==> Rebuild completed"
 

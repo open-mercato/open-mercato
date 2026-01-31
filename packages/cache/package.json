@@ -53,8 +53,10 @@
       "optional": true
     }
   },
+  "dependencies": {
+    "@types/better-sqlite3": "^7.6.13"
+  },
   "devDependencies": {
-    "@types/better-sqlite3": "^7.6.0",
     "@types/jest": "^30.0.0",
     "@types/node": "^20.0.0",
     "jest": "^30.2.0",
