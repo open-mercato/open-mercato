@@ -18,6 +18,5 @@ export const metadata = {
     pageGroupKey: 'rules.nav.group',
     pageOrder: 130,
     icon: logsIcon,
-    pageContext: 'settings' as const,
     breadcrumb: [{ label: 'Business Rules Logs', labelKey: 'rules.nav.rules_logs' }],
 }

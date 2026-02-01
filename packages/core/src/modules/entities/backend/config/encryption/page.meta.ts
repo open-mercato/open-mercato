@@ -25,7 +25,6 @@ export const metadata = {
   pageGroupKey: 'backend.nav.configuration',
   pageOrder: 130,
   icon: lockIcon,
-  pageContext: 'settings' as const,
   breadcrumb: [
     { label: 'Encryption', labelKey: 'entities.encryption.title' },
   ],

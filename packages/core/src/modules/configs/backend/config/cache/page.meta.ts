@@ -29,7 +29,6 @@ export const metadata = {
   pageGroupKey: 'backend.nav.configuration',
   pageOrder: 125,
   icon: cacheIcon,
-  pageContext: 'settings' as const,
   breadcrumb: [
     { label: 'Cache', labelKey: 'configs.config.nav.cache' },
   ],

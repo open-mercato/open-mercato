@@ -46,8 +46,8 @@ export type AppShellProps = {
   // Optional: full admin nav API to refresh sidebar client-side
   adminNavApi?: string
   version?: string
-  // Settings section configuration
   settingsSectionTitle?: string
+  settingsPathPrefixes?: string[]
 }
 
 type Breadcrumb = Array<{ label: string; href?: string }>
@@ -131,7 +131,7 @@ function Chevron({ open }: { open: boolean }) {
   )
 }
 
-export function AppShell({ productName, email, groups, rightHeaderSlot, children, sidebarCollapsedDefault = false, currentTitle, breadcrumb, adminNavApi, version, settingsSectionTitle }: AppShellProps) {
+export function AppShell({ productName, email, groups, rightHeaderSlot, children, sidebarCollapsedDefault = false, currentTitle, breadcrumb, adminNavApi, version, settingsSectionTitle, settingsPathPrefixes = [] }: AppShellProps) {
   const pathname = usePathname()
   const t = useT()
   const locale = useLocale()
@@ -791,13 +791,17 @@ export function AppShell({ productName, email, groups, rightHeaderSlot, children
             customizationEditor
           ) : (
             (() => {
-              // Filter groups and items by pageContext:
-              // - 'main' (default): Main sidebar business operations
-              // - 'admin': Collapsible "Settings & Admin" section at bottom of sidebar
-              // - 'settings': Hidden from sidebar, only accessible via Settings hub page
-              const isMainItem = (item: SidebarItem) => !item.pageContext || item.pageContext === 'main'
+              const isSettingsPath = (href: string) => {
+                if (href === '/backend/settings') return true
+                return settingsPathPrefixes.some((prefix) => href.startsWith(prefix))
+              }
 
-              // Main groups: filter to only include main items
+              const isMainItem = (item: SidebarItem) => {
+                if (item.pageContext && item.pageContext !== 'main') return false
+                if (isSettingsPath(item.href)) return false
+                return true
+              }
+
               const mainGroups = navGroups.map((g) => ({
                 ...g,
                 items: g.items.filter((item) => isMainItem(item) && item.hidden !== true),

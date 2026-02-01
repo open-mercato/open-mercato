@@ -17,7 +17,6 @@ export const metadata = {
   pagePriority: 30,
   pageOrder: 120,
   icon: tasksIcon,
-  pageContext: 'settings' as const,
   breadcrumb: [
     { label: 'Workflows', labelKey: 'workflows.module.name' },
     { label: 'Tasks', labelKey: 'workflows.tasks.plural' },
