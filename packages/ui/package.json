@@ -50,6 +50,10 @@
       "types": "./src/backend/settings/index.ts",
       "default": "./dist/backend/settings/index.js"
     },
+    "./backend/section-page": {
+      "types": "./src/backend/section-page/index.ts",
+      "default": "./dist/backend/section-page/index.js"
+    },
     "./backend/injection/widgetRegistry": {
       "types": "./src/backend/injection/widgetRegistry.ts",
       "default": "./dist/backend/injection/widgetRegistry.js"

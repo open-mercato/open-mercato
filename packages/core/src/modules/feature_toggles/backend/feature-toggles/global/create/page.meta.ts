@@ -17,6 +17,6 @@ export const metadata = {
   pageGroupKey: 'feature_toggles.nav.group',
   pageOrder: 100,
   icon: createIcon,
-  pageContext: 'admin' as const,
+  pageContext: 'settings' as const,
   breadcrumb: [ { label: 'Global', labelKey: 'feature_toggles.nav.global', href: '/backend/feature-toggles/global' }, { label: 'Create', labelKey: 'feature_toggles.nav.global.create' } ],
 }

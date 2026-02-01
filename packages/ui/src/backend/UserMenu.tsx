@@ -99,7 +99,7 @@ export function UserMenu({ email }: { email?: string }) {
           )}
           <Link
             ref={profileButtonRef}
-            href="/backend/auth/profile"
+            href="/backend/profile/change-password"
             className="w-full text-left text-sm px-2 py-1 rounded hover:bg-accent inline-flex items-center gap-2 outline-none focus:outline-none focus-visible:outline-none ring-0 focus:ring-0 focus-visible:ring-0"
             role="menuitem"
             tabIndex={0}

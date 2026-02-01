@@ -28,17 +28,21 @@ function useLocationKey() {
       setLocationKey(window.location.href)
     }
 
+    const deferredUpdateLocation = () => {
+      setTimeout(updateLocation, 0)
+    }
+
     const originalPush: HistoryMethod = window.history.pushState.bind(window.history)
     const originalReplace: HistoryMethod = window.history.replaceState.bind(window.history)
 
     const pushState: HistoryMethod = (...args) => {
       originalPush(...args)
-      updateLocation()
+      deferredUpdateLocation()
     }
 
     const replaceState: HistoryMethod = (...args) => {
       originalReplace(...args)
-      updateLocation()
+      deferredUpdateLocation()
     }
 
     window.history.pushState = pushState

@@ -4,6 +4,6 @@ export const metadata = {
   pageTitle: 'Create Rule Set',
   pageGroup: 'Business Rules',
   pageGroupKey: 'rules.nav.group',
-  pageContext: 'admin' as const,
+  pageContext: 'settings' as const,
   breadcrumb: [{ label: 'Rule Sets', labelKey: 'rules.nav.sets' }, { label: 'Create Rule Set' }],
 }

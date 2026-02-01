@@ -1,21 +1,33 @@
 'use client'
 import * as React from 'react'
+import { usePathname } from 'next/navigation'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
-import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
-import { SectionPage } from '@open-mercato/ui/backend/section-page'
-import { settingsSections, settingsRequiredFeatures } from '../../lib/settings-sections'
+import { apiCall } from '../utils/apiCall'
+import { SectionPage } from '../section-page'
+import type { SectionNavGroup } from '../section-page'
 
 type FeatureCheckResponse = { ok?: boolean; granted?: string[] }
 
-export default function SettingsPage() {
+export type SettingsPageWrapperProps = {
+  sections: SectionNavGroup[]
+  requiredFeatures: string[]
+  children: React.ReactNode
+}
+
+export function SettingsPageWrapper({
+  sections,
+  requiredFeatures,
+  children,
+}: SettingsPageWrapperProps) {
   const t = useT()
+  const pathname = usePathname()
   const [userFeatures, setUserFeatures] = React.useState<Set<string> | undefined>(undefined)
   const [loading, setLoading] = React.useState(true)
 
   React.useEffect(() => {
     let cancelled = false
     async function loadFeatures() {
-      if (settingsRequiredFeatures.length === 0) {
+      if (requiredFeatures.length === 0) {
         setUserFeatures(new Set())
         setLoading(false)
         return
@@ -24,7 +36,7 @@ export default function SettingsPage() {
         const call = await apiCall<FeatureCheckResponse>('/api/auth/feature-check', {
           method: 'POST',
           headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({ features: settingsRequiredFeatures }),
+          body: JSON.stringify({ features: requiredFeatures }),
         })
         if (cancelled) return
         if (call.ok && Array.isArray(call.result?.granted)) {
@@ -42,7 +54,7 @@ export default function SettingsPage() {
     return () => {
       cancelled = true
     }
-  }, [])
+  }, [requiredFeatures])
 
   if (loading) {
     return (
@@ -56,19 +68,11 @@ export default function SettingsPage() {
     <SectionPage
       title="Settings"
       titleKey="backend.nav.settings"
-      sections={settingsSections}
-      activePath="/backend/settings"
+      sections={sections}
+      activePath={pathname ?? '/backend/settings'}
       userFeatures={userFeatures}
     >
-      <div className="max-w-2xl">
-        <h1 className="text-2xl font-bold mb-2">{t('settings.page.title', 'Settings')}</h1>
-        <p className="text-muted-foreground mb-6">
-          {t('settings.page.description', 'System configuration and administration')}
-        </p>
-        <p className="text-sm text-muted-foreground">
-          {t('settings.page.selectItem', 'Select an item from the menu to configure system settings.')}
-        </p>
-      </div>
+      {children}
     </SectionPage>
   )
 }

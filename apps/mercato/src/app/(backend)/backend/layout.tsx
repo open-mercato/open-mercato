@@ -8,6 +8,7 @@ import { AppShell } from '@open-mercato/ui/backend/AppShell'
 import { buildAdminNav } from '@open-mercato/ui/backend/utils/nav'
 import type { AdminNavItem } from '@open-mercato/ui/backend/utils/nav'
 import { ProfileDropdown } from '@open-mercato/ui/backend/ProfileDropdown'
+import { SettingsButton } from '@open-mercato/ui/backend/SettingsButton'
 import { GlobalSearchDialog } from '@open-mercato/search/modules/search/frontend'
 import OrganizationSwitcher from '@/components/OrganizationSwitcher'
 import { NotificationBellWrapper } from '@/components/NotificationBellWrapper'
@@ -308,9 +309,9 @@ export default async function BackendLayout({ children, params }: { children: Re
       <AiChatHeaderButton />
       <GlobalSearchDialog embeddingConfigured={embeddingConfigured} missingConfigMessage={missingConfigMessage} />
       <OrganizationSwitcher />
-      <UserMenu email={auth?.email} />
+      <SettingsButton />
+      <ProfileDropdown email={auth?.email} />
       <NotificationBellWrapper />
-      <ProfileDropdown email={auth?.email} settingsHref="/backend/settings" />
     </>
   )
 

@@ -37,6 +37,12 @@ export type PageMetadata = {
   // - 'settings': Hidden from sidebar, only accessible via Settings hub page
   // - 'profile': Profile dropdown items
   pageContext?: 'main' | 'admin' | 'settings' | 'profile'
+  placement?: {
+    section: string
+    sectionLabel?: string
+    sectionLabelKey?: string
+    order?: number
+  }
 }
 
 export type HttpMethod = 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE'
@@ -62,6 +68,12 @@ export type ModuleRoute = {
   enabled?: (ctx: RouteVisibilityContext) => boolean | Promise<boolean>
   breadcrumb?: Array<{ label: string; labelKey?: string; href?: string }>
   pageContext?: 'main' | 'admin' | 'settings' | 'profile'
+  placement?: {
+    section: string
+    sectionLabel?: string
+    sectionLabelKey?: string
+    order?: number
+  }
   Component: (props: any) => ReactNode | Promise<ReactNode>
 }
 

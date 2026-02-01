@@ -1,7 +1,7 @@
 'use client'
 import * as React from 'react'
 import Link from 'next/link'
-import { User, LogOut, Settings, Bell, Moon, Sun, Globe, UserCircle, Check } from 'lucide-react'
+import { User, LogOut, Bell, Moon, Sun, Globe, Key, Check } from 'lucide-react'
 import { useT, useLocale } from '@open-mercato/shared/lib/i18n/context'
 import { locales, type Locale } from '@open-mercato/shared/lib/i18n/config'
 import { useTheme } from '@open-mercato/ui/theme'
@@ -9,8 +9,7 @@ import { useTheme } from '@open-mercato/ui/theme'
 export type ProfileDropdownProps = {
   email?: string
   displayName?: string
-  settingsHref?: string
-  profileHref?: string
+  changePasswordHref?: string
   notificationsHref?: string
 }
 
@@ -24,8 +23,7 @@ const localeLabels: Record<Locale, string> = {
 export function ProfileDropdown({
   email,
   displayName,
-  settingsHref = '/backend/settings',
-  profileHref,
+  changePasswordHref = '/backend/profile/change-password',
   notificationsHref,
 }: ProfileDropdownProps) {
   const t = useT()
@@ -136,28 +134,14 @@ export function ProfileDropdown({
             </div>
           )}
 
-          {/* My Profile */}
-          {profileHref && (
-            <Link
-              href={profileHref}
-              className={menuItemClass}
-              role="menuitem"
-              onClick={() => setOpen(false)}
-            >
-              <UserCircle className="size-4" />
-              <span>{t('ui.profileMenu.profile', 'My Profile')}</span>
-            </Link>
-          )}
-
-          {/* Settings */}
           <Link
-            href={settingsHref}
+            href={changePasswordHref}
             className={menuItemClass}
             role="menuitem"
             onClick={() => setOpen(false)}
           >
-            <Settings className="size-4" />
-            <span>{t('ui.profileMenu.settings', 'Settings')}</span>
+            <Key className="size-4" />
+            <span>{t('ui.profileMenu.changePassword', 'Change Password')}</span>
           </Link>
 
           {/* Notification Preferences */}

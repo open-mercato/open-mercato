@@ -155,7 +155,12 @@
   "ui.profileMenu.language": "Sprache",
   "settings.profile.title": "Mein Profil",
   "settings.profile.preferences": "Einstellungen",
-  "settings.profile.notifications": "Benachrichtigungseinstellungen"
+  "settings.profile.notifications": "Benachrichtigungseinstellungen",
+  "settings.page.selectItem": "Wählen Sie ein Element aus dem Menü, um Systemeinstellungen zu konfigurieren.",
+  "settings.sections.auth": "Auth",
+  "settings.sections.businessRules": "Geschäftsregeln",
+  "settings.sections.directory": "Verzeichnis",
+  "settings.sections.featureToggles": "Feature-Schalter",
   "auth.notifications.passwordReset.requested.title": "Passwort-Zurücksetzung angefordert",
   "auth.notifications.passwordReset.requested.body": "Ein Link zum Zurücksetzen des Passworts wurde an Ihre E-Mail gesendet",
   "auth.notifications.passwordReset.completed.title": "Passwort erfolgreich geändert",
@@ -170,5 +175,11 @@
   "auth.notifications.role.revoked.body": "Eine Rolle wurde von Ihrem Konto entfernt",
   "auth.actions.contactSupport": "Support kontaktieren",
   "auth.actions.viewSessions": "Sitzungen anzeigen",
-  "auth.actions.viewPermissions": "Berechtigungen anzeigen"
+  "auth.actions.viewPermissions": "Berechtigungen anzeigen",
+  "profile.page.title": "Profil",
+  "profile.page.description": "Verwalte deine Kontoeinstellungen",
+  "profile.page.selectItem": "Wähle ein Element aus dem Menü, um dein Konto zu verwalten.",
+  "profile.sections.account": "Konto",
+  "auth.changePassword.title": "Passwort ändern",
+  "ui.profileMenu.changePassword": "Passwort ändern"
 }

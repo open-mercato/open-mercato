@@ -4,7 +4,7 @@ export const metadata = {
   pageTitle: 'Edit Tenant',
   pageGroup: 'Directory',
   navHidden: true,
-  pageContext: 'admin' as const,
+  pageContext: 'settings' as const,
   breadcrumb: [
     { label: 'Tenants', href: '/backend/directory/tenants' },
     { label: 'Edit' },

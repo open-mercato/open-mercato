@@ -11,8 +11,6 @@ import { UpgradeActionBanner } from './upgrades/UpgradeActionBanner'
 import { PartialIndexBanner } from './indexes/PartialIndexBanner'
 import { useLocale, useT } from '@open-mercato/shared/lib/i18n/context'
 import { slugifySidebarId } from '@open-mercato/shared/modules/navigation/sidebarPreferences'
-import { CollapsibleNavSection } from './CollapsibleNavSection'
-import type { CollapsibleNavGroup, CollapsibleNavItem } from './CollapsibleNavSection'
 
 export type AppShellProps = {
   productName?: string
@@ -798,44 +796,12 @@ export function AppShell({ productName, email, groups, rightHeaderSlot, children
               // - 'admin': Collapsible "Settings & Admin" section at bottom of sidebar
               // - 'settings': Hidden from sidebar, only accessible via Settings hub page
               const isMainItem = (item: SidebarItem) => !item.pageContext || item.pageContext === 'main'
-              const isAdminItem = (item: SidebarItem) => item.pageContext === 'admin'
 
               // Main groups: filter to only include main items
               const mainGroups = navGroups.map((g) => ({
                 ...g,
                 items: g.items.filter((item) => isMainItem(item) && item.hidden !== true),
               })).filter((g) => g.items.length > 0)
-
-              // Admin groups: collect all admin items for collapsible section at bottom
-              const adminGroupMap = new Map<string, { id: string; name: string; items: SidebarItem[] }>()
-              for (const g of navGroups) {
-                const adminItems = g.items.filter((item) => isAdminItem(item) && item.hidden !== true)
-                if (adminItems.length > 0) {
-                  const groupId = resolveGroupKey(g)
-                  if (!adminGroupMap.has(groupId)) {
-                    adminGroupMap.set(groupId, { id: groupId, name: g.name, items: [] })
-                  }
-                  adminGroupMap.get(groupId)!.items.push(...adminItems)
-                }
-              }
-              const settingsGroups: CollapsibleNavGroup[] = Array.from(adminGroupMap.values()).map((sg) => ({
-                id: sg.id,
-                name: sg.name,
-                items: sg.items.map((item): CollapsibleNavItem => ({
-                  href: item.href,
-                  title: item.title,
-                  icon: item.icon,
-                  enabled: item.enabled,
-                  hidden: item.hidden,
-                  children: item.children?.map((c): CollapsibleNavItem => ({
-                    href: c.href,
-                    title: c.title,
-                    icon: c.icon,
-                    enabled: c.enabled,
-                    hidden: c.hidden,
-                  })),
-                })),
-              }))
 
               const mainLastVisibleGroupIndex = (() => {
                 for (let idx = mainGroups.length - 1; idx >= 0; idx -= 1) {
@@ -928,13 +894,31 @@ export function AppShell({ productName, email, groups, rightHeaderSlot, children
                       )
                     })}
                   </nav>
-                  {settingsGroups.length > 0 && (
-                    <CollapsibleNavSection
-                      title={settingsSectionTitle ?? t('backend.nav.settings', 'Settings')}
-                      groups={settingsGroups}
-                      compact={compact}
-                    />
-                  )}
+                  <div className="mt-4 pt-4 border-t">
+                    <Link
+                      href="/backend/settings"
+                      className={`relative text-sm rounded inline-flex items-center w-full ${
+                        compact ? 'w-10 h-10 justify-center' : 'px-2 py-1 gap-2'
+                      } ${
+                        pathname?.startsWith('/backend/settings') || pathname?.startsWith('/backend/config') || pathname?.startsWith('/backend/users') || pathname?.startsWith('/backend/roles') || pathname?.startsWith('/backend/api-keys') || pathname?.startsWith('/backend/entities') || pathname?.startsWith('/backend/query-indexes') || pathname?.startsWith('/backend/definitions') || pathname?.startsWith('/backend/instances') || pathname?.startsWith('/backend/tasks') || pathname?.startsWith('/backend/events') || pathname?.startsWith('/backend/rules') || pathname?.startsWith('/backend/sets') || pathname?.startsWith('/backend/logs') || pathname?.startsWith('/backend/directory') || pathname?.startsWith('/backend/feature-toggles')
+                          ? 'bg-background border shadow-sm font-medium'
+                          : 'hover:bg-accent hover:text-accent-foreground'
+                      }`}
+                      title={compact ? t('backend.nav.settings', 'Settings') : undefined}
+                      onClick={() => setMobileOpen(false)}
+                    >
+                      {(pathname?.startsWith('/backend/settings') || pathname?.startsWith('/backend/config') || pathname?.startsWith('/backend/users') || pathname?.startsWith('/backend/roles') || pathname?.startsWith('/backend/api-keys') || pathname?.startsWith('/backend/entities') || pathname?.startsWith('/backend/query-indexes') || pathname?.startsWith('/backend/definitions') || pathname?.startsWith('/backend/instances') || pathname?.startsWith('/backend/tasks') || pathname?.startsWith('/backend/events') || pathname?.startsWith('/backend/rules') || pathname?.startsWith('/backend/sets') || pathname?.startsWith('/backend/logs') || pathname?.startsWith('/backend/directory') || pathname?.startsWith('/backend/feature-toggles')) && (
+                        <span className="absolute left-0 top-1 bottom-1 w-0.5 rounded bg-foreground" />
+                      )}
+                      <span className={`flex items-center justify-center shrink-0 ${compact ? '' : 'text-muted-foreground'}`}>
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                          <circle cx="12" cy="12" r="3" />
+                          <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z" />
+                        </svg>
+                      </span>
+                      {!compact && <span>{t('backend.nav.settings', 'Settings')}</span>}
+                    </Link>
+                  </div>
                 </>
               )
             })()

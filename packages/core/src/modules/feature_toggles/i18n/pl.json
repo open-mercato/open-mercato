@@ -1,4 +1,7 @@
 {
+  "feature_toggles.nav.group": "Przełączniki Funkcji",
+  "feature_toggles.nav.global": "Globalne",
+  "feature_toggles.nav.overrides": "Nadpisania",
   "feature_toggles.audit.toggles.create": "Utworzono przełącznik",
   "feature_toggles.audit.toggles.update": "Zaktualizowano przełącznik",
   "feature_toggles.audit.toggles.delete": "Usunięto przełącznik",
