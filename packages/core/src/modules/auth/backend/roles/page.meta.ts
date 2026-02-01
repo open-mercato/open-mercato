@@ -13,7 +13,7 @@ export const metadata = {
   pageGroupKey: 'auth.nav.group',
   pageOrder: 110,
   icon: shieldIcon,
-  pageContext: 'settings' as const,
+  pageContext: 'admin' as const,
   breadcrumb: [ { label: 'Roles', labelKey: 'auth.nav.roles' } ],
 }
 

@@ -16,7 +16,7 @@ export const metadata = {
   pageGroup: 'Auth',
   pageGroupKey: 'auth.nav.group',
   icon: filePlusIcon,
-  pageContext: 'settings' as const,
+  pageContext: 'admin' as const,
   breadcrumb: [
     { label: 'Users', labelKey: 'auth.nav.users', href: '/backend/users' },
     { label: 'Create', labelKey: 'common.create' },

@@ -7,7 +7,7 @@ export const metadata = {
   pageGroupKey: 'directory.nav.group',
   pageOrder: 21,
   navHidden: true,
-  pageContext: 'settings' as const,
+  pageContext: 'admin' as const,
   breadcrumb: [
     { label: 'Tenants', labelKey: 'directory.nav.tenants', href: '/backend/directory/tenants' },
     { label: 'Create', labelKey: 'common.create' },

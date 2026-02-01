@@ -1,51 +1,41 @@
 'use client'
 import * as React from 'react'
 import Link from 'next/link'
-import { User, LogOut, Settings, Bell, Moon, Sun, Globe, UserCircle } from 'lucide-react'
+import { User, LogOut, Settings, Bell, Moon, Sun, Globe, UserCircle, Check } from 'lucide-react'
 import { useT, useLocale } from '@open-mercato/shared/lib/i18n/context'
 import { locales, type Locale } from '@open-mercato/shared/lib/i18n/config'
 import { useTheme } from '@open-mercato/ui/theme'
 
-export type ProfileMenuItem = {
-  href: string
-  title: string
-  icon?: React.ReactNode
-}
-
 export type ProfileDropdownProps = {
   email?: string
-  profileItems?: ProfileMenuItem[]
+  displayName?: string
   settingsHref?: string
   profileHref?: string
   notificationsHref?: string
-  showThemeToggle?: boolean
-  showLanguageSelector?: boolean
 }
 
 const localeLabels: Record<Locale, string> = {
   en: 'English',
   de: 'Deutsch',
-  es: 'Espanol',
+  es: 'Español',
   pl: 'Polski',
 }
 
 export function ProfileDropdown({
   email,
-  profileItems = [],
+  displayName,
   settingsHref = '/backend/settings',
   profileHref,
   notificationsHref,
-  showThemeToggle = true,
-  showLanguageSelector = true,
 }: ProfileDropdownProps) {
   const t = useT()
   const currentLocale = useLocale()
   const { resolvedTheme, setTheme } = useTheme()
   const [open, setOpen] = React.useState(false)
+  const [languageOpen, setLanguageOpen] = React.useState(false)
   const [mounted, setMounted] = React.useState(false)
   const buttonRef = React.useRef<HTMLButtonElement>(null)
   const menuRef = React.useRef<HTMLDivElement>(null)
-  const firstItemRef = React.useRef<HTMLAnchorElement | HTMLButtonElement>(null)
 
   React.useEffect(() => {
     setMounted(true)
@@ -53,9 +43,7 @@ export function ProfileDropdown({
 
   const isDark = resolvedTheme === 'dark'
 
-  const onMouseEnter = () => setOpen(true)
-  const onMouseLeave = () => setOpen(false)
-
+  // Close on click outside
   React.useEffect(() => {
     if (!open) return
     function handleClick(event: MouseEvent) {
@@ -66,38 +54,29 @@ export function ProfileDropdown({
         !buttonRef.current.contains(event.target as Node)
       ) {
         setOpen(false)
+        setLanguageOpen(false)
       }
     }
     document.addEventListener('mousedown', handleClick)
     return () => document.removeEventListener('mousedown', handleClick)
   }, [open])
 
+  // Close on Escape
   React.useEffect(() => {
     if (!open) return
     function handleKeyDown(event: KeyboardEvent) {
       if (event.key === 'Escape') {
-        setOpen(false)
-        buttonRef.current?.focus()
+        if (languageOpen) {
+          setLanguageOpen(false)
+        } else {
+          setOpen(false)
+          buttonRef.current?.focus()
+        }
       }
     }
     document.addEventListener('keydown', handleKeyDown)
     return () => document.removeEventListener('keydown', handleKeyDown)
-  }, [open])
-
-  React.useEffect(() => {
-    if (open) {
-      setTimeout(() => {
-        firstItemRef.current?.focus()
-      }, 0)
-    }
-  }, [open])
-
-  const handleEscapeKey = (e: React.KeyboardEvent) => {
-    if (e.key === 'Escape') {
-      setOpen(false)
-      buttonRef.current?.focus()
-    }
-  }
+  }, [open, languageOpen])
 
   const handleThemeToggle = () => {
     setTheme(isDark ? 'light' : 'dark')
@@ -114,172 +93,155 @@ export function ProfileDropdown({
     } catch {}
   }
 
-  const hasProfileItems = profileItems.length > 0
-
   const menuItemClass =
-    'w-full text-left text-sm px-2 py-1.5 rounded hover:bg-accent inline-flex items-center gap-2 outline-none focus:outline-none focus-visible:outline-none ring-0 focus:ring-0 focus-visible:ring-0'
+    'w-full text-left text-sm px-3 py-2 rounded hover:bg-accent inline-flex items-center gap-2.5 outline-none focus-visible:ring-1 focus-visible:ring-ring'
 
   return (
-    <div className="relative" onMouseEnter={onMouseEnter} onMouseLeave={onMouseLeave}>
+    <div className="relative">
       <button
         ref={buttonRef}
         className="text-sm px-2 py-1 rounded hover:bg-accent inline-flex items-center gap-2"
-        onClick={() => setOpen(true)}
+        onClick={() => setOpen(!open)}
         aria-expanded={open}
         aria-haspopup="menu"
-        aria-controls="profile-menu-dropdown"
-        id="profile-menu-button"
         type="button"
         title={email || t('ui.userMenu.userFallback', 'User')}
       >
         <User className="size-4" />
       </button>
+
       {open && (
         <div
           ref={menuRef}
-          id="profile-menu-dropdown"
-          className="absolute right-0 top-full mt-0 w-56 rounded-md border bg-background p-1 shadow z-50"
+          className="absolute right-0 top-full mt-1 w-56 rounded-md border bg-background p-1 shadow-lg z-50"
           role="menu"
-          aria-labelledby="profile-menu-button"
-          tabIndex={-1}
         >
-          {email && (
-            <div className="px-2 py-2 text-xs text-muted-foreground border-b mb-1">
-              <div className="font-medium">{t('ui.userMenu.loggedInAs', 'Logged in as:')}</div>
-              <div className="truncate">{email}</div>
+          {/* User info header */}
+          {(displayName || email) && (
+            <div className="px-3 py-2.5 border-b mb-1">
+              {displayName && (
+                <div className="font-medium text-sm flex items-center gap-2">
+                  <User className="size-4" />
+                  {displayName}
+                </div>
+              )}
+              {email && (
+                <div className="text-xs text-muted-foreground mt-0.5 ml-6">{email}</div>
+              )}
+              {!displayName && email && (
+                <div className="text-xs text-muted-foreground">
+                  {t('ui.userMenu.loggedInAs', 'Logged in as:')} {email}
+                </div>
+              )}
             </div>
           )}
 
+          {/* My Profile */}
           {profileHref && (
             <Link
-              ref={firstItemRef as React.RefObject<HTMLAnchorElement>}
               href={profileHref}
               className={menuItemClass}
               role="menuitem"
-              tabIndex={0}
               onClick={() => setOpen(false)}
-              onKeyDown={handleEscapeKey}
             >
               <UserCircle className="size-4" />
               <span>{t('ui.profileMenu.profile', 'My Profile')}</span>
             </Link>
           )}
 
+          {/* Settings */}
           <Link
-            ref={!profileHref ? firstItemRef as React.RefObject<HTMLAnchorElement> : undefined}
             href={settingsHref}
             className={menuItemClass}
             role="menuitem"
-            tabIndex={0}
             onClick={() => setOpen(false)}
-            onKeyDown={handleEscapeKey}
           >
             <Settings className="size-4" />
             <span>{t('ui.profileMenu.settings', 'Settings')}</span>
           </Link>
 
+          {/* Notification Preferences */}
           {notificationsHref && (
             <Link
               href={notificationsHref}
               className={menuItemClass}
               role="menuitem"
-              tabIndex={0}
               onClick={() => setOpen(false)}
-              onKeyDown={handleEscapeKey}
             >
               <Bell className="size-4" />
               <span>{t('ui.profileMenu.notifications', 'Notification Preferences')}</span>
             </Link>
           )}
 
-          {hasProfileItems && (
-            <>
-              <div className="my-1 border-t" />
-              {profileItems.map((item) => (
-                <Link
-                  key={item.href}
-                  href={item.href}
-                  className={menuItemClass}
-                  role="menuitem"
-                  tabIndex={0}
-                  onClick={() => setOpen(false)}
-                  onKeyDown={handleEscapeKey}
-                >
-                  {item.icon && <span className="size-4">{item.icon}</span>}
-                  <span>{item.title}</span>
-                </Link>
-              ))}
-            </>
-          )}
+          <div className="my-1 border-t" />
 
-          {(showThemeToggle || showLanguageSelector) && <div className="my-1 border-t" />}
-
-          {showThemeToggle && mounted && (
+          {/* Theme Toggle */}
+          {mounted && (
             <button
               type="button"
               className={`${menuItemClass} justify-between`}
               role="menuitem"
-              tabIndex={0}
               onClick={handleThemeToggle}
-              onKeyDown={handleEscapeKey}
             >
-              <span className="inline-flex items-center gap-2">
+              <span className="inline-flex items-center gap-2.5">
                 {isDark ? <Moon className="size-4" /> : <Sun className="size-4" />}
-                <span>{t('ui.profileMenu.theme', 'Theme')}</span>
+                <span>{t('ui.profileMenu.theme', 'Dark Mode')}</span>
               </span>
-              <span className="text-xs text-muted-foreground">
-                {isDark
-                  ? t('ui.profileMenu.theme.dark', 'Dark')
-                  : t('ui.profileMenu.theme.light', 'Light')}
-              </span>
+              <div className={`w-8 h-4 rounded-full transition-colors ${isDark ? 'bg-primary' : 'bg-muted'} relative`}>
+                <div className={`absolute top-0.5 w-3 h-3 rounded-full bg-background shadow transition-transform ${isDark ? 'translate-x-4' : 'translate-x-0.5'}`} />
+              </div>
             </button>
           )}
 
-          {showLanguageSelector && (
-            <div className="relative group/lang">
-              <button
-                type="button"
-                className={`${menuItemClass} justify-between`}
-                role="menuitem"
-                tabIndex={0}
-                onKeyDown={handleEscapeKey}
-              >
-                <span className="inline-flex items-center gap-2">
-                  <Globe className="size-4" />
-                  <span>{t('ui.profileMenu.language', 'Language')}</span>
-                </span>
-                <span className="text-xs text-muted-foreground">
-                  {localeLabels[currentLocale]}
-                </span>
-              </button>
-              <div className="absolute left-full top-0 ml-1 hidden group-hover/lang:block">
-                <div className="rounded-md border bg-background p-1 shadow min-w-[120px]">
-                  {locales.map((locale) => (
-                    <button
-                      key={locale}
-                      type="button"
-                      className={`${menuItemClass} ${locale === currentLocale ? 'bg-accent' : ''}`}
-                      onClick={() => handleLocaleChange(locale)}
-                    >
-                      {localeLabels[locale]}
-                    </button>
-                  ))}
-                </div>
+          {/* Language Selector */}
+          <div className="relative">
+            <button
+              type="button"
+              className={`${menuItemClass} justify-between`}
+              role="menuitem"
+              onClick={() => setLanguageOpen(!languageOpen)}
+              aria-expanded={languageOpen}
+            >
+              <span className="inline-flex items-center gap-2.5">
+                <Globe className="size-4" />
+                <span>{t('ui.profileMenu.language', 'Language')}</span>
+              </span>
+              <span className="text-xs text-muted-foreground">
+                {localeLabels[currentLocale]}
+              </span>
+            </button>
+
+            {/* Language submenu - inline below */}
+            {languageOpen && (
+              <div className="mt-1 ml-6 space-y-0.5 border-l pl-2">
+                {locales.map((locale) => (
+                  <button
+                    key={locale}
+                    type="button"
+                    className={`w-full text-left text-sm px-2 py-1.5 rounded hover:bg-accent inline-flex items-center justify-between gap-2 ${
+                      locale === currentLocale ? 'text-primary font-medium' : ''
+                    }`}
+                    onClick={() => handleLocaleChange(locale)}
+                  >
+                    <span>{localeLabels[locale]}</span>
+                    {locale === currentLocale && <Check className="size-3.5" />}
+                  </button>
+                ))}
               </div>
-            </div>
-          )}
+            )}
+          </div>
 
           <div className="my-1 border-t" />
+
+          {/* Sign Out */}
           <form action="/api/auth/logout" method="POST">
             <button
               className={menuItemClass}
               type="submit"
               role="menuitem"
-              tabIndex={0}
-              onKeyDown={handleEscapeKey}
             >
               <LogOut className="size-4" />
-              <span>{t('ui.userMenu.logout', 'Logout')}</span>
+              <span>{t('ui.userMenu.logout', 'Sign Out')}</span>
             </button>
           </form>
         </div>

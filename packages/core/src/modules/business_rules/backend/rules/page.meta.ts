@@ -19,6 +19,6 @@ export const metadata = {
     pagePriority: 40,
     pageOrder: 110,
     icon: rulesIcon,
-    pageContext: 'settings' as const,
+    pageContext: 'admin' as const,
     breadcrumb: [{ label: 'Business Rules', labelKey: 'rules.nav.rules' }],
 }

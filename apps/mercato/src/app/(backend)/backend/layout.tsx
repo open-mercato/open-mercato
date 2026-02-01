@@ -35,7 +35,7 @@ type NavItem = {
   enabled: boolean
   hidden?: boolean
   icon?: ReactNode
-  pageContext?: 'main' | 'settings' | 'profile'
+  pageContext?: 'main' | 'admin' | 'settings' | 'profile'
   children?: NavItem[]
 }
 

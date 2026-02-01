@@ -31,8 +31,12 @@ export type PageMetadata = {
   enabled?: (ctx: RouteVisibilityContext) => boolean | Promise<boolean>
   // Optional static breadcrumb trail for header
   breadcrumb?: Array<{ label: string; labelKey?: string; href?: string }>
-  // Navigation context for tiered navigation (main sidebar, settings section, or profile dropdown)
-  pageContext?: 'main' | 'settings' | 'profile'
+  // Navigation context for tiered navigation:
+  // - 'main' (default): Main sidebar business operations
+  // - 'admin': Collapsible "Settings & Admin" section at bottom of sidebar
+  // - 'settings': Hidden from sidebar, only accessible via Settings hub page
+  // - 'profile': Profile dropdown items
+  pageContext?: 'main' | 'admin' | 'settings' | 'profile'
 }
 
 export type HttpMethod = 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE'
@@ -57,7 +61,7 @@ export type ModuleRoute = {
   visible?: (ctx: RouteVisibilityContext) => boolean | Promise<boolean>
   enabled?: (ctx: RouteVisibilityContext) => boolean | Promise<boolean>
   breadcrumb?: Array<{ label: string; labelKey?: string; href?: string }>
-  pageContext?: 'main' | 'settings' | 'profile'
+  pageContext?: 'main' | 'admin' | 'settings' | 'profile'
   Component: (props: any) => ReactNode | Promise<ReactNode>
 }
 

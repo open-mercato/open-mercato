@@ -46,17 +46,9 @@ export function CollapsibleNavSection({
   storageKey = STORAGE_KEY,
 }: CollapsibleNavSectionProps) {
   const pathname = usePathname()
-  const [expanded, setExpanded] = React.useState(() => {
-    if (typeof window !== 'undefined') {
-      try {
-        const saved = localStorage.getItem(storageKey)
-        if (saved !== null) {
-          return saved === '1'
-        }
-      } catch {}
-    }
-    return defaultExpanded
-  })
+  // Start with defaultExpanded to avoid hydration mismatch
+  const [expanded, setExpanded] = React.useState(defaultExpanded)
+  const [mounted, setMounted] = React.useState(false)
 
   const hasActiveChild = React.useMemo(() => {
     for (const group of groups) {
@@ -72,17 +64,33 @@ export function CollapsibleNavSection({
     return false
   }, [groups, pathname])
 
+  // Read from localStorage after mount to avoid hydration mismatch
   React.useEffect(() => {
-    if (hasActiveChild) {
+    setMounted(true)
+    try {
+      const saved = localStorage.getItem(storageKey)
+      if (saved !== null) {
+        setExpanded(saved === '1')
+      } else if (hasActiveChild) {
+        setExpanded(true)
+      }
+    } catch {}
+  }, [storageKey, hasActiveChild])
+
+  // Auto-expand when navigating to a child page
+  React.useEffect(() => {
+    if (mounted && hasActiveChild) {
       setExpanded(true)
     }
-  }, [hasActiveChild])
+  }, [mounted, hasActiveChild])
 
+  // Persist to localStorage when expanded changes (after mount)
   React.useEffect(() => {
+    if (!mounted) return
     try {
       localStorage.setItem(storageKey, expanded ? '1' : '0')
     } catch {}
-  }, [expanded, storageKey])
+  }, [expanded, storageKey, mounted])
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter' || e.key === ' ') {

@@ -6,8 +6,6 @@ import { Separator } from '../primitives/separator'
 import { FlashMessages } from './FlashMessages'
 import { usePathname } from 'next/navigation'
 import { apiCall } from './utils/apiCall'
-import { LanguageSwitcher } from '../frontend/LanguageSwitcher'
-import { ThemeToggle } from '../theme/ThemeToggle'
 import { LastOperationBanner } from './operations/LastOperationBanner'
 import { UpgradeActionBanner } from './upgrades/UpgradeActionBanner'
 import { PartialIndexBanner } from './indexes/PartialIndexBanner'
@@ -30,7 +28,7 @@ export type AppShellProps = {
       icon?: React.ReactNode
       enabled?: boolean
       hidden?: boolean
-      pageContext?: 'main' | 'settings' | 'profile'
+      pageContext?: 'main' | 'admin' | 'settings' | 'profile'
       children?: {
         href: string
         title: string
@@ -38,7 +36,7 @@ export type AppShellProps = {
         icon?: React.ReactNode
         enabled?: boolean
         hidden?: boolean
-        pageContext?: 'main' | 'settings' | 'profile'
+        pageContext?: 'main' | 'admin' | 'settings' | 'profile'
       }[]
     }[]
   }[]
@@ -785,9 +783,12 @@ export function AppShell({ productName, email, groups, rightHeaderSlot, children
             customizationEditor
           ) : (
             (() => {
-              // Filter groups and items by pageContext
+              // Filter groups and items by pageContext:
+              // - 'main' (default): Main sidebar business operations
+              // - 'admin': Collapsible "Settings & Admin" section at bottom of sidebar
+              // - 'settings': Hidden from sidebar, only accessible via Settings hub page
               const isMainItem = (item: SidebarItem) => !item.pageContext || item.pageContext === 'main'
-              const isSettingsItem = (item: SidebarItem) => item.pageContext === 'settings'
+              const isAdminItem = (item: SidebarItem) => item.pageContext === 'admin'
 
               // Main groups: filter to only include main items
               const mainGroups = navGroups.map((g) => ({
@@ -795,19 +796,19 @@ export function AppShell({ productName, email, groups, rightHeaderSlot, children
                 items: g.items.filter((item) => isMainItem(item) && item.hidden !== true),
               })).filter((g) => g.items.length > 0)
 
-              // Settings groups: collect all settings items grouped by their group
-              const settingsGroupMap = new Map<string, { id: string; name: string; items: SidebarItem[] }>()
+              // Admin groups: collect all admin items for collapsible section at bottom
+              const adminGroupMap = new Map<string, { id: string; name: string; items: SidebarItem[] }>()
               for (const g of navGroups) {
-                const settingsItems = g.items.filter((item) => isSettingsItem(item) && item.hidden !== true)
-                if (settingsItems.length > 0) {
+                const adminItems = g.items.filter((item) => isAdminItem(item) && item.hidden !== true)
+                if (adminItems.length > 0) {
                   const groupId = resolveGroupKey(g)
-                  if (!settingsGroupMap.has(groupId)) {
-                    settingsGroupMap.set(groupId, { id: groupId, name: g.name, items: [] })
+                  if (!adminGroupMap.has(groupId)) {
+                    adminGroupMap.set(groupId, { id: groupId, name: g.name, items: [] })
                   }
-                  settingsGroupMap.get(groupId)!.items.push(...settingsItems)
+                  adminGroupMap.get(groupId)!.items.push(...adminItems)
                 }
               }
-              const settingsGroups: CollapsibleNavGroup[] = Array.from(settingsGroupMap.values()).map((sg) => ({
+              const settingsGroups: CollapsibleNavGroup[] = Array.from(adminGroupMap.values()).map((sg) => ({
                 id: sg.id,
                 name: sg.name,
                 items: sg.items.map((item): CollapsibleNavItem => ({
@@ -1016,8 +1017,6 @@ export function AppShell({ productName, email, groups, rightHeaderSlot, children
             })()}
           </div>
           <div className="flex items-center gap-2 text-sm w-full lg:w-auto lg:justify-end">
-            <ThemeToggle />
-            <Separator className="w-px h-5 mx-1" />
             {rightHeaderSlot ? (
               rightHeaderSlot
             ) : (
@@ -1046,7 +1045,6 @@ export function AppShell({ productName, email, groups, rightHeaderSlot, children
               {t('common.privacy')}
             </Link>
           </nav>
-          <LanguageSwitcher />
         </footer>
       </div>
 
