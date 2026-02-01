@@ -123,7 +123,7 @@ export function ProfileDropdown({
                   {displayName}
                 </div>
               )}
-              {email && (
+              {displayName && email && (
                 <div className="text-xs text-muted-foreground mt-0.5 ml-6">{email}</div>
               )}
               {!displayName && email && (

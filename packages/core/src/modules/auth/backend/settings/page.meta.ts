@@ -27,5 +27,6 @@ export const metadata = {
   pageOrder: 900,
   icon: settingsIcon,
   pageContext: 'settings' as const,
+  navHidden: true,
   breadcrumb: [{ label: 'Settings', labelKey: 'settings.page.title' }],
 }
