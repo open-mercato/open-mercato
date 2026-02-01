@@ -1,6 +1,6 @@
 {
   "name": "open-mercato",
-  "version": "0.4.1",
+  "version": "0.4.2",
   "private": true,
   "packageManager": "yarn@4.12.0",
   "engines": {
@@ -12,6 +12,7 @@
   ],
   "scripts": {
     "dev": "yarn build:packages && yarn watch:packages & sleep 3 && yarn dev:app",
+    "dev:greenfield": "yarn build:packages && yarn generate && yarn initialize -- --reinstall && yarn dev",
     "dev:app": "turbo run dev --filter=@open-mercato/app",
     "watch:packages": "turbo run watch --filter='./packages/*' --parallel",
     "build": "yarn build:packages && yarn generate && yarn build:packages && yarn build:app",
@@ -65,7 +66,7 @@
     "dotenv": "^17.2.3",
     "lucide-react": "^0.556.0",
     "newrelic": "^13.7.0",
-    "next": "16.0.10",
+    "next": "16.1.5",
     "pdf2pic": "^3.2.0",
     "pg": "^8.16.3",
     "react": "19.2.1",

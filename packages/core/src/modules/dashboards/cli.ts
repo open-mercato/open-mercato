@@ -4,6 +4,7 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import { DashboardRoleWidgets } from '@open-mercato/core/modules/dashboards/data/entities'
 import { Role } from '@open-mercato/core/modules/auth/data/entities'
 import { loadAllWidgets } from '@open-mercato/core/modules/dashboards/lib/widgets'
+import { appendWidgetsToRoles, resolveAnalyticsWidgetIds } from '@open-mercato/core/modules/dashboards/lib/role-widgets'
 import { seedAnalyticsData } from './seed/analytics'
 
 type Args = Record<string, string>
@@ -41,15 +42,25 @@ export async function seedDashboardDefaultsForTenant(
   const widgetMap = new Map(widgets.map((widget) => [widget.metadata.id, widget]))
   const resolvedWidgetIds = widgetIds && widgetIds.length
     ? widgetIds.filter((id) => widgetMap.has(id))
-    : widgets.filter((widget) => widget.metadata.defaultEnabled).map((widget) => widget.metadata.id)
+    : null
+  const defaultWidgetIds = widgets
+    .filter((widget) => widget.metadata.defaultEnabled)
+    .map((widget) => widget.metadata.id)
+  const allWidgetIds = widgets.map((widget) => widget.metadata.id)
 
-  if (!resolvedWidgetIds.length) {
+  if (resolvedWidgetIds && resolvedWidgetIds.length === 0) {
     log('No widgets resolved for dashboard seeding.')
     return false
   }
 
   await em.transactional(async (tem) => {
     for (const roleName of roleNames) {
+      const isAdminRole = roleName === 'admin' || roleName === 'superadmin'
+      const roleWidgetIds = resolvedWidgetIds ?? (isAdminRole ? allWidgetIds : defaultWidgetIds)
+      if (!roleWidgetIds.length) {
+        log(`No widgets resolved for role "${roleName}".`)
+        continue
+      }
       const role = await tem.findOne(Role, { name: roleName })
       if (!role) {
         log(`Skipping role "${roleName}" (not found)`)
@@ -62,7 +73,7 @@ export async function seedDashboardDefaultsForTenant(
         deletedAt: null,
       })
       if (existing) {
-        existing.widgetIdsJson = resolvedWidgetIds
+        existing.widgetIdsJson = roleWidgetIds
         tem.persist(existing)
         log(`Updated dashboard widgets for role "${roleName}"`)
       } else {
@@ -70,7 +81,7 @@ export async function seedDashboardDefaultsForTenant(
           roleId: String(role.id),
           tenantId,
           organizationId,
-          widgetIdsJson: resolvedWidgetIds,
+          widgetIdsJson: roleWidgetIds,
           createdAt: new Date(),
           updatedAt: null,
           deletedAt: null,
@@ -117,6 +128,45 @@ const seedDefaults: ModuleCli = {
       widgetIds: widgetCsv ? widgetCsv.split(',').map((id) => id.trim()).filter(Boolean) : undefined,
       logger: (message) => console.log(message),
     })
+  },
+}
+
+const enableAnalyticsWidgets: ModuleCli = {
+  command: 'enable-analytics-widgets',
+  async run(rest) {
+    const args = parseArgs(rest)
+    const tenantId = args.tenant || args.tenantId || null
+    const organizationId = args.organization || args.organizationId || args.org || null
+    const roleCsv = args.roles || 'admin,employee'
+    if (!tenantId) {
+      console.error('Usage: mercato dashboards enable-analytics-widgets --tenant <tenantId> [--org <orgId>] [--roles admin,employee]')
+      return
+    }
+
+    const roleNames = roleCsv
+      .split(',')
+      .map((name) => name.trim())
+      .filter(Boolean)
+
+    if (!roleNames.length) {
+      console.log('No roles provided, nothing to update.')
+      return
+    }
+
+    const { resolve } = await createRequestContainer()
+    const em = resolve('em') as EntityManager
+    const widgetIds = await resolveAnalyticsWidgetIds()
+
+    const updated = await appendWidgetsToRoles(em, {
+      tenantId,
+      organizationId,
+      roleNames,
+      widgetIds,
+    })
+
+    if (!updated) {
+      console.log('No dashboard role widgets updated.')
+    }
   },
 }
 
@@ -282,4 +332,4 @@ const debugAnalytics: ModuleCli = {
   },
 }
 
-export default [seedDefaults, seedAnalytics, debugAnalytics]
+export default [seedDefaults, enableAnalyticsWidgets, seedAnalytics, debugAnalytics]

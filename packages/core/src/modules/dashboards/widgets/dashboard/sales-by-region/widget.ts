@@ -1,6 +1,6 @@
-import type { DashboardWidgetModule } from '@open-mercato/shared/modules/dashboard/widgets'
-import SalesByRegionWidget from './widget.client'
+import { lazyDashboardWidget, type DashboardWidgetModule } from '@open-mercato/shared/modules/dashboard/widgets'
 import { DEFAULT_SETTINGS, hydrateSettings, type SalesByRegionSettings } from './config'
+const SalesByRegionWidget = lazyDashboardWidget(() => import('./widget.client'))
 
 const widget: DashboardWidgetModule<SalesByRegionSettings> = {
   metadata: {

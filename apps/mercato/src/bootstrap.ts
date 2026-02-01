@@ -38,7 +38,12 @@ import { dashboardWidgetEntries } from '@/.mercato/generated/dashboard-widgets.g
 import { injectionWidgetEntries } from '@/.mercato/generated/injection-widgets.generated'
 import { injectionTables } from '@/.mercato/generated/injection-tables.generated'
 import { searchModuleConfigs } from '@/.mercato/generated/search.generated'
+import { eventModuleConfigs, allEvents } from '@/.mercato/generated/events.generated'
+import { registerEventModuleConfigs } from '@open-mercato/shared/modules/events'
 import { analyticsModuleConfigs } from '@/.mercato/generated/analytics.generated'
+
+// Register event configs globally (similar to search)
+registerEventModuleConfigs(eventModuleConfigs)
 
 // Bootstrap factory from shared package
 import { createBootstrap, isBootstrapped } from '@open-mercato/shared/lib/bootstrap'

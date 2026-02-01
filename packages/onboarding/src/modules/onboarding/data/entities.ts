@@ -1,6 +1,6 @@
 import { Entity, PrimaryKey, Property, Unique } from '@mikro-orm/core'
 
-type OnboardingStatus = 'pending' | 'completed' | 'expired'
+type OnboardingStatus = 'pending' | 'processing' | 'completed' | 'expired'
 
 @Entity({ tableName: 'onboarding_requests' })
 @Unique({ properties: ['email'] })
@@ -35,6 +35,9 @@ export class OnboardingRequest {
 
   @Property({ name: 'password_hash', type: 'text', nullable: true })
   passwordHash?: string | null
+
+  @Property({ name: 'processing_started_at', type: Date, nullable: true })
+  processingStartedAt?: Date | null
 
   @Property({ name: 'expires_at', type: Date })
   expiresAt!: Date

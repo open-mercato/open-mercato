@@ -160,6 +160,16 @@ export function AppShell({ productName, email, groups, rightHeaderSlot, children
   const effectiveCollapsed = customizing ? false : collapsed
   const expandedSidebarWidth = customizing ? '320px' : '240px'
 
+  // Lock body scroll when mobile drawer is open so touch scroll stays in the drawer
+  React.useEffect(() => {
+    if (!mobileOpen || typeof document === 'undefined') return
+    const prev = document.body.style.overflow
+    document.body.style.overflow = 'hidden'
+    return () => {
+      document.body.style.overflow = prev
+    }
+  }, [mobileOpen])
+
   React.useEffect(() => {
     try {
       const savedOpen = typeof window !== 'undefined' ? localStorage.getItem('om:sidebarOpenGroups') : null
@@ -1052,16 +1062,18 @@ export function AppShell({ productName, email, groups, rightHeaderSlot, children
       {mobileOpen && (
         <div className="lg:hidden fixed inset-0 z-50">
           <div className="absolute inset-0 bg-black/40" onClick={() => setMobileOpen(false)} />
-          <aside className="absolute left-0 top-0 h-full w-[260px] bg-background border-r p-3">
-            <div className="mb-2 flex items-center justify-between">
+          <aside className="absolute left-0 top-0 flex h-full w-[260px] flex-col bg-background border-r overflow-hidden">
+            <div className="shrink-0 p-3 pb-2 flex items-center justify-between border-b">
               <Link href="/backend" className="flex items-center gap-2 text-sm font-semibold" onClick={() => setMobileOpen(false)} aria-label={t('appShell.goToDashboard')}>
                 <Image src="/open-mercato.svg" alt={resolvedProductName} width={28} height={28} className="rounded" />
                 {resolvedProductName}
               </Link>
               <button className="rounded border px-2 py-1" onClick={() => setMobileOpen(false)} aria-label={t('appShell.closeMenu')}>✕</button>
             </div>
-            {/* Force expanded sidebar in mobile drawer, hide its header and collapse toggle */}
-            {renderSidebar(false, true)}
+            <div className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden p-3">
+              {/* Force expanded sidebar in mobile drawer, hide its header and collapse toggle */}
+              {renderSidebar(false, true)}
+            </div>
           </aside>
         </div>
       )}

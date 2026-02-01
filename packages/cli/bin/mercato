@@ -1,8 +1,7 @@
 #!/usr/bin/env node
 
 // Stub loader for the mercato CLI
-// This file exists so yarn can create bin symlinks before the package is built.
-// It dynamically loads the actual CLI from dist/bin.js
+// Requires packages to be built first - loads from dist/bin.js
 
 import { existsSync } from 'node:fs';
 import { join, dirname } from 'node:path';
@@ -17,5 +16,4 @@ if (!existsSync(distBin)) {
   process.exit(1);
 }
 
-// Import the actual CLI
 await import(distBin);

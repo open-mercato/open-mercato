@@ -297,12 +297,16 @@ export async function GET(req: Request) {
   const groupsWithRole = rolePreference ? applySidebarPreference(groups, rolePreference) : groups
   const baseForUser = adoptSidebarDefaults(groupsWithRole)
 
-  const preference = await loadSidebarPreference(em, {
-    userId: auth.sub,
-    tenantId: auth.tenantId ?? null,
-    organizationId: auth.orgId ?? null,
-    locale,
-  })
+  // For API key auth, use userId (the actual user) if available; otherwise skip user preferences
+  const effectiveUserId = auth.isApiKey ? auth.userId : auth.sub
+  const preference = effectiveUserId
+    ? await loadSidebarPreference(em, {
+        userId: effectiveUserId,
+        tenantId: auth.tenantId ?? null,
+        organizationId: auth.orgId ?? null,
+        locale,
+      })
+    : null
 
   const withPreference = applySidebarPreference(baseForUser, preference)
 

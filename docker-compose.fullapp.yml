@@ -20,13 +20,26 @@ services:
       args:
         - CONTAINER_PORT=${CONTAINER_PORT:-3000}
     image: open-mercato/app:${DEPLOY_ENV:-local}
+    user: "0"
     command: >
-      sh -c "yarn mercato init &&
+      sh -c "if [ ! -f /tmp/init-marker/.seeded ]; then
+        echo 'First run: full initialization...';
+        yarn mercato init && mkdir -p /tmp/init-marker && touch /tmp/init-marker/.seeded;
+      else
+        echo 'Subsequent run: migrations only...';
+        yarn db:migrate;
+      fi &&
       yarn start"
+    volumes:
+      - init_marker:/tmp/init-marker
+      - attachments_storage:/app/apps/mercato/storage
     working_dir: /app/apps/mercato
     ports:
       - "${APP_PORT:-3000}:${CONTAINER_PORT:-3000}"
     environment:
+      TENANT_DATA_ENCRYPTION: ${TENANT_DATA_ENCRYPTION:-true}
+      TENANT_DATA_ENCRYPTION_DEBUG: ${TENANT_DATA_ENCRYPTION_DEBUG:-false}
+      TENANT_DATA_ENCRYPTION_FALLBACK_KEY: ${TENANT_DATA_ENCRYPTION_FALLBACK_KEY:-dev-tenant-encryption-fallback-key-32chars}
       NODE_ENV: development
       DEPLOY_ENV: ${DEPLOY_ENV:-local}
       PORT: ${CONTAINER_PORT:-3000}
@@ -49,6 +62,8 @@ services:
       NEW_RELIC_LICENSE_KEY: ${NEW_RELIC_LICENSE_KEY:-}
       TENANT_DATA_ENCRYPTION_KEY: ${TENANT_DATA_ENCRYPTION_KEY:-}
       ADMIN_EMAIL: ${ADMIN_EMAIL:-admin@example.com}
+      OM_INIT_SUPERADMIN_EMAIL: ${OM_INIT_SUPERADMIN_EMAIL:-}
+      OM_INIT_SUPERADMIN_PASSWORD: ${OM_INIT_SUPERADMIN_PASSWORD:-password}
     depends_on:
       postgres:
         condition: service_healthy
@@ -118,6 +133,10 @@ volumes:
     name: mercato-redis-data-${DEPLOY_ENV:-local}
   meilisearch_data:
     name: mercato-meilisearch-data-${DEPLOY_ENV:-local}
+  init_marker:
+    name: mercato-init-marker-${DEPLOY_ENV:-local}
+  attachments_storage:
+    name: mercato-attachments-storage-${DEPLOY_ENV:-local}
 
 networks:
   mercato-network-fullapp:

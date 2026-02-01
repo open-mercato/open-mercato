@@ -782,6 +782,7 @@ export type MessageListItemProps = {
   onClick: () => void
 }
 
+
 export type MessageContentProps = {
   message: {
     id: string

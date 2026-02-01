@@ -6,9 +6,10 @@ import { Loader2 } from 'lucide-react'
 import Markdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { Button } from '@open-mercato/ui/primitives/button'
-import type { ToolInfo, ChatMessage, PendingToolCall, OpenCodeQuestion } from '../../types'
+import type { ToolInfo, ChatMessage, PendingToolCall, OpenCodeQuestion, AgentStatus } from '../../types'
 import { MessageBubble } from './MessageBubble'
 import { ToolCallConfirmation } from './ToolCallConfirmation'
+import { AgentStatusIndicator } from './AgentStatusIndicator'
 
 interface ToolChatPageProps {
   tool: ToolInfo | null  // Can be null for general chat
@@ -16,6 +17,7 @@ interface ToolChatPageProps {
   pendingToolCalls: PendingToolCall[]
   isStreaming: boolean
   isThinking?: boolean
+  agentStatus?: AgentStatus
   onApproveToolCall: (toolCallId: string) => Promise<void>
   onRejectToolCall: (toolCallId: string) => void
   pendingQuestion?: OpenCodeQuestion | null
@@ -28,6 +30,7 @@ export function ToolChatPage({
   pendingToolCalls,
   isStreaming,
   isThinking = false,
+  agentStatus = { type: 'idle' },
   onApproveToolCall,
   onRejectToolCall,
   pendingQuestion,
@@ -42,7 +45,7 @@ export function ToolChatPage({
     }, 100)
 
     return () => clearTimeout(timeoutId)
-  }, [messages, pendingToolCalls, isStreaming, isThinking, pendingQuestion])
+  }, [messages, pendingToolCalls, isStreaming, isThinking, agentStatus, pendingQuestion])
 
   return (
     <div className="p-3 space-y-3">
@@ -101,21 +104,8 @@ export function ToolChatPage({
           </div>
         )}
 
-        {/* Thinking indicator - OpenCode is processing */}
-        {isThinking && !pendingQuestion && (
-          <div className="flex items-center gap-2 py-3 px-3 bg-muted/50 rounded-lg text-muted-foreground text-sm">
-            <Loader2 className="h-4 w-4 animate-spin" />
-            <span>Agent is working...</span>
-          </div>
-        )}
-
-        {/* Streaming indicator - fallback for non-thinking streaming */}
-        {isStreaming && !isThinking && !pendingQuestion && messages[messages.length - 1]?.role !== 'assistant' && (
-          <div className="flex items-center gap-2 py-2 text-muted-foreground text-sm">
-            <Loader2 className="h-4 w-4 animate-spin" />
-            <span>AI is responding...</span>
-          </div>
-        )}
+        {/* Agent status indicator - shows what the agent is doing */}
+        {!pendingQuestion && <AgentStatusIndicator status={agentStatus} />}
 
         {/* Scroll anchor */}
         <div ref={bottomRef} />

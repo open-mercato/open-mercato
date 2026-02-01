@@ -21,7 +21,7 @@ if [ -z "$MODEL" ]; then
       MODEL="openai/gpt-4o-mini"
       ;;
     google)
-      MODEL="google/gemini-2.0-flash"
+      MODEL="google/gemini-3-flash"
       ;;
     *)
       MODEL="anthropic/claude-haiku-4-5-20251001"
@@ -79,7 +79,11 @@ cat > "$CONFIG_FILE" << EOF
       "enabled": true
     }
   },
-  "permission": "allow",
+  "permission": {
+   "bash": {
+      "*": "deny"
+   }
+  },
   "server": {
     "port": 4096,
     "hostname": "0.0.0.0"

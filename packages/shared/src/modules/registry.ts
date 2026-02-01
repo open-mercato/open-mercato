@@ -154,6 +154,10 @@ export type Module = {
   dashboardWidgets?: ModuleDashboardWidgetEntry[]
   injectionWidgets?: ModuleInjectionWidgetEntry[]
   injectionTable?: ModuleInjectionTable
+  // Optional: per-module vector search configuration (discovered from vector.ts)
+  vector?: import('./vector').VectorModuleConfig
+  // Optional: module-specific tenant setup configuration (from setup.ts)
+  setup?: import('./setup').ModuleSetupConfig
 }
 
 function normPath(s: string) {

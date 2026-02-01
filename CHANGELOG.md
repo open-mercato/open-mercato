@@ -1,6 +1,35 @@
+# 0.4.2 (2026-01-29)
+
+## Highlights
+This release introduces the **Notifications module**, **Agent Skills infrastructure**, **Dashboard Analytics Widgets**, and a major architectural improvement decoupling module setup with a centralized config. It also includes important security fixes, Docker infrastructure improvements, and dependency updates.
+
+## Features
+- Full implementation of the in-app notifications system, including notification types, subscribers, custom renderers, and user preferences. (#422, #457) *(@pkarw)*
+- Created the foundational structure for agent skills in Open Mercato, enabling extensible AI-powered capabilities. (#455) *(@pat-lewczuk)*
+- New analytics widgets for the dashboard, providing richer data visualization and insights. (#408) *(@haxiorz)*
+- Decoupled module setup using a centralized `ModuleSetupConfig`, improving modularity and reducing coupling between modules. Resolves #410. (#446) *(@redjungle-as)*
+- Reorganized architecture specs and added new specifications for SDD, messages, notifications, progress tracking, and record locking. (#436, #416) *(@pkarw)*
+- Addressed CodeQL-identified security issues across the codebase. (#418) *(@pkarw)*
+
+## Fixes
+- Fixed an open redirect vulnerability in the authentication session refresh flow. (#429) *(@bartek-filipiuk)*
+- Resolved issues in the AI assistant module. (#442) *(@fto-aubergine)*
+- Corrected the dialog title for global search and added specs for new widgets. (#440) *(@pkarw)*
+- Resolved Docker Compose service conflicts where services were overlapping. (#448, #449) *(@MStaniaszek1998)*
+- General Docker Compose configuration fixes. (#423, #424) *(@pkarw)*
+- Switched the OpenCode container base image to Debian for better compatibility. (#443) *(@MStaniaszek1998)*
+
+## Infrastructure & DevOps
+- Updated the default service port configuration. (#434) *(@MStaniaszek1998)*
+- Added a dedicated Dockerfile for building and serving the documentation site. (#425) *(@MStaniaszek1998)*
+
+## Dependencies
+- Bump `tar` from 7.5.6 to 7.5.7 — security patch. (#454)
+- Bump `npm_and_yarn` group across 2 directories. (#447)
+
 # 0.3.3 (2025-11-16)
 
-## Improvements 
+## Improvements
 - Catalog UI pages - create products page, product price kind settings
 - Shifted catalog product attributes onto custom-field fieldsets so vertical-specific definitions travel through CRUD forms, filters, and APIs without bespoke schema code.
 - Product edit view now lists variant prices with inline edit/delete controls for quicker maintenance.
@@ -23,7 +52,6 @@
 - Expanded documentation for the framework API, query index, and module guides.
 - Introduced profiling flags, coverage metrics, and engine optimizations for faster indexing.
 - Enhanced validation, custom field handling, and locale support across UI surfaces.
-
 
 ## Fixes
 - Resolved dictionary filtering, customer coverage, ACL feature flags, and access log retention issues.

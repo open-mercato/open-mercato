@@ -943,5 +943,9 @@
   "customers.workPlan.customerTodos.table.state.empty": "No customer tasks yet.",
   "customers.workPlan.customerTodos.table.error.load": "Failed to load customer tasks.",
   "customers.workPlan.customerTodos.table.export.view": "Exports the current list with filters and visible columns.",
-  "customers.workPlan.customerTodos.table.export.full": "Exports every linked task field, including hidden attributes."
+  "customers.workPlan.customerTodos.table.export.full": "Exports every linked task field, including hidden attributes.",
+  "customers.notifications.deal.won.title": "Deal Won",
+  "customers.notifications.deal.won.body": "{dealTitle} has been marked as won{dealValue, select, other { ({dealValue})}}",
+  "customers.notifications.deal.lost.title": "Deal Lost",
+  "customers.notifications.deal.lost.body": "{dealTitle} has been marked as lost"
 }

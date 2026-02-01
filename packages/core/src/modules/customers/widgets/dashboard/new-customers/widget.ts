@@ -1,6 +1,6 @@
-import type { DashboardWidgetModule } from '@open-mercato/shared/modules/dashboard/widgets'
-import CustomerNewCustomersWidget from './widget.client'
+import { lazyDashboardWidget, type DashboardWidgetModule } from '@open-mercato/shared/modules/dashboard/widgets'
 import { DEFAULT_SETTINGS, hydrateNewCustomersSettings, type CustomerNewCustomersSettings } from './config'
+const CustomerNewCustomersWidget = lazyDashboardWidget(() => import('./widget.client'))
 
 const widget: DashboardWidgetModule<CustomerNewCustomersSettings> = {
   metadata: {

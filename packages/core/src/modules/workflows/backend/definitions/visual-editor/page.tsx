@@ -34,6 +34,8 @@ import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import {CircleQuestionMark, Info, PanelTopClose, PanelTopOpen, Play, Save, Trash2} from 'lucide-react'
 import { NODE_TYPE_ICONS, NODE_TYPE_COLORS, NODE_TYPE_LABELS } from '../../../lib/node-type-icons'
+import { DefinitionTriggersEditor } from '../../../components/DefinitionTriggersEditor'
+import type { WorkflowDefinitionTrigger } from '../../../data/entities'
 import * as React from "react";
 
 /**
@@ -76,6 +78,7 @@ export default function VisualEditorPage() {
   const [icon, setIcon] = useState('')
   const [effectiveFrom, setEffectiveFrom] = useState('')
   const [effectiveTo, setEffectiveTo] = useState('')
+  const [triggers, setTriggers] = useState<WorkflowDefinitionTrigger[]>([])
 
   // Load existing definition if ID is provided
   useEffect(() => {
@@ -112,6 +115,9 @@ export default function VisualEditorPage() {
         const graph = definitionToGraph(definition.definition)
         setNodes(graph.nodes)
         setEdges(graph.edges)
+
+        // Load embedded triggers from definition
+        setTriggers(definition.definition?.triggers || [])
 
         flash('Workflow loaded successfully', 'success')
       } catch (error) {
@@ -284,8 +290,12 @@ export default function VisualEditorPage() {
       return
     }
 
-    // Generate definition data
-    const definitionData = graphToDefinition(nodes, edges, { includePositions: true })
+    // Generate definition data and include triggers
+    const graphDefinition = graphToDefinition(nodes, edges, { includePositions: true })
+    const definitionData = {
+      ...graphDefinition,
+      triggers: triggers.length > 0 ? triggers : undefined,
+    }
 
     // Run Zod schema validation before saving
     const schemaResult = workflowDefinitionDataSchema.safeParse(definitionData)
@@ -357,7 +367,7 @@ export default function VisualEditorPage() {
     } finally {
       setIsSaving(false)
     }
-  }, [nodes, edges, workflowId, workflowName, description, version, enabled, category, tags, definitionId, router])
+  }, [nodes, edges, workflowId, workflowName, description, version, enabled, category, tags, triggers, definitionId, router])
 
   // Test workflow
   const handleTest = useCallback(() => {
@@ -475,6 +485,7 @@ export default function VisualEditorPage() {
     setIcon('')
     setEffectiveFrom('')
     setEffectiveTo('')
+    setTriggers([])
     setShowClearConfirm(false)
     flash('Canvas cleared', 'success')
   }, [])
@@ -709,6 +720,13 @@ export default function VisualEditorPage() {
             </div>
             </div>
           </div>
+
+          {/* Event Triggers - Always visible, managed as part of definition */}
+          <DefinitionTriggersEditor
+            value={triggers}
+            onChange={setTriggers}
+            className="mt-4"
+          />
         </div>
       )}
 

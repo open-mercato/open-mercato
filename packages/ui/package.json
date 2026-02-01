@@ -1,6 +1,6 @@
 {
   "name": "@open-mercato/ui",
-  "version": "0.4.1",
+  "version": "0.4.2",
   "type": "module",
   "main": "./dist/index.js",
   "scripts": {
@@ -53,6 +53,10 @@
     "./backend/injection/widgetRegistry": {
       "types": "./src/backend/injection/widgetRegistry.ts",
       "default": "./dist/backend/injection/widgetRegistry.js"
+    },
+    "./backend/notifications": {
+      "types": "./src/backend/notifications/index.ts",
+      "default": "./dist/backend/notifications/index.js"
     },
     "./*.ts": {
       "types": "./src/*.ts",

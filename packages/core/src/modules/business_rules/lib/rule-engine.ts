@@ -1,10 +1,11 @@
 import type { EntityManager } from '@mikro-orm/core'
+import type { EventBus } from '@open-mercato/events'
 import { BusinessRule, RuleExecutionLog, type RuleType } from '../data/entities'
 import * as ruleEvaluator from './rule-evaluator'
 import * as actionExecutor from './action-executor'
 import type { RuleEvaluationContext } from './rule-evaluator'
 import type { ActionContext, ActionExecutionOutcome } from './action-executor'
-import { ruleEngineContextSchema, ruleDiscoveryOptionsSchema } from '../data/validators'
+import { ruleEngineContextSchema, ruleDiscoveryOptionsSchema, directRuleExecutionContextSchema, ruleIdExecutionContextSchema } from '../data/validators'
 
 /**
  * Constants
@@ -85,6 +86,78 @@ export interface RuleDiscoveryOptions {
   ruleType?: RuleType
 }
 
+export type RuleEngineExecutionOptions = {
+  eventBus?: Pick<EventBus, 'emitEvent'> | null
+}
+
+type RuleExecutionFailedPayload = {
+  ruleId: string
+  ruleName: string
+  entityType?: string | null
+  errorMessage?: string | null
+  tenantId: string
+  organizationId?: string | null
+}
+
+/**
+ * Direct rule execution context (for executing a specific rule by ID)
+ */
+export interface DirectRuleExecutionContext {
+  ruleId: string  // Database UUID of the rule
+  data: any
+  user?: {
+    id?: string
+    email?: string
+    role?: string
+    [key: string]: any
+  }
+  tenantId: string
+  organizationId: string
+  executedBy?: string
+  dryRun?: boolean
+  // Optional for logging (falls back to rule's entityType)
+  entityType?: string
+  entityId?: string
+  eventType?: string
+}
+
+/**
+ * Direct rule execution result
+ */
+export interface DirectRuleExecutionResult {
+  success: boolean
+  ruleId: string
+  ruleName: string
+  conditionResult: boolean
+  actionsExecuted: ActionExecutionOutcome | null
+  executionTime: number
+  error?: string
+  logId?: string
+}
+
+/**
+ * Context for executing a rule by its string rule_id identifier
+ * Unlike DirectRuleExecutionContext which uses database UUID,
+ * this uses the string identifier (e.g., "workflow_checkout_inventory_available")
+ */
+export interface RuleIdExecutionContext {
+  ruleId: string  // String identifier (e.g., "workflow_checkout_inventory_available")
+  data: any
+  user?: {
+    id?: string
+    email?: string
+    role?: string
+    [key: string]: any
+  }
+  tenantId: string
+  organizationId: string
+  executedBy?: string
+  dryRun?: boolean
+  entityType?: string
+  entityId?: string
+  eventType?: string
+}
+
 /**
  * Execute a function with a timeout
  */
@@ -113,7 +186,8 @@ async function withTimeout<T>(
  */
 export async function executeRules(
   em: EntityManager,
-  context: RuleEngineContext
+  context: RuleEngineContext,
+  options: RuleEngineExecutionOptions = {}
 ): Promise<RuleEngineResult> {
   // Validate input
   const validation = ruleEngineContextSchema.safeParse(context)
@@ -159,7 +233,7 @@ export async function executeRules(
     const executionPromise = (async () => {
       for (const rule of rules) {
       try {
-        const ruleResult = await executeSingleRule(em, rule, context)
+        const ruleResult = await executeSingleRule(em, rule, context, options)
         executedRules.push(ruleResult)
 
         if (ruleResult.logId) {
@@ -176,6 +250,17 @@ export async function executeRules(
         errors.push(
           `Unexpected error in rule execution [ruleId=${rule.ruleId}, type=${rule.ruleType}]: ${errorMessage}`
         )
+
+        if (!context.dryRun) {
+          await emitRuleExecutionFailed(options.eventBus, {
+            ruleId: rule.ruleId,
+            ruleName: rule.ruleName,
+            entityType: context.entityType ?? null,
+            errorMessage,
+            tenantId: context.tenantId,
+            organizationId: context.organizationId ?? null,
+          })
+        }
 
         executedRules.push({
           rule,
@@ -233,7 +318,8 @@ export async function executeRules(
 export async function executeSingleRule(
   em: EntityManager,
   rule: BusinessRule,
-  context: RuleEngineContext
+  context: RuleEngineContext,
+  options: RuleEngineExecutionOptions = {}
 ): Promise<RuleExecutionResult> {
   const startTime = Date.now()
 
@@ -268,6 +354,15 @@ export async function executeSingleRule(
             actionsExecuted: null,
             executionTime,
             error: result.error,
+          })
+
+          await emitRuleExecutionFailed(options.eventBus, {
+            ruleId: rule.ruleId,
+            ruleName: rule.ruleName,
+            entityType: context.entityType ?? null,
+            errorMessage: result.error ?? null,
+            tenantId: context.tenantId,
+            organizationId: context.organizationId ?? null,
           })
         }
 
@@ -346,6 +441,15 @@ export async function executeSingleRule(
         executionTime,
         error: enhancedError,
       })
+
+      await emitRuleExecutionFailed(options.eventBus, {
+        ruleId: rule.ruleId,
+        ruleName: rule.ruleName,
+        entityType: context.entityType ?? null,
+        errorMessage: enhancedError,
+        tenantId: context.tenantId,
+        organizationId: context.organizationId ?? null,
+      })
     }
 
     return {
@@ -402,6 +506,227 @@ export async function findApplicableRules(
     }
     return true
   })
+}
+
+/**
+ * Execute a specific rule by its database UUID
+ * This bypasses the entityType/eventType discovery mechanism and directly executes the rule
+ */
+export async function executeRuleById(
+  em: EntityManager,
+  context: DirectRuleExecutionContext
+): Promise<DirectRuleExecutionResult> {
+  const startTime = Date.now()
+
+  // Validate input
+  const validation = directRuleExecutionContextSchema.safeParse(context)
+  if (!validation.success) {
+    const validationErrors = validation.error.issues.map(e => `${e.path.join('.')}: ${e.message}`)
+    return {
+      success: false,
+      ruleId: context.ruleId,
+      ruleName: 'Unknown',
+      conditionResult: false,
+      actionsExecuted: null,
+      executionTime: Date.now() - startTime,
+      error: `Validation failed: ${validationErrors.join(', ')}`,
+    }
+  }
+
+  // Fetch rule by ID with tenant/org validation
+  const rule = await em.findOne(BusinessRule, {
+    id: context.ruleId,
+    tenantId: context.tenantId,
+    organizationId: context.organizationId,
+    deletedAt: null,
+  })
+
+  if (!rule) {
+    return {
+      success: false,
+      ruleId: context.ruleId,
+      ruleName: 'Unknown',
+      conditionResult: false,
+      actionsExecuted: null,
+      executionTime: Date.now() - startTime,
+      error: 'Rule not found',
+    }
+  }
+
+  if (!rule.enabled) {
+    return {
+      success: false,
+      ruleId: rule.ruleId,
+      ruleName: rule.ruleName,
+      conditionResult: false,
+      actionsExecuted: null,
+      executionTime: Date.now() - startTime,
+      error: 'Rule is disabled',
+    }
+  }
+
+  // Check effective date range
+  const now = new Date()
+  if (rule.effectiveFrom && rule.effectiveFrom > now) {
+    return {
+      success: false,
+      ruleId: rule.ruleId,
+      ruleName: rule.ruleName,
+      conditionResult: false,
+      actionsExecuted: null,
+      executionTime: Date.now() - startTime,
+      error: `Rule is not yet effective (starts ${rule.effectiveFrom.toISOString()})`,
+    }
+  }
+  if (rule.effectiveTo && rule.effectiveTo < now) {
+    return {
+      success: false,
+      ruleId: rule.ruleId,
+      ruleName: rule.ruleName,
+      conditionResult: false,
+      actionsExecuted: null,
+      executionTime: Date.now() - startTime,
+      error: `Rule has expired (ended ${rule.effectiveTo.toISOString()})`,
+    }
+  }
+
+  // Build RuleEngineContext (use provided entityType or fall back to rule's)
+  const engineContext: RuleEngineContext = {
+    entityType: context.entityType || rule.entityType,
+    entityId: context.entityId,
+    eventType: context.eventType || rule.eventType || undefined,
+    data: context.data,
+    user: context.user,
+    tenantId: context.tenantId,
+    organizationId: context.organizationId,
+    executedBy: context.executedBy,
+    dryRun: context.dryRun,
+  }
+
+  // Execute via existing executeSingleRule
+  const result = await executeSingleRule(em, rule, engineContext)
+
+  return {
+    success: !result.error,
+    ruleId: rule.ruleId,
+    ruleName: rule.ruleName,
+    conditionResult: result.conditionResult,
+    actionsExecuted: result.actionsExecuted,
+    executionTime: result.executionTime,
+    error: result.error,
+    logId: result.logId,
+  }
+}
+
+/**
+ * Execute a rule by its string rule_id identifier
+ * Looks up rule by rule_id (string column) + tenant_id (unique constraint)
+ * This is useful for workflow conditions that reference rules by their string identifiers
+ */
+export async function executeRuleByRuleId(
+  em: EntityManager,
+  context: RuleIdExecutionContext
+): Promise<DirectRuleExecutionResult> {
+  const startTime = Date.now()
+
+  // Validate input
+  const validation = ruleIdExecutionContextSchema.safeParse(context)
+  if (!validation.success) {
+    const validationErrors = validation.error.issues.map(e => `${e.path.join('.')}: ${e.message}`)
+    return {
+      success: false,
+      ruleId: context.ruleId || 'unknown',
+      ruleName: 'Unknown',
+      conditionResult: false,
+      actionsExecuted: null,
+      executionTime: Date.now() - startTime,
+      error: `Validation failed: ${validationErrors.join(', ')}`,
+    }
+  }
+
+  // Fetch rule by rule_id (string identifier) + tenant/org
+  const rule = await em.findOne(BusinessRule, {
+    ruleId: context.ruleId,  // String identifier column
+    tenantId: context.tenantId,
+    organizationId: context.organizationId,
+    deletedAt: null,
+  })
+
+  if (!rule) {
+    return {
+      success: false,
+      ruleId: context.ruleId,
+      ruleName: 'Unknown',
+      conditionResult: false,
+      actionsExecuted: null,
+      executionTime: Date.now() - startTime,
+      error: 'Rule not found',
+    }
+  }
+
+  if (!rule.enabled) {
+    return {
+      success: false,
+      ruleId: rule.ruleId,
+      ruleName: rule.ruleName,
+      conditionResult: false,
+      actionsExecuted: null,
+      executionTime: Date.now() - startTime,
+      error: 'Rule is disabled',
+    }
+  }
+
+  // Check effective date range
+  const now = new Date()
+  if (rule.effectiveFrom && rule.effectiveFrom > now) {
+    return {
+      success: false,
+      ruleId: rule.ruleId,
+      ruleName: rule.ruleName,
+      conditionResult: false,
+      actionsExecuted: null,
+      executionTime: Date.now() - startTime,
+      error: `Rule is not yet effective (starts ${rule.effectiveFrom.toISOString()})`,
+    }
+  }
+  if (rule.effectiveTo && rule.effectiveTo < now) {
+    return {
+      success: false,
+      ruleId: rule.ruleId,
+      ruleName: rule.ruleName,
+      conditionResult: false,
+      actionsExecuted: null,
+      executionTime: Date.now() - startTime,
+      error: `Rule has expired (ended ${rule.effectiveTo.toISOString()})`,
+    }
+  }
+
+  // Build RuleEngineContext (use provided entityType or fall back to rule's)
+  const engineContext: RuleEngineContext = {
+    entityType: context.entityType || rule.entityType,
+    entityId: context.entityId,
+    eventType: context.eventType || rule.eventType || undefined,
+    data: context.data,
+    user: context.user,
+    tenantId: context.tenantId,
+    organizationId: context.organizationId,
+    executedBy: context.executedBy,
+    dryRun: context.dryRun,
+  }
+
+  // Execute via existing executeSingleRule
+  const result = await executeSingleRule(em, rule, engineContext)
+
+  return {
+    success: !result.error,
+    ruleId: rule.ruleId,
+    ruleName: rule.ruleName,
+    conditionResult: result.conditionResult,
+    actionsExecuted: result.actionsExecuted,
+    executionTime: result.executionTime,
+    error: result.error,
+    logId: result.logId,
+  }
 }
 
 /**
@@ -543,4 +868,13 @@ export async function logRuleExecution(
   await em.persistAndFlush(log)
 
   return log.id
+}
+
+async function emitRuleExecutionFailed(
+  eventBus: Pick<EventBus, 'emitEvent'> | null | undefined,
+  payload: RuleExecutionFailedPayload
+): Promise<void> {
+  if (!eventBus?.emitEvent) return
+
+  await eventBus.emitEvent('business_rules.rule.execution_failed', payload).catch(() => undefined)
 }

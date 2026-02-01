@@ -72,7 +72,6 @@ export default function UserTasksListPage() {
       params.set('offset', offset.toString())
 
       if (filterValues.status) params.set('status', filterValues.status as string)
-      if (filterValues.myTasks === 'true') params.set('myTasks', 'true')
       if (filterValues.overdue === 'true') params.set('overdue', 'true')
       if (filterValues.workflowInstanceId) params.set('workflowInstanceId', filterValues.workflowInstanceId as string)
 
@@ -155,10 +154,10 @@ export default function UserTasksListPage() {
       label: t('workflows.tasks.filters.status'),
       options: [
         { label: t('common.all'), value: '' },
-        { label: t('workflows.tasks.status.PENDING'), value: 'PENDING' },
-        { label: t('workflows.tasks.status.IN_PROGRESS'), value: 'IN_PROGRESS' },
-        { label: t('workflows.tasks.status.COMPLETED'), value: 'COMPLETED' },
-        { label: t('workflows.tasks.status.CANCELLED'), value: 'CANCELLED' },
+        { label: t('workflows.tasks.statuses.PENDING'), value: 'PENDING' },
+        { label: t('workflows.tasks.statuses.IN_PROGRESS'), value: 'IN_PROGRESS' },
+        { label: t('workflows.tasks.statuses.COMPLETED'), value: 'COMPLETED' },
+        { label: t('workflows.tasks.statuses.CANCELLED'), value: 'CANCELLED' },
       ],
     },
     {
@@ -214,7 +213,7 @@ export default function UserTasksListPage() {
       accessorKey: 'status',
       cell: ({ row }) => (
         <span className={`inline-flex items-center px-2 py-1 rounded text-xs font-medium ${getStatusBadgeClass(row.original.status)}`}>
-          {t(`workflows.tasks.status.${row.original.status}`)}
+          {t(`workflows.tasks.statuses.${row.original.status}`)}
         </span>
       ),
     },
@@ -273,8 +272,9 @@ export default function UserTasksListPage() {
       id: 'actions',
       header: '',
       cell: ({ row }) => {
-        const items: Array<{label: string; href?: string; onSelect?: () => void}> = [
+        const items: Array<{ id: string; label: string; href?: string; onSelect?: () => void }> = [
           {
+            id: 'view',
             label: t('workflows.tasks.actions.viewDetails'),
             href: `/backend/tasks/${row.original.id}`,
           },
@@ -288,6 +288,7 @@ export default function UserTasksListPage() {
           row.original.assignedToRoles.length > 0
         ) {
           items.push({
+            id: 'claim',
             label: t('workflows.tasks.actions.claim'),
             onSelect: () => handleClaim(row.original.id, row.original.taskName),
           })
@@ -296,6 +297,7 @@ export default function UserTasksListPage() {
         // Allow completing if task is in progress or pending
         if (row.original.status === 'PENDING' || row.original.status === 'IN_PROGRESS') {
           items.push({
+            id: 'complete',
             label: t('workflows.tasks.actions.complete'),
             href: `/backend/tasks/${row.original.id}`,
           })

@@ -305,10 +305,12 @@ export function AttachmentPartitionSettings() {
           <RowActions
             items={[
               {
+                id: 'edit',
                 label: t('attachments.partitions.actions.edit', 'Edit'),
                 onSelect: () => openDialog({ mode: 'edit', entry }),
               },
               {
+                id: 'delete',
                 label: t('attachments.partitions.actions.delete', 'Delete'),
                 destructive: true,
                 onSelect: () => { void handleDelete(entry) },
