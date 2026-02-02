@@ -82,6 +82,20 @@ const RulesIcon = (
   </svg>
 )
 
+const SettingsIcon = (
+  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <circle cx="12" cy="12" r="3" />
+    <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z" />
+  </svg>
+)
+
+const LockIcon = (
+  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <rect x="3" y="11" width="18" height="11" rx="2" ry="2" />
+    <path d="M7 11V7a5 5 0 0 1 10 0v4" />
+  </svg>
+)
+
 export const settingsSections: SectionNavGroup[] = [
   {
     id: 'system',
@@ -148,17 +162,8 @@ export const settingsSections: SectionNavGroup[] = [
     id: 'data-designer',
     label: 'Data Designer',
     labelKey: 'settings.sections.dataDesigner',
-    order: 3,
+    order: 4,
     items: [
-      {
-        id: 'encryption',
-        label: 'Encryption',
-        labelKey: 'entities.nav.encryption',
-        href: '/backend/config/encryption',
-        icon: ShieldIcon,
-        requireFeatures: ['entities.definitions.manage'],
-        order: 1,
-      },
       {
         id: 'system-entities',
         label: 'System Entities',
@@ -166,7 +171,7 @@ export const settingsSections: SectionNavGroup[] = [
         href: '/backend/entities/system',
         icon: DatabaseIcon,
         requireFeatures: ['entities.definitions.view'],
-        order: 2,
+        order: 1,
       },
       {
         id: 'user-entities',
@@ -175,7 +180,7 @@ export const settingsSections: SectionNavGroup[] = [
         href: '/backend/entities/user',
         icon: DatabaseIcon,
         requireFeatures: ['entities.definitions.view'],
-        order: 3,
+        order: 2,
       },
       {
         id: 'query-indexes',
@@ -184,7 +189,7 @@ export const settingsSections: SectionNavGroup[] = [
         href: '/backend/query-indexes',
         icon: DatabaseIcon,
         requireFeatures: ['query_index.status.view'],
-        order: 4,
+        order: 3,
       },
     ],
   },
@@ -192,7 +197,7 @@ export const settingsSections: SectionNavGroup[] = [
     id: 'workflows',
     label: 'Workflows',
     labelKey: 'settings.sections.workflows',
-    order: 4,
+    order: 5,
     items: [
       {
         id: 'workflow-definitions',
@@ -236,7 +241,7 @@ export const settingsSections: SectionNavGroup[] = [
     id: 'business-rules',
     label: 'Business Rules',
     labelKey: 'settings.sections.businessRules',
-    order: 5,
+    order: 3,
     items: [
       {
         id: 'rules',
@@ -268,10 +273,72 @@ export const settingsSections: SectionNavGroup[] = [
     ],
   },
   {
+    id: 'module-configs',
+    label: 'Module Configs',
+    labelKey: 'settings.sections.moduleConfigs',
+    order: 6,
+    items: [
+      {
+        id: 'sales-config',
+        label: 'Sales',
+        labelKey: 'sales.config.nav.sales',
+        href: '/backend/config/sales',
+        icon: SettingsIcon,
+        requireFeatures: ['sales.settings.manage'],
+        order: 1,
+      },
+      {
+        id: 'catalog-config',
+        label: 'Catalog',
+        labelKey: 'catalog.config.nav.catalog',
+        href: '/backend/config/catalog',
+        icon: SettingsIcon,
+        requireFeatures: ['catalog.settings.manage'],
+        order: 2,
+      },
+      {
+        id: 'customers-config',
+        label: 'Customers',
+        labelKey: 'customers.config.nav.customers',
+        href: '/backend/config/customers',
+        icon: SettingsIcon,
+        requireFeatures: ['customers.settings.manage'],
+        order: 3,
+      },
+      {
+        id: 'currencies-config',
+        label: 'Currencies',
+        labelKey: 'currencies.fetch.title',
+        href: '/backend/config/currency-fetching',
+        icon: SettingsIcon,
+        requireFeatures: ['currencies.fetch.view'],
+        order: 4,
+      },
+      {
+        id: 'dictionaries-config',
+        label: 'Dictionaries',
+        labelKey: 'dictionaries.config.nav.title',
+        href: '/backend/config/dictionaries',
+        icon: SettingsIcon,
+        requireFeatures: ['dictionaries.manage'],
+        order: 5,
+      },
+      {
+        id: 'encryption-config',
+        label: 'Encryption',
+        labelKey: 'entities.encryption.title',
+        href: '/backend/config/encryption',
+        icon: LockIcon,
+        requireFeatures: ['entities.definitions.manage'],
+        order: 6,
+      },
+    ],
+  },
+  {
     id: 'directory',
     label: 'Directory',
     labelKey: 'settings.sections.directory',
-    order: 6,
+    order: 7,
     items: [
       {
         id: 'organizations',
@@ -297,7 +364,7 @@ export const settingsSections: SectionNavGroup[] = [
     id: 'feature-toggles',
     label: 'Feature Toggles',
     labelKey: 'settings.sections.featureToggles',
-    order: 7,
+    order: 8,
     items: [
       {
         id: 'global-toggles',

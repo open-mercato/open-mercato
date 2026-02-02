@@ -11,7 +11,6 @@ import { LoadingMessage, ErrorMessage } from '@open-mercato/ui/backend/detail'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { buildPasswordSchema, formatPasswordRequirements, getPasswordPolicy } from '@open-mercato/shared/lib/auth/passwordPolicy'
-import { SectionPage, type SectionNavGroup } from '@open-mercato/ui/backend/section-page'
 
 type ProfileResponse = {
   email?: string | null
@@ -27,31 +26,6 @@ type ProfileFormValues = {
   password?: string
   confirmPassword?: string
 }
-
-const KeyIcon = (
-  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-    <path d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.778 7.778 5.5 5.5 0 0 1 7.777-7.777zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3m-3.5 3.5L19 4" />
-  </svg>
-)
-
-const sections: SectionNavGroup[] = [
-  {
-    id: 'account',
-    label: 'Account',
-    labelKey: 'profile.sections.account',
-    order: 1,
-    items: [
-      {
-        id: 'change-password',
-        label: 'Change Password',
-        labelKey: 'auth.changePassword.title',
-        href: '/backend/profile/change-password',
-        icon: KeyIcon,
-        order: 1,
-      },
-    ],
-  },
-]
 
 export default function ProfileChangePasswordPage() {
   const t = useT()
@@ -155,48 +129,43 @@ export default function ProfileChangePasswordPage() {
     router.refresh()
   }, [email, router, t])
 
+  if (loading) {
+    return <LoadingMessage label={t('auth.profile.form.loading', 'Loading profile...')} />
+  }
+
+  if (error) {
+    return <ErrorMessage label={error} />
+  }
+
   return (
-    <SectionPage
-      title="Profile"
-      titleKey="profile.page.title"
-      sections={sections}
-      activePath="/backend/profile/change-password"
-    >
-      {loading ? (
-        <LoadingMessage label={t('auth.profile.form.loading', 'Loading profile...')} />
-      ) : error ? (
-        <ErrorMessage label={error} />
-      ) : (
-        <section className="space-y-6 rounded-lg border bg-background p-6 max-w-2xl">
-          <header className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
-            <div className="space-y-1">
-              <h2 className="text-lg font-semibold">{t('auth.changePassword.title', 'Change Password')}</h2>
-              <p className="text-sm text-muted-foreground">
-                {t('auth.profile.subtitle', 'Change password')}
-              </p>
-            </div>
-            <Button type="submit" form={formId}>
-              <Save className="size-4 mr-2" />
-              {t('auth.profile.form.save', 'Save changes')}
-            </Button>
-          </header>
-          <CrudForm<ProfileFormValues>
-            key={formKey}
-            formId={formId}
-            schema={schema}
-            fields={fields}
-            initialValues={{
-              email,
-              password: '',
-              confirmPassword: '',
-            }}
-            submitLabel={t('auth.profile.form.save', 'Save changes')}
-            onSubmit={handleSubmit}
-            embedded
-            hideFooterActions
-          />
-        </section>
-      )}
-    </SectionPage>
+    <section className="space-y-6 rounded-lg border bg-background p-6 max-w-2xl">
+      <header className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+        <div className="space-y-1">
+          <h2 className="text-lg font-semibold">{t('auth.changePassword.title', 'Change Password')}</h2>
+          <p className="text-sm text-muted-foreground">
+            {t('auth.profile.subtitle', 'Change password')}
+          </p>
+        </div>
+        <Button type="submit" form={formId}>
+          <Save className="size-4 mr-2" />
+          {t('auth.profile.form.save', 'Save changes')}
+        </Button>
+      </header>
+      <CrudForm<ProfileFormValues>
+        key={formKey}
+        formId={formId}
+        schema={schema}
+        fields={fields}
+        initialValues={{
+          email,
+          password: '',
+          confirmPassword: '',
+        }}
+        submitLabel={t('auth.profile.form.save', 'Save changes')}
+        onSubmit={handleSubmit}
+        embedded
+        hideFooterActions
+      />
+    </section>
   )
 }

@@ -11,6 +11,7 @@ import { UpgradeActionBanner } from './upgrades/UpgradeActionBanner'
 import { PartialIndexBanner } from './indexes/PartialIndexBanner'
 import { useLocale, useT } from '@open-mercato/shared/lib/i18n/context'
 import { slugifySidebarId } from '@open-mercato/shared/modules/navigation/sidebarPreferences'
+import type { SectionNavGroup } from './section-page/types'
 
 export type AppShellProps = {
   productName?: string
@@ -48,6 +49,10 @@ export type AppShellProps = {
   version?: string
   settingsSectionTitle?: string
   settingsPathPrefixes?: string[]
+  settingsSections?: SectionNavGroup[]
+  profileSections?: SectionNavGroup[]
+  profileSectionTitle?: string
+  profilePathPrefixes?: string[]
 }
 
 type Breadcrumb = Array<{ label: string; href?: string }>
@@ -125,13 +130,19 @@ const CustomizeIcon = (
   </svg>
 )
 
+const BackArrowIcon = (
+  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M19 12H5M12 19l-7-7 7-7" />
+  </svg>
+)
+
 function Chevron({ open }: { open: boolean }) {
   return (
     <svg className={`transition-transform ${open ? 'rotate-180' : ''}`} width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M6 9l6 6 6-6"/></svg>
   )
 }
 
-export function AppShell({ productName, email, groups, rightHeaderSlot, children, sidebarCollapsedDefault = false, currentTitle, breadcrumb, adminNavApi, version, settingsSectionTitle, settingsPathPrefixes = [] }: AppShellProps) {
+export function AppShell({ productName, email, groups, rightHeaderSlot, children, sidebarCollapsedDefault = false, currentTitle, breadcrumb, adminNavApi, version, settingsSectionTitle, settingsPathPrefixes = [], settingsSections, profileSections, profileSectionTitle, profilePathPrefixes = [] }: AppShellProps) {
   const pathname = usePathname()
   const t = useT()
   const locale = useLocale()
@@ -157,6 +168,23 @@ export function AppShell({ productName, email, groups, rightHeaderSlot, children
   const [headerBreadcrumb, setHeaderBreadcrumb] = React.useState<Breadcrumb | undefined>(breadcrumb)
   const effectiveCollapsed = customizing ? false : collapsed
   const expandedSidebarWidth = customizing ? '320px' : '240px'
+
+  const isOnSettingsPath = React.useMemo(() => {
+    if (!pathname) return false
+    if (pathname === '/backend/settings') return true
+    return settingsPathPrefixes.some((prefix) => pathname.startsWith(prefix))
+  }, [pathname, settingsPathPrefixes])
+
+  const isOnProfilePath = React.useMemo(() => {
+    if (!pathname) return false
+    if (pathname === '/backend/profile') return true
+    return profilePathPrefixes.some((prefix) => pathname.startsWith(prefix))
+  }, [pathname, profilePathPrefixes])
+
+  const sidebarMode: 'main' | 'settings' | 'profile' =
+    isOnSettingsPath ? 'settings' :
+    isOnProfilePath ? 'profile' :
+    'main'
 
   // Lock body scroll when mobile drawer is open so touch scroll stays in the drawer
   React.useEffect(() => {
@@ -589,7 +617,94 @@ export function AppShell({ productName, email, groups, rightHeaderSlot, children
 
   // adminNavApi already includes user entities; no extra fetch
 
+  function renderSectionSidebar(
+    sections: SectionNavGroup[],
+    title: string,
+    compact: boolean,
+    hideHeader?: boolean
+  ) {
+    return (
+      <div className="flex flex-col min-h-full gap-3">
+        {!hideHeader && (
+          <div className={`flex items-center ${compact ? 'justify-center' : ''} mb-2`}>
+            <Link
+              href="/backend"
+              className={`flex items-center gap-2 ${compact ? 'p-2' : 'p-4'} hover:bg-accent rounded transition-colors`}
+              aria-label={t('backend.nav.backToMain', 'Back')}
+            >
+              <span className="flex items-center justify-center shrink-0">{BackArrowIcon}</span>
+              {!compact && <span className="text-sm font-medium">{title}</span>}
+            </Link>
+          </div>
+        )}
+        <nav className="flex flex-col gap-4 px-2">
+          {[...sections].sort((a, b) => (a.order ?? 0) - (b.order ?? 0)).map((section) => {
+            const visibleItems = section.items
+            if (visibleItems.length === 0) return null
+            const sortedItems = [...visibleItems].sort((a, b) => (a.order ?? 0) - (b.order ?? 0))
+            const sectionLabel = section.labelKey ? t(section.labelKey, section.label) : section.label
+
+            return (
+              <div key={section.id} className="flex flex-col gap-1">
+                {!compact && (
+                  <div className="px-2 py-1.5 text-xs uppercase text-muted-foreground/80 font-medium">
+                    {sectionLabel}
+                  </div>
+                )}
+                {sortedItems.map((item) => {
+                  const isActive = pathname === item.href || pathname?.startsWith(item.href + '/')
+                  const label = item.labelKey ? t(item.labelKey, item.label) : item.label
+                  const base = compact ? 'w-10 h-10 justify-center' : 'px-3 py-1.5 gap-2'
+
+                  return (
+                    <Link
+                      key={item.id}
+                      href={item.href}
+                      className={`relative text-sm rounded inline-flex items-center ${base} ${
+                        isActive
+                          ? 'bg-background border shadow-sm font-medium'
+                          : 'hover:bg-accent hover:text-accent-foreground'
+                      }`}
+                      title={compact ? label : undefined}
+                      onClick={() => setMobileOpen(false)}
+                    >
+                      {isActive && (
+                        <span className="absolute left-0 top-1 bottom-1 w-0.5 rounded bg-foreground" />
+                      )}
+                      <span className="flex items-center justify-center shrink-0 text-muted-foreground">
+                        {item.icon ?? DefaultIcon}
+                      </span>
+                      {!compact && <span className="truncate">{label}</span>}
+                    </Link>
+                  )
+                })}
+              </div>
+            )
+          })}
+        </nav>
+      </div>
+    )
+  }
+
   function renderSidebar(compact: boolean, hideHeader?: boolean) {
+    if (sidebarMode === 'settings' && settingsSections && settingsSections.length > 0) {
+      return renderSectionSidebar(
+        settingsSections,
+        settingsSectionTitle ?? t('backend.nav.settings', 'Settings'),
+        compact,
+        hideHeader
+      )
+    }
+
+    if (sidebarMode === 'profile' && profileSections && profileSections.length > 0) {
+      return renderSectionSidebar(
+        profileSections,
+        profileSectionTitle ?? t('backend.nav.profile', 'Profile'),
+        compact,
+        hideHeader
+      )
+    }
+
     const isMobileVariant = !!hideHeader
     const baseGroupsForDefaults = originalNavRef.current ?? navGroups
     const baseGroupMap = new Map<string, SidebarGroup>()

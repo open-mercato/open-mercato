@@ -1,74 +1,19 @@
 'use client'
 import * as React from 'react'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
-import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
-import { SectionPage } from '@open-mercato/ui/backend/section-page'
-import { settingsSections, settingsRequiredFeatures } from '../../lib/settings-sections'
-
-type FeatureCheckResponse = { ok?: boolean; granted?: string[] }
 
 export default function SettingsPage() {
   const t = useT()
-  const [userFeatures, setUserFeatures] = React.useState<Set<string> | undefined>(undefined)
-  const [loading, setLoading] = React.useState(true)
-
-  React.useEffect(() => {
-    let cancelled = false
-    async function loadFeatures() {
-      if (settingsRequiredFeatures.length === 0) {
-        setUserFeatures(new Set())
-        setLoading(false)
-        return
-      }
-      try {
-        const call = await apiCall<FeatureCheckResponse>('/api/auth/feature-check', {
-          method: 'POST',
-          headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({ features: settingsRequiredFeatures }),
-        })
-        if (cancelled) return
-        if (call.ok && Array.isArray(call.result?.granted)) {
-          setUserFeatures(new Set(call.result.granted))
-        } else {
-          setUserFeatures(new Set())
-        }
-      } catch {
-        if (!cancelled) setUserFeatures(new Set())
-      } finally {
-        if (!cancelled) setLoading(false)
-      }
-    }
-    loadFeatures()
-    return () => {
-      cancelled = true
-    }
-  }, [])
-
-  if (loading) {
-    return (
-      <div className="flex items-center justify-center h-64">
-        <div className="text-muted-foreground">{t('common.loading', 'Loading...')}</div>
-      </div>
-    )
-  }
 
   return (
-    <SectionPage
-      title="Settings"
-      titleKey="backend.nav.settings"
-      sections={settingsSections}
-      activePath="/backend/settings"
-      userFeatures={userFeatures}
-    >
-      <div className="max-w-2xl">
-        <h1 className="text-2xl font-bold mb-2">{t('settings.page.title', 'Settings')}</h1>
-        <p className="text-muted-foreground mb-6">
-          {t('settings.page.description', 'System configuration and administration')}
-        </p>
-        <p className="text-sm text-muted-foreground">
-          {t('settings.page.selectItem', 'Select an item from the menu to configure system settings.')}
-        </p>
-      </div>
-    </SectionPage>
+    <div className="max-w-2xl">
+      <h1 className="text-2xl font-bold mb-2">{t('settings.page.title', 'Settings')}</h1>
+      <p className="text-muted-foreground mb-6">
+        {t('settings.page.description', 'System configuration and administration')}
+      </p>
+      <p className="text-sm text-muted-foreground">
+        {t('settings.page.selectItem', 'Select an item from the menu to configure system settings.')}
+      </p>
+    </div>
   )
 }

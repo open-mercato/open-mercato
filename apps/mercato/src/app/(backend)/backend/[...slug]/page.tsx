@@ -7,8 +7,6 @@ import { ApplyBreadcrumb } from '@open-mercato/ui/backend/AppShell'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { resolveFeatureCheckContext } from '@open-mercato/core/modules/directory/utils/organizationScope'
 import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
-import { SettingsPageWrapper } from '@open-mercato/ui/backend/settings'
-import { settingsSections, settingsRequiredFeatures, isSettingsPath } from '@open-mercato/core/modules/auth/lib/settings-sections'
 
 type Awaitable<T> = T | Promise<T>
 
@@ -50,21 +48,6 @@ export default async function BackendCatchAll(props: { params: Awaitable<{ slug?
     }
   }
   const Component = match.route.Component
-  const shouldWrapInSettings = pathname !== '/backend/settings' && isSettingsPath(pathname)
-
-  if (shouldWrapInSettings) {
-    return (
-      <>
-        <ApplyBreadcrumb breadcrumb={match.route.breadcrumb} title={match.route.title} titleKey={match.route.titleKey} />
-        <SettingsPageWrapper
-          sections={settingsSections}
-          requiredFeatures={settingsRequiredFeatures}
-        >
-          <Component params={match.params} />
-        </SettingsPageWrapper>
-      </>
-    )
-  }
 
   return (
     <>

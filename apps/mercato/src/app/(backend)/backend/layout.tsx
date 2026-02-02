@@ -27,7 +27,9 @@ import type { FilterQuery } from '@mikro-orm/core'
 import type { AwilixContainer } from 'awilix'
 import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
 import { resolveFeatureCheckContext } from '@open-mercato/core/modules/directory/utils/organizationScope'
-import { settingsPathPrefixes } from '@open-mercato/core/modules/auth/lib/settings-sections'
+import { settingsSections, settingsPathPrefixes, settingsRequiredFeatures } from '@open-mercato/core/modules/auth/lib/settings-sections'
+import { profileSections, profilePathPrefixes } from '@open-mercato/core/modules/auth/lib/profile-sections'
+import type { SectionNavGroup } from '@open-mercato/ui/backend/section-page'
 import { APP_VERSION } from '@open-mercato/shared/lib/version'
 import { PageInjectionBoundary } from '@open-mercato/ui/backend/injection/PageInjectionBoundary'
 import { AiAssistantIntegration, AiChatHeaderButton } from '@open-mercato/ai-assistant/frontend'
@@ -141,6 +143,28 @@ export default async function BackendLayout({ children, params }: { children: Re
         }
       }
     : undefined
+
+  const filterSectionsByFeatures = (
+    sections: SectionNavGroup[],
+    grantedFeatures: Set<string> | undefined
+  ): SectionNavGroup[] => {
+    if (!grantedFeatures) return sections
+    return sections
+      .map((section) => ({
+        ...section,
+        items: section.items.filter((item) =>
+          !item.requireFeatures?.length ||
+          item.requireFeatures.every((f) => grantedFeatures.has(f))
+        ),
+      }))
+      .filter((section) => section.items.length > 0)
+  }
+
+  let filteredSettingsSections = settingsSections
+  if (featureChecker && settingsRequiredFeatures.length > 0) {
+    const settingsFeaturesGranted = await featureChecker(settingsRequiredFeatures)
+    filteredSettingsSections = filterSectionsByFeatures(settingsSections, settingsFeaturesGranted)
+  }
 
   const entries = await buildAdminNav(
     modules,
@@ -348,6 +372,11 @@ export default async function BackendLayout({ children, params }: { children: Re
             adminNavApi="/api/auth/admin/nav"
             version={APP_VERSION}
             settingsPathPrefixes={settingsPathPrefixes}
+            settingsSections={filteredSettingsSections}
+            settingsSectionTitle={translate('backend.nav.settings', 'Settings')}
+            profileSections={profileSections}
+            profileSectionTitle={translate('profile.page.title', 'Profile')}
+            profilePathPrefixes={profilePathPrefixes}
           >
             <PageInjectionBoundary path={path} context={injectionContext}>
               {children}
