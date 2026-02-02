@@ -190,7 +190,7 @@ export function TransitionsEditor({ value = [], onChange, steps = [], error }: T
           <div key={index} className="p-4 border rounded-md bg-card shadow-sm border-l-4 border-l-blue-500">
             <div className="space-y-3">
               <div className="flex items-start justify-between gap-2">
-                <div className="flex-1 grid grid-cols-2 gap-3">
+                <div className="flex-1 grid grid-cols-1 sm:grid-cols-2 gap-3">
                   <div>
                     <Label htmlFor={`transition-${index}-id`} className="text-xs">
                       {t('workflows.transitions.transitionId')} *
@@ -249,7 +249,7 @@ export function TransitionsEditor({ value = [], onChange, steps = [], error }: T
                 </div>
               </div>
 
-              <div className="grid grid-cols-3 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                 <div>
                   <Label htmlFor={`transition-${index}-from`} className="text-xs">
                     {t('workflows.transitions.fromStep')} *
@@ -305,7 +305,7 @@ export function TransitionsEditor({ value = [], onChange, steps = [], error }: T
                 </div>
               </div>
 
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
                   <Label htmlFor={`transition-${index}-priority`} className="text-xs">
                     {t('workflows.transitions.priority')}
@@ -359,7 +359,7 @@ export function TransitionsEditor({ value = [], onChange, steps = [], error }: T
                     <div key={activityIndex} className="p-3 border rounded-md bg-muted shadow-sm border-l-4 border-l-green-500">
                       <div className="space-y-2">
                         <div className="flex items-start justify-between gap-2">
-                          <div className="flex-1 grid grid-cols-2 gap-2">
+                          <div className="flex-1 grid grid-cols-1 sm:grid-cols-2 gap-2">
                             <div>
                               <Label htmlFor={`activity-${index}-${activityIndex}-id`} className="text-xs">
                                 {t('workflows.activities.activityId')} *
@@ -418,7 +418,7 @@ export function TransitionsEditor({ value = [], onChange, steps = [], error }: T
                           </div>
                         </div>
 
-                        <div className="grid grid-cols-3 gap-2">
+                        <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
                           <div>
                             <Label htmlFor={`activity-${index}-${activityIndex}-type`} className="text-xs">
                               {t('workflows.activities.activityType')} *

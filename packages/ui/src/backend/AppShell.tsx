@@ -942,7 +942,7 @@ export function AppShell({ productName, email, groups, rightHeaderSlot, children
                           {b.label}
                         </Link>
                       ) : (
-                        <span className="font-medium truncate max-w-[60vw]">{b.label}</span>
+                        <span className="font-medium truncate max-w-[40vw] sm:max-w-[60vw]">{b.label}</span>
                       )}
                     </React.Fragment>
                   ))}

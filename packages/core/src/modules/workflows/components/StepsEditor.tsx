@@ -101,7 +101,7 @@ export function StepsEditor({ value = [], onChange, error }: StepsEditorProps) {
           <div key={index} className="p-4 border rounded-md bg-card shadow-sm">
             <div className="space-y-3">
               <div className="flex items-start justify-between gap-2">
-                <div className="flex-1 grid grid-cols-2 gap-3">
+                <div className="flex-1 grid grid-cols-1 sm:grid-cols-2 gap-3">
                   <div>
                     <Label htmlFor={`step-${index}-id`} className="text-xs">
                       {t('workflows.steps.stepId')} *
@@ -160,7 +160,7 @@ export function StepsEditor({ value = [], onChange, error }: StepsEditorProps) {
                 </div>
               </div>
 
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
                   <Label htmlFor={`step-${index}-type`} className="text-xs">
                     {t('workflows.steps.stepType')} *

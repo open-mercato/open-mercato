@@ -117,7 +117,7 @@ export function ActivitiesEditor({ value = [], onChange, error }: ActivitiesEdit
           <div key={index} className="p-4 border rounded-md bg-card shadow-sm border-l-4 border-l-green-500">
             <div className="space-y-3">
               <div className="flex items-start justify-between gap-2">
-                <div className="flex-1 grid grid-cols-2 gap-3">
+                <div className="flex-1 grid grid-cols-1 sm:grid-cols-2 gap-3">
                   <div>
                     <Label htmlFor={`activity-${index}-id`} className="text-xs">
                       {t('workflows.activities.activityId')} *
@@ -176,7 +176,7 @@ export function ActivitiesEditor({ value = [], onChange, error }: ActivitiesEdit
                 </div>
               </div>
 
-              <div className="grid grid-cols-3 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                 <div>
                   <Label htmlFor={`activity-${index}-type`} className="text-xs">
                     {t('workflows.activities.activityType')} *
@@ -223,7 +223,7 @@ export function ActivitiesEditor({ value = [], onChange, error }: ActivitiesEdit
                 </div>
               </div>
 
-              <div className="grid grid-cols-3 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                 <div>
                   <Label htmlFor={`activity-${index}-retry-attempts`} className="text-xs">
                     {t('workflows.form.maxRetryAttempts')}
