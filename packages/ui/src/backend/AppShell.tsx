@@ -215,7 +215,7 @@ export function AppShell({ productName, email, groups, rightHeaderSlot, children
     }
   }, [groups])
 
-  const toggleGroup = (groupId: string) => setOpenGroups((prev) => ({ ...prev, [groupId]: !prev[groupId] }))
+  const toggleGroup = (groupId: string) => setOpenGroups((prev) => ({ ...prev, [groupId]: prev[groupId] === false }))
 
   const updateDraft = React.useCallback((updater: (draft: SidebarCustomizationDraft) => SidebarCustomizationDraft) => {
     setCustomDraft((prev) => {
@@ -623,65 +623,85 @@ export function AppShell({ productName, email, groups, rightHeaderSlot, children
     compact: boolean,
     hideHeader?: boolean
   ) {
+    const sortedSections = [...sections].sort((a, b) => (a.order ?? 0) - (b.order ?? 0))
+    const lastVisibleIndex = sortedSections.length - 1
+
     return (
       <div className="flex flex-col min-h-full gap-3">
         {!hideHeader && (
-          <div className={`flex items-center ${compact ? 'justify-center' : ''} mb-2`}>
-            <Link
-              href="/backend"
-              className={`flex items-center gap-2 ${compact ? 'p-2' : 'p-4'} hover:bg-accent rounded transition-colors`}
-              aria-label={t('backend.nav.backToMain', 'Back')}
-            >
-              <span className="flex items-center justify-center shrink-0">{BackArrowIcon}</span>
-              {!compact && <span className="text-sm font-medium">{title}</span>}
+          <div className={`flex items-center ${compact ? 'justify-center' : 'justify-between'} mb-2`}>
+            <Link href="/backend" className="flex items-center gap-2" aria-label={t('appShell.goToDashboard')}>
+              <Image src="/open-mercato.svg" alt={resolvedProductName} width={32} height={32} className="rounded m-4" />
+              {!compact && <div className="text-m font-semibold">{resolvedProductName}</div>}
             </Link>
           </div>
         )}
-        <nav className="flex flex-col gap-4 px-2">
-          {[...sections].sort((a, b) => (a.order ?? 0) - (b.order ?? 0)).map((section) => {
+        <div className="flex flex-1 flex-col gap-3 overflow-y-auto pr-1">
+          <Link
+            href="/backend"
+            className={`flex items-center gap-2 ${compact ? 'justify-center px-2' : 'px-2'} py-1 text-sm text-muted-foreground hover:text-foreground transition-colors`}
+            aria-label={t('backend.nav.backToMain', 'Back')}
+          >
+            <span className="flex items-center justify-center shrink-0">{BackArrowIcon}</span>
+            {!compact && <span>{title}</span>}
+          </Link>
+          <nav className="flex flex-col gap-2">
+          {sortedSections.map((section, sectionIndex) => {
             const visibleItems = section.items
             if (visibleItems.length === 0) return null
             const sortedItems = [...visibleItems].sort((a, b) => (a.order ?? 0) - (b.order ?? 0))
             const sectionLabel = section.labelKey ? t(section.labelKey, section.label) : section.label
+            const sectionKey = `settings:${section.id}`
+            const open = openGroups[sectionKey] !== false
 
             return (
-              <div key={section.id} className="flex flex-col gap-1">
-                {!compact && (
-                  <div className="px-2 py-1.5 text-xs uppercase text-muted-foreground/80 font-medium">
-                    {sectionLabel}
+              <div key={section.id}>
+                <button
+                  type="button"
+                  onClick={() => toggleGroup(sectionKey)}
+                  className={`w-full ${compact ? 'px-0 justify-center' : 'px-2 justify-between'} flex items-center text-xs uppercase text-muted-foreground/90 py-2`}
+                  aria-expanded={open}
+                >
+                  {!compact && <span>{sectionLabel}</span>}
+                  {!compact && <Chevron open={open} />}
+                </button>
+                {open && (
+                  <div className={`flex flex-col ${compact ? 'items-center' : ''} gap-1 ${!compact ? 'pl-1' : ''}`}>
+                    {sortedItems.map((item) => {
+                      const isActive = pathname === item.href || pathname?.startsWith(item.href + '/')
+                      const label = item.labelKey ? t(item.labelKey, item.label) : item.label
+                      const base = compact ? 'w-10 h-10 justify-center' : 'px-2 py-1 gap-2'
+
+                      return (
+                        <Link
+                          key={item.id}
+                          href={item.href}
+                          className={`relative text-sm rounded inline-flex items-center ${base} ${
+                            isActive
+                              ? 'bg-background border shadow-sm'
+                              : 'hover:bg-accent hover:text-accent-foreground'
+                          }`}
+                          title={compact ? label : undefined}
+                          onClick={() => setMobileOpen(false)}
+                        >
+                          {isActive && (
+                            <span className="absolute left-0 top-1 bottom-1 w-0.5 rounded bg-foreground" />
+                          )}
+                          <span className={`flex items-center justify-center shrink-0 ${compact ? '' : 'text-muted-foreground'}`}>
+                            {item.icon ?? DefaultIcon}
+                          </span>
+                          {!compact && <span className="truncate">{label}</span>}
+                        </Link>
+                      )
+                    })}
                   </div>
                 )}
-                {sortedItems.map((item) => {
-                  const isActive = pathname === item.href || pathname?.startsWith(item.href + '/')
-                  const label = item.labelKey ? t(item.labelKey, item.label) : item.label
-                  const base = compact ? 'w-10 h-10 justify-center' : 'px-3 py-1.5 gap-2'
-
-                  return (
-                    <Link
-                      key={item.id}
-                      href={item.href}
-                      className={`relative text-sm rounded inline-flex items-center ${base} ${
-                        isActive
-                          ? 'bg-background border shadow-sm font-medium'
-                          : 'hover:bg-accent hover:text-accent-foreground'
-                      }`}
-                      title={compact ? label : undefined}
-                      onClick={() => setMobileOpen(false)}
-                    >
-                      {isActive && (
-                        <span className="absolute left-0 top-1 bottom-1 w-0.5 rounded bg-foreground" />
-                      )}
-                      <span className="flex items-center justify-center shrink-0 text-muted-foreground">
-                        {item.icon ?? DefaultIcon}
-                      </span>
-                      {!compact && <span className="truncate">{label}</span>}
-                    </Link>
-                  )
-                })}
+                {sectionIndex !== lastVisibleIndex && <div className="my-2 border-t border-dotted" />}
               </div>
             )
           })}
         </nav>
+        </div>
       </div>
     )
   }
