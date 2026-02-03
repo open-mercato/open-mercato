@@ -83,6 +83,38 @@ Form field types available:
 - `date`, `datetime`
 - `custom` (for JsonBuilder, TagsInput, etc.)
 
+### Form Headers & Footers
+
+Use `FormHeader` and `FormFooter` for all page headers/footers. Never build inline header layouts manually.
+
+```tsx
+import { FormHeader, FormFooter, FormActionButtons, ActionsDropdown } from '@open-mercato/ui/backend/forms'
+```
+
+- **`FormHeader mode="edit"`** -- compact header for CrudForm pages (used automatically by CrudForm internally)
+- **`FormHeader mode="detail"`** -- large header for view/detail pages with entity type label, title, status badge, and Actions dropdown
+- **`FormFooter`** -- footer wrapping `FormActionButtons` with embedded/dialog awareness
+- **`FormActionButtons`** -- atomic button bar: `[extraActions] [Delete] [Cancel] [Save]`
+- **`ActionsDropdown`** -- groups additional context actions (Convert, Send, Print) into a dropdown. Only visible when items are provided. Delete is never inside the dropdown.
+
+Detail mode example:
+```tsx
+<FormHeader
+  mode="detail"
+  backHref="/backend/sales/quotes"
+  entityTypeLabel="Sales quote"
+  title={<InlineTextEditor value={number} onSave={handleSave} />}
+  statusBadge={<Badge variant="secondary">Sent</Badge>}
+  menuActions={[
+    { id: 'convert', label: 'Convert to order', icon: ArrowRightLeft, onSelect: handleConvert },
+    { id: 'send', label: 'Send to customer', icon: Send, onSelect: handleSend },
+  ]}
+  onDelete={handleDelete}
+/>
+```
+
+See [SPEC-016](.ai/specs/SPEC-016-2026-02-03-form-headers-footers.md) for full API.
+
 ### Dialogs
 
 ```tsx

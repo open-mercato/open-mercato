@@ -4,12 +4,14 @@ This repository is designed for extensibility. Agents should leverage the module
 
 ## Workflow Orchestration
 
-### 1. Plan Mode Default
+### 1. Specification and plan by Default
 
-- Enter plan mode for non-trivial task (3+ steps or architectural decisions)
+- If users ask you to develop a new feature or extend it - enter plan mode for non-trivial task (3+ steps or architectural decisions); if the task is to make the specification you skip the plan mode and start writing the specification directly to the file,
+- if there's a existing and comprehensive specification file you can skip the plan mode and get to development mode,
+- new features should follow the specification file (`.ai/specs/*.md`), this could be skipped for small improvements (no architecutre decisions, less than 3 stops) or bug fgixes
 - If something goes sideways, STOP and re-plan immediately - don't keep pushing
 - Use plan mode for verification steps, not just building
-- Write detailed specs upfront to reduce ambiguity
+- Write detailed specs upfront to reduce ambiguity (see `## Documentation and Specifications` section below)
 
 ### 2. Subagent Strategy
 
@@ -52,7 +54,7 @@ This repository is designed for extensibility. Agents should leverage the module
 2. **Verify Plans**: Check in before starting implementation
 3. **Track Progress**: Mark items complete as you go
 4. **Explain Changes**: High-level summary at each step
-5. **Document Results**: Add review section to `tasks/todo.md`
+5. **Document Results**: Add review section to specification file
 6. **Capture Lessons**: Update `.ai/lessons.md` after corrections if there's a general rule that will let us save time fixing things in the future.
 
 ## Core Principles
@@ -564,6 +566,7 @@ All module paths below use `src/modules/<module>/` as a shorthand. In practice:
 - Prefer reusing components from the shared `packages/ui` package before introducing new UI primitives.
 - For new `DataTable` columns, set `meta.truncate` and `meta.maxWidth` in the column config when you need specific truncation behavior; only rely on defaults when those are not set.
 - When you create new UI check reusable components before creating UI from scratch (see [`.ai/specs/SPEC-001-2026-01-21-ui-reusable-components.md`](.ai/specs/SPEC-001-2026-01-21-ui-reusable-components.md))
+- For form/detail page headers and footers, use `FormHeader` and `FormFooter` from `@open-mercato/ui/backend/forms`. `FormHeader` supports two modes: `edit` (compact, used automatically by CrudForm) and `detail` (large title with entity type label, status badge, Actions dropdown). Delete/Cancel/Save are always standalone buttons; additional context actions (Convert, Send, etc.) go into the `menuActions` array rendered as an "Actions" dropdown. See [SPEC-016](.ai/specs/SPEC-016-2026-02-03-form-headers-footers.md) for full API.
 
 ### Type Safety Addendum
 - Centralize reusable types and constants (e.g., custom field kinds) in `packages/shared` and import them everywhere to avoid drift.
