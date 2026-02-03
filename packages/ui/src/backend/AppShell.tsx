@@ -902,7 +902,7 @@ export function AppShell({ productName, email, groups, rightHeaderSlot, children
         <header className="border-b bg-background/60 px-3 lg:px-4 py-3 flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
           <div className="flex items-center gap-2 flex-wrap">
             {/* Mobile menu button */}
-            <button type="button" className="lg:hidden rounded border px-2 py-1" aria-label={t('appShell.openMenu')} onClick={() => setMobileOpen(true)}>
+            <button type="button" className="lg:hidden rounded border h-10 w-10 p-0 flex items-center justify-center" aria-label={t('appShell.openMenu')} onClick={() => setMobileOpen(true)}>
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M3 6h18M3 12h18M3 18h18"/></svg>
             </button>
             {/* Desktop collapse toggle */}
@@ -995,7 +995,7 @@ export function AppShell({ productName, email, groups, rightHeaderSlot, children
                 <Image src="/open-mercato.svg" alt={resolvedProductName} width={28} height={28} className="rounded" />
                 {resolvedProductName}
               </Link>
-              <button className="rounded border px-2 py-1" onClick={() => setMobileOpen(false)} aria-label={t('appShell.closeMenu')}>✕</button>
+              <button className="rounded border h-8 w-8 flex items-center justify-center" onClick={() => setMobileOpen(false)} aria-label={t('appShell.closeMenu')}>✕</button>
             </div>
             <div className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden p-3">
               {/* Force expanded sidebar in mobile drawer, hide its header and collapse toggle */}

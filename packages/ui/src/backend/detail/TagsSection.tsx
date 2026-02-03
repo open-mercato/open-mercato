@@ -222,7 +222,7 @@ export function TagsSection({
           className={
             editing
               ? 'opacity-100 transition-opacity duration-150'
-              : 'opacity-0 transition-opacity duration-150 group-hover:opacity-100 focus-visible:opacity-100'
+              : 'opacity-100 md:opacity-0 transition-opacity duration-150 md:group-hover:opacity-100 focus-visible:opacity-100'
           }
         >
           {editing ? <X className="h-4 w-4" /> : <Pencil className="h-4 w-4" />}

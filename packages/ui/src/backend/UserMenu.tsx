@@ -68,7 +68,7 @@ export function UserMenu({ email }: { email?: string }) {
     <div className="relative" onMouseEnter={onMouseEnter} onMouseLeave={onMouseLeave}>
       <button
         ref={buttonRef}
-        className="text-sm px-2 py-1 rounded hover:bg-accent inline-flex items-center gap-2"
+        className="text-sm px-3 py-2 rounded hover:bg-accent inline-flex items-center gap-2"
         onClick={() => setOpen(true)}
         aria-expanded={open}
         aria-haspopup="menu"
@@ -97,7 +97,7 @@ export function UserMenu({ email }: { email?: string }) {
           <Link
             ref={profileButtonRef}
             href="/backend/auth/profile"
-            className="w-full text-left text-sm px-2 py-1 rounded hover:bg-accent inline-flex items-center gap-2 outline-none focus:outline-none focus-visible:outline-none ring-0 focus:ring-0 focus-visible:ring-0"
+            className="w-full text-left text-sm px-2 py-2 rounded hover:bg-accent inline-flex items-center gap-2 outline-none focus:outline-none focus-visible:outline-none ring-0 focus:ring-0 focus-visible:ring-0"
             role="menuitem"
             tabIndex={0}
             onClick={() => setOpen(false)}
@@ -121,7 +121,7 @@ export function UserMenu({ email }: { email?: string }) {
           <form action="/api/auth/logout" method="POST">
             <button
               ref={logoutButtonRef}
-              className="w-full text-left text-sm px-2 py-1 rounded hover:bg-accent inline-flex items-center gap-2 outline-none focus:outline-none focus-visible:outline-none ring-0 focus:ring-0 focus-visible:ring-0"
+              className="w-full text-left text-sm px-2 py-2 rounded hover:bg-accent inline-flex items-center gap-2 outline-none focus:outline-none focus-visible:outline-none ring-0 focus:ring-0 focus-visible:ring-0"
               type="submit"
               role="menuitem"
               tabIndex={0}

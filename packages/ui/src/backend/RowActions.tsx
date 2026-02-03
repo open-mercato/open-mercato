@@ -104,10 +104,10 @@ export function RowActions({ items = [] }: { items?: RowActionItem[] }) {
         <div
           ref={menuRef}
           role="menu"
-          className="fixed w-44 rounded-md border bg-background p-1 shadow focus:outline-none z-[1000]"
+          className="fixed w-44 max-w-[calc(100vw-1rem)] rounded-md border bg-background p-1 shadow focus:outline-none z-[1000]"
           style={{
             top: direction === 'down' ? anchorRect.bottom + 8 : anchorRect.top - 8,
-            left: anchorRect.right,
+            left: Math.min(anchorRect.right, window.innerWidth - 8),
             transform: `translate(-100%, ${direction === 'down' ? '0' : '-100%'})`,
           }}
           onMouseEnter={handleMouseEnter}
