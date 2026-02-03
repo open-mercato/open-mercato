@@ -1050,7 +1050,7 @@ export async function run(argv = process.argv) {
   if (!quietBanner) {
     const header = [
       '╔═══════════════════════╗',
-      `║  ${banner.padEnd(21.5)}║`,
+      `║  ${banner.padEnd(21)}║`,
       '╚═══════════════════════╝',
     ].join('\n')
     console.log(header)

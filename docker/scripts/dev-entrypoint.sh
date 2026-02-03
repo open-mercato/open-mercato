@@ -1,10 +1,11 @@
 #!/bin/sh
 set -e
 
-# Build packages first so CLI and app deps exist (dist may be empty from volume)
+# Build packages, then generate (writes packages/core/generated/), then rebuild so core gets dist/generated/
 cd /app
 yarn build:packages
 yarn generate
+yarn build:packages
 
 cd /app/apps/mercato
 if [ ! -f /tmp/init-marker/.seeded ]; then
