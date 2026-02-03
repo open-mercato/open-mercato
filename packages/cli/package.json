@@ -1,6 +1,6 @@
 {
   "name": "@open-mercato/cli",
-  "version": "0.4.3",
+  "version": "0.4.2",
   "type": "module",
   "main": "./dist/index.js",
   "exports": {
