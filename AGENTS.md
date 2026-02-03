@@ -2,14 +2,132 @@
 
 This repository is designed for extensibility. Agents should leverage the module system and follow strict naming and coding conventions to keep the system consistent and safe to extend.
 
+## Workflow Orchestration
+
+### 1. Specification and plan before coding
+
+- Enter plan mode for non-trivial task (3+ steps or architectural decisions); if the task is to make the Specification - you skip the plan mode and start writing the specification directly to the file in the `.ai/specs` (details how to name file etc below),
+- if there's a existing and comprehensive specification file you can skip the plan mode and get to development mode,
+- new features should follow the specification file created in the planning phase, this step could be skipped for small improvements (no architecutre decisions, less than 3 steps) or bug fixes
+- If something goes sideways, STOP and re-plan immediately - don't keep pushing
+- Use plan mode for verification steps, not just building
+- Write detailed specs upfront to reduce ambiguity
+- Save context - load only these specification file that is related to the current task at hand or required for it to finish
+
+### 2. Subagent Strategy
+
+- Use subagents liberally to keep main context window clean
+- Offload research, exploration, and parallel analysis to subagents
+- For complex problems, throw more compute at it via subagents
+- One task per subagent for focused execution
+
+### 3. Self-improvement Loop
+
+- After ANY correction from the user: update specification file or `.ai/lessons.md` if it's something more general with the pattern
+- Write rules for yourself that prevent the same mistake and suggest updates to `AGENTS.md` files
+- Ruthlessly iterate on these lessons until mistake rate drops
+- Review lessons at session start for relevant project
+
+### 4. Verification Before Done
+
+- Suggest user to verify the task completenes by proving it works:
+  - Diff behavior between main and your changes when relevant
+  - Ask yourself: "Would a staff engineer approve this?"
+  - Run tests, check logs, demonstrate correctness
+
+### 5. Demand Elegance (Balanced)
+
+- For non-trivial changes: pause and ask "is there a more elegant way?"
+- If a fix feels hacky: "Knowing everything I know now, implement the elegant solution"
+- Skip this for simple, obvious fixes – don't over-engineer
+- Challenge your own work before presenting it
+- Follow Open Mercato principles, design patterns and other rules defined in this file
+
+### 6. Autonomous Bug Fixing
+
+- When given a bug report: just fix it. Don't ask for hand-holding
+- Point at logs, errors, failing tests - then resolve them
+- Zero context switching required from the user
+- Go fix failing CI tests without being told how
+
+
+## Documentation and Specifications
+
+Architecture Decision Records (ADRs) and feature specifications are maintained in the `.ai/specs/` folder. This serves as the source of truth for design decisions and module specifications. Save context size and load only these specs that are related to and required to finish the task at hand.
+
+### Spec Files
+
+- **Naming convention**: `SPEC-{number}-{date}-{title}.md` (e.g., `SPEC-003-2026-01-23-notifications-module.md`)
+- **Number**: Sequential identifier (001, 002, 003, etc.)
+- **Date**: Creation date in ISO format (YYYY-MM-DD)
+- **Title**: Descriptive kebab-case title
+- Each spec documents the module's purpose, architecture, API contracts, data models, and implementation details.
+- Specs should include a **Changelog** section at the bottom to track evolution over time.
+- See [`.ai/specs/README.md`](.ai/specs/README.md) for the full specification directory.
+
+### When Developing Features
+
+1. **Before coding**: Check if a spec exists for the module you're modifying. Browse [`.ai/specs/README.md`](.ai/specs/README.md) or search for `SPEC-*-{module-name}.md` files.
+2. **When adding features**: Update the corresponding spec file with:
+   - New functionality description
+   - API changes
+   - Data model updates
+   - A changelog entry with date and summary
+3. **When creating new modules**: Create a new spec file at `.ai/specs/SPEC-{next-number}-{YYYY-MM-DD}-{module-name}.md` before or alongside implementation, and update the directory table in [`.ai/specs/README.md`](.ai/specs/README.md).
+
+### Spec Changelog Format
+
+Each spec should maintain a changelog at the bottom:
+
+```markdown
+## Changelog
+
+### 2026-01-23
+- Added email notification channel support
+- Updated notification preferences API
+
+### 2026-01-15
+- Initial specification
+```
+
+### Auto-generating Specs
+
+Even when not explicitly asked to update specs, agents should:
+
+- Generate or update the spec when implementing significant changes
+- Keep specs synchronized with the actual implementation
+- Document any architectural decisions made during development
+- Update the spec directory table in [`.ai/specs/README.md`](.ai/specs/README.md) when creating new specs
+
+This ensures the `.ai/specs/` folder remains a reliable reference for understanding module behavior and history.
+
+## Task Management
+
+1. **Plan First**: Write or update the plan in the specification file
+2. **Verify Plans**: Check in before starting implementation
+3. **Track Progress**: Mark items complete as you go
+4. **Explain Changes**: High-level summary at each step
+5. **Document Results**: Add review section to specification file
+6. **Capture Lessons**: Update `.ai/lessons.md` after corrections if there's a general rule that will let us save time fixing things in the future.
+
+## Core Principles
+
+- **Simplicity First**: Make every change as simple as possible. Impact minimal code.
+- **No Laziness**: Find root causes. No temporary fixes. Senior developer standards.
+- **Minimal Impact**: Changes should only touch what's necessary. Avoid introducing bugs.
+
 ## Monorepo Structure
+
 The project is organized as a monorepo with the following structure:
 
+
 ### Apps (`apps/`)
+
 - **mercato**: The main Next.js application. User-created modules go in `apps/mercato/src/modules/`.
 - **docs**: Documentation site.
 
 ### Packages (`packages/`)
+
 All packages use the `@open-mercato/<package>` naming convention:
 
 | Package | Import | Description |
@@ -220,56 +338,6 @@ docker stop verdaccio && docker rm verdaccio
    yarn generate         # Run generators
    yarn build:packages   # Rebuild with generated files
    ```
-
-## Documentation and Specifications
-
-Architecture Decision Records (ADRs) and feature specifications are maintained in the `.ai/specs/` folder. This serves as the source of truth for design decisions and module specifications.
-
-### Spec Files
-
-- **Naming convention**: `SPEC-{number}-{date}-{title}.md` (e.g., `SPEC-003-2026-01-23-notifications-module.md`)
-- **Number**: Sequential identifier (001, 002, 003, etc.)
-- **Date**: Creation date in ISO format (YYYY-MM-DD)
-- **Title**: Descriptive kebab-case title
-- Each spec documents the module's purpose, architecture, API contracts, data models, and implementation details.
-- Specs should include a **Changelog** section at the bottom to track evolution over time.
-- See [`.ai/specs/README.md`](.ai/specs/README.md) for the full specification directory.
-
-### When Developing Features
-
-1. **Before coding**: Check if a spec exists for the module you're modifying. Browse [`.ai/specs/README.md`](.ai/specs/README.md) or search for `SPEC-*-{module-name}.md` files.
-2. **When adding features**: Update the corresponding spec file with:
-   - New functionality description
-   - API changes
-   - Data model updates
-   - A changelog entry with date and summary
-3. **When creating new modules**: Create a new spec file at `.ai/specs/SPEC-{next-number}-{YYYY-MM-DD}-{module-name}.md` before or alongside implementation, and update the directory table in [`.ai/specs/README.md`](.ai/specs/README.md).
-
-### Spec Changelog Format
-
-Each spec should maintain a changelog at the bottom:
-
-```markdown
-## Changelog
-
-### 2026-01-23
-- Added email notification channel support
-- Updated notification preferences API
-
-### 2026-01-15
-- Initial specification
-```
-
-### Auto-generating Specs
-
-Even when not explicitly asked to update specs, agents should:
-
-- Generate or update the spec when implementing significant changes
-- Keep specs synchronized with the actual implementation
-- Document any architectural decisions made during development
-- Update the spec directory table in [`.ai/specs/README.md`](.ai/specs/README.md) when creating new specs
-
-This ensures the `.ai/specs/` folder remains a reliable reference for understanding module behavior and history.
 
 ## Conventions
 - Modules: plural, snake_case (folders and `id`). Special cases: `auth`, `example`.
@@ -497,15 +565,6 @@ All module paths below use `src/modules/<module>/` as a shorthand. In practice:
     return { title: t('auth.login.title') }
   }
   ```
-
-## UI Interaction
-- Every new dialog must support `Cmd/Ctrl + Enter` as a primary action shortcut and `Escape` to cancel, mirroring the shared UX patterns used across modules.
-- Default to `CrudForm` for new forms and `DataTable` for tables displaying information unless a different component is explicitly required.
-- New CRUD forms should use `CrudForm` wired to CRUD factory/commands APIs and be shared between create/edit flows.
-- Prefer reusing components from the shared `packages/ui` package before introducing new UI primitives.
-- For new `DataTable` columns, set `meta.truncate` and `meta.maxWidth` in the column config when you need specific truncation behavior; only rely on defaults when those are not set.
-- When you create new UI check reusable components before creating UI from scratch (see [`.ai/specs/SPEC-001-2026-01-21-ui-reusable-components.md`](.ai/specs/SPEC-001-2026-01-21-ui-reusable-components.md))
-
 ### Type Safety Addendum
 - Centralize reusable types and constants (e.g., custom field kinds) in `packages/shared` and import them everywhere to avoid drift.
 - Do not introduce new `any`-typed APIs; define DTOs via zod schemas and `z.infer` for runtime + compile-time safety.
@@ -1027,6 +1086,3 @@ Add it to the module's events.ts file first.
 
 Events are auto-discovered by generators and registered via `generated/events.generated.ts`. Run `npm run modules:prepare` after creating or modifying `events.ts` files.
 
-### UI Integration
-
-Use the `EventSelect` component from `@open-mercato/ui/backend/inputs/EventSelect` for event selection. It fetches declared events via the `/api/events` endpoint.
