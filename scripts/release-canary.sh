@@ -25,8 +25,8 @@ echo "==> Rebuilding packages with generated files..."
 yarn build:packages
 echo "==> Rebuild completed"
 
-echo "==> Publishing packages (dry-run)..."
-yarn workspaces foreach -A --no-private npm publish --access public --dry-run
+echo "==> Publishing packages..."
+yarn workspaces foreach -A --no-private npm publish --access public
 echo "==> Publish completed"
 
 echo "==> Done!"
