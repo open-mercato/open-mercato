@@ -17,6 +17,8 @@ export const metadata = {
 const auditActionQuerySchema = z.object({
   organizationId: z.string().uuid().describe('Limit results to a specific organization').optional(),
   actorUserId: z.string().uuid().describe('Filter logs created by a specific actor (tenant administrators only)').optional(),
+  resourceKind: z.string().describe('Filter by resource kind (e.g., "order", "product")').optional(),
+  resourceId: z.string().describe('Filter by resource ID (UUID of the specific record)').optional(),
   undoableOnly: z
     .enum(['true', 'false'])
     .default('false')
@@ -92,6 +94,8 @@ export async function GET(req: Request) {
   const url = new URL(req.url)
   const queryOrgId = url.searchParams.get('organizationId')
   const actorQuery = url.searchParams.get('actorUserId')
+  const resourceKind = url.searchParams.get('resourceKind') ?? undefined
+  const resourceId = url.searchParams.get('resourceId') ?? undefined
   const undoableOnly = parseBooleanToken(url.searchParams.get('undoableOnly')) === true
   const limit = parseLimit(url.searchParams.get('limit'))
   const before = parseDate(url.searchParams.get('before'))
@@ -108,11 +112,17 @@ export async function GET(req: Request) {
   if (canViewTenant && actorQuery) {
     actorUserId = actorQuery
   }
+  const isResourceScoped = Boolean(resourceKind && resourceId)
+  if (isResourceScoped) {
+    actorUserId = undefined
+  }
 
   const list = await actionLogs.list({
     tenantId: auth.tenantId ?? undefined,
     organizationId: organizationId ?? undefined,
     actorUserId,
+    resourceKind,
+    resourceId,
     undoableOnly,
     limit,
     before,

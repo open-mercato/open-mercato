@@ -9,6 +9,7 @@ import dynamic from 'next/dynamic'
 import remarkGfm from 'remark-gfm'
 import { FormHeader } from './forms/FormHeader'
 import { FormFooter } from './forms/FormFooter'
+import { Button } from '../primitives/button'
 import {
   Settings,
   Layers,
@@ -57,6 +58,8 @@ import type { MDEditorProps as UiWMDEditorProps } from '@uiw/react-md-editor'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '../primitives/dialog'
 import { FieldDefinitionsManager, type FieldDefinitionsManagerHandle } from './custom-fields/FieldDefinitionsManager'
 import { useInjectionSpotEvents, InjectionSpot, useInjectionWidgets } from './injection/InjectionSpot'
+import { VersionHistoryPanel } from './version-history/VersionHistoryPanel'
+import { useVersionHistory } from './version-history/useVersionHistory'
 
 // Stable empty options array to avoid creating a new [] every render
 const EMPTY_OPTIONS: CrudFieldOption[] = []
@@ -147,6 +150,11 @@ export type CrudFormProps<TValues extends Record<string, unknown>> = {
   // Optional extra action buttons rendered next to Delete/Cancel/Save
   // Useful for custom links like "Show Records" etc.
   extraActions?: React.ReactNode
+  /** When provided, shows a Version History clock icon in the header that opens a side panel. */
+  versionHistory?: {
+    resourceKind: string
+    resourceId: string
+  }
   // When provided, CrudForm will fetch custom field definitions and append
   // form-editable custom fields automatically to the provided `fields`.
   entityId?: string
@@ -279,6 +287,7 @@ export function CrudForm<TValues extends Record<string, unknown>>({
   embedded = false,
   hideFooterActions = false,
   extraActions,
+  versionHistory,
   contentHeader,
   customFieldsetBindings,
   injectionSpotId,
@@ -321,6 +330,7 @@ export function CrudForm<TValues extends Record<string, unknown>>({
   const [customFieldDefsVersion, setCustomFieldDefsVersion] = React.useState(0)
   const [fieldsetEditorTarget, setFieldsetEditorTarget] = React.useState<{ entityId: string; fieldsetCode: string | null; view: 'entity' | 'fieldset' } | null>(null)
   const [isInDialog, setIsInDialog] = React.useState(false)
+  const [historyOpen, setHistoryOpen] = React.useState(false)
   const rootRef = React.useRef<HTMLDivElement | null>(null)
   const fieldsetManagerRef = React.useRef<FieldDefinitionsManagerHandle | null>(null)
   const resolvedEntityIds = React.useMemo(() => {
@@ -424,6 +434,41 @@ export function CrudForm<TValues extends Record<string, unknown>>({
     return typeof rawId === 'string' ? rawId.trim().length === 0 : false
   }, [values])
   const showDelete = Boolean(onDelete) && (typeof deleteVisible === 'boolean' ? deleteVisible : !isNewRecord)
+  const versionHistoryEnabled = Boolean(versionHistory?.resourceId && String(versionHistory.resourceId).trim().length > 0)
+  const historyData = useVersionHistory(
+    versionHistoryEnabled ? versionHistory! : null,
+    historyOpen,
+  )
+  const versionHistoryButton = versionHistoryEnabled ? (
+    <Button
+      type="button"
+      variant="ghost"
+      size="icon"
+      onClick={() => setHistoryOpen(true)}
+      aria-label={t('audit_logs.version_history.title')}
+      title={t('audit_logs.version_history.title')}
+    >
+      <Clock className="size-4" />
+    </Button>
+  ) : null
+  const headerExtraActions = versionHistoryButton ? (
+    <>
+      {versionHistoryButton}
+      {extraActions}
+    </>
+  ) : extraActions
+  const versionHistoryPanel = versionHistoryEnabled ? (
+    <VersionHistoryPanel
+      open={historyOpen}
+      onOpenChange={setHistoryOpen}
+      entries={historyData.entries}
+      isLoading={historyData.isLoading}
+      error={historyData.error}
+      hasMore={historyData.hasMore}
+      onLoadMore={historyData.loadMore}
+      t={t}
+    />
+  ) : null
 
   // Auto-append custom fields for this entityId
   React.useEffect(() => {
@@ -1528,7 +1573,7 @@ export function CrudForm<TValues extends Record<string, unknown>>({
             backLabel={backLabel}
             title={title}
             actions={{
-              extraActions,
+              extraActions: headerExtraActions,
               showDelete,
               onDelete: handleDelete,
               deleteLabel,
@@ -1583,6 +1628,7 @@ export function CrudForm<TValues extends Record<string, unknown>>({
           </form>
         </DataLoader>
         {fieldsetManagerDialog}
+        {versionHistoryPanel}
       </div>
     )
   }
@@ -1597,7 +1643,7 @@ export function CrudForm<TValues extends Record<string, unknown>>({
           backLabel={backLabel}
           title={title}
           actions={{
-            extraActions,
+            extraActions: headerExtraActions,
             showDelete,
             onDelete: handleDelete,
             deleteLabel,
@@ -1673,6 +1719,7 @@ export function CrudForm<TValues extends Record<string, unknown>>({
         </div>
       </DataLoader>
       {fieldsetManagerDialog}
+      {versionHistoryPanel}
     </div>
   )
 }

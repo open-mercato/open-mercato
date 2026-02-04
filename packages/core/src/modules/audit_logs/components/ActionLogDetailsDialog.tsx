@@ -6,12 +6,14 @@ import { X } from 'lucide-react'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import type { ActionLogItem } from './AuditLogsActions'
-
-type ChangeRow = {
-  field: string
-  from: unknown
-  to: unknown
-}
+import {
+  extractChangeRows,
+  formatDate,
+  formatResource,
+  humanizeField,
+  renderValue,
+  safeStringify,
+} from '../lib/display-helpers'
 
 export function ActionLogDetailsDialog({ item, onClose }: { item: ActionLogItem; onClose: () => void }) {
   const t = useT()
@@ -32,23 +34,10 @@ export function ActionLogDetailsDialog({ item, onClose }: { item: ActionLogItem;
     }
   }, [onClose])
 
-  const changeRows = React.useMemo<ChangeRow[]>(() => {
-    const source = item.changes
-    if (!source || typeof source !== 'object' || Array.isArray(source)) return []
-    const before = isRecord(item.snapshotBefore) ? item.snapshotBefore : null
-    return Object.entries(source).map(([field, value]) => {
-      if (isRecord(value) && ('from' in value || 'to' in value)) {
-        const from = (value as Record<string, unknown>).from ?? before?.[field]
-        const to = (value as Record<string, unknown>).to ?? null
-        return { field, from, to }
-      }
-      return {
-        field,
-        from: before?.[field],
-        to: value,
-      }
-    }).sort((a, b) => a.field.localeCompare(b.field))
-  }, [item.changes, item.snapshotBefore])
+  const changeRows = React.useMemo(
+    () => extractChangeRows(item.changes, item.snapshotBefore),
+    [item.changes, item.snapshotBefore],
+  )
 
   const hasContext = !!item.context && typeof item.context === 'object' && Object.keys(item.context).length > 0
   const snapshots = React.useMemo(() => {
@@ -207,53 +196,4 @@ export function ActionLogDetailsDialog({ item, onClose }: { item: ActionLogItem;
     </div>,
     document.body
   )
-}
-
-function isRecord(value: unknown): value is Record<string, any> {
-  return !!value && typeof value === 'object' && !Array.isArray(value)
-}
-
-function humanizeField(field: string) {
-  return field
-    .replace(/[_-]+/g, ' ')
-    .replace(/([a-z0-9])([A-Z])/g, '$1 $2')
-    .replace(/\b\w/g, (s) => s.toUpperCase())
-}
-
-function renderValue(value: unknown, fallback: string) {
-  if (value === undefined || value === null || value === '') {
-    return <span className="text-muted-foreground">{fallback}</span>
-  }
-  if (typeof value === 'boolean') return <span>{value ? 'true' : 'false'}</span>
-  if (typeof value === 'number' || typeof value === 'bigint') return <span>{String(value)}</span>
-  if (value instanceof Date) return <span>{value.toISOString()}</span>
-  if (typeof value === 'string') return <span className="break-words">{value}</span>
-  return (
-    <pre className="max-h-40 overflow-y-auto whitespace-pre-wrap break-words rounded-md bg-muted/40 px-2 py-1 text-xs leading-5 text-muted-foreground">
-      {safeStringify(value)}
-    </pre>
-  )
-}
-
-function safeStringify(value: unknown) {
-  if (typeof value === 'string') return value
-  try {
-    return JSON.stringify(value, null, 2)
-  } catch {
-    return String(value)
-  }
-}
-
-function formatResource(item: Pick<ActionLogItem, 'resourceKind' | 'resourceId'>, fallback: string) {
-  if (!item.resourceKind && !item.resourceId) return fallback
-  return [item.resourceKind, item.resourceId].filter(Boolean).join(' · ')
-}
-
-function formatDate(value: string) {
-  const date = new Date(value)
-  if (Number.isNaN(date.getTime())) return value
-  return new Intl.DateTimeFormat(undefined, {
-    dateStyle: 'medium',
-    timeStyle: 'short',
-  }).format(date)
 }
