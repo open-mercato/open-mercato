@@ -15,6 +15,7 @@ import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { E } from '#generated/entities.ids.generated'
 import type { CrudEventsConfig, CrudIndexerConfig } from '@open-mercato/shared/lib/crud/types'
 import type { DataEngine } from '@open-mercato/shared/lib/data/engine'
+import type { UndoPayload } from '@open-mercato/shared/lib/commands/undo'
 import {
   SalesChannel,
   SalesDeliveryWindow,
@@ -151,11 +152,6 @@ type TaxRateSnapshot = {
   startsAt: string | null
   endsAt: string | null
   custom: Record<string, unknown> | null
-}
-
-type UndoPayload<T> = {
-  before?: T | null
-  after?: T | null
 }
 
 function mergeProviderSettings(
