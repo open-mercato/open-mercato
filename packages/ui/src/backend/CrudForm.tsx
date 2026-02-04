@@ -1570,7 +1570,7 @@ export function CrudForm<TValues extends Record<string, unknown>>({
                 embedded={embedded}
                 className={dialogFooterClass}
                 actions={{
-                  extraActions: embedded ? extraActions : extraActions,
+                  extraActions,
                   showDelete: !embedded && showDelete,
                   onDelete: handleDelete,
                   deleteLabel,

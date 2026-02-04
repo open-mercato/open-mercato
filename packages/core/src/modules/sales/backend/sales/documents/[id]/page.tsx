@@ -3550,7 +3550,7 @@ export default function SalesDocumentDetailPage({
         throw err
       }
     },
-    [kind, record, t, updateDocument]
+    [canEditNumber, kind, record, t, updateDocument]
   )
 
   const handleConvert = React.useCallback(async () => {
