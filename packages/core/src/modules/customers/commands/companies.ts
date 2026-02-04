@@ -405,7 +405,7 @@ const createCompanyCommand: CommandHandler<CompanyCreateInput, { entityId: strin
   },
   buildLog: async ({ result, ctx }) => {
     const { translate } = await resolveTranslations()
-    const em = (ctx.container.resolve('em') as EntityManager)
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
     const snapshot = await loadCompanySnapshot(em, result.entityId)
     return {
       actionLabel: translate('customers.audit.companies.create', 'Create company'),
@@ -510,7 +510,7 @@ const updateCompanyCommand: CommandHandler<CompanyUpdateInput, { entityId: strin
     const { translate } = await resolveTranslations()
     const before = snapshots.before as CompanySnapshot | undefined
     if (!before) return null
-    const em = (ctx.container.resolve('em') as EntityManager)
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
     const afterSnapshot = await loadCompanySnapshot(em, before.entity.id)
     return {
       actionLabel: translate('customers.audit.companies.update', 'Update company'),

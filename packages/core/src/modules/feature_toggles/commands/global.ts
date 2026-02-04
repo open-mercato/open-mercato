@@ -80,7 +80,7 @@ const createToggleCommand: CommandHandler<ToggleCreateInput, { toggleId: string 
   },
   buildLog: async ({ result, ctx }) => {
     const { translate } = await resolveTranslations()
-    const em = (ctx.container.resolve('em') as EntityManager)
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
     const snapshot = await loadToggleSnapshot(em, result.toggleId)
     return {
       actionLabel: translate('feature_toggles.audit.toggles.create', 'Create toggle'),
@@ -140,7 +140,7 @@ const updateToggleCommand: CommandHandler<ToggleUpdateInput, { toggleId: string 
     const { translate } = await resolveTranslations()
     const before = snapshots.before as ToggleSnapshot | undefined
     if (!before) return null
-    const em = (ctx.container.resolve('em') as EntityManager).fork()
+    const em = (ctx.container.resolve('em') as EntityManager).fork().fork()
     const afterSnapshot = await loadToggleSnapshot(em, before.id)
     const changes =
       afterSnapshot && before

@@ -118,7 +118,7 @@ const createAvailabilityRuleSetCommand: CommandHandler<PlannerAvailabilityRuleSe
     return snapshot
   },
   buildLog: async ({ result, ctx }) => {
-    const em = (ctx.container.resolve('em') as EntityManager)
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
     const snapshot = await loadAvailabilityRuleSetSnapshot(em, result.ruleSetId)
     if (!snapshot) return null
     const { translate } = await resolveTranslations()
@@ -216,7 +216,7 @@ const updateAvailabilityRuleSetCommand: CommandHandler<PlannerAvailabilityRuleSe
   buildLog: async ({ snapshots, ctx }) => {
     const before = snapshots.before as AvailabilityRuleSetSnapshot | undefined
     if (!before) return null
-    const em = (ctx.container.resolve('em') as EntityManager)
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
     const after = await loadAvailabilityRuleSetSnapshot(em, before.id)
     if (!after) return null
     const changes = buildChanges(before as unknown as Record<string, unknown>, after as unknown as Record<string, unknown>, [

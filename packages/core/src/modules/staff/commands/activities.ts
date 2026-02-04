@@ -168,7 +168,7 @@ const createActivityCommand: CommandHandler<
   },
   buildLog: async ({ result, ctx }) => {
     const { translate } = await resolveTranslations()
-    const em = (ctx.container.resolve('em') as EntityManager)
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
     const snapshot = await loadActivitySnapshot(em, result.activityId)
     return {
       actionLabel: translate('staff.audit.teamMemberActivities.create', 'Create activity'),
@@ -249,7 +249,7 @@ const updateActivityCommand: CommandHandler<StaffTeamMemberActivityUpdateInput, 
     const { translate } = await resolveTranslations()
     const before = snapshots.before as ActivitySnapshot | undefined
     if (!before) return null
-    const em = (ctx.container.resolve('em') as EntityManager)
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
     const afterSnapshot = await loadActivitySnapshot(em, before.activity.id)
     const changeKeys: readonly string[] = [
       'memberId',

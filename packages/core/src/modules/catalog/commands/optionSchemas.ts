@@ -112,7 +112,7 @@ const createOptionSchemaCommand: CommandHandler<
     return loadOptionSchemaSnapshot(em, result.schemaId)
   },
   buildLog: async ({ result, ctx }) => {
-    const em = ctx.container.resolve('em') as EntityManager
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
     const after = await loadOptionSchemaSnapshot(em, result.schemaId)
     if (!after) return null
     const { translate } = await resolveTranslations()
@@ -194,7 +194,7 @@ const updateOptionSchemaCommand: CommandHandler<
     return loadOptionSchemaSnapshot(em, result.schemaId)
   },
   buildLog: async ({ result, ctx, snapshots }) => {
-    const em = ctx.container.resolve('em') as EntityManager
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
     const before = snapshots.before as OptionSchemaSnapshot | undefined
     const after = await loadOptionSchemaSnapshot(em, result.schemaId)
     if (!before || !after) return null

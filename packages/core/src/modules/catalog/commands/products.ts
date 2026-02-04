@@ -1063,7 +1063,7 @@ const createProductCommand: CommandHandler<ProductCreateInput, { productId: stri
     return loadProductSnapshot(em, result.productId)
   },
   buildLog: async ({ result, ctx }) => {
-    const em = (ctx.container.resolve('em') as EntityManager)
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
     const after = await loadProductSnapshot(em, result.productId)
     if (!after) return null
     const { translate } = await resolveTranslations()
@@ -1119,8 +1119,12 @@ const updateProductCommand: CommandHandler<ProductUpdateInput, { productId: stri
     const em = (ctx.container.resolve('em') as EntityManager)
     const snapshot = await loadProductSnapshot(em, id)
     if (snapshot) {
-      ensureTenantScope(ctx, snapshot.tenantId)
-      ensureOrganizationScope(ctx, snapshot.organizationId)
+      if (snapshot.tenantId) {
+        ensureTenantScope(ctx, snapshot.tenantId)
+      }
+      if (snapshot.organizationId) {
+        ensureOrganizationScope(ctx, snapshot.organizationId)
+      }
     }
     return snapshot ? { before: snapshot } : {}
   },
@@ -1131,9 +1135,21 @@ const updateProductCommand: CommandHandler<ProductUpdateInput, { productId: stri
     if (!record) throw new CrudHttpError(404, { error: 'Catalog product not found' })
     const organizationId = parsed.organizationId ?? record.organizationId
     const tenantId = parsed.tenantId ?? record.tenantId
+    if (!organizationId || !tenantId) {
+      throw new CrudHttpError(400, { error: 'Organization and tenant scope required.' })
+    }
     ensureTenantScope(ctx, tenantId)
     ensureOrganizationScope(ctx, organizationId)
-    ensureSameScope(record, organizationId, tenantId)
+    if (record.organizationId && record.tenantId) {
+      ensureSameScope(record, organizationId, tenantId)
+    } else {
+      if (record.organizationId && record.organizationId !== organizationId) {
+        throw new CrudHttpError(403, { error: 'Cross-tenant relation forbidden' })
+      }
+      if (record.tenantId && record.tenantId !== tenantId) {
+        throw new CrudHttpError(403, { error: 'Cross-tenant relation forbidden' })
+      }
+    }
     const dataEngine = ctx.container.resolve('dataEngine') as DataEngine
     record.organizationId = organizationId
     record.tenantId = tenantId
@@ -1252,7 +1268,7 @@ const updateProductCommand: CommandHandler<ProductUpdateInput, { productId: stri
   },
   buildLog: async ({ result, ctx, snapshots }) => {
     const before = snapshots.before as ProductSnapshot | undefined
-    const em = (ctx.container.resolve('em') as EntityManager).fork()
+    const em = (ctx.container.resolve('em') as EntityManager).fork().fork()
     const after = await loadProductSnapshot(em, result.productId)
     if (!before || !after) return null
     const { translate } = await resolveTranslations()

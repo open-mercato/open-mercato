@@ -122,7 +122,7 @@ const createResourceTypeCommand: CommandHandler<ResourcesResourceTypeCreateInput
     return { snapshot, custom }
   },
   buildLog: async ({ result, ctx }) => {
-    const em = (ctx.container.resolve('em') as EntityManager)
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
     const snapshot = await loadResourceTypeSnapshot(em, result.resourceTypeId)
     if (!snapshot) return null
     const custom = await loadResourceTypeCustomSnapshot(em, snapshot)
@@ -226,7 +226,7 @@ const updateResourceTypeCommand: CommandHandler<ResourcesResourceTypeUpdateInput
   buildLog: async ({ snapshots, ctx }) => {
     const before = snapshots.before as ResourceTypeSnapshot | undefined
     if (!before) return null
-    const em = (ctx.container.resolve('em') as EntityManager)
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
     const after = await loadResourceTypeSnapshot(em, before.id)
     if (!after) return null
     const customBefore = (snapshots as { customBefore?: CustomFieldSnapshot | null }).customBefore ?? undefined

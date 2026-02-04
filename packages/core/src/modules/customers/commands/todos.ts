@@ -186,7 +186,7 @@ const createTodoCommand: CommandHandler<TodoLinkWithTodoCreateInput, { linkId: s
   buildLog: async ({ input, result, ctx }) => {
     const { translate } = await resolveTranslations()
     const parsed = todoLinkWithTodoCreateSchema.parse(input)
-    const em = (ctx.container.resolve('em') as EntityManager)
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
     const link = await em.findOne(CustomerTodoLink, { id: result.linkId })
     const linkSnapshot = link ? captureLinkSnapshot(link) : null
 

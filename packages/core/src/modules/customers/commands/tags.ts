@@ -110,7 +110,7 @@ const createTagCommand: CommandHandler<TagCreateInput, { tagId: string }> = {
   },
   buildLog: async ({ result, ctx }) => {
     const { translate } = await resolveTranslations()
-    const em = (ctx.container.resolve('em') as EntityManager)
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
     const snapshot = await loadTagSnapshot(em, result.tagId)
     return {
       actionLabel: translate('customers.audit.tags.create', 'Create tag'),
@@ -189,7 +189,7 @@ const updateTagCommand: CommandHandler<TagUpdateInput, { tagId: string }> = {
     const { translate } = await resolveTranslations()
     const before = snapshots.before as TagSnapshot | undefined
     if (!before) return null
-    const em = (ctx.container.resolve('em') as EntityManager)
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
     const afterSnapshot = await loadTagSnapshot(em, before.id)
     const changes =
       afterSnapshot && before
@@ -386,7 +386,7 @@ const assignTagCommand: CommandHandler<TagAssignmentInput, { assignmentId: strin
   },
   buildLog: async ({ result, ctx }) => {
     const { translate } = await resolveTranslations()
-    const em = (ctx.container.resolve('em') as EntityManager)
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
     const assignment = await findOneWithDecryption(
       em,
       CustomerTagAssignment,

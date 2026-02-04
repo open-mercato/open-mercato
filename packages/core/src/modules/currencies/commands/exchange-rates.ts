@@ -126,7 +126,7 @@ const createExchangeRateCommand: CommandHandler<ExchangeRateCreateInput, { excha
     return loadExchangeRateSnapshot(em, result.exchangeRateId)
   },
   buildLog: async ({ result, ctx }) => {
-    const em = ctx.container.resolve('em') as EntityManager
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
     const after = await loadExchangeRateSnapshot(em, result.exchangeRateId)
     if (!after) return null
     const { translate } = await resolveTranslations()

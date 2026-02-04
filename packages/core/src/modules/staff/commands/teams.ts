@@ -116,7 +116,7 @@ const createTeamCommand: CommandHandler<StaffTeamCreateInput, { teamId: string }
     return { snapshot, custom }
   },
   buildLog: async ({ result, ctx }) => {
-    const em = (ctx.container.resolve('em') as EntityManager)
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
     const snapshot = await loadTeamSnapshot(em, result.teamId)
     if (!snapshot) return null
     const custom = await loadTeamCustomSnapshot(em, snapshot)
@@ -219,7 +219,7 @@ const updateTeamCommand: CommandHandler<StaffTeamUpdateInput, { teamId: string }
   buildLog: async ({ snapshots, ctx }) => {
     const before = snapshots.before as TeamSnapshot | undefined
     if (!before) return null
-    const em = (ctx.container.resolve('em') as EntityManager)
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
     const after = await loadTeamSnapshot(em, before.id)
     if (!after) return null
     const customBefore = (snapshots as { customBefore?: CustomFieldSnapshot | null }).customBefore ?? undefined

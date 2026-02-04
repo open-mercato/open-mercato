@@ -167,7 +167,7 @@ const createActivityCommand: CommandHandler<ResourcesResourceActivityCreateInput
   },
   buildLog: async ({ result, ctx }) => {
     const { translate } = await resolveTranslations()
-    const em = (ctx.container.resolve('em') as EntityManager)
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
     const snapshot = await loadActivitySnapshot(em, result.activityId)
     return {
       actionLabel: translate('resources.audit.resourceActivities.create', 'Create activity'),
@@ -248,7 +248,7 @@ const updateActivityCommand: CommandHandler<ResourcesResourceActivityUpdateInput
     const { translate } = await resolveTranslations()
     const before = snapshots.before as ActivitySnapshot | undefined
     if (!before) return null
-    const em = (ctx.container.resolve('em') as EntityManager)
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
     const afterSnapshot = await loadActivitySnapshot(em, before.activity.id)
     const changes: ActivityChangeMap =
       afterSnapshot && afterSnapshot.activity

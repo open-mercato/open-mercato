@@ -532,7 +532,7 @@ const createPersonCommand: CommandHandler<PersonCreateInput, { entityId: string;
   },
   buildLog: async ({ result, ctx }) => {
     const { translate } = await resolveTranslations()
-    const em = (ctx.container.resolve('em') as EntityManager)
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
     const snapshot = await loadPersonSnapshot(em, result.entityId)
     return {
       actionLabel: translate('customers.audit.people.create', 'Create person'),
@@ -683,7 +683,7 @@ const updatePersonCommand: CommandHandler<PersonUpdateInput, { entityId: string 
     const { translate } = await resolveTranslations()
     const before = snapshots.before as PersonSnapshot | undefined
     if (!before) return null
-    const em = (ctx.container.resolve('em') as EntityManager)
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
     const afterSnapshot = await loadPersonSnapshot(em, before.entity.id)
     return {
       actionLabel: translate('customers.audit.people.update', 'Update person'),

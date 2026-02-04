@@ -592,7 +592,7 @@ const createVariantCommand: CommandHandler<VariantCreateInput, { variantId: stri
     return loadVariantSnapshot(em, result.variantId)
   },
   buildLog: async ({ result, ctx }) => {
-    const em = (ctx.container.resolve('em') as EntityManager)
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
     const after = await loadVariantSnapshot(em, result.variantId)
     if (!after) return null
     const { translate } = await resolveTranslations()
@@ -735,7 +735,7 @@ const updateVariantCommand: CommandHandler<VariantUpdateInput, { variantId: stri
   },
   buildLog: async ({ result, ctx, snapshots }) => {
     const before = snapshots.before as VariantSnapshot | undefined
-    const em = (ctx.container.resolve('em') as EntityManager)
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
     const after = await loadVariantSnapshot(em, result.variantId)
     if (!before || !after) return null
     const { translate } = await resolveTranslations()

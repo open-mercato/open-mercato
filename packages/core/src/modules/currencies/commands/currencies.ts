@@ -118,7 +118,7 @@ const createCurrencyCommand: CommandHandler<CurrencyCreateInput, { currencyId: s
     return loadCurrencySnapshot(em, result.currencyId)
   },
   buildLog: async ({ result, ctx }) => {
-    const em = ctx.container.resolve('em') as EntityManager
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
     const after = await loadCurrencySnapshot(em, result.currencyId)
     if (!after) return null
     const { translate } = await resolveTranslations()

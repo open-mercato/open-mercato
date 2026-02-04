@@ -167,7 +167,7 @@ const createOfferCommand: CommandHandler<OfferCreateInput, { offerId: string }> 
     return loadOfferSnapshot(em, result.offerId)
   },
   buildLog: async ({ result, ctx }) => {
-    const em = ctx.container.resolve('em') as EntityManager
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
     const after = await loadOfferSnapshot(em, result.offerId)
     if (!after) return null
     const { translate } = await resolveTranslations()
@@ -305,7 +305,7 @@ const updateOfferCommand: CommandHandler<OfferUpdateInput, { offerId: string }> 
   },
   buildLog: async ({ result, ctx, snapshots }) => {
     const before = snapshots.before as OfferSnapshot | undefined
-    const em = ctx.container.resolve('em') as EntityManager
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
     const after = await loadOfferSnapshot(em, result.offerId)
     if (!before || !after) return null
     const { translate } = await resolveTranslations()

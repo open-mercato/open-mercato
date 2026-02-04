@@ -97,7 +97,7 @@ const createPriceKindCommand: CommandHandler<PriceKindCreateInput, { priceKindId
     return loadPriceKindSnapshot(em, result.priceKindId)
   },
   buildLog: async ({ result, ctx }) => {
-    const em = ctx.container.resolve('em') as EntityManager
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
     const after = await loadPriceKindSnapshot(em, result.priceKindId)
     if (!after) return null
     const { translate } = await resolveTranslations()
@@ -173,7 +173,7 @@ const updatePriceKindCommand: CommandHandler<PriceKindUpdateInput, { priceKindId
   },
   buildLog: async ({ result, ctx, snapshots }) => {
     const before = snapshots.before as PriceKindSnapshot | undefined
-    const em = ctx.container.resolve('em') as EntityManager
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
     const after = await loadPriceKindSnapshot(em, result.priceKindId)
     if (!before || !after) return null
     const { translate } = await resolveTranslations()

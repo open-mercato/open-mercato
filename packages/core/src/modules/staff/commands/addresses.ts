@@ -146,7 +146,7 @@ const createAddressCommand: CommandHandler<StaffTeamMemberAddressCreateInput, { 
   },
   buildLog: async ({ result, ctx }) => {
     const { translate } = await resolveTranslations()
-    const em = (ctx.container.resolve('em') as EntityManager)
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
     const snapshot = await loadAddressSnapshot(em, result.addressId)
     return {
       actionLabel: translate('staff.audit.teamMemberAddresses.create', 'Create address'),
@@ -237,7 +237,7 @@ const updateAddressCommand: CommandHandler<StaffTeamMemberAddressUpdateInput, { 
     const { translate } = await resolveTranslations()
     const before = snapshots.before as AddressSnapshot | undefined
     if (!before) return null
-    const em = (ctx.container.resolve('em') as EntityManager)
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
     const afterSnapshot = await loadAddressSnapshot(em, before.id)
     const changes =
       afterSnapshot && before

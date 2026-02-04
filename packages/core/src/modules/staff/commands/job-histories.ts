@@ -106,7 +106,7 @@ const createJobHistoryCommand: CommandHandler<StaffTeamMemberJobHistoryCreateInp
   },
   buildLog: async ({ result, ctx }) => {
     const { translate } = await resolveTranslations()
-    const em = (ctx.container.resolve('em') as EntityManager)
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
     const snapshot = await loadJobHistorySnapshot(em, result.jobHistoryId)
     return {
       actionLabel: translate('staff.audit.teamMemberJobHistories.create', 'Create job history entry'),
@@ -183,7 +183,7 @@ const updateJobHistoryCommand: CommandHandler<StaffTeamMemberJobHistoryUpdateInp
     const { translate } = await resolveTranslations()
     const before = snapshots.before as JobHistorySnapshot | undefined
     if (!before) return null
-    const em = (ctx.container.resolve('em') as EntityManager)
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
     const afterSnapshot = await loadJobHistorySnapshot(em, before.id)
     const changes =
       afterSnapshot && before

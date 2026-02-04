@@ -164,7 +164,7 @@ const createCategoryCommand: CommandHandler<CategoryCreateInput, { categoryId: s
     return loadCategorySnapshot(em, result.categoryId)
   },
   buildLog: async ({ result, ctx }) => {
-    const em = ctx.container.resolve('em') as EntityManager
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
     const after = await loadCategorySnapshot(em, result.categoryId)
     if (!after) return null
     const { translate } = await resolveTranslations()
@@ -282,7 +282,7 @@ const updateCategoryCommand: CommandHandler<CategoryUpdateInput, { categoryId: s
   },
   buildLog: async ({ result, ctx, snapshots }) => {
     const before = snapshots.before as CategorySnapshot | undefined
-    const em = (ctx.container.resolve('em') as EntityManager).fork()
+    const em = (ctx.container.resolve('em') as EntityManager).fork().fork()
     const after = await loadCategorySnapshot(em, result.categoryId)
     if (!before || !after) return null
     const { translate } = await resolveTranslations()

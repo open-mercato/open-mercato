@@ -227,7 +227,7 @@ const createDealCommand: CommandHandler<DealCreateInput, { dealId: string }> = {
   },
   buildLog: async ({ result, ctx }) => {
     const { translate } = await resolveTranslations()
-    const em = (ctx.container.resolve('em') as EntityManager)
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
     const snapshot = await loadDealSnapshot(em, result.dealId)
     return {
       actionLabel: translate('customers.audit.deals.create', 'Create deal'),
@@ -353,7 +353,7 @@ const updateDealCommand: CommandHandler<DealUpdateInput, { dealId: string }> = {
     const { translate } = await resolveTranslations()
     const before = snapshots.before as DealSnapshot | undefined
     if (!before) return null
-    const em = (ctx.container.resolve('em') as EntityManager)
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
     const afterSnapshot = await loadDealSnapshot(em, before.deal.id)
     return {
       actionLabel: translate('customers.audit.deals.update', 'Update deal'),

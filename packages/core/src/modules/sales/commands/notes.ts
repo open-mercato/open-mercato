@@ -180,7 +180,7 @@ const createNoteCommand: CommandHandler<NoteCreateInput, { noteId: string; autho
   },
   buildLog: async ({ result, ctx }) => {
     const { translate } = await resolveTranslations()
-    const em = ctx.container.resolve('em') as EntityManager
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
     const snapshot = await loadNoteSnapshot(em, result.noteId)
     return {
       actionLabel: translate('sales.audit.notes.create', 'Create note'),
@@ -251,7 +251,7 @@ const updateNoteCommand: CommandHandler<NoteUpdateInput, { noteId: string }> = {
     const { translate } = await resolveTranslations()
     const before = snapshots.before as NoteSnapshot | undefined
     if (!before) return null
-    const em = ctx.container.resolve('em') as EntityManager
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
     const after = await loadNoteSnapshot(em, before.id)
     const changes =
       after && before
