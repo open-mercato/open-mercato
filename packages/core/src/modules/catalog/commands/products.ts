@@ -1119,12 +1119,8 @@ const updateProductCommand: CommandHandler<ProductUpdateInput, { productId: stri
     const em = (ctx.container.resolve('em') as EntityManager)
     const snapshot = await loadProductSnapshot(em, id)
     if (snapshot) {
-      if (snapshot.tenantId) {
-        ensureTenantScope(ctx, snapshot.tenantId)
-      }
-      if (snapshot.organizationId) {
-        ensureOrganizationScope(ctx, snapshot.organizationId)
-      }
+      ensureTenantScope(ctx, snapshot.tenantId)
+      ensureOrganizationScope(ctx, snapshot.organizationId)
     }
     return snapshot ? { before: snapshot } : {}
   },
@@ -1135,21 +1131,9 @@ const updateProductCommand: CommandHandler<ProductUpdateInput, { productId: stri
     if (!record) throw new CrudHttpError(404, { error: 'Catalog product not found' })
     const organizationId = parsed.organizationId ?? record.organizationId
     const tenantId = parsed.tenantId ?? record.tenantId
-    if (!organizationId || !tenantId) {
-      throw new CrudHttpError(400, { error: 'Organization and tenant scope required.' })
-    }
     ensureTenantScope(ctx, tenantId)
     ensureOrganizationScope(ctx, organizationId)
-    if (record.organizationId && record.tenantId) {
-      ensureSameScope(record, organizationId, tenantId)
-    } else {
-      if (record.organizationId && record.organizationId !== organizationId) {
-        throw new CrudHttpError(403, { error: 'Cross-tenant relation forbidden' })
-      }
-      if (record.tenantId && record.tenantId !== tenantId) {
-        throw new CrudHttpError(403, { error: 'Cross-tenant relation forbidden' })
-      }
-    }
+    ensureSameScope(record, organizationId, tenantId)
     const dataEngine = ctx.container.resolve('dataEngine') as DataEngine
     record.organizationId = organizationId
     record.tenantId = tenantId
