@@ -34,6 +34,55 @@ function asRecord(input: unknown): Record<string, unknown> | null {
   return input as Record<string, unknown>
 }
 
+function deepEqual(a: unknown, b: unknown): boolean {
+  if (Object.is(a, b)) return true
+  if (a instanceof Date || b instanceof Date) {
+    const aDate = a instanceof Date ? a : null
+    const bDate = b instanceof Date ? b : null
+    return aDate?.toISOString?.() === bDate?.toISOString?.()
+  }
+  if (Array.isArray(a) && Array.isArray(b)) {
+    if (a.length !== b.length) return false
+    return a.every((value, index) => deepEqual(value, b[index]))
+  }
+  if (a && b && typeof a === 'object' && typeof b === 'object') {
+    const aRec = a as Record<string, unknown>
+    const bRec = b as Record<string, unknown>
+    const keysA = Object.keys(aRec)
+    const keysB = Object.keys(bRec)
+    if (keysA.length !== keysB.length) return false
+    return keysA.every((key) => deepEqual(aRec[key], bRec[key]))
+  }
+  return false
+}
+
+function buildRecordChanges(
+  before: Record<string, unknown>,
+  after: Record<string, unknown>,
+): Record<string, { from: unknown; to: unknown }> {
+  const changes: Record<string, { from: unknown; to: unknown }> = {}
+  const keys = new Set([...Object.keys(before), ...Object.keys(after)])
+  for (const key of keys) {
+    const from = before[key]
+    const to = after[key]
+    if (!deepEqual(from, to)) {
+      changes[key] = { from, to }
+    }
+  }
+  return changes
+}
+
+function deriveChangesFromSnapshots(
+  before: unknown,
+  after: unknown,
+): Record<string, { from: unknown; to: unknown }> | null {
+  const beforeRec = asRecord(before)
+  const afterRec = asRecord(after)
+  if (!beforeRec || !afterRec) return null
+  const changes = buildRecordChanges(beforeRec, afterRec)
+  return Object.keys(changes).length ? changes : null
+}
+
 function extractAliasList(source: unknown): string[] {
   if (!source || typeof source !== 'object' || Array.isArray(source)) return []
   const record = source as Record<string, unknown>
@@ -78,6 +127,17 @@ export class CommandBus {
         mergedMeta = { snapshotBefore: snapshots.before }
       } else if (!mergedMeta.snapshotBefore) {
         mergedMeta.snapshotBefore = snapshots.before
+      }
+    }
+    if (mergedMeta?.snapshotBefore !== undefined && mergedMeta?.snapshotAfter !== undefined) {
+      const currentChanges = mergedMeta.changes
+      const shouldInfer =
+        currentChanges === undefined ||
+        currentChanges === null ||
+        (typeof currentChanges === 'object' && !Array.isArray(currentChanges) && Object.keys(currentChanges).length === 0)
+      if (shouldInfer) {
+        const inferred = deriveChangesFromSnapshots(mergedMeta.snapshotBefore, mergedMeta.snapshotAfter)
+        if (inferred) mergedMeta.changes = inferred
       }
     }
     const logEntry = await this.persistLog(commandId, options, mergedMeta)
