@@ -680,7 +680,7 @@ function normalizeVariantOptionValues(input: unknown): Record<string, string> | 
     offerSnapshotsRef.current = mergeOfferSnapshots(previousSnapshots, offersPayload)
     flash(t('catalog.products.edit.success', 'Product updated.'), 'success')
     router.push('/backend/catalog/products')
-  }, [productId, t])
+  }, [productId, t, taxRates, router])
 
   if (!productId) {
     return (

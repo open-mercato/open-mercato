@@ -2,7 +2,6 @@ import { randomUUID } from 'node:crypto'
 import { registerCommand } from '@open-mercato/shared/lib/commands'
 import type { CommandHandler, CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
 import {
-  buildChanges,
   requireId,
   parseWithCustomFields,
   setCustomFieldsIfAny,
@@ -84,6 +83,7 @@ type ProductSnapshot = {
   createdAt: string
   updatedAt: string
   offers: OfferSnapshot[]
+  tags: string[]
   custom: Record<string, unknown> | null
 }
 
@@ -173,30 +173,6 @@ type OfferSnapshot = {
   metadata: Record<string, unknown> | null
   isActive: boolean
 }
-
-const PRODUCT_CHANGE_KEYS = [
-  'title',
-  'subtitle',
-  'description',
-  'sku',
-  'handle',
-  'taxRateId',
-  'taxRate',
-  'productType',
-  'statusEntryId',
-  'primaryCurrencyCode',
-  'defaultUnit',
-  'defaultMediaId',
-  'defaultMediaUrl',
-  'weightValue',
-  'weightUnit',
-  'dimensions',
-  'optionSchemaId',
-  'customFieldsetCode',
-  'metadata',
-  'isConfigurable',
-  'isActive',
-] as const satisfies readonly string[]
 
 async function resolveScopedTaxRate(
   em: EntityManager,
@@ -871,7 +847,25 @@ async function loadProductSnapshot(
     { populate: ['optionSchemaTemplate'] },
   )
   if (!record) return null
-  const offers = await loadOfferSnapshots(em, record.id)
+  const [offers, tagAssignments] = await Promise.all([
+    loadOfferSnapshots(em, record.id),
+    findWithDecryption(
+      em,
+      CatalogProductTagAssignment,
+      { product: record.id },
+      { populate: ['tag'] },
+      { tenantId: record.tenantId, organizationId: record.organizationId },
+    ),
+  ])
+  const tags = tagAssignments
+    .map((assignment) => {
+      const tag =
+        typeof assignment.tag === 'string' ? null : assignment.tag ?? null
+      const label = tag?.label ?? null
+      return typeof label === 'string' && label.trim().length ? label : null
+    })
+    .filter((label): label is string => !!label)
+    .sort((a, b) => a.localeCompare(b))
   const custom = await loadCustomFieldSnapshot(em, {
     entityId: E.catalog.catalog_product,
     recordId: record.id,
@@ -923,6 +917,7 @@ async function loadProductSnapshot(
     createdAt: record.createdAt.toISOString(),
     updatedAt: record.updatedAt.toISOString(),
     offers,
+    tags,
     custom: Object.keys(custom).length ? custom : null,
   }
 }
@@ -1252,12 +1247,12 @@ const updateProductCommand: CommandHandler<ProductUpdateInput, { productId: stri
     return { productId: record.id }
   },
   captureAfter: async (_input, result, ctx) => {
-    const em = (ctx.container.resolve('em') as EntityManager)
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
     return loadProductSnapshot(em, result.productId)
   },
   buildLog: async ({ result, ctx, snapshots }) => {
     const before = snapshots.before as ProductSnapshot | undefined
-    const em = (ctx.container.resolve('em') as EntityManager)
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
     const after = await loadProductSnapshot(em, result.productId)
     if (!before || !after) return null
     const { translate } = await resolveTranslations()
@@ -1269,11 +1264,6 @@ const updateProductCommand: CommandHandler<ProductUpdateInput, { productId: stri
       organizationId: before.organizationId,
       snapshotBefore: before,
       snapshotAfter: after,
-      changes: buildChanges(
-        before as Record<string, unknown>,
-        after as Record<string, unknown>,
-        PRODUCT_CHANGE_KEYS
-      ),
       payload: {
         undo: {
           before,
@@ -1323,6 +1313,7 @@ const updateProductCommand: CommandHandler<ProductUpdateInput, { productId: stri
     ensureOrganizationScope(ctx, before.organizationId)
     applyProductSnapshot(em, record, before)
     await restoreOffersFromSnapshot(em, record, before.offers)
+    await syncProductTags(em, record, before.tags)
     await em.flush()
     const dataEngine = ctx.container.resolve('dataEngine') as DataEngine
     const resetValues = buildCustomFieldResetMap(before.custom ?? undefined, payload?.after?.custom ?? undefined)
@@ -1462,6 +1453,7 @@ const deleteProductCommand: CommandHandler<
     ensureOrganizationScope(ctx, before.organizationId)
     applyProductSnapshot(em, record, before)
     await restoreOffersFromSnapshot(em, record, before.offers)
+    await syncProductTags(em, record, before.tags)
     await em.flush()
     const dataEngine = ctx.container.resolve('dataEngine') as DataEngine
     if (before.custom && Object.keys(before.custom).length) {
