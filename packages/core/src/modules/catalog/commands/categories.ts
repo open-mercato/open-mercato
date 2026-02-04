@@ -160,7 +160,7 @@ const createCategoryCommand: CommandHandler<CategoryCreateInput, { categoryId: s
     return { categoryId: record.id }
   },
   captureAfter: async (_input, result, ctx) => {
-    const em = ctx.container.resolve('em') as EntityManager
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
     return loadCategorySnapshot(em, result.categoryId)
   },
   buildLog: async ({ result, ctx }) => {
@@ -277,7 +277,7 @@ const updateCategoryCommand: CommandHandler<CategoryUpdateInput, { categoryId: s
     return { categoryId: record.id }
   },
   captureAfter: async (_input, result, ctx) => {
-    const em = ctx.container.resolve('em') as EntityManager
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
     return loadCategorySnapshot(em, result.categoryId)
   },
   buildLog: async ({ result, ctx, snapshots }) => {

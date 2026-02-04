@@ -112,7 +112,7 @@ const createAvailabilityRuleSetCommand: CommandHandler<PlannerAvailabilityRuleSe
     return { ruleSetId: record.id }
   },
   captureAfter: async (_input, result, ctx) => {
-    const em = (ctx.container.resolve('em') as EntityManager)
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
     const snapshot = await loadAvailabilityRuleSetSnapshot(em, result.ruleSetId)
     if (!snapshot) return null
     return snapshot

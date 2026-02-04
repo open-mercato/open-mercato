@@ -109,7 +109,7 @@ const createTeamCommand: CommandHandler<StaffTeamCreateInput, { teamId: string }
     return { teamId: team.id }
   },
   captureAfter: async (_input, result, ctx) => {
-    const em = (ctx.container.resolve('em') as EntityManager)
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
     const snapshot = await loadTeamSnapshot(em, result.teamId)
     if (!snapshot) return null
     const custom = await loadTeamCustomSnapshot(em, snapshot)

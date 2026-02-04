@@ -175,7 +175,7 @@ const createNoteCommand: CommandHandler<NoteCreateInput, { noteId: string; autho
     return { noteId: note.id, authorUserId: note.authorUserId ?? null }
   },
   captureAfter: async (_input, result, ctx) => {
-    const em = ctx.container.resolve('em') as EntityManager
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
     return loadNoteSnapshot(em, result.noteId)
   },
   buildLog: async ({ result, ctx }) => {

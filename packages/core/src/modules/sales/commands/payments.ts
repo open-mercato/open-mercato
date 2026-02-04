@@ -458,7 +458,7 @@ const createPaymentCommand: CommandHandler<
     return { paymentId: payment.id, orderTotals: totals }
   },
   captureAfter: async (_input, result, ctx) => {
-    const em = ctx.container.resolve('em') as EntityManager
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
     return result?.paymentId ? loadPaymentSnapshot(em, result.paymentId) : null
   },
   buildLog: async ({ result, snapshots }) => {
@@ -698,7 +698,7 @@ const updatePaymentCommand: CommandHandler<
     return { paymentId: payment.id, orderTotals: totals }
   },
   captureAfter: async (_input, result, ctx) => {
-    const em = ctx.container.resolve('em') as EntityManager
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
     return result?.paymentId ? loadPaymentSnapshot(em, result.paymentId) : null
   },
   buildLog: async ({ snapshots, result }) => {

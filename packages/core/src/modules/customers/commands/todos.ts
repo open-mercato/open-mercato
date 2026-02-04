@@ -178,7 +178,7 @@ const createTodoCommand: CommandHandler<TodoLinkWithTodoCreateInput, { linkId: s
     return { linkId: link.id, todoId }
   },
   captureAfter: async (_input, result, ctx) => {
-    const em = (ctx.container.resolve('em') as EntityManager)
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
     const link = await em.findOne(CustomerTodoLink, { id: result.linkId })
     if (!link) return null
     return captureLinkSnapshot(link)

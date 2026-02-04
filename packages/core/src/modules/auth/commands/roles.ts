@@ -123,7 +123,7 @@ const createRoleCommand: CommandHandler<Record<string, unknown>, Role> = {
     return role
   },
   captureAfter: async (_input, result, ctx) => {
-    const em = (ctx.container.resolve('em') as EntityManager)
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
     const custom = await loadCustomFieldSnapshot(em, {
       entityId: E.auth.role,
       recordId: String(result.id),
@@ -246,7 +246,7 @@ const updateRoleCommand: CommandHandler<Record<string, unknown>, Role> = {
     return role
   },
   captureAfter: async (_input, result, ctx) => {
-    const em = (ctx.container.resolve('em') as EntityManager)
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
     const custom = await loadCustomFieldSnapshot(em, {
       entityId: E.auth.role,
       recordId: String(result.id),

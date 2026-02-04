@@ -187,7 +187,7 @@ const createActivityCommand: CommandHandler<ActivityCreateInput, { activityId: s
     return { activityId: activity.id }
   },
   captureAfter: async (_input, result, ctx) => {
-    const em = (ctx.container.resolve('em') as EntityManager)
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
     return await loadActivitySnapshot(em, result.activityId)
   },
   buildLog: async ({ result, ctx }) => {

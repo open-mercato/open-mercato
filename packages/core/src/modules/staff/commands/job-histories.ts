@@ -101,7 +101,7 @@ const createJobHistoryCommand: CommandHandler<StaffTeamMemberJobHistoryCreateInp
     return { jobHistoryId: record.id }
   },
   captureAfter: async (_input, result, ctx) => {
-    const em = (ctx.container.resolve('em') as EntityManager)
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
     return await loadJobHistorySnapshot(em, result.jobHistoryId)
   },
   buildLog: async ({ result, ctx }) => {

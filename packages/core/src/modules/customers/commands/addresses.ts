@@ -136,7 +136,7 @@ const createAddressCommand: CommandHandler<AddressCreateInput, { addressId: stri
     return { addressId: address.id }
   },
   captureAfter: async (_input, result, ctx) => {
-    const em = (ctx.container.resolve('em') as EntityManager)
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
     return await loadAddressSnapshot(em, result.addressId)
   },
   buildLog: async ({ result, ctx }) => {

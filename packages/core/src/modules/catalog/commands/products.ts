@@ -1059,7 +1059,7 @@ const createProductCommand: CommandHandler<ProductCreateInput, { productId: stri
     return { productId: record.id }
   },
   captureAfter: async (_input, result, ctx) => {
-    const em = (ctx.container.resolve('em') as EntityManager)
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
     return loadProductSnapshot(em, result.productId)
   },
   buildLog: async ({ result, ctx }) => {

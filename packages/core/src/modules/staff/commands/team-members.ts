@@ -190,7 +190,7 @@ const createTeamMemberCommand: CommandHandler<StaffTeamMemberCreateInput, { memb
     return { memberId: member.id }
   },
   captureAfter: async (_input, result, ctx) => {
-    const em = (ctx.container.resolve('em') as EntityManager)
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
     const snapshot = await loadTeamMemberSnapshot(em, result.memberId)
     if (!snapshot) return null
     const custom = await loadTeamMemberCustomSnapshot(em, snapshot)

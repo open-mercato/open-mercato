@@ -228,7 +228,7 @@ const createUserCommand: CommandHandler<Record<string, unknown>, User> = {
     return user
   },
   captureAfter: async (_input, result, ctx) => {
-    const em = (ctx.container.resolve('em') as EntityManager)
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
     const roles = await loadUserRoleNames(em, String(result.id))
     const custom = await loadUserCustomSnapshot(
       em,
@@ -445,7 +445,7 @@ const updateUserCommand: CommandHandler<Record<string, unknown>, User> = {
     return user
   },
   captureAfter: async (_input, result, ctx) => {
-    const em = (ctx.container.resolve('em') as EntityManager)
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
     const roles = await loadUserRoleNames(em, String(result.id))
     const custom = await loadUserCustomSnapshot(
       em,

@@ -115,7 +115,7 @@ const createResourceTypeCommand: CommandHandler<ResourcesResourceTypeCreateInput
     return { resourceTypeId: record.id }
   },
   captureAfter: async (_input, result, ctx) => {
-    const em = (ctx.container.resolve('em') as EntityManager)
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
     const snapshot = await loadResourceTypeSnapshot(em, result.resourceTypeId)
     if (!snapshot) return null
     const custom = await loadResourceTypeCustomSnapshot(em, snapshot)

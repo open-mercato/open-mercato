@@ -163,7 +163,7 @@ const createOfferCommand: CommandHandler<OfferCreateInput, { offerId: string }> 
     return { offerId: record.id }
   },
   captureAfter: async (_input, result, ctx) => {
-    const em = ctx.container.resolve('em') as EntityManager
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
     return loadOfferSnapshot(em, result.offerId)
   },
   buildLog: async ({ result, ctx }) => {
@@ -300,7 +300,7 @@ const updateOfferCommand: CommandHandler<OfferUpdateInput, { offerId: string }> 
     return { offerId: record.id }
   },
   captureAfter: async (_input, result, ctx) => {
-    const em = ctx.container.resolve('em') as EntityManager
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
     return loadOfferSnapshot(em, result.offerId)
   },
   buildLog: async ({ result, ctx, snapshots }) => {

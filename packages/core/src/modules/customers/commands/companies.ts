@@ -400,7 +400,7 @@ const createCompanyCommand: CommandHandler<CompanyCreateInput, { entityId: strin
     return { entityId: entity.id, companyId: profile.id }
   },
   captureAfter: async (_input, result, ctx) => {
-    const em = (ctx.container.resolve('em') as EntityManager)
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
     return await loadCompanySnapshot(em, result.entityId)
   },
   buildLog: async ({ result, ctx }) => {

@@ -103,7 +103,7 @@ const createCommentCommand: CommandHandler<
     return { commentId: comment.id, authorUserId: comment.authorUserId ?? null }
   },
   captureAfter: async (_input, result, ctx) => {
-    const em = (ctx.container.resolve('em') as EntityManager)
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
     return await loadCommentSnapshot(em, result.commentId)
   },
   buildLog: async ({ result, ctx }) => {

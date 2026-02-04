@@ -294,7 +294,7 @@ const createLeaveRequestCommand: CommandHandler<StaffLeaveRequestCreateInput, { 
     return { requestId: request.id }
   },
   captureAfter: async (_input, result, ctx) => {
-    const em = (ctx.container.resolve('em') as EntityManager)
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
     return await loadLeaveRequestSnapshot(em, result.requestId)
   },
   buildLog: async ({ result, ctx }) => {
@@ -488,7 +488,7 @@ const deleteLeaveRequestCommand: CommandHandler<{ id: string }, { requestId: str
     return { requestId: request.id }
   },
   captureAfter: async (_input, result, ctx) => {
-    const em = (ctx.container.resolve('em') as EntityManager)
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
     return await loadLeaveRequestSnapshot(em, result.requestId)
   },
   buildLog: async ({ result, ctx }) => {

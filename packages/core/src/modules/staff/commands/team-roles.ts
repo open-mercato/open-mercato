@@ -137,7 +137,7 @@ const createTeamRoleCommand: CommandHandler<StaffTeamRoleCreateInput, { roleId: 
     return { roleId: role.id }
   },
   captureAfter: async (_input, result, ctx) => {
-    const em = (ctx.container.resolve('em') as EntityManager)
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
     const snapshot = await loadTeamRoleSnapshot(em, result.roleId)
     if (!snapshot) return null
     const custom = await loadTeamRoleCustomSnapshot(em, snapshot)

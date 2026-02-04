@@ -105,7 +105,7 @@ const createTagCommand: CommandHandler<TagCreateInput, { tagId: string }> = {
     return { tagId: tag.id }
   },
   captureAfter: async (_input, result, ctx) => {
-    const em = (ctx.container.resolve('em') as EntityManager)
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
     return await loadTagSnapshot(em, result.tagId)
   },
   buildLog: async ({ result, ctx }) => {

@@ -75,7 +75,7 @@ const createToggleCommand: CommandHandler<ToggleCreateInput, { toggleId: string 
     return { toggleId: toggle.id }
   },
   captureAfter: async (_input, result, ctx) => {
-    const em = (ctx.container.resolve('em') as EntityManager)
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
     return await loadToggleSnapshot(em, result.toggleId)
   },
   buildLog: async ({ result, ctx }) => {

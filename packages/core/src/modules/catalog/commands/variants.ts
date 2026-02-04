@@ -588,7 +588,7 @@ const createVariantCommand: CommandHandler<VariantCreateInput, { variantId: stri
     return { variantId: record.id, previousDefaultVariantId }
   },
   captureAfter: async (_input, result, ctx) => {
-    const em = (ctx.container.resolve('em') as EntityManager)
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
     return loadVariantSnapshot(em, result.variantId)
   },
   buildLog: async ({ result, ctx }) => {
@@ -730,7 +730,7 @@ const updateVariantCommand: CommandHandler<VariantUpdateInput, { variantId: stri
     return { variantId: record.id, previousDefaultVariantId }
   },
   captureAfter: async (_input, result, ctx) => {
-    const em = (ctx.container.resolve('em') as EntityManager)
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
     return loadVariantSnapshot(em, result.variantId)
   },
   buildLog: async ({ result, ctx, snapshots }) => {

@@ -527,7 +527,7 @@ const createPersonCommand: CommandHandler<PersonCreateInput, { entityId: string;
     return { entityId: entity.id, personId: profile.id }
   },
   captureAfter: async (_input, result, ctx) => {
-    const em = (ctx.container.resolve('em') as EntityManager)
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
     return await loadPersonSnapshot(em, result.entityId)
   },
   buildLog: async ({ result, ctx }) => {

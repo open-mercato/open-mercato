@@ -108,7 +108,7 @@ const createOptionSchemaCommand: CommandHandler<
     return { schemaId: record.id }
   },
   captureAfter: async (_input, result, ctx) => {
-    const em = ctx.container.resolve('em') as EntityManager
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
     return loadOptionSchemaSnapshot(em, result.schemaId)
   },
   buildLog: async ({ result, ctx }) => {
@@ -190,7 +190,7 @@ const updateOptionSchemaCommand: CommandHandler<
     return { schemaId: record.id }
   },
   captureAfter: async (_input, result, ctx) => {
-    const em = ctx.container.resolve('em') as EntityManager
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
     return loadOptionSchemaSnapshot(em, result.schemaId)
   },
   buildLog: async ({ result, ctx, snapshots }) => {

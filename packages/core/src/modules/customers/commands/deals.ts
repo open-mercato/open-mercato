@@ -222,7 +222,7 @@ const createDealCommand: CommandHandler<DealCreateInput, { dealId: string }> = {
     return { dealId: deal.id }
   },
   captureAfter: async (_input, result, ctx) => {
-    const em = (ctx.container.resolve('em') as EntityManager)
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
     return await loadDealSnapshot(em, result.dealId)
   },
   buildLog: async ({ result, ctx }) => {

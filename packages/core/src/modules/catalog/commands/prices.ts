@@ -351,7 +351,7 @@ const createPriceCommand: CommandHandler<PriceCreateInput, { priceId: string }> 
     return { priceId: record.id }
   },
   captureAfter: async (_input, result, ctx) => {
-    const em = (ctx.container.resolve('em') as EntityManager)
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
     return loadPriceSnapshot(em, result.priceId)
   },
   buildLog: async ({ result, ctx }) => {
@@ -621,7 +621,7 @@ const updatePriceCommand: CommandHandler<PriceUpdateInput, { priceId: string }> 
     return { priceId: record.id }
   },
   captureAfter: async (_input, result, ctx) => {
-    const em = (ctx.container.resolve('em') as EntityManager)
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
     return loadPriceSnapshot(em, result.priceId)
   },
   buildLog: async ({ result, ctx, snapshots }) => {

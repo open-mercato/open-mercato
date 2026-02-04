@@ -3336,7 +3336,7 @@ const createQuoteCommand: CommandHandler<QuoteCreateInput, { quoteId: string }> 
     return { quoteId: quote.id }
   },
   captureAfter: async (_input, result, ctx) => {
-    const em = (ctx.container.resolve('em') as EntityManager)
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
     return loadQuoteSnapshot(em, result.quoteId)
   },
   buildLog: async ({ result, snapshots }) => {
@@ -3573,7 +3573,7 @@ const updateQuoteCommand: CommandHandler<DocumentUpdateInput, { quote: SalesQuot
     return { quote }
   },
   captureAfter: async (_input, result, ctx) => {
-    const em = (ctx.container.resolve('em') as EntityManager)
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
     return loadQuoteSnapshot(em, result.quote.id)
   },
   buildLog: async ({ input, snapshots, result }) => {
@@ -3758,7 +3758,7 @@ const updateOrderCommand: CommandHandler<DocumentUpdateInput, { order: SalesOrde
     return { order }
   },
   captureAfter: async (_input, result, ctx) => {
-    const em = (ctx.container.resolve('em') as EntityManager)
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
     return loadOrderSnapshot(em, result.order.id)
   },
   buildLog: async ({ input, snapshots, result }) => {
@@ -4089,7 +4089,7 @@ const createOrderCommand: CommandHandler<OrderCreateInput, { orderId: string }> 
     return { orderId: order.id }
   },
   captureAfter: async (_input, result, ctx) => {
-    const em = (ctx.container.resolve('em') as EntityManager)
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
     return loadOrderSnapshot(em, result.orderId)
   },
   buildLog: async ({ result, snapshots }) => {
@@ -4474,7 +4474,7 @@ const convertQuoteToOrderCommand: CommandHandler<
     return { orderId: order.id }
   },
   captureAfter: async (_input, result, ctx) => {
-    const em = ctx.container.resolve('em') as EntityManager
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
     return loadOrderSnapshot(em, result.orderId)
   },
   buildLog: async ({ snapshots, result }) => {
@@ -4733,7 +4733,7 @@ const orderLineUpsertCommand: CommandHandler<
     return { orderId: order.id, lineId }
   },
   captureAfter: async (_input, result, ctx) => {
-    const em = ctx.container.resolve('em') as EntityManager
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
     return loadOrderSnapshot(em, result.orderId)
   },
   buildLog: async ({ result, snapshots }) => {
@@ -4864,7 +4864,7 @@ const orderLineDeleteCommand: CommandHandler<
     return { orderId: order.id, lineId: parsed.id }
   },
   captureAfter: async (_input, result, ctx) => {
-    const em = ctx.container.resolve('em') as EntityManager
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
     return loadOrderSnapshot(em, result.orderId)
   },
   buildLog: async ({ result, snapshots }) => {
@@ -5062,7 +5062,7 @@ const quoteLineUpsertCommand: CommandHandler<
     return { quoteId: quote.id, lineId }
   },
   captureAfter: async (_input, result, ctx) => {
-    const em = ctx.container.resolve('em') as EntityManager
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
     return loadQuoteSnapshot(em, result.quoteId)
   },
   buildLog: async ({ result, snapshots }) => {
@@ -5179,7 +5179,7 @@ const quoteLineDeleteCommand: CommandHandler<
     return { quoteId: quote.id, lineId: parsed.id }
   },
   captureAfter: async (_input, result, ctx) => {
-    const em = ctx.container.resolve('em') as EntityManager
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
     return loadQuoteSnapshot(em, result.quoteId)
   },
   buildLog: async ({ result, snapshots }) => {
@@ -5378,7 +5378,7 @@ const orderAdjustmentUpsertCommand: CommandHandler<
     return { orderId: order.id, adjustmentId }
   },
   captureAfter: async (_input, result, ctx) => {
-    const em = ctx.container.resolve('em') as EntityManager
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
     return loadOrderSnapshot(em, result.orderId)
   },
   buildLog: async ({ snapshots, result }) => {
@@ -5514,7 +5514,7 @@ const orderAdjustmentDeleteCommand: CommandHandler<
     return { orderId: order.id, adjustmentId: parsed.id }
   },
   captureAfter: async (_input, result, ctx) => {
-    const em = ctx.container.resolve('em') as EntityManager
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
     return loadOrderSnapshot(em, result.orderId)
   },
   buildLog: async ({ snapshots, result }) => {
@@ -5712,7 +5712,7 @@ const quoteAdjustmentUpsertCommand: CommandHandler<
     return { quoteId: quote.id, adjustmentId }
   },
   captureAfter: async (_input, result, ctx) => {
-    const em = ctx.container.resolve('em') as EntityManager
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
     return loadQuoteSnapshot(em, result.quoteId)
   },
   buildLog: async ({ snapshots, result }) => {
@@ -5847,7 +5847,7 @@ const quoteAdjustmentDeleteCommand: CommandHandler<
     return { quoteId: quote.id, adjustmentId: parsed.id }
   },
   captureAfter: async (_input, result, ctx) => {
-    const em = ctx.container.resolve('em') as EntityManager
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
     return loadQuoteSnapshot(em, result.quoteId)
   },
   buildLog: async ({ snapshots, result }) => {
