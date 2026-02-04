@@ -18,6 +18,11 @@ function useLocationKey() {
     if (typeof window === 'undefined') return ''
     return window.location.href
   })
+  const locationKeyRef = React.useRef(locationKey)
+
+  React.useEffect(() => {
+    locationKeyRef.current = locationKey
+  }, [locationKey])
 
   React.useEffect(() => {
     if (typeof window === 'undefined') return
@@ -26,6 +31,8 @@ function useLocationKey() {
     const scheduleUpdate = (href: string) => {
       const run = () => {
         if (!active) return
+        if (locationKeyRef.current === href) return
+        locationKeyRef.current = href
         setLocationKey(href)
       }
       if (typeof queueMicrotask === 'function') {
@@ -37,7 +44,7 @@ function useLocationKey() {
     const updateLocation = () => {
       if (!active) return
       const href = window.location.href
-      if (href === locationKey) return
+      if (href === locationKeyRef.current) return
       scheduleUpdate(href)
     }
 
