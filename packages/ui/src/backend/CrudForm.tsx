@@ -3,14 +3,13 @@ import * as React from 'react'
 import Link from 'next/link'
 import { z } from 'zod'
 import { useRouter } from 'next/navigation'
-import { Button } from '../primitives/button'
 import { DataLoader } from '../primitives/DataLoader'
 import { flash } from './FlashMessages'
 import dynamic from 'next/dynamic'
 import remarkGfm from 'remark-gfm'
+import { FormHeader } from './forms/FormHeader'
+import { FormFooter } from './forms/FormFooter'
 import {
-  Trash2,
-  Save,
   Settings,
   Layers,
   Tag,
@@ -1523,34 +1522,21 @@ export function CrudForm<TValues extends Record<string, unknown>>({
     return (
       <div className="space-y-4" ref={rootRef}>
         {!embedded ? (
-        <div className="flex items-center justify-between gap-3">
-          <div className="flex items-center gap-3">
-            {backHref ? (
-              <Link href={backHref} className="text-sm text-muted-foreground hover:text-foreground">
-                ← {backLabel}
-              </Link>
-            ) : null}
-            {title ? <div className="text-base font-medium">{title}</div> : null}
-          </div>
-          <div className="flex items-center gap-2">
-            {extraActions}
-            {showDelete ? (
-              <Button type="button" variant="outline" onClick={handleDelete} className="text-red-600 border-red-200 hover:bg-red-50 rounded">
-                <Trash2 className="size-4 mr-2" />
-                {deleteLabel}
-              </Button>
-            ) : null}
-            {cancelHref ? (
-              <Link href={cancelHref} className="h-9 inline-flex items-center rounded border px-3 text-sm">
-                {cancelLabel}
-              </Link>
-            ) : null}
-            <Button type="submit" form={formId} disabled={pending}>
-              <Save className="size-4 mr-2" />
-              {pending ? savingLabel : resolvedSubmitLabel}
-            </Button>
-          </div>
-        </div>
+          <FormHeader
+            mode="edit"
+            backHref={backHref}
+            backLabel={backLabel}
+            title={title}
+            actions={{
+              extraActions,
+              showDelete,
+              onDelete: handleDelete,
+              deleteLabel,
+              cancelHref,
+              cancelLabel,
+              submit: { formId, pending, label: resolvedSubmitLabel, pendingLabel: savingLabel },
+            }}
+          />
         ) : null}
         {contentHeader}
         <DataLoader
@@ -1580,27 +1566,19 @@ export function CrudForm<TValues extends Record<string, unknown>>({
             </div>
             {formError ? <div className="text-sm text-red-600">{formError}</div> : null}
             {hideFooterActions ? null : (
-              <div className={`flex items-center ${embedded ? 'justify-end' : 'justify-between'} gap-2 ${dialogFooterClass}`}>
-                {embedded ? null : <div />}
-                <div className="flex items-center gap-2">
-                  {extraActions}
-                  {!embedded && showDelete ? (
-                    <Button type="button" variant="outline" onClick={handleDelete} className="text-red-600 border-red-200 hover:bg-red-50 rounded">
-                      <Trash2 className="size-4 mr-2" />
-                      {deleteLabel}
-                    </Button>
-                  ) : null}
-                  {!embedded && cancelHref ? (
-                    <Link href={cancelHref} className="h-9 inline-flex items-center rounded border px-3 text-sm">
-                      {cancelLabel}
-                    </Link>
-                  ) : null}
-                  <Button type="submit" disabled={pending}>
-                    <Save className="size-4 mr-2" />
-                    {pending ? savingLabel : resolvedSubmitLabel}
-                  </Button>
-                </div>
-              </div>
+              <FormFooter
+                embedded={embedded}
+                className={dialogFooterClass}
+                actions={{
+                  extraActions: embedded ? extraActions : extraActions,
+                  showDelete: !embedded && showDelete,
+                  onDelete: handleDelete,
+                  deleteLabel,
+                  cancelHref: !embedded ? cancelHref : undefined,
+                  cancelLabel,
+                  submit: { pending, label: resolvedSubmitLabel, pendingLabel: savingLabel },
+                }}
+              />
             )}
           </form>
         </DataLoader>
@@ -1613,34 +1591,21 @@ export function CrudForm<TValues extends Record<string, unknown>>({
   return (
     <div className="space-y-4" ref={rootRef}>
       {!embedded ? (
-      <div className="flex items-center justify-between gap-3">
-        <div className="flex items-center gap-3">
-          {backHref ? (
-            <Link href={backHref} className="text-sm text-muted-foreground hover:text-foreground">
-              ← {backLabel}
-            </Link>
-          ) : null}
-          {title ? <div className="text-base font-medium">{title}</div> : null}
-        </div>
-        <div className="flex items-center gap-2">
-          {extraActions}
-          {showDelete ? (
-            <Button type="button" variant="outline" onClick={handleDelete} className="text-red-600 border-red-200 hover:bg-red-50 rounded">
-              <Trash2 className="size-4 mr-2" />
-              {deleteLabel}
-            </Button>
-          ) : null}
-          {cancelHref ? (
-            <Link href={cancelHref} className="h-9 inline-flex items-center rounded border px-3 text-sm">
-              {cancelLabel}
-            </Link>
-          ) : null}
-          <Button type="submit" form={formId} disabled={pending}>
-            <Save className="size-4 mr-2" />
-            {pending ? savingLabel : resolvedSubmitLabel}
-          </Button>
-        </div>
-      </div>
+        <FormHeader
+          mode="edit"
+          backHref={backHref}
+          backLabel={backLabel}
+          title={title}
+          actions={{
+            extraActions,
+            showDelete,
+            onDelete: handleDelete,
+            deleteLabel,
+            cancelHref,
+            cancelLabel,
+            submit: { formId, pending, label: resolvedSubmitLabel, pendingLabel: savingLabel },
+          }}
+        />
       ) : null}
       {contentHeader}
       <DataLoader
@@ -1690,24 +1655,19 @@ export function CrudForm<TValues extends Record<string, unknown>>({
             </div>
             {formError ? <div className="text-sm text-red-600">{formError}</div> : null}
             {hideFooterActions ? null : (
-              <div className={`flex items-center ${embedded ? 'justify-end' : 'justify-end'} gap-2 ${dialogFooterClass}`}>
-                {extraActions}
-                {!embedded && showDelete ? (
-                  <Button type="button" variant="outline" onClick={handleDelete} className="text-red-600 border-red-200 hover:bg-red-50">
-                    <Trash2 className="size-4 mr-2" />
-                    {deleteLabel}
-                  </Button>
-                ) : null}
-                {!embedded && cancelHref ? (
-                  <Link href={cancelHref} className="h-9 inline-flex items-center rounded border px-3 text-sm">
-                    {cancelLabel}
-                  </Link>
-                ) : null}
-                <Button type="submit" disabled={pending}>
-                  <Save className="size-4 mr-2" />
-                  {pending ? savingLabel : resolvedSubmitLabel}
-                </Button>
-              </div>
+              <FormFooter
+                embedded={embedded}
+                className={dialogFooterClass}
+                actions={{
+                  extraActions,
+                  showDelete: !embedded && showDelete,
+                  onDelete: handleDelete,
+                  deleteLabel,
+                  cancelHref: !embedded ? cancelHref : undefined,
+                  cancelLabel,
+                  submit: { pending, label: resolvedSubmitLabel, pendingLabel: savingLabel },
+                }}
+              />
             )}
           </form>
         </div>

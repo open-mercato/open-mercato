@@ -6,6 +6,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import Link from 'next/link'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { Button } from '@open-mercato/ui/primitives/button'
+import { FormHeader } from '@open-mercato/ui/backend/forms'
 import { Spinner } from '@open-mercato/ui/primitives/spinner'
 import { Separator } from '@open-mercato/ui/primitives/separator'
 import { JsonDisplay } from '@open-mercato/ui/backend/JsonDisplay'
@@ -379,52 +380,32 @@ export default function WorkflowInstanceDetailPage({ params }: { params?: { id?:
     <Page>
       <PageBody>
         <div className="space-y-6">
-          {/* Header */}
-          <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-            <div className="flex flex-wrap items-center gap-3">
-              <Link
-                href="/backend/instances"
-                className="inline-flex items-center text-sm text-muted-foreground hover:text-foreground"
-              >
-                <span aria-hidden className="mr-1 text-base">←</span>
-                <span className="sr-only">{t('workflows.instances.backToList', 'Back to instances')}</span>
-              </Link>
-              <div className="space-y-1">
-                <p className="text-xs uppercase text-muted-foreground">
-                  {t('workflows.instances.detail.type', 'Workflow instance')}
-                </p>
-                <div className="flex flex-wrap items-center gap-2">
-                  <h1 className="text-2xl font-bold text-foreground">{instance.workflowId}</h1>
-                  <span className="font-mono text-sm text-muted-foreground">#{instance.id.slice(0, 8)}</span>
-                </div>
+          <FormHeader
+            mode="detail"
+            backHref="/backend/instances"
+            backLabel={t('workflows.instances.backToList', 'Back to instances')}
+            entityTypeLabel={t('workflows.instances.detail.type', 'Workflow instance')}
+            title={
+              <div className="flex flex-wrap items-center gap-2">
+                <span>{instance.workflowId}</span>
+                <span className="font-mono text-sm text-muted-foreground">#{instance.id.slice(0, 8)}</span>
               </div>
-            </div>
-            <div className="flex items-center gap-3">
-              {canCancel && (
-                <Button
-                  onClick={handleCancel}
-                  disabled={actionLoading}
-                  variant="outline"
-                  size="sm"
-                >
-                  {t('workflows.instances.actions.cancel')}
-                </Button>
-              )}
-              {canRetry && (
-                <Button
-                  onClick={handleRetry}
-                  disabled={actionLoading}
-                  variant="outline"
-                  size="sm"
-                >
-                  {t('workflows.instances.actions.retry')}
-                </Button>
-              )}
-              <Button onClick={() => router.push('/backend/instances')} variant="outline">
-                {t('workflows.instances.actions.backToList') || 'Back to list'}
-              </Button>
-            </div>
-          </div>
+            }
+            menuActions={[
+              ...(canCancel ? [{
+                id: 'cancel',
+                label: t('workflows.instances.actions.cancel'),
+                onSelect: handleCancel,
+                disabled: actionLoading,
+              }] : []),
+              ...(canRetry ? [{
+                id: 'retry',
+                label: t('workflows.instances.actions.retry'),
+                onSelect: handleRetry,
+                disabled: actionLoading,
+              }] : []),
+            ]}
+          />
 
           {/* Execution Summary */}
           <div className="rounded-lg border bg-card p-6">

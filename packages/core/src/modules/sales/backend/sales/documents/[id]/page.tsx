@@ -21,7 +21,8 @@ import { Badge } from '@open-mercato/ui/primitives/badge'
 import { Spinner } from '@open-mercato/ui/primitives/spinner'
 import { Input } from '@open-mercato/ui/primitives/input'
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@open-mercato/ui/primitives/dialog'
-import { Building2, CreditCard, Mail, Pencil, Plus, Store, Trash2, Truck, UserRound, Wand2, X } from 'lucide-react'
+import { Building2, CreditCard, Mail, Pencil, Plus, Store, Truck, UserRound, Wand2, X } from 'lucide-react'
+import { FormHeader, type ActionItem } from '@open-mercato/ui/backend/forms'
 import Link from 'next/link'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { apiCall, apiCallOrThrow, readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
@@ -4246,106 +4247,68 @@ export default function SalesDocumentDetailPage({
   return (
     <Page>
       <PageBody className="space-y-6">
-        <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-          <div className="flex flex-wrap items-center gap-3">
-            <Link
-              href={kind === 'order' ? '/backend/sales/orders' : '/backend/sales/quotes'}
-              className="inline-flex items-center text-sm text-muted-foreground hover:text-foreground"
-            >
-              <span aria-hidden className="mr-1 text-base">←</span>
-              <span className="sr-only">{t('sales.documents.detail.back', 'Back to documents')}</span>
-            </Link>
-            <div className="space-y-1">
-              <p className="text-xs uppercase text-muted-foreground">
-                {kind === 'order'
-                  ? t('sales.documents.detail.order', 'Sales order')
-                  : t('sales.documents.detail.quote', 'Sales quote')}
-              </p>
-              <div className="flex flex-wrap items-center gap-2">
-                <InlineTextEditor
-                  label={t('sales.documents.detail.number', 'Document number')}
-                  value={number}
-                  emptyLabel={t('sales.documents.detail.numberEmpty', 'No number yet')}
-                  onSave={async () => flash(t('sales.documents.detail.saveStub', 'Saving number will land soon.'), 'info')}
-                  variant="plain"
-                  activateOnClick
-                  hideLabel
-                  triggerClassName="opacity-0 transition-opacity duration-150 group-hover:opacity-100 group-focus-within:opacity-100 focus-visible:opacity-100 mt-1"
-                  containerClassName="max-w-full w-full flex-1 sm:min-w-[28rem] lg:min-w-[36rem] xl:min-w-[44rem]"
-                  renderDisplay={({ value: displayValue, emptyLabel }) =>
-                    displayValue && displayValue.length ? (
-                      <span className="text-2xl font-semibold leading-tight whitespace-nowrap">{displayValue}</span>
-                    ) : (
-                      <span className="text-muted-foreground">{emptyLabel}</span>
-                    )
-                  }
-                  onEditingChange={setNumberEditing}
-                  renderActions={
-                    numberEditing ? (
-                      <Button
-                        type="button"
-                        size="icon"
-                        variant="ghost"
-                        onClick={() => void handleGenerateNumber()}
-                        disabled={generating}
-                        className="h-9 w-9"
-                      >
-                        {generating ? <Spinner className="h-4 w-4 animate-spin" /> : <Wand2 className="h-4 w-4" />}
-                        <span className="sr-only">{t('sales.documents.detail.generateNumber', 'Generate number')}</span>
-                      </Button>
-                    ) : null
+        <FormHeader
+          mode="detail"
+          backHref={kind === 'order' ? '/backend/sales/orders' : '/backend/sales/quotes'}
+          backLabel={t('sales.documents.detail.back', 'Back to documents')}
+          entityTypeLabel={kind === 'order'
+            ? t('sales.documents.detail.order', 'Sales order')
+            : t('sales.documents.detail.quote', 'Sales quote')}
+          title={
+            <InlineTextEditor
+              label={t('sales.documents.detail.number', 'Document number')}
+              value={number}
+              emptyLabel={t('sales.documents.detail.numberEmpty', 'No number yet')}
+              onSave={async () => flash(t('sales.documents.detail.saveStub', 'Saving number will land soon.'), 'info')}
+              variant="plain"
+              activateOnClick
+              hideLabel
+              triggerClassName="opacity-0 transition-opacity duration-150 group-hover:opacity-100 group-focus-within:opacity-100 focus-visible:opacity-100 mt-1"
+              containerClassName="max-w-full w-full flex-1 sm:min-w-[28rem] lg:min-w-[36rem] xl:min-w-[44rem]"
+              renderDisplay={({ value: displayValue, emptyLabel }) =>
+                displayValue && displayValue.length ? (
+                  <span className="text-2xl font-semibold leading-tight whitespace-nowrap">{displayValue}</span>
+                ) : (
+                  <span className="text-muted-foreground">{emptyLabel}</span>
+                )
               }
-                />
-              </div>
-              {record.status ? (
-                <Badge variant="secondary" className="inline-flex items-center gap-2">
-                  {statusDisplay?.icon ? renderDictionaryIcon(statusDisplay.icon, 'h-4 w-4') : null}
-                  <span className="inline-flex items-center gap-1">
-                    {statusDisplay?.color
-                      ? renderDictionaryColor(statusDisplay.color, 'h-2.5 w-2.5 rounded-full border border-border/60')
-                      : <span className="h-2.5 w-2.5 rounded-full bg-primary" />}
-                  </span>
-                  <span>{statusDisplay?.label ?? record.status}</span>
-                </Badge>
-              ) : null}
-            </div>
-          </div>
-          <div className="flex flex-wrap items-center gap-2">
-            {kind === 'quote' ? (
-              <Button
-                type="button"
-                size="sm"
-                onClick={() => void handleConvert()}
-                disabled={converting}
-              >
-                {converting ? <Spinner className="mr-2 h-4 w-4 animate-spin" /> : null}
-                {t('sales.documents.detail.convertToOrder', 'Convert to order')}
-              </Button>
-            ) : null}
-            {kind === 'quote' ? (
-              <Button
-                type="button"
-                size="sm"
-                onClick={() => setSendOpen(true)}
-                disabled={!contactEmail || sending}
-              >
-                {sending ? <Spinner className="mr-2 h-4 w-4 animate-spin" /> : null}
-                {t('sales.quotes.send.action', 'Send to customer')}
-              </Button>
-            ) : null}
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              onClick={() => void handleDelete()}
-              disabled={deleting}
-              className="rounded-none border-destructive/40 text-destructive hover:bg-destructive/5 hover:text-destructive"
-            >
-              {deleting ? <Spinner className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" aria-hidden />}
-              {t('sales.documents.detail.delete', 'Delete')}
-            </Button>
-          </div>
-        </div>
+              onEditingChange={setNumberEditing}
+              renderActions={
+                numberEditing ? (
+                  <Button
+                    type="button"
+                    size="icon"
+                    variant="ghost"
+                    onClick={() => void handleGenerateNumber()}
+                    disabled={generating}
+                    className="h-9 w-9"
+                  >
+                    {generating ? <Spinner className="h-4 w-4 animate-spin" /> : <Wand2 className="h-4 w-4" />}
+                    <span className="sr-only">{t('sales.documents.detail.generateNumber', 'Generate number')}</span>
+                  </Button>
+                ) : null
+              }
+            />
+          }
+          statusBadge={record.status ? (
+            <Badge variant="secondary" className="inline-flex items-center gap-2">
+              {statusDisplay?.icon ? renderDictionaryIcon(statusDisplay.icon, 'h-4 w-4') : null}
+              <span className="inline-flex items-center gap-1">
+                {statusDisplay?.color
+                  ? renderDictionaryColor(statusDisplay.color, 'h-2.5 w-2.5 rounded-full border border-border/60')
+                  : <span className="h-2.5 w-2.5 rounded-full bg-primary" />}
+              </span>
+              <span>{statusDisplay?.label ?? record.status}</span>
+            </Badge>
+          ) : undefined}
+          menuActions={kind === 'quote' ? ([
+            { id: 'convert', label: t('sales.documents.detail.convertToOrder', 'Convert to order'), onSelect: () => void handleConvert(), disabled: converting, loading: converting },
+            { id: 'send', label: t('sales.quotes.send.action', 'Send to customer'), onSelect: () => setSendOpen(true), disabled: !contactEmail || sending, loading: sending },
+          ] satisfies ActionItem[]) : undefined}
+          onDelete={() => void handleDelete()}
+          isDeleting={deleting}
+          deleteLabel={t('sales.documents.detail.delete', 'Delete')}
+        />
 
         <div className="grid gap-4 md:grid-cols-4">
           <div className="md:col-span-3">

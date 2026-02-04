@@ -8,7 +8,6 @@ import { NodeEditDialogCrudForm } from '../../../components/NodeEditDialogCrudFo
 import { EdgeEditDialogCrudForm } from '../../../components/EdgeEditDialogCrudForm'
 import { Node, Edge, addEdge, Connection, applyNodeChanges, applyEdgeChanges, NodeChange, EdgeChange } from '@xyflow/react'
 import { useState, useCallback, useEffect } from 'react'
-import Link from 'next/link'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { graphToDefinition, definitionToGraph, validateWorkflowGraph, generateStepId, generateTransitionId, ValidationError } from '../../../lib/graph-utils'
 import { workflowDefinitionDataSchema } from '../../../data/validators'
@@ -30,6 +29,7 @@ import { TagsInput } from '@open-mercato/ui/backend/inputs/TagsInput'
 import { LoadingMessage } from '@open-mercato/ui/backend/detail'
 import { Alert, AlertTitle } from '@open-mercato/ui/primitives/alert'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { FormHeader } from '@open-mercato/ui/backend/forms'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import {CircleQuestionMark, Info, PanelTopClose, PanelTopOpen, Play, Save, Trash2} from 'lucide-react'
@@ -503,79 +503,67 @@ export default function VisualEditorPage() {
     <Page className="h-screen flex flex-col">
       {/* Page Header */}
       <div className="border-b border-gray-200 bg-white px-6 py-4">
-        <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-          <div className="flex flex-wrap items-center gap-3">
-            <Link
-              href="/backend/definitions"
-              className="inline-flex items-center text-sm text-muted-foreground hover:text-foreground"
-            >
-              <span aria-hidden className="mr-1 text-base">←</span>
-              <span className="sr-only">{t('workflows.definitions.backToList', 'Back to definitions')}</span>
-            </Link>
-            <div className="space-y-2">
-              <div className="flex flex-wrap items-center gap-2">
-                <h1 className="text-2xl font-semibold text-foreground">
-                  {definitionId ? (workflowName || 'Workflow') : t('workflows.backend.definitions.visual_editor.title')}
-                </h1>
-              </div>
-              <p className="text-sm text-muted-foreground">
-                {definitionId
-                  ? t('workflows.definitions.detail.summary', 'Editing workflow definition')
-                  : t('workflows.definitions.create.summary', 'Create and edit workflow definitions visually with a drag-and-drop interface')
-                }
-              </p>
+        <FormHeader
+          mode="detail"
+          backHref="/backend/definitions"
+          backLabel={t('workflows.definitions.backToList', 'Back to definitions')}
+          title={definitionId ? (workflowName || 'Workflow') : t('workflows.backend.definitions.visual_editor.title')}
+          subtitle={definitionId
+            ? t('workflows.definitions.detail.summary', 'Editing workflow definition')
+            : t('workflows.definitions.create.summary', 'Create and edit workflow definitions visually with a drag-and-drop interface')
+          }
+          actionsContent={
+            <div className="flex flex-wrap items-center gap-2">
+              <Button
+                variant="outline"
+                onClick={() => setShowMetadata(!showMetadata)}
+                disabled={isSaving}
+              >
+                {showMetadata ? <PanelTopClose className="mr-2 h-4 w-4"/> : <PanelTopOpen className="mr-2 h-4 w-4"/>}
+                {showMetadata ? 'Hide' : 'Show'} Metadata
+              </Button>
+              <Button
+                variant="outline"
+                onClick={handleLoadExample}
+                disabled={isSaving}
+              >
+                Load Example
+              </Button>
+              <Button
+                variant="destructive"
+                onClick={handleClear}
+                disabled={isSaving}
+              >
+                <Trash2 className="mr-2 h-4 w-4" />
+                Clear
+              </Button>
+              <div className="w-px h-6 bg-gray-300"></div>
+              <Button
+                variant="outline"
+                onClick={handleValidate}
+                disabled={isSaving}
+              >
+                <CircleQuestionMark className="mr-2 h-4 w-4" />
+                Validate
+              </Button>
+              <Button
+                variant="outline"
+                onClick={handleTest}
+                disabled={isSaving}
+              >
+                <Play className="mr-2 h-4 w-4" />
+                Run Test
+              </Button>
+              <Button
+                onClick={handleSave}
+                disabled={isSaving}
+              >
+                <Save className="mr-2 h-4 w-4" />
+                {isSaving ? 'Saving...' : (definitionId ? 'Update' : 'Save')}
+              </Button>
             </div>
-          </div>
-          <div className="flex flex-wrap items-center gap-2">
-            <Button
-              variant="outline"
-              onClick={() => setShowMetadata(!showMetadata)}
-              disabled={isSaving}
-            >
-              {showMetadata ? <PanelTopClose className="mr-2 h-4 w-4"/> : <PanelTopOpen className="mr-2 h-4 w-4"/>}
-              {showMetadata ? 'Hide' : 'Show'} Metadata
-            </Button>
-            <Button
-              variant="outline"
-              onClick={handleLoadExample}
-              disabled={isSaving}
-            >
-              Load Example
-            </Button>
-            <Button
-              variant="destructive"
-              onClick={handleClear}
-              disabled={isSaving}
-            >
-              <Trash2 className="mr-2 h-4 w-4" />
-                      Clear
-            </Button>
-            <div className="w-px h-6 bg-gray-300"></div>
-            <Button
-              variant="outline"
-              onClick={handleValidate}
-              disabled={isSaving}
-            >
-              <CircleQuestionMark className="mr-2 h-4 w-4" />
-              Validate
-            </Button>
-            <Button
-              variant="outline"
-              onClick={handleTest}
-              disabled={isSaving}
-            >
-              <Play className="mr-2 h-4 w-4" />
-              Run Test
-            </Button>
-            <Button
-              onClick={handleSave}
-              disabled={isSaving}
-            >
-              <Save className="mr-2 h-4 w-4" />
-              {isSaving ? 'Saving...' : (definitionId ? 'Update' : 'Save')}
-            </Button>
-          </div>
-        </div>
+          }
+        />
       </div>
 
       {/* Workflow Metadata Form */}
