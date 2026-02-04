@@ -23,9 +23,22 @@ function useLocationKey() {
     if (typeof window === 'undefined') return
 
     let active = true
+    const scheduleUpdate = (href: string) => {
+      const run = () => {
+        if (!active) return
+        setLocationKey(href)
+      }
+      if (typeof queueMicrotask === 'function') {
+        queueMicrotask(run)
+      } else {
+        setTimeout(run, 0)
+      }
+    }
     const updateLocation = () => {
       if (!active) return
-      setLocationKey(window.location.href)
+      const href = window.location.href
+      if (href === locationKey) return
+      scheduleUpdate(href)
     }
 
     const originalPush: HistoryMethod = window.history.pushState.bind(window.history)

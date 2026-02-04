@@ -2,7 +2,7 @@
 
 import * as React from 'react'
 import { createPortal } from 'react-dom'
-import { ChevronDown, Loader2 } from 'lucide-react'
+import { Zap, Loader2 } from 'lucide-react'
 import { Button } from '../../primitives/button'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 
@@ -36,6 +36,7 @@ export function ActionsDropdown({ items, label, size = 'sm' }: ActionsDropdownPr
   const btnRef = React.useRef<HTMLButtonElement>(null)
   const menuRef = React.useRef<HTMLDivElement>(null)
   const [anchorRect, setAnchorRect] = React.useState<DOMRect | null>(null)
+  const hoverTimeoutRef = React.useRef<NodeJS.Timeout | null>(null)
   const [direction, setDirection] = React.useState<'down' | 'up'>('down')
 
   const resolvedLabel = label ?? t('ui.actions.actions', 'Actions')
@@ -82,10 +83,35 @@ export function ActionsDropdown({ items, label, size = 'sm' }: ActionsDropdownPr
     }
   }, [open, updatePosition])
 
+  React.useEffect(() => {
+    return () => {
+      if (hoverTimeoutRef.current) {
+        clearTimeout(hoverTimeoutRef.current)
+      }
+    }
+  }, [])
+
+  const handleMouseEnter = () => {
+    if (hoverTimeoutRef.current) {
+      clearTimeout(hoverTimeoutRef.current)
+    }
+    setOpen(true)
+  }
+
+  const handleMouseLeave = () => {
+    hoverTimeoutRef.current = setTimeout(() => {
+      setOpen(false)
+    }, 150)
+  }
+
   if (!items.length) return null
 
   return (
-    <div className="relative inline-block">
+    <div
+      className="relative inline-block"
+      onMouseEnter={handleMouseEnter}
+      onMouseLeave={handleMouseLeave}
+    >
       <Button
         ref={btnRef}
         type="button"
@@ -99,13 +125,15 @@ export function ActionsDropdown({ items, label, size = 'sm' }: ActionsDropdownPr
         }}
       >
         {resolvedLabel}
-        <ChevronDown className="size-4 ml-1" />
+        <Zap className="size-4 ml-1" />
       </Button>
       {open && anchorRect && createPortal(
         <div
           ref={menuRef}
           role="menu"
           className="fixed w-52 rounded-md border bg-background p-1 shadow-md focus:outline-none z-[1000]"
+          onMouseEnter={handleMouseEnter}
+          onMouseLeave={handleMouseLeave}
           style={{
             top: direction === 'down' ? anchorRect.bottom + 4 : anchorRect.top - 4,
             left: anchorRect.right,
