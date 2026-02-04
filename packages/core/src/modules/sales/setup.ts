@@ -48,7 +48,7 @@ async function seedSalesTaxRates(em: EntityManager, scope: SeedScope): Promise<v
 
 export const setup: ModuleSetupConfig = {
   defaultRoleFeatures: {
-    admin: ['sales.*'],
+    admin: ['sales.*', 'sales.documents.number.edit'],
     employee: ['sales.*'],
   },
 

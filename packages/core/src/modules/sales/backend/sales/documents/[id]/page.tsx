@@ -21,7 +21,7 @@ import { Badge } from '@open-mercato/ui/primitives/badge'
 import { Spinner } from '@open-mercato/ui/primitives/spinner'
 import { Input } from '@open-mercato/ui/primitives/input'
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@open-mercato/ui/primitives/dialog'
-import { Building2, CreditCard, Mail, Pencil, Plus, Store, Truck, UserRound, Wand2, X } from 'lucide-react'
+import { ArrowRightLeft, Building2, CreditCard, Mail, Pencil, Plus, Send, Store, Truck, UserRound, Wand2, X } from 'lucide-react'
 import { FormHeader, type ActionItem } from '@open-mercato/ui/backend/forms'
 import Link from 'next/link'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
@@ -1863,6 +1863,7 @@ export default function SalesDocumentDetailPage({
   const [sendOpen, setSendOpen] = React.useState(false)
   const [validForDays, setValidForDays] = React.useState(14)
   const [numberEditing, setNumberEditing] = React.useState(false)
+  const [canEditNumber, setCanEditNumber] = React.useState(false)
   const [currencyError, setCurrencyError] = React.useState<string | null>(null)
   const [hasItems, setHasItems] = React.useState(false)
   const [hasPayments, setHasPayments] = React.useState(false)
@@ -1903,6 +1904,42 @@ export default function SalesDocumentDetailPage({
     () => t('sales.documents.detail.error', 'Document not found or inaccessible.'),
     [t]
   )
+
+  React.useEffect(() => {
+    let active = true
+    async function loadNumberPermission() {
+      try {
+        const call = await apiCall<{ granted?: unknown[] }>(
+          '/api/auth/feature-check',
+          {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ features: ['sales.documents.number.edit'] }),
+          }
+        )
+        if (!active) return
+        const granted = Array.isArray(call.result?.granted)
+          ? call.result?.granted.map((item) => String(item))
+          : []
+        const has = granted.some((feature) => {
+          if (feature === '*') return true
+          if (feature === 'sales.documents.number.edit') return true
+          if (feature.endsWith('.*')) {
+            const prefix = feature.slice(0, -2)
+            return 'sales.documents.number.edit' === prefix || 'sales.documents.number.edit'.startsWith(`${prefix}.`)
+          }
+          return false
+        })
+        setCanEditNumber(Boolean(call.ok && has))
+      } catch {
+        if (active) setCanEditNumber(false)
+      }
+    }
+    loadNumberPermission().catch(() => {})
+    return () => {
+      active = false
+    }
+  }, [scopeVersion])
   const saveShortcutLabel = React.useMemo(
     () => t('sales.documents.detail.inline.save', 'Save ⌘⏎ / Ctrl+Enter'),
     [t]
@@ -2639,6 +2676,7 @@ export default function SalesDocumentDetailPage({
     return statusOptions
   }, [kind, statusOptions])
   const number = record?.orderNumber ?? record?.quoteNumber ?? record?.id
+  const numberEditorKey = `${record?.id ?? 'unknown'}:${number ?? ''}`
   const customerSnapshot = (record?.customerSnapshot ?? null) as CustomerSnapshot | null
   const billingSnapshot = (record?.billingAddressSnapshot ?? null) as AddressSnapshot | null
   const shippingSnapshot = (record?.shippingAddressSnapshot ?? null) as AddressSnapshot | null
@@ -2988,7 +3026,7 @@ export default function SalesDocumentDetailPage({
         throw err
       }
     },
-    [kind, record, t, updateDocument]
+    [canEditNumber, kind, record, t, updateDocument]
   )
 
   const handleUpdateComment = React.useCallback(
@@ -3427,6 +3465,11 @@ export default function SalesDocumentDetailPage({
   )
 
   const handleGenerateNumber = React.useCallback(async () => {
+    if (!canEditNumber) {
+      const message = t('sales.documents.detail.numberEditForbidden', 'You cannot edit document numbers.')
+      flash(message, 'error')
+      throw new Error(message)
+    }
     setGenerating(true)
     try {
       const call = await apiCall<{ number?: string }>(`/api/sales/document-numbers`, {
@@ -3453,6 +3496,7 @@ export default function SalesDocumentDetailPage({
             }
           : prev
       )
+      setNumberEditing(false)
       flash(t('sales.documents.detail.numberGenerated', 'New number generated.'), 'success')
     } catch (err) {
       const message =
@@ -3464,11 +3508,16 @@ export default function SalesDocumentDetailPage({
     } finally {
       setGenerating(false)
     }
-  }, [kind, t, updateDocument])
+  }, [canEditNumber, kind, t, updateDocument])
 
   const handleUpdateNumber = React.useCallback(
     async (next: string | null) => {
       if (!record) return
+      if (!canEditNumber) {
+        const message = t('sales.documents.detail.numberEditForbidden', 'You cannot edit document numbers.')
+        flash(message, 'error')
+        throw new Error(message)
+      }
       const normalized = typeof next === 'string' ? next.trim() : ''
       if (!normalized.length) {
         const message = t('sales.documents.detail.numberRequired', 'Document number is required.')
@@ -4319,40 +4368,53 @@ export default function SalesDocumentDetailPage({
             ? t('sales.documents.detail.order', 'Sales order')
             : t('sales.documents.detail.quote', 'Sales quote')}
           title={
-            <InlineTextEditor
-              label={t('sales.documents.detail.number', 'Document number')}
-              value={number}
-              emptyLabel={t('sales.documents.detail.numberEmpty', 'No number yet')}
-              onSave={handleUpdateNumber}
-              variant="plain"
-              activateOnClick
-              hideLabel
-              triggerClassName="opacity-0 transition-opacity duration-150 group-hover:opacity-100 group-focus-within:opacity-100 focus-visible:opacity-100 mt-1"
-              containerClassName="max-w-full w-full flex-1 sm:min-w-[28rem] lg:min-w-[36rem] xl:min-w-[44rem]"
-              renderDisplay={({ value: displayValue, emptyLabel }) =>
-                displayValue && displayValue.length ? (
-                  <span className="text-2xl font-semibold leading-tight whitespace-nowrap">{displayValue}</span>
+            canEditNumber ? (
+              <InlineTextEditor
+                key={numberEditorKey}
+                label={t('sales.documents.detail.number', 'Document number')}
+                value={number}
+                emptyLabel={t('sales.documents.detail.numberEmpty', 'No number yet')}
+                onSave={handleUpdateNumber}
+                variant="plain"
+                activateOnClick
+                hideLabel
+                triggerClassName="opacity-0 transition-opacity duration-150 group-hover:opacity-100 group-focus-within:opacity-100 focus-visible:opacity-100 mt-1"
+                containerClassName="max-w-full w-full flex-1 sm:min-w-[28rem] lg:min-w-[36rem] xl:min-w-[44rem]"
+                renderDisplay={({ value: displayValue, emptyLabel }) =>
+                  displayValue && displayValue.length ? (
+                    <span className="text-2xl font-semibold leading-tight whitespace-nowrap">{displayValue}</span>
+                  ) : (
+                    <span className="text-muted-foreground">{emptyLabel}</span>
+                  )
+                }
+                onEditingChange={setNumberEditing}
+                renderActions={
+                  numberEditing ? (
+                    <Button
+                      type="button"
+                      size="icon"
+                      variant="ghost"
+                      onClick={() => void handleGenerateNumber()}
+                      disabled={generating}
+                      className="h-9 w-9"
+                    >
+                      {generating ? <Spinner className="h-4 w-4 animate-spin" /> : <Wand2 className="h-4 w-4" />}
+                      <span className="sr-only">{t('sales.documents.detail.generateNumber', 'Generate number')}</span>
+                    </Button>
+                  ) : null
+                }
+              />
+            ) : (
+              <div className="flex items-center gap-2">
+                {number && number.length ? (
+                  <span className="text-2xl font-semibold leading-tight whitespace-nowrap">{number}</span>
                 ) : (
-                  <span className="text-muted-foreground">{emptyLabel}</span>
-                )
-              }
-              onEditingChange={setNumberEditing}
-              renderActions={
-                numberEditing ? (
-                  <Button
-                    type="button"
-                    size="icon"
-                    variant="ghost"
-                    onClick={() => void handleGenerateNumber()}
-                    disabled={generating}
-                    className="h-9 w-9"
-                  >
-                    {generating ? <Spinner className="h-4 w-4 animate-spin" /> : <Wand2 className="h-4 w-4" />}
-                    <span className="sr-only">{t('sales.documents.detail.generateNumber', 'Generate number')}</span>
-                  </Button>
-                ) : null
-              }
-            />
+                  <span className="text-muted-foreground">
+                    {t('sales.documents.detail.numberEmpty', 'No number yet')}
+                  </span>
+                )}
+              </div>
+            )
           }
           statusBadge={record.status ? (
             <Badge variant="secondary" className="inline-flex items-center gap-2">
@@ -4366,8 +4428,8 @@ export default function SalesDocumentDetailPage({
             </Badge>
           ) : undefined}
           menuActions={kind === 'quote' ? ([
-            { id: 'convert', label: t('sales.documents.detail.convertToOrder', 'Convert to order'), onSelect: () => void handleConvert(), disabled: converting, loading: converting },
-            { id: 'send', label: t('sales.quotes.send.action', 'Send to customer'), onSelect: () => setSendOpen(true), disabled: !contactEmail || sending, loading: sending },
+            { id: 'convert', label: t('sales.documents.detail.convertToOrder', 'Convert to order'), icon: ArrowRightLeft, onSelect: () => void handleConvert(), disabled: converting, loading: converting },
+            { id: 'send', label: t('sales.quotes.send.action', 'Send to customer'), icon: Send, onSelect: () => setSendOpen(true), disabled: !contactEmail || sending, loading: sending },
           ] satisfies ActionItem[]) : undefined}
           onDelete={() => void handleDelete()}
           isDeleting={deleting}

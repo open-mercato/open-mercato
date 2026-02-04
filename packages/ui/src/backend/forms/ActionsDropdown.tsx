@@ -2,7 +2,7 @@
 
 import * as React from 'react'
 import { createPortal } from 'react-dom'
-import { Zap, Loader2 } from 'lucide-react'
+import { Zap, ChevronDown, Loader2 } from 'lucide-react'
 import { Button } from '../../primitives/button'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 
@@ -126,6 +126,7 @@ export function ActionsDropdown({ items, label, size = 'sm' }: ActionsDropdownPr
       >
         {resolvedLabel}
         <Zap className="size-4 ml-1" />
+        <ChevronDown className={`size-3.5 transition-transform duration-150 ${open ? 'rotate-180' : ''}`} />
       </Button>
       {open && anchorRect && createPortal(
         <div

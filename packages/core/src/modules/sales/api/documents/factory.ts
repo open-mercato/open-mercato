@@ -2,6 +2,7 @@ import { z } from 'zod'
 import { makeCrudRoute, type CrudCtx } from '@open-mercato/shared/lib/crud/factory'
 import { splitCustomFieldPayload, extractAllCustomFieldEntries } from '@open-mercato/shared/lib/crud/custom-fields'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
+import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { E } from '#generated/entities.ids.generated'
 import type { SalesOrder, SalesQuote } from '../../data/entities'
 import { SalesDocumentTagAssignment } from '../../data/entities'
@@ -18,6 +19,7 @@ import { parseScopedCommandInput, resolveCrudRecordId } from '../utils'
 import { documentUpdateSchema } from '../../commands/documents'
 import { escapeLikePattern } from '@open-mercato/shared/lib/db/escapeLikePattern'
 import { parseBooleanToken } from '@open-mercato/shared/lib/boolean'
+import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
 
 type DocumentKind = 'order' | 'quote'
 
@@ -233,6 +235,24 @@ const attachTags = async (payload: any, ctx: any) => {
   })
 }
 
+async function ensureNumberEditPermission(
+  ctx: CrudCtx,
+  translate: (key: string, fallback?: string) => string
+) {
+  const rbac = ctx.container?.resolve?.('rbacService') as RbacService | null
+  const auth = ctx.auth
+  if (!rbac || !auth?.sub) return
+  const ok = await rbac.userHasAllFeatures(auth.sub, ['sales.documents.number.edit'], {
+    tenantId: auth.tenantId ?? null,
+    organizationId: ctx.selectedOrganizationId ?? auth.orgId ?? null,
+  })
+  if (!ok) {
+    throw new CrudHttpError(403, {
+      error: translate('sales.documents.errors.number_edit_forbidden', 'You cannot edit document numbers.'),
+    })
+  }
+}
+
 export function buildDocumentCrudOptions(binding: DocumentBinding) {
   const numberColumn = binding.numberField === 'orderNumber' ? 'order_number' : 'quote_number'
   const createSchema = binding.kind === 'order' ? orderCreateSchema : quoteCreateSchema
@@ -415,6 +435,13 @@ export function buildDocumentCrudOptions(binding: DocumentBinding) {
         mapInput: async ({ raw, ctx }: { raw: unknown; ctx: CrudCtx }) => {
           const { translate } = await resolveTranslations()
           const { base, custom } = splitCustomFieldPayload(raw ?? {})
+          const numberValue =
+            binding.kind === 'order'
+              ? (base as Record<string, unknown>).orderNumber
+              : (base as Record<string, unknown>).quoteNumber
+          if (typeof numberValue === 'string') {
+            await ensureNumberEditPermission(ctx, translate)
+          }
           const parsed = parseScopedCommandInput(
             documentUpdateSchema,
             Object.keys(custom).length ? { ...base, customFields: custom } : base,
