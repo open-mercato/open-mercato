@@ -14,7 +14,8 @@
     "db:migrate": "mercato db migrate",
     "db:greenfield": "mercato db greenfield",
     "initialize": "mercato init",
-    "reinstall": "mercato init --reinstall"
+    "reinstall": "mercato init --reinstall",
+    "preinstall": "node -e \"const v = process.versions.node.split('.').map(Number); if (v[0] < 24) { console.error('Node >= 24 required'); process.exit(1); }\""
   },
   "dependencies": {
     "@ai-sdk/openai": "^2.0.80",
@@ -51,7 +52,7 @@
     "newrelic": "^13.7.0",
     "next": "16.0.10",
     "pdf2pic": "^3.2.0",
-    "pg": "^8.16.3",
+    "pg": "8.16.3",
     "react": "19.2.1",
     "react-big-calendar": "^1.19.4",
     "react-dom": "19.2.1",
@@ -86,8 +87,5 @@
   },
   "engines": {
     "node": ">=24.0.0"
-  },
-  "scripts": {
-    "preinstall": "node -e \"const v = process.versions.node.split('.').map(Number); if (v[0] < 24) { console.error('Node >= 24 required'); process.exit(1); }\""
   }
 }
