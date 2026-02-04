@@ -5,7 +5,12 @@ import { modules } from '@/.mercato/generated/modules.generated'
 import { findBackendMatch } from '@open-mercato/shared/modules/registry'
 import { getAuthFromCookies } from '@open-mercato/shared/lib/auth/server'
 import { AppShell } from '@open-mercato/ui/backend/AppShell'
-import { buildAdminNav } from '@open-mercato/ui/backend/utils/nav'
+import {
+  buildAdminNav,
+  buildSettingsSections,
+  computeSettingsPathPrefixes,
+  convertToSectionNavGroups,
+} from '@open-mercato/ui/backend/utils/nav'
 import type { AdminNavItem } from '@open-mercato/ui/backend/utils/nav'
 import { ProfileDropdown } from '@open-mercato/ui/backend/ProfileDropdown'
 import { SettingsButton } from '@open-mercato/ui/backend/SettingsButton'
@@ -27,9 +32,7 @@ import type { FilterQuery } from '@mikro-orm/core'
 import type { AwilixContainer } from 'awilix'
 import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
 import { resolveFeatureCheckContext } from '@open-mercato/core/modules/directory/utils/organizationScope'
-import { settingsSections, settingsPathPrefixes, settingsRequiredFeatures } from '@open-mercato/core/modules/auth/lib/settings-sections'
 import { profileSections, profilePathPrefixes } from '@open-mercato/core/modules/auth/lib/profile-sections'
-import type { SectionNavGroup } from '@open-mercato/ui/backend/section-page'
 import { APP_VERSION } from '@open-mercato/shared/lib/version'
 import { PageInjectionBoundary } from '@open-mercato/ui/backend/injection/PageInjectionBoundary'
 import { AiAssistantIntegration, AiChatHeaderButton } from '@open-mercato/ai-assistant/frontend'
@@ -143,28 +146,6 @@ export default async function BackendLayout({ children, params }: { children: Re
         }
       }
     : undefined
-
-  const filterSectionsByFeatures = (
-    sections: SectionNavGroup[],
-    grantedFeatures: Set<string> | undefined
-  ): SectionNavGroup[] => {
-    if (!grantedFeatures) return sections
-    return sections
-      .map((section) => ({
-        ...section,
-        items: section.items.filter((item) =>
-          !item.requireFeatures?.length ||
-          item.requireFeatures.every((f) => grantedFeatures.has(f))
-        ),
-      }))
-      .filter((section) => section.items.length > 0)
-  }
-
-  let filteredSettingsSections = settingsSections
-  if (featureChecker && settingsRequiredFeatures.length > 0) {
-    const settingsFeaturesGranted = await featureChecker(settingsRequiredFeatures)
-    filteredSettingsSections = filterSectionsByFeatures(settingsSections, settingsFeaturesGranted)
-  }
 
   const entries = await buildAdminNav(
     modules,
@@ -325,6 +306,21 @@ export default async function BackendLayout({ children, params }: { children: Re
     const label = item.labelKey ? translate(item.labelKey, fallback || item.labelKey) : fallback
     return { ...item, label }
   })
+
+  const settingsSectionOrder: Record<string, number> = {
+    'system': 1,
+    'auth': 2,
+    'data-designer': 3,
+    'module-configs': 4,
+    'directory': 5,
+    'feature-toggles': 6,
+  }
+  const generatedSettingsSections = buildSettingsSections(entries, settingsSectionOrder)
+  const settingsPathPrefixes = computeSettingsPathPrefixes(generatedSettingsSections)
+  const filteredSettingsSections = convertToSectionNavGroups(
+    generatedSettingsSections,
+    (key, fallback) => (key ? translate(key, fallback) : fallback)
+  )
 
   const collapsedCookie = cookieStore.get('om_sidebar_collapsed')?.value
   const initialCollapsed = collapsedCookie === '1'

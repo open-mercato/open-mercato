@@ -67,6 +67,124 @@ async function fetchFeatureGrants(requestFeatures: string[]): Promise<Set<string
   return granted
 }
 
+/**
+ * @deprecated Use number directly in sectionOrder config instead
+ */
+export type SettingsSectionConfig = {
+  label: string
+  labelKey?: string
+  order: number
+}
+
+export type SettingsSection = {
+  id: string
+  label: string
+  labelKey?: string
+  order: number
+  items: Array<{
+    id: string
+    label: string
+    labelKey?: string
+    href: string
+    icon?: ReactNode
+    requireFeatures?: string[]
+    order: number
+  }>
+}
+
+export function buildSettingsSections(
+  entries: AdminNavItem[],
+  sectionOrder: Record<string, number>
+): SettingsSection[] {
+  const settingsItems = entries.filter(e => e.pageContext === 'settings')
+
+  const sectionMap = new Map<string, SettingsSection>()
+
+  for (const item of settingsItems) {
+    const sectionId = item.group.toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '')
+    const order = sectionOrder[sectionId] ?? 999
+
+    if (!sectionMap.has(sectionId)) {
+      sectionMap.set(sectionId, {
+        id: sectionId,
+        label: item.group,
+        labelKey: item.groupKey,
+        order,
+        items: []
+      })
+    }
+
+    const section = sectionMap.get(sectionId)!
+    const itemId = item.href.replace(/\//g, '-').slice(1)
+    section.items.push({
+      id: itemId,
+      label: item.title,
+      labelKey: item.titleKey,
+      href: item.href,
+      icon: item.icon,
+      requireFeatures: undefined,
+      order: item.order ?? item.priority ?? 100
+    })
+  }
+
+  const sections = Array.from(sectionMap.values())
+  sections.sort((a, b) => a.order - b.order)
+  for (const section of sections) {
+    section.items.sort((a, b) => a.order - b.order)
+  }
+
+  return sections
+}
+
+export function computeSettingsPathPrefixes(sections: SettingsSection[]): string[] {
+  const prefixes = new Set<string>()
+  for (const section of sections) {
+    for (const item of section.items) {
+      const parts = item.href.split('/')
+      if (parts.length > 3) {
+        prefixes.add(parts.slice(0, -1).join('/'))
+      }
+      prefixes.add(item.href)
+    }
+  }
+  return Array.from(prefixes)
+}
+
+export function convertToSectionNavGroups(
+  sections: SettingsSection[],
+  translate?: (key: string | undefined, fallback: string) => string
+): Array<{
+  id: string
+  label: string
+  labelKey?: string
+  order?: number
+  items: Array<{
+    id: string
+    label: string
+    labelKey?: string
+    href: string
+    icon?: ReactNode
+    requireFeatures?: string[]
+    order?: number
+  }>
+}> {
+  const t = translate || ((key, fallback) => fallback)
+  return sections.map(section => ({
+    id: section.id,
+    label: t(section.labelKey, section.label),
+    labelKey: section.labelKey,
+    order: section.order,
+    items: section.items.map(item => ({
+      id: item.id,
+      label: t(item.labelKey, item.label),
+      labelKey: item.labelKey,
+      href: item.href,
+      icon: item.icon,
+      order: item.order,
+    })),
+  }))
+}
+
 export async function buildAdminNav(
   modules: any[],
   ctx: { auth?: { roles?: string[]; sub?: string; orgId?: string | null; tenantId?: string | null }; path?: string },

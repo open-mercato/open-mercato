@@ -233,7 +233,7 @@ export function AppShell({ productName, email, groups, rightHeaderSlot, children
     setCustomizationError(null)
     setLoadingPreferences(true)
    try {
-     const baseSnapshot = AppShell.cloneGroups(navGroups)
+     const baseSnapshot = filterMainSidebarGroups(AppShell.cloneGroups(navGroups))
      const call = await apiCall<{
        settings?: Record<string, unknown>
        canApplyToRoles?: boolean
@@ -343,7 +343,7 @@ export function AppShell({ productName, email, groups, rightHeaderSlot, children
     setSavingPreferences(true)
     setCustomizationError(null)
     try {
-      const baseGroups = originalNavRef.current ?? AppShell.cloneGroups(navGroups)
+      const baseGroups = originalNavRef.current ?? filterMainSidebarGroups(AppShell.cloneGroups(navGroups))
       const { groupDefaults, itemDefaults } = collectSidebarDefaults(baseGroups)
       const sanitizedGroupLabels: Record<string, string> = {}
       for (const [key, value] of Object.entries(customDraft.groupLabels)) {
@@ -494,7 +494,7 @@ export function AppShell({ productName, email, groups, rightHeaderSlot, children
   // Keep navGroups in sync when server-provided groups change
   React.useEffect(() => {
     if (customizing && customDraft && originalNavRef.current) {
-      originalNavRef.current = AppShell.cloneGroups(groups)
+      originalNavRef.current = filterMainSidebarGroups(AppShell.cloneGroups(groups))
       setNavGroups(applyCustomizationDraft(originalNavRef.current, customDraft))
       return
     }
@@ -1302,4 +1302,26 @@ function collectSidebarDefaults(groups: SidebarGroup[]) {
   }
 
   return { groupDefaults, itemDefaults }
+}
+
+/**
+ * Filters groups to include only main sidebar items.
+ * Excludes items with pageContext 'settings' or 'profile' from customization.
+ * Per SPEC-007: Sidebar customization applies only to the main sidebar.
+ */
+function filterMainSidebarGroups(groups: SidebarGroup[]): SidebarGroup[] {
+  const isMainItem = (item: SidebarItem): boolean => {
+    if (item.pageContext && item.pageContext !== 'main') return false
+    return true
+  }
+
+  return groups
+    .map((group) => ({
+      ...group,
+      items: group.items.filter(isMainItem).map((item) => ({
+        ...item,
+        children: item.children?.filter(isMainItem),
+      })),
+    }))
+    .filter((group) => group.items.length > 0)
 }
