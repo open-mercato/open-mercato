@@ -7,7 +7,7 @@ import { Button } from '@open-mercato/ui/primitives/button'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import type { ActionLogItem } from './AuditLogsActions'
 import {
-  getChangeRows,
+  extractChangeRows,
   formatDate,
   formatResource,
   humanizeField,
@@ -36,8 +36,8 @@ export function ActionLogDetailsDialog({ item, onClose }: { item: ActionLogItem;
   }, [onClose])
 
   const changeRows = React.useMemo(
-    () => getChangeRows({ changes: item.changes, snapshotBefore: item.snapshotBefore, snapshotAfter: item.snapshotAfter }),
-    [item.changes, item.snapshotAfter, item.snapshotBefore],
+    () => extractChangeRows(item.changes, item.snapshotBefore),
+    [item.changes, item.snapshotBefore],
   )
 
   const hasContext = !!item.context && typeof item.context === 'object' && Object.keys(item.context).length > 0

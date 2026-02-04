@@ -5,7 +5,6 @@ import type { TranslateFn } from '@open-mercato/shared/lib/i18n/context'
 import type { VersionHistoryEntry } from './types'
 import {
   extractChangeRows,
-  getChangeRows,
   formatDate,
   humanizeField,
   normalizeChangeField,
@@ -21,8 +20,8 @@ export type VersionHistoryDetailProps = {
 export function VersionHistoryDetail({ entry, t }: VersionHistoryDetailProps) {
   const noneLabel = t('audit_logs.common.none')
   const changeRows = React.useMemo(
-    () => getChangeRows({ changes: entry.changes, snapshotBefore: entry.snapshotBefore, snapshotAfter: entry.snapshotAfter }),
-    [entry.changes, entry.snapshotAfter, entry.snapshotBefore],
+    () => extractChangeRows(entry.changes, entry.snapshotBefore),
+    [entry.changes, entry.snapshotBefore],
   )
   const hasContext = !!entry.context && typeof entry.context === 'object' && Object.keys(entry.context).length > 0
   const snapshots = React.useMemo(() => {
