@@ -3477,6 +3477,14 @@ const updateQuoteCommand: CommandHandler<DocumentUpdateInput, { quote: SalesQuot
     ensureQuoteScope(ctx, before.quote.organizationId, before.quote.tenantId)
     await restoreQuoteGraph(em, before)
     await em.flush()
+    const resourceKind = deriveResourceFromCommandId(updateQuoteCommand.id) ?? 'sales.quote'
+    await invalidateCrudCache(
+      ctx.container,
+      resourceKind,
+      { id: before.quote.id, organizationId: before.quote.organizationId, tenantId: before.quote.tenantId },
+      before.quote.tenantId,
+      'updated'
+    )
   },
 }
 
@@ -3649,6 +3657,14 @@ const updateOrderCommand: CommandHandler<DocumentUpdateInput, { order: SalesOrde
     ensureOrderScope(ctx, before.order.organizationId, before.order.tenantId)
     await restoreOrderGraph(em, before)
     await em.flush()
+    const resourceKind = deriveResourceFromCommandId(updateOrderCommand.id) ?? 'sales.order'
+    await invalidateCrudCache(
+      ctx.container,
+      resourceKind,
+      { id: before.order.id, organizationId: before.order.organizationId, tenantId: before.order.tenantId },
+      before.order.tenantId,
+      'updated'
+    )
   },
 }
 

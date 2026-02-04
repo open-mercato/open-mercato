@@ -10,6 +10,7 @@ export const setup: ModuleSetupConfig = {
       'ai_assistant.mcp_servers.view',
       'ai_assistant.mcp_servers.manage',
     ],
+    employee: ['ai_assistant.view'],
   },
 }
 
