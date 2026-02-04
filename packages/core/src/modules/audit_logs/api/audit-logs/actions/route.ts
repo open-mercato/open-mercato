@@ -108,7 +108,7 @@ export async function GET(req: Request) {
     }
   }
 
-  let actorUserId = auth.sub
+  let actorUserId: string | undefined = auth.sub
   if (canViewTenant && actorQuery) {
     actorUserId = actorQuery
   }

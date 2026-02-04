@@ -28,9 +28,11 @@ export function useVersionHistory(
   const [error, setError] = React.useState<string | null>(null)
   const [hasMore, setHasMore] = React.useState(false)
   const lastConfigRef = React.useRef<string | null>(null)
+  const loadedKeysRef = React.useRef<Set<string>>(new Set())
 
   const fetchEntries = React.useCallback(async (opts: { before?: string; reset?: boolean }) => {
     if (!config) return
+    const key = `${config.resourceKind}::${config.resourceId}`
     const params = new URLSearchParams({
       resourceKind: config.resourceKind,
       resourceId: config.resourceId,
@@ -66,6 +68,7 @@ export function useVersionHistory(
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load')
     } finally {
+      loadedKeysRef.current.add(key)
       setIsLoading(false)
     }
   }, [config])
@@ -94,13 +97,14 @@ export function useVersionHistory(
     const key = `${config.resourceKind}::${config.resourceId}`
     if (lastConfigRef.current !== key) {
       lastConfigRef.current = key
+      loadedKeysRef.current.delete(key)
       setEntries([])
       setHasMore(false)
       setError(null)
       void fetchEntries({ reset: true })
       return
     }
-    if (entries.length === 0 && !isLoading && !error) {
+    if (entries.length === 0 && !isLoading && !error && !loadedKeysRef.current.has(key)) {
       void fetchEntries({ reset: true })
     }
   }, [config, enabled, entries.length, error, fetchEntries, isLoading])
