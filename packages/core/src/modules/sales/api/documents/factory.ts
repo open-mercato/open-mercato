@@ -154,6 +154,8 @@ function buildSortMap(numberColumn: string) {
 
 const mapUpdateResponse = (entity: any) => ({
   id: entity?.id ?? null,
+  orderNumber: entity?.orderNumber ?? null,
+  quoteNumber: entity?.quoteNumber ?? null,
   customerEntityId: entity?.customerEntityId ?? null,
   customerContactId: entity?.customerContactId ?? null,
   customerSnapshot: entity?.customerSnapshot ?? null,

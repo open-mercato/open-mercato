@@ -858,6 +858,8 @@ type DocumentRecord = {
 }
 
 type DocumentUpdateResult = {
+  orderNumber?: string | null
+  quoteNumber?: string | null
   externalReference?: string | null
   customerReference?: string | null
   comment?: string | null
@@ -3426,19 +3428,81 @@ export default function SalesDocumentDetailPage({
 
   const handleGenerateNumber = React.useCallback(async () => {
     setGenerating(true)
-    const call = await apiCall<{ number?: string }>(`/api/sales/document-numbers`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ kind }),
-    })
-    if (call.ok && call.result?.number) {
-      setRecord((prev) => (prev ? { ...prev, orderNumber: kind === 'order' ? call.result?.number : prev.orderNumber, quoteNumber: kind === 'quote' ? call.result?.number : prev.quoteNumber } : prev))
+    try {
+      const call = await apiCall<{ number?: string }>(`/api/sales/document-numbers`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ kind }),
+      })
+      const nextNumber = typeof call.result?.number === 'string' ? call.result.number : null
+      if (!call.ok || !nextNumber) {
+        throw new Error(t('sales.documents.detail.numberGenerateError', 'Could not generate number.'))
+      }
+      const payload = kind === 'order' ? { orderNumber: nextNumber } : { quoteNumber: nextNumber }
+      const update = await updateDocument(payload)
+      const savedNumber =
+        kind === 'order'
+          ? (typeof update.result?.orderNumber === 'string' ? update.result.orderNumber : nextNumber)
+          : (typeof update.result?.quoteNumber === 'string' ? update.result.quoteNumber : nextNumber)
+      setRecord((prev) =>
+        prev
+          ? {
+              ...prev,
+              orderNumber: kind === 'order' ? savedNumber : prev.orderNumber,
+              quoteNumber: kind === 'quote' ? savedNumber : prev.quoteNumber,
+            }
+          : prev
+      )
       flash(t('sales.documents.detail.numberGenerated', 'New number generated.'), 'success')
-    } else {
-      flash(t('sales.documents.detail.numberGenerateError', 'Could not generate number.'), 'error')
+    } catch (err) {
+      const message =
+        err instanceof Error && err.message
+          ? err.message
+          : t('sales.documents.detail.numberGenerateError', 'Could not generate number.')
+      flash(message, 'error')
+      throw err
+    } finally {
+      setGenerating(false)
     }
-    setGenerating(false)
-  }, [kind, t])
+  }, [kind, t, updateDocument])
+
+  const handleUpdateNumber = React.useCallback(
+    async (next: string | null) => {
+      if (!record) return
+      const normalized = typeof next === 'string' ? next.trim() : ''
+      if (!normalized.length) {
+        const message = t('sales.documents.detail.numberRequired', 'Document number is required.')
+        flash(message, 'error')
+        throw new Error(message)
+      }
+      try {
+        const payload = kind === 'order' ? { orderNumber: normalized } : { quoteNumber: normalized }
+        const call = await updateDocument(payload)
+        const savedNumber =
+          kind === 'order'
+            ? (typeof call.result?.orderNumber === 'string' ? call.result.orderNumber : normalized)
+            : (typeof call.result?.quoteNumber === 'string' ? call.result.quoteNumber : normalized)
+        setRecord((prev) =>
+          prev
+            ? {
+                ...prev,
+                orderNumber: kind === 'order' ? savedNumber : prev.orderNumber,
+                quoteNumber: kind === 'quote' ? savedNumber : prev.quoteNumber,
+              }
+            : prev
+        )
+        flash(t('sales.documents.detail.updatedMessage', 'Document updated.'), 'success')
+      } catch (err) {
+        const message =
+          err instanceof Error && err.message
+            ? err.message
+            : t('sales.documents.detail.updateError', 'Failed to update document.')
+        flash(message, 'error')
+        throw err
+      }
+    },
+    [kind, record, t, updateDocument]
+  )
 
   const handleConvert = React.useCallback(async () => {
     if (!record || kind !== 'quote') return
@@ -4259,7 +4323,7 @@ export default function SalesDocumentDetailPage({
               label={t('sales.documents.detail.number', 'Document number')}
               value={number}
               emptyLabel={t('sales.documents.detail.numberEmpty', 'No number yet')}
-              onSave={async () => flash(t('sales.documents.detail.saveStub', 'Saving number will land soon.'), 'info')}
+              onSave={handleUpdateNumber}
               variant="plain"
               activateOnClick
               hideLabel
