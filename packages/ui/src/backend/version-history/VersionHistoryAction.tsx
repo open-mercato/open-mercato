@@ -28,7 +28,15 @@ export function VersionHistoryAction({
       && String(config.resourceId).trim().length > 0
   )
   const [open, setOpen] = React.useState(false)
-  const historyData = useVersionHistory(enabled ? config! : null, open)
+  const stableConfig = React.useMemo<VersionHistoryConfig | null>(() => {
+    if (!enabled || !config) return null
+    return {
+      resourceKind: config.resourceKind,
+      resourceId: config.resourceId,
+      organizationId: config.organizationId,
+    }
+  }, [enabled, config?.resourceKind, config?.resourceId, config?.organizationId])
+  const historyData = useVersionHistory(stableConfig, open)
 
   if (!enabled) return null
 

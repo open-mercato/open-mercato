@@ -29,6 +29,7 @@ export function useVersionHistory(
   const [hasMore, setHasMore] = React.useState(false)
   const lastConfigRef = React.useRef<string | null>(null)
   const loadedKeysRef = React.useRef<Set<string>>(new Set())
+  const wasEnabledRef = React.useRef(false)
 
   const fetchEntries = React.useCallback(async (opts: { before?: string; reset?: boolean }) => {
     if (!config) return
@@ -38,6 +39,7 @@ export function useVersionHistory(
       resourceId: config.resourceId,
       limit: String(PAGE_SIZE),
     })
+    if (config.organizationId) params.set('organizationId', config.organizationId)
     if (opts.before) params.set('before', opts.before)
     setIsLoading(true)
     setError(null)
@@ -75,6 +77,8 @@ export function useVersionHistory(
 
   const refresh = React.useCallback(() => {
     if (!config) return
+    const key = `${config.resourceKind}::${config.resourceId}::${config.organizationId ?? 'default'}`
+    loadedKeysRef.current.delete(key)
     setEntries([])
     setHasMore(false)
     void fetchEntries({ reset: true })
@@ -94,7 +98,9 @@ export function useVersionHistory(
 
   React.useEffect(() => {
     if (!enabled || !config) return
-    const key = `${config.resourceKind}::${config.resourceId}`
+    const key = `${config.resourceKind}::${config.resourceId}::${config.organizationId ?? 'default'}`
+    const isFirstEnable = !wasEnabledRef.current
+    wasEnabledRef.current = true
     if (lastConfigRef.current !== key) {
       lastConfigRef.current = key
       loadedKeysRef.current.delete(key)
@@ -104,10 +110,15 @@ export function useVersionHistory(
       void fetchEntries({ reset: true })
       return
     }
-    if (entries.length === 0 && !isLoading && !error && !loadedKeysRef.current.has(key)) {
+    if (isFirstEnable && !loadedKeysRef.current.has(key)) {
       void fetchEntries({ reset: true })
     }
-  }, [config, enabled, entries.length, error, fetchEntries, isLoading])
+  }, [config, enabled, fetchEntries])
+
+  React.useEffect(() => {
+    if (enabled) return
+    wasEnabledRef.current = false
+  }, [enabled])
 
   return {
     entries,

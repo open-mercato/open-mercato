@@ -18,4 +18,5 @@ export type VersionHistoryEntry = {
 export type VersionHistoryConfig = {
   resourceKind: string
   resourceId: string
+  organizationId?: string
 }
