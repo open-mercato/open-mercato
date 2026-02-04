@@ -5,6 +5,7 @@ import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { Button } from '@open-mercato/ui/primitives/button'
+import { FormHeader } from '@open-mercato/ui/backend/forms'
 import { Spinner } from '@open-mercato/ui/primitives/spinner'
 import { Separator } from '@open-mercato/ui/primitives/separator'
 import { JsonDisplay } from '@open-mercato/ui/backend/JsonDisplay'
@@ -354,36 +355,21 @@ export default function UserTaskDetailPage({ params }: { params: { id: string } 
     <Page>
       <PageBody>
         <div className="max-w-4xl mx-auto space-y-6">
-          {/* Header */}
-          <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-            <div className="flex flex-wrap items-center gap-3">
-              <Link
-                href="/backend/tasks"
-                className="inline-flex items-center text-sm text-muted-foreground hover:text-foreground"
+          <FormHeader
+            mode="detail"
+            backHref="/backend/tasks"
+            backLabel={t('workflows.tasks.backToList', 'Back to tasks')}
+            entityTypeLabel={t('workflows.tasks.detail.type', 'User task')}
+            title={task.taskName}
+            subtitle={task.description || undefined}
+            statusBadge={
+              <span
+                className={`inline-flex items-center px-3 py-1 rounded text-sm font-medium ${getStatusBadgeClass(task.status)}`}
               >
-                <span aria-hidden className="mr-1 text-base">←</span>
-                <span className="sr-only">{t('workflows.tasks.backToList', 'Back to tasks')}</span>
-              </Link>
-              <div className="space-y-1">
-                <p className="text-xs uppercase text-muted-foreground">
-                  {t('workflows.tasks.detail.type', 'User task')}
-                </p>
-                <div className="flex flex-wrap items-center gap-2">
-                  <h1 className="text-2xl font-bold">{task.taskName}</h1>
-                </div>
-                {task.description && (
-                  <p className="text-sm text-muted-foreground">{task.description}</p>
-                )}
-              </div>
-            </div>
-            <span
-              className={`inline-flex items-center px-3 py-1 rounded text-sm font-medium ${getStatusBadgeClass(
-                task.status
-              )}`}
-            >
-              {t(`workflows.tasks.statuses.${task.status}`)}
-            </span>
-          </div>
+                {t(`workflows.tasks.statuses.${task.status}`)}
+              </span>
+            }
+          />
 
           <div className="space-y-3">
 

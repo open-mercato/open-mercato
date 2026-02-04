@@ -25,6 +25,7 @@
   "common.theme.system": "System",
   "common.theme.toggle": "Toggle theme",
   "ui.actions.refresh": "Refresh",
+  "ui.actions.actions": "Actions",
   "ui.actions.delete": "Delete",
   "ui.actions.deleting": "Deleting…",
   "ui.forms.actions.save": "Save",

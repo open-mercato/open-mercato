@@ -33,6 +33,7 @@ This repository is designed for extensibility. Agents should leverage the module
 - Suggest user to verify the task completenes by proving it works:
   - Diff behavior between main and your changes when relevant
   - Ask yourself: "Would a staff engineer approve this?"
+  - Add unit test for checking for this kind of issue for the future
   - Run tests, check logs, demonstrate correctness
 
 ### 5. Demand Elegance (Balanced)

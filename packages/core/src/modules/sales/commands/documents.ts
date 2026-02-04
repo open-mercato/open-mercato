@@ -416,6 +416,8 @@ export const documentUpdateSchema = z
     customerReference: z.string().nullable().optional(),
     externalReference: z.string().nullable().optional(),
     comment: z.string().nullable().optional(),
+    orderNumber: z.string().trim().min(1).max(191).optional(),
+    quoteNumber: z.string().trim().min(1).max(191).optional(),
     currencyCode: currencyCodeSchema.optional(),
     channelId: z.string().uuid().nullable().optional(),
     statusEntryId: z.string().uuid().nullable().optional(),
@@ -451,6 +453,8 @@ export const documentUpdateSchema = z
       input.customerReference !== undefined ||
       input.externalReference !== undefined ||
       input.comment !== undefined ||
+      input.orderNumber !== undefined ||
+      input.quoteNumber !== undefined ||
       input.shippingAddressSnapshot !== undefined ||
       input.billingAddressSnapshot !== undefined ||
       input.shippingMethodId !== undefined ||
@@ -790,6 +794,13 @@ async function applyDocumentUpdate({
       'sales.orders.edit_addresses_blocked',
       'Editing addresses is blocked for this status.'
     )
+  }
+
+  if (kind === 'order' && typeof input.orderNumber === 'string') {
+    (entity as SalesOrder).orderNumber = input.orderNumber
+  }
+  if (kind === 'quote' && typeof input.quoteNumber === 'string') {
+    (entity as SalesQuote).quoteNumber = input.quoteNumber
   }
 
   if (input.customerEntityId !== undefined) {
