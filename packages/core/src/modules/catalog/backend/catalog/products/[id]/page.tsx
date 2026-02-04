@@ -703,6 +703,7 @@ function normalizeVariantOptionValues(input: unknown): Record<string, string> | 
         <CrudForm<ProductFormValues>
           title={t('catalog.products.edit.title', 'Edit product')}
           backHref="/backend/catalog/products"
+          versionHistory={{ resourceKind: 'catalog.product', resourceId: productId ? String(productId) : '' }}
           fields={[]}
           groups={groups}
           injectionSpotId="crud-form:catalog.product"

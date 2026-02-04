@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation'
 import { Building2, Loader2, Pencil, X } from 'lucide-react'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { FormHeader } from '@open-mercato/ui/backend/forms'
+import { VersionHistoryAction } from '@open-mercato/ui/backend/version-history'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 import { cn } from '@open-mercato/shared/lib/utils'
@@ -328,6 +329,12 @@ export function PersonHighlights({
         mode="detail"
         backHref="/backend/customers/people"
         backLabel={t('customers.people.detail.actions.backToList')}
+        utilityActions={(
+          <VersionHistoryAction
+            config={{ resourceKind: 'customers.person', resourceId: person.id }}
+            t={t}
+          />
+        )}
         title={
           <InlineTextEditor
             label={t('customers.people.form.displayName.label')}

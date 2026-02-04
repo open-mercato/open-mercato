@@ -1,5 +1,7 @@
 export { VersionHistoryPanel } from './VersionHistoryPanel'
 export type { VersionHistoryPanelProps } from './VersionHistoryPanel'
+export { VersionHistoryAction } from './VersionHistoryAction'
+export type { VersionHistoryActionProps } from './VersionHistoryAction'
 export { useVersionHistory } from './useVersionHistory'
 export type { UseVersionHistoryResult } from './useVersionHistory'
 export type { VersionHistoryEntry, VersionHistoryConfig } from './types'

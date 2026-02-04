@@ -2,6 +2,7 @@
 
 import * as React from 'react'
 import { FormHeader } from '@open-mercato/ui/backend/forms'
+import { VersionHistoryAction } from '@open-mercato/ui/backend/version-history'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import {
   InlineTextEditor,
@@ -70,6 +71,12 @@ export function CompanyHighlights({
         mode="detail"
         backHref="/backend/customers/companies"
         backLabel={t('customers.companies.detail.actions.backToList', 'Back to companies')}
+        utilityActions={(
+          <VersionHistoryAction
+            config={{ resourceKind: 'customers.company', resourceId: company.id }}
+            t={t}
+          />
+        )}
         title={
           <InlineTextEditor
             label={t('customers.companies.form.displayName.label', 'Display name')}
