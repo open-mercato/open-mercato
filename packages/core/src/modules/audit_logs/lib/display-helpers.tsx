@@ -17,6 +17,14 @@ export function humanizeField(field: string) {
     .replace(/\b\w/g, (s) => s.toUpperCase())
 }
 
+export function normalizeChangeField(field: string) {
+  const parts = field.split('.')
+  if (parts.length === 2) {
+    return parts[1]
+  }
+  return field
+}
+
 export function renderValue(value: unknown, fallback: string) {
   if (value === undefined || value === null || value === '') {
     return <span className="text-muted-foreground">{fallback}</span>
@@ -139,4 +147,15 @@ export function extractChangeRowsFromSnapshots(
   return buildSnapshotDiff(snapshotBefore, snapshotAfter)
     .map((entry) => ({ field: entry.field, from: entry.from, to: entry.to }))
     .sort((a, b) => a.field.localeCompare(b.field))
+}
+
+export function getChangeRows(params: {
+  changes?: Record<string, unknown> | null
+  snapshotBefore?: unknown | null
+  snapshotAfter?: unknown | null
+}): ChangeRow[] {
+  const primary = extractChangeRows(params.changes, params.snapshotBefore)
+  if (primary.length) return primary
+  if (params.snapshotBefore == null || params.snapshotAfter == null) return []
+  return extractChangeRowsFromSnapshots(params.snapshotBefore, params.snapshotAfter)
 }

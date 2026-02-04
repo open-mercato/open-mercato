@@ -681,6 +681,7 @@ export default function CustomerCompanyDetailPage({ params }: { params?: { id?: 
         <div className="space-y-8">
           <CompanyHighlights
             company={company}
+            profile={profile ?? null}
             validators={validators}
             onDisplayNameSave={updateDisplayName}
             onPrimaryEmailSave={(value) => updateCompanyField('primaryEmail', value)}

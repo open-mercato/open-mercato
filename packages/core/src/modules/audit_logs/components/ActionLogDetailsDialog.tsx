@@ -7,11 +7,11 @@ import { Button } from '@open-mercato/ui/primitives/button'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import type { ActionLogItem } from './AuditLogsActions'
 import {
-  extractChangeRows,
-  extractChangeRowsFromSnapshots,
+  getChangeRows,
   formatDate,
   formatResource,
   humanizeField,
+  normalizeChangeField,
   renderValue,
   safeStringify,
 } from '../lib/display-helpers'
@@ -35,11 +35,10 @@ export function ActionLogDetailsDialog({ item, onClose }: { item: ActionLogItem;
     }
   }, [onClose])
 
-  const changeRows = React.useMemo(() => {
-    const primary = extractChangeRows(item.changes, item.snapshotBefore, item.snapshotAfter)
-    if (primary.length) return primary
-    return extractChangeRowsFromSnapshots(item.snapshotBefore, item.snapshotAfter)
-  }, [item.changes, item.snapshotAfter, item.snapshotBefore])
+  const changeRows = React.useMemo(
+    () => getChangeRows({ changes: item.changes, snapshotBefore: item.snapshotBefore, snapshotAfter: item.snapshotAfter }),
+    [item.changes, item.snapshotAfter, item.snapshotBefore],
+  )
 
   const hasContext = !!item.context && typeof item.context === 'object' && Object.keys(item.context).length > 0
   const snapshots = React.useMemo(() => {
@@ -146,7 +145,7 @@ export function ActionLogDetailsDialog({ item, onClose }: { item: ActionLogItem;
                     {changeRows.map((row) => (
                       <tr key={row.field} className="align-top">
                         <td className="px-4 py-2 align-top font-medium">
-                          {humanizeField(row.field)}
+                          {humanizeField(normalizeChangeField(row.field))}
                         </td>
                         <td className="px-4 py-2">
                           {renderValue(row.from, noneLabel)}

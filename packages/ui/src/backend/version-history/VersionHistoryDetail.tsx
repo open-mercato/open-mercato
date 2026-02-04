@@ -5,9 +5,10 @@ import type { TranslateFn } from '@open-mercato/shared/lib/i18n/context'
 import type { VersionHistoryEntry } from './types'
 import {
   extractChangeRows,
-  extractChangeRowsFromSnapshots,
+  getChangeRows,
   formatDate,
   humanizeField,
+  normalizeChangeField,
   renderValue,
   safeStringify,
 } from '@open-mercato/core/modules/audit_logs/lib/display-helpers'
@@ -19,11 +20,10 @@ export type VersionHistoryDetailProps = {
 
 export function VersionHistoryDetail({ entry, t }: VersionHistoryDetailProps) {
   const noneLabel = t('audit_logs.common.none')
-  const changeRows = React.useMemo(() => {
-    const primary = extractChangeRows(entry.changes, entry.snapshotBefore, entry.snapshotAfter)
-    if (primary.length) return primary
-    return extractChangeRowsFromSnapshots(entry.snapshotBefore, entry.snapshotAfter)
-  }, [entry.changes, entry.snapshotAfter, entry.snapshotBefore])
+  const changeRows = React.useMemo(
+    () => getChangeRows({ changes: entry.changes, snapshotBefore: entry.snapshotBefore, snapshotAfter: entry.snapshotAfter }),
+    [entry.changes, entry.snapshotAfter, entry.snapshotBefore],
+  )
   const hasContext = !!entry.context && typeof entry.context === 'object' && Object.keys(entry.context).length > 0
   const snapshots = React.useMemo(() => {
     const items: { label: string; value: unknown }[] = []
@@ -89,10 +89,10 @@ export function VersionHistoryDetail({ entry, t }: VersionHistoryDetailProps) {
               </thead>
               <tbody className="divide-y">
                 {changeRows.map((row) => (
-                  <tr key={row.field} className="align-top">
-                    <td className="px-4 py-2 align-top font-medium">
-                      {humanizeField(row.field)}
-                    </td>
+                      <tr key={row.field} className="align-top">
+                        <td className="px-4 py-2 align-top font-medium">
+                      {humanizeField(normalizeChangeField(row.field))}
+                        </td>
                     <td className="px-4 py-2">
                       {renderValue(row.from, noneLabel)}
                     </td>

@@ -32,6 +32,7 @@ type PersonHighlightsPerson = {
 }
 
 type PersonHighlightsProfile = {
+  id?: string
   companyEntityId?: string | null
 } | null
 
@@ -119,6 +120,8 @@ export function PersonHighlights({
   )
 
   const activeCompanyId = profile?.companyEntityId ?? null
+  const historyFallbackId =
+    profile?.id && profile.id !== person.id ? profile.id : undefined
 
   const loadCompany = React.useCallback(async (companyId: string | null) => {
     if (!companyId) {
@@ -331,7 +334,11 @@ export function PersonHighlights({
         backLabel={t('customers.people.detail.actions.backToList')}
         utilityActions={(
           <VersionHistoryAction
-            config={{ resourceKind: 'customers.person', resourceId: person.id }}
+            config={{
+              resourceKind: 'customers.person',
+              resourceId: person.id,
+              resourceIdFallback: historyFallbackId,
+            }}
             t={t}
           />
         )}

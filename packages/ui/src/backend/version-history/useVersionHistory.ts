@@ -30,13 +30,18 @@ export function useVersionHistory(
   const lastConfigRef = React.useRef<string | null>(null)
   const loadedKeysRef = React.useRef<Set<string>>(new Set())
   const wasEnabledRef = React.useRef(false)
+  const activeResourceIdRef = React.useRef<string | null>(null)
+  const fallbackTriedRef = React.useRef(false)
 
-  const fetchEntries = React.useCallback(async (opts: { before?: string; reset?: boolean }) => {
+  const fetchEntries = React.useCallback(async (opts: { before?: string; reset?: boolean; resourceId?: string }) => {
     if (!config) return
-    const key = `${config.resourceKind}::${config.resourceId}`
+    const resourceId = opts.resourceId
+      ?? activeResourceIdRef.current
+      ?? config.resourceId
+    const key = `${config.resourceKind}::${resourceId}::${config.resourceIdFallback ?? 'none'}::${config.organizationId ?? 'default'}`
     const params = new URLSearchParams({
       resourceKind: config.resourceKind,
-      resourceId: config.resourceId,
+      resourceId,
       limit: String(PAGE_SIZE),
     })
     if (config.organizationId) params.set('organizationId', config.organizationId)
@@ -67,6 +72,21 @@ export function useVersionHistory(
         })
       })
       setHasMore(items.length === PAGE_SIZE)
+      if (
+        opts.reset
+        && items.length === 0
+        && config.resourceIdFallback
+        && resourceId === config.resourceId
+        && config.resourceIdFallback !== config.resourceId
+        && !fallbackTriedRef.current
+      ) {
+        fallbackTriedRef.current = true
+        activeResourceIdRef.current = config.resourceIdFallback
+        setEntries([])
+        setHasMore(false)
+        void fetchEntries({ reset: true, resourceId: config.resourceIdFallback })
+        return
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load')
     } finally {
@@ -77,8 +97,10 @@ export function useVersionHistory(
 
   const refresh = React.useCallback(() => {
     if (!config) return
-    const key = `${config.resourceKind}::${config.resourceId}::${config.organizationId ?? 'default'}`
+    const key = `${config.resourceKind}::${config.resourceId}::${config.resourceIdFallback ?? 'none'}::${config.organizationId ?? 'default'}`
     loadedKeysRef.current.delete(key)
+    activeResourceIdRef.current = config.resourceId
+    fallbackTriedRef.current = false
     setEntries([])
     setHasMore(false)
     void fetchEntries({ reset: true })
@@ -93,17 +115,22 @@ export function useVersionHistory(
     if (!hasMore) return
     const lastEntry = entries[entries.length - 1]
     if (!lastEntry?.createdAt) return
-    void fetchEntries({ before: lastEntry.createdAt })
+    void fetchEntries({
+      before: lastEntry.createdAt,
+      resourceId: activeResourceIdRef.current ?? config.resourceId,
+    })
   }, [config, entries, fetchEntries, hasMore, isLoading])
 
   React.useEffect(() => {
     if (!enabled || !config) return
-    const key = `${config.resourceKind}::${config.resourceId}::${config.organizationId ?? 'default'}`
+    const key = `${config.resourceKind}::${config.resourceId}::${config.resourceIdFallback ?? 'none'}::${config.organizationId ?? 'default'}`
     const isFirstEnable = !wasEnabledRef.current
     wasEnabledRef.current = true
     if (lastConfigRef.current !== key) {
       lastConfigRef.current = key
       loadedKeysRef.current.delete(key)
+      activeResourceIdRef.current = config.resourceId
+      fallbackTriedRef.current = false
       setEntries([])
       setHasMore(false)
       setError(null)

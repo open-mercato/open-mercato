@@ -33,9 +33,10 @@ export function VersionHistoryAction({
     return {
       resourceKind: config.resourceKind,
       resourceId: config.resourceId,
+      resourceIdFallback: config.resourceIdFallback,
       organizationId: config.organizationId,
     }
-  }, [enabled, config?.resourceKind, config?.resourceId, config?.organizationId])
+  }, [enabled, config?.resourceKind, config?.resourceId, config?.resourceIdFallback, config?.organizationId])
   const historyData = useVersionHistory(stableConfig, open)
 
   if (!enabled) return null

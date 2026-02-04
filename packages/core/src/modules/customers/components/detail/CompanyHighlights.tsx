@@ -26,6 +26,7 @@ type CompanyHighlightsCompany = {
 }
 
 type CompanyHighlightsProfile = {
+  id?: string
   brandName?: string | null
   legalName?: string | null
   websiteUrl?: string | null
@@ -54,6 +55,7 @@ export type CompanyHighlightsProps = {
 
 export function CompanyHighlights({
   company,
+  profile,
   validators,
   onDisplayNameSave,
   onPrimaryEmailSave,
@@ -64,6 +66,8 @@ export function CompanyHighlights({
   isDeleting,
 }: CompanyHighlightsProps) {
   const t = useT()
+  const historyFallbackId =
+    profile?.id && profile.id !== company.id ? profile.id : undefined
 
   return (
     <div className="space-y-6">
@@ -73,7 +77,11 @@ export function CompanyHighlights({
         backLabel={t('customers.companies.detail.actions.backToList', 'Back to companies')}
         utilityActions={(
           <VersionHistoryAction
-            config={{ resourceKind: 'customers.company', resourceId: company.id }}
+            config={{
+              resourceKind: 'customers.company',
+              resourceId: company.id,
+              resourceIdFallback: historyFallbackId,
+            }}
             t={t}
           />
         )}
