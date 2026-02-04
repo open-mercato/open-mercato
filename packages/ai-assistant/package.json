@@ -84,7 +84,7 @@
     "@ai-sdk/anthropic": "^3.0.12",
     "@ai-sdk/google": "^1.2.6",
     "@ai-sdk/openai": "^3.0.5",
-    "@modelcontextprotocol/sdk": "^1.25.2",
+    "@modelcontextprotocol/sdk": "^1.26.0",
     "ai": "^6.0.33",
     "cmdk": "^1.0.0",
     "framer-motion": "^11.0.0",
