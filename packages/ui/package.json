@@ -58,6 +58,10 @@
       "types": "./src/backend/injection/widgetRegistry.ts",
       "default": "./dist/backend/injection/widgetRegistry.js"
     },
+    "./backend/forms": {
+      "types": "./src/backend/forms/index.ts",
+      "default": "./dist/backend/forms/index.js"
+    },
     "./backend/notifications": {
       "types": "./src/backend/notifications/index.ts",
       "default": "./dist/backend/notifications/index.js"
