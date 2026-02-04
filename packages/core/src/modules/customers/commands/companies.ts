@@ -5,7 +5,6 @@ import {
   setCustomFieldsIfAny,
   emitCrudSideEffects,
   emitCrudUndoSideEffects,
-  buildChanges,
   requireId,
 } from '@open-mercato/shared/lib/commands/helpers'
 import type { DataEngine } from '@open-mercato/shared/lib/data/engine'
@@ -44,7 +43,6 @@ import {
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import {
   loadCustomFieldSnapshot,
-  diffCustomFieldChanges,
   buildCustomFieldResetMap,
 } from '@open-mercato/shared/lib/commands/customFieldSnapshots'
 import type { CrudIndexerConfig } from '@open-mercato/shared/lib/crud/types'
@@ -514,31 +512,6 @@ const updateCompanyCommand: CommandHandler<CompanyUpdateInput, { entityId: strin
     if (!before) return null
     const em = (ctx.container.resolve('em') as EntityManager)
     const afterSnapshot = await loadCompanySnapshot(em, before.entity.id)
-    const changeKeys: readonly string[] = [
-      'displayName',
-      'description',
-      'ownerUserId',
-      'primaryEmail',
-      'primaryPhone',
-      'status',
-      'lifecycleStage',
-      'source',
-      'nextInteractionAt',
-      'nextInteractionName',
-      'nextInteractionRefId',
-      'nextInteractionIcon',
-      'nextInteractionColor',
-      'isActive',
-    ]
-    const changes =
-      afterSnapshot && afterSnapshot.entity
-        ? buildChanges(
-            before.entity as Record<string, unknown>,
-            afterSnapshot.entity as Record<string, unknown>,
-            changeKeys
-          )
-        : {}
-    const customChanges = diffCustomFieldChanges(before.custom, afterSnapshot?.custom)
     return {
       actionLabel: translate('customers.audit.companies.update', 'Update company'),
       resourceKind: 'customers.company',
@@ -547,7 +520,6 @@ const updateCompanyCommand: CommandHandler<CompanyUpdateInput, { entityId: strin
       organizationId: before.entity.organizationId,
       snapshotBefore: before,
       snapshotAfter: afterSnapshot ?? null,
-      changes: Object.keys(customChanges).length ? { ...changes, custom: customChanges } : changes,
       payload: {
         undo: {
           before,

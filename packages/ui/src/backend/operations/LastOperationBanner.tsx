@@ -75,7 +75,7 @@ export function LastOperationBanner() {
         size="sm"
         onClick={() => { void handleUndo() }}
         disabled={isPending}
-        className="border-amber-300 text-amber-900 hover:bg-amber-100 px-2.5 sm:px-3"
+        className="border-amber-300 text-amber-900 hover:bg-amber-100 hover:text-amber-900 dark:border-amber-700 dark:text-amber-100 dark:hover:bg-amber-900/40 dark:hover:text-amber-100 px-2.5 sm:px-3"
       >
         <Undo2 className="mr-1 size-4" aria-hidden="true" />
         {isPending ? t('audit_logs.actions.undoing') : t('audit_logs.banner.undo')}

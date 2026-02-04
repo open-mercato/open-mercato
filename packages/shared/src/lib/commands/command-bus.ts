@@ -20,6 +20,7 @@ import {
   pickFirstIdentifier,
   isCrudCacheDebugEnabled,
 } from '@open-mercato/shared/lib/crud/cache'
+import { normalizeCustomFieldKey } from '@open-mercato/shared/lib/custom-fields/keys'
 
 const SKIPPED_ACTION_LOG_RESOURCE_KINDS = new Set<string>([
   'audit_logs.access',
@@ -56,17 +57,62 @@ function deepEqual(a: unknown, b: unknown): boolean {
   return false
 }
 
+const CUSTOM_FIELD_CONTAINER_KEYS = new Set(['custom', 'customFields', 'customValues', 'cf'])
+
+function appendCustomFieldChanges(
+  changes: Record<string, { from: unknown; to: unknown }>,
+  before: unknown,
+  after: unknown
+): boolean {
+  const beforeRec = asRecord(before)
+  const afterRec = asRecord(after)
+  if (!beforeRec && !afterRec) return false
+  const left = beforeRec ?? {}
+  const right = afterRec ?? {}
+  const keys = new Set([...Object.keys(left), ...Object.keys(right)])
+  for (const key of keys) {
+    const from = left[key]
+    const to = right[key]
+    if (!deepEqual(from, to)) {
+      changes[normalizeCustomFieldKey(key)] = { from, to }
+    }
+  }
+  return true
+}
+
 function buildRecordChanges(
   before: Record<string, unknown>,
   after: Record<string, unknown>,
 ): Record<string, { from: unknown; to: unknown }> {
+  return buildRecordChangesDeep(before, after)
+}
+
+function buildRecordChangesDeep(
+  before: Record<string, unknown>,
+  after: Record<string, unknown>,
+  prefix?: string,
+): Record<string, { from: unknown; to: unknown }> {
   const changes: Record<string, { from: unknown; to: unknown }> = {}
   const keys = new Set([...Object.keys(before), ...Object.keys(after)])
   for (const key of keys) {
+    if (CUSTOM_FIELD_CONTAINER_KEYS.has(key)) {
+      const handled = appendCustomFieldChanges(changes, before[key], after[key])
+      if (handled) continue
+    }
     const from = before[key]
     const to = after[key]
+    const path = prefix ? `${prefix}.${key}` : key
+    const fromRec = asRecord(from)
+    const toRec = asRecord(to)
+    if (fromRec && toRec) {
+      const nested = buildRecordChangesDeep(fromRec, toRec, path)
+      if (Object.keys(nested).length) {
+        Object.assign(changes, nested)
+        continue
+      }
+    }
     if (!deepEqual(from, to)) {
-      changes[key] = { from, to }
+      changes[path] = { from, to }
     }
   }
   return changes
@@ -210,18 +256,18 @@ export class CommandBus {
   private mergeMetadata(primary?: CommandLogMetadata | null, secondary?: CommandLogMetadata | null): CommandLogMetadata | null {
     if (!primary && !secondary) return null
     return {
-      tenantId: primary?.tenantId ?? secondary?.tenantId ?? null,
-      organizationId: primary?.organizationId ?? secondary?.organizationId ?? null,
-      actorUserId: primary?.actorUserId ?? secondary?.actorUserId ?? null,
-      actionLabel: primary?.actionLabel ?? secondary?.actionLabel ?? null,
-      resourceKind: primary?.resourceKind ?? secondary?.resourceKind ?? null,
-      resourceId: primary?.resourceId ?? secondary?.resourceId ?? null,
-      undoToken: primary?.undoToken ?? secondary?.undoToken ?? null,
-      payload: primary?.payload ?? secondary?.payload ?? null,
-      snapshotBefore: primary?.snapshotBefore ?? secondary?.snapshotBefore ?? null,
-      snapshotAfter: primary?.snapshotAfter ?? secondary?.snapshotAfter ?? null,
-      changes: primary?.changes ?? secondary?.changes ?? null,
-      context: primary?.context ?? secondary?.context ?? null,
+      tenantId: secondary?.tenantId ?? primary?.tenantId ?? null,
+      organizationId: secondary?.organizationId ?? primary?.organizationId ?? null,
+      actorUserId: secondary?.actorUserId ?? primary?.actorUserId ?? null,
+      actionLabel: secondary?.actionLabel ?? primary?.actionLabel ?? null,
+      resourceKind: secondary?.resourceKind ?? primary?.resourceKind ?? null,
+      resourceId: secondary?.resourceId ?? primary?.resourceId ?? null,
+      undoToken: secondary?.undoToken ?? primary?.undoToken ?? null,
+      payload: secondary?.payload ?? primary?.payload ?? null,
+      snapshotBefore: secondary?.snapshotBefore ?? primary?.snapshotBefore ?? null,
+      snapshotAfter: secondary?.snapshotAfter ?? primary?.snapshotAfter ?? null,
+      changes: secondary?.changes ?? primary?.changes ?? null,
+      context: secondary?.context ?? primary?.context ?? null,
     }
   }
 

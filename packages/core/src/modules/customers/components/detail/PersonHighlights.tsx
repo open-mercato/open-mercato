@@ -29,6 +29,7 @@ type PersonHighlightsPerson = {
   nextInteractionRefId?: string | null
   nextInteractionIcon?: string | null
   nextInteractionColor?: string | null
+  organizationId?: string | null
 }
 
 type PersonHighlightsProfile = {
@@ -338,6 +339,7 @@ export function PersonHighlights({
               resourceKind: 'customers.person',
               resourceId: person.id,
               resourceIdFallback: historyFallbackId,
+              organizationId: person.organizationId ?? undefined,
             }}
             t={t}
           />

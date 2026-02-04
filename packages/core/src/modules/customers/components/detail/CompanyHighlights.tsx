@@ -23,6 +23,7 @@ type CompanyHighlightsCompany = {
   nextInteractionRefId?: string | null
   nextInteractionIcon?: string | null
   nextInteractionColor?: string | null
+  organizationId?: string | null
 }
 
 type CompanyHighlightsProfile = {
@@ -81,6 +82,7 @@ export function CompanyHighlights({
               resourceKind: 'customers.company',
               resourceId: company.id,
               resourceIdFallback: historyFallbackId,
+              organizationId: company.organizationId ?? undefined,
             }}
             t={t}
           />

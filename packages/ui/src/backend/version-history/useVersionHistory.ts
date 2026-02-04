@@ -137,7 +137,13 @@ export function useVersionHistory(
       void fetchEntries({ reset: true })
       return
     }
-    if (isFirstEnable && !loadedKeysRef.current.has(key)) {
+    if (isFirstEnable) {
+      loadedKeysRef.current.delete(key)
+      activeResourceIdRef.current = config.resourceId
+      fallbackTriedRef.current = false
+      setEntries([])
+      setHasMore(false)
+      setError(null)
       void fetchEntries({ reset: true })
     }
   }, [config, enabled, fetchEntries])

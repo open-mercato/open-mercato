@@ -5,7 +5,6 @@ import {
   setCustomFieldsIfAny,
   emitCrudSideEffects,
   emitCrudUndoSideEffects,
-  buildChanges,
   requireId,
 } from '@open-mercato/shared/lib/commands/helpers'
 import type { DataEngine } from '@open-mercato/shared/lib/data/engine'
@@ -31,7 +30,6 @@ import {
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import {
   loadCustomFieldSnapshot,
-  diffCustomFieldChanges,
   buildCustomFieldResetMap,
   type CustomFieldChangeSet,
 } from '@open-mercato/shared/lib/commands/customFieldSnapshots'
@@ -302,27 +300,6 @@ const updateActivityCommand: CommandHandler<ActivityUpdateInput, { activityId: s
     if (!before) return null
     const em = (ctx.container.resolve('em') as EntityManager)
     const afterSnapshot = await loadActivitySnapshot(em, before.activity.id)
-    const changeKeys: readonly string[] = [
-      'entityId',
-      'dealId',
-      'activityType',
-      'subject',
-      'body',
-      'occurredAt',
-      'authorUserId',
-      'appearanceIcon',
-      'appearanceColor',
-    ]
-    const changes: ActivityChangeMap =
-      afterSnapshot && afterSnapshot.activity
-        ? buildChanges(
-            before.activity as Record<string, unknown>,
-            afterSnapshot.activity as Record<string, unknown>,
-            changeKeys
-          )
-        : {}
-    const customChanges = diffCustomFieldChanges(before.custom, afterSnapshot?.custom)
-    if (Object.keys(customChanges).length) changes.custom = customChanges
     return {
       actionLabel: translate('customers.audit.activities.update', 'Update activity'),
       resourceKind: 'customers.activity',
@@ -331,7 +308,6 @@ const updateActivityCommand: CommandHandler<ActivityUpdateInput, { activityId: s
       organizationId: before.activity.organizationId,
       snapshotBefore: before,
       snapshotAfter: afterSnapshot ?? null,
-      changes,
       payload: {
         undo: {
           before,
