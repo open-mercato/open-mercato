@@ -19,10 +19,10 @@ export function humanizeField(field: string) {
 
 export function normalizeChangeField(field: string) {
   const parts = field.split('.')
-  if (parts.length === 2) {
-    return parts[1]
-  }
-  return field
+  const base = parts.length === 2 ? parts[1] : field
+  if (base.startsWith('cf_')) return base.slice(3)
+  if (base.startsWith('cf:')) return base.slice(3)
+  return base
 }
 
 export function renderValue(value: unknown, fallback: string) {
