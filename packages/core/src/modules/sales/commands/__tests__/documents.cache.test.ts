@@ -37,17 +37,22 @@ describe('sales quote update cache + snapshot refresh', () => {
   })
 
   it('refreshes customer snapshot from DB and invalidates cache', async () => {
+    const quoteId = '11111111-1111-4111-8111-111111111111'
+    const customerId = '22222222-2222-4222-8222-222222222222'
+    const organizationId = '33333333-3333-4333-8333-333333333333'
+    const tenantId = '44444444-4444-4444-8444-444444444444'
+
     const quote: any = {
-      id: 'quote-1',
-      organizationId: 'org-1',
-      tenantId: 'tenant-1',
+      id: quoteId,
+      organizationId,
+      tenantId,
       quoteNumber: 'Q-1',
       status: null,
       statusEntryId: null,
-      customerEntityId: 'cust-1',
+      customerEntityId: customerId,
       customerContactId: null,
       customerSnapshot: {
-        customer: { id: 'cust-1', primaryEmail: 'old@example.com' },
+        customer: { id: customerId, primaryEmail: 'old@example.com' },
         contact: null,
       },
       billingAddressId: null,
@@ -68,7 +73,7 @@ describe('sales quote update cache + snapshot refresh', () => {
       if (entityClass === SalesQuote) return quote
       if (entityClass === CustomerEntity) {
         return {
-          id: 'cust-1',
+          id: customerId,
           kind: 'person',
           displayName: 'Customer One',
           primaryEmail: 'new@example.com',
@@ -92,8 +97,8 @@ describe('sales quote update cache + snapshot refresh', () => {
 
     const ctx: any = {
       container,
-      auth: { tenantId: 'tenant-1', orgId: 'org-1', sub: 'user-1' },
-      selectedOrganizationId: 'org-1',
+      auth: { tenantId, orgId: organizationId, sub: 'user-1' },
+      selectedOrganizationId: organizationId,
       organizationScope: null,
       organizationIds: null,
     }
@@ -101,11 +106,11 @@ describe('sales quote update cache + snapshot refresh', () => {
     const handler = commandRegistry.get<DocumentUpdateInput, { quote: SalesQuote }>('sales.quotes.update')
     expect(handler).toBeTruthy()
 
-    await handler?.execute({ id: 'quote-1', customerEntityId: 'cust-1' }, ctx)
+    await handler?.execute({ id: quoteId, customerEntityId: customerId }, ctx)
 
     expect(findOne).toHaveBeenCalledWith(
       CustomerEntity,
-      { id: 'cust-1', organizationId: 'org-1', tenantId: 'tenant-1' },
+      { id: customerId, organizationId, tenantId },
       { populate: ['personProfile', 'companyProfile'] }
     )
     expect(quote.customerSnapshot?.customer?.primaryEmail).toBe('new@example.com')
@@ -113,8 +118,8 @@ describe('sales quote update cache + snapshot refresh', () => {
     expect(invalidateMock).toHaveBeenCalledWith(
       container,
       'sales.quote',
-      { id: 'quote-1', organizationId: 'org-1', tenantId: 'tenant-1' },
-      'tenant-1',
+      { id: quoteId, organizationId, tenantId },
+      tenantId,
       'updated'
     )
   })
