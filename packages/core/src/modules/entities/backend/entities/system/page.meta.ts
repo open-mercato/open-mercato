@@ -12,8 +12,9 @@ export const metadata = {
   requireFeatures: ['entities.definitions.view'],
   pageTitle: 'System Entities',
   pageTitleKey: 'entities.nav.systemEntities',
-  pageGroup: 'Data designer',
-  pageGroupKey: 'entities.nav.group',
-  pageOrder: 11,
+  pageGroup: 'Data Designer',
+  pageGroupKey: 'settings.sections.dataDesigner',
+  pageOrder: 1,
   icon: systemIcon,
+  pageContext: 'settings' as const,
 }
