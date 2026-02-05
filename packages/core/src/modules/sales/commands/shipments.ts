@@ -236,6 +236,7 @@ export async function restoreShipmentSnapshot(em: EntityManager, snapshot: Shipm
   entity.metadata = snapshot.metadata ? cloneJson(snapshot.metadata) : null
   entity.updatedAt = new Date()
   em.persist(entity)
+  await em.flush()
 
   const existingItems = await em.find(SalesShipmentItem, { shipment: entity })
   existingItems.forEach((item) => em.remove(item))

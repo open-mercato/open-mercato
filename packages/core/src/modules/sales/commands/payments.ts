@@ -186,6 +186,7 @@ export async function restorePaymentSnapshot(em: EntityManager, snapshot: Paymen
   entity.customFieldSetId =
     (snapshot as any).customFieldSetId ?? (snapshot as any).custom_field_set_id ?? null
   entity.updatedAt = new Date()
+  await em.flush()
 
   if ((snapshot as any).customFields !== undefined) {
     await setRecordCustomFields(em, {

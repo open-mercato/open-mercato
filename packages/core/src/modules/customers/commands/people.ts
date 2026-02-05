@@ -658,6 +658,7 @@ const updatePersonCommand: CommandHandler<PersonUpdateInput, { entityId: string 
       record.displayName = nextDisplayName
     }
 
+    await em.flush()
     await syncEntityTags(em, record, parsed.tags)
     await em.flush()
 
@@ -773,6 +774,7 @@ const updatePersonCommand: CommandHandler<PersonUpdateInput, { entityId: string 
       entity.nextInteractionIcon = before.entity.nextInteractionIcon
       entity.nextInteractionColor = before.entity.nextInteractionColor
       entity.isActive = before.entity.isActive
+      await em.flush()
       const profile = await em.findOne(CustomerPersonProfile, { entity })
       if (profile) {
         profile.firstName = before.profile.firstName

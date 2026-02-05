@@ -2609,6 +2609,7 @@ async function restoreQuoteGraph(
     em.persist(quote)
   }
   applyQuoteSnapshot(quote, snapshot.quote)
+  await em.flush()
   const existingLines = await em.find(SalesQuoteLine, { quote: quote.id }, { fields: ['id'] })
   const existingAdjustments = await em.find(SalesQuoteAdjustment, { quote: quote.id }, { fields: ['id'] })
   await em.nativeDelete(CustomFieldValue, { entityId: E.sales.sales_quote, recordId: quote.id })
@@ -2868,6 +2869,7 @@ async function restoreOrderGraph(
     em.persist(order)
   }
   applyOrderSnapshot(order, snapshot.order)
+  await em.flush()
   const existingLines = await em.find(SalesOrderLine, { order: order.id }, { fields: ['id'] })
   const existingAdjustments = await em.find(SalesOrderAdjustment, { order: order.id }, { fields: ['id'] })
   await em.nativeDelete(CustomFieldValue, { entityId: E.sales.sales_order, recordId: order.id })
@@ -3477,6 +3479,7 @@ const updateQuoteCommand: CommandHandler<DocumentUpdateInput, { quote: SalesQuot
       parsed.paymentMethodCode !== undefined ||
       parsed.currencyCode !== undefined
     await applyDocumentUpdate({ kind: 'quote', entity: quote, input: parsed, em })
+    await em.flush()
     if (shouldInvalidateSentToken) {
       quote.status = 'draft'
       quote.statusEntryId = await resolveStatusEntryIdByValue(em, {
@@ -3649,6 +3652,7 @@ const updateOrderCommand: CommandHandler<DocumentUpdateInput, { order: SalesOrde
       parsed.paymentMethodCode !== undefined ||
       parsed.currencyCode !== undefined
     await applyDocumentUpdate({ kind: 'order', entity: order, input: parsed, em })
+    await em.flush()
     if (shouldRecalculateTotals) {
       const [existingLines, adjustments] = await Promise.all([
         em.find(SalesOrderLine, { order }, { orderBy: { lineNumber: 'asc' } }),
