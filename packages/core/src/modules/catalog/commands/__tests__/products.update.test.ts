@@ -43,9 +43,9 @@ describe('catalog.products.update', () => {
     ;(findWithDecryption as any).__ctx = { events }
 
     const record = {
-      id: 'prod-1',
-      organizationId: 'org-1',
-      tenantId: 'tenant-1',
+      id: '11111111-1111-1111-1111-111111111111',
+      organizationId: '22222222-2222-2222-2222-222222222222',
+      tenantId: '33333333-3333-3333-3333-333333333333',
       title: 'Old title',
       subtitle: null,
       description: null,
@@ -113,9 +113,9 @@ describe('catalog.products.update', () => {
 
     await updateCommand.execute(
       {
-        id: 'prod-1',
-        organizationId: 'org-1',
-        tenantId: 'tenant-1',
+        id: '11111111-1111-1111-1111-111111111111',
+        organizationId: '22222222-2222-2222-2222-222222222222',
+        tenantId: '33333333-3333-3333-3333-333333333333',
         title: 'New title',
         offers: [],
         categoryIds: [],
