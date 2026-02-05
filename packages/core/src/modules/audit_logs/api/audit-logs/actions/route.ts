@@ -113,7 +113,7 @@ export async function GET(req: Request) {
     actorUserId = actorQuery
   }
   const isResourceScoped = Boolean(resourceKind && resourceId)
-  if (isResourceScoped) {
+  if (isResourceScoped && canViewTenant) {
     actorUserId = undefined
   }
 

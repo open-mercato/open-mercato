@@ -248,7 +248,7 @@ export default function LoginPage() {
               <input type="hidden" name="tenantId" value={tenantId} />
             ) : null}
             {!!translatedRoles.length && (
-              <div className="rounded-md border border-blue-200 bg-blue-50 px-3 py-2 text-center text-xs text-blue-900">
+              <div className="rounded-md border border-blue-200 bg-blue-50 px-3 py-2 text-center text-sm text-blue-900">
                 {translate(
                   translatedRoles.length > 1 ? 'auth.login.requireRolesMessage' : 'auth.login.requireRoleMessage',
                   translatedRoles.length > 1
@@ -259,7 +259,7 @@ export default function LoginPage() {
               </div>
             )}
             {!!translatedFeatures.length && (
-              <div className="rounded-md border border-blue-200 bg-blue-50 px-3 py-2 text-center text-xs text-blue-900">
+              <div className="rounded-md border border-blue-200 bg-blue-50 px-3 py-2 text-center text-sm text-blue-900">
                 {translate('auth.login.featureDenied', "You don't have access to this feature ({feature}). Please contact your administrator.", {
                   feature: translatedFeatures.join(', '),
                 })}

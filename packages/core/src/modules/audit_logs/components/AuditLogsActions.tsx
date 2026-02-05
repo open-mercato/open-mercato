@@ -9,6 +9,7 @@ import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { ActionLogDetailsDialog } from './ActionLogDetailsDialog'
 import { Undo2, RotateCcw } from 'lucide-react'
 import { markRedoConsumed, markUndoSuccess } from '@open-mercato/ui/backend/operations/store'
+import { useAuditPermissions, canUndoEntry, canRedoEntry } from '@open-mercato/ui/backend/version-history'
 
 export type ActionLogItem = {
   id: string
@@ -48,6 +49,7 @@ export function AuditLogsActions({
   onRedoError?: () => void
 }) {
   const t = useT()
+  const permissions = useAuditPermissions(true)
   const [undoingToken, setUndoingToken] = React.useState<string | null>(null)
   const [redoingId, setRedoingId] = React.useState<string | null>(null)
   const [selected, setSelected] = React.useState<ActionLogItem | null>(null)
@@ -169,8 +171,10 @@ export function AuditLogsActions({
       enableSorting: false,
       cell: (info) => {
         const item = info.row.original
-        const canUndo = Boolean(item.undoToken) && item.executionState === 'done' && isLatestUndoableForItem(item)
-        const showRedo = item.executionState === 'undone'
+        const itemCanUndo = canUndoEntry(permissions, item.actorUserId)
+        const itemCanRedo = canRedoEntry(permissions, item.actorUserId)
+        const canUndo = itemCanUndo && Boolean(item.undoToken) && item.executionState === 'done' && isLatestUndoableForItem(item)
+        const showRedo = itemCanRedo && item.executionState === 'undone'
         const canRedo = showRedo && isRedoCandidate(item)
         if (!canUndo && !showRedo) return null
         return (
@@ -202,9 +206,9 @@ export function AuditLogsActions({
       },
       meta: { align: 'right' },
     },
-  ], [t, noneLabel, handleUndo, handleRedo, isLatestUndoableForItem, isRedoCandidate, undoingToken, redoingId])
+  ], [t, noneLabel, handleUndo, handleRedo, isLatestUndoableForItem, isRedoCandidate, undoingToken, redoingId, permissions])
 
-  const undoButton = latestUndoable?.undoToken ? (
+  const undoButton = latestUndoable?.undoToken && canUndoEntry(permissions, latestUndoable.actorUserId) ? (
     <Button
       variant="secondary"
       size="sm"
