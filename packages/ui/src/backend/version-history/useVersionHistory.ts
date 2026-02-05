@@ -19,6 +19,10 @@ type VersionHistoryResponse = {
 
 const PAGE_SIZE = 20
 
+function buildCacheKey(config: VersionHistoryConfig, resourceId: string): string {
+  return `${config.resourceKind}::${resourceId}::${config.resourceIdFallback ?? 'none'}::${config.organizationId ?? 'default'}`
+}
+
 export function useVersionHistory(
   config: VersionHistoryConfig | null,
   enabled: boolean,
@@ -38,7 +42,7 @@ export function useVersionHistory(
     const resourceId = opts.resourceId
       ?? activeResourceIdRef.current
       ?? config.resourceId
-    const key = `${config.resourceKind}::${resourceId}::${config.resourceIdFallback ?? 'none'}::${config.organizationId ?? 'default'}`
+    const key = buildCacheKey(config, resourceId)
     const params = new URLSearchParams({
       resourceKind: config.resourceKind,
       resourceId,
@@ -48,6 +52,7 @@ export function useVersionHistory(
     if (opts.before) params.set('before', opts.before)
     setIsLoading(true)
     setError(null)
+    let shouldFallback = false
     try {
       const call = await apiCall<VersionHistoryResponse>(
         `/api/audit_logs/audit-logs/actions?${params.toString()}`,
@@ -80,12 +85,7 @@ export function useVersionHistory(
         && config.resourceIdFallback !== config.resourceId
         && !fallbackTriedRef.current
       ) {
-        fallbackTriedRef.current = true
-        activeResourceIdRef.current = config.resourceIdFallback
-        setEntries([])
-        setHasMore(false)
-        void fetchEntries({ reset: true, resourceId: config.resourceIdFallback })
-        return
+        shouldFallback = true
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load')
@@ -93,11 +93,18 @@ export function useVersionHistory(
       loadedKeysRef.current.add(key)
       setIsLoading(false)
     }
+    if (shouldFallback) {
+      fallbackTriedRef.current = true
+      activeResourceIdRef.current = config.resourceIdFallback!
+      setEntries([])
+      setHasMore(false)
+      void fetchEntries({ reset: true, resourceId: config.resourceIdFallback })
+    }
   }, [config])
 
   const refresh = React.useCallback(() => {
     if (!config) return
-    const key = `${config.resourceKind}::${config.resourceId}::${config.resourceIdFallback ?? 'none'}::${config.organizationId ?? 'default'}`
+    const key = buildCacheKey(config, config.resourceId)
     loadedKeysRef.current.delete(key)
     activeResourceIdRef.current = config.resourceId
     fallbackTriedRef.current = false
@@ -123,7 +130,7 @@ export function useVersionHistory(
 
   React.useEffect(() => {
     if (!enabled || !config) return
-    const key = `${config.resourceKind}::${config.resourceId}::${config.resourceIdFallback ?? 'none'}::${config.organizationId ?? 'default'}`
+    const key = buildCacheKey(config, config.resourceId)
     const isFirstEnable = !wasEnabledRef.current
     wasEnabledRef.current = true
     if (lastConfigRef.current !== key) {

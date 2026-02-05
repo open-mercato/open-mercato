@@ -7,13 +7,11 @@ import { Button } from '@open-mercato/ui/primitives/button'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import type { ActionLogItem } from './AuditLogsActions'
 import {
+  ChangedFieldsTable,
+  CollapsibleJsonSection,
   extractChangeRows,
   formatDate,
   formatResource,
-  humanizeField,
-  normalizeChangeField,
-  renderValue,
-  safeStringify,
 } from '../lib/display-helpers'
 
 export function ActionLogDetailsDialog({ item, onClose }: { item: ActionLogItem; onClose: () => void }) {
@@ -121,74 +119,18 @@ export function ActionLogDetailsDialog({ item, onClose }: { item: ActionLogItem;
             </dl>
           </section>
 
-          <section>
-            <h3 className="text-sm font-semibold">
-              {t('audit_logs.actions.details.changed_fields')}
-            </h3>
-            {changeRows.length ? (
-              <div className="mt-2 overflow-x-auto rounded-lg border">
-                <table className="min-w-full divide-y text-sm">
-                  <thead className="bg-muted/50">
-                    <tr>
-                      <th scope="col" className="px-4 py-2 text-left font-medium text-muted-foreground">
-                        {t('audit_logs.actions.details.field')}
-                      </th>
-                      <th scope="col" className="px-4 py-2 text-left font-medium text-muted-foreground">
-                        {t('audit_logs.actions.details.before')}
-                      </th>
-                      <th scope="col" className="px-4 py-2 text-left font-medium text-muted-foreground">
-                        {t('audit_logs.actions.details.after')}
-                      </th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y">
-                    {changeRows.map((row) => (
-                      <tr key={row.field} className="align-top">
-                        <td className="px-4 py-2 align-top font-medium">
-                          {humanizeField(normalizeChangeField(row.field))}
-                        </td>
-                        <td className="px-4 py-2">
-                          {renderValue(row.from, noneLabel)}
-                        </td>
-                        <td className="px-4 py-2">
-                          {renderValue(row.to, noneLabel)}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            ) : (
-              <p className="mt-2 text-sm text-muted-foreground">
-                {t('audit_logs.actions.details.no_changes')}
-              </p>
-            )}
-          </section>
+          <ChangedFieldsTable changeRows={changeRows} noneLabel={noneLabel} t={t} />
 
           {hasContext ? (
             <section>
-              <details className="group rounded-lg border px-4 py-3">
-                <summary className="cursor-pointer text-sm font-semibold text-foreground transition-colors group-open:text-primary">
-                  {t('audit_logs.actions.details.context')}
-                </summary>
-                <pre className="mt-2 overflow-x-auto whitespace-pre-wrap break-words text-xs leading-5 text-muted-foreground">
-                  {safeStringify(item.context)}
-                </pre>
-              </details>
+              <CollapsibleJsonSection label={t('audit_logs.actions.details.context')} value={item.context} />
             </section>
           ) : null}
 
           {snapshots.length ? (
             <section className="space-y-4">
               {snapshots.map((entry) => (
-                <details key={entry.label} className="group rounded-lg border px-4 py-3">
-                  <summary className="cursor-pointer text-sm font-semibold text-foreground transition-colors group-open:text-primary">
-                    {entry.label}
-                  </summary>
-                  <pre className="mt-2 overflow-x-auto whitespace-pre-wrap break-words text-xs leading-5 text-muted-foreground">
-                    {safeStringify(entry.value)}
-                  </pre>
-                </details>
+                <CollapsibleJsonSection key={entry.label} label={entry.label} value={entry.value} />
               ))}
             </section>
           ) : null}

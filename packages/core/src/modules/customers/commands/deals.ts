@@ -225,10 +225,9 @@ const createDealCommand: CommandHandler<DealCreateInput, { dealId: string }> = {
     const em = (ctx.container.resolve('em') as EntityManager).fork()
     return await loadDealSnapshot(em, result.dealId)
   },
-  buildLog: async ({ result, ctx }) => {
+  buildLog: async ({ result, snapshots }) => {
     const { translate } = await resolveTranslations()
-    const em = (ctx.container.resolve('em') as EntityManager).fork()
-    const snapshot = await loadDealSnapshot(em, result.dealId)
+    const snapshot = snapshots.after as DealSnapshot | undefined
     return {
       actionLabel: translate('customers.audit.deals.create', 'Create deal'),
       resourceKind: 'customers.deal',
@@ -349,12 +348,15 @@ const updateDealCommand: CommandHandler<DealUpdateInput, { dealId: string }> = {
 
     return { dealId: record.id }
   },
-  buildLog: async ({ snapshots, ctx }) => {
+  captureAfter: async (_input, result, ctx) => {
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
+    return await loadDealSnapshot(em, result.dealId)
+  },
+  buildLog: async ({ snapshots }) => {
     const { translate } = await resolveTranslations()
     const before = snapshots.before as DealSnapshot | undefined
     if (!before) return null
-    const em = (ctx.container.resolve('em') as EntityManager).fork()
-    const afterSnapshot = await loadDealSnapshot(em, before.deal.id)
+    const afterSnapshot = snapshots.after as DealSnapshot | undefined
     return {
       actionLabel: translate('customers.audit.deals.update', 'Update deal'),
       resourceKind: 'customers.deal',

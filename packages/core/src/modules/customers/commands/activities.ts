@@ -190,10 +190,9 @@ const createActivityCommand: CommandHandler<ActivityCreateInput, { activityId: s
     const em = (ctx.container.resolve('em') as EntityManager).fork()
     return await loadActivitySnapshot(em, result.activityId)
   },
-  buildLog: async ({ result, ctx }) => {
+  buildLog: async ({ result, snapshots }) => {
     const { translate } = await resolveTranslations()
-    const em = (ctx.container.resolve('em') as EntityManager).fork()
-    const snapshot = await loadActivitySnapshot(em, result.activityId)
+    const snapshot = snapshots.after as ActivitySnapshot | undefined
     return {
       actionLabel: translate('customers.audit.activities.create', 'Create activity'),
       resourceKind: 'customers.activity',
@@ -294,12 +293,15 @@ const updateActivityCommand: CommandHandler<ActivityUpdateInput, { activityId: s
 
     return { activityId: activity.id }
   },
-  buildLog: async ({ snapshots, ctx }) => {
+  captureAfter: async (_input, result, ctx) => {
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
+    return await loadActivitySnapshot(em, result.activityId)
+  },
+  buildLog: async ({ snapshots }) => {
     const { translate } = await resolveTranslations()
     const before = snapshots.before as ActivitySnapshot | undefined
     if (!before) return null
-    const em = (ctx.container.resolve('em') as EntityManager).fork()
-    const afterSnapshot = await loadActivitySnapshot(em, before.activity.id)
+    const afterSnapshot = snapshots.after as ActivitySnapshot | undefined
     return {
       actionLabel: translate('customers.audit.activities.update', 'Update activity'),
       resourceKind: 'customers.activity',

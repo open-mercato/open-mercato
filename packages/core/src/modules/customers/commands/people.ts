@@ -530,10 +530,9 @@ const createPersonCommand: CommandHandler<PersonCreateInput, { entityId: string;
     const em = (ctx.container.resolve('em') as EntityManager).fork()
     return await loadPersonSnapshot(em, result.entityId)
   },
-  buildLog: async ({ result, ctx }) => {
+  buildLog: async ({ result, snapshots }) => {
     const { translate } = await resolveTranslations()
-    const em = (ctx.container.resolve('em') as EntityManager).fork()
-    const snapshot = await loadPersonSnapshot(em, result.entityId)
+    const snapshot = snapshots.after as PersonSnapshot | undefined
     return {
       actionLabel: translate('customers.audit.people.create', 'Create person'),
       resourceKind: 'customers.person',
@@ -679,12 +678,15 @@ const updatePersonCommand: CommandHandler<PersonUpdateInput, { entityId: string 
 
     return { entityId: record.id }
   },
-  buildLog: async ({ ctx, snapshots }) => {
+  captureAfter: async (_input, result, ctx) => {
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
+    return await loadPersonSnapshot(em, result.entityId)
+  },
+  buildLog: async ({ snapshots }) => {
     const { translate } = await resolveTranslations()
     const before = snapshots.before as PersonSnapshot | undefined
     if (!before) return null
-    const em = (ctx.container.resolve('em') as EntityManager).fork()
-    const afterSnapshot = await loadPersonSnapshot(em, before.entity.id)
+    const afterSnapshot = snapshots.after as PersonSnapshot | undefined
     return {
       actionLabel: translate('customers.audit.people.update', 'Update person'),
       resourceKind: 'customers.person',

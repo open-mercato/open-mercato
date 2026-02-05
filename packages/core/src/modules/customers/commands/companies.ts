@@ -403,10 +403,9 @@ const createCompanyCommand: CommandHandler<CompanyCreateInput, { entityId: strin
     const em = (ctx.container.resolve('em') as EntityManager).fork()
     return await loadCompanySnapshot(em, result.entityId)
   },
-  buildLog: async ({ result, ctx }) => {
+  buildLog: async ({ result, snapshots }) => {
     const { translate } = await resolveTranslations()
-    const em = (ctx.container.resolve('em') as EntityManager).fork()
-    const snapshot = await loadCompanySnapshot(em, result.entityId)
+    const snapshot = snapshots.after as CompanySnapshot | undefined
     return {
       actionLabel: translate('customers.audit.companies.create', 'Create company'),
       resourceKind: 'customers.company',
@@ -506,12 +505,15 @@ const updateCompanyCommand: CommandHandler<CompanyUpdateInput, { entityId: strin
 
     return { entityId: record.id }
   },
-  buildLog: async ({ snapshots, ctx }) => {
+  captureAfter: async (_input, result, ctx) => {
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
+    return await loadCompanySnapshot(em, result.entityId)
+  },
+  buildLog: async ({ snapshots }) => {
     const { translate } = await resolveTranslations()
     const before = snapshots.before as CompanySnapshot | undefined
     if (!before) return null
-    const em = (ctx.container.resolve('em') as EntityManager).fork()
-    const afterSnapshot = await loadCompanySnapshot(em, before.entity.id)
+    const afterSnapshot = snapshots.after as CompanySnapshot | undefined
     return {
       actionLabel: translate('customers.audit.companies.update', 'Update company'),
       resourceKind: 'customers.company',

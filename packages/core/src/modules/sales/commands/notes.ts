@@ -178,10 +178,9 @@ const createNoteCommand: CommandHandler<NoteCreateInput, { noteId: string; autho
     const em = (ctx.container.resolve('em') as EntityManager).fork()
     return loadNoteSnapshot(em, result.noteId)
   },
-  buildLog: async ({ result, ctx }) => {
+  buildLog: async ({ result, snapshots }) => {
     const { translate } = await resolveTranslations()
-    const em = (ctx.container.resolve('em') as EntityManager).fork()
-    const snapshot = await loadNoteSnapshot(em, result.noteId)
+    const snapshot = snapshots.after as NoteSnapshot | undefined
     return {
       actionLabel: translate('sales.audit.notes.create', 'Create note'),
       resourceKind: 'sales.note',
@@ -247,12 +246,15 @@ const updateNoteCommand: CommandHandler<NoteUpdateInput, { noteId: string }> = {
 
     return { noteId: note.id }
   },
-  buildLog: async ({ snapshots, ctx }) => {
+  captureAfter: async (_input, result, ctx) => {
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
+    return await loadNoteSnapshot(em, result.noteId)
+  },
+  buildLog: async ({ snapshots }) => {
     const { translate } = await resolveTranslations()
     const before = snapshots.before as NoteSnapshot | undefined
     if (!before) return null
-    const em = (ctx.container.resolve('em') as EntityManager).fork()
-    const after = await loadNoteSnapshot(em, before.id)
+    const after = snapshots.after as NoteSnapshot | undefined
     const changes =
       after && before
         ? buildChanges(

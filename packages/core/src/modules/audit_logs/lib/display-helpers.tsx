@@ -1,4 +1,5 @@
 import * as React from 'react'
+import type { TranslateFn } from '@open-mercato/shared/lib/i18n/context'
 
 export type ChangeRow = {
   field: string
@@ -84,4 +85,103 @@ export function extractChangeRows(
       to: value,
     }
   }).sort((a, b) => a.field.localeCompare(b.field))
+}
+
+export type ChangedFieldsTableProps = {
+  changeRows: ChangeRow[]
+  noneLabel: string
+  t: TranslateFn
+}
+
+export function ChangedFieldsTable({ changeRows, noneLabel, t }: ChangedFieldsTableProps) {
+  return (
+    <section>
+      <h3 className="text-sm font-semibold">
+        {t('audit_logs.actions.details.changed_fields')}
+      </h3>
+      {changeRows.length ? (
+        <div className="mt-2 overflow-x-auto rounded-lg border">
+          <table className="min-w-full divide-y text-sm">
+            <thead className="bg-muted/50">
+              <tr>
+                <th scope="col" className="px-4 py-2 text-left font-medium text-muted-foreground">
+                  {t('audit_logs.actions.details.field')}
+                </th>
+                <th scope="col" className="px-4 py-2 text-left font-medium text-muted-foreground">
+                  {t('audit_logs.actions.details.before')}
+                </th>
+                <th scope="col" className="px-4 py-2 text-left font-medium text-muted-foreground">
+                  {t('audit_logs.actions.details.after')}
+                </th>
+              </tr>
+            </thead>
+            <tbody className="divide-y">
+              {changeRows.map((row) => (
+                <tr key={row.field} className="align-top">
+                  <td className="px-4 py-2 align-top font-medium">
+                    {humanizeField(normalizeChangeField(row.field))}
+                  </td>
+                  <td className="px-4 py-2">
+                    {renderValue(row.from, noneLabel)}
+                  </td>
+                  <td className="px-4 py-2">
+                    {renderValue(row.to, noneLabel)}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      ) : (
+        <p className="mt-2 text-sm text-muted-foreground">
+          {t('audit_logs.actions.details.no_changes')}
+        </p>
+      )}
+    </section>
+  )
+}
+
+export type CollapsibleJsonSectionProps = {
+  label: string
+  value: unknown
+  truncateAt?: number
+}
+
+const DEFAULT_TRUNCATE_AT = 5000
+
+export function CollapsibleJsonSection({ label, value, truncateAt = DEFAULT_TRUNCATE_AT }: CollapsibleJsonSectionProps) {
+  const [isOpen, setIsOpen] = React.useState(false)
+  const [showFull, setShowFull] = React.useState(false)
+
+  const stringified = React.useMemo(() => (isOpen ? safeStringify(value) : ''), [isOpen, value])
+  const isTruncated = stringified.length > truncateAt
+  const displayText = !showFull && isTruncated ? stringified.slice(0, truncateAt) : stringified
+
+  return (
+    <details
+      className="group rounded-lg border px-4 py-3"
+      onToggle={(event) => setIsOpen((event.target as HTMLDetailsElement).open)}
+    >
+      <summary className="cursor-pointer text-sm font-semibold text-foreground transition-colors group-open:text-primary">
+        {label}
+      </summary>
+      {isOpen ? (
+        <>
+          <pre className="mt-2 max-h-96 overflow-auto whitespace-pre-wrap break-words text-xs leading-5 text-muted-foreground">
+            {displayText}
+            {!showFull && isTruncated ? '\n…' : null}
+          </pre>
+          {isTruncated ? (
+            <button
+              type="button"
+              className="mt-1 text-xs text-primary hover:underline"
+              onClick={() => setShowFull((prev) => !prev)}
+            >
+              {showFull ? 'Show less' : `Show all (${Math.ceil(stringified.length / 1024)} KB)`}
+            </button>
+          ) : null}
+        </>
+      ) : null}
+    </details>
+  )
 }

@@ -14,7 +14,8 @@ export type VersionHistoryActionProps = {
   t: TranslateFn
   buttonClassName?: string
   iconClassName?: string
-  onChange?: () => void
+  canUndoRedo?: boolean
+  autoCheckAcl?: boolean
 }
 
 export function VersionHistoryAction({
@@ -22,7 +23,8 @@ export function VersionHistoryAction({
   t,
   buttonClassName,
   iconClassName,
-  onChange,
+  canUndoRedo,
+  autoCheckAcl,
 }: VersionHistoryActionProps) {
   const enabled = Boolean(
     config?.resourceKind
@@ -64,9 +66,9 @@ export function VersionHistoryAction({
         error={historyData.error}
         hasMore={historyData.hasMore}
         onLoadMore={historyData.loadMore}
-        onRefresh={historyData.refresh}
-        onChange={onChange}
         t={t}
+        canUndoRedo={canUndoRedo}
+        autoCheckAcl={autoCheckAcl}
       />
     </>
   )

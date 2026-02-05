@@ -35,24 +35,41 @@ function asRecord(input: unknown): Record<string, unknown> | null {
   return input as Record<string, unknown>
 }
 
-function deepEqual(a: unknown, b: unknown): boolean {
+function toISOString(value: unknown): string | null {
+  if (value instanceof Date) {
+    const iso = value.toISOString()
+    return Number.isNaN(value.getTime()) ? null : iso
+  }
+  if (typeof value === 'string') {
+    const parsed = new Date(value)
+    return Number.isNaN(parsed.getTime()) ? null : parsed.toISOString()
+  }
+  return null
+}
+
+function deepEqual(a: unknown, b: unknown, seen?: Set<unknown>): boolean {
   if (Object.is(a, b)) return true
   if (a instanceof Date || b instanceof Date) {
-    const aDate = a instanceof Date ? a : null
-    const bDate = b instanceof Date ? b : null
-    return aDate?.toISOString?.() === bDate?.toISOString?.()
+    const aIso = toISOString(a)
+    const bIso = toISOString(b)
+    if (aIso != null && bIso != null) return aIso === bIso
+    return false
   }
   if (Array.isArray(a) && Array.isArray(b)) {
     if (a.length !== b.length) return false
-    return a.every((value, index) => deepEqual(value, b[index]))
+    return a.every((value, index) => deepEqual(value, b[index], seen))
   }
   if (a && b && typeof a === 'object' && typeof b === 'object') {
+    if (!seen) seen = new Set()
+    if (seen.has(a) || seen.has(b)) return false
+    seen.add(a)
+    seen.add(b)
     const aRec = a as Record<string, unknown>
     const bRec = b as Record<string, unknown>
     const keysA = Object.keys(aRec)
     const keysB = Object.keys(bRec)
     if (keysA.length !== keysB.length) return false
-    return keysA.every((key) => deepEqual(aRec[key], bRec[key]))
+    return keysA.every((key) => deepEqual(aRec[key], bRec[key], seen))
   }
   return false
 }
@@ -92,8 +109,13 @@ function buildRecordChangesDeep(
   before: Record<string, unknown>,
   after: Record<string, unknown>,
   prefix?: string,
+  seen?: Set<unknown>,
 ): Record<string, { from: unknown; to: unknown }> {
   const changes: Record<string, { from: unknown; to: unknown }> = {}
+  if (!seen) seen = new Set()
+  if (seen.has(before) || seen.has(after)) return changes
+  seen.add(before)
+  seen.add(after)
   const keys = new Set([...Object.keys(before), ...Object.keys(after)])
   for (const key of keys) {
     if (SKIPPED_CHANGE_KEYS.has(key)) continue
@@ -107,7 +129,7 @@ function buildRecordChangesDeep(
     const fromRec = asRecord(from)
     const toRec = asRecord(to)
     if (fromRec && toRec) {
-      const nested = buildRecordChangesDeep(fromRec, toRec, path)
+      const nested = buildRecordChangesDeep(fromRec, toRec, path, seen)
       if (Object.keys(nested).length) {
         Object.assign(changes, nested)
         continue

@@ -153,6 +153,8 @@ export type CrudFormProps<TValues extends Record<string, unknown>> = {
   versionHistory?: {
     resourceKind: string
     resourceId: string
+    canUndoRedo?: boolean
+    autoCheckAcl?: boolean
   }
   // When provided, CrudForm will fetch custom field definitions and append
   // form-editable custom fields automatically to the provided `fields`.
@@ -437,6 +439,8 @@ export function CrudForm<TValues extends Record<string, unknown>>({
     <VersionHistoryAction
       config={versionHistoryEnabled ? versionHistory! : null}
       t={t}
+      canUndoRedo={versionHistory?.canUndoRedo}
+      autoCheckAcl={versionHistory?.autoCheckAcl}
     />
   )
   const headerExtraActions = versionHistoryEnabled ? (

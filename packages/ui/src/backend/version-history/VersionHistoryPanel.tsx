@@ -7,7 +7,7 @@ import { Button } from '@open-mercato/ui/primitives/button'
 import type { VersionHistoryEntry } from './types'
 import { VersionHistoryDetail } from './VersionHistoryDetail'
 import { formatDate } from '@open-mercato/core/modules/audit_logs/lib/display-helpers'
-import { apiCallOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
+import { apiCall, apiCallOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 import { markRedoConsumed, markUndoSuccess } from '@open-mercato/ui/backend/operations/store'
 import { getVersionHistoryStatusLabel } from './labels'
 
@@ -19,10 +19,16 @@ export type VersionHistoryPanelProps = {
   error: string | null
   hasMore: boolean
   onLoadMore: () => void
-  onRefresh: () => void
-  onChange?: () => void
   t: TranslateFn
+  /** Explicit override — when provided, skips auto-check and uses this value directly. */
+  canUndoRedo?: boolean
+  /** When true (default), auto-checks audit_logs.undo_self / redo_self features for the current user. Ignored when canUndoRedo is provided. */
+  autoCheckAcl?: boolean
 }
+
+const UNDO_REDO_FEATURES = ['audit_logs.undo_self', 'audit_logs.redo_self']
+
+type FeatureCheckResponse = { ok: boolean; granted: string[] }
 
 export function VersionHistoryPanel({
   open,
@@ -32,10 +38,35 @@ export function VersionHistoryPanel({
   error,
   hasMore,
   onLoadMore,
-  onRefresh,
-  onChange,
   t,
+  canUndoRedo,
+  autoCheckAcl = true,
 }: VersionHistoryPanelProps) {
+  const [aclGranted, setAclGranted] = React.useState<boolean | null>(null)
+
+  React.useEffect(() => {
+    if (canUndoRedo !== undefined || !autoCheckAcl || !open) return
+    let cancelled = false
+    void (async () => {
+      try {
+        const res = await apiCall<FeatureCheckResponse>('/api/auth/feature-check', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ features: UNDO_REDO_FEATURES }),
+        })
+        if (!cancelled && res.ok) {
+          const granted = res.result?.granted ?? []
+          setAclGranted(granted.length > 0)
+        }
+      } catch {
+        if (!cancelled) setAclGranted(false)
+      }
+    })()
+    return () => { cancelled = true }
+  }, [open, canUndoRedo, autoCheckAcl])
+
+  const effectiveCanUndoRedo = canUndoRedo ?? (autoCheckAcl ? (aclGranted ?? false) : true)
+
   const [selectedEntry, setSelectedEntry] = React.useState<VersionHistoryEntry | null>(null)
   const [undoingToken, setUndoingToken] = React.useState<string | null>(null)
   const [redoingId, setRedoingId] = React.useState<string | null>(null)
@@ -59,6 +90,15 @@ export function VersionHistoryPanel({
   }, [open])
 
   React.useEffect(() => {
+    if (!open) return
+    const prev = document.body.style.overflow
+    document.body.style.overflow = 'hidden'
+    return () => {
+      document.body.style.overflow = prev
+    }
+  }, [open])
+
+  React.useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.key === 'Escape' && open) {
         onOpenChange(false)
@@ -78,8 +118,6 @@ export function VersionHistoryPanel({
         body: JSON.stringify({ undoToken: token }),
       }, { errorMessage: t('audit_logs.error.undo') })
       markUndoSuccess(token)
-      onRefresh()
-      onChange?.()
       if (typeof window !== 'undefined') {
         window.location.reload()
       }
@@ -88,7 +126,7 @@ export function VersionHistoryPanel({
     } finally {
       setUndoingToken(null)
     }
-  }, [onRefresh, t])
+  }, [t])
 
   const handleRedo = React.useCallback(async (logId: string | null) => {
     if (!logId) return
@@ -100,8 +138,6 @@ export function VersionHistoryPanel({
         body: JSON.stringify({ logId }),
       }, { errorMessage: t('audit_logs.error.redo') })
       markRedoConsumed(logId)
-      onRefresh()
-      onChange?.()
       if (typeof window !== 'undefined') {
         window.location.reload()
       }
@@ -110,7 +146,7 @@ export function VersionHistoryPanel({
     } finally {
       setRedoingId(null)
     }
-  }, [onRefresh, t])
+  }, [t])
 
   if (!open) return null
 
@@ -194,10 +230,11 @@ export function VersionHistoryPanel({
                   <div className="divide-y rounded-lg border">
                     {entries.map((entry) => {
                       const statusLabel = getVersionHistoryStatusLabel(entry.executionState, t)
-                      const canUndo = Boolean(entry.undoToken)
+                      const canUndo = effectiveCanUndoRedo
+                        && Boolean(entry.undoToken)
                         && entry.executionState === 'done'
                         && entry.id === latestUndoableId
-                      const showRedo = entry.executionState === 'undone'
+                      const showRedo = effectiveCanUndoRedo && entry.executionState === 'undone'
                       const canRedo = showRedo && entry.id === latestUndoneId
                       return (
                         <div

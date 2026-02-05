@@ -106,10 +106,9 @@ const createCommentCommand: CommandHandler<
     const em = (ctx.container.resolve('em') as EntityManager).fork()
     return await loadCommentSnapshot(em, result.commentId)
   },
-  buildLog: async ({ result, ctx }) => {
+  buildLog: async ({ result, snapshots }) => {
     const { translate } = await resolveTranslations()
-    const em = (ctx.container.resolve('em') as EntityManager).fork()
-    const snapshot = await loadCommentSnapshot(em, result.commentId)
+    const snapshot = snapshots.after as CommentSnapshot | undefined
     return {
       actionLabel: translate('staff.audit.teamMemberComments.create', 'Create note'),
       resourceKind: 'staff.team_member_comment',
@@ -180,12 +179,15 @@ const updateCommentCommand: CommandHandler<StaffTeamMemberCommentUpdateInput, { 
 
     return { commentId: comment.id }
   },
-  buildLog: async ({ snapshots, ctx }) => {
+  captureAfter: async (_input, result, ctx) => {
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
+    return await loadCommentSnapshot(em, result.commentId)
+  },
+  buildLog: async ({ snapshots }) => {
     const { translate } = await resolveTranslations()
     const before = snapshots.before as CommentSnapshot | undefined
     if (!before) return null
-    const em = (ctx.container.resolve('em') as EntityManager).fork()
-    const afterSnapshot = await loadCommentSnapshot(em, before.id)
+    const afterSnapshot = snapshots.after as CommentSnapshot | undefined
     const changes =
       afterSnapshot && before
         ? buildChanges(

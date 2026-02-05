@@ -104,10 +104,9 @@ const createJobHistoryCommand: CommandHandler<StaffTeamMemberJobHistoryCreateInp
     const em = (ctx.container.resolve('em') as EntityManager).fork()
     return await loadJobHistorySnapshot(em, result.jobHistoryId)
   },
-  buildLog: async ({ result, ctx }) => {
+  buildLog: async ({ result, snapshots }) => {
     const { translate } = await resolveTranslations()
-    const em = (ctx.container.resolve('em') as EntityManager).fork()
-    const snapshot = await loadJobHistorySnapshot(em, result.jobHistoryId)
+    const snapshot = snapshots.after as JobHistorySnapshot | undefined
     return {
       actionLabel: translate('staff.audit.teamMemberJobHistories.create', 'Create job history entry'),
       resourceKind: 'staff.team_member_job_history',
@@ -179,12 +178,15 @@ const updateJobHistoryCommand: CommandHandler<StaffTeamMemberJobHistoryUpdateInp
 
     return { jobHistoryId: record.id }
   },
-  buildLog: async ({ snapshots, ctx }) => {
+  captureAfter: async (_input, result, ctx) => {
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
+    return await loadJobHistorySnapshot(em, result.jobHistoryId)
+  },
+  buildLog: async ({ snapshots }) => {
     const { translate } = await resolveTranslations()
     const before = snapshots.before as JobHistorySnapshot | undefined
     if (!before) return null
-    const em = (ctx.container.resolve('em') as EntityManager).fork()
-    const afterSnapshot = await loadJobHistorySnapshot(em, before.id)
+    const afterSnapshot = snapshots.after as JobHistorySnapshot | undefined
     const changes =
       afterSnapshot && before
         ? buildChanges(
