@@ -426,6 +426,19 @@ const createPaymentCommand: CommandHandler<
     await em.flush()
     await invalidateOrderCache(ctx.container, order, ctx.auth?.tenantId ?? null)
 
+    const dataEngine = ctx.container.resolve('dataEngine') as DataEngine
+    await emitCrudSideEffects({
+      dataEngine,
+      action: 'created',
+      entity: payment,
+      identifiers: {
+        id: payment.id,
+        organizationId: payment.organizationId,
+        tenantId: payment.tenantId,
+      },
+      indexer: { entityType: E.sales.sales_payment },
+    })
+
     // Create notification for payment received
     try {
       const notificationService = resolveNotificationService(ctx.container)
@@ -695,6 +708,19 @@ const updatePaymentCommand: CommandHandler<
       await invalidateOrderCache(ctx.container, previousOrder, ctx.auth?.tenantId ?? null)
     }
 
+    const dataEngine = ctx.container.resolve('dataEngine') as DataEngine
+    await emitCrudSideEffects({
+      dataEngine,
+      action: 'updated',
+      entity: payment,
+      identifiers: {
+        id: payment.id,
+        organizationId: payment.organizationId,
+        tenantId: payment.tenantId,
+      },
+      indexer: { entityType: E.sales.sales_payment },
+    })
+
     return { paymentId: payment.id, orderTotals: totals }
   },
   captureAfter: async (_input, result, ctx) => {
@@ -799,6 +825,17 @@ const deletePaymentCommand: CommandHandler<
       await invalidateOrderCache(ctx.container, target, ctx.auth?.tenantId ?? null)
     }
     const dataEngine = ctx.container.resolve('dataEngine') as DataEngine
+    await emitCrudSideEffects({
+      dataEngine,
+      action: 'deleted',
+      entity: payment,
+      identifiers: {
+        id: payment.id,
+        organizationId: payment.organizationId,
+        tenantId: payment.tenantId,
+      },
+      indexer: { entityType: E.sales.sales_payment },
+    })
     if (allocations.length) {
       await Promise.all(
         allocations.map((allocation) =>

@@ -500,6 +500,20 @@ const createShipmentCommand: CommandHandler<ShipmentCreateInput, { shipmentId: s
     await em.flush()
     await recomputeFulfilledQuantities(em, order)
     await em.flush()
+
+    const dataEngine = ctx.container.resolve('dataEngine') as DataEngine
+    await emitCrudSideEffects({
+      dataEngine,
+      action: 'created',
+      entity: shipment,
+      identifiers: {
+        id: shipment.id,
+        organizationId: shipment.organizationId,
+        tenantId: shipment.tenantId,
+      },
+      indexer: { entityType: E.sales.sales_shipment },
+    })
+
     return { shipmentId: shipment.id }
   },
   captureAfter: async (_input, result, ctx) => {
@@ -700,6 +714,20 @@ const updateShipmentCommand: CommandHandler<ShipmentUpdateInput, { shipmentId: s
     await em.flush()
     await recomputeFulfilledQuantities(em, order)
     await em.flush()
+
+    const dataEngine = ctx.container.resolve('dataEngine') as DataEngine
+    await emitCrudSideEffects({
+      dataEngine,
+      action: 'updated',
+      entity: shipment,
+      identifiers: {
+        id: shipment.id,
+        organizationId: shipment.organizationId,
+        tenantId: shipment.tenantId,
+      },
+      indexer: { entityType: E.sales.sales_shipment },
+    })
+
     return { shipmentId: shipment.id }
   },
   captureAfter: async (_input, result, ctx) => {
@@ -831,6 +859,17 @@ const deleteShipmentCommand: CommandHandler<
     await recomputeFulfilledQuantities(em, order)
     await em.flush()
     const dataEngine = ctx.container.resolve('dataEngine') as DataEngine
+    await emitCrudSideEffects({
+      dataEngine,
+      action: 'deleted',
+      entity: shipment,
+      identifiers: {
+        id: shipment.id,
+        organizationId: shipment.organizationId,
+        tenantId: shipment.tenantId,
+      },
+      indexer: { entityType: E.sales.sales_shipment },
+    })
     if (shipmentItems.length) {
       await Promise.all(
         shipmentItems.map((item) =>
