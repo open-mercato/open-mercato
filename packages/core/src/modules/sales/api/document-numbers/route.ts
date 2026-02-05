@@ -58,14 +58,17 @@ async function ensureKindPermission(
   const rbac = ctx.container.resolve('rbacService') as RbacService | null
   const auth = ctx.auth
   if (!rbac || !auth?.sub) return
-  const feature = kind === 'order' ? 'sales.orders.manage' : 'sales.quotes.manage'
-  const ok = await rbac.userHasAllFeatures(auth.sub, [feature], {
+  const requiredFeatures = [
+    kind === 'order' ? 'sales.orders.manage' : 'sales.quotes.manage',
+    'sales.documents.number.edit',
+  ]
+  const ok = await rbac.userHasAllFeatures(auth.sub, requiredFeatures, {
     tenantId: auth.tenantId ?? null,
     organizationId: ctx.selectedOrganizationId ?? auth.orgId ?? null,
   })
   if (!ok) {
     throw new CrudHttpError(403, {
-      error: translate('sales.documents.errors.forbidden', 'You cannot generate document numbers.'),
+      error: translate('sales.documents.errors.number_forbidden', 'You cannot generate document numbers.'),
     })
   }
 }

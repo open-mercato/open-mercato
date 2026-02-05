@@ -24,6 +24,7 @@
   "common.theme.system": "System",
   "common.theme.toggle": "Design wechseln",
   "ui.actions.refresh": "Aktualisieren",
+  "ui.actions.actions": "Aktionen",
   "ui.actions.delete": "Löschen",
   "ui.actions.deleting": "Wird gelöscht…",
   "ui.forms.actions.save": "Speichern",

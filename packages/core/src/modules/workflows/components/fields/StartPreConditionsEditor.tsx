@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect, useCallback } from 'react'
+import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Badge } from '@open-mercato/ui/primitives/badge'
 import { Label } from '@open-mercato/ui/primitives/label'
@@ -43,11 +44,15 @@ function LocalizedMessageTextarea({
   onChange,
   disabled,
   id,
+  placeholder,
+  hint,
 }: {
   value: Record<string, string> | undefined
   onChange: (messages: Record<string, string>) => void
   disabled?: boolean
   id: string
+  placeholder: string
+  hint: string
 }) {
   const getValidationMessagesString = (messages: Record<string, string> | undefined): string => {
     if (!messages) return ''
@@ -86,13 +91,13 @@ function LocalizedMessageTextarea({
         value={localValue}
         onChange={(e) => setLocalValue(e.target.value)}
         onBlur={handleBlur}
-        placeholder={"en: Your cart is empty. Please add items before checkout.\npl: Twój koszyk jest pusty. Dodaj produkty przed zakupem."}
+        placeholder={placeholder}
         rows={2}
         className="mt-1 font-mono text-xs"
         disabled={disabled}
       />
       <p className="text-xs text-muted-foreground mt-1">
-        Format: locale: message (e.g., en: Error message, pl: Komunikat błędu)
+        {hint}
       </p>
     </>
   )
@@ -110,6 +115,7 @@ export function StartPreConditionsEditor({
   setValue,
   disabled = false,
 }: StartPreConditionsEditorProps) {
+  const t = useT()
   const [isModalOpen, setIsModalOpen] = useState(false)
   const [conditionsWithDetails, setConditionsWithDetails] = useState<ConditionWithDetails[]>([])
 
@@ -230,7 +236,7 @@ export function StartPreConditionsEditor({
       <div className="flex items-center justify-between">
         <div>
           <p className="text-sm text-muted-foreground">
-            Business rules that must pass before the workflow can start
+            {t('workflows.fieldEditors.preConditions.description')}
           </p>
         </div>
         <Button
@@ -241,15 +247,15 @@ export function StartPreConditionsEditor({
           disabled={disabled}
         >
           <Plus className="h-4 w-4 mr-1" />
-          Add Rule
+          {t('workflows.fieldEditors.preConditions.addRule')}
         </Button>
       </div>
 
       {conditions.length === 0 && (
         <EmptyState
-          title="No pre-conditions defined"
-          description="Add a business rule that must pass before the workflow can start."
-          action={{ label: 'Add Rule', onClick: () => setIsModalOpen(true), disabled }}
+          title={t('workflows.fieldEditors.preConditions.emptyTitle')}
+          description={t('workflows.fieldEditors.preConditions.emptyDescription')}
+          action={{ label: t('workflows.fieldEditors.preConditions.addRule'), onClick: () => setIsModalOpen(true), disabled }}
         />
       )}
 
@@ -264,14 +270,14 @@ export function StartPreConditionsEditor({
                   {condition.loading ? (
                     <div className="flex items-center gap-2">
                       <Spinner size="sm" />
-                      <span className="text-sm text-muted-foreground">Loading rule details...</span>
+                      <span className="text-sm text-muted-foreground">{t('workflows.common.loadingDetails')}</span>
                     </div>
                   ) : condition.error ? (
                     <div className="flex items-center gap-2">
                       <AlertCircle className="size-4 text-amber-600" />
                       <div>
                         <span className="text-sm font-semibold text-foreground">{condition.ruleId}</span>
-                        <p className="text-xs text-amber-600">Rule not found or unavailable</p>
+                        <p className="text-xs text-amber-600">{t('workflows.common.ruleNotFound')}</p>
                       </div>
                     </div>
                   ) : (
@@ -299,7 +305,7 @@ export function StartPreConditionsEditor({
                     size="sm"
                     onClick={() => moveCondition(index, 'up')}
                     disabled={index === 0 || disabled}
-                    title="Move Up"
+                    title={t('workflows.common.moveUp')}
                   >
                     <ChevronUp className="h-4 w-4" />
                   </Button>
@@ -309,7 +315,7 @@ export function StartPreConditionsEditor({
                     size="sm"
                     onClick={() => moveCondition(index, 'down')}
                     disabled={index === conditions.length - 1 || disabled}
-                    title="Move Down"
+                    title={t('workflows.common.moveDown')}
                   >
                     <ChevronDown className="h-4 w-4" />
                   </Button>
@@ -319,14 +325,14 @@ export function StartPreConditionsEditor({
                         type="button"
                         variant="ghost"
                         size="sm"
-                        title="Delete"
+                        title={t('workflows.common.delete')}
                         disabled={disabled}
                       >
                         <Trash2 className="h-4 w-4 text-red-600" />
                       </Button>
                     }
-                    title="Remove Pre-Condition"
-                    description="Are you sure you want to remove this pre-condition?"
+                    title={t('workflows.fieldEditors.preConditions.removePreCondition')}
+                    description={t('workflows.fieldEditors.preConditions.confirmRemove')}
                     onConfirm={() => removeCondition(index)}
                   />
                 </div>
@@ -341,20 +347,22 @@ export function StartPreConditionsEditor({
                   disabled={disabled}
                 />
                 <Label htmlFor={`precondition-${index}-required`} className="text-xs font-medium cursor-pointer">
-                  Required (workflow cannot start if this rule fails)
+                  {t('workflows.fieldEditors.preConditions.requiredLabel')}
                 </Label>
               </div>
 
               {/* Validation Messages */}
               <div>
                 <Label htmlFor={`precondition-${index}-messages`} className="text-xs">
-                  Validation Messages (locale: message, one per line)
+                  {t('workflows.fieldEditors.preConditions.validationMessages')}
                 </Label>
                 <LocalizedMessageTextarea
                   id={`precondition-${index}-messages`}
                   value={conditions[index]?.validationMessage}
                   onChange={(messages) => updateCondition(index, { validationMessage: messages })}
                   disabled={disabled}
+                  placeholder={t('workflows.fieldEditors.preConditions.validationMessagesPlaceholder')}
+                  hint={t('workflows.fieldEditors.preConditions.validationMessagesHint')}
                 />
               </div>
             </div>
@@ -368,8 +376,8 @@ export function StartPreConditionsEditor({
         onClose={() => setIsModalOpen(false)}
         onSelect={addCondition}
         excludeRuleIds={getExcludedRuleIds()}
-        title="Select Business Rule"
-        description="Choose a business rule to add as a pre-condition for workflow start"
+        title={t('workflows.fieldEditors.preConditions.selectBusinessRule')}
+        description={t('workflows.fieldEditors.preConditions.selectBusinessRuleDescription')}
         filterRuleType="GUARD"
         onlyEnabled={true}
       />

@@ -65,7 +65,7 @@ export function TransitionsEditor({ value = [], onChange, steps = [], error }: T
   const addTransition = () => {
     const newTransition: Transition = {
       transitionId: `transition_${Date.now()}`,
-      transitionName: 'New Transition',
+      transitionName: t('workflows.common.newTransition'),
       fromStepId: '',
       toStepId: '',
       trigger: 'auto',
@@ -101,7 +101,7 @@ export function TransitionsEditor({ value = [], onChange, steps = [], error }: T
   const addActivity = (transitionIndex: number) => {
     const newActivity: Activity = {
       activityId: `activity_${Date.now()}`,
-      activityName: 'New Activity',
+      activityName: t('workflows.common.newActivity'),
       activityType: 'CALL_API',
       config: {},
       async: false,
@@ -211,7 +211,7 @@ export function TransitionsEditor({ value = [], onChange, steps = [], error }: T
                       id={`transition-${index}-name`}
                       value={transition.transitionName}
                       onChange={(e) => updateTransition(index, 'transitionName', e.target.value)}
-                      placeholder="Transition Name"
+                      placeholder={t('workflows.transitions.transitionName')}
                       className="mt-1"
                     />
                   </div>
@@ -380,7 +380,7 @@ export function TransitionsEditor({ value = [], onChange, steps = [], error }: T
                                 id={`activity-${index}-${activityIndex}-name`}
                                 value={activity.activityName}
                                 onChange={(e) => updateActivity(index, activityIndex, 'activityName', e.target.value)}
-                                placeholder="Activity Name"
+                                placeholder={t('workflows.activities.activityName')}
                                 className="mt-1 text-xs h-8"
                               />
                             </div>

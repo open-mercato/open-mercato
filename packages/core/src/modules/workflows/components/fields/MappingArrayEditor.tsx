@@ -1,6 +1,7 @@
 'use client'
 
 import { useState } from 'react'
+import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Input } from '@open-mercato/ui/primitives/input'
 import { Label } from '@open-mercato/ui/primitives/label'
@@ -35,9 +36,12 @@ export function MappingArrayEditor({
   error,
   setValue,
   disabled,
-  label = 'Mappings',
-  description = 'Define key-value mappings for data transformation',
+  label: labelProp,
+  description: descriptionProp,
 }: MappingArrayEditorProps) {
+  const t = useT()
+  const label = labelProp ?? t('workflows.fieldEditors.mappings.label')
+  const description = descriptionProp ?? t('workflows.fieldEditors.mappings.description')
   const [expandedIndices, setExpandedIndices] = useState<Set<number>>(new Set())
 
   const mappings = Array.isArray(value) ? value : []
@@ -67,7 +71,7 @@ export function MappingArrayEditor({
   }
 
   const removeMapping = (index: number) => {
-    if (typeof window !== 'undefined' && !window.confirm('Are you sure you want to remove this mapping?')) {
+    if (typeof window !== 'undefined' && !window.confirm(t('workflows.fieldEditors.mappings.confirmRemove'))) {
       return
     }
     const newMappings = mappings.filter((_, i) => i !== index)
@@ -102,13 +106,13 @@ export function MappingArrayEditor({
           disabled={disabled}
         >
           <Plus className="size-3 mr-1" />
-          Add Mapping
+          {t('workflows.fieldEditors.mappings.addMapping')}
         </Button>
       </div>
 
       {mappings.length === 0 ? (
         <div className="p-4 text-center text-sm text-muted-foreground bg-muted rounded-lg border">
-          No mappings defined. Click "Add Mapping" to create one.
+          {t('workflows.fieldEditors.mappings.emptyState')}
         </div>
       ) : (
         <div className="space-y-2">
@@ -135,7 +139,7 @@ export function MappingArrayEditor({
                           <span className="text-gray-400">=</span> {mapping.value}
                         </>
                       ) : (
-                        <span className="text-gray-400 italic">No value set</span>
+                        <span className="text-gray-400 italic">{t('workflows.common.noValueSet')}</span>
                       )}
                     </p>
                   </div>
@@ -150,38 +154,38 @@ export function MappingArrayEditor({
                     {/* Key Field */}
                     <div className="pt-3">
                       <Label htmlFor={`${id}-${index}-key`} className="text-xs font-medium mb-1">
-                        Key *
+                        {t('workflows.fieldEditors.mappings.key')} *
                       </Label>
                       <Input
                         id={`${id}-${index}-key`}
                         type="text"
                         value={mapping.key}
                         onChange={(e) => updateMapping(index, 'key', e.target.value)}
-                        placeholder="key_name"
+                        placeholder={t('workflows.fieldEditors.mappings.keyPlaceholder')}
                         className="text-xs"
                         disabled={disabled}
                       />
                       <p className="text-xs text-muted-foreground mt-0.5">
-                        The key name for this mapping
+                        {t('workflows.fieldEditors.mappings.keyHint')}
                       </p>
                     </div>
 
                     {/* Value Field */}
                     <div>
                       <Label htmlFor={`${id}-${index}-value`} className="text-xs font-medium mb-1">
-                        Value *
+                        {t('workflows.fieldEditors.mappings.value')} *
                       </Label>
                       <Input
                         id={`${id}-${index}-value`}
                         type="text"
                         value={mapping.value}
                         onChange={(e) => updateMapping(index, 'value', e.target.value)}
-                        placeholder="{{context.fieldName}} or static value"
+                        placeholder={t('workflows.fieldEditors.mappings.valuePlaceholder')}
                         className="text-xs font-mono"
                         disabled={disabled}
                       />
                       <p className="text-xs text-muted-foreground mt-0.5">
-                        Use template expressions like <code className="bg-gray-100 px-1 rounded">{'{{context.foo}}'}</code> for dynamic values
+                        {t('workflows.fieldEditors.mappings.valueHint')}
                       </p>
                     </div>
 
@@ -195,7 +199,7 @@ export function MappingArrayEditor({
                         disabled={disabled}
                       >
                         <Trash2 className="size-4 mr-1" />
-                        Remove Mapping
+                        {t('workflows.fieldEditors.mappings.removeMapping')}
                       </Button>
                     </div>
                   </div>

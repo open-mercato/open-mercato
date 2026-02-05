@@ -45,7 +45,7 @@ export function ActivitiesEditor({ value = [], onChange, error }: ActivitiesEdit
   const addActivity = () => {
     const newActivity: Activity = {
       activityId: `activity_${Date.now()}`,
-      activityName: 'New Activity',
+      activityName: t('workflows.common.newActivity'),
       activityType: 'CALL_API',
       config: {},
       async: false,
@@ -138,7 +138,7 @@ export function ActivitiesEditor({ value = [], onChange, error }: ActivitiesEdit
                       id={`activity-${index}-name`}
                       value={activity.activityName}
                       onChange={(e) => updateActivity(index, 'activityName', e.target.value)}
-                      placeholder="Activity Name"
+                      placeholder={t('workflows.activities.activityName')}
                       className="mt-1"
                     />
                   </div>

@@ -3,9 +3,10 @@
 import * as React from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
-import { Pencil, MousePointerClick, Loader2, Trash2 } from 'lucide-react'
+import { Pencil, MousePointerClick } from 'lucide-react'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { Button } from '@open-mercato/ui/primitives/button'
+import { FormHeader } from '@open-mercato/ui/backend/forms'
 import { Spinner } from '@open-mercato/ui/primitives/spinner'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { apiCallOrThrow, readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
@@ -387,58 +388,34 @@ export default function DealDetailPage({ params }: { params?: { id?: string } })
     <Page>
       <PageBody>
         <div className="flex flex-col gap-6">
-          <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-            <div className="flex flex-wrap items-center gap-3">
-              <Link
-                href="/backend/customers/deals"
-                className="inline-flex items-center text-sm text-muted-foreground hover:text-foreground"
-              >
-                <span aria-hidden className="mr-1 text-base">←</span>
-                <span className="sr-only">{t('customers.deals.detail.backToList', 'Back to deals')}</span>
-              </Link>
-              <div className="space-y-2">
-                <div className="flex flex-wrap items-center gap-2">
-                  <h1 className="text-2xl font-semibold text-foreground">
-                    {data.deal.title || t('customers.deals.detail.untitled', 'Untitled deal')}
-                  </h1>
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="sm"
-                    className="gap-1 text-muted-foreground hover:text-foreground"
-                    onClick={scrollToDealSettings}
-                  >
-                    <Pencil className="h-4 w-4" aria-hidden />
-                    <MousePointerClick className="h-4 w-4" aria-hidden />
-                    <span>{t('customers.deals.detail.goToSettings', 'Edit deal details')}</span>
-                  </Button>
-                </div>
-                <p className="text-sm text-muted-foreground">
-                  {t('customers.deals.detail.summary', undefined, {
-                    status: statusLabel,
-                    pipeline: pipelineLabel ?? t('customers.deals.detail.noPipeline', 'No pipeline'),
-                  })}
-                </p>
+          <FormHeader
+            mode="detail"
+            backHref="/backend/customers/deals"
+            backLabel={t('customers.deals.detail.backToList', 'Back to deals')}
+            title={
+              <div className="flex flex-wrap items-center gap-2">
+                <span>{data.deal.title || t('customers.deals.detail.untitled', 'Untitled deal')}</span>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  className="gap-1 text-muted-foreground hover:text-foreground"
+                  onClick={scrollToDealSettings}
+                >
+                  <Pencil className="h-4 w-4" aria-hidden />
+                  <MousePointerClick className="h-4 w-4" aria-hidden />
+                  <span>{t('customers.deals.detail.goToSettings', 'Edit deal details')}</span>
+                </Button>
               </div>
-            </div>
-            <div className="flex flex-wrap items-center gap-2">
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                onClick={handleDelete}
-                disabled={isDeleting}
-                className="rounded-none border-destructive/40 text-destructive hover:bg-destructive/5 hover:text-destructive"
-              >
-                {isDeleting ? (
-                  <Loader2 className="size-4 animate-spin" aria-hidden />
-                ) : (
-                  <Trash2 className="size-4" aria-hidden />
-                )}
-                <span>{t('ui.actions.delete', 'Delete')}</span>
-              </Button>
-            </div>
-          </div>
+            }
+            subtitle={t('customers.deals.detail.summary', undefined, {
+              status: statusLabel,
+              pipeline: pipelineLabel ?? t('customers.deals.detail.noPipeline', 'No pipeline'),
+            })}
+            onDelete={handleDelete}
+            isDeleting={isDeleting}
+            deleteLabel={t('ui.actions.delete', 'Delete')}
+          />
 
           <div className="grid gap-6 lg:grid-cols-[minmax(0,2fr),minmax(0,1.1fr)]">
             <div className="space-y-6">

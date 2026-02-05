@@ -24,6 +24,7 @@
   "common.theme.system": "Systemowy",
   "common.theme.toggle": "Przełącz motyw",
   "ui.actions.refresh": "Odśwież",
+  "ui.actions.actions": "Akcje",
   "ui.actions.delete": "Usuń",
   "ui.actions.deleting": "Usuwanie…",
   "ui.forms.actions.save": "Zapisz",

@@ -46,7 +46,7 @@ export function StepsEditor({ value = [], onChange, error }: StepsEditorProps) {
   const addStep = () => {
     const newStep: Step = {
       stepId: `step_${Date.now()}`,
-      stepName: 'New Step',
+      stepName: t('workflows.common.newStep'),
       stepType: 'AUTOMATED',
       description: '',
       config: {},
@@ -122,7 +122,7 @@ export function StepsEditor({ value = [], onChange, error }: StepsEditorProps) {
                       id={`step-${index}-name`}
                       value={step.stepName}
                       onChange={(e) => updateStep(index, 'stepName', e.target.value)}
-                      placeholder="Step Name"
+                      placeholder={t('workflows.steps.stepName')}
                       className="mt-1"
                     />
                   </div>
