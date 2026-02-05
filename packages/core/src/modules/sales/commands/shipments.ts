@@ -32,7 +32,19 @@ import {
 import { resolveDictionaryEntryValue } from '../lib/dictionaries'
 import type { DataEngine } from '@open-mercato/shared/lib/data/engine'
 import { emitCrudSideEffects } from '@open-mercato/shared/lib/commands/helpers'
+import type { CrudEventsConfig } from '@open-mercato/shared/lib/crud/types'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+
+const shipmentCrudEvents: CrudEventsConfig = {
+  module: 'sales',
+  entity: 'shipments',
+  persistent: true,
+  buildPayload: (ctx) => ({
+    id: ctx.identifiers.id,
+    organizationId: ctx.identifiers.organizationId,
+    tenantId: ctx.identifiers.tenantId,
+  }),
+}
 
 const ADDRESS_SNAPSHOT_KEY = 'shipmentAddressSnapshot'
 
@@ -512,6 +524,7 @@ const createShipmentCommand: CommandHandler<ShipmentCreateInput, { shipmentId: s
         tenantId: shipment.tenantId,
       },
       indexer: { entityType: E.sales.sales_shipment },
+      events: shipmentCrudEvents,
     })
 
     return { shipmentId: shipment.id }
@@ -726,6 +739,7 @@ const updateShipmentCommand: CommandHandler<ShipmentUpdateInput, { shipmentId: s
         tenantId: shipment.tenantId,
       },
       indexer: { entityType: E.sales.sales_shipment },
+      events: shipmentCrudEvents,
     })
 
     return { shipmentId: shipment.id }
@@ -869,6 +883,7 @@ const deleteShipmentCommand: CommandHandler<
         tenantId: shipment.tenantId,
       },
       indexer: { entityType: E.sales.sales_shipment },
+      events: shipmentCrudEvents,
     })
     if (shipmentItems.length) {
       await Promise.all(

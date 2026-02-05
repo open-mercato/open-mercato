@@ -48,7 +48,7 @@ import {
   diffCustomFieldChanges,
   buildCustomFieldResetMap,
 } from '@open-mercato/shared/lib/commands/customFieldSnapshots'
-import type { CrudIndexerConfig } from '@open-mercato/shared/lib/crud/types'
+import type { CrudIndexerConfig, CrudEventsConfig } from '@open-mercato/shared/lib/crud/types'
 import { E } from '#generated/entities.ids.generated'
 import { findWithDecryption, findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 
@@ -155,6 +155,17 @@ type PersonUndoPayload = {
 
 const personCrudIndexer: CrudIndexerConfig<CustomerEntity> = {
   entityType: E.customers.customer_person_profile,
+}
+
+const personCrudEvents: CrudEventsConfig = {
+  module: 'customers',
+  entity: 'people',
+  persistent: true,
+  buildPayload: (ctx) => ({
+    id: ctx.identifiers.id,
+    organizationId: ctx.identifiers.organizationId,
+    tenantId: ctx.identifiers.tenantId,
+  }),
 }
 
 function normalizeOptionalString(value: string | null | undefined): string | null {
@@ -524,6 +535,7 @@ const createPersonCommand: CommandHandler<PersonCreateInput, { entityId: string;
         organizationId,
       },
       indexer: personCrudIndexer,
+      events: personCrudEvents,
     })
 
     return { entityId: entity.id, personId: profile.id }
@@ -677,6 +689,7 @@ const updatePersonCommand: CommandHandler<PersonUpdateInput, { entityId: string 
         organizationId: record.organizationId,
       },
       indexer: personCrudIndexer,
+      events: personCrudEvents,
     })
 
     return { entityId: record.id }
@@ -834,6 +847,7 @@ const updatePersonCommand: CommandHandler<PersonUpdateInput, { entityId: string 
         tenantId: before.entity.tenantId,
       },
       indexer: personCrudIndexer,
+      events: personCrudEvents,
     })
 
     const resetValues = buildCustomFieldResetMap(before.custom, payload?.after?.custom)
@@ -929,6 +943,7 @@ const deletePersonCommand: CommandHandler<{ body?: Record<string, unknown>; quer
           tenantId: record.tenantId,
         },
         indexer: personCrudIndexer,
+        events: personCrudEvents,
       })
 
       await emitQueryIndexDeleteEvents(ctx, indexDeletes)
@@ -1170,6 +1185,7 @@ const deletePersonCommand: CommandHandler<{ body?: Record<string, unknown>; quer
           tenantId: entity.tenantId,
         },
         indexer: personCrudIndexer,
+        events: personCrudEvents,
       })
 
       const upsertEntries: QueryIndexEventEntry[] = []

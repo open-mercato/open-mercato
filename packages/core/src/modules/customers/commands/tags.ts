@@ -22,7 +22,20 @@ import {
 } from './shared'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
+import type { CrudEventsConfig } from '@open-mercato/shared/lib/crud/types'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { emitCustomersEvent } from '../events'
+
+const tagCrudEvents: CrudEventsConfig = {
+  module: 'customers',
+  entity: 'tags',
+  persistent: true,
+  buildPayload: (ctx) => ({
+    id: ctx.identifiers.id,
+    organizationId: ctx.identifiers.organizationId,
+    tenantId: ctx.identifiers.tenantId,
+  }),
+}
 
 type TagSnapshot = {
   id: string
@@ -100,6 +113,7 @@ const createTagCommand: CommandHandler<TagCreateInput, { tagId: string }> = {
         organizationId: tag.organizationId,
         tenantId: tag.tenantId,
       },
+      events: tagCrudEvents,
     })
 
     return { tagId: tag.id }
@@ -181,6 +195,7 @@ const updateTagCommand: CommandHandler<TagUpdateInput, { tagId: string }> = {
         organizationId: tag.organizationId,
         tenantId: tag.tenantId,
       },
+      events: tagCrudEvents,
     })
 
     return { tagId: tag.id }
@@ -251,6 +266,7 @@ const updateTagCommand: CommandHandler<TagUpdateInput, { tagId: string }> = {
         organizationId: tag.organizationId,
         tenantId: tag.tenantId,
       },
+      events: tagCrudEvents,
     })
   },
 }
@@ -284,6 +300,7 @@ const deleteTagCommand: CommandHandler<{ body?: Record<string, unknown>; query?:
         organizationId: tag.organizationId,
         tenantId: tag.tenantId,
       },
+      events: tagCrudEvents,
     })
     return { tagId: tag.id }
   },
@@ -340,6 +357,7 @@ const deleteTagCommand: CommandHandler<{ body?: Record<string, unknown>; query?:
         organizationId: tag.organizationId,
         tenantId: tag.tenantId,
       },
+      events: tagCrudEvents,
     })
   },
 }
@@ -381,6 +399,14 @@ const assignTagCommand: CommandHandler<TagAssignmentInput, { assignmentId: strin
         tenantId: parsed.tenantId,
       },
     })
+
+    await emitCustomersEvent('customers.tags.assigned', {
+      id: String(assignment.id),
+      tagId: parsed.tagId,
+      entityId: parsed.entityId,
+      organizationId: parsed.organizationId,
+      tenantId: parsed.tenantId,
+    }, { persistent: true })
 
     return { assignmentId: assignment.id }
   },
@@ -458,6 +484,14 @@ const unassignTagCommand: CommandHandler<TagAssignmentInput, { assignmentId: str
         tenantId: existing.tenantId,
       },
     })
+
+    await emitCustomersEvent('customers.tags.removed', {
+      id: String(existing.id),
+      tagId: parsed.tagId,
+      entityId: parsed.entityId,
+      organizationId: parsed.organizationId,
+      tenantId: parsed.tenantId,
+    }, { persistent: true })
 
     return { assignmentId: existing.id ?? null }
   },

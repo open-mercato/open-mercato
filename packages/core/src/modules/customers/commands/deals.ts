@@ -32,7 +32,7 @@ import {
   type CustomFieldChangeSet,
 } from '@open-mercato/shared/lib/commands/customFieldSnapshots'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
-import type { CrudIndexerConfig } from '@open-mercato/shared/lib/crud/types'
+import type { CrudIndexerConfig, CrudEventsConfig } from '@open-mercato/shared/lib/crud/types'
 import { E } from '#generated/entities.ids.generated'
 import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { resolveNotificationService } from '../../notifications/lib/notificationService'
@@ -42,6 +42,17 @@ import { notificationTypes } from '../notifications'
 const DEAL_ENTITY_ID = 'customers:customer_deal'
 const dealCrudIndexer: CrudIndexerConfig<CustomerDeal> = {
   entityType: E.customers.customer_deal,
+}
+
+const dealCrudEvents: CrudEventsConfig = {
+  module: 'customers',
+  entity: 'deals',
+  persistent: true,
+  buildPayload: (ctx) => ({
+    id: ctx.identifiers.id,
+    organizationId: ctx.identifiers.organizationId,
+    tenantId: ctx.identifiers.tenantId,
+  }),
 }
 
 type DealSnapshot = {
@@ -228,6 +239,7 @@ const createDealCommand: CommandHandler<DealCreateInput, { dealId: string }> = {
         tenantId: deal.tenantId,
       },
       indexer: dealCrudIndexer,
+      events: dealCrudEvents,
     })
 
     return { dealId: deal.id }
@@ -322,6 +334,7 @@ const updateDealCommand: CommandHandler<DealUpdateInput, { dealId: string }> = {
         tenantId: record.tenantId,
       },
       indexer: dealCrudIndexer,
+      events: dealCrudEvents,
     })
 
     // Send notifications for deal won/lost status changes
@@ -465,6 +478,7 @@ const updateDealCommand: CommandHandler<DealUpdateInput, { dealId: string }> = {
         tenantId: deal.tenantId,
       },
       indexer: dealCrudIndexer,
+      events: dealCrudEvents,
     })
 
     const resetValues = buildCustomFieldResetMap(before.custom, payload?.after?.custom)
@@ -515,6 +529,7 @@ const deleteDealCommand: CommandHandler<{ body?: Record<string, unknown>; query?
           tenantId: record.tenantId,
         },
         indexer: dealCrudIndexer,
+        events: dealCrudEvents,
       })
       return { dealId: record.id }
     },
@@ -576,6 +591,7 @@ const deleteDealCommand: CommandHandler<{ body?: Record<string, unknown>; query?
           tenantId: deal.tenantId,
         },
         indexer: dealCrudIndexer,
+        events: dealCrudEvents,
       })
 
       const resetValues = buildCustomFieldResetMap(before.custom, undefined)

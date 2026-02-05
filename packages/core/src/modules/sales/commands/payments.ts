@@ -33,6 +33,7 @@ import {
 import { resolveDictionaryEntryValue } from '../lib/dictionaries'
 import { invalidateCrudCache } from '@open-mercato/shared/lib/crud/cache'
 import { emitCrudSideEffects } from '@open-mercato/shared/lib/commands/helpers'
+import type { CrudEventsConfig } from '@open-mercato/shared/lib/crud/types'
 import type { DataEngine } from '@open-mercato/shared/lib/data/engine'
 import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { resolveNotificationService } from '../../notifications/lib/notificationService'
@@ -85,6 +86,17 @@ const toNumber = (value: unknown): number => {
 
 const normalizeCustomFieldsInput = (input: unknown): Record<string, unknown> =>
   input && typeof input === 'object' && !Array.isArray(input) ? (input as Record<string, unknown>) : {}
+
+const paymentCrudEvents: CrudEventsConfig = {
+  module: 'sales',
+  entity: 'payments',
+  persistent: true,
+  buildPayload: (ctx) => ({
+    id: ctx.identifiers.id,
+    organizationId: ctx.identifiers.organizationId,
+    tenantId: ctx.identifiers.tenantId,
+  }),
+}
 
 const ORDER_RESOURCE = 'sales.order'
 
@@ -437,6 +449,7 @@ const createPaymentCommand: CommandHandler<
         tenantId: payment.tenantId,
       },
       indexer: { entityType: E.sales.sales_payment },
+      events: paymentCrudEvents,
     })
 
     // Create notification for payment received
@@ -719,6 +732,7 @@ const updatePaymentCommand: CommandHandler<
         tenantId: payment.tenantId,
       },
       indexer: { entityType: E.sales.sales_payment },
+      events: paymentCrudEvents,
     })
 
     return { paymentId: payment.id, orderTotals: totals }
@@ -835,6 +849,7 @@ const deletePaymentCommand: CommandHandler<
         tenantId: payment.tenantId,
       },
       indexer: { entityType: E.sales.sales_payment },
+      events: paymentCrudEvents,
     })
     if (allocations.length) {
       await Promise.all(

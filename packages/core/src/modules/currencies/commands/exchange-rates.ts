@@ -1,6 +1,6 @@
 import { registerCommand } from '@open-mercato/shared/lib/commands'
 import type { CommandHandler } from '@open-mercato/shared/lib/commands'
-import { buildChanges, requireId } from '@open-mercato/shared/lib/commands/helpers'
+import { buildChanges, requireId, emitCrudSideEffects } from '@open-mercato/shared/lib/commands/helpers'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
@@ -13,6 +13,19 @@ import {
   type ExchangeRateUpdateInput,
   type ExchangeRateDeleteInput,
 } from '../data/validators'
+import type { CrudEventsConfig } from '@open-mercato/shared/lib/crud/types'
+import type { DataEngine } from '@open-mercato/shared/lib/data/engine'
+
+const exchangeRateCrudEvents: CrudEventsConfig = {
+  module: 'currencies',
+  entity: 'exchange_rate',
+  persistent: true,
+  buildPayload: (ctx) => ({
+    id: ctx.identifiers.id,
+    organizationId: ctx.identifiers.organizationId,
+    tenantId: ctx.identifiers.tenantId,
+  }),
+}
 
 type ExchangeRateSnapshot = {
   id: string
@@ -118,6 +131,19 @@ const createExchangeRateCommand: CommandHandler<ExchangeRateCreateInput, { excha
     })
     em.persist(record)
     await em.flush()
+
+    const de = ctx.container.resolve('dataEngine') as DataEngine
+    await emitCrudSideEffects({
+      dataEngine: de,
+      action: 'created',
+      entity: record,
+      identifiers: {
+        id: record.id,
+        organizationId: record.organizationId,
+        tenantId: record.tenantId,
+      },
+      events: exchangeRateCrudEvents,
+    })
 
     return { exchangeRateId: record.id }
   },
@@ -231,6 +257,19 @@ const updateExchangeRateCommand: CommandHandler<ExchangeRateUpdateInput, { excha
     
     await em.flush()
 
+    const de = ctx.container.resolve('dataEngine') as DataEngine
+    await emitCrudSideEffects({
+      dataEngine: de,
+      action: 'updated',
+      entity: record,
+      identifiers: {
+        id: record.id,
+        organizationId: record.organizationId,
+        tenantId: record.tenantId,
+      },
+      events: exchangeRateCrudEvents,
+    })
+
     return { exchangeRateId: record.id }
   },
   captureAfter: async (_input, result, ctx) => {
@@ -294,6 +333,19 @@ const deleteExchangeRateCommand: CommandHandler<ExchangeRateDeleteInput, { excha
     record.deletedAt = new Date()
     record.isActive = false
     await em.flush()
+
+    const de = ctx.container.resolve('dataEngine') as DataEngine
+    await emitCrudSideEffects({
+      dataEngine: de,
+      action: 'deleted',
+      entity: record,
+      identifiers: {
+        id: record.id,
+        organizationId: record.organizationId,
+        tenantId: record.tenantId,
+      },
+      events: exchangeRateCrudEvents,
+    })
 
     return { exchangeRateId: record.id }
   },

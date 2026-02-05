@@ -1,6 +1,6 @@
 import { registerCommand } from '@open-mercato/shared/lib/commands'
 import type { CommandHandler } from '@open-mercato/shared/lib/commands'
-import { buildChanges, requireId, parseWithCustomFields, setCustomFieldsIfAny } from '@open-mercato/shared/lib/commands/helpers'
+import { buildChanges, requireId, parseWithCustomFields, setCustomFieldsIfAny, emitCrudSideEffects } from '@open-mercato/shared/lib/commands/helpers'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
@@ -28,6 +28,19 @@ import {
   toNumericString,
 } from './shared'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import type { CrudEventsConfig } from '@open-mercato/shared/lib/crud/types'
+import type { DataEngine } from '@open-mercato/shared/lib/data/engine'
+
+const priceCrudEvents: CrudEventsConfig = {
+  module: 'catalog',
+  entity: 'price',
+  persistent: true,
+  buildPayload: (ctx) => ({
+    id: ctx.identifiers.id,
+    organizationId: ctx.identifiers.organizationId,
+    tenantId: ctx.identifiers.tenantId,
+  }),
+}
 
 type PriceSnapshot = {
   id: string
@@ -348,6 +361,18 @@ const createPriceCommand: CommandHandler<PriceCreateInput, { priceId: string }> 
       tenantId: record.tenantId,
       values: custom,
     })
+    const de = ctx.container.resolve('dataEngine') as DataEngine
+    await emitCrudSideEffects({
+      dataEngine: de,
+      action: 'created',
+      entity: record,
+      identifiers: {
+        id: record.id,
+        organizationId: record.organizationId,
+        tenantId: record.tenantId,
+      },
+      events: priceCrudEvents,
+    })
     return { priceId: record.id }
   },
   captureAfter: async (_input, result, ctx) => {
@@ -618,6 +643,18 @@ const updatePriceCommand: CommandHandler<PriceUpdateInput, { priceId: string }> 
         values: custom,
       })
     }
+    const de = ctx.container.resolve('dataEngine') as DataEngine
+    await emitCrudSideEffects({
+      dataEngine: de,
+      action: 'updated',
+      entity: record,
+      identifiers: {
+        id: record.id,
+        organizationId: record.organizationId,
+        tenantId: record.tenantId,
+      },
+      events: priceCrudEvents,
+    })
     return { priceId: record.id }
   },
   captureAfter: async (_input, result, ctx) => {
@@ -752,6 +789,18 @@ const deletePriceCommand: CommandHandler<
         })
       }
     }
+    const de = ctx.container.resolve('dataEngine') as DataEngine
+    await emitCrudSideEffects({
+      dataEngine: de,
+      action: 'deleted',
+      entity: record,
+      identifiers: {
+        id,
+        organizationId: snapshot?.organizationId ?? record.organizationId,
+        tenantId: snapshot?.tenantId ?? record.tenantId,
+      },
+      events: priceCrudEvents,
+    })
     return { priceId: id }
   },
   buildLog: async ({ snapshots }) => {

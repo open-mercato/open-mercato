@@ -14,11 +14,22 @@ import {
 } from './shared'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
-import type { CrudIndexerConfig } from '@open-mercato/shared/lib/crud/types'
+import type { CrudIndexerConfig, CrudEventsConfig } from '@open-mercato/shared/lib/crud/types'
 import { E } from '#generated/entities.ids.generated'
 
 const addressCrudIndexer: CrudIndexerConfig<CustomerAddress> = {
   entityType: E.customers.customer_address,
+}
+
+const addressCrudEvents: CrudEventsConfig = {
+  module: 'customers',
+  entity: 'addresses',
+  persistent: true,
+  buildPayload: (ctx) => ({
+    id: ctx.identifiers.id,
+    organizationId: ctx.identifiers.organizationId,
+    tenantId: ctx.identifiers.tenantId,
+  }),
 }
 
 type AddressSnapshot = {
@@ -131,6 +142,7 @@ const createAddressCommand: CommandHandler<AddressCreateInput, { addressId: stri
         tenantId: address.tenantId,
       },
       indexer: addressCrudIndexer,
+      events: addressCrudEvents,
     })
 
     return { addressId: address.id }
@@ -223,6 +235,7 @@ const updateAddressCommand: CommandHandler<AddressUpdateInput, { addressId: stri
         tenantId: address.tenantId,
       },
       indexer: addressCrudIndexer,
+      events: addressCrudEvents,
     })
 
     return { addressId: address.id }
@@ -339,6 +352,7 @@ const updateAddressCommand: CommandHandler<AddressUpdateInput, { addressId: stri
         tenantId: address.tenantId,
       },
       indexer: addressCrudIndexer,
+      events: addressCrudEvents,
     })
   },
 }
@@ -365,15 +379,16 @@ const deleteAddressCommand: CommandHandler<{ body?: Record<string, unknown>; que
       const de = (ctx.container.resolve('dataEngine') as DataEngine)
       await emitCrudSideEffects({
         dataEngine: de,
-        action: 'deleted',
-        entity: address,
-        identifiers: {
-          id: address.id,
-          organizationId: address.organizationId,
-          tenantId: address.tenantId,
-        },
-        indexer: addressCrudIndexer,
-      })
+      action: 'deleted',
+      entity: address,
+      identifiers: {
+        id: address.id,
+        organizationId: address.organizationId,
+        tenantId: address.tenantId,
+      },
+      indexer: addressCrudIndexer,
+      events: addressCrudEvents,
+    })
       return { addressId: address.id }
     },
     buildLog: async ({ snapshots }) => {
@@ -448,17 +463,18 @@ const deleteAddressCommand: CommandHandler<{ body?: Record<string, unknown>; que
       }
 
       const de = (ctx.container.resolve('dataEngine') as DataEngine)
-      await emitCrudUndoSideEffects({
-        dataEngine: de,
-        action: 'created',
-        entity: address,
-        identifiers: {
-          id: address.id,
-          organizationId: address.organizationId,
-          tenantId: address.tenantId,
-        },
-        indexer: addressCrudIndexer,
-      })
+    await emitCrudUndoSideEffects({
+      dataEngine: de,
+      action: 'created',
+      entity: address,
+      identifiers: {
+        id: address.id,
+        organizationId: address.organizationId,
+        tenantId: address.tenantId,
+      },
+      indexer: addressCrudIndexer,
+      events: addressCrudEvents,
+    })
     },
   }
 

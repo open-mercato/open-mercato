@@ -1,6 +1,6 @@
 import { registerCommand } from '@open-mercato/shared/lib/commands'
 import type { CommandHandler } from '@open-mercato/shared/lib/commands'
-import { buildChanges, requireId, parseWithCustomFields, setCustomFieldsIfAny } from '@open-mercato/shared/lib/commands/helpers'
+import { buildChanges, requireId, parseWithCustomFields, setCustomFieldsIfAny, emitCrudSideEffects } from '@open-mercato/shared/lib/commands/helpers'
 import { loadCustomFieldSnapshot, buildCustomFieldResetMap } from '@open-mercato/shared/lib/commands/customFieldSnapshots'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
@@ -14,7 +14,20 @@ import {
 } from '../data/validators'
 import { ensureOrganizationScope, ensureTenantScope, extractUndoPayload } from './shared'
 import { rebuildCategoryHierarchyForOrganization } from '../lib/categoryHierarchy'
+import type { CrudEventsConfig } from '@open-mercato/shared/lib/crud/types'
+import type { DataEngine } from '@open-mercato/shared/lib/data/engine'
 import { E } from '#generated/entities.ids.generated'
+
+const categoryCrudEvents: CrudEventsConfig = {
+  module: 'catalog',
+  entity: 'category',
+  persistent: true,
+  buildPayload: (ctx) => ({
+    id: ctx.identifiers.id,
+    organizationId: ctx.identifiers.organizationId,
+    tenantId: ctx.identifiers.tenantId,
+  }),
+}
 
 type CategorySnapshot = {
   id: string
@@ -157,6 +170,18 @@ const createCategoryCommand: CommandHandler<CategoryCreateInput, { categoryId: s
       tenantId: record.tenantId,
       values: custom,
     })
+    const de = ctx.container.resolve('dataEngine') as DataEngine
+    await emitCrudSideEffects({
+      dataEngine: de,
+      action: 'created',
+      entity: record,
+      identifiers: {
+        id: record.id,
+        organizationId: record.organizationId,
+        tenantId: record.tenantId,
+      },
+      events: categoryCrudEvents,
+    })
     return { categoryId: record.id }
   },
   captureAfter: async (_input, result, ctx) => {
@@ -273,6 +298,18 @@ const updateCategoryCommand: CommandHandler<CategoryUpdateInput, { categoryId: s
       organizationId: record.organizationId,
       tenantId: record.tenantId,
       values: custom,
+    })
+    const de = ctx.container.resolve('dataEngine') as DataEngine
+    await emitCrudSideEffects({
+      dataEngine: de,
+      action: 'updated',
+      entity: record,
+      identifiers: {
+        id: record.id,
+        organizationId: record.organizationId,
+        tenantId: record.tenantId,
+      },
+      events: categoryCrudEvents,
     })
     return { categoryId: record.id }
   },
@@ -397,6 +434,18 @@ const deleteCategoryCommand: CommandHandler<{ id?: string }, { categoryId: strin
         })
       }
     }
+    const de = ctx.container.resolve('dataEngine') as DataEngine
+    await emitCrudSideEffects({
+      dataEngine: de,
+      action: 'deleted',
+      entity: record,
+      identifiers: {
+        id: record.id,
+        organizationId: record.organizationId,
+        tenantId: record.tenantId,
+      },
+      events: categoryCrudEvents,
+    })
     return { categoryId: record.id }
   },
   buildLog: async ({ ctx, snapshots }) => {
