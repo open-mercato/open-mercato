@@ -58,6 +58,7 @@ function deepEqual(a: unknown, b: unknown): boolean {
 }
 
 const CUSTOM_FIELD_CONTAINER_KEYS = new Set(['custom', 'customFields', 'customValues', 'cf'])
+const SKIPPED_CHANGE_KEYS = new Set(['updatedAt', 'updated_at'])
 
 function appendCustomFieldChanges(
   changes: Record<string, { from: unknown; to: unknown }>,
@@ -95,6 +96,7 @@ function buildRecordChangesDeep(
   const changes: Record<string, { from: unknown; to: unknown }> = {}
   const keys = new Set([...Object.keys(before), ...Object.keys(after)])
   for (const key of keys) {
+    if (SKIPPED_CHANGE_KEYS.has(key)) continue
     if (CUSTOM_FIELD_CONTAINER_KEYS.has(key)) {
       const handled = appendCustomFieldChanges(changes, before[key], after[key])
       if (handled) continue

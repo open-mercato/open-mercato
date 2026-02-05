@@ -11,6 +11,7 @@ describe('CommandBus change inference', () => {
   afterEach(() => {
     unregisterCommand('test.custom.update')
     unregisterCommand('test.log.override')
+    unregisterCommand('test.updated.skip')
   })
 
   it('flattens custom field diffs into cf_ changes', async () => {
@@ -94,5 +95,48 @@ describe('CommandBus change inference', () => {
     const payload = logMock.mock.calls[0]?.[0] as LogRecord
     expect(payload?.resourceKind).toBe('test.person')
     expect(payload?.resourceId).toBe('rec-1')
+  })
+
+  it('skips updatedAt fields when inferring changes', async () => {
+    const logMock = jest.fn(async (payload: LogRecord) => payload)
+
+    registerCommand({
+      id: 'test.updated.skip',
+      execute: jest.fn(async () => ({ id: 'rec-2' })),
+      prepare: jest.fn(async () => ({
+        before: { id: 'rec-2', name: 'Old', updatedAt: '2026-02-05T10:00:00.000Z' },
+      })),
+      captureAfter: jest.fn(async () => ({
+        id: 'rec-2',
+        name: 'New',
+        updatedAt: '2026-02-05T11:00:00.000Z',
+      })),
+    })
+
+    const container = createContainer({ injectionMode: InjectionMode.CLASSIC })
+    container.register({
+      actionLogService: asValue({ log: logMock }),
+      dataEngine: asValue({ flushOrmEntityChanges: jest.fn() }),
+    })
+
+    const bus = new CommandBus()
+    const ctx = {
+      container,
+      auth: { sub: 'user-1', tenantId: 'tenant-1', orgId: 'org-1' },
+      organizationScope: null,
+      selectedOrganizationId: 'org-1',
+      organizationIds: null,
+    }
+
+    await bus.execute('test.updated.skip', {
+      input: {},
+      ctx,
+      metadata: { resourceKind: 'test.record', resourceId: 'rec-2' },
+    })
+
+    const payload = logMock.mock.calls[0]?.[0] as LogRecord
+    expect(payload?.changes).toEqual({
+      name: { from: 'Old', to: 'New' },
+    })
   })
 })
