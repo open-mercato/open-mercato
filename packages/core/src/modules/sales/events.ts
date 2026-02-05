@@ -41,10 +41,10 @@ const events = [
   { id: 'sales.notes.updated', label: 'Note Updated', entity: 'notes', category: 'crud' },
   { id: 'sales.notes.deleted', label: 'Note Deleted', entity: 'notes', category: 'crud' },
 
-  // Configuration
-  { id: 'sales.configuration.created', label: 'Configuration Created', entity: 'configuration', category: 'crud' },
-  { id: 'sales.configuration.updated', label: 'Configuration Updated', entity: 'configuration', category: 'crud' },
-  { id: 'sales.configuration.deleted', label: 'Configuration Deleted', entity: 'configuration', category: 'crud' },
+  // Sales Channels
+  { id: 'sales.channel.created', label: 'Sales Channel Created', entity: 'channel', category: 'crud' },
+  { id: 'sales.channel.updated', label: 'Sales Channel Updated', entity: 'channel', category: 'crud' },
+  { id: 'sales.channel.deleted', label: 'Sales Channel Deleted', entity: 'channel', category: 'crud' },
 
   // Lifecycle events - Document calculations
   { id: 'sales.document.totals.calculated', label: 'Document Totals Calculated', category: 'lifecycle' },
