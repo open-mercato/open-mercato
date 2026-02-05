@@ -345,6 +345,7 @@ docker stop verdaccio && docker rm verdaccio
 - JS/TS fields and identifiers: camelCase.
 - Database tables and columns: snake_case; table names plural.
 - Keep code minimal and focused; avoid side effects across modules.
+- Command/undo helpers and shared payload types must live in `packages/shared/src/lib/commands/` (no per-module copies or cross-module imports).
 - **Where to put code**:
   - Core platform features → `packages/<package>/src/modules/<module>/`
   - Shared utilities and types → `packages/shared/src/lib/` or `packages/shared/src/modules/`
@@ -1086,4 +1087,3 @@ Add it to the module's events.ts file first.
 ### Auto-Discovery
 
 Events are auto-discovered by generators and registered via `generated/events.generated.ts`. Run `npm run modules:prepare` after creating or modifying `events.ts` files.
-

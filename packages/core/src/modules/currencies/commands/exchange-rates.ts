@@ -1,6 +1,7 @@
 import { registerCommand } from '@open-mercato/shared/lib/commands'
 import type { CommandHandler } from '@open-mercato/shared/lib/commands'
 import { buildChanges, requireId } from '@open-mercato/shared/lib/commands/helpers'
+import { extractUndoPayload, type UndoPayload } from '@open-mercato/shared/lib/commands/undo'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
@@ -28,6 +29,8 @@ type ExchangeRateSnapshot = {
   createdAt: string
   updatedAt: string
 }
+
+type ExchangeRateUndoPayload = UndoPayload<ExchangeRateSnapshot>
 
 async function loadExchangeRateSnapshot(em: EntityManager, id: string): Promise<ExchangeRateSnapshot | null> {
   const record = await em.findOne(ExchangeRate, { id })
@@ -140,7 +143,8 @@ const createExchangeRateCommand: CommandHandler<ExchangeRateCreateInput, { excha
     }
   },
   undo: async ({ logEntry, ctx }) => {
-    const after = logEntry?.payload?.undo?.after as ExchangeRateSnapshot | undefined
+    const payload = extractUndoPayload<ExchangeRateUndoPayload>(logEntry)
+    const after = payload?.after ?? null
     if (!after) return
     const em = (ctx.container.resolve('em') as EntityManager).fork()
     const record = await em.findOne(ExchangeRate, { id: after.id })
@@ -253,7 +257,8 @@ const updateExchangeRateCommand: CommandHandler<ExchangeRateUpdateInput, { excha
     }
   },
   undo: async ({ logEntry, ctx }) => {
-    const before = logEntry?.payload?.undo?.before as ExchangeRateSnapshot | undefined
+    const payload = extractUndoPayload<ExchangeRateUndoPayload>(logEntry)
+    const before = payload?.before ?? null
     if (!before) return
     const em = (ctx.container.resolve('em') as EntityManager).fork()
     const record = await em.findOne(ExchangeRate, { id: before.id })
@@ -311,7 +316,8 @@ const deleteExchangeRateCommand: CommandHandler<ExchangeRateDeleteInput, { excha
     }
   },
   undo: async ({ logEntry, ctx }) => {
-    const before = logEntry?.payload?.undo?.before as ExchangeRateSnapshot | undefined
+    const payload = extractUndoPayload<ExchangeRateUndoPayload>(logEntry)
+    const before = payload?.before ?? null
     if (!before) return
     const em = (ctx.container.resolve('em') as EntityManager).fork()
     const record = await em.findOne(ExchangeRate, { id: before.id })

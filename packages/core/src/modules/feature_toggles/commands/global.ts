@@ -6,7 +6,7 @@ import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { registerCommand } from '@open-mercato/shared/lib/commands'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { buildChanges, requireId } from '@open-mercato/shared/lib/commands/helpers'
-import { extractUndoPayload } from '../../customers/commands/shared'
+import { extractUndoPayload } from '@open-mercato/shared/lib/commands/undo'
 import { FeatureTogglesService } from '../lib/feature-flag-check'
 
 type ToggleSnapshot = {

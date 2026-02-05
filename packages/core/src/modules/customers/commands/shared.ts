@@ -1,17 +1,10 @@
-import type { ActionLog } from '@open-mercato/core/modules/audit_logs/data/entities'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { CustomerDeal, CustomerEntity, CustomerTag, CustomerTagAssignment, CustomerDictionaryEntry, type CustomerEntityKind } from '../data/entities'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import type { CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
 import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 export { ensureOrganizationScope } from '@open-mercato/shared/lib/commands/scope'
-
-type UndoEnvelope<T> = {
-  undo?: T
-  value?: { undo?: T }
-  __redoInput?: unknown
-  [key: string]: unknown
-}
+export { extractUndoPayload } from '@open-mercato/shared/lib/commands/undo'
 
 export function normalizeDictionaryColor(input: unknown): string | null {
   if (typeof input !== 'string') return null
@@ -34,21 +27,6 @@ export function ensureTenantScope(ctx: CommandRuntimeContext, tenantId: string):
   if (currentTenant && currentTenant !== tenantId) {
     throw new CrudHttpError(403, { error: 'Forbidden' })
   }
-}
-
-export function extractUndoPayload<T>(logEntry: ActionLog | null | undefined): T | null {
-  if (!logEntry) return null
-  const payload = logEntry.commandPayload as UndoEnvelope<T> | undefined
-  if (!payload || typeof payload !== 'object') return null
-  if (payload.undo) return payload.undo
-  if (payload.value && typeof payload.value === 'object' && payload.value.undo) {
-    return payload.value.undo as T
-  }
-  const entries = Object.entries(payload).find(([key]) => key !== '__redoInput')
-  if (entries && entries[1] && typeof entries[1] === 'object' && 'undo' in (entries[1] as Record<string, unknown>)) {
-    return (entries[1] as { undo?: T }).undo ?? null
-  }
-  return null
 }
 
 export function assertRecordFound<T>(record: T | null | undefined, message: string): T {

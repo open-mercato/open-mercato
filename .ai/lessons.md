@@ -1,6 +1,12 @@
+# Lessons
+
 # Lessons Learned
 
 Recurring patterns and mistakes to avoid. Review at session start.
+
+## We've got centralized helpers for extracting `UndoPayload`
+
+Centralize shared command utilities like undo extraction in `packages/shared/src/lib/commands/undo.ts` and reuse `extractUndoPayload`/`UndoPayload` instead of duplicating helpers or cross-importing module code.
 
 ## Avoid identity-map stale snapshots in command logs
 

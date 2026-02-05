@@ -24,6 +24,7 @@ import {
   buildCustomFieldResetMap,
   diffCustomFieldChanges,
 } from '@open-mercato/shared/lib/commands/customFieldSnapshots'
+import { extractUndoPayload, type UndoPayload } from '@open-mercato/shared/lib/commands/undo'
 import { normalizeTenantId } from '@open-mercato/core/modules/auth/lib/tenantAccess'
 import { computeEmailHash } from '@open-mercato/core/modules/auth/lib/emailHash'
 import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
@@ -795,14 +796,6 @@ async function restoreUserAcls(em: EntityManager, user: User, acls: UserAclSnaps
     em.persist(entity)
   }
   await em.flush()
-}
-
-type UndoPayload = { undo?: { before?: UserUndoSnapshot | null; after?: UserUndoSnapshot | null } }
-
-function extractUndoPayload(logEntry: { commandPayload?: unknown }): { before?: UserUndoSnapshot | null; after?: UserUndoSnapshot | null } | null {
-  const payload = logEntry?.commandPayload as UndoPayload | undefined
-  if (!payload || typeof payload !== 'object') return null
-  return payload.undo ?? null
 }
 
 async function loadUserCustomSnapshot(
