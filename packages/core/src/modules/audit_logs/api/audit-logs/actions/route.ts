@@ -108,13 +108,9 @@ export async function GET(req: Request) {
     }
   }
 
-  let actorUserId: string | undefined = auth.sub
+  let actorUserId: string | undefined = canViewTenant ? undefined : auth.sub
   if (canViewTenant && actorQuery) {
     actorUserId = actorQuery
-  }
-  const isResourceScoped = Boolean(resourceKind && resourceId)
-  if (isResourceScoped && canViewTenant) {
-    actorUserId = undefined
   }
 
   const list = await actionLogs.list({
