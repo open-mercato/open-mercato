@@ -1252,7 +1252,7 @@ const updateProductCommand: CommandHandler<ProductUpdateInput, { productId: stri
   },
   buildLog: async ({ result, ctx, snapshots }) => {
     const before = snapshots.before as ProductSnapshot | undefined
-    const em = (ctx.container.resolve('em') as EntityManager).fork().fork()
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
     const after = await loadProductSnapshot(em, result.productId)
     if (!before || !after) return null
     const { translate } = await resolveTranslations()

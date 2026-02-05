@@ -282,7 +282,7 @@ const updateCategoryCommand: CommandHandler<CategoryUpdateInput, { categoryId: s
   },
   buildLog: async ({ result, ctx, snapshots }) => {
     const before = snapshots.before as CategorySnapshot | undefined
-    const em = (ctx.container.resolve('em') as EntityManager).fork().fork()
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
     const after = await loadCategorySnapshot(em, result.categoryId)
     if (!before || !after) return null
     const { translate } = await resolveTranslations()

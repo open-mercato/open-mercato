@@ -140,7 +140,7 @@ const updateToggleCommand: CommandHandler<ToggleUpdateInput, { toggleId: string 
     const { translate } = await resolveTranslations()
     const before = snapshots.before as ToggleSnapshot | undefined
     if (!before) return null
-    const em = (ctx.container.resolve('em') as EntityManager).fork().fork()
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
     const afterSnapshot = await loadToggleSnapshot(em, before.id)
     const changes =
       afterSnapshot && before
