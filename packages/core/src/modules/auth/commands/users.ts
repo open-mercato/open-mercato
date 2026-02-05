@@ -496,7 +496,7 @@ const updateUserCommand: CommandHandler<Record<string, unknown>, User> = {
     }
   },
   undo: async ({ logEntry, ctx }) => {
-    const payload = extractUndoPayload(logEntry)
+    const payload = extractUndoPayload<UndoPayload<UserUndoSnapshot>>(logEntry)
     const before = payload?.before
     const after = payload?.after
     if (!before) return
@@ -622,7 +622,7 @@ const deleteUserCommand: CommandHandler<{ body?: Record<string, unknown>; query?
     }
   },
   undo: async ({ logEntry, ctx }) => {
-    const payload = extractUndoPayload(logEntry)
+    const payload = extractUndoPayload<UndoPayload<UserUndoSnapshot>>(logEntry)
     const before = payload?.before
     if (!before) return
     const em = (ctx.container.resolve('em') as EntityManager)
