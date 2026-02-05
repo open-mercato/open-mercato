@@ -503,7 +503,7 @@ const createShipmentCommand: CommandHandler<ShipmentCreateInput, { shipmentId: s
     return { shipmentId: shipment.id }
   },
   captureAfter: async (_input, result, ctx) => {
-    const em = ctx.container.resolve('em') as EntityManager
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
     return loadShipmentSnapshot(em, result.shipmentId)
   },
   buildLog: async ({ result, snapshots }) => {
@@ -703,7 +703,7 @@ const updateShipmentCommand: CommandHandler<ShipmentUpdateInput, { shipmentId: s
     return { shipmentId: shipment.id }
   },
   captureAfter: async (_input, result, ctx) => {
-    const em = ctx.container.resolve('em') as EntityManager
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
     return loadShipmentSnapshot(em, result.shipmentId)
   },
   buildLog: async ({ snapshots, result }) => {

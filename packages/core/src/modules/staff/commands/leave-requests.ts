@@ -294,12 +294,12 @@ const createLeaveRequestCommand: CommandHandler<StaffLeaveRequestCreateInput, { 
     return { requestId: request.id }
   },
   captureAfter: async (_input, result, ctx) => {
-    const em = (ctx.container.resolve('em') as EntityManager)
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
     return await loadLeaveRequestSnapshot(em, result.requestId)
   },
   buildLog: async ({ result, ctx }) => {
     const { translate } = await resolveTranslations()
-    const em = (ctx.container.resolve('em') as EntityManager)
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
     const snapshot = await loadLeaveRequestSnapshot(em, result.requestId)
     return {
       actionLabel: translate('staff.audit.leaveRequests.create', 'Create leave request'),
@@ -392,7 +392,7 @@ const updateLeaveRequestCommand: CommandHandler<StaffLeaveRequestUpdateInput, { 
     const { translate } = await resolveTranslations()
     const before = snapshots.before as LeaveRequestSnapshot | undefined
     if (!before) return null
-    const em = (ctx.container.resolve('em') as EntityManager)
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
     const after = await loadLeaveRequestSnapshot(em, before.id)
     const changes = after
       ? buildChanges(before as unknown as Record<string, unknown>, after as unknown as Record<string, unknown>, [
@@ -488,12 +488,12 @@ const deleteLeaveRequestCommand: CommandHandler<{ id: string }, { requestId: str
     return { requestId: request.id }
   },
   captureAfter: async (_input, result, ctx) => {
-    const em = (ctx.container.resolve('em') as EntityManager)
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
     return await loadLeaveRequestSnapshot(em, result.requestId)
   },
   buildLog: async ({ result, ctx }) => {
     const { translate } = await resolveTranslations()
-    const em = (ctx.container.resolve('em') as EntityManager)
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
     const snapshot = await loadLeaveRequestSnapshot(em, result.requestId)
     return {
       actionLabel: translate('staff.audit.leaveRequests.delete', 'Delete leave request'),
@@ -643,7 +643,7 @@ const acceptLeaveRequestCommand: CommandHandler<StaffLeaveRequestDecisionInput, 
   buildLog: async ({ result, ctx, snapshots }) => {
     const { translate } = await resolveTranslations()
     const before = snapshots.before as LeaveRequestSnapshot | undefined
-    const em = (ctx.container.resolve('em') as EntityManager)
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
     const after = await loadLeaveRequestSnapshot(em, result.requestId)
     return {
       actionLabel: translate('staff.audit.leaveRequests.accept', 'Approve leave request'),
@@ -801,7 +801,7 @@ const rejectLeaveRequestCommand: CommandHandler<StaffLeaveRequestDecisionInput, 
   buildLog: async ({ result, ctx, snapshots }) => {
     const { translate } = await resolveTranslations()
     const before = snapshots.before as LeaveRequestSnapshot | undefined
-    const em = (ctx.container.resolve('em') as EntityManager)
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
     const after = await loadLeaveRequestSnapshot(em, result.requestId)
     return {
       actionLabel: translate('staff.audit.leaveRequests.reject', 'Reject leave request'),

@@ -4,7 +4,7 @@ import { randomUUID } from 'crypto'
 import { z } from 'zod'
 import { registerCommand } from '@open-mercato/shared/lib/commands'
 import type { CommandHandler } from '@open-mercato/shared/lib/commands'
-import { emitCrudSideEffects, requireId, type CrudEventsConfig } from '@open-mercato/shared/lib/commands/helpers'
+import { buildChanges, emitCrudSideEffects, requireId, type CrudEventsConfig } from '@open-mercato/shared/lib/commands/helpers'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { EventBus } from '@open-mercato/events'
 import type { DataEngine } from '@open-mercato/shared/lib/data/engine'
@@ -2278,6 +2278,134 @@ function normalizeTagIds(tags?: Array<string | null | undefined>): string[] {
   return Array.from(set)
 }
 
+function buildTagChange(
+  beforeTags: TagAssignmentSnapshot[] | undefined,
+  afterTags: TagAssignmentSnapshot[] | undefined
+): { from: string[]; to: string[] } | null {
+  const beforeIds = normalizeTagIds(beforeTags?.map((tag) => tag.tagId))
+  const afterIds = normalizeTagIds(afterTags?.map((tag) => tag.tagId))
+  beforeIds.sort()
+  afterIds.sort()
+  if (beforeIds.length === afterIds.length && beforeIds.every((id, index) => id === afterIds[index])) {
+    return null
+  }
+  return { from: beforeIds, to: afterIds }
+}
+
+function buildOrderUpdateChangeKeys(input: DocumentUpdateInput): string[] {
+  const keys = new Set<string>()
+  if (input.orderNumber !== undefined) keys.add('orderNumber')
+  if (input.statusEntryId !== undefined) {
+    keys.add('statusEntryId')
+    keys.add('status')
+  }
+  if (input.customerEntityId !== undefined) {
+    keys.add('customerEntityId')
+    keys.add('customerContactId')
+    keys.add('customerSnapshot')
+    keys.add('billingAddressId')
+    keys.add('shippingAddressId')
+    keys.add('billingAddressSnapshot')
+    keys.add('shippingAddressSnapshot')
+  }
+  if (input.customerContactId !== undefined) {
+    keys.add('customerContactId')
+    keys.add('customerSnapshot')
+  }
+  if (input.customerSnapshot !== undefined) keys.add('customerSnapshot')
+  if (input.metadata !== undefined) keys.add('metadata')
+  if (input.comment !== undefined) keys.add('comments')
+  if (input.currencyCode !== undefined) keys.add('currencyCode')
+  if (input.channelId !== undefined) keys.add('channelId')
+  if (input.placedAt !== undefined) keys.add('placedAt')
+  if (input.expectedDeliveryAt !== undefined) keys.add('expectedDeliveryAt')
+  if (input.shippingAddressId !== undefined || input.shippingAddressSnapshot !== undefined) {
+    keys.add('shippingAddressId')
+    keys.add('shippingAddressSnapshot')
+  }
+  if (input.billingAddressId !== undefined || input.billingAddressSnapshot !== undefined) {
+    keys.add('billingAddressId')
+    keys.add('billingAddressSnapshot')
+  }
+  if (
+    input.shippingMethodId !== undefined ||
+    input.shippingMethodCode !== undefined ||
+    input.shippingMethodSnapshot !== undefined
+  ) {
+    keys.add('shippingMethodId')
+    keys.add('shippingMethodCode')
+    keys.add('shippingMethodSnapshot')
+  }
+  if (
+    input.paymentMethodId !== undefined ||
+    input.paymentMethodCode !== undefined ||
+    input.paymentMethodSnapshot !== undefined
+  ) {
+    keys.add('paymentMethodId')
+    keys.add('paymentMethodCode')
+    keys.add('paymentMethodSnapshot')
+  }
+  if (input.customFieldSetId !== undefined) keys.add('customFieldSetId')
+  if (input.customFields !== undefined) keys.add('customFields')
+  return Array.from(keys)
+}
+
+function buildQuoteUpdateChangeKeys(input: DocumentUpdateInput): string[] {
+  const keys = new Set<string>()
+  if (input.quoteNumber !== undefined) keys.add('quoteNumber')
+  if (input.statusEntryId !== undefined) {
+    keys.add('statusEntryId')
+    keys.add('status')
+  }
+  if (input.customerEntityId !== undefined) {
+    keys.add('customerEntityId')
+    keys.add('customerContactId')
+    keys.add('customerSnapshot')
+    keys.add('billingAddressId')
+    keys.add('shippingAddressId')
+    keys.add('billingAddressSnapshot')
+    keys.add('shippingAddressSnapshot')
+  }
+  if (input.customerContactId !== undefined) {
+    keys.add('customerContactId')
+    keys.add('customerSnapshot')
+  }
+  if (input.customerSnapshot !== undefined) keys.add('customerSnapshot')
+  if (input.metadata !== undefined) keys.add('metadata')
+  if (input.comment !== undefined) keys.add('comments')
+  if (input.currencyCode !== undefined) keys.add('currencyCode')
+  if (input.channelId !== undefined) keys.add('channelId')
+  if (input.shippingAddressId !== undefined || input.shippingAddressSnapshot !== undefined) {
+    keys.add('shippingAddressId')
+    keys.add('shippingAddressSnapshot')
+  }
+  if (input.billingAddressId !== undefined || input.billingAddressSnapshot !== undefined) {
+    keys.add('billingAddressId')
+    keys.add('billingAddressSnapshot')
+  }
+  if (
+    input.shippingMethodId !== undefined ||
+    input.shippingMethodCode !== undefined ||
+    input.shippingMethodSnapshot !== undefined
+  ) {
+    keys.add('shippingMethodId')
+    keys.add('shippingMethodCode')
+    keys.add('shippingMethodSnapshot')
+  }
+  if (
+    input.paymentMethodId !== undefined ||
+    input.paymentMethodCode !== undefined ||
+    input.paymentMethodSnapshot !== undefined
+  ) {
+    keys.add('paymentMethodId')
+    keys.add('paymentMethodCode')
+    keys.add('paymentMethodSnapshot')
+  }
+  if (input.customFieldSetId !== undefined) keys.add('customFieldSetId')
+  if (input.customFields !== undefined) keys.add('customFields')
+  return Array.from(keys)
+}
+
 async function syncSalesDocumentTags(em: EntityManager, params: {
   documentId: string
   kind: SalesDocumentKind
@@ -3208,7 +3336,7 @@ const createQuoteCommand: CommandHandler<QuoteCreateInput, { quoteId: string }> 
     return { quoteId: quote.id }
   },
   captureAfter: async (_input, result, ctx) => {
-    const em = (ctx.container.resolve('em') as EntityManager)
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
     return loadQuoteSnapshot(em, result.quoteId)
   },
   buildLog: async ({ result, snapshots }) => {
@@ -3445,14 +3573,26 @@ const updateQuoteCommand: CommandHandler<DocumentUpdateInput, { quote: SalesQuot
     return { quote }
   },
   captureAfter: async (_input, result, ctx) => {
-    const em = (ctx.container.resolve('em') as EntityManager)
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
     return loadQuoteSnapshot(em, result.quote.id)
   },
-  buildLog: async ({ snapshots, result }) => {
+  buildLog: async ({ input, snapshots, result }) => {
+    const parsed = documentUpdateSchema.parse(input ?? {})
     const before = snapshots.before as QuoteGraphSnapshot | undefined
     const after = snapshots.after as QuoteGraphSnapshot | undefined
     if (!after) return null
     const { translate } = await resolveTranslations()
+    const changes = before
+      ? buildChanges(
+          before.quote as unknown as Record<string, unknown>,
+          after.quote as unknown as Record<string, unknown>,
+          buildQuoteUpdateChangeKeys(parsed)
+        )
+      : {}
+    if (parsed.tags !== undefined) {
+      const tagChange = buildTagChange(before?.tags, after.tags)
+      if (tagChange) changes.tags = tagChange
+    }
     return {
       actionLabel: translate('sales.audit.quotes.update', 'Update sales quote'),
       resourceKind: 'sales.quote',
@@ -3461,6 +3601,7 @@ const updateQuoteCommand: CommandHandler<DocumentUpdateInput, { quote: SalesQuot
       organizationId: after.quote.organizationId,
       snapshotBefore: before ?? null,
       snapshotAfter: after,
+      changes: Object.keys(changes).length ? changes : null,
       payload: {
         undo: {
           before,
@@ -3617,14 +3758,26 @@ const updateOrderCommand: CommandHandler<DocumentUpdateInput, { order: SalesOrde
     return { order }
   },
   captureAfter: async (_input, result, ctx) => {
-    const em = (ctx.container.resolve('em') as EntityManager)
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
     return loadOrderSnapshot(em, result.order.id)
   },
-  buildLog: async ({ snapshots, result }) => {
+  buildLog: async ({ input, snapshots, result }) => {
+    const parsed = documentUpdateSchema.parse(input ?? {})
     const before = snapshots.before as OrderGraphSnapshot | undefined
     const after = snapshots.after as OrderGraphSnapshot | undefined
     if (!after) return null
     const { translate } = await resolveTranslations()
+    const changes = before
+      ? buildChanges(
+          before.order as unknown as Record<string, unknown>,
+          after.order as unknown as Record<string, unknown>,
+          buildOrderUpdateChangeKeys(parsed)
+        )
+      : {}
+    if (parsed.tags !== undefined) {
+      const tagChange = buildTagChange(before?.tags, after.tags)
+      if (tagChange) changes.tags = tagChange
+    }
     return {
       actionLabel: translate('sales.audit.orders.update', 'Update sales order'),
       resourceKind: 'sales.order',
@@ -3633,6 +3786,7 @@ const updateOrderCommand: CommandHandler<DocumentUpdateInput, { order: SalesOrde
       organizationId: after.order.organizationId,
       snapshotBefore: before ?? null,
       snapshotAfter: after,
+      changes: Object.keys(changes).length ? changes : null,
       payload: {
         undo: {
           before,
@@ -3935,7 +4089,7 @@ const createOrderCommand: CommandHandler<OrderCreateInput, { orderId: string }> 
     return { orderId: order.id }
   },
   captureAfter: async (_input, result, ctx) => {
-    const em = (ctx.container.resolve('em') as EntityManager)
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
     return loadOrderSnapshot(em, result.orderId)
   },
   buildLog: async ({ result, snapshots }) => {
@@ -4320,7 +4474,7 @@ const convertQuoteToOrderCommand: CommandHandler<
     return { orderId: order.id }
   },
   captureAfter: async (_input, result, ctx) => {
-    const em = ctx.container.resolve('em') as EntityManager
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
     return loadOrderSnapshot(em, result.orderId)
   },
   buildLog: async ({ snapshots, result }) => {
@@ -4579,7 +4733,7 @@ const orderLineUpsertCommand: CommandHandler<
     return { orderId: order.id, lineId }
   },
   captureAfter: async (_input, result, ctx) => {
-    const em = ctx.container.resolve('em') as EntityManager
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
     return loadOrderSnapshot(em, result.orderId)
   },
   buildLog: async ({ result, snapshots }) => {
@@ -4710,7 +4864,7 @@ const orderLineDeleteCommand: CommandHandler<
     return { orderId: order.id, lineId: parsed.id }
   },
   captureAfter: async (_input, result, ctx) => {
-    const em = ctx.container.resolve('em') as EntityManager
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
     return loadOrderSnapshot(em, result.orderId)
   },
   buildLog: async ({ result, snapshots }) => {
@@ -4908,7 +5062,7 @@ const quoteLineUpsertCommand: CommandHandler<
     return { quoteId: quote.id, lineId }
   },
   captureAfter: async (_input, result, ctx) => {
-    const em = ctx.container.resolve('em') as EntityManager
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
     return loadQuoteSnapshot(em, result.quoteId)
   },
   buildLog: async ({ result, snapshots }) => {
@@ -5025,7 +5179,7 @@ const quoteLineDeleteCommand: CommandHandler<
     return { quoteId: quote.id, lineId: parsed.id }
   },
   captureAfter: async (_input, result, ctx) => {
-    const em = ctx.container.resolve('em') as EntityManager
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
     return loadQuoteSnapshot(em, result.quoteId)
   },
   buildLog: async ({ result, snapshots }) => {
@@ -5224,7 +5378,7 @@ const orderAdjustmentUpsertCommand: CommandHandler<
     return { orderId: order.id, adjustmentId }
   },
   captureAfter: async (_input, result, ctx) => {
-    const em = ctx.container.resolve('em') as EntityManager
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
     return loadOrderSnapshot(em, result.orderId)
   },
   buildLog: async ({ snapshots, result }) => {
@@ -5360,7 +5514,7 @@ const orderAdjustmentDeleteCommand: CommandHandler<
     return { orderId: order.id, adjustmentId: parsed.id }
   },
   captureAfter: async (_input, result, ctx) => {
-    const em = ctx.container.resolve('em') as EntityManager
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
     return loadOrderSnapshot(em, result.orderId)
   },
   buildLog: async ({ snapshots, result }) => {
@@ -5558,7 +5712,7 @@ const quoteAdjustmentUpsertCommand: CommandHandler<
     return { quoteId: quote.id, adjustmentId }
   },
   captureAfter: async (_input, result, ctx) => {
-    const em = ctx.container.resolve('em') as EntityManager
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
     return loadQuoteSnapshot(em, result.quoteId)
   },
   buildLog: async ({ snapshots, result }) => {
@@ -5693,7 +5847,7 @@ const quoteAdjustmentDeleteCommand: CommandHandler<
     return { quoteId: quote.id, adjustmentId: parsed.id }
   },
   captureAfter: async (_input, result, ctx) => {
-    const em = ctx.container.resolve('em') as EntityManager
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
     return loadQuoteSnapshot(em, result.quoteId)
   },
   buildLog: async ({ snapshots, result }) => {

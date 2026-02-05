@@ -5,7 +5,6 @@ import {
   setCustomFieldsIfAny,
   emitCrudSideEffects,
   emitCrudUndoSideEffects,
-  buildChanges,
   requireId,
 } from '@open-mercato/shared/lib/commands/helpers'
 import type { DataEngine } from '@open-mercato/shared/lib/data/engine'
@@ -45,7 +44,6 @@ import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import {
   loadCustomFieldSnapshot,
-  diffCustomFieldChanges,
   buildCustomFieldResetMap,
 } from '@open-mercato/shared/lib/commands/customFieldSnapshots'
 import type { CrudIndexerConfig } from '@open-mercato/shared/lib/crud/types'
@@ -529,13 +527,12 @@ const createPersonCommand: CommandHandler<PersonCreateInput, { entityId: string;
     return { entityId: entity.id, personId: profile.id }
   },
   captureAfter: async (_input, result, ctx) => {
-    const em = (ctx.container.resolve('em') as EntityManager)
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
     return await loadPersonSnapshot(em, result.entityId)
   },
-  buildLog: async ({ result, ctx }) => {
+  buildLog: async ({ result, snapshots }) => {
     const { translate } = await resolveTranslations()
-    const em = (ctx.container.resolve('em') as EntityManager)
-    const snapshot = await loadPersonSnapshot(em, result.entityId)
+    const snapshot = snapshots.after as PersonSnapshot | undefined
     return {
       actionLabel: translate('customers.audit.people.create', 'Create person'),
       resourceKind: 'customers.person',
@@ -681,37 +678,15 @@ const updatePersonCommand: CommandHandler<PersonUpdateInput, { entityId: string 
 
     return { entityId: record.id }
   },
-  buildLog: async ({ ctx, snapshots }) => {
+  captureAfter: async (_input, result, ctx) => {
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
+    return await loadPersonSnapshot(em, result.entityId)
+  },
+  buildLog: async ({ snapshots }) => {
     const { translate } = await resolveTranslations()
     const before = snapshots.before as PersonSnapshot | undefined
     if (!before) return null
-    const em = (ctx.container.resolve('em') as EntityManager)
-    const afterSnapshot = await loadPersonSnapshot(em, before.entity.id)
-    const changeKeys: readonly string[] = [
-      'displayName',
-      'description',
-      'ownerUserId',
-      'primaryEmail',
-      'primaryPhone',
-      'status',
-      'lifecycleStage',
-      'source',
-      'nextInteractionAt',
-      'nextInteractionName',
-      'nextInteractionRefId',
-      'nextInteractionIcon',
-      'nextInteractionColor',
-      'isActive',
-    ]
-    const changes =
-      afterSnapshot && afterSnapshot.entity
-        ? buildChanges(
-            before.entity as Record<string, unknown>,
-            afterSnapshot.entity as Record<string, unknown>,
-            changeKeys
-          )
-        : {}
-    const customChanges = diffCustomFieldChanges(before.custom, afterSnapshot?.custom)
+    const afterSnapshot = snapshots.after as PersonSnapshot | undefined
     return {
       actionLabel: translate('customers.audit.people.update', 'Update person'),
       resourceKind: 'customers.person',
@@ -720,7 +695,6 @@ const updatePersonCommand: CommandHandler<PersonUpdateInput, { entityId: string 
       organizationId: before.entity.organizationId,
       snapshotBefore: before,
       snapshotAfter: afterSnapshot ?? null,
-      changes: Object.keys(customChanges).length ? { ...changes, custom: customChanges } : changes,
       payload: {
         undo: {
           before,

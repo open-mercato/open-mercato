@@ -307,7 +307,7 @@ const createOrganizationCommand: CommandHandler<Record<string, unknown>, Organiz
     return organization
   },
   captureAfter: async (_input, result, ctx) => {
-    const em = (ctx.container.resolve('em') as EntityManager)
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
     const tenantId = resolveTenantIdFromEntity(result)
     const custom = await loadCustomFieldSnapshot(em, {
       entityId: E.directory.organization,
@@ -320,7 +320,7 @@ const createOrganizationCommand: CommandHandler<Record<string, unknown>, Organiz
   buildLog: async ({ result, ctx }) => {
     const { translate } = await resolveTranslations()
     const meta = getUndoMeta(result)
-    const em = (ctx.container.resolve('em') as EntityManager)
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
     const tenantId = resolveTenantIdFromEntity(result)
     const custom = await loadCustomFieldSnapshot(em, {
       entityId: E.directory.organization,
@@ -487,7 +487,7 @@ const updateOrganizationCommand: CommandHandler<Record<string, unknown>, Organiz
     return organization
   },
   captureAfter: async (_input, result, ctx) => {
-    const em = (ctx.container.resolve('em') as EntityManager)
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
     const tenantId = resolveTenantIdFromEntity(result)
     const custom = await loadCustomFieldSnapshot(em, {
       entityId: E.directory.organization,
@@ -502,7 +502,7 @@ const updateOrganizationCommand: CommandHandler<Record<string, unknown>, Organiz
     const meta = getUndoMeta(result)
     const beforeSnapshots = snapshots.before as OrganizationSnapshots | undefined
     const beforeRecord = beforeSnapshots?.view ?? null
-    const em = (ctx.container.resolve('em') as EntityManager)
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
     const tenantId = resolveTenantIdFromEntity(result)
     const custom = await loadCustomFieldSnapshot(em, {
       entityId: E.directory.organization,

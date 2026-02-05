@@ -114,12 +114,11 @@ const createCurrencyCommand: CommandHandler<CurrencyCreateInput, { currencyId: s
     return { currencyId: record.id }
   },
   captureAfter: async (_input, result, ctx) => {
-    const em = ctx.container.resolve('em') as EntityManager
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
     return loadCurrencySnapshot(em, result.currencyId)
   },
-  buildLog: async ({ result, ctx }) => {
-    const em = ctx.container.resolve('em') as EntityManager
-    const after = await loadCurrencySnapshot(em, result.currencyId)
+  buildLog: async ({ snapshots }) => {
+    const after = snapshots.after as CurrencySnapshot | undefined
     if (!after) return null
     const { translate } = await resolveTranslations()
     return {
@@ -208,7 +207,7 @@ const updateCurrencyCommand: CommandHandler<CurrencyUpdateInput, { currencyId: s
     return { currencyId: record.id }
   },
   captureAfter: async (_input, result, ctx) => {
-    const em = ctx.container.resolve('em') as EntityManager
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
     return loadCurrencySnapshot(em, result.currencyId)
   },
   buildLog: async ({ snapshots, result }) => {

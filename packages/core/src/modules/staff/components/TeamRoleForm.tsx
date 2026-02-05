@@ -142,6 +142,9 @@ export function TeamRoleForm(props: TeamRoleFormProps) {
       title={title}
       backHref={backHref}
       cancelHref={cancelHref}
+      versionHistory={initialValues.id
+        ? { resourceKind: 'staff.teamRole', resourceId: String(initialValues.id) }
+        : undefined}
       submitLabel={submitLabel}
       fields={fields}
       groups={groups}

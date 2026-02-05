@@ -23,6 +23,7 @@ import { Input } from '@open-mercato/ui/primitives/input'
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@open-mercato/ui/primitives/dialog'
 import { ArrowRightLeft, Building2, CreditCard, Mail, Pencil, Plus, Send, Store, Truck, UserRound, Wand2, X } from 'lucide-react'
 import { FormHeader, type ActionItem } from '@open-mercato/ui/backend/forms'
+import { VersionHistoryAction } from '@open-mercato/ui/backend/version-history'
 import Link from 'next/link'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { apiCall, apiCallOrThrow, readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
@@ -4364,6 +4365,15 @@ export default function SalesDocumentDetailPage({
           mode="detail"
           backHref={kind === 'order' ? '/backend/sales/orders' : '/backend/sales/quotes'}
           backLabel={t('sales.documents.detail.back', 'Back to documents')}
+          utilityActions={record ? (
+            <VersionHistoryAction
+              config={{
+                resourceKind: kind === 'order' ? 'sales.order' : 'sales.quote',
+                resourceId: record.id,
+              }}
+              t={t}
+            />
+          ) : null}
           entityTypeLabel={kind === 'order'
             ? t('sales.documents.detail.order', 'Sales order')
             : t('sales.documents.detail.quote', 'Sales quote')}

@@ -103,12 +103,12 @@ const createCommentCommand: CommandHandler<
     return { commentId: comment.id, authorUserId: comment.authorUserId ?? null }
   },
   captureAfter: async (_input, result, ctx) => {
-    const em = (ctx.container.resolve('em') as EntityManager)
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
     return await loadCommentSnapshot(em, result.commentId)
   },
   buildLog: async ({ result, ctx }) => {
     const { translate } = await resolveTranslations()
-    const em = (ctx.container.resolve('em') as EntityManager)
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
     const snapshot = await loadCommentSnapshot(em, result.commentId)
     return {
       actionLabel: translate('resources.audit.resourceComments.create', 'Create note'),
@@ -184,7 +184,7 @@ const updateCommentCommand: CommandHandler<ResourcesResourceCommentUpdateInput, 
     const { translate } = await resolveTranslations()
     const before = snapshots.before as CommentSnapshot | undefined
     if (!before) return null
-    const em = (ctx.container.resolve('em') as EntityManager)
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
     const afterSnapshot = await loadCommentSnapshot(em, before.id)
     const changes =
       afterSnapshot && before

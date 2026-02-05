@@ -6,6 +6,7 @@ module.exports = {
   moduleFileExtensions: ['ts', 'tsx', 'js', 'jsx', 'json'],
   moduleNameMapper: {
     '^@open-mercato/ui/(.*)$': '<rootDir>/src/$1',
+    '^@open-mercato/core/(.*)$': '<rootDir>/../core/src/$1',
   },
   transform: {
     '^.+\\.(t|j)sx?$': [

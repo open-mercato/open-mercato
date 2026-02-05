@@ -85,7 +85,7 @@ const changeOverrideStateCommand: CommandHandler<ProcessedChangeOverrideStateInp
   buildLog: async ({ snapshots, ctx }) => {
     const before = snapshots.before as OverrideSnapshot | undefined
     if (!before) return null
-    const em = ctx.container.resolve('em') as EntityManager
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
     const after = await loadOverrideSnapshot(em, before.toggleId, before.tenantId)
     if (!after) return null
 
