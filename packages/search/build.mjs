@@ -7,8 +7,17 @@ import { fileURLToPath } from 'node:url'
 const __dirname = dirname(fileURLToPath(import.meta.url))
 
 const entryPoints = await glob('src/**/*.{ts,tsx}', {
-  ignore: ['**/__tests__/**', '**/*.test.ts', '**/*.test.tsx']
+  cwd: __dirname,
+  ignore: ['**/__tests__/**', '**/*.test.ts', '**/*.test.tsx'],
+  absolute: true,
 })
+
+if (entryPoints.length === 0) {
+  console.error('No entry points found!')
+  process.exit(1)
+}
+
+console.log(`Found ${entryPoints.length} entry points`)
 
 // Plugin to add .js extension to relative imports
 const addJsExtension = {
@@ -16,7 +25,7 @@ const addJsExtension = {
   setup(build) {
     build.onEnd(async (result) => {
       if (result.errors.length > 0) return
-      const outputFiles = await glob('dist/**/*.js')
+      const outputFiles = await glob('dist/**/*.js', { cwd: __dirname, absolute: true })
       for (const file of outputFiles) {
         const fileDir = dirname(file)
         let content = readFileSync(file, 'utf-8')
@@ -79,8 +88,10 @@ await esbuild.build({
 })
 
 // Copy JSON files from src to dist (esbuild doesn't handle non-entry JSON files)
-const jsonFiles = await glob(join(__dirname, 'src/**/*.json'), {
-  ignore: ['**/node_modules/**']
+const jsonFiles = await glob('src/**/*.json', {
+  cwd: __dirname,
+  ignore: ['**/node_modules/**'],
+  absolute: true,
 })
 for (const jsonFile of jsonFiles) {
   const relativePath = relative(join(__dirname, 'src'), jsonFile)
