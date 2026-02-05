@@ -73,6 +73,8 @@
   "business_rules.rules.create.description": "Zdefiniuj nową regułę biznesową z warunkami i akcjami",
   "business_rules.rules.edit.title": "Edytuj Regułę Biznesową",
   "business_rules.rules.edit.description": "Modyfikuj warunki i akcje dla",
+  "business_rules.rules.edit.loading": "Ładowanie reguły...",
+  "business_rules.rules.backToList": "Powrót do reguł",
 
   "business_rules.rules.actions.edit": "Edytuj",
   "business_rules.rules.actions.delete": "Usuń",
@@ -111,8 +113,10 @@
 
   "business_rules.sets.edit.title": "Edytuj Zestaw Reguł",
   "business_rules.sets.edit.description": "Modyfikuj szczegóły zestawu reguł i zarządzaj członkami dla",
+  "business_rules.sets.edit.loading": "Ładowanie zestawu reguł...",
   "business_rules.sets.edit.detailsSection": "Szczegóły Zestawu Reguł",
   "business_rules.sets.edit.membersSection": "Członkowie Zestawu Reguł",
+  "business_rules.sets.backToList": "Powrót do zestawów reguł",
 
   "business_rules.sets.fields.setId": "ID Zestawu",
   "business_rules.sets.fields.setName": "Nazwa Zestawu",
@@ -132,6 +136,9 @@
 
   "business_rules.sets.form.descriptions.setId": "Unikalny identyfikator zestawu reguł",
   "business_rules.sets.form.descriptions.enabled": "Tylko włączone zestawy reguł będą używane",
+
+  "business_rules.sets.form.validation.setIdRequired": "ID zestawu jest wymagane",
+  "business_rules.sets.form.validation.setNameRequired": "Nazwa zestawu jest wymagana",
 
   "business_rules.sets.filters.searchPlaceholder": "Szukaj po nazwie lub ID...",
 
@@ -284,6 +291,9 @@
   "business_rules.logs.detail.inputContext": "Kontekst Wejściowy",
   "business_rules.logs.detail.outputContext": "Kontekst Wyjściowy",
   "business_rules.logs.detail.resultValue": "Wartość Wyniku",
+  "business_rules.logs.errors.notFound": "Nie znaleziono logu wykonania",
+  "business_rules.logs.backToList": "Powrót do logów",
+  "business_rules.logs.detail.loading": "Ładowanie logu wykonania...",
 
   "business_rules.components.actionBuilder.label": "Akcje",
   "business_rules.components.actionBuilder.emptyMessage": "Nie zdefiniowano akcji",
@@ -360,5 +370,7 @@
   "business_rules.components.conditionRow.field.comparisonPlaceholder": "np. user.role",
   "business_rules.components.conditionRow.value.help": "Użyj JSON dla tablic: [\"a\",\"b\"]",
   "business_rules.components.conditionRow.field.comparisonHelp": "Ścieżka pola do porównania",
-  "business_rules.components.conditionRow.deleteCondition": "Usuń warunek"
+  "business_rules.components.conditionRow.deleteCondition": "Usuń warunek",
+  "businessRules.notifications.rule.executionFailed.title": "Reguła Biznesowa Nie Powiodła Się",
+  "businessRules.notifications.rule.executionFailed.body": "Reguła \"{ruleName}\" nie powiodła się{entityType, select, other { na {entityType}}: {errorMessage}"
 }

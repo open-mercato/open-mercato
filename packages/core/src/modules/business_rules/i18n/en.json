@@ -137,6 +137,9 @@
   "business_rules.sets.form.descriptions.setId": "Unique identifier for the rule set",
   "business_rules.sets.form.descriptions.enabled": "Only enabled rule sets will be used",
 
+  "business_rules.sets.form.validation.setIdRequired": "Set ID is required",
+  "business_rules.sets.form.validation.setNameRequired": "Set name is required",
+
   "business_rules.sets.filters.searchPlaceholder": "Search by name or ID...",
 
   "business_rules.sets.actions.create": "Create Rule Set",
