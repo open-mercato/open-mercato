@@ -354,9 +354,8 @@ const createPriceCommand: CommandHandler<PriceCreateInput, { priceId: string }> 
     const em = (ctx.container.resolve('em') as EntityManager).fork()
     return loadPriceSnapshot(em, result.priceId)
   },
-  buildLog: async ({ result, ctx }) => {
-    const em = (ctx.container.resolve('em') as EntityManager).fork()
-    const after = await loadPriceSnapshot(em, result.priceId)
+  buildLog: async ({ result, snapshots }) => {
+    const after = snapshots.after as PriceSnapshot | undefined
     if (!after) return null
     const { translate } = await resolveTranslations()
     return {
@@ -624,10 +623,9 @@ const updatePriceCommand: CommandHandler<PriceUpdateInput, { priceId: string }> 
     const em = (ctx.container.resolve('em') as EntityManager).fork()
     return loadPriceSnapshot(em, result.priceId)
   },
-  buildLog: async ({ result, ctx, snapshots }) => {
+  buildLog: async ({ snapshots }) => {
     const before = snapshots.before as PriceSnapshot | undefined
-    const em = (ctx.container.resolve('em') as EntityManager).fork()
-    const after = await loadPriceSnapshot(em, result.priceId)
+    const after = snapshots.after as PriceSnapshot | undefined
     if (!before || !after) return null
     const { translate } = await resolveTranslations()
     return {

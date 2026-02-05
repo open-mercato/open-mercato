@@ -10,6 +10,7 @@ import {
 } from '@open-mercato/shared/lib/commands/helpers'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { UniqueConstraintViolationException } from '@mikro-orm/core'
+import { env } from 'process'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import type { CrudEventAction, CrudEventsConfig, CrudIndexerConfig } from '@open-mercato/shared/lib/crud/types'
@@ -1029,10 +1030,24 @@ const createProductCommand: CommandHandler<ProductCreateInput, { productId: stri
       )
     }
     em.persist(record)
+    let detachQueryLogger: (() => void) | null = null
+    if (env.OM_DEBUG_SQL === 'true') {
+      const connection = em.getConnection() as any
+      const knex = typeof connection?.getKnex === 'function' ? connection.getKnex() : null
+      if (knex && typeof knex.on === 'function' && typeof knex.off === 'function') {
+        const handler = (query: { sql?: string }) => {
+          if (query?.sql) console.log('[sql]', query.sql)
+        }
+        knex.on('query', handler)
+        detachQueryLogger = () => knex.off('query', handler)
+      }
+    }
     try {
       await em.flush()
     } catch (error) {
       await rethrowProductUniqueConstraint(error)
+    } finally {
+      detachQueryLogger?.()
     }
     await syncOffers(em, record, parsed.offers)
     await syncCategoryAssignments(em, record, parsed.categoryIds)
@@ -1062,9 +1077,8 @@ const createProductCommand: CommandHandler<ProductCreateInput, { productId: stri
     const em = (ctx.container.resolve('em') as EntityManager).fork()
     return loadProductSnapshot(em, result.productId)
   },
-  buildLog: async ({ result, ctx }) => {
-    const em = (ctx.container.resolve('em') as EntityManager).fork()
-    const after = await loadProductSnapshot(em, result.productId)
+  buildLog: async ({ result, snapshots }) => {
+    const after = snapshots.after as ProductSnapshot | undefined
     if (!after) return null
     const { translate } = await resolveTranslations()
     return {
@@ -1250,10 +1264,9 @@ const updateProductCommand: CommandHandler<ProductUpdateInput, { productId: stri
     const em = (ctx.container.resolve('em') as EntityManager).fork()
     return loadProductSnapshot(em, result.productId)
   },
-  buildLog: async ({ result, ctx, snapshots }) => {
+  buildLog: async ({ snapshots }) => {
     const before = snapshots.before as ProductSnapshot | undefined
-    const em = (ctx.container.resolve('em') as EntityManager).fork()
-    const after = await loadProductSnapshot(em, result.productId)
+    const after = snapshots.after as ProductSnapshot | undefined
     if (!before || !after) return null
     const { translate } = await resolveTranslations()
     return {
