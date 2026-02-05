@@ -1,6 +1,7 @@
 'use client'
 
 import { useState } from 'react'
+import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Badge } from '@open-mercato/ui/primitives/badge'
 import { Input } from '@open-mercato/ui/primitives/input'
@@ -45,6 +46,7 @@ export function FormFieldArrayEditor({
   disabled,
   isJsonSchemaFormat = false,
 }: FormFieldArrayEditorProps) {
+  const t = useT()
   const [expandedIndices, setExpandedIndices] = useState<Set<number>>(new Set())
 
   const formFields = Array.isArray(value) ? value : []
@@ -63,7 +65,7 @@ export function FormFieldArrayEditor({
     const newField: FormField = {
       name: `field_${Date.now()}`,
       type: 'text',
-      label: 'New Field',
+      label: t('workflows.form.newField'),
       required: false,
       placeholder: '',
     }
@@ -77,7 +79,7 @@ export function FormFieldArrayEditor({
   }
 
   const removeFormField = (index: number) => {
-    if (typeof window !== 'undefined' && !window.confirm('Are you sure you want to remove this field?')) {
+    if (typeof window !== 'undefined' && !window.confirm(t('workflows.fieldEditors.formFields.confirmRemove'))) {
       return
     }
     const newFields = formFields.filter((_, i) => i !== index)
@@ -99,9 +101,9 @@ export function FormFieldArrayEditor({
     <div className="space-y-3">
       <div className="flex items-center justify-between">
         <div>
-          <Label className="text-sm font-semibold">Form Fields ({formFields.length})</Label>
+          <Label className="text-sm font-semibold">{t('workflows.fieldEditors.formFields.title')} ({formFields.length})</Label>
           <p className="text-xs text-muted-foreground mt-0.5">
-            Define the form structure for this user task
+            {t('workflows.fieldEditors.formFields.description')}
           </p>
           {error && <p className="text-xs text-red-600 mt-1">{error}</p>}
         </div>
@@ -112,7 +114,7 @@ export function FormFieldArrayEditor({
           disabled={disabled}
         >
           <Plus className="size-3 mr-1" />
-          Add Field
+          {t('workflows.fieldEditors.formFields.addField')}
         </Button>
       </div>
 
@@ -121,16 +123,14 @@ export function FormFieldArrayEditor({
         <Alert variant="default" className="border-blue-200 bg-blue-50">
           <Info className="size-4" />
           <AlertDescription className="text-xs">
-            This form uses JSON Schema format. Fields have been converted for visual editing.
-            When you save, it will be converted to the simplified format. To preserve the original JSON Schema,
-            edit it in the "Advanced Configuration (JSON)" section below.
+            {t('workflows.fieldEditors.formFields.jsonSchemaNotice')}
           </AlertDescription>
         </Alert>
       )}
 
       {formFields.length === 0 ? (
         <div className="p-4 text-center text-sm text-muted-foreground bg-muted rounded-lg border">
-          No form fields defined. Click "Add Field" to create one.
+          {t('workflows.fieldEditors.formFields.emptyState')}
         </div>
       ) : (
         <div className="space-y-2">
@@ -155,7 +155,7 @@ export function FormFieldArrayEditor({
                       </Badge>
                       {field.required && (
                         <Badge variant="destructive" className="text-xs text-white">
-                          Required
+                          {t('workflows.form.required')}
                         </Badge>
                       )}
                     </div>
@@ -174,41 +174,41 @@ export function FormFieldArrayEditor({
                     {/* Field Name */}
                     <div className="pt-3">
                       <Label htmlFor={`${id}-${index}-name`} className="text-xs font-medium mb-1">
-                        Field Name *
+                        {t('workflows.fieldEditors.formFields.fieldName')} *
                       </Label>
                       <Input
                         id={`${id}-${index}-name`}
                         type="text"
                         value={field.name}
                         onChange={(e) => updateFormField(index, 'name', e.target.value)}
-                        placeholder="field_name"
+                        placeholder={t('workflows.fieldEditors.formFields.fieldNamePlaceholder')}
                         className="text-xs"
                         disabled={disabled}
                       />
-                      <p className="text-xs text-muted-foreground mt-0.5">Unique identifier for this field</p>
+                      <p className="text-xs text-muted-foreground mt-0.5">{t('workflows.fieldEditors.formFields.fieldNameHint')}</p>
                     </div>
 
                     {/* Field Label */}
                     <div>
                       <Label htmlFor={`${id}-${index}-label`} className="text-xs font-medium mb-1">
-                        Field Label *
+                        {t('workflows.fieldEditors.formFields.fieldLabel')} *
                       </Label>
                       <Input
                         id={`${id}-${index}-label`}
                         type="text"
                         value={field.label}
                         onChange={(e) => updateFormField(index, 'label', e.target.value)}
-                        placeholder="Field Label"
+                        placeholder={t('workflows.fieldEditors.formFields.fieldLabelPlaceholder')}
                         className="text-xs"
                         disabled={disabled}
                       />
-                      <p className="text-xs text-muted-foreground mt-0.5">Display label shown to users</p>
+                      <p className="text-xs text-muted-foreground mt-0.5">{t('workflows.fieldEditors.formFields.fieldLabelHint')}</p>
                     </div>
 
                     {/* Field Type */}
                     <div>
                       <Label htmlFor={`${id}-${index}-type`} className="text-xs font-medium mb-1">
-                        Field Type *
+                        {t('workflows.fieldEditors.formFields.fieldType')} *
                       </Label>
                       <select
                         id={`${id}-${index}-type`}
@@ -217,32 +217,32 @@ export function FormFieldArrayEditor({
                         className="flex h-9 w-full rounded-md border border-input bg-background px-3 py-2 text-xs shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                         disabled={disabled}
                       >
-                        <option value="text">Text</option>
-                        <option value="number">Number</option>
-                        <option value="email">Email</option>
-                        <option value="tel">Phone</option>
-                        <option value="url">URL</option>
-                        <option value="textarea">Text Area</option>
-                        <option value="select">Select (Dropdown)</option>
-                        <option value="radio">Radio Buttons</option>
-                        <option value="checkbox">Checkbox</option>
-                        <option value="date">Date</option>
-                        <option value="time">Time</option>
-                        <option value="datetime-local">Date & Time</option>
+                        <option value="text">{t('workflows.form.fieldTypes.text')}</option>
+                        <option value="number">{t('workflows.form.fieldTypes.number')}</option>
+                        <option value="email">{t('workflows.form.fieldTypes.email')}</option>
+                        <option value="tel">{t('workflows.form.fieldTypes.tel')}</option>
+                        <option value="url">{t('workflows.form.fieldTypes.url')}</option>
+                        <option value="textarea">{t('workflows.form.fieldTypes.textarea')}</option>
+                        <option value="select">{t('workflows.form.fieldTypes.select')}</option>
+                        <option value="radio">{t('workflows.form.fieldTypes.radio')}</option>
+                        <option value="checkbox">{t('workflows.form.fieldTypes.checkbox')}</option>
+                        <option value="date">{t('workflows.form.fieldTypes.date')}</option>
+                        <option value="time">{t('workflows.form.fieldTypes.time')}</option>
+                        <option value="datetime-local">{t('workflows.form.fieldTypes.datetime-local')}</option>
                       </select>
                     </div>
 
                     {/* Placeholder */}
                     <div>
                       <Label htmlFor={`${id}-${index}-placeholder`} className="text-xs font-medium mb-1">
-                        Placeholder
+                        {t('workflows.fieldEditors.formFields.placeholder')}
                       </Label>
                       <Input
                         id={`${id}-${index}-placeholder`}
                         type="text"
                         value={field.placeholder || ''}
                         onChange={(e) => updateFormField(index, 'placeholder', e.target.value)}
-                        placeholder="Enter placeholder text..."
+                        placeholder={t('workflows.fieldEditors.formFields.placeholderPlaceholder')}
                         className="text-xs"
                         disabled={disabled}
                       />
@@ -251,14 +251,14 @@ export function FormFieldArrayEditor({
                     {/* Default Value */}
                     <div>
                       <Label htmlFor={`${id}-${index}-defaultValue`} className="text-xs font-medium mb-1">
-                        Default Value
+                        {t('workflows.fieldEditors.formFields.defaultValue')}
                       </Label>
                       <Input
                         id={`${id}-${index}-defaultValue`}
                         type="text"
                         value={field.defaultValue || ''}
                         onChange={(e) => updateFormField(index, 'defaultValue', e.target.value)}
-                        placeholder="Default value..."
+                        placeholder={t('workflows.fieldEditors.formFields.defaultValuePlaceholder')}
                         className="text-xs"
                         disabled={disabled}
                       />
@@ -268,7 +268,7 @@ export function FormFieldArrayEditor({
                     {(field.type === 'select' || field.type === 'radio') && (
                       <div>
                         <Label htmlFor={`${id}-${index}-options`} className="text-xs font-medium mb-1">
-                          Options (comma-separated)
+                          {t('workflows.fieldEditors.formFields.options')}
                         </Label>
                         <Input
                           id={`${id}-${index}-options`}
@@ -284,11 +284,11 @@ export function FormFieldArrayEditor({
                                 .filter(Boolean)
                             )
                           }
-                          placeholder="Option 1, Option 2, Option 3"
+                          placeholder={t('workflows.fieldEditors.formFields.optionsPlaceholder')}
                           className="text-xs"
                           disabled={disabled}
                         />
-                        <p className="text-xs text-muted-foreground mt-0.5">Comma-separated list of options</p>
+                        <p className="text-xs text-muted-foreground mt-0.5">{t('workflows.fieldEditors.formFields.optionsHint')}</p>
                       </div>
                     )}
 
@@ -304,7 +304,7 @@ export function FormFieldArrayEditor({
                           disabled={disabled}
                         />
                         <Label htmlFor={`${id}-${index}-required`} className="text-xs font-medium cursor-pointer">
-                          Required field
+                          {t('workflows.fieldEditors.formFields.requiredField')}
                         </Label>
                       </div>
                     </div>
@@ -319,7 +319,7 @@ export function FormFieldArrayEditor({
                         disabled={disabled}
                       >
                         <Trash2 className="size-4 mr-1" />
-                        Remove Field
+                        {t('workflows.fieldEditors.formFields.removeField')}
                       </Button>
                     </div>
                   </div>

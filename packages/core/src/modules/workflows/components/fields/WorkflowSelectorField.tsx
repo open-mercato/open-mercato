@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
+import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Badge } from '@open-mercato/ui/primitives/badge'
 import { Label } from '@open-mercato/ui/primitives/label'
@@ -40,9 +41,12 @@ export function WorkflowSelectorField({
   error,
   setValue,
   disabled,
-  label = 'Sub-Workflow',
-  description = 'Select a workflow to invoke as a sub-workflow',
+  label: labelProp,
+  description: descriptionProp,
 }: WorkflowSelectorFieldProps) {
+  const t = useT()
+  const label = labelProp ?? t('workflows.fieldEditors.workflowSelector.label')
+  const description = descriptionProp ?? t('workflows.fieldEditors.workflowSelector.description')
   const [isModalOpen, setIsModalOpen] = useState(false)
   const [workflowDetails, setWorkflowDetails] = useState<WorkflowDetails | null>(null)
 
@@ -99,7 +103,7 @@ export function WorkflowSelectorField({
   }
 
   const handleClear = () => {
-    if (typeof window !== 'undefined' && !window.confirm('Are you sure you want to clear the selected workflow?')) {
+    if (typeof window !== 'undefined' && !window.confirm(t('workflows.fieldEditors.workflowSelector.confirmClear'))) {
       return
     }
     setValue('')
@@ -122,7 +126,7 @@ export function WorkflowSelectorField({
         /* No Workflow Selected */
         <div className="border-2 border-dashed border-gray-300 rounded-lg p-6 text-center">
           <Workflow className="size-8 text-muted-foreground mx-auto mb-2" />
-          <p className="text-sm text-muted-foreground mb-3">No workflow selected</p>
+          <p className="text-sm text-muted-foreground mb-3">{t('workflows.fieldEditors.workflowSelector.noWorkflowSelected')}</p>
           <Button
             type="button"
             size="sm"
@@ -130,7 +134,7 @@ export function WorkflowSelectorField({
             disabled={disabled}
           >
             <Search className="size-3 mr-1" />
-            Browse Workflows
+            {t('workflows.fieldEditors.workflowSelector.browseWorkflows')}
           </Button>
         </div>
       ) : (
@@ -141,7 +145,7 @@ export function WorkflowSelectorField({
               {workflowDetails?.loading ? (
                 <div className="flex items-center gap-2">
                   <Loader2 className="size-4 animate-spin text-muted-foreground" />
-                  <span className="text-sm text-muted-foreground">Loading workflow details...</span>
+                  <span className="text-sm text-muted-foreground">{t('workflows.common.loadingDetails')}</span>
                 </div>
               ) : workflowDetails?.error ? (
                 <>
@@ -149,7 +153,7 @@ export function WorkflowSelectorField({
                     <AlertCircle className="size-4 text-yellow-600" />
                     <span className="text-sm font-semibold text-gray-900">{workflowId}</span>
                   </div>
-                  <p className="text-xs text-yellow-600">Workflow not found or unavailable</p>
+                  <p className="text-xs text-yellow-600">{t('workflows.common.workflowNotFoundOrUnavailable')}</p>
                 </>
               ) : (
                 <>
@@ -166,11 +170,11 @@ export function WorkflowSelectorField({
                       {workflowDetails?.enabled !== undefined && (
                         workflowDetails.enabled ? (
                           <Badge variant="default" className="bg-emerald-500 text-xs">
-                            Enabled
+                            {t('common.enabled')}
                           </Badge>
                         ) : (
                           <Badge variant="secondary" className="text-xs">
-                            Disabled
+                            {t('common.disabled')}
                           </Badge>
                         )
                       )}
@@ -194,7 +198,7 @@ export function WorkflowSelectorField({
                 disabled={disabled}
               >
                 <Search className="size-3 mr-1" />
-                Change
+                {t('workflows.common.change')}
               </Button>
               <Button
                 type="button"
@@ -216,8 +220,8 @@ export function WorkflowSelectorField({
         onClose={() => setIsModalOpen(false)}
         onSelect={handleSelect}
         excludeWorkflowIds={workflowId ? [workflowId] : []}
-        title="Select Sub-Workflow"
-        description="Choose a workflow to invoke as a sub-workflow"
+        title={t('workflows.fieldEditors.workflowSelector.selectSubWorkflow')}
+        description={t('workflows.fieldEditors.workflowSelector.selectSubWorkflowDescription')}
         onlyEnabled={true}
       />
     </div>
