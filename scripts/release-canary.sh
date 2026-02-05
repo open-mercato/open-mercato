@@ -26,7 +26,7 @@ yarn build:packages
 echo "==> Rebuild completed"
 
 echo "==> Publishing packages..."
-yarn workspaces foreach -A --no-private npm publish --access public
+yarn workspaces foreach -Av --topological --no-private npm publish --access public
 echo "==> Publish completed"
 
 echo "==> Done!"
