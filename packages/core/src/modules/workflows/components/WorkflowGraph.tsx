@@ -23,6 +23,7 @@ import { STATUS_COLORS } from '../lib/status-colors'
 import { Alert, AlertDescription } from '@open-mercato/ui/primitives/alert'
 import { Edit3 } from 'lucide-react'
 import { useTheme } from '@open-mercato/ui/theme'
+import { useT } from '@open-mercato/shared/lib/i18n/context'
 
 // NOTE: ReactFlow styles should be imported in the page that uses this component
 // or in a global CSS file. Import: '@xyflow/react/dist/style.css'
@@ -61,6 +62,7 @@ export function WorkflowGraph({
   className = '',
   height = '600px',
 }: WorkflowGraphProps) {
+  const t = useT()
   // Use ReactFlow hooks for node and edge state management
   const [nodes, setNodes, onNodesChange] = useNodesState(initialNodes)
   const [edges, setEdges, onEdgesChange] = useEdgesState(initialEdges)
@@ -217,7 +219,7 @@ export function WorkflowGraph({
           <Panel position="top-left" style={{ margin: 10 }}>
             <div className="bg-card rounded-lg shadow-sm border border-border px-4 py-2">
               <p className="text-sm text-muted-foreground font-medium">
-                Workflow Visualization
+                {t('workflows.graph.visualization')}
               </p>
             </div>
           </Panel>
@@ -228,7 +230,7 @@ export function WorkflowGraph({
             <Alert variant="info" className="max-w-sm">
               <Edit3 className="size-4" />
               <AlertDescription className="font-medium">
-                Edit Mode: Drag nodes to reposition
+                {t('workflows.graph.editModeInfo')}
               </AlertDescription>
             </Alert>
           </Panel>
