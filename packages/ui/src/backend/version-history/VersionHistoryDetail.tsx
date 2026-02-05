@@ -3,6 +3,7 @@
 import * as React from 'react'
 import type { TranslateFn } from '@open-mercato/shared/lib/i18n/context'
 import type { VersionHistoryEntry } from './types'
+import { getVersionHistoryStatusLabel } from './labels'
 import {
   extractChangeRows,
   formatDate,
@@ -19,6 +20,7 @@ export type VersionHistoryDetailProps = {
 
 export function VersionHistoryDetail({ entry, t }: VersionHistoryDetailProps) {
   const noneLabel = t('audit_logs.common.none')
+  const statusLabel = getVersionHistoryStatusLabel(entry.executionState, t)
   const changeRows = React.useMemo(
     () => extractChangeRows(entry.changes, entry.snapshotBefore),
     [entry.changes, entry.snapshotBefore],
@@ -61,7 +63,7 @@ export function VersionHistoryDetail({ entry, t }: VersionHistoryDetailProps) {
             <dt className="text-xs uppercase tracking-wide text-muted-foreground">
               {t('audit_logs.version_history.detail.status')}
             </dt>
-            <dd className="text-sm capitalize">{entry.executionState}</dd>
+            <dd className="text-sm">{statusLabel}</dd>
           </div>
         </dl>
       </section>

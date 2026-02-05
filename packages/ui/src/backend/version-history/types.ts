@@ -7,6 +7,7 @@ export type VersionHistoryEntry = {
   actorUserName: string | null
   resourceKind: string | null
   resourceId: string | null
+  undoToken: string | null
   createdAt: string
   updatedAt: string
   snapshotBefore?: unknown | null

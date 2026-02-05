@@ -62,6 +62,7 @@ export function VersionHistoryAction({
         error={historyData.error}
         hasMore={historyData.hasMore}
         onLoadMore={historyData.loadMore}
+        onRefresh={historyData.refresh}
         t={t}
       />
     </>

@@ -1,12 +1,15 @@
 "use client"
 
 import * as React from 'react'
-import { ChevronLeft, Clock, Loader2, X } from 'lucide-react'
+import { ChevronLeft, Clock, Loader2, RotateCcw, Undo2, X } from 'lucide-react'
 import type { TranslateFn } from '@open-mercato/shared/lib/i18n/context'
 import { Button } from '@open-mercato/ui/primitives/button'
 import type { VersionHistoryEntry } from './types'
 import { VersionHistoryDetail } from './VersionHistoryDetail'
 import { formatDate } from '@open-mercato/core/modules/audit_logs/lib/display-helpers'
+import { apiCallOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
+import { markRedoConsumed, markUndoSuccess } from '@open-mercato/ui/backend/operations/store'
+import { getVersionHistoryStatusLabel } from './labels'
 
 export type VersionHistoryPanelProps = {
   open: boolean
@@ -16,6 +19,7 @@ export type VersionHistoryPanelProps = {
   error: string | null
   hasMore: boolean
   onLoadMore: () => void
+  onRefresh: () => void
   t: TranslateFn
 }
 
@@ -27,9 +31,26 @@ export function VersionHistoryPanel({
   error,
   hasMore,
   onLoadMore,
+  onRefresh,
   t,
 }: VersionHistoryPanelProps) {
   const [selectedEntry, setSelectedEntry] = React.useState<VersionHistoryEntry | null>(null)
+  const [undoingToken, setUndoingToken] = React.useState<string | null>(null)
+  const [redoingId, setRedoingId] = React.useState<string | null>(null)
+  const latestUndoableId = React.useMemo(() => {
+    const latest = entries.find((entry) => entry.undoToken && entry.executionState === 'done')
+    return latest?.id ?? null
+  }, [entries])
+  const latestUndoneId = React.useMemo(() => {
+    const undone = entries.filter((entry) => entry.executionState === 'undone')
+    if (!undone.length) return null
+    const sorted = [...undone].sort((a, b) => {
+      const aTs = Date.parse(a.updatedAt)
+      const bTs = Date.parse(b.updatedAt)
+      return (Number.isFinite(bTs) ? bTs : 0) - (Number.isFinite(aTs) ? aTs : 0)
+    })
+    return sorted[0]?.id ?? null
+  }, [entries])
 
   React.useEffect(() => {
     if (!open) setSelectedEntry(null)
@@ -44,6 +65,42 @@ export function VersionHistoryPanel({
     document.addEventListener('keydown', handleKeyDown)
     return () => document.removeEventListener('keydown', handleKeyDown)
   }, [open, onOpenChange])
+
+  const handleUndo = React.useCallback(async (token: string | null) => {
+    if (!token) return
+    setUndoingToken(token)
+    try {
+      await apiCallOrThrow('/api/audit_logs/audit-logs/actions/undo', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ undoToken: token }),
+      }, { errorMessage: t('audit_logs.error.undo') })
+      markUndoSuccess(token)
+      onRefresh()
+    } catch (err) {
+      console.error(t('audit_logs.actions.undo'), err)
+    } finally {
+      setUndoingToken(null)
+    }
+  }, [onRefresh, t])
+
+  const handleRedo = React.useCallback(async (logId: string | null) => {
+    if (!logId) return
+    setRedoingId(logId)
+    try {
+      await apiCallOrThrow('/api/audit_logs/audit-logs/actions/redo', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ logId }),
+      }, { errorMessage: t('audit_logs.error.redo') })
+      markRedoConsumed(logId)
+      onRefresh()
+    } catch (err) {
+      console.error(t('audit_logs.actions.redo'), err)
+    } finally {
+      setRedoingId(null)
+    }
+  }, [onRefresh, t])
 
   if (!open) return null
 
@@ -125,23 +182,67 @@ export function VersionHistoryPanel({
 
                 {entries.length > 0 ? (
                   <div className="divide-y rounded-lg border">
-                    {entries.map((entry) => (
-                      <button
-                        key={entry.id}
-                        type="button"
-                        onClick={() => setSelectedEntry(entry)}
-                        className="flex w-full flex-col gap-1 px-4 py-3 text-left transition-colors hover:bg-muted/40"
-                      >
-                        <div className="text-sm font-medium">
-                          {entry.actionLabel || entry.commandId}
+                    {entries.map((entry) => {
+                      const statusLabel = getVersionHistoryStatusLabel(entry.executionState, t)
+                      const canUndo = Boolean(entry.undoToken)
+                        && entry.executionState === 'done'
+                        && entry.id === latestUndoableId
+                      const showRedo = entry.executionState === 'undone'
+                      const canRedo = showRedo && entry.id === latestUndoneId
+                      return (
+                        <div
+                          key={entry.id}
+                          className="flex items-start justify-between gap-3 px-4 py-3 transition-colors hover:bg-muted/40"
+                        >
+                          <button
+                            type="button"
+                            onClick={() => setSelectedEntry(entry)}
+                            className="flex flex-1 flex-col gap-1 text-left"
+                          >
+                            <div className="text-sm font-medium">
+                              {entry.actionLabel || entry.commandId}
+                            </div>
+                            <div className="flex flex-wrap items-center gap-x-2 text-xs text-muted-foreground">
+                              <span>{entry.actorUserName || entry.actorUserId || t('audit_logs.common.none')}</span>
+                              <span>•</span>
+                              <span>{formatDate(entry.createdAt)}</span>
+                              <span>•</span>
+                              <span>{statusLabel}</span>
+                            </div>
+                          </button>
+                          <div className="flex items-center gap-1 pt-1">
+                            {canUndo ? (
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                aria-label={t('audit_logs.actions.undo')}
+                                onClick={(event) => {
+                                  event.stopPropagation()
+                                  void handleUndo(entry.undoToken)
+                                }}
+                                disabled={undoingToken === entry.undoToken || Boolean(redoingId)}
+                              >
+                                <Undo2 className="size-4" aria-hidden="true" />
+                              </Button>
+                            ) : null}
+                            {showRedo ? (
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                aria-label={t('audit_logs.actions.redo')}
+                                onClick={(event) => {
+                                  event.stopPropagation()
+                                  void handleRedo(entry.id)
+                                }}
+                                disabled={!canRedo || redoingId === entry.id || Boolean(undoingToken)}
+                              >
+                                <RotateCcw className="size-4" aria-hidden="true" />
+                              </Button>
+                            ) : null}
+                          </div>
                         </div>
-                        <div className="flex flex-wrap items-center gap-x-2 text-xs text-muted-foreground">
-                          <span>{entry.actorUserName || entry.actorUserId || t('audit_logs.common.none')}</span>
-                          <span>•</span>
-                          <span>{formatDate(entry.createdAt)}</span>
-                        </div>
-                      </button>
-                    ))}
+                      )
+                    })}
                   </div>
                 ) : null}
 
