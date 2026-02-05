@@ -57,8 +57,8 @@ export function ConditionBuilder({
 
   // Validate current value (memoized to avoid expensive re-computation)
   const validation = React.useMemo(() => {
-    return value ? validateConditionExpression(value) : { valid: true, errors: [] }
-  }, [value])
+    return value ? validateConditionExpression(value, 0, 5, t) : { valid: true, errors: [] }
+  }, [value, t])
 
   return (
     <div className="space-y-3">

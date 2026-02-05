@@ -74,8 +74,8 @@ export function ActionBuilder({
 
   // Validate actions (memoized to avoid expensive re-computation)
   const validation = React.useMemo(() => {
-    return validateActions(actions)
-  }, [actions])
+    return validateActions(actions, t)
+  }, [actions, t])
 
   return (
     <div className="space-y-3">

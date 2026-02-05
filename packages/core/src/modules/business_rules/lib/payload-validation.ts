@@ -8,8 +8,20 @@
 
 import { validateConditionExpression, isValidFieldPath } from '../components/utils/conditionValidation'
 import { validateActions } from '../components/utils/actionValidation'
+import type { TranslatorFn } from '../components/utils/actionValidation'
 import type { ConditionExpression } from '../components/utils/conditionValidation'
 import type { Action } from '../components/utils/actionValidation'
+import enStrings from '../i18n/en.json'
+
+const serverTranslator: TranslatorFn = (key, params) => {
+  let text = (enStrings as Record<string, string>)[key] || key
+  if (params) {
+    for (const [k, v] of Object.entries(params)) {
+      text = text.replace(new RegExp(`\\{\\{${k}\\}\\}`, 'g'), String(v))
+    }
+  }
+  return text
+}
 
 /**
  * Validation result returned by validation functions
@@ -35,7 +47,7 @@ export function validateConditionExpressionForApi(
   }
 
   try {
-    const result = validateConditionExpression(expression as ConditionExpression)
+    const result = validateConditionExpression(expression as ConditionExpression, 0, 5, serverTranslator)
 
     if (result.valid) {
       return { valid: true }
@@ -81,7 +93,7 @@ export function validateActionsForApi(
   }
 
   try {
-    const result = validateActions(actions as Action[])
+    const result = validateActions(actions as Action[], serverTranslator)
 
     if (result.valid) {
       return { valid: true }
