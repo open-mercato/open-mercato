@@ -646,7 +646,7 @@ const createChannelCommand: CommandHandler<ChannelCreateInput, { channelId: stri
     return { channelId: record.id }
   },
   captureAfter: async (_input, result, ctx) => {
-    const em = (ctx.container.resolve('em') as EntityManager)
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
     return loadChannelSnapshot(em, result.channelId)
   },
   buildLog: async ({ result, snapshots }) => {
@@ -779,7 +779,7 @@ const updateChannelCommand: CommandHandler<ChannelUpdateInput, { channelId: stri
     return { channelId: record.id }
   },
   captureAfter: async (_input, result, ctx) => {
-    const em = (ctx.container.resolve('em') as EntityManager)
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
     return loadChannelSnapshot(em, result.channelId)
   },
   buildLog: async ({ snapshots, ctx }) => {
@@ -984,7 +984,7 @@ const createDeliveryWindowCommand: CommandHandler<
     return { deliveryWindowId: record.id }
   },
   captureAfter: async (_input, result, ctx) => {
-    const em = (ctx.container.resolve('em') as EntityManager)
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
     return loadDeliveryWindowSnapshot(em, result.deliveryWindowId)
   },
   buildLog: async ({ result, snapshots }) => {
@@ -1077,7 +1077,7 @@ const updateDeliveryWindowCommand: CommandHandler<
     return { deliveryWindowId: record.id }
   },
   captureAfter: async (_input, result, ctx) => {
-    const em = (ctx.container.resolve('em') as EntityManager)
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
     return loadDeliveryWindowSnapshot(em, result.deliveryWindowId)
   },
   buildLog: async ({ snapshots }) => {
@@ -1246,7 +1246,7 @@ const createShippingMethodCommand: CommandHandler<
     return { shippingMethodId: record.id }
   },
   captureAfter: async (_input, result, ctx) => {
-    const em = (ctx.container.resolve('em') as EntityManager)
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
     return loadShippingMethodSnapshot(em, result.shippingMethodId)
   },
   buildLog: async ({ result, snapshots }) => {
@@ -1359,7 +1359,7 @@ const updateShippingMethodCommand: CommandHandler<
     return { shippingMethodId: record.id }
   },
   captureAfter: async (_input, result, ctx) => {
-    const em = (ctx.container.resolve('em') as EntityManager)
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
     return loadShippingMethodSnapshot(em, result.shippingMethodId)
   },
   buildLog: async ({ snapshots }) => {
@@ -1523,7 +1523,7 @@ const createPaymentMethodCommand: CommandHandler<
     return { paymentMethodId: record.id }
   },
   captureAfter: async (_input, result, ctx) => {
-    const em = (ctx.container.resolve('em') as EntityManager)
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
     return loadPaymentMethodSnapshot(em, result.paymentMethodId)
   },
   buildLog: async ({ result, snapshots }) => {
@@ -1625,7 +1625,7 @@ const updatePaymentMethodCommand: CommandHandler<
     return { paymentMethodId: record.id }
   },
   captureAfter: async (_input, result, ctx) => {
-    const em = (ctx.container.resolve('em') as EntityManager)
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
     return loadPaymentMethodSnapshot(em, result.paymentMethodId)
   },
   buildLog: async ({ snapshots }) => {
@@ -1803,7 +1803,7 @@ const createTaxRateCommand: CommandHandler<TaxRateCreateInput, { taxRateId: stri
     return { taxRateId: record.id }
   },
   captureAfter: async (_input, result, ctx) => {
-    const em = (ctx.container.resolve('em') as EntityManager)
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
     return loadTaxRateSnapshot(em, result.taxRateId)
   },
   buildLog: async ({ result, snapshots }) => {
@@ -1920,7 +1920,7 @@ const updateTaxRateCommand: CommandHandler<TaxRateUpdateInput, { taxRateId: stri
     return { taxRateId: record.id }
   },
   captureAfter: async (_input, result, ctx) => {
-    const em = (ctx.container.resolve('em') as EntityManager)
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
     return loadTaxRateSnapshot(em, result.taxRateId)
   },
   buildLog: async ({ snapshots }) => {

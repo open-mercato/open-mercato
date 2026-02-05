@@ -125,12 +125,11 @@ const createExchangeRateCommand: CommandHandler<ExchangeRateCreateInput, { excha
     return { exchangeRateId: record.id }
   },
   captureAfter: async (_input, result, ctx) => {
-    const em = ctx.container.resolve('em') as EntityManager
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
     return loadExchangeRateSnapshot(em, result.exchangeRateId)
   },
-  buildLog: async ({ result, ctx }) => {
-    const em = ctx.container.resolve('em') as EntityManager
-    const after = await loadExchangeRateSnapshot(em, result.exchangeRateId)
+  buildLog: async ({ snapshots }) => {
+    const after = snapshots.after as ExchangeRateSnapshot | undefined
     if (!after) return null
     const { translate } = await resolveTranslations()
     return {
@@ -238,7 +237,7 @@ const updateExchangeRateCommand: CommandHandler<ExchangeRateUpdateInput, { excha
     return { exchangeRateId: record.id }
   },
   captureAfter: async (_input, result, ctx) => {
-    const em = ctx.container.resolve('em') as EntityManager
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
     return loadExchangeRateSnapshot(em, result.exchangeRateId)
   },
   buildLog: async ({ snapshots, result }) => {

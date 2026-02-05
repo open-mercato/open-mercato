@@ -136,13 +136,12 @@ const createAddressCommand: CommandHandler<AddressCreateInput, { addressId: stri
     return { addressId: address.id }
   },
   captureAfter: async (_input, result, ctx) => {
-    const em = (ctx.container.resolve('em') as EntityManager)
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
     return await loadAddressSnapshot(em, result.addressId)
   },
-  buildLog: async ({ result, ctx }) => {
+  buildLog: async ({ result, snapshots }) => {
     const { translate } = await resolveTranslations()
-    const em = (ctx.container.resolve('em') as EntityManager)
-    const snapshot = await loadAddressSnapshot(em, result.addressId)
+    const snapshot = snapshots.after as AddressSnapshot | undefined
     return {
       actionLabel: translate('customers.audit.addresses.create', 'Create address'),
       resourceKind: 'customers.address',
@@ -227,12 +226,15 @@ const updateAddressCommand: CommandHandler<AddressUpdateInput, { addressId: stri
 
     return { addressId: address.id }
   },
-  buildLog: async ({ snapshots, ctx }) => {
+  captureAfter: async (_input, result, ctx) => {
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
+    return await loadAddressSnapshot(em, result.addressId)
+  },
+  buildLog: async ({ snapshots }) => {
     const { translate } = await resolveTranslations()
     const before = snapshots.before as AddressSnapshot | undefined
     if (!before) return null
-    const em = (ctx.container.resolve('em') as EntityManager)
-    const afterSnapshot = await loadAddressSnapshot(em, before.id)
+    const afterSnapshot = snapshots.after as AddressSnapshot | undefined
     const changes =
       afterSnapshot && before
         ? buildChanges(

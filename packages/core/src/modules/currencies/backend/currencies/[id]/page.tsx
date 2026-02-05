@@ -173,6 +173,7 @@ export default function EditCurrencyPage({ params }: { params?: { id?: string } 
         <CrudForm
           title={t('currencies.edit.title')}
           backHref="/backend/currencies"
+          versionHistory={{ resourceKind: 'currencies.currency', resourceId: currency.id }}
           fields={[]}
           groups={groups}
           initialValues={{

@@ -400,6 +400,8 @@ Imports display helpers from `@open-mercato/core/modules/audit_logs/lib/display-
 ```typescript
 export { VersionHistoryPanel } from './VersionHistoryPanel'
 export type { VersionHistoryPanelProps } from './VersionHistoryPanel'
+export { VersionHistoryAction } from './VersionHistoryAction'
+export type { VersionHistoryActionProps } from './VersionHistoryAction'
 export { useVersionHistory } from './useVersionHistory'
 export type { UseVersionHistoryResult } from './useVersionHistory'
 export type { VersionHistoryEntry, VersionHistoryConfig } from './types'
@@ -448,26 +450,20 @@ CrudForm passes the `FormHeader` component (edit mode) with `actions` props incl
 
 ```tsx
 // Inside CrudForm, when building FormActionButtons props:
-const versionHistoryButton = versionHistory && versionHistory.resourceId ? (
-  <Button
-    type="button"
-    variant="ghost"
-    size="icon"
-    onClick={() => setHistoryOpen(true)}
-    aria-label={t('audit_logs.version_history.title')}
-    title={t('audit_logs.version_history.title')}
-  >
-    <Clock className="size-4" />
-  </Button>
-) : null
+const versionHistoryAction = (
+  <VersionHistoryAction
+    config={versionHistoryEnabled ? versionHistory : null}
+    t={t}
+  />
+)
 
 // Merge with consumer extraActions:
-const mergedExtraActions = (
+const mergedExtraActions = versionHistoryEnabled ? (
   <>
-    {versionHistoryButton}
+    {versionHistoryAction}
     {props.extraActions}
   </>
-)
+) : props.extraActions
 
 // Pass to FormHeader:
 <FormHeader
@@ -489,7 +485,7 @@ The button only renders when `resourceId` is non-empty (edit mode). On create fo
 
 ### Detail Page Integration (FormHeader mode="detail")
 
-For detail pages that use `FormHeader mode="detail"` directly (not via CrudForm), the version history button can be included via `actionsContent`:
+For detail pages that use `FormHeader mode="detail"` directly (not via CrudForm), the version history button can be included via `utilityActions`:
 
 ```tsx
 <FormHeader
@@ -499,21 +495,16 @@ For detail pages that use `FormHeader mode="detail"` directly (not via CrudForm)
   entityTypeLabel="Sales order"
   statusBadge={statusBadge}
   menuActions={contextActions}
-  actionsContent={
-    <div className="flex items-center gap-2">
-      <VersionHistoryButton
-        resourceKind="order"
-        resourceId={documentId}
-        onOpen={() => setHistoryOpen(true)}
-      />
-      <ActionsDropdown items={contextActions} />
-      <DeleteButton onDelete={handleDelete} />
-    </div>
-  }
+  utilityActions={(
+    <VersionHistoryAction
+      config={{ resourceKind: 'sales.order', resourceId: documentId }}
+      t={t}
+    />
+  )}
 />
 ```
 
-Alternatively, a future iteration could add a dedicated `utilityActions` slot to `FormHeader` for icon-only buttons like version history, avoiding the need for `actionsContent` override.
+`utilityActions` renders before the dropdown + delete button so existing actions remain intact.
 
 ### Panel Rendering
 
@@ -728,6 +719,7 @@ The detail view should reuse these existing keys from `audit_logs`:
 | `packages/ui/src/backend/version-history/useVersionHistory.ts` | Data fetching hook with lazy loading and pagination |
 | `packages/ui/src/backend/version-history/VersionHistoryPanel.tsx` | Right-side slide-out panel (list view + detail view) |
 | `packages/ui/src/backend/version-history/VersionHistoryDetail.tsx` | Detail view sub-component (metadata + changed fields table) |
+| `packages/ui/src/backend/version-history/VersionHistoryAction.tsx` | Reusable clock button + panel wrapper |
 | `packages/ui/src/backend/version-history/index.ts` | Barrel export |
 
 ### Modified Files
@@ -791,7 +783,7 @@ This ensures visual and behavioral consistency across the application.
 
 ### 7. Integration via FormActionButtons.extraActions (SPEC-016)
 
-The version history clock button is placed in the `extraActions` slot of `FormActionButtons` (defined in [SPEC-016](SPEC-016-2026-02-03-form-headers-footers.md)). This slot is shared between the form header and footer, but the clock icon button is only prepended in the header's `extraActions`. CrudForm merges the version history button with consumer-provided `extraActions` transparently. For detail pages using `FormHeader mode="detail"` directly, the button can be placed in `actionsContent`. A future iteration may add a dedicated `utilityActions` slot to FormHeader for icon-only utility buttons.
+The version history clock button is placed in the `extraActions` slot of `FormActionButtons` (defined in [SPEC-016](SPEC-016-2026-02-03-form-headers-footers.md)). This slot is shared between the form header and footer, but the clock icon button is only prepended in the header's `extraActions`. CrudForm merges the version history button with consumer-provided `extraActions` transparently. For detail pages using `FormHeader mode="detail"` directly, the button is provided via the `utilityActions` slot so dropdown + delete remain intact.
 
 ### 8. In-panel navigation (not separate views or routes)
 
@@ -815,3 +807,6 @@ Clicking a version entry navigates to the detail view within the same panel usin
 
 ### 2026-02-03
 - Initial specification
+
+### 2026-02-04
+- Added reusable `VersionHistoryAction` component and `FormHeader` `utilityActions` slot for detail pages

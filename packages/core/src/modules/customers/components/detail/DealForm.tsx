@@ -815,6 +815,9 @@ export function DealForm({
       embedded={embedded}
       title={title}
       backHref={backHref}
+      versionHistory={mode === 'edit' && initialValues?.id
+        ? { resourceKind: 'customers.deal', resourceId: String(initialValues.id) }
+        : undefined}
       schema={schema}
       fields={baseFields}
       groups={groups}

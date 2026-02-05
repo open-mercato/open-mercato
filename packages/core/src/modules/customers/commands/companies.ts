@@ -5,7 +5,6 @@ import {
   setCustomFieldsIfAny,
   emitCrudSideEffects,
   emitCrudUndoSideEffects,
-  buildChanges,
   requireId,
 } from '@open-mercato/shared/lib/commands/helpers'
 import type { DataEngine } from '@open-mercato/shared/lib/data/engine'
@@ -44,7 +43,6 @@ import {
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import {
   loadCustomFieldSnapshot,
-  diffCustomFieldChanges,
   buildCustomFieldResetMap,
 } from '@open-mercato/shared/lib/commands/customFieldSnapshots'
 import type { CrudIndexerConfig } from '@open-mercato/shared/lib/crud/types'
@@ -402,13 +400,12 @@ const createCompanyCommand: CommandHandler<CompanyCreateInput, { entityId: strin
     return { entityId: entity.id, companyId: profile.id }
   },
   captureAfter: async (_input, result, ctx) => {
-    const em = (ctx.container.resolve('em') as EntityManager)
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
     return await loadCompanySnapshot(em, result.entityId)
   },
-  buildLog: async ({ result, ctx }) => {
+  buildLog: async ({ result, snapshots }) => {
     const { translate } = await resolveTranslations()
-    const em = (ctx.container.resolve('em') as EntityManager)
-    const snapshot = await loadCompanySnapshot(em, result.entityId)
+    const snapshot = snapshots.after as CompanySnapshot | undefined
     return {
       actionLabel: translate('customers.audit.companies.create', 'Create company'),
       resourceKind: 'customers.company',
@@ -508,37 +505,15 @@ const updateCompanyCommand: CommandHandler<CompanyUpdateInput, { entityId: strin
 
     return { entityId: record.id }
   },
-  buildLog: async ({ snapshots, ctx }) => {
+  captureAfter: async (_input, result, ctx) => {
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
+    return await loadCompanySnapshot(em, result.entityId)
+  },
+  buildLog: async ({ snapshots }) => {
     const { translate } = await resolveTranslations()
     const before = snapshots.before as CompanySnapshot | undefined
     if (!before) return null
-    const em = (ctx.container.resolve('em') as EntityManager)
-    const afterSnapshot = await loadCompanySnapshot(em, before.entity.id)
-    const changeKeys: readonly string[] = [
-      'displayName',
-      'description',
-      'ownerUserId',
-      'primaryEmail',
-      'primaryPhone',
-      'status',
-      'lifecycleStage',
-      'source',
-      'nextInteractionAt',
-      'nextInteractionName',
-      'nextInteractionRefId',
-      'nextInteractionIcon',
-      'nextInteractionColor',
-      'isActive',
-    ]
-    const changes =
-      afterSnapshot && afterSnapshot.entity
-        ? buildChanges(
-            before.entity as Record<string, unknown>,
-            afterSnapshot.entity as Record<string, unknown>,
-            changeKeys
-          )
-        : {}
-    const customChanges = diffCustomFieldChanges(before.custom, afterSnapshot?.custom)
+    const afterSnapshot = snapshots.after as CompanySnapshot | undefined
     return {
       actionLabel: translate('customers.audit.companies.update', 'Update company'),
       resourceKind: 'customers.company',
@@ -547,7 +522,6 @@ const updateCompanyCommand: CommandHandler<CompanyUpdateInput, { entityId: strin
       organizationId: before.entity.organizationId,
       snapshotBefore: before,
       snapshotAfter: afterSnapshot ?? null,
-      changes: Object.keys(customChanges).length ? { ...changes, custom: customChanges } : changes,
       payload: {
         undo: {
           before,

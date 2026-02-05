@@ -495,6 +495,9 @@ export function TeamMemberForm(props: TeamMemberFormProps) {
       title={title}
       backHref={backHref}
       cancelHref={cancelHref}
+      versionHistory={initialValues.id
+        ? { resourceKind: 'staff.teamMember', resourceId: String(initialValues.id) }
+        : undefined}
       submitLabel={submitLabel}
       fields={fields}
       groups={groups}

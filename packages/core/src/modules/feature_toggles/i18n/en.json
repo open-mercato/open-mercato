@@ -1,4 +1,7 @@
 {
+  "feature_toggles.nav.group": "Feature Toggles",
+  "feature_toggles.nav.global": "Global",
+  "feature_toggles.nav.overrides": "Overrides",
   "feature_toggles.audit.toggles.create": "Created toggle",
   "feature_toggles.audit.toggles.update": "Updated toggle",
   "feature_toggles.audit.toggles.delete": "Deleted toggle",

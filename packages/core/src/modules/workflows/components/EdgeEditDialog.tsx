@@ -18,6 +18,7 @@ import {Separator} from '@open-mercato/ui/primitives/separator'
 import {Plus, Trash2} from 'lucide-react'
 import {type BusinessRule, BusinessRulesSelector} from './BusinessRulesSelector'
 import {JsonBuilder} from '@open-mercato/ui/backend/JsonBuilder'
+import {useT} from '@open-mercato/shared/lib/i18n/context'
 
 export interface EdgeEditDialogProps {
   edge: Edge | null
@@ -44,6 +45,7 @@ interface TransitionCondition {
  * - Business rules integration
  */
 export function EdgeEditDialog({ edge, isOpen, onClose, onSave, onDelete }: EdgeEditDialogProps) {
+  const t = useT()
   const [transitionName, setTransitionName] = useState('')
   const [trigger, setTrigger] = useState('auto')
   const [priority, setPriority] = useState('100')
@@ -137,7 +139,7 @@ export function EdgeEditDialog({ edge, isOpen, onClose, onSave, onDelete }: Edge
   const addActivity = () => {
     const newActivity = {
       activityId: `activity_${Date.now()}`,
-      activityName: 'New Activity',
+      activityName: t('workflows.common.newActivity'),
       activityType: 'CALL_API',
       config: {},
       timeout: '',
@@ -156,7 +158,7 @@ export function EdgeEditDialog({ edge, isOpen, onClose, onSave, onDelete }: Edge
   }
 
   const removeActivity = (index: number) => {
-    if (confirm('Are you sure you want to remove this activity?')) {
+    if (confirm(t('workflows.edgeEditor.confirmRemoveActivity'))) {
       setActivities(activities.filter((_, i) => i !== index))
       // Remove from expanded set
       const newExpanded = new Set(expandedActivities)
@@ -284,7 +286,7 @@ export function EdgeEditDialog({ edge, isOpen, onClose, onSave, onDelete }: Edge
 
   const handleDelete = () => {
     if (!edge) return
-    if (confirm('Are you sure you want to delete this transition?')) {
+    if (confirm(t('workflows.edgeEditor.confirmDelete'))) {
       onDelete(edge.id)
       onClose()
     }
@@ -308,23 +310,21 @@ export function EdgeEditDialog({ edge, isOpen, onClose, onSave, onDelete }: Edge
       <DialogContent className="sm:max-w-4xl max-h-[90vh] overflow-y-auto">
         <DialogHeader>
           <div className="flex items-center gap-2 mb-2">
-            <DialogTitle>Edit Transition</DialogTitle>
+            <DialogTitle>{t('workflows.edgeEditor.title')}</DialogTitle>
             <Badge variant={triggerVariant} className="text-xs">
-              {trigger === 'auto' ? 'Automatic' :
-               trigger === 'manual' ? 'Manual' :
-               trigger === 'signal' ? 'Signal' : 'Timer'}
+              {t(`workflows.transitions.triggers.${trigger}`)}
             </Badge>
           </div>
           <div className="space-y-1">
             <DialogDescription>
-              Configure transition properties, conditions, and activities
+              {t('workflows.edgeEditor.description')}
             </DialogDescription>
             <div className="flex items-center gap-2 text-xs text-muted-foreground">
-              <span className="font-medium">ID:</span>
+              <span className="font-medium">{t('workflows.edgeEditor.id')}:</span>
               <code className="px-1.5 py-0.5 rounded bg-muted font-mono">{edge.id}</code>
             </div>
             <div className="flex items-center gap-2 text-xs text-muted-foreground">
-              <span className="font-medium">Flow:</span>
+              <span className="font-medium">{t('workflows.edgeEditor.flow')}:</span>
               <code className="px-1.5 py-0.5 rounded bg-muted font-mono">{edge.source}</code>
               <span>→</span>
               <code className="px-1.5 py-0.5 rounded bg-muted font-mono">{edge.target}</code>
@@ -335,45 +335,42 @@ export function EdgeEditDialog({ edge, isOpen, onClose, onSave, onDelete }: Edge
         <div className="space-y-4">
             {/* Transition Name */}
             <div className="space-y-2">
-              <Label htmlFor="transitionName">Transition Name</Label>
+              <Label htmlFor="transitionName">{t('workflows.edgeEditor.transitionName')}</Label>
               <Input
                 id="transitionName"
                 type="text"
                 value={transitionName}
                 onChange={(e) => setTransitionName(e.target.value)}
-                placeholder={`Auto-generated: ${generateNameFromId(edge.id)}`}
+                placeholder={t('workflows.edgeEditor.transitionNamePlaceholder', { name: generateNameFromId(edge.id) })}
                 autoFocus
               />
               <p className="text-xs text-muted-foreground">
-                Custom name for this transition (leave empty to use auto-generated name)
+                {t('workflows.edgeEditor.transitionNameHint')}
               </p>
             </div>
 
             {/* Trigger Type */}
             <div className="space-y-2">
-              <Label htmlFor="trigger">Trigger Type</Label>
+              <Label htmlFor="trigger">{t('workflows.edgeEditor.triggerType')}</Label>
               <select
                 id="trigger"
                 value={trigger}
                 onChange={(e) => setTrigger(e.target.value)}
                 className="flex h-9 w-full rounded-md border border-input bg-background px-3 py-2 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
               >
-                <option value="auto">Automatic</option>
-                <option value="manual">Manual</option>
-                <option value="signal">Signal</option>
-                <option value="timer">Timer</option>
+                <option value="auto">{t('workflows.transitions.triggers.auto')}</option>
+                <option value="manual">{t('workflows.transitions.triggers.manual')}</option>
+                <option value="signal">{t('workflows.transitions.triggers.signal')}</option>
+                <option value="timer">{t('workflows.transitions.triggers.timer')}</option>
               </select>
               <p className="text-xs text-muted-foreground">
-                {trigger === 'auto' && 'Transition happens immediately when the step completes'}
-                {trigger === 'manual' && 'Requires explicit user action to proceed'}
-                {trigger === 'signal' && 'Waits for an external signal/event'}
-                {trigger === 'timer' && 'Waits for a specified duration or timestamp'}
+                {t(`workflows.edgeEditor.triggerDescriptions.${trigger}`)}
               </p>
             </div>
 
             {/* Priority */}
             <div className="space-y-2">
-              <Label htmlFor="priority">Priority</Label>
+              <Label htmlFor="priority">{t('workflows.edgeEditor.priority')}</Label>
               <Input
                 id="priority"
                 type="number"
@@ -384,7 +381,7 @@ export function EdgeEditDialog({ edge, isOpen, onClose, onSave, onDelete }: Edge
                 max="9999"
               />
               <p className="text-xs text-muted-foreground">
-                Higher priority transitions are evaluated first (default: 100, range: 0-9999)
+                {t('workflows.edgeEditor.priorityHint')}
               </p>
             </div>
 
@@ -398,11 +395,11 @@ export function EdgeEditDialog({ edge, isOpen, onClose, onSave, onDelete }: Edge
                   className="h-4 w-4 rounded border-gray-300"
                 />
                 <Label htmlFor="continueOnActivityFailure" className="font-normal cursor-pointer">
-                  Continue on Activity Failure
+                  {t('workflows.edgeEditor.continueOnActivityFailure')}
                 </Label>
               </div>
               <p className="text-xs text-muted-foreground ml-6">
-                If unchecked, the transition will fail when any activity fails (default: checked)
+                {t('workflows.edgeEditor.continueOnActivityFailureHint')}
               </p>
             </div>
 
@@ -413,10 +410,10 @@ export function EdgeEditDialog({ edge, isOpen, onClose, onSave, onDelete }: Edge
               <div className="flex items-center justify-between">
                 <div>
                   <h3 className="text-sm font-semibold">
-                    Pre-conditions ({preConditions.length})
+                    {t('workflows.edgeEditor.preConditions')} ({preConditions.length})
                   </h3>
                   <p className="text-xs text-muted-foreground">
-                    Business rules that must pass BEFORE transition fires
+                    {t('workflows.edgeEditor.preConditionsHint')}
                   </p>
                 </div>
                 <Button
@@ -425,13 +422,13 @@ export function EdgeEditDialog({ edge, isOpen, onClose, onSave, onDelete }: Edge
                   onClick={() => openRuleSelector('pre')}
                 >
                   <Plus className="size-3" />
-                  Add Rule
+                  {t('workflows.edgeEditor.addRule')}
                 </Button>
               </div>
 
               {preConditions.length === 0 && (
                 <div className="p-4 text-center text-sm text-muted-foreground bg-muted rounded-lg border">
-                  No pre-conditions defined. Add business rules to validate before transition.
+                  {t('workflows.edgeEditor.noPreConditions')}
                 </div>
               )}
 
@@ -453,7 +450,7 @@ export function EdgeEditDialog({ edge, isOpen, onClose, onSave, onDelete }: Edge
                             </span>
                             {condition.required && (
                               <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-red-100 text-red-800">
-                                REQUIRED
+                                {t('workflows.edgeEditor.required')}
                               </span>
                             )}
                             {rule && (
@@ -463,7 +460,7 @@ export function EdgeEditDialog({ edge, isOpen, onClose, onSave, onDelete }: Edge
                             )}
                           </div>
                           <p className="text-xs text-gray-600 mt-1">
-                            Rule ID: <code className="bg-white px-1 rounded">{condition.ruleId}</code>
+                            {t('workflows.edgeEditor.ruleId')}: <code className="bg-white px-1 rounded">{condition.ruleId}</code>
                           </p>
                           {rule?.description && (
                             <p className="text-xs text-gray-500 mt-1 line-clamp-1">{rule.description}</p>
@@ -482,7 +479,7 @@ export function EdgeEditDialog({ edge, isOpen, onClose, onSave, onDelete }: Edge
                       {isExpanded && (
                         <div className="px-4 pb-4 space-y-3 border-t border-gray-200 bg-white">
                           <div className="pt-3">
-                            <label className="block text-xs font-medium text-gray-700 mb-1">Rule ID</label>
+                            <label className="block text-xs font-medium text-gray-700 mb-1">{t('workflows.edgeEditor.ruleId')}</label>
                             <input
                               type="text"
                               value={condition.ruleId}
@@ -499,13 +496,13 @@ export function EdgeEditDialog({ edge, isOpen, onClose, onSave, onDelete }: Edge
                                 onChange={(e) => updatePreCondition(index, 'required', e.target.checked)}
                                 className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
                               />
-                              Required (transition blocked if rule fails)
+                              {t('workflows.edgeEditor.requiredCheckbox')}
                             </label>
                           </div>
 
                           {rule && (
                             <div className="border-t border-gray-200 pt-3">
-                              <h4 className="text-xs font-semibold text-gray-900 mb-2">Business Rule Details</h4>
+                              <h4 className="text-xs font-semibold text-gray-900 mb-2">{t('workflows.edgeEditor.businessRuleDetails')}</h4>
                               <dl className="space-y-1 text-xs">
                                 <div className="flex justify-between">
                                   <dt className="font-medium text-gray-700">Name:</dt>
@@ -546,10 +543,10 @@ export function EdgeEditDialog({ edge, isOpen, onClose, onSave, onDelete }: Edge
                               type="button"
                               variant="destructive"
                               size="sm"
-                              onClick={() => removePostCondition(index)}
+                              onClick={() => removePreCondition(index)}
                             >
                               <Trash2 className="size-4" />
-                              Remove Pre-condition
+                              {t('workflows.edgeEditor.removePreCondition')}
                             </Button>
                           </div>
                         </div>
@@ -565,10 +562,10 @@ export function EdgeEditDialog({ edge, isOpen, onClose, onSave, onDelete }: Edge
               <div className="flex items-center justify-between">
                 <div>
                   <h3 className="text-sm font-semibold">
-                    Post-conditions ({postConditions.length})
+                    {t('workflows.edgeEditor.postConditions')} ({postConditions.length})
                   </h3>
                   <p className="text-xs text-muted-foreground">
-                    Business rules to validate AFTER transition fires (logged only)
+                    {t('workflows.edgeEditor.postConditionsHint')}
                   </p>
                 </div>
                 <Button
@@ -577,13 +574,13 @@ export function EdgeEditDialog({ edge, isOpen, onClose, onSave, onDelete }: Edge
                   onClick={() => openRuleSelector('post')}
                 >
                   <Plus className="size-3" />
-                  Add Rule
+                  {t('workflows.edgeEditor.addRule')}
                 </Button>
               </div>
 
               {postConditions.length === 0 && (
                 <div className="p-4 text-center text-sm text-muted-foreground bg-muted rounded-lg border">
-                  No post-conditions defined. Add business rules to validate after transition.
+                  {t('workflows.edgeEditor.noPostConditions')}
                 </div>
               )}
 
@@ -605,7 +602,7 @@ export function EdgeEditDialog({ edge, isOpen, onClose, onSave, onDelete }: Edge
                             </span>
                             {condition.required && (
                               <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-red-100 text-red-800">
-                                REQUIRED
+                                {t('workflows.edgeEditor.required')}
                               </span>
                             )}
                             {rule && (
@@ -615,7 +612,7 @@ export function EdgeEditDialog({ edge, isOpen, onClose, onSave, onDelete }: Edge
                             )}
                           </div>
                           <p className="text-xs text-gray-600 mt-1">
-                            Rule ID: <code className="bg-white px-1 rounded">{condition.ruleId}</code>
+                            {t('workflows.edgeEditor.ruleId')}: <code className="bg-white px-1 rounded">{condition.ruleId}</code>
                           </p>
                           {rule?.description && (
                             <p className="text-xs text-gray-500 mt-1 line-clamp-1">{rule.description}</p>
@@ -634,7 +631,7 @@ export function EdgeEditDialog({ edge, isOpen, onClose, onSave, onDelete }: Edge
                       {isExpanded && (
                         <div className="px-4 pb-4 space-y-3 border-t border-gray-200 bg-white">
                           <div className="pt-3">
-                            <label className="block text-xs font-medium text-gray-700 mb-1">Rule ID</label>
+                            <label className="block text-xs font-medium text-gray-700 mb-1">{t('workflows.edgeEditor.ruleId')}</label>
                             <input
                               type="text"
                               value={condition.ruleId}
@@ -651,13 +648,13 @@ export function EdgeEditDialog({ edge, isOpen, onClose, onSave, onDelete }: Edge
                                 onChange={(e) => updatePostCondition(index, 'required', e.target.checked)}
                                 className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
                               />
-                              Required (log warning if rule fails)
+                              {t('workflows.edgeEditor.requiredPostCheckbox')}
                             </label>
                           </div>
 
                           {rule && (
                             <div className="border-t border-gray-200 pt-3">
-                              <h4 className="text-xs font-semibold text-gray-900 mb-2">Business Rule Details</h4>
+                              <h4 className="text-xs font-semibold text-gray-900 mb-2">{t('workflows.edgeEditor.businessRuleDetails')}</h4>
                               <dl className="space-y-1 text-xs">
                                 <div className="flex justify-between">
                                   <dt className="font-medium text-gray-700">Name:</dt>
@@ -701,7 +698,7 @@ export function EdgeEditDialog({ edge, isOpen, onClose, onSave, onDelete }: Edge
                               onClick={() => removePostCondition(index)}
                             >
                               <Trash2 className="size-4" />
-                              Remove Post-condition
+                              {t('workflows.edgeEditor.removePostCondition')}
                             </Button>
                           </div>
                         </div>
@@ -716,7 +713,7 @@ export function EdgeEditDialog({ edge, isOpen, onClose, onSave, onDelete }: Edge
             <div className="border-t border-gray-200 pt-4 mt-4">
               <div className="flex items-center justify-between mb-3">
                 <h3 className="text-sm font-semibold text-gray-900">
-                  Activities ({activities.length})
+                  {t('workflows.edgeEditor.activities')} ({activities.length})
                 </h3>
                 <Button
                   type="button"
@@ -724,13 +721,13 @@ export function EdgeEditDialog({ edge, isOpen, onClose, onSave, onDelete }: Edge
                   onClick={addActivity}
                 >
                   <Plus className="size-3" />
-                  Add Activity
+                  {t('workflows.edgeEditor.addActivity')}
                 </Button>
               </div>
 
               {activities.length === 0 && (
                 <div className="p-4 text-center text-sm text-gray-500 bg-gray-50 rounded-lg border border-gray-200">
-                  No activities defined. Click &#34;Add Activity&#34; to create one.
+                  {t('workflows.edgeEditor.noActivities')}
                 </div>
               )}
 
@@ -754,7 +751,7 @@ export function EdgeEditDialog({ edge, isOpen, onClose, onSave, onDelete }: Edge
                             </Badge>
                           </div>
                           <p className="text-xs text-gray-600 mt-1">
-                            Activity ID: <code className="bg-white px-1 rounded">{activity.activityId}</code>
+                            {t('workflows.edgeEditor.activityId')}: <code className="bg-white px-1 rounded">{activity.activityId}</code>
                           </p>
                         </div>
                         <svg
@@ -771,65 +768,65 @@ export function EdgeEditDialog({ edge, isOpen, onClose, onSave, onDelete }: Edge
                         <div className="px-4 pb-4 space-y-3 border-t border-gray-200 bg-white">
                           {/* Activity ID */}
                           <div className="pt-3">
-                            <label className="block text-xs font-medium text-gray-700 mb-1">Activity ID *</label>
+                            <label className="block text-xs font-medium text-gray-700 mb-1">{t('workflows.edgeEditor.activityId')} *</label>
                             <input
                               type="text"
                               value={activity.activityId}
                               onChange={(e) => updateActivity(index, 'activityId', e.target.value)}
                               className="w-full px-2 py-1.5 border border-gray-300 rounded text-xs focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
-                              placeholder="activity_name"
+                              placeholder={t('workflows.edgeEditor.activityIdPlaceholder')}
                             />
                           </div>
 
                           {/* Activity Name */}
                           <div>
-                            <label className="block text-xs font-medium text-gray-700 mb-1">Activity Name *</label>
+                            <label className="block text-xs font-medium text-gray-700 mb-1">{t('workflows.edgeEditor.activityName')} *</label>
                             <input
                               type="text"
                               value={activity.activityName || ''}
                               onChange={(e) => updateActivity(index, 'activityName', e.target.value)}
                               className="w-full px-2 py-1.5 border border-gray-300 rounded text-xs focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
-                              placeholder="Activity Name"
+                              placeholder={t('workflows.edgeEditor.activityNamePlaceholder')}
                             />
                           </div>
 
                           {/* Activity Type */}
                           <div>
-                            <label className="block text-xs font-medium text-gray-700 mb-1">Activity Type *</label>
+                            <label className="block text-xs font-medium text-gray-700 mb-1">{t('workflows.edgeEditor.activityType')} *</label>
                             <select
                               value={activity.activityType}
                               onChange={(e) => updateActivity(index, 'activityType', e.target.value)}
                               className="w-full px-2 py-1.5 border border-gray-300 rounded text-xs focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
                             >
-                              <option value="SEND_EMAIL">Send Email</option>
-                              <option value="CALL_API">Call API</option>
-                              <option value="UPDATE_ENTITY">Update Entity</option>
-                              <option value="EMIT_EVENT">Emit Event</option>
-                              <option value="CALL_WEBHOOK">Call Webhook</option>
-                              <option value="EXECUTE_FUNCTION">Execute Function</option>
-                              <option value="WAIT">Wait</option>
+                              <option value="SEND_EMAIL">{t('workflows.activities.types.SEND_EMAIL')}</option>
+                              <option value="CALL_API">{t('workflows.activities.types.CALL_API')}</option>
+                              <option value="UPDATE_ENTITY">{t('workflows.activities.types.UPDATE_ENTITY')}</option>
+                              <option value="EMIT_EVENT">{t('workflows.activities.types.EMIT_EVENT')}</option>
+                              <option value="CALL_WEBHOOK">{t('workflows.activities.types.CALL_WEBHOOK')}</option>
+                              <option value="EXECUTE_FUNCTION">{t('workflows.activities.types.EXECUTE_FUNCTION')}</option>
+                              <option value="WAIT">{t('workflows.activities.types.WAIT')}</option>
                             </select>
                           </div>
 
                           {/* Timeout */}
                           <div>
-                            <label className="block text-xs font-medium text-gray-700 mb-1">Timeout</label>
+                            <label className="block text-xs font-medium text-gray-700 mb-1">{t('workflows.edgeEditor.timeout')}</label>
                             <input
                               type="text"
                               value={activity.timeout || ''}
                               onChange={(e) => updateActivity(index, 'timeout', e.target.value)}
                               className="w-full px-2 py-1.5 border border-gray-300 rounded text-xs focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
-                              placeholder="PT30S or 30000"
+                              placeholder={t('workflows.edgeEditor.timeoutPlaceholder')}
                             />
-                            <p className="text-xs text-gray-500 mt-0.5">ISO 8601 duration or milliseconds</p>
+                            <p className="text-xs text-gray-500 mt-0.5">{t('workflows.edgeEditor.timeoutHint')}</p>
                           </div>
 
                           {/* Retry Policy */}
                           <div className="border-t border-gray-200 pt-3">
-                            <h4 className="text-xs font-semibold text-gray-900 mb-2">Retry Policy</h4>
+                            <h4 className="text-xs font-semibold text-gray-900 mb-2">{t('workflows.edgeEditor.retryPolicy')}</h4>
                             <div className="grid grid-cols-2 gap-2">
                               <div>
-                                <label className="block text-xs font-medium text-gray-700 mb-1">Max Attempts</label>
+                                <label className="block text-xs font-medium text-gray-700 mb-1">{t('workflows.edgeEditor.maxAttempts')}</label>
                                 <input
                                   type="number"
                                   value={activity.retryPolicy?.maxAttempts || ''}
@@ -841,7 +838,7 @@ export function EdgeEditDialog({ edge, isOpen, onClose, onSave, onDelete }: Edge
                                 />
                               </div>
                               <div>
-                                <label className="block text-xs font-medium text-gray-700 mb-1">Initial Interval (ms)</label>
+                                <label className="block text-xs font-medium text-gray-700 mb-1">{t('workflows.edgeEditor.initialInterval')}</label>
                                 <input
                                   type="number"
                                   value={activity.retryPolicy?.initialIntervalMs || ''}
@@ -852,7 +849,7 @@ export function EdgeEditDialog({ edge, isOpen, onClose, onSave, onDelete }: Edge
                                 />
                               </div>
                               <div>
-                                <label className="block text-xs font-medium text-gray-700 mb-1">Backoff Coefficient</label>
+                                <label className="block text-xs font-medium text-gray-700 mb-1">{t('workflows.edgeEditor.backoffCoefficient')}</label>
                                 <input
                                   type="number"
                                   step="0.1"
@@ -865,7 +862,7 @@ export function EdgeEditDialog({ edge, isOpen, onClose, onSave, onDelete }: Edge
                                 />
                               </div>
                               <div>
-                                <label className="block text-xs font-medium text-gray-700 mb-1">Max Interval (ms)</label>
+                                <label className="block text-xs font-medium text-gray-700 mb-1">{t('workflows.edgeEditor.maxInterval')}</label>
                                 <input
                                   type="number"
                                   value={activity.retryPolicy?.maxIntervalMs || ''}
@@ -880,7 +877,7 @@ export function EdgeEditDialog({ edge, isOpen, onClose, onSave, onDelete }: Edge
 
                           {/* Activity Flags */}
                           <div className="border-t border-gray-200 pt-3">
-                            <h4 className="text-xs font-semibold text-gray-900 mb-2">Activity Options</h4>
+                            <h4 className="text-xs font-semibold text-gray-900 mb-2">{t('workflows.edgeEditor.activityOptions')}</h4>
                             <div className="space-y-2">
                               <div className="flex items-center space-x-2">
                                 <input
@@ -891,7 +888,7 @@ export function EdgeEditDialog({ edge, isOpen, onClose, onSave, onDelete }: Edge
                                   className="h-4 w-4 rounded border-gray-300"
                                 />
                                 <label htmlFor={`activity-async-${index}`} className="text-xs text-gray-700 cursor-pointer">
-                                  Async (run in background)
+                                  {t('workflows.edgeEditor.asyncOption')}
                                 </label>
                               </div>
                               <div className="flex items-center space-x-2">
@@ -903,7 +900,7 @@ export function EdgeEditDialog({ edge, isOpen, onClose, onSave, onDelete }: Edge
                                   className="h-4 w-4 rounded border-gray-300"
                                 />
                                 <label htmlFor={`activity-compensate-${index}`} className="text-xs text-gray-700 cursor-pointer">
-                                  Compensate (execute compensation on failure)
+                                  {t('workflows.edgeEditor.compensateOption')}
                                 </label>
                               </div>
                             </div>
@@ -911,7 +908,7 @@ export function EdgeEditDialog({ edge, isOpen, onClose, onSave, onDelete }: Edge
 
                           {/* Configuration */}
                           <div className="border-t border-gray-200 pt-3">
-                            <label className="block text-xs font-medium text-gray-700 mb-1">Configuration (JSON)</label>
+                            <label className="block text-xs font-medium text-gray-700 mb-1">{t('workflows.edgeEditor.configurationJson')}</label>
                             <JsonBuilder
                               value={activity.config || {}}
                               onChange={(config) => {
@@ -920,7 +917,7 @@ export function EdgeEditDialog({ edge, isOpen, onClose, onSave, onDelete }: Edge
                                 setActivities(updated)
                               }}
                             />
-                            <p className="text-xs text-gray-500 mt-0.5">Activity-specific configuration as JSON</p>
+                            <p className="text-xs text-gray-500 mt-0.5">{t('workflows.edgeEditor.configurationHint')}</p>
                           </div>
 
                           {/* Delete Button */}
@@ -932,7 +929,7 @@ export function EdgeEditDialog({ edge, isOpen, onClose, onSave, onDelete }: Edge
                               onClick={() => removeActivity(index)}
                             >
                               <Trash2 className="size-4" />
-                              Remove Activity
+                              {t('workflows.edgeEditor.removeActivity')}
                             </Button>
                           </div>
                         </div>
@@ -951,7 +948,7 @@ export function EdgeEditDialog({ edge, isOpen, onClose, onSave, onDelete }: Edge
                 className="flex items-center justify-between w-full text-left"
               >
                 <h3 className="text-sm font-semibold text-gray-900">
-                  Advanced Configuration (JSON)
+                  {t('workflows.edgeEditor.advancedConfiguration')}
                 </h3>
                 <svg
                   className={`w-5 h-5 transition-transform ${showAdvanced ? 'rotate-180' : ''}`}
@@ -969,7 +966,7 @@ export function EdgeEditDialog({ edge, isOpen, onClose, onSave, onDelete }: Edge
                     onChange={setAdvancedConfig}
                   />
                   <p className="text-xs text-gray-500 mt-1">
-                    Add complex configuration like activities array with CALL_API, SEND_EMAIL, EXECUTE_FUNCTION, etc.
+                    {t('workflows.edgeEditor.advancedConfigHint')}
                   </p>
                 </div>
               )}
@@ -983,7 +980,7 @@ export function EdgeEditDialog({ edge, isOpen, onClose, onSave, onDelete }: Edge
             onClick={handleDelete}
           >
             <Trash2 className="size-4" />
-            Delete Transition
+            {t('workflows.edgeEditor.deleteTransition')}
           </Button>
           <div className="flex gap-2">
             <Button
@@ -991,13 +988,13 @@ export function EdgeEditDialog({ edge, isOpen, onClose, onSave, onDelete }: Edge
               variant="outline"
               onClick={onClose}
             >
-              Cancel
+              {t('workflows.edgeEditor.cancel')}
             </Button>
             <Button
               type="button"
               onClick={handleSave}
             >
-              Save Changes
+              {t('workflows.edgeEditor.saveChanges')}
             </Button>
           </div>
         </DialogFooter>
@@ -1013,8 +1010,12 @@ export function EdgeEditDialog({ edge, isOpen, onClose, onSave, onDelete }: Edge
             ? preConditions.map(c => c.ruleId)
             : postConditions.map(c => c.ruleId)
         }
-        title="Select Business Rule"
-        description={`Choose a rule to add as a ${ruleSelectorMode === 'pre' ? 'pre-condition' : 'post-condition'}`}
+        title={t('workflows.edgeEditor.selectBusinessRule')}
+        description={t('workflows.edgeEditor.selectBusinessRuleDescription', {
+          mode: ruleSelectorMode === 'pre'
+            ? t('workflows.edgeEditor.preConditions').toLowerCase()
+            : t('workflows.edgeEditor.postConditions').toLowerCase()
+        })}
       />
     </Dialog>
   )

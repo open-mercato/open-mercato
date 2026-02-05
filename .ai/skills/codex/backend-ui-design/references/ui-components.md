@@ -28,7 +28,8 @@ Complete reference of all available UI components in `@open-mercato/ui`.
 | **Separator** | `@open-mercato/ui/primitives/separator` | Visual divider line |
 | **Switch** | `@open-mercato/ui/primitives/switch` | Toggle switch control |
 | **Spinner** | `@open-mercato/ui/primitives/spinner` | Loading spinner animation |
-| **ErrorNotice** | `@open-mercato/ui/primitives/ErrorNotice` | Error message display with icon |
+| **Notice** | `@open-mercato/ui/primitives/Notice` | Contextual notice/hint with variants (`error`, `info`, `warning`) and optional `compact` mode |
+| **ErrorNotice** | `@open-mercato/ui/primitives/ErrorNotice` | Convenience wrapper around `<Notice variant="error">` with default title/message |
 | **DataLoader** | `@open-mercato/ui/primitives/DataLoader` | Loading state wrapper with spinner and optional skeleton |
 
 ## BACKEND COMPONENTS (`@open-mercato/ui/backend/*`)

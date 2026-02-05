@@ -10,9 +10,10 @@ export const metadata = {
   pageTitle: 'Roles',
   pageTitleKey: 'auth.nav.roles',
   pageGroup: 'Auth',
-  pageGroupKey: 'auth.nav.group',
-  pageOrder: 110,
+  pageGroupKey: 'settings.sections.auth',
+  pageOrder: 2,
   icon: shieldIcon,
+  pageContext: 'settings' as const,
   breadcrumb: [ { label: 'Roles', labelKey: 'auth.nav.roles' } ],
 }
 

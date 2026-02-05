@@ -46,7 +46,7 @@ jobs:
       - name: Release canary
         id: release
         run: |
-          ./scripts/release-canary.sh 2>&1 | tee release-output.txt
+          ./scripts/release-canary.sh
 
           # Build packages list from package.json files for PR comment
           PACKAGES_JSON=$(find packages -name package.json -not -path "*/node_modules/*" -exec cat {} \; | \

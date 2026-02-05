@@ -54,9 +54,9 @@ export default function CreateWorkflowDefinitionPage() {
       <PageBody>
         <Alert variant="info" className="mb-6">
           <Zap className="w-4 h-4" />
-          <AlertTitle>Event Triggers</AlertTitle>
+          <AlertTitle>{t('workflows.create.eventTriggersTitle')}</AlertTitle>
           <AlertDescription>
-            After creating this workflow definition, you can configure event triggers to automatically start the workflow when specific events occur in the system.
+            {t('workflows.create.eventTriggersDescription')}
           </AlertDescription>
         </Alert>
         <CrudForm

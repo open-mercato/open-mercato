@@ -177,7 +177,7 @@ const createDictionaryEntryCommand: CommandHandler<CustomerDictionaryEntryCreate
     return { entryId: entry.id, mode: 'created' }
   },
   captureAfter: async (_input, result, ctx) => {
-    const em = (ctx.container.resolve('em') as EntityManager)
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
     return loadSnapshot(em, result.entryId)
   },
   buildLog: async ({ result, snapshots }) => {
@@ -362,7 +362,7 @@ const updateDictionaryEntryCommand: CommandHandler<CustomerDictionaryEntryUpdate
     return { entryId: entry.id, changed }
   },
   captureAfter: async (_input, result, ctx) => {
-    const em = (ctx.container.resolve('em') as EntityManager)
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
     return loadSnapshot(em, result.entryId)
   },
   buildLog: async ({ snapshots, result }) => {
