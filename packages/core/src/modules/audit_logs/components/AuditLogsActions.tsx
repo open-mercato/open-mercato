@@ -10,6 +10,7 @@ import { ActionLogDetailsDialog } from './ActionLogDetailsDialog'
 import { Undo2, RotateCcw } from 'lucide-react'
 import { markRedoConsumed, markUndoSuccess } from '@open-mercato/ui/backend/operations/store'
 import { useAuditPermissions, canUndoEntry, canRedoEntry } from '@open-mercato/ui/backend/version-history'
+import { Notice } from '@open-mercato/ui/primitives/Notice'
 
 export type ActionLogItem = {
   id: string
@@ -223,8 +224,15 @@ export function AuditLogsActions({
     ? <div className="flex items-center gap-2">{headerExtras}{undoButton}</div>
     : undefined
 
+  const showSelfOnlyHint = !permissions.isLoading && !permissions.canViewTenant && !!permissions.currentUserId
+
   return (
     <>
+      {showSelfOnlyHint ? (
+        <Notice compact className="mb-4">
+          {t('audit_logs.hint.view_self_only', 'Showing only your own changes. Contact an administrator for broader access.')}
+        </Notice>
+      ) : null}
       <DataTable<ActionLogItem>
         title={t('audit_logs.actions.title')}
         data={actionItems}

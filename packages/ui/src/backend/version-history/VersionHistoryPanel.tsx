@@ -11,6 +11,7 @@ import { apiCallOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 import { markRedoConsumed, markUndoSuccess } from '@open-mercato/ui/backend/operations/store'
 import { getVersionHistoryStatusLabel } from './labels'
 import { useAuditPermissions, canUndoEntry, canRedoEntry } from './useAuditPermissions'
+import { Notice } from '@open-mercato/ui/primitives/Notice'
 
 export type VersionHistoryPanelProps = {
   open: boolean
@@ -186,6 +187,12 @@ export function VersionHistoryPanel({
               <VersionHistoryDetail entry={selectedEntry} t={t} />
             ) : (
               <div className="space-y-3">
+                {shouldAutoCheck && !permissions.isLoading && !permissions.canViewTenant && permissions.currentUserId ? (
+                  <Notice compact>
+                    {t('audit_logs.hint.view_self_only', 'Showing only your own changes. Contact an administrator for broader access.')}
+                  </Notice>
+                ) : null}
+
                 {isInitialLoading ? (
                   <div className="flex flex-col items-center justify-center py-12 text-muted-foreground">
                     <Loader2 className="mb-2 h-8 w-8 animate-spin" />
