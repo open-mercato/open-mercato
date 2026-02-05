@@ -485,6 +485,7 @@ const updateCompanyCommand: CommandHandler<CompanyUpdateInput, { entityId: strin
       profile.annualRevenue = parsed.annualRevenue !== null && parsed.annualRevenue !== undefined ? String(parsed.annualRevenue) : null
     }
 
+    await em.flush()
     await syncEntityTags(em, record, parsed.tags)
     await em.flush()
 
@@ -574,6 +575,7 @@ const updateCompanyCommand: CommandHandler<CompanyUpdateInput, { entityId: strin
       entity.nextInteractionColor = before.entity.nextInteractionColor
       entity.isActive = before.entity.isActive
     }
+    await em.flush()
 
     let profile = await em.findOne(CustomerCompanyProfile, { entity })
     if (!profile) {
