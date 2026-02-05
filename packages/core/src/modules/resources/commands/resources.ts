@@ -376,14 +376,14 @@ const updateResourceCommand: CommandHandler<ResourcesResourceUpdateInput, { reso
     if (parsed.appearanceColor !== undefined) record.appearanceColor = parsed.appearanceColor ?? null
     if (parsed.availabilityRuleSetId !== undefined) record.availabilityRuleSetId = parsed.availabilityRuleSetId ?? null
     record.updatedAt = new Date()
+    if (parsed.isActive !== undefined) record.isActive = parsed.isActive
+    await em.flush()
     await syncResourcesResourceTags(em, {
       resourceId: record.id,
       organizationId: record.organizationId,
       tenantId: record.tenantId,
       tagIds: parsed.tags,
     })
-    if (parsed.isActive !== undefined) record.isActive = parsed.isActive
-
     await em.flush()
     const dataEngine = (ctx.container.resolve('dataEngine') as DataEngine)
     await setCustomFieldsIfAny({
@@ -486,6 +486,7 @@ const updateResourceCommand: CommandHandler<ResourcesResourceUpdateInput, { reso
     record.availabilityRuleSetId = before.availabilityRuleSetId ?? null
     record.deletedAt = before.deletedAt ? new Date(before.deletedAt) : null
     record.updatedAt = new Date()
+    await em.flush()
     await syncResourcesResourceTags(em, {
       resourceId: record.id,
       organizationId: record.organizationId,
