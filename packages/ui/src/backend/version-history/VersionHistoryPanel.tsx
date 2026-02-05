@@ -80,6 +80,9 @@ export function VersionHistoryPanel({
       markUndoSuccess(token)
       onRefresh()
       onChange?.()
+      if (typeof window !== 'undefined') {
+        window.location.reload()
+      }
     } catch (err) {
       console.error(t('audit_logs.actions.undo'), err)
     } finally {
@@ -99,6 +102,9 @@ export function VersionHistoryPanel({
       markRedoConsumed(logId)
       onRefresh()
       onChange?.()
+      if (typeof window !== 'undefined') {
+        window.location.reload()
+      }
     } catch (err) {
       console.error(t('audit_logs.actions.redo'), err)
     } finally {

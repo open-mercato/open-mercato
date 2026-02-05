@@ -11,3 +11,13 @@ Recurring patterns and mistakes to avoid. Review at session start.
 **Rule**: In `buildLog()`, always load snapshots using a forked `EntityManager` (or explicitly `refresh: true`). This guarantees a fresh DB read and avoids identity-map caching in logs.
 
 **Applies to**: Any command that captures `snapshotBefore` in `prepare()` and later loads `snapshotAfter` in `buildLog()`.
+
+## Flush entity updates before running relation syncs that query
+
+**Context**: `catalog.products.update` mutates scalar fields and then calls `syncOffers` / `syncCategoryAssignments` / `syncProductTags`, which perform `find` queries. MikroORM auto-flush + subscriber logic reset `__originalEntityData`, resulting in no change sets and no UPDATE being issued.
+
+**Problem**: Updates to the main entity silently did not hit the database when relation syncs executed before the flush.
+
+**Rule**: If an update command mutates scalar fields and then performs relation-sync queries, flush the main entity changes *before* those syncs (or split into two UoWs/transactions).
+
+**Applies to**: Commands that update a core record and then call sync helpers that query/modify relations using the same `EntityManager`.
