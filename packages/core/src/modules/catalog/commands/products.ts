@@ -1136,7 +1136,6 @@ const updateProductCommand: CommandHandler<ProductUpdateInput, { productId: stri
     const dataEngine = ctx.container.resolve('dataEngine') as DataEngine
     record.organizationId = organizationId
     record.tenantId = tenantId
-
     const taxRateProvided = parsed.taxRateId !== undefined || parsed.taxRate !== undefined
     const resolvedTaxRate = taxRateProvided
       ? await resolveScopedTaxRate(em, parsed.taxRateId ?? null, parsed.taxRate, organizationId, tenantId)
@@ -1220,6 +1219,11 @@ const updateProductCommand: CommandHandler<ProductUpdateInput, { productId: stri
     }
     if (parsed.isConfigurable !== undefined) record.isConfigurable = parsed.isConfigurable
     if (parsed.isActive !== undefined) record.isActive = parsed.isActive
+    try {
+      await em.flush()
+    } catch (error) {
+      await rethrowProductUniqueConstraint(error)
+    }
     await syncOffers(em, record, parsed.offers)
     await syncCategoryAssignments(em, record, parsed.categoryIds)
     await syncProductTags(em, record, parsed.tags)
