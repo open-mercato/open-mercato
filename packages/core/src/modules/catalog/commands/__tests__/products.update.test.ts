@@ -43,9 +43,9 @@ describe('catalog.products.update', () => {
     ;(findWithDecryption as any).__ctx = { events }
 
     const record = {
-      id: '11111111-1111-1111-1111-111111111111',
-      organizationId: '22222222-2222-2222-2222-222222222222',
-      tenantId: '33333333-3333-3333-3333-333333333333',
+      id: '11111111-1111-4111-8111-111111111111',
+      organizationId: '22222222-2222-4222-8222-222222222222',
+      tenantId: '33333333-3333-4333-8333-333333333333',
       title: 'Old title',
       subtitle: null,
       description: null,
@@ -105,7 +105,11 @@ describe('catalog.products.update', () => {
 
     const ctx = {
       container,
-      auth: { sub: 'user-1', tenantId: 'tenant-1', orgId: 'org-1' },
+      auth: {
+        sub: 'user-1',
+        tenantId: '33333333-3333-4333-8333-333333333333',
+        orgId: '22222222-2222-4222-8222-222222222222',
+      },
       organizationScope: null,
       selectedOrganizationId: null,
       organizationIds: null,
@@ -113,9 +117,9 @@ describe('catalog.products.update', () => {
 
     await updateCommand.execute(
       {
-        id: '11111111-1111-1111-1111-111111111111',
-        organizationId: '22222222-2222-2222-2222-222222222222',
-        tenantId: '33333333-3333-3333-3333-333333333333',
+        id: '11111111-1111-4111-8111-111111111111',
+        organizationId: '22222222-2222-4222-8222-222222222222',
+        tenantId: '33333333-3333-4333-8333-333333333333',
         title: 'New title',
         offers: [],
         categoryIds: [],

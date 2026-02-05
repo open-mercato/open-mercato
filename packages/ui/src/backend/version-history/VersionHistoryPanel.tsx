@@ -20,6 +20,7 @@ export type VersionHistoryPanelProps = {
   hasMore: boolean
   onLoadMore: () => void
   onRefresh: () => void
+  onChange?: () => void
   t: TranslateFn
 }
 
@@ -32,6 +33,7 @@ export function VersionHistoryPanel({
   hasMore,
   onLoadMore,
   onRefresh,
+  onChange,
   t,
 }: VersionHistoryPanelProps) {
   const [selectedEntry, setSelectedEntry] = React.useState<VersionHistoryEntry | null>(null)
@@ -77,6 +79,7 @@ export function VersionHistoryPanel({
       }, { errorMessage: t('audit_logs.error.undo') })
       markUndoSuccess(token)
       onRefresh()
+      onChange?.()
     } catch (err) {
       console.error(t('audit_logs.actions.undo'), err)
     } finally {
@@ -95,6 +98,7 @@ export function VersionHistoryPanel({
       }, { errorMessage: t('audit_logs.error.redo') })
       markRedoConsumed(logId)
       onRefresh()
+      onChange?.()
     } catch (err) {
       console.error(t('audit_logs.actions.redo'), err)
     } finally {

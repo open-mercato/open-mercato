@@ -84,6 +84,7 @@ type ProductSnapshot = {
   updatedAt: string
   offers: OfferSnapshot[]
   tags: string[]
+  categoryIds: string[]
   custom: Record<string, unknown> | null
 }
 
@@ -847,7 +848,7 @@ async function loadProductSnapshot(
     { populate: ['optionSchemaTemplate'] },
   )
   if (!record) return null
-  const [offers, tagAssignments] = await Promise.all([
+  const [offers, tagAssignments, categoryAssignments] = await Promise.all([
     loadOfferSnapshots(em, record.id),
     findWithDecryption(
       em,
@@ -856,6 +857,7 @@ async function loadProductSnapshot(
       { populate: ['tag'] },
       { tenantId: record.tenantId, organizationId: record.organizationId },
     ),
+    em.find(CatalogProductCategoryAssignment, { product: record.id }, { populate: ['category'] }),
   ])
   const tags = tagAssignments
     .map((assignment) => {
@@ -866,6 +868,14 @@ async function loadProductSnapshot(
     })
     .filter((label): label is string => !!label)
     .sort((a, b) => a.localeCompare(b))
+  const categoryIds = categoryAssignments
+    .slice()
+    .sort((a, b) => (a.position ?? 0) - (b.position ?? 0))
+    .map((assignment) => {
+      if (typeof assignment.category === 'string') return assignment.category
+      return assignment.category?.id ?? null
+    })
+    .filter((value): value is string => !!value)
   const custom = await loadCustomFieldSnapshot(em, {
     entityId: E.catalog.catalog_product,
     recordId: record.id,
@@ -918,6 +928,7 @@ async function loadProductSnapshot(
     updatedAt: record.updatedAt.toISOString(),
     offers,
     tags,
+    categoryIds,
     custom: Object.keys(custom).length ? custom : null,
   }
 }
@@ -1314,7 +1325,10 @@ const updateProductCommand: CommandHandler<ProductUpdateInput, { productId: stri
     ensureTenantScope(ctx, before.tenantId)
     ensureOrganizationScope(ctx, before.organizationId)
     applyProductSnapshot(em, record, before)
+    await em.flush()
+
     await restoreOffersFromSnapshot(em, record, before.offers)
+    await syncCategoryAssignments(em, record, before.categoryIds)
     await syncProductTags(em, record, before.tags)
     await em.flush()
     const dataEngine = ctx.container.resolve('dataEngine') as DataEngine
@@ -1455,6 +1469,7 @@ const deleteProductCommand: CommandHandler<
     ensureOrganizationScope(ctx, before.organizationId)
     applyProductSnapshot(em, record, before)
     await restoreOffersFromSnapshot(em, record, before.offers)
+    await syncCategoryAssignments(em, record, before.categoryIds)
     await syncProductTags(em, record, before.tags)
     await em.flush()
     const dataEngine = ctx.container.resolve('dataEngine') as DataEngine

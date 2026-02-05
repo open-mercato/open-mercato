@@ -14,6 +14,7 @@ export type VersionHistoryActionProps = {
   t: TranslateFn
   buttonClassName?: string
   iconClassName?: string
+  onChange?: () => void
 }
 
 export function VersionHistoryAction({
@@ -21,6 +22,7 @@ export function VersionHistoryAction({
   t,
   buttonClassName,
   iconClassName,
+  onChange,
 }: VersionHistoryActionProps) {
   const enabled = Boolean(
     config?.resourceKind
@@ -63,6 +65,7 @@ export function VersionHistoryAction({
         hasMore={historyData.hasMore}
         onLoadMore={historyData.loadMore}
         onRefresh={historyData.refresh}
+        onChange={onChange}
         t={t}
       />
     </>
