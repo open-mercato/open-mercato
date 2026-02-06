@@ -15,6 +15,7 @@ import {
   clearReindexLock,
   getReindexLockStatus,
 } from '../../lib/reindex-lock'
+import { reindexOpenApi } from '../openapi'
 
 /** Strategy with optional stats support */
 type StrategyWithStats = SearchStrategy & {
@@ -417,3 +418,5 @@ export async function POST(req: Request) {
     }
   }
 }
+
+export const openApi = reindexOpenApi

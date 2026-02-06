@@ -7,6 +7,7 @@ import type { EmbeddingService } from '../../../../../vector'
 import { resolveEmbeddingConfig } from '../../../lib/embedding-config'
 import { resolveGlobalSearchStrategies } from '../../../lib/global-search-config'
 import { searchError } from '../../../../../lib/debug'
+import { globalSearchOpenApi } from '../../openapi'
 
 export const metadata = {
   GET: { requireAuth: true, requireFeatures: ['search.view'] },
@@ -118,3 +119,5 @@ export async function GET(req: Request) {
     }
   }
 }
+
+export const openApi = globalSearchOpenApi
