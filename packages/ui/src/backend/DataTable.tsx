@@ -1247,17 +1247,17 @@ export function DataTable<T>({
     ) : null
 
     return (
-      <div className="flex items-center justify-between px-4 py-3 border-t">
-        <div className="text-sm text-muted-foreground flex items-center gap-2">
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 px-4 py-3 border-t">
+        <div className="text-sm text-muted-foreground flex items-center justify-center sm:justify-start gap-2">
           <span>
-            {durationLabel 
+            {durationLabel
               ? t('ui.dataTable.pagination.resultsWithDuration', 'Showing {start} to {end} of {total} results in {duration}', { start: startItem, end: endItem, total: pagination.total, duration: durationLabel })
               : t('ui.dataTable.pagination.results', 'Showing {start} to {end} of {total} results', { start: startItem, end: endItem, total: pagination.total })
             }
           </span>
           {cacheBadge}
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center justify-center sm:justify-end gap-2">
           <Button
             variant="outline"
             size="sm"
@@ -1266,7 +1266,7 @@ export function DataTable<T>({
           >
             {t('ui.dataTable.pagination.previous', 'Previous')}
           </Button>
-          <span className="text-sm">
+          <span className="text-sm whitespace-nowrap">
             {t('ui.dataTable.pagination.pageInfo', 'Page {page} of {totalPages}', { page, totalPages })}
           </span>
           <Button
