@@ -24,6 +24,7 @@ import {
   buildCustomFieldResetMap,
   diffCustomFieldChanges,
 } from '@open-mercato/shared/lib/commands/customFieldSnapshots'
+import { extractUndoPayload, type UndoPayload } from '@open-mercato/shared/lib/commands/undo'
 import { normalizeTenantId } from '@open-mercato/core/modules/auth/lib/tenantAccess'
 import { computeEmailHash } from '@open-mercato/core/modules/auth/lib/emailHash'
 import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
@@ -228,7 +229,7 @@ const createUserCommand: CommandHandler<Record<string, unknown>, User> = {
     return user
   },
   captureAfter: async (_input, result, ctx) => {
-    const em = (ctx.container.resolve('em') as EntityManager)
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
     const roles = await loadUserRoleNames(em, String(result.id))
     const custom = await loadUserCustomSnapshot(
       em,
@@ -240,7 +241,7 @@ const createUserCommand: CommandHandler<Record<string, unknown>, User> = {
   },
   buildLog: async ({ result, ctx }) => {
     const { translate } = await resolveTranslations()
-    const em = (ctx.container.resolve('em') as EntityManager)
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
     const roles = await loadUserRoleNames(em, String(result.id))
     const custom = await loadUserCustomSnapshot(
       em,
@@ -445,7 +446,7 @@ const updateUserCommand: CommandHandler<Record<string, unknown>, User> = {
     return user
   },
   captureAfter: async (_input, result, ctx) => {
-    const em = (ctx.container.resolve('em') as EntityManager)
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
     const roles = await loadUserRoleNames(em, String(result.id))
     const custom = await loadUserCustomSnapshot(
       em,
@@ -460,7 +461,7 @@ const updateUserCommand: CommandHandler<Record<string, unknown>, User> = {
     const beforeSnapshots = snapshots.before as UserSnapshots | undefined
     const before = beforeSnapshots?.view
     const beforeUndo = beforeSnapshots?.undo ?? null
-    const em = (ctx.container.resolve('em') as EntityManager)
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
     const afterRoles = await loadUserRoleNames(em, String(result.id))
     const afterCustom = await loadUserCustomSnapshot(
       em,
@@ -495,7 +496,7 @@ const updateUserCommand: CommandHandler<Record<string, unknown>, User> = {
     }
   },
   undo: async ({ logEntry, ctx }) => {
-    const payload = extractUndoPayload(logEntry)
+    const payload = extractUndoPayload<UndoPayload<UserUndoSnapshot>>(logEntry)
     const before = payload?.before
     const after = payload?.after
     if (!before) return
@@ -621,7 +622,7 @@ const deleteUserCommand: CommandHandler<{ body?: Record<string, unknown>; query?
     }
   },
   undo: async ({ logEntry, ctx }) => {
-    const payload = extractUndoPayload(logEntry)
+    const payload = extractUndoPayload<UndoPayload<UserUndoSnapshot>>(logEntry)
     const before = payload?.before
     if (!before) return
     const em = (ctx.container.resolve('em') as EntityManager)
@@ -795,14 +796,6 @@ async function restoreUserAcls(em: EntityManager, user: User, acls: UserAclSnaps
     em.persist(entity)
   }
   await em.flush()
-}
-
-type UndoPayload = { undo?: { before?: UserUndoSnapshot | null; after?: UserUndoSnapshot | null } }
-
-function extractUndoPayload(logEntry: { commandPayload?: unknown }): { before?: UserUndoSnapshot | null; after?: UserUndoSnapshot | null } | null {
-  const payload = logEntry?.commandPayload as UndoPayload | undefined
-  if (!payload || typeof payload !== 'object') return null
-  return payload.undo ?? null
 }
 
 async function loadUserCustomSnapshot(

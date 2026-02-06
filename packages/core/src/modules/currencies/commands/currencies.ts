@@ -1,6 +1,7 @@
 import { registerCommand } from '@open-mercato/shared/lib/commands'
 import type { CommandHandler } from '@open-mercato/shared/lib/commands'
 import { buildChanges, requireId, emitCrudSideEffects } from '@open-mercato/shared/lib/commands/helpers'
+import { extractUndoPayload, type UndoPayload } from '@open-mercato/shared/lib/commands/undo'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
@@ -42,6 +43,8 @@ type CurrencySnapshot = {
   createdAt: string
   updatedAt: string
 }
+
+type CurrencyUndoPayload = UndoPayload<CurrencySnapshot>
 
 async function loadCurrencySnapshot(em: EntityManager, id: string): Promise<CurrencySnapshot | null> {
   const record = await em.findOne(Currency, { id })
@@ -140,12 +143,11 @@ const createCurrencyCommand: CommandHandler<CurrencyCreateInput, { currencyId: s
     return { currencyId: record.id }
   },
   captureAfter: async (_input, result, ctx) => {
-    const em = ctx.container.resolve('em') as EntityManager
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
     return loadCurrencySnapshot(em, result.currencyId)
   },
-  buildLog: async ({ result, ctx }) => {
-    const em = ctx.container.resolve('em') as EntityManager
-    const after = await loadCurrencySnapshot(em, result.currencyId)
+  buildLog: async ({ snapshots }) => {
+    const after = snapshots.after as CurrencySnapshot | undefined
     if (!after) return null
     const { translate } = await resolveTranslations()
     return {
@@ -159,7 +161,8 @@ const createCurrencyCommand: CommandHandler<CurrencyCreateInput, { currencyId: s
     }
   },
   undo: async ({ logEntry, ctx }) => {
-    const after = logEntry?.payload?.undo?.after as CurrencySnapshot | undefined
+    const payload = extractUndoPayload<CurrencyUndoPayload>(logEntry)
+    const after = payload?.after ?? null
     if (!after) return
     const em = (ctx.container.resolve('em') as EntityManager).fork()
     const record = await em.findOne(Currency, { id: after.id })
@@ -247,7 +250,7 @@ const updateCurrencyCommand: CommandHandler<CurrencyUpdateInput, { currencyId: s
     return { currencyId: record.id }
   },
   captureAfter: async (_input, result, ctx) => {
-    const em = ctx.container.resolve('em') as EntityManager
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
     return loadCurrencySnapshot(em, result.currencyId)
   },
   buildLog: async ({ snapshots, result }) => {
@@ -267,7 +270,8 @@ const updateCurrencyCommand: CommandHandler<CurrencyUpdateInput, { currencyId: s
     }
   },
   undo: async ({ logEntry, ctx }) => {
-    const before = logEntry?.payload?.undo?.before as CurrencySnapshot | undefined
+    const payload = extractUndoPayload<CurrencyUndoPayload>(logEntry)
+    const before = payload?.before ?? null
     if (!before) return
     const em = (ctx.container.resolve('em') as EntityManager).fork()
     const record = await em.findOne(Currency, { id: before.id })
@@ -362,7 +366,8 @@ const deleteCurrencyCommand: CommandHandler<CurrencyDeleteInput, { currencyId: s
     }
   },
   undo: async ({ logEntry, ctx }) => {
-    const before = logEntry?.payload?.undo?.before as CurrencySnapshot | undefined
+    const payload = extractUndoPayload<CurrencyUndoPayload>(logEntry)
+    const before = payload?.before ?? null
     if (!before) return
     const em = (ctx.container.resolve('em') as EntityManager).fork()
     const record = await em.findOne(Currency, { id: before.id })

@@ -5,6 +5,7 @@ export type ActionLogExecutionState = 'done' | 'undone' | 'failed' | 'redone'
 @Entity({ tableName: 'action_logs' })
 @Index({ name: 'action_logs_tenant_idx', properties: ['tenantId', 'createdAt'] })
 @Index({ name: 'action_logs_actor_idx', properties: ['actorUserId', 'createdAt'] })
+@Index({ name: 'action_logs_resource_idx', properties: ['tenantId', 'resourceKind', 'resourceId', 'createdAt'] })
 export class ActionLog {
   @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
   id!: string

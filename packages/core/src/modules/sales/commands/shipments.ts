@@ -248,6 +248,7 @@ export async function restoreShipmentSnapshot(em: EntityManager, snapshot: Shipm
   entity.metadata = snapshot.metadata ? cloneJson(snapshot.metadata) : null
   entity.updatedAt = new Date()
   em.persist(entity)
+  await em.flush()
 
   const existingItems = await em.find(SalesShipmentItem, { shipment: entity })
   existingItems.forEach((item) => em.remove(item))
@@ -530,7 +531,7 @@ const createShipmentCommand: CommandHandler<ShipmentCreateInput, { shipmentId: s
     return { shipmentId: shipment.id }
   },
   captureAfter: async (_input, result, ctx) => {
-    const em = ctx.container.resolve('em') as EntityManager
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
     return loadShipmentSnapshot(em, result.shipmentId)
   },
   buildLog: async ({ result, snapshots }) => {
@@ -745,7 +746,7 @@ const updateShipmentCommand: CommandHandler<ShipmentUpdateInput, { shipmentId: s
     return { shipmentId: shipment.id }
   },
   captureAfter: async (_input, result, ctx) => {
-    const em = ctx.container.resolve('em') as EntityManager
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
     return loadShipmentSnapshot(em, result.shipmentId)
   },
   buildLog: async ({ snapshots, result }) => {

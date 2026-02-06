@@ -18,8 +18,9 @@ export const metadata = {
   pageTitle: 'Overrides',
   pageTitleKey: 'feature_toggles.nav.overrides',
   pageGroup: 'Feature Toggles',
-  pageGroupKey: 'feature_toggles.nav.group',
-  pageOrder: 200,
+  pageGroupKey: 'settings.sections.featureToggles',
+  pageOrder: 2,
   icon: overridesIcon,
+  pageContext: 'settings' as const,
   breadcrumb: [ { label: 'Overrides', labelKey: 'feature_toggles.nav.overrides' } ],
 }

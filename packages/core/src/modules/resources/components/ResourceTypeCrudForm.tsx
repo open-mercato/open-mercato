@@ -109,6 +109,9 @@ export function ResourceTypeCrudForm({
         ? t('resources.resourceTypes.form.createTitle', 'Add resource type')
         : t('resources.resourceTypes.form.editTitle', 'Edit resource type')}
       backHref="/backend/resources/resource-types"
+      versionHistory={mode === 'edit'
+        ? { resourceKind: 'resources.resourceType', resourceId: initialValues.id ?? '' }
+        : undefined}
       cancelHref="/backend/resources/resource-types"
       submitLabel={t('resources.resourceTypes.form.save', 'Save')}
       fields={fields}

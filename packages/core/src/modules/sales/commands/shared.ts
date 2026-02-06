@@ -1,15 +1,8 @@
-import type { ActionLog } from '@open-mercato/core/modules/audit_logs/data/entities'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import type { CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
 export { ensureOrganizationScope } from '@open-mercato/shared/lib/commands/scope'
-
-type UndoEnvelope<T> = {
-  undo?: T
-  value?: { undo?: T }
-  __redoInput?: unknown
-  [key: string]: unknown
-}
+export { extractUndoPayload } from '@open-mercato/shared/lib/commands/undo'
 
 export function ensureTenantScope(ctx: CommandRuntimeContext, tenantId: string): void {
   const currentTenant = ctx.auth?.tenantId ?? null
@@ -31,31 +24,6 @@ export function ensureSameScope(
 export function assertFound<T>(value: T | null | undefined, message: string): T {
   if (!value) throw new CrudHttpError(404, { error: message })
   return value
-}
-
-export function extractUndoPayload<T>(logEntry: ActionLog | null | undefined): T | null {
-  if (!logEntry) return null
-  const payload = logEntry.commandPayload as UndoEnvelope<T> | undefined
-  if (!payload || typeof payload !== 'object') return null
-  if (payload.undo) return payload.undo
-  if (payload.value && typeof payload.value === 'object' && payload.value.undo) {
-    return payload.value.undo as T
-  }
-  for (const [key, value] of Object.entries(payload)) {
-    if (key === '__redoInput') continue
-    if (value && typeof value === 'object' && 'undo' in value) {
-      return (value as { undo?: T }).undo ?? null
-    }
-  }
-  const snapshotBefore = (logEntry as any)?.snapshotBefore
-  if (snapshotBefore !== undefined && snapshotBefore !== null) {
-    return { before: snapshotBefore } as T
-  }
-  const snapshotAfter = (logEntry as any)?.snapshotAfter
-  if (snapshotAfter !== undefined && snapshotAfter !== null) {
-    return { after: snapshotAfter } as T
-  }
-  return null
 }
 
 export function cloneJson<T>(value: T): T {

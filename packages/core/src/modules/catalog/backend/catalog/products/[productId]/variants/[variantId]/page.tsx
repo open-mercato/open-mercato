@@ -406,6 +406,7 @@ export default function EditVariantPage({ params }: { params?: { productId?: str
         <CrudForm<VariantFormValues>
           title={formTitle}
           backHref={productVariantsHref}
+          versionHistory={{ resourceKind: 'catalog.variant', resourceId: variantId ? String(variantId) : '' }}
           fields={[]}
           groups={groups}
           entityId={E.catalog.catalog_product_variant}

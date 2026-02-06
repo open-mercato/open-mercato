@@ -168,6 +168,7 @@ export default function EditRolePage({ params }: { params?: { id?: string } }) {
         <CrudForm<EditRoleFormValues>
           title={t('auth.roles.form.title.edit', 'Edit Role')}
           backHref="/backend/roles"
+          versionHistory={{ resourceKind: 'auth.role', resourceId: id ? String(id) : '' }}
           entityId={E.auth.role}
           fields={fields}
           groups={groups}

@@ -349,6 +349,7 @@ export function ResourcesResourceForm(props: ResourcesResourceFormProps) {
     <CrudForm
       title={title}
       backHref={backHref}
+      versionHistory={recordId ? { resourceKind: 'resources.resource', resourceId: recordId } : undefined}
       cancelHref={cancelHref}
       submitLabel={submitLabel}
       successRedirect={successRedirect}

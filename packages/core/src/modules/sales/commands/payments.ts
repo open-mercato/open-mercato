@@ -198,6 +198,7 @@ export async function restorePaymentSnapshot(em: EntityManager, snapshot: Paymen
   entity.customFieldSetId =
     (snapshot as any).customFieldSetId ?? (snapshot as any).custom_field_set_id ?? null
   entity.updatedAt = new Date()
+  await em.flush()
 
   if ((snapshot as any).customFields !== undefined) {
     await setRecordCustomFields(em, {
@@ -484,7 +485,7 @@ const createPaymentCommand: CommandHandler<
     return { paymentId: payment.id, orderTotals: totals }
   },
   captureAfter: async (_input, result, ctx) => {
-    const em = ctx.container.resolve('em') as EntityManager
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
     return result?.paymentId ? loadPaymentSnapshot(em, result.paymentId) : null
   },
   buildLog: async ({ result, snapshots }) => {
@@ -738,7 +739,7 @@ const updatePaymentCommand: CommandHandler<
     return { paymentId: payment.id, orderTotals: totals }
   },
   captureAfter: async (_input, result, ctx) => {
-    const em = ctx.container.resolve('em') as EntityManager
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
     return result?.paymentId ? loadPaymentSnapshot(em, result.paymentId) : null
   },
   buildLog: async ({ snapshots, result }) => {

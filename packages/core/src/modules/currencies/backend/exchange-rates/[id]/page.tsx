@@ -203,6 +203,7 @@ export default function EditExchangeRatePage({ params }: { params?: { id?: strin
         <CrudForm
           title={t('exchangeRates.edit.title')}
           backHref="/backend/exchange-rates"
+          versionHistory={{ resourceKind: 'currencies.exchange_rate', resourceId: exchangeRate.id }}
           fields={[]}
           groups={groups}
           initialValues={{

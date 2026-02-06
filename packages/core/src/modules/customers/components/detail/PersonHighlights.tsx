@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation'
 import { Building2, Loader2, Pencil, X } from 'lucide-react'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { FormHeader } from '@open-mercato/ui/backend/forms'
+import { VersionHistoryAction } from '@open-mercato/ui/backend/version-history'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 import { cn } from '@open-mercato/shared/lib/utils'
@@ -28,9 +29,11 @@ type PersonHighlightsPerson = {
   nextInteractionRefId?: string | null
   nextInteractionIcon?: string | null
   nextInteractionColor?: string | null
+  organizationId?: string | null
 }
 
 type PersonHighlightsProfile = {
+  id?: string
   companyEntityId?: string | null
 } | null
 
@@ -118,6 +121,8 @@ export function PersonHighlights({
   )
 
   const activeCompanyId = profile?.companyEntityId ?? null
+  const historyFallbackId =
+    profile?.id && profile.id !== person.id ? profile.id : undefined
 
   const loadCompany = React.useCallback(async (companyId: string | null) => {
     if (!companyId) {
@@ -328,6 +333,17 @@ export function PersonHighlights({
         mode="detail"
         backHref="/backend/customers/people"
         backLabel={t('customers.people.detail.actions.backToList')}
+        utilityActions={(
+          <VersionHistoryAction
+            config={{
+              resourceKind: 'customers.person',
+              resourceId: person.id,
+              resourceIdFallback: historyFallbackId,
+              organizationId: person.organizationId ?? undefined,
+            }}
+            t={t}
+          />
+        )}
         title={
           <InlineTextEditor
             label={t('customers.people.form.displayName.label')}

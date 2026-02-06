@@ -13,8 +13,9 @@ export const metadata = {
   pageTitle: 'Global',
   pageTitleKey: 'feature_toggles.nav.global',
   pageGroup: 'Feature Toggles',
-  pageGroupKey: 'feature_toggles.nav.group',
-  pageOrder: 100,
+  pageGroupKey: 'settings.sections.featureToggles',
+  pageOrder: 1,
   icon: globalTogglesIcon,
+  pageContext: 'settings' as const,
   breadcrumb: [ { label: 'Feature Toggles', labelKey: 'feature_toggles.nav.global' } ],
 }
