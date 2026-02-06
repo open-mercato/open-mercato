@@ -48,7 +48,7 @@ const unlinkSchema = z.object({
 
 const todoCrudEvents: CrudEventsConfig = {
   module: 'customers',
-  entity: 'todos',
+  entity: 'todo',
   persistent: true,
   buildPayload: (ctx) => ({
     id: ctx.identifiers.id,

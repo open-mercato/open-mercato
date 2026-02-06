@@ -24,7 +24,7 @@ const commentCrudIndexer: CrudIndexerConfig<CustomerComment> = {
 
 const commentCrudEvents: CrudEventsConfig = {
   module: 'customers',
-  entity: 'comments',
+  entity: 'comment',
   persistent: true,
   buildPayload: (ctx) => ({
     id: ctx.identifiers.id,

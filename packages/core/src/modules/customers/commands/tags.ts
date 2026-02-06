@@ -28,7 +28,7 @@ import { emitCustomersEvent } from '../events'
 
 const tagCrudEvents: CrudEventsConfig = {
   module: 'customers',
-  entity: 'tags',
+  entity: 'tag',
   persistent: true,
   buildPayload: (ctx) => ({
     id: ctx.identifiers.id,
@@ -400,7 +400,7 @@ const assignTagCommand: CommandHandler<TagAssignmentInput, { assignmentId: strin
       },
     })
 
-    await emitCustomersEvent('customers.tags.assigned', {
+    await emitCustomersEvent('customers.tag.assigned', {
       id: String(assignment.id),
       tagId: parsed.tagId,
       entityId: parsed.entityId,
@@ -485,7 +485,7 @@ const unassignTagCommand: CommandHandler<TagAssignmentInput, { assignmentId: str
       },
     })
 
-    await emitCustomersEvent('customers.tags.removed', {
+    await emitCustomersEvent('customers.tag.removed', {
       id: String(existing.id),
       tagId: parsed.tagId,
       entityId: parsed.entityId,

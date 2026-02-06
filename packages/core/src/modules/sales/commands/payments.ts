@@ -89,7 +89,7 @@ const normalizeCustomFieldsInput = (input: unknown): Record<string, unknown> =>
 
 const paymentCrudEvents: CrudEventsConfig = {
   module: 'sales',
-  entity: 'payments',
+  entity: 'payment',
   persistent: true,
   buildPayload: (ctx) => ({
     id: ctx.identifiers.id,

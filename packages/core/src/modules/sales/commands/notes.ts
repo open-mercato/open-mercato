@@ -52,7 +52,7 @@ const noteCrudIndexer = {
 
 const noteCrudEvents: CrudEventsConfig = {
   module: 'sales',
-  entity: 'notes',
+  entity: 'note',
   persistent: true,
   buildPayload: (ctx) => ({
     id: ctx.identifiers.id,

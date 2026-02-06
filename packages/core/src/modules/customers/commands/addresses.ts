@@ -23,7 +23,7 @@ const addressCrudIndexer: CrudIndexerConfig<CustomerAddress> = {
 
 const addressCrudEvents: CrudEventsConfig = {
   module: 'customers',
-  entity: 'addresses',
+  entity: 'address',
   persistent: true,
   buildPayload: (ctx) => ({
     id: ctx.identifiers.id,
@@ -379,16 +379,16 @@ const deleteAddressCommand: CommandHandler<{ body?: Record<string, unknown>; que
       const de = (ctx.container.resolve('dataEngine') as DataEngine)
       await emitCrudSideEffects({
         dataEngine: de,
-      action: 'deleted',
-      entity: address,
-      identifiers: {
-        id: address.id,
-        organizationId: address.organizationId,
-        tenantId: address.tenantId,
-      },
-      indexer: addressCrudIndexer,
-      events: addressCrudEvents,
-    })
+        action: 'deleted',
+        entity: address,
+        identifiers: {
+          id: address.id,
+          organizationId: address.organizationId,
+          tenantId: address.tenantId,
+        },
+        indexer: addressCrudIndexer,
+        events: addressCrudEvents,
+      })
       return { addressId: address.id }
     },
     buildLog: async ({ snapshots }) => {
@@ -417,15 +417,15 @@ const deleteAddressCommand: CommandHandler<{ body?: Record<string, unknown>; que
       const entity = await requireCustomerEntity(em, before.entityId, undefined, 'Customer not found')
       let address = await em.findOne(CustomerAddress, { id: before.id })
       if (!address) {
-      address = em.create(CustomerAddress, {
-        id: before.id,
-        organizationId: before.organizationId,
-        tenantId: before.tenantId,
-        entity,
-        name: before.name,
-        purpose: before.purpose,
-        companyName: before.companyName,
-        addressLine1: before.addressLine1,
+        address = em.create(CustomerAddress, {
+          id: before.id,
+          organizationId: before.organizationId,
+          tenantId: before.tenantId,
+          entity,
+          name: before.name,
+          purpose: before.purpose,
+          companyName: before.companyName,
+          addressLine1: before.addressLine1,
           addressLine2: before.addressLine2,
           buildingNumber: before.buildingNumber,
           flatNumber: before.flatNumber,
@@ -463,18 +463,18 @@ const deleteAddressCommand: CommandHandler<{ body?: Record<string, unknown>; que
       }
 
       const de = (ctx.container.resolve('dataEngine') as DataEngine)
-    await emitCrudUndoSideEffects({
-      dataEngine: de,
-      action: 'created',
-      entity: address,
-      identifiers: {
-        id: address.id,
-        organizationId: address.organizationId,
-        tenantId: address.tenantId,
-      },
-      indexer: addressCrudIndexer,
-      events: addressCrudEvents,
-    })
+      await emitCrudUndoSideEffects({
+        dataEngine: de,
+        action: 'created',
+        entity: address,
+        identifiers: {
+          id: address.id,
+          organizationId: address.organizationId,
+          tenantId: address.tenantId,
+        },
+        indexer: addressCrudIndexer,
+        events: addressCrudEvents,
+      })
     },
   }
 

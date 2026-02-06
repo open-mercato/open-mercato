@@ -46,7 +46,7 @@ const activityCrudIndexer: CrudIndexerConfig<CustomerActivity> = {
 
 const activityCrudEvents: CrudEventsConfig = {
   module: 'customers',
-  entity: 'activities',
+  entity: 'activity',
   persistent: true,
   buildPayload: (ctx) => ({
     id: ctx.identifiers.id,

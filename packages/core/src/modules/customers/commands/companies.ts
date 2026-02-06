@@ -59,7 +59,7 @@ const companyCrudIndexer: CrudIndexerConfig<CustomerEntity> = {
 
 const companyCrudEvents: CrudEventsConfig = {
   module: 'customers',
-  entity: 'companies',
+  entity: 'company',
   persistent: true,
   buildPayload: (ctx) => ({
     id: ctx.identifiers.id,

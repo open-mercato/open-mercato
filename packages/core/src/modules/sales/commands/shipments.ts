@@ -37,7 +37,7 @@ import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 
 const shipmentCrudEvents: CrudEventsConfig = {
   module: 'sales',
-  entity: 'shipments',
+  entity: 'shipment',
   persistent: true,
   buildPayload: (ctx) => ({
     id: ctx.identifiers.id,
