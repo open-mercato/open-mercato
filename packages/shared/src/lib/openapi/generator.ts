@@ -192,6 +192,72 @@ function unwrap(schema?: ZodTypeAny): {
   return { schema: current, optional, nullable, defaultValue }
 }
 
+/**
+ * Extract the description from a zod schema, walking through wrappers like optional/nullable/default.
+ * Returns the first description found, or undefined if none exists.
+ */
+function extractZodDescription(schema?: ZodTypeAny): string | undefined {
+  if (!schema) return undefined
+
+  let current: ZodTypeAny | undefined = schema
+  while (current) {
+    // In Zod 4/zod-mini, description is stored directly on the schema object
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const directDescription = (current as any).description
+    if (typeof directDescription === 'string' && directDescription.length > 0) {
+      return directDescription
+    }
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const def = (current as any)?._def as Record<string, unknown> | undefined
+    if (!def) return undefined
+
+    // Also check _def.description for Zod 3 compatibility
+    if (typeof def.description === 'string' && def.description.length > 0) {
+      return def.description
+    }
+
+    // Walk through wrappers to find description on inner types
+    const typeName = resolveType(def)
+    if (
+      typeName === 'ZodOptional' || typeName === 'optional' ||
+      typeName === 'ZodNullable' || typeName === 'nullable' ||
+      typeName === 'ZodDefault' || typeName === 'default' ||
+      typeName === 'ZodCatch' || typeName === 'catch' ||
+      typeName === 'ZodReadonly' || typeName === 'readonly'
+    ) {
+      current = def.innerType as ZodTypeAny | undefined
+      continue
+    }
+    if (typeName === 'ZodBranded' || typeName === 'branded') {
+      current = def.type as ZodTypeAny | undefined
+      continue
+    }
+    if (typeName === 'ZodPipeline' || typeName === 'pipe') {
+      current = (def.out ?? def.innerType ?? def.schema) as ZodTypeAny | undefined
+      continue
+    }
+    if (typeName === 'transformer') {
+      current = def.output as ZodTypeAny | undefined
+      continue
+    }
+    if (typeName === 'ZodLazy' || typeName === 'lazy') {
+      const getter = def.getter
+      const next = typeof getter === 'function' ? (getter as () => ZodTypeAny)() : current
+      if (next === current) break
+      current = next
+      continue
+    }
+    if (typeName === 'ZodPromise' || typeName === 'promise') {
+      current = def.type as ZodTypeAny | undefined
+      continue
+    }
+    // No more wrappers to unwrap
+    break
+  }
+  return undefined
+}
+
 function zodToJsonSchema(schema?: ZodTypeAny, ctx?: SchemaConversionContext): JsonSchema | undefined {
   if (!schema) return undefined
   const context: SchemaConversionContext = ctx ?? { memo: new WeakMap<ZodTypeAny, JsonSchema>() }
@@ -599,12 +665,14 @@ function buildParameters(
     for (const { name, schema: paramSchema, optional } of merged) {
       const jsonSchema = zodToJsonSchema(paramSchema)
       const example = generateExample(paramSchema)
+      const description = extractZodDescription(paramSchema)
       params.push({
         name,
         in: 'path',
         required: !optional,
         schema: jsonSchema ?? { type: 'string' },
         example,
+        ...(description ? { description } : {}),
       })
     }
     return params
@@ -623,23 +691,27 @@ function buildParameters(
       if (!details.schema) continue
       const jsonSchema = zodToJsonSchema(details.schema)
       const example = generateExample(details.schema)
+      const description = extractZodDescription(raw as ZodTypeAny)
       params.push({
         name: key,
         in: location,
         required: location === 'path' ? true : !details.optional,
         schema: jsonSchema ?? {},
         example,
+        ...(description ? { description } : {}),
       })
     }
   } else {
     const jsonSchema = zodToJsonSchema(unwrapped)
     const example = generateExample(unwrapped)
+    const description = extractZodDescription(unwrapped)
     params.push({
       name: location === 'header' ? 'X-Custom-Header' : 'value',
       in: location,
       required: location === 'path',
       schema: jsonSchema ?? {},
       example,
+      ...(description ? { description } : {}),
     })
   }
 
@@ -1220,12 +1292,16 @@ export function generateMarkdownFromOpenApi(doc: OpenApiDocument): string {
       if (parameters.length) {
         lines.push('')
         lines.push('### Parameters')
-        const rows: Array<[string, string, string, string]> = parameters.map((p) => [
-          p.name,
-          p.in,
-          schemaTypeLabel(p.schema),
-          p.required ? 'Required' : 'Optional',
-        ])
+        const rows: Array<[string, string, string, string]> = parameters.map((p) => {
+          const requiredLabel = p.required ? 'Required' : 'Optional'
+          const descriptionParts = [requiredLabel, p.description].filter(Boolean)
+          return [
+            p.name,
+            p.in,
+            schemaTypeLabel(p.schema),
+            descriptionParts.join('. '),
+          ]
+        })
         lines.push(formatMarkdownTable(rows))
       }
 
