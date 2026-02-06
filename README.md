@@ -306,6 +306,8 @@ Navigate to `http://localhost:3000/backend` and sign in with the default credent
 - Stop: `docker compose -f docker-compose.fullapp.yml down`
 - Rebuild: `docker compose -f docker-compose.fullapp.yml up --build`
 
+**Dev mode (app in container with mounted source + watch):** `docker compose -f docker-compose.fullapp.dev.yml up --build`
+
 For production deployments, ensure strong `JWT_SECRET`, secure database credentials, and consider managed database services. See the [full Docker deployment guide](https://docs.openmercato.com/installation/setup#docker-deployment-full-stack) for detailed configuration and production tips.
 
 ## Live demo

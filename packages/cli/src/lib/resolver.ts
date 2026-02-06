@@ -252,8 +252,15 @@ export function createResolver(cwd: string = process.cwd()): PackageResolver {
 
   // The app directory depends on context:
   // - In monorepo: use detectAppDir to find apps/mercato or similar
-  // - In production: app is at cwd
-  const appDir = _isMonorepo ? detectAppDir(rootDir, true) : cwd
+  // - When symlinks not detected (e.g. Docker volume node_modules): still use apps/mercato if present at rootDir
+  // - Otherwise: app is at cwd
+  const candidateAppDir = detectAppDir(rootDir, true)
+  const appDir =
+    _isMonorepo
+      ? candidateAppDir
+      : candidateAppDir !== rootDir && fs.existsSync(candidateAppDir)
+        ? candidateAppDir
+        : cwd
 
   return {
     isMonorepo: () => _isMonorepo,
