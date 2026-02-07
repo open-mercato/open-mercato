@@ -466,179 +466,397 @@ When the user creates a shipment and checks "Add shipping cost adjustment", the 
 
 ```
 User action: "Create shipment with shipping cost"
-  → compound([
-       sales.shipments.create({ ... }),
-       sales.orders.adjustments.upsert({ kind: 'shipping', ... }),
-     ])
+  → sales.shipments.create-with-cost (compound command)
+    internally runs:
+      1. sales.shipments.create({ ... })
+      2. sales.orders.adjustments.upsert({ kind: 'shipping', ... })
   → ONE audit log entry
   → ONE undo (deletes shipment + deletes adjustment)
 ```
 
-### API Design
+### Core Types
 
 ```typescript
 // packages/shared/src/lib/commands/compound.ts
 
-import type { CommandHandler, CommandRuntimeContext } from './types'
+import type { CommandRuntimeContext } from './types'
 
+/** A single step in a compound command — references an existing registered command */
 interface CompoundStep {
   commandId: string
   input: unknown
 }
 
-interface CompoundCommandOptions {
-  /** Human-readable label for the audit log */
-  actionLabel: string
-  /** Resource kind for the audit log (e.g., 'sales.shipments') */
-  resourceKind: string
-  /** If true, wrap all steps in a database transaction. Default: true */
-  transaction?: boolean
+/** Result from executing one step (captured for undo) */
+interface CompoundStepResult {
+  commandId: string
+  input: unknown
+  result: unknown
+  /** Snapshots captured by the sub-command's prepare/captureAfter */
+  snapshots: { before?: unknown; after?: unknown }
 }
 
-interface CompoundResult {
-  results: unknown[]
-  /** IDs of the individual audit log entries (for undo chaining) */
-  logEntryIds: string[]
+/** Stored in the compound command's undo payload */
+interface CompoundUndoPayload {
+  steps: CompoundStepResult[]
+}
+```
+
+### The `createCompoundCommand` Factory
+
+A compound command is a **real `CommandHandler`** — it has an `id`, gets registered in the command registry, flows through `CommandBus` with full audit log and undo support. The factory creates one from a list of steps:
+
+```typescript
+// packages/shared/src/lib/commands/compound.ts
+
+import { commandRegistry } from './registry'
+import type { CommandHandler, CommandRuntimeContext } from './types'
+
+interface CompoundCommandConfig<TInput = unknown> {
+  /** Unique command ID, e.g. 'sales.shipments.create-with-cost' */
+  id: string
+
+  /**
+   * Given the compound command's input, return the ordered list of steps.
+   * Each step references an existing registered command.
+   *
+   * This is a function (not a static array) because the steps and their
+   * inputs typically depend on the compound command's input.
+   */
+  buildSteps: (input: TInput, ctx: CommandRuntimeContext) => CompoundStep[] | Promise<CompoundStep[]>
+
+  /** Resource kind for the audit log (e.g., 'sales.shipments') */
+  resourceKind: string
+
+  /** Extract the primary resource ID from step results (for the audit log) */
+  resolveResourceId?: (stepResults: unknown[]) => string | null
+
+  /** Human-readable action label (or function that receives ctx for i18n) */
+  actionLabel: string | ((ctx: CommandRuntimeContext) => string | Promise<string>)
 }
 
 /**
- * Execute multiple commands as a single atomic operation.
+ * Creates a CommandHandler that executes multiple sub-commands as a single
+ * atomic operation with one audit log entry and one undo token.
  *
- * Each command runs independently (its own prepare/execute/captureAfter),
- * but they share:
- * - A single parent audit log entry with one undo token
- * - An optional database transaction wrapping all steps
+ * Each sub-command runs its own prepare → execute → captureAfter cycle.
+ * The compound command captures all step snapshots for undo.
+ * On undo, sub-commands are undone in REVERSE order.
  *
- * Undo reverses ALL steps in reverse order.
+ * The entire operation runs inside a database transaction via withAtomicFlush.
  *
  * Use this for commands that are NOT calculation-coupled but represent
- * a single user intent (e.g., shipment + shipping cost adjustment).
- *
- * Do NOT use this for calculation-coupled children (lines + adjustments) —
- * use the graph-save pattern instead.
+ * a single user intent. For calculation-coupled children, use graph-save instead.
  */
-export async function executeCompound(
-  steps: CompoundStep[],
-  ctx: CommandRuntimeContext,
-  options: CompoundCommandOptions,
-): Promise<CompoundResult>
-```
+export function createCompoundCommand<TInput = unknown>(
+  config: CompoundCommandConfig<TInput>,
+): CommandHandler<TInput, { results: unknown[] }> {
+  return {
+    id: config.id,
+    isUndoable: true,
 
-### Implementation
+    async execute(input, ctx) {
+      const steps = await config.buildSteps(input as TInput, ctx)
+      const stepResults: CompoundStepResult[] = []
 
-```typescript
-// packages/shared/src/lib/commands/compound.ts
+      await withAtomicFlush(
+        (ctx.container.resolve('em') as EntityManager).fork(),
+        steps.map((step) => async () => {
+          // Resolve the sub-command handler
+          const handler = commandRegistry.get(step.commandId)
+          if (!handler) {
+            throw new Error(`Compound step: command "${step.commandId}" not found`)
+          }
 
-export async function executeCompound(
-  steps: CompoundStep[],
-  ctx: CommandRuntimeContext,
-  options: CompoundCommandOptions,
-): Promise<CompoundResult> {
-  const commandBus = ctx.container.resolve('commandBus')
-  const em = (ctx.container.resolve('em') as EntityManager).fork()
+          // Run the sub-command's full lifecycle manually
+          const snapshots: { before?: unknown; after?: unknown } = {}
 
-  const results: unknown[] = []
-  const logEntryIds: string[] = []
+          // 1. Prepare (capture before-state)
+          if (handler.prepare) {
+            const prepared = await handler.prepare(step.input, ctx)
+            snapshots.before = prepared?.before
+          }
 
-  const run = async (txEm?: EntityManager) => {
-    for (const step of steps) {
-      const result = await commandBus.execute(step.commandId, step.input, {
-        ctx: txEm ? { ...ctx, container: ctx.container.createScope() } : ctx,
-        // Suppress individual audit logs — we write one compound log
-        skipLog: true,
-      })
-      results.push(result)
-    }
-  }
+          // 2. Execute
+          const result = await handler.execute(step.input, ctx)
 
-  if (options.transaction !== false) {
-    await em.transactional(async (txEm) => {
-      await run(txEm)
-    })
-  } else {
-    await run()
-  }
+          // 3. Capture after-state
+          if (handler.captureAfter) {
+            snapshots.after = await handler.captureAfter(step.input, result, ctx)
+          }
 
-  // Write a single compound audit log entry
-  const logEntry = await persistCompoundLog(em, {
-    steps: steps.map((s, i) => ({ commandId: s.commandId, input: s.input, result: results[i] })),
-    actionLabel: options.actionLabel,
-    resourceKind: options.resourceKind,
-    ctx,
-  })
-  logEntryIds.push(logEntry.id)
+          stepResults.push({
+            commandId: step.commandId,
+            input: step.input,
+            result,
+            snapshots,
+          })
+        }),
+        { transaction: true, label: config.id },
+      )
 
-  return { results, logEntryIds }
-}
-```
+      // Side effects for all steps — emitted AFTER the transaction commits
+      for (const step of stepResults) {
+        const handler = commandRegistry.get(step.commandId)
+        // Sub-commands emit their own side effects inside execute(),
+        // which is already called above. Nothing extra needed here.
+      }
 
-### Compound Undo
-
-The compound audit log stores the ordered list of sub-command inputs and results. Undo replays sub-command undo handlers **in reverse order**:
-
-```typescript
-// packages/shared/src/lib/commands/compound.ts
-
-export async function undoCompound(
-  logEntry: ActionLog,
-  ctx: CommandRuntimeContext,
-): Promise<void> {
-  const commandBus = ctx.container.resolve('commandBus')
-  const steps = logEntry.payload?.compound?.steps as CompoundStepLog[] | undefined
-  if (!steps?.length) return
-
-  // Undo in reverse order
-  for (const step of [...steps].reverse()) {
-    const handler = commandRegistry.get(step.commandId)
-    if (handler?.undo) {
-      await handler.undo({
-        input: step.input,
-        ctx,
-        logEntry: {
-          ...logEntry,
-          // Provide step-level payload so each undo handler gets its own snapshot
-          commandPayload: step.payload,
-          resourceId: step.resourceId,
-        },
-      })
-    }
-  }
-}
-```
-
-### Usage: Shipment + Adjustment
-
-```typescript
-// packages/core/src/modules/sales/api/shipments/route.ts
-// (in the POST handler, when addShippingAdjustment is checked)
-
-if (input.addShippingAdjustment) {
-  const result = await executeCompound([
-    {
-      commandId: 'sales.shipments.create',
-      input: shipmentPayload,
+      return { results: stepResults.map((s) => s.result) }
     },
-    {
-      commandId: 'sales.orders.adjustments.upsert',
-      input: {
-        body: {
+
+    async buildLog({ input, result, ctx }) {
+      const stepResults = (result as { results: unknown[] }).results
+      const actionLabel = typeof config.actionLabel === 'function'
+        ? await config.actionLabel(ctx)
+        : config.actionLabel
+
+      return {
+        tenantId: ctx.auth?.tenantId,
+        organizationId: ctx.selectedOrganizationId,
+        actorUserId: ctx.auth?.userId,
+        actionLabel,
+        resourceKind: config.resourceKind,
+        resourceId: config.resolveResourceId?.(stepResults) ?? null,
+        payload: {
+          undo: {
+            steps: stepResults,
+          } satisfies CompoundUndoPayload,
+        },
+      }
+    },
+
+    async undo({ logEntry, ctx }) {
+      const payload = extractUndoPayload<CompoundUndoPayload>(logEntry)
+      if (!payload?.steps?.length) return
+
+      // Undo in REVERSE order
+      for (const step of [...payload.steps].reverse()) {
+        const handler = commandRegistry.get(step.commandId)
+        if (!handler?.undo) continue
+
+        // Build a synthetic log entry for the sub-command's undo handler
+        // so it can extract its own before/after snapshots
+        await handler.undo({
+          input: step.input,
+          ctx,
+          logEntry: {
+            ...logEntry,
+            resourceId: typeof step.result === 'object' && step.result !== null
+              ? (step.result as Record<string, unknown>).id as string ?? logEntry.resourceId
+              : logEntry.resourceId,
+            commandPayload: {
+              undo: {
+                before: step.snapshots.before,
+                after: step.snapshots.after,
+              },
+            },
+          },
+        })
+      }
+    },
+  }
+}
+```
+
+### Concrete Example: Shipment with Shipping Cost
+
+This is what a real compound command declaration looks like — short, declarative, and fully typed:
+
+```typescript
+// packages/core/src/modules/sales/commands/shipments.ts
+
+import { createCompoundCommand } from '@open-mercato/shared/lib/commands/compound'
+import { registerCommand } from '@open-mercato/shared/lib/commands'
+
+// --- Input schema ---
+
+const createShipmentWithCostSchema = z.object({
+  // Shipment fields
+  orderId: z.string().uuid(),
+  shipmentNumber: z.string().optional(),
+  carrierName: z.string().optional(),
+  trackingNumber: z.string().optional(),
+  items: z.array(shipmentItemSchema),
+  // Shipping cost adjustment fields
+  shippingCostNet: decimal(),
+  shippingCostGross: decimal().optional(),
+  currencyCode: currencyCodeSchema,
+  // Optional status changes
+  documentStatusEntryId: z.string().uuid().optional(),
+})
+
+type CreateShipmentWithCostInput = z.infer<typeof createShipmentWithCostSchema>
+
+// --- Compound command ---
+
+const createShipmentWithCostCommand = createCompoundCommand<CreateShipmentWithCostInput>({
+  id: 'sales.shipments.create-with-cost',
+  resourceKind: 'sales.shipments',
+  actionLabel: 'Create shipment with shipping cost',
+
+  buildSteps(input) {
+    return [
+      {
+        commandId: 'sales.shipments.create',
+        input: {
           orderId: input.orderId,
-          kind: 'shipping',
-          label: 'Shipping cost',
-          amountNet: input.shippingCost,
-          currencyCode: order.currencyCode,
+          shipmentNumber: input.shipmentNumber,
+          carrierName: input.carrierName,
+          trackingNumber: input.trackingNumber,
+          items: input.items,
+          documentStatusEntryId: input.documentStatusEntryId,
         },
       },
+      {
+        commandId: 'sales.orders.adjustments.upsert',
+        input: {
+          body: {
+            orderId: input.orderId,
+            kind: 'shipping',
+            label: 'Shipping cost',
+            amountNet: input.shippingCostNet,
+            amountGross: input.shippingCostGross,
+            currencyCode: input.currencyCode,
+          },
+        },
+      },
+    ]
+  },
+
+  resolveResourceId(stepResults) {
+    // Primary resource is the shipment (first step result)
+    const shipmentResult = stepResults[0] as { shipmentId?: string } | undefined
+    return shipmentResult?.shipmentId ?? null
+  },
+})
+
+registerCommand(createShipmentWithCostCommand)
+```
+
+### What Happens at Runtime
+
+```
+1. CommandBus.execute('sales.shipments.create-with-cost', input)
+
+2. Compound handler.execute() runs:
+   ┌─ withAtomicFlush (transaction: true) ──────────────────────┐
+   │                                                             │
+   │  Step 1: sales.shipments.create                            │
+   │    ├─ prepare()    → captures shipment before-state (null) │
+   │    ├─ execute()    → creates shipment + updates order       │
+   │    ├─ captureAfter() → snapshots shipment after-state      │
+   │    └─ flush                                                 │
+   │                                                             │
+   │  Step 2: sales.orders.adjustments.upsert                   │
+   │    ├─ prepare()    → captures order graph before-state      │
+   │    ├─ execute()    → creates adjustment + recalcs totals    │
+   │    ├─ captureAfter() → snapshots order graph after-state   │
+   │    └─ flush                                                 │
+   │                                                             │
+   └─ COMMIT (or ROLLBACK if any step fails) ───────────────────┘
+
+3. Compound handler.buildLog() writes ONE audit log entry:
+   {
+     actionLabel: 'Create shipment with shipping cost',
+     resourceKind: 'sales.shipments',
+     resourceId: '<shipment-uuid>',
+     payload: {
+       undo: {
+         steps: [
+           { commandId: 'sales.shipments.create', snapshots: { before, after }, ... },
+           { commandId: 'sales.orders.adjustments.upsert', snapshots: { before, after }, ... },
+         ]
+       }
+     }
+   }
+
+4. User clicks UNDO:
+   ┌─ Compound handler.undo() ─────────────────────────────────┐
+   │                                                             │
+   │  Step 2 undo (reverse order): adjustments.upsert.undo()   │
+   │    → deletes adjustment, restores order totals              │
+   │                                                             │
+   │  Step 1 undo (reverse order): shipments.create.undo()      │
+   │    → deletes shipment, restores fulfilled quantities        │
+   │                                                             │
+   └─────────────────────────────────────────────────────────────┘
+```
+
+### API Route for Compound Commands
+
+Compound commands are registered commands — they get their own API routes:
+
+```typescript
+// packages/core/src/modules/sales/api/shipments/create-with-cost/route.ts
+
+const route = makeCrudRoute({
+  actions: {
+    create: {
+      commandId: 'sales.shipments.create-with-cost',
+      schema: createShipmentWithCostSchema,
     },
-  ], ctx, {
-    actionLabel: t('sales.actions.createShipmentWithCost'),
-    resourceKind: 'sales.shipments',
-  })
+  },
+  metadata: {
+    requireAuth: true,
+    requireFeatures: ['sales.edit'],
+  },
+})
+
+export const POST = route.POST
+```
+
+Or alternatively, the existing shipment route handler can conditionally dispatch the compound command:
+
+```typescript
+// packages/core/src/modules/sales/api/shipments/route.ts (existing, modified)
+
+// In the POST handler:
+if (input.addShippingAdjustment && input.shippingCostNet) {
+  return commandBus.execute('sales.shipments.create-with-cost', input)
 } else {
-  // Just create shipment normally (existing path)
-  await commandBus.execute('sales.shipments.create', shipmentPayload)
+  return commandBus.execute('sales.shipments.create', shipmentPayload)
 }
 ```
+
+### Other Compound Command Candidates
+
+The same `createCompoundCommand` factory applies to any "two actions, one intent" scenario:
+
+```typescript
+// Example: Payment + status change + comment
+const createPaymentWithCommentCommand = createCompoundCommand({
+  id: 'sales.payments.create-with-comment',
+  resourceKind: 'sales.payments',
+  actionLabel: 'Record payment with note',
+  buildSteps(input) {
+    const steps: CompoundStep[] = [
+      { commandId: 'sales.payments.create', input: input.payment },
+    ]
+    if (input.comment) {
+      steps.push({ commandId: 'sales.notes.create', input: input.comment })
+    }
+    return steps
+  },
+  resolveResourceId(results) {
+    return (results[0] as { paymentId?: string })?.paymentId ?? null
+  },
+})
+```
+
+### Key Design Properties
+
+1. **It's a real `CommandHandler`** — registered in the command registry, flows through `CommandBus`, gets an audit log entry, has an undo token. No special infrastructure needed.
+
+2. **Sub-commands are reusable** — `sales.shipments.create` works standalone AND as a compound step. No code duplication.
+
+3. **Sub-command undo handlers are reused** — the compound undo delegates to each sub-command's existing undo handler. No new undo logic needed.
+
+4. **Transaction boundary** — all steps run inside `withAtomicFlush({ transaction: true })`. If step 2 fails, step 1 is rolled back.
+
+5. **`buildSteps` is a function** — the steps and their inputs can depend on the compound input. Conditional steps (like "only add comment if provided") are natural.
+
+6. **Snapshots are per-step** — each sub-command captures its own before/after snapshots via its existing `prepare`/`captureAfter` hooks. The compound command stores all of them for undo.
 
 ### When to Use Which Pattern
 
@@ -749,9 +967,9 @@ The compound audit log entry uses `resourceKind: 'compound'` and stores all step
 ### Phase 1: Infrastructure (no behavior changes)
 
 1. Create `packages/shared/src/lib/commands/graph-save.ts` with `mergeChildChanges` helper
-2. Create `packages/shared/src/lib/commands/compound.ts` with `executeCompound` and `undoCompound`
-3. Add `skipLog` option to `CommandBus.execute()`
-4. Add compound log schema to types
+2. Create `packages/shared/src/lib/commands/compound.ts` with `createCompoundCommand` factory
+3. Add `skipLog` option to `CommandBus.execute()` (returns snapshots when suppressed)
+4. Add `CompoundStepResult`, `CompoundUndoPayload` types
 5. Unit tests for all helpers
 
 ### Phase 2: Sales Order Graph Save
@@ -773,8 +991,9 @@ The compound audit log entry uses `resourceKind: 'compound'` and stores all step
 
 ### Phase 4: Compound Command (Shipment + Adjustment)
 
-1. Update shipment creation flow to use `executeCompound` when `addShippingAdjustment` is true
-2. Test compound undo (reverses both in order)
+1. Register `sales.shipments.create-with-cost` via `createCompoundCommand`
+2. Update shipment route to dispatch compound command when `addShippingAdjustment` is true
+3. Test compound undo (reverses both in order)
 
 ### Phase 5: Customer Graph Save
 
@@ -803,10 +1022,10 @@ The compound audit log entry uses `resourceKind: 'compound'` and stores all step
 ```
 packages/shared/src/lib/commands/
 ├── graph-save.ts           # mergeChildChanges helper (NEW)
-├── compound.ts             # executeCompound, undoCompound (NEW)
+├── compound.ts             # createCompoundCommand factory (NEW)
 ├── flush.ts                # withAtomicFlush (from SPEC-018)
 ├── command-bus.ts           # skipLog option added
-├── types.ts                # CompoundStepLog, CompoundLogPayload added
+├── types.ts                # CompoundStepResult, CompoundUndoPayload added
 ├── undo.ts                 # existing
 ├── helpers.ts              # existing
 ├── customFieldSnapshots.ts # existing
@@ -950,8 +1169,9 @@ Run sub-commands without recalculation, then recalculate once at the end.
 
 ### 2026-02-07
 - Initial specification
-- Defined Graph Save pattern for calculation-coupled children
-- Defined Compound Command wrapper for independent commands
+- Defined Graph Save pattern (Pattern A) for calculation-coupled children
+- Defined Compound Command factory `createCompoundCommand` (Pattern B) for independent commands
+- Full `createCompoundCommand` API with `buildSteps`, runtime flow diagram, and concrete shipment example
 - Full analysis of current command patterns and coupling
 - Integration with SPEC-018 (withAtomicFlush)
 - Migration path in 7 phases
