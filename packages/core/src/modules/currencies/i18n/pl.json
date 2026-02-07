@@ -204,5 +204,6 @@
       "deleted": "Kurs wymiany usunięty pomyślnie",
       "deleteError": "Nie udało się usunąć kursu wymiany"
     }
-  }
+  },
+  "audit_logs.resource_kind.currencies.exchange_rate": "Kurs wymiany"
 }

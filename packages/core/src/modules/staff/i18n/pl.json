@@ -880,5 +880,11 @@
   "staff.myAvailability.readOnly.body": "Skorzystaj z wniosk\u00f3w urlopowych, aby zg\u0142osi\u0107 zmiany.",
   "staff.teamMembers.self.createTitle": "Utw\u00f3rz m\u00f3j profil",
   "staff.teamMembers.self.created": "Profil utworzony.",
-  "staff.teamMembers.self.exists": "Profil pracownika ju\u017c istnieje."
+  "staff.teamMembers.self.exists": "Profil pracownika ju\u017c istnieje.",
+  "audit_logs.resource_kind.staff.team_member_address": "Adres",
+  "audit_logs.resource_kind.staff.team_member_activity": "Aktywno\u015b\u0107",
+  "audit_logs.resource_kind.staff.team_member_comment": "Komentarz",
+  "audit_logs.resource_kind.staff.team_member_job_history": "Historia zatrudnienia",
+  "audit_logs.resource_kind.staff.leave_request": "Wniosek urlopowy",
+  "audit_logs.resource_kind.staff.teamMemberTagAssignment": "Tag"
 }

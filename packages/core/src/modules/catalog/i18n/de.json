@@ -681,5 +681,7 @@
         "deleteError": "Variante konnte nicht gelöscht werden."
       }
     }
-  }
+  },
+  "audit_logs.resource_kind.catalog.variant": "Variante",
+  "audit_logs.resource_kind.catalog.price": "Preis"
 }

@@ -1554,5 +1554,9 @@
   "sales.search.badge.deliveryWindow": "Lieferfenster",
   "sales.search.badge.paymentMethod": "Zahlungsart",
   "sales.search.badge.taxRate": "Steuersatz",
-  "sales.search.badge.documentTag": "Dokumenten-Tag"
+  "sales.search.badge.documentTag": "Dokumenten-Tag",
+  "audit_logs.resource_kind.sales.documentAddress": "Adresse",
+  "audit_logs.resource_kind.sales.payment": "Zahlung",
+  "audit_logs.resource_kind.sales.shipment": "Versand",
+  "audit_logs.resource_kind.sales.note": "Notiz"
 }

@@ -286,6 +286,8 @@ export class CommandBus {
       actionLabel: secondary?.actionLabel ?? primary?.actionLabel ?? null,
       resourceKind: secondary?.resourceKind ?? primary?.resourceKind ?? null,
       resourceId: secondary?.resourceId ?? primary?.resourceId ?? null,
+      parentResourceKind: secondary?.parentResourceKind ?? primary?.parentResourceKind ?? null,
+      parentResourceId: secondary?.parentResourceId ?? primary?.parentResourceId ?? null,
       undoToken: secondary?.undoToken ?? primary?.undoToken ?? null,
       payload: secondary?.payload ?? primary?.payload ?? null,
       snapshotBefore: secondary?.snapshotBefore ?? primary?.snapshotBefore ?? null,
@@ -329,6 +331,8 @@ export class CommandBus {
       if ('actionLabel' in metadata && metadata.actionLabel != null) payload.actionLabel = metadata.actionLabel
       if ('resourceKind' in metadata && metadata.resourceKind != null) payload.resourceKind = metadata.resourceKind
       if ('resourceId' in metadata && metadata.resourceId != null) payload.resourceId = metadata.resourceId
+      if ('parentResourceKind' in metadata && metadata.parentResourceKind != null) payload.parentResourceKind = metadata.parentResourceKind
+      if ('parentResourceId' in metadata && metadata.parentResourceId != null) payload.parentResourceId = metadata.parentResourceId
       if ('undoToken' in metadata && metadata.undoToken != null) payload.undoToken = metadata.undoToken
       if ('payload' in metadata && metadata.payload !== undefined) payload.commandPayload = metadata.payload
       if ('snapshotBefore' in metadata && metadata.snapshotBefore !== undefined) payload.snapshotBefore = metadata.snapshotBefore

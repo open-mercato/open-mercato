@@ -204,5 +204,6 @@
       "deleted": "Tipo de cambio eliminado correctamente",
       "deleteError": "Error al eliminar tipo de cambio"
     }
-  }
+  },
+  "audit_logs.resource_kind.currencies.exchange_rate": "Tipo de cambio"
 }

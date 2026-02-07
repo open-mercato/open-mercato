@@ -99,6 +99,8 @@ export class ActionLogService {
       actionLabel: data.actionLabel ?? null,
       resourceKind: data.resourceKind ?? null,
       resourceId: data.resourceId ?? null,
+      parentResourceKind: data.parentResourceKind ?? null,
+      parentResourceId: data.parentResourceId ?? null,
       executionState: data.executionState ?? 'done',
       undoToken: data.undoToken ?? null,
       commandPayload: data.commandPayload ?? null,
@@ -161,6 +163,8 @@ export class ActionLogService {
       actionLabel: toOptionalString(input.actionLabel),
       resourceKind: toOptionalString(input.resourceKind),
       resourceId: toOptionalString(input.resourceId),
+      parentResourceKind: toOptionalString(input.parentResourceKind) ?? null,
+      parentResourceId: toOptionalString(input.parentResourceId) ?? null,
       executionState: input.executionState === 'undone' || input.executionState === 'failed' ? input.executionState : 'done',
       undoToken: toOptionalString(input.undoToken),
       commandPayload: input.commandPayload,
@@ -181,8 +185,15 @@ export class ActionLogService {
     if (parsed.tenantId) where.tenantId = parsed.tenantId
     if (parsed.organizationId) where.organizationId = parsed.organizationId
     if (parsed.actorUserId) where.actorUserId = parsed.actorUserId
-    if (parsed.resourceKind) where.resourceKind = parsed.resourceKind
-    if (parsed.resourceId) where.resourceId = parsed.resourceId
+    if (parsed.includeRelated && parsed.resourceKind && parsed.resourceId) {
+      where.$or = [
+        { resourceKind: parsed.resourceKind, resourceId: parsed.resourceId },
+        { parentResourceKind: parsed.resourceKind, parentResourceId: parsed.resourceId },
+      ] as any
+    } else {
+      if (parsed.resourceKind) where.resourceKind = parsed.resourceKind
+      if (parsed.resourceId) where.resourceId = parsed.resourceId
+    }
     if (parsed.undoableOnly) where.undoToken = { $ne: null } as any
     if (parsed.before) where.createdAt = { ...(where.createdAt as Record<string, any> | undefined), $lt: parsed.before } as any
     if (parsed.after) where.createdAt = { ...(where.createdAt as Record<string, any> | undefined), $gt: parsed.after } as any

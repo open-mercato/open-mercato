@@ -2,6 +2,16 @@
 
 import type { TranslateFn } from '@open-mercato/shared/lib/i18n/context'
 
+function fallbackLabel(kind: string): string {
+  const segment = kind.split('.').pop() ?? kind
+  return segment.replace(/_/g, ' ').replace(/\b\w/g, (ch) => ch.toUpperCase())
+}
+
+export function humanizeResourceKind(kind: string | null, t: TranslateFn): string {
+  if (!kind) return ''
+  return t(`audit_logs.resource_kind.${kind}`, fallbackLabel(kind))
+}
+
 export function getVersionHistoryStatusLabel(state: string, t: TranslateFn) {
   switch (state) {
     case 'done':

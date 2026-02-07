@@ -1552,5 +1552,9 @@
   "sales.search.badge.deliveryWindow": "Okno dostawy",
   "sales.search.badge.paymentMethod": "Metoda płatności",
   "sales.search.badge.taxRate": "Stawka podatku",
-  "sales.search.badge.documentTag": "Tag dokumentu"
+  "sales.search.badge.documentTag": "Tag dokumentu",
+  "audit_logs.resource_kind.sales.documentAddress": "Adres",
+  "audit_logs.resource_kind.sales.payment": "Płatność",
+  "audit_logs.resource_kind.sales.shipment": "Wysyłka",
+  "audit_logs.resource_kind.sales.note": "Notatka"
 }

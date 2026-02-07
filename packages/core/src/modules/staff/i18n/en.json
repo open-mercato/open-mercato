@@ -882,5 +882,11 @@
   "staff.notifications.leaveRequest.approved.title": "Leave Request Approved",
   "staff.notifications.leaveRequest.approved.body": "Your leave request from {startDate} to {endDate} has been approved",
   "staff.notifications.leaveRequest.rejected.title": "Leave Request Rejected",
-  "staff.notifications.leaveRequest.rejected.body": "Your leave request from {startDate} to {endDate} has been rejected{reason, select, other { - {reason}}}"
+  "staff.notifications.leaveRequest.rejected.body": "Your leave request from {startDate} to {endDate} has been rejected{reason, select, other { - {reason}}}",
+  "audit_logs.resource_kind.staff.team_member_address": "Address",
+  "audit_logs.resource_kind.staff.team_member_activity": "Activity",
+  "audit_logs.resource_kind.staff.team_member_comment": "Comment",
+  "audit_logs.resource_kind.staff.team_member_job_history": "Job History",
+  "audit_logs.resource_kind.staff.leave_request": "Leave Request",
+  "audit_logs.resource_kind.staff.teamMemberTagAssignment": "Tag"
 }

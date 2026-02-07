@@ -38,6 +38,7 @@
   "audit_logs.version_history.status.redone": "Rehecho",
   "audit_logs.version_history.status.failed": "Fallido",
   "audit_logs.version_history.close": "Cerrar",
+  "audit_logs.version_history.show_related": "Mostrar cambios relacionados",
   "audit_logs.hint.view_self_only": "Solo se muestran sus propios cambios. Contacte a un administrador para un acceso más amplio.",
   "audit_logs.access.title": "Registro de accesos",
   "audit_logs.access.columns.resource": "Recurso",
