@@ -81,6 +81,8 @@ const assignTeamMemberTagCommand: CommandHandler<StaffTeamMemberTagAssignmentInp
       actionLabel: translate('staff.audit.teamMembers.tags.assign', 'Assign team member tag'),
       resourceKind: 'staff.teamMemberTagAssignment',
       resourceId: parsed.memberId,
+      parentResourceKind: 'staff.teamMember',
+      parentResourceId: parsed.memberId,
       tenantId: parsed.tenantId,
       organizationId: parsed.organizationId,
       payload: {
@@ -170,6 +172,8 @@ const unassignTeamMemberTagCommand: CommandHandler<StaffTeamMemberTagAssignmentI
       actionLabel: translate('staff.audit.teamMembers.tags.unassign', 'Unassign team member tag'),
       resourceKind: 'staff.teamMemberTagAssignment',
       resourceId: parsed.memberId,
+      parentResourceKind: 'staff.teamMember',
+      parentResourceId: parsed.memberId,
       tenantId: parsed.tenantId,
       organizationId: parsed.organizationId,
       payload: {

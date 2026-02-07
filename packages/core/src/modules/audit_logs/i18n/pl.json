@@ -38,6 +38,7 @@
   "audit_logs.version_history.status.redone": "Ponowiono",
   "audit_logs.version_history.status.failed": "Niepowodzenie",
   "audit_logs.version_history.close": "Zamknij",
+  "audit_logs.version_history.show_related": "Pokaż powiązane zmiany",
   "audit_logs.hint.view_self_only": "Wyświetlane są tylko Twoje zmiany. Skontaktuj się z administratorem, aby uzyskać szerszy dostęp.",
   "audit_logs.access.title": "Dziennik dostępu",
   "audit_logs.access.columns.resource": "Zasób",

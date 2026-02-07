@@ -12,6 +12,7 @@ import { markRedoConsumed, markUndoSuccess } from '@open-mercato/ui/backend/oper
 import { getVersionHistoryStatusLabel } from './labels'
 import { useAuditPermissions, canUndoEntry, canRedoEntry } from './useAuditPermissions'
 import { Notice } from '@open-mercato/ui/primitives/Notice'
+import { humanizeResourceKind } from './labels'
 
 export type VersionHistoryPanelProps = {
   open: boolean
@@ -220,6 +221,7 @@ export function VersionHistoryPanel({
                   <div className="divide-y rounded-lg border">
                     {visibleEntries.map((entry) => {
                       const statusLabel = getVersionHistoryStatusLabel(entry.executionState, t)
+                      const isRelatedEntry = entry.parentResourceKind != null
                       const entryCanUndo = canUndoRedo !== undefined
                         ? canUndoRedo
                         : (shouldAutoCheck ? canUndoEntry(permissions, entry.actorUserId) : true)
@@ -235,13 +237,18 @@ export function VersionHistoryPanel({
                       return (
                         <div
                           key={entry.id}
-                          className="flex items-start justify-between gap-3 px-4 py-3 transition-colors hover:bg-muted/40"
+                          className={`flex items-start justify-between gap-3 py-3 transition-colors hover:bg-muted/40 ${isRelatedEntry ? 'pl-8 pr-4 border-l-2 border-l-muted-foreground/20' : 'px-4'}`}
                         >
                           <button
                             type="button"
                             onClick={() => setSelectedEntry(entry)}
                             className="flex flex-1 flex-col gap-1 text-left"
                           >
+                            {isRelatedEntry ? (
+                              <span className="text-[10px] uppercase tracking-wider text-muted-foreground/70 font-medium">
+                                {humanizeResourceKind(entry.resourceKind)}
+                              </span>
+                            ) : null}
                             <div className="text-sm font-medium">
                               {entry.actionLabel || entry.commandId}
                             </div>

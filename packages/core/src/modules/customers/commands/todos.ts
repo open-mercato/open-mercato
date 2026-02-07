@@ -103,6 +103,8 @@ const unlinkTodoCommand: CommandHandler<UnlinkInput, { linkId: string }> = {
       actionLabel: translate('customers.audit.todos.unlink', 'Unlink todo'),
       resourceKind: 'customers.todoLink',
       resourceId: parsed.linkId,
+      parentResourceKind: 'customers.person',
+      parentResourceId: before?.entityId ?? null,
       tenantId: parsed.tenantId,
       organizationId: parsed.organizationId,
       payload: {
@@ -201,6 +203,8 @@ const createTodoCommand: CommandHandler<TodoLinkWithTodoCreateInput, { linkId: s
       actionLabel: translate('customers.audit.todos.create', 'Create todo'),
       resourceKind: 'customers.todoLink',
       resourceId: result.linkId,
+      parentResourceKind: 'customers.person',
+      parentResourceId: linkSnapshot?.entityId ?? null,
       tenantId: parsed.tenantId,
       organizationId: parsed.organizationId,
       payload: {
