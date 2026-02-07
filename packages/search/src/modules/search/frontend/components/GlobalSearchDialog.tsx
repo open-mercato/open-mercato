@@ -313,7 +313,7 @@ export function GlobalSearchDialog({
           <span id="global-search-description" className="sr-only">
             {t('search.dialog.instructions')}
           </span>
-          <div className="flex flex-col gap-3 border-b px-4 pb-3 pt-4">
+          <div className="flex flex-col gap-3 border-b px-4 pb-3 pt-12">
             <div className="flex items-center gap-2 rounded border bg-background px-3 py-2 focus-within:ring-2 focus-within:ring-ring">
               <Search className="h-4 w-4 text-muted-foreground" />
               <TypedInput
