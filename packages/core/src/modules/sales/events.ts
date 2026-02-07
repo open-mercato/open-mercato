@@ -7,44 +7,44 @@ import { createModuleEvents } from '@open-mercato/shared/modules/events'
  */
 const events = [
   // Orders
-  { id: 'sales.orders.created', label: 'Sales Order Created', entity: 'orders', category: 'crud' },
-  { id: 'sales.orders.updated', label: 'Sales Order Updated', entity: 'orders', category: 'crud' },
-  { id: 'sales.orders.deleted', label: 'Sales Order Deleted', entity: 'orders', category: 'crud' },
+  { id: 'sales.order.created', label: 'Sales Order Created', entity: 'order', category: 'crud' },
+  { id: 'sales.order.updated', label: 'Sales Order Updated', entity: 'order', category: 'crud' },
+  { id: 'sales.order.deleted', label: 'Sales Order Deleted', entity: 'order', category: 'crud' },
 
   // Quotes
-  { id: 'sales.quotes.created', label: 'Quote Created', entity: 'quotes', category: 'crud' },
-  { id: 'sales.quotes.updated', label: 'Quote Updated', entity: 'quotes', category: 'crud' },
-  { id: 'sales.quotes.deleted', label: 'Quote Deleted', entity: 'quotes', category: 'crud' },
+  { id: 'sales.quote.created', label: 'Quote Created', entity: 'quote', category: 'crud' },
+  { id: 'sales.quote.updated', label: 'Quote Updated', entity: 'quote', category: 'crud' },
+  { id: 'sales.quote.deleted', label: 'Quote Deleted', entity: 'quote', category: 'crud' },
 
   // Invoices
-  { id: 'sales.invoices.created', label: 'Invoice Created', entity: 'invoices', category: 'crud' },
-  { id: 'sales.invoices.updated', label: 'Invoice Updated', entity: 'invoices', category: 'crud' },
-  { id: 'sales.invoices.deleted', label: 'Invoice Deleted', entity: 'invoices', category: 'crud' },
+  { id: 'sales.invoice.created', label: 'Invoice Created', entity: 'invoice', category: 'crud' },
+  { id: 'sales.invoice.updated', label: 'Invoice Updated', entity: 'invoice', category: 'crud' },
+  { id: 'sales.invoice.deleted', label: 'Invoice Deleted', entity: 'invoice', category: 'crud' },
 
   // Order Lines
-  { id: 'sales.lines.created', label: 'Order Line Created', entity: 'lines', category: 'crud' },
-  { id: 'sales.lines.updated', label: 'Order Line Updated', entity: 'lines', category: 'crud' },
-  { id: 'sales.lines.deleted', label: 'Order Line Deleted', entity: 'lines', category: 'crud' },
+  { id: 'sales.line.created', label: 'Order Line Created', entity: 'line', category: 'crud' },
+  { id: 'sales.line.updated', label: 'Order Line Updated', entity: 'line', category: 'crud' },
+  { id: 'sales.line.deleted', label: 'Order Line Deleted', entity: 'line', category: 'crud' },
 
   // Payments
-  { id: 'sales.payments.created', label: 'Payment Created', entity: 'payments', category: 'crud' },
-  { id: 'sales.payments.updated', label: 'Payment Updated', entity: 'payments', category: 'crud' },
-  { id: 'sales.payments.deleted', label: 'Payment Deleted', entity: 'payments', category: 'crud' },
+  { id: 'sales.payment.created', label: 'Payment Created', entity: 'payment', category: 'crud' },
+  { id: 'sales.payment.updated', label: 'Payment Updated', entity: 'payment', category: 'crud' },
+  { id: 'sales.payment.deleted', label: 'Payment Deleted', entity: 'payment', category: 'crud' },
 
   // Shipments
-  { id: 'sales.shipments.created', label: 'Shipment Created', entity: 'shipments', category: 'crud' },
-  { id: 'sales.shipments.updated', label: 'Shipment Updated', entity: 'shipments', category: 'crud' },
-  { id: 'sales.shipments.deleted', label: 'Shipment Deleted', entity: 'shipments', category: 'crud' },
+  { id: 'sales.shipment.created', label: 'Shipment Created', entity: 'shipment', category: 'crud' },
+  { id: 'sales.shipment.updated', label: 'Shipment Updated', entity: 'shipment', category: 'crud' },
+  { id: 'sales.shipment.deleted', label: 'Shipment Deleted', entity: 'shipment', category: 'crud' },
 
   // Notes
-  { id: 'sales.notes.created', label: 'Note Created', entity: 'notes', category: 'crud' },
-  { id: 'sales.notes.updated', label: 'Note Updated', entity: 'notes', category: 'crud' },
-  { id: 'sales.notes.deleted', label: 'Note Deleted', entity: 'notes', category: 'crud' },
+  { id: 'sales.note.created', label: 'Note Created', entity: 'note', category: 'crud' },
+  { id: 'sales.note.updated', label: 'Note Updated', entity: 'note', category: 'crud' },
+  { id: 'sales.note.deleted', label: 'Note Deleted', entity: 'note', category: 'crud' },
 
-  // Configuration
-  { id: 'sales.configuration.created', label: 'Configuration Created', entity: 'configuration', category: 'crud' },
-  { id: 'sales.configuration.updated', label: 'Configuration Updated', entity: 'configuration', category: 'crud' },
-  { id: 'sales.configuration.deleted', label: 'Configuration Deleted', entity: 'configuration', category: 'crud' },
+  // Sales Channels
+  { id: 'sales.channel.created', label: 'Sales Channel Created', entity: 'channel', category: 'crud' },
+  { id: 'sales.channel.updated', label: 'Sales Channel Updated', entity: 'channel', category: 'crud' },
+  { id: 'sales.channel.deleted', label: 'Sales Channel Deleted', entity: 'channel', category: 'crud' },
 
   // Lifecycle events - Document calculations
   { id: 'sales.document.totals.calculated', label: 'Document Totals Calculated', category: 'lifecycle' },

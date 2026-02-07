@@ -95,7 +95,7 @@ import { notificationTypes } from '../notifications'
 // CRUD events configuration for workflow triggers
 const orderCrudEvents: CrudEventsConfig<SalesOrder> = {
   module: 'sales',
-  entity: 'orders',
+  entity: 'order',
   persistent: true,
   buildPayload: (ctx) => ({
     id: ctx.identifiers.id,
@@ -106,7 +106,7 @@ const orderCrudEvents: CrudEventsConfig<SalesOrder> = {
 
 const quoteCrudEvents: CrudEventsConfig<SalesQuote> = {
   module: 'sales',
-  entity: 'quotes',
+  entity: 'quote',
   persistent: true,
   buildPayload: (ctx) => ({
     id: ctx.identifiers.id,
