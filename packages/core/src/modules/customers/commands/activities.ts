@@ -34,12 +34,23 @@ import {
   type CustomFieldChangeSet,
 } from '@open-mercato/shared/lib/commands/customFieldSnapshots'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
-import type { CrudIndexerConfig } from '@open-mercato/shared/lib/crud/types'
+import type { CrudIndexerConfig, CrudEventsConfig } from '@open-mercato/shared/lib/crud/types'
 import { E } from '#generated/entities.ids.generated'
 
 const ACTIVITY_ENTITY_ID = 'customers:customer_activity'
 const activityCrudIndexer: CrudIndexerConfig<CustomerActivity> = {
   entityType: E.customers.customer_activity,
+}
+
+const activityCrudEvents: CrudEventsConfig = {
+  module: 'customers',
+  entity: 'activity',
+  persistent: true,
+  buildPayload: (ctx) => ({
+    id: ctx.identifiers.id,
+    organizationId: ctx.identifiers.organizationId,
+    tenantId: ctx.identifiers.tenantId,
+  }),
 }
 
 const UUID_REGEX = /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-5][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$/
@@ -182,6 +193,7 @@ const createActivityCommand: CommandHandler<ActivityCreateInput, { activityId: s
         tenantId: activity.tenantId,
       },
       indexer: activityCrudIndexer,
+      events: activityCrudEvents,
     })
 
     return { activityId: activity.id }
@@ -289,6 +301,7 @@ const updateActivityCommand: CommandHandler<ActivityUpdateInput, { activityId: s
         tenantId: activity.tenantId,
       },
       indexer: activityCrudIndexer,
+      events: activityCrudEvents,
     })
 
     return { activityId: activity.id }
@@ -370,6 +383,7 @@ const updateActivityCommand: CommandHandler<ActivityUpdateInput, { activityId: s
         tenantId: activity.tenantId,
       },
       indexer: activityCrudIndexer,
+      events: activityCrudEvents,
     })
 
     const resetValues = buildCustomFieldResetMap(before.custom, payload?.after?.custom)
@@ -417,6 +431,7 @@ const deleteActivityCommand: CommandHandler<{ body?: Record<string, unknown>; qu
           tenantId: activity.tenantId,
         },
         indexer: activityCrudIndexer,
+        events: activityCrudEvents,
       })
       return { activityId: activity.id }
     },
@@ -488,6 +503,7 @@ const deleteActivityCommand: CommandHandler<{ body?: Record<string, unknown>; qu
           tenantId: activity.tenantId,
         },
         indexer: activityCrudIndexer,
+        events: activityCrudEvents,
       })
 
       const resetValues = buildCustomFieldResetMap(before.custom, undefined)

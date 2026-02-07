@@ -14,11 +14,22 @@ import {
 } from './shared'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
-import type { CrudIndexerConfig } from '@open-mercato/shared/lib/crud/types'
+import type { CrudIndexerConfig, CrudEventsConfig } from '@open-mercato/shared/lib/crud/types'
 import { E } from '#generated/entities.ids.generated'
 
 const addressCrudIndexer: CrudIndexerConfig<CustomerAddress> = {
   entityType: E.customers.customer_address,
+}
+
+const addressCrudEvents: CrudEventsConfig = {
+  module: 'customers',
+  entity: 'address',
+  persistent: true,
+  buildPayload: (ctx) => ({
+    id: ctx.identifiers.id,
+    organizationId: ctx.identifiers.organizationId,
+    tenantId: ctx.identifiers.tenantId,
+  }),
 }
 
 type AddressSnapshot = {
@@ -131,6 +142,7 @@ const createAddressCommand: CommandHandler<AddressCreateInput, { addressId: stri
         tenantId: address.tenantId,
       },
       indexer: addressCrudIndexer,
+      events: addressCrudEvents,
     })
 
     return { addressId: address.id }
@@ -222,6 +234,7 @@ const updateAddressCommand: CommandHandler<AddressUpdateInput, { addressId: stri
         tenantId: address.tenantId,
       },
       indexer: addressCrudIndexer,
+      events: addressCrudEvents,
     })
 
     return { addressId: address.id }
@@ -341,6 +354,7 @@ const updateAddressCommand: CommandHandler<AddressUpdateInput, { addressId: stri
         tenantId: address.tenantId,
       },
       indexer: addressCrudIndexer,
+      events: addressCrudEvents,
     })
   },
 }
@@ -375,6 +389,7 @@ const deleteAddressCommand: CommandHandler<{ body?: Record<string, unknown>; que
           tenantId: address.tenantId,
         },
         indexer: addressCrudIndexer,
+        events: addressCrudEvents,
       })
       return { addressId: address.id }
     },
@@ -404,15 +419,15 @@ const deleteAddressCommand: CommandHandler<{ body?: Record<string, unknown>; que
       const entity = await requireCustomerEntity(em, before.entityId, undefined, 'Customer not found')
       let address = await em.findOne(CustomerAddress, { id: before.id })
       if (!address) {
-      address = em.create(CustomerAddress, {
-        id: before.id,
-        organizationId: before.organizationId,
-        tenantId: before.tenantId,
-        entity,
-        name: before.name,
-        purpose: before.purpose,
-        companyName: before.companyName,
-        addressLine1: before.addressLine1,
+        address = em.create(CustomerAddress, {
+          id: before.id,
+          organizationId: before.organizationId,
+          tenantId: before.tenantId,
+          entity,
+          name: before.name,
+          purpose: before.purpose,
+          companyName: before.companyName,
+          addressLine1: before.addressLine1,
           addressLine2: before.addressLine2,
           buildingNumber: before.buildingNumber,
           flatNumber: before.flatNumber,
@@ -460,6 +475,7 @@ const deleteAddressCommand: CommandHandler<{ body?: Record<string, unknown>; que
           tenantId: address.tenantId,
         },
         indexer: addressCrudIndexer,
+        events: addressCrudEvents,
       })
     },
   }
