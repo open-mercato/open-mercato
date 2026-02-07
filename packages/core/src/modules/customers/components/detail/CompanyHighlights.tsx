@@ -2,6 +2,7 @@
 
 import * as React from 'react'
 import { FormHeader } from '@open-mercato/ui/backend/forms'
+import { VersionHistoryAction } from '@open-mercato/ui/backend/version-history'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import {
   InlineTextEditor,
@@ -22,9 +23,11 @@ type CompanyHighlightsCompany = {
   nextInteractionRefId?: string | null
   nextInteractionIcon?: string | null
   nextInteractionColor?: string | null
+  organizationId?: string | null
 }
 
 type CompanyHighlightsProfile = {
+  id?: string
   brandName?: string | null
   legalName?: string | null
   websiteUrl?: string | null
@@ -53,6 +56,7 @@ export type CompanyHighlightsProps = {
 
 export function CompanyHighlights({
   company,
+  profile,
   validators,
   onDisplayNameSave,
   onPrimaryEmailSave,
@@ -63,6 +67,8 @@ export function CompanyHighlights({
   isDeleting,
 }: CompanyHighlightsProps) {
   const t = useT()
+  const historyFallbackId =
+    profile?.id && profile.id !== company.id ? profile.id : undefined
 
   return (
     <div className="space-y-6">
@@ -70,6 +76,17 @@ export function CompanyHighlights({
         mode="detail"
         backHref="/backend/customers/companies"
         backLabel={t('customers.companies.detail.actions.backToList', 'Back to companies')}
+        utilityActions={(
+          <VersionHistoryAction
+            config={{
+              resourceKind: 'customers.company',
+              resourceId: company.id,
+              resourceIdFallback: historyFallbackId,
+              organizationId: company.organizationId ?? undefined,
+            }}
+            t={t}
+          />
+        )}
         title={
           <InlineTextEditor
             label={t('customers.companies.form.displayName.label', 'Display name')}

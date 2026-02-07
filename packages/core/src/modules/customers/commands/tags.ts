@@ -22,7 +22,20 @@ import {
 } from './shared'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
+import type { CrudEventsConfig } from '@open-mercato/shared/lib/crud/types'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { emitCustomersEvent } from '../events'
+
+const tagCrudEvents: CrudEventsConfig = {
+  module: 'customers',
+  entity: 'tag',
+  persistent: true,
+  buildPayload: (ctx) => ({
+    id: ctx.identifiers.id,
+    organizationId: ctx.identifiers.organizationId,
+    tenantId: ctx.identifiers.tenantId,
+  }),
+}
 
 type TagSnapshot = {
   id: string
@@ -100,17 +113,18 @@ const createTagCommand: CommandHandler<TagCreateInput, { tagId: string }> = {
         organizationId: tag.organizationId,
         tenantId: tag.tenantId,
       },
+      events: tagCrudEvents,
     })
 
     return { tagId: tag.id }
   },
   captureAfter: async (_input, result, ctx) => {
-    const em = (ctx.container.resolve('em') as EntityManager)
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
     return await loadTagSnapshot(em, result.tagId)
   },
   buildLog: async ({ result, ctx }) => {
     const { translate } = await resolveTranslations()
-    const em = (ctx.container.resolve('em') as EntityManager)
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
     const snapshot = await loadTagSnapshot(em, result.tagId)
     return {
       actionLabel: translate('customers.audit.tags.create', 'Create tag'),
@@ -181,6 +195,7 @@ const updateTagCommand: CommandHandler<TagUpdateInput, { tagId: string }> = {
         organizationId: tag.organizationId,
         tenantId: tag.tenantId,
       },
+      events: tagCrudEvents,
     })
 
     return { tagId: tag.id }
@@ -189,7 +204,7 @@ const updateTagCommand: CommandHandler<TagUpdateInput, { tagId: string }> = {
     const { translate } = await resolveTranslations()
     const before = snapshots.before as TagSnapshot | undefined
     if (!before) return null
-    const em = (ctx.container.resolve('em') as EntityManager)
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
     const afterSnapshot = await loadTagSnapshot(em, before.id)
     const changes =
       afterSnapshot && before
@@ -251,6 +266,7 @@ const updateTagCommand: CommandHandler<TagUpdateInput, { tagId: string }> = {
         organizationId: tag.organizationId,
         tenantId: tag.tenantId,
       },
+      events: tagCrudEvents,
     })
   },
 }
@@ -284,6 +300,7 @@ const deleteTagCommand: CommandHandler<{ body?: Record<string, unknown>; query?:
         organizationId: tag.organizationId,
         tenantId: tag.tenantId,
       },
+      events: tagCrudEvents,
     })
     return { tagId: tag.id }
   },
@@ -340,6 +357,7 @@ const deleteTagCommand: CommandHandler<{ body?: Record<string, unknown>; query?:
         organizationId: tag.organizationId,
         tenantId: tag.tenantId,
       },
+      events: tagCrudEvents,
     })
   },
 }
@@ -382,11 +400,19 @@ const assignTagCommand: CommandHandler<TagAssignmentInput, { assignmentId: strin
       },
     })
 
+    await emitCustomersEvent('customers.tag.assigned', {
+      id: String(assignment.id),
+      tagId: parsed.tagId,
+      entityId: parsed.entityId,
+      organizationId: parsed.organizationId,
+      tenantId: parsed.tenantId,
+    }, { persistent: true })
+
     return { assignmentId: assignment.id }
   },
   buildLog: async ({ result, ctx }) => {
     const { translate } = await resolveTranslations()
-    const em = (ctx.container.resolve('em') as EntityManager)
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
     const assignment = await findOneWithDecryption(
       em,
       CustomerTagAssignment,
@@ -458,6 +484,14 @@ const unassignTagCommand: CommandHandler<TagAssignmentInput, { assignmentId: str
         tenantId: existing.tenantId,
       },
     })
+
+    await emitCustomersEvent('customers.tag.removed', {
+      id: String(existing.id),
+      tagId: parsed.tagId,
+      entityId: parsed.entityId,
+      organizationId: parsed.organizationId,
+      tenantId: parsed.tenantId,
+    }, { persistent: true })
 
     return { assignmentId: existing.id ?? null }
   },

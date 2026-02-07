@@ -1,6 +1,7 @@
 import { registerCommand } from '@open-mercato/shared/lib/commands'
 import type { CommandHandler } from '@open-mercato/shared/lib/commands'
-import { buildChanges, requireId } from '@open-mercato/shared/lib/commands/helpers'
+import { buildChanges, requireId, emitCrudSideEffects } from '@open-mercato/shared/lib/commands/helpers'
+import { extractUndoPayload, type UndoPayload } from '@open-mercato/shared/lib/commands/undo'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
@@ -13,6 +14,19 @@ import {
   type ExchangeRateUpdateInput,
   type ExchangeRateDeleteInput,
 } from '../data/validators'
+import type { CrudEventsConfig } from '@open-mercato/shared/lib/crud/types'
+import type { DataEngine } from '@open-mercato/shared/lib/data/engine'
+
+const exchangeRateCrudEvents: CrudEventsConfig = {
+  module: 'currencies',
+  entity: 'exchange_rate',
+  persistent: true,
+  buildPayload: (ctx) => ({
+    id: ctx.identifiers.id,
+    organizationId: ctx.identifiers.organizationId,
+    tenantId: ctx.identifiers.tenantId,
+  }),
+}
 
 type ExchangeRateSnapshot = {
   id: string
@@ -28,6 +42,8 @@ type ExchangeRateSnapshot = {
   createdAt: string
   updatedAt: string
 }
+
+type ExchangeRateUndoPayload = UndoPayload<ExchangeRateSnapshot>
 
 async function loadExchangeRateSnapshot(em: EntityManager, id: string): Promise<ExchangeRateSnapshot | null> {
   const record = await em.findOne(ExchangeRate, { id })
@@ -119,15 +135,27 @@ const createExchangeRateCommand: CommandHandler<ExchangeRateCreateInput, { excha
     em.persist(record)
     await em.flush()
 
+    const de = ctx.container.resolve('dataEngine') as DataEngine
+    await emitCrudSideEffects({
+      dataEngine: de,
+      action: 'created',
+      entity: record,
+      identifiers: {
+        id: record.id,
+        organizationId: record.organizationId,
+        tenantId: record.tenantId,
+      },
+      events: exchangeRateCrudEvents,
+    })
+
     return { exchangeRateId: record.id }
   },
   captureAfter: async (_input, result, ctx) => {
-    const em = ctx.container.resolve('em') as EntityManager
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
     return loadExchangeRateSnapshot(em, result.exchangeRateId)
   },
-  buildLog: async ({ result, ctx }) => {
-    const em = ctx.container.resolve('em') as EntityManager
-    const after = await loadExchangeRateSnapshot(em, result.exchangeRateId)
+  buildLog: async ({ snapshots }) => {
+    const after = snapshots.after as ExchangeRateSnapshot | undefined
     if (!after) return null
     const { translate } = await resolveTranslations()
     return {
@@ -141,7 +169,8 @@ const createExchangeRateCommand: CommandHandler<ExchangeRateCreateInput, { excha
     }
   },
   undo: async ({ logEntry, ctx }) => {
-    const after = logEntry?.payload?.undo?.after as ExchangeRateSnapshot | undefined
+    const payload = extractUndoPayload<ExchangeRateUndoPayload>(logEntry)
+    const after = payload?.after ?? null
     if (!after) return
     const em = (ctx.container.resolve('em') as EntityManager).fork()
     const record = await em.findOne(ExchangeRate, { id: after.id })
@@ -231,10 +260,23 @@ const updateExchangeRateCommand: CommandHandler<ExchangeRateUpdateInput, { excha
     
     await em.flush()
 
+    const de = ctx.container.resolve('dataEngine') as DataEngine
+    await emitCrudSideEffects({
+      dataEngine: de,
+      action: 'updated',
+      entity: record,
+      identifiers: {
+        id: record.id,
+        organizationId: record.organizationId,
+        tenantId: record.tenantId,
+      },
+      events: exchangeRateCrudEvents,
+    })
+
     return { exchangeRateId: record.id }
   },
   captureAfter: async (_input, result, ctx) => {
-    const em = ctx.container.resolve('em') as EntityManager
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
     return loadExchangeRateSnapshot(em, result.exchangeRateId)
   },
   buildLog: async ({ snapshots, result }) => {
@@ -254,7 +296,8 @@ const updateExchangeRateCommand: CommandHandler<ExchangeRateUpdateInput, { excha
     }
   },
   undo: async ({ logEntry, ctx }) => {
-    const before = logEntry?.payload?.undo?.before as ExchangeRateSnapshot | undefined
+    const payload = extractUndoPayload<ExchangeRateUndoPayload>(logEntry)
+    const before = payload?.before ?? null
     if (!before) return
     const em = (ctx.container.resolve('em') as EntityManager).fork()
     const record = await em.findOne(ExchangeRate, { id: before.id })
@@ -295,6 +338,19 @@ const deleteExchangeRateCommand: CommandHandler<ExchangeRateDeleteInput, { excha
     record.isActive = false
     await em.flush()
 
+    const de = ctx.container.resolve('dataEngine') as DataEngine
+    await emitCrudSideEffects({
+      dataEngine: de,
+      action: 'deleted',
+      entity: record,
+      identifiers: {
+        id: record.id,
+        organizationId: record.organizationId,
+        tenantId: record.tenantId,
+      },
+      events: exchangeRateCrudEvents,
+    })
+
     return { exchangeRateId: record.id }
   },
   buildLog: async ({ snapshots, result }) => {
@@ -312,7 +368,8 @@ const deleteExchangeRateCommand: CommandHandler<ExchangeRateDeleteInput, { excha
     }
   },
   undo: async ({ logEntry, ctx }) => {
-    const before = logEntry?.payload?.undo?.before as ExchangeRateSnapshot | undefined
+    const payload = extractUndoPayload<ExchangeRateUndoPayload>(logEntry)
+    const before = payload?.before ?? null
     if (!before) return
     const em = (ctx.container.resolve('em') as EntityManager).fork()
     const record = await em.findOne(ExchangeRate, { id: before.id })

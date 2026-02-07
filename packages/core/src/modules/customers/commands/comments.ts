@@ -15,11 +15,22 @@ import {
 } from './shared'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
-import type { CrudIndexerConfig } from '@open-mercato/shared/lib/crud/types'
+import type { CrudIndexerConfig, CrudEventsConfig } from '@open-mercato/shared/lib/crud/types'
 import { E } from '#generated/entities.ids.generated'
 
 const commentCrudIndexer: CrudIndexerConfig<CustomerComment> = {
   entityType: E.customers.customer_comment,
+}
+
+const commentCrudEvents: CrudEventsConfig = {
+  module: 'customers',
+  entity: 'comment',
+  persistent: true,
+  buildPayload: (ctx) => ({
+    id: ctx.identifiers.id,
+    organizationId: ctx.identifiers.organizationId,
+    tenantId: ctx.identifiers.tenantId,
+  }),
 }
 
 type CommentSnapshot = {
@@ -100,18 +111,18 @@ const createCommentCommand: CommandHandler<CommentCreateInput, { commentId: stri
         tenantId: comment.tenantId,
       },
       indexer: commentCrudIndexer,
+      events: commentCrudEvents,
     })
 
     return { commentId: comment.id, authorUserId: comment.authorUserId ?? null }
   },
   captureAfter: async (_input, result, ctx) => {
-    const em = (ctx.container.resolve('em') as EntityManager)
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
     return await loadCommentSnapshot(em, result.commentId)
   },
-  buildLog: async ({ result, ctx }) => {
+  buildLog: async ({ result, snapshots }) => {
     const { translate } = await resolveTranslations()
-    const em = (ctx.container.resolve('em') as EntityManager)
-    const snapshot = await loadCommentSnapshot(em, result.commentId)
+    const snapshot = snapshots.after as CommentSnapshot | undefined
     return {
       actionLabel: translate('customers.audit.comments.create', 'Create note'),
       resourceKind: 'customers.comment',
@@ -180,16 +191,20 @@ const updateCommentCommand: CommandHandler<CommentUpdateInput, { commentId: stri
         tenantId: comment.tenantId,
       },
       indexer: commentCrudIndexer,
+      events: commentCrudEvents,
     })
 
     return { commentId: comment.id }
   },
-  buildLog: async ({ snapshots, ctx }) => {
+  captureAfter: async (_input, result, ctx) => {
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
+    return await loadCommentSnapshot(em, result.commentId)
+  },
+  buildLog: async ({ snapshots }) => {
     const { translate } = await resolveTranslations()
     const before = snapshots.before as CommentSnapshot | undefined
     if (!before) return null
-    const em = (ctx.container.resolve('em') as EntityManager)
-    const afterSnapshot = await loadCommentSnapshot(em, before.id)
+    const afterSnapshot = snapshots.after as CommentSnapshot | undefined
     const changes =
       afterSnapshot && before
         ? buildChanges(
@@ -260,6 +275,7 @@ const updateCommentCommand: CommandHandler<CommentUpdateInput, { commentId: stri
         tenantId: comment.tenantId,
       },
       indexer: commentCrudIndexer,
+      events: commentCrudEvents,
     })
   },
 }
@@ -294,6 +310,7 @@ const deleteCommentCommand: CommandHandler<{ body?: Record<string, unknown>; que
           tenantId: comment.tenantId,
         },
         indexer: commentCrudIndexer,
+        events: commentCrudEvents,
       })
       return { commentId: comment.id }
     },
@@ -359,6 +376,7 @@ const deleteCommentCommand: CommandHandler<{ body?: Record<string, unknown>; que
           tenantId: comment.tenantId,
         },
         indexer: commentCrudIndexer,
+        events: commentCrudEvents,
       })
     },
   }

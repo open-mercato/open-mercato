@@ -11,9 +11,10 @@ export const metadata = {
   pageTitle: 'Users',
   pageTitleKey: 'auth.nav.users',
   pageGroup: 'Auth',
-  pageGroupKey: 'auth.nav.group',
-  pageOrder: 100,
+  pageGroupKey: 'settings.sections.auth',
+  pageOrder: 1,
   icon: userIcon,
+  pageContext: 'settings' as const,
   breadcrumb: [ { label: 'Users', labelKey: 'auth.nav.users' } ],
 }
 

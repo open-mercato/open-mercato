@@ -6,13 +6,12 @@ import { Separator } from '../primitives/separator'
 import { FlashMessages } from './FlashMessages'
 import { usePathname } from 'next/navigation'
 import { apiCall } from './utils/apiCall'
-import { LanguageSwitcher } from '../frontend/LanguageSwitcher'
-import { ThemeToggle } from '../theme/ThemeToggle'
 import { LastOperationBanner } from './operations/LastOperationBanner'
 import { UpgradeActionBanner } from './upgrades/UpgradeActionBanner'
 import { PartialIndexBanner } from './indexes/PartialIndexBanner'
 import { useLocale, useT } from '@open-mercato/shared/lib/i18n/context'
 import { slugifySidebarId } from '@open-mercato/shared/modules/navigation/sidebarPreferences'
+import type { SectionNavGroup } from './section-page/types'
 
 export type AppShellProps = {
   productName?: string
@@ -28,6 +27,7 @@ export type AppShellProps = {
       icon?: React.ReactNode
       enabled?: boolean
       hidden?: boolean
+      pageContext?: 'main' | 'admin' | 'settings' | 'profile'
       children?: {
         href: string
         title: string
@@ -35,6 +35,7 @@ export type AppShellProps = {
         icon?: React.ReactNode
         enabled?: boolean
         hidden?: boolean
+        pageContext?: 'main' | 'admin' | 'settings' | 'profile'
       }[]
     }[]
   }[]
@@ -46,6 +47,12 @@ export type AppShellProps = {
   // Optional: full admin nav API to refresh sidebar client-side
   adminNavApi?: string
   version?: string
+  settingsSectionTitle?: string
+  settingsPathPrefixes?: string[]
+  settingsSections?: SectionNavGroup[]
+  profileSections?: SectionNavGroup[]
+  profileSectionTitle?: string
+  profilePathPrefixes?: string[]
 }
 
 type Breadcrumb = Array<{ label: string; href?: string }>
@@ -123,13 +130,19 @@ const CustomizeIcon = (
   </svg>
 )
 
+const BackArrowIcon = (
+  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M19 12H5M12 19l-7-7 7-7" />
+  </svg>
+)
+
 function Chevron({ open }: { open: boolean }) {
   return (
     <svg className={`transition-transform ${open ? 'rotate-180' : ''}`} width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M6 9l6 6 6-6"/></svg>
   )
 }
 
-export function AppShell({ productName, email, groups, rightHeaderSlot, children, sidebarCollapsedDefault = false, currentTitle, breadcrumb, adminNavApi, version }: AppShellProps) {
+export function AppShell({ productName, email, groups, rightHeaderSlot, children, sidebarCollapsedDefault = false, currentTitle, breadcrumb, adminNavApi, version, settingsSectionTitle, settingsPathPrefixes = [], settingsSections, profileSections, profileSectionTitle, profilePathPrefixes = [] }: AppShellProps) {
   const pathname = usePathname()
   const t = useT()
   const locale = useLocale()
@@ -155,6 +168,23 @@ export function AppShell({ productName, email, groups, rightHeaderSlot, children
   const [headerBreadcrumb, setHeaderBreadcrumb] = React.useState<Breadcrumb | undefined>(breadcrumb)
   const effectiveCollapsed = customizing ? false : collapsed
   const expandedSidebarWidth = customizing ? '320px' : '240px'
+
+  const isOnSettingsPath = React.useMemo(() => {
+    if (!pathname) return false
+    if (pathname === '/backend/settings') return true
+    return settingsPathPrefixes.some((prefix) => pathname.startsWith(prefix))
+  }, [pathname, settingsPathPrefixes])
+
+  const isOnProfilePath = React.useMemo(() => {
+    if (!pathname) return false
+    if (pathname === '/backend/profile') return true
+    return profilePathPrefixes.some((prefix) => pathname.startsWith(prefix))
+  }, [pathname, profilePathPrefixes])
+
+  const sidebarMode: 'main' | 'settings' | 'profile' =
+    isOnSettingsPath ? 'settings' :
+    isOnProfilePath ? 'profile' :
+    'main'
 
   // Lock body scroll when mobile drawer is open so touch scroll stays in the drawer
   React.useEffect(() => {
@@ -185,7 +215,7 @@ export function AppShell({ productName, email, groups, rightHeaderSlot, children
     }
   }, [groups])
 
-  const toggleGroup = (groupId: string) => setOpenGroups((prev) => ({ ...prev, [groupId]: !prev[groupId] }))
+  const toggleGroup = (groupId: string) => setOpenGroups((prev) => ({ ...prev, [groupId]: prev[groupId] === false }))
 
   const updateDraft = React.useCallback((updater: (draft: SidebarCustomizationDraft) => SidebarCustomizationDraft) => {
     setCustomDraft((prev) => {
@@ -203,7 +233,7 @@ export function AppShell({ productName, email, groups, rightHeaderSlot, children
     setCustomizationError(null)
     setLoadingPreferences(true)
    try {
-     const baseSnapshot = AppShell.cloneGroups(navGroups)
+     const baseSnapshot = filterMainSidebarGroups(AppShell.cloneGroups(navGroups))
      const call = await apiCall<{
        settings?: Record<string, unknown>
        canApplyToRoles?: boolean
@@ -313,7 +343,7 @@ export function AppShell({ productName, email, groups, rightHeaderSlot, children
     setSavingPreferences(true)
     setCustomizationError(null)
     try {
-      const baseGroups = originalNavRef.current ?? AppShell.cloneGroups(navGroups)
+      const baseGroups = originalNavRef.current ?? filterMainSidebarGroups(AppShell.cloneGroups(navGroups))
       const { groupDefaults, itemDefaults } = collectSidebarDefaults(baseGroups)
       const sanitizedGroupLabels: Record<string, string> = {}
       for (const [key, value] of Object.entries(customDraft.groupLabels)) {
@@ -464,7 +494,7 @@ export function AppShell({ productName, email, groups, rightHeaderSlot, children
   // Keep navGroups in sync when server-provided groups change
   React.useEffect(() => {
     if (customizing && customDraft && originalNavRef.current) {
-      originalNavRef.current = AppShell.cloneGroups(groups)
+      originalNavRef.current = filterMainSidebarGroups(AppShell.cloneGroups(groups))
       setNavGroups(applyCustomizationDraft(originalNavRef.current, customDraft))
       return
     }
@@ -497,6 +527,7 @@ export function AppShell({ productName, email, groups, rightHeaderSlot, children
           enabled: i.enabled,
           hidden: i.hidden,
           icon: i.icon ?? iconMap.get(i.href),
+          pageContext: i.pageContext,
           children: i.children?.map((c) => ({
             href: c.href,
             title: c.title,
@@ -504,6 +535,7 @@ export function AppShell({ productName, email, groups, rightHeaderSlot, children
             enabled: c.enabled,
             hidden: c.hidden,
             icon: c.icon ?? iconMap.get(c.href),
+            pageContext: c.pageContext,
           })),
         })),
       }))
@@ -544,19 +576,25 @@ export function AppShell({ productName, email, groups, rightHeaderSlot, children
     function mergePreservingIcons(oldG: AppShellProps['groups'], newG: AppShellProps['groups']): AppShellProps['groups'] {
       const iconMap = indexIcons(oldG)
       const merged = newG.map((g) => ({
+        id: g.id,
         name: g.name,
+        defaultName: g.defaultName,
         items: g.items.map((i) => ({
           href: i.href,
           title: i.title,
+          defaultTitle: i.defaultTitle,
           enabled: i.enabled,
           hidden: i.hidden,
           icon: i.icon ?? iconMap.get(i.href),
+          pageContext: i.pageContext,
           children: i.children?.map((c) => ({
             href: c.href,
             title: c.title,
+            defaultTitle: c.defaultTitle,
             enabled: c.enabled,
             hidden: c.hidden,
             icon: c.icon ?? iconMap.get(c.href),
+            pageContext: c.pageContext,
           })),
         })),
       }))
@@ -579,7 +617,114 @@ export function AppShell({ productName, email, groups, rightHeaderSlot, children
 
   // adminNavApi already includes user entities; no extra fetch
 
+  function renderSectionSidebar(
+    sections: SectionNavGroup[],
+    title: string,
+    compact: boolean,
+    hideHeader?: boolean
+  ) {
+    const sortedSections = [...sections].sort((a, b) => (a.order ?? 0) - (b.order ?? 0))
+    const lastVisibleIndex = sortedSections.length - 1
+
+    return (
+      <div className="flex flex-col min-h-full gap-3">
+        {!hideHeader && (
+          <div className={`flex items-center ${compact ? 'justify-center' : 'justify-between'} mb-2`}>
+            <Link href="/backend" className="flex items-center gap-2" aria-label={t('appShell.goToDashboard')}>
+              <Image src="/open-mercato.svg" alt={resolvedProductName} width={32} height={32} className="rounded m-4" />
+              {!compact && <div className="text-m font-semibold">{resolvedProductName}</div>}
+            </Link>
+          </div>
+        )}
+        <div className="flex flex-1 flex-col gap-3 overflow-y-auto pr-1">
+          <Link
+            href="/backend"
+            className={`flex items-center gap-2 ${compact ? 'justify-center px-2' : 'px-2'} py-1 text-sm text-muted-foreground hover:text-foreground transition-colors`}
+            aria-label={t('backend.nav.backToMain', 'Back')}
+          >
+            <span className="flex items-center justify-center shrink-0">{BackArrowIcon}</span>
+            {!compact && <span>{title}</span>}
+          </Link>
+          <nav className="flex flex-col gap-2">
+          {sortedSections.map((section, sectionIndex) => {
+            const visibleItems = section.items
+            if (visibleItems.length === 0) return null
+            const sortedItems = [...visibleItems].sort((a, b) => (a.order ?? 0) - (b.order ?? 0))
+            const sectionLabel = section.labelKey ? t(section.labelKey, section.label) : section.label
+            const sectionKey = `settings:${section.id}`
+            const open = openGroups[sectionKey] !== false
+
+            return (
+              <div key={section.id}>
+                <button
+                  type="button"
+                  onClick={() => toggleGroup(sectionKey)}
+                  className={`w-full ${compact ? 'px-0 justify-center' : 'px-2 justify-between'} flex items-center text-xs uppercase text-muted-foreground/90 py-2`}
+                  aria-expanded={open}
+                >
+                  {!compact && <span>{sectionLabel}</span>}
+                  {!compact && <Chevron open={open} />}
+                </button>
+                {open && (
+                  <div className={`flex flex-col ${compact ? 'items-center' : ''} gap-1 ${!compact ? 'pl-1' : ''}`}>
+                    {sortedItems.map((item) => {
+                      const isActive = pathname === item.href || pathname?.startsWith(item.href + '/')
+                      const label = item.labelKey ? t(item.labelKey, item.label) : item.label
+                      const base = compact ? 'w-10 h-10 justify-center' : 'px-2 py-1 gap-2'
+
+                      return (
+                        <Link
+                          key={item.id}
+                          href={item.href}
+                          className={`relative text-sm rounded inline-flex items-center ${base} ${
+                            isActive
+                              ? 'bg-background border shadow-sm'
+                              : 'hover:bg-accent hover:text-accent-foreground'
+                          }`}
+                          title={compact ? label : undefined}
+                          onClick={() => setMobileOpen(false)}
+                        >
+                          {isActive && (
+                            <span className="absolute left-0 top-1 bottom-1 w-0.5 rounded bg-foreground" />
+                          )}
+                          <span className={`flex items-center justify-center shrink-0 ${compact ? '' : 'text-muted-foreground'}`}>
+                            {item.icon ?? DefaultIcon}
+                          </span>
+                          {!compact && <span className="truncate">{label}</span>}
+                        </Link>
+                      )
+                    })}
+                  </div>
+                )}
+                {sectionIndex !== lastVisibleIndex && <div className="my-2 border-t border-dotted" />}
+              </div>
+            )
+          })}
+        </nav>
+        </div>
+      </div>
+    )
+  }
+
   function renderSidebar(compact: boolean, hideHeader?: boolean) {
+    if (sidebarMode === 'settings' && settingsSections && settingsSections.length > 0) {
+      return renderSectionSidebar(
+        settingsSections,
+        settingsSectionTitle ?? t('backend.nav.settings', 'Settings'),
+        compact,
+        hideHeader
+      )
+    }
+
+    if (sidebarMode === 'profile' && profileSections && profileSections.length > 0) {
+      return renderSectionSidebar(
+        profileSections,
+        profileSectionTitle ?? t('backend.nav.profile', 'Profile'),
+        compact,
+        hideHeader
+      )
+    }
+
     const isMobileVariant = !!hideHeader
     const baseGroupsForDefaults = originalNavRef.current ?? navGroups
     const baseGroupMap = new Map<string, SidebarGroup>()
@@ -780,88 +925,142 @@ export function AppShell({ productName, email, groups, rightHeaderSlot, children
           {customizing ? (
             customizationEditor
           ) : (
-            <nav className="flex flex-col gap-2">
-              {navGroups.map((g, gi) => {
-                const groupId = resolveGroupKey(g)
-                const open = openGroups[groupId] !== false
-                const visibleItems = g.items.filter((item) => item.hidden !== true)
-                if (visibleItems.length === 0) return null
-                return (
-                  <div key={groupId}>
-                    <button
-                      type="button"
-                      onClick={() => toggleGroup(groupId)}
-                      className={`w-full ${compact ? 'px-0 justify-center' : 'px-2 justify-between'} flex items-center text-xs uppercase text-muted-foreground/90 py-2`}
-                      aria-expanded={open}
+            (() => {
+              const isSettingsPath = (href: string) => {
+                if (href === '/backend/settings') return true
+                return settingsPathPrefixes.some((prefix) => href.startsWith(prefix))
+              }
+
+              const isMainItem = (item: SidebarItem) => {
+                if (item.pageContext && item.pageContext !== 'main') return false
+                if (isSettingsPath(item.href)) return false
+                return true
+              }
+
+              const mainGroups = navGroups.map((g) => ({
+                ...g,
+                items: g.items.filter((item) => isMainItem(item) && item.hidden !== true),
+              })).filter((g) => g.items.length > 0)
+
+              const mainLastVisibleGroupIndex = (() => {
+                for (let idx = mainGroups.length - 1; idx >= 0; idx -= 1) {
+                  if (mainGroups[idx].items.some((item) => item.hidden !== true)) return idx
+                }
+                return -1
+              })()
+
+              return (
+                <>
+                  <nav className="flex flex-col gap-2">
+                    {mainGroups.map((g, gi) => {
+                      const groupId = resolveGroupKey(g)
+                      const open = openGroups[groupId] !== false
+                      const visibleItems = g.items.filter((item) => item.hidden !== true)
+                      if (visibleItems.length === 0) return null
+                      return (
+                        <div key={groupId}>
+                          <button
+                            type="button"
+                            onClick={() => toggleGroup(groupId)}
+                            className={`w-full ${compact ? 'px-0 justify-center' : 'px-2 justify-between'} flex items-center text-xs uppercase text-muted-foreground/90 py-2`}
+                            aria-expanded={open}
+                          >
+                            {!compact && <span>{g.name}</span>}
+                            {!compact && <Chevron open={open} />}
+                          </button>
+                          {open && (
+                            <div className={`flex flex-col ${compact ? 'items-center' : ''} gap-1 ${!compact ? 'pl-1' : ''}`}>
+                              {visibleItems.map((i) => {
+                                const childItems = (i.children ?? []).filter((child) => child.hidden !== true)
+                                const showChildren = !!pathname && childItems.length > 0 && pathname.startsWith(i.href)
+                                const hasActiveChild = !!(pathname && childItems.some((c) => pathname.startsWith(c.href)))
+                                const isParentActive = (pathname === i.href) || (showChildren && !hasActiveChild)
+                                const base = compact ? 'w-10 h-10 justify-center' : 'px-2 py-1 gap-2'
+                                return (
+                                  <React.Fragment key={i.href}>
+                                    <Link
+                                      href={i.href}
+                                      className={`relative text-sm rounded inline-flex items-center ${base} ${
+                                        isParentActive ? 'bg-background border shadow-sm' : 'hover:bg-accent hover:text-accent-foreground'
+                                      } ${i.enabled === false ? 'pointer-events-none opacity-50' : ''}`}
+                                      aria-disabled={i.enabled === false}
+                                      title={compact ? i.title : undefined}
+                                      onClick={() => setMobileOpen(false)}
+                                    >
+                                      {isParentActive ? (
+                                        <span className="absolute left-0 top-1 bottom-1 w-0.5 rounded bg-foreground" />
+                                      ) : null}
+                                      <span className={`flex items-center justify-center shrink-0 ${compact ? '' : 'text-muted-foreground'}`}>
+                                        {i.icon ?? DefaultIcon}
+                                      </span>
+                                      {!compact && <span>{i.title}</span>}
+                                    </Link>
+                                    {showChildren ? (
+                                      <div className={`flex flex-col ${compact ? 'items-center' : ''} gap-1 ${!compact ? 'pl-4' : ''}`}>
+                                        {childItems.map((c) => {
+                                          const childActive = pathname?.startsWith(c.href)
+                                          const childBase = compact ? 'w-10 h-8 justify-center' : 'px-2 py-1 gap-2'
+                                          return (
+                                            <Link
+                                              key={c.href}
+                                              href={c.href}
+                                              className={`relative text-sm rounded inline-flex items-center ${childBase} ${
+                                                childActive ? 'bg-background border shadow-sm' : 'hover:bg-accent hover:text-accent-foreground'
+                                              } ${c.enabled === false ? 'pointer-events-none opacity-50' : ''}`}
+                                              aria-disabled={c.enabled === false}
+                                              title={compact ? c.title : undefined}
+                                              onClick={() => setMobileOpen(false)}
+                                            >
+                                              {childActive ? (
+                                                <span className="absolute left-0 top-1 bottom-1 w-0.5 rounded bg-foreground" />
+                                              ) : null}
+                                              <span className={`flex items-center justify-center shrink-0 ${compact ? '' : 'text-muted-foreground'}`}>
+                                                {c.icon ?? (c.href.includes('/backend/entities/user/') && c.href.endsWith('/records') ? DataTableIcon : DefaultIcon)}
+                                              </span>
+                                              {!compact && <span>{c.title}</span>}
+                                            </Link>
+                                          )
+                                        })}
+                                      </div>
+                                    ) : null}
+                                  </React.Fragment>
+                                )
+                              })}
+                            </div>
+                          )}
+                          {gi !== mainLastVisibleGroupIndex && <div className="my-2 border-t border-dotted" />}
+                        </div>
+                      )
+                    })}
+                  </nav>
+                  <div className="mt-4 pt-4 border-t">
+                    <Link
+                      href="/backend/settings"
+                      className={`relative text-sm rounded inline-flex items-center w-full ${
+                        compact ? 'w-10 h-10 justify-center' : 'px-2 py-1 gap-2'
+                      } ${
+                        pathname?.startsWith('/backend/settings') || pathname?.startsWith('/backend/config') || pathname?.startsWith('/backend/users') || pathname?.startsWith('/backend/roles') || pathname?.startsWith('/backend/api-keys') || pathname?.startsWith('/backend/entities') || pathname?.startsWith('/backend/query-indexes') || pathname?.startsWith('/backend/definitions') || pathname?.startsWith('/backend/instances') || pathname?.startsWith('/backend/tasks') || pathname?.startsWith('/backend/events') || pathname?.startsWith('/backend/rules') || pathname?.startsWith('/backend/sets') || pathname?.startsWith('/backend/logs') || pathname?.startsWith('/backend/directory') || pathname?.startsWith('/backend/feature-toggles')
+                          ? 'bg-background border shadow-sm font-medium'
+                          : 'hover:bg-accent hover:text-accent-foreground'
+                      }`}
+                      title={compact ? t('backend.nav.settings', 'Settings') : undefined}
+                      onClick={() => setMobileOpen(false)}
                     >
-                      {!compact && <span>{g.name}</span>}
-                      {!compact && <Chevron open={open} />}
-                    </button>
-                    {open && (
-                      <div className={`flex flex-col ${compact ? 'items-center' : ''} gap-1 ${!compact ? 'pl-1' : ''}`}>
-                        {visibleItems.map((i) => {
-                          const childItems = (i.children ?? []).filter((child) => child.hidden !== true)
-                          const showChildren = !!pathname && childItems.length > 0 && pathname.startsWith(i.href)
-                          const hasActiveChild = !!(pathname && childItems.some((c) => pathname.startsWith(c.href)))
-                          const isParentActive = (pathname === i.href) || (showChildren && !hasActiveChild)
-                          const base = compact ? 'w-10 h-10 justify-center' : 'px-2 py-1 gap-2'
-                          return (
-                            <React.Fragment key={i.href}>
-                              <Link
-                                href={i.href}
-                                className={`relative text-sm rounded inline-flex items-center ${base} ${
-                                  isParentActive ? 'bg-background border shadow-sm' : 'hover:bg-accent hover:text-accent-foreground'
-                                } ${i.enabled === false ? 'pointer-events-none opacity-50' : ''}`}
-                                aria-disabled={i.enabled === false}
-                                title={compact ? i.title : undefined}
-                                onClick={() => setMobileOpen(false)}
-                              >
-                                {isParentActive ? (
-                                  <span className="absolute left-0 top-1 bottom-1 w-0.5 rounded bg-foreground" />
-                                ) : null}
-                                <span className={`flex items-center justify-center shrink-0 ${compact ? '' : 'text-muted-foreground'}`}>
-                                  {i.icon ?? DefaultIcon}
-                                </span>
-                                {!compact && <span>{i.title}</span>}
-                              </Link>
-                              {showChildren ? (
-                                <div className={`flex flex-col ${compact ? 'items-center' : ''} gap-1 ${!compact ? 'pl-4' : ''}`}>
-                                  {childItems.map((c) => {
-                                    const childActive = pathname?.startsWith(c.href)
-                                    const childBase = compact ? 'w-10 h-8 justify-center' : 'px-2 py-1 gap-2'
-                                    return (
-                                      <Link
-                                        key={c.href}
-                                        href={c.href}
-                                        className={`relative text-sm rounded inline-flex items-center ${childBase} ${
-                                          childActive ? 'bg-background border shadow-sm' : 'hover:bg-accent hover:text-accent-foreground'
-                                        } ${c.enabled === false ? 'pointer-events-none opacity-50' : ''}`}
-                                        aria-disabled={c.enabled === false}
-                                        title={compact ? c.title : undefined}
-                                        onClick={() => setMobileOpen(false)}
-                                      >
-                                        {childActive ? (
-                                          <span className="absolute left-0 top-1 bottom-1 w-0.5 rounded bg-foreground" />
-                                        ) : null}
-                                        <span className={`flex items-center justify-center shrink-0 ${compact ? '' : 'text-muted-foreground'}`}>
-                                          {c.icon ?? (c.href.includes('/backend/entities/user/') && c.href.endsWith('/records') ? DataTableIcon : DefaultIcon)}
-                                        </span>
-                                        {!compact && <span>{c.title}</span>}
-                                      </Link>
-                                    )
-                                  })}
-                                </div>
-                              ) : null}
-                            </React.Fragment>
-                          )
-                        })}
-                      </div>
-                    )}
-                    {gi !== lastVisibleGroupIndex && <div className="my-2 border-t border-dotted" />}
+                      {(pathname?.startsWith('/backend/settings') || pathname?.startsWith('/backend/config') || pathname?.startsWith('/backend/users') || pathname?.startsWith('/backend/roles') || pathname?.startsWith('/backend/api-keys') || pathname?.startsWith('/backend/entities') || pathname?.startsWith('/backend/query-indexes') || pathname?.startsWith('/backend/definitions') || pathname?.startsWith('/backend/instances') || pathname?.startsWith('/backend/tasks') || pathname?.startsWith('/backend/events') || pathname?.startsWith('/backend/rules') || pathname?.startsWith('/backend/sets') || pathname?.startsWith('/backend/logs') || pathname?.startsWith('/backend/directory') || pathname?.startsWith('/backend/feature-toggles')) && (
+                        <span className="absolute left-0 top-1 bottom-1 w-0.5 rounded bg-foreground" />
+                      )}
+                      <span className={`flex items-center justify-center shrink-0 ${compact ? '' : 'text-muted-foreground'}`}>
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                          <circle cx="12" cy="12" r="3" />
+                          <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z" />
+                        </svg>
+                      </span>
+                      {!compact && <span>{t('backend.nav.settings', 'Settings')}</span>}
+                    </Link>
                   </div>
-                )
-              })}
-            </nav>
+                </>
+              )
+            })()
           )}
         </div>
         {!customizing && (
@@ -899,11 +1098,11 @@ export function AppShell({ productName, email, groups, rightHeaderSlot, children
       <aside className={`${asideClassesBase} ${effectiveCollapsed ? 'px-2' : 'px-3'} hidden lg:block`} style={{ width: asideWidth }}>{renderSidebar(effectiveCollapsed)}</aside>
 
       <div className="flex min-h-svh flex-col min-w-0">
-        <header className="border-b bg-background/60 px-3 lg:px-4 py-2 lg:py-3 flex flex-col gap-2 lg:gap-3 lg:flex-row lg:items-center lg:justify-between">
-          <div className="flex items-center gap-2 min-w-0">
+        <header className="border-b bg-background/60 px-3 lg:px-4 py-3 flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+          <div className="flex items-center gap-2 flex-wrap">
             {/* Mobile menu button */}
-            <button type="button" className="lg:hidden shrink-0 rounded border h-8 w-8 p-0 flex items-center justify-center" aria-label={t('appShell.openMenu')} onClick={() => setMobileOpen(true)}>
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M3 6h18M3 12h18M3 18h18"/></svg>
+            <button type="button" className="lg:hidden rounded border px-2 py-1" aria-label={t('appShell.openMenu')} onClick={() => setMobileOpen(true)}>
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M3 6h18M3 12h18M3 18h18"/></svg>
             </button>
             {/* Desktop collapse toggle */}
             <button
@@ -933,38 +1132,24 @@ export function AppShell({ productName, email, groups, rightHeaderSlot, children
               }
               const items = [...root, ...rest]
               return (
-                <nav className="flex items-center gap-1 lg:gap-2 text-xs lg:text-sm min-w-0 overflow-hidden">
-                  {items.map((b, i) => {
-                    const isLast = i === items.length - 1
-                    const isMiddle = i > 0 && !isLast
-                    return (
-                      <React.Fragment key={i}>
-                        {i > 0 && <span className={`text-muted-foreground shrink-0 ${isMiddle ? 'hidden sm:inline' : ''}`}>/</span>}
-                        {isMiddle ? (
-                          b.href ? (
-                            <Link href={b.href} className="text-muted-foreground hover:text-foreground hidden sm:inline shrink-0">
-                              {b.label}
-                            </Link>
-                          ) : (
-                            <span className="text-muted-foreground hidden sm:inline shrink-0">{b.label}</span>
-                          )
-                        ) : b.href ? (
-                          <Link href={b.href} className="text-muted-foreground hover:text-foreground shrink-0">
-                            {b.label}
-                          </Link>
-                        ) : (
-                          <span className="font-medium truncate max-w-[50vw] sm:max-w-[60vw]">{b.label}</span>
-                        )}
-                      </React.Fragment>
-                    )
-                  })}
+                <nav className="flex items-center gap-2 text-sm">
+                  {items.map((b, i) => (
+                    <React.Fragment key={i}>
+                      {i > 0 && <span className="text-muted-foreground">/</span>}
+                      {b.href ? (
+                        <Link href={b.href} className="text-muted-foreground hover:text-foreground">
+                          {b.label}
+                        </Link>
+                      ) : (
+                        <span className="font-medium truncate max-w-[60vw]">{b.label}</span>
+                      )}
+                    </React.Fragment>
+                  ))}
                 </nav>
               )
             })()}
           </div>
-          <div className="flex items-center gap-1 lg:gap-2 text-sm w-full lg:w-auto lg:justify-end">
-            <ThemeToggle />
-            <Separator className="w-px h-4 lg:h-5 mx-0.5 lg:mx-1" />
+          <div className="flex items-center gap-2 text-sm w-full lg:w-auto lg:justify-end">
             {rightHeaderSlot ? (
               rightHeaderSlot
             ) : (
@@ -972,14 +1157,14 @@ export function AppShell({ productName, email, groups, rightHeaderSlot, children
             )}
           </div>
         </header>
-        <main className="flex-1 p-3 lg:p-6">
+        <main className="flex-1 p-4 lg:p-6">
           <FlashMessages />
           <PartialIndexBanner />
           <UpgradeActionBanner />
           <LastOperationBanner />
           {children}
         </main>
-        <footer className="border-t bg-background/80 backdrop-blur supports-[backdrop-filter]:bg-background/50 px-3 lg:px-4 py-2 lg:py-3 flex flex-wrap items-center justify-end gap-2 lg:gap-4">
+        <footer className="border-t bg-background/80 backdrop-blur supports-[backdrop-filter]:bg-background/50 px-4 py-3 flex flex-wrap items-center justify-end gap-4">
           {version ? (
             <span className="text-xs text-muted-foreground">
               {t('appShell.version', { version })}
@@ -993,7 +1178,6 @@ export function AppShell({ productName, email, groups, rightHeaderSlot, children
               {t('common.privacy')}
             </Link>
           </nav>
-          <LanguageSwitcher />
         </footer>
       </div>
 
@@ -1007,7 +1191,7 @@ export function AppShell({ productName, email, groups, rightHeaderSlot, children
                 <Image src="/open-mercato.svg" alt={resolvedProductName} width={28} height={28} className="rounded" />
                 {resolvedProductName}
               </Link>
-              <button className="rounded border h-8 w-8 flex items-center justify-center" onClick={() => setMobileOpen(false)} aria-label={t('appShell.closeMenu')}>✕</button>
+              <button className="rounded border px-2 py-1" onClick={() => setMobileOpen(false)} aria-label={t('appShell.closeMenu')}>✕</button>
             </div>
             <div className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden p-3">
               {/* Force expanded sidebar in mobile drawer, hide its header and collapse toggle */}
@@ -1030,6 +1214,7 @@ AppShell.cloneGroups = function cloneGroups(groups: AppShellProps['groups']): Ap
     icon: item.icon,
     enabled: item.enabled,
     hidden: item.hidden,
+    pageContext: item.pageContext,
     children: item.children ? item.children.map((child) => cloneItem(child)) : undefined,
   })
   return groups.map((group) => ({
@@ -1117,4 +1302,26 @@ function collectSidebarDefaults(groups: SidebarGroup[]) {
   }
 
   return { groupDefaults, itemDefaults }
+}
+
+/**
+ * Filters groups to include only main sidebar items.
+ * Excludes items with pageContext 'settings' or 'profile' from customization.
+ * Per SPEC-007: Sidebar customization applies only to the main sidebar.
+ */
+function filterMainSidebarGroups(groups: SidebarGroup[]): SidebarGroup[] {
+  const isMainItem = (item: SidebarItem): boolean => {
+    if (item.pageContext && item.pageContext !== 'main') return false
+    return true
+  }
+
+  return groups
+    .map((group) => ({
+      ...group,
+      items: group.items.filter(isMainItem).map((item) => ({
+        ...item,
+        children: item.children?.filter(isMainItem),
+      })),
+    }))
+    .filter((group) => group.items.length > 0)
 }

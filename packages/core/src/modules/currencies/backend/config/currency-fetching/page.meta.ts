@@ -13,9 +13,10 @@ export const metadata = {
   icon: exchangeRateIcon,
   requireAuth: true,
   requireFeatures: ['currencies.fetch.view'],
-  pageGroup: 'Configuration',
-  pageGroupKey: 'backend.nav.configuration',
+  pageGroup: 'Module Configs',
+  pageGroupKey: 'settings.sections.moduleConfigs',
   pageTitle: 'Currency Rate Fetching',
   pageTitleKey: 'currencies.fetch.title',
-  pageOrder: 400,
+  pageOrder: 4,
+  pageContext: 'settings' as const,
 }

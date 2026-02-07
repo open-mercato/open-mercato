@@ -123,7 +123,7 @@ const createRoleCommand: CommandHandler<Record<string, unknown>, Role> = {
     return role
   },
   captureAfter: async (_input, result, ctx) => {
-    const em = (ctx.container.resolve('em') as EntityManager)
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
     const custom = await loadCustomFieldSnapshot(em, {
       entityId: E.auth.role,
       recordId: String(result.id),
@@ -133,7 +133,7 @@ const createRoleCommand: CommandHandler<Record<string, unknown>, Role> = {
   },
   buildLog: async ({ result, ctx }) => {
     const { translate } = await resolveTranslations()
-    const em = (ctx.container.resolve('em') as EntityManager)
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
     const custom = await loadCustomFieldSnapshot(em, {
       entityId: E.auth.role,
       recordId: String(result.id),
@@ -246,7 +246,7 @@ const updateRoleCommand: CommandHandler<Record<string, unknown>, Role> = {
     return role
   },
   captureAfter: async (_input, result, ctx) => {
-    const em = (ctx.container.resolve('em') as EntityManager)
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
     const custom = await loadCustomFieldSnapshot(em, {
       entityId: E.auth.role,
       recordId: String(result.id),
@@ -259,7 +259,7 @@ const updateRoleCommand: CommandHandler<Record<string, unknown>, Role> = {
     const beforeSnapshots = snapshots.before as RoleSnapshots | undefined
     const before = beforeSnapshots?.view
     const beforeUndo = beforeSnapshots?.undo ?? null
-    const em = (ctx.container.resolve('em') as EntityManager)
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
     const afterAcls = await loadRoleAclSnapshots(em, String(result.id))
     const custom = await loadCustomFieldSnapshot(em, {
       entityId: E.auth.role,

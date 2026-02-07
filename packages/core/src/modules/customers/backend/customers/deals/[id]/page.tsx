@@ -7,6 +7,7 @@ import { Pencil, MousePointerClick } from 'lucide-react'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { FormHeader } from '@open-mercato/ui/backend/forms'
+import { VersionHistoryAction } from '@open-mercato/ui/backend/version-history'
 import { Spinner } from '@open-mercato/ui/primitives/spinner'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { apiCallOrThrow, readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
@@ -392,6 +393,12 @@ export default function DealDetailPage({ params }: { params?: { id?: string } })
             mode="detail"
             backHref="/backend/customers/deals"
             backLabel={t('customers.deals.detail.backToList', 'Back to deals')}
+            utilityActions={(
+              <VersionHistoryAction
+                config={{ resourceKind: 'customers.deal', resourceId: data.deal.id }}
+                t={t}
+              />
+            )}
             title={
               <div className="flex flex-wrap items-center gap-2">
                 <span>{data.deal.title || t('customers.deals.detail.untitled', 'Untitled deal')}</span>

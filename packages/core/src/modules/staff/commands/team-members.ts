@@ -190,14 +190,14 @@ const createTeamMemberCommand: CommandHandler<StaffTeamMemberCreateInput, { memb
     return { memberId: member.id }
   },
   captureAfter: async (_input, result, ctx) => {
-    const em = (ctx.container.resolve('em') as EntityManager)
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
     const snapshot = await loadTeamMemberSnapshot(em, result.memberId)
     if (!snapshot) return null
     const custom = await loadTeamMemberCustomSnapshot(em, snapshot)
     return { snapshot, custom }
   },
   buildLog: async ({ result, ctx }) => {
-    const em = (ctx.container.resolve('em') as EntityManager)
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
     const snapshot = await loadTeamMemberSnapshot(em, result.memberId)
     if (!snapshot) return null
     const custom = await loadTeamMemberCustomSnapshot(em, snapshot)
@@ -319,7 +319,7 @@ const updateTeamMemberCommand: CommandHandler<StaffTeamMemberUpdateInput, { memb
   buildLog: async ({ snapshots, ctx }) => {
     const before = snapshots.before as TeamMemberSnapshot | undefined
     if (!before) return null
-    const em = (ctx.container.resolve('em') as EntityManager)
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
     const after = await loadTeamMemberSnapshot(em, before.id)
     if (!after) return null
     const customBefore = (snapshots as { customBefore?: CustomFieldSnapshot | null }).customBefore ?? undefined

@@ -79,7 +79,7 @@ const assignResourceTagCommand: CommandHandler<ResourcesResourceTagAssignmentInp
   },
   buildLog: async ({ result, ctx }) => {
     const { translate } = await resolveTranslations()
-    const em = (ctx.container.resolve('em') as EntityManager)
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
     const assignment = await findOneWithDecryption(
       em,
       ResourcesResourceTagAssignment,

@@ -680,7 +680,7 @@ function normalizeVariantOptionValues(input: unknown): Record<string, string> | 
     offerSnapshotsRef.current = mergeOfferSnapshots(previousSnapshots, offersPayload)
     flash(t('catalog.products.edit.success', 'Product updated.'), 'success')
     router.push('/backend/catalog/products')
-  }, [productId, t])
+  }, [productId, t, taxRates, router])
 
   if (!productId) {
     return (
@@ -703,6 +703,7 @@ function normalizeVariantOptionValues(input: unknown): Record<string, string> | 
         <CrudForm<ProductFormValues>
           title={t('catalog.products.edit.title', 'Edit product')}
           backHref="/backend/catalog/products"
+          versionHistory={{ resourceKind: 'catalog.product', resourceId: productId ? String(productId) : '' }}
           fields={[]}
           groups={groups}
           injectionSpotId="crud-form:catalog.product"

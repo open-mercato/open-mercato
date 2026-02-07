@@ -14,11 +14,22 @@ import {
 } from './shared'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
-import type { CrudIndexerConfig } from '@open-mercato/shared/lib/crud/types'
+import type { CrudIndexerConfig, CrudEventsConfig } from '@open-mercato/shared/lib/crud/types'
 import { E } from '#generated/entities.ids.generated'
 
 const addressCrudIndexer: CrudIndexerConfig<CustomerAddress> = {
   entityType: E.customers.customer_address,
+}
+
+const addressCrudEvents: CrudEventsConfig = {
+  module: 'customers',
+  entity: 'address',
+  persistent: true,
+  buildPayload: (ctx) => ({
+    id: ctx.identifiers.id,
+    organizationId: ctx.identifiers.organizationId,
+    tenantId: ctx.identifiers.tenantId,
+  }),
 }
 
 type AddressSnapshot = {
@@ -131,18 +142,18 @@ const createAddressCommand: CommandHandler<AddressCreateInput, { addressId: stri
         tenantId: address.tenantId,
       },
       indexer: addressCrudIndexer,
+      events: addressCrudEvents,
     })
 
     return { addressId: address.id }
   },
   captureAfter: async (_input, result, ctx) => {
-    const em = (ctx.container.resolve('em') as EntityManager)
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
     return await loadAddressSnapshot(em, result.addressId)
   },
-  buildLog: async ({ result, ctx }) => {
+  buildLog: async ({ result, snapshots }) => {
     const { translate } = await resolveTranslations()
-    const em = (ctx.container.resolve('em') as EntityManager)
-    const snapshot = await loadAddressSnapshot(em, result.addressId)
+    const snapshot = snapshots.after as AddressSnapshot | undefined
     return {
       actionLabel: translate('customers.audit.addresses.create', 'Create address'),
       resourceKind: 'customers.address',
@@ -223,16 +234,20 @@ const updateAddressCommand: CommandHandler<AddressUpdateInput, { addressId: stri
         tenantId: address.tenantId,
       },
       indexer: addressCrudIndexer,
+      events: addressCrudEvents,
     })
 
     return { addressId: address.id }
   },
-  buildLog: async ({ snapshots, ctx }) => {
+  captureAfter: async (_input, result, ctx) => {
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
+    return await loadAddressSnapshot(em, result.addressId)
+  },
+  buildLog: async ({ snapshots }) => {
     const { translate } = await resolveTranslations()
     const before = snapshots.before as AddressSnapshot | undefined
     if (!before) return null
-    const em = (ctx.container.resolve('em') as EntityManager)
-    const afterSnapshot = await loadAddressSnapshot(em, before.id)
+    const afterSnapshot = snapshots.after as AddressSnapshot | undefined
     const changes =
       afterSnapshot && before
         ? buildChanges(
@@ -339,6 +354,7 @@ const updateAddressCommand: CommandHandler<AddressUpdateInput, { addressId: stri
         tenantId: address.tenantId,
       },
       indexer: addressCrudIndexer,
+      events: addressCrudEvents,
     })
   },
 }
@@ -373,6 +389,7 @@ const deleteAddressCommand: CommandHandler<{ body?: Record<string, unknown>; que
           tenantId: address.tenantId,
         },
         indexer: addressCrudIndexer,
+        events: addressCrudEvents,
       })
       return { addressId: address.id }
     },
@@ -402,15 +419,15 @@ const deleteAddressCommand: CommandHandler<{ body?: Record<string, unknown>; que
       const entity = await requireCustomerEntity(em, before.entityId, undefined, 'Customer not found')
       let address = await em.findOne(CustomerAddress, { id: before.id })
       if (!address) {
-      address = em.create(CustomerAddress, {
-        id: before.id,
-        organizationId: before.organizationId,
-        tenantId: before.tenantId,
-        entity,
-        name: before.name,
-        purpose: before.purpose,
-        companyName: before.companyName,
-        addressLine1: before.addressLine1,
+        address = em.create(CustomerAddress, {
+          id: before.id,
+          organizationId: before.organizationId,
+          tenantId: before.tenantId,
+          entity,
+          name: before.name,
+          purpose: before.purpose,
+          companyName: before.companyName,
+          addressLine1: before.addressLine1,
           addressLine2: before.addressLine2,
           buildingNumber: before.buildingNumber,
           flatNumber: before.flatNumber,
@@ -458,6 +475,7 @@ const deleteAddressCommand: CommandHandler<{ body?: Record<string, unknown>; que
           tenantId: address.tenantId,
         },
         indexer: addressCrudIndexer,
+        events: addressCrudEvents,
       })
     },
   }

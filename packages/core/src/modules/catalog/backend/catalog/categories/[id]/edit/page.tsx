@@ -204,6 +204,7 @@ export default function EditCatalogCategoryPage({ params }: { params?: { id?: st
         <CrudForm<CategoryFormValues>
           title={t('catalog.categories.form.editTitle', 'Edit category')}
           backHref="/backend/catalog/categories"
+          versionHistory={{ resourceKind: 'catalog.category', resourceId: categoryId ? String(categoryId) : '' }}
           fields={fields}
           groups={groups}
           entityId={E.catalog.catalog_product_category}

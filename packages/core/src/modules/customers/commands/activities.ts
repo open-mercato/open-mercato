@@ -5,7 +5,6 @@ import {
   setCustomFieldsIfAny,
   emitCrudSideEffects,
   emitCrudUndoSideEffects,
-  buildChanges,
   requireId,
 } from '@open-mercato/shared/lib/commands/helpers'
 import type { DataEngine } from '@open-mercato/shared/lib/data/engine'
@@ -31,17 +30,27 @@ import {
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import {
   loadCustomFieldSnapshot,
-  diffCustomFieldChanges,
   buildCustomFieldResetMap,
   type CustomFieldChangeSet,
 } from '@open-mercato/shared/lib/commands/customFieldSnapshots'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
-import type { CrudIndexerConfig } from '@open-mercato/shared/lib/crud/types'
+import type { CrudIndexerConfig, CrudEventsConfig } from '@open-mercato/shared/lib/crud/types'
 import { E } from '#generated/entities.ids.generated'
 
 const ACTIVITY_ENTITY_ID = 'customers:customer_activity'
 const activityCrudIndexer: CrudIndexerConfig<CustomerActivity> = {
   entityType: E.customers.customer_activity,
+}
+
+const activityCrudEvents: CrudEventsConfig = {
+  module: 'customers',
+  entity: 'activity',
+  persistent: true,
+  buildPayload: (ctx) => ({
+    id: ctx.identifiers.id,
+    organizationId: ctx.identifiers.organizationId,
+    tenantId: ctx.identifiers.tenantId,
+  }),
 }
 
 const UUID_REGEX = /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-5][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$/
@@ -184,18 +193,18 @@ const createActivityCommand: CommandHandler<ActivityCreateInput, { activityId: s
         tenantId: activity.tenantId,
       },
       indexer: activityCrudIndexer,
+      events: activityCrudEvents,
     })
 
     return { activityId: activity.id }
   },
   captureAfter: async (_input, result, ctx) => {
-    const em = (ctx.container.resolve('em') as EntityManager)
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
     return await loadActivitySnapshot(em, result.activityId)
   },
-  buildLog: async ({ result, ctx }) => {
+  buildLog: async ({ result, snapshots }) => {
     const { translate } = await resolveTranslations()
-    const em = (ctx.container.resolve('em') as EntityManager)
-    const snapshot = await loadActivitySnapshot(em, result.activityId)
+    const snapshot = snapshots.after as ActivitySnapshot | undefined
     return {
       actionLabel: translate('customers.audit.activities.create', 'Create activity'),
       resourceKind: 'customers.activity',
@@ -292,37 +301,20 @@ const updateActivityCommand: CommandHandler<ActivityUpdateInput, { activityId: s
         tenantId: activity.tenantId,
       },
       indexer: activityCrudIndexer,
+      events: activityCrudEvents,
     })
 
     return { activityId: activity.id }
   },
-  buildLog: async ({ snapshots, ctx }) => {
+  captureAfter: async (_input, result, ctx) => {
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
+    return await loadActivitySnapshot(em, result.activityId)
+  },
+  buildLog: async ({ snapshots }) => {
     const { translate } = await resolveTranslations()
     const before = snapshots.before as ActivitySnapshot | undefined
     if (!before) return null
-    const em = (ctx.container.resolve('em') as EntityManager)
-    const afterSnapshot = await loadActivitySnapshot(em, before.activity.id)
-    const changeKeys: readonly string[] = [
-      'entityId',
-      'dealId',
-      'activityType',
-      'subject',
-      'body',
-      'occurredAt',
-      'authorUserId',
-      'appearanceIcon',
-      'appearanceColor',
-    ]
-    const changes: ActivityChangeMap =
-      afterSnapshot && afterSnapshot.activity
-        ? buildChanges(
-            before.activity as Record<string, unknown>,
-            afterSnapshot.activity as Record<string, unknown>,
-            changeKeys
-          )
-        : {}
-    const customChanges = diffCustomFieldChanges(before.custom, afterSnapshot?.custom)
-    if (Object.keys(customChanges).length) changes.custom = customChanges
+    const afterSnapshot = snapshots.after as ActivitySnapshot | undefined
     return {
       actionLabel: translate('customers.audit.activities.update', 'Update activity'),
       resourceKind: 'customers.activity',
@@ -331,7 +323,6 @@ const updateActivityCommand: CommandHandler<ActivityUpdateInput, { activityId: s
       organizationId: before.activity.organizationId,
       snapshotBefore: before,
       snapshotAfter: afterSnapshot ?? null,
-      changes,
       payload: {
         undo: {
           before,
@@ -392,6 +383,7 @@ const updateActivityCommand: CommandHandler<ActivityUpdateInput, { activityId: s
         tenantId: activity.tenantId,
       },
       indexer: activityCrudIndexer,
+      events: activityCrudEvents,
     })
 
     const resetValues = buildCustomFieldResetMap(before.custom, payload?.after?.custom)
@@ -439,6 +431,7 @@ const deleteActivityCommand: CommandHandler<{ body?: Record<string, unknown>; qu
           tenantId: activity.tenantId,
         },
         indexer: activityCrudIndexer,
+        events: activityCrudEvents,
       })
       return { activityId: activity.id }
     },
@@ -510,6 +503,7 @@ const deleteActivityCommand: CommandHandler<{ body?: Record<string, unknown>; qu
           tenantId: activity.tenantId,
         },
         indexer: activityCrudIndexer,
+        events: activityCrudEvents,
       })
 
       const resetValues = buildCustomFieldResetMap(before.custom, undefined)

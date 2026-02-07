@@ -3,7 +3,7 @@ import * as React from 'react'
 import { useRouter } from 'next/navigation'
 import { useReactTable, getCoreRowModel, getSortedRowModel, flexRender, type ColumnDef, type SortingState, type Column as TableColumn, type VisibilityState } from '@tanstack/react-table'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { RefreshCw, Loader2, SlidersHorizontal, MoreHorizontal, Circle, ChevronLeft, ChevronRight } from 'lucide-react'
+import { RefreshCw, Loader2, SlidersHorizontal, MoreHorizontal, Circle } from 'lucide-react'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../primitives/table'
 import { Button } from '../primitives/button'
 import { Spinner } from '../primitives/spinner'
@@ -1247,8 +1247,8 @@ export function DataTable<T>({
     ) : null
 
     return (
-      <div className="flex items-center justify-between px-3 md:px-4 py-2 md:py-3 border-t">
-        <div className="hidden md:flex text-sm text-muted-foreground items-center gap-2">
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 px-4 py-3 border-t">
+        <div className="text-sm text-muted-foreground flex items-center justify-center sm:justify-start gap-2">
           <span>
             {durationLabel
               ? t('ui.dataTable.pagination.resultsWithDuration', 'Showing {start} to {end} of {total} results in {duration}', { start: startItem, end: endItem, total: pagination.total, duration: durationLabel })
@@ -1257,36 +1257,25 @@ export function DataTable<T>({
           </span>
           {cacheBadge}
         </div>
-        <div className="flex md:hidden text-sm text-muted-foreground items-center gap-2">
-          <span>{pagination.total}</span>
-          {cacheBadge}
-        </div>
-        <div className="flex items-center gap-1 md:gap-2">
+        <div className="flex items-center justify-center sm:justify-end gap-2">
           <Button
             variant="outline"
             size="sm"
             onClick={() => onPageChange(page - 1)}
             disabled={page <= 1}
-            aria-label={t('ui.dataTable.pagination.previousAriaLabel', 'Go to previous page')}
-            className="px-2 md:px-3"
           >
-            <ChevronLeft className="h-4 w-4 md:hidden" />
-            <span className="hidden md:inline">{t('ui.dataTable.pagination.previous', 'Previous')}</span>
+            {t('ui.dataTable.pagination.previous', 'Previous')}
           </Button>
-          <span className="text-sm px-1 md:px-2 tabular-nums">
-            <span className="md:hidden">{page}/{totalPages}</span>
-            <span className="hidden md:inline">{t('ui.dataTable.pagination.pageInfo', 'Page {page} of {totalPages}', { page, totalPages })}</span>
+          <span className="text-sm whitespace-nowrap">
+            {t('ui.dataTable.pagination.pageInfo', 'Page {page} of {totalPages}', { page, totalPages })}
           </span>
           <Button
             variant="outline"
             size="sm"
             onClick={() => onPageChange(page + 1)}
             disabled={page >= totalPages}
-            aria-label={t('ui.dataTable.pagination.nextAriaLabel', 'Go to next page')}
-            className="px-2 md:px-3"
           >
-            <ChevronRight className="h-4 w-4 md:hidden" />
-            <span className="hidden md:inline">{t('ui.dataTable.pagination.next', 'Next')}</span>
+            {t('ui.dataTable.pagination.next', 'Next')}
           </Button>
         </div>
       </div>

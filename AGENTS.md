@@ -345,6 +345,7 @@ docker stop verdaccio && docker rm verdaccio
 - JS/TS fields and identifiers: camelCase.
 - Database tables and columns: snake_case; table names plural.
 - Keep code minimal and focused; avoid side effects across modules.
+- Command/undo helpers and shared payload types must live in `packages/shared/src/lib/commands/` (no per-module copies or cross-module imports).
 - **Where to put code**:
   - Core platform features → `packages/<package>/src/modules/<module>/`
   - Shared utilities and types → `packages/shared/src/lib/` or `packages/shared/src/modules/`
@@ -1031,9 +1032,9 @@ Modules that emit events must declare them in an `events.ts` file for type safet
 import { createModuleEvents } from '@open-mercato/shared/modules/events'
 
 const events = [
-  { id: 'customers.people.created', label: 'Customer (Person) Created', entity: 'people', category: 'crud' },
-  { id: 'customers.people.updated', label: 'Customer (Person) Updated', entity: 'people', category: 'crud' },
-  { id: 'customers.people.deleted', label: 'Customer (Person) Deleted', entity: 'people', category: 'crud' },
+  { id: 'customers.person.created', label: 'Customer (Person) Created', entity: 'person', category: 'crud' },
+  { id: 'customers.person.updated', label: 'Customer (Person) Updated', entity: 'person', category: 'crud' },
+  { id: 'customers.person.deleted', label: 'Customer (Person) Deleted', entity: 'person', category: 'crud' },
   // Lifecycle events can be excluded from workflow triggers
   { id: 'customers.pricing.resolve.before', label: 'Before Pricing Resolve', category: 'lifecycle', excludeFromTriggers: true },
 ] as const
@@ -1056,7 +1057,7 @@ export default eventsConfig
 
 | Field | Required | Description |
 |-------|----------|-------------|
-| `id` | Yes | Event identifier (pattern: `module.entity.action`) |
+| `id` | Yes | Event identifier (pattern: `module.singularEntity.action`) |
 | `label` | Yes | Human-readable label for UI |
 | `description` | No | Optional detailed description |
 | `category` | No | `'crud'` \| `'lifecycle'` \| `'system'` \| `'custom'` |
@@ -1069,21 +1070,20 @@ Using `as const` with the events array provides compile-time safety:
 
 ```typescript
 // ✅ Compiles - event is declared
-emitCustomersEvent('customers.people.created', { id: '123', tenantId: 'abc' })
+emitCustomersEvent('customers.person.created', { id: '123', tenantId: 'abc' })
 
 // ❌ TypeScript error - event not declared
-emitCustomersEvent('customers.people.exploded', { id: '123' })
+emitCustomersEvent('customers.person.exploded', { id: '123' })
 ```
 
 ### Runtime Validation
 
 Undeclared events trigger runtime warnings:
 ```
-[events] Module "customers" tried to emit undeclared event "customers.people.exploded".
+[events] Module "customers" tried to emit undeclared event "customers.person.exploded".
 Add it to the module's events.ts file first.
 ```
 
 ### Auto-Discovery
 
 Events are auto-discovered by generators and registered via `generated/events.generated.ts`. Run `npm run modules:prepare` after creating or modifying `events.ts` files.
-

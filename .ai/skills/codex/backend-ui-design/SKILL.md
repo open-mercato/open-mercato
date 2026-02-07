@@ -176,9 +176,18 @@ NEVER use `alert()`, `console.log()`, or custom toast implementations.
 ```tsx
 import { Spinner } from '@open-mercato/ui/primitives/spinner'
 import { DataLoader } from '@open-mercato/ui/primitives/DataLoader'
+import { Notice } from '@open-mercato/ui/primitives/Notice'
 import { ErrorNotice } from '@open-mercato/ui/primitives/ErrorNotice'
 import { EmptyState } from '@open-mercato/ui/backend/EmptyState'
 import { LoadingMessage, ErrorMessage } from '@open-mercato/ui/backend/detail'
+
+// Notice variants: 'error' | 'info' | 'warning'
+// Use compact mode for inline hints:
+<Notice compact>{t('audit_logs.hint.view_self_only')}</Notice>
+// Use full mode for prominent messages:
+<Notice variant="warning" title="Warning" message="This action cannot be undone." />
+// ErrorNotice is a convenience wrapper:
+<ErrorNotice title="Something went wrong" message="Unable to load data." />
 ```
 
 ### Primitives (use sparingly, prefer backend components)
@@ -204,7 +213,8 @@ Before writing any backend UI code, verify:
 - [ ] Dialog forms have `embedded={true}`
 - [ ] Keyboard shortcuts: Cmd/Ctrl+Enter (submit), Escape (cancel)
 - [ ] Loading states use `LoadingMessage` or `DataLoader`
-- [ ] Error states use `ErrorMessage` or `ErrorNotice`
+- [ ] Error states use `ErrorMessage`, `ErrorNotice`, or `<Notice variant="error">`
+- [ ] Info/warning hints use `<Notice compact>` or `<Notice variant="warning">`
 - [ ] Empty states use `EmptyState`
 - [ ] Column truncation configured with `meta.truncate` and `meta.maxWidth`
 - [ ] Boolean values use `BooleanIcon`

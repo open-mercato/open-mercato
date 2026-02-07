@@ -40,6 +40,8 @@ export type FormHeaderDetailProps = FormHeaderBaseProps & {
   statusBadge?: React.ReactNode
   /** Context actions grouped into an "Actions" dropdown (preferred) */
   menuActions?: ActionItem[]
+  /** Optional utility actions (icon-only) displayed before menu actions */
+  utilityActions?: React.ReactNode
   /** Delete action -- rendered as a standalone destructive button next to the dropdown */
   onDelete?: () => void
   /** Delete button label */
@@ -93,6 +95,7 @@ function DetailHeader({
   subtitle,
   statusBadge,
   menuActions,
+  utilityActions,
   onDelete,
   deleteLabel,
   isDeleting,
@@ -101,7 +104,7 @@ function DetailHeader({
   const t = useT()
   const resolvedDeleteLabel = deleteLabel ?? t('ui.forms.actions.delete')
 
-  const hasActions = actionsContent || menuActions?.length || onDelete
+  const hasActions = actionsContent || utilityActions || menuActions?.length || onDelete
 
   return (
     <div className="flex flex-col gap-2 md:gap-3 md:flex-row md:items-center md:justify-between">
@@ -134,10 +137,9 @@ function DetailHeader({
       </div>
       {hasActions ? (
         <div className="flex flex-wrap items-center gap-2">
-          {actionsContent ? (
-            actionsContent
-          ) : (
+          {actionsContent ? actionsContent : (
             <>
+              {utilityActions}
               {menuActions?.length ? <ActionsDropdown items={menuActions} /> : null}
               {onDelete ? (
                 <Button

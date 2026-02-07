@@ -83,7 +83,7 @@ const updateTagCommand: CommandHandler<ResourcesResourceTagUpdateInput, { tagId:
   },
   buildLog: async ({ input, result, ctx }) => {
     const { translate } = await resolveTranslations()
-    const em = (ctx.container.resolve('em') as EntityManager)
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
     const tag = result?.tagId ? await em.findOne(ResourcesResourceTag, { id: result.tagId }) : null
     return {
       actionLabel: translate('resources.audit.resourceTags.update', 'Update resource tag'),

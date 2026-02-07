@@ -93,7 +93,9 @@ export function buildChanges(
 ): Record<string, { from: unknown; to: unknown }> {
   if (!before) return {}
   const diff: Record<string, { from: unknown; to: unknown }> = {}
+  const skipped = new Set(['updatedAt', 'updated_at'])
   for (const key of keys) {
+    if (skipped.has(key)) continue
     const prev = before[key]
     const next = after[key]
     if (prev !== next) diff[key] = { from: prev, to: next }

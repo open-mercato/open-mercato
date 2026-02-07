@@ -20,6 +20,7 @@ import {
   pickFirstIdentifier,
   isCrudCacheDebugEnabled,
 } from '@open-mercato/shared/lib/crud/cache'
+import { normalizeCustomFieldKey } from '@open-mercato/shared/lib/custom-fields/keys'
 
 const SKIPPED_ACTION_LOG_RESOURCE_KINDS = new Set<string>([
   'audit_logs.access',
@@ -32,6 +33,124 @@ const SKIPPED_ACTION_LOG_RESOURCE_KINDS = new Set<string>([
 function asRecord(input: unknown): Record<string, unknown> | null {
   if (!input || typeof input !== 'object' || Array.isArray(input)) return null
   return input as Record<string, unknown>
+}
+
+function toISOString(value: unknown): string | null {
+  if (value instanceof Date) {
+    const iso = value.toISOString()
+    return Number.isNaN(value.getTime()) ? null : iso
+  }
+  if (typeof value === 'string') {
+    const parsed = new Date(value)
+    return Number.isNaN(parsed.getTime()) ? null : parsed.toISOString()
+  }
+  return null
+}
+
+function deepEqual(a: unknown, b: unknown, seen?: Set<unknown>): boolean {
+  if (Object.is(a, b)) return true
+  if (a instanceof Date || b instanceof Date) {
+    const aIso = toISOString(a)
+    const bIso = toISOString(b)
+    if (aIso != null && bIso != null) return aIso === bIso
+    return false
+  }
+  if (Array.isArray(a) && Array.isArray(b)) {
+    if (a.length !== b.length) return false
+    return a.every((value, index) => deepEqual(value, b[index], seen))
+  }
+  if (a && b && typeof a === 'object' && typeof b === 'object') {
+    if (!seen) seen = new Set()
+    if (seen.has(a) || seen.has(b)) return false
+    seen.add(a)
+    seen.add(b)
+    const aRec = a as Record<string, unknown>
+    const bRec = b as Record<string, unknown>
+    const keysA = Object.keys(aRec)
+    const keysB = Object.keys(bRec)
+    if (keysA.length !== keysB.length) return false
+    return keysA.every((key) => deepEqual(aRec[key], bRec[key], seen))
+  }
+  return false
+}
+
+const CUSTOM_FIELD_CONTAINER_KEYS = new Set(['custom', 'customFields', 'customValues', 'cf'])
+const SKIPPED_CHANGE_KEYS = new Set(['updatedAt', 'updated_at'])
+
+function appendCustomFieldChanges(
+  changes: Record<string, { from: unknown; to: unknown }>,
+  before: unknown,
+  after: unknown
+): boolean {
+  const beforeRec = asRecord(before)
+  const afterRec = asRecord(after)
+  if (!beforeRec && !afterRec) return false
+  const left = beforeRec ?? {}
+  const right = afterRec ?? {}
+  const keys = new Set([...Object.keys(left), ...Object.keys(right)])
+  for (const key of keys) {
+    const from = left[key]
+    const to = right[key]
+    if (!deepEqual(from, to)) {
+      changes[normalizeCustomFieldKey(key)] = { from, to }
+    }
+  }
+  return true
+}
+
+function buildRecordChanges(
+  before: Record<string, unknown>,
+  after: Record<string, unknown>,
+): Record<string, { from: unknown; to: unknown }> {
+  return buildRecordChangesDeep(before, after)
+}
+
+function buildRecordChangesDeep(
+  before: Record<string, unknown>,
+  after: Record<string, unknown>,
+  prefix?: string,
+  seen?: Set<unknown>,
+): Record<string, { from: unknown; to: unknown }> {
+  const changes: Record<string, { from: unknown; to: unknown }> = {}
+  if (!seen) seen = new Set()
+  if (seen.has(before) || seen.has(after)) return changes
+  seen.add(before)
+  seen.add(after)
+  const keys = new Set([...Object.keys(before), ...Object.keys(after)])
+  for (const key of keys) {
+    if (SKIPPED_CHANGE_KEYS.has(key)) continue
+    if (CUSTOM_FIELD_CONTAINER_KEYS.has(key)) {
+      const handled = appendCustomFieldChanges(changes, before[key], after[key])
+      if (handled) continue
+    }
+    const from = before[key]
+    const to = after[key]
+    const path = prefix ? `${prefix}.${key}` : key
+    const fromRec = asRecord(from)
+    const toRec = asRecord(to)
+    if (fromRec && toRec) {
+      const nested = buildRecordChangesDeep(fromRec, toRec, path, seen)
+      if (Object.keys(nested).length) {
+        Object.assign(changes, nested)
+        continue
+      }
+    }
+    if (!deepEqual(from, to)) {
+      changes[path] = { from, to }
+    }
+  }
+  return changes
+}
+
+function deriveChangesFromSnapshots(
+  before: unknown,
+  after: unknown,
+): Record<string, { from: unknown; to: unknown }> | null {
+  const beforeRec = asRecord(before)
+  const afterRec = asRecord(after)
+  if (!beforeRec || !afterRec) return null
+  const changes = buildRecordChanges(beforeRec, afterRec)
+  return Object.keys(changes).length ? changes : null
 }
 
 function extractAliasList(source: unknown): string[] {
@@ -78,6 +197,17 @@ export class CommandBus {
         mergedMeta = { snapshotBefore: snapshots.before }
       } else if (!mergedMeta.snapshotBefore) {
         mergedMeta.snapshotBefore = snapshots.before
+      }
+    }
+    if (mergedMeta?.snapshotBefore !== undefined && mergedMeta?.snapshotAfter !== undefined) {
+      const currentChanges = mergedMeta.changes
+      const shouldInfer =
+        currentChanges === undefined ||
+        currentChanges === null ||
+        (typeof currentChanges === 'object' && !Array.isArray(currentChanges) && Object.keys(currentChanges).length === 0)
+      if (shouldInfer) {
+        const inferred = deriveChangesFromSnapshots(mergedMeta.snapshotBefore, mergedMeta.snapshotAfter)
+        if (inferred) mergedMeta.changes = inferred
       }
     }
     const logEntry = await this.persistLog(commandId, options, mergedMeta)
@@ -150,18 +280,18 @@ export class CommandBus {
   private mergeMetadata(primary?: CommandLogMetadata | null, secondary?: CommandLogMetadata | null): CommandLogMetadata | null {
     if (!primary && !secondary) return null
     return {
-      tenantId: primary?.tenantId ?? secondary?.tenantId ?? null,
-      organizationId: primary?.organizationId ?? secondary?.organizationId ?? null,
-      actorUserId: primary?.actorUserId ?? secondary?.actorUserId ?? null,
-      actionLabel: primary?.actionLabel ?? secondary?.actionLabel ?? null,
-      resourceKind: primary?.resourceKind ?? secondary?.resourceKind ?? null,
-      resourceId: primary?.resourceId ?? secondary?.resourceId ?? null,
-      undoToken: primary?.undoToken ?? secondary?.undoToken ?? null,
-      payload: primary?.payload ?? secondary?.payload ?? null,
-      snapshotBefore: primary?.snapshotBefore ?? secondary?.snapshotBefore ?? null,
-      snapshotAfter: primary?.snapshotAfter ?? secondary?.snapshotAfter ?? null,
-      changes: primary?.changes ?? secondary?.changes ?? null,
-      context: primary?.context ?? secondary?.context ?? null,
+      tenantId: secondary?.tenantId ?? primary?.tenantId ?? null,
+      organizationId: secondary?.organizationId ?? primary?.organizationId ?? null,
+      actorUserId: secondary?.actorUserId ?? primary?.actorUserId ?? null,
+      actionLabel: secondary?.actionLabel ?? primary?.actionLabel ?? null,
+      resourceKind: secondary?.resourceKind ?? primary?.resourceKind ?? null,
+      resourceId: secondary?.resourceId ?? primary?.resourceId ?? null,
+      undoToken: secondary?.undoToken ?? primary?.undoToken ?? null,
+      payload: secondary?.payload ?? primary?.payload ?? null,
+      snapshotBefore: secondary?.snapshotBefore ?? primary?.snapshotBefore ?? null,
+      snapshotAfter: secondary?.snapshotAfter ?? primary?.snapshotAfter ?? null,
+      changes: secondary?.changes ?? primary?.changes ?? null,
+      context: secondary?.context ?? primary?.context ?? null,
     }
   }
 

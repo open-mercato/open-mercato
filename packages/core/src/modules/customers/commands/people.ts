@@ -5,7 +5,6 @@ import {
   setCustomFieldsIfAny,
   emitCrudSideEffects,
   emitCrudUndoSideEffects,
-  buildChanges,
   requireId,
 } from '@open-mercato/shared/lib/commands/helpers'
 import type { DataEngine } from '@open-mercato/shared/lib/data/engine'
@@ -45,10 +44,9 @@ import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import {
   loadCustomFieldSnapshot,
-  diffCustomFieldChanges,
   buildCustomFieldResetMap,
 } from '@open-mercato/shared/lib/commands/customFieldSnapshots'
-import type { CrudIndexerConfig } from '@open-mercato/shared/lib/crud/types'
+import type { CrudIndexerConfig, CrudEventsConfig } from '@open-mercato/shared/lib/crud/types'
 import { E } from '#generated/entities.ids.generated'
 import { findWithDecryption, findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 
@@ -155,6 +153,17 @@ type PersonUndoPayload = {
 
 const personCrudIndexer: CrudIndexerConfig<CustomerEntity> = {
   entityType: E.customers.customer_person_profile,
+}
+
+const personCrudEvents: CrudEventsConfig = {
+  module: 'customers',
+  entity: 'person',
+  persistent: true,
+  buildPayload: (ctx) => ({
+    id: ctx.identifiers.id,
+    organizationId: ctx.identifiers.organizationId,
+    tenantId: ctx.identifiers.tenantId,
+  }),
 }
 
 function normalizeOptionalString(value: string | null | undefined): string | null {
@@ -524,18 +533,18 @@ const createPersonCommand: CommandHandler<PersonCreateInput, { entityId: string;
         organizationId,
       },
       indexer: personCrudIndexer,
+      events: personCrudEvents,
     })
 
     return { entityId: entity.id, personId: profile.id }
   },
   captureAfter: async (_input, result, ctx) => {
-    const em = (ctx.container.resolve('em') as EntityManager)
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
     return await loadPersonSnapshot(em, result.entityId)
   },
-  buildLog: async ({ result, ctx }) => {
+  buildLog: async ({ result, snapshots }) => {
     const { translate } = await resolveTranslations()
-    const em = (ctx.container.resolve('em') as EntityManager)
-    const snapshot = await loadPersonSnapshot(em, result.entityId)
+    const snapshot = snapshots.after as PersonSnapshot | undefined
     return {
       actionLabel: translate('customers.audit.people.create', 'Create person'),
       resourceKind: 'customers.person',
@@ -661,6 +670,7 @@ const updatePersonCommand: CommandHandler<PersonUpdateInput, { entityId: string 
       record.displayName = nextDisplayName
     }
 
+    await em.flush()
     await syncEntityTags(em, record, parsed.tags)
     await em.flush()
 
@@ -677,41 +687,20 @@ const updatePersonCommand: CommandHandler<PersonUpdateInput, { entityId: string 
         organizationId: record.organizationId,
       },
       indexer: personCrudIndexer,
+      events: personCrudEvents,
     })
 
     return { entityId: record.id }
   },
-  buildLog: async ({ ctx, snapshots }) => {
+  captureAfter: async (_input, result, ctx) => {
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
+    return await loadPersonSnapshot(em, result.entityId)
+  },
+  buildLog: async ({ snapshots }) => {
     const { translate } = await resolveTranslations()
     const before = snapshots.before as PersonSnapshot | undefined
     if (!before) return null
-    const em = (ctx.container.resolve('em') as EntityManager)
-    const afterSnapshot = await loadPersonSnapshot(em, before.entity.id)
-    const changeKeys: readonly string[] = [
-      'displayName',
-      'description',
-      'ownerUserId',
-      'primaryEmail',
-      'primaryPhone',
-      'status',
-      'lifecycleStage',
-      'source',
-      'nextInteractionAt',
-      'nextInteractionName',
-      'nextInteractionRefId',
-      'nextInteractionIcon',
-      'nextInteractionColor',
-      'isActive',
-    ]
-    const changes =
-      afterSnapshot && afterSnapshot.entity
-        ? buildChanges(
-            before.entity as Record<string, unknown>,
-            afterSnapshot.entity as Record<string, unknown>,
-            changeKeys
-          )
-        : {}
-    const customChanges = diffCustomFieldChanges(before.custom, afterSnapshot?.custom)
+    const afterSnapshot = snapshots.after as PersonSnapshot | undefined
     return {
       actionLabel: translate('customers.audit.people.update', 'Update person'),
       resourceKind: 'customers.person',
@@ -720,7 +709,6 @@ const updatePersonCommand: CommandHandler<PersonUpdateInput, { entityId: string 
       organizationId: before.entity.organizationId,
       snapshotBefore: before,
       snapshotAfter: afterSnapshot ?? null,
-      changes: Object.keys(customChanges).length ? { ...changes, custom: customChanges } : changes,
       payload: {
         undo: {
           before,
@@ -799,6 +787,7 @@ const updatePersonCommand: CommandHandler<PersonUpdateInput, { entityId: string 
       entity.nextInteractionIcon = before.entity.nextInteractionIcon
       entity.nextInteractionColor = before.entity.nextInteractionColor
       entity.isActive = before.entity.isActive
+      await em.flush()
       const profile = await em.findOne(CustomerPersonProfile, { entity })
       if (profile) {
         profile.firstName = before.profile.firstName
@@ -834,6 +823,7 @@ const updatePersonCommand: CommandHandler<PersonUpdateInput, { entityId: string 
         tenantId: before.entity.tenantId,
       },
       indexer: personCrudIndexer,
+      events: personCrudEvents,
     })
 
     const resetValues = buildCustomFieldResetMap(before.custom, payload?.after?.custom)
@@ -929,6 +919,7 @@ const deletePersonCommand: CommandHandler<{ body?: Record<string, unknown>; quer
           tenantId: record.tenantId,
         },
         indexer: personCrudIndexer,
+        events: personCrudEvents,
       })
 
       await emitQueryIndexDeleteEvents(ctx, indexDeletes)
@@ -1170,6 +1161,7 @@ const deletePersonCommand: CommandHandler<{ body?: Record<string, unknown>; quer
           tenantId: entity.tenantId,
         },
         indexer: personCrudIndexer,
+        events: personCrudEvents,
       })
 
       const upsertEntries: QueryIndexEventEntry[] = []
