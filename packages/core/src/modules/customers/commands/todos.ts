@@ -18,6 +18,7 @@ import {
 } from './shared'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
+import type { CrudEventsConfig } from '@open-mercato/shared/lib/crud/types'
 
 type TodoLinkSnapshot = {
   id: string
@@ -44,6 +45,17 @@ const unlinkSchema = z.object({
   tenantId: z.string().uuid(),
   organizationId: z.string().uuid(),
 })
+
+const todoCrudEvents: CrudEventsConfig = {
+  module: 'customers',
+  entity: 'todo',
+  persistent: true,
+  buildPayload: (ctx) => ({
+    id: ctx.identifiers.id,
+    organizationId: ctx.identifiers.organizationId,
+    tenantId: ctx.identifiers.tenantId,
+  }),
+}
 
 type UnlinkInput = z.infer<typeof unlinkSchema>
 
@@ -91,6 +103,7 @@ const unlinkTodoCommand: CommandHandler<UnlinkInput, { linkId: string }> = {
         organizationId: link.organizationId,
         tenantId: link.tenantId,
       },
+      events: todoCrudEvents,
     })
 
     return { linkId: link.id }

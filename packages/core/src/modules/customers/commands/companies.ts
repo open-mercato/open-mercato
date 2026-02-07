@@ -45,7 +45,7 @@ import {
   loadCustomFieldSnapshot,
   buildCustomFieldResetMap,
 } from '@open-mercato/shared/lib/commands/customFieldSnapshots'
-import type { CrudIndexerConfig } from '@open-mercato/shared/lib/crud/types'
+import type { CrudIndexerConfig, CrudEventsConfig } from '@open-mercato/shared/lib/crud/types'
 import { E } from '#generated/entities.ids.generated'
 import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 
@@ -53,6 +53,17 @@ const COMPANY_ENTITY_ID = 'customers:customer_company_profile'
 
 const companyCrudIndexer: CrudIndexerConfig<CustomerEntity> = {
   entityType: E.customers.customer_company_profile,
+}
+
+const companyCrudEvents: CrudEventsConfig = {
+  module: 'customers',
+  entity: 'company',
+  persistent: true,
+  buildPayload: (ctx) => ({
+    id: ctx.identifiers.id,
+    organizationId: ctx.identifiers.organizationId,
+    tenantId: ctx.identifiers.tenantId,
+  }),
 }
 
 type CompanyAddressSnapshot = {
@@ -395,6 +406,7 @@ const createCompanyCommand: CommandHandler<CompanyCreateInput, { entityId: strin
         tenantId: entity.tenantId,
       },
       indexer: companyCrudIndexer,
+      events: companyCrudEvents,
     })
 
     return { entityId: entity.id, companyId: profile.id }
@@ -502,6 +514,7 @@ const updateCompanyCommand: CommandHandler<CompanyUpdateInput, { entityId: strin
         tenantId: record.tenantId,
       },
       indexer: companyCrudIndexer,
+      events: companyCrudEvents,
     })
 
     return { entityId: record.id }
@@ -657,6 +670,7 @@ const updateCompanyCommand: CommandHandler<CompanyUpdateInput, { entityId: strin
         tenantId: entity.tenantId,
       },
       indexer: companyCrudIndexer,
+      events: companyCrudEvents,
     })
 
     const resetValues = buildCustomFieldResetMap(before.custom, payload?.after?.custom)
@@ -764,6 +778,7 @@ const deleteCompanyCommand: CommandHandler<{ body?: Record<string, unknown>; que
           tenantId: record.tenantId,
         },
         indexer: companyCrudIndexer,
+        events: companyCrudEvents,
       })
 
       await emitQueryIndexDeleteEvents(ctx, indexDeletes)
@@ -1011,6 +1026,7 @@ const deleteCompanyCommand: CommandHandler<{ body?: Record<string, unknown>; que
           tenantId: entity.tenantId,
         },
         indexer: companyCrudIndexer,
+        events: companyCrudEvents,
       })
 
       const childUpserts: QueryIndexEventEntry[] = []

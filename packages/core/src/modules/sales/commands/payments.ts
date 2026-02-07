@@ -33,6 +33,7 @@ import {
 import { resolveDictionaryEntryValue } from '../lib/dictionaries'
 import { invalidateCrudCache } from '@open-mercato/shared/lib/crud/cache'
 import { emitCrudSideEffects } from '@open-mercato/shared/lib/commands/helpers'
+import type { CrudEventsConfig } from '@open-mercato/shared/lib/crud/types'
 import type { DataEngine } from '@open-mercato/shared/lib/data/engine'
 import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { resolveNotificationService } from '../../notifications/lib/notificationService'
@@ -85,6 +86,17 @@ const toNumber = (value: unknown): number => {
 
 const normalizeCustomFieldsInput = (input: unknown): Record<string, unknown> =>
   input && typeof input === 'object' && !Array.isArray(input) ? (input as Record<string, unknown>) : {}
+
+const paymentCrudEvents: CrudEventsConfig = {
+  module: 'sales',
+  entity: 'payment',
+  persistent: true,
+  buildPayload: (ctx) => ({
+    id: ctx.identifiers.id,
+    organizationId: ctx.identifiers.organizationId,
+    tenantId: ctx.identifiers.tenantId,
+  }),
+}
 
 const ORDER_RESOURCE = 'sales.order'
 
@@ -427,6 +439,20 @@ const createPaymentCommand: CommandHandler<
     await em.flush()
     await invalidateOrderCache(ctx.container, order, ctx.auth?.tenantId ?? null)
 
+    const dataEngine = ctx.container.resolve('dataEngine') as DataEngine
+    await emitCrudSideEffects({
+      dataEngine,
+      action: 'created',
+      entity: payment,
+      identifiers: {
+        id: payment.id,
+        organizationId: payment.organizationId,
+        tenantId: payment.tenantId,
+      },
+      indexer: { entityType: E.sales.sales_payment },
+      events: paymentCrudEvents,
+    })
+
     // Create notification for payment received
     try {
       const notificationService = resolveNotificationService(ctx.container)
@@ -696,6 +722,20 @@ const updatePaymentCommand: CommandHandler<
       await invalidateOrderCache(ctx.container, previousOrder, ctx.auth?.tenantId ?? null)
     }
 
+    const dataEngine = ctx.container.resolve('dataEngine') as DataEngine
+    await emitCrudSideEffects({
+      dataEngine,
+      action: 'updated',
+      entity: payment,
+      identifiers: {
+        id: payment.id,
+        organizationId: payment.organizationId,
+        tenantId: payment.tenantId,
+      },
+      indexer: { entityType: E.sales.sales_payment },
+      events: paymentCrudEvents,
+    })
+
     return { paymentId: payment.id, orderTotals: totals }
   },
   captureAfter: async (_input, result, ctx) => {
@@ -800,6 +840,18 @@ const deletePaymentCommand: CommandHandler<
       await invalidateOrderCache(ctx.container, target, ctx.auth?.tenantId ?? null)
     }
     const dataEngine = ctx.container.resolve('dataEngine') as DataEngine
+    await emitCrudSideEffects({
+      dataEngine,
+      action: 'deleted',
+      entity: payment,
+      identifiers: {
+        id: payment.id,
+        organizationId: payment.organizationId,
+        tenantId: payment.tenantId,
+      },
+      indexer: { entityType: E.sales.sales_payment },
+      events: paymentCrudEvents,
+    })
     if (allocations.length) {
       await Promise.all(
         allocations.map((allocation) =>

@@ -1,6 +1,6 @@
 import { registerCommand } from '@open-mercato/shared/lib/commands'
 import type { CommandHandler } from '@open-mercato/shared/lib/commands'
-import { buildChanges, requireId } from '@open-mercato/shared/lib/commands/helpers'
+import { buildChanges, requireId, emitCrudSideEffects } from '@open-mercato/shared/lib/commands/helpers'
 import { extractUndoPayload, type UndoPayload } from '@open-mercato/shared/lib/commands/undo'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
@@ -14,6 +14,19 @@ import {
   type CurrencyUpdateInput,
   type CurrencyDeleteInput,
 } from '../data/validators'
+import type { CrudEventsConfig } from '@open-mercato/shared/lib/crud/types'
+import type { DataEngine } from '@open-mercato/shared/lib/data/engine'
+
+const currencyCrudEvents: CrudEventsConfig = {
+  module: 'currencies',
+  entity: 'currency',
+  persistent: true,
+  buildPayload: (ctx) => ({
+    id: ctx.identifiers.id,
+    organizationId: ctx.identifiers.organizationId,
+    tenantId: ctx.identifiers.tenantId,
+  }),
+}
 
 type CurrencySnapshot = {
   id: string
@@ -114,6 +127,19 @@ const createCurrencyCommand: CommandHandler<CurrencyCreateInput, { currencyId: s
     
     await em.flush()
 
+    const de = ctx.container.resolve('dataEngine') as DataEngine
+    await emitCrudSideEffects({
+      dataEngine: de,
+      action: 'created',
+      entity: record,
+      identifiers: {
+        id: record.id,
+        organizationId: record.organizationId,
+        tenantId: record.tenantId,
+      },
+      events: currencyCrudEvents,
+    })
+
     return { currencyId: record.id }
   },
   captureAfter: async (_input, result, ctx) => {
@@ -208,6 +234,19 @@ const updateCurrencyCommand: CommandHandler<CurrencyUpdateInput, { currencyId: s
     
     await em.flush()
 
+    const de = ctx.container.resolve('dataEngine') as DataEngine
+    await emitCrudSideEffects({
+      dataEngine: de,
+      action: 'updated',
+      entity: record,
+      identifiers: {
+        id: record.id,
+        organizationId: record.organizationId,
+        tenantId: record.tenantId,
+      },
+      events: currencyCrudEvents,
+    })
+
     return { currencyId: record.id }
   },
   captureAfter: async (_input, result, ctx) => {
@@ -296,6 +335,19 @@ const deleteCurrencyCommand: CommandHandler<CurrencyDeleteInput, { currencyId: s
     record.deletedAt = new Date()
     record.isActive = false
     await em.flush()
+
+    const de = ctx.container.resolve('dataEngine') as DataEngine
+    await emitCrudSideEffects({
+      dataEngine: de,
+      action: 'deleted',
+      entity: record,
+      identifiers: {
+        id: record.id,
+        organizationId: record.organizationId,
+        tenantId: record.tenantId,
+      },
+      events: currencyCrudEvents,
+    })
 
     return { currencyId: record.id }
   },

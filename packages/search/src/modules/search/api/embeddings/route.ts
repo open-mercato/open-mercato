@@ -15,6 +15,7 @@ import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import type { EmbeddingProviderConfig, EmbeddingProviderId, VectorDriver } from '../../../../vector'
 import { EMBEDDING_PROVIDERS, DEFAULT_EMBEDDING_CONFIG, EmbeddingService } from '../../../../vector'
 import { searchDebug, searchDebugWarn, searchError } from '../../../../lib/debug'
+import { embeddingsOpenApi } from '../openapi'
 
 const embeddingConfigSchema = z.object({
   providerId: z.enum(['openai', 'google', 'mistral', 'cohere', 'bedrock', 'ollama']),
@@ -302,3 +303,5 @@ export async function POST(req: Request) {
     }
   }
 }
+
+export const openApi = embeddingsOpenApi
