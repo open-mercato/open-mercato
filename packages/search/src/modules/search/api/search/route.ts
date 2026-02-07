@@ -7,6 +7,7 @@ import type { SearchStrategyId } from '@open-mercato/shared/modules/search'
 import type { EmbeddingService } from '../../../../vector'
 import { resolveEmbeddingConfig } from '../../lib/embedding-config'
 import { searchError } from '../../../../lib/debug'
+import { searchOpenApi } from '../openapi'
 
 export const metadata = {
   GET: { requireAuth: true, requireFeatures: ['search.view'] },
@@ -119,3 +120,5 @@ export async function GET(req: Request) {
     }
   }
 }
+
+export const openApi = searchOpenApi

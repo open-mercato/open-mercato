@@ -11,6 +11,7 @@ import { resolveEmbeddingConfig } from '../../../lib/embedding-config'
 import type { EntityId } from '@open-mercato/shared/modules/entities'
 import { searchDebug, searchDebugWarn, searchError } from '../../../../../lib/debug'
 import { acquireReindexLock, clearReindexLock, getReindexLockStatus } from '../../../lib/reindex-lock'
+import { embeddingsReindexOpenApi } from '../../openapi'
 
 export const metadata = {
   POST: { requireAuth: true, requireFeatures: ['search.embeddings.manage'] },
@@ -195,3 +196,5 @@ export async function POST(req: Request) {
     }
   }
 }
+
+export const openApi = embeddingsReindexOpenApi

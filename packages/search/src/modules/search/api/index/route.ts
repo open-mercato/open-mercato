@@ -9,6 +9,7 @@ import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import type { VectorSearchStrategy } from '../../../../strategies/vector.strategy'
 import type { EntityId } from '@open-mercato/shared/modules/entities'
 import { searchDebugWarn, searchError } from '../../../../lib/debug'
+import { indexOpenApi } from '../openapi'
 
 export const metadata = {
   GET: { requireAuth: true, requireFeatures: ['search.view'] },
@@ -295,3 +296,5 @@ export async function DELETE(req: Request) {
     }
   }
 }
+
+export const openApi = indexOpenApi
