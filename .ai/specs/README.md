@@ -54,6 +54,7 @@ Files like `AGENTS.md` and `CLAUDE.md` use UPPERCASE names and are not numberedâ
 | [SPEC-017](SPEC-017-2026-02-03-version-history-panel.md) | 2026-02-03 | Version History Panel | Right-side panel showing record change history from audit logs |
 | [SPEC-018](SPEC-018-2026-02-05-safe-entity-flush.md) | 2026-02-05 | Safe Entity Flush | Framework helpers to prevent silent MikroORM UoW data loss in commands |
 | [SPEC-019](SPEC-019-2026-02-05-two-factor-authentication.md) | 2026-02-05 | Two-Factor Authentication | TOTP-based 2FA with authenticator apps, recovery codes, and optional tenant enforcement |
+| [SPEC-021](SPEC-021-2026-02-07-compound-commands-graph-save.md) | 2026-02-07 | Compound Commands & Graph Save | Graph-save pattern for aggregate roots and compound command wrapper for atomic multi-command operations |
 
 ## Specification Structure
 
