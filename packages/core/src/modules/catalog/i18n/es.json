@@ -681,5 +681,7 @@
         "deleteError": "No se pudo eliminar la variante."
       }
     }
-  }
+  },
+  "audit_logs.resource_kind.catalog.variant": "Variante",
+  "audit_logs.resource_kind.catalog.price": "Precio"
 }

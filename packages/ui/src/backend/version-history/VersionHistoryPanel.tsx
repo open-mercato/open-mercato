@@ -246,7 +246,7 @@ export function VersionHistoryPanel({
                           >
                             {isRelatedEntry ? (
                               <span className="text-[10px] uppercase tracking-wider text-muted-foreground/70 font-medium">
-                                {humanizeResourceKind(entry.resourceKind)}
+                                {humanizeResourceKind(entry.resourceKind, t)}
                               </span>
                             ) : null}
                             <div className="text-sm font-medium">
