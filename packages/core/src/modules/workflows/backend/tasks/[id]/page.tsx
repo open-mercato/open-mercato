@@ -387,7 +387,7 @@ export default function UserTaskDetailPage({ params }: { params: { id: string } 
           {/* Task Information */}
           <div className="bg-muted/50 rounded-lg p-4 space-y-3">
             <h2 className="text-sm font-semibold">{t('workflows.tasks.detail.sections.taskInfo')}</h2>
-            <div className="grid grid-cols-2 gap-4 text-sm">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-sm">
               <div>
                 <span className="text-muted-foreground">{t('workflows.tasks.fields.createdAt')}:</span>
                 <span className="ml-2 text-foreground">{new Date(task.createdAt).toLocaleString()}</span>
@@ -473,11 +473,11 @@ export default function UserTaskDetailPage({ params }: { params: { id: string } 
                 </div>
 
                 {/* Actions */}
-                <div className="flex items-center gap-3 pt-4">
+                <div className="flex flex-col gap-3 pt-4 sm:flex-row sm:items-center">
                   <Button
                     type="submit"
                     disabled={submitting}
-                    className="bg-primary text-primary-foreground hover:bg-primary/90"
+                    className="w-full sm:w-auto bg-primary text-primary-foreground hover:bg-primary/90"
                   >
                     {submitting ? t('workflows.tasks.detail.submitting') : t('workflows.tasks.detail.completeTask')}
                   </Button>
@@ -486,6 +486,7 @@ export default function UserTaskDetailPage({ params }: { params: { id: string } 
                     variant="outline"
                     onClick={() => router.push('/backend/tasks')}
                     disabled={submitting}
+                    className="w-full sm:w-auto"
                   >
                     {t('common.cancel')}
                   </Button>

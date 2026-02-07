@@ -971,7 +971,7 @@ export function NodeEditDialog({ node, isOpen, onClose, onSave, onDelete }: Node
                                   <label className="block text-xs font-semibold text-gray-700 mb-2">
                                     {t('workflows.form.retryPolicy')}
                                   </label>
-                                  <div className="grid grid-cols-2 gap-2">
+                                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                                     <div>
                                       <label className="block text-xs text-gray-600 mb-1">{t('workflows.form.maxAttempts')}</label>
                                       <input

@@ -249,7 +249,7 @@ export function ActivityArrayEditor({ id, value = [], error, setValue, disabled 
                     {/* Retry Policy */}
                     <div className="border-t border-gray-200 pt-3">
                       <Label className="text-xs font-semibold mb-2 block">{t('workflows.fieldEditors.activities.retryPolicy')}</Label>
-                      <div className="grid grid-cols-2 gap-2">
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                         <div>
                           <Label htmlFor={`${id}-${index}-maxAttempts`} className="text-xs text-gray-600 mb-1">
                             {t('workflows.fieldEditors.activities.maxAttempts')}

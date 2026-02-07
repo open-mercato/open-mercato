@@ -899,11 +899,11 @@ export function AppShell({ productName, email, groups, rightHeaderSlot, children
       <aside className={`${asideClassesBase} ${effectiveCollapsed ? 'px-2' : 'px-3'} hidden lg:block`} style={{ width: asideWidth }}>{renderSidebar(effectiveCollapsed)}</aside>
 
       <div className="flex min-h-svh flex-col min-w-0">
-        <header className="border-b bg-background/60 px-3 lg:px-4 py-3 flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-          <div className="flex items-center gap-2 flex-wrap">
+        <header className="border-b bg-background/60 px-3 lg:px-4 py-2 lg:py-3 flex flex-col gap-2 lg:gap-3 lg:flex-row lg:items-center lg:justify-between">
+          <div className="flex items-center gap-2 min-w-0">
             {/* Mobile menu button */}
-            <button type="button" className="lg:hidden rounded border h-10 w-10 p-0 flex items-center justify-center" aria-label={t('appShell.openMenu')} onClick={() => setMobileOpen(true)}>
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M3 6h18M3 12h18M3 18h18"/></svg>
+            <button type="button" className="lg:hidden shrink-0 rounded border h-8 w-8 p-0 flex items-center justify-center" aria-label={t('appShell.openMenu')} onClick={() => setMobileOpen(true)}>
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M3 6h18M3 12h18M3 18h18"/></svg>
             </button>
             {/* Desktop collapse toggle */}
             <button
@@ -933,26 +933,38 @@ export function AppShell({ productName, email, groups, rightHeaderSlot, children
               }
               const items = [...root, ...rest]
               return (
-                <nav className="flex items-center gap-2 text-sm">
-                  {items.map((b, i) => (
-                    <React.Fragment key={i}>
-                      {i > 0 && <span className="text-muted-foreground">/</span>}
-                      {b.href ? (
-                        <Link href={b.href} className="text-muted-foreground hover:text-foreground">
-                          {b.label}
-                        </Link>
-                      ) : (
-                        <span className="font-medium truncate max-w-[40vw] sm:max-w-[60vw]">{b.label}</span>
-                      )}
-                    </React.Fragment>
-                  ))}
+                <nav className="flex items-center gap-1 lg:gap-2 text-xs lg:text-sm min-w-0 overflow-hidden">
+                  {items.map((b, i) => {
+                    const isLast = i === items.length - 1
+                    const isMiddle = i > 0 && !isLast
+                    return (
+                      <React.Fragment key={i}>
+                        {i > 0 && <span className={`text-muted-foreground shrink-0 ${isMiddle ? 'hidden sm:inline' : ''}`}>/</span>}
+                        {isMiddle ? (
+                          b.href ? (
+                            <Link href={b.href} className="text-muted-foreground hover:text-foreground hidden sm:inline shrink-0">
+                              {b.label}
+                            </Link>
+                          ) : (
+                            <span className="text-muted-foreground hidden sm:inline shrink-0">{b.label}</span>
+                          )
+                        ) : b.href ? (
+                          <Link href={b.href} className="text-muted-foreground hover:text-foreground shrink-0">
+                            {b.label}
+                          </Link>
+                        ) : (
+                          <span className="font-medium truncate max-w-[50vw] sm:max-w-[60vw]">{b.label}</span>
+                        )}
+                      </React.Fragment>
+                    )
+                  })}
                 </nav>
               )
             })()}
           </div>
-          <div className="flex items-center gap-2 text-sm w-full lg:w-auto lg:justify-end">
+          <div className="flex items-center gap-1 lg:gap-2 text-sm w-full lg:w-auto lg:justify-end">
             <ThemeToggle />
-            <Separator className="w-px h-5 mx-1" />
+            <Separator className="w-px h-4 lg:h-5 mx-0.5 lg:mx-1" />
             {rightHeaderSlot ? (
               rightHeaderSlot
             ) : (
@@ -960,14 +972,14 @@ export function AppShell({ productName, email, groups, rightHeaderSlot, children
             )}
           </div>
         </header>
-        <main className="flex-1 p-4 lg:p-6">
+        <main className="flex-1 p-3 lg:p-6">
           <FlashMessages />
           <PartialIndexBanner />
           <UpgradeActionBanner />
           <LastOperationBanner />
           {children}
         </main>
-        <footer className="border-t bg-background/80 backdrop-blur supports-[backdrop-filter]:bg-background/50 px-4 py-3 flex flex-wrap items-center justify-end gap-4">
+        <footer className="border-t bg-background/80 backdrop-blur supports-[backdrop-filter]:bg-background/50 px-3 lg:px-4 py-2 lg:py-3 flex flex-wrap items-center justify-end gap-2 lg:gap-4">
           {version ? (
             <span className="text-xs text-muted-foreground">
               {t('appShell.version', { version })}
