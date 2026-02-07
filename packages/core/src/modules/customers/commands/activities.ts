@@ -26,6 +26,7 @@ import {
   extractUndoPayload,
   requireDealInScope,
   ensureDictionaryEntry,
+  resolveParentResourceKind,
 } from './shared'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import {
@@ -50,6 +51,7 @@ type ActivitySnapshot = {
     organizationId: string
     tenantId: string
     entityId: string
+    entityKind: string | null
     dealId: string | null
     activityType: string
     subject: string | null
@@ -72,7 +74,7 @@ type ActivityChangeMap = Record<string, { from: unknown; to: unknown }> & {
 }
 
 async function loadActivitySnapshot(em: EntityManager, id: string): Promise<ActivitySnapshot | null> {
-  const activity = await em.findOne(CustomerActivity, { id })
+  const activity = await em.findOne(CustomerActivity, { id }, { populate: ['entity'] })
   if (!activity) return null
   const custom = await loadCustomFieldSnapshot(em, {
     entityId: ACTIVITY_ENTITY_ID,
@@ -80,12 +82,17 @@ async function loadActivitySnapshot(em: EntityManager, id: string): Promise<Acti
     tenantId: activity.tenantId,
     organizationId: activity.organizationId,
   })
+  const entityRef = activity.entity
+  const entityKind = (typeof entityRef === 'object' && entityRef !== null && 'kind' in entityRef)
+    ? (entityRef as { kind: string }).kind
+    : null
   return {
     activity: {
       id: activity.id,
       organizationId: activity.organizationId,
       tenantId: activity.tenantId,
-      entityId: typeof activity.entity === 'string' ? activity.entity : activity.entity.id,
+      entityId: typeof entityRef === 'string' ? entityRef : entityRef.id,
+      entityKind,
       dealId: activity.deal ? (typeof activity.deal === 'string' ? activity.deal : activity.deal.id) : null,
       activityType: activity.activityType,
       subject: activity.subject ?? null,
@@ -197,7 +204,7 @@ const createActivityCommand: CommandHandler<ActivityCreateInput, { activityId: s
       actionLabel: translate('customers.audit.activities.create', 'Create activity'),
       resourceKind: 'customers.activity',
       resourceId: result.activityId,
-      parentResourceKind: 'customers.person',
+      parentResourceKind: resolveParentResourceKind(snapshot?.activity?.entityKind),
       parentResourceId: snapshot?.activity?.entityId ?? null,
       tenantId: snapshot?.activity.tenantId ?? null,
       organizationId: snapshot?.activity.organizationId ?? null,
@@ -308,7 +315,7 @@ const updateActivityCommand: CommandHandler<ActivityUpdateInput, { activityId: s
       actionLabel: translate('customers.audit.activities.update', 'Update activity'),
       resourceKind: 'customers.activity',
       resourceId: before.activity.id,
-      parentResourceKind: 'customers.person',
+      parentResourceKind: resolveParentResourceKind(before.activity.entityKind),
       parentResourceId: before.activity.entityId ?? null,
       tenantId: before.activity.tenantId,
       organizationId: before.activity.organizationId,
@@ -432,7 +439,7 @@ const deleteActivityCommand: CommandHandler<{ body?: Record<string, unknown>; qu
         actionLabel: translate('customers.audit.activities.delete', 'Delete activity'),
         resourceKind: 'customers.activity',
         resourceId: before.activity.id,
-        parentResourceKind: 'customers.person',
+        parentResourceKind: resolveParentResourceKind(before.activity.entityKind),
         parentResourceId: before.activity.entityId ?? null,
         tenantId: before.activity.tenantId,
         organizationId: before.activity.organizationId,

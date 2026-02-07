@@ -15,6 +15,7 @@ import {
   extractUndoPayload,
   requireCustomerEntity,
   ensureSameScope,
+  resolveParentResourceKind,
 } from './shared'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
@@ -22,6 +23,7 @@ import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 type TodoLinkSnapshot = {
   id: string
   entityId: string
+  entityKind: string | null
   organizationId: string
   tenantId: string
   todoId: string
@@ -48,9 +50,14 @@ const unlinkSchema = z.object({
 type UnlinkInput = z.infer<typeof unlinkSchema>
 
 function captureLinkSnapshot(link: CustomerTodoLink): TodoLinkSnapshot {
+  const entityRef = link.entity
+  const entityKind = (typeof entityRef === 'object' && entityRef !== null && 'kind' in entityRef)
+    ? (entityRef as { kind: string }).kind
+    : null
   return {
     id: link.id,
-    entityId: typeof link.entity === 'string' ? link.entity : link.entity.id,
+    entityId: typeof entityRef === 'string' ? entityRef : entityRef.id,
+    entityKind,
     organizationId: link.organizationId,
     tenantId: link.tenantId,
     todoId: link.todoId,
@@ -64,7 +71,7 @@ const unlinkTodoCommand: CommandHandler<UnlinkInput, { linkId: string }> = {
   async prepare(rawInput, ctx) {
     const parsed = unlinkSchema.parse(rawInput)
     const em = (ctx.container.resolve('em') as EntityManager)
-    const link = await em.findOne(CustomerTodoLink, { id: parsed.linkId })
+    const link = await em.findOne(CustomerTodoLink, { id: parsed.linkId }, { populate: ['entity'] })
     if (!link) return {}
     return { before: captureLinkSnapshot(link) }
   },
@@ -103,7 +110,7 @@ const unlinkTodoCommand: CommandHandler<UnlinkInput, { linkId: string }> = {
       actionLabel: translate('customers.audit.todos.unlink', 'Unlink todo'),
       resourceKind: 'customers.todoLink',
       resourceId: parsed.linkId,
-      parentResourceKind: 'customers.person',
+      parentResourceKind: resolveParentResourceKind(before?.entityKind),
       parentResourceId: before?.entityId ?? null,
       tenantId: parsed.tenantId,
       organizationId: parsed.organizationId,
@@ -181,7 +188,7 @@ const createTodoCommand: CommandHandler<TodoLinkWithTodoCreateInput, { linkId: s
   },
   captureAfter: async (_input, result, ctx) => {
     const em = (ctx.container.resolve('em') as EntityManager).fork()
-    const link = await em.findOne(CustomerTodoLink, { id: result.linkId })
+    const link = await em.findOne(CustomerTodoLink, { id: result.linkId }, { populate: ['entity'] })
     if (!link) return null
     return captureLinkSnapshot(link)
   },
@@ -189,7 +196,7 @@ const createTodoCommand: CommandHandler<TodoLinkWithTodoCreateInput, { linkId: s
     const { translate } = await resolveTranslations()
     const parsed = todoLinkWithTodoCreateSchema.parse(input)
     const em = (ctx.container.resolve('em') as EntityManager).fork()
-    const link = await em.findOne(CustomerTodoLink, { id: result.linkId })
+    const link = await em.findOne(CustomerTodoLink, { id: result.linkId }, { populate: ['entity'] })
     const linkSnapshot = link ? captureLinkSnapshot(link) : null
 
     const delegateCommandId = `${parsed.todoSource.split(':')[0]}.todos.create`
@@ -203,7 +210,7 @@ const createTodoCommand: CommandHandler<TodoLinkWithTodoCreateInput, { linkId: s
       actionLabel: translate('customers.audit.todos.create', 'Create todo'),
       resourceKind: 'customers.todoLink',
       resourceId: result.linkId,
-      parentResourceKind: 'customers.person',
+      parentResourceKind: resolveParentResourceKind(linkSnapshot?.entityKind),
       parentResourceId: linkSnapshot?.entityId ?? null,
       tenantId: parsed.tenantId,
       organizationId: parsed.organizationId,

@@ -12,6 +12,7 @@ import {
   ensureSameScope,
   extractUndoPayload,
   requireDealInScope,
+  resolveParentResourceKind,
 } from './shared'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
@@ -27,6 +28,7 @@ type CommentSnapshot = {
   organizationId: string
   tenantId: string
   entityId: string
+  entityKind: string | null
   dealId: string | null
   body: string
   authorUserId: string | null
@@ -40,13 +42,18 @@ type CommentUndoPayload = {
 }
 
 async function loadCommentSnapshot(em: EntityManager, id: string): Promise<CommentSnapshot | null> {
-  const comment = await em.findOne(CustomerComment, { id })
+  const comment = await em.findOne(CustomerComment, { id }, { populate: ['entity'] })
   if (!comment) return null
+  const entityRef = comment.entity
+  const entityKind = (typeof entityRef === 'object' && entityRef !== null && 'kind' in entityRef)
+    ? (entityRef as { kind: string }).kind
+    : null
   return {
     id: comment.id,
     organizationId: comment.organizationId,
     tenantId: comment.tenantId,
-    entityId: typeof comment.entity === 'string' ? comment.entity : comment.entity.id,
+    entityId: typeof entityRef === 'string' ? entityRef : entityRef.id,
+    entityKind,
     dealId: comment.deal ? (typeof comment.deal === 'string' ? comment.deal : comment.deal.id) : null,
     body: comment.body,
     authorUserId: comment.authorUserId ?? null,
@@ -115,7 +122,7 @@ const createCommentCommand: CommandHandler<CommentCreateInput, { commentId: stri
       actionLabel: translate('customers.audit.comments.create', 'Create note'),
       resourceKind: 'customers.comment',
       resourceId: result.commentId,
-      parentResourceKind: snapshot?.entityId ? 'customers.person' : (snapshot?.dealId ? 'customers.deal' : null),
+      parentResourceKind: snapshot?.entityId ? resolveParentResourceKind(snapshot.entityKind) : (snapshot?.dealId ? 'customers.deal' : null),
       parentResourceId: snapshot?.entityId ?? snapshot?.dealId ?? null,
       tenantId: snapshot?.tenantId ?? null,
       organizationId: snapshot?.organizationId ?? null,
@@ -206,7 +213,7 @@ const updateCommentCommand: CommandHandler<CommentUpdateInput, { commentId: stri
       actionLabel: translate('customers.audit.comments.update', 'Update note'),
       resourceKind: 'customers.comment',
       resourceId: before.id,
-      parentResourceKind: before.entityId ? 'customers.person' : (before.dealId ? 'customers.deal' : null),
+      parentResourceKind: before.entityId ? resolveParentResourceKind(before.entityKind) : (before.dealId ? 'customers.deal' : null),
       parentResourceId: before.entityId ?? before.dealId ?? null,
       tenantId: before.tenantId,
       organizationId: before.organizationId,
@@ -311,7 +318,7 @@ const deleteCommentCommand: CommandHandler<{ body?: Record<string, unknown>; que
         actionLabel: translate('customers.audit.comments.delete', 'Delete note'),
         resourceKind: 'customers.comment',
         resourceId: before.id,
-        parentResourceKind: before.entityId ? 'customers.person' : (before.dealId ? 'customers.deal' : null),
+        parentResourceKind: before.entityId ? resolveParentResourceKind(before.entityKind) : (before.dealId ? 'customers.deal' : null),
         parentResourceId: before.entityId ?? before.dealId ?? null,
         tenantId: before.tenantId,
         organizationId: before.organizationId,

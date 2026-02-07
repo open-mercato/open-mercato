@@ -7,8 +7,6 @@ const RESOURCE_KIND_LABELS: Record<string, string> = {
   'sales.payment': 'Payment',
   'sales.shipment': 'Shipment',
   'sales.note': 'Note',
-  'sales.orderLine': 'Line Item',
-  'sales.quoteLine': 'Line Item',
   'customers.address': 'Address',
   'customers.activity': 'Activity',
   'customers.comment': 'Comment',
