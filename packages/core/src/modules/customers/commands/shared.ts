@@ -198,8 +198,10 @@ export async function ensureDictionaryEntry(
   return entry
 }
 
-export function resolveParentResourceKind(entityKind: CustomerEntityKind | string | null | undefined): string {
-  return entityKind === 'company' ? 'customers.company' : 'customers.person'
+export function resolveParentResourceKind(entityKind: CustomerEntityKind | string | null | undefined): string | null {
+  if (entityKind === 'company') return 'customers.company'
+  if (entityKind === 'person') return 'customers.person'
+  return null
 }
 
 export type QueryIndexEventEntry = {
