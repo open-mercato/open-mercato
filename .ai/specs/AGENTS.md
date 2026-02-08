@@ -75,7 +75,7 @@ Even when not explicitly asked:
 - Update the spec when implementing significant changes
 - Keep specs synchronized with actual implementation
 - Document architectural decisions made during development
-- **MUST create an integration test** for the implemented feature — follow `.ai/qa/AGENTS.md` to create both a markdown test case (`.ai/qa/TC-*.md`) and an executable Playwright test (`.ai/qa/tests/<category>/TC-*.spec.ts`)
+- **MUST create an integration test** for the implemented feature — follow `.ai/qa/AGENTS.md` to create an executable Playwright test (`.ai/qa/tests/<category>/TC-*.spec.ts`). Optionally create a markdown scenario (`.ai/qa/scenarios/TC-*.md`) for documentation.
 
 ## Risks & Impact Review — MUST Include in Every Spec
 

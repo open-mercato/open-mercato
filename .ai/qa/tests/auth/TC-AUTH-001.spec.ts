@@ -2,7 +2,7 @@ import { test, expect } from '@playwright/test';
 
 /**
  * TC-AUTH-001: Successful User Login
- * Source: .ai/qa/TC-AUTH-001-user-login-success.md
+ * Source: .ai/qa/scenarios/TC-AUTH-001-user-login-success.md
  */
 test.describe('TC-AUTH-001: Successful User Login', () => {
   test('should login with valid credentials and redirect to dashboard', async ({ page }) => {

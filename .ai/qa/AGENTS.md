@@ -9,9 +9,51 @@ yarn test:integration
 # Run a specific category
 npx playwright test --config .ai/qa/tests/playwright.config.ts auth/
 
+# Run all tests in ephemeral containers (no dev server needed, Docker required)
+yarn test:integration:ephemeral
+
 # View HTML report
 yarn test:integration:report
 ```
+
+---
+
+## Directory Structure
+
+```
+.ai/qa/
+├── AGENTS.md                    # This file
+├── scenarios/                   # OPTIONAL — markdown test case descriptions
+│   ├── TC-AUTH-001-*.md         #   Human-readable, used as input for test generation
+│   ├── TC-CAT-001-*.md         #   NOT required — tests can be generated directly
+│   └── ...
+├── tests/                       # Executable Playwright tests
+│   ├── playwright.config.ts
+│   ├── .gitignore               # Ignores test-results/
+│   ├── helpers/
+│   │   ├── auth.ts              # Login helper
+│   │   └── api.ts               # API call helper
+│   ├── auth/                    # AUTH category tests
+│   ├── catalog/                 # CAT category tests
+│   ├── crm/                     # CRM category tests
+│   ├── sales/                   # SALES category tests
+│   ├── admin/                   # ADMIN category tests
+│   ├── api/                     # API-* category tests
+│   └── integration/             # INT category tests
+```
+
+---
+
+## Scenarios Are Optional
+
+Markdown test scenarios (`.ai/qa/scenarios/TC-*.md`) are **optional reference material**. Tests can be generated through any of these paths:
+
+| Path | Input | Output |
+|------|-------|--------|
+| **From spec** | `.ai/specs/SPEC-*.md` | `.spec.ts` directly (no scenario needed) |
+| **From scenario** | `.ai/qa/scenarios/TC-*.md` | `.spec.ts` mapped from scenario steps |
+| **From description** | Verbal/written feature description | `.spec.ts` directly |
+| **From skill** | `/create-qa-scenario` | `.spec.ts` + optional scenario markdown |
 
 ---
 
@@ -27,35 +69,36 @@ yarn test:integration
 
 ### 2. Manual AI-Driven Tests (Playwright MCP)
 
-An AI agent reads a markdown test case and executes it interactively via Playwright MCP. Useful for exploratory testing and for creating new executable tests.
+An AI agent reads a scenario or spec and executes it interactively via Playwright MCP. Useful for exploratory testing and for creating new executable tests.
 
 ---
 
-## How to Create New QA Scenarios from Scratch
+## How to Create New Tests
 
-Use the `/create-qa-scenario` skill to auto-generate both a markdown test case and an executable Playwright test in one go. The skill reads the related spec, explores the running app via Playwright MCP, and produces both files automatically.
+### Option A: Use `/create-qa-scenario` Skill (Recommended)
+
+The skill reads the related spec, explores the running app via Playwright MCP, and produces executable tests automatically. It optionally generates a markdown scenario for documentation.
 
 ```
 /create-qa-scenario
 ```
 
-This is the recommended workflow after implementing a spec. It typically produces 3-8 test cases per spec.
+### Option B: Use `/run-integration-tests` Skill
 
----
+If a markdown scenario already exists, this skill converts it to an executable test.
 
-## How to Create Executable Tests from Existing Markdown TCs
+### Option C: Manual Workflow
 
-Use the `/run-integration-tests` skill or follow these steps manually:
+#### Step 1 — Understand What to Test
 
-### Step 1 — Read the Markdown Test Case
+Read one of:
+- A spec from `.ai/specs/SPEC-*.md`
+- A scenario from `.ai/qa/scenarios/TC-*.md` (if one exists)
+- A feature description from the user
 
-Read the source test case from `.ai/qa/TC-{CATEGORY}-{XXX}-*.md`. Understand the prerequisites, steps, and expected results.
+#### Step 2 — Explore via Playwright MCP
 
-If a related spec exists in `.ai/specs/`, read it for additional context on expected behavior.
-
-### Step 2 — Explore via Playwright MCP
-
-Walk through the test scenario interactively to discover actual selectors:
+Walk through the test flow interactively to discover actual selectors:
 
 ```
 mcp__playwright__browser_navigate({ url: "http://localhost:3000/login" })
@@ -63,13 +106,13 @@ mcp__playwright__browser_snapshot()
 mcp__playwright__browser_click({ element: "Submit button", ref: "..." })
 ```
 
-For each markdown test step:
+For each test step:
 1. Execute the action via Playwright MCP
 2. Snapshot to identify actual element locators (roles, labels, text)
 3. Verify the expected result matches reality
 4. Note the locator strategy that works
 
-### Step 3 — Write the TypeScript Test
+#### Step 3 — Write the TypeScript Test
 
 Create `.ai/qa/tests/<category>/TC-{CATEGORY}-{XXX}.spec.ts`
 
@@ -93,7 +136,7 @@ import { login } from '../helpers/auth';
 
 /**
  * TC-{CATEGORY}-{XXX}: {Title}
- * Source: .ai/qa/TC-{CATEGORY}-{XXX}-{slug}.md
+ * Source: .ai/qa/scenarios/TC-{CATEGORY}-{XXX}-{slug}.md (if exists)
  */
 test.describe('TC-{CATEGORY}-{XXX}: {Title}', () => {
   test.beforeEach(async ({ page }) => {
@@ -116,7 +159,7 @@ import { getAuthToken, apiRequest } from '../helpers/api';
 
 /**
  * TC-{CATEGORY}-{XXX}: {Title}
- * Source: .ai/qa/TC-{CATEGORY}-{XXX}-{slug}.md
+ * Source: .ai/qa/scenarios/TC-{CATEGORY}-{XXX}-{slug}.md (if exists)
  */
 test.describe('TC-{CATEGORY}-{XXX}: {Title}', () => {
   let token: string;
@@ -134,7 +177,7 @@ test.describe('TC-{CATEGORY}-{XXX}: {Title}', () => {
 });
 ```
 
-### Step 4 — Verify
+#### Step 4 — Verify
 
 Run the test to confirm it passes:
 
@@ -145,10 +188,10 @@ npx playwright test --config .ai/qa/tests/playwright.config.ts <category>/TC-{CA
 ### MUST Rules for Executable Tests
 
 - Use Playwright locators: `getByRole`, `getByLabel`, `getByText`, `getByPlaceholder` — avoid CSS selectors
-- Every test MUST reference its source markdown file in a comment
+- If a matching scenario exists, reference it in a comment (e.g., `Source: .ai/qa/scenarios/TC-AUTH-001-*.md`)
 - Keep tests independent — each test handles its own login
 - Use helpers from `../helpers/auth` and `../helpers/api`
-- One `.spec.ts` file per markdown test case
+- One `.spec.ts` file per test case
 - MUST NOT leave broken tests — fix or skip with `test.skip()` and a reason
 
 ---
@@ -248,48 +291,9 @@ For each failed test, include:
 
 ---
 
-## Directory Structure
+## How to Manage Scenarios (Optional)
 
-```
-.ai/qa/
-├── AGENTS.md                    # This file
-├── TC-AUTH-001-*.md             # Markdown test case descriptions
-├── TC-AUTH-002-*.md
-├── ...
-├── tests/                       # Executable Playwright tests
-│   ├── playwright.config.ts
-│   ├── .gitignore               # Ignores test-results/
-│   ├── helpers/
-│   │   ├── auth.ts              # Login helper
-│   │   └── api.ts               # API call helper
-│   ├── auth/                    # AUTH category tests
-│   ├── catalog/                 # CAT category tests
-│   ├── crm/                     # CRM category tests
-│   ├── sales/                   # SALES category tests
-│   ├── admin/                   # ADMIN category tests
-│   ├── api/                     # API-* category tests
-│   └── integration/             # INT category tests
-```
-
----
-
-## How to Update Test Cases
-
-1. **Locate the test file** in `.ai/qa/` directory
-2. **Edit the relevant sections**:
-   - Update test steps if flow changed
-   - Modify expected results if behavior changed
-   - Add new edge cases as discovered
-3. **Update the executable test** in `.ai/qa/tests/` if one exists
-4. **Maintain consistency**:
-   - Keep the same markdown structure
-   - Update the test scenario number if title changes significantly
-   - Ensure prerequisites are still accurate
-5. **Version control**: Commit changes with descriptive message
-
----
-
-## How to Create New Test Cases
+Scenarios live in `.ai/qa/scenarios/` and serve as documentation. They are NOT required for test generation.
 
 ### Naming Convention
 
@@ -298,7 +302,7 @@ TC-[CATEGORY]-[XXX]-[title].md
 ```
 
 - **TC**: Test Case prefix
-- **CATEGORY**: Module category code (see below)
+- **CATEGORY**: Module category code (see category codes below)
 - **XXX**: 3-digit sequential number
 - **title**: Kebab-case descriptive title
 
@@ -325,7 +329,7 @@ TC-[CATEGORY]-[XXX]-[title].md
 | API-DASH | Dashboard & Widget APIs |
 | API-DOCS | OpenAPI & Documentation APIs |
 
-### Template Structure
+### Scenario Template
 
 ```markdown
 # Test Scenario [NUMBER]: [TITLE]
@@ -352,25 +356,11 @@ TC-[CATEGORY]-[XXX]
 ## API Endpoint (for API tests)
 `[METHOD] /api/path`
 
-## Request Body (for API tests, if applicable)
-```json
-{
-  "field": "value"
-}
-```
-
 ## Test Steps
 | Step | Action | Expected Result |
 |------|--------|-----------------|
 | 1 | [Action] | [Expected] |
 | 2 | [Action] | [Expected] |
-
-## Expected Response (for API tests)
-```json
-{
-  "success": true
-}
-```
 
 ## Expected Results
 - [Final expected outcome 1]
@@ -381,10 +371,6 @@ TC-[CATEGORY]-[XXX]
 - [Edge case 2]
 ```
 
-### After Creating a Markdown Test Case
-
-**MUST** also create the corresponding executable Playwright test in `.ai/qa/tests/<category>/TC-{CATEGORY}-{XXX}.spec.ts`. Follow the workflow in "How to Create New Executable Tests" above.
-
 ### Best Practices
 
 1. **One scenario per file**: Keep tests atomic and focused
@@ -393,4 +379,3 @@ TC-[CATEGORY]-[XXX]
 4. **Measurable results**: Expected results should be verifiable
 5. **Include edge cases**: Document error scenarios and boundary conditions
 6. **Set priority**: High for critical paths, Medium for standard flows, Low for edge cases
-7. **Always create executable test**: Every markdown TC should have a matching `.spec.ts`

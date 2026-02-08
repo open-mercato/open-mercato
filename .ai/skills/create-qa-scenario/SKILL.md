@@ -1,11 +1,11 @@
 ---
 name: create-qa-scenario
-description: Automatically create a new QA test scenario (markdown + Playwright TypeScript) for a feature or spec. Use when a new feature has been implemented and needs test coverage, after completing a spec implementation, or when the user says "create test for", "add QA scenario", "generate test case", "write integration test for this feature". This skill auto-discovers what to test by reading the related spec and exploring the running app via Playwright MCP.
+description: Automatically create a new QA integration test (Playwright TypeScript) for a feature or spec, with an optional markdown scenario for documentation. Use when a new feature has been implemented and needs test coverage, after completing a spec implementation, or when the user says "create test for", "add QA scenario", "generate test case", "write integration test for this feature". This skill auto-discovers what to test by reading the related spec and exploring the running app via Playwright MCP.
 ---
 
 # QA Scenario Creator
 
-This skill generates a complete QA test scenario — both the markdown description (`.ai/qa/TC-*.md`) and the executable Playwright test (`.ai/qa/tests/<category>/TC-*.spec.ts`) — by exploring the running application.
+This skill generates executable Playwright tests (`.ai/qa/tests/<category>/TC-*.spec.ts`) by exploring the running application. It optionally produces a markdown scenario (`.ai/qa/scenarios/TC-*.md`) for documentation — the scenario is **not required**.
 
 ## Workflow
 
@@ -28,10 +28,11 @@ For each feature, identify:
 List existing test cases in the target category to determine the next sequential number:
 
 ```bash
-ls .ai/qa/TC-{CATEGORY}-*.md | sort | tail -1
+ls .ai/qa/scenarios/TC-{CATEGORY}-*.md 2>/dev/null | sort | tail -1
+ls .ai/qa/tests/<category>/TC-{CATEGORY}-*.spec.ts 2>/dev/null | sort | tail -1
 ```
 
-Use the next available 3-digit number (e.g., if last is TC-CRM-011, use TC-CRM-012).
+Use the highest number found across both directories, then increment. For example, if the last scenario is TC-CRM-011 but the last test is TC-CRM-013, use TC-CRM-014.
 
 ### Phase 3 — Explore the Feature via Playwright MCP
 
@@ -49,9 +50,27 @@ For API tests, use cURL to discover:
 3. The actual response structure
 4. Error responses for invalid inputs
 
-### Phase 4 — Write the Markdown Test Case
+### Phase 4 — Write the Playwright Test
 
-Create `.ai/qa/TC-{CATEGORY}-{XXX}-{slug}.md` using the template:
+Create `.ai/qa/tests/<category>/TC-{CATEGORY}-{XXX}.spec.ts`
+
+Use the locators discovered in Phase 3 (not guessed). If a scenario was written, reference it in a comment.
+
+Category-to-folder mapping:
+
+| Category | Folder |
+|----------|--------|
+| AUTH | `auth/` |
+| CAT | `catalog/` |
+| CRM | `crm/` |
+| SALES | `sales/` |
+| ADMIN | `admin/` |
+| INT | `integration/` |
+| API-* | `api/` |
+
+### Phase 5 — Optionally Write the Markdown Scenario
+
+If documentation is desired, create `.ai/qa/scenarios/TC-{CATEGORY}-{XXX}-{slug}.md` using the template:
 
 ```markdown
 # Test Scenario [NUMBER]: [TITLE]
@@ -90,23 +109,7 @@ TC-{CATEGORY}-{XXX}
 
 Fill steps with **actual** actions and results observed during Phase 3, not hypothetical ones.
 
-### Phase 5 — Write the Playwright Test
-
-Create `.ai/qa/tests/<category>/TC-{CATEGORY}-{XXX}.spec.ts`
-
-Use the locators discovered in Phase 3 (not guessed). Reference the markdown file in a comment.
-
-Category-to-folder mapping:
-
-| Category | Folder |
-|----------|--------|
-| AUTH | `auth/` |
-| CAT | `catalog/` |
-| CRM | `crm/` |
-| SALES | `sales/` |
-| ADMIN | `admin/` |
-| INT | `integration/` |
-| API-* | `api/` |
+This step is **optional** — skip it if the user only wants the executable test.
 
 ### Phase 6 — Verify
 
@@ -121,7 +124,7 @@ If it fails, fix it. Do not leave broken tests.
 ## Rules
 
 - MUST explore the running app before writing — never guess selectors or flows
-- MUST create both the markdown TC and the `.spec.ts` — never just one
+- MUST create the `.spec.ts` — the markdown scenario is optional
 - MUST use actual locators from Playwright MCP snapshots (`getByRole`, `getByLabel`, `getByText`)
 - MUST verify the test passes before finishing
 - If the app is not running, inform the user and stop — do not write speculative tests
@@ -148,6 +151,7 @@ Typical spec produces 3-8 test cases. Prioritize:
 
 Given SPEC-017 (Version History Panel), the skill would produce:
 
-- `TC-ADMIN-011-version-history-view.md` + `admin/TC-ADMIN-011.spec.ts` — UI: open history panel on an entity
-- `TC-API-AUD-007-version-history-api.md` + `api/TC-API-AUD-007.spec.ts` — API: fetch audit logs for entity
-- `TC-ADMIN-012-version-history-restore.md` + `admin/TC-ADMIN-012.spec.ts` — UI: restore a previous version
+- `tests/admin/TC-ADMIN-011.spec.ts` — UI: open history panel on an entity
+- `tests/api/TC-API-AUD-007.spec.ts` — API: fetch audit logs for entity
+- `tests/admin/TC-ADMIN-012.spec.ts` — UI: restore a previous version
+- Optionally: matching `.ai/qa/scenarios/TC-ADMIN-011-*.md` files for documentation
