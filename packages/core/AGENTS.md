@@ -306,6 +306,49 @@ When adding features to `acl.ts`, also add them to `setup.ts` `defaultRoleFeatur
 - This ensures undo refreshes the query index and caches
 - Reference: customers commands at `src/modules/customers/commands/people.ts`
 
+## Entity Update Safety — `withAtomicFlush`
+
+MikroORM's identity-map and subscriber infrastructure can silently discard pending scalar changes when a query (`em.find`, `em.findOne`, etc.) runs on the same `EntityManager` before an explicit `em.flush()`. Additionally, multiple `em.flush()` calls without transaction wrapping risk partial commits. See [SPEC-018](../../.ai/specs/SPEC-018-2026-02-05-safe-entity-flush.md) for the full analysis.
+
+### Rules
+
+- Use `withAtomicFlush(em, phases, options)` from
+  `@open-mercato/shared/lib/commands/flush` when a command mutates
+  entities across multiple phases that include queries on the same `EntityManager`.
+- **NEVER** run `em.find` / `em.findOne` / sync helpers between scalar
+  mutations and `em.flush()` on the same `EntityManager` without using `withAtomicFlush`.
+- Enable `{ transaction: true }` when atomicity matters (all-or-nothing semantics).
+- Keep `emitCrudSideEffects` / `emitCrudUndoSideEffects` calls **OUTSIDE** `withAtomicFlush`
+  — side effects should only fire after the DB changes are committed.
+- This applies to **both** `execute` methods (update commands) and `undo` handlers.
+
+### Wrong
+
+```typescript
+// BUG: changes to `record` are silently lost
+record.name = 'New Name'
+record.status = 'active'
+await syncEntityTags(em, record, tags)   // internal em.find() resets UoW tracking
+await em.flush()                          // no UPDATE issued
+```
+
+### Correct
+
+```typescript
+import { withAtomicFlush } from '@open-mercato/shared/lib/commands/flush'
+
+await withAtomicFlush(em, [
+  () => {
+    record.name = 'New Name'
+    record.status = 'active'
+  },
+  () => syncEntityTags(em, record, tags),
+], { transaction: true })
+
+// Side effects AFTER the atomic flush
+await emitCrudSideEffects({ ... })
+```
+
 ## Profiling
 
 - Enable with `OM_PROFILE` env (comma-separated filters: `*`, `all`, `customers.*`, etc.)
