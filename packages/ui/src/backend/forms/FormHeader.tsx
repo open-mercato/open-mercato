@@ -73,7 +73,7 @@ function EditHeader({
   actionsContent,
 }: FormHeaderEditProps & { resolvedBackLabel: string }) {
   return (
-    <div className="flex items-center justify-between gap-3">
+    <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between sm:gap-3">
       <div className="flex items-center gap-3">
         {backHref ? (
           <Link href={backHref} className="text-sm text-muted-foreground hover:text-foreground">

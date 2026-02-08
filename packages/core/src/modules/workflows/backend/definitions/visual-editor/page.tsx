@@ -35,6 +35,8 @@ import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { CircleQuestionMark, Info, PanelTopClose, PanelTopOpen, Play, Save, Trash2 } from 'lucide-react'
 import { NODE_TYPE_ICONS, NODE_TYPE_COLORS, NODE_TYPE_LABELS } from '../../../lib/node-type-icons'
 import { DefinitionTriggersEditor } from '../../../components/DefinitionTriggersEditor'
+import { MobileVisualEditor } from '../../../components/mobile/MobileVisualEditor'
+import { useIsMobile } from '@open-mercato/ui/hooks/useIsMobile'
 import type { WorkflowDefinitionTrigger } from '../../../data/entities'
 import * as React from 'react'
 
@@ -55,6 +57,7 @@ export default function VisualEditorPage() {
   const router = useRouter()
   const searchParams = useSearchParams()
   const definitionId = searchParams.get('id')
+  const isMobile = useIsMobile()
 
   const [isLoading, setIsLoading] = useState(!!definitionId)
   const [isSaving, setIsSaving] = useState(false)
@@ -514,6 +517,106 @@ export default function VisualEditorPage() {
     return (
       <Page className="flex items-center justify-center min-h-[50vh]">
         <LoadingMessage label="Loading workflow definition..." />
+      </Page>
+    )
+  }
+
+  if (isMobile) {
+    return (
+      <Page className="flex h-[100svh] flex-col space-y-0 overflow-hidden">
+        <MobileVisualEditor
+          definitionId={definitionId}
+          isSaving={isSaving}
+          nodes={nodes}
+          edges={edges}
+          onNodesChange={handleNodesChange}
+          onEdgesChange={handleEdgesChange}
+          onNodeClick={handleNodeClick}
+          onEdgeClick={handleEdgeClick}
+          onConnect={handleConnect}
+          onAddNode={handleAddNode}
+          onSave={handleSave}
+          onValidate={handleValidate}
+          onTest={handleTest}
+          onLoadExample={handleLoadExample}
+          onClear={handleClear}
+          workflowId={workflowId}
+          setWorkflowId={setWorkflowId}
+          workflowName={workflowName}
+          setWorkflowName={setWorkflowName}
+          description={description}
+          setDescription={setDescription}
+          version={version}
+          setVersion={setVersion}
+          enabled={enabled}
+          setEnabled={setEnabled}
+          category={category}
+          setCategory={setCategory}
+          tags={tags}
+          setTags={setTags}
+          icon={icon}
+          setIcon={setIcon}
+          effectiveFrom={effectiveFrom}
+          setEffectiveFrom={setEffectiveFrom}
+          effectiveTo={effectiveTo}
+          setEffectiveTo={setEffectiveTo}
+          triggers={triggers}
+          setTriggers={setTriggers}
+        />
+
+        {/* Dialogs shared between mobile and desktop */}
+        {process.env.NEXT_PUBLIC_WORKFLOW_CRUDFORM_ENABLED === 'true' ? (
+          <NodeEditDialogCrudForm
+            node={selectedNode}
+            isOpen={showNodeDialog}
+            onClose={() => setShowNodeDialog(false)}
+            onSave={handleSaveNode}
+            onDelete={handleDeleteNode}
+          />
+        ) : (
+          <NodeEditDialog
+            node={selectedNode}
+            isOpen={showNodeDialog}
+            onClose={() => setShowNodeDialog(false)}
+            onSave={handleSaveNode}
+            onDelete={handleDeleteNode}
+          />
+        )}
+        {process.env.NEXT_PUBLIC_WORKFLOW_CRUDFORM_ENABLED === 'true' ? (
+          <EdgeEditDialogCrudForm
+            edge={selectedEdge}
+            isOpen={showEdgeDialog}
+            onClose={() => setShowEdgeDialog(false)}
+            onSave={handleSaveEdge}
+            onDelete={handleDeleteEdge}
+          />
+        ) : (
+          <EdgeEditDialog
+            edge={selectedEdge}
+            isOpen={showEdgeDialog}
+            onClose={() => setShowEdgeDialog(false)}
+            onSave={handleSaveEdge}
+            onDelete={handleDeleteEdge}
+          />
+        )}
+        <Dialog open={showClearConfirm} onOpenChange={setShowClearConfirm}>
+          <DialogContent className="sm:max-w-md">
+            <DialogHeader>
+              <DialogTitle>Clear Everything?</DialogTitle>
+              <DialogDescription>
+                This will clear all metadata and the workflow canvas. This action cannot be undone.
+              </DialogDescription>
+            </DialogHeader>
+            <DialogFooter>
+              <Button variant="outline" onClick={() => setShowClearConfirm(false)}>
+                {t('common.cancel', 'Cancel')}
+              </Button>
+              <Button variant="destructive" onClick={confirmClear}>
+                {t('common.clear', 'Clear')}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
       </Page>
     )
   }

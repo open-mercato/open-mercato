@@ -14,12 +14,15 @@ import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import type { WorkflowInstance, WorkflowEvent, WorkflowDefinition } from '../../../data/entities'
 import { WorkflowGraphReadOnly } from '../../../components/WorkflowGraph'
 import { WorkflowLegend } from '../../../components/WorkflowLegend'
+import { MobileInstanceOverview } from '../../../components/mobile/MobileInstanceOverview'
+import { useIsMobile } from '@open-mercato/ui/hooks/useIsMobile'
 import { definitionToGraph } from '../../../lib/graph-utils'
 import { Node } from '@xyflow/react'
 
 export default function WorkflowInstanceDetailPage({ params }: { params?: { id?: string } }) {
   const id = params?.id
   const t = useT()
+  const isMobile = useIsMobile()
   const queryClient = useQueryClient()
 
   const { data: instance, isLoading, error } = useQuery({
@@ -372,6 +375,54 @@ export default function WorkflowInstanceDetailPage({ params }: { params?: { id?:
   const canCancel = ['RUNNING', 'PAUSED'].includes(instance.status)
   const canRetry = instance.status === 'FAILED'
   const actionLoading = cancelMutation.isPending || retryMutation.isPending
+
+  if (isMobile) {
+    return (
+      <Page>
+        <PageBody>
+          <div className="space-y-4">
+            <FormHeader
+              mode="detail"
+              backHref="/backend/instances"
+              backLabel={t('workflows.instances.backToList', 'Back to instances')}
+              entityTypeLabel={t('workflows.instances.detail.type', 'Workflow instance')}
+              title={
+                <div className="flex flex-wrap items-center gap-2">
+                  <span>{instance.workflowId}</span>
+                  <span className="font-mono text-sm text-muted-foreground">#{instance.id.slice(0, 8)}</span>
+                </div>
+              }
+              menuActions={[
+                ...(canCancel ? [{
+                  id: 'cancel',
+                  label: t('workflows.instances.actions.cancel'),
+                  onSelect: handleCancel,
+                  disabled: actionLoading,
+                }] : []),
+                ...(canRetry ? [{
+                  id: 'retry',
+                  label: t('workflows.instances.actions.retry'),
+                  onSelect: handleRetry,
+                  disabled: actionLoading,
+                }] : []),
+              ]}
+            />
+            <MobileInstanceOverview
+              instance={instance}
+              events={events}
+              graphNodes={graphNodes}
+              graphEdges={graphEdges}
+              definitionLoading={definitionLoading}
+              hasDefinition={!!workflowDefinition}
+              getStatusBadgeClass={getStatusBadgeClass}
+              getEventTypeBadgeClass={getEventTypeBadgeClass}
+              calculateDuration={calculateDuration}
+            />
+          </div>
+        </PageBody>
+      </Page>
+    )
+  }
 
   return (
     <Page>

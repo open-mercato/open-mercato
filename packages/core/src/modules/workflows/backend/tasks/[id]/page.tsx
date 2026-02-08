@@ -13,6 +13,8 @@ import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useQuery } from '@tanstack/react-query'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { MobileTaskForm } from '../../../components/mobile/MobileTaskForm'
+import { useIsMobile } from '@open-mercato/ui/hooks/useIsMobile'
 
 type UserTaskStatus = 'PENDING' | 'IN_PROGRESS' | 'COMPLETED' | 'CANCELLED'
 
@@ -42,6 +44,7 @@ type UserTask = {
 export default function UserTaskDetailPage({ params }: { params: { id: string } }) {
   const router = useRouter()
   const t = useT()
+  const isMobile = useIsMobile()
   const [formData, setFormData] = React.useState<Record<string, any>>({})
   const [comments, setComments] = React.useState('')
   const [submitting, setSubmitting] = React.useState(false)
@@ -351,6 +354,35 @@ export default function UserTaskDetailPage({ params }: { params: { id: string } 
   const isCompletable = task.status === 'PENDING' || task.status === 'IN_PROGRESS'
   const isOverdue = task.dueDate && new Date(task.dueDate) < new Date() && isCompletable
 
+  if (isMobile) {
+    return (
+      <Page>
+        <PageBody>
+          <div className="space-y-4">
+            <FormHeader
+              mode="detail"
+              backHref="/backend/tasks"
+              backLabel={t('workflows.tasks.backToList', 'Back to tasks')}
+            />
+            <MobileTaskForm
+              task={task}
+              formData={formData}
+              comments={comments}
+              submitting={submitting}
+              isCompletable={isCompletable}
+              isOverdue={!!isOverdue}
+              onFieldChange={handleFieldChange}
+              onCommentsChange={setComments}
+              onSubmit={handleSubmit}
+              onCancel={() => router.push('/backend/tasks')}
+              getStatusBadgeClass={getStatusBadgeClass}
+            />
+          </div>
+        </PageBody>
+      </Page>
+    )
+  }
+
   return (
     <Page>
       <PageBody>
@@ -374,8 +406,8 @@ export default function UserTaskDetailPage({ params }: { params: { id: string } 
           <div className="space-y-3">
 
             {isOverdue && (
-              <div className="bg-red-50 border border-red-200 rounded-lg p-3">
-                <p className="text-sm text-red-800 font-medium">
+              <div className="bg-red-50 dark:bg-red-950/50 border border-red-200 dark:border-red-800 rounded-lg p-3">
+                <p className="text-sm text-red-800 dark:text-red-200 font-medium">
                   {t('workflows.tasks.detail.overdueWarning')}
                 </p>
               </div>
