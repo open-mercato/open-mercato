@@ -39,7 +39,9 @@
     "release:canary": "./scripts/release-canary.sh",
     "release:patch": "./scripts/release-patch.sh",
     "release:minor": "./scripts/release-minor.sh",
-    "release:major": "./scripts/release-major.sh"
+    "release:major": "./scripts/release-major.sh",
+    "test:integration": "npx playwright test --config .ai/qa/tests/playwright.config.ts",
+    "test:integration:report": "npx playwright show-report .ai/qa/tests/test-results/html"
   },
   "dependencies": {
     "@ai-sdk/openai": "^2.0.80",
@@ -98,6 +100,7 @@
     "tsconfig-paths": "^4.2.0",
     "tsx": "^4.21.0",
     "turbo": "^2.3.3",
+    "@playwright/test": "^1.50.0",
     "typescript": "^5.9.3"
   },
   "resolutions": {

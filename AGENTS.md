@@ -46,6 +46,8 @@ Before starting work, check this table and read the relevant guide.
 | Adding onboarding wizard steps, tenant setup hooks (`onTenantCreated`/`seedDefaults`), welcome/invitation emails | `packages/onboarding/AGENTS.md` |
 | Adding static content pages (privacy policies, terms, legal pages) | `packages/content/AGENTS.md` |
 | Testing standalone apps with Verdaccio, publishing packages, canary releases, template scaffolding | `packages/create-app/AGENTS.md` |
+| **Testing** | |
+| Integration testing, creating/running Playwright tests, converting markdown test cases to TypeScript, CI test pipeline | `.ai/qa/AGENTS.md` |
 | **Other** | |
 | Writing new specs, updating existing specs after implementation, documenting architectural decisions, maintaining changelogs | `.ai/specs/AGENTS.md` |
 
@@ -68,6 +70,7 @@ Before starting work, check this table and read the relevant guide.
 
 - Specs live in `.ai/specs/` — see `.ai/specs/AGENTS.md` for naming, structure, and changelog conventions.
 - Always check for existing specs before modifying a module. Update specs when implementing significant changes.
+- After implementing a spec, create a corresponding integration test — see `.ai/qa/AGENTS.md` for the workflow.
 
 ## Monorepo Structure
 
@@ -224,4 +227,6 @@ yarn db:generate          # Generate database migrations
 yarn db:migrate           # Apply database migrations
 yarn initialize           # Full project initialization
 yarn dev:greenfield       # Fresh dev environment setup
+yarn test:integration     # Run integration tests (Playwright, headless)
+yarn test:integration:report  # View HTML test report
 ```

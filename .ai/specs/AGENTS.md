@@ -75,6 +75,7 @@ Even when not explicitly asked:
 - Update the spec when implementing significant changes
 - Keep specs synchronized with actual implementation
 - Document architectural decisions made during development
+- **MUST create an integration test** for the implemented feature — follow `.ai/qa/AGENTS.md` to create both a markdown test case (`.ai/qa/TC-*.md`) and an executable Playwright test (`.ai/qa/tests/<category>/TC-*.spec.ts`)
 
 ## Risks & Impact Review — MUST Include in Every Spec
 
@@ -277,3 +278,4 @@ For each non-compliant item:
 7. **MUST include a Risks & Impact Review section** in every spec — no spec is complete without documented failure modes and mitigations
 8. **MUST perform a separate review pass** after writing — re-read adversarially, append review findings to changelog
 9. **MUST perform a Final Compliance Review** as the last step — cross-reference all related AGENTS.md files, produce a compliance matrix, and block implementation until all non-compliant items are resolved
+10. **MUST create an integration test** after implementing a spec — follow `.ai/qa/AGENTS.md` to produce both a markdown test case and an executable Playwright `.spec.ts` file
