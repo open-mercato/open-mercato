@@ -155,7 +155,7 @@ registerModules(testModules)
 
 ## Events
 
-Modules that emit events must declare them in `events.ts` for type safety and workflow trigger discovery.
+Declare events in the emitting module's `events.ts` for type safety and workflow trigger discovery.
 
 ```typescript
 import { createModuleEvents } from '@open-mercato/shared/modules/events'
@@ -175,9 +175,26 @@ export default eventsConfig
 
 Event fields: `id` (required), `label` (required), `description`, `category` (`crud`|`lifecycle`|`system`|`custom`), `entity`, `excludeFromTriggers`.
 
-Using `as const` provides compile-time safety — undeclared events trigger TypeScript errors and runtime warnings.
+MUST use `as const` — provides compile-time safety; undeclared events trigger TypeScript errors and runtime warnings.
 
 Run `npm run modules:prepare` after creating/modifying `events.ts` files.
+
+### Event Subscribers
+
+React to events by creating subscriber files in `subscribers/`:
+
+```typescript
+// src/modules/<module>/subscribers/entity-created-notify.ts
+export const metadata = { event: 'module.entity.created', persistent: true, id: 'entity-created-notify' }
+export default async function handler(payload, ctx) { /* one side effect per subscriber */ }
+```
+
+| Subscription type | When to use |
+|-------------------|-------------|
+| Ephemeral (`persistent: false`) | Real-time UI updates, cache invalidation |
+| Persistent (`persistent: true`) | Notifications, indexing, audit logging — retried on failure |
+
+See `packages/events/AGENTS.md` for event bus architecture, queue integration, and worker details.
 
 ## Notifications
 

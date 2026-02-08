@@ -16,32 +16,37 @@ Before starting work, check this table and read the relevant guide.
 | Task | Guide |
 |------|-------|
 | **Module Development** | |
-| Creating a new module | `packages/core/AGENTS.md` |
-| Building API routes / OpenAPI specs | `packages/core/AGENTS.md` → API Routes |
-| Adding module setup.ts / role features | `packages/core/AGENTS.md` → Module Setup |
-| Adding events to a module | `packages/core/AGENTS.md` → Events |
-| Adding notifications | `packages/core/AGENTS.md` → Notifications |
-| Adding widget injection | `packages/core/AGENTS.md` → Widgets |
-| Custom fields / custom entities | `packages/core/AGENTS.md` → Custom Fields |
+| Creating a new module, scaffolding module files, auto-discovery paths | `packages/core/AGENTS.md` |
+| Building CRUD API routes, adding OpenAPI specs, using `makeCrudRoute`, query engine integration | `packages/core/AGENTS.md` → API Routes |
+| Adding `setup.ts` for tenant init, declaring role features, seeding defaults/examples | `packages/core/AGENTS.md` → Module Setup |
+| Declaring typed events with `createModuleEvents`, emitting CRUD/lifecycle events, adding event subscribers | `packages/core/AGENTS.md` → Events |
+| Adding in-app notifications, subscriber-based alerts, writing notification renderers | `packages/core/AGENTS.md` → Notifications |
+| Injecting UI widgets into other modules, defining spot IDs, cross-module UI extensions | `packages/core/AGENTS.md` → Widgets |
+| Adding custom fields/entities, using DSL helpers (`defineLink`, `cf.*`), declaring `ce.ts` | `packages/core/AGENTS.md` → Custom Fields |
+| Adding entity extensions, cross-module data links, `data/extensions.ts` | `packages/core/AGENTS.md` → Extensions |
+| Configuring RBAC features in `acl.ts`, declarative guards, permission checks | `packages/core/AGENTS.md` → Access Control |
+| Using encrypted queries (`findWithDecryption`), encryption defaults, GDPR fields | `packages/core/AGENTS.md` → Encryption |
 | **Specific Modules** | |
-| Customers (people, companies, deals) | `packages/core/src/modules/customers/AGENTS.md` |
-| Sales (orders, quotes, pricing) | `packages/core/src/modules/sales/AGENTS.md` |
-| Catalog (products, pricing, channels) | `packages/core/src/modules/catalog/AGENTS.md` |
-| Auth (users, roles, RBAC) | `packages/core/src/modules/auth/AGENTS.md` |
+| Managing people/companies/deals/activities, **copying CRUD patterns for new modules** | `packages/core/src/modules/customers/AGENTS.md` |
+| Building orders/quotes/invoices, pricing calculations, document flow (Quote→Order→Invoice), shipments/payments, channel scoping | `packages/core/src/modules/sales/AGENTS.md` |
+| Managing products/categories/variants, pricing resolvers (`selectBestPrice`), offers, channel-scoped pricing, option schemas | `packages/core/src/modules/catalog/AGENTS.md` |
+| Users/roles/RBAC implementation, authentication flow, session management, feature-based access control | `packages/core/src/modules/auth/AGENTS.md` |
+| Multi-currency support, exchange rates, dual currency recording, realized gains/losses | `packages/core/src/modules/currencies/AGENTS.md` |
 | **Packages** | |
-| Shared utilities, data engine, i18n | `packages/shared/AGENTS.md` |
-| UI components, forms, tables | `packages/ui/AGENTS.md` |
-| Search configuration & indexing | `packages/search/AGENTS.md` |
-| AI assistant, MCP server | `packages/ai-assistant/AGENTS.md` |
-| CLI, generators, migrations | `packages/cli/AGENTS.md` |
-| Event bus, pub/sub | `packages/events/AGENTS.md` |
-| Caching (Redis/SQLite/memory) | `packages/cache/AGENTS.md` |
-| Job queues (local/BullMQ) | `packages/queue/AGENTS.md` |
-| Onboarding wizards | `packages/onboarding/AGENTS.md` |
-| Content management | `packages/content/AGENTS.md` |
-| Standalone apps & Verdaccio testing | `packages/create-app/AGENTS.md` |
+| Adding reusable utilities, encryption helpers, i18n translations (`useT`/`resolveTranslations`), boolean parsing, data engine types, request scoping | `packages/shared/AGENTS.md` |
+| Building forms (`CrudForm`), data tables (`DataTable`), loading/error states, flash messages, `FormHeader`/`FormFooter`, dialog UX (`Cmd+Enter`/`Escape`) | `packages/ui/AGENTS.md` |
+| Backend page components, `apiCall` usage, `RowActions` ids, `LoadingMessage`/`ErrorMessage` | `packages/ui/src/backend/AGENTS.md` |
+| Configuring fulltext/vector/token search, writing `search.ts`, reindexing entities, debugging search, search CLI commands | `packages/search/AGENTS.md` |
+| Adding MCP tools (`registerMcpTool`), modifying OpenCode config, debugging AI chat, session tokens, command palette, two-tier auth | `packages/ai-assistant/AGENTS.md` |
+| Running generators (`yarn generate`), creating database migrations (`yarn db:generate`), scaffolding modules, build order | `packages/cli/AGENTS.md` |
+| Event bus architecture, ephemeral vs persistent subscriptions, queue integration for events, event workers | `packages/events/AGENTS.md` |
+| Adding cache to a module, tag-based invalidation, tenant-scoped caching, choosing strategy (memory/SQLite/Redis) | `packages/cache/AGENTS.md` |
+| Adding background workers, configuring concurrency (I/O vs CPU-bound), idempotent job processing, queue strategies | `packages/queue/AGENTS.md` |
+| Adding onboarding wizard steps, tenant setup hooks (`onTenantCreated`/`seedDefaults`), welcome/invitation emails | `packages/onboarding/AGENTS.md` |
+| Adding static content pages (privacy policies, terms, legal pages) | `packages/content/AGENTS.md` |
+| Testing standalone apps with Verdaccio, publishing packages, canary releases, template scaffolding | `packages/create-app/AGENTS.md` |
 | **Other** | |
-| Writing or updating specs | `.ai/specs/AGENTS.md` |
+| Writing new specs, updating existing specs after implementation, documenting architectural decisions, maintaining changelogs | `.ai/specs/AGENTS.md` |
 
 ## Core Principles
 
