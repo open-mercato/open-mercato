@@ -15,6 +15,8 @@ Skills extend AI agents with task-specific capabilities. Each skill is a folder 
 │       └── ui-components.md
 ├── create-agents-md/
 │   └── SKILL.md
+├── create-qa-scenario/
+│   └── SKILL.md
 ├── run-integration-tests/
 │   └── SKILL.md
 └── skill-creator/
@@ -96,12 +98,12 @@ ln -s .ai/skills .codex/skills
 # Claude Code
 claude
 > /skills
-# Should list backend-ui-design, create-agents-md, run-integration-tests
+# Should list backend-ui-design, create-agents-md, create-qa-scenario, run-integration-tests
 
 # Codex
 codex
 > /skills
-# Should list backend-ui-design, create-agents-md, run-integration-tests
+# Should list backend-ui-design, create-agents-md, create-qa-scenario, run-integration-tests
 ```
 
 ---
@@ -123,7 +125,8 @@ Skills also trigger automatically when a task matches the skill's `description`.
 |-------|-------------|
 | `backend-ui-design` | Building admin pages, CRUD interfaces, data tables, forms, or detail pages with @open-mercato/ui |
 | `create-agents-md` | Creating or rewriting AGENTS.md files for packages and modules |
-| `run-integration-tests` | Running integration tests, converting markdown test cases to Playwright TypeScript, executing QA test suite |
+| `create-qa-scenario` | Auto-generating new QA test scenarios (markdown + Playwright TypeScript) from specs or feature descriptions |
+| `run-integration-tests` | Running existing integration tests, converting markdown test cases to Playwright TypeScript, executing QA test suite |
 | `skill-creator` | Creating a new skill or updating an existing skill |
 
 ---

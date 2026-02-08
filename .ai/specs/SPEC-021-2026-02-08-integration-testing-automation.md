@@ -13,8 +13,9 @@ Add a complete integration testing pipeline that bridges the existing markdown t
 
 1. **Default Playwright + MCP configuration** so Claude Code and Codex agents can run browser tests out of the box
 2. **An AI skill** (`/run-integration-tests`) that lets an agent execute markdown test cases via Playwright MCP, then auto-generate TypeScript code from the session
-3. **Clear instructions** in `.ai/qa/AGENTS.md` for agents to convert markdown specs into executable tests
-4. **A CLI runner** (`yarn test:integration`) that executes all TypeScript tests headlessly and produces a summary report — zero token cost, suitable for CI
+3. **An AI skill** (`/create-qa-scenario`) that auto-generates new QA scenarios (markdown + TypeScript) by reading a spec and exploring the running app via Playwright MCP
+4. **Clear instructions** in `.ai/qa/AGENTS.md` for agents to convert markdown specs into executable tests
+5. **A CLI runner** (`yarn test:integration`) that executes all TypeScript tests headlessly and produces a summary report — zero token cost, suitable for CI
 
 ### Why
 
@@ -58,11 +59,14 @@ Add a complete integration testing pipeline that bridges the existing markdown t
 ### Flow
 
 ```
-Markdown TC ──▶ Agent explores via Playwright MCP ──▶ Agent writes .spec.ts ──▶ CI runs headlessly
-     │                                                         │
-     │         ┌───────────────────────────────────────────────┘
-     │         ▼
-     └── yarn test:integration  (headless, no tokens, JSON/HTML report)
+                      /create-qa-scenario
+Spec (SPEC-*.md) ──────────────────────────▶ Markdown TC + .spec.ts ──▶ CI runs headlessly
+                                                   │
+                      /run-integration-tests       │
+Existing Markdown TC ──────────────────────▶ .spec.ts ──────────────┤
+                                                                    ▼
+                                              yarn test:integration
+                                         (headless, no tokens, report)
 ```
 
 ---
@@ -213,6 +217,30 @@ A new skill at `.ai/skills/run-integration-tests/SKILL.md` that guides the agent
 2. Executing it interactively via Playwright MCP to validate it works
 3. Converting the session into a TypeScript `.spec.ts` file
 4. Saving to `.ai/qa/tests/<category>/TC-XXX.spec.ts`
+
+### 8. AI Skill: `create-qa-scenario`
+
+A new skill at `.ai/skills/create-qa-scenario/SKILL.md` that **automatically generates** new QA test scenarios from scratch. The agent:
+
+1. Reads the related spec (`.ai/specs/SPEC-*.md`) or uses a feature description to identify testable scenarios
+2. Finds the next available TC number in the target category
+3. Explores the running app via Playwright MCP to discover actual UI elements, form fields, API responses
+4. Writes the markdown test case (`.ai/qa/TC-*.md`) with steps based on real observations
+5. Writes the executable Playwright test (`.ai/qa/tests/<category>/TC-*.spec.ts`) using discovered locators
+6. Verifies the test passes headlessly
+
+This skill is the primary entry point after implementing a spec — it produces both documentation and executable tests in one go.
+
+#### Deriving Scenarios from Specs
+
+| Spec Section | Generates |
+|-------------|-----------|
+| API Contracts — each endpoint | One API test per endpoint |
+| UI/UX — each user flow | One UI test per flow |
+| Edge Cases / Error Scenarios | One test per significant error path |
+| Risks & Impact Review | Regression tests for documented failure modes |
+
+A typical spec produces 3-8 test cases.
 
 ---
 
@@ -389,3 +417,4 @@ npx playwright install chromium
 
 ### 2026-02-08
 - Initial specification
+- Added `create-qa-scenario` skill for auto-generating QA scenarios from specs

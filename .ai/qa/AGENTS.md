@@ -31,7 +31,19 @@ An AI agent reads a markdown test case and executes it interactively via Playwri
 
 ---
 
-## How to Create New Executable Tests
+## How to Create New QA Scenarios from Scratch
+
+Use the `/create-qa-scenario` skill to auto-generate both a markdown test case and an executable Playwright test in one go. The skill reads the related spec, explores the running app via Playwright MCP, and produces both files automatically.
+
+```
+/create-qa-scenario
+```
+
+This is the recommended workflow after implementing a spec. It typically produces 3-8 test cases per spec.
+
+---
+
+## How to Create Executable Tests from Existing Markdown TCs
 
 Use the `/run-integration-tests` skill or follow these steps manually:
 
