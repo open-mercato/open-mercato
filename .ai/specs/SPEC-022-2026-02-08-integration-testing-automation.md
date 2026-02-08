@@ -1,4 +1,4 @@
-# SPEC-021: Integration Testing Automation
+# SPEC-022: Integration Testing Automation
 
 **Date:** 2026-02-08
 **Status:** Draft
