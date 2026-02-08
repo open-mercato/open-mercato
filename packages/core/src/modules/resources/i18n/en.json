@@ -701,5 +701,8 @@
   "resources.resources.detail.inline.twitterInvalid": "Enter a Twitter profile URL",
   "resources.resources.detail.inline.urlInvalid": "Enter a valid URL",
   "resources.resources.detail.tabs.notes": "Notes",
-  "resources.resources.detail.tabs.activities": "Activities"
+  "resources.resources.detail.tabs.activities": "Activities",
+  "audit_logs.resource_kind.resources.resource_activity": "Activity",
+  "audit_logs.resource_kind.resources.resource_comment": "Comment",
+  "audit_logs.resource_kind.resources.resourceTagAssignment": "Tag"
 }

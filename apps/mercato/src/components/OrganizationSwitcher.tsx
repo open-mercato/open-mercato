@@ -1,6 +1,5 @@
 "use client"
 import * as React from 'react'
-import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { raiseCrudError } from '@open-mercato/ui/backend/utils/serverErrors'
@@ -305,7 +304,6 @@ export default function OrganizationSwitcher({ compact }: OrganizationSwitcherEx
   }, [state])
 
   const hasOptions = nodes.length > 0 && state.status === 'ready'
-  const canManage = state.status === 'ready' && state.canManage
   const tenantSelectOptions = state.status === 'ready' ? state.tenants : []
   const tenantSelectValue = state.status === 'ready'
     ? state.tenantId ?? ''
@@ -370,9 +368,6 @@ export default function OrganizationSwitcher({ compact }: OrganizationSwitcherEx
     <div className="flex flex-wrap items-center gap-2 text-sm">
       {showTenantSelect ? (
         <>
-          <label className="hidden text-xs text-muted-foreground sm:inline" htmlFor="tenant-switcher">
-            {t('organizationSwitcher.tenantLabel', 'Tenant')}
-          </label>
           <TenantSelect
             id="tenant-switcher"
             value={tenantSelectValue}
@@ -385,7 +380,6 @@ export default function OrganizationSwitcher({ compact }: OrganizationSwitcherEx
           />
         </>
       ) : null}
-      <label className="hidden text-xs text-muted-foreground sm:inline" htmlFor="org-switcher">{t('organizationSwitcher.label')}</label>
       {state.status === 'loading' ? (
         <span className="text-xs text-muted-foreground">{t('organizationSwitcher.loading')}</span>
       ) : state.status === 'error' ? (
@@ -404,11 +398,6 @@ export default function OrganizationSwitcher({ compact }: OrganizationSwitcherEx
       ) : (
         <span className="text-xs text-muted-foreground">{t('organizationSwitcher.empty')}</span>
       )}
-      {canManage ? (
-        <Link href="/backend/directory/organizations" className="text-xs text-muted-foreground hover:text-foreground">
-          {t('organizationSwitcher.manage')}
-        </Link>
-      ) : null}
     </div>
   )
 }

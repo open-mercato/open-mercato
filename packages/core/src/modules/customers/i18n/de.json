@@ -873,5 +873,9 @@
   "customers.workPlan.customerTodos.table.state.empty": "Noch keine Kundenaufgaben.",
   "customers.workPlan.customerTodos.table.error.load": "Kundentasks konnten nicht geladen werden.",
   "customers.workPlan.customerTodos.table.export.view": "Exportiert die aktuelle Liste mit Filtern und sichtbaren Spalten.",
-  "customers.workPlan.customerTodos.table.export.full": "Exportiert alle Felder der verknüpften Aufgabe, einschließlich versteckter Attribute."
+  "customers.workPlan.customerTodos.table.export.full": "Exportiert alle Felder der verknüpften Aufgabe, einschließlich versteckter Attribute.",
+  "audit_logs.resource_kind.customers.address": "Adresse",
+  "audit_logs.resource_kind.customers.activity": "Aktivität",
+  "audit_logs.resource_kind.customers.comment": "Kommentar",
+  "audit_logs.resource_kind.customers.todoLink": "Aufgabe"
 }

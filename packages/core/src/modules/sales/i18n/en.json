@@ -1540,5 +1540,9 @@
   "sales.notifications.payment.received.title": "Payment Received",
   "sales.notifications.payment.received.body": "Payment of {amount} received for order #{orderNumber}",
   "sales.notifications.quote.expiring.title": "Quote Expiring Soon",
-  "sales.notifications.quote.expiring.body": "Quote #{quoteNumber} expires in {daysUntilExpiry} days ({expiresAt})"
+  "sales.notifications.quote.expiring.body": "Quote #{quoteNumber} expires in {daysUntilExpiry} days ({expiresAt})",
+  "audit_logs.resource_kind.sales.documentAddress": "Address",
+  "audit_logs.resource_kind.sales.payment": "Payment",
+  "audit_logs.resource_kind.sales.shipment": "Shipment",
+  "audit_logs.resource_kind.sales.note": "Note"
 }

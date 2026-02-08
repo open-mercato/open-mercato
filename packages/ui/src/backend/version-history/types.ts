@@ -7,6 +7,8 @@ export type VersionHistoryEntry = {
   actorUserName: string | null
   resourceKind: string | null
   resourceId: string | null
+  parentResourceKind?: string | null
+  parentResourceId?: string | null
   undoToken: string | null
   createdAt: string
   updatedAt: string
@@ -21,4 +23,5 @@ export type VersionHistoryConfig = {
   resourceId: string
   resourceIdFallback?: string
   organizationId?: string
+  includeRelated?: boolean
 }

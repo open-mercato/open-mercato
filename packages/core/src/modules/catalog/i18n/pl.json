@@ -681,5 +681,7 @@
         "deleteError": "Nie udało się usunąć wariantu."
       }
     }
-  }
+  },
+  "audit_logs.resource_kind.catalog.variant": "Wariant",
+  "audit_logs.resource_kind.catalog.price": "Cena"
 }

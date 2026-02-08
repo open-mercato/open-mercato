@@ -1,17 +1,33 @@
 # Search Module - Agent Guidelines
 
-This document describes how to configure and use the search module for indexing and searching entities across the Open Mercato platform.
+When working on search functionality, use this guide. It covers indexing, querying, and configuring search across all entity types.
 
-## Overview
+## MUST / MUST NOT Rules
 
-The search module provides unified search capabilities via three strategies:
-- **Fulltext**: Fast, typo-tolerant search via Meilisearch
-- **Vector**: Semantic/AI-powered search via embeddings (OpenAI, Ollama, etc.)
-- **Tokens**: Exact keyword matching in PostgreSQL (always available)
+1. **MUST** create a `search.ts` file for every module with searchable entities.
+2. **MUST** define `fieldPolicy.excluded` for any sensitive fields (passwords, tokens, SSNs, bank accounts) -- never allow them into any index.
+3. **MUST** define `formatResult` for every entity that uses the tokens strategy -- without it, users see raw UUIDs instead of names.
+4. **MUST** include `checksumSource` in every `buildSource` return value so the indexer can detect changes and skip redundant re-embedding.
+5. **MUST** use the `entityId` format `module:entity_name` and ensure it matches the entity registry exactly.
+6. **MUST NOT** call raw `fetch` against the search API -- use `apiCall`/`apiCallOrThrow` from `@open-mercato/ui/backend/utils/apiCall`.
+7. **MUST NOT** include encrypted or sensitive fields in `buildSource` text output -- they end up in plain text in vector stores.
+8. **MUST NOT** skip `fieldPolicy.hashOnly` for PII fields (email, phone, tax_id) that need exact-match filtering but not fuzzy search.
 
-## Global Search (Cmd+K)
+## Search Strategies -- When to Use Each
 
-The global search dialog strategies can be configured per-tenant via **Settings > Search** or the API:
+Choose strategies based on what users need:
+
+| Strategy | When to use | Backend required |
+|----------|-------------|------------------|
+| **Fulltext** | When users need fast, typo-tolerant search (names, descriptions, titles) | Meilisearch (`MEILISEARCH_HOST`) |
+| **Vector** | When users need semantic/meaning-based search ("find customers interested in automation") | Embedding provider (`OPENAI_API_KEY` or Ollama) |
+| **Tokens** | When you need baseline keyword search that always works, even without external services | PostgreSQL (always available) |
+
+Strategies automatically become unavailable if their backend is not configured (e.g., no `MEILISEARCH_HOST` means fulltext is unavailable).
+
+## Configure Global Search (Cmd+K)
+
+Set global search dialog strategies per-tenant via **Settings > Search** or the API:
 
 ```typescript
 // Get current config
@@ -23,20 +39,17 @@ POST /api/search/settings/global-search
 // Body: { "enabledStrategies": ["fulltext", "tokens"] }
 ```
 
-Strategies automatically become unavailable if their backend is not configured (e.g., no `MEILISEARCH_HOST` means fulltext is unavailable).
+## Create a Search Configuration
 
-## Creating a Search Configuration
+### Place the file here
 
-Every module with searchable entities **MUST** provide a `search.ts` file.
-
-### File Location
 ```
 src/modules/<module>/search.ts
 # or
 packages/<package>/src/modules/<module>/search.ts
 ```
 
-### Basic Structure
+### Follow this structure
 
 ```typescript
 import type {
@@ -65,11 +78,11 @@ export const searchConfig: SearchModuleConfig = {
 export default searchConfig
 ```
 
-## Strategy Configuration
+## Configure Each Strategy
 
-### Fulltext Strategy
+### Configure Fulltext
 
-Uses `fieldPolicy` to control which fields are indexed in the fulltext engine.
+Use `fieldPolicy` to control which fields are indexed in the fulltext engine.
 
 ```typescript
 {
@@ -88,11 +101,11 @@ Uses `fieldPolicy` to control which fields are indexed in the fulltext engine.
 }
 ```
 
-**Presenter**: Stored directly in the fulltext index during indexing.
+Presenter data is stored directly in the fulltext index during indexing.
 
-### Vector Strategy
+### Configure Vector
 
-Uses `buildSource` to generate text for embeddings. The returned text is converted to vectors for semantic search.
+Use `buildSource` to generate text for embeddings. The returned text is converted to vectors for semantic search.
 
 ```typescript
 {
@@ -145,13 +158,13 @@ Uses `buildSource` to generate text for embeddings. The returned text is convert
 }
 ```
 
-**Presenter**: Returned from `buildSource.presenter` and stored alongside vectors.
+Presenter data is returned from `buildSource.presenter` and stored alongside vectors.
 
-### Tokens (Keyword) Strategy
+### Configure Tokens (Keyword)
 
-Indexes automatically from `entity_indexes` table. No special configuration needed for indexing.
+Tokens index automatically from the `entity_indexes` table. No special indexing configuration needed.
 
-**Presenter**: Resolved at **search time** using `formatResult`. If not defined, falls back to extracting common fields from the document.
+Presenter is resolved at **search time** using `formatResult`. When `formatResult` is not defined, the system falls back to extracting common fields from the document.
 
 ```typescript
 {
@@ -169,7 +182,7 @@ Indexes automatically from `entity_indexes` table. No special configuration need
 }
 ```
 
-**Fallback fields** (when `formatResult` is not defined):
+**Fallback field resolution order** (when `formatResult` is not defined):
 1. `display_name`, `displayName`
 2. `name`, `title`, `label`
 3. `full_name`, `fullName`
@@ -178,9 +191,9 @@ Indexes automatically from `entity_indexes` table. No special configuration need
 6. `code`, `sku`, `reference`
 7. Any other non-system string field
 
-## SearchBuildContext
+## Use SearchBuildContext
 
-The context object passed to all config functions:
+When you need to access record data, custom fields, or related entities inside config functions, use the context object:
 
 ```typescript
 interface SearchBuildContext {
@@ -201,9 +214,9 @@ interface SearchBuildContext {
 }
 ```
 
-### Using QueryEngine in Config Functions
+### Load Related Data via QueryEngine
 
-You can use `queryEngine` to load related data for richer search results:
+When you need richer search results that include parent or related entity names, use `queryEngine`:
 
 ```typescript
 formatResult: async (ctx: SearchBuildContext): Promise<SearchResultPresenter | null> => {
@@ -227,11 +240,11 @@ formatResult: async (ctx: SearchBuildContext): Promise<SearchResultPresenter | n
 }
 ```
 
-## Complete Entity Config Reference
+## Follow This Template When Configuring Search Entities
 
 ```typescript
 {
-  /** Entity identifier - must match entity registry */
+  /** Entity identifier - MUST match entity registry */
   entityId: 'module:entity_name',
 
   /** Enable/disable search for this entity (default: true) */
@@ -267,7 +280,9 @@ formatResult: async (ctx: SearchBuildContext): Promise<SearchResultPresenter | n
 }
 ```
 
-## SearchResultPresenter
+## Use These Types for Search Results
+
+### When you need to define presenter display data, use SearchResultPresenter
 
 ```typescript
 interface SearchResultPresenter {
@@ -285,7 +300,7 @@ interface SearchResultPresenter {
 }
 ```
 
-## SearchResultLink
+### When you need to define action links on results, use SearchResultLink
 
 ```typescript
 interface SearchResultLink {
@@ -300,9 +315,7 @@ interface SearchResultLink {
 }
 ```
 
-## Core Types
-
-### SearchOptions
+### When you need to pass search parameters, use SearchOptions
 
 ```typescript
 interface SearchOptions {
@@ -315,7 +328,7 @@ interface SearchOptions {
 }
 ```
 
-### SearchResult
+### When you need to read search results, use SearchResult
 
 ```typescript
 interface SearchResult {
@@ -330,7 +343,7 @@ interface SearchResult {
 }
 ```
 
-### IndexableRecord
+### When you need to build an indexable document, use IndexableRecord
 
 ```typescript
 interface IndexableRecord {
@@ -347,7 +360,7 @@ interface IndexableRecord {
 }
 ```
 
-## Auto-Indexing via Events
+## Rely on Auto-Indexing via Events
 
 When CRUD routes have `indexer: { entityType }` configured, the search module automatically:
 1. Subscribes to entity create/update/delete events
@@ -356,13 +369,11 @@ When CRUD routes have `indexer: { entityType }` configured, the search module au
 
 No manual indexing code is needed for standard CRUD operations.
 
-## Programmatic Integration (DI)
+## Integrate Programmatically via DI
 
-Other modules can use search functionality by resolving services from the DI container.
+When you need search functionality from another module, resolve services from the DI container.
 
-### SearchService
-
-The primary service for executing searches and managing indexes:
+### Use SearchService for Direct Search and Index Operations
 
 ```typescript
 import type { SearchService } from '@open-mercato/search'
@@ -394,9 +405,9 @@ await searchService.delete('customers:customer_person_profile', 'rec-123', 'tena
 await searchService.purge('customers:customer_person_profile', 'tenant-123')
 ```
 
-### SearchIndexer
+### Use SearchIndexer for Config-Aware Indexing
 
-Higher-level API for config-aware indexing with automatic presenter/URL resolution:
+When you need automatic presenter/URL resolution based on `search.ts` config, use `SearchIndexer`:
 
 ```typescript
 import type { SearchIndexer } from '@open-mercato/search'
@@ -432,24 +443,22 @@ await searchIndexer.reindexAll({ tenantId, purgeFirst: true })
 
 ### DI Token Reference
 
-| Token | Type | Description |
+| Token | Type | When to use |
 |-------|------|-------------|
-| `searchService` | `SearchService` | Execute searches, index/delete records |
-| `searchIndexer` | `SearchIndexer` | Config-aware indexing with presenter resolution |
-| `searchStrategies` | `SearchStrategy[]` | Array of registered strategy instances |
-| `fulltextIndexQueue` | `Queue` | Queue for fulltext indexing jobs |
-| `vectorIndexQueue` | `Queue` | Queue for vector indexing jobs |
+| `searchService` | `SearchService` | When you need to execute searches or directly index/delete records |
+| `searchIndexer` | `SearchIndexer` | When you need config-aware indexing with automatic presenter resolution |
+| `searchStrategies` | `SearchStrategy[]` | When you need to inspect or iterate over registered strategy instances |
+| `fulltextIndexQueue` | `Queue` | When you need to enqueue or monitor fulltext indexing jobs directly |
+| `vectorIndexQueue` | `Queue` | When you need to enqueue or monitor vector indexing jobs directly |
 
 ## REST API
 
-### Search Endpoint
+### Query via GET /api/search
 
-**`GET /api/search`**
-
-| Parameter | Type | Required | Description |
-|-----------|------|----------|-------------|
-| `q` | string | Yes | Search query |
-| `limit` | number | No | Max results (default: 50, max: 100) |
+| Parameter | Type | Required | MUST rules |
+|-----------|------|----------|------------|
+| `q` | string | Yes | MUST be non-empty; this is the search query |
+| `limit` | number | No | MUST NOT exceed 100 (default: 50) |
 | `strategies` | string | No | Comma-separated: `fulltext,vector,tokens` |
 
 ```bash
@@ -477,30 +486,30 @@ curl "https://your-app.com/api/search?q=john%20doe&limit=20" \
 
 ### Other Endpoints
 
-| Endpoint | Method | Permission | Description |
+| Endpoint | Method | Permission | When to use |
 |----------|--------|------------|-------------|
-| `/api/search/settings/global-search` | GET | `search.view` | Get enabled strategies for Cmd+K |
-| `/api/search/settings/global-search` | POST | `search.manage` | Update enabled strategies |
-| `/api/search/reindex` | POST | `search.manage` | Trigger fulltext reindex |
-| `/api/search/embeddings/reindex` | POST | `search.manage` | Trigger vector reindex |
-| `/api/search/embeddings/status` | GET | `search.view` | Get vector indexing status |
+| `/api/search/settings/global-search` | GET | `search.view` | When you need to read which strategies are enabled for Cmd+K |
+| `/api/search/settings/global-search` | POST | `search.manage` | When you need to update enabled strategies for a tenant |
+| `/api/search/reindex` | POST | `search.manage` | When you need to trigger a fulltext reindex (after bulk data changes) |
+| `/api/search/embeddings/reindex` | POST | `search.manage` | When you need to trigger a vector reindex (after embedding config changes) |
+| `/api/search/embeddings/status` | GET | `search.view` | When you need to check vector indexing progress or errors |
 
 ## Environment Variables
 
-| Variable | Required For | Description |
-|----------|--------------|-------------|
-| `MEILISEARCH_HOST` | Fulltext | Fulltext search server URL |
-| `MEILISEARCH_API_KEY` | Fulltext | API key for fulltext server |
-| `OPENAI_API_KEY` | Vector | OpenAI API key for embeddings |
-| `QUEUE_STRATEGY` | Queues | `local` (dev) or `async` (prod) |
-| `REDIS_URL` | Async queues | Redis connection URL |
-| `QUEUE_REDIS_URL` | Async queues | Alternative Redis URL for queues |
-| `OM_SEARCH_ENABLED` | - | Enable/disable search module (default: `true`) |
-| `OM_SEARCH_DEBUG` | Debug | Enable verbose debug logging |
-| `SEARCH_EXCLUDE_ENCRYPTED_FIELDS` | Security | Exclude encrypted fields from fulltext index |
-| `DEBUG_SEARCH_ENRICHER` | Debug | Enable presenter enricher debug logs |
+| Variable | When to configure | MUST rules |
+|----------|-------------------|------------|
+| `MEILISEARCH_HOST` | When enabling fulltext search | MUST be a valid URL to a running Meilisearch instance |
+| `MEILISEARCH_API_KEY` | When enabling fulltext search | MUST match the Meilisearch server's master or admin key |
+| `OPENAI_API_KEY` | When enabling vector search with OpenAI | MUST be a valid OpenAI API key with embeddings access |
+| `QUEUE_STRATEGY` | When choosing job processing mode | Set `local` for dev, `async` for production |
+| `REDIS_URL` | When using `QUEUE_STRATEGY=async` | MUST be a valid Redis connection URL |
+| `QUEUE_REDIS_URL` | When using a separate Redis for queues | Alternative to `REDIS_URL` for queue-specific connections |
+| `OM_SEARCH_ENABLED` | When you need to disable the search module entirely | Default: `true`; set to `false` to disable |
+| `OM_SEARCH_DEBUG` | When debugging search behavior | Enables verbose debug logging |
+| `SEARCH_EXCLUDE_ENCRYPTED_FIELDS` | When you need to keep encrypted fields out of fulltext | Set to `true` to exclude encrypted fields from fulltext index |
+| `DEBUG_SEARCH_ENRICHER` | When debugging presenter enrichment | Enables presenter enricher debug logs |
 
-## Running Queue Workers
+## Run Queue Workers
 
 For production with `QUEUE_STRATEGY=async`:
 
@@ -514,15 +523,15 @@ yarn mercato search worker vector-indexing --concurrency=10
 
 For development with `QUEUE_STRATEGY=local`, jobs process from `.queue/` automatically.
 
-## CLI Commands
+## Use CLI Commands
 
-### Status
+### Check status
 ```bash
 yarn mercato search status
 ```
 Shows search module status, available strategies, and configuration.
 
-### Query
+### Run a search query
 ```bash
 yarn mercato search query -q "search term" --tenant <id> [options]
 ```
@@ -534,7 +543,7 @@ Options:
 - `--strategy` - Strategies to use: `fulltext,vector,tokens`
 - `--limit` - Max results (default: 20)
 
-### Index Single Record
+### Index a single record
 ```bash
 yarn mercato search index --entity <entityId> --record <recordId> --tenant <id>
 ```
@@ -544,7 +553,7 @@ Options:
 - `--tenant` - Tenant ID
 - `--org` - Organization ID
 
-### Reindex
+### Reindex entities
 ```bash
 yarn mercato search reindex --tenant <id> [options]
 ```
@@ -557,25 +566,25 @@ Options:
 - `--partitions` - Number of parallel partitions
 - `--batch` - Override batch size
 
-### Test Meilisearch Connection
+### Test Meilisearch connection
 ```bash
 yarn mercato search test-meilisearch
 ```
 
-### Start Queue Worker
+### Start a queue worker
 ```bash
 yarn mercato search worker <queue-name> --concurrency=<n>
 ```
 Queues: `fulltext-indexing`, `vector-indexing`
 
-### Help
+### Show help
 ```bash
 yarn mercato search help
 ```
 
-## Example: Full Search Config
+## Reference: Full Search Config Example
 
-See `packages/core/src/modules/customers/search.ts` for a comprehensive real-world example with:
+See `packages/core/src/modules/customers/search.ts` for the reference implementation with:
 - Multiple entities (person, company, deal, activity, comment)
 - Related entity loading via queryEngine
 - Custom field handling
@@ -584,7 +593,7 @@ See `packages/core/src/modules/customers/search.ts` for a comprehensive real-wor
 
 ## Common Patterns
 
-### Loading Parent Entity for Display
+### Load a Parent Entity for Display
 
 ```typescript
 formatResult: async (ctx) => {
@@ -600,7 +609,7 @@ formatResult: async (ctx) => {
 }
 ```
 
-### Handling Custom Fields
+### Include Custom Fields in Vector Source
 
 ```typescript
 buildSource: async (ctx) => {
@@ -620,7 +629,7 @@ buildSource: async (ctx) => {
 }
 ```
 
-### Conditional Strategy Usage
+### Use Only Specific Strategies
 
 ```typescript
 {
@@ -635,7 +644,7 @@ buildSource: async (ctx) => {
 }
 ```
 
-### Sensitive Data Handling
+### Protect Sensitive Data
 
 ```typescript
 {
@@ -657,7 +666,31 @@ buildSource: async (ctx) => {
 }
 ```
 
-## Architecture
+## Checklist: Add Search to a New Module
+
+- [ ] Create `search.ts` in the module directory
+- [ ] Export `searchConfig` with correct `entityId` matching the entity registry
+- [ ] Define `fieldPolicy` for fulltext (mark sensitive fields as `excluded` or `hashOnly`)
+- [ ] Define `buildSource` for vector search (include `checksumSource`)
+- [ ] Define `formatResult` for tokens strategy
+- [ ] Define `resolveUrl` and `resolveLinks` for result navigation
+- [ ] Set `priority` to control ordering in mixed results
+- [ ] Verify CRUD routes include `indexer: { entityType }` for auto-indexing
+- [ ] Run `npm run modules:prepare` after adding the file
+- [ ] Test with `yarn mercato search query -q "test" --tenant <id>`
+
+## Checklist: Debug Search Issues
+
+- [ ] Run `yarn mercato search status` to verify strategies and connectivity
+- [ ] Run `yarn mercato search test-meilisearch` if fulltext is not returning results
+- [ ] Check `OM_SEARCH_ENABLED` is not set to `false`
+- [ ] Enable `OM_SEARCH_DEBUG=true` for verbose logging
+- [ ] Enable `DEBUG_SEARCH_ENRICHER=true` if presenters are missing or wrong
+- [ ] Verify the entity has `enabled: true` (or omitted, since default is `true`)
+- [ ] Verify the CRUD route has `indexer: { entityType }` for auto-indexing
+- [ ] Check queue workers are running if using `QUEUE_STRATEGY=async`
+
+## Where to Find Code When Modifying Search
 
 ```
 packages/search/src/
