@@ -29,12 +29,12 @@ import { AppShell } from '@open-mercato/ui/backend/AppShell'
 
 // Every backend page follows this structure
 <Page>
-  <PageHeader>
-    {/* Title, actions, breadcrumbs */}
-  </PageHeader>
-  <PageBody>
-    {/* Main content */}
-  </PageBody>
+<PageHeader>
+{/* Title, actions, breadcrumbs */}
+</PageHeader>
+<PageBody>
+  {/* Main content */}
+</PageBody>
 </Page>
 ```
 
@@ -113,18 +113,18 @@ import { CrudForm } from '@open-mercato/ui/backend/CrudForm'
 // Dialog forms MUST use embedded={true}
 <Dialog open={isOpen} onOpenChange={onClose}>
   <DialogContent className="sm:max-w-2xl [&_.grid]:!grid-cols-1">
-    <DialogHeader>
-      <DialogTitle>Edit Item</DialogTitle>
-    </DialogHeader>
-    <CrudForm
-      fields={fields}
-      groups={groups}
-      initialValues={initialValues}
-      onSubmit={handleSubmit}
-      embedded={true}
-      submitLabel="Save"
-    />
-  </DialogContent>
+  <DialogHeader>
+  <DialogTitle>Edit Item</DialogTitle>
+</DialogHeader>
+<CrudForm
+  fields={fields}
+  groups={groups}
+  initialValues={initialValues}
+  onSubmit={handleSubmit}
+  embedded={true}
+  submitLabel="Save"
+/>
+</DialogContent>
 </Dialog>
 ```
 
