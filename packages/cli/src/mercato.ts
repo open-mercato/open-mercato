@@ -470,6 +470,46 @@ export async function run(argv = process.argv) {
     }
   }
 
+  // Handle eject command directly (bootstrap-free)
+  if (first === 'eject') {
+    try {
+      const { createResolver } = await import('./lib/resolver')
+      const { listEjectableModules, ejectModule } = await import('./lib/eject')
+      const resolver = createResolver()
+
+      const isList = second === '--list' || second === '-l'
+      const moduleId = !isList ? second : undefined
+
+      if (isList || !moduleId) {
+        const ejectable = listEjectableModules(resolver)
+        if (ejectable.length === 0) {
+          console.log('No ejectable modules found.')
+        } else {
+          console.log('Ejectable modules:\n')
+          for (const mod of ejectable) {
+            const desc = mod.description ? ` — ${mod.description}` : ''
+            console.log(`  ${mod.id} (from: ${mod.from})${desc}`)
+          }
+          console.log('\nUsage: yarn mercato eject <moduleId>')
+        }
+        return 0
+      }
+
+      console.log(`Ejecting module "${moduleId}"...`)
+      ejectModule(resolver, moduleId)
+      console.log(`\n✅ Module "${moduleId}" ejected successfully!\n`)
+      console.log('Next steps:')
+      console.log('  1. Run generators:  yarn mercato generate all')
+      console.log(`  2. Customize:       edit src/modules/${moduleId}/`)
+      console.log('  3. Start dev:       yarn dev')
+      return 0
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : String(error)
+      console.error(`❌ Eject failed: ${message}`)
+      return 1
+    }
+  }
+
   let modName = first
   let cmdName = second
   let rest = remaining
