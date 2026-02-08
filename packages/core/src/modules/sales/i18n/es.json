@@ -1537,5 +1537,9 @@
   "sales.search.badge.deliveryWindow": "Ventana de entrega",
   "sales.search.badge.paymentMethod": "Método de pago",
   "sales.search.badge.taxRate": "Tasa de impuesto",
-  "sales.search.badge.documentTag": "Etiqueta de documento"
+  "sales.search.badge.documentTag": "Etiqueta de documento",
+  "audit_logs.resource_kind.sales.documentAddress": "Dirección",
+  "audit_logs.resource_kind.sales.payment": "Pago",
+  "audit_logs.resource_kind.sales.shipment": "Envío",
+  "audit_logs.resource_kind.sales.note": "Nota"
 }

@@ -20,7 +20,8 @@ type VersionHistoryResponse = {
 const PAGE_SIZE = 20
 
 function buildCacheKey(config: VersionHistoryConfig, resourceId: string): string {
-  return `${config.resourceKind}::${resourceId}::${config.resourceIdFallback ?? 'none'}::${config.organizationId ?? 'default'}`
+  const related = config.includeRelated !== false ? 'related' : 'direct'
+  return `${config.resourceKind}::${resourceId}::${config.resourceIdFallback ?? 'none'}::${config.organizationId ?? 'default'}::${related}`
 }
 
 export function useVersionHistory(
@@ -49,6 +50,7 @@ export function useVersionHistory(
       limit: String(PAGE_SIZE),
     })
     if (config.organizationId) params.set('organizationId', config.organizationId)
+    if (config.includeRelated !== false) params.set('includeRelated', 'true')
     if (opts.before) params.set('before', opts.before)
     setIsLoading(true)
     setError(null)

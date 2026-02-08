@@ -947,5 +947,9 @@
   "customers.notifications.deal.won.title": "Deal Won",
   "customers.notifications.deal.won.body": "{dealTitle} has been marked as won{dealValue, select, other { ({dealValue})}}",
   "customers.notifications.deal.lost.title": "Deal Lost",
-  "customers.notifications.deal.lost.body": "{dealTitle} has been marked as lost"
+  "customers.notifications.deal.lost.body": "{dealTitle} has been marked as lost",
+  "audit_logs.resource_kind.customers.address": "Address",
+  "audit_logs.resource_kind.customers.activity": "Activity",
+  "audit_logs.resource_kind.customers.comment": "Comment",
+  "audit_logs.resource_kind.customers.todoLink": "Todo"
 }

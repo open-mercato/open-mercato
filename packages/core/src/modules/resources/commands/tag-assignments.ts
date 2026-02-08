@@ -94,6 +94,8 @@ const assignResourceTagCommand: CommandHandler<ResourcesResourceTagAssignmentInp
       actionLabel: translate('resources.audit.resourceTags.assign', 'Assign resource tag'),
       resourceKind: 'resources.resourceTagAssignment',
       resourceId: assignment.id,
+      parentResourceKind: 'resources.resource',
+      parentResourceId: resourceId,
       tenantId: assignment.tenantId,
       organizationId: assignment.organizationId,
       payload: {
@@ -160,6 +162,8 @@ const unassignResourceTagCommand: CommandHandler<ResourcesResourceTagAssignmentI
       actionLabel: translate('resources.audit.resourceTags.unassign', 'Unassign resource tag'),
       resourceKind: 'resources.resourceTagAssignment',
       resourceId: parsed.tagId,
+      parentResourceKind: 'resources.resource',
+      parentResourceId: parsed.resourceId,
       tenantId: parsed.tenantId,
       organizationId: parsed.organizationId,
       payload: {

@@ -880,5 +880,11 @@
   "staff.myAvailability.readOnly.body": "Nutze Urlaubsantr\u00e4ge, um \u00c4nderungen zu melden.",
   "staff.teamMembers.self.createTitle": "Mein Profil erstellen",
   "staff.teamMembers.self.created": "Profil erstellt.",
-  "staff.teamMembers.self.exists": "Teamprofil existiert bereits."
+  "staff.teamMembers.self.exists": "Teamprofil existiert bereits.",
+  "audit_logs.resource_kind.staff.team_member_address": "Adresse",
+  "audit_logs.resource_kind.staff.team_member_activity": "Aktivit\u00e4t",
+  "audit_logs.resource_kind.staff.team_member_comment": "Kommentar",
+  "audit_logs.resource_kind.staff.team_member_job_history": "Besch\u00e4ftigungsverlauf",
+  "audit_logs.resource_kind.staff.leave_request": "Urlaubsantrag",
+  "audit_logs.resource_kind.staff.teamMemberTagAssignment": "Tag"
 }
