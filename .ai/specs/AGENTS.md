@@ -1,46 +1,41 @@
-# Specs Folder Guidelines
+# Specs Folder — Agent Guidelines
 
-This folder contains specifications and Architecture Decision Records (ADRs) that serve as the source of truth for design decisions and module behavior.
+Check `.ai/specs/` before modifying any module. Create specs for new features, update specs when implementing changes.
 
-## Purpose
+## When to Create a Spec
 
-The `.ai/specs/` folder is the central repository for:
-
-- **Specifications**: Documented design decisions with context, alternatives considered, and rationale
-- **Feature specifications**: Detailed descriptions of module functionality, API contracts, and data models
-- **Implementation reference**: Living documentation that stays synchronized with the codebase
+- Before implementing a new module or significant feature
+- When making architectural decisions that affect multiple files
+- When adding new API contracts or data models
+- Skip for small bug fixes, typo corrections, or single-file changes
 
 ## File Naming
 
-Specification files follow the pattern `SPEC-{number}-{date}-{title}.md`:
+Follow the pattern `SPEC-{number}-{date}-{title}.md`:
 
-- **Number**: Sequential identifier (e.g., `001`, `002`, `003`)
+- **Number**: Sequential identifier (e.g., `001`, `002`)
 - **Date**: Creation date in ISO format (`YYYY-MM-DD`)
-- **Title**: Descriptive kebab-case title (e.g., `sidebar-reorganization`, `messages-module`)
+- **Title**: Descriptive kebab-case (e.g., `sidebar-reorganization`)
 
-**Examples:**
+Examples:
+- `SPEC-003-2026-01-23-notifications-module.md`
+- `SPEC-002-2026-01-23-messages-module.md`
 
-- `SPEC-003-2026-01-23-notifications-module.md` – Notifications module specification
-- `SPEC-002-2026-01-23-messages-module.md` – Messages module specification
-- `SPEC-001-2026-01-21-ui-reusable-components.md` – Reusable UI component library reference
+Meta-documentation files (`AGENTS.md`, `CLAUDE.md`) use UPPERCASE names and are not numbered.
 
-**Meta-documentation files** like `AGENTS.md` and `CLAUDE.md` use UPPERCASE names and are not numbered—they provide guidelines for working with the specs themselves.
+## Spec File Structure — MUST Include
 
-## Spec File Structure
+Every spec MUST contain these sections:
 
-Each spec should include:
+1. **Overview** — what the module/feature does and why
+2. **Architecture** — high-level design and component relationships
+3. **Data Models** — entity definitions, relationships, database schema
+4. **API Contracts** — endpoints, request/response schemas, examples
+5. **UI/UX** — frontend components and interactions (if applicable)
+6. **Configuration** — environment variables, feature flags, settings
+7. **Changelog** — version history with dates and summaries
 
-1. **Overview** – What the module/feature does and its purpose
-2. **Architecture** – High-level design and component relationships
-3. **Data Models** – Entity definitions, relationships, and database schema
-4. **API Contracts** – Endpoints, request/response schemas, and examples
-5. **UI/UX** – Frontend components and user interactions (if applicable)
-6. **Configuration** – Environment variables, feature flags, and settings
-7. **Changelog** – Version history with dates and summaries
-
-### Changelog Format
-
-Every spec must maintain a changelog at the bottom:
+### Changelog Format — MUST Maintain
 
 ```markdown
 ## Changelog
@@ -56,37 +51,34 @@ Every spec must maintain a changelog at the bottom:
 ## Workflow
 
 ### Before Coding
+
 1. Check if a spec exists for the module you're modifying
 2. Read the spec to understand design intent and constraints
 3. Identify gaps or outdated sections
 
 ### When Adding Features
-1. Update the corresponding spec file with:
-   - New functionality description
-   - API changes
-   - Data model updates
-2. Add a changelog entry with the date and summary
+
+1. Update the corresponding spec with new functionality, API changes, and data model updates
+2. Add a changelog entry with date and summary
 
 ### When Creating New Modules
 
-1. Create a new spec file at `.ai/specs/SPEC-{next-number}-{YYYY-MM-DD}-{module-name}.md`
+1. Create `SPEC-{next-number}-{YYYY-MM-DD}-{module-name}.md`
 2. Document the initial design before or alongside implementation
 3. Include a changelog entry for the initial specification
-4. Update [README.md](README.md) with a link to the new specification in the directory table
+4. Update [README.md](README.md) with a link to the new spec
 
 ### After Coding
-Even when not explicitly asked to update specs:
-- Generate or update the spec when implementing significant changes
+
+Even when not explicitly asked:
+- Update the spec when implementing significant changes
 - Keep specs synchronized with actual implementation
 - Document architectural decisions made during development
 
-## For AI Agents
+## MUST Rules
 
-AI agents working on this codebase should:
-1. **Always check** for existing specs before making changes
-2. **Reference specs** to understand module behavior and constraints
-3. **Update specs** when implementing features, even if not explicitly requested
-4. **Create specs** for new modules or significant features
-5. **Maintain changelogs** with clear, dated entries
-
-This ensures the `.ai/specs/` folder remains a reliable reference for understanding module behavior and evolution over time.
+1. **MUST check for existing specs** before making changes to any module
+2. **MUST update specs** when implementing features — even if not explicitly requested
+3. **MUST create specs** for new modules or significant features
+4. **MUST maintain changelogs** with clear, dated entries
+5. **MUST NOT leave specs out of sync** with the codebase after implementation
