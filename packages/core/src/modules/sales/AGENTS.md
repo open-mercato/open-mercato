@@ -1,49 +1,14 @@
 # Sales Module — Agent Guidelines
 
-The sales module handles orders, quotes, invoices, shipments, and payments. It has the most complex business logic in the system.
+Use the sales module for orders, quotes, invoices, shipments, and payments. This module has the most complex business logic in the system.
 
-## Data Model
+## MUST Rules
 
-### Core Entities
-- **Sales Orders** — confirmed customer orders
-- **Sales Quotes** — proposed orders (convert to orders)
-- **Order Lines / Quote Lines** — individual items in a document
-- **Order Adjustments / Quote Adjustments** — discounts, surcharges
-
-### Fulfillment
-- **Shipments** — delivery tracking with status workflow
-- **Payments** — payment recording with status workflow
-
-### Configuration
-- **Channels** — sales channels (web, POS, etc.)
-- **Order Statuses / Payment Statuses / Shipment Statuses** — workflow states
-- **Order Line Statuses** — per-line fulfillment tracking
-- **Payment Methods** — accepted payment types
-- **Shipping Methods** — available shipping options
-- **Price Kinds** — pricing tier definitions
-- **Adjustment Kinds** — discount/surcharge types
-- **Delivery Windows** — scheduling options
-- **Document Numbers** — numbering sequences
-- **Tags** — categorization
-
-## Pricing Calculations
-
-**Never reimplement document math inline.** Use the DI-provided services:
-
-- `salesCalculationService` — wraps the `salesCalculations` registry
-- Dispatches `sales.line.calculate.*` / `sales.document.calculate.*` events
-- Register line/totals calculators or override via DI
-
-```typescript
-// Use DI service, never calculate inline
-const calcService = container.resolve('salesCalculationService')
-```
-
-For catalog pricing:
-- Use helpers from `packages/core/src/modules/catalog/lib/pricing.ts`
-- `selectBestPrice`, `resolvePriceVariantId`
-- Register custom resolver: `registerCatalogPricingResolver(resolver, { priority })`
-- Use DI token `catalogPricingService` for overrides
+1. **MUST NOT reimplement document math inline** — use `salesCalculationService` from DI
+2. **MUST follow document flow**: Quote → Order → Invoice — no skipping steps
+3. **MUST NOT modify configuration entities directly** (statuses, methods, channels) — use the admin UI or setup hooks
+4. **MUST use `selectBestPrice`** from catalog pricing helpers — never inline price calculations
+5. **MUST scope all documents to a channel** — channel selection affects pricing, numbering, and visibility
 
 ## Document Flow
 
@@ -53,25 +18,40 @@ Quote → Order → Invoice
     Shipments + Payments
 ```
 
-- Quotes can be converted to orders
+- Quotes convert to orders — MUST NOT create orders without a source quote (unless configured)
 - Orders track shipments and payments independently
-- Each entity has its own status workflow
+- Each entity has its own status workflow — MUST NOT skip workflow states
 
-## Key Directories
+## Pricing Calculations
 
-| Directory | Purpose |
-|-----------|---------|
-| `api/` | CRUD routes per entity (orders, quotes, lines, payments, shipments, etc.) |
-| `backend/` | Admin pages (config, sales documents) |
-| `commands/` | Undoable business commands |
-| `components/` | Shared React components (documents table, forms, payment/shipment sections) |
-| `data/` | ORM entities and validators |
-| `emails/` | Email templates for order confirmations |
-| `lib/` | Business logic (pricing providers, shipment helpers) |
-| `seed/` | Example data for `seedExamples` |
-| `services/` | Domain services (calculation, channel scoping) |
-| `subscribers/` | Event subscribers (notifications, indexing) |
-| `widgets/notifications/` | Notification renderers |
+Resolve `salesCalculationService` from DI for all document math:
+
+```typescript
+const calcService = container.resolve('salesCalculationService')
+```
+
+- Dispatches `sales.line.calculate.*` / `sales.document.calculate.*` events
+- Register line/totals calculators or override via DI
+- For catalog pricing: use `selectBestPrice`, `resolvePriceVariantId` from catalog module
+
+## Data Model Constraints
+
+### Core Entities
+- **Sales Orders** — confirmed customer orders. MUST have a channel and at least one line
+- **Sales Quotes** — proposed orders. MUST track conversion status
+- **Order/Quote Lines** — individual items. MUST reference valid products
+- **Adjustments** — discounts/surcharges. MUST use registered `AdjustmentKind`
+
+### Fulfillment
+- **Shipments** — delivery tracking. MUST follow status workflow
+- **Payments** — payment recording. MUST follow status workflow
+
+### Configuration — MUST NOT Modify Directly
+- **Channels** — sales channels (web, POS). Configure via admin UI
+- **Statuses** (order, payment, shipment, line) — workflow states. Seed via `setup.ts`
+- **Payment/Shipping Methods** — configure via admin UI
+- **Price Kinds, Adjustment Kinds** — configure via admin UI
+- **Document Numbers** — numbering sequences. Configure via `setup.ts`
 
 ## Channel Scoping
 
@@ -80,17 +60,19 @@ Sales documents are scoped to channels. Channel selection affects:
 - Document numbering sequences
 - Visibility in admin UI
 
-## Frontend
+## Key Directories
 
-- `frontend/quote/` — public-facing quote view (for customer acceptance)
-
-## Notifications
-
-Full notification implementation:
-- `notifications.ts` — server-side type definitions
-- `notifications.client.ts` — client-side renderers
-- `subscribers/` — event-driven notification creation
-- `widgets/notifications/` — renderer components
+| Directory | When to modify |
+|-----------|---------------|
+| `api/` | When adding/modifying CRUD routes per entity |
+| `backend/` | When changing admin pages (config, sales documents) |
+| `commands/` | When adding undoable business commands |
+| `components/` | When modifying shared React components (document table, forms, payment/shipment sections) |
+| `data/` | When changing ORM entities or validators |
+| `emails/` | When modifying order confirmation email templates |
+| `lib/` | When changing business logic (pricing providers, shipment helpers) |
+| `services/` | When modifying calculation or channel scoping services |
+| `subscribers/` | When adding event subscribers (notifications, indexing) |
 
 ## Reference Patterns
 
@@ -98,3 +80,8 @@ Full notification implementation:
 - Multi-section detail page: `backend/sales/` pages
 - Service-based calculations: `services/`
 - Email on document creation: `subscribers/`
+- Notification implementation: `notifications.ts`, `notifications.client.ts`, `widgets/notifications/`
+
+## Frontend
+
+- `frontend/quote/` — public-facing quote view (for customer acceptance)

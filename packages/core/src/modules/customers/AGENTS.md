@@ -1,24 +1,19 @@
 # Customers Module — Agent Guidelines
 
-The customers module is the **reference implementation** for CRUD modules. When building new modules, copy patterns from here.
+**This is the reference CRUD module.** When building new modules, copy patterns from here first.
 
-## Data Model
+## MUST Rules
 
-- **People** — individual customers (name, email, phone, addresses)
-- **Companies** — business customers (name, tax ID, addresses)
-- **Deals** — sales opportunities linked to people/companies
-- **Activities** — logged interactions (calls, emails, meetings)
-- **Todos** — action items assigned to users
-- **Tags** — categorization labels
-- **Comments** — notes on customer records
-- **Addresses** — multi-address support per person/company
+1. **MUST use this module as the template** for new CRUD modules — copy file structure and patterns
+2. **MUST include all standard module files** — use the list below as a checklist
+3. **MUST use `makeCrudRoute` with `indexer: { entityType }`** for query index coverage
+4. **MUST wire custom field helpers** for create/update/response normalization
+5. **MUST capture custom field snapshots** in command `before`/`after` payloads for undo support
 
-## Key Reference Files
+## Key Reference Files — Copy From Here
 
-Copy these patterns when building new modules:
-
-| Pattern | Reference File |
-|---------|---------------|
+| When you need | Copy from |
+|---------------|-----------|
 | CRUD API route | `api/people/route.ts` |
 | Undoable commands | `commands/people.ts` |
 | Backend list page | `backend/customers/people/page.tsx` |
@@ -32,6 +27,16 @@ Copy these patterns when building new modules:
 | ACL features | `acl.ts` |
 | Custom entities | `ce.ts` |
 | DI registrar | `di.ts` |
+
+## Data Model Constraints
+
+- **People** — individual customers. MUST have name; email/phone optional but searchable
+- **Companies** — business customers. MUST have name; tax ID optional
+- **Deals** — sales opportunities. MUST link to a person or company
+- **Activities** — logged interactions. MUST reference the parent entity
+- **Todos** — action items. MUST have an assigned user
+- **Comments** — notes on records. MUST reference the parent entity
+- **Addresses** — multi-address support. MUST link to person or company via FK
 
 ## CRUD API Pattern
 
@@ -55,7 +60,7 @@ Commands (`commands/people.ts`) demonstrate:
 
 ## Custom Field Integration
 
-Forms use `collectCustomFieldValues()` from `@open-mercato/ui/backend/utils/customFieldValues`:
+Use `collectCustomFieldValues()` from `@open-mercato/ui/backend/utils/customFieldValues`:
 - Pass `{ transform }` to normalize values (e.g., `normalizeCustomFieldSubmitValue`)
 - Works for both `cf_` and `cf:` prefixed keys
 - Pass `entityIds` to form helpers so correct custom-field sets are loaded
@@ -73,7 +78,6 @@ Forms use `collectCustomFieldValues()` from `@open-mercato/ui/backend/utils/cust
 - **Create page**: `CrudForm` with fields, groups, custom fields
 - **Detail page**: Tabbed layout with entity data, related entities, activities, timeline
 
-## Module Files
+## Module Files Checklist — All MUST Be Present
 
-All standard module files are present — use as reference for the complete set:
 `acl.ts`, `ce.ts`, `di.ts`, `events.ts`, `index.ts`, `notifications.ts`, `search.ts`, `setup.ts`, `analytics.ts`, `vector.ts`

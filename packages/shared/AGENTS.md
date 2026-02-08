@@ -1,98 +1,84 @@
 # Shared Package — Agent Guidelines
 
-`@open-mercato/shared` provides cross-cutting utilities, types, DSL helpers, and infrastructure used by all other packages. Never import from `@open-mercato/core` or other domain packages here — shared must have zero domain dependencies.
+Use `@open-mercato/shared` for cross-cutting utilities, types, DSL helpers, and infrastructure. MUST NOT import from `@open-mercato/core` or any domain package — shared has zero domain dependencies.
+
+## MUST Rules
+
+1. **MUST NOT add domain-specific logic** — this package is infrastructure only
+2. **MUST use precise types** — no `any`, use zod schemas + `z.infer`
+3. **MUST check for existing utilities** before adding new helpers — avoid duplication
+4. **MUST export narrow interfaces** (e.g., `QueryEngine`) — never pass `any`/`unknown`
+5. **MUST centralize reusable types and constants here** to prevent drift across packages
 
 ## Library Directory (`src/lib/`)
 
-| Directory | Purpose | Key Exports |
-|-----------|---------|-------------|
-| `api/` | API utilities, scoped payloads | `withScopedPayload`, `parseScopedCommandInput`, `createScopedApiHelpers()` |
-| `auth/` | Auth context and session types | — |
-| `bootstrap/` | App bootstrap helpers | — |
-| `boolean/` | Boolean string parsing | `parseBooleanToken`, `parseBooleanWithDefault`, `TRUE_VALUES`, `FALSE_VALUES` |
-| `cache/` | Cache interface types | — |
-| `cli/` | CLI framework utilities | — |
-| `commands/` | Command pattern (undo/redo) | `registerCommand`, command types |
-| `crud/` | CRUD factory, route builders | `makeCrudRoute`, CRUD helpers |
-| `custom-fields/` | Custom field helpers | `splitCustomFieldPayload`, `normalizeCustomFieldValues`, `normalizeCustomFieldResponse`, `buildCustomFieldResetMap` |
-| `data/` | Data engine, query engine | `DataEngine`, `QueryEngine` types |
-| `db/` | Database utilities, MikroORM helpers | — |
-| `di/` | Dependency injection (Awilix) | Container setup |
-| `email/` | Email sending utilities | — |
-| `encryption/` | Encryption helpers | `findWithDecryption`, `findOneWithDecryption`, `decryptEntitiesWithFallbackScope`, `decryptIndexDocCustomFields`, `decryptIndexDocForSearch` |
-| `entities/` | Entity utilities | — |
-| `frontend/` | Frontend shared utilities | — |
-| `hotkeys/` | Keyboard shortcut handling | — |
-| `i18n/` | Internationalization | `useT` (client), `resolveTranslations`, `createTranslator` (server) |
-| `indexers/` | Query index helpers | — |
-| `modules/` | Module registry utilities | `registerModules`, `getModules` |
-| `openapi/` | OpenAPI spec helpers | `createCrudOpenApiFactory` |
-| `profiler/` | Tree profiler | `OM_PROFILE` env flag |
-| `query/` | Query engine internals | — |
-| `search/` | Search utilities | — |
-| `testing/` | Test bootstrap | `bootstrapTest` |
+| Directory | When to use | Import path |
+|-----------|-------------|-------------|
+| `api/` | When building scoped API payloads | `@open-mercato/shared/lib/api/scoped` |
+| `boolean/` | When parsing boolean strings from env/query params | `@open-mercato/shared/lib/boolean` |
+| `commands/` | When implementing undo/redo command pattern | `@open-mercato/shared/lib/commands` |
+| `crud/` | When building CRUD routes | `@open-mercato/shared/lib/crud` |
+| `custom-fields/` | When handling custom field payloads | `@open-mercato/shared/lib/custom-fields` |
+| `data/` | When you need `DataEngine` or `QueryEngine` types | `@open-mercato/shared/lib/data/engine` |
+| `di/` | When setting up dependency injection (Awilix) | `@open-mercato/shared/lib/di` |
+| `encryption/` | When querying encrypted entities (MUST use instead of raw `em.find`) | `@open-mercato/shared/lib/encryption/find` |
+| `i18n/` | When translating strings — `useT()` client-side, `resolveTranslations()` server-side | `@open-mercato/shared/lib/i18n/context` or `/server` |
+| `indexers/` | When building query index helpers | `@open-mercato/shared/lib/indexers` |
+| `modules/` | When registering or listing modules | `@open-mercato/shared/lib/modules/registry` |
+| `openapi/` | When generating CRUD OpenAPI specs | `@open-mercato/shared/lib/openapi/crud` |
+| `profiler/` | When profiling with `OM_PROFILE` env flag | `@open-mercato/shared/lib/profiler` |
+| `testing/` | When bootstrapping tests — register only what the test needs | `@open-mercato/shared/lib/testing/bootstrap` |
 
 ## Module Types (`src/modules/`)
 
-Shared type definitions and interfaces consumed by other packages:
+When you need shared type definitions, import from these:
 
-- `dashboard/widgets` — `DashboardWidgetModule` type
-- `dsl` — DSL helpers: `defineLink()`, `entityId()`, `linkable()`, `defineFields()`, `cf.*`
-- `events` — `createModuleEvents()`, event type definitions
-- `search` — `SearchModuleConfig`, `SearchBuildContext`
-- `setup` — `ModuleSetupConfig` type
-- `registry` — `Module` type, registry functions
+| Need | Import from |
+|------|-------------|
+| Dashboard widget types | `@open-mercato/shared/modules/dashboard/widgets` |
+| DSL helpers (`defineLink`, `entityId`, `cf.*`) | `@open-mercato/shared/modules/dsl` |
+| Event declarations (`createModuleEvents`) | `@open-mercato/shared/modules/events` |
+| Search config types (`SearchModuleConfig`) | `@open-mercato/shared/modules/search` |
+| Module setup types (`ModuleSetupConfig`) | `@open-mercato/shared/modules/setup` |
+| Module registry types (`Module`) | `@open-mercato/shared/modules/registry` |
 
 ## Key Patterns
 
-### i18n
+### Encryption — MUST use instead of raw ORM queries
+
+```typescript
+import { findWithDecryption, findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+const results = await findWithDecryption(em, 'Entity', filter, { tenantId, organizationId })
+```
+
+### Boolean Parsing — MUST use instead of ad-hoc parsing
+
+```typescript
+import { parseBooleanToken, parseBooleanWithDefault } from '@open-mercato/shared/lib/boolean'
+```
+
+### i18n — MUST use for all user-facing strings
 
 ```typescript
 // Client-side (React components)
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 const t = useT()
-t('module.key')
 
 // Server-side
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 const { t } = await resolveTranslations()
 ```
 
-### Encryption Helpers
-
-Always use these instead of raw `em.find`/`em.findOne` for safety:
-
-```typescript
-import { findWithDecryption, findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
-
-const results = await findWithDecryption(em, 'Entity', filter, { tenantId, organizationId })
-```
-
-### Request Scoping
+### Request Scoping — use for scoped API payloads
 
 ```typescript
 import { withScopedPayload, createScopedApiHelpers } from '@open-mercato/shared/lib/api/scoped'
-// Use these instead of redefining per module
 ```
 
-### Boolean Parsing
+## Before Adding a New Utility
 
-```typescript
-import { parseBooleanToken, parseBooleanWithDefault } from '@open-mercato/shared/lib/boolean'
-// Never use ad-hoc boolean string parsing
-```
-
-### Testing
-
-```typescript
-import { bootstrapTest } from '@open-mercato/shared/lib/testing/bootstrap'
-// Register only what the test needs
-```
-
-## Rules
-
-- Never add domain-specific logic — this package is infrastructure only
-- All types should be precise: no `any`, use zod schemas + `z.infer`
-- Centralize reusable types and constants here to avoid drift across packages
-- When adding new helpers, check if a similar one already exists
-- Export narrow interfaces (e.g., `QueryEngine`) rather than passing `any`/`unknown`
+1. Search existing `src/lib/` directories for similar functionality
+2. Check if the utility belongs here (infrastructure) or in a domain package
+3. Export a narrow, typed interface — avoid leaking implementation details
+4. Add tests in `__tests__/`
+5. Verify no circular dependency with domain packages

@@ -1,6 +1,13 @@
 # Agents Guidelines
 
-This repository is designed for extensibility. Agents should leverage the module system and follow strict naming and coding conventions to keep the system consistent and safe to extend.
+Leverage the module system and follow strict naming and coding conventions to keep the system consistent and safe to extend.
+
+## Before Writing Code
+
+1. Check the Task Router below and read the relevant guide
+2. Check `.ai/specs/` for existing specs on the module you're modifying
+3. Enter plan mode for non-trivial tasks (3+ steps or architectural decisions)
+4. Identify the reference module (customers) if building CRUD features
 
 ## Task Router — Where to Find Detailed Guidance
 
@@ -60,47 +67,47 @@ Before starting work, check this table and read the relevant guide.
 
 ### Apps (`apps/`)
 
-- **mercato**: Main Next.js app. User-created modules go in `apps/mercato/src/modules/`.
+- **mercato**: Main Next.js app. Put user-created modules in `apps/mercato/src/modules/`.
 - **docs**: Documentation site.
 
 ### Packages (`packages/`)
 
 All packages use the `@open-mercato/<package>` naming convention:
 
-| Package | Import | Description |
+| Package | Import | When to use |
 |---------|--------|-------------|
-| **shared** | `@open-mercato/shared` | Core utilities, types, DSL helpers, i18n, testing, commands, data engine |
-| **ui** | `@open-mercato/ui` | UI components, primitives, backend components, forms, data tables |
-| **core** | `@open-mercato/core` | Core business modules (auth, catalog, customers, sales, etc.) |
-| **cli** | `@open-mercato/cli` | CLI tooling and commands |
-| **cache** | `@open-mercato/cache` | Multi-strategy cache service with tag-based invalidation |
-| **queue** | `@open-mercato/queue` | Multi-strategy job queue (local, BullMQ) |
-| **events** | `@open-mercato/events` | Event bus and pub/sub infrastructure |
-| **search** | `@open-mercato/search` | Search module (fulltext, vector, tokens strategies) |
-| **ai-assistant** | `@open-mercato/ai-assistant` | AI assistant and MCP server |
-| **content** | `@open-mercato/content` | Content management module |
-| **onboarding** | `@open-mercato/onboarding` | Onboarding flows and wizards |
+| **shared** | `@open-mercato/shared` | When you need cross-cutting utilities, types, DSL helpers, i18n, data engine |
+| **ui** | `@open-mercato/ui` | When building UI components, forms, data tables, backend pages |
+| **core** | `@open-mercato/core` | When working on core business modules (auth, catalog, customers, sales) |
+| **cli** | `@open-mercato/cli` | When adding CLI tooling or generator commands |
+| **cache** | `@open-mercato/cache` | When adding caching — resolve via DI, never use raw Redis/SQLite |
+| **queue** | `@open-mercato/queue` | When adding background jobs — use worker contract, never custom queues |
+| **events** | `@open-mercato/events` | When adding event-driven side effects between modules |
+| **search** | `@open-mercato/search` | When configuring search indexing (fulltext, vector, tokens) |
+| **ai-assistant** | `@open-mercato/ai-assistant` | When working on AI assistant or MCP server tools |
+| **content** | `@open-mercato/content` | When adding static content pages (privacy, terms, legal) |
+| **onboarding** | `@open-mercato/onboarding` | When modifying setup wizards or tenant provisioning flows |
 
 ### Where to Put Code
 
-- Core platform features → `packages/<package>/src/modules/<module>/`
-- Shared utilities and types → `packages/shared/src/lib/` or `packages/shared/src/modules/`
-- UI components → `packages/ui/src/`
-- User/app-specific modules → `apps/mercato/src/modules/<module>/`
-- Avoid adding code directly in `apps/mercato/src/` — it's a boilerplate for user apps
+- Put core platform features in `packages/<package>/src/modules/<module>/`
+- Put shared utilities and types in `packages/shared/src/lib/` or `packages/shared/src/modules/`
+- Put UI components in `packages/ui/src/`
+- Put user/app-specific modules in `apps/mercato/src/modules/<module>/`
+- MUST NOT add code directly in `apps/mercato/src/` — it's a boilerplate for user apps
 
-### Common Import Patterns
+### When You Need an Import
 
-```typescript
-import { registerCommand } from '@open-mercato/shared/lib/commands'
-import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
-import { useT } from '@open-mercato/shared/lib/i18n/context'
-import type { DataEngine } from '@open-mercato/shared/lib/data/engine'
-import type { SearchModuleConfig } from '@open-mercato/shared/modules/search'
-import { Spinner } from '@open-mercato/ui/primitives/spinner'
-import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
-import { CrudForm } from '@open-mercato/ui/backend/crud'
-```
+| Need | Import |
+|------|--------|
+| Command pattern (undo/redo) | `import { registerCommand } from '@open-mercato/shared/lib/commands'` |
+| Server-side translations | `import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'` |
+| Client-side translations | `import { useT } from '@open-mercato/shared/lib/i18n/context'` |
+| Data engine types | `import type { DataEngine } from '@open-mercato/shared/lib/data/engine'` |
+| Search config types | `import type { SearchModuleConfig } from '@open-mercato/shared/modules/search'` |
+| UI primitives | `import { Spinner } from '@open-mercato/ui/primitives/spinner'` |
+| API calls (backend pages) | `import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'` |
+| CRUD forms | `import { CrudForm } from '@open-mercato/ui/backend/crud'` |
 
 ## Conventions
 
