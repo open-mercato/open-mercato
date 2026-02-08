@@ -1,5 +1,6 @@
 "use client"
 import * as React from 'react'
+import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { raiseCrudError } from '@open-mercato/ui/backend/utils/serverErrors'
@@ -304,6 +305,7 @@ export default function OrganizationSwitcher({ compact }: OrganizationSwitcherEx
   }, [state])
 
   const hasOptions = nodes.length > 0 && state.status === 'ready'
+  const canManage = state.status === 'ready' && state.canManage
   const tenantSelectOptions = state.status === 'ready' ? state.tenants : []
   const tenantSelectValue = state.status === 'ready'
     ? state.tenantId ?? ''
