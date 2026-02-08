@@ -205,6 +205,9 @@ This is a quickest way to get Open Mercato up and running on your localhost / se
 
 [![Watch on YouTube](https://img.youtube.com/vi/OsalmbiWQ-I/maxresdefault.jpg)](https://youtu.be/OsalmbiWQ-I)
 
+## Installation update
+- update node.js at least to v24
+- **WINDOWS only** Go directly to [Docker Deployment](#docker-deployment)
 
 ### Quick Start (Monorepo)
 
