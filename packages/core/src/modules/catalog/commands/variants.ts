@@ -1,6 +1,6 @@
 import { registerCommand } from '@open-mercato/shared/lib/commands'
 import type { CommandHandler } from '@open-mercato/shared/lib/commands'
-import { buildChanges, requireId, parseWithCustomFields, setCustomFieldsIfAny } from '@open-mercato/shared/lib/commands/helpers'
+import { buildChanges, requireId, parseWithCustomFields, setCustomFieldsIfAny, emitCrudSideEffects } from '@open-mercato/shared/lib/commands/helpers'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
@@ -32,6 +32,18 @@ import {
   toNumericString,
 } from './shared'
 import { SalesTaxRate } from '@open-mercato/core/modules/sales/data/entities'
+import type { CrudEventsConfig } from '@open-mercato/shared/lib/crud/types'
+
+const variantCrudEvents: CrudEventsConfig = {
+  module: 'catalog',
+  entity: 'variant',
+  persistent: true,
+  buildPayload: (ctx) => ({
+    id: ctx.identifiers.id,
+    organizationId: ctx.identifiers.organizationId,
+    tenantId: ctx.identifiers.tenantId,
+  }),
+}
 
 type VariantSnapshot = {
   id: string
@@ -585,6 +597,17 @@ const createVariantCommand: CommandHandler<VariantCreateInput, { variantId: stri
       tenantId: record.tenantId,
       action: 'created',
     })
+    await emitCrudSideEffects({
+      dataEngine: ctx.container.resolve('dataEngine') as DataEngine,
+      action: 'created',
+      entity: record,
+      identifiers: {
+        id: record.id,
+        organizationId: record.organizationId,
+        tenantId: record.tenantId,
+      },
+      events: variantCrudEvents,
+    })
     return { variantId: record.id, previousDefaultVariantId }
   },
   captureAfter: async (_input, result, ctx) => {
@@ -599,6 +622,8 @@ const createVariantCommand: CommandHandler<VariantCreateInput, { variantId: stri
       actionLabel: translate('catalog.audit.variants.create', 'Create product variant'),
       resourceKind: 'catalog.variant',
       resourceId: result.variantId,
+      parentResourceKind: 'catalog.product',
+      parentResourceId: after.productId ?? null,
       tenantId: after.tenantId,
       organizationId: after.organizationId,
       snapshotAfter: after,
@@ -726,6 +751,17 @@ const updateVariantCommand: CommandHandler<VariantUpdateInput, { variantId: stri
       tenantId: record.tenantId,
       action: 'updated',
     })
+    await emitCrudSideEffects({
+      dataEngine: ctx.container.resolve('dataEngine') as DataEngine,
+      action: 'updated',
+      entity: record,
+      identifiers: {
+        id: record.id,
+        organizationId: record.organizationId,
+        tenantId: record.tenantId,
+      },
+      events: variantCrudEvents,
+    })
     return { variantId: record.id, previousDefaultVariantId }
   },
   captureAfter: async (_input, result, ctx) => {
@@ -741,6 +777,8 @@ const updateVariantCommand: CommandHandler<VariantUpdateInput, { variantId: stri
       actionLabel: translate('catalog.audit.variants.update', 'Update product variant'),
       resourceKind: 'catalog.variant',
       resourceId: before.id,
+      parentResourceKind: 'catalog.product',
+      parentResourceId: before.productId ?? null,
       tenantId: before.tenantId,
       organizationId: before.organizationId,
       snapshotBefore: before,
@@ -892,6 +930,17 @@ const deleteVariantCommand: CommandHandler<
       tenantId: snapshot?.tenantId ?? record.tenantId,
       action: 'deleted',
     })
+    await emitCrudSideEffects({
+      dataEngine: ctx.container.resolve('dataEngine') as DataEngine,
+      action: 'deleted',
+      entity: record,
+      identifiers: {
+        id,
+        organizationId: snapshot?.organizationId ?? record.organizationId,
+        tenantId: snapshot?.tenantId ?? record.tenantId,
+      },
+      events: variantCrudEvents,
+    })
     return { variantId: id }
   },
   buildLog: async ({ snapshots }) => {
@@ -902,6 +951,8 @@ const deleteVariantCommand: CommandHandler<
       actionLabel: translate('catalog.audit.variants.delete', 'Delete product variant'),
       resourceKind: 'catalog.variant',
       resourceId: before.id,
+      parentResourceKind: 'catalog.product',
+      parentResourceId: before.productId ?? null,
       tenantId: before.tenantId,
       organizationId: before.organizationId,
       snapshotBefore: before,

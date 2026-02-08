@@ -943,5 +943,9 @@
   "customers.workPlan.customerTodos.table.state.empty": "Brak zadań klientów.",
   "customers.workPlan.customerTodos.table.error.load": "Nie udało się wczytać zadań klientów.",
   "customers.workPlan.customerTodos.table.export.view": "Eksportuje bieżącą listę z uwzględnieniem filtrów i widocznych kolumn.",
-  "customers.workPlan.customerTodos.table.export.full": "Eksportuje wszystkie pola powiązanego zadania, w tym ukryte atrybuty."
+  "customers.workPlan.customerTodos.table.export.full": "Eksportuje wszystkie pola powiązanego zadania, w tym ukryte atrybuty.",
+  "audit_logs.resource_kind.customers.address": "Adres",
+  "audit_logs.resource_kind.customers.activity": "Aktywność",
+  "audit_logs.resource_kind.customers.comment": "Komentarz",
+  "audit_logs.resource_kind.customers.todoLink": "Zadanie"
 }

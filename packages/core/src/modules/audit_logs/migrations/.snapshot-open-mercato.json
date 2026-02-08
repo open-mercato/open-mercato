@@ -224,6 +224,24 @@
           "nullable": true,
           "mappedType": "text"
         },
+        "parent_resource_kind": {
+          "name": "parent_resource_kind",
+          "type": "text",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": true,
+          "mappedType": "text"
+        },
+        "parent_resource_id": {
+          "name": "parent_resource_id",
+          "type": "text",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": true,
+          "mappedType": "text"
+        },
         "execution_state": {
           "name": "execution_state",
           "type": "text",
@@ -322,6 +340,32 @@
       "name": "action_logs",
       "schema": "public",
       "indexes": [
+        {
+          "keyName": "action_logs_parent_resource_idx",
+          "columnNames": [
+            "tenant_id",
+            "parent_resource_kind",
+            "parent_resource_id",
+            "created_at"
+          ],
+          "composite": true,
+          "constraint": false,
+          "primary": false,
+          "unique": false
+        },
+        {
+          "keyName": "action_logs_resource_idx",
+          "columnNames": [
+            "tenant_id",
+            "resource_kind",
+            "resource_id",
+            "created_at"
+          ],
+          "composite": true,
+          "constraint": false,
+          "primary": false,
+          "unique": false
+        },
         {
           "keyName": "action_logs_actor_idx",
           "columnNames": [

@@ -303,7 +303,7 @@ describe('CRUD Factory', () => {
     expect(db[created.id].deletedAt).toBeInstanceOf(Date)
   })
 
-  it('DELETE command route uses domain-specific ids from result when emitting events', async () => {
+  it('DELETE command route delegates event emission to CommandBus (no factory-level emission)', async () => {
     const indexedId = 'line-999'
     commandBus.execute.mockResolvedValue({
       result: { lineId: indexedId, orderId: 'order-1' },
@@ -324,10 +324,9 @@ describe('CRUD Factory', () => {
     const res = await commandRoute.DELETE(new Request('http://x/api/example/todos/command', { method: 'DELETE', body: JSON.stringify({}), headers: { 'content-type': 'application/json' } }))
     expect(res.status).toBe(200)
     expect(commandBus.execute).toHaveBeenCalledWith('example.todo.delete', expect.anything())
-    expect(mockDataEngine.emitOrmEntityEvent).toHaveBeenCalledTimes(1)
-    const [deletedArgs] = mockDataEngine.emitOrmEntityEvent.mock.calls[0]!
-    expect(deletedArgs.action).toBe('deleted')
-    expect(deletedArgs.identifiers.id).toBe(indexedId)
-    expect(deletedArgs.indexer?.entityType).toBe('example.todo')
+    // Command-based paths delegate side effects (events + indexing) entirely to the
+    // CommandBus via flushCrudSideEffects(). The factory itself must NOT emit events
+    // to avoid duplicates (see commit 3f999f35).
+    expect(mockDataEngine.emitOrmEntityEvent).not.toHaveBeenCalled()
   })
 })

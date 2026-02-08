@@ -882,5 +882,9 @@
   "customers.deals.detail.companiesNoDetails": "Sin información adicional",
   "customers.deals.detail.noCompanies": "Todavía no hay empresas vinculadas a este deal.",
   "customers.deals.detail.formTitle": "Configuración del deal",
-  "customers.deals.detail.customFields": "Datos personalizados"
+  "customers.deals.detail.customFields": "Datos personalizados",
+  "audit_logs.resource_kind.customers.address": "Dirección",
+  "audit_logs.resource_kind.customers.activity": "Actividad",
+  "audit_logs.resource_kind.customers.comment": "Comentario",
+  "audit_logs.resource_kind.customers.todoLink": "Tarea"
 }

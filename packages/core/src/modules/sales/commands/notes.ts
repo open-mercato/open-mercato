@@ -9,6 +9,7 @@ import type { DataEngine } from '@open-mercato/shared/lib/data/engine'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
+import type { CrudEventsConfig } from '@open-mercato/shared/lib/crud/types'
 import { E } from '#generated/entities.ids.generated'
 import {
   SalesNote,
@@ -47,6 +48,17 @@ type NoteUndoPayload = {
 
 const noteCrudIndexer = {
   entityType: E.sales.sales_note,
+}
+
+const noteCrudEvents: CrudEventsConfig = {
+  module: 'sales',
+  entity: 'note',
+  persistent: true,
+  buildPayload: (ctx) => ({
+    id: ctx.identifiers.id,
+    organizationId: ctx.identifiers.organizationId,
+    tenantId: ctx.identifiers.tenantId,
+  }),
 }
 
 async function loadNoteSnapshot(em: EntityManager, id: string): Promise<NoteSnapshot | null> {
@@ -170,6 +182,7 @@ const createNoteCommand: CommandHandler<NoteCreateInput, { noteId: string; autho
         tenantId: note.tenantId,
       },
       indexer: noteCrudIndexer,
+      events: noteCrudEvents,
     })
 
     return { noteId: note.id, authorUserId: note.authorUserId ?? null }
@@ -185,6 +198,8 @@ const createNoteCommand: CommandHandler<NoteCreateInput, { noteId: string; autho
       actionLabel: translate('sales.audit.notes.create', 'Create note'),
       resourceKind: 'sales.note',
       resourceId: result.noteId,
+      parentResourceKind: snapshot?.contextType ? `sales.${snapshot.contextType}` : null,
+      parentResourceId: snapshot?.contextId ?? null,
       tenantId: snapshot?.tenantId ?? null,
       organizationId: snapshot?.organizationId ?? null,
       snapshotAfter: snapshot ?? null,
@@ -242,6 +257,7 @@ const updateNoteCommand: CommandHandler<NoteUpdateInput, { noteId: string }> = {
         tenantId: note.tenantId,
       },
       indexer: noteCrudIndexer,
+      events: noteCrudEvents,
     })
 
     return { noteId: note.id }
@@ -267,6 +283,8 @@ const updateNoteCommand: CommandHandler<NoteUpdateInput, { noteId: string }> = {
       actionLabel: translate('sales.audit.notes.update', 'Update note'),
       resourceKind: 'sales.note',
       resourceId: before.id,
+      parentResourceKind: before.contextType ? `sales.${before.contextType}` : null,
+      parentResourceId: before.contextId ?? null,
       tenantId: before.tenantId,
       organizationId: before.organizationId,
       snapshotBefore: before,
@@ -330,6 +348,7 @@ const updateNoteCommand: CommandHandler<NoteUpdateInput, { noteId: string }> = {
         tenantId: note.tenantId,
       },
       indexer: noteCrudIndexer,
+      events: noteCrudEvents,
     })
   },
 }
@@ -364,6 +383,7 @@ const deleteNoteCommand: CommandHandler<{ body?: Record<string, unknown>; query?
           tenantId: note.tenantId,
         },
         indexer: noteCrudIndexer,
+        events: noteCrudEvents,
       })
       return { noteId: note.id }
     },
@@ -375,6 +395,8 @@ const deleteNoteCommand: CommandHandler<{ body?: Record<string, unknown>; query?
         actionLabel: translate('sales.audit.notes.delete', 'Delete note'),
         resourceKind: 'sales.note',
         resourceId: before.id,
+        parentResourceKind: before.contextType ? `sales.${before.contextType}` : null,
+        parentResourceId: before.contextId ?? null,
         tenantId: before.tenantId,
         organizationId: before.organizationId,
         snapshotBefore: before,
@@ -435,6 +457,7 @@ const deleteNoteCommand: CommandHandler<{ body?: Record<string, unknown>; query?
           tenantId: note.tenantId,
         },
         indexer: noteCrudIndexer,
+        events: noteCrudEvents,
       })
     },
   }

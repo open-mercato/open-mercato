@@ -95,7 +95,7 @@ import { notificationTypes } from '../notifications'
 // CRUD events configuration for workflow triggers
 const orderCrudEvents: CrudEventsConfig<SalesOrder> = {
   module: 'sales',
-  entity: 'orders',
+  entity: 'order',
   persistent: true,
   buildPayload: (ctx) => ({
     id: ctx.identifiers.id,
@@ -106,7 +106,7 @@ const orderCrudEvents: CrudEventsConfig<SalesOrder> = {
 
 const quoteCrudEvents: CrudEventsConfig<SalesQuote> = {
   module: 'sales',
-  entity: 'quotes',
+  entity: 'quote',
   persistent: true,
   buildPayload: (ctx) => ({
     id: ctx.identifiers.id,
@@ -2633,6 +2633,8 @@ async function restoreQuoteGraph(
   await em.nativeDelete(SalesDocumentTagAssignment, { documentId: quote.id, documentKind: 'quote' })
   await em.nativeDelete(SalesQuoteLine, { quote: quote.id })
   await em.nativeDelete(SalesQuoteAdjustment, { quote: quote.id })
+  existingLines.forEach((entry) => em.getUnitOfWork().unsetIdentity(entry))
+  existingAdjustments.forEach((entry) => em.getUnitOfWork().unsetIdentity(entry))
 
   snapshot.lines.forEach((line) => {
     const lineEntity = em.create(SalesQuoteLine, {
@@ -2904,6 +2906,8 @@ async function restoreOrderGraph(
   await em.nativeDelete(SalesDocumentTagAssignment, { documentId: order.id, documentKind: 'order' })
   await em.nativeDelete(SalesOrderAdjustment, { order: order.id })
   await em.nativeDelete(SalesOrderLine, { order: order.id })
+  existingLines.forEach((entry) => em.getUnitOfWork().unsetIdentity(entry))
+  existingAdjustments.forEach((entry) => em.getUnitOfWork().unsetIdentity(entry))
 
   snapshot.lines.forEach((line) => {
     const lineEntity = em.create(SalesOrderLine, {
@@ -4573,7 +4577,6 @@ const orderLineUpsertCommand: CommandHandler<
 > = {
   id: 'sales.orders.lines.upsert',
   async prepare(input, ctx) {
-    console.log('PREPARE ORDER LINE UPSERT', input, ctx)
     const raw = (input?.body as Record<string, unknown> | undefined) ?? {}
     const orderId = typeof raw.orderId === 'string' ? raw.orderId : null
     if (!orderId) return {}
