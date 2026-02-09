@@ -267,6 +267,9 @@ export class PosCartLine {
   @Property({ name: 'price_override_reason', type: 'text', nullable: true })
   priceOverrideReason?: string | null
 
+  @Property({ name: 'customer_note', type: 'text', nullable: true })
+  customerNote?: string | null  // Maps to SalesOrderLine.comment on completion
+
   @Property({ name: 'metadata', type: 'json', nullable: true })
   metadata?: Record<string, unknown> | null
 
@@ -410,6 +413,69 @@ export const openApi: OpenApiRouteDoc = {
 
 ---
 
+## 7a) Command Architecture (Reversible Operations)
+
+POS operations that modify cart state should use the Command Pattern for undo/redo support and audit logging.
+
+**Reference:** See `sales/commands/documents.ts` for the established pattern.
+
+### Command Structure
+
+```typescript
+const posCartLineDeleteCommand: CommandHandler<Input, Result> = {
+  id: 'pos.carts.lines.delete',
+  
+  // 1. Capture state BEFORE execution
+  async prepare(input, ctx) {
+    const snapshot = await loadCartSnapshot(em, input.cartId)
+    return { before: snapshot }
+  },
+  
+  // 2. Execute the operation
+  async execute(input, ctx) {
+    // ... delete line, recalculate totals
+    return { cartId, lineId }
+  },
+  
+  // 3. Capture state AFTER execution (for audit diff)
+  captureAfter: async (_input, result, ctx) => {
+    return loadCartSnapshot(em, result.cartId)
+  },
+  
+  // 4. Build audit log entry
+  buildLog: async ({ result, snapshots }) => ({
+    actionLabel: 'Delete cart line',
+    resourceKind: 'pos.cart',
+    resourceId: result.cartId,
+    snapshotBefore: snapshots.before,
+    snapshotAfter: snapshots.after,
+    payload: { undo: { before: snapshots.before, after: snapshots.after } },
+  }),
+  
+  // 5. Undo: restore from before-snapshot
+  undo: async ({ logEntry, ctx }) => {
+    const before = extractUndoPayload(logEntry)?.before
+    await restoreCartSnapshot(em, before)
+  },
+}
+```
+
+### POS Commands (Phase 1)
+
+| Command ID | Description | Reversible |
+|------------|-------------|:----------:|
+| `pos.carts.lines.add` | Add product to cart | ✓ |
+| `pos.carts.lines.update` | Change quantity/price | ✓ |
+| `pos.carts.lines.delete` | Remove line from cart | ✓ |
+| `pos.carts.discount.apply` | Apply cart discount | ✓ |
+| `pos.carts.complete` | Finalize cart → SalesOrder | ✗ |
+| `pos.sessions.open` | Open register session | ✗ |
+| `pos.sessions.close` | Close register session | ✗ |
+
+> **Note:** Cart completion and session operations are NOT reversible (financial audit trail).
+
+---
+
 ## 8) UI Design (Minimal Checkout)
 
 ### 8.1 Phase 1 Screens
@@ -468,6 +534,9 @@ The following existing components can be reused:
 | `PosCheckoutPage` | Main checkout terminal page |
 | `PosCartPanel` | Right-side cart summary with totals |
 | `PosProductSearch` | Product search with barcode support |
+| `PosCategoryTabs` | Category filter tabs (uses `CatalogProductCategory`) |
+| `PosProductGrid` | Tile grid for visual product selection |
+| `PosProductTile` | Single product tile (image, name, price) |
 | `PosQuickKeys` | Configurable quick-action buttons |
 | `PosPaymentPanel` | Payment method selection + amount |
 | `PosSessionHeader` | Current session/register info |
@@ -475,11 +544,16 @@ The following existing components can be reused:
 | `PosSessionOpenDialog` | Open session with float amount |
 | `PosSessionCloseDialog` | Close session with reconciliation |
 | `PosDiscountDialog` | Apply line/cart discount with reason (P6) |
+| `PosLineNoteDialog` | Add/edit customer note per line (e.g., "no assembly") |
 | `PosSessionReport` | Session summary: sales, payments, variance (P13) |
+
+> **See also:** [SPEC-016a - POS Tile Browsing](./SPEC-016a-2026-02-09-pos-tile-browsing.md) for detailed tile/category UI design.
 
 ---
 
 ## 9) Access Control
+
+### 9.1 Feature Permissions
 
 | Feature | Admin | Employee | Description |
 |---------|-------|----------|-------------|
@@ -490,10 +564,32 @@ The following existing components can be reused:
 | `pos.carts.manage` | ✓ | ✓ | Create/edit carts |
 | `pos.payments.manage` | ✓ | ✓ | Record payments |
 | `pos.receipts.view` | ✓ | ✓ | View/reprint receipts |
+| `pos.discounts.apply` | ✓ | | Apply discounts above threshold |
+| `pos.cash.manage` | ✓ | | Cash in/out operations |
+
+### 9.2 Employee Switching (Quick Auth)
+
+POS terminals often have multiple employees using the same register. **PIN-based switching** is the chosen approach for Phase 1:
+
+- Each employee has a 4-6 digit PIN for quick switch
+- Works on any device (tablets, phones, shared terminals)
+- Zero hardware dependencies (NFC deferred to Phase 3)
+
+**Implementation:** Add `pin` column (hashed) to employee credentials in `auth` module. Full login remains available as fallback.
+
+### 9.3 Fullscreen Mode
+
+**Backend route with feature flag** is the chosen approach:
+
+- URL: `/backend/pos/checkout?fullscreen=1`
+- Feature flag: `pos.fullscreen` hides navigation shell
+- Reuses existing routes, ACL, and auth logic
+
+**Rationale:** Avoids route duplication and inherits existing permission model.
 
 ---
 
-## 9) Use Case Examples
+## 10) Use Case Examples
 
 **Use Case 1: Standard Cash Transaction**
 - Cashier opens session with $100 float
@@ -513,7 +609,7 @@ The following existing components can be reused:
 
 ---
 
-## 10) Open Questions (Please Confirm)
+## 11) Open Questions (Please Confirm)
 
 1. Should POS registers be linked to specific warehouse locations for inventory?
 2. Should we emit events for WMS integration (`pos.sale.completed`, `pos.return.completed`)?
@@ -525,7 +621,7 @@ The following existing components can be reused:
 
 ---
 
-## 11) Implementation Checklist
+## 12) Implementation Checklist
 
 - [ ] Create `packages/core/src/modules/pos/` module structure
 - [ ] Create `data/entities.ts` with all POS entities
