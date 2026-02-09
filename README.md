@@ -205,6 +205,20 @@ This is a quickest way to get Open Mercato up and running on your localhost / se
 
 [![Watch on YouTube](https://img.youtube.com/vi/OsalmbiWQ-I/maxresdefault.jpg)](https://youtu.be/OsalmbiWQ-I)
 
+### Installation update
+**Node.js 24.x is required**
+  ```bash
+  # macOS (Homebrew)
+  brew install node@24
+
+  # Windows (Chocolatey)
+  choco install nodejs --version=24.x
+
+  # Or use nvm (any platform)
+  nvm install 24
+  nvm use 24
+  ```
+**Windows:** Use [Docker Deployment](#docker-deployment) for native setup.
 
 ### Quick Start (Monorepo)
 
