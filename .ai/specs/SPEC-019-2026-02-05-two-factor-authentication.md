@@ -10,7 +10,7 @@ Add optional Two-Factor Authentication to Open Mercato using TOTP (Time-based On
 - The login flow gains a second step when 2FA is active: after email+password, the user must provide a TOTP code.
 - Recovery codes are generated at setup time so users can regain access if they lose their authenticator device.
 - Tenant admins can enforce 2FA for all users within a tenant.
-- API key authentication is unaffected (keys bypass 2FA — they are already scoped and expiring).
+- API key authentication is unaffected (keys bypass 2FA — they are already scoped and expiring). However, the UI must clearly communicate this, and 2FA should be required when creating or rotating API keys (see Security Considerations).
 
 ## Non-Goals
 
@@ -43,11 +43,11 @@ For QR code generation on the server side, use [`qrcode`](https://www.npmjs.com/
 ### Recovery Codes
 
 - 8 single-use recovery codes generated at 2FA setup time.
-- Each code: 8 alphanumeric characters, grouped as `XXXX-XXXX` for readability.
+- Each code: 10 alphanumeric characters, grouped as `XXXXXX-XXXXXX` for readability (~52 bits of entropy). This provides strong brute-force resistance even with moderate rate limiting.
 - Stored as bcrypt hashes (same cost as passwords) so plaintext is never at rest.
 - Shown to the user exactly once during setup — they must save them.
 - Each code can be used once, then marked consumed.
-- User can regenerate all recovery codes (invalidates existing ones).
+- User can regenerate all recovery codes (invalidates existing ones, requires 2FA verification — see 2FA Management endpoints).
 
 ---
 
@@ -61,7 +61,7 @@ For QR code generation on the server side, use [`qrcode`](https://www.npmjs.com/
 |--------|------|----------|-------------|
 | `id` | `uuid` | No | PK |
 | `user_id` | `uuid` | No | FK → `users.id`, unique |
-| `secret` | `text` | No | Encrypted TOTP secret (base32). Encrypted at rest via tenant data encryption if enabled |
+| `secret` | `text` | No | TOTP secret (base32). **Always encrypted at rest** — encryption is mandatory for this field regardless of whether tenant-wide data encryption is enabled (see Security Considerations) |
 | `is_enabled` | `boolean` | No | Whether 2FA is currently active (default: `false`) |
 | `verified_at` | `timestamptz` | Yes | When the user first verified a code during setup |
 | `tenant_id` | `uuid` | Yes | FK → tenants |
@@ -95,6 +95,7 @@ Add a field to support the intermediate "2FA pending" state during login:
 | Column | Type | Nullable | Description |
 |--------|------|----------|-------------|
 | `two_factor_pending` | `boolean` | No | Default `false`. If `true`, the session cannot be used for auth until 2FA is verified |
+| `two_factor_verified_at` | `timestamptz` | Yes | Timestamp of the most recent 2FA verification in this session. Used to implement a grace period (e.g. 5 minutes) for sensitive operations like disabling 2FA or regenerating recovery codes, avoiding repeated TOTP prompts |
 
 ### Tenant Setting
 
@@ -121,16 +122,22 @@ A new config key in the existing `configs` module:
 1. POST /api/auth/login (email + password)
    → Credentials valid but 2FA enabled
    → Create session with two_factor_pending = true
-   → Return { ok: true, twoFactorRequired: true, challengeToken: <session_token> }
+   → Set a short-lived, HttpOnly, Secure, SameSite=Strict cookie
+     containing the challengeToken (separate from the normal session cookie)
+   → Return { ok: true, twoFactorRequired: true }
    → No JWT issued yet
 
-2. Client redirects to /login/two-factor?token=<challengeToken>
+2. Client redirects to /login/two-factor
+   (challengeToken is transmitted automatically via the HttpOnly cookie —
+    never in the URL, localStorage, or any client-accessible storage)
 
 3. POST /api/auth/two-factor/verify
-   Body: { token: <challengeToken>, code: "123456" }
+   Body: { code: "123456" }
+   (challengeToken read from the HttpOnly cookie by the server)
    → Validate TOTP code (or recovery code)
    → Mark session.two_factor_pending = false
-   → Issue JWT, set cookies
+   → Clear the challenge cookie
+   → Issue JWT, set session cookies
    → Return { ok: true, redirect: '/backend' }
 ```
 
@@ -144,11 +151,13 @@ No change. Login works exactly as before.
 1. POST /api/auth/login (email + password)
    → Credentials valid, 2FA not configured, tenant requires it
    → Create session with two_factor_pending = true
-   → Return { ok: true, twoFactorSetupRequired: true, challengeToken: <session_token> }
+   → Set short-lived HttpOnly challenge cookie (same as above)
+   → Return { ok: true, twoFactorSetupRequired: true }
 
-2. Client redirects to /login/two-factor/setup?token=<challengeToken>
+2. Client redirects to /login/two-factor/setup
+   (challengeToken transmitted via HttpOnly cookie)
    → User sets up 2FA (scan QR, verify code)
-   → On success, session unlocked, JWT issued
+   → On success, session unlocked, challenge cookie cleared, JWT issued
 ```
 
 ### Challenge Token
@@ -157,6 +166,12 @@ The `challengeToken` reuses the existing `Session` entity with `two_factor_pendi
 - Has a short expiry (5 minutes) for the 2FA challenge phase.
 - Cannot be used to access protected resources (middleware rejects `two_factor_pending = true` sessions).
 - Is promoted to a full session (standard TTL) once 2FA is verified.
+
+**Transport:** The challenge token is delivered exclusively via a **short-lived, HttpOnly, Secure, SameSite=Strict cookie** (named e.g. `__Host-2fa-challenge`). It is never placed in query strings, `localStorage`, `sessionStorage`, or any client-accessible JavaScript state. This prevents leakage through browser history, `Referer` headers, CDN/proxy logs, or XSS.
+
+**Required response headers on all 2FA routes:**
+- `Referrer-Policy: no-referrer` — prevents leaking tokens or QR URIs via Referer.
+- `Cache-Control: no-store` — prevents caching of secrets, QR codes, recovery codes, or tokens.
 
 ---
 
@@ -171,9 +186,9 @@ The `challengeToken` reuses the existing `Session` entity with `two_factor_pendi
 **Request:**
 ```typescript
 {
-  token: string       // The challengeToken from login response
-  code: string        // 6-digit TOTP code or recovery code (XXXX-XXXX)
+  code: string        // 6-digit TOTP code or recovery code (XXXXX-XXXXX)
 }
+// challengeToken is read from the HttpOnly cookie by the server
 ```
 
 **Response (success):**
@@ -252,8 +267,8 @@ Recovery codes are returned **only once**. The user must save them. If the reque
 | Method | Path | Auth | Features | Purpose |
 |--------|------|------|----------|---------|
 | GET | `/api/auth/two-factor/status` | JWT | — | Check if 2FA is enabled for current user |
-| DELETE | `/api/auth/two-factor` | JWT | — | Disable 2FA (requires password confirmation) |
-| POST | `/api/auth/two-factor/recovery-codes` | JWT | — | Regenerate recovery codes (requires password confirmation) |
+| DELETE | `/api/auth/two-factor` | JWT + 2FA | — | Disable 2FA (requires password + TOTP/recovery code) |
+| POST | `/api/auth/two-factor/recovery-codes` | JWT + 2FA | — | Regenerate recovery codes (requires password + TOTP/recovery code) |
 
 **`GET /api/auth/two-factor/status`**
 
@@ -267,10 +282,13 @@ Recovery codes are returned **only once**. The user must save them. If the reque
 
 **`DELETE /api/auth/two-factor`**
 
+Disabling 2FA requires both password and a current TOTP code (or recovery code). This prevents an attacker who has only the password and an active session from silently removing the second factor. If the tenant enforces 2FA (`auth.twoFactor.required = true`), users cannot disable 2FA — only a tenant admin can reset it, and the user must then re-enroll.
+
 Request:
 ```typescript
 {
   password: string   // Current password for confirmation
+  code: string       // Current TOTP code or recovery code (XXXXX-XXXXX)
 }
 ```
 
@@ -279,14 +297,17 @@ Response:
 { "ok": true }
 ```
 
+**Tenant enforcement:** If `auth.twoFactor.required` is `true`, this endpoint returns `403` with `{ "ok": false, "error": "Two-factor authentication is required by your organization" }`.
+
 **`POST /api/auth/two-factor/recovery-codes`**
 
-Regenerates all 8 recovery codes (old ones become invalid).
+Regenerates all 8 recovery codes (old ones become invalid). Requires both password and a current TOTP code (or a recovery code). Alternatively, if the user has verified 2FA within the last 5 minutes (tracked via a `two_factor_verified_at` timestamp on the session), the TOTP/recovery code can be omitted to avoid repeated prompts.
 
 Request:
 ```typescript
 {
   password: string   // Current password for confirmation
+  code?: string      // Current TOTP code or recovery code — optional if 2FA was verified within last 5 minutes
 }
 ```
 
@@ -303,16 +324,27 @@ Response:
 | Method | Path | Auth | Features | Purpose |
 |--------|------|------|----------|---------|
 | GET | `/api/auth/users` | JWT | `auth.users.list` | User list now includes `twoFactorEnabled` field |
-| DELETE | `/api/auth/two-factor/admin/reset` | JWT | `auth.users.edit` | Admin resets 2FA for a specific user |
+| DELETE | `/api/auth/two-factor/admin/reset` | JWT + 2FA | `auth.users.2fa.reset` | Admin resets 2FA for a specific user |
 
 **`DELETE /api/auth/two-factor/admin/reset`**
 
-Allows admins to disable 2FA for a user who has lost their device and recovery codes.
+Allows admins to disable 2FA for a user who has lost their device and recovery codes. This is a sensitive operation with additional safeguards:
+
+- **Dedicated permission:** Requires the `auth.users.2fa.reset` feature (separate from `auth.users.edit`) so it can be granted selectively.
+- **Admin re-authentication:** The admin must provide their own password (and their own 2FA code if the admin has 2FA enabled) to confirm the action.
+- **Audit logging:** The event `auth.two_factor.admin_reset` records who performed the reset, on which user, when, from which IP, and the reason provided.
+- **User notification:** The affected user receives a notification (in-app and optionally email) informing them that their 2FA was reset, by whom, and that they should re-enroll immediately.
+- **Reason field:** The admin must provide a reason for the reset (stored in the audit log) to support compliance and incident review.
+
+If the tenant enforces 2FA, the affected user will be required to re-enroll during their next login.
 
 Request:
 ```typescript
 {
   userId: string
+  password: string    // Admin's own password for confirmation
+  code?: string       // Admin's own TOTP code (required if admin has 2FA enabled)
+  reason: string      // Reason for the reset (stored in audit log)
 }
 ```
 
@@ -402,10 +434,10 @@ twoFactorService: asClass(TwoFactorService).scoped()
 **Route:** `/login/two-factor` (auto-discovered from `frontend/login/two-factor.tsx`)
 
 **Behavior:**
-1. Reads `token` query parameter (challengeToken).
+1. The challenge token is read automatically from the HttpOnly cookie (no query parameters).
 2. Shows a simple form: "Enter the 6-digit code from your authenticator app".
-3. Also shows a "Use recovery code" toggle/link that reveals an input for `XXXX-XXXX` format codes.
-4. On submit, calls `POST /api/auth/two-factor/verify`.
+3. Also shows a "Use recovery code" toggle/link that reveals an input for `XXXXXX-XXXXXX` format codes.
+4. On submit, calls `POST /api/auth/two-factor/verify` (cookie sent automatically).
 5. On success, stores JWT and redirects to `/backend`.
 6. On failure, shows error message and allows retry.
 7. If token is expired (5 min), shows "Session expired, please log in again" with link to `/login`.
@@ -415,8 +447,8 @@ twoFactorService: asClass(TwoFactorService).scoped()
 **Route:** `/login/two-factor/setup` (auto-discovered from `frontend/login/two-factor/setup.tsx`)
 
 **Behavior:**
-1. Reads `token` query parameter.
-2. Calls `POST /api/auth/two-factor/setup` with challenge token.
+1. The challenge token is read automatically from the HttpOnly cookie (no query parameters).
+2. Calls `POST /api/auth/two-factor/setup` (cookie sent automatically).
 3. Displays QR code and manual secret entry.
 4. User enters verification code, calls `POST /api/auth/two-factor/setup/verify`.
 5. Shows recovery codes with a "I have saved these codes" confirmation checkbox.
@@ -435,8 +467,8 @@ twoFactorService: asClass(TwoFactorService).scoped()
 **When 2FA is enabled:**
 - Status: "Two-factor authentication is active since {date}".
 - Recovery codes remaining: `N of 8`.
-- "Regenerate recovery codes" button (requires password).
-- "Disable two-factor authentication" button (requires password).
+- "Regenerate recovery codes" button (requires password + TOTP code).
+- "Disable two-factor authentication" button (requires password + TOTP code). Hidden if tenant enforces 2FA.
 
 ### User Management (Admin)
 
@@ -488,12 +520,17 @@ Add to `packages/core/src/modules/auth/i18n/{locale}.json`:
       "admin": {
         "reset": "Reset 2FA",
         "resetConfirm": "This will disable two-factor authentication for this user. They will need to set it up again.",
+        "resetReason": "Reason for reset",
+        "resetReasonPlaceholder": "e.g. User lost their authenticator device",
         "status": "2FA Status",
         "active": "Active",
         "inactive": "Inactive"
       },
       "confirmPassword": "Enter your password to confirm",
-      "required": "Your organization requires two-factor authentication. Please set it up to continue."
+      "confirmCode": "Enter your current 2FA code to confirm",
+      "required": "Your organization requires two-factor authentication. Please set it up to continue.",
+      "cannotDisableEnforced": "Two-factor authentication is required by your organization and cannot be disabled.",
+      "apiKeyWarning": "API keys bypass two-factor authentication. Treat them like passwords."
     }
   }
 }
@@ -505,7 +542,11 @@ Add to `packages/core/src/modules/auth/i18n/{locale}.json`:
 
 Add to `packages/core/src/modules/auth/acl.ts`:
 
-No new dedicated features needed. Admin reset uses existing `auth.users.edit`. 2FA setup/disable uses the user's own session (self-service).
+| Feature | Description |
+|---------|-------------|
+| `auth.users.2fa.reset` | Allows resetting another user's 2FA. Separate from `auth.users.edit` so it can be granted selectively to trusted admins only. |
+
+2FA setup and disable remain self-service (the user's own session). Declare `auth.users.2fa.reset` in `setup.ts` `defaultRoleFeatures` — granted to the `admin` role by default, not granted to `manager` or other roles.
 
 ---
 
@@ -518,7 +559,7 @@ Add to `packages/core/src/modules/auth/events.ts`:
 { id: 'auth.two_factor.disabled', label: 'Two-Factor Authentication Disabled', category: 'lifecycle' },
 { id: 'auth.two_factor.verified', label: 'Two-Factor Code Verified (Login)', category: 'lifecycle', excludeFromTriggers: true },
 { id: 'auth.two_factor.recovery_used', label: 'Recovery Code Used', category: 'lifecycle' },
-{ id: 'auth.two_factor.admin_reset', label: 'Two-Factor Reset by Admin', category: 'lifecycle' },
+{ id: 'auth.two_factor.admin_reset', label: 'Two-Factor Reset by Admin', category: 'lifecycle' },  // includes: adminUserId, targetUserId, reason, sourceIp
 ```
 
 ---
@@ -526,7 +567,7 @@ Add to `packages/core/src/modules/auth/events.ts`:
 ## Security Considerations
 
 ### TOTP Secret Storage
-- The TOTP secret is stored encrypted when tenant data encryption is enabled.
+- The TOTP secret is **always encrypted at rest**, regardless of whether tenant-wide data encryption is enabled. If the database leaks and secrets are stored in plaintext, an attacker can recreate valid TOTP codes for every user, effectively bypassing 2FA entirely. Encryption of this field must be unconditional.
 - Use `findOneWithDecryption` / `findWithDecryption` when reading `UserTwoFactor`.
 - The secret is only returned to the user during the initial setup flow. It is never exposed again via any API.
 
@@ -536,16 +577,116 @@ Add to `packages/core/src/modules/auth/events.ts`:
 - Verification: iterate over unused hashes and `bcryptjs.compare()`.
 
 ### Rate Limiting
-- The `POST /api/auth/two-factor/verify` endpoint should implement rate limiting: max 5 attempts per challenge token. After 5 failures, the challenge token is invalidated and the user must log in again.
-- Recovery code verification counts toward the same limit.
+
+Rate limiting on 2FA verification endpoints is critical — the combination of recovery code length and rate limit determines the practical brute-force resistance.
+
+Uses the shared rate limiting library from `@open-mercato/shared/lib/ratelimit` (see SPEC-022). All 2FA endpoints use **handler-level enforcement** (not metadata-driven) because they need compound keys that include the challenge token or user identity, not just client IP.
+
+**Integration pattern** (same as `login.ts`, `reset.ts` in the auth module):
+
+```typescript
+import { getCachedRateLimiterService } from '../../bootstrap'
+import { checkRateLimit, getClientIp, readEndpointRateLimitConfig } from '@open-mercato/shared/lib/ratelimit'
+
+// Module-level config — env-overridable with hardcoded defaults
+const twoFactorVerifyRateLimitConfig = readEndpointRateLimitConfig('2FA_VERIFY', {
+  points: 5, duration: 300, blockDuration: 300, keyPrefix: '2fa-verify',
+})
+
+export const metadata = {} // no dispatcher-level enforcement
+
+export async function POST(req: Request) {
+  // ... read challengeToken from HttpOnly cookie, parse body ...
+  try {
+    const rateLimiterService = getCachedRateLimiterService()
+    if (rateLimiterService) {
+      const clientIp = getClientIp(req)
+      const compoundKey = `${clientIp}:${challengeTokenId}`
+      const rateLimitError = await checkRateLimit(
+        rateLimiterService,
+        twoFactorVerifyRateLimitConfig,
+        compoundKey,
+        translate('api.errors.rateLimit', 'Too many requests. Please try again later.'),
+      )
+      if (rateLimitError) return rateLimitError // 429 with Retry-After + X-RateLimit-* headers
+    }
+  } catch {
+    // fail-open: rate limiter failures never block critical auth flows
+  }
+  // ... rest of handler ...
+}
+```
+
+**Per-endpoint configurations:**
+
+| Endpoint | Env prefix | Default | Key strategy | Behavior on exhaust |
+|----------|-----------|---------|-------------|-------------------|
+| `POST /api/auth/two-factor/verify` | `2FA_VERIFY` | 5 req / 300s, block 300s | `IP:challengeTokenId` | Invalidate challenge token, return 429 |
+| `POST /api/auth/two-factor/setup/verify` | `2FA_SETUP_VERIFY` | 5 req / 300s, block 300s | `IP:challengeTokenId` | Same as above |
+| `DELETE /api/auth/two-factor` | `2FA_DISABLE` | 5 req / 300s, block 300s | `IP:userId` | Return 429 |
+| `POST /api/auth/two-factor/recovery-codes` | `2FA_RECOVERY_REGEN` | 3 req / 300s, block 300s | `IP:userId` | Return 429 |
+| `DELETE /api/auth/two-factor/admin/reset` | `2FA_ADMIN_RESET` | 3 req / 300s, block 300s | `IP:adminUserId` | Return 429 |
+
+Environment variables follow the `RATE_LIMIT_{PREFIX}_POINTS`, `RATE_LIMIT_{PREFIX}_DURATION`, `RATE_LIMIT_{PREFIX}_BLOCK_DURATION` convention from `readEndpointRateLimitConfig()`.
+
+**Challenge token invalidation on exhaust:**
+
+When the `2fa-verify` or `2fa-setup-verify` limiter is exhausted, the handler must also invalidate the challenge token (mark `session.two_factor_pending` as expired) so the user is forced to restart the login flow. This is done inside the handler after detecting `rateLimitError`, not inside the rate limiter itself.
+
+**OpenAPI:** All rate-limited 2FA endpoints must declare a `429` error in their `openApi` export:
+
+```typescript
+const rateLimitErrorSchema = z.object({
+  error: z.string().describe('Rate limit exceeded message'),
+})
+
+// In openApi.methods.POST.errors:
+{ status: 429, description: 'Too many verification attempts', schema: rateLimitErrorSchema }
+```
+
+**Optional future enhancement:**
+- Heuristic-based stricter limits for suspicious source IPs (known datacenter ranges, Tor exit nodes, etc.).
 
 ### Challenge Token Security
 - Challenge tokens expire after 5 minutes.
 - A challenge token with `two_factor_pending = true` cannot be used to access any protected resource.
-- Middleware must reject sessions where `two_factor_pending = true` for all routes except the 2FA verification and setup endpoints.
+- Middleware must reject sessions where `two_factor_pending = true` for all routes except the 2FA verification and setup endpoints (see Middleware Allowlist below).
+
+### JWT / Session Token Storage
+
+The token storage mechanism determines XSS and CSRF risk profiles. The implementation must follow one of these two approaches:
+
+1. **(Recommended) HttpOnly cookie-based sessions:** The JWT or session token is stored exclusively in an `HttpOnly`, `Secure`, `SameSite=Strict` cookie. CSRF protection is provided by `SameSite` plus a CSRF token for state-changing requests. This is the preferred approach because JavaScript cannot access the token, eliminating XSS-based token theft.
+
+2. **Bearer token in application memory:** The JWT is kept in JavaScript memory only (never `localStorage` or `sessionStorage`) and sent as a `Bearer` header. Requires a refresh-token flow (refresh token in an HttpOnly cookie) and strong XSS protections. This approach is acceptable but carries higher risk if XSS mitigations fail.
+
+**Never store JWTs or session tokens in `localStorage` or `sessionStorage`** — these are accessible to any script running on the page and trivially exfiltrable via XSS.
+
+### Middleware Allowlist for `two_factor_pending` Sessions
+
+When a session has `two_factor_pending = true`, the middleware must enforce a strict allowlist of accessible endpoints. Everything else must return `401 Unauthorized`. The allowlist:
+
+- `POST /api/auth/two-factor/verify` — verify TOTP/recovery code during login
+- `POST /api/auth/two-factor/setup` — generate secret + QR (for tenant-enforced setup)
+- `POST /api/auth/two-factor/setup/verify` — verify initial code during forced setup
+- `POST /api/auth/logout` — allow the user to abandon the login attempt
+- `GET /login/two-factor` — the 2FA challenge page (frontend)
+- `GET /login/two-factor/setup` — the forced setup page (frontend)
+
+This restriction must apply uniformly across all authorization mechanisms: REST API, SSR page loads, WebSocket connections, file downloads, and any other request pathway.
+
+### API Keys and 2FA Bypass
+
+API keys bypass 2FA by design (they are already scoped, permission-limited, and expiring). However, this must be explicitly communicated and mitigated:
+
+- **UI warning:** The API key creation dialog must display a prominent warning: "API keys bypass two-factor authentication. Treat them like passwords."
+- **2FA required for key management:** Creating, rotating, or deleting API keys requires a current TOTP code (or recovery code) if the user has 2FA enabled.
+- **Documentation:** The API key documentation page must state that keys bypass 2FA and recommend setting short lifetimes and IP allowlists for high-security environments.
+- **Future enhancements (out of scope):** API key IP allowlisting, configurable key lifetime policies.
 
 ### Audit Trail
 - All 2FA events (enable, disable, verify, recovery use, admin reset) are emitted as events and can be captured by the audit log module.
+- Admin 2FA resets additionally record: who performed the reset, the target user, the source IP, and the stated reason.
 
 ---
 
@@ -574,7 +715,7 @@ New tables:
 - `user_recovery_codes` — stores hashed recovery codes.
 
 Modified tables:
-- `sessions` — add `two_factor_pending boolean NOT NULL DEFAULT false`.
+- `sessions` — add `two_factor_pending boolean NOT NULL DEFAULT false` and `two_factor_verified_at timestamptz NULL`.
 
 ### Dependencies
 
@@ -592,7 +733,7 @@ Add `@types/qrcode` to devDependencies.
 
 - Users without 2FA configured experience zero changes to their login flow.
 - The `two_factor_pending` default (`false`) means existing sessions are unaffected.
-- API keys bypass 2FA entirely — they are already scoped, expiring, and permission-limited.
+- API keys bypass 2FA entirely — they are already scoped, expiring, and permission-limited. The UI now warns about this when creating keys.
 
 ---
 
@@ -670,6 +811,22 @@ Popular but unmaintained (last publish 2019). **Rejected** in favor of `otpauth`
 ---
 
 ## Changelog
+
+### 2026-02-09
+- **Security hardening** based on review feedback:
+  - Challenge token now delivered via HttpOnly/Secure/SameSite=Strict cookie instead of URL query string (prevents leakage via browser history, Referer headers, CDN/proxy logs)
+  - Required `Referrer-Policy: no-referrer` and `Cache-Control: no-store` headers on all 2FA routes
+  - TOTP secret is now always encrypted at rest, regardless of tenant encryption setting
+  - Disabling 2FA and regenerating recovery codes now require 2FA verification (TOTP or recovery code), not just password — prevents 2FA bypass after password compromise
+  - If tenant enforces 2FA, users cannot disable it (admin must reset, then user re-enrolls)
+  - Added `two_factor_verified_at` session field for 5-minute grace period on sensitive operations
+  - Admin 2FA reset now requires dedicated `auth.users.2fa.reset` permission, admin re-authentication, a reason field, user notification, and full audit logging
+  - Explicit middleware allowlist for `two_factor_pending` sessions (only 2FA verify/setup and logout endpoints accessible)
+  - Added JWT/session token storage security guidance (HttpOnly cookie recommended, never localStorage)
+  - Rate limiting rewritten to use the shared `@open-mercato/shared/lib/ratelimit` library (SPEC-022 / PR #521): handler-level enforcement with `checkRateLimit()`, compound keys (`IP:challengeTokenId`, `IP:userId`), `readEndpointRateLimitConfig()` for env-overridable defaults, fail-open pattern, 429 + `Retry-After`/`X-RateLimit-*` headers, OpenAPI 429 error schemas
+  - Recovery codes increased from 8 to 10 alphanumeric characters (`XXXXX-XXXXX`, ~52 bits entropy)
+  - API keys: UI warning that keys bypass 2FA, 2FA required to create/rotate keys
+  - New i18n keys for 2FA code confirmation, admin reset reason, enforcement messaging, API key warning
 
 ### 2026-02-05
 - Initial specification
