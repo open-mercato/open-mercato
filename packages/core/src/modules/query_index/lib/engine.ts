@@ -215,7 +215,9 @@ export class HybridQueryEngine implements QueryEngine {
               : { scope: null })
           )
           if (gap) {
-            this.scheduleAutoReindex(entity, opts, gap.stats, coverageScope?.organizationId ?? null)
+            if (!opts.skipAutoReindex) {
+              this.scheduleAutoReindex(entity, opts, gap.stats, coverageScope?.organizationId ?? null)
+            }
             const force = this.isForcePartialIndexEnabled()
             if (!force) {
               if (gap.stats) {
@@ -437,7 +439,9 @@ export class HybridQueryEngine implements QueryEngine {
               : { entity: targetEntity, scope: null })
           )
           if (!gap) continue
-          this.scheduleAutoReindex(targetEntity, opts, gap.stats, coverageScope?.organizationId ?? null)
+          if (!opts.skipAutoReindex) {
+            this.scheduleAutoReindex(targetEntity, opts, gap.stats, coverageScope?.organizationId ?? null)
+          }
           partialIndexWarning = {
             entity: targetEntity,
             entityLabel: this.resolveEntityLabel(targetEntity),
@@ -1417,6 +1421,7 @@ export class HybridQueryEngine implements QueryEngine {
     organizationIdOverride?: string | null
   ) {
     if (!this.isAutoReindexEnabled()) return
+
     const bus = this.resolveEventBus()
     if (!bus) return
     const payload = {
