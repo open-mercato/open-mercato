@@ -1012,6 +1012,17 @@
         "confirmRemove": "Are you sure you want to remove this mapping?"
       }
     },
+    "visualEditor": {
+      "clearTitle": "Clear Everything?",
+      "clearDescription": "This will clear all metadata and the workflow canvas. This action cannot be undone.",
+      "showMetadata": "Show Metadata",
+      "hideMetadata": "Hide Metadata",
+      "loadExample": "Load Example",
+      "clear": "Clear",
+      "validate": "Validate",
+      "runTest": "Run Test",
+      "workflowMetadata": "Workflow Metadata"
+    },
     "mobile": {
       "viewFullGraph": "View Full Graph",
       "metadata": "Metadata",

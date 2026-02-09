@@ -602,9 +602,9 @@ export default function VisualEditorPage() {
         <Dialog open={showClearConfirm} onOpenChange={setShowClearConfirm}>
           <DialogContent className="sm:max-w-md">
             <DialogHeader>
-              <DialogTitle>Clear Everything?</DialogTitle>
+              <DialogTitle>{t('workflows.visualEditor.clearTitle')}</DialogTitle>
               <DialogDescription>
-                This will clear all metadata and the workflow canvas. This action cannot be undone.
+                {t('workflows.visualEditor.clearDescription')}
               </DialogDescription>
             </DialogHeader>
             <DialogFooter>
@@ -629,7 +629,7 @@ export default function VisualEditorPage() {
           mode="detail"
           backHref="/backend/definitions"
           backLabel={t('workflows.definitions.backToList', 'Back to definitions')}
-          title={definitionId ? (workflowName || 'Workflow') : t('workflows.backend.definitions.visual_editor.title')}
+          title={definitionId ? (workflowName || t('workflows.definitions.singular')) : t('workflows.backend.definitions.visual_editor.title')}
           subtitle={definitionId
             ? t('workflows.definitions.detail.summary', 'Editing workflow definition')
             : t('workflows.definitions.create.summary', 'Create and edit workflow definitions visually with a drag-and-drop interface')
@@ -642,10 +642,10 @@ export default function VisualEditorPage() {
                 onClick={() => setShowMetadata(!showMetadata)}
                 disabled={isSaving}
                 className="h-8 px-2 text-xs"
-                aria-label={showMetadata ? 'Hide metadata' : 'Show metadata'}
+                aria-label={showMetadata ? t('workflows.visualEditor.hideMetadata') : t('workflows.visualEditor.showMetadata')}
               >
                 {showMetadata ? <PanelTopClose className="mr-1.5 h-4 w-4" /> : <PanelTopOpen className="mr-1.5 h-4 w-4" />}
-                {showMetadata ? 'Hide Metadata' : 'Show Metadata'}
+                {showMetadata ? t('workflows.visualEditor.hideMetadata') : t('workflows.visualEditor.showMetadata')}
               </Button>
               <Button
                 variant="outline"
@@ -654,7 +654,7 @@ export default function VisualEditorPage() {
                 disabled={isSaving}
                 className="h-8 text-xs"
               >
-                Load Example
+                {t('workflows.visualEditor.loadExample')}
               </Button>
               <Button
                 variant="destructive"
@@ -662,10 +662,10 @@ export default function VisualEditorPage() {
                 onClick={handleClear}
                 disabled={isSaving}
                 className="h-8 px-2 text-xs"
-                aria-label="Clear workflow"
+                aria-label={t('workflows.visualEditor.clear')}
               >
                 <Trash2 className="mr-1.5 h-4 w-4" />
-                Clear
+                {t('workflows.visualEditor.clear')}
               </Button>
               <Button
                 variant="outline"
@@ -673,10 +673,10 @@ export default function VisualEditorPage() {
                 onClick={handleValidate}
                 disabled={isSaving}
                 className="h-8 px-2 text-xs"
-                aria-label="Validate workflow"
+                aria-label={t('workflows.visualEditor.validate')}
               >
                 <CircleQuestionMark className="mr-1.5 h-4 w-4" />
-                Validate
+                {t('workflows.visualEditor.validate')}
               </Button>
               <Button
                 variant="outline"
@@ -686,17 +686,17 @@ export default function VisualEditorPage() {
                 className="h-8 text-xs"
               >
                 <Play className="mr-1.5 h-4 w-4" />
-                Run Test
+                {t('workflows.visualEditor.runTest')}
               </Button>
               <Button
                 size="sm"
                 onClick={handleSave}
                 disabled={isSaving}
                 className="h-8 px-2 text-xs md:px-3"
-                aria-label={isSaving ? 'Saving workflow' : definitionId ? 'Update workflow' : 'Save workflow'}
+                aria-label={isSaving ? t('workflows.mobile.saving') : definitionId ? t('workflows.common.update') : t('workflows.common.save')}
               >
                 <Save className="mr-1.5 h-4 w-4" />
-                {isSaving ? 'Saving...' : definitionId ? 'Update' : 'Save'}
+                {isSaving ? t('workflows.mobile.saving') : definitionId ? t('workflows.common.update') : t('workflows.common.save')}
               </Button>
             </div>
           }
@@ -710,7 +710,7 @@ export default function VisualEditorPage() {
           : 'shrink-0 border-b border-gray-200 bg-white px-3 py-2 md:px-6 md:py-3'
         }>
           <div className="rounded-lg border bg-card p-3 md:p-4">
-            <h2 className="mb-3 text-xs font-semibold uppercase text-muted-foreground">Workflow Metadata</h2>
+            <h2 className="mb-3 text-xs font-semibold uppercase text-muted-foreground">{t('workflows.visualEditor.workflowMetadata')}</h2>
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 md:gap-4">
               {/* Workflow ID */}
               <div className="min-w-0 space-y-1">

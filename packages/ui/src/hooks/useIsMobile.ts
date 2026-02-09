@@ -1,29 +1,27 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useSyncExternalStore } from 'react'
 
 const MOBILE_BREAKPOINT = 767
 
+function subscribe(callback: () => void) {
+  const mediaQuery = window.matchMedia(`(max-width: ${MOBILE_BREAKPOINT}px)`)
+  mediaQuery.addEventListener('change', callback)
+  return () => mediaQuery.removeEventListener('change', callback)
+}
+
+function getSnapshot() {
+  return window.matchMedia(`(max-width: ${MOBILE_BREAKPOINT}px)`).matches
+}
+
+function getServerSnapshot() {
+  return false
+}
+
 /**
  * SSR-safe hook that returns true when the viewport is below Tailwind's `md:` breakpoint (768px).
- * Uses `matchMedia` for efficient, event-driven detection.
+ * Uses `useSyncExternalStore` for correct first-render values without hydration flash.
  */
 export function useIsMobile(): boolean {
-  const [isMobile, setIsMobile] = useState(false)
-
-  useEffect(() => {
-    if (typeof window === 'undefined') return
-
-    const mediaQuery = window.matchMedia(`(max-width: ${MOBILE_BREAKPOINT}px)`)
-    const handleChange = () => setIsMobile(mediaQuery.matches)
-
-    handleChange()
-    mediaQuery.addEventListener('change', handleChange)
-
-    return () => {
-      mediaQuery.removeEventListener('change', handleChange)
-    }
-  }, [])
-
-  return isMobile
+  return useSyncExternalStore(subscribe, getSnapshot, getServerSnapshot)
 }

@@ -20,11 +20,14 @@ import {
 import { StepsEditor } from '../../../components/StepsEditor'
 import { TransitionsEditor } from '../../../components/TransitionsEditor'
 import { EventTriggersEditor } from '../../../components/EventTriggersEditor'
+import { MobileDefinitionDetail } from '../../../components/mobile/MobileDefinitionDetail'
+import { useIsMobile } from '@open-mercato/ui/hooks/useIsMobile'
 
 export default function EditWorkflowDefinitionPage() {
   const router = useRouter()
   const params = useParams()
   const t = useT()
+  const isMobile = useIsMobile()
 
   // Handle catch-all route: params.slug = ['definitions', 'uuid']
   let definitionId: string | undefined
@@ -75,9 +78,13 @@ export default function EditWorkflowDefinitionPage() {
   const fields = React.useMemo(() => createFieldDefinitions(t), [t])
 
   const formGroups = React.useMemo(
-    () => createFormGroups(t, StepsEditor, TransitionsEditor),
-    [t]
+    () => isMobile ? [] : createFormGroups(t, StepsEditor, TransitionsEditor),
+    [t, isMobile]
   )
+
+  const navigateToVisualEditor = React.useCallback(() => {
+    router.push(`/backend/definitions/visual-editor?id=${definitionId}`)
+  }, [router, definitionId])
 
   if (isLoading) {
     return (
@@ -146,6 +153,21 @@ export default function EditWorkflowDefinitionPage() {
           groups={formGroups}
           submitLabel={t('workflows.form.update')}
         />
+
+        {/* Mobile Steps & Transitions View */}
+        {isMobile && initialValues && (
+          <div className="mt-4">
+            <MobileDefinitionDetail
+              values={initialValues}
+              onEditStep={navigateToVisualEditor}
+              onDeleteStep={navigateToVisualEditor}
+              onAddStep={navigateToVisualEditor}
+              onEditTransition={navigateToVisualEditor}
+              onDeleteTransition={navigateToVisualEditor}
+              onAddTransition={navigateToVisualEditor}
+            />
+          </div>
+        )}
 
         {/* Event Triggers Section */}
         <div className="mt-8">

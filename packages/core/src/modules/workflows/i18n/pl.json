@@ -1012,6 +1012,17 @@
         "confirmRemove": "Czy na pewno chcesz usunąć to mapowanie?"
       }
     },
+    "visualEditor": {
+      "clearTitle": "Wyczyścić wszystko?",
+      "clearDescription": "Spowoduje to wyczyszczenie wszystkich metadanych i obszaru roboczego przepływu pracy. Tej czynności nie można cofnąć.",
+      "showMetadata": "Pokaż metadane",
+      "hideMetadata": "Ukryj metadane",
+      "loadExample": "Załaduj przykład",
+      "clear": "Wyczyść",
+      "validate": "Waliduj",
+      "runTest": "Uruchom test",
+      "workflowMetadata": "Metadane przepływu pracy"
+    },
     "mobile": {
       "viewFullGraph": "Pokaż pełny graf",
       "metadata": "Metadane",

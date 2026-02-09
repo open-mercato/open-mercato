@@ -1012,6 +1012,17 @@
         "confirmRemove": "¿Seguro que quieres eliminar este mapeo?"
       }
     },
+    "visualEditor": {
+      "clearTitle": "¿Borrar todo?",
+      "clearDescription": "Esto borrará todos los metadatos y el lienzo del flujo de trabajo. Esta acción no se puede deshacer.",
+      "showMetadata": "Mostrar metadatos",
+      "hideMetadata": "Ocultar metadatos",
+      "loadExample": "Cargar ejemplo",
+      "clear": "Borrar",
+      "validate": "Validar",
+      "runTest": "Ejecutar prueba",
+      "workflowMetadata": "Metadatos del flujo de trabajo"
+    },
     "mobile": {
       "viewFullGraph": "Ver grafo completo",
       "metadata": "Metadatos",
