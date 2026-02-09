@@ -9,18 +9,20 @@ import { apiFetch } from '@open-mercato/ui/backend/utils/api'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { z } from 'zod'
 
-const ruleSetFormSchema = z.object({
-  setId: z.string().min(1, 'Set ID is required').max(50),
-  setName: z.string().min(1, 'Set name is required').max(200),
-  description: z.string().max(5000).optional().nullable(),
-  enabled: z.boolean().optional(),
-})
+const createRuleSetFormSchema = (t: (key: string) => string) =>
+  z.object({
+    setId: z.string().min(1, t('business_rules.sets.form.validation.setIdRequired')).max(50),
+    setName: z.string().min(1, t('business_rules.sets.form.validation.setNameRequired')).max(200),
+    description: z.string().max(5000).optional().nullable(),
+    enabled: z.boolean().optional(),
+  })
 
-type RuleSetFormValues = z.infer<typeof ruleSetFormSchema>
+type RuleSetFormValues = z.infer<ReturnType<typeof createRuleSetFormSchema>>
 
 export default function CreateRuleSetPage() {
   const router = useRouter()
   const t = useT()
+  const ruleSetFormSchema = React.useMemo(() => createRuleSetFormSchema(t), [t])
 
   const handleSubmit = async (values: RuleSetFormValues) => {
     // Note: tenantId and organizationId are injected by the API from auth token

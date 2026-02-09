@@ -4,14 +4,14 @@ Leverage the module system and follow strict naming and coding conventions to ke
 
 ## Before Writing Code
 
-1. Check the Task Router below and read the relevant guide
+1. Check the Task Router below — a single task may match multiple rows; read **all** relevant guides
 2. Check `.ai/specs/` for existing specs on the module you're modifying
 3. Enter plan mode for non-trivial tasks (3+ steps or architectural decisions)
 4. Identify the reference module (customers) if building CRUD features
 
 ## Task Router — Where to Find Detailed Guidance
 
-Before starting work, check this table and read the relevant guide.
+IMPORTANT: Before any research or coding, match the task to the root `AGENTS.md` Task Router table. A single task often maps to **multiple rows** — for example, "add a new module with search" requires both the Module Development and Search guides. Read **all** matching guides before starting. They contain the imports, patterns, and constraints you need. Only use Explore agents for topics not covered by any existing AGENTS.md.
 
 | Task | Guide |
 |------|-------|

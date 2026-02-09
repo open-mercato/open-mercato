@@ -17,7 +17,7 @@ export type ConditionRowProps = {
 
 export function ConditionRow({ condition, onChange, onDelete, error }: ConditionRowProps) {
   const t = useT()
-  const operators = getComparisonOperators()
+  const operators = getComparisonOperators(t)
   const [useFieldComparison, setUseFieldComparison] = React.useState(!!condition.valueField)
 
   const handleFieldChange = (e: React.ChangeEvent<HTMLInputElement>) => {
