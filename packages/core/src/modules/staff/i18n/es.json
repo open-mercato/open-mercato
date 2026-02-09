@@ -880,5 +880,11 @@
   "staff.myAvailability.readOnly.body": "Usa las solicitudes de ausencia para pedir cambios.",
   "staff.teamMembers.self.createTitle": "Crear mi perfil",
   "staff.teamMembers.self.created": "Perfil creado.",
-  "staff.teamMembers.self.exists": "El perfil del miembro ya existe."
+  "staff.teamMembers.self.exists": "El perfil del miembro ya existe.",
+  "audit_logs.resource_kind.staff.team_member_address": "Direcci\u00f3n",
+  "audit_logs.resource_kind.staff.team_member_activity": "Actividad",
+  "audit_logs.resource_kind.staff.team_member_comment": "Comentario",
+  "audit_logs.resource_kind.staff.team_member_job_history": "Historial laboral",
+  "audit_logs.resource_kind.staff.leave_request": "Solicitud de permiso",
+  "audit_logs.resource_kind.staff.teamMemberTagAssignment": "Etiqueta"
 }

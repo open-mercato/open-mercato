@@ -701,5 +701,8 @@
   "resources.resources.detail.inline.twitterInvalid": "Wprowad\u017a adres URL profilu na Twitterze",
   "resources.resources.detail.inline.urlInvalid": "Wprowad\u017a prawid\u0142owy adres URL",
   "resources.resources.detail.tabs.notes": "Notatki",
-  "resources.resources.detail.tabs.activities": "Dzia\u0142ania"
+  "resources.resources.detail.tabs.activities": "Dzia\u0142ania",
+  "audit_logs.resource_kind.resources.resource_activity": "Aktywno\u015b\u0107",
+  "audit_logs.resource_kind.resources.resource_comment": "Komentarz",
+  "audit_logs.resource_kind.resources.resourceTagAssignment": "Tag"
 }

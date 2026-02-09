@@ -28,7 +28,7 @@ const DEPTH_COLORS = [
 
 export function ConditionGroup({ group, onChange, onDelete, depth, maxDepth = 5, entityType }: ConditionGroupProps) {
   const t = useT()
-  const logicalOperators = getLogicalOperators()
+  const logicalOperators = getLogicalOperators(t)
   const colorClass = DEPTH_COLORS[depth % DEPTH_COLORS.length]
 
   const handleOperatorChange = (e: React.ChangeEvent<HTMLSelectElement>) => {

@@ -19,6 +19,8 @@ export type CommandLogMetadata = {
   actionLabel?: string | null
   resourceKind?: string | null
   resourceId?: string | null
+  parentResourceKind?: string | null
+  parentResourceId?: string | null
   undoToken?: string | null
   payload?: unknown
   snapshotBefore?: unknown

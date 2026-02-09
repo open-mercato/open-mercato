@@ -683,5 +683,7 @@
     }
   },
   "catalog.notifications.product.lowStock.title": "Low Stock Alert",
-  "catalog.notifications.product.lowStock.body": "{productName}{sku, select, other { ({sku})}} is running low on stock ({currentStock} remaining, threshold: {threshold})"
+  "catalog.notifications.product.lowStock.body": "{productName}{sku, select, other { ({sku})}} is running low on stock ({currentStock} remaining, threshold: {threshold})",
+  "audit_logs.resource_kind.catalog.variant": "Variant",
+  "audit_logs.resource_kind.catalog.price": "Price"
 }

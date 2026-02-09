@@ -11,6 +11,7 @@ import {
   requireCustomerEntity,
   ensureSameScope,
   extractUndoPayload,
+  resolveParentResourceKind,
 } from './shared'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
@@ -37,6 +38,7 @@ type AddressSnapshot = {
   organizationId: string
   tenantId: string
   entityId: string
+  entityKind: string | null
   name: string | null
   purpose: string | null
   companyName: string | null
@@ -59,13 +61,18 @@ type AddressUndoPayload = {
 }
 
 async function loadAddressSnapshot(em: EntityManager, id: string): Promise<AddressSnapshot | null> {
-  const address = await em.findOne(CustomerAddress, { id })
+  const address = await em.findOne(CustomerAddress, { id }, { populate: ['entity'] })
   if (!address) return null
+  const entityRef = address.entity
+  const entityKind = (typeof entityRef === 'object' && entityRef !== null && 'kind' in entityRef)
+    ? (entityRef as { kind: string }).kind
+    : null
   return {
     id: address.id,
     organizationId: address.organizationId,
     tenantId: address.tenantId,
-    entityId: typeof address.entity === 'string' ? address.entity : address.entity.id,
+    entityId: typeof entityRef === 'string' ? entityRef : entityRef.id,
+    entityKind,
     name: address.name ?? null,
     purpose: address.purpose ?? null,
     companyName: address.companyName ?? null,
@@ -158,6 +165,8 @@ const createAddressCommand: CommandHandler<AddressCreateInput, { addressId: stri
       actionLabel: translate('customers.audit.addresses.create', 'Create address'),
       resourceKind: 'customers.address',
       resourceId: result.addressId,
+      parentResourceKind: resolveParentResourceKind(snapshot?.entityKind),
+      parentResourceId: snapshot?.entityId ?? null,
       tenantId: snapshot?.tenantId ?? null,
       organizationId: snapshot?.organizationId ?? null,
       snapshotAfter: snapshot ?? null,
@@ -276,6 +285,8 @@ const updateAddressCommand: CommandHandler<AddressUpdateInput, { addressId: stri
       actionLabel: translate('customers.audit.addresses.update', 'Update address'),
       resourceKind: 'customers.address',
       resourceId: before.id,
+      parentResourceKind: resolveParentResourceKind(before.entityKind),
+      parentResourceId: before.entityId ?? null,
       tenantId: before.tenantId,
       organizationId: before.organizationId,
       snapshotBefore: before,
@@ -401,6 +412,8 @@ const deleteAddressCommand: CommandHandler<{ body?: Record<string, unknown>; que
         actionLabel: translate('customers.audit.addresses.delete', 'Delete address'),
         resourceKind: 'customers.address',
         resourceId: before.id,
+        parentResourceKind: resolveParentResourceKind(before.entityKind),
+        parentResourceId: before.entityId ?? null,
         tenantId: before.tenantId,
         organizationId: before.organizationId,
         snapshotBefore: before,

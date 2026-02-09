@@ -1,17 +1,6 @@
 ---
 name: backend-ui-design
 description: Design and implement consistent, production-grade backend/backoffice interfaces using the @open-mercato/ui component library. Use this skill when building admin pages, CRUD interfaces, data tables, forms, detail pages, or any backoffice UI components. Ensures visual consistency and UX patterns across all application modules.
-metadata:
-  short-description: Backend UI design using @open-mercato/ui
-  author: Open Mercato
-  version: 1.0.0
-  tags:
-    - ui
-    - backend
-    - admin
-    - crud
-    - forms
-    - tables
 ---
 
 This skill guides creation of consistent, production-grade backend/backoffice interfaces using the established @open-mercato/ui component library. All implementations must leverage existing components to maintain visual and behavioral consistency across modules.
@@ -40,12 +29,12 @@ import { AppShell } from '@open-mercato/ui/backend/AppShell'
 
 // Every backend page follows this structure
 <Page>
-  <PageHeader>
-    {/* Title, actions, breadcrumbs */}
-  </PageHeader>
-  <PageBody>
-    {/* Main content */}
-  </PageBody>
+<PageHeader>
+{/* Title, actions, breadcrumbs */}
+</PageHeader>
+<PageBody>
+  {/* Main content */}
+</PageBody>
 </Page>
 ```
 
@@ -124,18 +113,18 @@ import { CrudForm } from '@open-mercato/ui/backend/CrudForm'
 // Dialog forms MUST use embedded={true}
 <Dialog open={isOpen} onOpenChange={onClose}>
   <DialogContent className="sm:max-w-2xl [&_.grid]:!grid-cols-1">
-    <DialogHeader>
-      <DialogTitle>Edit Item</DialogTitle>
-    </DialogHeader>
-    <CrudForm
-      fields={fields}
-      groups={groups}
-      initialValues={initialValues}
-      onSubmit={handleSubmit}
-      embedded={true}
-      submitLabel="Save"
-    />
-  </DialogContent>
+  <DialogHeader>
+  <DialogTitle>Edit Item</DialogTitle>
+</DialogHeader>
+<CrudForm
+  fields={fields}
+  groups={groups}
+  initialValues={initialValues}
+  onSubmit={handleSubmit}
+  embedded={true}
+  submitLabel="Save"
+/>
+</DialogContent>
 </Dialog>
 ```
 

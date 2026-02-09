@@ -217,5 +217,6 @@
       "deleted": "Exchange rate deleted successfully",
       "deleteError": "Failed to delete exchange rate"
     }
-  }
+  },
+  "audit_logs.resource_kind.currencies.exchange_rate": "Exchange Rate"
 }

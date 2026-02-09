@@ -205,6 +205,20 @@ This is a quickest way to get Open Mercato up and running on your localhost / se
 
 [![Watch on YouTube](https://img.youtube.com/vi/OsalmbiWQ-I/maxresdefault.jpg)](https://youtu.be/OsalmbiWQ-I)
 
+### Installation update
+**Node.js 24.x is required**
+  ```bash
+  # macOS (Homebrew)
+  brew install node@24
+
+  # Windows (Chocolatey)
+  choco install nodejs --version=24.x
+
+  # Or use nvm (any platform)
+  nvm install 24
+  nvm use 24
+  ```
+**Windows:** Use [Docker Deployment](#docker-deployment) for native setup.
 
 ### Quick Start (Monorepo)
 
@@ -305,6 +319,8 @@ Navigate to `http://localhost:3000/backend` and sign in with the default credent
 - Logs: `docker compose -f docker-compose.fullapp.yml logs -f app`
 - Stop: `docker compose -f docker-compose.fullapp.yml down`
 - Rebuild: `docker compose -f docker-compose.fullapp.yml up --build`
+
+**Dev mode (app in container with mounted source + watch):** `docker compose -f docker-compose.fullapp.dev.yml up --build`
 
 For production deployments, ensure strong `JWT_SECRET`, secure database credentials, and consider managed database services. See the [full Docker deployment guide](https://docs.openmercato.com/installation/setup#docker-deployment-full-stack) for detailed configuration and production tips.
 
