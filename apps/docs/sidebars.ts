@@ -271,6 +271,13 @@ const sidebars: SidebarsConfig = {
         "framework/feature-toggles/overview",
         {
           type: "category",
+          label: "Security",
+          items: [
+            "framework/security/rate-limiting",
+          ],
+        },
+        {
+          type: "category",
           label: "Runtime",
           items: [
             "framework/runtime/data-engine",

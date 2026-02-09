@@ -10,12 +10,37 @@ import { buildNotificationFromType } from '@open-mercato/core/modules/notificati
 import { resolveNotificationService } from '@open-mercato/core/modules/notifications/lib/notificationService'
 import notificationTypes from '@open-mercato/core/modules/auth/notifications'
 import { z } from 'zod'
+import { getCachedRateLimiterService } from '@open-mercato/core/bootstrap'
+import { checkRateLimit, getClientIp } from '@open-mercato/shared/lib/ratelimit/helpers'
+import { readEndpointRateLimitConfig } from '@open-mercato/shared/lib/ratelimit/config'
+
+const resetRateLimitConfig = readEndpointRateLimitConfig('RESET', {
+  points: 3, duration: 60, blockDuration: 60, keyPrefix: 'reset',
+})
 
 // validation via requestPasswordResetSchema
 
 export async function POST(req: Request) {
   const form = await req.formData()
   const email = String(form.get('email') ?? '')
+  // Rate limit by IP + email — checked before validation and DB work
+  try {
+    const rateLimiterService = getCachedRateLimiterService()
+    if (rateLimiterService) {
+      const clientIp = getClientIp(req)
+      const compoundKey = `${clientIp}:${email.toLowerCase()}`
+      const { translate } = await resolveTranslations()
+      const rateLimitError = await checkRateLimit(
+        rateLimiterService,
+        resetRateLimitConfig,
+        compoundKey,
+        translate('api.errors.rateLimit', 'Too many requests. Please try again later.'),
+      )
+      if (rateLimitError) return rateLimitError
+    }
+  } catch {
+    // fail-open
+  }
   const parsed = requestPasswordResetSchema.safeParse({ email })
   if (!parsed.success) return NextResponse.json({ ok: true }) // do not reveal
   const c = await createRequestContainer()
@@ -61,9 +86,7 @@ export async function POST(req: Request) {
   return NextResponse.json({ ok: true })
 }
 
-export const metadata = {
-  POST: {},
-}
+export const metadata = {}
 
 const passwordResetRequestSchema = z.object({
   email: z.string().email(),
@@ -71,6 +94,10 @@ const passwordResetRequestSchema = z.object({
 
 const passwordResetResponseSchema = z.object({
   ok: z.literal(true),
+})
+
+const rateLimitErrorSchema = z.object({
+  error: z.string().describe('Rate limit exceeded message'),
 })
 
 export const openApi: OpenApiRouteDoc = {
@@ -86,6 +113,9 @@ export const openApi: OpenApiRouteDoc = {
       },
       responses: [
         { status: 200, description: 'Reset email dispatched (or ignored for unknown accounts)', schema: passwordResetResponseSchema },
+      ],
+      errors: [
+        { status: 429, description: 'Too many password reset requests', schema: rateLimitErrorSchema },
       ],
     },
   },

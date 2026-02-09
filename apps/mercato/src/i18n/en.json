@@ -241,6 +241,7 @@
   "api.errors.invalidPayload": "Invalid payload.",
   "api.errors.invalidLocale": "Invalid locale",
   "api.errors.badRequest": "Bad request",
+  "api.errors.rateLimit": "Too many requests. Please try again later.",
   "api.docs.title": "Open Mercato API",
   "api.docs.description": "Auto-generated OpenAPI definition for all enabled modules.",
   "api.docs.serverDescription": "Default environment",

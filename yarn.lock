@@ -5594,6 +5594,7 @@ __metadata:
   dependencies:
     "@types/jest": "npm:^30.0.0"
     jest: "npm:^30.2.0"
+    rate-limiter-flexible: "npm:^9.0.0"
     ts-jest: "npm:^29.4.6"
   languageName: unknown
   linkType: soft
@@ -21286,6 +21287,13 @@ __metadata:
   version: 1.2.1
   resolution: "range-parser@npm:1.2.1"
   checksum: 10/ce21ef2a2dd40506893157970dc76e835c78cf56437e26e19189c48d5291e7279314477b06ac38abd6a401b661a6840f7b03bd0b1249da9b691deeaa15872c26
+  languageName: node
+  linkType: hard
+
+"rate-limiter-flexible@npm:^9.0.0":
+  version: 9.1.1
+  resolution: "rate-limiter-flexible@npm:9.1.1"
+  checksum: 10/3acdd92f9e2664d9ac5cbdbb8fb62933fbb8e881dd7d5aca13ea6bd44a057a05e2ffb75eb3f366033a66ee5b22ef61a3b1d3fae310bf6a306857ad67c767fe04
   languageName: node
   linkType: hard
 

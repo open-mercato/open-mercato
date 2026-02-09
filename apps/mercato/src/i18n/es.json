@@ -241,6 +241,7 @@
   "api.errors.invalidPayload": "Carga no válida.",
   "api.errors.invalidLocale": "Idioma no válido",
   "api.errors.badRequest": "Solicitud incorrecta",
+  "api.errors.rateLimit": "Demasiadas solicitudes. Inténtelo de nuevo más tarde.",
   "api.docs.title": "API de Open Mercato",
   "api.docs.description": "Definición OpenAPI generada automáticamente para todos los módulos habilitados.",
   "api.docs.serverDescription": "Entorno predeterminado",
