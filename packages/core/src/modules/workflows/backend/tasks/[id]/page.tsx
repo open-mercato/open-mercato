@@ -15,44 +15,20 @@ import { useQuery } from '@tanstack/react-query'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { MobileTaskForm } from '../../../components/mobile/MobileTaskForm'
 import { useIsMobile } from '@open-mercato/ui/hooks/useIsMobile'
-
-type UserTaskStatus = 'PENDING' | 'IN_PROGRESS' | 'COMPLETED' | 'CANCELLED'
-
-type UserTask = {
-  id: string
-  workflowInstanceId: string
-  stepInstanceId: string
-  taskName: string
-  description: string | null
-  status: UserTaskStatus
-  formSchema: any | null
-  formData: any | null
-  assignedTo: string | null
-  assignedToRoles: string[] | null
-  claimedBy: string | null
-  claimedAt: string | null
-  dueDate: string | null
-  completedBy: string | null
-  completedAt: string | null
-  comments: string | null
-  tenantId: string
-  organizationId: string
-  createdAt: string
-  updatedAt: string
-}
+import type { UserTaskResponse, UserTaskStatus } from '../../../data/types'
 
 export default function UserTaskDetailPage({ params }: { params: { id: string } }) {
   const router = useRouter()
   const t = useT()
   const isMobile = useIsMobile()
-  const [formData, setFormData] = React.useState<Record<string, any>>({})
+  const [formData, setFormData] = React.useState<Record<string, string | number | boolean>>({})
   const [comments, setComments] = React.useState('')
   const [submitting, setSubmitting] = React.useState(false)
 
   const { data: task, isLoading, error } = useQuery({
     queryKey: ['workflow-task', params.id],
     queryFn: async () => {
-      const result = await apiCall<{ data: UserTask }>(
+      const result = await apiCall<{ data: UserTaskResponse }>(
         `/api/workflows/tasks/${params.id}`
       )
 
@@ -115,6 +91,13 @@ export default function UserTaskDetailPage({ params }: { params: { id: string } 
     }
   }
 
+  const fieldValue = (fieldName: string): string | number => {
+    const val = formData[fieldName]
+    if (val == null || val === false) return ''
+    if (typeof val === 'boolean') return ''
+    return val
+  }
+
   const renderFormField = (fieldName: string, fieldSchema: any) => {
     const fieldType = fieldSchema.type || 'string'
     const fieldTitle = fieldSchema.title || fieldName
@@ -138,7 +121,7 @@ export default function UserTaskDetailPage({ params }: { params: { id: string } 
           )}
           <select
             id={fieldName}
-            value={formData[fieldName] || ''}
+            value={fieldValue(fieldName)}
             onChange={(e) => handleFieldChange(fieldName, e.target.value)}
             required={required}
             className={inputClasses}
@@ -170,7 +153,7 @@ export default function UserTaskDetailPage({ params }: { params: { id: string } 
               <input
                 type="email"
                 id={fieldName}
-                value={formData[fieldName] || ''}
+                value={fieldValue(fieldName)}
                 onChange={(e) => handleFieldChange(fieldName, e.target.value)}
                 required={required}
                 className={inputClasses}
@@ -191,7 +174,7 @@ export default function UserTaskDetailPage({ params }: { params: { id: string } 
               <input
                 type="date"
                 id={fieldName}
-                value={formData[fieldName] || ''}
+                value={fieldValue(fieldName)}
                 onChange={(e) => handleFieldChange(fieldName, e.target.value)}
                 required={required}
                 className={inputClasses}
@@ -211,7 +194,7 @@ export default function UserTaskDetailPage({ params }: { params: { id: string } 
               )}
               <textarea
                 id={fieldName}
-                value={formData[fieldName] || ''}
+                value={fieldValue(fieldName)}
                 onChange={(e) => handleFieldChange(fieldName, e.target.value)}
                 required={required}
                 rows={4}
@@ -232,7 +215,7 @@ export default function UserTaskDetailPage({ params }: { params: { id: string } 
             <input
               type="text"
               id={fieldName}
-              value={formData[fieldName] || ''}
+              value={fieldValue(fieldName)}
               onChange={(e) => handleFieldChange(fieldName, e.target.value)}
               required={required}
               className={inputClasses}
@@ -254,7 +237,7 @@ export default function UserTaskDetailPage({ params }: { params: { id: string } 
             <input
               type="number"
               id={fieldName}
-              value={formData[fieldName] || ''}
+              value={fieldValue(fieldName)}
               onChange={(e) => handleFieldChange(fieldName, e.target.value ? Number(e.target.value) : '')}
               required={required}
               step={fieldType === 'integer' ? 1 : 'any'}
@@ -298,7 +281,7 @@ export default function UserTaskDetailPage({ params }: { params: { id: string } 
             <input
               type="text"
               id={fieldName}
-              value={formData[fieldName] || ''}
+              value={fieldValue(fieldName)}
               onChange={(e) => handleFieldChange(fieldName, e.target.value)}
               required={required}
               className={inputClasses}
@@ -473,8 +456,8 @@ export default function UserTaskDetailPage({ params }: { params: { id: string } 
                 {task.formSchema?.properties && (
                   <div className="space-y-4">
                     <h2 className="text-lg font-semibold">{t('workflows.tasks.detail.sections.form')}</h2>
-                    {Object.keys(task.formSchema.properties).map((fieldName) =>
-                      renderFormField(fieldName, task.formSchema.properties[fieldName])
+                    {Object.keys(task.formSchema!.properties!).map((fieldName) =>
+                      renderFormField(fieldName, task.formSchema!.properties![fieldName])
                     )}
                   </div>
                 )}

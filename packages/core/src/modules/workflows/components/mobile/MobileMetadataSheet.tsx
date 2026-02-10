@@ -14,64 +14,36 @@ import { Switch } from '@open-mercato/ui/primitives/switch'
 import { TagsInput } from '@open-mercato/ui/backend/inputs/TagsInput'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { DefinitionTriggersEditor } from '../DefinitionTriggersEditor'
-import type { WorkflowDefinitionTrigger } from '../../data/entities'
+import type { WorkflowMetadataState, WorkflowMetadataHandlers } from '../../data/types'
 
 export interface MobileMetadataSheetProps {
   open: boolean
   onOpenChange: (open: boolean) => void
   definitionId: string | null
-  workflowId: string
-  setWorkflowId: (v: string) => void
-  workflowName: string
-  setWorkflowName: (v: string) => void
-  description: string
-  setDescription: (v: string) => void
-  version: number
-  setVersion: (v: number) => void
-  enabled: boolean
-  setEnabled: (v: boolean) => void
-  category: string
-  setCategory: (v: string) => void
-  tags: string[]
-  setTags: (v: string[]) => void
-  icon: string
-  setIcon: (v: string) => void
-  effectiveFrom: string
-  setEffectiveFrom: (v: string) => void
-  effectiveTo: string
-  setEffectiveTo: (v: string) => void
-  triggers: WorkflowDefinitionTrigger[]
-  setTriggers: (v: WorkflowDefinitionTrigger[]) => void
+  metadata: WorkflowMetadataState
+  metadataHandlers: WorkflowMetadataHandlers
 }
 
 export function MobileMetadataSheet({
   open,
   onOpenChange,
   definitionId,
-  workflowId,
-  setWorkflowId,
-  workflowName,
-  setWorkflowName,
-  description,
-  setDescription,
-  version,
-  setVersion,
-  enabled,
-  setEnabled,
-  category,
-  setCategory,
-  tags,
-  setTags,
-  icon,
-  setIcon,
-  effectiveFrom,
-  setEffectiveFrom,
-  effectiveTo,
-  setEffectiveTo,
-  triggers,
-  setTriggers,
+  metadata,
+  metadataHandlers,
 }: MobileMetadataSheetProps) {
   const t = useT()
+
+  const {
+    workflowId, workflowName, description, version,
+    enabled, category, tags, icon,
+    effectiveFrom, effectiveTo, triggers,
+  } = metadata
+
+  const {
+    setWorkflowId, setWorkflowName, setDescription, setVersion,
+    setEnabled, setCategory, setTags, setIcon,
+    setEffectiveFrom, setEffectiveTo, setTriggers,
+  } = metadataHandlers
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>

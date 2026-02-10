@@ -14,7 +14,7 @@ import { Save, MoreVertical, FileText, Trash2, CircleQuestionMark, Play } from '
 import { NODE_TYPE_ICONS, NODE_TYPE_LABELS } from '../../lib/node-type-icons'
 import { WorkflowGraph } from '../WorkflowGraph'
 import { MobileMetadataSheet } from './MobileMetadataSheet'
-import type { WorkflowDefinitionTrigger } from '../../data/entities'
+import type { WorkflowMetadataState, WorkflowMetadataHandlers } from '../../data/types'
 
 export interface MobileVisualEditorProps {
   definitionId: string | null
@@ -32,29 +32,8 @@ export interface MobileVisualEditorProps {
   onTest: () => void
   onLoadExample: () => void
   onClear: () => void
-  // Metadata state
-  workflowId: string
-  setWorkflowId: (v: string) => void
-  workflowName: string
-  setWorkflowName: (v: string) => void
-  description: string
-  setDescription: (v: string) => void
-  version: number
-  setVersion: (v: number) => void
-  enabled: boolean
-  setEnabled: (v: boolean) => void
-  category: string
-  setCategory: (v: string) => void
-  tags: string[]
-  setTags: (v: string[]) => void
-  icon: string
-  setIcon: (v: string) => void
-  effectiveFrom: string
-  setEffectiveFrom: (v: string) => void
-  effectiveTo: string
-  setEffectiveTo: (v: string) => void
-  triggers: WorkflowDefinitionTrigger[]
-  setTriggers: (v: WorkflowDefinitionTrigger[]) => void
+  metadata: WorkflowMetadataState
+  metadataHandlers: WorkflowMetadataHandlers
 }
 
 const NODE_TYPES = ['start', 'userTask', 'automated', 'waitForSignal', 'subWorkflow', 'end'] as const
@@ -75,32 +54,14 @@ export function MobileVisualEditor({
   onTest,
   onLoadExample,
   onClear,
-  workflowId,
-  setWorkflowId,
-  workflowName,
-  setWorkflowName,
-  description,
-  setDescription,
-  version,
-  setVersion,
-  enabled,
-  setEnabled,
-  category,
-  setCategory,
-  tags,
-  setTags,
-  icon,
-  setIcon,
-  effectiveFrom,
-  setEffectiveFrom,
-  effectiveTo,
-  setEffectiveTo,
-  triggers,
-  setTriggers,
+  metadata,
+  metadataHandlers,
 }: MobileVisualEditorProps) {
   const t = useT()
   const [showMetadata, setShowMetadata] = useState(false)
   const [showMoreActions, setShowMoreActions] = useState(false)
+
+  const { workflowName } = metadata
 
   return (
     <div className="flex flex-col h-full">
@@ -233,28 +194,8 @@ export function MobileVisualEditor({
         open={showMetadata}
         onOpenChange={setShowMetadata}
         definitionId={definitionId}
-        workflowId={workflowId}
-        setWorkflowId={setWorkflowId}
-        workflowName={workflowName}
-        setWorkflowName={setWorkflowName}
-        description={description}
-        setDescription={setDescription}
-        version={version}
-        setVersion={setVersion}
-        enabled={enabled}
-        setEnabled={setEnabled}
-        category={category}
-        setCategory={setCategory}
-        tags={tags}
-        setTags={setTags}
-        icon={icon}
-        setIcon={setIcon}
-        effectiveFrom={effectiveFrom}
-        setEffectiveFrom={setEffectiveFrom}
-        effectiveTo={effectiveTo}
-        setEffectiveTo={setEffectiveTo}
-        triggers={triggers}
-        setTriggers={setTriggers}
+        metadata={metadata}
+        metadataHandlers={metadataHandlers}
       />
     </div>
   )

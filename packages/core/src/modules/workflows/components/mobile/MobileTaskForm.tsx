@@ -3,53 +3,17 @@
 import * as React from 'react'
 import Link from 'next/link'
 import { Button } from '@open-mercato/ui/primitives/button'
+import { Input } from '@open-mercato/ui/primitives/input'
+import { Textarea } from '@open-mercato/ui/primitives/textarea'
+import { Checkbox } from '@open-mercato/ui/primitives/checkbox'
+import { Label } from '@open-mercato/ui/primitives/label'
 import { Separator } from '@open-mercato/ui/primitives/separator'
 import { JsonDisplay } from '@open-mercato/ui/backend/JsonDisplay'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
-
-type UserTaskStatus = 'PENDING' | 'IN_PROGRESS' | 'COMPLETED' | 'CANCELLED'
-
-interface JsonSchema {
-  type?: string
-  title?: string
-  properties?: Record<string, JsonSchemaField>
-  required?: string[]
-}
-
-interface JsonSchemaField {
-  type?: string
-  title?: string
-  enum?: string[]
-  format?: string
-  description?: string
-  maxLength?: number
-}
-
-type UserTask = {
-  id: string
-  workflowInstanceId: string
-  stepInstanceId: string
-  taskName: string
-  description: string | null
-  status: UserTaskStatus
-  formSchema: JsonSchema | null
-  formData: Record<string, string | number | boolean> | null
-  assignedTo: string | null
-  assignedToRoles: string[] | null
-  claimedBy: string | null
-  claimedAt: string | null
-  dueDate: string | null
-  completedBy: string | null
-  completedAt: string | null
-  comments: string | null
-  tenantId: string
-  organizationId: string
-  createdAt: string
-  updatedAt: string
-}
+import type { UserTaskResponse, UserTaskStatus, JsonSchemaField } from '../../data/types'
 
 interface MobileTaskFormProps {
-  task: UserTask
+  task: UserTaskResponse
   formData: Record<string, string | number | boolean>
   comments: string
   submitting: boolean
@@ -91,23 +55,20 @@ export function MobileTaskForm({
     const required = task.formSchema?.required?.includes(fieldName) || false
     const enumValues = fieldSchema.enum
 
-    const inputClasses = "w-full h-11 px-3 py-2 border border-border rounded-md focus:outline-none focus:ring-2 focus:ring-primary text-base"
-    const labelClasses = "block text-sm font-medium text-foreground mb-1"
-
     if (enumValues && Array.isArray(enumValues)) {
       return (
         <div key={fieldName} className="space-y-2">
-          <label htmlFor={fieldName} className={labelClasses}>
+          <Label htmlFor={fieldName}>
             {fieldTitle}
             {required && <span className="text-red-600 ml-1">*</span>}
-          </label>
+          </Label>
           {fieldDescription && <p className="text-xs text-muted-foreground">{fieldDescription}</p>}
           <select
             id={fieldName}
             value={fieldValue(fieldName)}
             onChange={(e) => onFieldChange(fieldName, e.target.value)}
             required={required}
-            className={inputClasses}
+            className="w-full h-11 px-3 py-2 border border-border rounded-md focus:outline-none focus:ring-2 focus:ring-primary text-base"
           >
             <option value="">{t('workflows.tasks.detail.form.selectOption')}</option>
             {enumValues.map((value: string) => (
@@ -123,36 +84,36 @@ export function MobileTaskForm({
         if (fieldSchema.maxLength && fieldSchema.maxLength > 200) {
           return (
             <div key={fieldName} className="space-y-2">
-              <label htmlFor={fieldName} className={labelClasses}>
+              <Label htmlFor={fieldName}>
                 {fieldTitle}
                 {required && <span className="text-red-600 ml-1">*</span>}
-              </label>
+              </Label>
               {fieldDescription && <p className="text-xs text-muted-foreground">{fieldDescription}</p>}
-              <textarea
+              <Textarea
                 id={fieldName}
                 value={fieldValue(fieldName)}
                 onChange={(e) => onFieldChange(fieldName, e.target.value)}
                 required={required}
                 rows={4}
-                className="w-full px-3 py-2 border border-border rounded-md focus:outline-none focus:ring-2 focus:ring-primary text-base"
+                className="text-base"
               />
             </div>
           )
         }
         return (
           <div key={fieldName} className="space-y-2">
-            <label htmlFor={fieldName} className={labelClasses}>
+            <Label htmlFor={fieldName}>
               {fieldTitle}
               {required && <span className="text-red-600 ml-1">*</span>}
-            </label>
+            </Label>
             {fieldDescription && <p className="text-xs text-muted-foreground">{fieldDescription}</p>}
-            <input
+            <Input
               type={fieldSchema.format === 'email' ? 'email' : fieldSchema.format === 'date' ? 'date' : 'text'}
               id={fieldName}
               value={fieldValue(fieldName)}
               onChange={(e) => onFieldChange(fieldName, e.target.value)}
               required={required}
-              className={inputClasses}
+              className="h-11 text-base"
             />
           </div>
         )
@@ -161,19 +122,19 @@ export function MobileTaskForm({
       case 'integer':
         return (
           <div key={fieldName} className="space-y-2">
-            <label htmlFor={fieldName} className={labelClasses}>
+            <Label htmlFor={fieldName}>
               {fieldTitle}
               {required && <span className="text-red-600 ml-1">*</span>}
-            </label>
+            </Label>
             {fieldDescription && <p className="text-xs text-muted-foreground">{fieldDescription}</p>}
-            <input
+            <Input
               type="number"
               id={fieldName}
               value={fieldValue(fieldName)}
               onChange={(e) => onFieldChange(fieldName, e.target.value ? Number(e.target.value) : '')}
               required={required}
               step={fieldType === 'integer' ? 1 : 'any'}
-              className={inputClasses}
+              className="h-11 text-base"
             />
           </div>
         )
@@ -182,17 +143,15 @@ export function MobileTaskForm({
         return (
           <div key={fieldName} className="space-y-2">
             <div className="flex items-center gap-3 h-11">
-              <input
-                type="checkbox"
+              <Checkbox
                 id={fieldName}
                 checked={!!formData[fieldName]}
-                onChange={(e) => onFieldChange(fieldName, e.target.checked)}
-                className="w-5 h-5 text-primary border-border rounded focus:ring-primary"
+                onCheckedChange={(checked) => onFieldChange(fieldName, !!checked)}
               />
-              <label htmlFor={fieldName} className="text-sm font-medium text-foreground">
+              <Label htmlFor={fieldName} className="font-medium">
                 {fieldTitle}
                 {required && <span className="text-red-600 ml-1">*</span>}
-              </label>
+              </Label>
             </div>
             {fieldDescription && <p className="text-xs text-muted-foreground">{fieldDescription}</p>}
           </div>
@@ -201,18 +160,18 @@ export function MobileTaskForm({
       default:
         return (
           <div key={fieldName} className="space-y-2">
-            <label htmlFor={fieldName} className={labelClasses}>
+            <Label htmlFor={fieldName}>
               {fieldTitle}
               {required && <span className="text-red-600 ml-1">*</span>}
-            </label>
+            </Label>
             {fieldDescription && <p className="text-xs text-muted-foreground">{fieldDescription}</p>}
-            <input
+            <Input
               type="text"
               id={fieldName}
               value={fieldValue(fieldName)}
               onChange={(e) => onFieldChange(fieldName, e.target.value)}
               required={required}
-              className={inputClasses}
+              className="h-11 text-base"
             />
           </div>
         )
@@ -220,7 +179,7 @@ export function MobileTaskForm({
   }
 
   return (
-    <div className="space-y-4 pb-24">
+    <div className="space-y-4 pb-4">
       <div className="flex items-start justify-between gap-2">
         <h1 className="text-lg font-semibold">{task.taskName}</h1>
         <span className={`shrink-0 inline-flex items-center px-2 py-1 rounded text-xs font-medium ${getStatusBadgeClass(task.status)}`}>
@@ -300,20 +259,20 @@ export function MobileTaskForm({
           <Separator />
 
           <div className="space-y-2">
-            <label htmlFor="m-comments" className="block text-sm font-medium text-foreground">
+            <Label htmlFor="m-comments">
               {t('workflows.tasks.detail.comments')} ({t('workflows.tasks.detail.optional')})
-            </label>
-            <textarea
+            </Label>
+            <Textarea
               id="m-comments"
               value={comments}
               onChange={(e) => onCommentsChange(e.target.value)}
               rows={3}
-              className="w-full px-3 py-2 border border-border rounded-md focus:outline-none focus:ring-2 focus:ring-primary text-base"
+              className="text-base"
               placeholder={t('workflows.tasks.detail.commentsPlaceholder')}
             />
           </div>
 
-          <div className="fixed inset-x-0 bottom-0 border-t bg-background p-3 z-10">
+          <div className="sticky bottom-0 border-t bg-background p-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] z-10">
             <div className="flex gap-3">
               <Button
                 type="submit"

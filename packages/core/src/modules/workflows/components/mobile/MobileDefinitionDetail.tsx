@@ -3,7 +3,7 @@
 import * as React from 'react'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
-import { NODE_TYPE_ICONS, type NodeType } from '../../lib/node-type-icons'
+import { NODE_TYPE_ICONS, stepTypeToNodeType } from '../../lib/node-type-icons'
 import { Circle, Pencil, Trash2, ArrowRight, Plus } from 'lucide-react'
 import type { WorkflowDefinitionFormValues } from '../formConfig'
 
@@ -29,18 +29,6 @@ interface MobileDefinitionDetailProps {
   onEditTransition: (index: number) => void
   onDeleteTransition: (index: number) => void
   onAddTransition: () => void
-}
-
-function getNodeType(stepType: string): NodeType {
-  const typeMap: Record<string, NodeType> = {
-    START: 'start',
-    END: 'end',
-    USER_TASK: 'userTask',
-    AUTOMATED: 'automated',
-    SUB_WORKFLOW: 'subWorkflow',
-    WAIT_FOR_SIGNAL: 'waitForSignal',
-  }
-  return typeMap[stepType] || 'automated'
 }
 
 export function MobileDefinitionDetail({
@@ -74,7 +62,7 @@ export function MobileDefinitionDetail({
         ) : (
           <div className="space-y-2">
             {steps.map((step: WorkflowStep, idx: number) => {
-              const nodeType = getNodeType(step.stepType || step.type || '')
+              const nodeType = stepTypeToNodeType(step.stepType || step.type || '')
               const Icon = NODE_TYPE_ICONS[nodeType] || Circle
               return (
                 <div

@@ -38,6 +38,7 @@ import { DefinitionTriggersEditor } from '../../../components/DefinitionTriggers
 import { MobileVisualEditor } from '../../../components/mobile/MobileVisualEditor'
 import { useIsMobile } from '@open-mercato/ui/hooks/useIsMobile'
 import type { WorkflowDefinitionTrigger } from '../../../data/entities'
+import type { WorkflowMetadataState, WorkflowMetadataHandlers } from '../../../data/types'
 import * as React from 'react'
 
 /**
@@ -389,7 +390,7 @@ export default function VisualEditorPage() {
     } finally {
       setIsSaving(false)
     }
-  }, [nodes, edges, workflowId, workflowName, description, version, enabled, category, tags, triggers, definitionId, router])
+  }, [nodes, edges, workflowId, workflowName, description, version, enabled, category, tags, icon, effectiveFrom, effectiveTo, triggers, definitionId, router])
 
   // Test workflow
   const handleTest = useCallback(() => {
@@ -521,6 +522,45 @@ export default function VisualEditorPage() {
     )
   }
 
+  const metadata: WorkflowMetadataState = {
+    workflowId, workflowName, description, version,
+    enabled, category, tags, icon,
+    effectiveFrom, effectiveTo, triggers,
+  }
+
+  const metadataHandlers: WorkflowMetadataHandlers = {
+    setWorkflowId, setWorkflowName, setDescription, setVersion,
+    setEnabled, setCategory, setTags, setIcon,
+    setEffectiveFrom, setEffectiveTo, setTriggers,
+  }
+
+  const sharedDialogs = (
+    <>
+      {process.env.NEXT_PUBLIC_WORKFLOW_CRUDFORM_ENABLED === 'true' ? (
+        <NodeEditDialogCrudForm node={selectedNode} isOpen={showNodeDialog} onClose={() => setShowNodeDialog(false)} onSave={handleSaveNode} onDelete={handleDeleteNode} />
+      ) : (
+        <NodeEditDialog node={selectedNode} isOpen={showNodeDialog} onClose={() => setShowNodeDialog(false)} onSave={handleSaveNode} onDelete={handleDeleteNode} />
+      )}
+      {process.env.NEXT_PUBLIC_WORKFLOW_CRUDFORM_ENABLED === 'true' ? (
+        <EdgeEditDialogCrudForm edge={selectedEdge} isOpen={showEdgeDialog} onClose={() => setShowEdgeDialog(false)} onSave={handleSaveEdge} onDelete={handleDeleteEdge} />
+      ) : (
+        <EdgeEditDialog edge={selectedEdge} isOpen={showEdgeDialog} onClose={() => setShowEdgeDialog(false)} onSave={handleSaveEdge} onDelete={handleDeleteEdge} />
+      )}
+      <Dialog open={showClearConfirm} onOpenChange={setShowClearConfirm}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>{t('workflows.visualEditor.clearTitle')}</DialogTitle>
+            <DialogDescription>{t('workflows.visualEditor.clearDescription')}</DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowClearConfirm(false)}>{t('common.cancel', 'Cancel')}</Button>
+            <Button variant="destructive" onClick={confirmClear}>{t('common.clear', 'Clear')}</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </>
+  )
+
   if (isMobile) {
     return (
       <Page className="flex h-[100svh] flex-col space-y-0 overflow-hidden">
@@ -540,83 +580,10 @@ export default function VisualEditorPage() {
           onTest={handleTest}
           onLoadExample={handleLoadExample}
           onClear={handleClear}
-          workflowId={workflowId}
-          setWorkflowId={setWorkflowId}
-          workflowName={workflowName}
-          setWorkflowName={setWorkflowName}
-          description={description}
-          setDescription={setDescription}
-          version={version}
-          setVersion={setVersion}
-          enabled={enabled}
-          setEnabled={setEnabled}
-          category={category}
-          setCategory={setCategory}
-          tags={tags}
-          setTags={setTags}
-          icon={icon}
-          setIcon={setIcon}
-          effectiveFrom={effectiveFrom}
-          setEffectiveFrom={setEffectiveFrom}
-          effectiveTo={effectiveTo}
-          setEffectiveTo={setEffectiveTo}
-          triggers={triggers}
-          setTriggers={setTriggers}
+          metadata={metadata}
+          metadataHandlers={metadataHandlers}
         />
-
-        {/* Dialogs shared between mobile and desktop */}
-        {process.env.NEXT_PUBLIC_WORKFLOW_CRUDFORM_ENABLED === 'true' ? (
-          <NodeEditDialogCrudForm
-            node={selectedNode}
-            isOpen={showNodeDialog}
-            onClose={() => setShowNodeDialog(false)}
-            onSave={handleSaveNode}
-            onDelete={handleDeleteNode}
-          />
-        ) : (
-          <NodeEditDialog
-            node={selectedNode}
-            isOpen={showNodeDialog}
-            onClose={() => setShowNodeDialog(false)}
-            onSave={handleSaveNode}
-            onDelete={handleDeleteNode}
-          />
-        )}
-        {process.env.NEXT_PUBLIC_WORKFLOW_CRUDFORM_ENABLED === 'true' ? (
-          <EdgeEditDialogCrudForm
-            edge={selectedEdge}
-            isOpen={showEdgeDialog}
-            onClose={() => setShowEdgeDialog(false)}
-            onSave={handleSaveEdge}
-            onDelete={handleDeleteEdge}
-          />
-        ) : (
-          <EdgeEditDialog
-            edge={selectedEdge}
-            isOpen={showEdgeDialog}
-            onClose={() => setShowEdgeDialog(false)}
-            onSave={handleSaveEdge}
-            onDelete={handleDeleteEdge}
-          />
-        )}
-        <Dialog open={showClearConfirm} onOpenChange={setShowClearConfirm}>
-          <DialogContent className="sm:max-w-md">
-            <DialogHeader>
-              <DialogTitle>{t('workflows.visualEditor.clearTitle')}</DialogTitle>
-              <DialogDescription>
-                {t('workflows.visualEditor.clearDescription')}
-              </DialogDescription>
-            </DialogHeader>
-            <DialogFooter>
-              <Button variant="outline" onClick={() => setShowClearConfirm(false)}>
-                {t('common.cancel', 'Cancel')}
-              </Button>
-              <Button variant="destructive" onClick={confirmClear}>
-                {t('common.clear', 'Clear')}
-              </Button>
-            </DialogFooter>
-          </DialogContent>
-        </Dialog>
+        {sharedDialogs}
       </Page>
     )
   }
@@ -779,7 +746,7 @@ export default function VisualEditorPage() {
 
               {/* Enabled */}
               <div className="min-w-0 space-y-1">
-                <Label className="text-xs">Enabled</Label>
+                <Label className="text-xs">{t('common.enabled', 'Enabled')}</Label>
                 <div className="flex h-8 items-center gap-2">
                   <Switch
                     id="enabled"
@@ -787,7 +754,7 @@ export default function VisualEditorPage() {
                     onCheckedChange={setEnabled}
                   />
                   <Label htmlFor="enabled" className="cursor-pointer text-xs font-normal">
-                    {enabled ? 'On' : 'Off'}
+                    {enabled ? t('common.on', 'On') : t('common.off', 'Off')}
                   </Label>
                 </div>
               </div>
@@ -1061,63 +1028,7 @@ export default function VisualEditorPage() {
           </div>
         </div>
       )}
-      {/* Node Edit Dialog - Conditional rendering based on feature flag */}
-      {process.env.NEXT_PUBLIC_WORKFLOW_CRUDFORM_ENABLED === 'true' ? (
-        <NodeEditDialogCrudForm
-          node={selectedNode}
-          isOpen={showNodeDialog}
-          onClose={() => setShowNodeDialog(false)}
-          onSave={handleSaveNode}
-          onDelete={handleDeleteNode}
-        />
-      ) : (
-        <NodeEditDialog
-          node={selectedNode}
-          isOpen={showNodeDialog}
-          onClose={() => setShowNodeDialog(false)}
-          onSave={handleSaveNode}
-          onDelete={handleDeleteNode}
-        />
-      )}
-
-      {/* Edge Edit Dialog - Conditional rendering based on feature flag */}
-      {process.env.NEXT_PUBLIC_WORKFLOW_CRUDFORM_ENABLED === 'true' ? (
-        <EdgeEditDialogCrudForm
-          edge={selectedEdge}
-          isOpen={showEdgeDialog}
-          onClose={() => setShowEdgeDialog(false)}
-          onSave={handleSaveEdge}
-          onDelete={handleDeleteEdge}
-        />
-      ) : (
-        <EdgeEditDialog
-          edge={selectedEdge}
-          isOpen={showEdgeDialog}
-          onClose={() => setShowEdgeDialog(false)}
-          onSave={handleSaveEdge}
-          onDelete={handleDeleteEdge}
-        />
-      )}
-
-      {/* Clear Confirmation Dialog */}
-      <Dialog open={showClearConfirm} onOpenChange={setShowClearConfirm}>
-        <DialogContent className="sm:max-w-md">
-          <DialogHeader>
-            <DialogTitle>Clear Everything?</DialogTitle>
-            <DialogDescription>
-              This will clear all metadata and the workflow canvas. This action cannot be undone.
-            </DialogDescription>
-          </DialogHeader>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setShowClearConfirm(false)}>
-              {t('common.cancel', 'Cancel')}
-            </Button>
-            <Button variant="destructive" onClick={confirmClear}>
-              {t('common.clear', 'Clear')}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      {sharedDialogs}
     </Page>
   )
 }
