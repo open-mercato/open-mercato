@@ -3,7 +3,9 @@ import { createQueue } from '@open-mercato/queue'
 import type { EntityManager } from '@mikro-orm/core'
 import { ScheduledJob } from '../data/entities'
 import type { EventBus } from '@open-mercato/events'
-import { CommandBus } from '@open-mercato/shared/lib/commands'
+import { CommandBus, CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
+import { AwilixContainer } from 'awilix'
+import { AppContainer } from '@open-mercato/shared/lib/di/container.ts'
 
 // Worker metadata for auto-discovery
 export const metadata: WorkerMeta = {
@@ -183,15 +185,6 @@ export default async function executeScheduleWorker(
     })
 
   } else if (schedule.targetType === 'command' && schedule.targetCommand) {
-    // Execute command through CommandBus
-    // Commands require a DI container - check if available
-    let container: any
-    try {
-      container = ctx.resolve('container')
-    } catch (error) {
-      throw new Error('Command execution requires DI container to be available. Please use targetType="queue" for scheduled jobs.')
-    }
-    
     const commandBus = new CommandBus()
     
     const commandInput = {
@@ -202,8 +195,8 @@ export default async function executeScheduleWorker(
     
     // Build command runtime context
     // Scheduled commands run without user auth but with proper tenant/org scope
-    const commandCtx = {
-      container,
+    const commandCtx: CommandRuntimeContext = {
+      container: ctx as unknown as AppContainer,
       auth: null, // Scheduled commands run without user authentication
       organizationScope: null, // No organization scope filtering for scheduled commands
       selectedOrganizationId: schedule.organizationId || null,
