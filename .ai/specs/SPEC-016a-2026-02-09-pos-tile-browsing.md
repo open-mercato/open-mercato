@@ -86,10 +86,10 @@ Based on [Odoo POS Documentation](https://www.odoo.com/documentation/19.0/applic
 
 | Component | Description |
 |-----------|-------------|
-| `PosCategoryTabs` | Horizontal scrollable tabs showing root categories |
-| `PosProductGrid` | Tile grid with lazy loading |
-| `PosProductTile` | Single product tile (image, name, price) |
-| `PosLoadMore` | "Load more" button or infinite scroll trigger |
+| `PosCategoryTabs` | Horizontal scrollable tabs showing root categories. Fetched via `GET /api/catalog/product-categories?parentId=null&isActive=true` on page load. |
+| `PosProductGrid` | Tile grid with lazy loading via "Load more" button |
+| `PosProductTile` | Single product tile (image, name, price). Shows **default variant's gross price**. Multi-variant products open variant selector on click. |
+| `PosLoadMore` | "Load more" button (Phase 1). Infinite scroll deferred to Phase 2. |
 
 ---
 
@@ -98,17 +98,26 @@ Based on [Odoo POS Documentation](https://www.odoo.com/documentation/19.0/applic
 ```mermaid
 sequenceDiagram
     participant UI as PosCheckoutPage
-    participant API as /api/catalog/products
+    participant CatAPI as /api/catalog/product-categories
+    participant ProdAPI as /api/catalog/products
     participant DB as CatalogProduct + Categories
 
-    UI->>API: GET ?categoryId=X&limit=20&offset=0
-    API->>DB: Query products with categoryAssignments
-    DB-->>API: Products with defaultMediaUrl
-    API-->>UI: Product tiles data
+    Note over UI: Page load
+    UI->>CatAPI: GET ?parentId=null&isActive=true
+    CatAPI-->>UI: Root categories (for tabs)
+
+    UI->>ProdAPI: GET ?categoryId=ALL&limit=20&offset=0
+    ProdAPI->>DB: Query products with defaultMediaUrl
+    DB-->>ProdAPI: Products
+    ProdAPI-->>UI: Product tiles data
     
     Note over UI: User clicks category tab
-    UI->>API: GET ?categoryId=Y&limit=20&offset=0
-    API-->>UI: Filtered products
+    UI->>ProdAPI: GET ?categoryId=Y&limit=20&offset=0
+    ProdAPI-->>UI: Filtered products
+
+    Note over UI: User clicks "Load more"
+    UI->>ProdAPI: GET ?categoryId=Y&limit=20&offset=20
+    ProdAPI-->>UI: Next page appended
 ```
 
 ---
@@ -156,6 +165,12 @@ GET /api/pos/products
 ---
 
 ## Changelog
+
+### 2026-02-10
+- Specified variant pricing strategy: tile shows default variant's gross price
+- Clarified category tabs data flow: root categories fetched on page load
+- Chose "Load more" button for Phase 1 (infinite scroll deferred to Phase 2)
+- Expanded data flow diagram with category fetch and pagination
 
 ### 2026-02-09
 - Initial sub-specification based on @pkarw PR feedback

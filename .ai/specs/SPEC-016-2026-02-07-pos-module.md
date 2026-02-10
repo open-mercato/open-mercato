@@ -218,6 +218,18 @@ export class PosCart {
   @Property({ name: 'currency_code', type: 'text' })
   currencyCode!: string
 
+  @Property({ name: 'subtotal_amount', type: 'numeric', precision: 18, scale: 4, default: '0' })
+  subtotalAmount: string = '0'
+
+  @Property({ name: 'tax_amount', type: 'numeric', precision: 18, scale: 4, default: '0' })
+  taxAmount: string = '0'
+
+  @Property({ name: 'grand_amount', type: 'numeric', precision: 18, scale: 4, default: '0' })
+  grandAmount: string = '0'
+
+  @Property({ name: 'amount_return', type: 'numeric', precision: 18, scale: 4, default: '0' })
+  amountReturn: string = '0'
+
   @Property({ name: 'metadata', type: 'json', nullable: true })
   metadata?: Record<string, unknown> | null
 }
@@ -230,6 +242,9 @@ export class PosCart {
 export class PosCartLine {
   @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
   id!: string
+
+  @Property({ name: 'line_number', type: 'integer' })
+  lineNumber!: number
 
   @Property({ name: 'cart_id', type: 'uuid' })
   cartId!: string
@@ -270,6 +285,9 @@ export class PosCartLine {
   @Property({ name: 'customer_note', type: 'text', nullable: true })
   customerNote?: string | null  // Maps to SalesOrderLine.comment on completion
 
+  @Property({ name: 'catalog_snapshot', type: 'json', nullable: true })
+  catalogSnapshot?: Record<string, unknown> | null  // Product state at time of sale (name, price, image)
+
   @Property({ name: 'metadata', type: 'json', nullable: true })
   metadata?: Record<string, unknown> | null
 
@@ -294,8 +312,8 @@ export class PosCashMovement {
   @Property({ name: 'amount', type: 'numeric', precision: 18, scale: 4 })
   amount!: string
 
-  @Property({ name: 'reason', type: 'text', nullable: true })
-  reason?: string | null
+  @Property({ name: 'reason', type: 'text' })
+  reason!: string
 
   @Property({ name: 'reference', type: 'text', nullable: true })
   reference?: string | null
@@ -325,7 +343,7 @@ export class PosPayment {
   salesPaymentId?: string | null
 
   @Property({ name: 'method', type: 'text' })
-  method!: 'cash' | 'card' | 'voucher' | 'gift_card' | 'custom'
+  method!: 'cash' | 'card' | 'voucher' | 'gift_card' | 'custom' // Note: voucher/gift_card are Phase 3
 
   @Property({ name: 'amount', type: 'numeric', precision: 18, scale: 4 })
   amount!: string
@@ -334,10 +352,13 @@ export class PosPayment {
   currencyCode!: string
 
   @Property({ name: 'status', type: 'text' })
-  status: 'authorized' | 'captured' | 'voided' | 'refunded' = 'authorized'
+  status: 'authorized' | 'captured' | 'voided' | 'refunded' = 'authorized' // POS-specific enum; mapped to Sales status dictionary on cart completion
 
   @Property({ name: 'provider_reference', type: 'text', nullable: true })
   providerReference?: string | null
+
+  @Property({ name: 'change_amount', type: 'numeric', precision: 18, scale: 4, default: '0' })
+  changeAmount: string = '0'
 
   // Standard columns: tenant_id, organization_id, created_at, updated_at, deleted_at
 }
@@ -372,6 +393,61 @@ export class PosReceipt {
   // Standard columns: tenant_id, organization_id, created_at, updated_at, deleted_at
 }
 ```
+
+### 6.1) Entity Mapping (Cart Completion)
+
+When `pos.cart.complete` is executed, the `PosCart` and its `PosCartLine` items are mapped to the `sales` module entities.
+
+| POS Entity | Sales Entity | Field Mapping | Notes |
+|------------|--------------|---------------|-------|
+| `PosCart` | `SalesOrder` | `customerId` → `customerEntityId` | |
+| | | `currencyCode` → `currencyCode` | |
+| | | `subtotalAmount` → `subtotalGrossAmount` | POS uses gross pricing |
+| | | `taxAmount` → `taxTotalAmount` | |
+| | | `grandAmount` → `grandTotalGrossAmount` | |
+| | | — | `subtotalNetAmount`, `grandTotalNetAmount` computed by Sales calc service |
+| | | — | `shippingNetAmount`, `shippingGrossAmount` = `'0'` (no shipping in POS) |
+| | | `PosSession.registerId` → `metadata.posRegisterId` | For audit |
+| | | — → `channel` | FK to `SalesChannel` with code `'pos'` (seeded by POS `setup.ts`) |
+| `PosCartLine` | `SalesOrderLine` | `productId` → `productId` | |
+| | | `productVariantId` → `productVariantId` | |
+| | | `quantity` → `quantity` | |
+| | | `unitPriceNet` → `unitPriceNet` | |
+| | | `unitPriceGross` → `unitPriceGross` | |
+| | | `discountAmount` → `discountAmount` | |
+| | | `customerNote` → `comment` | Per-line cashier note |
+| | | `lineNumber` → `lineNumber` | Preserves UI sort order |
+| | | `description` → `name` | Product display name |
+| | | `catalogSnapshot` → `catalogSnapshot` | Product state at time of sale |
+| | | `PosCart.currencyCode` → `currencyCode` | Inherited from cart |
+| | | — → `kind` | Hardcoded to `'product'` |
+| `PosPayment` | `SalesPayment` | `method` → `paymentMethod` (FK) | Lookup `SalesPaymentMethod` by `code` |
+| | | `amount - changeAmount` → `amount` | Net amount applied to order |
+| | | `currencyCode` → `currencyCode` | |
+| | | `cartId` → `order` (FK via `SalesOrder.id`) | |
+
+#### 6.1a) Pricing Convention
+
+POS Phase 1 operates with **gross prices** (tax-inclusive), which is standard for retail. Cashiers see the final customer price on each line.
+
+- `PosCart.subtotalAmount` = gross subtotal (sum of line `totalGrossAmount`)
+- `PosCart.grandAmount` = gross grand total (after discounts + tax)
+- On cart completion, the Sales calculation service computes the full net/gross split for `SalesOrder`
+
+#### 6.1b) Change Tracking
+
+- `PosPayment.changeAmount` = change returned for a specific payment (e.g., customer pays $50 cash for a $47.50 order → `changeAmount = '2.50'`)
+- `PosCart.amountReturn` = sum of all `changeAmount` values across the cart's payments — computed by server on each payment creation
+
+#### 6.1c) Payment Method Resolution
+
+POS `setup.ts` seeds `SalesPaymentMethod` entries with codes matching the POS method enum (`'cash'`, `'card'`). On cart completion, the mapper looks up the `SalesPaymentMethod` by `code` and assigns the FK relation to `SalesPayment.paymentMethod`.
+
+`voucher` and `gift_card` methods are defined in the `PosPayment` enum but **inactive until Phase 3**. Their `SalesPaymentMethod` entries are not seeded until that phase.
+
+#### 6.1d) Receipt Delivery
+
+Multiple `PosReceipt` records are created if the customer wants both print and email. Each record has a single `deliveryMethod`.
 
 ---
 
@@ -423,7 +499,7 @@ POS operations that modify cart state should use the Command Pattern for undo/re
 
 ```typescript
 const posCartLineDeleteCommand: CommandHandler<Input, Result> = {
-  id: 'pos.carts.lines.delete',
+  id: 'pos.cart.line.delete',
   
   // 1. Capture state BEFORE execution
   async prepare(input, ctx) {
@@ -464,18 +540,20 @@ const posCartLineDeleteCommand: CommandHandler<Input, Result> = {
 
 | Command ID | Description | Reversible |
 |------------|-------------|:----------:|
-| `pos.carts.lines.add` | Add product to cart | ✓ |
-| `pos.carts.lines.update` | Change quantity/price | ✓ |
-| `pos.carts.lines.delete` | Remove line from cart | ✓ |
-| `pos.carts.discount.apply` | Apply cart discount | ✓ |
-| `pos.carts.complete` | Finalize cart → SalesOrder | ✗ |
-| `pos.sessions.open` | Open register session | ✗ |
-| `pos.sessions.close` | Close register session | ✗ |
+| `pos.cart.line.add` | Add product to cart | ✓ |
+| `pos.cart.line.update` | Change quantity/price | ✓ |
+| `pos.cart.line.delete` | Remove line from cart | ✓ |
+| `pos.cart.discount.apply` | Apply cart discount | ✓ |
+| `pos.cart.complete` | Finalize cart → SalesOrder | ✗ |
+| `pos.session.open` | Open register session | ✗ |
+| `pos.session.close` | Close register session | ✗ |
+| `pos.session.report.generate` | Generate end-of-day report | ✗ |
+| `pos.cash.movement.create` | Record cash in/out (P2) | ✓ |
 
 > **Note:** All operations use the Command Pattern (per `sales/commands/documents.ts`) for consistent logging and audit. However, certain operations are **non-reversible by design** (confirmed by @pkarw):
 >
-> - **`pos.carts.complete`** — Creates both a `SalesOrder` and a `SalesPayment`. While `sales.orders.create` is normally undoable in the Sales module, POS cart completion bundles payment recording — undoing after payment could lead to unconscious fraud scenarios (order canceled but not refunded). Reversal requires an explicit **void or refund** workflow.
-> - **`pos.sessions.open/close`** — Session lifecycle is part of cash accountability. Closing records the drawer count and variance. Reopening a closed session would break reconciliation integrity.
+> - **`pos.cart.complete`** — Creates both a `SalesOrder` and a `SalesPayment`. While `sales.orders.create` is normally undoable in the Sales module, POS cart completion bundles payment recording — undoing after payment could lead to unconscious fraud scenarios (order canceled but not refunded). Reversal requires an explicit **void or refund** workflow.
+> - **`pos.session.open/close`** — Session lifecycle is part of cash accountability. Closing records the drawer count and variance. Reopening a closed session would break reconciliation integrity.
 >
 > These operations still use the Command Pattern (for logging and audit trail), but intentionally do not implement `undo`.
 
@@ -562,15 +640,17 @@ The following existing components can be reused:
 
 | Feature | Admin | Employee | Description |
 |---------|-------|----------|-------------|
-| `pos.registers.manage` | ✓ | | Create/update/delete registers |
-| `pos.registers.view` | ✓ | ✓ | View registers |
-| `pos.sessions.manage` | ✓ | ✓ | Open/close sessions |
-| `pos.sessions.view` | ✓ | ✓ | View sessions |
-| `pos.carts.manage` | ✓ | ✓ | Create/edit carts |
-| `pos.payments.manage` | ✓ | ✓ | Record payments |
-| `pos.receipts.view` | ✓ | ✓ | View/reprint receipts |
-| `pos.discounts.apply` | ✓ | | Apply discounts above threshold |
+| `pos.register.manage` | ✓ | | Create/update/delete registers |
+| `pos.register.view` | ✓ | ✓ | View registers |
+| `pos.session.manage` | ✓ | ✓ | Open/close sessions |
+| `pos.session.view` | ✓ | ✓ | View sessions |
+| `pos.cart.manage` | ✓ | ✓ | Create/edit carts |
+| `pos.payment.manage` | ✓ | ✓ | Record payments |
+| `pos.receipt.view` | ✓ | ✓ | View/reprint receipts |
+| `pos.discount.apply` | ✓ | | Apply discounts above threshold |
 | `pos.cash.manage` | ✓ | | Cash in/out operations |
+
+> **Naming Convention:** POS uses singular entity names in ACL/command/event IDs (e.g., `pos.cart.manage`) per @pkarw's direction. This is a deliberate convention for the POS module — the Sales module uses plural names (e.g., `sales.orders.manage`).
 
 ### 9.2 Employee Switching (Quick Auth)
 
@@ -617,7 +697,7 @@ POS terminals often have multiple employees using the same register. **PIN-based
 ## 11) Open Questions (Please Confirm)
 
 1. Should POS registers be linked to specific warehouse locations for inventory?
-2. Should we emit events for WMS integration (`pos.sale.completed`, `pos.return.completed`)?
+2. Should we emit events for WMS integration (`pos.cart.completed`, `pos.return.completed`)?
 3. Should price overrides require manager PIN/approval workflow?
 4. Should receipts support template customization per tenant?
 5. Should we track drawer cash denominations (bills/coins breakdown)?
@@ -635,9 +715,10 @@ POS terminals often have multiple employees using the same register. **PIN-based
 - [ ] Create API routes with OpenAPI exports
 - [ ] Create initial migration
 - [ ] Create `index.ts` with module metadata
-- [ ] Create `setup.ts` with tenant seeding
-- [ ] Create `acl.ts` with feature definitions
-- [ ] Create `events.ts` with event types
+- [ ] Create `setup.ts` — seed `SalesChannel` (code: `'pos'`) and `SalesPaymentMethod` entries (`'cash'`, `'card'`)
+- [ ] Create `acl.ts` with feature definitions (singular naming convention)
+- [ ] Create `events.ts` with event types (singular naming convention)
+- [ ] Create cart completion mapper (POS → Sales entity mapping per §6.1)
 - [ ] Write command unit tests
 - [ ] Write API integration tests
 - [ ] Run `npm run modules:prepare`
@@ -645,6 +726,29 @@ POS terminals often have multiple employees using the same register. **PIN-based
 ---
 
 ## Changelog
+
+### 2026-02-10
+- Fixed entity mapping table (§6.1) to use real `SalesOrder` field names (`grandTotalGrossAmount`, not `totalAmount`)
+- Documented POS gross pricing convention (§6.1a)
+- Clarified `amountReturn` vs `changeAmount` relationship (§6.1b)
+- Documented `SalesPaymentMethod` resolution via `code` lookup (§6.1c)
+- Documented receipt delivery semantics — one `PosReceipt` per delivery method (§6.1d)
+- Added `catalogSnapshot` to `PosCartLine` for receipt reprints and audit
+- Fixed `PosCashMovement.reason` to non-nullable (matching FR-2)
+- Fixed stale event name in Open Questions (`pos.sale.completed` → `pos.cart.completed`)
+- Added `SalesChannel` and `SalesPaymentMethod` seeding to Implementation Checklist
+- Added cart completion mapper to Implementation Checklist
+- Added naming convention note to Access Control section
+- Annotated `PosPayment.status` as POS-specific enum
+
+### 2026-02-09
+- Aligned naming convention to singular (commands, events, ACLs) per @pkarw feedback
+- Added `lineNumber` to `PosCartLine` for ordered line mapping
+- Added totals fields (`subtotalAmount`, `taxAmount`, `grandAmount`) to `PosCart`
+- Added `changeAmount` to `PosPayment` for tracking customer change
+- Documented `PosCart` to `SalesOrder` entity mapping
+- Added `PosLoadMore` and `PosLineNoteDialog` to components list
+- Clarified non-reversible operations rationale
 
 ### 2026-02-07
 - Initial specification from GitHub issue #391
