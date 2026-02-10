@@ -61,7 +61,7 @@ IMPORTANT: Before any research or coding, match the task to the root `AGENTS.md`
 
 1.  **Spec-first**: Enter plan mode for non-trivial tasks (3+ steps or architectural decisions). Check `.ai/specs/` before coding; create SPEC files (`SPEC-{number}-{date}-{title}.md`). Skip for small fixes.
     -   **Research**: Learn from market leaders (Odoo/Shopify) before modeling.
-    -   **Align**: Match existing OM concepts (e.g., use `SalesOrder.grandTotalGrossAmount` field names).
+    -   **Align**: Reuse existing terminology, data patterns, and field naming conventions from core modules (e.g., Sales, Catalog) to ensure consistency.
     -   **Phase**: Define a clear MVP (Phase 1) and defer complex features (Phase 2/3).
 2.  **Subagent strategy**: Use subagents liberally to keep main context clean. Offload research and parallel analysis. One task per subagent.
 3.  **Self-improvement**: After corrections, update `.ai/lessons.md` or relevant AGENTS.md. Write rules that prevent the same mistake.
