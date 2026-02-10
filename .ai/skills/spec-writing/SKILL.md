@@ -50,15 +50,9 @@ When asked to review or audit a specification, produce the report using this str
 {Stylistic suggestions, diagram improvements, nits}
 
 ## Checklist
-- [ ] Strictly Singular Naming (Entities/Commands/Events)
-- [ ] Clear Phase 1 MVP boundaries
-- [ ] No direct ORM relationships across modules
-- [ ] Tenant scoping (`organization_id`) in all data flows
-- [ ] Commands are fully undoable/reversible (plus `buildLog` if applicable)
-- [ ] Security (Rate limits, PII, Encryption) explicitly addressed (Optional)
-- [ ] Data migration and backward compatibility planned
-- [ ] "Architectural Diff" focus (don't repeat standard patterns)
-- [ ] UI leverage standard components (CrudForm/DataTable/FormHeader)
+
+Refer to [Spec Review Checklist](references/spec-checklist.md) for the complete 50-point compliance list.
+
 ```
 
 ## Severity Classification
