@@ -71,7 +71,13 @@
       "target_queue.placeholder": "ej. email-sender",
       "target_command": "Comando de destino",
       "target_command.placeholder": "ej. sync:data",
+      "target_payload": "Argumentos del trabajo (JSON)",
+      "target_payload.placeholder": "{\n  \"message\": \"Hello\",\n  \"value\": 42\n}",
+      "target_payload.description": "Objeto JSON opcional con argumentos para pasar al comando o trabajo de cola. Debe ser formato JSON válido.",
+      "target_payload.invalid_json": "Debe ser JSON válido",
       "is_enabled": "Habilitado",
+      "enabled": "Habilitado",
+      "disabled": "Deshabilitado",
       "submit": "Crear programación",
       "save": "Guardar cambios",
       "group": {
@@ -81,20 +87,80 @@
       }
     },
     "confirm": {
-      "delete": "¿Está seguro de que desea eliminar esta programación?"
+      "delete": "¿Está seguro de que desea eliminar esta programación?",
+      "trigger": "¿Está seguro de que desea ejecutar \"{name}\" ahora?\n\nEsto ejecutará {targetType} inmediatamente."
     },
     "success": {
       "created": "Programación creada con éxito",
       "updated": "Programación actualizada con éxito",
       "deleted": "Programación eliminada con éxito",
-      "triggered": "Programación ejecutada con éxito"
+      "triggered": "Programación ejecutada con éxito",
+      "enabled": "Programación habilitada",
+      "disabled": "Programación deshabilitada"
     },
     "error": {
       "fetch_failed": "Error al cargar las programaciones",
       "load_failed": "Error al cargar la programación",
       "not_found": "Programación no encontrada",
       "delete_failed": "Error al eliminar la programación",
-      "trigger_failed": "Error al ejecutar la programación"
+      "trigger_failed": "Error al ejecutar la programación",
+      "update_failed": "Error al actualizar la programación",
+      "invalidPayload": "Carga JSON no válida"
+    },
+    "details": {
+      "configuration": "Configuración",
+      "scope": "Ámbito",
+      "source_module": "módulo",
+      "source_user": "Creado por el usuario",
+      "last_run": "Última ejecución",
+      "required_feature": "Función requerida",
+      "payload": "Carga útil",
+      "recent_executions": "Ejecuciones recientes",
+      "no_executions": "Sin ejecuciones aún",
+      "triggering": "Ejecutando...",
+      "error": "Error",
+      "not_found": "No encontrado"
+    },
+    "execution": {
+      "details_title": "Detalles de ejecución",
+      "run_id": "ID de ejecución",
+      "status": "Estado",
+      "trigger_type": "Tipo de disparador",
+      "started_at": "Iniciado en",
+      "finished_at": "Finalizado en",
+      "duration": "Duración",
+      "queue_job_id": "ID de trabajo de cola",
+      "queue_name": "Nombre de cola",
+      "error_message": "Mensaje de error",
+      "stack_trace": "Traza de pila",
+      "completed_message": "Esta ejecución se completó con éxito sin errores.",
+      "running_message": "Esta ejecución está actualmente en progreso.",
+      "skipped_message": "Esta ejecución fue omitida.",
+      "na": "N/D",
+      "started": "Iniciado",
+      "trigger": "Disparador",
+      "actions": "Acciones",
+      "view_details": "Ver detalles",
+      "view_logs": "Ver registros"
+    },
+    "job_logs": {
+      "title": "Trabajo de cola",
+      "job_id": "ID de trabajo",
+      "load_failed": "Error al cargar los detalles del trabajo",
+      "tab_overview": "Resumen",
+      "tab_logs": "Registros",
+      "tab_payload": "Carga útil",
+      "tab_error": "Detalles del error",
+      "state": "Estado",
+      "attempts": "Intentos",
+      "processed": "Procesado",
+      "finished": "Finalizado",
+      "duration": "Duración",
+      "progress": "Progreso",
+      "return_value": "Valor de retorno",
+      "no_logs": "No hay registros disponibles",
+      "error_message": "Mensaje de error",
+      "stack_trace": "Traza de pila"
     },
     "audit": {
       "create": "Crear programación",

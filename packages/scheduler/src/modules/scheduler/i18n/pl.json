@@ -71,7 +71,13 @@
       "target_queue.placeholder": "np. email-sender",
       "target_command": "Polecenie docelowe",
       "target_command.placeholder": "np. sync:data",
+      "target_payload": "Argumenty zadania (JSON)",
+      "target_payload.placeholder": "{\n  \"message\": \"Hello\",\n  \"value\": 42\n}",
+      "target_payload.description": "Opcjonalny obiekt JSON z argumentami do przekazania do polecenia lub zadania kolejki. Musi być w prawidłowym formacie JSON.",
+      "target_payload.invalid_json": "Musi być prawidłowym JSON",
       "is_enabled": "Włączony",
+      "enabled": "Włączony",
+      "disabled": "Wyłączony",
       "submit": "Utwórz harmonogram",
       "save": "Zapisz zmiany",
       "group": {
@@ -81,20 +87,80 @@
       }
     },
     "confirm": {
-      "delete": "Czy na pewno chcesz usunąć ten harmonogram?"
+      "delete": "Czy na pewno chcesz usunąć ten harmonogram?",
+      "trigger": "Czy na pewno chcesz uruchomić \"{name}\" teraz?\n\nSpowoduje to natychmiastowe wykonanie {targetType}."
     },
     "success": {
       "created": "Harmonogram utworzony pomyślnie",
       "updated": "Harmonogram zaktualizowany pomyślnie",
       "deleted": "Harmonogram usunięty pomyślnie",
-      "triggered": "Harmonogram uruchomiony pomyślnie"
+      "triggered": "Harmonogram uruchomiony pomyślnie",
+      "enabled": "Harmonogram włączony",
+      "disabled": "Harmonogram wyłączony"
     },
     "error": {
       "fetch_failed": "Nie udało się załadować harmonogramów",
       "load_failed": "Nie udało się załadować harmonogramu",
       "not_found": "Harmonogram nie znaleziony",
       "delete_failed": "Nie udało się usunąć harmonogramu",
-      "trigger_failed": "Nie udało się uruchomić harmonogramu"
+      "trigger_failed": "Nie udało się uruchomić harmonogramu",
+      "update_failed": "Nie udało się zaktualizować harmonogramu",
+      "invalidPayload": "Nieprawidłowy ładunek JSON"
+    },
+    "details": {
+      "configuration": "Konfiguracja",
+      "scope": "Zakres",
+      "source_module": "moduł",
+      "source_user": "Utworzony przez użytkownika",
+      "last_run": "Ostatnie uruchomienie",
+      "required_feature": "Wymagana funkcja",
+      "payload": "Ładunek",
+      "recent_executions": "Ostatnie wykonania",
+      "no_executions": "Brak wykonań",
+      "triggering": "Uruchamianie...",
+      "error": "Błąd",
+      "not_found": "Nie znaleziono"
+    },
+    "execution": {
+      "details_title": "Szczegóły wykonania",
+      "run_id": "ID uruchomienia",
+      "status": "Status",
+      "trigger_type": "Typ wyzwalacza",
+      "started_at": "Rozpoczęto",
+      "finished_at": "Zakończono",
+      "duration": "Czas trwania",
+      "queue_job_id": "ID zadania kolejki",
+      "queue_name": "Nazwa kolejki",
+      "error_message": "Komunikat błędu",
+      "stack_trace": "Ślad stosu",
+      "completed_message": "To wykonanie zakończyło się pomyślnie bez błędów.",
+      "running_message": "To wykonanie jest aktualnie w toku.",
+      "skipped_message": "To wykonanie zostało pominięte.",
+      "na": "N/D",
+      "started": "Rozpoczęto",
+      "trigger": "Wyzwalacz",
+      "actions": "Akcje",
+      "view_details": "Szczegóły",
+      "view_logs": "Logi"
+    },
+    "job_logs": {
+      "title": "Zadanie kolejki",
+      "job_id": "ID zadania",
+      "load_failed": "Nie udało się załadować szczegółów zadania",
+      "tab_overview": "Przegląd",
+      "tab_logs": "Logi",
+      "tab_payload": "Ładunek",
+      "tab_error": "Szczegóły błędu",
+      "state": "Stan",
+      "attempts": "Próby",
+      "processed": "Przetworzone",
+      "finished": "Zakończone",
+      "duration": "Czas trwania",
+      "progress": "Postęp",
+      "return_value": "Wartość zwrócona",
+      "no_logs": "Brak dostępnych logów",
+      "error_message": "Komunikat błędu",
+      "stack_trace": "Ślad stosu"
     },
     "audit": {
       "create": "Utwórz harmonogram",

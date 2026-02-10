@@ -6,6 +6,7 @@ import { Badge } from '@open-mercato/ui/primitives/badge'
 import { Label } from '@open-mercato/ui/primitives/label'
 import { Alert, AlertDescription } from '@open-mercato/ui/primitives/alert'
 import { formatDistanceToNow } from 'date-fns'
+import { useT } from '@open-mercato/shared/lib/i18n/context'
 
 type ExecutionRun = {
   id: string
@@ -33,6 +34,8 @@ export function ExecutionDetailsDialog({
   run,
   scheduleName,
 }: ExecutionDetailsDialogProps) {
+  const t = useT()
+
   const getStatusBadgeVariant = (status: string): 'destructive' | 'secondary' | 'default' | 'outline' => {
     switch (status) {
       case 'completed':
@@ -49,7 +52,7 @@ export function ExecutionDetailsDialog({
   }
 
   const formatDuration = (durationMs?: number) => {
-    if (!durationMs) return 'N/A'
+    if (!durationMs) return t('scheduler.execution.na', 'N/A')
     return `${(durationMs / 1000).toFixed(2)}s`
   }
 
@@ -60,10 +63,10 @@ export function ExecutionDetailsDialog({
       <DialogContent className="max-w-2xl max-h-[80vh] overflow-auto">
         <DialogHeader>
           <DialogTitle>
-            Execution Details: {scheduleName}
+            {t('scheduler.execution.details_title', 'Execution Details')}: {scheduleName}
           </DialogTitle>
           <p className="text-sm text-muted-foreground">
-            Run ID: {run.id}
+            {t('scheduler.execution.run_id', 'Run ID')}: {run.id}
           </p>
         </DialogHeader>
 
@@ -71,7 +74,7 @@ export function ExecutionDetailsDialog({
           {/* Overview Section */}
           <div className="grid grid-cols-2 gap-4 overflow-hidden">
             <div>
-              <Label className="text-sm font-medium text-muted-foreground">Status</Label>
+              <Label className="text-sm font-medium text-muted-foreground">{t('scheduler.execution.status', 'Status')}</Label>
               <div className="mt-1">
                 <Badge variant={getStatusBadgeVariant(run.status)}>
                   {run.status}
@@ -80,12 +83,12 @@ export function ExecutionDetailsDialog({
             </div>
 
             <div>
-              <Label className="text-sm font-medium text-muted-foreground">Trigger Type</Label>
+              <Label className="text-sm font-medium text-muted-foreground">{t('scheduler.execution.trigger_type', 'Trigger Type')}</Label>
               <p className="mt-1 text-sm capitalize">{run.triggerType}</p>
             </div>
 
             <div>
-              <Label className="text-sm font-medium text-muted-foreground">Started At</Label>
+              <Label className="text-sm font-medium text-muted-foreground">{t('scheduler.execution.started_at', 'Started At')}</Label>
               <p className="mt-1 text-sm">
                 {new Date(run.startedAt).toLocaleString()}
               </p>
@@ -96,7 +99,7 @@ export function ExecutionDetailsDialog({
 
             {run.finishedAt && (
               <div>
-                <Label className="text-sm font-medium text-muted-foreground">Finished At</Label>
+                <Label className="text-sm font-medium text-muted-foreground">{t('scheduler.execution.finished_at', 'Finished At')}</Label>
                 <p className="mt-1 text-sm">
                   {new Date(run.finishedAt).toLocaleString()}
                 </p>
@@ -107,13 +110,13 @@ export function ExecutionDetailsDialog({
             )}
 
             <div>
-              <Label className="text-sm font-medium text-muted-foreground">Duration</Label>
+              <Label className="text-sm font-medium text-muted-foreground">{t('scheduler.execution.duration', 'Duration')}</Label>
               <p className="mt-1 text-sm">{formatDuration(run.durationMs)}</p>
             </div>
 
             {run.queueJobId && (
               <div className="min-w-0 overflow-hidden">
-                <Label className="text-sm font-medium text-muted-foreground">Queue Job ID</Label>
+                <Label className="text-sm font-medium text-muted-foreground">{t('scheduler.execution.queue_job_id', 'Queue Job ID')}</Label>
                 <p 
                   className="mt-1 text-xs font-mono truncate cursor-pointer hover:text-primary transition-colors" 
                   title={run.queueJobId}
@@ -126,7 +129,7 @@ export function ExecutionDetailsDialog({
 
             {run.queueName && (
               <div>
-                <Label className="text-sm font-medium text-muted-foreground">Queue Name</Label>
+                <Label className="text-sm font-medium text-muted-foreground">{t('scheduler.execution.queue_name', 'Queue Name')}</Label>
                 <p className="mt-1 text-sm">{run.queueName}</p>
               </div>
             )}
@@ -135,7 +138,7 @@ export function ExecutionDetailsDialog({
           {/* Error Message Section */}
           {run.status === 'failed' && run.errorMessage && (
             <div>
-              <Label className="text-sm font-medium text-muted-foreground">Error Message</Label>
+              <Label className="text-sm font-medium text-muted-foreground">{t('scheduler.execution.error_message', 'Error Message')}</Label>
               <Alert variant="destructive" className="mt-2">
                 <AlertDescription>
                   <div className="flex items-start gap-2">
@@ -154,7 +157,7 @@ export function ExecutionDetailsDialog({
           {/* Stack Trace Section */}
           {run.status === 'failed' && run.errorStack && (
             <div>
-              <Label className="text-sm font-medium text-muted-foreground">Stack Trace</Label>
+              <Label className="text-sm font-medium text-muted-foreground">{t('scheduler.execution.stack_trace', 'Stack Trace')}</Label>
               <pre className="mt-2 bg-muted p-3 rounded text-xs overflow-auto max-h-64 font-mono">
                 {run.errorStack}
               </pre>
@@ -165,10 +168,10 @@ export function ExecutionDetailsDialog({
           {run.status === 'completed' && (
             <Alert>
               <AlertDescription>
-                <div className="flex items-start gap-2">
+                <div className="flex items-center gap-2">
                   <span className="text-lg">✓</span>
                   <span className="text-sm">
-                    This execution completed successfully without errors.
+                    {t('scheduler.execution.completed_message', 'This execution completed successfully without errors.')}
                   </span>
                 </div>
               </AlertDescription>
@@ -179,10 +182,10 @@ export function ExecutionDetailsDialog({
           {run.status === 'running' && (
             <Alert>
               <AlertDescription>
-                <div className="flex items-start gap-2">
+                <div className="flex items-center gap-2">
                   <span className="text-lg">⏳</span>
                   <span className="text-sm">
-                    This execution is currently in progress.
+                    {t('scheduler.execution.running_message', 'This execution is currently in progress.')}
                   </span>
                 </div>
               </AlertDescription>
@@ -193,10 +196,10 @@ export function ExecutionDetailsDialog({
           {run.status === 'skipped' && (
             <Alert>
               <AlertDescription>
-                <div className="flex items-start gap-2">
+                <div className="flex items-center gap-2">
                   <span className="text-lg">⊘</span>
                   <span className="text-sm">
-                    This execution was skipped.
+                    {t('scheduler.execution.skipped_message', 'This execution was skipped.')}
                   </span>
                 </div>
               </AlertDescription>

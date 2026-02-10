@@ -8,6 +8,7 @@ import { Spinner } from '@open-mercato/ui/primitives/spinner'
 import { apiCallOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 import { Alert, AlertDescription } from '@open-mercato/ui/primitives/alert'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@open-mercato/ui/primitives/tabs'
+import { useT } from '@open-mercato/shared/lib/i18n/context'
 
 
 type BullMQJob = {
@@ -40,6 +41,7 @@ export function JobLogsModal({
   queueName,
   scheduleName,
 }: JobLogsModalProps) {
+  const t = useT()
   const [loading, setLoading] = React.useState(true)
   const [error, setError] = React.useState<string | null>(null)
   const [job, setJob] = React.useState<BullMQJob | null>(null)
@@ -64,7 +66,7 @@ export function JobLogsModal({
       )
       setJob(result as BullMQJob)
     } catch (err: any) {
-      setError(err.message || 'Failed to load job details')
+      setError(err.message || t('scheduler.job_logs.load_failed', 'Failed to load job details'))
     } finally {
       setLoading(false)
     }
@@ -94,14 +96,14 @@ export function JobLogsModal({
       <DialogContent className="max-w-4xl max-h-[80vh] overflow-auto">
         <DialogHeader className="overflow-hidden">
           <DialogTitle>
-            Queue Job: {scheduleName}
+            {t('scheduler.job_logs.title', 'Queue Job')}: {scheduleName}
           </DialogTitle>
           <p 
             className="text-sm text-muted-foreground font-mono truncate cursor-pointer hover:text-primary transition-colors"
             title={queueJobId ?? undefined}
             onClick={() => queueJobId && navigator.clipboard.writeText(queueJobId)}
           >
-            Job ID: {queueJobId}
+            {t('scheduler.job_logs.job_id', 'Job ID')}: {queueJobId}
           </p>
         </DialogHeader>
 
@@ -120,18 +122,18 @@ export function JobLogsModal({
         {!loading && !error && job && (
           <Tabs defaultValue="overview" className="w-full">
             <TabsList>
-              <TabsTrigger value="overview">Overview</TabsTrigger>
-              <TabsTrigger value="logs">Logs</TabsTrigger>
-              <TabsTrigger value="data">Payload</TabsTrigger>
+              <TabsTrigger value="overview">{t('scheduler.job_logs.tab_overview', 'Overview')}</TabsTrigger>
+              <TabsTrigger value="logs">{t('scheduler.job_logs.tab_logs', 'Logs')}</TabsTrigger>
+              <TabsTrigger value="data">{t('scheduler.job_logs.tab_payload', 'Payload')}</TabsTrigger>
               {job.failedReason && (
-                <TabsTrigger value="error">Error Details</TabsTrigger>
+                <TabsTrigger value="error">{t('scheduler.job_logs.tab_error', 'Error Details')}</TabsTrigger>
               )}
             </TabsList>
 
             <TabsContent value="overview" className="space-y-4">
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <Label className="text-sm font-medium">State</Label>
+                  <Label className="text-sm font-medium">{t('scheduler.job_logs.state', 'State')}</Label>
                   <div className="mt-1">
                     <Badge variant={getStateBadgeVariant(job.state)}>
                       {job.state}
@@ -140,13 +142,13 @@ export function JobLogsModal({
                 </div>
 
                 <div>
-                  <Label className="text-sm font-medium">Attempts</Label>
+                  <Label className="text-sm font-medium">{t('scheduler.job_logs.attempts', 'Attempts')}</Label>
                   <p className="mt-1 text-sm">{job.attemptsMade}</p>
                 </div>
 
                 {job.processedOn && (
                   <div>
-                    <Label className="text-sm font-medium">Processed</Label>
+                    <Label className="text-sm font-medium">{t('scheduler.job_logs.processed', 'Processed')}</Label>
                     <p className="mt-1 text-sm">
                       {new Date(job.processedOn).toLocaleString()}
                     </p>
@@ -155,7 +157,7 @@ export function JobLogsModal({
 
                 {job.finishedOn && (
                   <div>
-                    <Label className="text-sm font-medium">Finished</Label>
+                    <Label className="text-sm font-medium">{t('scheduler.job_logs.finished', 'Finished')}</Label>
                     <p className="mt-1 text-sm">
                       {new Date(job.finishedOn).toLocaleString()}
                     </p>
@@ -164,7 +166,7 @@ export function JobLogsModal({
 
                 {job.processedOn && job.finishedOn && (
                   <div>
-                    <Label className="text-sm font-medium">Duration</Label>
+                    <Label className="text-sm font-medium">{t('scheduler.job_logs.duration', 'Duration')}</Label>
                     <p className="mt-1 text-sm">
                       {formatDuration(job.processedOn, job.finishedOn)}
                     </p>
@@ -173,7 +175,7 @@ export function JobLogsModal({
 
                 {job.progress !== undefined && (
                   <div>
-                    <Label className="text-sm font-medium">Progress</Label>
+                    <Label className="text-sm font-medium">{t('scheduler.job_logs.progress', 'Progress')}</Label>
                     <p className="mt-1 text-sm">{job.progress}%</p>
                   </div>
                 )}
@@ -181,7 +183,7 @@ export function JobLogsModal({
 
               {job.returnvalue !== undefined && job.returnvalue !== null && (
                 <div>
-                  <Label className="text-sm font-medium">Return Value</Label>
+                  <Label className="text-sm font-medium">{t('scheduler.job_logs.return_value', 'Return Value')}</Label>
                   <pre className="mt-1 bg-muted p-3 rounded text-xs overflow-auto max-h-64">
                     {String(typeof job.returnvalue === 'string' ? job.returnvalue : JSON.stringify(job.returnvalue, null, 2))}
                   </pre>
@@ -195,7 +197,7 @@ export function JobLogsModal({
                   {job.logs.join('\n')}
                 </pre>
               ) : (
-                <p className="text-sm text-muted-foreground">No logs available</p>
+                <p className="text-sm text-muted-foreground">{t('scheduler.job_logs.no_logs', 'No logs available')}</p>
               )}
             </TabsContent>
 
@@ -208,7 +210,7 @@ export function JobLogsModal({
             {job.failedReason && (
               <TabsContent value="error" className="space-y-4">
                 <div>
-                  <Label className="text-sm font-medium">Error Message</Label>
+                  <Label className="text-sm font-medium">{t('scheduler.job_logs.error_message', 'Error Message')}</Label>
                   <pre className="mt-1 bg-red-50 dark:bg-red-950 p-3 rounded text-sm text-red-900 dark:text-red-100">
                     {job.failedReason}
                   </pre>
@@ -216,7 +218,7 @@ export function JobLogsModal({
 
                 {job.stacktrace && job.stacktrace.length > 0 && (
                   <div>
-                    <Label className="text-sm font-medium">Stack Trace</Label>
+                    <Label className="text-sm font-medium">{t('scheduler.job_logs.stack_trace', 'Stack Trace')}</Label>
                     <pre className="mt-1 bg-muted p-3 rounded text-xs overflow-auto max-h-64 font-mono">
                       {job.stacktrace.join('\n')}
                     </pre>
