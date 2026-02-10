@@ -472,12 +472,12 @@ const posCartLineDeleteCommand: CommandHandler<Input, Result> = {
 | `pos.sessions.open` | Open register session | ✗ |
 | `pos.sessions.close` | Close register session | ✗ |
 
-> **Note:** All operations use the Command Pattern for consistent logging and audit. However, certain operations are **non-reversible by design**:
+> **Note:** All operations use the Command Pattern (per `sales/commands/documents.ts`) for consistent logging and audit. However, certain operations are **non-reversible by design** (confirmed by @pkarw):
 >
-> - **`pos.carts.complete`** — Creates immutable `SalesOrder` + `SalesPayment` records. "Undoing" a completed transaction requires a **void or refund**, which creates new audit entries rather than reversing existing ones.
+> - **`pos.carts.complete`** — Creates both a `SalesOrder` and a `SalesPayment`. While `sales.orders.create` is normally undoable in the Sales module, POS cart completion bundles payment recording — undoing after payment could lead to unconscious fraud scenarios (order canceled but not refunded). Reversal requires an explicit **void or refund** workflow.
 > - **`pos.sessions.open/close`** — Session lifecycle is part of cash accountability. Closing records the drawer count and variance. Reopening a closed session would break reconciliation integrity.
 >
-> These operations still use the Command Pattern (for logging), but intentionally do not implement `undo`.
+> These operations still use the Command Pattern (for logging and audit trail), but intentionally do not implement `undo`.
 
 ---
 
