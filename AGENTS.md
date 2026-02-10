@@ -4,7 +4,7 @@ Leverage the module system and follow strict naming and coding conventions to ke
 
 ## Before Writing Code
 
-1. Check the Task Router below — a single task may match multiple rows; read **all** relevant guides. This ensures the `.ai/specs/` folder remains a reliable reference for understanding module behavior and history.
+1. Check the Task Router below — a single task may match multiple rows; read **all** relevant guides.
 2. Check `.ai/specs/` for existing specs on the module you're modifying
 3. Enter plan mode for non-trivial tasks (3+ steps or architectural decisions)
 4. Identify the reference module (customers) if building CRUD features
