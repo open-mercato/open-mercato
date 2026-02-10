@@ -60,10 +60,7 @@ IMPORTANT: Before any research or coding, match the task to the root `AGENTS.md`
 ## Workflow Orchestration
 
 1.  **Spec-first**: Enter plan mode for non-trivial tasks (3+ steps or architectural decisions). Check `.ai/specs/` before coding; create SPEC files (`SPEC-{number}-{date}-{title}.md`). Skip for small fixes.
-    -   **Research**: Learn from market leaders (Odoo/Shopify) before modeling.
-    -   **Align**: Reuse existing terminology, data patterns, and field naming conventions from core modules (e.g., Sales, Catalog) to ensure consistency.
-    -   **Phase**: Define a clear MVP (Phase 1) and defer complex features (Phase 2/3).
-    -   **Architect**: Use a subagent (persona "Martin Fowler") to review the spec against `AGENTS.md`. Goal: strict alignment. Output: fixes grouped by urgency.
+    -   **Detailed Workflow**: Refer to the **`spec-writing` skill** for research, phasing, and architectural review standards (`.ai/skills/spec-writing/SKILL.md`).
 2.  **Subagent strategy**: Use subagents liberally to keep main context clean. Offload research and parallel analysis. One task per subagent.
 3.  **Self-improvement**: After corrections, update `.ai/lessons.md` or relevant AGENTS.md. Write rules that prevent the same mistake.
 4.  **Verification**: Run tests, check build, suggest user verification. Ask: "Would a staff engineer approve this?"
@@ -169,10 +166,7 @@ All paths use `src/modules/<module>/` as shorthand. See `packages/core/AGENTS.md
 
 - API routes MUST export `openApi` for documentation generation
 - CRUD routes: use `makeCrudRoute` with `indexer: { entityType }` for query index coverage
-- **Every module MUST expose all its features in `src/modules/<module>/acl.ts`** by exporting a `features` array of strings.
 - Feature naming convention: `<module>.<action>` (e.g., `example.view`, `example.create`).
-- **Singular Naming**: Use singular entity names in feature IDs (e.g., `pos.cart.manage`, not `pos.carts.manage`) to align with the specific entity being acted upon.
-- Features are assigned to roles and users through Role ACLs and User ACLs.
 - setup.ts: always declare `defaultRoleFeatures` when adding features to `acl.ts`
 - Custom fields: use `collectCustomFieldValues()` from `@open-mercato/ui/backend/utils/customFieldValues`
 - Events: use `createModuleEvents()` with `as const` for typed emit
@@ -211,18 +205,15 @@ All paths use `src/modules/<module>/` as shorthand. See `packages/core/AGENTS.md
 -   i18n: `useT()` client-side, `resolveTranslations()` server-side
 -   Never hard-code user-facing strings — use locale files
 -   Every dialog: `Cmd/Ctrl+Enter` submit, `Escape` cancel
--   Keep request `pageSize` at or below 100 to respect API validation limits.
-
-## Command Architecture
-
--   **Structure**: Command files should be placed in `src/modules/<module>/commands/`.
--   **Naming**: Command IDs should follow the `module.entity.action` format (e.g., `pos.cart.manage`). Use **singular entity names**.
--   **Undoability**: **All state-changing commands must be undoable** unless the action is physically irreversible (e.g., sending an email, capturing a payment).
--   **Reversibility**: Design entities to support state reversion (e.g., `status` transitions should be bi-directional where possible).
--   **Side Effects**: Ensure `emitCrudUndoSideEffects` mirrors `emitCrudSideEffects` to revert secondary actions (e.g., re-indexing).
+-   Keep `pageSize` at or below 100
 
 ### Code Quality
 
+- No `any` types — use zod schemas with `z.infer`, narrow with runtime checks
+- Prefer functional, data-first utilities over classes
+- No one-letter variable names, no inline comments (self-documenting code)
+- Don't add docstrings/comments/type annotations to code you didn't change
+- Boolean parsing: use `parseBooleanToken`/`parseBooleanWithDefault` from `@open-mercato/shared/lib/boolean`
 - Confirm project still builds after changes
 
 ## Key Commands
