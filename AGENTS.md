@@ -63,6 +63,7 @@ IMPORTANT: Before any research or coding, match the task to the root `AGENTS.md`
     -   **Research**: Learn from market leaders (Odoo/Shopify) before modeling.
     -   **Align**: Reuse existing terminology, data patterns, and field naming conventions from core modules (e.g., Sales, Catalog) to ensure consistency.
     -   **Phase**: Define a clear MVP (Phase 1) and defer complex features (Phase 2/3).
+    -   **Architect**: Use a subagent (persona "Martin Fowler") to review the spec against `AGENTS.md`. Goal: strict alignment. Output: fixes grouped by urgency.
 2.  **Subagent strategy**: Use subagents liberally to keep main context clean. Offload research and parallel analysis. One task per subagent.
 3.  **Self-improvement**: After corrections, update `.ai/lessons.md` or relevant AGENTS.md. Write rules that prevent the same mistake.
 4.  **Verification**: Run tests, check build, suggest user verification. Ask: "Would a staff engineer approve this?"
