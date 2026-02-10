@@ -9,13 +9,7 @@ Leverage the module system and follow strict naming and coding conventions to ke
 3. Enter plan mode for non-trivial tasks (3+ steps or architectural decisions)
 4. Identify the reference module (customers) if building CRUD features
 
-### Product & Phasing Principles
 
-When designing new modules or features, follow these core principles:
-
-1.  **Market Analysis ("Learn from Odoo/Shopify")**: Before inventing a new data model, research established market leaders (e.g., Odoo, Shopify, Medusa) to understand standard domain patterns. If you deviate, document *why*.
-2.  **Architecture Alignment**: Cross-reference existing Open Mercato modules (e.g., Sales) to ensure field names and concepts align. For example, if `SalesOrder` uses `grandTotalGrossAmount`, your module should match that naming, not invent `totalAmount`.
-3.  **Phasing Strategy**: Define a clear MVP (Phase 1). Defer complex features (e.g., variants, infinite scroll, multi-warehouse) to Phase 2/3 and document them as such in the spec. Do not over-engineer Phase 1.
 
 ## Task Router — Where to Find Detailed Guidance
 
@@ -65,7 +59,10 @@ IMPORTANT: Before any research or coding, match the task to the root `AGENTS.md`
 
 ## Workflow Orchestration
 
-1.  **Spec-first**: Enter plan mode for non-trivial tasks (3+ steps or architectural decisions). Check `.ai/specs/` before coding; create SPEC files for new features (`SPEC-{number}-{date}-{title}.md`). Skip for small fixes/improvements.
+1.  **Spec-first**: Enter plan mode for non-trivial tasks (3+ steps or architectural decisions). Check `.ai/specs/` before coding; create SPEC files (`SPEC-{number}-{date}-{title}.md`). Skip for small fixes.
+    -   **Research**: Learn from market leaders (Odoo/Shopify) before modeling.
+    -   **Align**: Match existing OM concepts (e.g., use `SalesOrder.grandTotalGrossAmount` field names).
+    -   **Phase**: Define a clear MVP (Phase 1) and defer complex features (Phase 2/3).
 2.  **Subagent strategy**: Use subagents liberally to keep main context clean. Offload research and parallel analysis. One task per subagent.
 3.  **Self-improvement**: After corrections, update `.ai/lessons.md` or relevant AGENTS.md. Write rules that prevent the same mistake.
 4.  **Verification**: Run tests, check build, suggest user verification. Ask: "Would a staff engineer approve this?"
