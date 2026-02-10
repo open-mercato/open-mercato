@@ -11,6 +11,7 @@ import { RowActions, type RowActionItem } from '@open-mercato/ui/backend/RowActi
 import { apiCallOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
 
 type ScheduleRow = {
   id: string
@@ -85,6 +86,7 @@ export default function SchedulerPage() {
   const [totalPages, setTotalPages] = React.useState(1)
   const [search, setSearch] = React.useState('')
   const [isLoading, setIsLoading] = React.useState(false)
+  const scopeVersion = useOrganizationScopeVersion()
 
   const fetchSchedules = React.useCallback(async () => {
     setIsLoading(true)
@@ -112,7 +114,8 @@ export default function SchedulerPage() {
     } finally {
       setIsLoading(false)
     }
-  }, [page, pageSize, search, t])
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [page, pageSize, search, scopeVersion, t])
 
   React.useEffect(() => {
     fetchSchedules()

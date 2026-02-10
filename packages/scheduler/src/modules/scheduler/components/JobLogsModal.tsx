@@ -8,7 +8,7 @@ import { Spinner } from '@open-mercato/ui/primitives/spinner'
 import { apiCallOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 import { Alert, AlertDescription } from '@open-mercato/ui/primitives/alert'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@open-mercato/ui/primitives/tabs'
-import { useT } from '@open-mercato/shared/lib/i18n/context'
+
 
 type BullMQJob = {
   id: string
@@ -40,7 +40,6 @@ export function JobLogsModal({
   queueName,
   scheduleName,
 }: JobLogsModalProps) {
-  const t = useT()
   const [loading, setLoading] = React.useState(true)
   const [error, setError] = React.useState<string | null>(null)
   const [job, setJob] = React.useState<BullMQJob | null>(null)

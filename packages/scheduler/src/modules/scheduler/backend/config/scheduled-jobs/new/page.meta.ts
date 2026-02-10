@@ -1,6 +1,6 @@
 export const metadata = {
   requireAuth: true,
-  requireFeatures: ['scheduler.create'],
+  requireFeatures: ['scheduler.jobs.manage'],
   navHidden: true,
   pageTitle: 'Create Schedule',
   pageTitleKey: 'scheduler.create.title',

@@ -106,7 +106,6 @@ describe('intervalParser', () => {
     it('should calculate next run from current time', () => {
       const before = new Date()
       const nextRun = calculateNextRunFromInterval('1h')
-      const after = new Date()
       
       // Next run should be approximately 1 hour in the future
       const diffMs = nextRun.getTime() - before.getTime()

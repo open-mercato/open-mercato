@@ -47,8 +47,11 @@ export async function createRequestContainer(): Promise<AppContainer> {
   const container = createContainer({ injectionMode: InjectionMode.CLASSIC })
   // Core registrations
   container.register({
-    // Self-reference: allows workers and other contexts to access the container
-    // This is required for command execution in workers (CommandBus needs container)
+    // Self-reference so that workers (e.g. scheduler execute-schedule worker) can
+    // pass the container to CommandBus for command execution.  This is NOT a
+    // circular *dependency* — Awilix stores a plain value reference, not a
+    // factory, so there is no infinite-resolution loop or memory leak.  The
+    // container simply appears as one more named registration.
     container: asValue(container),
     em: asValue(em),
     queryEngine: asValue(new BasicQueryEngine(em, undefined, () => {

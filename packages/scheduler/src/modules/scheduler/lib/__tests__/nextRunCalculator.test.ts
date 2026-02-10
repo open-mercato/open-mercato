@@ -211,7 +211,6 @@ describe('nextRunCalculator', () => {
       it('should recalculate from current time', () => {
         const before = Date.now()
         const result = recalculateNextRun('interval', '1h')
-        const after = Date.now()
         
         expect(result).toBeInstanceOf(Date)
         

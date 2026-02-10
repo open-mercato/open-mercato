@@ -379,6 +379,50 @@ describe('ScheduledJobSubscriber', () => {
         { skipNextRunUpdate: true }
       )
     })
+
+    it('should skip BullMQ sync when only lastRunAt/nextRunAt changed', async () => {
+      const schedule = new ScheduledJob()
+      schedule.id = '123e4567-e89b-12d3-a456-426614174000'
+      schedule.name = 'Test Schedule'
+      schedule.isEnabled = true
+      schedule.deletedAt = null
+
+      mockFlushArgs.uow.getChangeSets.mockReturnValue([
+        {
+          type: 'update',
+          entity: schedule,
+          payload: { lastRunAt: new Date(), updatedAt: new Date() },
+        },
+      ])
+
+      await subscriber.afterFlush(mockFlushArgs)
+
+      expect(mockBullMQService.register).not.toHaveBeenCalled()
+      expect(mockBullMQService.unregister).not.toHaveBeenCalled()
+    })
+
+    it('should sync when config fields change alongside lastRunAt', async () => {
+      const schedule = new ScheduledJob()
+      schedule.id = '123e4567-e89b-12d3-a456-426614174000'
+      schedule.name = 'Test Schedule'
+      schedule.isEnabled = true
+      schedule.deletedAt = null
+
+      mockFlushArgs.uow.getChangeSets.mockReturnValue([
+        {
+          type: 'update',
+          entity: schedule,
+          payload: { lastRunAt: new Date(), scheduleValue: '*/5 * * * *' },
+        },
+      ])
+
+      await subscriber.afterFlush(mockFlushArgs)
+
+      expect(mockBullMQService.register).toHaveBeenCalledWith(
+        schedule,
+        { skipNextRunUpdate: true }
+      )
+    })
   })
 
   describe('integration scenarios', () => {

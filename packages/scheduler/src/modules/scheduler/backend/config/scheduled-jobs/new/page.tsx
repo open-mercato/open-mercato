@@ -145,7 +145,6 @@ export default function NewSchedulePage() {
           const targetType = values?.targetType as string | undefined
           const targetQueue = (values?.targetQueue as string) || ''
           const targetCommand = (values?.targetCommand as string) || ''
-          const targetPayload = (values?.targetPayload as string) || ''
 
           return (
             <div className="space-y-4">
@@ -253,8 +252,9 @@ export default function NewSchedulePage() {
               try {
                 targetPayload = JSON.parse(values.targetPayload)
               } catch (error) {
-                // Should not happen due to schema validation, but handle gracefully
                 console.error('Failed to parse targetPayload JSON:', error)
+                flash(t('scheduler.error.invalidPayload', 'Invalid JSON payload'), 'error')
+                return
               }
             }
 

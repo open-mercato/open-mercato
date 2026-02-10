@@ -108,9 +108,7 @@ const runCommand: ModuleCli = {
 
     const { resolve } = await createRequestContainer()
     const em = resolve('em') as EntityManager
-    const eventBus = resolve('eventBus') as any
     const queueService = resolve('queueService') as any
-    const rbacService = resolve('rbacService') as any
 
     const job = await em.findOne(ScheduledJob, { id: scheduleId, deletedAt: null })
     if (!job) {

@@ -59,7 +59,6 @@ export function intervalToHuman(interval: string): string {
       return interval
     }
     
-    const value = parseInt(match[1], 10)
     const unit = match[2]
     
     const ms = parseInterval(interval)

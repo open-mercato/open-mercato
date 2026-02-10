@@ -79,6 +79,16 @@ export class ScheduledJobSubscriber implements EventSubscriber<ScheduledJob> {
 
         try {
           if (changeSet.type === 'create' || changeSet.type === 'update') {
+            // Skip BullMQ sync when only execution timestamps changed (lastRunAt/nextRunAt).
+            // The worker updates these after every run — the repeatable job config hasn't changed.
+            if (changeSet.type === 'update' && changeSet.payload) {
+              const runTimeOnly = ['lastRunAt', 'nextRunAt', 'updatedAt']
+              const changedFields = Object.keys(changeSet.payload)
+              if (changedFields.length > 0 && changedFields.every(f => runTimeOnly.includes(f))) {
+                continue
+              }
+            }
+
             // Register or update in BullMQ
             if (schedule.isEnabled && !schedule.deletedAt) {
               // Skip nextRunAt update since we're in afterFlush - it's already persisted

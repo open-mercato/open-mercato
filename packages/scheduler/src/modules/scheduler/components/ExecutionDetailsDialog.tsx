@@ -5,7 +5,6 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@open-mercato/
 import { Badge } from '@open-mercato/ui/primitives/badge'
 import { Label } from '@open-mercato/ui/primitives/label'
 import { Alert, AlertDescription } from '@open-mercato/ui/primitives/alert'
-import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { formatDistanceToNow } from 'date-fns'
 
 type ExecutionRun = {
@@ -34,8 +33,6 @@ export function ExecutionDetailsDialog({
   run,
   scheduleName,
 }: ExecutionDetailsDialogProps) {
-  const t = useT()
-
   const getStatusBadgeVariant = (status: string): 'destructive' | 'secondary' | 'default' | 'outline' => {
     switch (status) {
       case 'completed':

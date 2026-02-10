@@ -7,6 +7,7 @@
 
 // Import commands to trigger registration
 import './commands/jobs.js'
+import './commands/test-echo.js'
 
 // Export module metadata
 export const metadata = {

@@ -6,6 +6,9 @@ import { BullMQSchedulerService } from './services/bullmqSchedulerService.js'
 import { LocalSchedulerService } from './services/localSchedulerService.js'
 import { ScheduledJobSubscriber } from './lib/scheduledJobSubscriber.js'
 
+// Process-level guard: ensures BullMQ sync runs at most once per process lifetime.
+let schedulerSynced = false
+
 /**
  * Scheduler module DI registration
  * 
@@ -27,8 +30,6 @@ export function register(container: AppContainer) {
           em: () => container.resolve('em'),
         })),
     })
-    console.log('[scheduler] Registered BullMQ strategy (async)')
-
     // Register MikroORM subscriber for automatic BullMQ sync
     try {
       const em = container.resolve('em') as any
@@ -37,11 +38,22 @@ export function register(container: AppContainer) {
         // Store container reference so subscriber can resolve BullMQ service
         ;(subscriber as any).__container = container
         em.getEventManager().registerSubscriber(subscriber)
-        console.log('[scheduler] Registered BullMQ sync subscriber')
       }
     } catch (error) {
       // Best-effort registration - don't break if EM not available yet
       console.warn('[scheduler] Could not register subscriber:', error)
+    }
+
+    // Cold start sync: reconcile DB schedules with BullMQ repeatable jobs.
+    // Deferred so it doesn't block DI registration. Runs once per process.
+    if (!schedulerSynced) {
+      schedulerSynced = true
+      setImmediate(() => {
+        const service = container.resolve('bullmqSchedulerService') as BullMQSchedulerService
+        service.syncAll()
+          .then(() => console.log('[scheduler] BullMQ cold start sync complete'))
+          .catch((err: Error) => console.error('[scheduler] BullMQ cold start sync failed:', err.message))
+      })
     }
   } else {
     // Register local scheduler service for development (no Redis required)
@@ -60,7 +72,6 @@ export function register(container: AppContainer) {
           },
         })),
     })
-    console.log('[scheduler] Registered local strategy (polling-based)')
   }
 
   // Register common API service

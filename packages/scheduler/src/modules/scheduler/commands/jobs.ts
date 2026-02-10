@@ -1,5 +1,6 @@
 import { registerCommand } from '@open-mercato/shared/lib/commands'
 import type { CommandHandler } from '@open-mercato/shared/lib/commands'
+import { ensureOrganizationScope } from '@open-mercato/shared/lib/commands/scope'
 import type { EntityManager } from '@mikro-orm/core'
 import { ScheduledJob } from '../data/entities.js'
 import { calculateNextRun } from '../lib/nextRunCalculator.js'
@@ -76,18 +77,6 @@ function ensureTenantScope(ctx: any, tenantId: string | null | undefined) {
   }
 }
 
-function ensureOrganizationScope(ctx: any, organizationId: string | null | undefined) {
-  // Super admins bypass all checks
-  if (ctx.auth?.isSuperAdmin) {
-    return
-  }
-  
-  // If schedule has an org ID, user must have matching org ID
-  if (organizationId && organizationId !== ctx.auth?.organizationId) {
-    throw new Error('Organization mismatch')
-  }
-}
-
 /**
  * CREATE SCHEDULE COMMAND
  */
@@ -96,7 +85,7 @@ const createScheduleCommand: CommandHandler<ScheduleCreateInput, { id: string }>
 
   async execute(input, ctx) {
     ensureTenantScope(ctx, input.tenantId)
-    ensureOrganizationScope(ctx, input.organizationId)
+    if (input.organizationId) ensureOrganizationScope(ctx, input.organizationId)
 
     const em = ctx.container.resolve<EntityManager>('em').fork()
 
@@ -114,21 +103,21 @@ const createScheduleCommand: CommandHandler<ScheduleCreateInput, { id: string }>
     // Create schedule
     const schedule = em.create(ScheduledJob, {
       name: input.name,
-      description: input.description ? input.description : null,
+      description: input.description ?? null,
       scopeType: input.scopeType,
-      organizationId: input.organizationId ? input.organizationId : null,
-      tenantId: input.tenantId ? input.tenantId : null,
+      organizationId: input.organizationId ?? null,
+      tenantId: input.tenantId ?? null,
       scheduleType: input.scheduleType,
       scheduleValue: input.scheduleValue,
-      timezone: input.timezone ? input.timezone : 'UTC',
+      timezone: input.timezone ?? 'UTC',
       targetType: input.targetType,
-      targetQueue: input.targetQueue ? input.targetQueue : null,
-      targetCommand: input.targetCommand ? input.targetCommand : null,
+      targetQueue: input.targetQueue ?? null,
+      targetCommand: input.targetCommand ?? null,
       targetPayload: input.targetPayload ?? null,
-      requireFeature: input.requireFeature ? input.requireFeature : null,
-      isEnabled: input.isEnabled !== undefined ? input.isEnabled : true,
-      sourceType: input.sourceType ? input.sourceType : 'user',
-      sourceModule: input.sourceModule ? input.sourceModule : null,
+      requireFeature: input.requireFeature ?? null,
+      isEnabled: input.isEnabled ?? true,
+      sourceType: input.sourceType ?? 'user',
+      sourceModule: input.sourceModule ?? null,
       nextRunAt,
       createdByUserId: (ctx.auth?.userId as string | undefined) ?? null,
       createdAt: new Date(),
@@ -196,7 +185,7 @@ const updateScheduleCommand: CommandHandler<ScheduleUpdateInput, { ok: boolean }
     }
 
     ensureTenantScope(ctx, schedule.tenantId)
-    ensureOrganizationScope(ctx, schedule.organizationId)
+    if (schedule.organizationId) ensureOrganizationScope(ctx, schedule.organizationId)
 
     // Update fields
     if (input.name !== undefined) schedule.name = input.name
@@ -281,12 +270,20 @@ const updateScheduleCommand: CommandHandler<ScheduleUpdateInput, { ok: boolean }
       // Restore all fields
       schedule.name = before.name
       schedule.description = before.description
+      schedule.scopeType = before.scopeType
+      schedule.organizationId = before.organizationId
+      schedule.tenantId = before.tenantId
       schedule.scheduleType = before.scheduleType
       schedule.scheduleValue = before.scheduleValue
       schedule.timezone = before.timezone
+      schedule.targetType = before.targetType
+      schedule.targetQueue = before.targetQueue
+      schedule.targetCommand = before.targetCommand
       schedule.targetPayload = before.targetPayload
       schedule.requireFeature = before.requireFeature
       schedule.isEnabled = before.isEnabled
+      schedule.sourceType = before.sourceType
+      schedule.sourceModule = before.sourceModule
       schedule.nextRunAt = before.nextRunAt
       schedule.lastRunAt = before.lastRunAt
       schedule.updatedAt = new Date()
@@ -317,7 +314,7 @@ const deleteScheduleCommand: CommandHandler<{ id: string }, { ok: boolean }> = {
     }
 
     ensureTenantScope(ctx, schedule.tenantId)
-    ensureOrganizationScope(ctx, schedule.organizationId)
+    if (schedule.organizationId) ensureOrganizationScope(ctx, schedule.organizationId)
 
     // Soft delete
     schedule.deletedAt = new Date()

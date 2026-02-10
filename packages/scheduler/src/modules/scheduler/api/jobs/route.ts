@@ -33,11 +33,11 @@ const crud = makeCrudRoute({
   orm: {
     entity: ScheduledJob,
     idField: 'id',
-    orgField: 'organizationId',
     tenantField: 'tenantId',
     softDeleteField: 'deletedAt',
   },
   list: {
+    entityId: 'scheduler:scheduled_job',
     schema: scheduleListQuerySchema,
     fields: [
       'id',
@@ -68,8 +68,36 @@ const crud = makeCrudRoute({
       lastRunAt: 'last_run_at',
       createdAt: 'created_at',
     },
+    transformItem: (item: Record<string, unknown>) => {
+      if (!item) return item
+      return {
+        id: item.id,
+        name: item.name,
+        description: item.description,
+        scopeType: item.scope_type,
+        organizationId: item.organization_id,
+        tenantId: item.tenant_id,
+        scheduleType: item.schedule_type,
+        scheduleValue: item.schedule_value,
+        timezone: item.timezone,
+        targetType: item.target_type,
+        targetQueue: item.target_queue,
+        targetCommand: item.target_command,
+        targetPayload: item.target_payload,
+        requireFeature: item.require_feature,
+        isEnabled: item.is_enabled,
+        lastRunAt: item.last_run_at,
+        nextRunAt: item.next_run_at,
+        sourceType: item.source_type,
+        sourceModule: item.source_module,
+        createdAt: item.created_at,
+        updatedAt: item.updated_at,
+      }
+    },
     buildFilters: async (query, ctx) => {
       const filters: Record<string, any> = {}
+
+      filters.organization_id = { $eq: ctx.auth?.orgId }
 
       if (query.id) {
         filters.id = { $eq: query.id }
@@ -83,19 +111,19 @@ const crud = makeCrudRoute({
       }
 
       if (query.scopeType) {
-        filters.scopeType = { $eq: query.scopeType }
+        filters.scope_type = { $eq: query.scopeType }
       }
 
       if (query.isEnabled !== undefined) {
-        filters.isEnabled = { $eq: query.isEnabled }
+        filters.is_enabled = { $eq: query.isEnabled }
       }
 
       if (query.sourceType) {
-        filters.sourceType = { $eq: query.sourceType }
+        filters.source_type = { $eq: query.sourceType }
       }
 
       if (query.sourceModule) {
-        filters.sourceModule = { $eq: query.sourceModule }
+        filters.source_module = { $eq: query.sourceModule }
       }
 
       return filters

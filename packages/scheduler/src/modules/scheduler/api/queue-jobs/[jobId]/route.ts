@@ -64,12 +64,14 @@ export async function GET(
     }
 
     // Validate tenant/org access from job data
-    const jobData = job.data as any
+    // When a user has a tenantId, deny access to jobs belonging to a different tenant.
+    const jobData = job.data as Record<string, unknown> | undefined
     if (auth.tenantId && jobData?.tenantId && jobData.tenantId !== auth.tenantId) {
       await queue.close()
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
     }
 
+    // When a user has an orgId, deny access to jobs belonging to a different organization.
     if (auth.orgId && jobData?.organizationId && jobData.organizationId !== auth.orgId) {
       await queue.close()
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
