@@ -1,156 +1,118 @@
 # SPEC-XXX: [Title]
 
 ## TLDR
-
 **Key Points:**
-- [Brief description of what is being built - 1-2 sentences]
-- [Primary purpose/goal]
+- [What is being built — 1-2 sentences]
+- [Primary goal / value proposition]
 
-**Major Features:**
-- [Feature 1 - one line]
-- [Feature 2 - one line]
+**Scope:**
+- [Feature 1]
+- [Feature 2]
 
-**Key Concerns (Optional):**
-- [Significant risks or constraints - omit if none]
+**Concerns (if any):**
+- [Significant risks or constraints — omit if none]
 
 ## Overview
+[What this module/feature does and why it is being implemented. Mention target audience and key benefits.]
 
-[Briefly describe what this module/feature does and why it is being implemented. Mention target audience and key benefits.]
+> **Market Reference**: [Name the open-source market leader you studied. What did you adopt? What did you reject and why?]
 
 ## Problem Statement
-
 [Describe the specific pain points, existing limitations, or gaps that this specification aims to solve.]
 
 ## Proposed Solution
-
 [Describe the high-level technical approach and how it addresses the problem statement.]
 
-## User Stories
+### Design Decisions (Optional)
+| Decision | Rationale |
+|----------|-----------|
+| [Choice] | [Why this over alternatives] |
 
-- **As a [persona]**, I want to [action], so that [value].
-- **As a [persona]**, I want to [action], so that [value].
+### Alternatives Considered (Optional)
+| Alternative | Why Rejected |
+|-------------|-------------|
+| [Option A] | [Reason] |
 
-## Design Logic & Research
+## User Stories / Use Cases
+- **[User]** wants to **[Action]** so that **[Benefit]**
+- **[User]** wants to **[Action]** so that **[Benefit]**
 
-- **Market Research**: [Learn from market leaders (Open Source market leader in the same tech stack and domain) to challenge your requirements with their approach before modeling any business domain.]
-- **Phasing**: 
-  - **Phase 1 (MVP)**: [List core features included in the first release.]
-  - **Phase 2+**: [List complex features deferred for later.]
+## Phasing
+
+### Phase 1: [Name]
+1. [Step — describe what is built and how to test it]
+2. [Step — describe what is built and how to test it]
+
+### Phase 2: [Name] (Optional)
+1. [Step]
 
 ## Architecture
+[Diagrams, component interactions, data flow]
 
-[Describe high-level design, component relationships, and how it fits into the existing system.]
-
-```mermaid
-graph TD
-    A[Start] --> B{Condition}
-    B -- Yes --> C[Action]
-    B -- No --> D[End]
-```
+### Commands & Events (if applicable)
+- **Command**: `module.entity.action`
+- **Event**: `module.entity.event`
 
 ## Data Models
-
 ### [Entity Name] (Singular)
-
-[Define fields, types, and relationships. Use snake_case for DB columns.]
-
-- `id`: UUID (Primary Key)
-- `organization_id`: UUID (Tenant scoping)
-- `tenant_id`: UUID (Tenant scoping)
-- `created_at`: Datetime
-- `updated_at`: Datetime
-- `deleted_at`: Datetime (Soft delete)
+- `id`: string (UUID)
+- `organization_id`: string (FK)
 - ...
 
 ## API Contracts
-
 ### [Endpoint Name]
+- `METHOD /api/path`
+- Request: `{...}`
+- Response: `{...}`
 
-- **Method**: `POST` | `GET` | `PUT` | `DELETE`
-- **Path**: `/api/[module]/[path]`
-- **RBAC**: `requireAuth`, `requireFeatures: ['module.action']`
-- **Request Schema**: [Zod schema summary]
-- **Response Example**: 
-
-```json
-{
-  "success": true,
-  "data": { ... }
-}
-```
-
-## Internalization (i18n)
-
-[List every new translation key required for the UI, emails, or status labels.]
-
-| Key | Default English Value | Context |
-|-----|-----------------------|---------|
-| `module.entity.label` | "Default" | Field label |
-| `module.entity.error.exists` | "Already exists" | Error message |
-
-## Internal Migration & Compatibility
-
-[Describe how existing data or users will be migrated. Address backward compatibility.]
-
-- **Breaking Changes**: [List any breaking changes to APIs or data structures.]
-- **Migration Script**: [mikro-orm migration or custom script?]
-- **Rollback Plan**: [How to revert if the migration fails?]
+## Internationalization (i18n)
+- [Key keys needed]
 
 ## UI/UX
+- [Mockups or descriptions]
 
-[Describe components, forms, tables, and interactions.]
+## Configuration (Optional)
+- [Env vars, settings]
 
-- **Standard Components**: [Mention use of CrudForm, DataTable, FormHeader, FormFooter.]
-- **Visuals (Optional)**: [Describe any premium design elements. Recommended for **frontend-facing** or **headless-consumer** interfaces.]
+## Migration & Compatibility
+- [Database migrations, breaking changes]
 
-## Configuration
+## Implementation Plan
 
-- **Environment Variables**: [Any new .env variables needed?]
-- **Feature Toggles**: [Flags to enable/disable this feature.]
-- **Tenant Settings**: [Configurable options per organization.]
+### Phase 1: [Name]
+1. [Step]
+2. [Step]
 
-## Commands & Events
+### Phase 2: [Name]
+1. [Step]
 
-### Command: [module].[entity].[action] (Singular)
+### File Manifest (Optional)
+| File | Action | Purpose |
+|------|--------|---------|
+| `path/to/file.ts` | Create / Modify | [What changes] |
 
-- **Undo Behavior**: [Describe how state is restored.]
-- **Audit Log Integration (Optional)**: [Define the `buildLog` handler and `parentResourceKind`/`parentResourceId` if applicable. Required for business-critical state changes tracked in Version History.]
-- **Side Effects**: [Events emitted, cache invalidation, search re-indexing.]
+### Testing Strategy (Optional)
+- [Unit tests for ...]
+- [Integration tests for ...]
 
-### Event: [module].[entity].[past_tense_verb] (Singular)
-
-- **Fields**: `id`, `label`, `category`, ...
+### Open Questions (Optional)
+- [Unresolved question 1]
 
 ## Risks & Impact Review
-
 ### Data Integrity
-- **Scenario**: [What if operation is interrupted?]
-- **Severity**: [Critical | High | Medium | Low]
-- **Mitigation**: [e.g., withAtomicFlush, transactions]
+- [How is data consistency ensured?]
 
 ### Isolation
-- **Scenario**: [Can data leak between tenants?]
-- **Severity**: Critical
-- **Mitigation**: [e.g., strict organization_id filtering]
+- [Any cross-module dependencies?]
 
-## Security & PII (Optional)
-
-[Explicitly address security requirements and PII handling.]
-
-- **Encryption**: [Which fields are encrypted at rest?]
-- **Rate Limiting**: [Which endpoints need protection?]
-- **Cookie Security**: [HttpOnly, Secure, SameSite?]
-- **PII Leakage**: [Are sensitive fields excluded from search indices/logs?]
+### Security & PII (if applicable)
+- [PII handling, auth scopes]
 
 ## Final Compliance Report
-
-| Rule Source | Rule | Status | Notes |
-|-------------|------|--------|-------|
-| Root AGENTS.md | No direct ORM relationships | [Compliant/NA] | |
-| Root AGENTS.md | Filter by organization_id | [Compliant/NA] | |
-| ... | ... | ... | ... |
+- [ ] Singular naming used?
+- [ ] Undo logic defined?
+- [ ] Tenant isolation preserved?
 
 ## Changelog
-
 ### [YYYY-MM-DD]
 - Initial specification
