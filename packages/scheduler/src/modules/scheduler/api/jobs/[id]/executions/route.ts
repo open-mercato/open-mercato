@@ -35,22 +35,31 @@ export async function GET(
   const scheduleId = params.id
 
   try {
-    // Verify schedule exists and user has access
-    const schedule = await em.findOne(ScheduledJob, {
+    // Verify schedule exists and user has access (with tenant/org scope filter)
+    const findFilter: Record<string, unknown> = {
       id: scheduleId,
       deletedAt: null,
-    })
+    }
+
+    // Apply tenant isolation: scope the query to the user's tenant/org
+    if (auth.tenantId) {
+      findFilter.tenantId = auth.tenantId
+    }
+    if (auth.orgId) {
+      findFilter.organizationId = auth.orgId
+    }
+
+    const schedule = await em.findOne(ScheduledJob, findFilter)
 
     if (!schedule) {
       return NextResponse.json({ error: 'Schedule not found' }, { status: 404 })
     }
 
-    // Check tenant/org access
-    if (schedule.tenantId && schedule.tenantId !== auth.tenantId) {
-      return NextResponse.json({ error: 'Access denied' }, { status: 403 })
-    }
-
-    if (schedule.organizationId && schedule.organizationId !== auth.orgId) {
+    // System-scoped schedules (no tenantId/orgId) require superadmin
+    const isSuperAdmin = Array.isArray(auth.roles) && auth.roles.some(
+      (role) => typeof role === 'string' && role.trim().toLowerCase() === 'superadmin'
+    )
+    if (!schedule.tenantId && !schedule.organizationId && !isSuperAdmin) {
       return NextResponse.json({ error: 'Access denied' }, { status: 403 })
     }
 

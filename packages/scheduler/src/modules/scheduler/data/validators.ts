@@ -213,7 +213,6 @@ export const scheduleListQuerySchema = z.object({
  */
 export const scheduleTriggerSchema = z.object({
   id: z.uuid(),
-  userId: z.uuid().optional(),
 })
 
 /**

@@ -156,16 +156,19 @@ export default async function executeScheduleWorker(
       connection: { url: getRedisUrl('QUEUE') },
     })
     
-    const payload = {
-      ...((schedule.targetPayload as any) || {}),
-      tenantId: schedule.tenantId,
-      organizationId: schedule.organizationId,
-    }
+    let targetJobId: string | undefined
+    try {
+      const queuePayload = {
+        ...((schedule.targetPayload as Record<string, unknown>) || {}),
+        tenantId: schedule.tenantId,
+        organizationId: schedule.organizationId,
+      }
 
-    const targetJobId = await targetQueue.enqueue(payload)
-    
-    // Close the queue instance to free resources
-    await targetQueue.close()
+      targetJobId = await targetQueue.enqueue(queuePayload)
+    } finally {
+      // Always close the queue instance to free Redis connections
+      await targetQueue.close()
+    }
     
     // Update schedule's last run time
     schedule.lastRunAt = new Date()
@@ -189,7 +192,7 @@ export default async function executeScheduleWorker(
     const commandBus = new CommandBus()
     
     const commandInput = {
-      ...((schedule.targetPayload as any) || {}),
+      ...((schedule.targetPayload as Record<string, unknown>) || {}),
       tenantId: schedule.tenantId,
       organizationId: schedule.organizationId,
     }

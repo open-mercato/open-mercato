@@ -26,6 +26,7 @@ export function register(container: AppContainer) {
     container.register({
       bullmqSchedulerService: asClass(BullMQSchedulerService)
         .singleton()
+        .disposer((service) => service.destroy())
         .inject(() => ({
           em: () => container.resolve('em'),
         })),

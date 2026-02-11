@@ -233,13 +233,29 @@ export class BullMQSchedulerService {
   /**
    * Get list of all repeatable jobs from BullMQ
    */
-  async getRepeatableJobs(): Promise<any[]> {
+  async getRepeatableJobs(): Promise<unknown[]> {
     try {
       const queue = await this.getQueue()
       return await queue.getRepeatableJobs?.() || []
-    } catch (error: any) {
+    } catch (error) {
       console.error('[scheduler:bullmq] Failed to get repeatable jobs:', error)
       return []
+    }
+  }
+
+  /**
+   * Close the cached BullMQ queue connection.
+   * Must be called during graceful shutdown to prevent Redis connection leaks.
+   */
+  async destroy(): Promise<void> {
+    if (this.queue) {
+      try {
+        await this.queue.close()
+        this.queue = null
+        console.debug('[scheduler:bullmq] Queue connection closed')
+      } catch (error) {
+        console.error('[scheduler:bullmq] Error closing queue:', error)
+      }
     }
   }
 }

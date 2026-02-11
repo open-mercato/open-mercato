@@ -39,6 +39,15 @@ export async function GET(
     )
   }
 
+  // Validate queue name against allowlist of known scheduler queues
+  const ALLOWED_QUEUES = ['scheduler-execution']
+  if (!ALLOWED_QUEUES.includes(queueName)) {
+    return NextResponse.json(
+      { error: 'Invalid queue name' },
+      { status: 400 }
+    )
+  }
+
   try {
     // Check if using async strategy
     const queueStrategy = process.env.QUEUE_STRATEGY || 'local'
@@ -64,15 +73,30 @@ export async function GET(
     }
 
     // Validate tenant/org access from job data
-    // When a user has a tenantId, deny access to jobs belonging to a different tenant.
     const jobData = job.data as Record<string, unknown> | undefined
-    if (auth.tenantId && jobData?.tenantId && jobData.tenantId !== auth.tenantId) {
+    const jobPayload = jobData?.payload as Record<string, unknown> | undefined
+
+    // Resolve tenant/org IDs from job data (may be nested in payload)
+    const jobTenantId = jobData?.tenantId ?? jobPayload?.tenantId ?? null
+    const jobOrgId = jobData?.organizationId ?? jobPayload?.organizationId ?? null
+
+    // System-scoped jobs (no tenantId/orgId) require superadmin
+    const isSuperAdmin = Array.isArray(auth.roles) && auth.roles.some(
+      (role) => typeof role === 'string' && role.trim().toLowerCase() === 'superadmin'
+    )
+    if (!jobTenantId && !jobOrgId && !isSuperAdmin) {
       await queue.close()
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
     }
 
-    // When a user has an orgId, deny access to jobs belonging to a different organization.
-    if (auth.orgId && jobData?.organizationId && jobData.organizationId !== auth.orgId) {
+    // Deny access to jobs belonging to a different tenant
+    if (jobTenantId && auth.tenantId && jobTenantId !== auth.tenantId) {
+      await queue.close()
+      return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+    }
+
+    // Deny access to jobs belonging to a different organization
+    if (jobOrgId && auth.orgId && jobOrgId !== auth.orgId) {
       await queue.close()
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
     }
