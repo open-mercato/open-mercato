@@ -1,14 +1,12 @@
 'use client'
 
 import * as React from 'react'
-import { useRouter, useParams } from 'next/navigation'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import Link from 'next/link'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { FormHeader } from '@open-mercato/ui/backend/forms'
 import { Spinner } from '@open-mercato/ui/primitives/spinner'
-import { Separator } from '@open-mercato/ui/primitives/separator'
 import { JsonDisplay } from '@open-mercato/ui/backend/JsonDisplay'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { apiFetch } from '@open-mercato/ui/backend/utils/api'
@@ -16,13 +14,15 @@ import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import type { WorkflowInstance, WorkflowEvent, WorkflowDefinition } from '../../../data/entities'
 import { WorkflowGraphReadOnly } from '../../../components/WorkflowGraph'
 import { WorkflowLegend } from '../../../components/WorkflowLegend'
+import { MobileInstanceOverview } from '../../../components/mobile/MobileInstanceOverview'
+import { useIsMobile } from '@open-mercato/ui/hooks/useIsMobile'
 import { definitionToGraph } from '../../../lib/graph-utils'
-import { Node, Edge } from '@xyflow/react'
+import { Node } from '@xyflow/react'
 
 export default function WorkflowInstanceDetailPage({ params }: { params?: { id?: string } }) {
   const id = params?.id
   const t = useT()
-  const router = useRouter()
+  const isMobile = useIsMobile()
   const queryClient = useQueryClient()
 
   const { data: instance, isLoading, error } = useQuery({
@@ -376,6 +376,54 @@ export default function WorkflowInstanceDetailPage({ params }: { params?: { id?:
   const canRetry = instance.status === 'FAILED'
   const actionLoading = cancelMutation.isPending || retryMutation.isPending
 
+  if (isMobile) {
+    return (
+      <Page>
+        <PageBody>
+          <div className="space-y-4">
+            <FormHeader
+              mode="detail"
+              backHref="/backend/instances"
+              backLabel={t('workflows.instances.backToList', 'Back to instances')}
+              entityTypeLabel={t('workflows.instances.detail.type', 'Workflow instance')}
+              title={
+                <div className="flex flex-wrap items-center gap-2">
+                  <span>{instance.workflowId}</span>
+                  <span className="font-mono text-sm text-muted-foreground">#{instance.id.slice(0, 8)}</span>
+                </div>
+              }
+              menuActions={[
+                ...(canCancel ? [{
+                  id: 'cancel',
+                  label: t('workflows.instances.actions.cancel'),
+                  onSelect: handleCancel,
+                  disabled: actionLoading,
+                }] : []),
+                ...(canRetry ? [{
+                  id: 'retry',
+                  label: t('workflows.instances.actions.retry'),
+                  onSelect: handleRetry,
+                  disabled: actionLoading,
+                }] : []),
+              ]}
+            />
+            <MobileInstanceOverview
+              instance={instance}
+              events={events}
+              graphNodes={graphNodes}
+              graphEdges={graphEdges}
+              definitionLoading={definitionLoading}
+              hasDefinition={!!workflowDefinition}
+              getStatusBadgeClass={getStatusBadgeClass}
+              getEventTypeBadgeClass={getEventTypeBadgeClass}
+              calculateDuration={calculateDuration}
+            />
+          </div>
+        </PageBody>
+      </Page>
+    )
+  }
+
   return (
     <Page>
       <PageBody>
@@ -499,23 +547,23 @@ export default function WorkflowInstanceDetailPage({ params }: { params?: { id?:
             </div>
           )}
           {!definitionLoading && workflowDefinition && graphNodes.length > 0 && (
-            <div className="rounded-lg border bg-card p-6">
+            <div className="rounded-lg border bg-card p-4 md:p-6">
               <h2 className="text-lg font-semibold text-foreground mb-4">
                 {t('workflows.instances.sections.visualFlow') || 'Visual Workflow Flow'}
               </h2>
 
-              <div className="flex gap-6">
+              <div className="flex flex-col gap-4 lg:flex-row lg:gap-6">
                 {/* Left Sidebar - Legend */}
-                <div className="w-64 flex-shrink-0">
+                <div className="order-2 lg:order-1 lg:w-64 lg:flex-shrink-0">
                   <WorkflowLegend />
                 </div>
 
                 {/* Main Visualization */}
-                <div className="flex-1 border rounded-lg overflow-hidden" style={{ minHeight: '800px' }}>
+                <div className="order-1 lg:order-2 flex-1 border rounded-lg overflow-hidden h-[62svh] min-h-[360px] lg:h-[800px]">
                   <WorkflowGraphReadOnly
                     nodes={graphNodes}
                     edges={graphEdges}
-                    height="800px"
+                    height="100%"
                   />
                 </div>
               </div>
@@ -665,8 +713,8 @@ export default function WorkflowInstanceDetailPage({ params }: { params?: { id?:
                         </div>
                         {event.eventData && (
                           <p className="mt-1 text-xs text-muted-foreground">
-                            {event.eventData.toStepId && `→ ${event.eventData.toStepId}`}
-                            {event.eventData.fromStepId && `${event.eventData.fromStepId} → ${event.eventData.toStepId}`}
+                            {event.eventData.toStepId && `-> ${event.eventData.toStepId}`}
+                            {event.eventData.fromStepId && `${event.eventData.fromStepId} -> ${event.eventData.toStepId}`}
                           </p>
                         )}
                       </div>

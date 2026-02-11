@@ -1941,7 +1941,7 @@ function TextAreaInput({
 
   return (
     <textarea
-      className="w-full rounded border px-2 py-2 min-h-[120px] text-sm"
+      className="w-full rounded border px-2 py-2 min-h-[80px] sm:min-h-[120px] text-sm"
       placeholder={placeholder}
       value={local}
       onChange={handleChange}
@@ -2062,7 +2062,7 @@ const HtmlRichTextEditor = React.memo(function HtmlRichTextEditor({ value = '', 
       </div>
       <div
         ref={ref}
-        className="w-full px-2 py-2 min-h-[160px] focus:outline-none prose prose-sm max-w-none"
+        className="w-full px-2 py-2 min-h-[100px] sm:min-h-[160px] focus:outline-none prose prose-sm max-w-none"
         contentEditable
         suppressContentEditableWarning
         onKeyDown={onKeyDown}
@@ -2128,7 +2128,7 @@ const SimpleMarkdownEditor = React.memo(function SimpleMarkdownEditor({ value = 
       </div>
       <textarea
         ref={taRef}
-        className="w-full min-h-[160px] resize-y px-2 py-2 font-mono text-sm outline-none"
+        className="w-full min-h-[100px] sm:min-h-[160px] resize-y px-2 py-2 font-mono text-sm outline-none"
         spellCheck={false}
         value={local}
         onChange={(e) => { typingRef.current = true; setLocal(e.target.value) }}

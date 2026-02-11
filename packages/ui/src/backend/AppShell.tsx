@@ -53,6 +53,7 @@ export type AppShellProps = {
   profileSections?: SectionNavGroup[]
   profileSectionTitle?: string
   profilePathPrefixes?: string[]
+  mobileSidebarSlot?: React.ReactNode
 }
 
 type Breadcrumb = Array<{ label: string; href?: string }>
@@ -142,7 +143,7 @@ function Chevron({ open }: { open: boolean }) {
   )
 }
 
-export function AppShell({ productName, email, groups, rightHeaderSlot, children, sidebarCollapsedDefault = false, currentTitle, breadcrumb, adminNavApi, version, settingsSectionTitle, settingsPathPrefixes = [], settingsSections, profileSections, profileSectionTitle, profilePathPrefixes = [] }: AppShellProps) {
+export function AppShell({ productName, email, groups, rightHeaderSlot, children, sidebarCollapsedDefault = false, currentTitle, breadcrumb, adminNavApi, version, settingsSectionTitle, settingsPathPrefixes = [], settingsSections, profileSections, profileSectionTitle, profilePathPrefixes = [], mobileSidebarSlot }: AppShellProps) {
   const pathname = usePathname()
   const t = useT()
   const locale = useLocale()
@@ -1098,8 +1099,8 @@ export function AppShell({ productName, email, groups, rightHeaderSlot, children
       <aside className={`${asideClassesBase} ${effectiveCollapsed ? 'px-2' : 'px-3'} hidden lg:block`} style={{ width: asideWidth }}>{renderSidebar(effectiveCollapsed)}</aside>
 
       <div className="flex min-h-svh flex-col min-w-0">
-        <header className="border-b bg-background/60 px-3 lg:px-4 py-3 flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-          <div className="flex items-center gap-2 flex-wrap">
+        <header className="border-b bg-background/60 px-3 lg:px-4 py-2 lg:py-3 flex items-center justify-between gap-2">
+          <div className="flex items-center gap-2 min-w-0">
             {/* Mobile menu button */}
             <button type="button" className="lg:hidden rounded border px-2 py-1" aria-label={t('appShell.openMenu')} onClick={() => setMobileOpen(true)}>
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M3 6h18M3 12h18M3 18h18"/></svg>
@@ -1131,25 +1132,30 @@ export function AppShell({ productName, email, groups, rightHeaderSlot, children
                 rest = [{ label: headerTitle }]
               }
               const items = [...root, ...rest]
+              const lastIndex = items.length - 1
               return (
-                <nav className="flex items-center gap-2 text-sm">
-                  {items.map((b, i) => (
-                    <React.Fragment key={i}>
-                      {i > 0 && <span className="text-muted-foreground">/</span>}
-                      {b.href ? (
-                        <Link href={b.href} className="text-muted-foreground hover:text-foreground">
-                          {b.label}
-                        </Link>
-                      ) : (
-                        <span className="font-medium truncate max-w-[60vw]">{b.label}</span>
-                      )}
-                    </React.Fragment>
-                  ))}
+                <nav className="flex items-center gap-2 text-sm min-w-0">
+                  {items.map((b, i) => {
+                    const isLast = i === lastIndex
+                    const hiddenOnMobile = !isLast ? 'hidden md:inline' : ''
+                    return (
+                      <React.Fragment key={i}>
+                        {i > 0 && <span className={`text-muted-foreground hidden md:inline`}>/</span>}
+                        {b.href ? (
+                          <Link href={b.href} className={`text-muted-foreground hover:text-foreground ${hiddenOnMobile}`}>
+                            {b.label}
+                          </Link>
+                        ) : (
+                          <span className={`font-medium truncate max-w-[45vw] md:max-w-[60vw]`}>{b.label}</span>
+                        )}
+                      </React.Fragment>
+                    )
+                  })}
                 </nav>
               )
             })()}
           </div>
-          <div className="flex items-center gap-2 text-sm w-full lg:w-auto lg:justify-end">
+          <div className="flex items-center gap-1 md:gap-2 text-sm shrink-0">
             {rightHeaderSlot ? (
               rightHeaderSlot
             ) : (
@@ -1193,6 +1199,11 @@ export function AppShell({ productName, email, groups, rightHeaderSlot, children
               </Link>
               <button className="rounded border px-2 py-1" onClick={() => setMobileOpen(false)} aria-label={t('appShell.closeMenu')}>✕</button>
             </div>
+            {mobileSidebarSlot && (
+              <div className="shrink-0 border-b px-3 py-2">
+                {mobileSidebarSlot}
+              </div>
+            )}
             <div className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden p-3">
               {/* Force expanded sidebar in mobile drawer, hide its header and collapse toggle */}
               {renderSidebar(false, true)}

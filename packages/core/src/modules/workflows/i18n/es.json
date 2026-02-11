@@ -542,10 +542,12 @@
         "loadFailed": "No se pudieron cargar las tareas de usuario"
       },
       "roles": "Roles",
+      "backToList": "Volver a tareas",
       "detail": {
         "loading": "Cargando tarea...",
         "notFound": "Tarea no encontrada",
         "backToList": "Volver a tareas",
+        "type": "Tarea de usuario",
         "overdueWarning": "Esta tarea esta vencida.",
         "cannotComplete": "Esta tarea ya ha sido completada o cancelada y no se puede modificar.",
         "noFormSchema": "Esta tarea no tiene formulario. Puedes agregar comentarios opcionales y enviar.",
@@ -1010,6 +1012,42 @@
         "confirmRemove": "¿Seguro que quieres eliminar este mapeo?"
       }
     },
+    "visualEditor": {
+      "clearTitle": "¿Borrar todo?",
+      "clearDescription": "Esto borrará todos los metadatos y el lienzo del flujo de trabajo. Esta acción no se puede deshacer.",
+      "showMetadata": "Mostrar metadatos",
+      "hideMetadata": "Ocultar metadatos",
+      "loadExample": "Cargar ejemplo",
+      "clear": "Borrar",
+      "validate": "Validar",
+      "runTest": "Ejecutar prueba",
+      "workflowMetadata": "Metadatos del flujo de trabajo"
+    },
+    "mobile": {
+      "viewFullGraph": "Ver grafo completo",
+      "metadata": "Metadatos",
+      "addStep": "Agregar paso",
+      "addTransition": "Agregar transición",
+      "noSteps": "Aún no hay pasos definidos.",
+      "noTransitions": "Aún no hay transiciones definidas.",
+      "moreActions": "Más acciones",
+      "stepTimeline": "Línea de tiempo de pasos",
+      "eventLog": "Registro de eventos",
+      "showDetails": "Mostrar detalles",
+      "hideDetails": "Ocultar detalles",
+      "startBuilding": "Comenzar a construir",
+      "startBuildingHint": "Toca un tipo de paso arriba para agregarlo",
+      "loadExample": "Cargar un flujo de trabajo de ejemplo",
+      "runTest": "Ejecutar prueba",
+      "clear": "Limpiar",
+      "editStep": "Editar paso",
+      "deleteStep": "Eliminar paso",
+      "editTransition": "Editar transición",
+      "deleteTransition": "Eliminar transición",
+      "validate": "Validar",
+      "saving": "Guardando...",
+      "save": "Guardar"
+    },
     "validation": {
       "required": "Este campo es obligatorio",
       "invalidFormat": "Formato no valido",
@@ -1080,6 +1118,9 @@
     "disabled": "Deshabilitado",
     "yes": "Si",
     "no": "No",
+    "on": "Activado",
+    "off": "Desactivado",
+    "done": "Listo",
     "edit": "Editar",
     "delete": "Eliminar",
     "duplicate": "Duplicar",
@@ -1089,7 +1130,8 @@
     "refresh": "Actualizar",
     "refreshing": "Actualizando...",
     "details": "Detalles",
-    "cancel": "Cancelar"
+    "cancel": "Cancelar",
+    "loading": "Cargando..."
   },
   "demo": {
     "userTask": {

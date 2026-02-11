@@ -824,7 +824,7 @@ export function EdgeEditDialog({ edge, isOpen, onClose, onSave, onDelete }: Edge
                           {/* Retry Policy */}
                           <div className="border-t border-gray-200 pt-3">
                             <h4 className="text-xs font-semibold text-gray-900 mb-2">{t('workflows.edgeEditor.retryPolicy')}</h4>
-                            <div className="grid grid-cols-2 gap-2">
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                               <div>
                                 <label className="block text-xs font-medium text-gray-700 mb-1">{t('workflows.edgeEditor.maxAttempts')}</label>
                                 <input

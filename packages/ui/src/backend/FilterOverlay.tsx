@@ -194,7 +194,7 @@ export function FilterOverlay({
                   {f.type === 'text' && (
                     <input
                       type="text"
-                      className="w-full h-9 rounded border px-2 text-sm"
+                      className="w-full h-11 rounded border px-2 text-sm"
                       placeholder={f.placeholder}
                       value={values[f.id] ?? ''}
                       onChange={(e) => setValue(f.id, e.target.value || undefined)}
@@ -206,7 +206,7 @@ export function FilterOverlay({
                         <div className="text-xs text-muted-foreground mb-1">{t('ui.filters.dateRange.from', 'From')}</div>
                         <input
                           type="date"
-                          className="w-full h-9 rounded border px-2 text-sm"
+                          className="w-full h-11 rounded border px-2 text-sm"
                           value={values[f.id]?.from ?? ''}
                           onChange={(e) => setValue(f.id, { ...(values[f.id] ?? {}), from: e.target.value || undefined })}
                         />
@@ -215,7 +215,7 @@ export function FilterOverlay({
                         <div className="text-xs text-muted-foreground mb-1">{t('ui.filters.dateRange.to', 'To')}</div>
                         <input
                           type="date"
-                          className="w-full h-9 rounded border px-2 text-sm"
+                          className="w-full h-11 rounded border px-2 text-sm"
                           value={values[f.id]?.to ?? ''}
                           onChange={(e) => setValue(f.id, { ...(values[f.id] ?? {}), to: e.target.value || undefined })}
                         />
@@ -248,7 +248,7 @@ export function FilterOverlay({
                         </div>
                       ) : (
                         <select
-                          className="w-full h-9 rounded border px-2 text-sm"
+                          className="w-full h-11 rounded border px-2 text-sm"
                           value={values[f.id] ?? ''}
                           onChange={(e) => setValue(f.id, e.target.value || undefined)}
                         >
@@ -295,7 +295,7 @@ export function FilterOverlay({
                   {f.type === 'checkbox' && (
                     <div>
                       <select
-                        className="w-full h-9 rounded border px-2 text-sm"
+                        className="w-full h-11 rounded border px-2 text-sm"
                         value={values[f.id] === true ? 'true' : values[f.id] === false ? 'false' : ''}
                         onChange={(e) => {
                           const v = e.target.value

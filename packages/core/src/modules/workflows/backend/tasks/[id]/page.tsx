@@ -13,43 +13,22 @@ import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useQuery } from '@tanstack/react-query'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
-
-type UserTaskStatus = 'PENDING' | 'IN_PROGRESS' | 'COMPLETED' | 'CANCELLED'
-
-type UserTask = {
-  id: string
-  workflowInstanceId: string
-  stepInstanceId: string
-  taskName: string
-  description: string | null
-  status: UserTaskStatus
-  formSchema: any | null
-  formData: any | null
-  assignedTo: string | null
-  assignedToRoles: string[] | null
-  claimedBy: string | null
-  claimedAt: string | null
-  dueDate: string | null
-  completedBy: string | null
-  completedAt: string | null
-  comments: string | null
-  tenantId: string
-  organizationId: string
-  createdAt: string
-  updatedAt: string
-}
+import { MobileTaskForm } from '../../../components/mobile/MobileTaskForm'
+import { useIsMobile } from '@open-mercato/ui/hooks/useIsMobile'
+import type { UserTaskResponse, UserTaskStatus } from '../../../data/types'
 
 export default function UserTaskDetailPage({ params }: { params: { id: string } }) {
   const router = useRouter()
   const t = useT()
-  const [formData, setFormData] = React.useState<Record<string, any>>({})
+  const isMobile = useIsMobile()
+  const [formData, setFormData] = React.useState<Record<string, string | number | boolean>>({})
   const [comments, setComments] = React.useState('')
   const [submitting, setSubmitting] = React.useState(false)
 
   const { data: task, isLoading, error } = useQuery({
     queryKey: ['workflow-task', params.id],
     queryFn: async () => {
-      const result = await apiCall<{ data: UserTask }>(
+      const result = await apiCall<{ data: UserTaskResponse }>(
         `/api/workflows/tasks/${params.id}`
       )
 
@@ -112,6 +91,13 @@ export default function UserTaskDetailPage({ params }: { params: { id: string } 
     }
   }
 
+  const fieldValue = (fieldName: string): string | number => {
+    const val = formData[fieldName]
+    if (val == null || val === false) return ''
+    if (typeof val === 'boolean') return ''
+    return val
+  }
+
   const renderFormField = (fieldName: string, fieldSchema: any) => {
     const fieldType = fieldSchema.type || 'string'
     const fieldTitle = fieldSchema.title || fieldName
@@ -135,7 +121,7 @@ export default function UserTaskDetailPage({ params }: { params: { id: string } 
           )}
           <select
             id={fieldName}
-            value={formData[fieldName] || ''}
+            value={fieldValue(fieldName)}
             onChange={(e) => handleFieldChange(fieldName, e.target.value)}
             required={required}
             className={inputClasses}
@@ -167,7 +153,7 @@ export default function UserTaskDetailPage({ params }: { params: { id: string } 
               <input
                 type="email"
                 id={fieldName}
-                value={formData[fieldName] || ''}
+                value={fieldValue(fieldName)}
                 onChange={(e) => handleFieldChange(fieldName, e.target.value)}
                 required={required}
                 className={inputClasses}
@@ -188,7 +174,7 @@ export default function UserTaskDetailPage({ params }: { params: { id: string } 
               <input
                 type="date"
                 id={fieldName}
-                value={formData[fieldName] || ''}
+                value={fieldValue(fieldName)}
                 onChange={(e) => handleFieldChange(fieldName, e.target.value)}
                 required={required}
                 className={inputClasses}
@@ -208,7 +194,7 @@ export default function UserTaskDetailPage({ params }: { params: { id: string } 
               )}
               <textarea
                 id={fieldName}
-                value={formData[fieldName] || ''}
+                value={fieldValue(fieldName)}
                 onChange={(e) => handleFieldChange(fieldName, e.target.value)}
                 required={required}
                 rows={4}
@@ -229,7 +215,7 @@ export default function UserTaskDetailPage({ params }: { params: { id: string } 
             <input
               type="text"
               id={fieldName}
-              value={formData[fieldName] || ''}
+              value={fieldValue(fieldName)}
               onChange={(e) => handleFieldChange(fieldName, e.target.value)}
               required={required}
               className={inputClasses}
@@ -251,7 +237,7 @@ export default function UserTaskDetailPage({ params }: { params: { id: string } 
             <input
               type="number"
               id={fieldName}
-              value={formData[fieldName] || ''}
+              value={fieldValue(fieldName)}
               onChange={(e) => handleFieldChange(fieldName, e.target.value ? Number(e.target.value) : '')}
               required={required}
               step={fieldType === 'integer' ? 1 : 'any'}
@@ -295,7 +281,7 @@ export default function UserTaskDetailPage({ params }: { params: { id: string } 
             <input
               type="text"
               id={fieldName}
-              value={formData[fieldName] || ''}
+              value={fieldValue(fieldName)}
               onChange={(e) => handleFieldChange(fieldName, e.target.value)}
               required={required}
               className={inputClasses}
@@ -351,6 +337,35 @@ export default function UserTaskDetailPage({ params }: { params: { id: string } 
   const isCompletable = task.status === 'PENDING' || task.status === 'IN_PROGRESS'
   const isOverdue = task.dueDate && new Date(task.dueDate) < new Date() && isCompletable
 
+  if (isMobile) {
+    return (
+      <Page>
+        <PageBody>
+          <div className="space-y-4">
+            <FormHeader
+              mode="detail"
+              backHref="/backend/tasks"
+              backLabel={t('workflows.tasks.backToList', 'Back to tasks')}
+            />
+            <MobileTaskForm
+              task={task}
+              formData={formData}
+              comments={comments}
+              submitting={submitting}
+              isCompletable={isCompletable}
+              isOverdue={!!isOverdue}
+              onFieldChange={handleFieldChange}
+              onCommentsChange={setComments}
+              onSubmit={handleSubmit}
+              onCancel={() => router.push('/backend/tasks')}
+              getStatusBadgeClass={getStatusBadgeClass}
+            />
+          </div>
+        </PageBody>
+      </Page>
+    )
+  }
+
   return (
     <Page>
       <PageBody>
@@ -374,8 +389,8 @@ export default function UserTaskDetailPage({ params }: { params: { id: string } 
           <div className="space-y-3">
 
             {isOverdue && (
-              <div className="bg-red-50 border border-red-200 rounded-lg p-3">
-                <p className="text-sm text-red-800 font-medium">
+              <div className="bg-red-50 dark:bg-red-950/50 border border-red-200 dark:border-red-800 rounded-lg p-3">
+                <p className="text-sm text-red-800 dark:text-red-200 font-medium">
                   {t('workflows.tasks.detail.overdueWarning')}
                 </p>
               </div>
@@ -387,7 +402,7 @@ export default function UserTaskDetailPage({ params }: { params: { id: string } 
           {/* Task Information */}
           <div className="bg-muted/50 rounded-lg p-4 space-y-3">
             <h2 className="text-sm font-semibold">{t('workflows.tasks.detail.sections.taskInfo')}</h2>
-            <div className="grid grid-cols-2 gap-4 text-sm">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-sm">
               <div>
                 <span className="text-muted-foreground">{t('workflows.tasks.fields.createdAt')}:</span>
                 <span className="ml-2 text-foreground">{new Date(task.createdAt).toLocaleString()}</span>
@@ -441,8 +456,8 @@ export default function UserTaskDetailPage({ params }: { params: { id: string } 
                 {task.formSchema?.properties && (
                   <div className="space-y-4">
                     <h2 className="text-lg font-semibold">{t('workflows.tasks.detail.sections.form')}</h2>
-                    {Object.keys(task.formSchema.properties).map((fieldName) =>
-                      renderFormField(fieldName, task.formSchema.properties[fieldName])
+                    {Object.keys(task.formSchema!.properties!).map((fieldName) =>
+                      renderFormField(fieldName, task.formSchema!.properties![fieldName])
                     )}
                   </div>
                 )}
@@ -473,11 +488,11 @@ export default function UserTaskDetailPage({ params }: { params: { id: string } 
                 </div>
 
                 {/* Actions */}
-                <div className="flex items-center gap-3 pt-4">
+                <div className="flex flex-col gap-3 pt-4 sm:flex-row sm:items-center">
                   <Button
                     type="submit"
                     disabled={submitting}
-                    className="bg-primary text-primary-foreground hover:bg-primary/90"
+                    className="w-full sm:w-auto bg-primary text-primary-foreground hover:bg-primary/90"
                   >
                     {submitting ? t('workflows.tasks.detail.submitting') : t('workflows.tasks.detail.completeTask')}
                   </Button>
@@ -486,6 +501,7 @@ export default function UserTaskDetailPage({ params }: { params: { id: string } 
                     variant="outline"
                     onClick={() => router.push('/backend/tasks')}
                     disabled={submitting}
+                    className="w-full sm:w-auto"
                   >
                     {t('common.cancel')}
                   </Button>

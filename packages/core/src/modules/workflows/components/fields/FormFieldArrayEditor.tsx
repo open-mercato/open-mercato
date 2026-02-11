@@ -99,7 +99,7 @@ export function FormFieldArrayEditor({
 
   return (
     <div className="space-y-3">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <Label className="text-sm font-semibold">{t('workflows.fieldEditors.formFields.title')} ({formFields.length})</Label>
           <p className="text-xs text-muted-foreground mt-0.5">
@@ -112,6 +112,7 @@ export function FormFieldArrayEditor({
           size="sm"
           onClick={addFormField}
           disabled={disabled}
+          className="w-full sm:w-auto"
         >
           <Plus className="size-3 mr-1" />
           {t('workflows.fieldEditors.formFields.addField')}
@@ -146,7 +147,7 @@ export function FormFieldArrayEditor({
                   className="w-full px-4 py-3 text-left flex items-center justify-between hover:bg-gray-100 transition-colors rounded-t-lg disabled:opacity-50"
                 >
                   <div className="flex-1">
-                    <div className="flex items-center gap-2">
+                    <div className="flex flex-wrap items-center gap-2">
                       <span className="text-sm font-semibold text-gray-900">
                         {field.label || field.name}
                       </span>

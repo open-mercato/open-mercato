@@ -91,7 +91,7 @@ export function MappingArrayEditor({
 
   return (
     <div className="space-y-3">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <Label className="text-sm font-semibold">{label} ({mappings.length})</Label>
           <p className="text-xs text-muted-foreground mt-0.5">
@@ -104,6 +104,7 @@ export function MappingArrayEditor({
           size="sm"
           onClick={addMapping}
           disabled={disabled}
+          className="w-full sm:w-auto"
         >
           <Plus className="size-3 mr-1" />
           {t('workflows.fieldEditors.mappings.addMapping')}

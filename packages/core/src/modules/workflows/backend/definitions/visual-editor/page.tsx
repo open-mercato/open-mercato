@@ -11,7 +11,7 @@ import { useState, useCallback, useEffect } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { graphToDefinition, definitionToGraph, validateWorkflowGraph, generateStepId, generateTransitionId, ValidationError } from '../../../lib/graph-utils'
 import { workflowDefinitionDataSchema } from '../../../data/validators'
-import { Page, PageBody } from '@open-mercato/ui/backend/Page'
+import { Page } from '@open-mercato/ui/backend/Page'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Input } from '@open-mercato/ui/primitives/input'
 import { Textarea } from '@open-mercato/ui/primitives/textarea'
@@ -32,11 +32,14 @@ import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { FormHeader } from '@open-mercato/ui/backend/forms'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
-import {CircleQuestionMark, Info, PanelTopClose, PanelTopOpen, Play, Save, Trash2} from 'lucide-react'
+import { CircleQuestionMark, Info, PanelTopClose, PanelTopOpen, Play, Save, Trash2 } from 'lucide-react'
 import { NODE_TYPE_ICONS, NODE_TYPE_COLORS, NODE_TYPE_LABELS } from '../../../lib/node-type-icons'
 import { DefinitionTriggersEditor } from '../../../components/DefinitionTriggersEditor'
+import { MobileVisualEditor } from '../../../components/mobile/MobileVisualEditor'
+import { useIsMobile } from '@open-mercato/ui/hooks/useIsMobile'
 import type { WorkflowDefinitionTrigger } from '../../../data/entities'
-import * as React from "react";
+import type { WorkflowMetadataState, WorkflowMetadataHandlers } from '../../../data/types'
+import * as React from 'react'
 
 /**
  * VisualEditorPage - Visual workflow definition editor
@@ -55,6 +58,7 @@ export default function VisualEditorPage() {
   const router = useRouter()
   const searchParams = useSearchParams()
   const definitionId = searchParams.get('id')
+  const isMobile = useIsMobile()
 
   const [isLoading, setIsLoading] = useState(!!definitionId)
   const [isSaving, setIsSaving] = useState(false)
@@ -63,6 +67,25 @@ export default function VisualEditorPage() {
   const [selectedNode, setSelectedNode] = useState<Node | null>(null)
   const [selectedEdge, setSelectedEdge] = useState<Edge | null>(null)
   const [showMetadata, setShowMetadata] = useState(true)
+  const [isCompactViewport, setIsCompactViewport] = useState(false)
+
+  // Auto-collapse metadata on compact viewports after hydration
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+    const mediaQuery = window.matchMedia('(max-width: 1279px)')
+    const applyViewportMode = () => {
+      const compact = mediaQuery.matches
+      setIsCompactViewport(compact)
+      setShowMetadata(!compact)
+    }
+
+    applyViewportMode()
+    mediaQuery.addEventListener('change', applyViewportMode)
+
+    return () => {
+      mediaQuery.removeEventListener('change', applyViewportMode)
+    }
+  }, [])
   const [showNodeDialog, setShowNodeDialog] = useState(false)
   const [showEdgeDialog, setShowEdgeDialog] = useState(false)
   const [showClearConfirm, setShowClearConfirm] = useState(false)
@@ -367,7 +390,7 @@ export default function VisualEditorPage() {
     } finally {
       setIsSaving(false)
     }
-  }, [nodes, edges, workflowId, workflowName, description, version, enabled, category, tags, triggers, definitionId, router])
+  }, [nodes, edges, workflowId, workflowName, description, version, enabled, category, tags, icon, effectiveFrom, effectiveTo, triggers, definitionId, router])
 
   // Test workflow
   const handleTest = useCallback(() => {
@@ -493,73 +516,154 @@ export default function VisualEditorPage() {
   // Show loading spinner while loading definition
   if (isLoading) {
     return (
-      <Page className="h-screen flex items-center justify-center">
+      <Page className="flex items-center justify-center min-h-[50vh]">
         <LoadingMessage label="Loading workflow definition..." />
       </Page>
     )
   }
 
+  const metadata: WorkflowMetadataState = {
+    workflowId, workflowName, description, version,
+    enabled, category, tags, icon,
+    effectiveFrom, effectiveTo, triggers,
+  }
+
+  const metadataHandlers: WorkflowMetadataHandlers = {
+    setWorkflowId, setWorkflowName, setDescription, setVersion,
+    setEnabled, setCategory, setTags, setIcon,
+    setEffectiveFrom, setEffectiveTo, setTriggers,
+  }
+
+  const sharedDialogs = (
+    <>
+      {process.env.NEXT_PUBLIC_WORKFLOW_CRUDFORM_ENABLED === 'true' ? (
+        <NodeEditDialogCrudForm node={selectedNode} isOpen={showNodeDialog} onClose={() => setShowNodeDialog(false)} onSave={handleSaveNode} onDelete={handleDeleteNode} />
+      ) : (
+        <NodeEditDialog node={selectedNode} isOpen={showNodeDialog} onClose={() => setShowNodeDialog(false)} onSave={handleSaveNode} onDelete={handleDeleteNode} />
+      )}
+      {process.env.NEXT_PUBLIC_WORKFLOW_CRUDFORM_ENABLED === 'true' ? (
+        <EdgeEditDialogCrudForm edge={selectedEdge} isOpen={showEdgeDialog} onClose={() => setShowEdgeDialog(false)} onSave={handleSaveEdge} onDelete={handleDeleteEdge} />
+      ) : (
+        <EdgeEditDialog edge={selectedEdge} isOpen={showEdgeDialog} onClose={() => setShowEdgeDialog(false)} onSave={handleSaveEdge} onDelete={handleDeleteEdge} />
+      )}
+      <Dialog open={showClearConfirm} onOpenChange={setShowClearConfirm}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>{t('workflows.visualEditor.clearTitle')}</DialogTitle>
+            <DialogDescription>{t('workflows.visualEditor.clearDescription')}</DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowClearConfirm(false)}>{t('common.cancel', 'Cancel')}</Button>
+            <Button variant="destructive" onClick={confirmClear}>{t('common.clear', 'Clear')}</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </>
+  )
+
+  if (isMobile) {
+    return (
+      <Page className="flex h-[100svh] flex-col space-y-0 overflow-hidden">
+        <MobileVisualEditor
+          definitionId={definitionId}
+          isSaving={isSaving}
+          nodes={nodes}
+          edges={edges}
+          onNodesChange={handleNodesChange}
+          onEdgesChange={handleEdgesChange}
+          onNodeClick={handleNodeClick}
+          onEdgeClick={handleEdgeClick}
+          onConnect={handleConnect}
+          onAddNode={handleAddNode}
+          onSave={handleSave}
+          onValidate={handleValidate}
+          onTest={handleTest}
+          onLoadExample={handleLoadExample}
+          onClear={handleClear}
+          metadata={metadata}
+          metadataHandlers={metadataHandlers}
+        />
+        {sharedDialogs}
+      </Page>
+    )
+  }
+
   return (
-    <Page className="h-screen flex flex-col">
+    <Page className="space-y-0 overflow-x-hidden">
       {/* Page Header */}
-      <div className="border-b border-gray-200 bg-white px-6 py-4">
+      <div className="shrink-0 border-b border-gray-200 bg-white px-3 py-2 md:px-6 md:py-3">
         <FormHeader
           mode="detail"
           backHref="/backend/definitions"
           backLabel={t('workflows.definitions.backToList', 'Back to definitions')}
-          title={definitionId ? (workflowName || 'Workflow') : t('workflows.backend.definitions.visual_editor.title')}
+          title={definitionId ? (workflowName || t('workflows.definitions.singular')) : t('workflows.backend.definitions.visual_editor.title')}
           subtitle={definitionId
             ? t('workflows.definitions.detail.summary', 'Editing workflow definition')
             : t('workflows.definitions.create.summary', 'Create and edit workflow definitions visually with a drag-and-drop interface')
           }
           actionsContent={
-            <div className="flex flex-wrap items-center gap-2">
+            <div className="flex flex-wrap items-center justify-end gap-1 md:gap-2">
               <Button
                 variant="outline"
+                size="sm"
                 onClick={() => setShowMetadata(!showMetadata)}
                 disabled={isSaving}
+                className="h-8 px-2 text-xs"
+                aria-label={showMetadata ? t('workflows.visualEditor.hideMetadata') : t('workflows.visualEditor.showMetadata')}
               >
-                {showMetadata ? <PanelTopClose className="mr-2 h-4 w-4"/> : <PanelTopOpen className="mr-2 h-4 w-4"/>}
-                {showMetadata ? 'Hide' : 'Show'} Metadata
+                {showMetadata ? <PanelTopClose className="mr-1.5 h-4 w-4" /> : <PanelTopOpen className="mr-1.5 h-4 w-4" />}
+                {showMetadata ? t('workflows.visualEditor.hideMetadata') : t('workflows.visualEditor.showMetadata')}
               </Button>
               <Button
                 variant="outline"
+                size="sm"
                 onClick={handleLoadExample}
                 disabled={isSaving}
+                className="h-8 text-xs"
               >
-                Load Example
+                {t('workflows.visualEditor.loadExample')}
               </Button>
               <Button
                 variant="destructive"
+                size="sm"
                 onClick={handleClear}
                 disabled={isSaving}
+                className="h-8 px-2 text-xs"
+                aria-label={t('workflows.visualEditor.clear')}
               >
-                <Trash2 className="mr-2 h-4 w-4" />
-                Clear
+                <Trash2 className="mr-1.5 h-4 w-4" />
+                {t('workflows.visualEditor.clear')}
               </Button>
-              <div className="w-px h-6 bg-gray-300"></div>
               <Button
                 variant="outline"
+                size="sm"
                 onClick={handleValidate}
                 disabled={isSaving}
+                className="h-8 px-2 text-xs"
+                aria-label={t('workflows.visualEditor.validate')}
               >
-                <CircleQuestionMark className="mr-2 h-4 w-4" />
-                Validate
+                <CircleQuestionMark className="mr-1.5 h-4 w-4" />
+                {t('workflows.visualEditor.validate')}
               </Button>
               <Button
                 variant="outline"
+                size="sm"
                 onClick={handleTest}
                 disabled={isSaving}
+                className="h-8 text-xs"
               >
-                <Play className="mr-2 h-4 w-4" />
-                Run Test
+                <Play className="mr-1.5 h-4 w-4" />
+                {t('workflows.visualEditor.runTest')}
               </Button>
               <Button
+                size="sm"
                 onClick={handleSave}
                 disabled={isSaving}
+                className="h-8 px-2 text-xs md:px-3"
+                aria-label={isSaving ? t('workflows.mobile.saving') : definitionId ? t('workflows.common.update') : t('workflows.common.save')}
               >
-                <Save className="mr-2 h-4 w-4" />
-                {isSaving ? 'Saving...' : (definitionId ? 'Update' : 'Save')}
+                <Save className="mr-1.5 h-4 w-4" />
+                {isSaving ? t('workflows.mobile.saving') : definitionId ? t('workflows.common.update') : t('workflows.common.save')}
               </Button>
             </div>
           }
@@ -568,373 +672,363 @@ export default function VisualEditorPage() {
 
       {/* Workflow Metadata Form */}
       {showMetadata && (
-        <div className="bg-white border-b border-gray-200 px-6 py-4">
-          <div className="rounded-lg border bg-card p-4">
-            <h2 className="text-sm font-semibold uppercase text-muted-foreground mb-4">Workflow Metadata</h2>
-            <div className="grid grid-cols-3 gap-4">
-            {/* Workflow ID */}
-            <div className="space-y-1">
-              <Label htmlFor="workflowId" className="text-xs">Workflow ID *</Label>
-              <Input
-                id="workflowId"
-                value={workflowId}
-                onChange={(e) => setWorkflowId(e.target.value)}
-                placeholder="checkout_workflow"
-                disabled={!!definitionId}
-              />
-              <p className="text-xs text-muted-foreground">
-                {definitionId ? 'Cannot be changed when editing' : 'Lowercase, numbers, hyphens, underscores'}
-              </p>
-            </div>
-
-            {/* Workflow Name */}
-            <div className="space-y-1">
-              <Label htmlFor="workflowName" className="text-xs">Workflow Name *</Label>
-              <Input
-                id="workflowName"
-                value={workflowName}
-                onChange={(e) => setWorkflowName(e.target.value)}
-                placeholder="Checkout Process"
-              />
-            </div>
-
-            {/* Category */}
-            <div className="space-y-1">
-              <Label htmlFor="category" className="text-xs">Category</Label>
-              <Input
-                id="category"
-                value={category}
-                onChange={(e) => setCategory(e.target.value)}
-                placeholder="E-Commerce"
-              />
-            </div>
-
-            {/* Description */}
-            <div className="col-span-3 space-y-1">
-              <Label htmlFor="description" className="text-xs">Description</Label>
-              <Textarea
-                id="description"
-                value={description}
-                onChange={(e) => setDescription(e.target.value)}
-                placeholder="Describe the purpose of this workflow..."
-                rows={2}
-              />
-            </div>
-
-            {/* Version */}
-            <div className="space-y-1">
-              <Label htmlFor="version" className="text-xs">Version *</Label>
-              <Input
-                id="version"
-                type="number"
-                value={version}
-                onChange={(e) => setVersion(parseInt(e.target.value) || 1)}
-                min={1}
-                disabled={!!definitionId}
-              />
-              <p className="text-xs text-muted-foreground">
-                Version number (increment for major changes)
-              </p>
-            </div>
-
-            {/* Enabled */}
-            <div className="space-y-1">
-              <Label className="text-xs">Enabled</Label>
-              <div className="flex items-center gap-2 mt-2">
-                <Switch
-                  id="enabled"
-                  checked={enabled}
-                  onCheckedChange={setEnabled}
+        <div className={isCompactViewport
+          ? 'shrink-0 border-b border-gray-200 bg-white px-3 py-2 max-h-[60svh] overflow-y-auto overscroll-contain md:px-6 md:py-3'
+          : 'shrink-0 border-b border-gray-200 bg-white px-3 py-2 md:px-6 md:py-3'
+        }>
+          <div className="rounded-lg border bg-card p-3 md:p-4">
+            <h2 className="mb-3 text-xs font-semibold uppercase text-muted-foreground">{t('workflows.visualEditor.workflowMetadata')}</h2>
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 md:gap-4">
+              {/* Workflow ID */}
+              <div className="min-w-0 space-y-1">
+                <Label htmlFor="workflowId" className="text-xs">Workflow ID *</Label>
+                <Input
+                  id="workflowId"
+                  value={workflowId}
+                  onChange={(e) => setWorkflowId(e.target.value)}
+                  placeholder="checkout_workflow"
+                  disabled={!!definitionId}
+                  className="h-8 text-sm"
                 />
-                <Label htmlFor="enabled" className="text-sm font-normal cursor-pointer">
-                  Only enabled workflows can be started
-                </Label>
+                {definitionId && <p className="text-[10px] text-muted-foreground">Read-only</p>}
               </div>
-            </div>
 
-            {/* Tags */}
-            <div className="space-y-1">
-              <Label className="text-xs">Tags</Label>
-              <TagsInput
-                value={tags}
-                onChange={setTags}
-                placeholder={t('workflows.form.placeholders.tags')}
-              />
-              <p className="text-xs text-muted-foreground">
-                {t('workflows.form.descriptions.tags')}
-              </p>
-            </div>
+              {/* Workflow Name */}
+              <div className="min-w-0 space-y-1">
+                <Label htmlFor="workflowName" className="text-xs">Name *</Label>
+                <Input
+                  id="workflowName"
+                  value={workflowName}
+                  onChange={(e) => setWorkflowName(e.target.value)}
+                  placeholder="Checkout Process"
+                  className="h-8 text-sm"
+                />
+              </div>
 
-            {/* Icon */}
-            <div className="space-y-1">
-              <Label htmlFor="icon" className="text-xs">Icon</Label>
-              <Input
-                id="icon"
-                value={icon}
-                onChange={(e) => setIcon(e.target.value)}
-                placeholder="ShoppingCart"
-              />
-              <p className="text-xs text-muted-foreground">
-                Icon name for visual identification
-              </p>
-            </div>
+              {/* Category */}
+              <div className="min-w-0 space-y-1">
+                <Label htmlFor="category" className="text-xs">Category</Label>
+                <Input
+                  id="category"
+                  value={category}
+                  onChange={(e) => setCategory(e.target.value)}
+                  placeholder="E-Commerce"
+                  className="h-8 text-sm"
+                />
+              </div>
 
-            {/* Effective From */}
-            <div className="space-y-1">
-              <Label htmlFor="effectiveFrom" className="text-xs">Effective From</Label>
-              <Input
-                id="effectiveFrom"
-                type="date"
-                value={effectiveFrom}
-                onChange={(e) => setEffectiveFrom(e.target.value)}
-              />
-              <p className="text-xs text-muted-foreground">
-                Workflow becomes active from this date
-              </p>
-            </div>
+              {/* Description */}
+              <div className="min-w-0 space-y-1 sm:col-span-2 lg:col-span-3">
+                <Label htmlFor="description" className="text-xs">Description</Label>
+                <Textarea
+                  id="description"
+                  value={description}
+                  onChange={(e) => setDescription(e.target.value)}
+                  placeholder="Describe the purpose of this workflow..."
+                  rows={2}
+                  className="min-h-[60px] text-sm"
+                />
+              </div>
 
-            {/* Effective To */}
-            <div className="space-y-1">
-              <Label htmlFor="effectiveTo" className="text-xs">Effective To</Label>
-              <Input
-                id="effectiveTo"
-                type="date"
-                value={effectiveTo}
-                onChange={(e) => setEffectiveTo(e.target.value)}
-              />
-              <p className="text-xs text-muted-foreground">
-                Workflow deactivates after this date
-              </p>
-            </div>
+              {/* Version */}
+              <div className="min-w-0 space-y-1">
+                <Label htmlFor="version" className="text-xs">Version *</Label>
+                <Input
+                  id="version"
+                  type="number"
+                  value={version}
+                  onChange={(e) => setVersion(parseInt(e.target.value) || 1)}
+                  min={1}
+                  disabled={!!definitionId}
+                  className="h-8 text-sm"
+                />
+              </div>
+
+              {/* Enabled */}
+              <div className="min-w-0 space-y-1">
+                <Label className="text-xs">{t('common.enabled', 'Enabled')}</Label>
+                <div className="flex h-8 items-center gap-2">
+                  <Switch
+                    id="enabled"
+                    checked={enabled}
+                    onCheckedChange={setEnabled}
+                  />
+                  <Label htmlFor="enabled" className="cursor-pointer text-xs font-normal">
+                    {enabled ? t('common.on', 'On') : t('common.off', 'Off')}
+                  </Label>
+                </div>
+              </div>
+
+              {/* Tags */}
+              <div className="min-w-0 space-y-1">
+                <Label className="text-xs">Tags</Label>
+                <TagsInput
+                  value={tags}
+                  onChange={setTags}
+                  placeholder={t('workflows.form.placeholders.tags')}
+                />
+              </div>
+
+              {/* Icon */}
+              <div className="min-w-0 space-y-1">
+                <Label htmlFor="icon" className="text-xs">Icon</Label>
+                <Input
+                  id="icon"
+                  value={icon}
+                  onChange={(e) => setIcon(e.target.value)}
+                  placeholder="ShoppingCart"
+                  className="h-8 text-sm"
+                />
+              </div>
+
+              <div className="min-w-0 space-y-1">
+                <Label htmlFor="effectiveFrom" className="text-xs">Effective From</Label>
+                <Input
+                  id="effectiveFrom"
+                  type="date"
+                  value={effectiveFrom}
+                  onChange={(e) => setEffectiveFrom(e.target.value)}
+                  className="h-8 text-sm"
+                />
+              </div>
+
+              <div className="min-w-0 space-y-1">
+                <Label htmlFor="effectiveTo" className="text-xs">Effective To</Label>
+                <Input
+                  id="effectiveTo"
+                  type="date"
+                  value={effectiveTo}
+                  onChange={(e) => setEffectiveTo(e.target.value)}
+                  className="h-8 text-sm"
+                />
+              </div>
             </div>
           </div>
 
-          {/* Event Triggers - Always visible, managed as part of definition */}
+          {/* Event Triggers */}
           <DefinitionTriggersEditor
             value={triggers}
             onChange={setTriggers}
-            className="mt-4"
+            className="mt-3"
           />
         </div>
       )}
 
-      {/* Main Content: Sidebar + Canvas */}
-      <PageBody className="flex-1 flex overflow-hidden">
-        {/* Left Sidebar - Step Palette */}
-        <div className="w-88 bg-white border-r border-gray-200 p-6 overflow-y-auto">
-          <div className="rounded-lg border bg-card p-4">
-            <h2 className="text-sm font-semibold uppercase text-muted-foreground mb-2">Step Palette</h2>
-            <p className="text-xs text-muted-foreground mb-4">
-              Click a step type to add it to the canvas
-            </p>
+      {/* Main Content */}
+      {isCompactViewport ? (
+        <div className="px-3 py-3 md:px-6 md:py-4">
+          <div className="relative min-w-0">
+            <div className="h-[64svh] min-h-[360px] rounded-lg border bg-card">
+              <WorkflowGraph
+                initialNodes={nodes}
+                initialEdges={edges}
+                onNodesChange={handleNodesChange}
+                onEdgesChange={handleEdgesChange}
+                onNodeClick={handleNodeClick}
+                onEdgeClick={handleEdgeClick}
+                onConnect={handleConnect}
+                editable={true}
+                height="100%"
+              />
+            </div>
 
-            <div className="space-y-3">
-            {/* START Step */}
-            <button
-              onClick={() => handleAddNode('start')}
-              className="w-full text-left px-4 py-3 bg-white border-2 border-gray-200 rounded-xl hover:shadow-md hover:border-gray-300 transition-all cursor-pointer group relative"
-            >
-              <div className={`absolute top-2 right-2 ${NODE_TYPE_COLORS.start} opacity-60 group-hover:opacity-100 transition-opacity`}>
-                {(() => {
-                  const Icon = NODE_TYPE_ICONS.start
-                  return <Icon className="w-4 h-4" />
-                })()}
-              </div>
-              <div className="text-sm font-semibold text-gray-900">{NODE_TYPE_LABELS.start.title}</div>
-              <div className="text-xs text-gray-500 mt-0.5">{NODE_TYPE_LABELS.start.description}</div>
-            </button>
-
-            {/* USER_TASK Step */}
-            <button
-              onClick={() => handleAddNode('userTask')}
-              className="w-full text-left px-4 py-3 bg-white border-2 border-gray-200 rounded-xl hover:shadow-md hover:border-gray-300 transition-all cursor-pointer group relative"
-            >
-              <div className={`absolute top-2 right-2 ${NODE_TYPE_COLORS.userTask} opacity-60 group-hover:opacity-100 transition-opacity`}>
-                {(() => {
-                  const Icon = NODE_TYPE_ICONS.userTask
-                  return <Icon className="w-4 h-4" />
-                })()}
-              </div>
-              <div className="text-sm font-semibold text-gray-900">{NODE_TYPE_LABELS.userTask.title}</div>
-              <div className="text-xs text-gray-500 mt-0.5">{NODE_TYPE_LABELS.userTask.description}</div>
-            </button>
-
-            {/* AUTOMATED Step */}
-            <button
-              onClick={() => handleAddNode('automated')}
-              className="w-full text-left px-4 py-3 bg-white border-2 border-gray-200 rounded-xl hover:shadow-md hover:border-gray-300 transition-all cursor-pointer group relative"
-            >
-              <div className={`absolute top-2 right-2 ${NODE_TYPE_COLORS.automated} opacity-60 group-hover:opacity-100 transition-opacity`}>
-                {(() => {
-                  const Icon = NODE_TYPE_ICONS.automated
-                  return <Icon className="w-4 h-4" />
-                })()}
-              </div>
-              <div className="text-sm font-semibold text-gray-900">{NODE_TYPE_LABELS.automated.title}</div>
-              <div className="text-xs text-gray-500 mt-0.5">{NODE_TYPE_LABELS.automated.description}</div>
-            </button>
-
-            {/* WAIT_FOR_SIGNAL Step */}
-            <button
-              onClick={() => handleAddNode('waitForSignal')}
-              className="w-full text-left px-4 py-3 bg-white border-2 border-gray-200 rounded-xl hover:shadow-md hover:border-gray-300 transition-all cursor-pointer group relative"
-            >
-              <div className={`absolute top-2 right-2 ${NODE_TYPE_COLORS.waitForSignal} opacity-60 group-hover:opacity-100 transition-opacity`}>
-                {(() => {
-                  const Icon = NODE_TYPE_ICONS.waitForSignal
-                  return <Icon className="w-4 h-4" />
-                })()}
-              </div>
-              <div className="text-sm font-semibold text-gray-900">{NODE_TYPE_LABELS.waitForSignal.title}</div>
-              <div className="text-xs text-gray-500 mt-0.5">{NODE_TYPE_LABELS.waitForSignal.description}</div>
-            </button>
-
-            {/* SUB_WORKFLOW Step */}
-            <button
-              onClick={() => handleAddNode('subWorkflow')}
-              className="w-full text-left px-4 py-3 bg-white border-2 border-gray-200 rounded-xl hover:shadow-md hover:border-gray-300 transition-all cursor-pointer group relative"
-            >
-              <div className={`absolute top-2 right-2 ${NODE_TYPE_COLORS.subWorkflow} opacity-60 group-hover:opacity-100 transition-opacity`}>
-                {(() => {
-                  const Icon = NODE_TYPE_ICONS.subWorkflow
-                  return <Icon className="w-4 h-4" />
-                })()}
-              </div>
-              <div className="text-sm font-semibold text-gray-900">{NODE_TYPE_LABELS.subWorkflow.title}</div>
-              <div className="text-xs text-gray-500 mt-0.5">{NODE_TYPE_LABELS.subWorkflow.description}</div>
-            </button>
-
-            {/* END Step */}
-            <button
-              onClick={() => handleAddNode('end')}
-              className="w-full text-left px-4 py-3 bg-white border-2 border-gray-200 rounded-xl hover:shadow-md hover:border-gray-300 transition-all cursor-pointer group relative"
-            >
-              <div className={`absolute top-2 right-2 ${NODE_TYPE_COLORS.end} opacity-60 group-hover:opacity-100 transition-opacity`}>
-                {(() => {
-                  const Icon = NODE_TYPE_ICONS.end
-                  return <Icon className="w-4 h-4" />
-                })()}
-              </div>
-              <div className="text-sm font-semibold text-gray-900">{NODE_TYPE_LABELS.end.title}</div>
-              <div className="text-xs text-gray-500 mt-0.5">{NODE_TYPE_LABELS.end.description}</div>
-            </button>
-          </div>
-
-            {/* Instructions */}
-            <Alert variant="info" className="mt-6">
-              <Info className="size-4" />
-              <AlertTitle className="text-xs">How to use:</AlertTitle>
-              <div className="mt-2">
-                <ul className="text-xs space-y-1">
-                  <li>• Click step types to add them</li>
-                  <li>• Drag steps to position them</li>
-                  <li>• Connect steps by dragging from handles</li>
-                  <li>• Click steps/transitions to edit them</li>
-                  <li>• Validate before saving</li>
-                </ul>
-              </div>
-            </Alert>
-          </div>
-        </div>
-
-        {/* Main Canvas */}
-        <div className="flex-1 relative p-6 overflow-auto">
-          <div className="h-full rounded-lg border bg-card">
-            <WorkflowGraph
-              initialNodes={nodes}
-              initialEdges={edges}
-              onNodesChange={handleNodesChange}
-              onEdgesChange={handleEdgesChange}
-              onNodeClick={handleNodeClick}
-              onEdgeClick={handleEdgeClick}
-              onConnect={handleConnect}
-              editable={true}
-              height="100%"
-            />
-          </div>
-
-          {/* Empty State */}
-          {nodes.length === 0 && (
-            <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-              <div className="text-center">
-                <h2 className="text-xl font-semibold text-gray-900 mb-2">
-                  Start Building Your Workflow
-                </h2>
-                <p className="text-gray-600 mb-4">
-                  Click a step type from the palette to add it to the canvas
-                </p>
-                <div className="text-sm text-gray-500">
-                  or{' '}
+            {nodes.length === 0 && (
+              <div className="pointer-events-none absolute inset-0 flex items-center justify-center px-4">
+                <div className="text-center">
+                  <h2 className="mb-2 text-lg font-semibold text-gray-900">Start Building Your Workflow</h2>
+                  <p className="mb-4 text-sm text-gray-600">Tap a step type below to add it to the canvas</p>
                   <button
                     onClick={handleLoadExample}
-                    className="text-blue-600 hover:underline pointer-events-auto"
+                    className="pointer-events-auto text-sm text-blue-600 hover:underline"
                   >
-                    load an example workflow
+                    Load an example workflow
                   </button>
                 </div>
               </div>
+            )}
+          </div>
+
+          <div className="mt-3 rounded-lg border bg-card p-3">
+            <h2 className="mb-2 text-xs font-semibold uppercase text-muted-foreground">Step Palette</h2>
+            <p className="mb-3 text-xs text-muted-foreground">Tap a step type to add it to the canvas</p>
+
+            <div className="flex gap-2 overflow-x-auto pb-1">
+              {(['start', 'userTask', 'automated', 'waitForSignal', 'subWorkflow', 'end'] as const).map((nodeType) => {
+                const Icon = NODE_TYPE_ICONS[nodeType]
+                return (
+                  <button
+                    key={nodeType}
+                    onClick={() => handleAddNode(nodeType)}
+                    className="flex shrink-0 items-center gap-1 rounded-md border bg-white px-2 py-1 text-xs hover:bg-gray-50 active:bg-gray-100"
+                  >
+                    <Icon className="h-3.5 w-3.5" />
+                    <span>{NODE_TYPE_LABELS[nodeType].title}</span>
+                  </button>
+                )
+              })}
             </div>
-          )}
+          </div>
         </div>
-      </PageBody>
-
-      {/* Node Edit Dialog - Conditional rendering based on feature flag */}
-      {process.env.NEXT_PUBLIC_WORKFLOW_CRUDFORM_ENABLED === 'true' ? (
-        <NodeEditDialogCrudForm
-          node={selectedNode}
-          isOpen={showNodeDialog}
-          onClose={() => setShowNodeDialog(false)}
-          onSave={handleSaveNode}
-          onDelete={handleDeleteNode}
-        />
       ) : (
-        <NodeEditDialog
-          node={selectedNode}
-          isOpen={showNodeDialog}
-          onClose={() => setShowNodeDialog(false)}
-          onSave={handleSaveNode}
-          onDelete={handleDeleteNode}
-        />
-      )}
+        <div className="flex min-h-[72svh] min-w-0 flex-1 border-t border-gray-200">
+          {/* Left Sidebar - Step Palette */}
+          <div className="w-[24rem] shrink-0 overflow-y-auto border-r border-gray-200 bg-white p-6">
+            <div className="rounded-lg border bg-card p-4">
+              <h2 className="mb-2 text-sm font-semibold uppercase text-muted-foreground">Step Palette</h2>
+              <p className="mb-4 text-xs text-muted-foreground">
+                Click a step type to add it to the canvas
+              </p>
 
-      {/* Edge Edit Dialog - Conditional rendering based on feature flag */}
-      {process.env.NEXT_PUBLIC_WORKFLOW_CRUDFORM_ENABLED === 'true' ? (
-        <EdgeEditDialogCrudForm
-          edge={selectedEdge}
-          isOpen={showEdgeDialog}
-          onClose={() => setShowEdgeDialog(false)}
-          onSave={handleSaveEdge}
-          onDelete={handleDeleteEdge}
-        />
-      ) : (
-        <EdgeEditDialog
-          edge={selectedEdge}
-          isOpen={showEdgeDialog}
-          onClose={() => setShowEdgeDialog(false)}
-          onSave={handleSaveEdge}
-          onDelete={handleDeleteEdge}
-        />
-      )}
+              <div className="space-y-3">
+                {/* START Step */}
+                <button
+                  onClick={() => handleAddNode('start')}
+                  className="group relative w-full cursor-pointer rounded-xl border-2 border-gray-200 bg-white px-4 py-3 text-left transition-all hover:border-gray-300 hover:shadow-md"
+                >
+                  <div className={`absolute right-2 top-2 ${NODE_TYPE_COLORS.start} opacity-60 transition-opacity group-hover:opacity-100`}>
+                    {(() => {
+                      const Icon = NODE_TYPE_ICONS.start
+                      return <Icon className="h-4 w-4" />
+                    })()}
+                  </div>
+                  <div className="text-sm font-semibold text-gray-900">{NODE_TYPE_LABELS.start.title}</div>
+                  <div className="mt-0.5 text-xs text-gray-500">{NODE_TYPE_LABELS.start.description}</div>
+                </button>
 
-      {/* Clear Confirmation Dialog */}
-      <Dialog open={showClearConfirm} onOpenChange={setShowClearConfirm}>
-        <DialogContent className="sm:max-w-md">
-          <DialogHeader>
-            <DialogTitle>Clear Everything?</DialogTitle>
-            <DialogDescription>
-              This will clear all metadata and the workflow canvas. This action cannot be undone.
-            </DialogDescription>
-          </DialogHeader>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setShowClearConfirm(false)}>
-              {t('common.cancel', 'Cancel')}
-            </Button>
-            <Button variant="destructive" onClick={confirmClear}>
-              {t('common.clear', 'Clear')}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+                {/* USER_TASK Step */}
+                <button
+                  onClick={() => handleAddNode('userTask')}
+                  className="group relative w-full cursor-pointer rounded-xl border-2 border-gray-200 bg-white px-4 py-3 text-left transition-all hover:border-gray-300 hover:shadow-md"
+                >
+                  <div className={`absolute right-2 top-2 ${NODE_TYPE_COLORS.userTask} opacity-60 transition-opacity group-hover:opacity-100`}>
+                    {(() => {
+                      const Icon = NODE_TYPE_ICONS.userTask
+                      return <Icon className="h-4 w-4" />
+                    })()}
+                  </div>
+                  <div className="text-sm font-semibold text-gray-900">{NODE_TYPE_LABELS.userTask.title}</div>
+                  <div className="mt-0.5 text-xs text-gray-500">{NODE_TYPE_LABELS.userTask.description}</div>
+                </button>
+
+                {/* AUTOMATED Step */}
+                <button
+                  onClick={() => handleAddNode('automated')}
+                  className="group relative w-full cursor-pointer rounded-xl border-2 border-gray-200 bg-white px-4 py-3 text-left transition-all hover:border-gray-300 hover:shadow-md"
+                >
+                  <div className={`absolute right-2 top-2 ${NODE_TYPE_COLORS.automated} opacity-60 transition-opacity group-hover:opacity-100`}>
+                    {(() => {
+                      const Icon = NODE_TYPE_ICONS.automated
+                      return <Icon className="h-4 w-4" />
+                    })()}
+                  </div>
+                  <div className="text-sm font-semibold text-gray-900">{NODE_TYPE_LABELS.automated.title}</div>
+                  <div className="mt-0.5 text-xs text-gray-500">{NODE_TYPE_LABELS.automated.description}</div>
+                </button>
+
+                {/* WAIT_FOR_SIGNAL Step */}
+                <button
+                  onClick={() => handleAddNode('waitForSignal')}
+                  className="group relative w-full cursor-pointer rounded-xl border-2 border-gray-200 bg-white px-4 py-3 text-left transition-all hover:border-gray-300 hover:shadow-md"
+                >
+                  <div className={`absolute right-2 top-2 ${NODE_TYPE_COLORS.waitForSignal} opacity-60 transition-opacity group-hover:opacity-100`}>
+                    {(() => {
+                      const Icon = NODE_TYPE_ICONS.waitForSignal
+                      return <Icon className="h-4 w-4" />
+                    })()}
+                  </div>
+                  <div className="text-sm font-semibold text-gray-900">{NODE_TYPE_LABELS.waitForSignal.title}</div>
+                  <div className="mt-0.5 text-xs text-gray-500">{NODE_TYPE_LABELS.waitForSignal.description}</div>
+                </button>
+
+                {/* SUB_WORKFLOW Step */}
+                <button
+                  onClick={() => handleAddNode('subWorkflow')}
+                  className="group relative w-full cursor-pointer rounded-xl border-2 border-gray-200 bg-white px-4 py-3 text-left transition-all hover:border-gray-300 hover:shadow-md"
+                >
+                  <div className={`absolute right-2 top-2 ${NODE_TYPE_COLORS.subWorkflow} opacity-60 transition-opacity group-hover:opacity-100`}>
+                    {(() => {
+                      const Icon = NODE_TYPE_ICONS.subWorkflow
+                      return <Icon className="h-4 w-4" />
+                    })()}
+                  </div>
+                  <div className="text-sm font-semibold text-gray-900">{NODE_TYPE_LABELS.subWorkflow.title}</div>
+                  <div className="mt-0.5 text-xs text-gray-500">{NODE_TYPE_LABELS.subWorkflow.description}</div>
+                </button>
+
+                {/* END Step */}
+                <button
+                  onClick={() => handleAddNode('end')}
+                  className="group relative w-full cursor-pointer rounded-xl border-2 border-gray-200 bg-white px-4 py-3 text-left transition-all hover:border-gray-300 hover:shadow-md"
+                >
+                  <div className={`absolute right-2 top-2 ${NODE_TYPE_COLORS.end} opacity-60 transition-opacity group-hover:opacity-100`}>
+                    {(() => {
+                      const Icon = NODE_TYPE_ICONS.end
+                      return <Icon className="h-4 w-4" />
+                    })()}
+                  </div>
+                  <div className="text-sm font-semibold text-gray-900">{NODE_TYPE_LABELS.end.title}</div>
+                  <div className="mt-0.5 text-xs text-gray-500">{NODE_TYPE_LABELS.end.description}</div>
+                </button>
+              </div>
+
+              {/* Instructions */}
+              <Alert variant="info" className="mt-6">
+                <Info className="size-4" />
+                <AlertTitle className="text-xs">How to use:</AlertTitle>
+                <div className="mt-2">
+                  <ul className="list-inside list-disc space-y-1 text-xs">
+                    <li>Click step types to add them</li>
+                    <li>Drag steps to position them</li>
+                    <li>Connect steps by dragging from handles</li>
+                    <li>Click steps and transitions to edit them</li>
+                    <li>Validate before saving</li>
+                  </ul>
+                </div>
+              </Alert>
+            </div>
+          </div>
+
+          {/* Main Canvas */}
+          <div className="min-w-0 flex-1 p-6">
+            <div className="relative h-[72svh] min-h-[640px]">
+              <div className="h-full rounded-lg border bg-card">
+                <WorkflowGraph
+                  initialNodes={nodes}
+                  initialEdges={edges}
+                  onNodesChange={handleNodesChange}
+                  onEdgesChange={handleEdgesChange}
+                  onNodeClick={handleNodeClick}
+                  onEdgeClick={handleEdgeClick}
+                  onConnect={handleConnect}
+                  editable={true}
+                  height="100%"
+                />
+              </div>
+
+              {/* Empty State */}
+              {nodes.length === 0 && (
+                <div className="pointer-events-none absolute inset-0 flex items-center justify-center px-4">
+                  <div className="text-center">
+                    <h2 className="mb-2 text-xl font-semibold text-gray-900">
+                      Start Building Your Workflow
+                    </h2>
+                    <p className="mb-4 text-gray-600">
+                      Click a step type from the palette to add it to the canvas
+                    </p>
+                    <button
+                      onClick={handleLoadExample}
+                      className="pointer-events-auto text-sm text-blue-600 hover:underline"
+                    >
+                      Load an example workflow
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+      {sharedDialogs}
     </Page>
   )
 }
@@ -963,3 +1057,4 @@ function getDefaultBadge(nodeType: string): string {
   }
   return badges[nodeType] || 'Task'
 }
+

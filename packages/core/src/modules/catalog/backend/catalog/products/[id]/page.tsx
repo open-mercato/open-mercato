@@ -1019,9 +1019,9 @@ function ProductOptionsSection({ values, setValue }: ProductFormGroupProps) {
   return (
     <>
       <div className="space-y-4">
-        <div className="flex items-center justify-between">
+        <div className="flex flex-wrap items-center justify-between gap-2">
           <h3 className="text-sm font-semibold">{t('catalog.products.create.optionsBuilder.title', 'Product options')}</h3>
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             <Button
               type="button"
               variant="ghost"
@@ -1296,7 +1296,7 @@ function ProductVariantsSection({
         </div>
       </div>
       {variants.length ? (
-        <div className="overflow-hidden rounded-md border">
+        <div className="overflow-x-auto rounded-md border">
           <table className="w-full table-auto text-sm">
             <thead className="bg-muted/40 text-left text-xs uppercase text-muted-foreground">
               <tr>
