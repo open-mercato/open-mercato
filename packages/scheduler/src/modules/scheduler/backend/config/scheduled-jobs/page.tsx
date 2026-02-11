@@ -234,18 +234,22 @@ export default function SchedulerPage() {
   const rowActions = React.useCallback(
     (row: ScheduleRow): RowActionItem[] => [
       {
+        id: 'view',
         label: t('scheduler.action.view', 'View Details'),
         onSelect: () => router.push(`/backend/config/scheduled-jobs/${row.id}`),
       },
       {
+        id: 'edit',
         label: t('scheduler.action.edit', 'Edit'),
         onSelect: () => router.push(`/backend/config/scheduled-jobs/${row.id}/edit`),
       },
       {
+        id: 'trigger',
         label: t('scheduler.action.trigger', 'Run Now'),
         onSelect: () => handleTrigger(row),
       },
       {
+        id: 'delete',
         label: t('scheduler.action.delete', 'Delete'),
         onSelect: () => handleDelete(row),
         destructive: true,

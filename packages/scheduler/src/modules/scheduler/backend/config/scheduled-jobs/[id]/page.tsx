@@ -82,7 +82,7 @@ export default function ScheduleDetailPage() {
       const { result: listData } = await apiCallOrThrow(
         `/api/scheduler/jobs?id=${scheduleId}&page=1&pageSize=1`
       )
-      const schedules = (listData as any)?.items || []
+      const schedules = (listData as { items?: unknown[] })?.items || []
       if (schedules.length === 0) {
         throw new Error(t('scheduler.error.not_found', 'Schedule not found'))
       }
@@ -92,9 +92,9 @@ export default function ScheduleDetailPage() {
       const { result: runsData } = await apiCallOrThrow(
         `/api/scheduler/jobs/${scheduleId}/executions?pageSize=10`
       )
-      setRuns((runsData as any).items || [])
-    } catch (err: any) {
-      setError(err.message || t('scheduler.error.load_failed', 'Failed to load schedule'))
+      setRuns((runsData as { items?: ExecutionRun[] }).items || [])
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : t('scheduler.error.load_failed', 'Failed to load schedule'))
     } finally {
       setLoading(false)
     }
@@ -125,8 +125,8 @@ export default function ScheduleDetailPage() {
       })
       flash(t('scheduler.success.triggered', 'Schedule triggered successfully'), 'success')
       await fetchScheduleAndRuns()
-    } catch (err: any) {
-      flash(err.message || t('scheduler.error.trigger_failed', 'Failed to trigger schedule'), 'error')
+    } catch (err: unknown) {
+      flash(err instanceof Error ? err.message : t('scheduler.error.trigger_failed', 'Failed to trigger schedule'), 'error')
     } finally {
       setTriggering(false)
     }
@@ -143,8 +143,8 @@ export default function ScheduleDetailPage() {
       })
       flash(enabled ? t('scheduler.success.enabled', 'Schedule enabled') : t('scheduler.success.disabled', 'Schedule disabled'), 'success')
       await fetchScheduleAndRuns()
-    } catch (err: any) {
-      flash(err.message || t('scheduler.error.update_failed', 'Failed to update schedule'), 'error')
+    } catch (err: unknown) {
+      flash(err instanceof Error ? err.message : t('scheduler.error.update_failed', 'Failed to update schedule'), 'error')
     } finally {
       setToggling(false)
     }

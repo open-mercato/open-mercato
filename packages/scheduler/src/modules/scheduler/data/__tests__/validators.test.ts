@@ -585,9 +585,9 @@ describe('scheduleListQuerySchema', () => {
     expect(result.order).toBe('desc')
   })
 
-  it('should accept boolean values for isEnabled', () => {
-    const result1 = scheduleListQuerySchema.parse({ isEnabled: true })
-    const result2 = scheduleListQuerySchema.parse({ isEnabled: false })
+  it('should accept string values for isEnabled and parse as booleans', () => {
+    const result1 = scheduleListQuerySchema.parse({ isEnabled: 'true' })
+    const result2 = scheduleListQuerySchema.parse({ isEnabled: 'false' })
 
     expect(result1.isEnabled).toBe(true)
     expect(result2.isEnabled).toBe(false)

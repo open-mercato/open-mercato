@@ -80,10 +80,11 @@ export async function GET(
     const queue = new Queue('scheduler-execution', { connection: { url: getRedisUrl('QUEUE') } })
 
     try {
-      // Get completed and failed jobs
-      // BullMQ doesn't have direct filtering, so we fetch recent jobs and filter client-side
-      const pageSize = parseInt(req.nextUrl.searchParams.get('pageSize') || '20', 10)
-      const limit = Math.min(pageSize, 100) // Cap at 100
+      // Validate query params with Zod schema
+      const queryResult = executionsQuerySchema.safeParse({
+        pageSize: req.nextUrl.searchParams.get('pageSize') ?? undefined,
+      })
+      const limit = queryResult.success ? queryResult.data.pageSize : 20
 
       const [completed, failed, active, waiting, delayed] = await Promise.all([
         queue.getCompleted(0, limit - 1),
@@ -95,9 +96,11 @@ export async function GET(
 
       // Combine all jobs and filter by scheduleId
       const allJobs = [...completed, ...failed, ...active, ...waiting, ...delayed]
+      type BullJobData = { payload?: { scheduleId?: string; triggerType?: string; triggeredByUserId?: string }; scheduleId?: string; triggerType?: string; triggeredByUserId?: string }
+
       const filteredJobs = allJobs
         .filter(job => {
-          const data = job.data as any
+          const data = job.data as BullJobData | undefined
           return data?.payload?.scheduleId === scheduleId || data?.scheduleId === scheduleId
         })
         .slice(0, limit)
@@ -106,7 +109,7 @@ export async function GET(
       const jobsWithState = await Promise.all(
         filteredJobs.map(async (job) => {
           const state = await job.getState()
-          const data = job.data as any
+          const data = job.data as BullJobData | undefined
           
           return {
             id: job.id,

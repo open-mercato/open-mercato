@@ -1,8 +1,18 @@
 import { LocalSchedulerService } from '../localSchedulerService'
 import type { EntityManager } from '@mikro-orm/core'
 import type { Queue } from '@open-mercato/queue'
-import type { EventBus } from '@open-mercato/events'
 import { ScheduledJob } from '../../data/entities'
+
+// Mock the typed event emitter
+const mockEmitSchedulerEvent = jest.fn()
+jest.mock('../../events.js', () => ({
+  emitSchedulerEvent: (...args: unknown[]) => mockEmitSchedulerEvent(...args),
+}))
+
+// Mock getGlobalEventBus for command context resolution
+jest.mock('@open-mercato/shared/modules/events', () => ({
+  getGlobalEventBus: jest.fn().mockReturnValue({ emit: jest.fn() }),
+}))
 
 // Mock LocalLockStrategy
 jest.mock('../../lib/localLockStrategy', () => ({
@@ -26,9 +36,8 @@ describe('LocalSchedulerService', () => {
   let mockForkedEm: jest.Mocked<EntityManager>
   let mockQueue: jest.Mocked<Queue>
   let mockQueueFactory: jest.Mock
-  let mockEventBus: jest.Mocked<EventBus>
-  let mockRbacService: any
-  let mockLockStrategy: any
+  let mockRbacService: { tenantHasFeature: jest.Mock }
+  let mockLockStrategy: { tryLock: jest.Mock; unlock: jest.Mock }
 
   beforeEach(() => {
     jest.clearAllMocks()
@@ -54,11 +63,6 @@ describe('LocalSchedulerService', () => {
       fork: jest.fn(() => mockForkedEm),
     } as any
 
-    // Create mock event bus
-    mockEventBus = {
-      emit: jest.fn(),
-    } as any
-
     // Create mock RBAC service
     mockRbacService = {
       tenantHasFeature: jest.fn(),
@@ -68,7 +72,6 @@ describe('LocalSchedulerService', () => {
     service = new LocalSchedulerService(
       () => mockEm,
       mockQueueFactory,
-      mockEventBus,
       mockRbacService,
       { pollIntervalMs: 1000 }
     )
@@ -108,6 +111,9 @@ describe('LocalSchedulerService', () => {
         isEnabled: true,
         deletedAt: null,
         nextRunAt: { $lte: expect.any(Date) },
+      }, {
+        limit: 100,
+        orderBy: { nextRunAt: 'ASC' },
       })
 
       consoleLogSpy.mockRestore()
@@ -260,7 +266,7 @@ describe('LocalSchedulerService', () => {
       expect(consoleLogSpy).toHaveBeenCalledWith(
         '[scheduler:local] Schedule Test Schedule is already locked, skipping'
       )
-      expect(mockEventBus.emit).not.toHaveBeenCalled()
+      expect(mockEmitSchedulerEvent).not.toHaveBeenCalled()
 
       consoleLogSpy.mockRestore()
     })
@@ -322,10 +328,10 @@ describe('LocalSchedulerService', () => {
 
       await service.start()
 
-      expect(mockEventBus.emit).toHaveBeenCalledWith(
+      expect(mockEmitSchedulerEvent).toHaveBeenCalledWith(
         'scheduler.job.started',
         expect.objectContaining({
-          scheduleId: 'test-1',
+          id: 'test-1',
           scheduleName: 'Test Schedule',
           triggerType: 'scheduled',
         })
@@ -343,10 +349,10 @@ describe('LocalSchedulerService', () => {
 
       await service.start()
 
-      expect(mockEventBus.emit).toHaveBeenCalledWith(
+      expect(mockEmitSchedulerEvent).toHaveBeenCalledWith(
         'scheduler.job.completed',
         expect.objectContaining({
-          scheduleId: 'test-1',
+          id: 'test-1',
           scheduleName: 'Test Schedule',
         })
       )
@@ -359,17 +365,17 @@ describe('LocalSchedulerService', () => {
       mockForkedEm.find.mockResolvedValue([schedule])
       mockForkedEm.findOne.mockResolvedValue({ ...schedule })
       mockLockStrategy.tryLock.mockResolvedValue(true)
-      mockLockStrategy.unlock.mockResolvedValue()
+      mockLockStrategy.unlock.mockResolvedValue(undefined)
       mockQueue.enqueue.mockRejectedValue(error)
 
       const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation()
 
       await service.start()
 
-      expect(mockEventBus.emit).toHaveBeenCalledWith(
+      expect(mockEmitSchedulerEvent).toHaveBeenCalledWith(
         'scheduler.job.failed',
         expect.objectContaining({
-          scheduleId: 'test-1',
+          id: 'test-1',
           scheduleName: 'Test Schedule',
           error: 'Execution failed',
         })
@@ -402,7 +408,7 @@ describe('LocalSchedulerService', () => {
       mockForkedEm.find.mockResolvedValue([schedule])
       mockForkedEm.findOne.mockResolvedValue({ ...schedule })
       mockLockStrategy.tryLock.mockResolvedValue(true)
-      mockLockStrategy.unlock.mockResolvedValue()
+      mockLockStrategy.unlock.mockResolvedValue(undefined)
       mockQueue.enqueue.mockRejectedValue(error)
 
       jest.spyOn(console, 'error').mockImplementation()
@@ -447,7 +453,7 @@ describe('LocalSchedulerService', () => {
       mockForkedEm.find.mockResolvedValue([schedule])
       mockForkedEm.findOne.mockResolvedValue({ ...schedule })
       mockLockStrategy.tryLock.mockResolvedValue(true)
-      mockLockStrategy.unlock.mockResolvedValue()
+      mockLockStrategy.unlock.mockResolvedValue(undefined)
       mockRbacService.tenantHasFeature.mockResolvedValue(false)
 
       const consoleLogSpy = jest.spyOn(console, 'log').mockImplementation()
@@ -457,10 +463,10 @@ describe('LocalSchedulerService', () => {
       expect(consoleLogSpy).toHaveBeenCalledWith(
         '[scheduler:local] Schedule Test Schedule skipped: missing feature test.feature'
       )
-      expect(mockEventBus.emit).toHaveBeenCalledWith(
+      expect(mockEmitSchedulerEvent).toHaveBeenCalledWith(
         'scheduler.job.skipped',
         expect.objectContaining({
-          scheduleId: 'test-1',
+          id: 'test-1',
           reason: 'Missing required feature: test.feature',
         })
       )
@@ -495,7 +501,7 @@ describe('LocalSchedulerService', () => {
       mockForkedEm.find.mockResolvedValue([schedule])
       mockForkedEm.findOne.mockResolvedValue(freshSchedule)
       mockLockStrategy.tryLock.mockResolvedValue(true)
-      mockLockStrategy.unlock.mockResolvedValue()
+      mockLockStrategy.unlock.mockResolvedValue(undefined)
       mockQueue.enqueue.mockRejectedValue(error)
 
       jest.spyOn(console, 'error').mockImplementation()
@@ -512,13 +518,13 @@ describe('LocalSchedulerService', () => {
 
       mockForkedEm.find.mockResolvedValue([schedule])
       mockLockStrategy.tryLock.mockResolvedValue(true)
-      mockLockStrategy.unlock.mockResolvedValue()
+      mockLockStrategy.unlock.mockResolvedValue(undefined)
 
       const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation()
 
       await service.start()
 
-      expect(mockEventBus.emit).toHaveBeenCalledWith(
+      expect(mockEmitSchedulerEvent).toHaveBeenCalledWith(
         'scheduler.job.failed',
         expect.objectContaining({
           error: 'Target queue is required for queue target type',
@@ -537,13 +543,13 @@ describe('LocalSchedulerService', () => {
 
       mockForkedEm.find.mockResolvedValue([schedule])
       mockLockStrategy.tryLock.mockResolvedValue(true)
-      mockLockStrategy.unlock.mockResolvedValue()
+      mockLockStrategy.unlock.mockResolvedValue(undefined)
 
       const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation()
 
       await service.start()
 
-      expect(mockEventBus.emit).toHaveBeenCalledWith(
+      expect(mockEmitSchedulerEvent).toHaveBeenCalledWith(
         'scheduler.job.failed',
         expect.objectContaining({
           error: 'Target command is required for command target type',

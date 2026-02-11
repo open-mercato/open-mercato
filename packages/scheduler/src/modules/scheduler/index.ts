@@ -8,6 +8,9 @@
 // Import commands to trigger registration
 import './commands/jobs.js'
 
+// Import events to register typed event declarations
+import './events.js'
+
 // Export module metadata
 export const metadata = {
   id: 'scheduler',

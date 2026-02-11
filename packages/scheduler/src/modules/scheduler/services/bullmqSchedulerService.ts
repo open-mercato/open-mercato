@@ -4,7 +4,25 @@ import { recalculateNextRun } from '../lib/nextRunCalculator'
 import { parseCronExpression } from '../lib/cronParser'
 import { parseInterval } from '../lib/intervalParser'
 import { getRedisUrl } from '@open-mercato/shared/lib/redis/connection'
-type BullQueue = any
+
+interface BullRepeatableJob {
+  key: string
+  name: string
+  id?: string | null
+}
+
+interface BullRepeatOptions {
+  tz?: string
+  pattern?: string
+  every?: number
+}
+
+interface BullQueue {
+  add(name: string, data: unknown, opts?: unknown): Promise<unknown>
+  getRepeatableJobs?(): Promise<BullRepeatableJob[]>
+  removeRepeatableByKey?(key: string): Promise<boolean>
+  close(): Promise<void>
+}
 
 /**
  * Production scheduler using BullMQ repeatable jobs.
@@ -38,7 +56,7 @@ export class BullMQSchedulerService {
       try {
         const { Queue } = await import('bullmq')
         this.queue = new Queue('scheduler-execution', { connection: { url: getRedisUrl('QUEUE') } })
-      } catch (error: any) {
+      } catch {
         throw new Error('BullMQ is required for async scheduler. Install it with: npm install bullmq')
       }
     }
@@ -129,7 +147,7 @@ export class BullMQSchedulerService {
         pattern: schedule.scheduleValue,
         timezone: schedule.timezone,
       })
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error(`[scheduler:bullmq] Failed to register schedule: ${schedule.id}`, error)
       throw error
     }
@@ -156,7 +174,7 @@ export class BullMQSchedulerService {
       }
 
       console.debug(`[scheduler:bullmq] No repeatable job found for schedule: ${scheduleId}`)
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error(`[scheduler:bullmq] Failed to unregister schedule: ${scheduleId}`, error)
       throw error
     }
@@ -176,8 +194,8 @@ export class BullMQSchedulerService {
     const repeatableJobs = await queue.getRepeatableJobs?.() || []
     const bullmqScheduleIds = new Set<string>(
       repeatableJobs
-        .filter((j: any) => j.id?.startsWith('schedule-') || j.name?.startsWith('schedule-'))
-        .map((j: any) => String(j.id || j.name).replace('schedule-', ''))
+        .filter((j) => j.id?.startsWith('schedule-') || j.name?.startsWith('schedule-'))
+        .map((j) => String(j.id || j.name).replace('schedule-', ''))
     )
 
     // Get enabled schedules from database in batches to avoid unbounded loads
@@ -218,8 +236,8 @@ export class BullMQSchedulerService {
   /**
    * Build BullMQ repeat options from schedule configuration
    */
-  private buildRepeatOptions(schedule: ScheduledJob): any {
-    const opts: any = {
+  private buildRepeatOptions(schedule: ScheduledJob): BullRepeatOptions {
+    const opts: BullRepeatOptions = {
       tz: schedule.timezone || 'UTC',
     }
 

@@ -1,10 +1,16 @@
 import type { EntityManager } from '@mikro-orm/core'
 import type { Queue } from '@open-mercato/queue'
-import type { EventBus } from '@open-mercato/events'
 import { CommandBus } from '@open-mercato/shared/lib/commands'
+import type { CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
 import { ScheduledJob } from '../data/entities'
 import { LocalLockStrategy } from '../lib/localLockStrategy'
 import { recalculateNextRun } from '../lib/nextRunCalculator'
+import { emitSchedulerEvent } from '../events.js'
+import { getGlobalEventBus } from '@open-mercato/shared/modules/events'
+
+export interface RbacServiceLike {
+  tenantHasFeature(tenantId: string | null | undefined, feature: string, opts?: { organizationId?: string | null }): Promise<boolean>
+}
 
 export interface LocalSchedulerConfig {
   pollIntervalMs: number
@@ -38,8 +44,7 @@ export class LocalSchedulerService {
   constructor(
     private em: () => EntityManager,
     private queueFactory: (name: string) => Queue,
-    private eventBus: EventBus,
-    private rbacService: any,
+    private rbacService: RbacServiceLike,
     private config: LocalSchedulerConfig = { pollIntervalMs: 30000 },
   ) {
     this.lockStrategy = new LocalLockStrategy(em)
@@ -118,7 +123,7 @@ export class LocalSchedulerService {
       for (const schedule of dueSchedules) {
         await this.executeSchedule(schedule)
       }
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error('[scheduler:local] Poll failed:', error)
     }
   }
@@ -141,12 +146,12 @@ export class LocalSchedulerService {
       console.log(`[scheduler:local] Executing schedule: ${schedule.name} (${schedule.id})`)
 
       // Emit started event
-      await this.eventBus.emit('scheduler.job.started', {
-        scheduleId: schedule.id,
-        scheduleName: schedule.name,
-        scopeType: schedule.scopeType,
+      await emitSchedulerEvent('scheduler.job.started', {
+        id: schedule.id,
         tenantId: schedule.tenantId,
         organizationId: schedule.organizationId,
+        scheduleName: schedule.name,
+        scopeType: schedule.scopeType,
         triggerType: 'scheduled',
         startedAt: new Date(),
       })
@@ -159,12 +164,12 @@ export class LocalSchedulerService {
           if (!hasFeature) {
             console.log(`[scheduler:local] Schedule ${schedule.name} skipped: missing feature ${schedule.requireFeature}`)
             
-            await this.eventBus.emit('scheduler.job.skipped', {
-              scheduleId: schedule.id,
-              scheduleName: schedule.name,
-              scopeType: schedule.scopeType,
+            await emitSchedulerEvent('scheduler.job.skipped', {
+              id: schedule.id,
               tenantId: schedule.tenantId,
               organizationId: schedule.organizationId,
+              scheduleName: schedule.name,
+              scopeType: schedule.scopeType,
               reason: `Missing required feature: ${schedule.requireFeature}`,
               skippedAt: new Date(),
             })
@@ -208,25 +213,25 @@ export class LocalSchedulerService {
         console.log(`[scheduler:local] ✓ Schedule ${schedule.name} completed successfully`)
 
         // Emit completed event
-        await this.eventBus.emit('scheduler.job.completed', {
-          scheduleId: schedule.id,
-          scheduleName: schedule.name,
-          scopeType: schedule.scopeType,
+        await emitSchedulerEvent('scheduler.job.completed', {
+          id: schedule.id,
           tenantId: schedule.tenantId,
           organizationId: schedule.organizationId,
+          scheduleName: schedule.name,
+          scopeType: schedule.scopeType,
           completedAt: new Date(),
         })
-      } catch (error: any) {
+      } catch (error: unknown) {
         console.error(`[scheduler:local] ✗ Schedule ${schedule.name} failed:`, error)
 
         // Emit failed event
-        await this.eventBus.emit('scheduler.job.failed', {
-          scheduleId: schedule.id,
-          scheduleName: schedule.name,
-          scopeType: schedule.scopeType,
+        await emitSchedulerEvent('scheduler.job.failed', {
+          id: schedule.id,
           tenantId: schedule.tenantId,
           organizationId: schedule.organizationId,
-          error: error.message,
+          scheduleName: schedule.name,
+          scopeType: schedule.scopeType,
+          error: error instanceof Error ? error.message : String(error),
           failedAt: new Date(),
         })
 
@@ -273,23 +278,23 @@ export class LocalSchedulerService {
     const commandBus = new CommandBus()
     
     const commandInput = {
-      ...((schedule.targetPayload as any) || {}),
+      ...((schedule.targetPayload as Record<string, unknown>) || {}),
       tenantId: schedule.tenantId,
       organizationId: schedule.organizationId,
     }
     
     // Build command context with tenant/org scope but no user
     // Commands run without user authentication for scheduled jobs
-    const commandCtx: any = {
+    const commandCtx: CommandRuntimeContext = {
       container: {
         resolve: (name: string) => {
           // Simple resolver that forwards to our dependencies
           if (name === 'em') return this.em()
-          if (name === 'eventBus') return this.eventBus
+          if (name === 'eventBus') return getGlobalEventBus()
           if (name === 'rbacService') return this.rbacService
           throw new Error(`Service not available in scheduler context: ${name}`)
         },
-      },
+      } as CommandRuntimeContext['container'],
       auth: null, // Scheduled commands run without user authentication
       organizationScope: null,
       selectedOrganizationId: schedule.organizationId || null,
@@ -331,7 +336,7 @@ export class LocalSchedulerService {
       )
 
       return hasFeature
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error('[scheduler:local] Feature check failed:', error)
       return false
     }

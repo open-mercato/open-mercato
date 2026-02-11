@@ -33,11 +33,10 @@ export function register(container: AppContainer) {
     })
     // Register MikroORM subscriber for automatic BullMQ sync
     try {
-      const em = container.resolve('em') as any
+      const em = container.resolve<{ getEventManager?: () => { registerSubscriber(s: ScheduledJobSubscriber): void } }>('em')
       if (em && em.getEventManager) {
         const subscriber = new ScheduledJobSubscriber()
-        // Store container reference so subscriber can resolve BullMQ service
-        ;(subscriber as any).__container = container
+        subscriber.setContainer(container)
         em.getEventManager().registerSubscriber(subscriber)
       }
     } catch (error) {
@@ -66,7 +65,6 @@ export function register(container: AppContainer) {
         .inject(() => ({
           em: () => container.resolve('em'),
           queueFactory,
-          eventBus: container.resolve('eventBus'),
           rbacService: container.resolve('rbacService'),
           config: {
             pollIntervalMs: parseInt(process.env.SCHEDULER_POLL_INTERVAL_MS || '30000', 10),

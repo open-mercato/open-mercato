@@ -112,7 +112,7 @@ export class SchedulerService {
         } else {
           await this.bullmqService.unregister(schedule.id)
         }
-      } catch (error: any) {
+      } catch (error: unknown) {
         console.error(`[scheduler] Failed to sync with BullMQ:`, error)
         // Don't throw - DB is source of truth, BullMQ sync is best-effort
       }
@@ -133,7 +133,7 @@ export class SchedulerService {
       if (this.bullmqService) {
         try {
           await this.bullmqService.unregister(scheduleId)
-        } catch (error: any) {
+        } catch (error: unknown) {
           console.error(`[scheduler] Failed to unregister from BullMQ:`, error)
         }
       }
@@ -217,7 +217,7 @@ export class SchedulerService {
         } else {
           await this.bullmqService.unregister(scheduleId)
         }
-      } catch (error: any) {
+      } catch (error: unknown) {
         console.error(`[scheduler] Failed to sync update with BullMQ:`, error)
       }
     }

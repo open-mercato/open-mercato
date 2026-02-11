@@ -65,8 +65,8 @@ export function JobLogsModal({
         `/api/scheduler/queue-jobs/${queueJobId}?queue=${queueName}`
       )
       setJob(result as BullMQJob)
-    } catch (err: any) {
-      setError(err.message || t('scheduler.job_logs.load_failed', 'Failed to load job details'))
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : t('scheduler.job_logs.load_failed', 'Failed to load job details'))
     } finally {
       setLoading(false)
     }

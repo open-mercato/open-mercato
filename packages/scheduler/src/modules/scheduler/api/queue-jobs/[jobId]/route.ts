@@ -33,14 +33,18 @@ export async function GET(
   }
 
   const { jobId } = params
-  const queueName = req.nextUrl.searchParams.get('queue')
 
-  if (!queueName) {
+  // Validate query params with Zod schema
+  const queryResult = queueJobQuerySchema.safeParse({
+    queue: req.nextUrl.searchParams.get('queue') ?? undefined,
+  })
+  if (!queryResult.success) {
     return NextResponse.json(
       { error: translate('scheduler.error.queue_param_required', 'queue parameter required') },
       { status: 400 }
     )
   }
+  const queueName = queryResult.data.queue
 
   // Validate queue name against registered module queues
   const registeredQueues = new Set(

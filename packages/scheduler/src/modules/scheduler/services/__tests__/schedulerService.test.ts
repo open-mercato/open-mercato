@@ -382,7 +382,7 @@ describe('SchedulerService', () => {
       expect(mockEm.find).toHaveBeenCalledWith(ScheduledJob, {
         sourceModule: 'test-module',
         deletedAt: null,
-      })
+      }, { limit: 100 })
     })
 
     it('should return empty array if no schedules found', async () => {

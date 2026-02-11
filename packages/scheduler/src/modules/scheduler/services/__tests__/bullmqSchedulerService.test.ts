@@ -349,7 +349,7 @@ describe('BullMQSchedulerService', () => {
       expect(mockForkedEm.find).toHaveBeenCalledWith(ScheduledJob, {
         isEnabled: true,
         deletedAt: null,
-      })
+      }, { limit: 500, offset: 0 })
       expect(mockQueue.add).toHaveBeenCalledWith(
         'schedule-schedule-2',
         expect.any(Object),

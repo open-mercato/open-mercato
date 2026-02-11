@@ -3,10 +3,10 @@ import { createQueue } from '@open-mercato/queue'
 import { getRedisUrl } from '@open-mercato/shared/lib/redis/connection'
 import type { EntityManager } from '@mikro-orm/core'
 import { ScheduledJob } from '../data/entities'
-import type { EventBus } from '@open-mercato/events'
-import { CommandBus, CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
-import { AwilixContainer } from 'awilix'
-import { AppContainer } from '@open-mercato/shared/lib/di/container.ts'
+import { CommandBus } from '@open-mercato/shared/lib/commands'
+import type { CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
+import type { AppContainer } from '@open-mercato/shared/lib/di/container'
+import { emitSchedulerEvent } from '../events.js'
 
 // Worker metadata for auto-discovery
 export const metadata: WorkerMeta = {
@@ -54,7 +54,7 @@ export default async function executeScheduleWorker(
   })
   
   // Defensive: handle both data and payload for BullMQ compatibility
-  const payload = (job.payload || (job as any).data) as ExecuteSchedulePayload | undefined
+  const payload = (job.payload || (job as unknown as { data?: ExecuteSchedulePayload }).data) as ExecuteSchedulePayload | undefined
   
   if (!payload || !payload.scheduleId) {
     console.error('[scheduler:execute] Invalid job payload:', {
@@ -66,9 +66,8 @@ export default async function executeScheduleWorker(
 
   const { scheduleId } = payload
 
-  const em = ctx.resolve('em') as EntityManager
-  const eventBus = ctx.resolve('eventBus') as EventBus
-  const rbacService = ctx.resolve('rbacService') as any
+  const em = ctx.resolve<EntityManager>('em')
+  const rbacService = ctx.resolve<{ tenantHasFeature(tenantId: string | null | undefined, feature: string): Promise<boolean> }>('rbacService')
 
   // Load fresh schedule from database
   const schedule = await em.findOne(ScheduledJob, { 
@@ -110,37 +109,37 @@ export default async function executeScheduleWorker(
   // Check if schedule is still enabled
   if (!schedule.isEnabled) {
     console.debug(`[scheduler:worker] Schedule is disabled: ${scheduleId}`)
-    await eventBus.emit('scheduler.job.skipped', {
-      scheduleId: schedule.id,
-      reason: 'Schedule is disabled',
+    await emitSchedulerEvent('scheduler.job.skipped', {
+      id: schedule.id,
       tenantId: schedule.tenantId,
       organizationId: schedule.organizationId,
+      reason: 'Schedule is disabled',
     })
     return
   }
 
   // Emit started event
-  await eventBus.emit('scheduler.job.started', {
-    scheduleId: schedule.id,
-    scheduleName: schedule.name,
+  await emitSchedulerEvent('scheduler.job.started', {
+    id: schedule.id,
     tenantId: schedule.tenantId,
     organizationId: schedule.organizationId,
+    scheduleName: schedule.name,
     attemptNumber: ctx.attemptNumber || 1,
   })
 
   // Check feature flag if required
   if (schedule.requireFeature) {
-    const hasFeature = await rbacService.tenantHasFeature(
+      const hasFeature = await rbacService.tenantHasFeature(
       schedule.tenantId,
       schedule.requireFeature
     )
     
     if (!hasFeature) {
-      await eventBus.emit('scheduler.job.skipped', {
-        scheduleId: schedule.id,
-        reason: `Feature not enabled: ${schedule.requireFeature}`,
+      await emitSchedulerEvent('scheduler.job.skipped', {
+        id: schedule.id,
         tenantId: schedule.tenantId,
         organizationId: schedule.organizationId,
+        reason: `Feature not enabled: ${schedule.requireFeature}`,
       })
 
       console.debug(`[scheduler:worker] Schedule skipped - feature not enabled: ${schedule.requireFeature}`)
@@ -181,12 +180,12 @@ export default async function executeScheduleWorker(
     schedule.lastRunAt = new Date()
     await em.flush()
 
-    await eventBus.emit('scheduler.job.completed', {
-      scheduleId: schedule.id,
-      queueJobId: targetJobId,
-      queueName: schedule.targetQueue,
+    await emitSchedulerEvent('scheduler.job.completed', {
+      id: schedule.id,
       tenantId: schedule.tenantId,
       organizationId: schedule.organizationId,
+      queueJobId: targetJobId,
+      queueName: schedule.targetQueue,
     })
 
     console.debug(`[scheduler:worker] Successfully enqueued job`, {
@@ -224,12 +223,12 @@ export default async function executeScheduleWorker(
     schedule.lastRunAt = new Date()
     await em.flush()
     
-    await eventBus.emit('scheduler.job.completed', {
-      scheduleId: schedule.id,
-      commandId: schedule.targetCommand,
-      commandResult: commandResult.result,
+    await emitSchedulerEvent('scheduler.job.completed', {
+      id: schedule.id,
       tenantId: schedule.tenantId,
       organizationId: schedule.organizationId,
+      commandId: schedule.targetCommand,
+      commandResult: commandResult.result,
     })
     
     console.debug(`[scheduler:worker] Successfully executed command`, {

@@ -21,7 +21,7 @@ const listCommand: ModuleCli = {
     const { resolve } = await createRequestContainer()
     const em = resolve('em') as EntityManager
 
-    const where: any = { deletedAt: null }
+    const where: Record<string, unknown> = { deletedAt: null }
 
     // Filter by tenant if provided
     if (args.tenant || args.tenantId) {
@@ -112,7 +112,7 @@ const runCommand: ModuleCli = {
 
     const { resolve } = await createRequestContainer()
     const em = resolve('em') as EntityManager
-    const queueService = resolve('queueService') as any
+    const queueService = resolve('queueService') as { getQueue(name: string): { add(name: string, data: unknown): Promise<unknown> } }
 
     const job = await em.findOne(ScheduledJob, { id: scheduleId, deletedAt: null })
     if (!job) {
@@ -136,8 +136,8 @@ const runCommand: ModuleCli = {
       console.log('  The worker will pick it up and enqueue to:', 
         job.targetType === 'queue' ? job.targetQueue : job.targetCommand)
       console.log('✓ Manual trigger completed\n')
-    } catch (error: any) {
-      console.error('✗ Failed to trigger job:', error.message)
+    } catch (error: unknown) {
+      console.error('✗ Failed to trigger job:', error instanceof Error ? error.message : String(error))
       process.exit(1)
     }
   },
@@ -154,7 +154,7 @@ const startCommand: ModuleCli = {
     if (queueStrategy === 'async') {
       // BullMQ strategy: Sync schedules with BullMQ repeatable jobs
       try {
-        const bullmqService = resolve('bullmqSchedulerService') as any
+        const bullmqService = resolve('bullmqSchedulerService') as { syncAll(): Promise<void> } | undefined
         
         if (!bullmqService) {
           console.error('❌ BullMQSchedulerService not available.')
@@ -171,14 +171,14 @@ const startCommand: ModuleCli = {
         console.log('Start workers to process jobs:')
         console.log('  yarn mercato worker:start')
         console.log('')
-      } catch (error: any) {
-        console.error('❌ Failed to sync schedules:', error.message)
+      } catch (error: unknown) {
+        console.error('❌ Failed to sync schedules:', error instanceof Error ? error.message : String(error))
         process.exit(1)
       }
     } else {
       // Local strategy: Start polling engine
       try {
-        const localService = resolve('localSchedulerService') as any
+        const localService = resolve('localSchedulerService') as { start(): Promise<void>; stop(): Promise<void> } | undefined
         
         if (!localService) {
           console.error('❌ LocalSchedulerService not available.')
@@ -210,8 +210,8 @@ const startCommand: ModuleCli = {
 
         // Keep process alive
         await new Promise(() => {}) // Never resolves
-      } catch (error: any) {
-        console.error('❌ Failed to start local scheduler:', error.message)
+      } catch (error: unknown) {
+        console.error('❌ Failed to start local scheduler:', error instanceof Error ? error.message : String(error))
         process.exit(1)
       }
     }
