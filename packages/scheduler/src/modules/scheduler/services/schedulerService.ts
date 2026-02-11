@@ -226,9 +226,9 @@ export class SchedulerService {
   /**
    * Find schedules by module
    */
-  async findByModule(moduleId: string): Promise<ScheduledJob[]> {
+  async findByModule(moduleId: string, limit = 100): Promise<ScheduledJob[]> {
     const em = this.em()
-    return em.find(ScheduledJob, { sourceModule: moduleId, deletedAt: null })
+    return em.find(ScheduledJob, { sourceModule: moduleId, deletedAt: null }, { limit })
   }
 
   /**

@@ -95,7 +95,7 @@ const crud = makeCrudRoute({
       }
     },
     buildFilters: async (query, ctx) => {
-      const filters: Record<string, any> = {}
+      const filters: Record<string, unknown> = {}
 
       filters.organization_id = { $eq: ctx.auth?.orgId }
 

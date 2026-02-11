@@ -180,11 +180,19 @@ export class BullMQSchedulerService {
         .map((j: any) => String(j.id || j.name).replace('schedule-', ''))
     )
 
-    // Get all enabled schedules from database
-    const dbSchedules = await em.find(ScheduledJob, {
-      isEnabled: true,
-      deletedAt: null,
-    })
+    // Get enabled schedules from database in batches to avoid unbounded loads
+    const BATCH_SIZE = 500
+    const dbSchedules: ScheduledJob[] = []
+    let offset = 0
+    let batch: ScheduledJob[]
+    do {
+      batch = await em.find(ScheduledJob, {
+        isEnabled: true,
+        deletedAt: null,
+      }, { limit: BATCH_SIZE, offset })
+      dbSchedules.push(...batch)
+      offset += BATCH_SIZE
+    } while (batch.length === BATCH_SIZE)
 
     const dbScheduleIds = new Set(dbSchedules.map(s => s.id))
 

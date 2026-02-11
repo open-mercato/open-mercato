@@ -2,6 +2,7 @@ import type { ModuleCli } from '@open-mercato/shared/modules/registry'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { EntityManager } from '@mikro-orm/core'
 import { ScheduledJob } from './data/entities'
+import { parseBooleanToken } from '@open-mercato/shared/lib/boolean'
 
 function parseArgs(rest: string[]): Record<string, string> {
   const args: Record<string, string> = {}
@@ -34,7 +35,10 @@ const listCommand: ModuleCli = {
 
     // Filter by enabled status if provided
     if (args.enabled) {
-      where.isEnabled = args.enabled === 'true' || args.enabled === '1'
+      const parsed = parseBooleanToken(args.enabled)
+      if (parsed !== null) {
+        where.isEnabled = parsed
+      }
     }
 
     const jobs = await em.find(ScheduledJob, where, {

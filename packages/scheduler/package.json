@@ -65,9 +65,15 @@
     "cron-parser": "^4.9.0"
   },
   "peerDependencies": {
-    "ioredis": "^5.0.0"
+    "@mikro-orm/core": "^6.6.2",
+    "bullmq": "^5.0.0",
+    "ioredis": "^5.0.0",
+    "zod": ">=3.23.0"
   },
   "peerDependenciesMeta": {
+    "bullmq": {
+      "optional": true
+    },
     "ioredis": {
       "optional": true
     }

@@ -97,11 +97,14 @@ export class LocalSchedulerService {
     const em = this.em().fork()
 
     try {
-      // Find all enabled schedules that are due
+      // Find enabled schedules that are due (limited to avoid spikes after outages)
       const dueSchedules = await em.find(ScheduledJob, {
         isEnabled: true,
         deletedAt: null,
         nextRunAt: { $lte: new Date() },
+      }, {
+        limit: 100,
+        orderBy: { nextRunAt: 'ASC' },
       })
 
       if (dueSchedules.length === 0) {

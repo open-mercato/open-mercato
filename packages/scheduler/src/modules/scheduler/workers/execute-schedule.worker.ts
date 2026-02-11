@@ -158,10 +158,17 @@ export default async function executeScheduleWorker(
     
     let targetJobId: string | undefined
     try {
+      // Generate a deterministic idempotency key so that if BullMQ retries
+      // this worker after a crash between enqueue and DB flush, downstream
+      // workers can deduplicate using this key.
+      const executionTimestamp = Date.now()
+      const idempotencyKey = `scheduler-${schedule.id}-${executionTimestamp}`
+
       const queuePayload = {
         ...((schedule.targetPayload as Record<string, unknown>) || {}),
         tenantId: schedule.tenantId,
         organizationId: schedule.organizationId,
+        _idempotencyKey: idempotencyKey,
       }
 
       targetJobId = await targetQueue.enqueue(queuePayload)

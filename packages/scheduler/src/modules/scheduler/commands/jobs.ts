@@ -1,5 +1,5 @@
 import { registerCommand } from '@open-mercato/shared/lib/commands'
-import type { CommandHandler } from '@open-mercato/shared/lib/commands'
+import type { CommandHandler, CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
 import { ensureOrganizationScope } from '@open-mercato/shared/lib/commands/scope'
 import type { EntityManager } from '@mikro-orm/core'
 import { ScheduledJob } from '../data/entities.js'
@@ -9,6 +9,7 @@ import type {
   ScheduleUpdateInput,
 } from '../data/validators.js'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
+import type { BullMQSchedulerService } from '../services/bullmqSchedulerService.js'
 
 /**
  * Snapshot of a schedule for undo/redo
@@ -69,9 +70,29 @@ async function loadScheduleSnapshot(
 }
 
 /**
+ * Trigger BullMQ sync after undo operations.
+ * Best-effort: if BullMQ service is unavailable (e.g. local strategy), this is a no-op.
+ */
+async function syncBullMQAfterUndo(ctx: CommandRuntimeContext, schedule: ScheduledJob | null): Promise<void> {
+  try {
+    if (!ctx.container?.resolve) return
+    const bullmqService = ctx.container.resolve<BullMQSchedulerService>('bullmqSchedulerService')
+    if (!bullmqService) return
+
+    if (schedule && schedule.isEnabled && !schedule.deletedAt) {
+      await bullmqService.register(schedule, { skipNextRunUpdate: true })
+    } else if (schedule) {
+      await bullmqService.unregister(schedule.id)
+    }
+  } catch {
+    // Best-effort: BullMQ service may not be registered (local strategy)
+  }
+}
+
+/**
  * Ensure tenant/org scope for security
  */
-function ensureTenantScope(ctx: any, tenantId: string | null | undefined) {
+function ensureTenantScope(ctx: CommandRuntimeContext, tenantId: string | null | undefined) {
   if (tenantId && ctx.auth?.tenantId && ctx.auth.tenantId !== tenantId) {
     throw new Error('Tenant mismatch')
   }
@@ -151,8 +172,8 @@ const createScheduleCommand: CommandHandler<ScheduleCreateInput, { id: string }>
   },
 
   async undo({ logEntry, ctx }) {
-    const payload = logEntry.payload as any
-    const after = payload?.undo?.after as ScheduleSnapshot | undefined
+    const undoPayload = logEntry.payload as { undo?: { after?: ScheduleSnapshot } }
+    const after = undoPayload?.undo?.after
     if (!after) return
 
     const em = ctx.container.resolve<EntityManager>('em').fork()
@@ -160,6 +181,7 @@ const createScheduleCommand: CommandHandler<ScheduleCreateInput, { id: string }>
 
     if (schedule) {
       await em.remove(schedule).flush()
+      await syncBullMQAfterUndo(ctx, schedule)
     }
   },
 }
@@ -259,8 +281,8 @@ const updateScheduleCommand: CommandHandler<ScheduleUpdateInput, { ok: boolean }
   },
 
   async undo({ logEntry, ctx }) {
-    const payload = logEntry.payload as any
-    const before = payload?.undo?.before as ScheduleSnapshot | undefined
+    const undoPayload = logEntry.payload as { undo?: { before?: ScheduleSnapshot; after?: ScheduleSnapshot } }
+    const before = undoPayload?.undo?.before
     if (!before) return
 
     const em = ctx.container.resolve<EntityManager>('em').fork()
@@ -289,6 +311,7 @@ const updateScheduleCommand: CommandHandler<ScheduleUpdateInput, { ok: boolean }
       schedule.updatedAt = new Date()
 
       await em.flush()
+      await syncBullMQAfterUndo(ctx, schedule)
     }
   },
 }
@@ -342,8 +365,8 @@ const deleteScheduleCommand: CommandHandler<{ id: string }, { ok: boolean }> = {
   },
 
   async undo({ logEntry, ctx }) {
-    const payload = logEntry.payload as any
-    const before = payload?.undo?.before as ScheduleSnapshot | undefined
+    const undoPayload = logEntry.payload as { undo?: { before?: ScheduleSnapshot } }
+    const before = undoPayload?.undo?.before
     if (!before) return
 
     const em = ctx.container.resolve<EntityManager>('em').fork()
@@ -354,6 +377,7 @@ const deleteScheduleCommand: CommandHandler<{ id: string }, { ok: boolean }> = {
       schedule.deletedAt = null
       schedule.updatedAt = new Date()
       await em.flush()
+      await syncBullMQAfterUndo(ctx, schedule)
     }
   },
 }

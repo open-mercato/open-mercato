@@ -2,6 +2,7 @@ import { z } from 'zod'
 import { validateCron } from '../lib/cronParser'
 import { validateInterval } from '../lib/intervalParser'
 import { commandRegistry } from '@open-mercato/shared/lib/commands'
+import { parseBooleanToken } from '@open-mercato/shared/lib/boolean'
 
 /**
  * Validate that a command exists in the command registry
@@ -201,7 +202,10 @@ export const scheduleListQuerySchema = z.object({
   id: z.string().uuid().optional(),
   search: z.string().optional(),
   scopeType: z.enum(['system', 'organization', 'tenant']).optional(),
-  isEnabled: z.coerce.boolean().optional(),
+  isEnabled: z.string().optional().transform((val) => {
+    if (val === undefined) return undefined
+    return parseBooleanToken(val) ?? undefined
+  }),
   sourceType: z.enum(['user', 'module']).optional(),
   sourceModule: z.string().optional(),
   sort: z.string().optional(),
