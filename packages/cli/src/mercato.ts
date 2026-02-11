@@ -8,6 +8,7 @@ import type { Module } from '@open-mercato/shared/modules/registry'
 import { getCliModules, hasCliModules, registerCliModules } from './registry'
 export { getCliModules, hasCliModules, registerCliModules }
 import { parseBooleanToken } from '@open-mercato/shared/lib/boolean'
+import { getRedisUrl } from '@open-mercato/shared/lib/redis/connection'
 import { resolveInitDerivedSecrets } from './lib/init-secrets'
 import type { ChildProcess } from 'node:child_process'
 import path from 'node:path'
@@ -214,8 +215,7 @@ export async function run(argv = process.argv) {
         // Also flush Redis
         try {
           const Redis = (await import('ioredis')).default
-          const redisUrl = process.env.REDIS_URL || 'redis://localhost:6379'
-          const redis = new Redis(redisUrl)
+          const redis = new Redis(getRedisUrl())
           await redis.flushall()
           await redis.quit()
           console.log('   Redis flushed.')
@@ -556,7 +556,7 @@ export async function run(argv = process.argv) {
 
               await runWorker({
                 queueName: queue,
-                connection: { url: process.env.REDIS_URL || process.env.QUEUE_REDIS_URL },
+                connection: { url: getRedisUrl('QUEUE') },
                 concurrency,
                 background: true,
                 handler: async (job, ctx) => {
@@ -586,7 +586,7 @@ export async function run(argv = process.argv) {
 
               await runWorker({
                 queueName: queueName!,
-                connection: { url: process.env.REDIS_URL || process.env.QUEUE_REDIS_URL },
+                connection: { url: getRedisUrl('QUEUE') },
                 concurrency,
                 handler: async (job, ctx) => {
                   for (const worker of queueWorkers) {
@@ -617,7 +617,7 @@ export async function run(argv = process.argv) {
 
           const queue = strategyEnv === 'async'
             ? createQueue(queueName, 'async', {
-                connection: { url: process.env.REDIS_URL || process.env.QUEUE_REDIS_URL },
+                connection: { url: getRedisUrl('QUEUE') },
               })
             : createQueue(queueName, 'local')
 
@@ -640,7 +640,7 @@ export async function run(argv = process.argv) {
 
           const queue = strategyEnv === 'async'
             ? createQueue(queueName, 'async', {
-                connection: { url: process.env.REDIS_URL || process.env.QUEUE_REDIS_URL },
+                connection: { url: getRedisUrl('QUEUE') },
               })
             : createQueue(queueName, 'local')
 

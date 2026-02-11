@@ -5,7 +5,8 @@ import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { EntityManager } from '@mikro-orm/core'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { ScheduledJob } from '../../../../data/entities.js'
-import { getRedisConnection } from '../../../../lib/redisConnection.js'
+import { getRedisUrl } from '@open-mercato/shared/lib/redis/connection'
+
 
 export const metadata = {
   requireAuth: true,
@@ -65,8 +66,7 @@ export async function GET(
 
     // Fetch jobs from BullMQ scheduler-execution queue
     const { Queue } = await import('bullmq')
-    const connection = getRedisConnection()
-    const queue = new Queue('scheduler-execution', { connection })
+    const queue = new Queue('scheduler-execution', { connection: { url: getRedisUrl('QUEUE') } })
 
     try {
       // Get completed and failed jobs

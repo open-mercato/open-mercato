@@ -1,6 +1,4 @@
 export const metadata = {
-  title: 'Schedule Details',
-  description: 'View schedule configuration and execution history',
   requireAuth: true,
   requireFeatures: ['scheduler.jobs.view'],
   navHidden: true,
@@ -11,5 +9,3 @@ export const metadata = {
     { label: 'Schedule Details', labelKey: 'scheduler.details.title' },
   ],
 }
-
-export default metadata

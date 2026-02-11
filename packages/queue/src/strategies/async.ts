@@ -1,8 +1,9 @@
 import type { Queue, QueuedJob, JobHandler, AsyncQueueOptions, ProcessResult } from '../types'
+import { getRedisUrl, parseRedisUrl } from '@open-mercato/shared/lib/redis/connection'
 
 // BullMQ interface types - we define the shape we use to maintain type safety
 // while keeping bullmq as an optional peer dependency
-type ConnectionOptions = { host?: string; port?: number; password?: string } | string
+type ConnectionOptions = { host?: string; port?: number; password?: string; db?: number } | string
 
 interface BullQueueInterface<T> {
   add: (name: string, data: T, opts?: { removeOnComplete?: boolean; removeOnFail?: number }) => Promise<{ id?: string }>
@@ -29,11 +30,9 @@ interface BullMQModule {
  * Resolves Redis connection options from various sources.
  */
 function resolveConnection(options?: AsyncQueueOptions['connection']): ConnectionOptions {
-  // Priority: explicit options > environment variables
-  const url = options?.url ?? process.env.REDIS_URL ?? process.env.QUEUE_REDIS_URL
-
-  if (url) {
-    return url
+  // Priority: explicit options > shared env helper
+  if (options?.url) {
+    return options.url
   }
 
   if (options?.host) {
@@ -44,8 +43,9 @@ function resolveConnection(options?: AsyncQueueOptions['connection']): Connectio
     }
   }
 
-  // Default to localhost
-  return { host: 'localhost', port: 6379 }
+  // Delegate env var resolution to the shared helper
+  const url = getRedisUrl('QUEUE')
+  return parseRedisUrl(url)
 }
 
 /**

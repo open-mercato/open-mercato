@@ -15,11 +15,7 @@ jest.mock('bullmq', () => ({
   Queue: mockQueueConstructor,
 }))
 
-// Mock redis connection module
-jest.mock('../../lib/redisConnection', () => ({
-  getRedisUrl: jest.fn(() => 'redis://localhost:6379'),
-  parseRedisUrl: jest.fn((url) => ({ host: 'localhost', port: 6379 })),
-}))
+
 
 describe('BullMQSchedulerService', () => {
   let service: BullMQSchedulerService

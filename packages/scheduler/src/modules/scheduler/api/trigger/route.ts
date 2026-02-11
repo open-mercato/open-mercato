@@ -5,6 +5,7 @@ import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { EntityManager } from '@mikro-orm/core'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { createQueue } from '@open-mercato/queue'
+import { getRedisUrl } from '@open-mercato/shared/lib/redis/connection'
 import { ScheduledJob } from '../../data/entities.js'
 import { scheduleTriggerSchema } from '../../data/validators.js'
 import type { ExecuteSchedulePayload } from '../../workers/execute-schedule.worker.js'
@@ -68,7 +69,7 @@ export async function POST(req: NextRequest) {
 
     // Enqueue execution job to scheduler-execution queue
     const executionQueue = createQueue<ExecuteSchedulePayload>('scheduler-execution', queueStrategy, {
-      connection: { url: process.env.REDIS_URL || process.env.QUEUE_REDIS_URL },
+      connection: { url: getRedisUrl('QUEUE') },
     })
 
     const payload: ExecuteSchedulePayload = {
