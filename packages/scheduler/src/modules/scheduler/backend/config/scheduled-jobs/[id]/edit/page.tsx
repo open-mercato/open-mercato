@@ -5,13 +5,13 @@ import { useRouter } from 'next/navigation'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { CrudForm, type CrudField, type CrudFormGroup } from '@open-mercato/ui/backend/CrudForm'
 import { updateCrud } from '@open-mercato/ui/backend/utils/crud'
-import { apiCallOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
+import { apiCall, apiCallOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 import { LoadingMessage, ErrorMessage } from '@open-mercato/ui/backend/detail'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { Switch } from '@open-mercato/ui/primitives/switch'
 import { z } from 'zod'
-import { Input } from '@open-mercato/ui/primitives/input'
+import { ComboboxInput, type ComboboxOption } from '@open-mercato/ui/backend/inputs/ComboboxInput'
 import { Label } from '@open-mercato/ui/primitives/label'
 
 type ScheduleFormValues = {
@@ -43,6 +43,11 @@ type ScheduleData = {
   isEnabled: boolean
 }
 
+type TargetOptions = {
+  queues: ComboboxOption[]
+  commands: ComboboxOption[]
+}
+
 export default function EditSchedulePage({ params }: { params: { id: string } }) {
   const t = useT()
   const router = useRouter()
@@ -50,6 +55,33 @@ export default function EditSchedulePage({ params }: { params: { id: string } })
   const [error, setError] = React.useState<string | null>(null)
   const [initialData, setInitialData] = React.useState<Partial<ScheduleFormValues> | null>(null)
   const [isEnabled, setIsEnabled] = React.useState(false)
+  const targetOptionsRef = React.useRef<TargetOptions | null>(null)
+
+  const loadTargetOptions = React.useCallback(async (): Promise<TargetOptions> => {
+    if (targetOptionsRef.current) return targetOptionsRef.current
+    try {
+      const { result } = await apiCall<TargetOptions>('/api/scheduler/targets')
+      const options = result ?? { queues: [], commands: [] }
+      targetOptionsRef.current = options
+      return options
+    } catch {
+      return { queues: [], commands: [] }
+    }
+  }, [])
+
+  const loadQueueOptions = React.useCallback(async (query?: string): Promise<ComboboxOption[]> => {
+    const options = await loadTargetOptions()
+    if (!query) return options.queues
+    const lower = query.toLowerCase()
+    return options.queues.filter((q) => q.label.toLowerCase().includes(lower))
+  }, [loadTargetOptions])
+
+  const loadCommandOptions = React.useCallback(async (query?: string): Promise<ComboboxOption[]> => {
+    const options = await loadTargetOptions()
+    if (!query) return options.commands
+    const lower = query.toLowerCase()
+    return options.commands.filter((c) => c.label.toLowerCase().includes(lower))
+  }, [loadTargetOptions])
 
   // Load timezone options - filtering on query for better performance
   const loadTimezoneOptions = React.useCallback(async (query?: string) => {
@@ -210,28 +242,30 @@ export default function EditSchedulePage({ params }: { params: { id: string } })
           return (
             <div className="space-y-4">
               {targetType === 'queue' && (
-                <div>
+                <div className="space-y-1">
                   <Label htmlFor="targetQueue">
                     {t('scheduler.form.target_queue', 'Target Queue')}
                   </Label>
-                  <Input
-                    id="targetQueue"
-                    placeholder={t('scheduler.form.target_queue.placeholder', 'e.g. email-sender')}
+                  <ComboboxInput
                     value={targetQueue}
-                    onChange={(e) => setFormValue && setFormValue('targetQueue', e.target.value)}
+                    onChange={(next) => setFormValue && setFormValue('targetQueue', next)}
+                    placeholder={t('scheduler.form.target_queue.placeholder', 'Search queues...')}
+                    loadSuggestions={loadQueueOptions}
+                    allowCustomValues={true}
                   />
                 </div>
               )}
               {targetType === 'command' && (
-                <div>
+                <div className="space-y-1">
                   <Label htmlFor="targetCommand">
                     {t('scheduler.form.target_command', 'Target Command')}
                   </Label>
-                  <Input
-                    id="targetCommand"
-                    placeholder={t('scheduler.form.target_command.placeholder', 'e.g. sync:data')}
+                  <ComboboxInput
                     value={targetCommand}
-                    onChange={(e) => setFormValue && setFormValue('targetCommand', e.target.value)}
+                    onChange={(next) => setFormValue && setFormValue('targetCommand', next)}
+                    placeholder={t('scheduler.form.target_command.placeholder', 'Search commands...')}
+                    loadSuggestions={loadCommandOptions}
+                    allowCustomValues={false}
                   />
                 </div>
               )}
@@ -247,7 +281,7 @@ export default function EditSchedulePage({ params }: { params: { id: string } })
         description: t('scheduler.form.target_payload.description', 'Optional JSON object with arguments to pass to the command or queue job. Must be valid JSON format.'),
       },
     ],
-    [t, loadTimezoneOptions]
+    [t, loadTimezoneOptions, loadQueueOptions, loadCommandOptions]
   )
 
   const groups = React.useMemo<CrudFormGroup[]>(

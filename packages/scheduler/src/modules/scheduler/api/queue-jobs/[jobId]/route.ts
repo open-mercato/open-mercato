@@ -3,6 +3,7 @@ import { z } from 'zod'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { getRedisUrl } from '@open-mercato/shared/lib/redis/connection'
+import { getModules } from '@open-mercato/shared/lib/modules/registry'
 
 
 export const metadata = {
@@ -39,9 +40,11 @@ export async function GET(
     )
   }
 
-  // Validate queue name against allowlist of known scheduler queues
-  const ALLOWED_QUEUES = ['scheduler-execution']
-  if (!ALLOWED_QUEUES.includes(queueName)) {
+  // Validate queue name against registered module queues
+  const registeredQueues = new Set(
+    getModules().flatMap((m) => m.workers?.map((w) => w.queue) ?? [])
+  )
+  if (!registeredQueues.has(queueName)) {
     return NextResponse.json(
       { error: 'Invalid queue name' },
       { status: 400 }
