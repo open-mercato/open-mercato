@@ -2,6 +2,9 @@ import * as esbuild from 'esbuild'
 import { glob } from 'glob'
 import { readFileSync, writeFileSync, existsSync, watch as fsWatch } from 'node:fs'
 import { dirname, join, basename } from 'node:path'
+import { platform } from 'node:os'
+
+const isWindows = platform() === 'win32'
 
 /**
  * Add .js extensions to relative imports in a compiled file
@@ -13,12 +16,11 @@ function addJsExtensionsToFile(filePath) {
   let modified = false
 
   // Add .js to relative imports that don't have an extension
-  const newContent1 = content.replace(
+  content = content.replace(
     /from\s+["'](\.[^"']+)["']/g,
     (match, path) => {
       if (path.endsWith('.js') || path.endsWith('.json')) return match
       modified = true
-      // Check if it's a directory with index.js
       const resolvedPath = join(fileDir, path)
       if (existsSync(resolvedPath) && existsSync(join(resolvedPath, 'index.js'))) {
         return `from "${path}/index.js"`
@@ -26,14 +28,12 @@ function addJsExtensionsToFile(filePath) {
       return `from "${path}.js"`
     }
   )
-  content = newContent1
 
   content = content.replace(
     /import\s*\(\s*["'](\.[^"']+)["']\s*\)/g,
     (match, path) => {
       if (path.endsWith('.js') || path.endsWith('.json')) return match
       modified = true
-      // Check if it's a directory with index.js
       const resolvedPath = join(fileDir, path)
       if (existsSync(resolvedPath) && existsSync(join(resolvedPath, 'index.js'))) {
         return `import("${path}/index.js")`
@@ -48,7 +48,6 @@ function addJsExtensionsToFile(filePath) {
     (match, path) => {
       if (path.endsWith('.js') || path.endsWith('.json')) return match
       modified = true
-      // Check if it's a directory with index.js
       const resolvedPath = join(fileDir, path)
       if (existsSync(resolvedPath) && existsSync(join(resolvedPath, 'index.js'))) {
         return `import "${path}/index.js";`
@@ -112,18 +111,42 @@ export async function watch(packageDir) {
     logLevel: 'warning',
   })
 
-  // Don't trigger initial build - assume build:packages already ran and files have .js extensions
-  // Instead, watch src directory for changes and rebuild only when files change
   console.log(`[watch] ${packageName}: watching for changes...`)
 
+  if (isWindows) {
+    // On Windows, esbuild's ctx.watch() triggers an initial rebuild whose onEnd hook
+    // (adding .js extensions) races with the dev server loading modules. Use a manual
+    // fs.watch so that we only rebuild when source files actually change.
+    await watchWithFsWatcher(ctx, packageDir, packageName)
+  } else {
+    // On Linux/macOS, ctx.watch() works reliably — the initial rebuild completes
+    // before the dev server tries to load modules.
+    await ctx.watch()
+  }
+
+  // Handle graceful shutdown
+  const cleanup = async () => {
+    console.log(`\n[watch] ${packageName}: stopping...`)
+    await ctx.dispose()
+    process.exit(0)
+  }
+
+  process.on('SIGINT', cleanup)
+  process.on('SIGTERM', cleanup)
+}
+
+/**
+ * Windows-specific watcher using Node.js fs.watch instead of esbuild's built-in watch.
+ * Avoids the initial-rebuild race condition where the dev server loads modules before
+ * the onEnd hook has finished adding .js extensions.
+ */
+async function watchWithFsWatcher(ctx, packageDir, packageName) {
   const srcDir = join(packageDir, 'src')
   let rebuildTimeout = null
   let isRebuilding = false
 
-  // Debounced rebuild function
   const triggerRebuild = async () => {
     if (isRebuilding) return
-
     isRebuilding = true
     try {
       console.log(`[watch] ${packageName}: rebuilding...`)
@@ -136,30 +159,17 @@ export async function watch(packageDir) {
     }
   }
 
-  // Watch for file changes using Node.js fs.watch
-  const watcher = fsWatch(srcDir, { recursive: true }, (eventType, filename) => {
+  const onFileChange = (_eventType, filename) => {
     if (!filename) return
-    // Only watch .ts and .tsx files
     if (!filename.endsWith('.ts') && !filename.endsWith('.tsx')) return
-    // Ignore test files
     if (filename.includes('__tests__') || filename.includes('.test.')) return
 
-    // Debounce rebuilds to avoid multiple rapid rebuilds
     if (rebuildTimeout) clearTimeout(rebuildTimeout)
     rebuildTimeout = setTimeout(triggerRebuild, 100)
-  })
-
-  // Handle graceful shutdown
-  const cleanup = async () => {
-    console.log(`\n[watch] ${packageName}: stopping...`)
-    watcher.close()
-    if (rebuildTimeout) clearTimeout(rebuildTimeout)
-    await ctx.dispose()
-    process.exit(0)
   }
 
-  process.on('SIGINT', cleanup)
-  process.on('SIGTERM', cleanup)
+  // Windows supports recursive fs.watch natively
+  fsWatch(srcDir, { recursive: true }, onFileChange)
 
   // Keep the process alive
   await new Promise(() => {})
