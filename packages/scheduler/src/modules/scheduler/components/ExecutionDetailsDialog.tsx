@@ -77,14 +77,14 @@ export function ExecutionDetailsDialog({
               <Label className="text-sm font-medium text-muted-foreground">{t('scheduler.execution.status', 'Status')}</Label>
               <div className="mt-1">
                 <Badge variant={getStatusBadgeVariant(run.status)}>
-                  {run.status}
+                  {t(`scheduler.execution_status.${run.status}`, run.status)}
                 </Badge>
               </div>
             </div>
 
             <div>
               <Label className="text-sm font-medium text-muted-foreground">{t('scheduler.execution.trigger_type', 'Trigger Type')}</Label>
-              <p className="mt-1 text-sm capitalize">{run.triggerType}</p>
+              <p className="mt-1 text-sm">{t(`scheduler.trigger_type.${run.triggerType}`, run.triggerType)}</p>
             </div>
 
             <div>

@@ -9,6 +9,7 @@ import { getRedisUrl } from '@open-mercato/shared/lib/redis/connection'
 import { ScheduledJob } from '../../data/entities.js'
 import { scheduleTriggerSchema } from '../../data/validators.js'
 import type { ExecuteSchedulePayload } from '../../workers/execute-schedule.worker.js'
+import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 
 export const metadata = {
   requireAuth: true,
@@ -23,9 +24,10 @@ export const metadata = {
  * Execution history is tracked in BullMQ job state.
  */
 export async function POST(req: NextRequest) {
+  const { translate } = await resolveTranslations()
   const auth = await getAuthFromRequest(req)
   if (!auth?.sub) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    return NextResponse.json({ error: translate('scheduler.error.unauthorized', 'Unauthorized') }, { status: 401 })
   }
 
   const container = await createRequestContainer()
@@ -52,7 +54,7 @@ export async function POST(req: NextRequest) {
     const schedule = await em.findOne(ScheduledJob, findFilter)
 
     if (!schedule) {
-      return NextResponse.json({ error: 'Schedule not found' }, { status: 404 })
+      return NextResponse.json({ error: translate('scheduler.error.not_found', 'Schedule not found') }, { status: 404 })
     }
 
     // System-scoped schedules (no tenantId/orgId) require superadmin
@@ -60,7 +62,7 @@ export async function POST(req: NextRequest) {
       (role) => typeof role === 'string' && role.trim().toLowerCase() === 'superadmin'
     )
     if (!schedule.tenantId && !schedule.organizationId && !isSuperAdmin) {
-      return NextResponse.json({ error: 'Access denied' }, { status: 403 })
+      return NextResponse.json({ error: translate('scheduler.error.access_denied', 'Access denied') }, { status: 403 })
     }
 
     // Check if using async queue strategy
@@ -69,8 +71,8 @@ export async function POST(req: NextRequest) {
     if (queueStrategy !== 'async') {
       return NextResponse.json(
         { 
-          error: 'Manual trigger requires QUEUE_STRATEGY=async',
-          message: 'Execution history and manual triggers are only available with BullMQ (async strategy)'
+          error: translate('scheduler.error.trigger_async_required', 'Manual trigger requires QUEUE_STRATEGY=async'),
+          message: translate('scheduler.error.trigger_async_hint', 'Execution history and manual triggers are only available with BullMQ (async strategy)')
         },
         { status: 400 }
       )
@@ -103,13 +105,13 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({
       ok: true,
       jobId, // BullMQ job ID
-      message: 'Schedule queued for execution',
+      message: translate('scheduler.success.triggered', 'Schedule queued for execution'),
     })
 
   } catch (error) {
     console.error('[scheduler:trigger] Error:', error)
     return NextResponse.json(
-      { error: error instanceof Error ? error.message : 'Failed to trigger schedule' },
+      { error: error instanceof Error ? error.message : translate('scheduler.error.trigger_failed', 'Failed to trigger schedule') },
       { status: 400 }
     )
   }

@@ -6,6 +6,7 @@ import type { EntityManager } from '@mikro-orm/core'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { ScheduledJob } from '../../../../data/entities.js'
 import { getRedisUrl } from '@open-mercato/shared/lib/redis/connection'
+import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 
 
 export const metadata = {
@@ -24,9 +25,10 @@ export async function GET(
   req: NextRequest,
   { params }: { params: { id: string } }
 ) {
+  const { translate } = await resolveTranslations()
   const auth = await getAuthFromRequest(req)
   if (!auth?.sub) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    return NextResponse.json({ error: translate('scheduler.error.unauthorized', 'Unauthorized') }, { status: 401 })
   }
 
   const container = await createRequestContainer()
@@ -52,7 +54,7 @@ export async function GET(
     const schedule = await em.findOne(ScheduledJob, findFilter)
 
     if (!schedule) {
-      return NextResponse.json({ error: 'Schedule not found' }, { status: 404 })
+      return NextResponse.json({ error: translate('scheduler.error.not_found', 'Schedule not found') }, { status: 404 })
     }
 
     // System-scoped schedules (no tenantId/orgId) require superadmin
@@ -60,15 +62,15 @@ export async function GET(
       (role) => typeof role === 'string' && role.trim().toLowerCase() === 'superadmin'
     )
     if (!schedule.tenantId && !schedule.organizationId && !isSuperAdmin) {
-      return NextResponse.json({ error: 'Access denied' }, { status: 403 })
+      return NextResponse.json({ error: translate('scheduler.error.access_denied', 'Access denied') }, { status: 403 })
     }
 
     // Check if using async strategy
     const queueStrategy = process.env.QUEUE_STRATEGY || 'local'
     if (queueStrategy !== 'async') {
       return NextResponse.json({
-        error: 'Execution history requires QUEUE_STRATEGY=async',
-        message: 'Please set QUEUE_STRATEGY=async to view execution history',
+        error: translate('scheduler.error.async_strategy_required', 'Execution history requires QUEUE_STRATEGY=async'),
+        message: translate('scheduler.error.async_strategy_hint', 'Please set QUEUE_STRATEGY=async to view execution history'),
         items: [],
       }, { status: 400 })
     }
@@ -138,10 +140,10 @@ export async function GET(
       await queue.close()
     }
 
-  } catch (error: any) {
+  } catch (error: unknown) {
     console.error('[scheduler:executions] Error fetching execution history:', error)
     return NextResponse.json(
-      { error: error.message || 'Failed to fetch execution history' },
+      { error: error instanceof Error ? error.message : translate('scheduler.error.fetch_executions_failed', 'Failed to fetch execution history') },
       { status: 500 }
     )
   }

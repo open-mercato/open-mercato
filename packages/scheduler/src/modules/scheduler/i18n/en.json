@@ -105,7 +105,20 @@
       "delete_failed": "Failed to delete schedule",
       "trigger_failed": "Failed to trigger schedule",
       "update_failed": "Failed to update schedule",
-      "invalidPayload": "Invalid JSON payload"
+      "invalidPayload": "Invalid JSON payload",
+      "unauthorized": "Unauthorized",
+      "access_denied": "Access denied",
+      "forbidden": "Forbidden",
+      "queue_param_required": "queue parameter required",
+      "invalid_queue_name": "Invalid queue name",
+      "async_strategy_required": "Execution history requires QUEUE_STRATEGY=async",
+      "async_strategy_hint": "Please set QUEUE_STRATEGY=async to view execution history",
+      "bullmq_required": "BullMQ job logs are only available with QUEUE_STRATEGY=async",
+      "job_not_found": "Job not found in BullMQ (may have been removed)",
+      "fetch_executions_failed": "Failed to fetch execution history",
+      "fetch_job_failed": "Failed to fetch job details",
+      "trigger_async_required": "Manual trigger requires QUEUE_STRATEGY=async",
+      "trigger_async_hint": "Execution history and manual triggers are only available with BullMQ (async strategy)"
     },
     "details": {
       "configuration": "Configuration",
@@ -120,6 +133,17 @@
       "triggering": "Triggering...",
       "error": "Error",
       "not_found": "Not Found"
+    },
+    "execution_status": {
+      "completed": "Completed",
+      "failed": "Failed",
+      "running": "Running",
+      "skipped": "Skipped",
+      "waiting": "Waiting"
+    },
+    "trigger_type": {
+      "scheduled": "Scheduled",
+      "manual": "Manual"
     },
     "execution": {
       "details_title": "Execution Details",

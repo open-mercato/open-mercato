@@ -182,7 +182,7 @@ export default function ScheduleDetailPage() {
           row.original.status === 'failed' ? 'destructive' :
           row.original.status === 'skipped' ? 'secondary' : 'outline'
         }>
-          {row.original.status}
+          {t(`scheduler.execution_status.${row.original.status}`, row.original.status)}
         </Badge>
       ),
     },
@@ -197,7 +197,7 @@ export default function ScheduleDetailPage() {
     {
       accessorKey: 'triggerType',
       header: t('scheduler.execution.trigger', 'Trigger'),
-      cell: ({ row }) => row.original.triggerType,
+      cell: ({ row }) => t(`scheduler.trigger_type.${row.original.triggerType}`, row.original.triggerType),
     },
     {
       id: 'actions',

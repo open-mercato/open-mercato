@@ -4,6 +4,7 @@ import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { getRedisUrl } from '@open-mercato/shared/lib/redis/connection'
 import { getModules } from '@open-mercato/shared/lib/modules/registry'
+import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 
 
 export const metadata = {
@@ -25,9 +26,10 @@ export async function GET(
   req: NextRequest,
   { params }: { params: { jobId: string } }
 ) {
+  const { translate } = await resolveTranslations()
   const auth = await getAuthFromRequest(req)
   if (!auth?.sub) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    return NextResponse.json({ error: translate('scheduler.error.unauthorized', 'Unauthorized') }, { status: 401 })
   }
 
   const { jobId } = params
@@ -35,7 +37,7 @@ export async function GET(
 
   if (!queueName) {
     return NextResponse.json(
-      { error: 'queue parameter required' },
+      { error: translate('scheduler.error.queue_param_required', 'queue parameter required') },
       { status: 400 }
     )
   }
@@ -46,7 +48,7 @@ export async function GET(
   )
   if (!registeredQueues.has(queueName)) {
     return NextResponse.json(
-      { error: 'Invalid queue name' },
+      { error: translate('scheduler.error.invalid_queue_name', 'Invalid queue name') },
       { status: 400 }
     )
   }
@@ -56,7 +58,7 @@ export async function GET(
     const queueStrategy = process.env.QUEUE_STRATEGY || 'local'
     if (queueStrategy !== 'async') {
       return NextResponse.json({
-        error: 'BullMQ job logs are only available with QUEUE_STRATEGY=async',
+        error: translate('scheduler.error.bullmq_required', 'BullMQ job logs are only available with QUEUE_STRATEGY=async'),
         available: false,
       }, { status: 400 })
     }
@@ -70,7 +72,7 @@ export async function GET(
     if (!job) {
       await queue.close()
       return NextResponse.json(
-        { error: 'Job not found in BullMQ (may have been removed)' },
+        { error: translate('scheduler.error.job_not_found', 'Job not found in BullMQ (may have been removed)') },
         { status: 404 }
       )
     }
@@ -89,19 +91,19 @@ export async function GET(
     )
     if (!jobTenantId && !jobOrgId && !isSuperAdmin) {
       await queue.close()
-      return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+      return NextResponse.json({ error: translate('scheduler.error.forbidden', 'Forbidden') }, { status: 403 })
     }
 
     // Deny access to jobs belonging to a different tenant
     if (jobTenantId && auth.tenantId && jobTenantId !== auth.tenantId) {
       await queue.close()
-      return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+      return NextResponse.json({ error: translate('scheduler.error.forbidden', 'Forbidden') }, { status: 403 })
     }
 
     // Deny access to jobs belonging to a different organization
     if (jobOrgId && auth.orgId && jobOrgId !== auth.orgId) {
       await queue.close()
-      return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+      return NextResponse.json({ error: translate('scheduler.error.forbidden', 'Forbidden') }, { status: 403 })
     }
 
     // Get job state and logs
@@ -124,10 +126,10 @@ export async function GET(
       finishedOn: job.finishedOn ? new Date(job.finishedOn).toISOString() : null,
       logs: logs.logs || [],
     })
-  } catch (error: any) {
+  } catch (error: unknown) {
     console.error('[scheduler:queue-jobs] Error fetching job:', error)
     return NextResponse.json(
-      { error: error.message || 'Failed to fetch job details' },
+      { error: error instanceof Error ? error.message : translate('scheduler.error.fetch_job_failed', 'Failed to fetch job details') },
       { status: 500 }
     )
   }
