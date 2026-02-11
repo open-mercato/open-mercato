@@ -591,7 +591,7 @@ export default function VisualEditorPage() {
   return (
     <Page className="space-y-0 overflow-x-hidden">
       {/* Page Header */}
-      <div className="shrink-0 border-b border-gray-200 bg-white px-3 py-2 md:px-6 md:py-3">
+      <div className="shrink-0 border-b border-border bg-background px-3 py-2 md:px-6 md:py-3">
         <FormHeader
           mode="detail"
           backHref="/backend/definitions"
@@ -673,8 +673,8 @@ export default function VisualEditorPage() {
       {/* Workflow Metadata Form */}
       {showMetadata && (
         <div className={isCompactViewport
-          ? 'shrink-0 border-b border-gray-200 bg-white px-3 py-2 max-h-[60svh] overflow-y-auto overscroll-contain md:px-6 md:py-3'
-          : 'shrink-0 border-b border-gray-200 bg-white px-3 py-2 md:px-6 md:py-3'
+          ? 'shrink-0 border-b border-border bg-background px-3 py-2 max-h-[60svh] overflow-y-auto overscroll-contain md:px-6 md:py-3'
+          : 'shrink-0 border-b border-border bg-background px-3 py-2 md:px-6 md:py-3'
         }>
           <div className="rounded-lg border bg-card p-3 md:p-4">
             <h2 className="mb-3 text-xs font-semibold uppercase text-muted-foreground">{t('workflows.visualEditor.workflowMetadata')}</h2>
@@ -835,11 +835,11 @@ export default function VisualEditorPage() {
             {nodes.length === 0 && (
               <div className="pointer-events-none absolute inset-0 flex items-center justify-center px-4">
                 <div className="text-center">
-                  <h2 className="mb-2 text-lg font-semibold text-gray-900">Start Building Your Workflow</h2>
-                  <p className="mb-4 text-sm text-gray-600">Tap a step type below to add it to the canvas</p>
+                  <h2 className="mb-2 text-lg font-semibold text-foreground">Start Building Your Workflow</h2>
+                  <p className="mb-4 text-sm text-muted-foreground">Tap a step type below to add it to the canvas</p>
                   <button
                     onClick={handleLoadExample}
-                    className="pointer-events-auto text-sm text-blue-600 hover:underline"
+                    className="pointer-events-auto text-sm text-primary hover:underline"
                   >
                     Load an example workflow
                   </button>
@@ -859,7 +859,7 @@ export default function VisualEditorPage() {
                   <button
                     key={nodeType}
                     onClick={() => handleAddNode(nodeType)}
-                    className="flex shrink-0 items-center gap-1 rounded-md border bg-white px-2 py-1 text-xs hover:bg-gray-50 active:bg-gray-100"
+                    className="flex shrink-0 items-center gap-1 rounded-md border bg-background px-2 py-1 text-xs hover:bg-muted active:bg-muted/80"
                   >
                     <Icon className="h-3.5 w-3.5" />
                     <span>{NODE_TYPE_LABELS[nodeType].title}</span>
@@ -870,9 +870,9 @@ export default function VisualEditorPage() {
           </div>
         </div>
       ) : (
-        <div className="flex min-h-[72svh] min-w-0 flex-1 border-t border-gray-200">
+        <div className="flex min-h-[72svh] min-w-0 flex-1 border-t border-border">
           {/* Left Sidebar - Step Palette */}
-          <div className="w-[24rem] shrink-0 overflow-y-auto border-r border-gray-200 bg-white p-6">
+          <div className="w-[24rem] shrink-0 overflow-y-auto border-r border-border bg-background p-6">
             <div className="rounded-lg border bg-card p-4">
               <h2 className="mb-2 text-sm font-semibold uppercase text-muted-foreground">Step Palette</h2>
               <p className="mb-4 text-xs text-muted-foreground">
@@ -883,7 +883,7 @@ export default function VisualEditorPage() {
                 {/* START Step */}
                 <button
                   onClick={() => handleAddNode('start')}
-                  className="group relative w-full cursor-pointer rounded-xl border-2 border-gray-200 bg-white px-4 py-3 text-left transition-all hover:border-gray-300 hover:shadow-md"
+                  className="group relative w-full cursor-pointer rounded-xl border-2 border-border bg-background px-4 py-3 text-left transition-all hover:border-muted-foreground/30 hover:shadow-md"
                 >
                   <div className={`absolute right-2 top-2 ${NODE_TYPE_COLORS.start} opacity-60 transition-opacity group-hover:opacity-100`}>
                     {(() => {
@@ -891,14 +891,14 @@ export default function VisualEditorPage() {
                       return <Icon className="h-4 w-4" />
                     })()}
                   </div>
-                  <div className="text-sm font-semibold text-gray-900">{NODE_TYPE_LABELS.start.title}</div>
-                  <div className="mt-0.5 text-xs text-gray-500">{NODE_TYPE_LABELS.start.description}</div>
+                  <div className="text-sm font-semibold text-foreground">{NODE_TYPE_LABELS.start.title}</div>
+                  <div className="mt-0.5 text-xs text-muted-foreground">{NODE_TYPE_LABELS.start.description}</div>
                 </button>
 
                 {/* USER_TASK Step */}
                 <button
                   onClick={() => handleAddNode('userTask')}
-                  className="group relative w-full cursor-pointer rounded-xl border-2 border-gray-200 bg-white px-4 py-3 text-left transition-all hover:border-gray-300 hover:shadow-md"
+                  className="group relative w-full cursor-pointer rounded-xl border-2 border-border bg-background px-4 py-3 text-left transition-all hover:border-muted-foreground/30 hover:shadow-md"
                 >
                   <div className={`absolute right-2 top-2 ${NODE_TYPE_COLORS.userTask} opacity-60 transition-opacity group-hover:opacity-100`}>
                     {(() => {
@@ -906,14 +906,14 @@ export default function VisualEditorPage() {
                       return <Icon className="h-4 w-4" />
                     })()}
                   </div>
-                  <div className="text-sm font-semibold text-gray-900">{NODE_TYPE_LABELS.userTask.title}</div>
-                  <div className="mt-0.5 text-xs text-gray-500">{NODE_TYPE_LABELS.userTask.description}</div>
+                  <div className="text-sm font-semibold text-foreground">{NODE_TYPE_LABELS.userTask.title}</div>
+                  <div className="mt-0.5 text-xs text-muted-foreground">{NODE_TYPE_LABELS.userTask.description}</div>
                 </button>
 
                 {/* AUTOMATED Step */}
                 <button
                   onClick={() => handleAddNode('automated')}
-                  className="group relative w-full cursor-pointer rounded-xl border-2 border-gray-200 bg-white px-4 py-3 text-left transition-all hover:border-gray-300 hover:shadow-md"
+                  className="group relative w-full cursor-pointer rounded-xl border-2 border-border bg-background px-4 py-3 text-left transition-all hover:border-muted-foreground/30 hover:shadow-md"
                 >
                   <div className={`absolute right-2 top-2 ${NODE_TYPE_COLORS.automated} opacity-60 transition-opacity group-hover:opacity-100`}>
                     {(() => {
@@ -921,14 +921,14 @@ export default function VisualEditorPage() {
                       return <Icon className="h-4 w-4" />
                     })()}
                   </div>
-                  <div className="text-sm font-semibold text-gray-900">{NODE_TYPE_LABELS.automated.title}</div>
-                  <div className="mt-0.5 text-xs text-gray-500">{NODE_TYPE_LABELS.automated.description}</div>
+                  <div className="text-sm font-semibold text-foreground">{NODE_TYPE_LABELS.automated.title}</div>
+                  <div className="mt-0.5 text-xs text-muted-foreground">{NODE_TYPE_LABELS.automated.description}</div>
                 </button>
 
                 {/* WAIT_FOR_SIGNAL Step */}
                 <button
                   onClick={() => handleAddNode('waitForSignal')}
-                  className="group relative w-full cursor-pointer rounded-xl border-2 border-gray-200 bg-white px-4 py-3 text-left transition-all hover:border-gray-300 hover:shadow-md"
+                  className="group relative w-full cursor-pointer rounded-xl border-2 border-border bg-background px-4 py-3 text-left transition-all hover:border-muted-foreground/30 hover:shadow-md"
                 >
                   <div className={`absolute right-2 top-2 ${NODE_TYPE_COLORS.waitForSignal} opacity-60 transition-opacity group-hover:opacity-100`}>
                     {(() => {
@@ -936,14 +936,14 @@ export default function VisualEditorPage() {
                       return <Icon className="h-4 w-4" />
                     })()}
                   </div>
-                  <div className="text-sm font-semibold text-gray-900">{NODE_TYPE_LABELS.waitForSignal.title}</div>
-                  <div className="mt-0.5 text-xs text-gray-500">{NODE_TYPE_LABELS.waitForSignal.description}</div>
+                  <div className="text-sm font-semibold text-foreground">{NODE_TYPE_LABELS.waitForSignal.title}</div>
+                  <div className="mt-0.5 text-xs text-muted-foreground">{NODE_TYPE_LABELS.waitForSignal.description}</div>
                 </button>
 
                 {/* SUB_WORKFLOW Step */}
                 <button
                   onClick={() => handleAddNode('subWorkflow')}
-                  className="group relative w-full cursor-pointer rounded-xl border-2 border-gray-200 bg-white px-4 py-3 text-left transition-all hover:border-gray-300 hover:shadow-md"
+                  className="group relative w-full cursor-pointer rounded-xl border-2 border-border bg-background px-4 py-3 text-left transition-all hover:border-muted-foreground/30 hover:shadow-md"
                 >
                   <div className={`absolute right-2 top-2 ${NODE_TYPE_COLORS.subWorkflow} opacity-60 transition-opacity group-hover:opacity-100`}>
                     {(() => {
@@ -951,14 +951,14 @@ export default function VisualEditorPage() {
                       return <Icon className="h-4 w-4" />
                     })()}
                   </div>
-                  <div className="text-sm font-semibold text-gray-900">{NODE_TYPE_LABELS.subWorkflow.title}</div>
-                  <div className="mt-0.5 text-xs text-gray-500">{NODE_TYPE_LABELS.subWorkflow.description}</div>
+                  <div className="text-sm font-semibold text-foreground">{NODE_TYPE_LABELS.subWorkflow.title}</div>
+                  <div className="mt-0.5 text-xs text-muted-foreground">{NODE_TYPE_LABELS.subWorkflow.description}</div>
                 </button>
 
                 {/* END Step */}
                 <button
                   onClick={() => handleAddNode('end')}
-                  className="group relative w-full cursor-pointer rounded-xl border-2 border-gray-200 bg-white px-4 py-3 text-left transition-all hover:border-gray-300 hover:shadow-md"
+                  className="group relative w-full cursor-pointer rounded-xl border-2 border-border bg-background px-4 py-3 text-left transition-all hover:border-muted-foreground/30 hover:shadow-md"
                 >
                   <div className={`absolute right-2 top-2 ${NODE_TYPE_COLORS.end} opacity-60 transition-opacity group-hover:opacity-100`}>
                     {(() => {
@@ -966,8 +966,8 @@ export default function VisualEditorPage() {
                       return <Icon className="h-4 w-4" />
                     })()}
                   </div>
-                  <div className="text-sm font-semibold text-gray-900">{NODE_TYPE_LABELS.end.title}</div>
-                  <div className="mt-0.5 text-xs text-gray-500">{NODE_TYPE_LABELS.end.description}</div>
+                  <div className="text-sm font-semibold text-foreground">{NODE_TYPE_LABELS.end.title}</div>
+                  <div className="mt-0.5 text-xs text-muted-foreground">{NODE_TYPE_LABELS.end.description}</div>
                 </button>
               </div>
 
@@ -1009,15 +1009,15 @@ export default function VisualEditorPage() {
               {nodes.length === 0 && (
                 <div className="pointer-events-none absolute inset-0 flex items-center justify-center px-4">
                   <div className="text-center">
-                    <h2 className="mb-2 text-xl font-semibold text-gray-900">
+                    <h2 className="mb-2 text-xl font-semibold text-foreground">
                       Start Building Your Workflow
                     </h2>
-                    <p className="mb-4 text-gray-600">
+                    <p className="mb-4 text-muted-foreground">
                       Click a step type from the palette to add it to the canvas
                     </p>
                     <button
                       onClick={handleLoadExample}
-                      className="pointer-events-auto text-sm text-blue-600 hover:underline"
+                      className="pointer-events-auto text-sm text-primary hover:underline"
                     >
                       Load an example workflow
                     </button>
