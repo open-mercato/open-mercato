@@ -70,12 +70,12 @@ export async function POST(req: Request) {
   } catch {
     // optional warmup
   }
-  const token = signJwt({ 
-    sub: String(user.id), 
-    tenantId: resolvedTenantId, 
+  const token = signJwt({
+    sub: String(user.id),
+    tenantId: resolvedTenantId,
     orgId: user.organizationId ? String(user.organizationId) : null,
-    email: user.email, 
-    roles: userRoleNames 
+    email: user.email,
+    roles: userRoleNames
   })
   const res = NextResponse.json({ ok: true, token, redirect: '/backend' })
   res.cookies.set('auth_token', token, { httpOnly: true, path: '/', sameSite: 'lax', secure: process.env.NODE_ENV === 'production', maxAge: 60 * 60 * 8 })

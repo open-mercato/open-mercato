@@ -4,9 +4,9 @@ import React, { useState, type ReactNode } from 'react'
 import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Shield, Users, Briefcase, Info, Rocket, ArrowRight, BookOpen } from 'lucide-react'
-import { getApiDocsResources, resolveApiDocsBaseUrl } from '@open-mercato/core/modules/api_docs/lib/resources'
 import Link from 'next/link'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
+import type { ApiDocResource } from '@open-mercato/core/modules/api_docs/lib/resources'
 
 interface RoleTileProps {
   icon: ReactNode
@@ -44,7 +44,7 @@ function RoleTile({
           <p className="text-sm text-muted-foreground mt-1">{description}</p>
         </div>
       </div>
-      
+
       <div className="flex-1">
         <div className="text-xs font-medium text-muted-foreground mb-2">{t('startPage.roleTile.availableFeatures', 'Available Features:')}</div>
         <ul className="space-y-1.5">
@@ -79,21 +79,44 @@ function RoleTile({
 
 interface StartPageContentProps {
   showStartPage: boolean
-  showOnboardingCta?: boolean
+  showOnboardingCta: boolean
+  apiDocs: ApiDocResource[]
+  baseUrl: string
 }
 
-export function StartPageContent({ showStartPage: initialShowStartPage, showOnboardingCta = false }: StartPageContentProps) {
+export function StartPageContent({
+  showStartPage: initialShowStartPage,
+  showOnboardingCta,
+  apiDocs,
+  baseUrl,
+}: StartPageContentProps) {
   const t = useT()
   const [showStartPage, setShowStartPage] = useState(initialShowStartPage)
 
-  const superAdminDisabled = showOnboardingCta
-  const apiDocs = getApiDocsResources()
-  const baseUrl = resolveApiDocsBaseUrl()
-
-  const handleCheckboxChange = (checked: boolean) => {
+  const handleShowStartPageChange = (checked: boolean) => {
     setShowStartPage(checked)
-    // Set cookie to remember preference
-    document.cookie = `show_start_page=${checked}; path=/; max-age=${365 * 24 * 60 * 60}; SameSite=Lax`
+    // Update cookie for future visits
+    if (typeof document !== 'undefined') {
+      document.cookie = `show_start_page=${checked}; path=/; max-age=${365 * 24 * 60 * 60}; SameSite=Lax`
+    }
+  }
+
+  if (!showStartPage) {
+    return (
+      <section className="rounded-lg border p-4 flex items-center justify-center gap-3">
+        <Checkbox
+          id="show-start-page-collapsed"
+          checked={showStartPage}
+          onCheckedChange={handleShowStartPageChange}
+        />
+        <label
+          htmlFor="show-start-page-collapsed"
+          className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70 cursor-pointer"
+        >
+          {t('startPage.showNextTime', 'Display this start page next time')}
+        </label>
+      </section>
+    )
   }
 
   return (
@@ -165,7 +188,7 @@ export function StartPageContent({ showStartPage: initialShowStartPage, showOnbo
               t('startPage.roles.superAdmin.feature5', 'Access to all modules and features')
             ]}
             loginUrl="/login?role=superadmin"
-            disabled={superAdminDisabled}
+            disabled={showOnboardingCta}
             disabledCtaLabel={t('startPage.roles.superAdmin.disabledCta', 'Superadmin login disabled')}
             disabledMessage={
               <>
@@ -183,7 +206,7 @@ export function StartPageContent({ showStartPage: initialShowStartPage, showOnbo
               </>
             }
           />
-          
+
           <RoleTile
             icon={<Users className="size-6" />}
             title={t('startPage.roles.admin.title', 'Admin')}
@@ -198,7 +221,7 @@ export function StartPageContent({ showStartPage: initialShowStartPage, showOnbo
             loginUrl="/login?role=admin"
             variant="secondary"
           />
-          
+
           <RoleTile
             icon={<Briefcase className="size-6" />}
             title={t('startPage.roles.employee.title', 'Employee')}
@@ -234,7 +257,7 @@ export function StartPageContent({ showStartPage: initialShowStartPage, showOnbo
           {apiDocs.map((resource) => (
             <a
               key={resource.href}
-              href={resource.href}
+              href={resource.href.startsWith('http') ? resource.href : `${baseUrl}${resource.href}`}
               target={resource.external ? '_blank' : undefined}
               rel={resource.external ? 'noreferrer' : undefined}
               className="rounded border bg-background p-4 text-sm transition hover:border-primary"
@@ -255,7 +278,7 @@ export function StartPageContent({ showStartPage: initialShowStartPage, showOnbo
         <Checkbox
           id="show-start-page"
           checked={showStartPage}
-          onCheckedChange={handleCheckboxChange}
+          onCheckedChange={handleShowStartPageChange}
         />
         <label
           htmlFor="show-start-page"

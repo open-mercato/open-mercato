@@ -4,6 +4,7 @@ import { cookies } from 'next/headers'
 import Image from 'next/image'
 import Link from 'next/link'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
+import { getApiDocsResources, resolveApiDocsBaseUrl } from '@open-mercato/core/modules/api_docs/lib/resources'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { EntityManager } from '@mikro-orm/postgresql'
 
@@ -17,7 +18,7 @@ function FeatureBadge({ label }: { label: string }) {
 
 export default async function Home() {
   const { t } = await resolveTranslations()
-  
+
   // Check if user wants to see the start page
   const cookieStore = await cookies()
   const showStartPageCookie = cookieStore.get('show_start_page')
@@ -45,6 +46,9 @@ export default async function Home() {
     Boolean(process.env.RESEND_API_KEY && process.env.RESEND_API_KEY.trim()) &&
     Boolean(process.env.APP_URL && process.env.APP_URL.trim())
 
+  const apiDocs = getApiDocsResources()
+  const baseUrl = resolveApiDocsBaseUrl()
+
   return (
     <main className="min-h-svh w-full p-8 flex flex-col gap-8">
       <header className="flex flex-col md:flex-row md:items-center gap-4 md:gap-6">
@@ -61,7 +65,12 @@ export default async function Home() {
         </div>
       </header>
 
-      <StartPageContent showStartPage={showStartPage} showOnboardingCta={onboardingAvailable} />
+      <StartPageContent
+        showStartPage={showStartPage}
+        showOnboardingCta={onboardingAvailable}
+        apiDocs={apiDocs}
+        baseUrl={baseUrl}
+      />
 
       <section className="grid grid-cols-1 md:grid-cols-3 gap-6">
         <div className="rounded-lg border bg-card p-4">

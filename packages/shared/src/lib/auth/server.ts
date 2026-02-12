@@ -1,42 +1,97 @@
-export async function getAuthFromCookies(): Promise<AuthContext> {
-  const { cookies } = await import('next/headers')
-  const cookieStore = await cookies()
-  const token = cookieStore.get('auth_token')?.value
-  if (!token) return null
+import type { EntityManager } from '@mikro-orm/postgresql'
+import { verifyJwt } from './jwt'
+
+export type AuthContext = {
+  sub: string
+  tenantId: string | null
+  orgId: string | null
+  email?: string
+  roles?: string[]
+  isApiKey?: boolean
+  keyId?: string
+  keyName?: string
+  [k: string]: any
+} | null
+
+const TENANT_COOKIE_NAME = 'om_tenant'
+const ORGANIZATION_COOKIE_NAME = 'om_organization'
+
+async function resolveApiKeyAuth(secret: string): Promise<AuthContext> {
+  if (!secret) return null
   try {
+    const { createRequestContainer } = await import('@open-mercato/shared/lib/di/container')
+    const container = await createRequestContainer()
+    const em = (container.resolve('em') as EntityManager)
+    const { findApiKeyBySecret } = await import('@open-mercato/core/modules/api_keys/services/apiKeyService')
+    const { Role } = await import('@open-mercato/core/modules/auth/data/entities')
+
+    const record = await findApiKeyBySecret(em, secret)
+    if (!record) return null
+
+    const roleIds = Array.isArray(record.rolesJson) ? record.rolesJson : []
+    const roles = roleIds.length
+      ? await em.find(Role, { id: { $in: roleIds as any } } as any)
+      : []
+    const roleNames = roles.map((role) => role.name).filter((name): name is string => typeof name === 'string' && name.length > 0)
+
+    try {
+      record.lastUsedAt = new Date()
+      await em.persistAndFlush(record)
+    } catch { }
+
+    return {
+      sub: `api_key:${record.id}`,
+      tenantId: record.tenantId ?? null,
+      orgId: record.organizationId ?? null,
+      roles: roleNames,
+      isApiKey: true,
+      keyId: record.id,
+      keyName: record.name,
+    }
+  } catch {
+    return null
+  }
+}
+
+function extractApiKey(req: Request): string | null {
+  const header = (req.headers.get('x-api-key') || '').trim()
+  if (header) return header
+  const authHeader = (req.headers.get('authorization') || '').trim()
+  if (authHeader.toLowerCase().startsWith('apikey ')) {
+    return authHeader.slice(7).trim()
+  }
+  return null
+}
+
+export async function getAuthFromCookies(): Promise<AuthContext> {
+  try {
+    const { cookies } = await import('next/headers')
+    const token = (await cookies()).get('auth_token')?.value
+    if (!token) return null
     const payload = verifyJwt(token) as AuthContext
-    if (!payload) return null
-    const tenantCookie = cookieStore.get(TENANT_COOKIE_NAME)?.value
-    const orgCookie = cookieStore.get(ORGANIZATION_COOKIE_NAME)?.value
-    return applySuperAdminScope(payload, tenantCookie, orgCookie)
+    return payload
   } catch {
     return null
   }
 }
 
 export async function getAuthFromRequest(req: Request): Promise<AuthContext> {
-  const cookieHeader = req.headers.get('cookie') || ''
-  const tenantCookie = readCookieFromHeader(cookieHeader, TENANT_COOKIE_NAME)
-  const orgCookie = readCookieFromHeader(cookieHeader, ORGANIZATION_COOKIE_NAME)
   const authHeader = (req.headers.get('authorization') || '').trim()
   let token: string | undefined
   if (authHeader.toLowerCase().startsWith('bearer ')) token = authHeader.slice(7).trim()
   if (!token) {
-    const match = cookieHeader.match(/(?:^|;\s*)auth_token=([^;]+)/)
+    const cookie = req.headers.get('cookie') || ''
+    const match = cookie.match(/(?:^|;\s*)auth_token=([^;]+)/)
     if (match) token = decodeURIComponent(match[1])
   }
   if (token) {
     try {
       const payload = verifyJwt(token) as AuthContext
-      if (payload) return applySuperAdminScope(payload, tenantCookie, orgCookie)
-    } catch {
-      // fall back to API key detection
-    }
+      if (payload) return payload
+    } catch { }
   }
 
   const apiKey = extractApiKey(req)
   if (!apiKey) return null
-  const apiAuth = await resolveApiKeyAuth(apiKey)
-  if (!apiAuth) return null
-  return applySuperAdminScope(apiAuth, tenantCookie, orgCookie)
+  return resolveApiKeyAuth(apiKey)
 }
