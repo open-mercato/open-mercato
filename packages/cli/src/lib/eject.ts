@@ -67,16 +67,22 @@ export function updateModulesTs(modulesPath: string, moduleId: string): void {
   const patternDouble = new RegExp(
     `(\\{\\s*id:\\s*['"]${moduleId}['"]\\s*,\\s*from:\\s*)"([^"]*)"`,
   )
+  // Handle entries without an explicit `from`, e.g. { id: 'currencies' }
+  const patternNoFrom = new RegExp(
+    `(\\{[^}]*id:\\s*['"]${moduleId}['"][^}]*)(?![^}]*\\bfrom\\b)\\}`,
+  )
 
-  let updated = source
+  let updated: string
   if (pattern.test(source)) {
     updated = source.replace(pattern, `$1'@app'`)
   } else if (patternDouble.test(source)) {
     updated = source.replace(patternDouble, `$1"@app"`)
+  } else if (patternNoFrom.test(source)) {
+    updated = source.replace(patternNoFrom, `$1, from: '@app'}`)
   } else {
     throw new Error(
       `Could not find module entry for "${moduleId}" in ${modulesPath}. ` +
-      `Expected a pattern like: { id: '${moduleId}', from: '...' }`,
+      `Expected a pattern like: { id: '${moduleId}', from: '...' } or { id: '${moduleId}' }`,
     )
   }
 
