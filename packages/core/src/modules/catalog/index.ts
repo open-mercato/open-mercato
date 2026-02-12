@@ -8,6 +8,7 @@ export const metadata: ModuleInfo = {
   description: 'Configurable catalog for products, variants, and pricing used by the sales module.',
   author: 'Open Mercato Team',
   license: 'Proprietary',
+  ejectable: true,
 }
 
 export { features } from './acl'
