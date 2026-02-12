@@ -79,7 +79,11 @@
   "devDependencies": {
     "@types/jest": "^30.0.0",
     "jest": "^30.2.0",
+    "next": "^16.1.5",
     "ts-jest": "^29.4.6"
+  },
+  "peerDependencies": {
+    "next": "^16.1.5"
   },
   "publishConfig": {
     "access": "public"
