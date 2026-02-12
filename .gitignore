@@ -89,6 +89,7 @@ package-lock.json
 # IDE related
 .idea
 .claude
+.codex
 
 # Claude Code MCP config (may contain API keys)
 .mcp.json

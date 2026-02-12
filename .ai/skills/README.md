@@ -64,6 +64,24 @@ Only include `name` and `description` in the frontmatter — no other fields.
 
 ## Installation
 
+### Using the Install Script
+
+Run the script to set up both Claude and Codex skills folders at once:
+
+```bash
+yarn install-skills
+```
+
+You should see emoji info messages like:
+
+```
+ℹ️  Linking .codex/skills → ../.ai/skills
+✅  Linked .codex/skills
+ℹ️  Linking .claude/skills → ../.ai/skills
+✅  Linked .claude/skills
+🎉  Skills installation complete.
+```
+
 ### Claude Code
 
 Symlink the skills folder:
@@ -89,7 +107,7 @@ Symlink the skills folder:
 
 ```bash
 mkdir -p .codex
-ln -s .ai/skills .codex/skills
+ln -s ../.ai/skills .codex/skills
 ```
 
 ### Verify
