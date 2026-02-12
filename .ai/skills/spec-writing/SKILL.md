@@ -17,7 +17,8 @@ Design and review specifications (SPECs) against Open Mercato's architecture, na
 6.  **Design**: Create the spec design and architecture.
 7.  **Implementation Breakdown**: Create implementation details broken down into **Phases** (stories) and **Steps** (testable tasks). Each step should result in a working application.
 8.  **Review**: Apply the [Spec Checklist](references/spec-checklist.md).
-9.  **Output**: Finalize the specification file.
+9.  **Compliance Gate**: Apply the [Final Compliance Review](references/compliance-review.md).
+10. **Output**: Finalize the specification file.
 
 ## Output Formats
 
@@ -79,5 +80,6 @@ Refer to [Spec Review Checklist](references/spec-checklist.md).
 ## Reference Materials
 
 - [Spec Review Checklist](references/spec-checklist.md)
+- [Final Compliance Review](references/compliance-review.md)
 - [Specification Template](references/spec-template.md)
 - [Root AGENTS.md](../../../AGENTS.md)

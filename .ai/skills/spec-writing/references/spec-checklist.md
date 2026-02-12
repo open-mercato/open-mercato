@@ -1,55 +1,101 @@
 # Spec Review Checklist
 
-This checklist is used during the architectural review of a specification. Every "MUST" rule from `AGENTS.md` and PR #525 is represented here.
+Use this checklist during review. Every item must be explicitly answered in the spec or marked N/A with justification.
+
+## Review Process (Required)
+
+1. Re-read the full spec from scratch with adversarial intent.
+2. Run this checklist section-by-section.
+3. Stress-test each mitigation in Risks & Impact Review.
+4. Cross-check related module specs for conflicting assumptions.
+5. Record the review result using the output format below.
+
+## Review Output Format
+
+Append to changelog:
+
+```markdown
+### Review — {YYYY-MM-DD}
+- **Reviewer**: Agent / Human
+- **Security**: Passed / {list of issues}
+- **Performance**: Passed / {list of issues}
+- **Cache**: Passed / {list of issues}
+- **Commands**: Passed / {list of issues}
+- **Risks**: Passed / {list of gaps}
+- **Verdict**: Approved / Needs revision
+```
 
 ## 1. Design Logic & Phasing
-- [ ] **TLDR**: Does the spec start with a clear TLDR section (Key Points, Major Features)?
-- [ ] **Market Research**: Does the spec states it's was reviewed against other open source market leaders solutions?
-- [ ] **Phase 1 MVP**: Is the scope strictly limited to an MVP? Are complex features explicitly deferred?
-- [ ] **User Stories**: Are there clear user stories covering the main use cases?
-- [ ] **Terminology**: Does the spec reuse terminology from core modules (Sales, Catalog)?
+- [ ] TLDR defines scope, value, and clear boundaries.
+- [ ] MVP is explicit; future work is deferred and labeled.
+- [ ] User stories/use cases map to API/data/UI sections.
+- [ ] Terminology aligns with existing modules and AGENTS naming.
+- [ ] Phase plan is testable and incrementally deliverable.
 
 ## 2. Architecture & Module Isolation
-- [ ] **No Direct ORM Links**: Are cross-module relationships handled by FK IDs only?
-- [ ] **Visual Clarity**: Are complex workflows or logic illustrated with diagrams (e.g., Mermaid)?
-- [ ] **Tenant Scoping**: Dose every data query include `organization_id` (and `tenant_id` where applicable)?
-- [ ] **Package Location**: Is the code proposed for the correct location (`packages/` for core, `apps/mercato/src/modules/` for app-specific)?
-- [ ] **DI Usage**: Are services intended to be resolved via Awilix?
+- [ ] Cross-module links use FK IDs only (no direct ORM relations).
+- [ ] Tenant isolation and `organization_id` scoping are explicit.
+- [ ] Module/package placement is correct for monorepo conventions.
+- [ ] DI usage is specified for service wiring (Awilix).
+- [ ] Event/subscriber/worker boundaries are clear and non-circular.
 
 ## 3. Data Integrity & Security
-- [ ] **Standard Columns**: Does every entity include `id`, `created_at`, `updated_at`, `deleted_at`, `organization_id`, `tenant_id`?
-- [ ] **Soft Delete**: Is `deleted_at` used instead of hard deletes?
-- [ ] **Zod Validation**: Are all API inputs protected by Zod schemas?
-- [ ] **Encryption**: Are PII or sensitive fields identified for `findWithDecryption`?
-- [ ] **Transactions**: Is `withAtomicFlush` used for multi-phase mutations?
-- [ ] **Security Review (Optional)**: Does the spec address rate limiting, cookie security, and PII leakage?
+- [ ] Entities/records include required tenancy/lifecycle columns where applicable.
+- [ ] Write operations define atomicity/transaction boundaries.
+- [ ] Input validation is defined using zod schemas.
+- [ ] PII/sensitive fields and decryption behavior are documented.
+- [ ] Security criteria covered:
+- [ ] All user input is validated with zod before business logic/persistence.
+- [ ] SQL/NoSQL injection vectors are mitigated with parameterized queries (no string interpolation).
+- [ ] XSS protections are documented for user-rendered content (no unsafe raw HTML rendering).
+- [ ] Proper encoding is defined for URLs, HTML entities, JSON payloads, and file paths.
+- [ ] Secrets/credentials are excluded from logs, error messages, and API responses.
+- [ ] Authentication/authorization guards are declared (`requireAuth`, `requireRoles`, `requireFeatures`).
+- [ ] Tenant isolation rule is explicit: every scoped query filters by `organization_id`.
 
-## 4. Commands & Naming
-- [ ] **Singular Naming (CRITICAL)**: Are all Command IDs and Event IDs using singular entity names (e.g., `pos.cart.manage`, not `pos.carts.manage`)? (Tip: Run `scripts/validate_naming.py` to check).
-- [ ] **Undoability**: Is every state-changing command explicitly reversible?
-- [ ] **Status Transitions**: Are entity statuses designed to be bi-directional where possible?
-- [ ] **Audit Log Handler (Optional)**: Does the command specify its `buildLog` and parent references?
-- [ ] **Atomic Commands**: Are multi-step actions wrapped in Compound Commands?
+## 4. Commands, Events & Naming
+- [ ] Naming is singular and consistent for entities/commands/events.
+- [ ] All mutations are represented as commands.
+- [ ] Undo/rollback behavior is specified for each mutation.
+- [ ] Multi-step flows use compound commands or equivalent orchestration.
+- [ ] Side-effect reversibility (events/notifications/external calls) is documented.
+- [ ] Commands with side effects document which effects are reversible and which are not.
+- [ ] Bulk operations use compound commands with per-item granularity where partial undo is required.
 
-## 5. API & UI Consistency
-- [ ] **CrudForm/DataTable**: Does the UI design leverage standard components instead of custom ones?
-- [ ] **UI Design Skill**: If the spec requires backend UI, was the `backend-ui-design` skill used to ensure adherence to design and UX standards?
-- [ ] **i18n**: Are all user-facing strings planned as translation keys in the i18n table?
-- [ ] **PageSize**: Are list endpoint limits set to `<= 100`?
-- [ ] **Migration Flow**: Is there a clear strategy for data migration and backward compatibility?
-- [ ] **OpenAPI**: Are routes planned to export `openApi` metadata?
+## 5. API, UI & Compatibility
+- [ ] API contracts are complete (request/response/errors) and consistent with models.
+- [ ] Routes include `openApi` expectations.
+- [ ] UI uses shared primitives/patterns (`CrudForm`, `DataTable`, etc.) when applicable.
+- [ ] i18n keys are planned for all user-facing strings.
+- [ ] Pagination limits are defined (`pageSize <= 100`) where applicable.
+- [ ] Migration/backward compatibility strategy is explicit.
 
-## 6. Risks & Impact
-- [ ] **Failure Scenarios**: Does the spec address "What Can Go Wrong" (Network failure, race conditions, partial writes)?
-- [ ] **Mitigation**: Is every risk paired with a concrete mitigation strategy?
-- [ ] **Blast Radius**: Is the impact of feature failure clearly defined?
+## 6. Performance, Cache & Scale
+- [ ] Query/index strategy is defined for expected access patterns.
+- [ ] N+1 risks and large-list behavior are addressed.
+- [ ] Bulk operations define batching/chunking strategy.
+- [ ] Background worker threshold for heavy operations is considered.
+- [ ] Every query pattern identifies supporting index(es).
+- [ ] Schemas avoid unbounded arrays, nested JSON blobs, and count-growing denormalized fields.
+- [ ] Large list/search APIs use cursor/keyset pagination (not OFFSET) for scale.
+- [ ] N+1 mitigation states expected query count for critical operations.
+- [ ] Operations touching >1000 rows justify foreground execution or defer to worker.
+- [ ] Query schemas define expected cardinality/access pattern (point lookup, range scan, full scan).
+- [ ] Cache criteria covered:
+- [ ] Read-heavy endpoints declare caching strategy (memory/SQLite/Redis) and TTL.
+- [ ] Cache keys/tags are tenant-scoped.
+- [ ] Every write path lists cache tag invalidations.
+- [ ] Cache miss behavior is explicit (fallback query, cold-start behavior).
+- [ ] Nested/composed data declares invalidation chains (child changes invalidate parent caches).
+- [ ] Cache design prevents stale cross-tenant data leakage.
 
-## 7. Anti-Patterns & DON'Ts
-- [ ] **DON'T** document standard platform features (e.g., mandatory columns like `organization_id`, basic CRUD flow). Focus purely on the **architectural diff** and unique domain logic.
-
-- [ ] **DON'T** mix Phase 1 technical specs with Phase 2/3 "ideas." Defer details for future phases.
-- [ ] **Plural Naming (DON'T)**: Never use plural naming for entities, Command IDs, or Event IDs (e.g., NO `pos.carts.manage`). Use singular only.
-- [ ] **Custom UI (DON'T)**: Avoid custom UI logic if standard `CrudForm` or `DataTable` components can be used.
-- [ ] **Skip Undo (DON'T)**: Every state-changing command MUST define how it is reversed.
-- [ ] **Cross-Module ORM (DON'T)**: Never create direct ORM relationships across module boundaries.
-
+## 7. Risks, Impact & Anti-Patterns
+- [ ] Risks & Impact Review includes concrete scenarios and severities.
+- [ ] Each risk has mitigation and residual risk.
+- [ ] Blast radius and operational detection are described.
+- [ ] Anti-pattern checks:
+- [ ] Does not restate obvious platform boilerplate as feature scope.
+- [ ] Does not mix MVP build plan with speculative future phases.
+- [ ] Does not skip undoability for state changes.
+- [ ] Does not introduce cross-module ORM links.
+- [ ] Does not use plural command/event naming.
