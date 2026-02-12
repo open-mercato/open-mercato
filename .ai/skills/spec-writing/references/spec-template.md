@@ -20,13 +20,12 @@ Every non-trivial spec must include these sections:
 2. Overview
 3. Problem Statement
 4. Proposed Solution
-5. Phasing
-6. Architecture
-7. Data Models
-8. API Contracts
-9. Risks & Impact Review
-10. Final Compliance Report
-11. Changelog
+5. Architecture
+6. Data Models
+7. API Contracts
+8. Risks & Impact Review
+9. Final Compliance Report
+10. Changelog
 
 ## Overview
 [What this module/feature does and why it is being implemented. Mention target audience and key benefits.]
@@ -52,15 +51,6 @@ Every non-trivial spec must include these sections:
 ## User Stories / Use Cases
 - **[User]** wants to **[Action]** so that **[Benefit]**
 - **[User]** wants to **[Action]** so that **[Benefit]**
-
-## Phasing
-
-### Phase 1: [Name]
-1. [Step — describe what is built and how to test it]
-2. [Step — describe what is built and how to test it]
-
-### Phase 2: [Name] (Optional)
-1. [Step]
 
 ## Architecture
 [Diagrams, component interactions, data flow]

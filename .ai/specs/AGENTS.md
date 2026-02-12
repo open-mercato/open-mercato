@@ -2,6 +2,11 @@
 
 Check `.ai/specs/` before modifying any module. Create or update specs when the change is non-trivial.
 
+## Detailed Guidance
+
+For detailed spec writing and review, use the spec-writing skill:
+- `.ai/skills/spec-writing/SKILL.md`
+
 ## Create/Update Triggers
 
 - Create a new spec for a new module, significant feature, or architecture change touching multiple files.
@@ -38,12 +43,7 @@ Examples:
 
 ## MUST Rules (Condensed)
 
-- Every non-trivial spec includes: TLDR, Overview, Problem Statement, Proposed Solution, Phasing, Architecture, Data Models, API Contracts, Risks & Impact Review, Final Compliance Report, Changelog.
+- Every non-trivial spec includes: TLDR, Overview, Problem Statement, Proposed Solution, Architecture, Data Models, API Contracts, Risks & Impact Review, Final Compliance Report, Changelog.
 - Risks must document concrete failure scenarios, severity, affected area, mitigation, and residual risk.
 - Keep specs implementation-accurate: no stale endpoints, entities, or assumptions.
 - Use Task Router from root `AGENTS.md` to identify all related guides for review.
-
-## Detailed Guidance
-
-For detailed spec writing and review, use the spec-writing skill:
-- `.ai/skills/spec-writing/SKILL.md`
