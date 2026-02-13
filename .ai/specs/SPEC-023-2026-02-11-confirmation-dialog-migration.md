@@ -24,14 +24,18 @@ Replace the current `ConfirmDialog` component (which wraps `window.confirm`) wit
 
 ## Problem Statement
 
-1. **Poor UX**: `window.confirm()` renders an unstyled browser-native dialog that looks different per OS/browser, cannot be customized, and is jarring on mobile.
+**The codebase uses both `window.confirm()` and the native TypeScript `confirm()` function (which wraps `window.confirm()`) in ~68 places.** Both must be replaced.
+
+1. **Poor UX**: `window.confirm()` / `confirm()` renders an unstyled browser-native dialog that looks different per OS/browser, cannot be customized, and is jarring on mobile.
 2. **No branding**: The confirmation dialog does not match the application's design system.
 3. **Accessibility gaps**: Browser-native confirm dialogs lack custom ARIA labels, focus management control, and keyboard interaction beyond basic OK/Cancel.
-4. **Blocking behavior**: `window.confirm()` is synchronous and blocks the main thread.
+4. **Blocking behavior**: `window.confirm()` / `confirm()` is synchronous and blocks the main thread.
 5. **Broken i18n**: Button labels ("OK"/"Cancel") render in the browser's locale, not the app's locale.
 6. **No keyboard convention**: No support for `Cmd/Ctrl+Enter` keyboard shortcut required by AGENTS.md.
 7. **No variant styling**: Cannot visually distinguish destructive actions (delete) from neutral confirmations.
-8. **Inconsistency**: 68+ places use `window.confirm` directly with hardcoded strings, bypassing the existing wrapper.
+8. **Inconsistency**: 68+ places use `window.confirm()` or `confirm()` directly with hardcoded strings, bypassing the existing wrapper.
+
+**Note:** In TypeScript/JavaScript, writing `confirm('message')` without the `window.` prefix still calls `window.confirm()` — it's the same global function. Both forms must be replaced.
 
 ---
 
@@ -453,9 +457,206 @@ import { useConfirmDialog } from "@open-mercato/ui";
 
 ## Part 2: Refactoring window.confirm Usages
 
+### The Problem: Native TypeScript `confirm()` Function
+
+**CRITICAL: The global `confirm()` function in TypeScript/JavaScript is a wrapper for `window.confirm()` and must be replaced.**
+
+When you write `confirm('Are you sure?')` in TypeScript, you're calling the global function that directly invokes the browser's native `window.confirm()` dialog. This function:
+
+- **Blocks the entire UI thread** — synchronous and freezes all user interaction
+- **Cannot be styled** — uses the browser's native dialog appearance (different on every OS/browser)
+- **Ignores your design system** — no custom colors, fonts, or branding
+- **Breaks i18n** — button labels ("OK"/"Cancel") render in the browser's locale, not your app's locale
+- **Has poor mobile UX** — tiny buttons, inconsistent positioning
+- **Cannot be customized** — no way to add descriptions, icons, or variants
+- **Lacks accessibility controls** — no ARIA labels, focus management is browser-dependent
+- **No keyboard shortcuts** — cannot add `Cmd/Ctrl+Enter` or custom key bindings
+
+#### TypeScript Type Signature (Built-in)
+
+```typescript
+declare function confirm(message?: string): boolean;
+```
+
+This is the **old pattern** that should **never** be used in the codebase.
+
 ### Refactoring Strategy
 
-Every `window.confirm` call site is replaced with the `useConfirmDialog` hook (Pattern A). Existing `<ConfirmDialog>` wrapper usages are replaced with the declarative `<ConfirmDialog trigger={...}>` pattern (Pattern B).
+Every `confirm()` and `window.confirm()` call site is replaced with the `useConfirmDialog` hook (Pattern A). Existing `<ConfirmDialog>` wrapper usages are replaced with the declarative `<ConfirmDialog trigger={...}>` pattern (Pattern B).
+
+### Real-World Example: Business Rules List Page
+
+**File:** `packages/core/src/modules/business_rules/backend/rules/page.tsx`
+
+This file demonstrates the typical problematic usage — using the native TypeScript `confirm()` function in a delete handler.
+
+#### Before (Problematic Code - Line 87)
+
+```tsx
+const handleDelete = async (id: string, ruleName: string) => {
+  // ❌ PROBLEM: Using native confirm() — calls window.confirm()
+  if (!confirm(t('business_rules.confirm.delete', { name: ruleName }))) {
+    return
+  }
+
+  const result = await apiCall(`/api/business_rules/rules?id=${id}`, {
+    method: 'DELETE',
+  })
+
+  if (result.ok) {
+    flash(t('business_rules.messages.deleted'), 'success')
+    queryClient.invalidateQueries({ queryKey: ['business-rules'] })
+  } else {
+    flash(t('business_rules.messages.deleteFailed'), 'error')
+  }
+}
+```
+
+**Problems with this code:**
+- `confirm()` is the global TypeScript function that calls `window.confirm()`
+- Blocks UI thread while showing the dialog
+- Shows an unstyled, browser-native dialog
+- Buttons render in browser locale (not app locale)
+- No visual indication this is a destructive action
+- Poor mobile UX
+- No keyboard shortcuts
+
+#### After (Correct Pattern)
+
+```tsx
+import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
+
+export default function RulesListPage() {
+  const t = useT()
+  const queryClient = useQueryClient()
+  // ✅ Step 1: Add useConfirmDialog hook
+  const { confirm, ConfirmDialogElement } = useConfirmDialog()
+
+  const handleDelete = async (id: string, ruleName: string) => {
+    // ✅ Step 2: Replace confirm() with await confirm({ ... })
+    const ok = await confirm({
+      title: t('business_rules.confirm.delete', { name: ruleName }),
+      variant: 'destructive',  // Red confirm button for destructive action
+    })
+    if (!ok) return  // User cancelled
+
+    const result = await apiCall(`/api/business_rules/rules?id=${id}`, {
+      method: 'DELETE',
+    })
+
+    if (result.ok) {
+      flash(t('business_rules.messages.deleted'), 'success')
+      queryClient.invalidateQueries({ queryKey: ['business-rules'] })
+    } else {
+      flash(t('business_rules.messages.deleteFailed'), 'error')
+    }
+  }
+
+  // ... columns, filters, etc. ...
+
+  return (
+    <Page>
+      <PageBody>
+        <DataTable
+          title={t('business_rules.list.title')}
+          columns={columns}
+          data={data || []}
+          // ...
+        />
+      </PageBody>
+      {/* ✅ Step 3: Render ConfirmDialogElement */}
+      {ConfirmDialogElement}
+    </Page>
+  )
+}
+```
+
+**Benefits of the new pattern:**
+- ✅ Non-blocking async dialog
+- ✅ Custom-styled with design system
+- ✅ Fully translated (app locale, not browser locale)
+- ✅ Destructive variant with red button
+- ✅ Responsive design (bottom sheet on mobile)
+- ✅ WCAG accessibility
+- ✅ Keyboard shortcuts (`Cmd/Ctrl+Enter`, `Escape`)
+
+### Step-by-Step Migration Guide
+
+For any component using `confirm()` or `window.confirm()`:
+
+#### 1. Import the hook
+
+```tsx
+import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
+```
+
+#### 2. Call the hook in your component
+
+```tsx
+export default function MyComponent() {
+  const { confirm, ConfirmDialogElement } = useConfirmDialog()
+  // ...
+}
+```
+
+**Important:** You must destructure **both** `confirm` and `ConfirmDialogElement`.
+
+#### 3. Replace synchronous `confirm()` with async `await confirm({ ... })`
+
+```tsx
+// ❌ Before
+if (!confirm('Are you sure?')) return
+
+// ✅ After
+const ok = await confirm({ title: 'Are you sure?' })
+if (!ok) return
+```
+
+**Your handler must be `async`:**
+
+```tsx
+// ❌ Before (synchronous)
+function handleDelete() {
+  if (!confirm('Delete?')) return
+  deleteCrud('/api/entity', id)
+}
+
+// ✅ After (async)
+async function handleDelete() {
+  const ok = await confirm({ title: 'Delete?', variant: 'destructive' })
+  if (!ok) return
+  await deleteCrud('/api/entity', id)
+}
+```
+
+#### 4. Render `{ConfirmDialogElement}` in your JSX
+
+Add the dialog element **anywhere in your component's return** (typically at the end):
+
+```tsx
+return (
+  <Page>
+    <PageBody>
+      {/* ... page content ... */}
+    </PageBody>
+    {ConfirmDialogElement}
+  </Page>
+)
+```
+
+**Common mistake:** Forgetting to render `{ConfirmDialogElement}` will cause the dialog to never appear. The hook logs a warning in dev mode if `confirm()` is called without the element being mounted.
+
+#### 5. Configure dialog options
+
+```tsx
+await confirm({
+  title: t('module.confirm.delete', { name }),  // Required: dialog title
+  text: t('module.confirm.delete.description'), // Optional: body text
+  variant: 'destructive',  // 'default' | 'destructive' (use for delete)
+  confirmText: t('common.delete'), // Optional: override confirm button label
+  cancelText: t('common.cancel'),  // Optional: override cancel button label
+})
+```
 
 ### Pattern Transformation — Imperative (majority of call sites)
 
@@ -926,6 +1127,13 @@ The component + hook + barrel export are placed in `packages/ui/src/backend/conf
 ---
 
 ## Changelog
+
+### 2026-02-13
+
+- **Added section "The Problem: Native TypeScript `confirm()` Function"** — detailed explanation that `confirm()` and `window.confirm()` are the same global function and why both must be replaced
+- **Added "Real-World Example: Business Rules List Page"** — complete before/after code example from `packages/core/src/modules/business_rules/backend/rules/page.tsx` (line 87) showing problematic usage and correct refactoring
+- **Added "Step-by-Step Migration Guide"** — 5-step guide with code examples for migrating from `confirm()` / `window.confirm()` to `useConfirmDialog` hook
+- **Updated "Problem Statement"** — clarified that both `window.confirm()` and `confirm()` are the same function and both must be replaced
 
 ### 2026-02-12
 
