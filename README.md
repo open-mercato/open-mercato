@@ -218,7 +218,8 @@ This is a quickest way to get Open Mercato up and running on your localhost / se
   nvm install 24
   nvm use 24
   ```
-**Windows:** Use [Docker Deployment](#docker-deployment) for native setup.
+  
+**Windows:** Use [Docker Setup](#docker-setup) for native setup.
 
 ### Quick Start (Monorepo)
 
@@ -244,67 +245,62 @@ For a fresh greenfield boot (build packages, generate registries, reinstall modu
 yarn dev:greenfield
 ```
 
-### Quick Start (Legacy)
+Navigate to `http://localhost:3000/backend` and sign in with the default credentials printed by `yarn initialize`.
+
+Full installation guide (including prerequisites, Docker setup, and cloud deployment): [docs.openmercato.com/installation/setup](https://docs.openmercato.com/installation/setup)
+
+## Docker Setup
+
+Open Mercato offers two Docker Compose configurations — one for **development** (with hot reload) and one for **production**. Both run the full stack (app + PostgreSQL + Redis + Meilisearch) in containers. The dev mode is the **recommended setup for Windows** users.
+
+### Dev mode (hot reload)
+
+Run the entire stack with source code mounted from the host. File changes trigger automatic rebuilds — no local Node.js or Yarn required.
 
 ```bash
 git clone https://github.com/open-mercato/open-mercato.git
 cd open-mercato
-yarn install
-cp apps/mercato/.env.example apps/mercato/.env
-yarn mercato init
-yarn dev
+git checkout develop
+docker compose -f docker-compose.fullapp.dev.yml up --build
 ```
 
-This script prepares module registries, generates/applies migrations, seeds default roles, provisions an admin user, and loads sample CRM data (companies, people, deals, activities, todos) unless you pass `--no-examples`. Add `--stresstest` to preload a high-volume dataset (6,000 contacts by default) complete with additional companies, pipeline deals, activities, and timeline notes — all with custom fields populated. Override the volume with `-n <amount>` or `--count=<amount>`, and append `--lite` to skip the heavier extras when you just need raw contacts. A progress bar keeps you updated while the stress-test data is generated.
+**Windows users:** Ensure WSL 2 backend is enabled in Docker Desktop and clone with `git config --global core.autocrlf input` to avoid line-ending issues.
 
-Navigate to `http://localhost:3000/backend` and sign in with the credentials printed by `yarn mercato init`.
-
-If you plan to use the self-service onboarding flow or send transactional emails, opt-in by setting the following environment variables in your `.env` file before starting the server (the onboarding toggle defaults to `false`):
-
-```env
-RESEND_API_KEY=your_resend_api_key
-APP_URL=http://localhost:3000
-EMAIL_FROM=no-reply@your-domain.com
-SELF_SERVICE_ONBOARDING_ENABLED=true
-ADMIN_EMAIL=ops@your-domain.com
-```
-
-💡 Need a clean slate? Run `yarn mercato init --reinstall`. It wipes module migrations and **drops the database**, so only use it when you intentionally want to reset everything. Prefer `yarn mercato init --no-examples` if you simply want to skip demo CRM data while keeping core roles and users. Reach for `yarn mercato init --stresstest` (optionally with `-n 12000`) when you want to benchmark full CRM flows with thousands of contacts, companies, deals, activities, and notes — or `yarn mercato init --stresstest --lite` when you mainly need raw contact volume at high throughput.
-
-Full installation guide (including prerequisites and cloud deployment): [docs.openmercato.com/installation/setup](https://docs.openmercato.com/installation/setup)
-
-## Docker Deployment
-
-Run the complete Open Mercato stack (app + PostgreSQL + Redis + Meilisearch) with Docker Compose:
+### Production mode
 
 ```bash
-# Clone and configure
-git clone https://github.com/open-mercato/open-mercato.git
-cd open-mercato
-
-# Build and start all services
 docker compose -f docker-compose.fullapp.yml up --build
 ```
 
-### Environment Variables
+**Common operations:**
+
+- Start: `docker compose -f docker-compose.fullapp.yml up -d`
+- Logs: `docker compose -f docker-compose.fullapp.yml logs -f app`
+- Stop: `docker compose -f docker-compose.fullapp.yml down`
+- Rebuild: `docker compose -f docker-compose.fullapp.yml up --build`
+
+Navigate to `http://localhost:3000/backend` and sign in with the default credentials (admin@example.com).
+
+### Docker Environment Variables
 
 Before starting, you may want to configure the following environment variables. Create a `.env` file in the project root or export them in your shell:
 
 | Variable | Required | Default | Description |
 |----------|----------|---------|-------------|
-| `JWT_SECRET` | ⚠️ For production | `JWT` | Secret key for JWT token signing. **Use a strong, unique value in production.** |
-| `POSTGRES_PASSWORD` | ⚠️ For production | `postgres` | PostgreSQL database password. **Use a strong password in production.** |
+| `JWT_SECRET` | For production | `JWT` | Secret key for JWT token signing. **Use a strong, unique value in production.** |
+| `POSTGRES_PASSWORD` | For production | `postgres` | PostgreSQL database password. **Use a strong password in production.** |
 | `POSTGRES_USER` | No | `postgres` | PostgreSQL database user |
 | `POSTGRES_DB` | No | `open-mercato` | PostgreSQL database name |
 | `POSTGRES_PORT` | No | `5432` | PostgreSQL exposed port |
 | `REDIS_PORT` | No | `6379` | Redis exposed port |
-| `MEILISEARCH_MASTER_KEY` | ⚠️ For production | `meilisearch-dev-key` | Meilisearch API key. **Use a strong key in production.** |
+| `MEILISEARCH_MASTER_KEY` | For production | `meilisearch-dev-key` | Meilisearch API key. **Use a strong key in production.** |
 | `MEILISEARCH_PORT` | No | `7700` | Meilisearch exposed port |
 | `OPENAI_API_KEY` | No | - | OpenAI API key (enables AI features) |
 | `ANTHROPIC_API_KEY` | No | - | Anthropic API key (for opencode service) |
 | `OPENCODE_PORT` | No | `4096` | Opencode service exposed port |
 
 Example `.env` file for production:
+
 ```bash
 JWT_SECRET=your-strong-secret-key-here
 POSTGRES_PASSWORD=your-strong-db-password
@@ -312,15 +308,9 @@ MEILISEARCH_MASTER_KEY=your-strong-meilisearch-key
 OPENAI_API_KEY=sk-...  # Optional, for AI features
 ```
 
-Navigate to `http://localhost:3000/backend` and sign in with the default credentials (admin@example.com).
+### VPS Deployment
 
-**Common operations:**
-- Start: `docker compose -f docker-compose.fullapp.yml up -d`
-- Logs: `docker compose -f docker-compose.fullapp.yml logs -f app`
-- Stop: `docker compose -f docker-compose.fullapp.yml down`
-- Rebuild: `docker compose -f docker-compose.fullapp.yml up --build`
-
-**Dev mode (app in container with mounted source + watch):** `docker compose -f docker-compose.fullapp.dev.yml up --build`
+[![Watch: Deploy Open Mercato on a VPS](https://img.youtube.com/vi/xau17YBP9ek/maxresdefault.jpg)](https://www.youtube.com/watch?v=xau17YBP9ek)
 
 For production deployments, ensure strong `JWT_SECRET`, secure database credentials, and consider managed database services. See the [full Docker deployment guide](https://docs.openmercato.com/installation/setup#docker-deployment-full-stack) for detailed configuration and production tips.
 
