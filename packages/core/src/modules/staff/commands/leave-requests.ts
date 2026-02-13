@@ -294,17 +294,19 @@ const createLeaveRequestCommand: CommandHandler<StaffLeaveRequestCreateInput, { 
     return { requestId: request.id }
   },
   captureAfter: async (_input, result, ctx) => {
-    const em = (ctx.container.resolve('em') as EntityManager)
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
     return await loadLeaveRequestSnapshot(em, result.requestId)
   },
   buildLog: async ({ result, ctx }) => {
     const { translate } = await resolveTranslations()
-    const em = (ctx.container.resolve('em') as EntityManager)
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
     const snapshot = await loadLeaveRequestSnapshot(em, result.requestId)
     return {
       actionLabel: translate('staff.audit.leaveRequests.create', 'Create leave request'),
       resourceKind: 'staff.leave_request',
       resourceId: result.requestId,
+      parentResourceKind: 'staff.teamMember',
+      parentResourceId: snapshot?.memberId ?? null,
       tenantId: snapshot?.tenantId ?? null,
       organizationId: snapshot?.organizationId ?? null,
       snapshotAfter: snapshot ?? null,
@@ -392,7 +394,7 @@ const updateLeaveRequestCommand: CommandHandler<StaffLeaveRequestUpdateInput, { 
     const { translate } = await resolveTranslations()
     const before = snapshots.before as LeaveRequestSnapshot | undefined
     if (!before) return null
-    const em = (ctx.container.resolve('em') as EntityManager)
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
     const after = await loadLeaveRequestSnapshot(em, before.id)
     const changes = after
       ? buildChanges(before as unknown as Record<string, unknown>, after as unknown as Record<string, unknown>, [
@@ -409,6 +411,8 @@ const updateLeaveRequestCommand: CommandHandler<StaffLeaveRequestUpdateInput, { 
       actionLabel: translate('staff.audit.leaveRequests.update', 'Update leave request'),
       resourceKind: 'staff.leave_request',
       resourceId: before.id,
+      parentResourceKind: 'staff.teamMember',
+      parentResourceId: before.memberId ?? null,
       tenantId: before.tenantId,
       organizationId: before.organizationId,
       snapshotBefore: before,
@@ -488,17 +492,19 @@ const deleteLeaveRequestCommand: CommandHandler<{ id: string }, { requestId: str
     return { requestId: request.id }
   },
   captureAfter: async (_input, result, ctx) => {
-    const em = (ctx.container.resolve('em') as EntityManager)
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
     return await loadLeaveRequestSnapshot(em, result.requestId)
   },
   buildLog: async ({ result, ctx }) => {
     const { translate } = await resolveTranslations()
-    const em = (ctx.container.resolve('em') as EntityManager)
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
     const snapshot = await loadLeaveRequestSnapshot(em, result.requestId)
     return {
       actionLabel: translate('staff.audit.leaveRequests.delete', 'Delete leave request'),
       resourceKind: 'staff.leave_request',
       resourceId: result.requestId,
+      parentResourceKind: 'staff.teamMember',
+      parentResourceId: snapshot?.memberId ?? null,
       tenantId: snapshot?.tenantId ?? null,
       organizationId: snapshot?.organizationId ?? null,
       snapshotAfter: snapshot ?? null,
@@ -643,12 +649,14 @@ const acceptLeaveRequestCommand: CommandHandler<StaffLeaveRequestDecisionInput, 
   buildLog: async ({ result, ctx, snapshots }) => {
     const { translate } = await resolveTranslations()
     const before = snapshots.before as LeaveRequestSnapshot | undefined
-    const em = (ctx.container.resolve('em') as EntityManager)
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
     const after = await loadLeaveRequestSnapshot(em, result.requestId)
     return {
       actionLabel: translate('staff.audit.leaveRequests.accept', 'Approve leave request'),
       resourceKind: 'staff.leave_request',
       resourceId: result.requestId,
+      parentResourceKind: 'staff.teamMember',
+      parentResourceId: after?.memberId ?? before?.memberId ?? null,
       tenantId: after?.tenantId ?? before?.tenantId ?? null,
       organizationId: after?.organizationId ?? before?.organizationId ?? null,
       snapshotBefore: before ?? null,
@@ -801,12 +809,14 @@ const rejectLeaveRequestCommand: CommandHandler<StaffLeaveRequestDecisionInput, 
   buildLog: async ({ result, ctx, snapshots }) => {
     const { translate } = await resolveTranslations()
     const before = snapshots.before as LeaveRequestSnapshot | undefined
-    const em = (ctx.container.resolve('em') as EntityManager)
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
     const after = await loadLeaveRequestSnapshot(em, result.requestId)
     return {
       actionLabel: translate('staff.audit.leaveRequests.reject', 'Reject leave request'),
       resourceKind: 'staff.leave_request',
       resourceId: result.requestId,
+      parentResourceKind: 'staff.teamMember',
+      parentResourceId: after?.memberId ?? before?.memberId ?? null,
       tenantId: after?.tenantId ?? before?.tenantId ?? null,
       organizationId: after?.organizationId ?? before?.organizationId ?? null,
       snapshotBefore: before ?? null,

@@ -65,7 +65,7 @@ export function TransitionsEditor({ value = [], onChange, steps = [], error }: T
   const addTransition = () => {
     const newTransition: Transition = {
       transitionId: `transition_${Date.now()}`,
-      transitionName: 'New Transition',
+      transitionName: t('workflows.common.newTransition'),
       fromStepId: '',
       toStepId: '',
       trigger: 'auto',
@@ -101,7 +101,7 @@ export function TransitionsEditor({ value = [], onChange, steps = [], error }: T
   const addActivity = (transitionIndex: number) => {
     const newActivity: Activity = {
       activityId: `activity_${Date.now()}`,
-      activityName: 'New Activity',
+      activityName: t('workflows.common.newActivity'),
       activityType: 'CALL_API',
       config: {},
       async: false,
@@ -166,14 +166,14 @@ export function TransitionsEditor({ value = [], onChange, steps = [], error }: T
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <p className="text-sm text-muted-foreground">
             {t('workflows.form.descriptions.transitions')}
           </p>
           {error && <p className="text-sm text-red-600 mt-1">{error}</p>}
         </div>
-        <Button type="button" onClick={addTransition} variant="outline" size="sm">
+        <Button type="button" onClick={addTransition} variant="outline" size="sm" className="w-full sm:w-auto">
           <Plus className="h-4 w-4 mr-1" />
           {t('workflows.form.addTransition')}
         </Button>
@@ -189,8 +189,8 @@ export function TransitionsEditor({ value = [], onChange, steps = [], error }: T
         {value.map((transition, index) => (
           <div key={index} className="p-4 border rounded-md bg-card shadow-sm border-l-4 border-l-blue-500">
             <div className="space-y-3">
-              <div className="flex items-start justify-between gap-2">
-                <div className="flex-1 grid grid-cols-2 gap-3">
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                <div className="flex-1 grid grid-cols-1 sm:grid-cols-2 gap-3">
                   <div>
                     <Label htmlFor={`transition-${index}-id`} className="text-xs">
                       {t('workflows.transitions.transitionId')} *
@@ -211,12 +211,12 @@ export function TransitionsEditor({ value = [], onChange, steps = [], error }: T
                       id={`transition-${index}-name`}
                       value={transition.transitionName}
                       onChange={(e) => updateTransition(index, 'transitionName', e.target.value)}
-                      placeholder="Transition Name"
+                      placeholder={t('workflows.transitions.transitionName')}
                       className="mt-1"
                     />
                   </div>
                 </div>
-                <div className="flex items-center gap-1">
+                <div className="flex items-center gap-1 self-end sm:self-auto">
                   <Button
                     type="button"
                     variant="ghost"
@@ -249,7 +249,7 @@ export function TransitionsEditor({ value = [], onChange, steps = [], error }: T
                 </div>
               </div>
 
-              <div className="grid grid-cols-3 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                 <div>
                   <Label htmlFor={`transition-${index}-from`} className="text-xs">
                     {t('workflows.transitions.fromStep')} *
@@ -305,7 +305,7 @@ export function TransitionsEditor({ value = [], onChange, steps = [], error }: T
                 </div>
               </div>
 
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
                   <Label htmlFor={`transition-${index}-priority`} className="text-xs">
                     {t('workflows.transitions.priority')}
@@ -333,7 +333,7 @@ export function TransitionsEditor({ value = [], onChange, steps = [], error }: T
               </div>
 
               <div className="mt-4 pl-4 border-l-2 border-border">
-                <div className="flex items-center justify-between mb-3">
+                <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between mb-3">
                   <Label className="text-xs font-semibold text-foreground">
                     {t('workflows.transitions.activities')}
                   </Label>
@@ -342,6 +342,7 @@ export function TransitionsEditor({ value = [], onChange, steps = [], error }: T
                     onClick={() => addActivity(index)}
                     variant="outline"
                     size="sm"
+                    className="w-full sm:w-auto"
                   >
                     <Plus className="h-3 w-3 mr-1" />
                     {t('workflows.form.addActivity')}
@@ -358,8 +359,8 @@ export function TransitionsEditor({ value = [], onChange, steps = [], error }: T
                   {(transition.activities || []).map((activity, activityIndex) => (
                     <div key={activityIndex} className="p-3 border rounded-md bg-muted shadow-sm border-l-4 border-l-green-500">
                       <div className="space-y-2">
-                        <div className="flex items-start justify-between gap-2">
-                          <div className="flex-1 grid grid-cols-2 gap-2">
+                        <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+                          <div className="flex-1 grid grid-cols-1 sm:grid-cols-2 gap-2">
                             <div>
                               <Label htmlFor={`activity-${index}-${activityIndex}-id`} className="text-xs">
                                 {t('workflows.activities.activityId')} *
@@ -380,12 +381,12 @@ export function TransitionsEditor({ value = [], onChange, steps = [], error }: T
                                 id={`activity-${index}-${activityIndex}-name`}
                                 value={activity.activityName}
                                 onChange={(e) => updateActivity(index, activityIndex, 'activityName', e.target.value)}
-                                placeholder="Activity Name"
+                                placeholder={t('workflows.activities.activityName')}
                                 className="mt-1 text-xs h-8"
                               />
                             </div>
                           </div>
-                          <div className="flex items-center gap-1">
+                          <div className="flex items-center gap-1 self-end sm:self-auto">
                             <Button
                               type="button"
                               variant="ghost"
@@ -418,7 +419,7 @@ export function TransitionsEditor({ value = [], onChange, steps = [], error }: T
                           </div>
                         </div>
 
-                        <div className="grid grid-cols-3 gap-2">
+                        <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
                           <div>
                             <Label htmlFor={`activity-${index}-${activityIndex}-type`} className="text-xs">
                               {t('workflows.activities.activityType')} *
@@ -465,7 +466,7 @@ export function TransitionsEditor({ value = [], onChange, steps = [], error }: T
                           </div>
                         </div>
 
-                        <div className="grid grid-cols-3 gap-2">
+                        <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
                           <div>
                             <Label htmlFor={`activity-${index}-${activityIndex}-retry-attempts`} className="text-xs">
                               {t('workflows.form.maxRetryAttempts')}

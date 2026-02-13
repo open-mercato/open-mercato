@@ -1,3 +1,59 @@
+# 0.4.3 (2026-02-13)
+
+## Highlights
+This release introduces **`mercato eject`** for deep module customization without forking, a **Version History** system with undo/redo and related-record tracking, **Docker dev mode with hot reload**, **sidebar reorganization**, significant **mobile UX improvements**, and a new **`create-mercato-app`** standalone app workflow. It also ships Windows compatibility fixes, search indexing safeguards, and expanded i18n coverage.
+
+## Features
+- Added `mercato eject` CLI command — copy any ejectable core module into your local `src/modules/` for full customization. Nine modules are ejectable at launch: catalog, currencies, customers, perspectives, planner, resources, sales, staff, and workflows. (#514) *(@andrzejewsky)*
+- Standalone app development improvements — better `create-mercato-app` scaffolding, module resolver, and generator support for apps outside the monorepo. (#472) *(@andrzejewsky)*
+- Documentation for standalone app creation with `create-mercato-app`, module ejection guide, and README updates. (#547) *(@pkarw)*
+- Version history system — track entity changes over time with full audit trail. (#479) *(@pkarw)*
+- Version history extension — support for related records in version history tracking. (#508, #509) *(@pkarw)*
+- `withAtomicFlush` — SPEC-018 extensions for atomic unit-of-work flushing, ensuring consistent data persistence. (#507) *(@pkarw)*
+- Compound commands refactor and optimization — improved undo/redo command batching and performance. (#510) *(@pkarw)*
+- Docker Compose dev mode with containerized app and hot reload — run the full stack in Docker with source-mounted volumes for automatic rebuilds. Recommended setup for Windows. (#466) *(@Sawarz)*
+- Sidebar reorganization — restructured admin navigation for improved discoverability and grouping. (#467) *(@haxiorz)*
+- Mobile UI improvements — better responsive layouts and touch interactions across the admin panel. (#518) *(@haxiorz)*
+- Form headers and footers reorganization for a cleaner, more consistent CRUD form layout. (#477) *(@pkarw)*
+- Prevent auto-reindex feedback loops in search indexing to avoid infinite reindex cycles. (#520) *(@simonkak)*
+- Windows build and runtime compatibility spike — fixes for path handling, shell scripts, and platform-specific behaviors. (#516) *(@freakone)*
+
+## Fixes
+- Fixed mobile scroll issues reported in #451. (#465) *(@Sawarz)*
+- Fixed wrong migration in workflows module (#409). (#474) *(@pat-lewczuk)*
+- Fixed `extractUndoPayload` deduplication in the command system. (#480) *(@pkarw)*
+- Fixed missing translations in workflows module for pl, es, and de locales. (#489) *(@pat-lewczuk)*
+- Added missing translations in business rules module for pl, es, and de locales. (#490) *(@pat-lewczuk)*
+- Fixed event emission issues in the events module. (#493) *(@simonkak)*
+- Fixed unit of work changes tracking for reliable entity persistence. (#497) *(@pkarw)*
+- Fixed search OpenAPI specs — added missing descriptions in OpenAPI params. (#504) *(@simonkak)*
+- Fixed CMD+K shortcut opening both Search and AI Assistant dialogs simultaneously. (#506) *(@sapcik)*
+- Fixed dark mode rendering in the visual workflow editor. (#534) *(@pat-lewczuk)*
+- Fixed missing translations across multiple modules (issue #536). (#538) *(@karolkozer)*
+- Added missing pl, de, and es translations in customer detail views (#540). (#541) *(@karolkozer)*
+- Added environment variable overrides for superadmin credentials during init. (#459) *(@MStaniaszek1998)*
+- Added storage volume configuration for image uploads. (#462) *(@MStaniaszek1998)*
+- Improved DataTable pagination layout on mobile. (#503) *(@sapcik)*
+
+## Specs & Documentation
+- Two-factor authentication (2FA) specification. (#500) *(@pkarw)*
+- Unit of work system solution specification (SPEC-018). (#499) *(@pkarw)*
+- POS module specification. (#528) *(@matgren)*
+- UI confirmation migration specification. (#530) *(@pat-lewczuk)*
+- Financial module specification. (#531) *(@pat-lewczuk)*
+- Catalog content localization specification (SPEC-023). (#537) *(@AK-300codes)*
+- AI-assisted form suggestion specification. (#542) *(@pat-lewczuk)*
+- README installation update. (#515) *(@michaelkrasuski)*
+
+## Agent & Tooling
+- Restructured AGENTS.md files with task router, detailed per-module guides, and best practices for Claude agents. (#469, #492, #519) *(@pkarw, @pat-lewczuk)*
+- Added spec-writing skill for standardized specification authoring. (#525) *(@matgren)*
+- Added code review skill for AI-assisted pull request reviews. (#526) *(@pat-lewczuk)*
+
+## Dependencies
+- Bump `npm_and_yarn` group across 1 directory with 2 updates. (#476)
+- Bump `@modelcontextprotocol/sdk` from 1.25.3 to 1.26.0. (#487)
+
 # 0.4.2 (2026-01-29)
 
 ## Highlights

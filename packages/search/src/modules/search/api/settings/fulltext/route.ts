@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
+import { fulltextSettingsOpenApi } from '../../openapi'
 
 export const metadata = {
   GET: { requireAuth: true, requireFeatures: ['search.view'] },
@@ -80,3 +81,5 @@ export async function GET(req: Request) {
 
   return NextResponse.json(response)
 }
+
+export const openApi = fulltextSettingsOpenApi

@@ -101,17 +101,18 @@ const createJobHistoryCommand: CommandHandler<StaffTeamMemberJobHistoryCreateInp
     return { jobHistoryId: record.id }
   },
   captureAfter: async (_input, result, ctx) => {
-    const em = (ctx.container.resolve('em') as EntityManager)
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
     return await loadJobHistorySnapshot(em, result.jobHistoryId)
   },
-  buildLog: async ({ result, ctx }) => {
+  buildLog: async ({ result, snapshots }) => {
     const { translate } = await resolveTranslations()
-    const em = (ctx.container.resolve('em') as EntityManager)
-    const snapshot = await loadJobHistorySnapshot(em, result.jobHistoryId)
+    const snapshot = snapshots.after as JobHistorySnapshot | undefined
     return {
       actionLabel: translate('staff.audit.teamMemberJobHistories.create', 'Create job history entry'),
       resourceKind: 'staff.team_member_job_history',
       resourceId: result.jobHistoryId,
+      parentResourceKind: 'staff.teamMember',
+      parentResourceId: snapshot?.memberId ?? null,
       tenantId: snapshot?.tenantId ?? null,
       organizationId: snapshot?.organizationId ?? null,
       snapshotAfter: snapshot ?? null,
@@ -179,12 +180,15 @@ const updateJobHistoryCommand: CommandHandler<StaffTeamMemberJobHistoryUpdateInp
 
     return { jobHistoryId: record.id }
   },
-  buildLog: async ({ snapshots, ctx }) => {
+  captureAfter: async (_input, result, ctx) => {
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
+    return await loadJobHistorySnapshot(em, result.jobHistoryId)
+  },
+  buildLog: async ({ snapshots }) => {
     const { translate } = await resolveTranslations()
     const before = snapshots.before as JobHistorySnapshot | undefined
     if (!before) return null
-    const em = (ctx.container.resolve('em') as EntityManager)
-    const afterSnapshot = await loadJobHistorySnapshot(em, before.id)
+    const afterSnapshot = snapshots.after as JobHistorySnapshot | undefined
     const changes =
       afterSnapshot && before
         ? buildChanges(
@@ -197,6 +201,8 @@ const updateJobHistoryCommand: CommandHandler<StaffTeamMemberJobHistoryUpdateInp
       actionLabel: translate('staff.audit.teamMemberJobHistories.update', 'Update job history entry'),
       resourceKind: 'staff.team_member_job_history',
       resourceId: before.id,
+      parentResourceKind: 'staff.teamMember',
+      parentResourceId: before.memberId ?? null,
       tenantId: before.tenantId,
       organizationId: before.organizationId,
       snapshotBefore: before,
@@ -299,6 +305,8 @@ const deleteJobHistoryCommand: CommandHandler<{ body?: Record<string, unknown>; 
         actionLabel: translate('staff.audit.teamMemberJobHistories.delete', 'Delete job history entry'),
         resourceKind: 'staff.team_member_job_history',
         resourceId: before.id,
+        parentResourceKind: 'staff.teamMember',
+        parentResourceId: before.memberId ?? null,
         tenantId: before.tenantId,
         organizationId: before.organizationId,
         snapshotBefore: before,

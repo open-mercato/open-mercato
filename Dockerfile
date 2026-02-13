@@ -33,6 +33,36 @@ COPY eslint.config.mjs ./
 # Build the app
 RUN yarn build
 
+# Dev stage: install + build packages only, no production build; run dev server with watch
+FROM node:24-alpine AS dev
+
+ENV NODE_ENV=development \
+    NEXT_TELEMETRY_DISABLED=1
+
+WORKDIR /app
+
+RUN apk add --no-cache python3 make g++ ca-certificates openssl
+RUN corepack enable
+
+COPY package.json yarn.lock .yarnrc.yml turbo.json ./
+COPY tsconfig.base.json tsconfig.json ./
+COPY packages/ ./packages/
+COPY apps/ ./apps/
+COPY scripts/ ./scripts/
+RUN yarn install
+
+COPY newrelic.js ./
+COPY jest.config.cjs jest.setup.ts jest.dom.setup.ts ./
+COPY eslint.config.mjs ./
+
+RUN yarn build:packages
+
+COPY docker/scripts/dev-entrypoint.sh /app/docker/scripts/dev-entrypoint.sh
+RUN chmod +x /app/docker/scripts/dev-entrypoint.sh
+
+EXPOSE 3000
+CMD ["/bin/sh", "/app/docker/scripts/dev-entrypoint.sh"]
+
 # Production stage
 FROM node:24-alpine AS runner
 
@@ -63,7 +93,7 @@ COPY --from=builder /app/apps/mercato/package.json ./apps/mercato/
 RUN yarn workspaces focus @open-mercato/app --production
 
 # Copy built Next.js application
-COPY --from=builder /app/apps/mercato/.next ./apps/mercato/.next
+COPY --from=builder /app/apps/mercato/.mercato/next ./apps/mercato/.mercato/next
 COPY --from=builder /app/apps/mercato/public ./apps/mercato/public
 COPY --from=builder /app/apps/mercato/next.config.ts ./apps/mercato/
 COPY --from=builder /app/apps/mercato/components.json ./apps/mercato/

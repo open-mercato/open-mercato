@@ -8,6 +8,7 @@ import { Label } from '@open-mercato/ui/primitives/label'
 import { ChevronDown, Plus, Trash2 } from 'lucide-react'
 import { JsonBuilder } from '@open-mercato/ui/backend/JsonBuilder'
 import type { CrudCustomFieldRenderProps } from '@open-mercato/ui/backend/CrudForm'
+import { useT } from '@open-mercato/shared/lib/i18n/context'
 
 /**
  * Activity definition structure
@@ -46,6 +47,7 @@ interface ActivityArrayEditorProps extends CrudCustomFieldRenderProps {
  * Used by both EdgeEditDialog and NodeEditDialog (automated type)
  */
 export function ActivityArrayEditor({ id, value = [], error, setValue, disabled }: ActivityArrayEditorProps) {
+  const t = useT()
   const [expandedIndices, setExpandedIndices] = useState<Set<number>>(new Set())
 
   const activities = Array.isArray(value) ? value : []
@@ -63,7 +65,7 @@ export function ActivityArrayEditor({ id, value = [], error, setValue, disabled 
   const addActivity = () => {
     const newActivity: Activity = {
       activityId: `activity_${Date.now()}`,
-      activityName: 'New Activity',
+      activityName: t('workflows.common.newActivity'),
       activityType: 'CALL_API',
       config: {},
       timeout: '',
@@ -84,7 +86,7 @@ export function ActivityArrayEditor({ id, value = [], error, setValue, disabled 
   }
 
   const removeActivity = (index: number) => {
-    if (typeof window !== 'undefined' && !window.confirm('Are you sure you want to remove this activity?')) {
+    if (typeof window !== 'undefined' && !window.confirm(t('workflows.fieldEditors.activities.confirmRemove'))) {
       return
     }
     const newActivities = activities.filter((_, i) => i !== index)
@@ -124,13 +126,13 @@ export function ActivityArrayEditor({ id, value = [], error, setValue, disabled 
           disabled={disabled}
         >
           <Plus className="size-3 mr-1" />
-          Add Activity
+          {t('workflows.fieldEditors.activities.addActivity')}
         </Button>
       </div>
 
       {activities.length === 0 ? (
         <div className="p-4 text-center text-sm text-muted-foreground bg-muted rounded-lg border">
-          No activities defined. Click "Add Activity" to create one.
+          {t('workflows.fieldEditors.activities.emptyState')}
         </div>
       ) : (
         <div className="space-y-2">
@@ -174,14 +176,14 @@ export function ActivityArrayEditor({ id, value = [], error, setValue, disabled 
                     {/* Activity ID */}
                     <div className="pt-3">
                       <Label htmlFor={`${id}-${index}-activityId`} className="text-xs font-medium mb-1">
-                        Activity ID *
+                        {t('workflows.fieldEditors.activities.activityId')} *
                       </Label>
                       <Input
                         id={`${id}-${index}-activityId`}
                         type="text"
                         value={activity.activityId}
                         onChange={(e) => updateActivity(index, 'activityId', e.target.value)}
-                        placeholder="activity_name"
+                        placeholder={t('workflows.fieldEditors.activities.activityIdPlaceholder')}
                         className="text-xs"
                         disabled={disabled}
                       />
@@ -190,14 +192,14 @@ export function ActivityArrayEditor({ id, value = [], error, setValue, disabled 
                     {/* Activity Name */}
                     <div>
                       <Label htmlFor={`${id}-${index}-activityName`} className="text-xs font-medium mb-1">
-                        Activity Name *
+                        {t('workflows.fieldEditors.activities.activityName')} *
                       </Label>
                       <Input
                         id={`${id}-${index}-activityName`}
                         type="text"
                         value={activity.activityName || ''}
                         onChange={(e) => updateActivity(index, 'activityName', e.target.value)}
-                        placeholder="Activity Name"
+                        placeholder={t('workflows.fieldEditors.activities.activityNamePlaceholder')}
                         className="text-xs"
                         disabled={disabled}
                       />
@@ -206,7 +208,7 @@ export function ActivityArrayEditor({ id, value = [], error, setValue, disabled 
                     {/* Activity Type */}
                     <div>
                       <Label htmlFor={`${id}-${index}-activityType`} className="text-xs font-medium mb-1">
-                        Activity Type *
+                        {t('workflows.fieldEditors.activities.activityType')} *
                       </Label>
                       <select
                         id={`${id}-${index}-activityType`}
@@ -215,42 +217,42 @@ export function ActivityArrayEditor({ id, value = [], error, setValue, disabled 
                         className="flex h-9 w-full rounded-md border border-input bg-background px-3 py-2 text-xs shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                         disabled={disabled}
                       >
-                        <option value="SEND_EMAIL">Send Email</option>
-                        <option value="CALL_API">Call API</option>
-                        <option value="UPDATE_ENTITY">Update Entity</option>
-                        <option value="EMIT_EVENT">Emit Event</option>
-                        <option value="CALL_WEBHOOK">Call Webhook</option>
-                        <option value="EXECUTE_FUNCTION">Execute Function</option>
-                        <option value="WAIT">Wait</option>
+                        <option value="SEND_EMAIL">{t('workflows.activities.types.SEND_EMAIL')}</option>
+                        <option value="CALL_API">{t('workflows.activities.types.CALL_API')}</option>
+                        <option value="UPDATE_ENTITY">{t('workflows.activities.types.UPDATE_ENTITY')}</option>
+                        <option value="EMIT_EVENT">{t('workflows.activities.types.EMIT_EVENT')}</option>
+                        <option value="CALL_WEBHOOK">{t('workflows.activities.types.CALL_WEBHOOK')}</option>
+                        <option value="EXECUTE_FUNCTION">{t('workflows.activities.types.EXECUTE_FUNCTION')}</option>
+                        <option value="WAIT">{t('workflows.activities.types.WAIT')}</option>
                       </select>
                     </div>
 
                     {/* Timeout */}
                     <div>
                       <Label htmlFor={`${id}-${index}-timeout`} className="text-xs font-medium mb-1">
-                        Timeout
+                        {t('workflows.fieldEditors.activities.timeout')}
                       </Label>
                       <Input
                         id={`${id}-${index}-timeout`}
                         type="text"
                         value={activity.timeout || ''}
                         onChange={(e) => updateActivity(index, 'timeout', e.target.value)}
-                        placeholder="PT30S or 30000"
+                        placeholder={t('workflows.fieldEditors.activities.timeoutPlaceholder')}
                         className="text-xs"
                         disabled={disabled}
                       />
                       <p className="text-xs text-muted-foreground mt-1">
-                        ISO 8601 duration or milliseconds
+                        {t('workflows.fieldEditors.activities.timeoutHint')}
                       </p>
                     </div>
 
                     {/* Retry Policy */}
                     <div className="border-t border-gray-200 pt-3">
-                      <Label className="text-xs font-semibold mb-2 block">Retry Policy</Label>
-                      <div className="grid grid-cols-2 gap-2">
+                      <Label className="text-xs font-semibold mb-2 block">{t('workflows.fieldEditors.activities.retryPolicy')}</Label>
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                         <div>
                           <Label htmlFor={`${id}-${index}-maxAttempts`} className="text-xs text-gray-600 mb-1">
-                            Max Attempts
+                            {t('workflows.fieldEditors.activities.maxAttempts')}
                           </Label>
                           <Input
                             id={`${id}-${index}-maxAttempts`}
@@ -266,7 +268,7 @@ export function ActivityArrayEditor({ id, value = [], error, setValue, disabled 
                         </div>
                         <div>
                           <Label htmlFor={`${id}-${index}-initialIntervalMs`} className="text-xs text-gray-600 mb-1">
-                            Initial Interval (ms)
+                            {t('workflows.fieldEditors.activities.initialInterval')}
                           </Label>
                           <Input
                             id={`${id}-${index}-initialIntervalMs`}
@@ -281,7 +283,7 @@ export function ActivityArrayEditor({ id, value = [], error, setValue, disabled 
                         </div>
                         <div>
                           <Label htmlFor={`${id}-${index}-backoffCoefficient`} className="text-xs text-gray-600 mb-1">
-                            Backoff Coefficient
+                            {t('workflows.fieldEditors.activities.backoffCoefficient')}
                           </Label>
                           <Input
                             id={`${id}-${index}-backoffCoefficient`}
@@ -298,7 +300,7 @@ export function ActivityArrayEditor({ id, value = [], error, setValue, disabled 
                         </div>
                         <div>
                           <Label htmlFor={`${id}-${index}-maxIntervalMs`} className="text-xs text-gray-600 mb-1">
-                            Max Interval (ms)
+                            {t('workflows.fieldEditors.activities.maxInterval')}
                           </Label>
                           <Input
                             id={`${id}-${index}-maxIntervalMs`}
@@ -316,7 +318,7 @@ export function ActivityArrayEditor({ id, value = [], error, setValue, disabled 
 
                     {/* Activity Options */}
                     <div className="border-t border-gray-200 pt-3">
-                      <Label className="text-xs font-semibold mb-2 block">Activity Options</Label>
+                      <Label className="text-xs font-semibold mb-2 block">{t('workflows.fieldEditors.activities.activityOptions')}</Label>
                       <div className="space-y-2">
                         <div className="flex items-center space-x-2">
                           <input
@@ -328,7 +330,7 @@ export function ActivityArrayEditor({ id, value = [], error, setValue, disabled 
                             disabled={disabled}
                           />
                           <Label htmlFor={`${id}-${index}-async`} className="text-xs text-gray-700 cursor-pointer">
-                            Async (run in background)
+                            {t('workflows.fieldEditors.activities.asyncOption')}
                           </Label>
                         </div>
                         <div className="flex items-center space-x-2">
@@ -341,7 +343,7 @@ export function ActivityArrayEditor({ id, value = [], error, setValue, disabled 
                             disabled={disabled}
                           />
                           <Label htmlFor={`${id}-${index}-compensate`} className="text-xs text-gray-700 cursor-pointer">
-                            Compensate (execute compensation on failure)
+                            {t('workflows.fieldEditors.activities.compensateOption')}
                           </Label>
                         </div>
                       </div>
@@ -350,7 +352,7 @@ export function ActivityArrayEditor({ id, value = [], error, setValue, disabled 
                     {/* Configuration JSON */}
                     <div className="border-t border-gray-200 pt-3">
                       <Label className="text-xs font-medium mb-1">
-                        Configuration (JSON)
+                        {t('workflows.fieldEditors.activities.configurationJson')}
                       </Label>
                       <JsonBuilder
                         value={activity.config || {}}
@@ -358,7 +360,7 @@ export function ActivityArrayEditor({ id, value = [], error, setValue, disabled 
                         disabled={disabled}
                       />
                       <p className="text-xs text-muted-foreground mt-1">
-                        Activity-specific configuration as JSON
+                        {t('workflows.fieldEditors.activities.configurationHint')}
                       </p>
                     </div>
 
@@ -372,7 +374,7 @@ export function ActivityArrayEditor({ id, value = [], error, setValue, disabled 
                         disabled={disabled}
                       >
                         <Trash2 className="size-4 mr-1" />
-                        Remove Activity
+                        {t('workflows.fieldEditors.activities.removeActivity')}
                       </Button>
                     </div>
                   </div>

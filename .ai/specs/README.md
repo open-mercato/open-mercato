@@ -50,6 +50,17 @@ Files like `AGENTS.md` and `CLAUDE.md` use UPPERCASE names and are not numberedâ
 | [SPEC-013](SPEC-013-2026-01-27-decouple-module-setup.md) | 2026-01-27 | Decouple Module Setup | `setup.ts` convention for module initialization and role features |
 | [SPEC-014](SPEC-014-2026-01-28-onboarding-activation-login.md) | 2026-01-28 | Onboarding Activation Login | Duplicate-activation guard and tenant-aware login flow |
 | [SPEC-015](SPEC-015-2026-01-29-module-registry-scanner-dedup.md) | 2026-01-29 | Module Registry Scanner Dedup | Deduplicate widget scanner logic in module registry generation |
+| [SPEC-016](SPEC-016-2026-02-03-form-headers-footers.md) | 2026-02-03 | Form Headers & Footers | Reusable FormHeader, FormFooter, FormActionButtons design system components |
+| [SPEC-017](SPEC-017-2026-02-03-version-history-panel.md) | 2026-02-03 | Version History Panel | Right-side panel showing record change history from audit logs |
+| [SPEC-018](SPEC-018-2026-02-05-safe-entity-flush.md) | 2026-02-05 | Atomic Phased Flush | `withAtomicFlush` â€” N-phase flush pipeline with optional transactions to prevent UoW data loss and partial commits |
+| [SPEC-019](SPEC-019-2026-02-05-two-factor-authentication.md) | 2026-02-05 | Two-Factor Authentication | TOTP-based 2FA with authenticator apps, recovery codes, and optional tenant enforcement |
+| [SPEC-020](SPEC-020-2026-02-07-related-entity-version-history.md) | 2026-02-07 | Related Entity Version History | Show child entity changes (addresses, payments, notes, etc.) in parent entity version history panel |
+| [SPEC-021](SPEC-021-2026-02-07-compound-commands-graph-save.md) | 2026-02-07 | Compound Commands & Graph Save | Graph-save pattern for aggregate roots and compound command wrapper for atomic multi-command operations |
+| [SPEC-022](SPEC-022-2026-02-07-pos-module.md) | 2026-02-07 | POS Module | Point of Sale module for in-store retail operations |
+| [SPEC-022a](SPEC-022a-2026-02-09-pos-tile-browsing.md) | 2026-02-09 | POS Tile Browsing | Tile-based product browsing UI for POS checkout |
+| [SPEC-023](SPEC-023-2026-02-11-confirmation-dialog-migration.md) | 2026-02-11 | ConfirmDialog Refactor | Native `<dialog>` migration and `window.confirm` elimination |
+| [SPEC-024](SPEC-024-2026-02-11-financial-module.md) | 2026-02-11 | ERP Financial Modules | ERP financial modules specification |
+| [SPEC-025](SPEC-025-2026-02-12-ai-assisted-business-rules.md) | 2026-02-12 | AI-Assisted Business Rules | AI-assisted business rule editing |
 
 ## Specification Structure
 

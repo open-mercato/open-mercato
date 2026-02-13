@@ -1,9 +1,8 @@
 "use client"
 
 import * as React from 'react'
-import Link from 'next/link'
-import { Loader2, Trash2 } from 'lucide-react'
-import { Button } from '@open-mercato/ui/primitives/button'
+import { FormHeader } from '@open-mercato/ui/backend/forms'
+import { VersionHistoryAction } from '@open-mercato/ui/backend/version-history'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import {
   InlineTextEditor,
@@ -24,9 +23,11 @@ type CompanyHighlightsCompany = {
   nextInteractionRefId?: string | null
   nextInteractionIcon?: string | null
   nextInteractionColor?: string | null
+  organizationId?: string | null
 }
 
 type CompanyHighlightsProfile = {
+  id?: string
   brandName?: string | null
   legalName?: string | null
   websiteUrl?: string | null
@@ -55,6 +56,7 @@ export type CompanyHighlightsProps = {
 
 export function CompanyHighlights({
   company,
+  profile,
   validators,
   onDisplayNameSave,
   onPrimaryEmailSave,
@@ -65,18 +67,27 @@ export function CompanyHighlights({
   isDeleting,
 }: CompanyHighlightsProps) {
   const t = useT()
+  const historyFallbackId =
+    profile?.id && profile.id !== company.id ? profile.id : undefined
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-        <div className="flex flex-wrap items-center gap-3">
-          <Link
-            href="/backend/customers/companies"
-            className="inline-flex items-center text-sm text-muted-foreground hover:text-foreground"
-          >
-            <span aria-hidden className="mr-1 text-base">←</span>
-            <span className="sr-only">{t('customers.companies.detail.actions.backToList', 'Back to companies')}</span>
-          </Link>
+      <FormHeader
+        mode="detail"
+        backHref="/backend/customers/companies"
+        backLabel={t('customers.companies.detail.actions.backToList', 'Back to companies')}
+        utilityActions={(
+          <VersionHistoryAction
+            config={{
+              resourceKind: 'customers.company',
+              resourceId: company.id,
+              resourceIdFallback: historyFallbackId,
+              organizationId: company.organizationId ?? undefined,
+            }}
+            t={t}
+          />
+        )}
+        title={
           <InlineTextEditor
             label={t('customers.companies.form.displayName.label', 'Display name')}
             value={company.displayName}
@@ -90,21 +101,11 @@ export function CompanyHighlights({
             triggerClassName="opacity-0 transition-opacity duration-150 group-hover:opacity-100 group-focus-within:opacity-100 focus-visible:opacity-100"
             containerClassName="max-w-full"
           />
-        </div>
-        <div className="flex flex-wrap items-center gap-2">
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            onClick={onDelete}
-            disabled={isDeleting}
-            className="rounded-none border-destructive/40 text-destructive hover:bg-destructive/5 hover:text-destructive"
-          >
-            {isDeleting ? <Loader2 className="size-4 animate-spin" /> : <Trash2 className="size-4" />}
-            {t('customers.companies.detail.actions.delete', 'Delete company')}
-          </Button>
-        </div>
-      </div>
+        }
+        onDelete={onDelete}
+        isDeleting={isDeleting}
+        deleteLabel={t('customers.companies.detail.actions.delete', 'Delete company')}
+      />
 
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
         <InlineTextEditor

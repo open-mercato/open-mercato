@@ -162,17 +162,19 @@ const createActivityCommand: CommandHandler<ResourcesResourceActivityCreateInput
     return { activityId: activity.id, authorUserId: activity.authorUserId ?? null }
   },
   captureAfter: async (_input, result, ctx) => {
-    const em = (ctx.container.resolve('em') as EntityManager)
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
     return await loadActivitySnapshot(em, result.activityId)
   },
   buildLog: async ({ result, ctx }) => {
     const { translate } = await resolveTranslations()
-    const em = (ctx.container.resolve('em') as EntityManager)
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
     const snapshot = await loadActivitySnapshot(em, result.activityId)
     return {
       actionLabel: translate('resources.audit.resourceActivities.create', 'Create activity'),
       resourceKind: 'resources.resource_activity',
       resourceId: result.activityId,
+      parentResourceKind: 'resources.resource',
+      parentResourceId: snapshot?.activity?.resourceId ?? null,
       tenantId: snapshot?.activity.tenantId ?? null,
       organizationId: snapshot?.activity.organizationId ?? null,
       snapshotAfter: snapshot ?? null,
@@ -248,7 +250,7 @@ const updateActivityCommand: CommandHandler<ResourcesResourceActivityUpdateInput
     const { translate } = await resolveTranslations()
     const before = snapshots.before as ActivitySnapshot | undefined
     if (!before) return null
-    const em = (ctx.container.resolve('em') as EntityManager)
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
     const afterSnapshot = await loadActivitySnapshot(em, before.activity.id)
     const changes: ActivityChangeMap =
       afterSnapshot && afterSnapshot.activity
@@ -264,6 +266,8 @@ const updateActivityCommand: CommandHandler<ResourcesResourceActivityUpdateInput
       actionLabel: translate('resources.audit.resourceActivities.update', 'Update activity'),
       resourceKind: 'resources.resource_activity',
       resourceId: before.activity.id,
+      parentResourceKind: 'resources.resource',
+      parentResourceId: before.activity.resourceId ?? null,
       tenantId: before.activity.tenantId,
       organizationId: before.activity.organizationId,
       snapshotBefore: before,
@@ -383,6 +387,8 @@ const deleteActivityCommand: CommandHandler<{ body?: Record<string, unknown>; qu
       actionLabel: translate('resources.audit.resourceActivities.delete', 'Delete activity'),
       resourceKind: 'resources.resource_activity',
       resourceId: before.activity.id,
+      parentResourceKind: 'resources.resource',
+      parentResourceId: before.activity.resourceId ?? null,
       tenantId: before.activity.tenantId,
       organizationId: before.activity.organizationId,
       snapshotBefore: before,

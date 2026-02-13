@@ -1110,7 +1110,7 @@ export function NotesSection<C = unknown>({
                   </div>
                   <div
                     className={`flex items-center gap-2 transition-opacity ${
-                      isEditingContent ? 'opacity-100' : 'opacity-0 group-hover:opacity-100 focus-within:opacity-100'
+                      isEditingContent ? 'opacity-100' : 'opacity-100 md:opacity-0 md:group-hover:opacity-100 focus-within:opacity-100'
                     }`}
                   >
                     <Button

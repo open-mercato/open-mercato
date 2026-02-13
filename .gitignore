@@ -89,6 +89,7 @@ package-lock.json
 # IDE related
 .idea
 .claude
+.codex
 
 # Claude Code MCP config (may contain API keys)
 .mcp.json
@@ -105,3 +106,6 @@ docker/opencode/opencode.jsonc
 # Local npm registry (Verdaccio)
 .npmrc
 !.npmrc.local
+
+# MCPs
+.playwright-mcp

@@ -260,7 +260,7 @@ function JsonNode({ data, onChange, onDelete, readOnly, label, isRoot }: JsonNod
 
                     {type === 'string' && (
                         <input
-                            className="flex-1 min-w-[120px] text-sm border rounded px-2 py-0.5 focus:outline-none focus:border-blue-500"
+                            className="flex-1 min-w-0 sm:min-w-[120px] text-sm border rounded px-2 py-0.5 focus:outline-none focus:border-blue-500"
                             value={data}
                             onChange={e => onChange(e.target.value)}
                             disabled={readOnly}
@@ -269,7 +269,7 @@ function JsonNode({ data, onChange, onDelete, readOnly, label, isRoot }: JsonNod
                     {type === 'number' && (
                         <input
                             type="number"
-                            className="flex-1 w-[100px] text-sm border rounded px-2 py-0.5 focus:outline-none focus:border-blue-500"
+                            className="flex-1 w-full sm:w-[100px] text-sm border rounded px-2 py-0.5 focus:outline-none focus:border-blue-500"
                             value={data}
                             onChange={e => onChange(parseFloat(e.target.value) || 0)}
                             disabled={readOnly}
@@ -277,7 +277,7 @@ function JsonNode({ data, onChange, onDelete, readOnly, label, isRoot }: JsonNod
                     )}
                     {type === 'boolean' && (
                         <select
-                            className="flex-1 w-[100px] text-sm border rounded px-2 py-0.5 focus:outline-none focus:border-blue-500"
+                            className="flex-1 w-full sm:w-[100px] text-sm border rounded px-2 py-0.5 focus:outline-none focus:border-blue-500"
                             value={String(data)}
                             onChange={e => onChange(e.target.value === 'true')}
                             disabled={readOnly}
@@ -313,7 +313,7 @@ function JsonNode({ data, onChange, onDelete, readOnly, label, isRoot }: JsonNod
                             <div className="pt-2">
                                 {/* Key Renamer */}
                                 <input
-                                    className="w-[100px] text-xs font-mono border-b border-transparent hover:border-gray-300 focus:border-blue-500 bg-transparent focus:outline-none text-right pr-1"
+                                    className="w-full sm:w-[100px] text-xs font-mono border-b border-transparent hover:border-gray-300 focus:border-blue-500 bg-transparent focus:outline-none text-right pr-1"
                                     value={key}
                                     onChange={(e) => handleKeyRename(key, e.target.value)}
                                     disabled={readOnly}

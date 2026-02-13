@@ -46,7 +46,7 @@ export function StepsEditor({ value = [], onChange, error }: StepsEditorProps) {
   const addStep = () => {
     const newStep: Step = {
       stepId: `step_${Date.now()}`,
-      stepName: 'New Step',
+      stepName: t('workflows.common.newStep'),
       stepType: 'AUTOMATED',
       description: '',
       config: {},
@@ -77,14 +77,14 @@ export function StepsEditor({ value = [], onChange, error }: StepsEditorProps) {
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <p className="text-sm text-muted-foreground">
             {t('workflows.form.descriptions.steps')}
           </p>
           {error && <p className="text-sm text-red-600 mt-1">{error}</p>}
         </div>
-        <Button type="button" onClick={addStep} variant="outline" size="sm">
+        <Button type="button" onClick={addStep} variant="outline" size="sm" className="w-full sm:w-auto">
           <Plus className="h-4 w-4 mr-1" />
           {t('workflows.form.addStep')}
         </Button>
@@ -100,8 +100,8 @@ export function StepsEditor({ value = [], onChange, error }: StepsEditorProps) {
         {value.map((step, index) => (
           <div key={index} className="p-4 border rounded-md bg-card shadow-sm">
             <div className="space-y-3">
-              <div className="flex items-start justify-between gap-2">
-                <div className="flex-1 grid grid-cols-2 gap-3">
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                <div className="flex-1 grid grid-cols-1 sm:grid-cols-2 gap-3">
                   <div>
                     <Label htmlFor={`step-${index}-id`} className="text-xs">
                       {t('workflows.steps.stepId')} *
@@ -122,12 +122,12 @@ export function StepsEditor({ value = [], onChange, error }: StepsEditorProps) {
                       id={`step-${index}-name`}
                       value={step.stepName}
                       onChange={(e) => updateStep(index, 'stepName', e.target.value)}
-                      placeholder="Step Name"
+                      placeholder={t('workflows.steps.stepName')}
                       className="mt-1"
                     />
                   </div>
                 </div>
-                <div className="flex items-center gap-1">
+                <div className="flex items-center gap-1 self-end sm:self-auto">
                   <Button
                     type="button"
                     variant="ghost"
@@ -160,7 +160,7 @@ export function StepsEditor({ value = [], onChange, error }: StepsEditorProps) {
                 </div>
               </div>
 
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
                   <Label htmlFor={`step-${index}-type`} className="text-xs">
                     {t('workflows.steps.stepType')} *

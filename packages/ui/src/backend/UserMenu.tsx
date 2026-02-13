@@ -4,6 +4,9 @@ import Link from 'next/link'
 import { User, LogOut, Key } from 'lucide-react'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 
+export { ProfileDropdown } from './ProfileDropdown'
+export type { ProfileDropdownProps } from './ProfileDropdown'
+
 export function UserMenu({ email }: { email?: string }) {
   const t = useT()
   const [open, setOpen] = React.useState(false)
@@ -96,7 +99,7 @@ export function UserMenu({ email }: { email?: string }) {
           )}
           <Link
             ref={profileButtonRef}
-            href="/backend/auth/profile"
+            href="/backend/profile/change-password"
             className="w-full text-left text-sm px-2 py-1 rounded hover:bg-accent inline-flex items-center gap-2 outline-none focus:outline-none focus-visible:outline-none ring-0 focus:ring-0 focus-visible:ring-0"
             role="menuitem"
             tabIndex={0}

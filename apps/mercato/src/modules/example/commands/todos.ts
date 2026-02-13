@@ -116,7 +116,7 @@ const createTodoCommand: CommandHandler<Record<string, unknown>, Todo> = {
   captureAfter: (_input, result) => serializeTodo(result),
   buildLog: async ({ result, ctx }) => {
     const { translate } = await resolveTranslations()
-    const em = (ctx.container.resolve('em') as EntityManager)
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
     const custom = await loadTodoCustomSnapshot(
       em,
       String(result.id),
@@ -239,7 +239,7 @@ const updateTodoCommand: CommandHandler<Record<string, unknown>, Todo> = {
     return todo
   },
   captureAfter: async (_input, result, ctx) => {
-    const em = (ctx.container.resolve('em') as EntityManager)
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
     const custom = await loadTodoCustomSnapshot(
       em,
       String(result.id),

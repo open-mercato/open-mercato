@@ -153,7 +153,7 @@ export function PerspectiveSidebar({
                           <span>{t('ui.perspectives.updated', 'Updated {date}', { date: new Date(p.updatedAt ?? p.createdAt).toLocaleString() })}</span>
                         </div>
                       </div>
-                      <div className="flex flex-col gap-1">
+                      <div className="flex flex-col gap-2">
                         <Button
                           size="sm"
                           variant={isActive ? 'secondary' : 'outline'}
@@ -248,7 +248,7 @@ export function PerspectiveSidebar({
                 value={name}
                 onChange={(e) => setName(e.target.value)}
                 placeholder={t('ui.perspectives.form.namePlaceholder', 'e.g. My condensed view')}
-                className="w-full h-9 rounded border px-2 text-sm"
+                className="w-full h-11 rounded border px-2 text-sm"
               />
             </div>
             <div className="space-y-2">

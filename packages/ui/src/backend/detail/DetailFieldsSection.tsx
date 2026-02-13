@@ -68,7 +68,7 @@ export type DetailFieldsSectionProps = {
 
 export function DetailFieldsSection({ fields, className }: DetailFieldsSectionProps) {
   return (
-    <div className={['grid gap-4 sm:grid-cols-2 xl:grid-cols-3', className].filter(Boolean).join(' ')}>
+    <div className={['grid grid-cols-1 gap-4 sm:grid-cols-2 md:grid-cols-3', className].filter(Boolean).join(' ')}>
       {fields.map((field) => {
         const variant = field.editorVariant ?? 'muted'
         const activateOnClick = field.activateOnClick ?? true

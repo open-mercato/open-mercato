@@ -397,7 +397,7 @@ export function DashboardScreen() {
       )}
 
       <div className={cn(
-        'grid gap-4',
+        'grid gap-3 sm:gap-4 md:gap-6',
         'grid-cols-1',
         'md:grid-cols-2',
         'xl:grid-cols-3'

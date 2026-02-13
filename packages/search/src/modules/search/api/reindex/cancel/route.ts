@@ -7,6 +7,7 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import { clearReindexLock } from '../../../lib/reindex-lock'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { recordIndexerLog } from '@open-mercato/shared/lib/indexers/status-log'
+import { reindexCancelOpenApi } from '../../openapi'
 
 export const metadata = {
   POST: { requireAuth: true, requireFeatures: ['search.reindex'] },
@@ -75,3 +76,5 @@ export async function POST(req: Request) {
     jobsRemoved,
   })
 }
+
+export const openApi = reindexCancelOpenApi

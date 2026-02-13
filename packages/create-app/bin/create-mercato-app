@@ -1,0 +1,21 @@
+#!/usr/bin/env node
+
+// Stub loader for the create-mercato-app CLI
+// This file exists so yarn/npm can create bin symlinks before the package is built.
+// It dynamically loads the actual CLI from dist/index.js
+
+import { existsSync } from 'node:fs';
+import { join, dirname } from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+const __dirname = dirname(fileURLToPath(import.meta.url));
+const distIndex = join(__dirname, '..', 'dist', 'index.js');
+
+if (!existsSync(distIndex)) {
+  console.error('Error: CLI not built. Run "yarn build" first.');
+  console.error(`Expected: ${distIndex}`);
+  process.exit(1);
+}
+
+// Import the actual CLI
+await import(distIndex);

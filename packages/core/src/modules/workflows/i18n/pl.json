@@ -8,13 +8,16 @@
       "view": "Przeglądaj procesy biznesowe",
       "create": "Twórz procesy biznesowe",
       "edit": "Edytuj procesy biznesowe",
-      "delete": "Usuń  biznesowe",
+      "delete": "Usuń procesy biznesowe",
       "execute": "Wykonaj proces biznesowy",
       "view_instances": "Przeglądaj Instancje Przepływów",
       "manage_instances": "Zarządzaj Instancjami Przepływów",
       "view_tasks": "Przeglądaj Zadania Użytkownika",
       "complete_tasks": "Ukończ Zadania Użytkownika",
       "view_logs": "Przeglądaj Logi Przepływów"
+    },
+    "nav": {
+      "graphTest": "Test Grafu"
     },
     "backend": {
       "definitions": {
@@ -40,18 +43,25 @@
       "version": "Wersja",
       "enabled": "Włączony",
       "tags": "Tagi",
-      "createdAt": "Utworzono"
+      "createdAt": "Utworzono",
+      "id": "ID",
+      "name": "Nazwa"
     },
     "actions": {
       "create": "Utwórz Przepływ Pracy",
       "createVisual": "Utwórz Przepływ (Wizualnie)",
       "editVisually": "Edytuj Wizualnie",
       "openVisualEditor": "Otwórz Edytor Wizualny",
-      "toggleEnabled": "Kliknij aby włączyć/wyłączyć"
+      "toggleEnabled": "Kliknij aby włączyć/wyłączyć",
+      "editStep": "Edytuj Krok",
+      "cancel": "Anuluj",
+      "saveChanges": "Zapisz Zmiany"
     },
     "confirm": {
       "deleteTitle": "Usuń Workflow",
-      "delete": "Czy na pewno chcesz usunąć przepływ '{{name}}'? Tej operacji nie można cofnąć."
+      "delete": "Czy na pewno chcesz usunąć przepływ '{{name}}'? Tej operacji nie można cofnąć.",
+      "removeField": "Czy na pewno chcesz usunąć to pole?",
+      "deleteStep": "Czy na pewno chcesz usunąć krok \"{{name}}\"?"
     },
     "form": {
       "workflowId": "ID Przepływu",
@@ -64,13 +74,74 @@
       "category": "Kategoria",
       "tags": "Tagi",
       "icon": "Ikona",
+      "stepName": "Nazwa Kroku",
+      "timeout": "Limit Czasu",
+      "assignedTo": "Przypisane Do (ID Użytkownika)",
+      "assignedToRoles": "Przypisane Do Ról",
+      "formKey": "Klucz Formularza",
+      "formFields": "Pola Formularza ({{count}})",
+      "addField": "Dodaj Pole",
+      "fieldName": "Nazwa Pola",
+      "fieldLabel": "Etykieta Pola",
+      "fieldType": "Typ Pola",
+      "placeholder": "Placeholder",
+      "defaultValue": "Wartość Domyślna",
+      "options": "Opcje (rozdzielone przecinkami)",
+      "requiredField": "Pole wymagane",
+      "removeField": "Usuń Pole",
+      "stepActivities": "Działania Kroku ({{count}})",
+      "activityId": "ID Działania",
+      "activityName": "Nazwa Działania",
+      "activityType": "Typ Działania",
+      "retryPolicy": "Polityka Ponowień",
+      "maxAttempts": "Maks. Prób",
+      "initialInterval": "Interwał Początkowy (ms)",
+      "backoffCoefficient": "Współczynnik Wycofania",
+      "maxInterval": "Maks. Interwał (ms)",
+      "executeAsync": "Wykonaj Asynchronicznie",
+      "configuration": "Konfiguracja (JSON)",
+      "deleteActivity": "Usuń Działanie",
+      "subWorkflowConfig": "Konfiguracja Podprzepływu",
+      "workflowToInvoke": "Przepływ do Wywołania",
+      "browse": "Przeglądaj...",
+      "inputMapping": "Mapowanie Wejścia ({{count}})",
+      "outputMapping": "Mapowanie Wyjścia ({{count}})",
+      "addMapping": "Dodaj Mapowanie",
+      "signalConfig": "Konfiguracja Sygnału",
+      "signalName": "Nazwa Sygnału",
+      "advancedConfiguration": "Zaawansowana Konfiguracja (JSON)",
+      "deleteStep": "Usuń Krok",
+      "required": "Wymagane",
+      "async": "Asynchroniczne",
+      "newField": "Nowe Pole",
       "placeholders": {
-        "workflowId": "obsluga_zamowien",
+        "workflowId": "checkout_workflow",
         "workflowName": "Wprowadź opisową nazwę przepływu",
         "description": "Opcjonalnie: Opisz cel tego przepływu",
         "category": "np. Sprzedaż, Obsługa klienta, Finanse",
         "tags": "Naciśnij Enter, aby dodać tagi",
-        "icon": "np. ShoppingCart, User, FileText"
+        "icon": "np. ShoppingCart, User, FileText",
+        "stepName": "Wprowadź nazwę kroku",
+        "timeout": "PT30S lub 30000",
+        "userId": "user123",
+        "roles": "Manager, Reviewer",
+        "formKey": "approval_form",
+        "fieldName": "nazwa_pola",
+        "fieldLabel": "Etykieta Pola",
+        "placeholder": "Wprowadź tekst zastępczy...",
+        "defaultValue": "Wartość domyślna...",
+        "options": "Opcja 1, Opcja 2, Opcja 3",
+        "activityId": "send_email",
+        "activityName": "Wyślij Email Powitalny",
+        "timeoutMs": "30000",
+        "subWorkflowId": "child-workflow",
+        "version": "Najnowsza wersja",
+        "childKey": "childKey",
+        "parentPath": "parent.field.path",
+        "parentKey": "parentKey",
+        "childPath": "child.result.path",
+        "signalName": "payment_confirmed",
+        "signalTimeout": "PT5M"
       },
       "descriptions": {
         "workflowId": "Unikalny identyfikator (tylko małe litery, cyfry, myślniki i podkreślenia)",
@@ -82,7 +153,30 @@
         "icon": "Nazwa ikony do wizualnej identyfikacji",
         "steps": "Zdefiniuj sekwencję kroków w przepływie. Każdy krok reprezentuje stan lub akcję.",
         "transitions": "Zdefiniuj, jak przepływ przechodzi między krokami. Przejścia mogą mieć warunki i działania.",
-        "activities": "Zdefiniuj wielokrotnego użytku działania, które mogą być wykonywane podczas przejść."
+        "activities": "Zdefiniuj wielokrotnego użytku działania, które mogą być wykonywane podczas przejść.",
+        "stepName": "Wyświetlana nazwa kroku",
+        "description": "Dodatkowy kontekst dotyczący tego kroku",
+        "timeout": "Czas trwania ISO 8601 (np. PT30S) lub milisekundy (np. 30000)",
+        "assignedTo": "Konkretne ID użytkownika do przypisania tego zadania",
+        "assignedToRoles": "Lista ról rozdzielona przecinkami (np. \"Manager, Reviewer\")",
+        "formKey": "Identyfikator formularza do wyświetlenia użytkownikom",
+        "formFields": "Zdefiniuj strukturę formularza dla tego zadania użytkownika",
+        "fieldName": "Unikalny identyfikator tego pola",
+        "fieldLabel": "Wyświetlana etykieta widoczna dla użytkowników",
+        "options": "Lista opcji rozdzielona przecinkami",
+        "timeoutMs": "Limit czasu w milisekundach (np. 30000 = 30 sekund)",
+        "activityConfig": "Konfiguracja specyficzna dla działania. Obsługuje interpolację zmiennych: {{context.field}}, {{workflow.instanceId}}",
+        "subWorkflowId": "ID przepływu podrzędnego do wywołania",
+        "subWorkflowVersion": "Konkretna wersja do wywołania (pozostaw puste dla najnowszej)",
+        "inputMapping": "Mapuj dane z przepływu nadrzędnego do kontekstu przepływu podrzędnego",
+        "outputMapping": "Mapuj dane z przepływu podrzędnego z powrotem do kontekstu nadrzędnego",
+        "childKey": "Klucz docelowy w kontekście podrzędnym",
+        "parentPath": "Ścieżka źródłowa w kontekście nadrzędnym",
+        "parentKey": "Klucz docelowy w kontekście nadrzędnym",
+        "childPath": "Ścieżka źródłowa w kontekście podrzędnym",
+        "signalName": "Nazwa sygnału, na który czekać (np. payment_confirmed, approval_received)",
+        "signalTimeout": "Czas trwania ISO 8601 (np. PT5M dla 5 minut, PT1H dla 1 godziny, PT30S dla 30 sekund)",
+        "advancedConfig": "Dodaj niestandardowe pola, takie jak userTaskConfig, retryPolicy lub inna konfiguracja specyficzna dla kroku"
       },
       "groups": {
         "basic": "Podstawowe Informacje",
@@ -100,16 +194,33 @@
       "noSteps": "Nie zdefiniowano jeszcze kroków. Dodaj pierwszy krok, aby rozpocząć.",
       "noTransitions": "Nie zdefiniowano jeszcze przejść. Dodaj przejścia, aby połączyć kroki.",
       "noActivities": "Nie zdefiniowano jeszcze działań. Działania są opcjonalne, ale przydatne w złożonych przepływach.",
+      "noActivitiesInTransition": "Brak działań dla tego przejścia. Kliknij \"Dodaj Działanie\", aby utworzyć.",
       "selectStep": "Wybierz krok",
       "maxRetryAttempts": "Maksymalna Liczba Ponowień",
       "retryDelay": "Opóźnienie Ponowienia",
       "backoffMultiplier": "Mnożnik Wycofania",
       "create": "Utwórz Przepływ",
-      "update": "Zaktualizuj Przepływ"
+      "update": "Zaktualizuj Przepływ",
+      "fieldTypes": {
+        "text": "Tekst",
+        "number": "Liczba",
+        "email": "E-mail",
+        "tel": "Telefon",
+        "url": "URL",
+        "textarea": "Pole Tekstowe",
+        "select": "Lista Rozwijana",
+        "radio": "Przyciski Opcji",
+        "checkbox": "Pole Wyboru",
+        "date": "Data",
+        "time": "Czas",
+        "datetime-local": "Data i Czas"
+      }
     },
     "create": {
       "title": "Utwórz Definicję Przepływu",
-      "description": "Zdefiniuj nowy przepływ z krokami, przejściami i działaniami"
+      "description": "Zdefiniuj nowy przepływ z krokami, przejściami i działaniami",
+      "eventTriggersTitle": "Wyzwalacze Zdarzeń",
+      "eventTriggersDescription": "Po utworzeniu tej definicji przepływu możesz skonfigurować wyzwalacze zdarzeń, aby automatycznie uruchamiać przepływ, gdy w systemie wystąpią określone zdarzenia."
     },
     "edit": {
       "title": "Edytuj Definicję Przepływu",
@@ -119,6 +230,49 @@
       "visualEditorDescription": "Edytuj ten przepływ używając wizualnego edytora przeciągnij i upuść"
     },
     "backToList": "Powrót do przepływów",
+    "nodeTypes": {
+      "start": "START",
+      "end": "KONIEC",
+      "userTask": "ZADANIE UŻYTKOWNIKA",
+      "automated": "AUTOMATYCZNE",
+      "decision": "DECYZJA",
+      "subWorkflow": "PODPRZEPŁYW",
+      "waitForSignal": "CZEKAJ NA SYGNAŁ"
+    },
+    "nodeEditor": {
+      "title": "Edytuj Krok",
+      "endStepsNotEditable": "Kroki KONIEC nie mogą być edytowane. Reprezentują stałe punkty wyjścia przepływu.",
+      "startStepsInfo": "Kroki START oznaczają początek przepływu. Możesz zdefiniować warunki wstępne, które muszą być spełnione, zanim przepływ będzie mógł zostać uruchomiony.",
+      "userTaskConfig": "Konfiguracja Zadania Użytkownika",
+      "jsonSchemaFormat": "Ten formularz używa formatu JSON Schema. Pola zostały przekonwertowane do edycji wizualnej. Po zapisaniu zostaną przekonwertowane do uproszczonego formatu. Aby zachować oryginalny JSON Schema, edytuj go w sekcji \"Zaawansowana Konfiguracja (JSON)\" poniżej.",
+      "noFormFields": "Brak zdefiniowanych pól formularza. Kliknij \"Dodaj Pole\", aby utworzyć.",
+      "noActivities": "Brak zdefiniowanych działań. Kliknij \"Dodaj Działanie\", aby utworzyć.",
+      "noInputMappings": "Brak mapowań wejścia. Cały kontekst nadrzędny zostanie przekazany do podrzędnego.",
+      "noOutputMappings": "Brak mapowań wyjścia. Cały kontekst podrzędny zostanie zwrócony do nadrzędnego.",
+      "stepIdSanitized": "ID kroku zostało oczyszczone z \"{{from}}\" na \"{{to}}\" zgodnie z wymaganiami schematu (tylko małe litery, cyfry, myślniki i podkreślenia)."
+    },
+    "dialogs": {
+      "selectSubWorkflow": "Wybierz Podprzepływ",
+      "selectSubWorkflowDescription": "Wybierz przepływ do wywołania jako krok podprzepływu"
+    },
+    "legend": {
+      "statusTitle": "Legenda Statusów Przepływu",
+      "edgeStatesTitle": "Stany Krawędzi",
+      "status": {
+        "completed": "Ukończony",
+        "inProgress": "W Toku",
+        "pending": "Oczekujący (Gotowy)",
+        "notStarted": "Nierozpoczęty"
+      },
+      "edgeState": {
+        "completed": "Ukończone",
+        "pending": "Oczekujące/Następne"
+      }
+    },
+    "graph": {
+      "visualization": "Wizualizacja Przepływu",
+      "editModeInfo": "Tryb Edycji: Przeciągnij węzły, aby zmienić pozycję"
+    },
     "errors": {
       "createFailed": "Nie udało się utworzyć przepływu",
       "updateFailed": "Nie udało się zaktualizować przepływu",
@@ -158,6 +312,7 @@
       "title": "Instancje Przepływów Pracy",
       "singular": "Instancja Przepływu Pracy",
       "plural": "Instancje Przepływów Pracy",
+      "duration": "Czas Trwania",
       "fields": {
         "instanceId": "ID Instancji",
         "workflowId": "ID Przepływu Pracy",
@@ -184,8 +339,9 @@
         "executionTimeline": "Oś Czasu Wykonania",
         "executionHistory": "Dziennik Zdarzeń"
       },
-      "statuses": {
+      "status": {
         "RUNNING": "W Toku",
+        "WAITING_FOR_ACTIVITIES": "Oczekiwanie na Działania",
         "PAUSED": "Wstrzymany",
         "COMPLETED": "Ukończony",
         "FAILED": "Nieudany",
@@ -252,7 +408,7 @@
         "AUTOMATED": "Automatyczne",
         "PARALLEL_FORK": "Rozgałęzienie Równoległe",
         "PARALLEL_JOIN": "Połączenie Równoległe",
-        "SUB_WORKFLOW": "Pod-Przepływ",
+        "SUB_WORKFLOW": "Podprzepływ",
         "WAIT_FOR_SIGNAL": "Czekaj na Sygnał",
         "WAIT_FOR_TIMER": "Czekaj na Timer"
       },
@@ -351,35 +507,29 @@
         "escalationRules": "Reguły Eskalacji"
       },
       "list": {
-        "title": "Zadania użytkowników"
+        "title": "Zadania Użytkownika"
       },
       "fields": {
-        "taskName": "Nazwa zadania",
+        "taskName": "Nazwa Zadania",
         "status": "Status",
         "assignment": "Przypisanie",
         "dueDate": "Termin",
-        "createdAt": "Data utworzenia"
-      },
-      "status": {
-        "PENDING": "Oczekujące",
-        "IN_PROGRESS": "W trakcie",
-        "COMPLETED": "Zakończone",
-        "CANCELLED": "Anulowane"
+        "createdAt": "Data Utworzenia"
       },
       "filters": {
         "status": "Status",
         "view": "Widok",
-        "myTasks": "Moje zadania",
-        "allTasks": "Wszystkie zadania",
+        "myTasks": "Moje Zadania",
+        "allTasks": "Wszystkie Zadania",
         "overdue": "Przeterminowane",
-        "overdueOnly": "Tylko przeterminowane",
-        "workflowInstanceId": "ID instancji przepływu",
+        "overdueOnly": "Tylko Przeterminowane",
+        "workflowInstanceId": "ID Instancji Przepływu",
         "workflowInstanceIdPlaceholder": "Filtruj po ID instancji..."
       },
       "actions": {
-        "viewDetails": "Zobacz szczegóły",
-        "claim": "Przejmij zadanie",
-        "complete": "Zakończ zadanie"
+        "viewDetails": "Zobacz Szczegóły",
+        "claim": "Przejmij Zadanie",
+        "complete": "Zakończ Zadanie"
       },
       "confirm": {
         "claim": "Czy na pewno chcesz przejąć zadanie '{{name}}'?"
@@ -392,24 +542,26 @@
         "loadFailed": "Nie udało się załadować zadań użytkowników"
       },
       "roles": "Role",
+      "backToList": "Powrót do Zadań",
       "detail": {
         "loading": "Ładowanie zadania...",
         "notFound": "Zadanie nie znalezione",
-        "backToList": "Powrót do zadań",
+        "backToList": "Powrót do Zadań",
+        "type": "Zadanie Użytkownika",
         "overdueWarning": "⚠ To zadanie jest przeterminowane!",
         "cannotComplete": "To zadanie zostało już zakończone lub anulowane i nie może być modyfikowane.",
         "noFormSchema": "To zadanie nie ma formularza do wypełnienia. Możesz dodać opcjonalne komentarze i wysłać.",
-        "assignedTo": "Przypisane do",
-        "workflowInstance": "Instancja przepływu",
+        "assignedTo": "Przypisane Do",
+        "workflowInstance": "Instancja Przepływu",
         "comments": "Komentarze",
         "optional": "opcjonalne",
         "commentsPlaceholder": "Dodaj komentarze lub notatki dotyczące tego zadania...",
-        "completeTask": "Zakończ zadanie",
+        "completeTask": "Zakończ Zadanie",
         "submitting": "Wysyłanie...",
         "sections": {
-          "taskInfo": "Informacje o zadaniu",
-          "form": "Formularz zadania",
-          "submittedData": "Wysłane dane"
+          "taskInfo": "Informacje o Zadaniu",
+          "form": "Formularz Zadania",
+          "submittedData": "Wysłane Dane"
         },
         "form": {
           "selectOption": "-- Wybierz opcję --"
@@ -417,6 +569,26 @@
         "validation": {
           "requiredField": "Brakuje wymaganego pola: {{field}}"
         }
+      }
+    },
+    "signals": {
+      "title": "Sygnały",
+      "singular": "Sygnał",
+      "plural": "Sygnały",
+      "send": "Wyślij Sygnał",
+      "signalName": "Nazwa Sygnału",
+      "payload": "Zawartość Sygnału",
+      "correlationKey": "Klucz Korelacji",
+      "timeout": "Limit Czasu Sygnału",
+      "awaiting": "Oczekiwanie na sygnał",
+      "received": "Sygnał otrzymany",
+      "sendSignal": "Wyślij Sygnał",
+      "sendByCorrelationKey": "Wyślij do Wielu Przepływów",
+      "signalConfig": {
+        "title": "Konfiguracja Sygnału",
+        "signalName": "Nazwa Sygnału",
+        "timeout": "Limit Czasu",
+        "description": "Opis"
       }
     },
     "events": {
@@ -427,39 +599,280 @@
       "eventData": "Dane Zdarzenia",
       "occurredAt": "Wystąpiło O",
       "userId": "ID Użytkownika",
+      "list": {
+        "title": "Zdarzenia Przepływu Pracy"
+      },
+      "fields": {
+        "occurredAt": "Wystąpiło O",
+        "eventType": "Typ Zdarzenia",
+        "workflow": "Przepływ",
+        "instance": "Instancja",
+        "status": "Status",
+        "userId": "ID Użytkownika",
+        "eventData": "Dane Zdarzenia"
+      },
+      "filters": {
+        "eventType": "Typ Zdarzenia",
+        "workflowInstanceId": "ID Instancji Przepływu",
+        "workflowInstanceIdPlaceholder": "Wprowadź ID instancji przepływu...",
+        "userId": "ID Użytkownika",
+        "userIdPlaceholder": "Wprowadź ID użytkownika..."
+      },
+      "messages": {
+        "loadFailed": "Nie udało się załadować zdarzeń przepływu"
+      },
+      "workflowNotFound": "Przepływ nie znaleziony",
+      "notFound": "Zdarzenie nie znalezione",
+      "backToList": "Powrót do Zdarzeń",
+      "detail": {
+        "title": "Szczegóły Zdarzenia Przepływu",
+        "eventId": "ID Zdarzenia",
+        "summary": "Podsumowanie Zdarzenia",
+        "workflowInstance": "Instancja Przepływu",
+        "eventData": "Dane Zdarzenia",
+        "workflowContext": "Kontekst Przepływu",
+        "technicalDetails": "Szczegóły Techniczne",
+        "stepInstanceId": "ID Instancji Kroku",
+        "tenantId": "ID Tenanta",
+        "organizationId": "ID Organizacji"
+      },
       "types": {
+        "workflow_started": "Przepływ Rozpoczęty",
+        "WORKFLOW_STARTED": "Przepływ Rozpoczęty",
         "WorkflowStarted": "Przepływ Rozpoczęty",
+        "workflow_completed": "Przepływ Ukończony",
+        "WORKFLOW_COMPLETED": "Przepływ Ukończony",
         "WorkflowCompleted": "Przepływ Ukończony",
+        "workflow_failed": "Przepływ Nieudany",
+        "WORKFLOW_FAILED": "Przepływ Nieudany",
         "WorkflowFailed": "Przepływ Nieudany",
+        "workflow_cancelled": "Przepływ Anulowany",
+        "WORKFLOW_CANCELLED": "Przepływ Anulowany",
         "WorkflowCancelled": "Przepływ Anulowany",
+        "workflow_paused": "Przepływ Wstrzymany",
+        "WORKFLOW_PAUSED": "Przepływ Wstrzymany",
         "WorkflowPaused": "Przepływ Wstrzymany",
+        "workflow_resumed": "Przepływ Wznowiony",
+        "WORKFLOW_RESUMED": "Przepływ Wznowiony",
         "WorkflowResumed": "Przepływ Wznowiony",
+        "workflow_waiting_for_activities": "Oczekiwanie na Działania",
+        "WORKFLOW_WAITING_FOR_ACTIVITIES": "Oczekiwanie na Działania",
+        "WorkflowWaitingForActivities": "Oczekiwanie na Działania",
+        "step_entered": "Wejście do Kroku",
+        "STEP_ENTERED": "Wejście do Kroku",
         "StepEntered": "Wejście do Kroku",
+        "step_exited": "Wyjście z Kroku",
+        "STEP_EXITED": "Wyjście z Kroku",
         "StepExited": "Wyjście z Kroku",
+        "step_failed": "Krok Nieudany",
+        "STEP_FAILED": "Krok Nieudany",
         "StepFailed": "Krok Nieudany",
+        "transition_executed": "Przejście Wykonane",
+        "TRANSITION_EXECUTED": "Przejście Wykonane",
         "TransitionFired": "Przejście Wykonane",
+        "transition_rejected": "Przejście Odrzucone",
+        "TRANSITION_REJECTED": "Przejście Odrzucone",
         "TransitionBlocked": "Przejście Zablokowane",
+        "transition_paused_for_activities": "Przejście Wstrzymane dla Działań",
+        "TRANSITION_PAUSED_FOR_ACTIVITIES": "Przejście Wstrzymane dla Działań",
+        "TransitionPausedForActivities": "Przejście Wstrzymane dla Działań",
+        "activity_started": "Działanie Rozpoczęte",
+        "ACTIVITY_STARTED": "Działanie Rozpoczęte",
         "ActivityScheduled": "Działanie Zaplanowane",
+        "activity_completed": "Działanie Ukończone",
+        "ACTIVITY_COMPLETED": "Działanie Ukończone",
         "ActivityCompleted": "Działanie Ukończone",
+        "activity_failed": "Działanie Nieudane",
+        "ACTIVITY_FAILED": "Działanie Nieudane",
         "ActivityFailed": "Działanie Nieudane",
+        "activity_queued": "Działanie w Kolejce",
+        "ACTIVITY_QUEUED": "Działanie w Kolejce",
+        "ActivityQueued": "Działanie w Kolejce",
         "USER_TASK_CREATED": "Zadanie Użytkownika Utworzone",
+        "UserTaskCreated": "Zadanie Użytkownika Utworzone",
         "USER_TASK_ASSIGNED": "Zadanie Użytkownika Przypisane",
+        "UserTaskAssigned": "Zadanie Użytkownika Przypisane",
         "USER_TASK_CLAIMED": "Zadanie Użytkownika Przejęte",
+        "UserTaskClaimed": "Zadanie Użytkownika Przejęte",
         "USER_TASK_COMPLETED": "Zadanie Użytkownika Ukończone",
+        "UserTaskCompleted": "Zadanie Użytkownika Ukończone",
         "USER_TASK_ESCALATED": "Zadanie Użytkownika Eskalowane",
+        "UserTaskEscalated": "Zadanie Użytkownika Eskalowane",
         "SUB_WORKFLOW_STARTED": "Podprzepływ Rozpoczęty",
         "SUB_WORKFLOW_COMPLETED": "Podprzepływ Ukończony",
         "SUB_WORKFLOW_FAILED": "Podprzepływ Nieudany",
-        "UserTaskCreated": "Zadanie Użytkownika Utworzone",
-        "UserTaskAssigned": "Zadanie Użytkownika Przypisane",
-        "UserTaskClaimed": "Zadanie Użytkownika Przejęte",
-        "UserTaskCompleted": "Zadanie Użytkownika Ukończone",
-        "UserTaskEscalated": "Zadanie Użytkownika Eskalowane",
-        "SignalReceived": "Sygnał Otrzymany",
-        "TimerFired": "Timer Uruchomiony",
+        "COMPENSATION_STARTED": "Kompensacja Rozpoczęta",
         "CompensationStarted": "Kompensacja Rozpoczęta",
-        "CompensationCompleted": "Kompensacja Ukończona"
+        "COMPENSATION_COMPLETED": "Kompensacja Ukończona",
+        "CompensationCompleted": "Kompensacja Ukończona",
+        "COMPENSATION_PARTIAL": "Częściowa Kompensacja",
+        "COMPENSATION_FAILED": "Kompensacja Nieudana",
+        "COMPENSATION_ACTIVITY_STARTED": "Działanie Kompensacyjne",
+        "COMPENSATION_ACTIVITY_COMPLETED": "Działanie Skompensowane",
+        "COMPENSATION_ACTIVITY_FAILED": "Działanie Kompensacyjne Nieudane",
+        "SIGNAL_AWAITING": "Oczekiwanie na Sygnał",
+        "SIGNAL_RECEIVED": "Sygnał Otrzymany",
+        "SignalReceived": "Sygnał Otrzymany",
+        "SIGNAL_TIMEOUT": "Przekroczenie Czasu Sygnału",
+        "TimerFired": "Timer Uruchomiony"
       }
+    },
+    "triggers": {
+      "title": "Wyzwalacze Zdarzeń",
+      "add": "Dodaj Wyzwalacz",
+      "description": "Skonfiguruj zdarzenia, które automatycznie uruchamiają ten przepływ. Gdy w systemie wystąpi pasujące zdarzenie, zostanie utworzona nowa instancja przepływu z zamapowanym kontekstem.",
+      "empty": {
+        "title": "Brak skonfigurowanych wyzwalaczy",
+        "description": "Kliknij \"Dodaj Wyzwalacz\", aby utworzyć wyzwalacz zdarzenia, który automatycznie uruchomi ten przepływ."
+      },
+      "dialog": {
+        "create": {
+          "title": "Utwórz Wyzwalacz Zdarzenia"
+        },
+        "edit": {
+          "title": "Edytuj Wyzwalacz Zdarzenia"
+        },
+        "description": "Skonfiguruj, kiedy ten przepływ powinien być automatycznie uruchamiany na podstawie zdarzeń systemowych."
+      },
+      "delete": {
+        "title": "Usunąć Wyzwalacz Zdarzenia?",
+        "description": "To trwale usunie wyzwalacz zdarzenia. Przepływy nie będą już automatycznie uruchamiane przez ten wyzwalacz."
+      },
+      "fields": {
+        "name": "Nazwa",
+        "description": "Opis",
+        "eventPattern": "Wzorzec Zdarzenia",
+        "enabled": "Włączony",
+        "priority": "Priorytet",
+        "filterConditions": "Warunki Filtrowania",
+        "contextMapping": "Mapowanie Kontekstu",
+        "debounceMs": "Opóźnienie (ms)",
+        "maxConcurrent": "Maks. Równoczesnych Instancji"
+      },
+      "placeholders": {
+        "name": "Wyzwalacz Zatwierdzenia Zamówienia",
+        "description": "Opisz, kiedy ten wyzwalacz powinien się uruchomić...",
+        "quickSelect": "Szybki wybór...",
+        "unlimited": "Bez limitu",
+        "eventPattern": "sales.orders.updated",
+        "status": "status",
+        "submitted": "submitted",
+        "orderId": "orderId",
+        "sourceExpression": "id",
+        "defaultValue": "default"
+      },
+      "hints": {
+        "priority": "Wyzwalacze o wyższym priorytecie są wykonywane jako pierwsze",
+        "eventPattern": "Użyj * jako znaku wieloznacznego: \"sales.orders.*\" pasuje do dowolnego zdarzenia zamówienia",
+        "filterConditions": "Wyzwalaj tylko wtedy, gdy zawartość zdarzenia pasuje do tych warunków (wszystkie muszą pasować)",
+        "contextMapping": "Mapuj wartości z zawartości zdarzenia do początkowego kontekstu przepływu",
+        "debounce": "Opóźnienie zapobiegające szybkiemu ponownemu wyzwoleniu",
+        "maxConcurrent": "Ogranicz jednoczesne instancje przepływu"
+      },
+      "addCondition": "Dodaj Warunek",
+      "addMapping": "Dodaj Mapowanie",
+      "status": {
+        "active": "Aktywny",
+        "disabled": "Wyłączony"
+      },
+      "messages": {
+        "created": "Wyzwalacz zdarzenia utworzony pomyślnie",
+        "updated": "Wyzwalacz zdarzenia zaktualizowany pomyślnie",
+        "deleted": "Wyzwalacz zdarzenia usunięty pomyślnie",
+        "createFailed": "Nie udało się utworzyć wyzwalacza",
+        "updateFailed": "Nie udało się zaktualizować wyzwalacza",
+        "deleteFailed": "Nie udało się usunąć wyzwalacza",
+        "loadFailed": "Nie udało się załadować wyzwalaczy",
+        "nameRequired": "Nazwa jest wymagana",
+        "eventPatternRequired": "Wzorzec zdarzenia jest wymagany"
+      },
+      "operators": {
+        "eq": "Równe",
+        "neq": "Nierówne",
+        "gt": "Większe Niż",
+        "gte": "Większe Lub Równe",
+        "lt": "Mniejsze Niż",
+        "lte": "Mniejsze Lub Równe",
+        "contains": "Zawiera",
+        "startsWith": "Zaczyna Się Od",
+        "endsWith": "Kończy Się Na",
+        "in": "W (tablica)",
+        "notIn": "Nie W (tablica)",
+        "exists": "Istnieje",
+        "notExists": "Nie Istnieje",
+        "regex": "Dopasowanie Regex"
+      }
+    },
+    "edgeEditor": {
+      "title": "Edytuj Przejście",
+      "description": "Konfiguruj właściwości przejścia, warunki i działania",
+      "id": "ID",
+      "flow": "Przepływ",
+      "transitionName": "Nazwa Przejścia",
+      "transitionNamePlaceholder": "Auto-generowane: {{name}}",
+      "transitionNameHint": "Niestandardowa nazwa tego przejścia (pozostaw puste, aby użyć auto-generowanej nazwy)",
+      "triggerType": "Typ Wyzwalacza",
+      "triggerDescriptions": {
+        "auto": "Przejście następuje natychmiast po zakończeniu kroku",
+        "manual": "Wymaga jawnej akcji użytkownika do kontynuowania",
+        "signal": "Czeka na zewnętrzny sygnał/zdarzenie",
+        "timer": "Czeka na określony czas trwania lub znacznik czasu"
+      },
+      "priority": "Priorytet",
+      "priorityHint": "Przejścia o wyższym priorytecie są oceniane jako pierwsze (domyślnie: 100, zakres: 0-9999)",
+      "continueOnActivityFailure": "Kontynuuj przy Niepowodzeniu Działania",
+      "continueOnActivityFailureHint": "Jeśli odznaczone, przejście zakończy się niepowodzeniem, gdy którekolwiek działanie się nie powiedzie (domyślnie: zaznaczone)",
+      "preConditions": "Warunki Wstępne",
+      "preConditionsHint": "Reguły biznesowe, które muszą być spełnione PRZED uruchomieniem przejścia",
+      "postConditions": "Warunki Końcowe",
+      "postConditionsHint": "Reguły biznesowe do walidacji PO uruchomieniu przejścia (tylko logowanie)",
+      "addRule": "Dodaj Regułę",
+      "noPreConditions": "Brak zdefiniowanych warunków wstępnych. Dodaj reguły biznesowe do walidacji przed przejściem.",
+      "noPostConditions": "Brak zdefiniowanych warunków końcowych. Dodaj reguły biznesowe do walidacji po przejściu.",
+      "required": "WYMAGANE",
+      "ruleId": "ID Reguły",
+      "requiredCheckbox": "Wymagane (przejście zablokowane, jeśli reguła nie przejdzie)",
+      "requiredPostCheckbox": "Wymagane (loguj ostrzeżenie, jeśli reguła nie przejdzie)",
+      "businessRuleDetails": "Szczegóły Reguły Biznesowej",
+      "ruleName": "Nazwa",
+      "ruleType": "Typ",
+      "ruleCategory": "Kategoria",
+      "entityType": "Typ Encji",
+      "eventType": "Typ Zdarzenia",
+      "ruleDescription": "Opis",
+      "removePreCondition": "Usuń Warunek Wstępny",
+      "removePostCondition": "Usuń Warunek Końcowy",
+      "activities": "Działania",
+      "addActivity": "Dodaj Działanie",
+      "noActivities": "Brak zdefiniowanych działań. Kliknij \"Dodaj Działanie\", aby utworzyć.",
+      "activityId": "ID Działania",
+      "activityIdPlaceholder": "activity_name",
+      "activityName": "Nazwa Działania",
+      "activityNamePlaceholder": "Nazwa Działania",
+      "activityType": "Typ Działania",
+      "timeout": "Limit Czasu",
+      "timeoutPlaceholder": "PT30S lub 30000",
+      "timeoutHint": "Czas trwania ISO 8601 lub milisekundy",
+      "retryPolicy": "Polityka Ponowień",
+      "maxAttempts": "Maks. Prób",
+      "initialInterval": "Interwał Początkowy (ms)",
+      "backoffCoefficient": "Współczynnik Wycofania",
+      "maxInterval": "Maks. Interwał (ms)",
+      "activityOptions": "Opcje Działania",
+      "asyncOption": "Asynchroniczne (uruchom w tle)",
+      "compensateOption": "Kompensacja (wykonaj kompensację przy niepowodzeniu)",
+      "configurationJson": "Konfiguracja (JSON)",
+      "configurationHint": "Konfiguracja specyficzna dla działania jako JSON",
+      "removeActivity": "Usuń Działanie",
+      "advancedConfiguration": "Zaawansowana Konfiguracja (JSON)",
+      "advancedConfigHint": "Dodaj złożoną konfigurację, taką jak tablica działań z CALL_API, SEND_EMAIL, EXECUTE_FUNCTION itp.",
+      "deleteTransition": "Usuń Przejście",
+      "cancel": "Anuluj",
+      "saveChanges": "Zapisz Zmiany",
+      "confirmDelete": "Czy na pewno chcesz usunąć to przejście?",
+      "confirmRemoveActivity": "Czy na pewno chcesz usunąć to działanie?",
+      "selectBusinessRule": "Wybierz Regułę Biznesową",
+      "selectBusinessRuleDescription": "Wybierz regułę do dodania jako {{mode}}"
     },
     "common": {
       "save": "Zapisz",
@@ -488,7 +901,152 @@
       "confirmDelete": "Czy na pewno chcesz to usunąć?",
       "confirmCancel": "Czy na pewno chcesz anulować ten przepływ?",
       "operationSuccess": "Operacja zakończona pomyślnie",
-      "operationFailed": "Operacja nie powiodła się"
+      "operationFailed": "Operacja nie powiodła się",
+      "moveUp": "Przesuń w Górę",
+      "moveDown": "Przesuń w Dół",
+      "newStep": "Nowy Krok",
+      "newTransition": "Nowe Przejście",
+      "newActivity": "Nowe Działanie",
+      "loadingDetails": "Ładowanie szczegółów...",
+      "ruleNotFound": "Reguła nie znaleziona lub niedostępna",
+      "workflowNotFoundOrUnavailable": "Przepływ nie znaleziony lub niedostępny",
+      "noValueSet": "Brak ustawionej wartości",
+      "change": "Zmień",
+      "browse": "Przeglądaj",
+      "update": "Zaktualizuj"
+    },
+    "fieldEditors": {
+      "preConditions": {
+        "description": "Reguły biznesowe, które muszą być spełnione, zanim przepływ będzie mógł zostać uruchomiony",
+        "addRule": "Dodaj Regułę",
+        "emptyTitle": "Brak zdefiniowanych warunków wstępnych",
+        "emptyDescription": "Dodaj regułę biznesową, która musi być spełniona, zanim przepływ będzie mógł zostać uruchomiony.",
+        "requiredLabel": "Wymagane (przepływ nie może się uruchomić, jeśli ta reguła nie przejdzie)",
+        "validationMessages": "Komunikaty Walidacji (lokalizacja: komunikat, jeden na linię)",
+        "validationMessagesPlaceholder": "en: Your cart is empty. Please add items before checkout.\npl: Twój koszyk jest pusty. Dodaj produkty przed zakupem.",
+        "validationMessagesHint": "Format: lokalizacja: komunikat (np. en: Error message, pl: Komunikat błędu)",
+        "removePreCondition": "Usuń Warunek Wstępny",
+        "confirmRemove": "Czy na pewno chcesz usunąć ten warunek wstępny?",
+        "selectBusinessRule": "Wybierz Regułę Biznesową",
+        "selectBusinessRuleDescription": "Wybierz regułę biznesową do dodania jako warunek wstępny uruchomienia przepływu"
+      },
+      "formFields": {
+        "title": "Pola Formularza",
+        "description": "Zdefiniuj strukturę formularza dla tego zadania użytkownika",
+        "addField": "Dodaj Pole",
+        "emptyState": "Brak zdefiniowanych pól formularza. Kliknij \"Dodaj Pole\", aby utworzyć.",
+        "jsonSchemaNotice": "Ten formularz używa formatu JSON Schema. Pola zostały przekonwertowane do edycji wizualnej. Po zapisaniu zostaną przekonwertowane do uproszczonego formatu. Aby zachować oryginalny JSON Schema, edytuj go w sekcji \"Zaawansowana Konfiguracja (JSON)\" poniżej.",
+        "fieldName": "Nazwa Pola",
+        "fieldNamePlaceholder": "nazwa_pola",
+        "fieldNameHint": "Unikalny identyfikator tego pola",
+        "fieldLabel": "Etykieta Pola",
+        "fieldLabelPlaceholder": "Etykieta Pola",
+        "fieldLabelHint": "Wyświetlana etykieta widoczna dla użytkowników",
+        "fieldType": "Typ Pola",
+        "placeholder": "Placeholder",
+        "placeholderPlaceholder": "Wprowadź tekst zastępczy...",
+        "defaultValue": "Wartość Domyślna",
+        "defaultValuePlaceholder": "Wartość domyślna...",
+        "options": "Opcje (rozdzielone przecinkami)",
+        "optionsPlaceholder": "Opcja 1, Opcja 2, Opcja 3",
+        "optionsHint": "Lista opcji rozdzielona przecinkami",
+        "requiredField": "Pole wymagane",
+        "removeField": "Usuń Pole",
+        "confirmRemove": "Czy na pewno chcesz usunąć to pole?"
+      },
+      "businessRuleConditions": {
+        "addRule": "Dodaj Regułę",
+        "emptyTitle": "Brak zdefiniowanych warunków",
+        "emptyDescription": "Dodaj warunek reguły biznesowej dla tego przejścia.",
+        "requiredLabel": "Wymagane (przejście zablokowane, jeśli reguła nie przejdzie)",
+        "removeCondition": "Usuń Warunek",
+        "confirmRemove": "Czy na pewno chcesz usunąć ten warunek?",
+        "selectBusinessRule": "Wybierz Regułę Biznesową",
+        "selectBusinessRuleDescription": "Wybierz regułę biznesową do dodania jako warunek"
+      },
+      "activities": {
+        "addActivity": "Dodaj Działanie",
+        "emptyState": "Brak zdefiniowanych działań. Kliknij \"Dodaj Działanie\", aby utworzyć.",
+        "activityId": "ID Działania",
+        "activityIdPlaceholder": "activity_name",
+        "activityName": "Nazwa Działania",
+        "activityNamePlaceholder": "Nazwa Działania",
+        "activityType": "Typ Działania",
+        "timeout": "Limit Czasu",
+        "timeoutPlaceholder": "PT30S lub 30000",
+        "timeoutHint": "Czas trwania ISO 8601 lub milisekundy",
+        "retryPolicy": "Polityka Ponowień",
+        "maxAttempts": "Maks. Prób",
+        "initialInterval": "Interwał Początkowy (ms)",
+        "backoffCoefficient": "Współczynnik Wycofania",
+        "maxInterval": "Maks. Interwał (ms)",
+        "activityOptions": "Opcje Działania",
+        "asyncOption": "Asynchroniczne (uruchom w tle)",
+        "compensateOption": "Kompensacja (wykonaj kompensację przy niepowodzeniu)",
+        "configurationJson": "Konfiguracja (JSON)",
+        "configurationHint": "Konfiguracja specyficzna dla działania jako JSON",
+        "removeActivity": "Usuń Działanie",
+        "confirmRemove": "Czy na pewno chcesz usunąć to działanie?"
+      },
+      "workflowSelector": {
+        "label": "Podprzepływ",
+        "description": "Wybierz przepływ do wywołania jako podprzepływ",
+        "noWorkflowSelected": "Nie wybrano przepływu",
+        "browseWorkflows": "Przeglądaj Przepływy",
+        "confirmClear": "Czy na pewno chcesz wyczyścić wybrany przepływ?",
+        "selectSubWorkflow": "Wybierz Podprzepływ",
+        "selectSubWorkflowDescription": "Wybierz przepływ do wywołania jako podprzepływ"
+      },
+      "mappings": {
+        "label": "Mapowania",
+        "description": "Zdefiniuj mapowania klucz-wartość do transformacji danych",
+        "addMapping": "Dodaj Mapowanie",
+        "emptyState": "Brak zdefiniowanych mapowań. Kliknij \"Dodaj Mapowanie\", aby utworzyć.",
+        "key": "Klucz",
+        "keyPlaceholder": "nazwa_klucza",
+        "keyHint": "Nazwa klucza dla tego mapowania",
+        "value": "Wartość",
+        "valuePlaceholder": "{{context.fieldName}} lub wartość statyczna",
+        "valueHint": "Użyj wyrażeń szablonowych, takich jak {{context.foo}}, dla wartości dynamicznych",
+        "removeMapping": "Usuń Mapowanie",
+        "confirmRemove": "Czy na pewno chcesz usunąć to mapowanie?"
+      }
+    },
+    "visualEditor": {
+      "clearTitle": "Wyczyścić wszystko?",
+      "clearDescription": "Spowoduje to wyczyszczenie wszystkich metadanych i obszaru roboczego przepływu pracy. Tej czynności nie można cofnąć.",
+      "showMetadata": "Pokaż metadane",
+      "hideMetadata": "Ukryj metadane",
+      "loadExample": "Załaduj przykład",
+      "clear": "Wyczyść",
+      "validate": "Waliduj",
+      "runTest": "Uruchom test",
+      "workflowMetadata": "Metadane przepływu pracy"
+    },
+    "mobile": {
+      "viewFullGraph": "Pokaż pełny graf",
+      "metadata": "Metadane",
+      "addStep": "Dodaj krok",
+      "addTransition": "Dodaj przejście",
+      "noSteps": "Brak zdefiniowanych kroków.",
+      "noTransitions": "Brak zdefiniowanych przejść.",
+      "moreActions": "Więcej akcji",
+      "stepTimeline": "Oś czasu kroków",
+      "eventLog": "Dziennik zdarzeń",
+      "showDetails": "Pokaż szczegóły",
+      "hideDetails": "Ukryj szczegóły",
+      "startBuilding": "Zacznij budować",
+      "startBuildingHint": "Dotknij typu kroku powyżej, aby go dodać",
+      "loadExample": "Załaduj przykładowy przepływ",
+      "runTest": "Uruchom test",
+      "clear": "Wyczyść",
+      "editStep": "Edytuj krok",
+      "deleteStep": "Usuń krok",
+      "editTransition": "Edytuj przejście",
+      "deleteTransition": "Usuń przejście",
+      "validate": "Waliduj",
+      "saving": "Zapisywanie…",
+      "save": "Zapisz"
     },
     "validation": {
       "required": "To pole jest wymagane",
@@ -499,7 +1057,13 @@
       "invalidWorkflowId": "ID przepływu może zawierać tylko małe litery, cyfry, myślniki i podkreślenia",
       "noOrphanSteps": "Wszystkie kroki muszą być połączone",
       "mustHaveStartEnd": "Przepływ musi mieć kroki START i END",
-      "invalidTransition": "Nieprawidłowa konfiguracja przejścia"
+      "invalidTransition": "Nieprawidłowa konfiguracja przejścia",
+      "workflowIdRequired": "ID przepływu jest wymagane",
+      "workflowIdMaxLength": "ID przepływu musi mieć 50 znaków lub mniej",
+      "workflowIdFormat": "ID przepływu może zawierać tylko małe litery, cyfry, myślniki i podkreślenia",
+      "workflowNameRequired": "Nazwa przepływu jest wymagana",
+      "workflowNameMaxLength": "Nazwa przepływu musi mieć 200 znaków lub mniej",
+      "descriptionMaxLength": "Opis musi mieć 5000 znaków lub mniej"
     },
     "messages": {
       "workflowCreated": "Przepływ utworzony pomyślnie",
@@ -527,25 +1091,53 @@
       "duplicateNotYetImplemented": "Funkcja duplikowania nie jest jeszcze zaimplementowana"
     }
   },
+  "orderApproval": {
+    "groupLabel": "Zatwierdzanie Zamówienia",
+    "groupDescription": "Przejrzyj i zatwierdź lub odrzuć to zamówienie",
+    "pendingTitle": "Oczekuje na Zatwierdzenie",
+    "pendingDescription": "To zamówienie wymaga zatwierdzenia przed przetworzeniem",
+    "decisionLabel": "Decyzja",
+    "approveButton": "Zatwierdź",
+    "rejectButton": "Odrzuć",
+    "commentsLabel": "Komentarze",
+    "commentsPlaceholder": "Dodaj opcjonalne komentarze...",
+    "approvedStatus": "Zatwierdzone",
+    "rejectedStatus": "Odrzucone",
+    "requestApproval": "Poproś o Zatwierdzenie",
+    "submitDecision": "Wyślij Decyzję",
+    "noWorkflowActive": "Brak aktywnego przepływu zatwierdzania dla tego zamówienia.",
+    "processing": "Przepływ jest przetwarzany...",
+    "completed": "Przepływ zatwierdzania zakończony.",
+    "startError": "Nie udało się uruchomić przepływu zatwierdzania",
+    "completeError": "Nie udało się zakończyć zadania zatwierdzania",
+    "missingStatuses": "Brak wymaganych statusów zamówienia. Upewnij się, że statusy pending_approval, approved i rejected istnieją w słowniku sales.order_status."
+  },
   "common": {
     "all": "Wszystkie",
     "enabled": "Włączone",
     "disabled": "Wyłączone",
     "yes": "Tak",
     "no": "Nie",
+    "on": "Włączone",
+    "off": "Wyłączone",
+    "done": "Gotowe",
     "edit": "Edytuj",
     "delete": "Usuń",
     "duplicate": "Duplikuj",
     "enable": "Włącz",
     "disable": "Wyłącz",
     "retry": "Ponów",
-    "cancel": "Anuluj"
+    "refresh": "Odśwież",
+    "refreshing": "Odświeżanie...",
+    "details": "Szczegóły",
+    "cancel": "Anuluj",
+    "loading": "Ładowanie..."
   },
   "demo": {
     "userTask": {
-      "title": "Wymagane działanie użytkownika",
+      "title": "Wymagane Działanie Użytkownika",
       "description": "Ten proces jest wstrzymany w oczekiwaniu na dane wejściowe użytkownika. Proszę wykonać zadanie poniżej, aby kontynuować.",
-      "completeButton": "Wykonaj zadanie",
+      "completeButton": "Wykonaj Zadanie",
       "dueLabel": "Termin"
     },
     "subWorkflow": {
@@ -563,7 +1155,7 @@
       "mappingValue": "Ścieżka Źródłowa",
       "addMapping": "Dodaj Mapowanie",
       "removeMapping": "Usuń Mapowanie",
-      "timeoutMs": "Limit czasu (milisekundy)",
+      "timeoutMs": "Limit Czasu (milisekundy)",
       "noMappings": "Nie zdefiniowano mapowań. Dane zostaną przekazane bez transformacji.",
       "parentInstanceId": "Instancja Przepływu Nadrzędnego",
       "childInstanceId": "Instancja Przepływu Podrzędnego",
@@ -571,5 +1163,7 @@
       "success": "Podprzepływ zakończony pomyślnie",
       "failed": "Podprzepływ nieudany"
     }
-  }
+  },
+  "workflows.notifications.task.assigned.title": "Przypisano Zadanie",
+  "workflows.notifications.task.assigned.body": "Przypisano Ci zadanie \"{taskName}\" w przepływie \"{workflowName}\"{dueDate, select, other { (termin: {dueDate})}}"
 }

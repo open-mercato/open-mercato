@@ -46,7 +46,7 @@ jobs:
       - name: Release canary
         id: release
         run: |
-          ./scripts/release-canary.sh 2>&1 | tee release-output.txt
+          ./scripts/release-canary.sh
 
           # Build packages list from package.json files for PR comment
           PACKAGES_JSON=$(find packages -name package.json -not -path "*/node_modules/*" -exec cat {} \; | \
@@ -72,8 +72,8 @@ jobs:
               table += `\n| \`${pkg.name}\` | \`${pkg.version}\` |`;
             }
 
-            const samplePkg = packages.find(p => p.name === '@open-mercato/shared') || packages[0];
-            const sampleVersion = samplePkg?.version || 'VERSION';
+            const createAppPkg = packages.find(p => p.name === 'create-mercato-app');
+            const createAppVersion = createAppPkg?.version || 'VERSION';
 
             const body = `${marker}
             ## Canary Release Published
@@ -82,12 +82,10 @@ jobs:
 
             ${table}
 
-            ### Install
+            ### Create a new app
 
             \`\`\`bash
-            npm install @open-mercato/shared@${sampleVersion}
-            # or
-            yarn add @open-mercato/shared@${sampleVersion}
+            npx create-mercato-app@${createAppVersion} my-app
             \`\`\`
             `;
 

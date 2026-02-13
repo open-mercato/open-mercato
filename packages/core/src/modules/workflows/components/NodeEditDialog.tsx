@@ -11,6 +11,7 @@ import {sanitizeId} from '../lib/graph-utils'
 import {WorkflowDefinition, WorkflowSelector} from './WorkflowSelector'
 import {JsonBuilder} from '@open-mercato/ui/backend/JsonBuilder'
 import {StartPreConditionsEditor, type StartPreCondition} from './fields/StartPreConditionsEditor'
+import {useT} from '@open-mercato/shared/lib/i18n/context'
 
 export interface NodeEditDialogProps {
   node: Node | null
@@ -40,6 +41,7 @@ interface FormField {
 }
 
 export function NodeEditDialog({ node, isOpen, onClose, onSave, onDelete }: NodeEditDialogProps) {
+  const t = useT()
   const [stepName, setStepName] = useState('')
   const [description, setDescription] = useState('')
   const [assignedTo, setAssignedTo] = useState('')
@@ -252,7 +254,7 @@ export function NodeEditDialog({ node, isOpen, onClose, onSave, onDelete }: Node
     const newField: FormField = {
       name: `field_${Date.now()}`,
       type: 'text',
-      label: 'New Field',
+      label: t('workflows.form.newField'),
       required: false,
       placeholder: '',
     }
@@ -264,7 +266,7 @@ export function NodeEditDialog({ node, isOpen, onClose, onSave, onDelete }: Node
   }
 
   const removeFormField = (index: number) => {
-    if (confirm('Are you sure you want to remove this field?')) {
+    if (confirm(t('workflows.confirm.removeField'))) {
       setFormFields(formFields.filter((_, i) => i !== index))
       const newExpanded = new Set(expandedFields)
       newExpanded.delete(index)
@@ -300,7 +302,7 @@ export function NodeEditDialog({ node, isOpen, onClose, onSave, onDelete }: Node
     // Validate and sanitize step ID
     const sanitizedId = sanitizeId(node.id)
     if (sanitizedId !== node.id) {
-      alert(`⚠️ Step ID was sanitized from "${node.id}" to "${sanitizedId}" to match schema requirements (lowercase letters, numbers, hyphens, and underscores only).`)
+      alert(t('workflows.nodeEditor.stepIdSanitized', { from: node.id, to: sanitizedId }))
     }
 
     const updates: Partial<Node['data']> = {
@@ -413,7 +415,7 @@ export function NodeEditDialog({ node, isOpen, onClose, onSave, onDelete }: Node
 
   const handleDelete = () => {
     if (!node || !onDelete) return
-    if (confirm(`Are you sure you want to delete the step "${stepName || node.id}"?`)) {
+    if (confirm(t('workflows.confirm.deleteStep', { name: stepName || node.id }))) {
       onDelete(node.id)
       onClose()
     }
@@ -431,11 +433,11 @@ export function NodeEditDialog({ node, isOpen, onClose, onSave, onDelete }: Node
   if (!isOpen || !node) return null
 
   const nodeTypeLabel = {
-    start: 'START',
-    end: 'END',
-    userTask: 'USER TASK',
-    automated: 'AUTOMATED',
-    decision: 'DECISION',
+    start: t('workflows.nodeTypes.start'),
+    end: t('workflows.nodeTypes.end'),
+    userTask: t('workflows.nodeTypes.userTask'),
+    automated: t('workflows.nodeTypes.automated'),
+    decision: t('workflows.nodeTypes.decision'),
   }[node.type || 'automated']
 
   // START nodes are partially editable (pre-conditions only), END nodes are not editable
@@ -452,19 +454,19 @@ export function NodeEditDialog({ node, isOpen, onClose, onSave, onDelete }: Node
       <DialogContent className="sm:max-w-2xl max-h-[90vh] overflow-y-auto">
         <DialogHeader>
           <div className="flex items-center gap-2 mb-2">
-            <DialogTitle>Edit Step</DialogTitle>
+            <DialogTitle>{t('workflows.nodeEditor.title')}</DialogTitle>
             <Badge variant={badgeVariant}>
               {nodeTypeLabel}
             </Badge>
           </div>
           <div className="space-y-1 text-sm text-muted-foreground">
             <div className="flex items-center gap-2 text-xs">
-              <span className="font-medium">ID:</span>
+              <span className="font-medium">{t('workflows.fields.id')}:</span>
               <code className="px-1.5 py-0.5 rounded bg-muted text-muted-foreground font-mono">{node.id}</code>
             </div>
             {(node.data as any)?.stepName && (
               <div className="flex items-center gap-2 text-xs">
-                <span className="font-medium">Name:</span>
+                <span className="font-medium">{t('workflows.fields.name')}:</span>
                 <span>{(node.data as any).stepName}</span>
               </div>
             )}
@@ -476,7 +478,7 @@ export function NodeEditDialog({ node, isOpen, onClose, onSave, onDelete }: Node
             <Alert variant="info">
               <Info className="size-4" />
               <AlertDescription>
-                END steps cannot be edited. They represent fixed workflow exit points.
+                {t('workflows.nodeEditor.endStepsNotEditable')}
               </AlertDescription>
             </Alert>
           ) : isStartNode ? (
@@ -485,7 +487,7 @@ export function NodeEditDialog({ node, isOpen, onClose, onSave, onDelete }: Node
               <Alert variant="info">
                 <Info className="size-4" />
                 <AlertDescription>
-                  START steps mark the beginning of the workflow. You can define pre-conditions that must pass before the workflow can be started.
+                  {t('workflows.nodeEditor.startStepsInfo')}
                 </AlertDescription>
               </Alert>
 
@@ -500,52 +502,52 @@ export function NodeEditDialog({ node, isOpen, onClose, onSave, onDelete }: Node
               {/* Step Name */}
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Step Name *
+                  {t('workflows.form.stepName')} *
                 </label>
                 <input
                   type="text"
                   value={stepName}
                   onChange={(e) => setStepName(e.target.value)}
-                  placeholder="Enter step name"
+                  placeholder={t('workflows.form.placeholders.stepName')}
                   className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                   autoFocus
                 />
                 <p className="text-xs text-gray-500 mt-1">
-                  Display name shown on the step
+                  {t('workflows.form.descriptions.stepName')}
                 </p>
               </div>
 
               {/* Description */}
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Description
+                  {t('workflows.form.description')}
                 </label>
                 <textarea
                   value={description}
                   onChange={(e) => setDescription(e.target.value)}
-                  placeholder="Optional description"
+                  placeholder={t('workflows.form.placeholders.description')}
                   rows={3}
                   className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                 />
                 <p className="text-xs text-gray-500 mt-1">
-                  Additional context about this step
+                  {t('workflows.form.descriptions.description')}
                 </p>
               </div>
 
               {/* Timeout */}
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Timeout
+                  {t('workflows.form.timeout')}
                 </label>
                 <input
                   type="text"
                   value={timeout}
                   onChange={(e) => setTimeout(e.target.value)}
-                  placeholder="PT30S or 30000"
+                  placeholder={t('workflows.form.placeholders.timeout')}
                   className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                 />
                 <p className="text-xs text-gray-500 mt-1">
-                  ISO 8601 duration (e.g., PT30S) or milliseconds (e.g., 30000)
+                  {t('workflows.form.descriptions.timeout')}
                 </p>
               </div>
 
@@ -554,55 +556,55 @@ export function NodeEditDialog({ node, isOpen, onClose, onSave, onDelete }: Node
                 <>
                   <div className="border-t border-gray-200 pt-4 mt-4">
                     <h3 className="text-sm font-semibold text-gray-900 mb-3">
-                      User Task Configuration
+                      {t('workflows.nodeEditor.userTaskConfig')}
                     </h3>
                   </div>
 
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-1">
-                      Assigned To (User ID)
+                      {t('workflows.form.assignedTo')}
                     </label>
                     <input
                       type="text"
                       value={assignedTo}
                       onChange={(e) => setAssignedTo(e.target.value)}
-                      placeholder="user123"
+                      placeholder={t('workflows.form.placeholders.userId')}
                       className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                     />
                     <p className="text-xs text-gray-500 mt-1">
-                      Specific user ID to assign this task to
+                      {t('workflows.form.descriptions.assignedTo')}
                     </p>
                   </div>
 
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-1">
-                      Assigned To Roles
+                      {t('workflows.form.assignedToRoles')}
                     </label>
                     <input
                       type="text"
                       value={assignedToRoles}
                       onChange={(e) => setAssignedToRoles(e.target.value)}
-                      placeholder="Manager, Reviewer"
+                      placeholder={t('workflows.form.placeholders.roles')}
                       className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                     />
                     <p className="text-xs text-gray-500 mt-1">
-                      Comma-separated list of roles (e.g., "Manager, Reviewer")
+                      {t('workflows.form.descriptions.assignedToRoles')}
                     </p>
                   </div>
 
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-1">
-                      Form Key
+                      {t('workflows.form.formKey')}
                     </label>
                     <input
                       type="text"
                       value={formKey}
                       onChange={(e) => setFormKey(e.target.value)}
-                      placeholder="approval_form"
+                      placeholder={t('workflows.form.placeholders.formKey')}
                       className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                     />
                     <p className="text-xs text-gray-500 mt-1">
-                      Identifier for the form to display to users
+                      {t('workflows.form.descriptions.formKey')}
                     </p>
                   </div>
 
@@ -611,10 +613,10 @@ export function NodeEditDialog({ node, isOpen, onClose, onSave, onDelete }: Node
                     <div className="flex items-center justify-between mb-3">
                       <div>
                         <h3 className="text-sm font-semibold text-gray-900">
-                          Form Fields ({formFields.length})
+                          {t('workflows.form.formFields', { count: formFields.length })}
                         </h3>
                         <p className="text-xs text-gray-500 mt-0.5">
-                          Define the form structure for this user task
+                          {t('workflows.form.descriptions.formFields')}
                         </p>
                       </div>
                       <Button
@@ -623,7 +625,7 @@ export function NodeEditDialog({ node, isOpen, onClose, onSave, onDelete }: Node
                         onClick={addFormField}
                       >
                         <Plus className="size-3 mr-1" />
-                        Add Field
+                        {t('workflows.form.addField')}
                       </Button>
                     </div>
 
@@ -632,16 +634,14 @@ export function NodeEditDialog({ node, isOpen, onClose, onSave, onDelete }: Node
                       <Alert variant="info" className="mb-3">
                         <Info className="size-4" />
                         <AlertDescription>
-                          This form uses JSON Schema format. Fields have been converted for visual editing.
-                          When you save, it will be converted to the simplified format. To preserve the original JSON Schema,
-                          edit it in the "Advanced Configuration (JSON)" section below.
+                          {t('workflows.nodeEditor.jsonSchemaFormat')}
                         </AlertDescription>
                       </Alert>
                     )}
 
                     {formFields.length === 0 && (
                       <div className="p-4 text-center text-sm text-gray-500 bg-gray-50 rounded-lg border border-gray-200">
-                        No form fields defined. Click "Add Field" to create one.
+                        {t('workflows.nodeEditor.noFormFields')}
                       </div>
                     )}
 
@@ -665,7 +665,7 @@ export function NodeEditDialog({ node, isOpen, onClose, onSave, onDelete }: Node
                                   </Badge>
                                   {field.required && (
                                     <Badge variant="destructive" className="text-xs text-white">
-                                      Required
+                                      {t('workflows.form.required')}
                                     </Badge>
                                   )}
                                 </div>
@@ -682,89 +682,89 @@ export function NodeEditDialog({ node, isOpen, onClose, onSave, onDelete }: Node
                               <div className="px-4 pb-4 space-y-3 border-t border-gray-200 bg-white">
                                 {/* Field Name */}
                                 <div className="pt-3">
-                                  <label className="block text-xs font-medium text-gray-700 mb-1">Field Name *</label>
+                                  <label className="block text-xs font-medium text-gray-700 mb-1">{t('workflows.form.fieldName')} *</label>
                                   <input
                                     type="text"
                                     value={field.name}
                                     onChange={(e) => updateFormField(index, 'name', e.target.value)}
                                     className="w-full px-2 py-1.5 border border-gray-300 rounded text-xs focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
-                                    placeholder="field_name"
+                                    placeholder={t('workflows.form.placeholders.fieldName')}
                                   />
-                                  <p className="text-xs text-gray-500 mt-0.5">Unique identifier for this field</p>
+                                  <p className="text-xs text-gray-500 mt-0.5">{t('workflows.form.descriptions.fieldName')}</p>
                                 </div>
 
                                 {/* Field Label */}
                                 <div>
-                                  <label className="block text-xs font-medium text-gray-700 mb-1">Field Label *</label>
+                                  <label className="block text-xs font-medium text-gray-700 mb-1">{t('workflows.form.fieldLabel')} *</label>
                                   <input
                                     type="text"
                                     value={field.label}
                                     onChange={(e) => updateFormField(index, 'label', e.target.value)}
                                     className="w-full px-2 py-1.5 border border-gray-300 rounded text-xs focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
-                                    placeholder="Field Label"
+                                    placeholder={t('workflows.form.placeholders.fieldLabel')}
                                   />
-                                  <p className="text-xs text-gray-500 mt-0.5">Display label shown to users</p>
+                                  <p className="text-xs text-gray-500 mt-0.5">{t('workflows.form.descriptions.fieldLabel')}</p>
                                 </div>
 
                                 {/* Field Type */}
                                 <div>
-                                  <label className="block text-xs font-medium text-gray-700 mb-1">Field Type *</label>
+                                  <label className="block text-xs font-medium text-gray-700 mb-1">{t('workflows.form.fieldType')} *</label>
                                   <select
                                     value={field.type}
                                     onChange={(e) => updateFormField(index, 'type', e.target.value)}
                                     className="w-full px-2 py-1.5 border border-gray-300 rounded text-xs focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
                                   >
-                                    <option value="text">Text</option>
-                                    <option value="number">Number</option>
-                                    <option value="email">Email</option>
-                                    <option value="tel">Phone</option>
-                                    <option value="url">URL</option>
-                                    <option value="textarea">Text Area</option>
-                                    <option value="select">Select (Dropdown)</option>
-                                    <option value="radio">Radio Buttons</option>
-                                    <option value="checkbox">Checkbox</option>
-                                    <option value="date">Date</option>
-                                    <option value="time">Time</option>
-                                    <option value="datetime-local">Date & Time</option>
+                                    <option value="text">{t('workflows.form.fieldTypes.text')}</option>
+                                    <option value="number">{t('workflows.form.fieldTypes.number')}</option>
+                                    <option value="email">{t('workflows.form.fieldTypes.email')}</option>
+                                    <option value="tel">{t('workflows.form.fieldTypes.tel')}</option>
+                                    <option value="url">{t('workflows.form.fieldTypes.url')}</option>
+                                    <option value="textarea">{t('workflows.form.fieldTypes.textarea')}</option>
+                                    <option value="select">{t('workflows.form.fieldTypes.select')}</option>
+                                    <option value="radio">{t('workflows.form.fieldTypes.radio')}</option>
+                                    <option value="checkbox">{t('workflows.form.fieldTypes.checkbox')}</option>
+                                    <option value="date">{t('workflows.form.fieldTypes.date')}</option>
+                                    <option value="time">{t('workflows.form.fieldTypes.time')}</option>
+                                    <option value="datetime-local">{t('workflows.form.fieldTypes.datetime-local')}</option>
                                   </select>
                                 </div>
 
                                 {/* Placeholder */}
                                 <div>
-                                  <label className="block text-xs font-medium text-gray-700 mb-1">Placeholder</label>
+                                  <label className="block text-xs font-medium text-gray-700 mb-1">{t('workflows.form.placeholder')}</label>
                                   <input
                                     type="text"
                                     value={field.placeholder || ''}
                                     onChange={(e) => updateFormField(index, 'placeholder', e.target.value)}
                                     className="w-full px-2 py-1.5 border border-gray-300 rounded text-xs focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
-                                    placeholder="Enter placeholder text..."
+                                    placeholder={t('workflows.form.placeholders.placeholder')}
                                   />
                                 </div>
 
                                 {/* Default Value */}
                                 <div>
-                                  <label className="block text-xs font-medium text-gray-700 mb-1">Default Value</label>
+                                  <label className="block text-xs font-medium text-gray-700 mb-1">{t('workflows.form.defaultValue')}</label>
                                   <input
                                     type="text"
                                     value={field.defaultValue || ''}
                                     onChange={(e) => updateFormField(index, 'defaultValue', e.target.value)}
                                     className="w-full px-2 py-1.5 border border-gray-300 rounded text-xs focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
-                                    placeholder="Default value..."
+                                    placeholder={t('workflows.form.placeholders.defaultValue')}
                                   />
                                 </div>
 
                                 {/* Options (for select/radio) */}
                                 {(field.type === 'select' || field.type === 'radio') && (
                                   <div>
-                                    <label className="block text-xs font-medium text-gray-700 mb-1">Options (comma-separated)</label>
+                                    <label className="block text-xs font-medium text-gray-700 mb-1">{t('workflows.form.options')}</label>
                                     <input
                                       type="text"
                                       value={field.options?.join(', ') || ''}
                                       onChange={(e) => updateFormField(index, 'options', e.target.value.split(',').map(o => o.trim()).filter(Boolean))}
                                       className="w-full px-2 py-1.5 border border-gray-300 rounded text-xs focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
-                                      placeholder="Option 1, Option 2, Option 3"
+                                      placeholder={t('workflows.form.placeholders.options')}
                                     />
-                                    <p className="text-xs text-gray-500 mt-0.5">Comma-separated list of options</p>
+                                    <p className="text-xs text-gray-500 mt-0.5">{t('workflows.form.descriptions.options')}</p>
                                   </div>
                                 )}
 
@@ -777,7 +777,7 @@ export function NodeEditDialog({ node, isOpen, onClose, onSave, onDelete }: Node
                                       onChange={(e) => updateFormField(index, 'required', e.target.checked)}
                                       className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
                                     />
-                                    Required field
+                                    {t('workflows.form.requiredField')}
                                   </label>
                                 </div>
 
@@ -790,7 +790,7 @@ export function NodeEditDialog({ node, isOpen, onClose, onSave, onDelete }: Node
                                     onClick={() => removeFormField(index)}
                                   >
                                     <Trash2 className="size-4 mr-1" />
-                                    Remove Field
+                                    {t('workflows.form.removeField')}
                                   </Button>
                                 </div>
                               </div>
@@ -810,10 +810,10 @@ export function NodeEditDialog({ node, isOpen, onClose, onSave, onDelete }: Node
                     <div className="flex items-center justify-between mb-3">
                       <div>
                         <h3 className="text-sm font-semibold text-gray-900">
-                          Step Activities ({stepActivities.length})
+                          {t('workflows.form.stepActivities', { count: stepActivities.length })}
                         </h3>
                         <p className="text-xs text-gray-500 mt-0.5">
-                          Activities to execute when this step runs
+                          {t('workflows.form.descriptions.activities')}
                         </p>
                       </div>
                       <Button
@@ -824,7 +824,7 @@ export function NodeEditDialog({ node, isOpen, onClose, onSave, onDelete }: Node
                             ...stepActivities,
                             {
                               activityId: `activity_${stepActivities.length + 1}`,
-                              activityName: `Activity ${stepActivities.length + 1}`,
+                              activityName: `${t('workflows.activities.singular')} ${stepActivities.length + 1}`,
                               activityType: 'CALL_API',
                               config: {},
                               async: false,
@@ -833,13 +833,13 @@ export function NodeEditDialog({ node, isOpen, onClose, onSave, onDelete }: Node
                         }}
                       >
                         <Plus className="size-3 mr-1" />
-                        Add Activity
+                        {t('workflows.form.addActivity')}
                       </Button>
                     </div>
 
                     {stepActivities.length === 0 && (
                       <div className="p-4 text-center text-sm text-gray-500 bg-gray-50 rounded-lg border border-gray-200">
-                        No activities defined. Click "Add Activity" to create one.
+                        {t('workflows.nodeEditor.noActivities')}
                       </div>
                     )}
 
@@ -872,7 +872,7 @@ export function NodeEditDialog({ node, isOpen, onClose, onSave, onDelete }: Node
                                   </Badge>
                                   {activity.async && (
                                     <Badge variant="outline" className="text-xs">
-                                      Async
+                                      {t('workflows.form.async')}
                                     </Badge>
                                   )}
                                 </div>
@@ -891,7 +891,7 @@ export function NodeEditDialog({ node, isOpen, onClose, onSave, onDelete }: Node
                                 {/* Activity ID */}
                                 <div className="pt-3">
                                   <label className="block text-xs font-medium text-gray-700 mb-1">
-                                    Activity ID *
+                                    {t('workflows.form.activityId')} *
                                   </label>
                                   <input
                                     type="text"
@@ -902,14 +902,14 @@ export function NodeEditDialog({ node, isOpen, onClose, onSave, onDelete }: Node
                                       setStepActivities(updated)
                                     }}
                                     className="w-full px-2 py-1.5 border border-gray-300 rounded text-xs focus:ring-1 focus:ring-blue-500"
-                                    placeholder="send_email"
+                                    placeholder={t('workflows.form.placeholders.activityId')}
                                   />
                                 </div>
 
                                 {/* Activity Name */}
                                 <div>
                                   <label className="block text-xs font-medium text-gray-700 mb-1">
-                                    Activity Name *
+                                    {t('workflows.form.activityName')} *
                                   </label>
                                   <input
                                     type="text"
@@ -920,14 +920,14 @@ export function NodeEditDialog({ node, isOpen, onClose, onSave, onDelete }: Node
                                       setStepActivities(updated)
                                     }}
                                     className="w-full px-2 py-1.5 border border-gray-300 rounded text-xs focus:ring-1 focus:ring-blue-500"
-                                    placeholder="Send Welcome Email"
+                                    placeholder={t('workflows.form.placeholders.activityName')}
                                   />
                                 </div>
 
                                 {/* Activity Type */}
                                 <div>
                                   <label className="block text-xs font-medium text-gray-700 mb-1">
-                                    Activity Type *
+                                    {t('workflows.form.activityType')} *
                                   </label>
                                   <select
                                     value={activity.activityType}
@@ -938,19 +938,19 @@ export function NodeEditDialog({ node, isOpen, onClose, onSave, onDelete }: Node
                                     }}
                                     className="w-full px-2 py-1.5 border border-gray-300 rounded text-xs focus:ring-1 focus:ring-blue-500"
                                   >
-                                    <option value="SEND_EMAIL">Send Email</option>
-                                    <option value="CALL_API">Call API</option>
-                                    <option value="UPDATE_ENTITY">Update Entity</option>
-                                    <option value="EMIT_EVENT">Emit Event</option>
-                                    <option value="CALL_WEBHOOK">Call Webhook</option>
-                                    <option value="EXECUTE_FUNCTION">Execute Function</option>
+                                    <option value="SEND_EMAIL">{t('workflows.activities.types.SEND_EMAIL')}</option>
+                                    <option value="CALL_API">{t('workflows.activities.types.CALL_API')}</option>
+                                    <option value="UPDATE_ENTITY">{t('workflows.activities.types.UPDATE_ENTITY')}</option>
+                                    <option value="EMIT_EVENT">{t('workflows.activities.types.EMIT_EVENT')}</option>
+                                    <option value="CALL_WEBHOOK">{t('workflows.activities.types.CALL_WEBHOOK')}</option>
+                                    <option value="EXECUTE_FUNCTION">{t('workflows.activities.types.EXECUTE_FUNCTION')}</option>
                                   </select>
                                 </div>
 
                                 {/* Timeout */}
                                 <div>
                                   <label className="block text-xs font-medium text-gray-700 mb-1">
-                                    Timeout
+                                    {t('workflows.form.timeout')}
                                   </label>
                                   <input
                                     type="text"
@@ -961,19 +961,19 @@ export function NodeEditDialog({ node, isOpen, onClose, onSave, onDelete }: Node
                                       setStepActivities(updated)
                                     }}
                                     className="w-full px-2 py-1.5 border border-gray-300 rounded text-xs focus:ring-1 focus:ring-blue-500"
-                                    placeholder="30000"
+                                    placeholder={t('workflows.form.placeholders.timeoutMs')}
                                   />
-                                  <p className="text-xs text-gray-500 mt-1">Timeout in milliseconds (e.g., 30000 = 30 seconds)</p>
+                                  <p className="text-xs text-gray-500 mt-1">{t('workflows.form.descriptions.timeoutMs')}</p>
                                 </div>
 
                                 {/* Retry Policy Grid */}
                                 <div className="border border-gray-200 rounded-lg p-3 bg-gray-50">
                                   <label className="block text-xs font-semibold text-gray-700 mb-2">
-                                    Retry Policy
+                                    {t('workflows.form.retryPolicy')}
                                   </label>
-                                  <div className="grid grid-cols-2 gap-2">
+                                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                                     <div>
-                                      <label className="block text-xs text-gray-600 mb-1">Max Attempts</label>
+                                      <label className="block text-xs text-gray-600 mb-1">{t('workflows.form.maxAttempts')}</label>
                                       <input
                                         type="number"
                                         value={activity.retryPolicy?.maxAttempts || 1}
@@ -989,7 +989,7 @@ export function NodeEditDialog({ node, isOpen, onClose, onSave, onDelete }: Node
                                       />
                                     </div>
                                     <div>
-                                      <label className="block text-xs text-gray-600 mb-1">Initial Interval (ms)</label>
+                                      <label className="block text-xs text-gray-600 mb-1">{t('workflows.form.initialInterval')}</label>
                                       <input
                                         type="number"
                                         value={activity.retryPolicy?.initialIntervalMs || 1000}
@@ -1003,7 +1003,7 @@ export function NodeEditDialog({ node, isOpen, onClose, onSave, onDelete }: Node
                                       />
                                     </div>
                                     <div>
-                                      <label className="block text-xs text-gray-600 mb-1">Backoff Coefficient</label>
+                                      <label className="block text-xs text-gray-600 mb-1">{t('workflows.form.backoffCoefficient')}</label>
                                       <input
                                         type="number"
                                         step="0.1"
@@ -1018,7 +1018,7 @@ export function NodeEditDialog({ node, isOpen, onClose, onSave, onDelete }: Node
                                       />
                                     </div>
                                     <div>
-                                      <label className="block text-xs text-gray-600 mb-1">Max Interval (ms)</label>
+                                      <label className="block text-xs text-gray-600 mb-1">{t('workflows.form.maxInterval')}</label>
                                       <input
                                         type="number"
                                         value={activity.retryPolicy?.maxIntervalMs || 60000}
@@ -1047,14 +1047,14 @@ export function NodeEditDialog({ node, isOpen, onClose, onSave, onDelete }: Node
                                       }}
                                       className="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
                                     />
-                                    <span className="text-xs text-gray-700">Execute Asynchronously</span>
+                                    <span className="text-xs text-gray-700">{t('workflows.form.executeAsync')}</span>
                                   </label>
                                 </div>
 
                                 {/* Activity Config JSON */}
                                 <div>
                                   <label className="block text-xs font-medium text-gray-700 mb-1">
-                                    Configuration (JSON)
+                                    {t('workflows.form.configuration')}
                                   </label>
                                   <JsonBuilder
                                     value={activity.config || {}}
@@ -1065,7 +1065,7 @@ export function NodeEditDialog({ node, isOpen, onClose, onSave, onDelete }: Node
                                     }}
                                   />
                                   <p className="text-xs text-gray-500 mt-1">
-                                    Activity-specific configuration. Supports variable interpolation: {`{{context.field}}`}, {`{{workflow.instanceId}}`}
+                                    {t('workflows.form.descriptions.activityConfig')}
                                   </p>
                                 </div>
 
@@ -1083,7 +1083,7 @@ export function NodeEditDialog({ node, isOpen, onClose, onSave, onDelete }: Node
                                     }}
                                   >
                                     <Trash2 className="size-3 mr-1" />
-                                    Delete Activity
+                                    {t('workflows.form.deleteActivity')}
                                   </Button>
                                 </div>
                               </div>
@@ -1101,20 +1101,20 @@ export function NodeEditDialog({ node, isOpen, onClose, onSave, onDelete }: Node
                 <>
                   <div className="border-t border-gray-200 pt-4 mt-4">
                     <h3 className="text-sm font-semibold text-gray-900 mb-3">
-                      Sub-Workflow Configuration
+                      {t('workflows.form.subWorkflowConfig')}
                     </h3>
                   </div>
 
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-1">
-                      Workflow to Invoke *
+                      {t('workflows.form.workflowToInvoke')} *
                     </label>
                     <div className="flex gap-2">
                       <input
                         type="text"
                         value={subWorkflowId}
                         onChange={(e) => setSubWorkflowId(e.target.value)}
-                        placeholder="child-workflow"
+                        placeholder={t('workflows.form.placeholders.subWorkflowId')}
                         className="flex-1 px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                         readOnly
                       />
@@ -1123,27 +1123,27 @@ export function NodeEditDialog({ node, isOpen, onClose, onSave, onDelete }: Node
                         variant="outline"
                         onClick={() => setShowWorkflowSelector(true)}
                       >
-                        Browse...
+                        {t('workflows.form.browse')}
                       </Button>
                     </div>
                     <p className="text-xs text-gray-500 mt-1">
-                      Workflow ID of the sub-workflow to invoke
+                      {t('workflows.form.descriptions.subWorkflowId')}
                     </p>
                   </div>
 
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-1">
-                      Version
+                      {t('workflows.form.version')}
                     </label>
                     <input
                       type="number"
                       value={subWorkflowVersion}
                       onChange={(e) => setSubWorkflowVersion(e.target.value)}
-                      placeholder="Latest version"
+                      placeholder={t('workflows.form.placeholders.version')}
                       className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                     />
                     <p className="text-xs text-gray-500 mt-1">
-                      Specific version to invoke (leave empty for latest)
+                      {t('workflows.form.descriptions.subWorkflowVersion')}
                     </p>
                   </div>
 
@@ -1152,10 +1152,10 @@ export function NodeEditDialog({ node, isOpen, onClose, onSave, onDelete }: Node
                     <div className="flex items-center justify-between mb-3">
                       <div>
                         <h4 className="text-sm font-semibold text-gray-900">
-                          Input Mapping ({inputMappings.length})
+                          {t('workflows.form.inputMapping', { count: inputMappings.length })}
                         </h4>
                         <p className="text-xs text-gray-500 mt-0.5">
-                          Map data from parent workflow to child workflow context
+                          {t('workflows.form.descriptions.inputMapping')}
                         </p>
                       </div>
                       <Button
@@ -1164,13 +1164,13 @@ export function NodeEditDialog({ node, isOpen, onClose, onSave, onDelete }: Node
                         onClick={() => setInputMappings([...inputMappings, { key: '', value: '' }])}
                       >
                         <Plus className="size-3 mr-1" />
-                        Add Mapping
+                        {t('workflows.form.addMapping')}
                       </Button>
                     </div>
 
                     {inputMappings.length === 0 ? (
                       <p className="text-sm text-gray-500 italic">
-                        No input mappings. Entire parent context will be passed to child.
+                        {t('workflows.nodeEditor.noInputMappings')}
                       </p>
                     ) : (
                       <div className="space-y-2">
@@ -1185,10 +1185,10 @@ export function NodeEditDialog({ node, isOpen, onClose, onSave, onDelete }: Node
                                   newMappings[index].key = e.target.value
                                   setInputMappings(newMappings)
                                 }}
-                                placeholder="childKey"
+                                placeholder={t('workflows.form.placeholders.childKey')}
                                 className="w-full px-2 py-1.5 border border-gray-300 rounded text-sm focus:ring-2 focus:ring-blue-500"
                               />
-                              <p className="text-xs text-gray-500 mt-0.5">Target key in child context</p>
+                              <p className="text-xs text-gray-500 mt-0.5">{t('workflows.form.descriptions.childKey')}</p>
                             </div>
                             <span className="text-gray-400 mt-2">→</span>
                             <div className="flex-1">
@@ -1200,10 +1200,10 @@ export function NodeEditDialog({ node, isOpen, onClose, onSave, onDelete }: Node
                                   newMappings[index].value = e.target.value
                                   setInputMappings(newMappings)
                                 }}
-                                placeholder="parent.field.path"
+                                placeholder={t('workflows.form.placeholders.parentPath')}
                                 className="w-full px-2 py-1.5 border border-gray-300 rounded text-sm focus:ring-2 focus:ring-blue-500"
                               />
-                              <p className="text-xs text-gray-500 mt-0.5">Source path in parent context</p>
+                              <p className="text-xs text-gray-500 mt-0.5">{t('workflows.form.descriptions.parentPath')}</p>
                             </div>
                             <Button
                               type="button"
@@ -1227,10 +1227,10 @@ export function NodeEditDialog({ node, isOpen, onClose, onSave, onDelete }: Node
                     <div className="flex items-center justify-between mb-3">
                       <div>
                         <h4 className="text-sm font-semibold text-gray-900">
-                          Output Mapping ({outputMappings.length})
+                          {t('workflows.form.outputMapping', { count: outputMappings.length })}
                         </h4>
                         <p className="text-xs text-gray-500 mt-0.5">
-                          Map data from child workflow back to parent context
+                          {t('workflows.form.descriptions.outputMapping')}
                         </p>
                       </div>
                       <Button
@@ -1239,13 +1239,13 @@ export function NodeEditDialog({ node, isOpen, onClose, onSave, onDelete }: Node
                         onClick={() => setOutputMappings([...outputMappings, { key: '', value: '' }])}
                       >
                         <Plus className="size-3 mr-1" />
-                        Add Mapping
+                        {t('workflows.form.addMapping')}
                       </Button>
                     </div>
 
                     {outputMappings.length === 0 ? (
                       <p className="text-sm text-gray-500 italic">
-                        No output mappings. Entire child context will be returned to parent.
+                        {t('workflows.nodeEditor.noOutputMappings')}
                       </p>
                     ) : (
                       <div className="space-y-2">
@@ -1260,10 +1260,10 @@ export function NodeEditDialog({ node, isOpen, onClose, onSave, onDelete }: Node
                                   newMappings[index].key = e.target.value
                                   setOutputMappings(newMappings)
                                 }}
-                                placeholder="parentKey"
+                                placeholder={t('workflows.form.placeholders.parentKey')}
                                 className="w-full px-2 py-1.5 border border-gray-300 rounded text-sm focus:ring-2 focus:ring-blue-500"
                               />
-                              <p className="text-xs text-gray-500 mt-0.5">Target key in parent context</p>
+                              <p className="text-xs text-gray-500 mt-0.5">{t('workflows.form.descriptions.parentKey')}</p>
                             </div>
                             <span className="text-gray-400 mt-2">←</span>
                             <div className="flex-1">
@@ -1275,10 +1275,10 @@ export function NodeEditDialog({ node, isOpen, onClose, onSave, onDelete }: Node
                                   newMappings[index].value = e.target.value
                                   setOutputMappings(newMappings)
                                 }}
-                                placeholder="child.result.path"
+                                placeholder={t('workflows.form.placeholders.childPath')}
                                 className="w-full px-2 py-1.5 border border-gray-300 rounded text-sm focus:ring-2 focus:ring-blue-500"
                               />
-                              <p className="text-xs text-gray-500 mt-0.5">Source path in child context</p>
+                              <p className="text-xs text-gray-500 mt-0.5">{t('workflows.form.descriptions.childPath')}</p>
                             </div>
                             <Button
                               type="button"
@@ -1304,39 +1304,39 @@ export function NodeEditDialog({ node, isOpen, onClose, onSave, onDelete }: Node
                 <>
                   <div className="border-t border-gray-200 pt-4 mt-4">
                     <h3 className="text-sm font-semibold text-gray-900 mb-3">
-                      Signal Configuration
+                      {t('workflows.form.signalConfig')}
                     </h3>
                   </div>
 
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-1">
-                      Signal Name *
+                      {t('workflows.form.signalName')} *
                     </label>
                     <input
                       type="text"
                       value={signalName}
                       onChange={(e) => setSignalName(e.target.value)}
-                      placeholder="payment_confirmed"
+                      placeholder={t('workflows.form.placeholders.signalName')}
                       className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                     />
                     <p className="text-xs text-gray-500 mt-1">
-                      Name of the signal to wait for (e.g., payment_confirmed, approval_received)
+                      {t('workflows.form.descriptions.signalName')}
                     </p>
                   </div>
 
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-1">
-                      Timeout
+                      {t('workflows.form.timeout')}
                     </label>
                     <input
                       type="text"
                       value={signalTimeout}
                       onChange={(e) => setSignalTimeout(e.target.value)}
-                      placeholder="PT5M"
+                      placeholder={t('workflows.form.placeholders.signalTimeout')}
                       className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                     />
                     <p className="text-xs text-gray-500 mt-1">
-                      ISO 8601 duration (e.g., PT5M for 5 minutes, PT1H for 1 hour, PT30S for 30 seconds)
+                      {t('workflows.form.descriptions.signalTimeout')}
                     </p>
                   </div>
                 </>
@@ -1350,7 +1350,7 @@ export function NodeEditDialog({ node, isOpen, onClose, onSave, onDelete }: Node
                   className="flex items-center justify-between w-full text-left"
                 >
                   <h3 className="text-sm font-semibold text-gray-900">
-                    Advanced Configuration (JSON)
+                    {t('workflows.form.advancedConfiguration')}
                   </h3>
                   <svg
                     className={`w-5 h-5 transition-transform ${showAdvanced ? 'rotate-180' : ''}`}
@@ -1368,7 +1368,7 @@ export function NodeEditDialog({ node, isOpen, onClose, onSave, onDelete }: Node
                       onChange={setAdvancedConfig}
                     />
                     <p className="text-xs text-gray-500 mt-1">
-                      Add custom fields like userTaskConfig, retryPolicy, or other step-specific configuration
+                      {t('workflows.form.descriptions.advancedConfig')}
                     </p>
                   </div>
                 )}
@@ -1385,7 +1385,7 @@ export function NodeEditDialog({ node, isOpen, onClose, onSave, onDelete }: Node
               onClick={handleDelete}
             >
               <Trash2 className="size-4" />
-              Delete Step
+              {t('workflows.form.deleteStep')}
             </Button>
           )}
           <div className="flex gap-2 ml-auto">
@@ -1394,14 +1394,14 @@ export function NodeEditDialog({ node, isOpen, onClose, onSave, onDelete }: Node
               variant="outline"
               onClick={onClose}
             >
-              Cancel
+              {t('workflows.actions.cancel')}
             </Button>
             {isEditable && (
               <Button
                 type="button"
                 onClick={handleSave}
               >
-                Save Changes
+                {t('workflows.actions.saveChanges')}
               </Button>
             )}
           </div>
@@ -1415,8 +1415,8 @@ export function NodeEditDialog({ node, isOpen, onClose, onSave, onDelete }: Node
           onClose={() => setShowWorkflowSelector(false)}
           onSelect={handleWorkflowSelect}
           excludeWorkflowIds={[]}
-          title="Select Sub-Workflow"
-          description="Choose a workflow to invoke as a sub-workflow step"
+          title={t('workflows.dialogs.selectSubWorkflow')}
+          description={t('workflows.dialogs.selectSubWorkflowDescription')}
           onlyEnabled={true}
         />
       )}

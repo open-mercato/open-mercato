@@ -21,7 +21,9 @@ import { Badge } from '@open-mercato/ui/primitives/badge'
 import { Spinner } from '@open-mercato/ui/primitives/spinner'
 import { Input } from '@open-mercato/ui/primitives/input'
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@open-mercato/ui/primitives/dialog'
-import { Building2, CreditCard, Mail, Pencil, Plus, Store, Trash2, Truck, UserRound, Wand2, X } from 'lucide-react'
+import { ArrowRightLeft, Building2, CreditCard, Mail, Pencil, Plus, Send, Store, Truck, UserRound, Wand2, X } from 'lucide-react'
+import { FormHeader, type ActionItem } from '@open-mercato/ui/backend/forms'
+import { VersionHistoryAction } from '@open-mercato/ui/backend/version-history'
 import Link from 'next/link'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { apiCall, apiCallOrThrow, readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
@@ -857,6 +859,8 @@ type DocumentRecord = {
 }
 
 type DocumentUpdateResult = {
+  orderNumber?: string | null
+  quoteNumber?: string | null
   externalReference?: string | null
   customerReference?: string | null
   comment?: string | null
@@ -1860,6 +1864,7 @@ export default function SalesDocumentDetailPage({
   const [sendOpen, setSendOpen] = React.useState(false)
   const [validForDays, setValidForDays] = React.useState(14)
   const [numberEditing, setNumberEditing] = React.useState(false)
+  const [canEditNumber, setCanEditNumber] = React.useState(false)
   const [currencyError, setCurrencyError] = React.useState<string | null>(null)
   const [hasItems, setHasItems] = React.useState(false)
   const [hasPayments, setHasPayments] = React.useState(false)
@@ -1900,6 +1905,42 @@ export default function SalesDocumentDetailPage({
     () => t('sales.documents.detail.error', 'Document not found or inaccessible.'),
     [t]
   )
+
+  React.useEffect(() => {
+    let active = true
+    async function loadNumberPermission() {
+      try {
+        const call = await apiCall<{ granted?: unknown[] }>(
+          '/api/auth/feature-check',
+          {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ features: ['sales.documents.number.edit'] }),
+          }
+        )
+        if (!active) return
+        const granted = Array.isArray(call.result?.granted)
+          ? call.result?.granted.map((item) => String(item))
+          : []
+        const has = granted.some((feature) => {
+          if (feature === '*') return true
+          if (feature === 'sales.documents.number.edit') return true
+          if (feature.endsWith('.*')) {
+            const prefix = feature.slice(0, -2)
+            return 'sales.documents.number.edit' === prefix || 'sales.documents.number.edit'.startsWith(`${prefix}.`)
+          }
+          return false
+        })
+        setCanEditNumber(Boolean(call.ok && has))
+      } catch {
+        if (active) setCanEditNumber(false)
+      }
+    }
+    loadNumberPermission().catch(() => {})
+    return () => {
+      active = false
+    }
+  }, [scopeVersion])
   const saveShortcutLabel = React.useMemo(
     () => t('sales.documents.detail.inline.save', 'Save ⌘⏎ / Ctrl+Enter'),
     [t]
@@ -2636,6 +2677,7 @@ export default function SalesDocumentDetailPage({
     return statusOptions
   }, [kind, statusOptions])
   const number = record?.orderNumber ?? record?.quoteNumber ?? record?.id
+  const numberEditorKey = `${record?.id ?? 'unknown'}:${number ?? ''}`
   const customerSnapshot = (record?.customerSnapshot ?? null) as CustomerSnapshot | null
   const billingSnapshot = (record?.billingAddressSnapshot ?? null) as AddressSnapshot | null
   const shippingSnapshot = (record?.shippingAddressSnapshot ?? null) as AddressSnapshot | null
@@ -2985,7 +3027,7 @@ export default function SalesDocumentDetailPage({
         throw err
       }
     },
-    [kind, record, t, updateDocument]
+    [canEditNumber, kind, record, t, updateDocument]
   )
 
   const handleUpdateComment = React.useCallback(
@@ -3424,20 +3466,93 @@ export default function SalesDocumentDetailPage({
   )
 
   const handleGenerateNumber = React.useCallback(async () => {
-    setGenerating(true)
-    const call = await apiCall<{ number?: string }>(`/api/sales/document-numbers`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ kind }),
-    })
-    if (call.ok && call.result?.number) {
-      setRecord((prev) => (prev ? { ...prev, orderNumber: kind === 'order' ? call.result?.number : prev.orderNumber, quoteNumber: kind === 'quote' ? call.result?.number : prev.quoteNumber } : prev))
-      flash(t('sales.documents.detail.numberGenerated', 'New number generated.'), 'success')
-    } else {
-      flash(t('sales.documents.detail.numberGenerateError', 'Could not generate number.'), 'error')
+    if (!canEditNumber) {
+      const message = t('sales.documents.detail.numberEditForbidden', 'You cannot edit document numbers.')
+      flash(message, 'error')
+      throw new Error(message)
     }
-    setGenerating(false)
-  }, [kind, t])
+    setGenerating(true)
+    try {
+      const call = await apiCall<{ number?: string }>(`/api/sales/document-numbers`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ kind }),
+      })
+      const nextNumber = typeof call.result?.number === 'string' ? call.result.number : null
+      if (!call.ok || !nextNumber) {
+        throw new Error(t('sales.documents.detail.numberGenerateError', 'Could not generate number.'))
+      }
+      const payload = kind === 'order' ? { orderNumber: nextNumber } : { quoteNumber: nextNumber }
+      const update = await updateDocument(payload)
+      const savedNumber =
+        kind === 'order'
+          ? (typeof update.result?.orderNumber === 'string' ? update.result.orderNumber : nextNumber)
+          : (typeof update.result?.quoteNumber === 'string' ? update.result.quoteNumber : nextNumber)
+      setRecord((prev) =>
+        prev
+          ? {
+              ...prev,
+              orderNumber: kind === 'order' ? savedNumber : prev.orderNumber,
+              quoteNumber: kind === 'quote' ? savedNumber : prev.quoteNumber,
+            }
+          : prev
+      )
+      setNumberEditing(false)
+      flash(t('sales.documents.detail.numberGenerated', 'New number generated.'), 'success')
+    } catch (err) {
+      const message =
+        err instanceof Error && err.message
+          ? err.message
+          : t('sales.documents.detail.numberGenerateError', 'Could not generate number.')
+      flash(message, 'error')
+      throw err
+    } finally {
+      setGenerating(false)
+    }
+  }, [canEditNumber, kind, t, updateDocument])
+
+  const handleUpdateNumber = React.useCallback(
+    async (next: string | null) => {
+      if (!record) return
+      if (!canEditNumber) {
+        const message = t('sales.documents.detail.numberEditForbidden', 'You cannot edit document numbers.')
+        flash(message, 'error')
+        throw new Error(message)
+      }
+      const normalized = typeof next === 'string' ? next.trim() : ''
+      if (!normalized.length) {
+        const message = t('sales.documents.detail.numberRequired', 'Document number is required.')
+        flash(message, 'error')
+        throw new Error(message)
+      }
+      try {
+        const payload = kind === 'order' ? { orderNumber: normalized } : { quoteNumber: normalized }
+        const call = await updateDocument(payload)
+        const savedNumber =
+          kind === 'order'
+            ? (typeof call.result?.orderNumber === 'string' ? call.result.orderNumber : normalized)
+            : (typeof call.result?.quoteNumber === 'string' ? call.result.quoteNumber : normalized)
+        setRecord((prev) =>
+          prev
+            ? {
+                ...prev,
+                orderNumber: kind === 'order' ? savedNumber : prev.orderNumber,
+                quoteNumber: kind === 'quote' ? savedNumber : prev.quoteNumber,
+              }
+            : prev
+        )
+        flash(t('sales.documents.detail.updatedMessage', 'Document updated.'), 'success')
+      } catch (err) {
+        const message =
+          err instanceof Error && err.message
+            ? err.message
+            : t('sales.documents.detail.updateError', 'Failed to update document.')
+        flash(message, 'error')
+        throw err
+      }
+    },
+    [canEditNumber, kind, record, t, updateDocument]
+  )
 
   const handleConvert = React.useCallback(async () => {
     if (!record || kind !== 'quote') return
@@ -4246,106 +4361,90 @@ export default function SalesDocumentDetailPage({
   return (
     <Page>
       <PageBody className="space-y-6">
-        <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-          <div className="flex flex-wrap items-center gap-3">
-            <Link
-              href={kind === 'order' ? '/backend/sales/orders' : '/backend/sales/quotes'}
-              className="inline-flex items-center text-sm text-muted-foreground hover:text-foreground"
-            >
-              <span aria-hidden className="mr-1 text-base">←</span>
-              <span className="sr-only">{t('sales.documents.detail.back', 'Back to documents')}</span>
-            </Link>
-            <div className="space-y-1">
-              <p className="text-xs uppercase text-muted-foreground">
-                {kind === 'order'
-                  ? t('sales.documents.detail.order', 'Sales order')
-                  : t('sales.documents.detail.quote', 'Sales quote')}
-              </p>
-              <div className="flex flex-wrap items-center gap-2">
-                <InlineTextEditor
-                  label={t('sales.documents.detail.number', 'Document number')}
-                  value={number}
-                  emptyLabel={t('sales.documents.detail.numberEmpty', 'No number yet')}
-                  onSave={async () => flash(t('sales.documents.detail.saveStub', 'Saving number will land soon.'), 'info')}
-                  variant="plain"
-                  activateOnClick
-                  hideLabel
-                  triggerClassName="opacity-0 transition-opacity duration-150 group-hover:opacity-100 group-focus-within:opacity-100 focus-visible:opacity-100 mt-1"
-                  containerClassName="max-w-full w-full flex-1 sm:min-w-[28rem] lg:min-w-[36rem] xl:min-w-[44rem]"
-                  renderDisplay={({ value: displayValue, emptyLabel }) =>
-                    displayValue && displayValue.length ? (
-                      <span className="text-2xl font-semibold leading-tight whitespace-nowrap">{displayValue}</span>
-                    ) : (
-                      <span className="text-muted-foreground">{emptyLabel}</span>
-                    )
-                  }
-                  onEditingChange={setNumberEditing}
-                  renderActions={
-                    numberEditing ? (
-                      <Button
-                        type="button"
-                        size="icon"
-                        variant="ghost"
-                        onClick={() => void handleGenerateNumber()}
-                        disabled={generating}
-                        className="h-9 w-9"
-                      >
-                        {generating ? <Spinner className="h-4 w-4 animate-spin" /> : <Wand2 className="h-4 w-4" />}
-                        <span className="sr-only">{t('sales.documents.detail.generateNumber', 'Generate number')}</span>
-                      </Button>
-                    ) : null
-              }
-                />
-              </div>
-              {record.status ? (
-                <Badge variant="secondary" className="inline-flex items-center gap-2">
-                  {statusDisplay?.icon ? renderDictionaryIcon(statusDisplay.icon, 'h-4 w-4') : null}
-                  <span className="inline-flex items-center gap-1">
-                    {statusDisplay?.color
-                      ? renderDictionaryColor(statusDisplay.color, 'h-2.5 w-2.5 rounded-full border border-border/60')
-                      : <span className="h-2.5 w-2.5 rounded-full bg-primary" />}
+        <FormHeader
+          mode="detail"
+          backHref={kind === 'order' ? '/backend/sales/orders' : '/backend/sales/quotes'}
+          backLabel={t('sales.documents.detail.back', 'Back to documents')}
+          utilityActions={record ? (
+            <VersionHistoryAction
+              config={{
+                resourceKind: kind === 'order' ? 'sales.order' : 'sales.quote',
+                resourceId: record.id,
+              }}
+              t={t}
+            />
+          ) : null}
+          entityTypeLabel={kind === 'order'
+            ? t('sales.documents.detail.order', 'Sales order')
+            : t('sales.documents.detail.quote', 'Sales quote')}
+          title={
+            canEditNumber ? (
+              <InlineTextEditor
+                key={numberEditorKey}
+                label={t('sales.documents.detail.number', 'Document number')}
+                value={number}
+                emptyLabel={t('sales.documents.detail.numberEmpty', 'No number yet')}
+                onSave={handleUpdateNumber}
+                variant="plain"
+                activateOnClick
+                hideLabel
+                triggerClassName="opacity-0 transition-opacity duration-150 group-hover:opacity-100 group-focus-within:opacity-100 focus-visible:opacity-100 mt-1"
+                containerClassName="max-w-full w-full flex-1 sm:min-w-[28rem] lg:min-w-[36rem] xl:min-w-[44rem]"
+                renderDisplay={({ value: displayValue, emptyLabel }) =>
+                  displayValue && displayValue.length ? (
+                    <span className="text-2xl font-semibold leading-tight whitespace-nowrap">{displayValue}</span>
+                  ) : (
+                    <span className="text-muted-foreground">{emptyLabel}</span>
+                  )
+                }
+                onEditingChange={setNumberEditing}
+                renderActions={
+                  numberEditing ? (
+                    <Button
+                      type="button"
+                      size="icon"
+                      variant="ghost"
+                      onClick={() => void handleGenerateNumber()}
+                      disabled={generating}
+                      className="h-9 w-9"
+                    >
+                      {generating ? <Spinner className="h-4 w-4 animate-spin" /> : <Wand2 className="h-4 w-4" />}
+                      <span className="sr-only">{t('sales.documents.detail.generateNumber', 'Generate number')}</span>
+                    </Button>
+                  ) : null
+                }
+              />
+            ) : (
+              <div className="flex items-center gap-2">
+                {number && number.length ? (
+                  <span className="text-2xl font-semibold leading-tight whitespace-nowrap">{number}</span>
+                ) : (
+                  <span className="text-muted-foreground">
+                    {t('sales.documents.detail.numberEmpty', 'No number yet')}
                   </span>
-                  <span>{statusDisplay?.label ?? record.status}</span>
-                </Badge>
-              ) : null}
-            </div>
-          </div>
-          <div className="flex flex-wrap items-center gap-2">
-            {kind === 'quote' ? (
-              <Button
-                type="button"
-                size="sm"
-                onClick={() => void handleConvert()}
-                disabled={converting}
-              >
-                {converting ? <Spinner className="mr-2 h-4 w-4 animate-spin" /> : null}
-                {t('sales.documents.detail.convertToOrder', 'Convert to order')}
-              </Button>
-            ) : null}
-            {kind === 'quote' ? (
-              <Button
-                type="button"
-                size="sm"
-                onClick={() => setSendOpen(true)}
-                disabled={!contactEmail || sending}
-              >
-                {sending ? <Spinner className="mr-2 h-4 w-4 animate-spin" /> : null}
-                {t('sales.quotes.send.action', 'Send to customer')}
-              </Button>
-            ) : null}
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              onClick={() => void handleDelete()}
-              disabled={deleting}
-              className="rounded-none border-destructive/40 text-destructive hover:bg-destructive/5 hover:text-destructive"
-            >
-              {deleting ? <Spinner className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" aria-hidden />}
-              {t('sales.documents.detail.delete', 'Delete')}
-            </Button>
-          </div>
-        </div>
+                )}
+              </div>
+            )
+          }
+          statusBadge={record.status ? (
+            <Badge variant="secondary" className="inline-flex items-center gap-2">
+              {statusDisplay?.icon ? renderDictionaryIcon(statusDisplay.icon, 'h-4 w-4') : null}
+              <span className="inline-flex items-center gap-1">
+                {statusDisplay?.color
+                  ? renderDictionaryColor(statusDisplay.color, 'h-2.5 w-2.5 rounded-full border border-border/60')
+                  : <span className="h-2.5 w-2.5 rounded-full bg-primary" />}
+              </span>
+              <span>{statusDisplay?.label ?? record.status}</span>
+            </Badge>
+          ) : undefined}
+          menuActions={kind === 'quote' ? ([
+            { id: 'convert', label: t('sales.documents.detail.convertToOrder', 'Convert to order'), icon: ArrowRightLeft, onSelect: () => void handleConvert(), disabled: converting, loading: converting },
+            { id: 'send', label: t('sales.quotes.send.action', 'Send to customer'), icon: Send, onSelect: () => setSendOpen(true), disabled: !contactEmail || sending, loading: sending },
+          ] satisfies ActionItem[]) : undefined}
+          onDelete={() => void handleDelete()}
+          isDeleting={deleting}
+          deleteLabel={t('sales.documents.detail.delete', 'Delete')}
+        />
 
         <div className="grid gap-4 md:grid-cols-4">
           <div className="md:col-span-3">

@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
+import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Badge } from '@open-mercato/ui/primitives/badge'
 import { Label } from '@open-mercato/ui/primitives/label'
@@ -60,6 +61,7 @@ export function BusinessRuleConditionsEditor({
   filterEntityType,
   filterRuleType,
 }: BusinessRuleConditionsEditorProps) {
+  const t = useT()
   const [isModalOpen, setIsModalOpen] = useState(false)
   const [conditionsWithDetails, setConditionsWithDetails] = useState<ConditionWithDetails[]>([])
 
@@ -168,15 +170,15 @@ export function BusinessRuleConditionsEditor({
           disabled={disabled}
         >
           <Plus className="size-3 mr-1" />
-          Add Rule
+          {t('workflows.fieldEditors.businessRuleConditions.addRule')}
         </Button>
       </div>
 
       {conditions.length === 0 ? (
         <EmptyState
-          title="No conditions defined"
-          description="Add a business rule condition for this transition."
-          action={{ label: 'Add Rule', onClick: () => setIsModalOpen(true), disabled }}
+          title={t('workflows.fieldEditors.businessRuleConditions.emptyTitle')}
+          description={t('workflows.fieldEditors.businessRuleConditions.emptyDescription')}
+          action={{ label: t('workflows.fieldEditors.businessRuleConditions.addRule'), onClick: () => setIsModalOpen(true), disabled }}
         />
       ) : (
         <div className="space-y-2">
@@ -191,14 +193,14 @@ export function BusinessRuleConditionsEditor({
                       {condition.loading ? (
                         <>
                           <Spinner size="sm" />
-                          <span className="text-sm text-muted-foreground">Loading rule details...</span>
+                          <span className="text-sm text-muted-foreground">{t('workflows.common.loadingDetails')}</span>
                         </>
                       ) : condition.error ? (
                         <>
                           <AlertCircle className="size-4 text-amber-600" />
                           <div>
                             <span className="text-sm font-semibold text-foreground">{condition.ruleId}</span>
-                            <p className="text-xs text-amber-600">Rule not found or unavailable</p>
+                            <p className="text-xs text-amber-600">{t('workflows.common.ruleNotFound')}</p>
                           </div>
                         </>
                       ) : (
@@ -225,7 +227,7 @@ export function BusinessRuleConditionsEditor({
                         disabled={disabled}
                       />
                       <Label htmlFor={`${id}-${index}-required`} className="text-xs font-medium cursor-pointer">
-                        Required (transition blocked if rule fails)
+                        {t('workflows.fieldEditors.businessRuleConditions.requiredLabel')}
                       </Label>
                     </div>
                   </div>
@@ -243,8 +245,8 @@ export function BusinessRuleConditionsEditor({
                         <Trash2 className="size-4 text-red-600" />
                       </Button>
                     }
-                    title="Remove Condition"
-                    description="Are you sure you want to remove this condition?"
+                    title={t('workflows.fieldEditors.businessRuleConditions.removeCondition')}
+                    description={t('workflows.fieldEditors.businessRuleConditions.confirmRemove')}
                     onConfirm={() => removeCondition(index)}
                   />
                 </div>
@@ -260,8 +262,8 @@ export function BusinessRuleConditionsEditor({
         onClose={() => setIsModalOpen(false)}
         onSelect={addCondition}
         excludeRuleIds={getExcludedRuleIds()}
-        title="Select Business Rule"
-        description="Choose a business rule to add as a condition"
+        title={t('workflows.fieldEditors.businessRuleConditions.selectBusinessRule')}
+        description={t('workflows.fieldEditors.businessRuleConditions.selectBusinessRuleDescription')}
         filterEntityType={filterEntityType}
         filterRuleType={filterRuleType}
         onlyEnabled={true}

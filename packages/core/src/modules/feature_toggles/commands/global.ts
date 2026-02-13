@@ -6,7 +6,7 @@ import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { registerCommand } from '@open-mercato/shared/lib/commands'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { buildChanges, requireId } from '@open-mercato/shared/lib/commands/helpers'
-import { extractUndoPayload } from '../../customers/commands/shared'
+import { extractUndoPayload } from '@open-mercato/shared/lib/commands/undo'
 import { FeatureTogglesService } from '../lib/feature-flag-check'
 
 type ToggleSnapshot = {
@@ -75,12 +75,12 @@ const createToggleCommand: CommandHandler<ToggleCreateInput, { toggleId: string 
     return { toggleId: toggle.id }
   },
   captureAfter: async (_input, result, ctx) => {
-    const em = (ctx.container.resolve('em') as EntityManager)
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
     return await loadToggleSnapshot(em, result.toggleId)
   },
   buildLog: async ({ result, ctx }) => {
     const { translate } = await resolveTranslations()
-    const em = (ctx.container.resolve('em') as EntityManager)
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
     const snapshot = await loadToggleSnapshot(em, result.toggleId)
     return {
       actionLabel: translate('feature_toggles.audit.toggles.create', 'Create toggle'),

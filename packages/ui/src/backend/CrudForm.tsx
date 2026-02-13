@@ -3,14 +3,14 @@ import * as React from 'react'
 import Link from 'next/link'
 import { z } from 'zod'
 import { useRouter } from 'next/navigation'
-import { Button } from '../primitives/button'
 import { DataLoader } from '../primitives/DataLoader'
 import { flash } from './FlashMessages'
 import dynamic from 'next/dynamic'
 import remarkGfm from 'remark-gfm'
+import { FormHeader } from './forms/FormHeader'
+import { FormFooter } from './forms/FormFooter'
+import { Button } from '../primitives/button'
 import {
-  Trash2,
-  Save,
   Settings,
   Layers,
   Tag,
@@ -58,6 +58,7 @@ import type { MDEditorProps as UiWMDEditorProps } from '@uiw/react-md-editor'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '../primitives/dialog'
 import { FieldDefinitionsManager, type FieldDefinitionsManagerHandle } from './custom-fields/FieldDefinitionsManager'
 import { useInjectionSpotEvents, InjectionSpot, useInjectionWidgets } from './injection/InjectionSpot'
+import { VersionHistoryAction } from './version-history/VersionHistoryAction'
 
 // Stable empty options array to avoid creating a new [] every render
 const EMPTY_OPTIONS: CrudFieldOption[] = []
@@ -148,6 +149,13 @@ export type CrudFormProps<TValues extends Record<string, unknown>> = {
   // Optional extra action buttons rendered next to Delete/Cancel/Save
   // Useful for custom links like "Show Records" etc.
   extraActions?: React.ReactNode
+  /** When provided, shows a Version History clock icon in the header that opens a side panel. */
+  versionHistory?: {
+    resourceKind: string
+    resourceId: string
+    canUndoRedo?: boolean
+    autoCheckAcl?: boolean
+  }
   // When provided, CrudForm will fetch custom field definitions and append
   // form-editable custom fields automatically to the provided `fields`.
   entityId?: string
@@ -280,6 +288,7 @@ export function CrudForm<TValues extends Record<string, unknown>>({
   embedded = false,
   hideFooterActions = false,
   extraActions,
+  versionHistory,
   contentHeader,
   customFieldsetBindings,
   injectionSpotId,
@@ -425,6 +434,21 @@ export function CrudForm<TValues extends Record<string, unknown>>({
     return typeof rawId === 'string' ? rawId.trim().length === 0 : false
   }, [values])
   const showDelete = Boolean(onDelete) && (typeof deleteVisible === 'boolean' ? deleteVisible : !isNewRecord)
+  const versionHistoryEnabled = Boolean(versionHistory?.resourceId && String(versionHistory.resourceId).trim().length > 0)
+  const versionHistoryAction = (
+    <VersionHistoryAction
+      config={versionHistoryEnabled ? versionHistory! : null}
+      t={t}
+      canUndoRedo={versionHistory?.canUndoRedo}
+      autoCheckAcl={versionHistory?.autoCheckAcl}
+    />
+  )
+  const headerExtraActions = versionHistoryEnabled ? (
+    <>
+      {versionHistoryAction}
+      {extraActions}
+    </>
+  ) : extraActions
 
   // Auto-append custom fields for this entityId
   React.useEffect(() => {
@@ -1523,34 +1547,21 @@ export function CrudForm<TValues extends Record<string, unknown>>({
     return (
       <div className="space-y-4" ref={rootRef}>
         {!embedded ? (
-        <div className="flex items-center justify-between gap-3">
-          <div className="flex items-center gap-3">
-            {backHref ? (
-              <Link href={backHref} className="text-sm text-muted-foreground hover:text-foreground">
-                ← {backLabel}
-              </Link>
-            ) : null}
-            {title ? <div className="text-base font-medium">{title}</div> : null}
-          </div>
-          <div className="flex items-center gap-2">
-            {extraActions}
-            {showDelete ? (
-              <Button type="button" variant="outline" onClick={handleDelete} className="text-red-600 border-red-200 hover:bg-red-50 rounded">
-                <Trash2 className="size-4 mr-2" />
-                {deleteLabel}
-              </Button>
-            ) : null}
-            {cancelHref ? (
-              <Link href={cancelHref} className="h-9 inline-flex items-center rounded border px-3 text-sm">
-                {cancelLabel}
-              </Link>
-            ) : null}
-            <Button type="submit" form={formId} disabled={pending}>
-              <Save className="size-4 mr-2" />
-              {pending ? savingLabel : resolvedSubmitLabel}
-            </Button>
-          </div>
-        </div>
+          <FormHeader
+            mode="edit"
+            backHref={backHref}
+            backLabel={backLabel}
+            title={title}
+            actions={{
+              extraActions: headerExtraActions,
+              showDelete,
+              onDelete: handleDelete,
+              deleteLabel,
+              cancelHref,
+              cancelLabel,
+              submit: { formId, pending, label: resolvedSubmitLabel, pendingLabel: savingLabel },
+            }}
+          />
         ) : null}
         {contentHeader}
         <DataLoader
@@ -1580,27 +1591,19 @@ export function CrudForm<TValues extends Record<string, unknown>>({
             </div>
             {formError ? <div className="text-sm text-red-600">{formError}</div> : null}
             {hideFooterActions ? null : (
-              <div className={`flex items-center ${embedded ? 'justify-end' : 'justify-between'} gap-2 ${dialogFooterClass}`}>
-                {embedded ? null : <div />}
-                <div className="flex items-center gap-2">
-                  {extraActions}
-                  {!embedded && showDelete ? (
-                    <Button type="button" variant="outline" onClick={handleDelete} className="text-red-600 border-red-200 hover:bg-red-50 rounded">
-                      <Trash2 className="size-4 mr-2" />
-                      {deleteLabel}
-                    </Button>
-                  ) : null}
-                  {!embedded && cancelHref ? (
-                    <Link href={cancelHref} className="h-9 inline-flex items-center rounded border px-3 text-sm">
-                      {cancelLabel}
-                    </Link>
-                  ) : null}
-                  <Button type="submit" disabled={pending}>
-                    <Save className="size-4 mr-2" />
-                    {pending ? savingLabel : resolvedSubmitLabel}
-                  </Button>
-                </div>
-              </div>
+              <FormFooter
+                embedded={embedded}
+                className={dialogFooterClass}
+                actions={{
+                  extraActions,
+                  showDelete: !embedded && showDelete,
+                  onDelete: handleDelete,
+                  deleteLabel,
+                  cancelHref: !embedded ? cancelHref : undefined,
+                  cancelLabel,
+                  submit: { pending, label: resolvedSubmitLabel, pendingLabel: savingLabel },
+                }}
+              />
             )}
           </form>
         </DataLoader>
@@ -1613,34 +1616,21 @@ export function CrudForm<TValues extends Record<string, unknown>>({
   return (
     <div className="space-y-4" ref={rootRef}>
       {!embedded ? (
-      <div className="flex items-center justify-between gap-3">
-        <div className="flex items-center gap-3">
-          {backHref ? (
-            <Link href={backHref} className="text-sm text-muted-foreground hover:text-foreground">
-              ← {backLabel}
-            </Link>
-          ) : null}
-          {title ? <div className="text-base font-medium">{title}</div> : null}
-        </div>
-        <div className="flex items-center gap-2">
-          {extraActions}
-          {showDelete ? (
-            <Button type="button" variant="outline" onClick={handleDelete} className="text-red-600 border-red-200 hover:bg-red-50 rounded">
-              <Trash2 className="size-4 mr-2" />
-              {deleteLabel}
-            </Button>
-          ) : null}
-          {cancelHref ? (
-            <Link href={cancelHref} className="h-9 inline-flex items-center rounded border px-3 text-sm">
-              {cancelLabel}
-            </Link>
-          ) : null}
-          <Button type="submit" form={formId} disabled={pending}>
-            <Save className="size-4 mr-2" />
-            {pending ? savingLabel : resolvedSubmitLabel}
-          </Button>
-        </div>
-      </div>
+        <FormHeader
+          mode="edit"
+          backHref={backHref}
+          backLabel={backLabel}
+          title={title}
+          actions={{
+            extraActions: headerExtraActions,
+            showDelete,
+            onDelete: handleDelete,
+            deleteLabel,
+            cancelHref,
+            cancelLabel,
+            submit: { formId, pending, label: resolvedSubmitLabel, pendingLabel: savingLabel },
+          }}
+        />
       ) : null}
       {contentHeader}
       <DataLoader
@@ -1690,24 +1680,19 @@ export function CrudForm<TValues extends Record<string, unknown>>({
             </div>
             {formError ? <div className="text-sm text-red-600">{formError}</div> : null}
             {hideFooterActions ? null : (
-              <div className={`flex items-center ${embedded ? 'justify-end' : 'justify-end'} gap-2 ${dialogFooterClass}`}>
-                {extraActions}
-                {!embedded && showDelete ? (
-                  <Button type="button" variant="outline" onClick={handleDelete} className="text-red-600 border-red-200 hover:bg-red-50">
-                    <Trash2 className="size-4 mr-2" />
-                    {deleteLabel}
-                  </Button>
-                ) : null}
-                {!embedded && cancelHref ? (
-                  <Link href={cancelHref} className="h-9 inline-flex items-center rounded border px-3 text-sm">
-                    {cancelLabel}
-                  </Link>
-                ) : null}
-                <Button type="submit" disabled={pending}>
-                  <Save className="size-4 mr-2" />
-                  {pending ? savingLabel : resolvedSubmitLabel}
-                </Button>
-              </div>
+              <FormFooter
+                embedded={embedded}
+                className={dialogFooterClass}
+                actions={{
+                  extraActions,
+                  showDelete: !embedded && showDelete,
+                  onDelete: handleDelete,
+                  deleteLabel,
+                  cancelHref: !embedded ? cancelHref : undefined,
+                  cancelLabel,
+                  submit: { pending, label: resolvedSubmitLabel, pendingLabel: savingLabel },
+                }}
+              />
             )}
           </form>
         </div>
@@ -1956,7 +1941,7 @@ function TextAreaInput({
 
   return (
     <textarea
-      className="w-full rounded border px-2 py-2 min-h-[120px] text-sm"
+      className="w-full rounded border px-2 py-2 min-h-[80px] sm:min-h-[120px] text-sm"
       placeholder={placeholder}
       value={local}
       onChange={handleChange}
@@ -2077,7 +2062,7 @@ const HtmlRichTextEditor = React.memo(function HtmlRichTextEditor({ value = '', 
       </div>
       <div
         ref={ref}
-        className="w-full px-2 py-2 min-h-[160px] focus:outline-none prose prose-sm max-w-none"
+        className="w-full px-2 py-2 min-h-[100px] sm:min-h-[160px] focus:outline-none prose prose-sm max-w-none"
         contentEditable
         suppressContentEditableWarning
         onKeyDown={onKeyDown}
@@ -2143,7 +2128,7 @@ const SimpleMarkdownEditor = React.memo(function SimpleMarkdownEditor({ value = 
       </div>
       <textarea
         ref={taRef}
-        className="w-full min-h-[160px] resize-y px-2 py-2 font-mono text-sm outline-none"
+        className="w-full min-h-[100px] sm:min-h-[160px] resize-y px-2 py-2 font-mono text-sm outline-none"
         spellCheck={false}
         value={local}
         onChange={(e) => { typingRef.current = true; setLocal(e.target.value) }}

@@ -1,6 +1,6 @@
 {
   "name": "@open-mercato/app",
-  "version": "0.4.2",
+  "version": "0.4.3",
   "private": true,
   "type": "module",
   "scripts": {
@@ -30,6 +30,7 @@
     "@open-mercato/events": "workspace:*",
     "@open-mercato/onboarding": "workspace:*",
     "@open-mercato/queue": "workspace:*",
+    "@open-mercato/scheduler": "workspace:*",
     "@open-mercato/search": "workspace:*",
     "@open-mercato/shared": "workspace:*",
     "@open-mercato/ui": "workspace:*",
@@ -52,7 +53,7 @@
     "newrelic": "^13.7.0",
     "next": "16.1.5",
     "pdf2pic": "^3.2.0",
-    "pg": "^8.16.3",
+    "pg": "8.16.3",
     "react": "19.2.1",
     "react-big-calendar": "^1.19.4",
     "react-dom": "19.2.1",

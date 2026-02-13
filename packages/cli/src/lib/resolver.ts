@@ -29,12 +29,12 @@ export interface PackageResolver {
 function pkgDirFor(rootDir: string, from?: string, isMonorepo = true): string {
   if (!isMonorepo) {
     // Production mode: look in node_modules
-    // Packages include source TypeScript files in src/modules
+    // Packages ship with src/ included, so we can read TypeScript source files
     const pkgName = from || '@open-mercato/core'
     return path.join(rootDir, 'node_modules', pkgName, 'src', 'modules')
   }
 
-  // Monorepo mode
+  // Monorepo mode - read from src/modules (TypeScript source)
   if (!from || from === '@open-mercato/core') {
     return path.resolve(rootDir, 'packages/core/src/modules')
   }
@@ -119,6 +119,7 @@ function discoverPackagesInMonorepo(rootDir: string): PackageInfo[] {
 
     try {
       const pkgJson = JSON.parse(fs.readFileSync(pkgJsonPath, 'utf8'))
+      // Read from src/modules (TypeScript source)
       const modulesPath = path.join(pkgPath, 'src', 'modules')
 
       if (fs.existsSync(modulesPath)) {
@@ -152,7 +153,7 @@ function discoverPackagesInNodeModules(rootDir: string): PackageInfo[] {
 
     try {
       const pkgJson = JSON.parse(fs.readFileSync(pkgJsonPath, 'utf8'))
-      // Packages include source TypeScript files in src/modules
+      // Packages ship with src/ included, so we can read TypeScript source files
       const modulesPath = path.join(pkgPath, 'src', 'modules')
 
       if (fs.existsSync(modulesPath)) {
@@ -251,8 +252,15 @@ export function createResolver(cwd: string = process.cwd()): PackageResolver {
 
   // The app directory depends on context:
   // - In monorepo: use detectAppDir to find apps/mercato or similar
-  // - In production: app is at cwd
-  const appDir = _isMonorepo ? detectAppDir(rootDir, true) : cwd
+  // - When symlinks not detected (e.g. Docker volume node_modules): still use apps/mercato if present at rootDir
+  // - Otherwise: app is at cwd
+  const candidateAppDir = detectAppDir(rootDir, true)
+  const appDir =
+    _isMonorepo
+      ? candidateAppDir
+      : candidateAppDir !== rootDir && fs.existsSync(candidateAppDir)
+        ? candidateAppDir
+        : cwd
 
   return {
     isMonorepo: () => _isMonorepo,

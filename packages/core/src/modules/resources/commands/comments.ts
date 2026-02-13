@@ -103,17 +103,19 @@ const createCommentCommand: CommandHandler<
     return { commentId: comment.id, authorUserId: comment.authorUserId ?? null }
   },
   captureAfter: async (_input, result, ctx) => {
-    const em = (ctx.container.resolve('em') as EntityManager)
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
     return await loadCommentSnapshot(em, result.commentId)
   },
   buildLog: async ({ result, ctx }) => {
     const { translate } = await resolveTranslations()
-    const em = (ctx.container.resolve('em') as EntityManager)
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
     const snapshot = await loadCommentSnapshot(em, result.commentId)
     return {
       actionLabel: translate('resources.audit.resourceComments.create', 'Create note'),
       resourceKind: 'resources.resource_comment',
       resourceId: result.commentId,
+      parentResourceKind: 'resources.resource',
+      parentResourceId: snapshot?.resourceId ?? null,
       tenantId: snapshot?.tenantId ?? null,
       organizationId: snapshot?.organizationId ?? null,
       snapshotAfter: snapshot ?? null,
@@ -184,7 +186,7 @@ const updateCommentCommand: CommandHandler<ResourcesResourceCommentUpdateInput, 
     const { translate } = await resolveTranslations()
     const before = snapshots.before as CommentSnapshot | undefined
     if (!before) return null
-    const em = (ctx.container.resolve('em') as EntityManager)
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
     const afterSnapshot = await loadCommentSnapshot(em, before.id)
     const changes =
       afterSnapshot && before
@@ -198,6 +200,8 @@ const updateCommentCommand: CommandHandler<ResourcesResourceCommentUpdateInput, 
       actionLabel: translate('resources.audit.resourceComments.update', 'Update note'),
       resourceKind: 'resources.resource_comment',
       resourceId: before.id,
+      parentResourceKind: 'resources.resource',
+      parentResourceId: before.resourceId ?? null,
       tenantId: before.tenantId,
       organizationId: before.organizationId,
       snapshotBefore: before,
@@ -297,6 +301,8 @@ const deleteCommentCommand: CommandHandler<{ body?: Record<string, unknown>; que
       actionLabel: translate('resources.audit.resourceComments.delete', 'Delete note'),
       resourceKind: 'resources.resource_comment',
       resourceId: before.id,
+      parentResourceKind: 'resources.resource',
+      parentResourceId: before.resourceId ?? null,
       tenantId: before.tenantId,
       organizationId: before.organizationId,
       snapshotBefore: before,

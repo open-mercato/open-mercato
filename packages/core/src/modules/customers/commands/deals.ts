@@ -5,7 +5,6 @@ import {
   setCustomFieldsIfAny,
   emitCrudSideEffects,
   emitCrudUndoSideEffects,
-  buildChanges,
   requireId,
 } from '@open-mercato/shared/lib/commands/helpers'
 import type { DataEngine } from '@open-mercato/shared/lib/data/engine'
@@ -27,12 +26,11 @@ import {
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import {
   loadCustomFieldSnapshot,
-  diffCustomFieldChanges,
   buildCustomFieldResetMap,
   type CustomFieldChangeSet,
 } from '@open-mercato/shared/lib/commands/customFieldSnapshots'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
-import type { CrudIndexerConfig } from '@open-mercato/shared/lib/crud/types'
+import type { CrudIndexerConfig, CrudEventsConfig } from '@open-mercato/shared/lib/crud/types'
 import { E } from '#generated/entities.ids.generated'
 import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { resolveNotificationService } from '../../notifications/lib/notificationService'
@@ -42,6 +40,17 @@ import { notificationTypes } from '../notifications'
 const DEAL_ENTITY_ID = 'customers:customer_deal'
 const dealCrudIndexer: CrudIndexerConfig<CustomerDeal> = {
   entityType: E.customers.customer_deal,
+}
+
+const dealCrudEvents: CrudEventsConfig = {
+  module: 'customers',
+  entity: 'deal',
+  persistent: true,
+  buildPayload: (ctx) => ({
+    id: ctx.identifiers.id,
+    organizationId: ctx.identifiers.organizationId,
+    tenantId: ctx.identifiers.tenantId,
+  }),
 }
 
 type DealSnapshot = {
@@ -169,15 +178,6 @@ async function syncDealCompanies(
   }
 }
 
-function arraysEqual(a: string[] | null | undefined, b: string[] | null | undefined): boolean {
-  if (!a && !b) return true
-  if (!a || !b) return false
-  if (a.length !== b.length) return false
-  const sortedA = [...a].sort()
-  const sortedB = [...b].sort()
-  return sortedA.every((value, idx) => value === sortedB[idx])
-}
-
 const createDealCommand: CommandHandler<DealCreateInput, { dealId: string }> = {
   id: 'customers.deals.create',
   async execute(rawInput, ctx) {
@@ -228,18 +228,18 @@ const createDealCommand: CommandHandler<DealCreateInput, { dealId: string }> = {
         tenantId: deal.tenantId,
       },
       indexer: dealCrudIndexer,
+      events: dealCrudEvents,
     })
 
     return { dealId: deal.id }
   },
   captureAfter: async (_input, result, ctx) => {
-    const em = (ctx.container.resolve('em') as EntityManager)
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
     return await loadDealSnapshot(em, result.dealId)
   },
-  buildLog: async ({ result, ctx }) => {
+  buildLog: async ({ result, snapshots }) => {
     const { translate } = await resolveTranslations()
-    const em = (ctx.container.resolve('em') as EntityManager)
-    const snapshot = await loadDealSnapshot(em, result.dealId)
+    const snapshot = snapshots.after as DealSnapshot | undefined
     return {
       actionLabel: translate('customers.audit.deals.create', 'Create deal'),
       resourceKind: 'customers.deal',
@@ -322,6 +322,7 @@ const updateDealCommand: CommandHandler<DealUpdateInput, { dealId: string }> = {
         tenantId: record.tenantId,
       },
       indexer: dealCrudIndexer,
+      events: dealCrudEvents,
     })
 
     // Send notifications for deal won/lost status changes
@@ -360,43 +361,15 @@ const updateDealCommand: CommandHandler<DealUpdateInput, { dealId: string }> = {
 
     return { dealId: record.id }
   },
-  buildLog: async ({ snapshots, ctx }) => {
+  captureAfter: async (_input, result, ctx) => {
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
+    return await loadDealSnapshot(em, result.dealId)
+  },
+  buildLog: async ({ snapshots }) => {
     const { translate } = await resolveTranslations()
     const before = snapshots.before as DealSnapshot | undefined
     if (!before) return null
-    const em = (ctx.container.resolve('em') as EntityManager)
-    const afterSnapshot = await loadDealSnapshot(em, before.deal.id)
-    const changeKeys: readonly string[] = [
-      'title',
-      'description',
-      'status',
-      'pipelineStage',
-      'valueAmount',
-      'valueCurrency',
-      'probability',
-      'expectedCloseAt',
-      'ownerUserId',
-      'source',
-    ]
-    const coreChanges: DealChangeMap =
-      afterSnapshot && afterSnapshot.deal
-        ? buildChanges(
-            before.deal as Record<string, unknown>,
-            afterSnapshot.deal as Record<string, unknown>,
-            changeKeys
-          )
-        : {}
-    const changes: DealChangeMap = { ...coreChanges }
-    if (!arraysEqual(before.people, afterSnapshot?.people)) {
-      changes.people = { from: before.people, to: afterSnapshot?.people ?? [] }
-    }
-    if (!arraysEqual(before.companies, afterSnapshot?.companies)) {
-      changes.companies = { from: before.companies, to: afterSnapshot?.companies ?? [] }
-    }
-    const customChanges = diffCustomFieldChanges(before.custom, afterSnapshot?.custom)
-    if (Object.keys(customChanges).length) {
-      changes.custom = customChanges
-    }
+    const afterSnapshot = snapshots.after as DealSnapshot | undefined
     return {
       actionLabel: translate('customers.audit.deals.update', 'Update deal'),
       resourceKind: 'customers.deal',
@@ -405,7 +378,6 @@ const updateDealCommand: CommandHandler<DealUpdateInput, { dealId: string }> = {
       organizationId: before.deal.organizationId,
       snapshotBefore: before,
       snapshotAfter: afterSnapshot ?? null,
-      changes,
       payload: {
         undo: {
           before,
@@ -465,6 +437,7 @@ const updateDealCommand: CommandHandler<DealUpdateInput, { dealId: string }> = {
         tenantId: deal.tenantId,
       },
       indexer: dealCrudIndexer,
+      events: dealCrudEvents,
     })
 
     const resetValues = buildCustomFieldResetMap(before.custom, payload?.after?.custom)
@@ -515,6 +488,7 @@ const deleteDealCommand: CommandHandler<{ body?: Record<string, unknown>; query?
           tenantId: record.tenantId,
         },
         indexer: dealCrudIndexer,
+        events: dealCrudEvents,
       })
       return { dealId: record.id }
     },
@@ -576,6 +550,7 @@ const deleteDealCommand: CommandHandler<{ body?: Record<string, unknown>; query?
           tenantId: deal.tenantId,
         },
         indexer: dealCrudIndexer,
+        events: dealCrudEvents,
       })
 
       const resetValues = buildCustomFieldResetMap(before.custom, undefined)

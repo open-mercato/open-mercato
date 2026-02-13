@@ -6,15 +6,28 @@ import { fileURLToPath } from 'node:url'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 
-const srcEntryPoints = await glob(join(__dirname, 'src/**/*.{ts,tsx}'), {
-  ignore: ['**/__tests__/**', '**/*.test.ts', '**/*.test.tsx']
+const srcEntryPoints = await glob('src/**/*.{ts,tsx}', {
+  cwd: __dirname,
+  ignore: ['**/__tests__/**', '**/*.test.ts', '**/*.test.tsx'],
+  absolute: true,
 })
 
-const generatedEntryPoints = await glob(join(__dirname, 'generated/**/*.{ts,tsx}'), {
-  ignore: ['**/__tests__/**', '**/*.test.ts', '**/*.test.tsx']
+const generatedEntryPoints = await glob('generated/**/*.{ts,tsx}', {
+  cwd: __dirname,
+  ignore: ['**/__tests__/**', '**/*.test.ts', '**/*.test.tsx'],
+  absolute: true,
 })
+
+if (srcEntryPoints.length === 0) {
+  console.error('No source entry points found!')
+  process.exit(1)
+}
+
+console.log(`Found ${srcEntryPoints.length} source entry points`)
 
 const entryPoints = srcEntryPoints
+
+const toImportPath = (p) => p.replace(/\\/g, '/')
 
 // Plugin to add .js extension to relative imports and resolve #generated/* imports
 const addJsExtension = {
@@ -22,7 +35,7 @@ const addJsExtension = {
   setup(build) {
     build.onEnd(async (result) => {
       if (result.errors.length > 0) return
-      const outputFiles = await glob(join(__dirname, 'dist/**/*.js'))
+      const outputFiles = await glob('dist/**/*.js', { cwd: __dirname, absolute: true })
       const distDir = join(__dirname, 'dist')
       for (const file of outputFiles) {
         const fileDir = dirname(file)
@@ -47,7 +60,7 @@ const addJsExtension = {
           /from\s+["']#generated\/([^"']+)["']/g,
           (match, importPath) => {
             const targetPath = resolveGeneratedPath(importPath)
-            let relativePath = relative(fileDir, targetPath)
+            let relativePath = toImportPath(relative(fileDir, targetPath))
             if (!relativePath.startsWith('.')) {
               relativePath = './' + relativePath
             }
@@ -60,7 +73,7 @@ const addJsExtension = {
           /import\s*\(\s*["']#generated\/([^"']+)["']\s*\)/g,
           (match, importPath) => {
             const targetPath = resolveGeneratedPath(importPath)
-            let relativePath = relative(fileDir, targetPath)
+            let relativePath = toImportPath(relative(fileDir, targetPath))
             if (!relativePath.startsWith('.')) {
               relativePath = './' + relativePath
             }
@@ -127,8 +140,10 @@ await esbuild.build({
 })
 
 // Copy JSON files from src to dist (esbuild doesn't handle non-entry JSON files)
-const jsonFiles = await glob(join(__dirname, 'src/**/*.json'), {
-  ignore: ['**/node_modules/**', '**/i18n/**'] // i18n files are handled differently
+const jsonFiles = await glob('src/**/*.json', {
+  cwd: __dirname,
+  ignore: ['**/node_modules/**', '**/i18n/**'], // i18n files are handled differently
+  absolute: true,
 })
 for (const jsonFile of jsonFiles) {
   const relativePath = relative(join(__dirname, 'src'), jsonFile)

@@ -797,18 +797,12 @@ export function DataTable<T>({
     })
     setDateColumnIds(guessed)
   }, [dateColumnIds, data, columns])
-  // Map column meta.priority (1..6) to Tailwind responsive visibility
-  // 1 => always visible, 2 => hidden <sm, 3 => hidden <md, 4 => hidden <lg, 5 => hidden <xl, 6 => hidden <2xl
-  const responsiveClass = (priority?: number, hidden?: boolean) => {
+  // Column visibility: only hide columns explicitly marked as hidden.
+  // All other columns are always rendered; horizontal scroll (min-w + overflow-auto)
+  // handles narrow viewports so users can swipe to reach every column.
+  const responsiveClass = (_priority?: number, hidden?: boolean) => {
     if (hidden) return 'hidden'
-    switch (priority) {
-      case 2: return 'hidden sm:table-cell'
-      case 3: return 'hidden md:table-cell'
-      case 4: return 'hidden lg:table-cell'
-      case 5: return 'hidden xl:table-cell'
-      case 6: return 'hidden 2xl:table-cell'
-      default: return '' // priority 1 or undefined: always visible
-    }
+    return ''
   }
 
   const resolvePriority = React.useCallback((column: TableColumn<T, unknown>) => {
@@ -1247,17 +1241,17 @@ export function DataTable<T>({
     ) : null
 
     return (
-      <div className="flex items-center justify-between px-4 py-3 border-t">
-        <div className="text-sm text-muted-foreground flex items-center gap-2">
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 px-4 py-3 border-t">
+        <div className="text-sm text-muted-foreground flex items-center justify-center sm:justify-start gap-2">
           <span>
-            {durationLabel 
+            {durationLabel
               ? t('ui.dataTable.pagination.resultsWithDuration', 'Showing {start} to {end} of {total} results in {duration}', { start: startItem, end: endItem, total: pagination.total, duration: durationLabel })
               : t('ui.dataTable.pagination.results', 'Showing {start} to {end} of {total} results', { start: startItem, end: endItem, total: pagination.total })
             }
           </span>
           {cacheBadge}
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center justify-center sm:justify-end gap-2">
           <Button
             variant="outline"
             size="sm"
@@ -1266,7 +1260,7 @@ export function DataTable<T>({
           >
             {t('ui.dataTable.pagination.previous', 'Previous')}
           </Button>
-          <span className="text-sm">
+          <span className="text-sm whitespace-nowrap">
             {t('ui.dataTable.pagination.pageInfo', 'Page {page} of {totalPages}', { page, totalPages })}
           </span>
           <Button
@@ -1496,7 +1490,7 @@ export function DataTable<T>({
 
   const containerClassName = embedded ? '' : 'rounded-lg border bg-card'
   const headerWrapperClassName = embedded ? 'pb-3' : 'px-4 py-3 border-b'
-  const headerContentClassName = 'flex items-center justify-between gap-2'
+  const headerContentClassName = 'flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between'
   const toolbarWrapperClassName = embedded ? 'mt-2' : 'mt-3 pt-3 border-t'
   const tableScrollWrapperClassName = embedded ? '' : 'overflow-auto'
 
@@ -1517,7 +1511,7 @@ export function DataTable<T>({
                 {renderToolbarInline ? builtToolbar : titleContent}
               </div>
               {shouldRenderActionsWrapper ? (
-                <div className="flex items-center gap-2 min-h-[2.25rem]">
+                <div className="flex flex-wrap items-center gap-2 min-h-[2.25rem]">
                   {refreshButtonConfig ? (
                     <Button
                       type="button"
@@ -1564,7 +1558,7 @@ export function DataTable<T>({
         </div>
       )}
       <div className={tableScrollWrapperClassName}>
-        <Table>
+        <Table className="min-w-[640px] md:min-w-0">
           <TableHeader>
             {table.getHeaderGroups().map((hg) => (
               <TableRow key={hg.id}>

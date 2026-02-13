@@ -1,6 +1,6 @@
 {
   "name": "@open-mercato/ui",
-  "version": "0.4.2",
+  "version": "0.4.3",
   "type": "module",
   "main": "./dist/index.js",
   "scripts": {
@@ -46,13 +46,29 @@
       "types": "./src/backend/date-range/index.ts",
       "default": "./dist/backend/date-range/index.js"
     },
+    "./backend/settings": {
+      "types": "./src/backend/settings/index.ts",
+      "default": "./dist/backend/settings/index.js"
+    },
+    "./backend/section-page": {
+      "types": "./src/backend/section-page/index.ts",
+      "default": "./dist/backend/section-page/index.js"
+    },
     "./backend/injection/widgetRegistry": {
       "types": "./src/backend/injection/widgetRegistry.ts",
       "default": "./dist/backend/injection/widgetRegistry.js"
     },
+    "./backend/forms": {
+      "types": "./src/backend/forms/index.ts",
+      "default": "./dist/backend/forms/index.js"
+    },
     "./backend/notifications": {
       "types": "./src/backend/notifications/index.ts",
       "default": "./dist/backend/notifications/index.js"
+    },
+    "./backend/version-history": {
+      "types": "./src/backend/version-history/index.ts",
+      "default": "./dist/backend/version-history/index.js"
     },
     "./*.ts": {
       "types": "./src/*.ts",

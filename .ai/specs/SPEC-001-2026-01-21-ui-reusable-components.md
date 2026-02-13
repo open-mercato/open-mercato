@@ -34,7 +34,8 @@ Base, reusable UI building blocks:
 | **Separator** | `@open-mercato/ui/primitives/separator` | Visual divider line |
 | **Switch** | `@open-mercato/ui/primitives/switch` | Toggle switch control |
 | **Spinner** | `@open-mercato/ui/primitives/spinner` | Loading spinner animation |
-| **ErrorNotice** | `@open-mercato/ui/primitives/ErrorNotice` | Error message display with icon |
+| **Notice** | `@open-mercato/ui/primitives/Notice` | Contextual notice/hint with variants (`error`, `info`, `warning`) and optional `compact` mode |
+| **ErrorNotice** | `@open-mercato/ui/primitives/ErrorNotice` | Convenience wrapper around `<Notice variant="error">` with default title/message |
 | **DataLoader** | `@open-mercato/ui/primitives/DataLoader` | Loading state wrapper with spinner and optional skeleton |
 
 ---
@@ -66,6 +67,10 @@ Base, reusable UI building blocks:
 | Component | Import Path | Purpose | Key Props |
 |-----------|-------------|---------|-----------|
 | **CrudForm** | `@open-mercato/ui/backend/CrudForm` | Complete CRUD form with field registry, groups, custom fields, validation | `fields`, `groups`, `initialValues`, `onSubmit`, `schema`, `embedded`, `extraActions` |
+| **FormHeader** | `@open-mercato/ui/backend/forms` | Unified page header with `edit` mode (compact, for CrudForm) and `detail` mode (large title, entity type label, status badge, Actions dropdown) | `mode`, `backHref`, `title`, `actions`, `menuActions`, `onDelete`, `statusBadge` |
+| **FormFooter** | `@open-mercato/ui/backend/forms` | Form footer wrapping FormActionButtons with embedded/dialog layout awareness | `actions`, `embedded`, `className` |
+| **FormActionButtons** | `@open-mercato/ui/backend/forms` | Atomic button bar: [extraActions] [Delete] [Cancel] [Save]. Shared by header and footer. | `showDelete`, `onDelete`, `cancelHref`, `submit` |
+| **ActionsDropdown** | `@open-mercato/ui/backend/forms` | Dropdown menu for additional context actions (Convert, Send, Print). Only visible when items are provided. Delete is never inside the dropdown. | `items: ActionItem[]`, `label`, `size` |
 | **JsonBuilder** | `@open-mercato/ui/backend/JsonBuilder` | Interactive JSON editor with "Raw JSON" and "Builder" tabs | `value`, `onChange`, `disabled` |
 | **JsonDisplay** | `@open-mercato/ui/backend/JsonDisplay` | Read-only JSON viewer with expand/collapse | `data`, `title`, `maxInitialDepth`, `showCopy` |
 
@@ -306,7 +311,42 @@ if (error) return <ErrorMessage title="Error" description={error.message} />
 />
 ```
 
-### 7. API Calls
+### 7. FormHeader (Detail Page)
+```tsx
+import { FormHeader } from '@open-mercato/ui/backend/forms'
+import { ArrowRightLeft, Send } from 'lucide-react'
+
+// Detail mode -- large title, entity type label, status badge, Actions dropdown
+<FormHeader
+  mode="detail"
+  backHref="/backend/sales/quotes"
+  backLabel="Back to quotes"
+  entityTypeLabel="Sales quote"
+  title={<InlineTextEditor value={number} onSave={handleSave} />}
+  statusBadge={<Badge variant="secondary">Sent</Badge>}
+  menuActions={[
+    { id: 'convert', label: 'Convert to order', icon: ArrowRightLeft, onSelect: handleConvert },
+    { id: 'send', label: 'Send to customer', icon: Send, onSelect: handleSend },
+  ]}
+  onDelete={handleDelete}
+  isDeleting={deleting}
+/>
+
+// Edit mode -- compact, used automatically by CrudForm (no manual usage needed)
+<FormHeader
+  mode="edit"
+  backHref="/backend/catalog/categories"
+  title="Edit category"
+  actions={{
+    showDelete: true,
+    onDelete: handleDelete,
+    cancelHref: '/backend/catalog/categories',
+    submit: { pending: isSaving, label: 'Save' },
+  }}
+/>
+```
+
+### 8. API Calls
 ```tsx
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { createCrud, updateCrud, deleteCrud } from '@open-mercato/ui/backend/utils/crud'
@@ -333,3 +373,5 @@ const deleted = await deleteCrud('module/items', id)
 4. **Use `JsonBuilder` for JSON editing** - Provides both raw JSON and visual builder modes
 5. **Dialog forms need `embedded={true}`** - And add `[&_.grid]:!grid-cols-1` to DialogContent for single-column layout
 6. **Support Cmd/Ctrl+Enter and Escape** - All dialogs should support these keyboard shortcuts
+7. **Use `FormHeader` for page headers** - Edit mode (compact) for CrudForm pages, detail mode (large title + status + Actions dropdown) for view pages. Never build inline header layouts manually.
+8. **Use `FormFooter` for form footers** - Wraps `FormActionButtons` with embedded/dialog awareness. Delete/Cancel/Save are always standalone buttons, never inside a dropdown.

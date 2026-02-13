@@ -1,6 +1,6 @@
 {
   "name": "@open-mercato/cache",
-  "version": "0.4.2",
+  "version": "0.4.3",
   "description": "Multi-strategy cache service with tag-based invalidation support",
   "type": "module",
   "main": "./dist/index.js",
@@ -53,8 +53,10 @@
       "optional": true
     }
   },
+  "dependencies": {
+    "@types/better-sqlite3": "^7.6.13"
+  },
   "devDependencies": {
-    "@types/better-sqlite3": "^7.6.0",
     "@types/jest": "^30.0.0",
     "@types/node": "^20.0.0",
     "jest": "^30.2.0",

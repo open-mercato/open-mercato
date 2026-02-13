@@ -164,7 +164,7 @@ export function AddressTiles<C = unknown>({
   t,
   emptyLabel,
   isSubmitting = false,
-  gridClassName = 'grid gap-4 min-[480px]:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4',
+  gridClassName = 'grid grid-cols-1 gap-2 sm:gap-4 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4',
   hideAddButton = false,
   onAddActionChange,
   emptyStateTitle,
@@ -534,7 +534,7 @@ export function AddressTiles<C = unknown>({
                       {formatAddressString(address, format)}
                     </p>
                   </div>
-                  <div className="flex items-center gap-1 opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100">
+                  <div className="flex items-center gap-1 opacity-100 md:opacity-0 transition-opacity md:group-hover:opacity-100 focus-within:opacity-100">
                     <Button
                       type="button"
                       variant="ghost"

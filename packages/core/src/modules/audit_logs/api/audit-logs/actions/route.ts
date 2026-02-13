@@ -17,6 +17,13 @@ export const metadata = {
 const auditActionQuerySchema = z.object({
   organizationId: z.string().uuid().describe('Limit results to a specific organization').optional(),
   actorUserId: z.string().uuid().describe('Filter logs created by a specific actor (tenant administrators only)').optional(),
+  resourceKind: z.string().describe('Filter by resource kind (e.g., "order", "product")').optional(),
+  resourceId: z.string().describe('Filter by resource ID (UUID of the specific record)').optional(),
+  includeRelated: z
+    .enum(['true', 'false'])
+    .default('false')
+    .describe('When `true`, also returns changes to child entities linked via parentResourceKind/parentResourceId')
+    .optional(),
   undoableOnly: z
     .enum(['true', 'false'])
     .default('false')
@@ -40,6 +47,8 @@ const auditActionItemSchema = z.object({
   organizationName: z.string().nullable(),
   resourceKind: z.string().nullable(),
   resourceId: z.string().nullable(),
+  parentResourceKind: z.string().nullable().optional(),
+  parentResourceId: z.string().nullable().optional(),
   undoToken: z.string().nullable(),
   createdAt: z.string(),
   updatedAt: z.string(),
@@ -92,6 +101,9 @@ export async function GET(req: Request) {
   const url = new URL(req.url)
   const queryOrgId = url.searchParams.get('organizationId')
   const actorQuery = url.searchParams.get('actorUserId')
+  const resourceKind = url.searchParams.get('resourceKind') ?? undefined
+  const resourceId = url.searchParams.get('resourceId') ?? undefined
+  const includeRelated = parseBooleanToken(url.searchParams.get('includeRelated')) === true
   const undoableOnly = parseBooleanToken(url.searchParams.get('undoableOnly')) === true
   const limit = parseLimit(url.searchParams.get('limit'))
   const before = parseDate(url.searchParams.get('before'))
@@ -104,7 +116,7 @@ export async function GET(req: Request) {
     }
   }
 
-  let actorUserId = auth.sub
+  let actorUserId: string | undefined = canViewTenant ? undefined : auth.sub
   if (canViewTenant && actorQuery) {
     actorUserId = actorQuery
   }
@@ -113,6 +125,9 @@ export async function GET(req: Request) {
     tenantId: auth.tenantId ?? undefined,
     organizationId: organizationId ?? undefined,
     actorUserId,
+    resourceKind,
+    resourceId,
+    includeRelated,
     undoableOnly,
     limit,
     before,
@@ -138,6 +153,8 @@ export async function GET(req: Request) {
     organizationName: entry.organizationId ? displayMaps.organizations[entry.organizationId] ?? null : null,
     resourceKind: entry.resourceKind,
     resourceId: entry.resourceId,
+    parentResourceKind: entry.parentResourceKind,
+    parentResourceId: entry.parentResourceId,
     undoToken: entry.undoToken,
     createdAt: entry.createdAt?.toISOString?.() ?? entry.createdAt,
     updatedAt: entry.updatedAt?.toISOString?.() ?? entry.updatedAt,

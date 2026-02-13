@@ -57,22 +57,10 @@ interface EventTriggersEditorProps {
   className?: string
 }
 
-const FILTER_OPERATORS = [
-  { value: 'eq', label: 'Equals' },
-  { value: 'neq', label: 'Not Equals' },
-  { value: 'gt', label: 'Greater Than' },
-  { value: 'gte', label: 'Greater Than or Equal' },
-  { value: 'lt', label: 'Less Than' },
-  { value: 'lte', label: 'Less Than or Equal' },
-  { value: 'contains', label: 'Contains' },
-  { value: 'startsWith', label: 'Starts With' },
-  { value: 'endsWith', label: 'Ends With' },
-  { value: 'in', label: 'In (array)' },
-  { value: 'notIn', label: 'Not In (array)' },
-  { value: 'exists', label: 'Exists' },
-  { value: 'notExists', label: 'Not Exists' },
-  { value: 'regex', label: 'Regex Match' },
-]
+const FILTER_OPERATOR_KEYS = [
+  'eq', 'neq', 'gt', 'gte', 'lt', 'lte', 'contains', 'startsWith',
+  'endsWith', 'in', 'notIn', 'exists', 'notExists', 'regex',
+] as const
 
 type TriggerFormValues = {
   name: string
@@ -118,7 +106,7 @@ export function EventTriggersEditor({
         `/api/workflows/triggers?workflowDefinitionId=${workflowDefinitionId}&limit=100`
       )
       if (!result.ok) {
-        throw new Error('Failed to load triggers')
+        throw new Error(t('workflows.triggers.messages.loadFailed'))
       }
       return result.result?.data || []
     },
@@ -143,13 +131,13 @@ export function EventTriggersEditor({
         }
       )
       if (!result.ok) {
-        throw new Error(result.result?.error || 'Failed to create trigger')
+        throw new Error(result.result?.error || t('workflows.triggers.messages.createFailed'))
       }
       return result.result?.data
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['workflow-triggers', workflowDefinitionId] })
-      flash('Event trigger created successfully', 'success')
+      flash(t('workflows.triggers.messages.created'), 'success')
       handleCloseDialog()
     },
     onError: (error: Error) => {
@@ -170,13 +158,13 @@ export function EventTriggersEditor({
         }
       )
       if (!result.ok) {
-        throw new Error(result.result?.error || 'Failed to update trigger')
+        throw new Error(result.result?.error || t('workflows.triggers.messages.updateFailed'))
       }
       return result.result?.data
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['workflow-triggers', workflowDefinitionId] })
-      flash('Event trigger updated successfully', 'success')
+      flash(t('workflows.triggers.messages.updated'), 'success')
       handleCloseDialog()
     },
     onError: (error: Error) => {
@@ -192,12 +180,12 @@ export function EventTriggersEditor({
         { method: 'DELETE' }
       )
       if (!result.ok) {
-        throw new Error(result.result?.error || 'Failed to delete trigger')
+        throw new Error(result.result?.error || t('workflows.triggers.messages.deleteFailed'))
       }
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['workflow-triggers', workflowDefinitionId] })
-      flash('Event trigger deleted successfully', 'success')
+      flash(t('workflows.triggers.messages.deleted'), 'success')
       setDeleteConfirmId(null)
     },
     onError: (error: Error) => {
@@ -296,11 +284,11 @@ export function EventTriggersEditor({
   // Submit form
   const handleSubmit = useCallback(() => {
     if (!formValues.name.trim()) {
-      flash('Name is required', 'error')
+      flash(t('workflows.triggers.messages.nameRequired'), 'error')
       return
     }
     if (!formValues.eventPattern.trim()) {
-      flash('Event pattern is required', 'error')
+      flash(t('workflows.triggers.messages.eventPatternRequired'), 'error')
       return
     }
 
@@ -309,7 +297,7 @@ export function EventTriggersEditor({
     } else {
       createMutation.mutate(formValues)
     }
-  }, [formValues, editingTrigger, createMutation, updateMutation])
+  }, [formValues, editingTrigger, createMutation, updateMutation, t])
 
   // Add filter condition
   const addFilterCondition = useCallback(() => {
@@ -367,21 +355,20 @@ export function EventTriggersEditor({
 
   return (
     <div className={className}>
-      <div className="rounded-lg border bg-card p-4">
-        <div className="flex items-center justify-between mb-4">
+      <div className="rounded-lg border bg-card p-3 md:p-4">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between mb-4">
           <div className="flex items-center gap-2">
             <Zap className="w-5 h-5 text-amber-500" />
-            <h3 className="text-sm font-semibold uppercase text-muted-foreground">Event Triggers</h3>
+            <h3 className="text-sm font-semibold uppercase text-muted-foreground">{t('workflows.triggers.title')}</h3>
           </div>
-          <Button size="sm" variant="outline" onClick={handleCreateNew}>
+          <Button size="sm" variant="outline" onClick={handleCreateNew} className="w-full sm:w-auto">
             <Plus className="w-4 h-4 mr-1" />
-            Add Trigger
+            {t('workflows.triggers.add')}
           </Button>
         </div>
 
         <p className="text-xs text-muted-foreground mb-4">
-          Configure events that automatically start this workflow. When a matching event occurs in the system,
-          a new workflow instance will be created with the mapped context.
+          {t('workflows.triggers.description')}
         </p>
 
         {isLoading ? (
@@ -391,9 +378,9 @@ export function EventTriggersEditor({
         ) : triggers.length === 0 ? (
           <Alert variant="info">
             <AlertCircle className="w-4 h-4" />
-            <AlertTitle>No triggers configured</AlertTitle>
+            <AlertTitle>{t('workflows.triggers.empty.title')}</AlertTitle>
             <AlertDescription>
-              Click "Add Trigger" to create an event trigger that automatically starts this workflow.
+              {t('workflows.triggers.empty.description')}
             </AlertDescription>
           </Alert>
         ) : (
@@ -401,18 +388,18 @@ export function EventTriggersEditor({
             {triggers.map(trigger => (
               <div
                 key={trigger.id}
-                className="flex items-center justify-between p-3 rounded-lg border bg-background hover:bg-accent/50 transition-colors"
+                className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between p-3 rounded-lg border bg-background hover:bg-accent/50 transition-colors"
               >
-                <div className="flex items-center gap-3">
-                  <Badge variant={trigger.enabled ? 'default' : 'secondary'}>
-                    {trigger.enabled ? 'Active' : 'Disabled'}
+                <div className="flex items-center gap-3 min-w-0">
+                  <Badge variant={trigger.enabled ? 'default' : 'secondary'} className="shrink-0">
+                    {trigger.enabled ? t('workflows.triggers.status.active') : t('workflows.triggers.status.disabled')}
                   </Badge>
-                  <div>
-                    <div className="font-medium text-sm">{trigger.name}</div>
-                    <code className="text-xs text-muted-foreground">{trigger.eventPattern}</code>
+                  <div className="min-w-0">
+                    <div className="font-medium text-sm truncate">{trigger.name}</div>
+                    <code className="text-xs text-muted-foreground truncate block">{trigger.eventPattern}</code>
                   </div>
                 </div>
-                <div className="flex items-center gap-2">
+                <div className="flex items-center gap-1 sm:gap-2 self-end sm:self-auto">
                   <Button size="sm" variant="ghost" onClick={() => handleEdit(trigger)}>
                     <Edit2 className="w-4 h-4" />
                   </Button>
@@ -436,27 +423,27 @@ export function EventTriggersEditor({
         <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>
-              {editingTrigger ? 'Edit Event Trigger' : 'Create Event Trigger'}
+              {editingTrigger ? t('workflows.triggers.dialog.edit.title') : t('workflows.triggers.dialog.create.title')}
             </DialogTitle>
             <DialogDescription>
-              Configure when this workflow should be automatically started based on system events.
+              {t('workflows.triggers.dialog.description')}
             </DialogDescription>
           </DialogHeader>
 
           <div className="space-y-4 py-4">
             {/* Basic Info */}
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div className="space-y-1">
-                <Label htmlFor="trigger-name">Name *</Label>
+                <Label htmlFor="trigger-name">{t('workflows.triggers.fields.name')} *</Label>
                 <Input
                   id="trigger-name"
                   value={formValues.name}
                   onChange={e => setFormValues(prev => ({ ...prev, name: e.target.value }))}
-                  placeholder="Order Approval Trigger"
+                  placeholder={t('workflows.triggers.placeholders.name')}
                 />
               </div>
               <div className="space-y-1">
-                <Label htmlFor="trigger-priority">Priority</Label>
+                <Label htmlFor="trigger-priority">{t('workflows.triggers.fields.priority')}</Label>
                 <Input
                   id="trigger-priority"
                   type="number"
@@ -464,41 +451,41 @@ export function EventTriggersEditor({
                   onChange={e => setFormValues(prev => ({ ...prev, priority: parseInt(e.target.value) || 0 }))}
                   placeholder="0"
                 />
-                <p className="text-xs text-muted-foreground">Higher priority triggers execute first</p>
+                <p className="text-xs text-muted-foreground">{t('workflows.triggers.hints.priority')}</p>
               </div>
             </div>
 
             <div className="space-y-1">
-              <Label htmlFor="trigger-description">Description</Label>
+              <Label htmlFor="trigger-description">{t('workflows.triggers.fields.description')}</Label>
               <Textarea
                 id="trigger-description"
                 value={formValues.description}
                 onChange={e => setFormValues(prev => ({ ...prev, description: e.target.value }))}
-                placeholder="Describe when this trigger should fire..."
+                placeholder={t('workflows.triggers.placeholders.description')}
                 rows={2}
               />
             </div>
 
             {/* Event Pattern */}
             <div className="space-y-1">
-              <Label htmlFor="trigger-pattern">Event Pattern *</Label>
-              <div className="flex gap-2">
+              <Label htmlFor="trigger-pattern">{t('workflows.triggers.fields.eventPattern')} *</Label>
+              <div className="flex flex-col sm:flex-row gap-2">
                 <Input
                   id="trigger-pattern"
                   value={formValues.eventPattern}
                   onChange={e => setFormValues(prev => ({ ...prev, eventPattern: e.target.value }))}
-                  placeholder="sales.orders.updated"
+                  placeholder={t('workflows.triggers.placeholders.eventPattern')}
                   className="flex-1"
                 />
                 <EventSelect
                   value=""
                   onChange={(eventId) => setFormValues(prev => ({ ...prev, eventPattern: eventId }))}
-                  placeholder="Quick select..."
-                  className="w-[200px]"
+                  placeholder={t('workflows.triggers.placeholders.quickSelect')}
+                  className="w-full sm:w-[200px]"
                 />
               </div>
               <p className="text-xs text-muted-foreground">
-                Use * as wildcard: "sales.orders.*" matches any order event
+                {t('workflows.triggers.hints.eventPattern')}
               </p>
             </div>
 
@@ -509,47 +496,47 @@ export function EventTriggersEditor({
                 checked={formValues.enabled}
                 onCheckedChange={checked => setFormValues(prev => ({ ...prev, enabled: checked }))}
               />
-              <Label htmlFor="trigger-enabled">Enabled</Label>
+              <Label htmlFor="trigger-enabled">{t('workflows.triggers.fields.enabled')}</Label>
             </div>
 
             {/* Filter Conditions */}
             <div className="space-y-2">
-              <div className="flex items-center justify-between">
-                <Label>Filter Conditions</Label>
-                <Button size="sm" variant="ghost" onClick={addFilterCondition}>
+              <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                <Label>{t('workflows.triggers.fields.filterConditions')}</Label>
+                <Button size="sm" variant="ghost" onClick={addFilterCondition} className="w-full sm:w-auto">
                   <Plus className="w-4 h-4 mr-1" />
-                  Add Condition
+                  {t('workflows.triggers.addCondition')}
                 </Button>
               </div>
               <p className="text-xs text-muted-foreground">
-                Only trigger when the event payload matches these conditions (all must match)
+                {t('workflows.triggers.hints.filterConditions')}
               </p>
               {formValues.filterConditions.map((fc, index) => (
-                <div key={index} className="flex items-center gap-2">
+                <div key={index} className="flex flex-wrap items-center gap-2">
                   <Input
                     value={fc.field}
                     onChange={e => updateFilterCondition(index, 'field', e.target.value)}
-                    placeholder="status"
-                    className="w-1/3"
+                    placeholder={t('workflows.triggers.placeholders.status')}
+                    className="w-full sm:w-1/3"
                   />
                   <select
                     value={fc.operator}
                     onChange={(e: React.ChangeEvent<HTMLSelectElement>) => updateFilterCondition(index, 'operator', e.target.value)}
-                    className="h-10 w-[140px] rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
+                    className="h-10 w-full sm:w-[140px] rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
                   >
-                    {FILTER_OPERATORS.map(op => (
-                      <option key={op.value} value={op.value}>
-                        {op.label}
+                    {FILTER_OPERATOR_KEYS.map(op => (
+                      <option key={op} value={op}>
+                        {t(`workflows.triggers.operators.${op}`)}
                       </option>
                     ))}
                   </select>
                   <Input
                     value={fc.value}
                     onChange={e => updateFilterCondition(index, 'value', e.target.value)}
-                    placeholder="submitted"
-                    className="flex-1"
+                    placeholder={t('workflows.triggers.placeholders.submitted')}
+                    className="flex-1 min-w-0"
                   />
-                  <Button size="icon" variant="ghost" onClick={() => removeFilterCondition(index)}>
+                  <Button size="icon" variant="ghost" className="shrink-0" onClick={() => removeFilterCondition(index)}>
                     <X className="w-4 h-4" />
                   </Button>
                 </div>
@@ -558,38 +545,38 @@ export function EventTriggersEditor({
 
             {/* Context Mapping */}
             <div className="space-y-2">
-              <div className="flex items-center justify-between">
-                <Label>Context Mapping</Label>
-                <Button size="sm" variant="ghost" onClick={addContextMapping}>
+              <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                <Label>{t('workflows.triggers.fields.contextMapping')}</Label>
+                <Button size="sm" variant="ghost" onClick={addContextMapping} className="w-full sm:w-auto">
                   <Plus className="w-4 h-4 mr-1" />
-                  Add Mapping
+                  {t('workflows.triggers.addMapping')}
                 </Button>
               </div>
               <p className="text-xs text-muted-foreground">
-                Map values from the event payload to the workflow's initial context
+                {t('workflows.triggers.hints.contextMapping')}
               </p>
               {formValues.contextMappings.map((cm, index) => (
-                <div key={index} className="flex items-center gap-2">
+                <div key={index} className="flex flex-wrap items-center gap-2">
                   <Input
                     value={cm.targetKey}
                     onChange={e => updateContextMapping(index, 'targetKey', e.target.value)}
-                    placeholder="orderId"
-                    className="w-1/3"
+                    placeholder={t('workflows.triggers.placeholders.orderId')}
+                    className="w-full sm:w-1/3"
                   />
-                  <span className="text-muted-foreground">=</span>
+                  <span className="hidden sm:inline text-muted-foreground">=</span>
                   <Input
                     value={cm.sourceExpression}
                     onChange={e => updateContextMapping(index, 'sourceExpression', e.target.value)}
-                    placeholder="id"
-                    className="flex-1"
+                    placeholder={t('workflows.triggers.placeholders.sourceExpression')}
+                    className="flex-1 min-w-0"
                   />
                   <Input
                     value={cm.defaultValue}
                     onChange={e => updateContextMapping(index, 'defaultValue', e.target.value)}
-                    placeholder="default"
-                    className="w-24"
+                    placeholder={t('workflows.triggers.placeholders.defaultValue')}
+                    className="w-full sm:w-24"
                   />
-                  <Button size="icon" variant="ghost" onClick={() => removeContextMapping(index)}>
+                  <Button size="icon" variant="ghost" className="shrink-0" onClick={() => removeContextMapping(index)}>
                     <X className="w-4 h-4" />
                   </Button>
                 </div>
@@ -597,9 +584,9 @@ export function EventTriggersEditor({
             </div>
 
             {/* Advanced Options */}
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div className="space-y-1">
-                <Label htmlFor="trigger-debounce">Debounce (ms)</Label>
+                <Label htmlFor="trigger-debounce">{t('workflows.triggers.fields.debounceMs')}</Label>
                 <Input
                   id="trigger-debounce"
                   type="number"
@@ -607,29 +594,29 @@ export function EventTriggersEditor({
                   onChange={e => setFormValues(prev => ({ ...prev, debounceMs: e.target.value }))}
                   placeholder="0"
                 />
-                <p className="text-xs text-muted-foreground">Delay to prevent rapid re-triggers</p>
+                <p className="text-xs text-muted-foreground">{t('workflows.triggers.hints.debounce')}</p>
               </div>
               <div className="space-y-1">
-                <Label htmlFor="trigger-max-concurrent">Max Concurrent Instances</Label>
+                <Label htmlFor="trigger-max-concurrent">{t('workflows.triggers.fields.maxConcurrent')}</Label>
                 <Input
                   id="trigger-max-concurrent"
                   type="number"
                   value={formValues.maxConcurrentInstances}
                   onChange={e => setFormValues(prev => ({ ...prev, maxConcurrentInstances: e.target.value }))}
-                  placeholder="Unlimited"
+                  placeholder={t('workflows.triggers.placeholders.unlimited')}
                 />
-                <p className="text-xs text-muted-foreground">Limit simultaneous workflow instances</p>
+                <p className="text-xs text-muted-foreground">{t('workflows.triggers.hints.maxConcurrent')}</p>
               </div>
             </div>
           </div>
 
           <DialogFooter>
             <Button variant="outline" onClick={handleCloseDialog} disabled={isSaving}>
-              Cancel
+              {t('workflows.common.cancel')}
             </Button>
             <Button onClick={handleSubmit} disabled={isSaving}>
               {isSaving ? <Spinner className="w-4 h-4 mr-2" /> : null}
-              {editingTrigger ? 'Update' : 'Create'}
+              {editingTrigger ? t('workflows.common.edit') : t('workflows.common.create')}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -639,14 +626,14 @@ export function EventTriggersEditor({
       <Dialog open={!!deleteConfirmId} onOpenChange={() => setDeleteConfirmId(null)}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Delete Event Trigger?</DialogTitle>
+            <DialogTitle>{t('workflows.triggers.delete.title')}</DialogTitle>
             <DialogDescription>
-              This will permanently delete the event trigger. Workflows will no longer be automatically started by this trigger.
+              {t('workflows.triggers.delete.description')}
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>
             <Button variant="outline" onClick={() => setDeleteConfirmId(null)}>
-              Cancel
+              {t('workflows.common.cancel')}
             </Button>
             <Button
               variant="destructive"
@@ -654,7 +641,7 @@ export function EventTriggersEditor({
               disabled={deleteMutation.isPending}
             >
               {deleteMutation.isPending ? <Spinner className="w-4 h-4 mr-2" /> : null}
-              Delete
+              {t('workflows.common.delete')}
             </Button>
           </DialogFooter>
         </DialogContent>

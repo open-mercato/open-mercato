@@ -275,15 +275,15 @@ export function DefinitionTriggersEditor({
 
   return (
     <div className={className}>
-      <div className="rounded-lg border bg-card p-4">
-        <div className="flex items-center justify-between mb-4">
+      <div className="rounded-lg border bg-card p-3 md:p-4">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between mb-4">
           <div className="flex items-center gap-2">
             <Zap className="w-5 h-5 text-amber-500" />
             <h3 className="text-sm font-semibold uppercase text-muted-foreground">
               {t('workflows.triggers.title', 'Event Triggers')}
             </h3>
           </div>
-          <Button size="sm" variant="outline" onClick={handleCreateNew}>
+          <Button size="sm" variant="outline" onClick={handleCreateNew} className="w-full sm:w-auto">
             <Plus className="w-4 h-4 mr-1" />
             {t('workflows.triggers.add', 'Add Trigger')}
           </Button>
@@ -306,18 +306,18 @@ export function DefinitionTriggersEditor({
             {value.map(trigger => (
               <div
                 key={trigger.triggerId}
-                className="flex items-center justify-between p-3 rounded-lg border bg-background hover:bg-accent/50 transition-colors"
+                className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between p-3 rounded-lg border bg-background hover:bg-accent/50 transition-colors"
               >
-                <div className="flex items-center gap-3">
-                  <Badge variant={trigger.enabled ? 'default' : 'secondary'}>
+                <div className="flex items-center gap-3 min-w-0">
+                  <Badge variant={trigger.enabled ? 'default' : 'secondary'} className="shrink-0">
                     {trigger.enabled ? t('common.active', 'Active') : t('common.disabled', 'Disabled')}
                   </Badge>
-                  <div>
-                    <div className="font-medium text-sm">{trigger.name}</div>
-                    <code className="text-xs text-muted-foreground">{trigger.eventPattern}</code>
+                  <div className="min-w-0">
+                    <div className="font-medium text-sm truncate">{trigger.name}</div>
+                    <code className="text-xs text-muted-foreground truncate block">{trigger.eventPattern}</code>
                   </div>
                 </div>
-                <div className="flex items-center gap-2">
+                <div className="flex items-center gap-2 self-end sm:self-auto">
                   <Button size="sm" variant="ghost" onClick={() => handleEdit(trigger)}>
                     <Edit2 className="w-4 h-4" />
                   </Button>
@@ -353,7 +353,7 @@ export function DefinitionTriggersEditor({
 
           <div className="space-y-4 py-4">
             {/* Basic Info */}
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div className="space-y-1">
                 <Label htmlFor="trigger-name">{t('workflows.triggers.fields.name', 'Name')} *</Label>
                 <Input
@@ -392,7 +392,7 @@ export function DefinitionTriggersEditor({
             {/* Event Pattern */}
             <div className="space-y-1">
               <Label htmlFor="trigger-pattern">{t('workflows.triggers.fields.eventPattern', 'Event Pattern')} *</Label>
-              <div className="flex gap-2">
+              <div className="flex flex-col sm:flex-row gap-2">
                 <Input
                   id="trigger-pattern"
                   value={formValues.eventPattern}
@@ -404,7 +404,7 @@ export function DefinitionTriggersEditor({
                   value=""
                   onChange={(eventId) => setFormValues(prev => ({ ...prev, eventPattern: eventId }))}
                   placeholder={t('workflows.triggers.placeholders.quickSelect', 'Quick select...')}
-                  className="w-[200px]"
+                  className="w-full sm:w-[200px]"
                 />
               </div>
               <p className="text-xs text-muted-foreground">
@@ -424,9 +424,9 @@ export function DefinitionTriggersEditor({
 
             {/* Filter Conditions */}
             <div className="space-y-2">
-              <div className="flex items-center justify-between">
+              <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
                 <Label>{t('workflows.triggers.fields.filterConditions', 'Filter Conditions')}</Label>
-                <Button size="sm" variant="ghost" onClick={addFilterCondition}>
+                <Button size="sm" variant="ghost" onClick={addFilterCondition} className="w-full sm:w-auto">
                   <Plus className="w-4 h-4 mr-1" />
                   {t('workflows.triggers.addCondition', 'Add Condition')}
                 </Button>
@@ -435,17 +435,17 @@ export function DefinitionTriggersEditor({
                 {t('workflows.triggers.hints.filterConditions', 'Only trigger when the event payload matches these conditions (all must match)')}
               </p>
               {formValues.filterConditions.map((fc, index) => (
-                <div key={index} className="flex items-center gap-2">
+                <div key={index} className="flex flex-wrap items-center gap-2">
                   <Input
                     value={fc.field}
                     onChange={e => updateFilterCondition(index, 'field', e.target.value)}
                     placeholder="status"
-                    className="w-1/3"
+                    className="w-full sm:w-1/3"
                   />
                   <select
                     value={fc.operator}
                     onChange={(e: React.ChangeEvent<HTMLSelectElement>) => updateFilterCondition(index, 'operator', e.target.value)}
-                    className="h-10 w-[140px] rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
+                    className="h-10 w-full sm:w-[140px] rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
                   >
                     {FILTER_OPERATORS.map(op => (
                       <option key={op.value} value={op.value}>
@@ -457,9 +457,9 @@ export function DefinitionTriggersEditor({
                     value={fc.value}
                     onChange={e => updateFilterCondition(index, 'value', e.target.value)}
                     placeholder="submitted"
-                    className="flex-1"
+                    className="flex-1 min-w-0"
                   />
-                  <Button size="icon" variant="ghost" onClick={() => removeFilterCondition(index)}>
+                  <Button size="icon" variant="ghost" className="shrink-0" onClick={() => removeFilterCondition(index)}>
                     <X className="w-4 h-4" />
                   </Button>
                 </div>
@@ -468,9 +468,9 @@ export function DefinitionTriggersEditor({
 
             {/* Context Mapping */}
             <div className="space-y-2">
-              <div className="flex items-center justify-between">
+              <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
                 <Label>{t('workflows.triggers.fields.contextMapping', 'Context Mapping')}</Label>
-                <Button size="sm" variant="ghost" onClick={addContextMapping}>
+                <Button size="sm" variant="ghost" onClick={addContextMapping} className="w-full sm:w-auto">
                   <Plus className="w-4 h-4 mr-1" />
                   {t('workflows.triggers.addMapping', 'Add Mapping')}
                 </Button>
@@ -479,27 +479,27 @@ export function DefinitionTriggersEditor({
                 {t('workflows.triggers.hints.contextMapping', "Map values from the event payload to the workflow's initial context")}
               </p>
               {formValues.contextMappings.map((cm, index) => (
-                <div key={index} className="flex items-center gap-2">
+                <div key={index} className="flex flex-wrap items-center gap-2">
                   <Input
                     value={cm.targetKey}
                     onChange={e => updateContextMapping(index, 'targetKey', e.target.value)}
                     placeholder="orderId"
-                    className="w-1/3"
+                    className="w-full sm:w-1/3"
                   />
-                  <span className="text-muted-foreground">=</span>
+                  <span className="hidden sm:inline text-muted-foreground">=</span>
                   <Input
                     value={cm.sourceExpression}
                     onChange={e => updateContextMapping(index, 'sourceExpression', e.target.value)}
                     placeholder="id"
-                    className="flex-1"
+                    className="flex-1 min-w-0"
                   />
                   <Input
                     value={cm.defaultValue}
                     onChange={e => updateContextMapping(index, 'defaultValue', e.target.value)}
                     placeholder="default"
-                    className="w-24"
+                    className="w-full sm:w-24"
                   />
-                  <Button size="icon" variant="ghost" onClick={() => removeContextMapping(index)}>
+                  <Button size="icon" variant="ghost" className="shrink-0" onClick={() => removeContextMapping(index)}>
                     <X className="w-4 h-4" />
                   </Button>
                 </div>
@@ -507,7 +507,7 @@ export function DefinitionTriggersEditor({
             </div>
 
             {/* Advanced Options */}
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div className="space-y-1">
                 <Label htmlFor="trigger-debounce">{t('workflows.triggers.fields.debounceMs', 'Debounce (ms)')}</Label>
                 <Input

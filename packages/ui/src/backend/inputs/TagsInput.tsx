@@ -205,7 +205,7 @@ export function TagsInput({
           )
         })}
         <input
-          className="flex-1 min-w-[120px] border-0 py-1 text-sm outline-none disabled:bg-transparent"
+          className="flex-1 min-w-[80px] sm:min-w-[120px] border-0 py-1 text-sm outline-none disabled:bg-transparent"
           value={input}
           placeholder={placeholder || t('ui.inputs.tagsInput.placeholder', 'Add tag and press Enter')}
           autoFocus={autoFocus}

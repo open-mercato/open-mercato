@@ -125,6 +125,7 @@ export default function EditChannelPage({ params }: { params?: { channelId?: str
         {activeTab === 'settings' ? (
           <CrudForm<ChannelFormValues>
             title={t('sales.channels.form.editTitle', 'Edit channel')}
+            versionHistory={{ resourceKind: 'sales.channel', resourceId: channelId ? String(channelId) : '' }}
             entityId={E.sales.sales_channel}
             fields={fields}
             groups={[

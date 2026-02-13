@@ -5,6 +5,8 @@ export type ActionLogExecutionState = 'done' | 'undone' | 'failed' | 'redone'
 @Entity({ tableName: 'action_logs' })
 @Index({ name: 'action_logs_tenant_idx', properties: ['tenantId', 'createdAt'] })
 @Index({ name: 'action_logs_actor_idx', properties: ['actorUserId', 'createdAt'] })
+@Index({ name: 'action_logs_resource_idx', properties: ['tenantId', 'resourceKind', 'resourceId', 'createdAt'] })
+@Index({ name: 'action_logs_parent_resource_idx', properties: ['tenantId', 'parentResourceKind', 'parentResourceId', 'createdAt'] })
 export class ActionLog {
   @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
   id!: string
@@ -29,6 +31,12 @@ export class ActionLog {
 
   @Property({ name: 'resource_id', type: 'text', nullable: true })
   resourceId: string | null = null
+
+  @Property({ name: 'parent_resource_kind', type: 'text', nullable: true })
+  parentResourceKind: string | null = null
+
+  @Property({ name: 'parent_resource_id', type: 'text', nullable: true })
+  parentResourceId: string | null = null
 
   @Property({ name: 'execution_state', type: 'text', default: 'done' })
   executionState: ActionLogExecutionState = 'done'

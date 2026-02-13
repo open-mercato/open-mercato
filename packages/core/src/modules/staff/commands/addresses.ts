@@ -141,17 +141,18 @@ const createAddressCommand: CommandHandler<StaffTeamMemberAddressCreateInput, { 
     return { addressId: address.id }
   },
   captureAfter: async (_input, result, ctx) => {
-    const em = (ctx.container.resolve('em') as EntityManager)
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
     return await loadAddressSnapshot(em, result.addressId)
   },
-  buildLog: async ({ result, ctx }) => {
+  buildLog: async ({ result, snapshots }) => {
     const { translate } = await resolveTranslations()
-    const em = (ctx.container.resolve('em') as EntityManager)
-    const snapshot = await loadAddressSnapshot(em, result.addressId)
+    const snapshot = snapshots.after as AddressSnapshot | undefined
     return {
       actionLabel: translate('staff.audit.teamMemberAddresses.create', 'Create address'),
       resourceKind: 'staff.team_member_address',
       resourceId: result.addressId,
+      parentResourceKind: 'staff.teamMember',
+      parentResourceId: snapshot?.memberId ?? null,
       tenantId: snapshot?.tenantId ?? null,
       organizationId: snapshot?.organizationId ?? null,
       snapshotAfter: snapshot ?? null,
@@ -233,12 +234,15 @@ const updateAddressCommand: CommandHandler<StaffTeamMemberAddressUpdateInput, { 
 
     return { addressId: address.id }
   },
-  buildLog: async ({ snapshots, ctx }) => {
+  captureAfter: async (_input, result, ctx) => {
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
+    return await loadAddressSnapshot(em, result.addressId)
+  },
+  buildLog: async ({ snapshots }) => {
     const { translate } = await resolveTranslations()
     const before = snapshots.before as AddressSnapshot | undefined
     if (!before) return null
-    const em = (ctx.container.resolve('em') as EntityManager)
-    const afterSnapshot = await loadAddressSnapshot(em, before.id)
+    const afterSnapshot = snapshots.after as AddressSnapshot | undefined
     const changes =
       afterSnapshot && before
         ? buildChanges(
@@ -267,6 +271,8 @@ const updateAddressCommand: CommandHandler<StaffTeamMemberAddressUpdateInput, { 
       actionLabel: translate('staff.audit.teamMemberAddresses.update', 'Update address'),
       resourceKind: 'staff.team_member_address',
       resourceId: before.id,
+      parentResourceKind: 'staff.teamMember',
+      parentResourceId: before.memberId ?? null,
       tenantId: before.tenantId,
       organizationId: before.organizationId,
       snapshotBefore: before,
@@ -391,6 +397,8 @@ const deleteAddressCommand: CommandHandler<{ body?: Record<string, unknown>; que
         actionLabel: translate('staff.audit.teamMemberAddresses.delete', 'Delete address'),
         resourceKind: 'staff.team_member_address',
         resourceId: before.id,
+        parentResourceKind: 'staff.teamMember',
+        parentResourceId: before.memberId ?? null,
         tenantId: before.tenantId,
         organizationId: before.organizationId,
         snapshotBefore: before,
