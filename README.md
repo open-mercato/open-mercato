@@ -314,6 +314,55 @@ OPENAI_API_KEY=sk-...  # Optional, for AI features
 
 For production deployments, ensure strong `JWT_SECRET`, secure database credentials, and consider managed database services. See the [full Docker deployment guide](https://docs.openmercato.com/installation/setup#docker-deployment-full-stack) for detailed configuration and production tips.
 
+## Standalone App & Customization
+
+The **recommended way to build on Open Mercato** without modifying the core is to create a standalone app. This gives you a self-contained project that pulls Open Mercato packages from npm — your own modules, overrides, and customizations live in your repo while core stays untouched and upgradeable.
+
+### Create a standalone app
+
+```bash
+npx create-mercato-app my-store
+cd my-store
+cp .env.example .env   # configure DATABASE_URL, JWT_SECRET, REDIS_URL
+docker compose up -d   # start PostgreSQL, Redis, Meilisearch
+yarn install
+yarn initialize
+yarn dev
+```
+
+Navigate to `http://localhost:3000/backend` and sign in with the credentials printed by `yarn initialize`.
+
+### Add custom modules
+
+Drop your own modules into `src/modules/` and register them in `src/modules.ts` with `from: '@app'`:
+
+```ts
+export const enabledModules: ModuleEntry[] = [
+  // ... core modules
+  { id: 'inventory', from: '@app' },
+]
+```
+
+Run `yarn generate` and `yarn dev` — your module's pages, APIs, and entities are auto-discovered.
+
+### Eject core modules for deep customization
+
+When you need to change the internals of a core module (entities, business logic, UI), **eject** it. The `mercato eject` command copies the module source into your `src/modules/` directory and switches it to local, so you can modify it freely while all other modules keep receiving package updates.
+
+```bash
+# See which modules support ejection
+yarn mercato eject --list
+
+# Eject a module (e.g., currencies)
+yarn mercato eject currencies
+yarn mercato generate all
+yarn dev
+```
+
+Currently ejectable: `catalog`, `currencies`, `customers`, `perspectives`, `planner`, `resources`, `sales`, `staff`, `workflows`.
+
+Full guide: [docs.openmercato.com/customization/standalone-app](https://docs.openmercato.com/customization/standalone-app) · CLI reference: [docs.openmercato.com/cli/eject](https://docs.openmercato.com/cli/eject)
+
 ## Live demo
 
 [![Explore the Open Mercato live demo](./apps/docs/static/screenshots/open-mercato-onboarding-showoff.png)](https://demo.openmercato.com)
