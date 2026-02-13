@@ -223,6 +223,45 @@ export async function run(argv = process.argv) {
         console.log('✅ Database cleared. Proceeding with fresh initialization...\n')
       }
 
+      if (!reinstall) {
+        await ensureEnvLoaded()
+        const dbUrl = process.env.DATABASE_URL
+        if (!dbUrl) {
+          console.error('DATABASE_URL is not set. Aborting initialization.')
+          return 1
+        }
+
+        const { Client } = await import('pg')
+        const client = new Client({ connectionString: dbUrl })
+        try {
+          await client.connect()
+          const tableCheck = await client.query<{ regclass: string | null }>(
+            `SELECT to_regclass('public.users') AS regclass`,
+          )
+          const hasUsersTable = Boolean(tableCheck.rows?.[0]?.regclass)
+          if (hasUsersTable) {
+            const countResult = await client.query<{ count: string }>(
+              'SELECT COUNT(*)::text AS count FROM users',
+            )
+            const existingUsersCount = Number.parseInt(countResult.rows?.[0]?.count ?? '0', 10)
+            if (Number.isFinite(existingUsersCount) && existingUsersCount > 0) {
+              console.error(
+                `❌ Initialization aborted: found ${existingUsersCount} existing user(s) in the database.`,
+              )
+              console.error(
+                '   To reset and initialize from scratch, run: yarn mercato init --reinstall',
+              )
+              console.error('   Shortcut script: yarn reinstall')
+              return 1
+            }
+          }
+        } finally {
+          try {
+            await client.end()
+          } catch {}
+        }
+      }
+
       // Step 1: Run generators directly (no process spawn)
       console.log('🔧 Preparing modules (registry, entities, DI)...')
       const { createResolver } = await import('./lib/resolver')
