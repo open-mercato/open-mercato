@@ -107,10 +107,7 @@ function getActivityQueue(): Queue<WorkflowActivityJob> {
     } else {
       activityQueue = createQueue<WorkflowActivityJob>(
         WORKFLOW_ACTIVITIES_QUEUE_NAME,
-        'local',
-        {
-          baseDir: process.env.QUEUE_BASE_DIR || '.queue',
-        }
+        'local'
       )
     }
   }

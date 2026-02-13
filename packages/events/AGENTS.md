@@ -55,14 +55,14 @@ export default async function handler(payload, ctx) { /* ... */ }
 - Supports local (in-process) and async (Redis-backed) event dispatch
 - Events are auto-discovered by generators → `generated/events.generated.ts`
 - When `QUEUE_STRATEGY=async`, persistent events dispatch through the queue package (BullMQ)
-- When `QUEUE_STRATEGY=local`, persistent events process from the `.queue/` directory
+- When `QUEUE_STRATEGY=local`, persistent events process from `.mercato/queue/` (or `QUEUE_BASE_DIR`)
 - Ephemeral subscribers always run in-process regardless of queue strategy
 
 ## Queue Integration
 
 | Queue strategy | Ephemeral events | Persistent events |
 |----------------|------------------|-------------------|
-| `local` | In-process | Processed from `.queue/` directory |
+| `local` | In-process | Processed from `.mercato/queue/` (or `QUEUE_BASE_DIR`) |
 | `async` | In-process | Dispatched via BullMQ (Redis-backed) |
 
 When `QUEUE_STRATEGY=async`, persistent event workers run as background processes. Start them with:

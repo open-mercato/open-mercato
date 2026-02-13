@@ -188,12 +188,14 @@ const sidebars: SidebarsConfig = {
           items: ["cli/entities-install"],
         },
         "cli/scheduler",
+        "cli/eject",
       ],
     },
     {
       type: "category",
       label: "Customization Tutorials",
       items: [
+        "customization/standalone-app",
         "customization/build-first-app",
         "customization/create-first-module",
         "customization/create-inventory-data",
