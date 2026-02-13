@@ -178,35 +178,46 @@ export function updateModulesTs(modulesPath: string, moduleId: string): void {
   }
 
   const source = fs.readFileSync(modulesPath, 'utf8')
+  const objectPattern = /\{[^{}]*\}/g
 
-  // Match the module entry and replace its `from` value with '@app'
-  // Handles patterns like: { id: 'currencies', from: '@open-mercato/core' }
-  const pattern = new RegExp(
-    `(\\{\\s*id:\\s*['"]${moduleId}['"]\\s*,\\s*from:\\s*)'([^']*)'`,
-  )
-  const patternDouble = new RegExp(
-    `(\\{\\s*id:\\s*['"]${moduleId}['"]\\s*,\\s*from:\\s*)"([^"]*)"`,
-  )
-  // Handle entries without an explicit `from`, e.g. { id: 'currencies' }
-  const patternNoFrom = new RegExp(
-    `(\\{[^}]*id:\\s*['"]${moduleId}['"][^}]*)(?![^}]*\\bfrom\\b)\\}`,
-  )
+  let match: RegExpExecArray | null
+  let updatedSource: string | null = null
 
-  let updated: string
-  if (pattern.test(source)) {
-    updated = source.replace(pattern, `$1'@app'`)
-  } else if (patternDouble.test(source)) {
-    updated = source.replace(patternDouble, `$1"@app"`)
-  } else if (patternNoFrom.test(source)) {
-    updated = source.replace(patternNoFrom, `$1, from: '@app'}`)
-  } else {
+  while ((match = objectPattern.exec(source)) !== null) {
+    const objectLiteral = match[0]
+    const idMatch = objectLiteral.match(/\bid\s*:\s*(['"])([^'"]+)\1/)
+    if (!idMatch || idMatch[2] !== moduleId) {
+      continue
+    }
+
+    const updatedObject = upsertModuleSource(objectLiteral)
+    updatedSource =
+      source.slice(0, match.index) +
+      updatedObject +
+      source.slice(match.index + objectLiteral.length)
+    break
+  }
+
+  if (!updatedSource) {
     throw new Error(
       `Could not find module entry for "${moduleId}" in ${modulesPath}. ` +
       `Expected a pattern like: { id: '${moduleId}', from: '...' } or { id: '${moduleId}' }`,
     )
   }
 
-  fs.writeFileSync(modulesPath, updated)
+  fs.writeFileSync(modulesPath, updatedSource)
+}
+
+function upsertModuleSource(objectLiteral: string): string {
+  if (/from\s*:\s*'[^']*'/.test(objectLiteral)) {
+    return objectLiteral.replace(/from\s*:\s*'[^']*'/, "from: '@app'")
+  }
+
+  if (/from\s*:\s*"[^"]*"/.test(objectLiteral)) {
+    return objectLiteral.replace(/from\s*:\s*"[^"]*"/, 'from: "@app"')
+  }
+
+  return objectLiteral.replace(/\}\s*$/, ", from: '@app' }")
 }
 
 export type EjectableModule = {

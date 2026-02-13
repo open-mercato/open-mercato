@@ -165,6 +165,27 @@ describe('eject', () => {
         'Could not find module entry for "currencies"',
       )
     })
+
+    it('does not treat moduleId as regex pattern', () => {
+      const filePath = path.join(tmpDir, 'modules.ts')
+      fs.writeFileSync(
+        filePath,
+        [
+          `export const enabledModules = [`,
+          `  { id: 'auth', from: '@open-mercato/core' },`,
+          `  { id: 'catalog', from: '@open-mercato/core' },`,
+          `]`,
+        ].join('\n'),
+      )
+
+      expect(() => updateModulesTs(filePath, '.*')).toThrow(
+        'Could not find module entry for ".*"',
+      )
+
+      const result = fs.readFileSync(filePath, 'utf8')
+      expect(result).toContain("{ id: 'auth', from: '@open-mercato/core' }")
+      expect(result).toContain("{ id: 'catalog', from: '@open-mercato/core' }")
+    })
   })
 
   describe('rewriteCrossModuleImports', () => {
