@@ -1,5 +1,6 @@
 import type { ModuleCli } from '@open-mercato/shared/modules/registry'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
+import { getRedisUrl } from '@open-mercato/shared/lib/redis/connection'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { WorkflowDefinition } from './data/entities'
 import { BusinessRule, type RuleType } from '@open-mercato/core/modules/business_rules/data/entities'
@@ -410,7 +411,7 @@ const startWorker: ModuleCli = {
       console.log('[Workflow Worker] Use QUEUE_STRATEGY=async with Redis for production.')
     } else {
       console.log(`[Workflow Worker] Concurrency: ${concurrency}`)
-      console.log(`[Workflow Worker] Redis: ${process.env.REDIS_URL || process.env.QUEUE_REDIS_URL}`)
+      console.log(`[Workflow Worker] Redis: ${getRedisUrl('QUEUE')}`)
     }
 
     try {
@@ -430,7 +431,7 @@ const startWorker: ModuleCli = {
         queueName: WORKFLOW_ACTIVITIES_QUEUE_NAME,
         handler,
         connection: strategy === 'async' ? {
-          url: process.env.REDIS_URL || process.env.QUEUE_REDIS_URL,
+          url: getRedisUrl('QUEUE'),
         } : undefined,
         concurrency,
         gracefulShutdown: true,

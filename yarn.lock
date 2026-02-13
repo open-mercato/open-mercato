@@ -5397,6 +5397,7 @@ __metadata:
     "@open-mercato/events": "workspace:*"
     "@open-mercato/onboarding": "workspace:*"
     "@open-mercato/queue": "workspace:*"
+    "@open-mercato/scheduler": "workspace:*"
     "@open-mercato/search": "workspace:*"
     "@open-mercato/shared": "workspace:*"
     "@open-mercato/ui": "workspace:*"
@@ -5560,6 +5561,31 @@ __metadata:
     bullmq: ^5.0.0
   peerDependenciesMeta:
     bullmq:
+      optional: true
+  languageName: unknown
+  linkType: soft
+
+"@open-mercato/scheduler@workspace:*, @open-mercato/scheduler@workspace:packages/scheduler":
+  version: 0.0.0-use.local
+  resolution: "@open-mercato/scheduler@workspace:packages/scheduler"
+  dependencies:
+    "@open-mercato/events": "workspace:*"
+    "@open-mercato/queue": "workspace:*"
+    "@open-mercato/shared": "workspace:*"
+    "@types/jest": "npm:^30.0.0"
+    "@types/node": "npm:^20.0.0"
+    cron-parser: "npm:^4.9.0"
+    jest: "npm:^30.2.0"
+    ts-jest: "npm:^29.4.6"
+  peerDependencies:
+    "@mikro-orm/core": ^6.6.2
+    bullmq: ^5.0.0
+    ioredis: ^5.0.0
+    zod: ">=3.23.0"
+  peerDependenciesMeta:
+    bullmq:
+      optional: true
+    ioredis:
       optional: true
   languageName: unknown
   linkType: soft
@@ -11133,7 +11159,7 @@ __metadata:
   languageName: node
   linkType: hard
 
-"cron-parser@npm:4.9.0":
+"cron-parser@npm:4.9.0, cron-parser@npm:^4.9.0":
   version: 4.9.0
   resolution: "cron-parser@npm:4.9.0"
   dependencies:
