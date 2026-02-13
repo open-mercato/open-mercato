@@ -80,7 +80,7 @@ RUN apk add --no-cache ca-certificates openssl
 # Enable Corepack for Yarn
 RUN corepack enable
 
-# Copy workspace configuration for production install
+# Copy workspace configuration
 COPY package.json yarn.lock .yarnrc.yml turbo.json ./
 COPY tsconfig.base.json tsconfig.json ./
 COPY --from=builder /app/.yarn ./.yarn
@@ -89,8 +89,10 @@ COPY --from=builder /app/.yarn ./.yarn
 COPY --from=builder /app/packages/ ./packages/
 COPY --from=builder /app/apps/mercato/package.json ./apps/mercato/
 
-# Install only production dependencies
-RUN yarn workspaces focus @open-mercato/app --production
+# Copy the complete node_modules from builder stage
+# This includes ALL dependencies (direct + transitive from workspace packages)
+# The builder stage runs 'yarn install' which properly resolves the entire dependency tree
+COPY --from=builder /app/node_modules ./node_modules
 
 # Copy built Next.js application
 COPY --from=builder /app/apps/mercato/.mercato/next ./apps/mercato/.mercato/next
