@@ -1,7 +1,7 @@
 # ConfirmDialog Refactor — Native `<dialog>` + window.confirm Elimination
 
 **Date:** 2026-02-12
-**Status:** Draft
+**Status:** Accepted
 **Module:** `ui` (packages/ui)
 **Based on:** Adam's spec (architecture, detail level) + Patryk's spec (declarative pattern, loading state, deferred cleanup)
 
