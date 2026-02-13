@@ -152,7 +152,12 @@ export async function loadAllModuleTools(): Promise<void> {
         const externalNonJsonPlugin: import('esbuild').Plugin = {
           name: 'external-non-json',
           setup(build) {
+            // Filter matches paths that don't start with . or / (package imports)
             build.onResolve({ filter: /^[^./]/ }, (args) => {
+              // Skip Windows absolute paths (e.g., C:\...) - they're local files, not packages
+              if (/^[a-zA-Z]:/.test(args.path)) {
+                return null
+              }
               if (args.path.endsWith('.json')) {
                 return null
               }

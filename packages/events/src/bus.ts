@@ -1,5 +1,6 @@
 import { createQueue } from '@open-mercato/queue'
 import type { Queue } from '@open-mercato/queue'
+import { getRedisUrl } from '@open-mercato/shared/lib/redis/connection'
 import type {
   EventBus,
   CreateBusOptions,
@@ -97,12 +98,8 @@ export function createEventBus(opts: CreateBusOptions): EventBus {
   function getQueue(): Queue<EventJobData> {
     if (!queue) {
       if (queueStrategy === 'async') {
-        const redisUrl = process.env.REDIS_URL || process.env.QUEUE_REDIS_URL
-        if (!redisUrl) {
-          console.warn('[events] No REDIS_URL configured, falling back to localhost:6379')
-        }
         queue = createQueue<EventJobData>(EVENTS_QUEUE_NAME, 'async', {
-          connection: { url: redisUrl }
+          connection: { url: getRedisUrl('QUEUE') }
         })
       } else {
         queue = createQueue<EventJobData>(EVENTS_QUEUE_NAME, 'local')

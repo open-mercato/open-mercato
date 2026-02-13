@@ -1,7 +1,7 @@
 import path from 'node:path'
 import fs from 'node:fs'
 import os from 'node:os'
-import { parseModuleMetadata, copyDirRecursive, updateModulesTs } from '../eject'
+import { parseModuleMetadata, copyDirRecursive, rewriteCrossModuleImports, updateModulesTs } from '../eject'
 
 describe('eject', () => {
   let tmpDir: string
@@ -164,6 +164,96 @@ describe('eject', () => {
       expect(() => updateModulesTs(filePath, 'currencies')).toThrow(
         'Could not find module entry for "currencies"',
       )
+    })
+
+    it('does not treat moduleId as regex pattern', () => {
+      const filePath = path.join(tmpDir, 'modules.ts')
+      fs.writeFileSync(
+        filePath,
+        [
+          `export const enabledModules = [`,
+          `  { id: 'auth', from: '@open-mercato/core' },`,
+          `  { id: 'catalog', from: '@open-mercato/core' },`,
+          `]`,
+        ].join('\n'),
+      )
+
+      expect(() => updateModulesTs(filePath, '.*')).toThrow(
+        'Could not find module entry for ".*"',
+      )
+
+      const result = fs.readFileSync(filePath, 'utf8')
+      expect(result).toContain("{ id: 'auth', from: '@open-mercato/core' }")
+      expect(result).toContain("{ id: 'catalog', from: '@open-mercato/core' }")
+    })
+  })
+
+  describe('rewriteCrossModuleImports', () => {
+    it('rewrites cross-module relative imports to package imports', () => {
+      const pkgModulesRoot = path.join(tmpDir, 'pkg', 'src', 'modules')
+      const appModulesRoot = path.join(tmpDir, 'app', 'src', 'modules')
+      const pkgSalesRoot = path.join(pkgModulesRoot, 'sales')
+      const appSalesRoot = path.join(appModulesRoot, 'sales')
+
+      fs.mkdirSync(path.join(pkgModulesRoot, 'customers', 'data'), { recursive: true })
+      fs.mkdirSync(path.join(pkgModulesRoot, 'notifications', 'lib'), { recursive: true })
+      fs.mkdirSync(path.join(pkgSalesRoot, 'commands'), { recursive: true })
+      fs.mkdirSync(path.join(pkgSalesRoot, 'subscribers'), { recursive: true })
+      fs.mkdirSync(path.join(appSalesRoot, 'commands'), { recursive: true })
+      fs.mkdirSync(path.join(appSalesRoot, 'subscribers'), { recursive: true })
+
+      fs.writeFileSync(path.join(pkgModulesRoot, 'customers', 'data', 'entities.ts'), 'export const entities = []')
+      fs.writeFileSync(path.join(pkgModulesRoot, 'notifications', 'lib', 'notificationService.ts'), 'export const service = {}')
+      fs.writeFileSync(path.join(pkgModulesRoot, 'notifications', 'lib', 'notificationBuilder.ts'), 'export const builder = {}')
+
+      fs.writeFileSync(
+        path.join(pkgSalesRoot, 'commands', 'documents.ts'),
+        [
+          "import { resolveNotificationService } from '../../notifications/lib/notificationService'",
+          "import { buildFeatureNotificationFromType } from '../../notifications/lib/notificationBuilder'",
+          "import { Customer } from '../../customers/data/entities'",
+          "import { localFn } from '../helpers'",
+        ].join('\n'),
+      )
+      fs.writeFileSync(path.join(pkgSalesRoot, 'helpers.ts'), 'export const localFn = () => null')
+
+      fs.writeFileSync(
+        path.join(appSalesRoot, 'commands', 'documents.ts'),
+        fs.readFileSync(path.join(pkgSalesRoot, 'commands', 'documents.ts'), 'utf8'),
+      )
+      fs.writeFileSync(path.join(appSalesRoot, 'helpers.ts'), 'export const localFn = () => null')
+
+      rewriteCrossModuleImports(pkgSalesRoot, appSalesRoot, 'sales', '@open-mercato/core')
+
+      const rewritten = fs.readFileSync(path.join(appSalesRoot, 'commands', 'documents.ts'), 'utf8')
+      expect(rewritten).toContain("from '@open-mercato/core/modules/notifications/lib/notificationService'")
+      expect(rewritten).toContain("from '@open-mercato/core/modules/notifications/lib/notificationBuilder'")
+      expect(rewritten).toContain("from '@open-mercato/core/modules/customers/data/entities'")
+      expect(rewritten).toContain("from '../helpers'")
+    })
+
+    it('keeps unresolved relative imports unchanged', () => {
+      const pkgModulesRoot = path.join(tmpDir, 'pkg', 'src', 'modules')
+      const appModulesRoot = path.join(tmpDir, 'app', 'src', 'modules')
+      const pkgSalesRoot = path.join(pkgModulesRoot, 'sales')
+      const appSalesRoot = path.join(appModulesRoot, 'sales')
+
+      fs.mkdirSync(path.join(pkgSalesRoot, 'commands'), { recursive: true })
+      fs.mkdirSync(path.join(appSalesRoot, 'commands'), { recursive: true })
+
+      fs.writeFileSync(
+        path.join(pkgSalesRoot, 'commands', 'dynamic.ts'),
+        "export const x = () => import('../../unknown/missing')",
+      )
+      fs.writeFileSync(
+        path.join(appSalesRoot, 'commands', 'dynamic.ts'),
+        "export const x = () => import('../../unknown/missing')",
+      )
+
+      rewriteCrossModuleImports(pkgSalesRoot, appSalesRoot, 'sales', '@open-mercato/core')
+
+      const rewritten = fs.readFileSync(path.join(appSalesRoot, 'commands', 'dynamic.ts'), 'utf8')
+      expect(rewritten).toContain("import('../../unknown/missing')")
     })
   })
 })

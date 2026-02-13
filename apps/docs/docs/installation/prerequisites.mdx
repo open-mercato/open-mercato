@@ -5,6 +5,10 @@ description: Tools and services required before installing Open Mercato locally.
 
 Before cloning the repository make sure the following tools are installed:
 
+:::tip Docker-only setup (Windows recommended)
+If you plan to use the [Docker development setup](./setup#docker-development-setup), you only need **Docker Desktop** and **Git**. Node.js, Yarn, and the other tools below are not required — everything runs inside containers. This is the recommended path for **Windows** users.
+:::
+
 - **Node.js 20.18+** – aligns with the runtime requirements. Use `nvm`/`fnm` to switch versions if needed.
 - **Yarn (via Corepack)** – enable it once per machine:
   ```bash
@@ -16,6 +20,7 @@ Before cloning the repository make sure the following tools are installed:
 - **GraphicsMagick, Ghostscript, and Poppler** (optional) – required for LLM-based OCR on PDFs:
   - **macOS**: `brew install graphicsmagick ghostscript poppler`
   - **Ubuntu/Debian**: `sudo apt-get install graphicsmagick ghostscript poppler-utils`
+  - **Windows**: install via [Chocolatey](https://chocolatey.org/) or [Scoop](https://scoop.sh/) if using the native setup
 
 Copy `.env.example` to `.env` and configure at least:
 

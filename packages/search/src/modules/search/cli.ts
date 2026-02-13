@@ -1,5 +1,6 @@
 import type { ModuleCli } from '@open-mercato/shared/modules/registry'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
+import { getRedisUrl } from '@open-mercato/shared/lib/redis/connection'
 import { recordIndexerError } from '@open-mercato/shared/lib/indexers/error-log'
 import { recordIndexerLog } from '@open-mercato/shared/lib/indexers/status-log'
 import { createProgressBar } from '@open-mercato/shared/lib/cli/progress'
@@ -797,12 +798,7 @@ async function workerCommand(rest: string[]): Promise<void> {
     return
   }
 
-  const redisUrl = process.env.REDIS_URL || process.env.QUEUE_REDIS_URL
-  if (!redisUrl) {
-    console.error('\nError: Redis connection not configured')
-    console.error('Set REDIS_URL or QUEUE_REDIS_URL in your environment.\n')
-    return
-  }
+  const redisUrl = getRedisUrl('QUEUE')
 
   // Dynamically import runWorker to avoid loading BullMQ unless needed
   const { runWorker } = await import('@open-mercato/queue/worker')

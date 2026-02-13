@@ -56,7 +56,12 @@ async function compileAndImport(tsPath: string): Promise<Record<string, unknown>
       name: 'external-non-json',
       setup(build) {
         // Mark all package imports as external EXCEPT JSON files
+        // Filter matches paths that don't start with . or / (package imports like @open-mercato/shared)
         build.onResolve({ filter: /^[^./]/ }, (args) => {
+          // Skip Windows absolute paths (e.g., C:\...) - they're local files, not packages
+          if (/^[a-zA-Z]:/.test(args.path)) {
+            return null // Let esbuild handle it
+          }
           // If it's a JSON file, let esbuild bundle it
           if (args.path.endsWith('.json')) {
             return null // Let esbuild handle it
