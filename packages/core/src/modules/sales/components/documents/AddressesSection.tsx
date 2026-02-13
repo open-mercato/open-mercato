@@ -10,6 +10,7 @@ import { ErrorMessage, LoadingMessage, TabEmptyState } from '@open-mercato/ui/ba
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Switch } from '@open-mercato/ui/primitives/switch'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
 import { AddressEditor, type AddressEditorDraft } from '@open-mercato/core/modules/customers/components/AddressEditor'
 import {
   AddressView,
@@ -176,6 +177,7 @@ export function SalesDocumentAddressesSection({
   onUpdated,
 }: SalesDocumentAddressesSectionProps) {
   const t = useT()
+  const { confirm, ConfirmDialogElement } = useConfirmDialog()
   const [addressOptions, setAddressOptions] = React.useState<AddressOption[]>([])
   const [addressesLoading, setAddressesLoading] = React.useState(false)
   const [addressesError, setAddressesError] = React.useState<string | null>(null)
@@ -687,9 +689,11 @@ export function SalesDocumentAddressesSection({
         'sales.documents.detail.addresses.deleteConfirm',
         'This will permanently remove this address from the document. Continue?'
       )
-      if (typeof window !== 'undefined' && !window.confirm(confirmMessage)) {
-        return
-      }
+      const confirmed = await confirm({
+        title: confirmMessage,
+        variant: 'destructive',
+      })
+      if (!confirmed) return
       setDeletingAddressIds((prev) => {
         const next = new Set(prev)
         next.add(id)
@@ -724,7 +728,7 @@ export function SalesDocumentAddressesSection({
         })
       }
     },
-    [documentId, editingAddressId, handleCancelEdit, kind, t]
+    [confirm, documentId, editingAddressId, handleCancelEdit, kind, t]
   )
 
   const handleSave = React.useCallback(async () => {
@@ -1263,6 +1267,7 @@ export function SalesDocumentAddressesSection({
           </Button>
         </div>
       </div>
+      {ConfirmDialogElement}
     </div>
   )
 }

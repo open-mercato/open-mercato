@@ -20,6 +20,7 @@ import { apiCall, readApiResultOrThrow } from '@open-mercato/ui/backend/utils/ap
 import { raiseCrudError } from '@open-mercato/ui/backend/utils/serverErrors'
 import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
 import { DictionaryEntrySelect } from '@open-mercato/core/modules/dictionaries/components/DictionaryEntrySelect'
 import { useCurrencyDictionary } from '@open-mercato/core/modules/customers/components/detail/hooks/useCurrencyDictionary'
 import type { DictionaryOption } from '@open-mercato/core/modules/dictionaries/components/DictionaryEntrySelect'
@@ -108,6 +109,7 @@ const normalizePriceKind = (input: PriceKindApiPayload | null | undefined): Pric
 
 export function PriceKindSettings() {
   const t = useT()
+  const { confirm, ConfirmDialogElement } = useConfirmDialog()
   const scopeVersion = useOrganizationScopeVersion()
   const [items, setItems] = React.useState<PriceKind[]>([])
   const [loading, setLoading] = React.useState(false)
@@ -237,7 +239,11 @@ export function PriceKindSettings() {
   const handleDelete = React.useCallback(
     async (entry: PriceKind) => {
       const confirmMessage = t('catalog.priceKinds.confirm.delete', 'Delete price kind "{{code}}"?').replace('{{code}}', entry.code)
-      if (!window.confirm(confirmMessage)) return
+      const confirmed = await confirm({
+        title: confirmMessage,
+        variant: 'destructive',
+      })
+      if (!confirmed) return
       try {
         const call = await apiCall('/api/catalog/price-kinds', {
           method: 'DELETE',
@@ -256,7 +262,7 @@ export function PriceKindSettings() {
         flash(message, 'error')
       }
     },
-    [loadItems, t],
+    [confirm, loadItems, t],
   )
 
   const formKeyHandler = React.useCallback(
@@ -389,154 +395,157 @@ export function PriceKindSettings() {
   }, [openDialog])
 
   return (
-    <section className="border bg-card text-card-foreground shadow-sm">
-      <div className="border-b px-6 py-4 space-y-1">
-        <h2 className="text-lg font-semibold">{t('catalog.priceKinds.title', 'Price kinds')}</h2>
-        <p className="text-sm text-muted-foreground">
-          {t('catalog.priceKinds.description', 'Configure reusable price kinds that control pricing columns and tax display.')}
-        </p>
-      </div>
-      <div className="px-2 py-4 sm:px-4">
-        <DataTable<PriceKind>
-          data={filteredItems}
-          columns={columns}
-          embedded
-          isLoading={loading}
-          searchValue={search}
-          onSearchChange={setSearch}
-          searchPlaceholder={tableLabels.search}
-          emptyState={<p className="py-8 text-center text-sm text-muted-foreground">{tableLabels.empty}</p>}
-          actions={(
-            <Button size="sm" onClick={() => openDialog({ mode: 'create' })}>
-              {t('catalog.priceKinds.actions.add', 'Add price kind')}
-            </Button>
-          )}
-          refreshButton={{
-            label: t('catalog.priceKinds.actions.refresh', 'Refresh'),
-            onRefresh: () => { void loadItems() },
-            isRefreshing: loading,
-          }}
-          rowActions={(entry) => (
-            <RowActions
-              items={[
-                {
-                  id: 'edit',
-                  label: t('catalog.priceKinds.actions.edit', 'Edit'),
-                  onSelect: () => openDialog({ mode: 'edit', entry }),
-                },
-                {
-                  id: 'delete',
-                  label: t('catalog.priceKinds.actions.delete', 'Delete'),
-                  destructive: true,
-                  onSelect: () => { void handleDelete(entry) },
-                },
-              ]}
-            />
-          )}
-          onRowClick={handleRowClick}
-        />
-      </div>
-      <Dialog open={dialog !== null} onOpenChange={(open) => { if (!open) closeDialog(); }}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>
-              {dialog?.mode === 'edit'
-                ? t('catalog.priceKinds.dialog.editTitle', 'Edit price kind')
-                : t('catalog.priceKinds.dialog.createTitle', 'Create price kind')}
-            </DialogTitle>
-            <DialogDescription>
-              {dialog?.mode === 'edit'
-                ? t('catalog.priceKinds.dialog.editDescription', 'Update labels or tax behavior for this price kind.')
-                : t('catalog.priceKinds.dialog.createDescription', 'Define a reusable price kind for product pricing.')}
-            </DialogDescription>
-          </DialogHeader>
-          <form className="space-y-4" onKeyDown={formKeyHandler} onSubmit={(event) => { event.preventDefault(); void handleSubmit() }}>
-            <div className="space-y-2">
-              <Label htmlFor="price-kind-code">{t('catalog.priceKinds.form.codeLabel', 'Code')}</Label>
-              <Input
-                id="price-kind-code"
-                value={form.code}
-                onChange={(event) => setForm((prev) => ({ ...prev, code: event.target.value }))}
-                placeholder={t('catalog.priceKinds.form.codePlaceholder', 'e.g. regular')}
-                className="font-mono uppercase"
-                disabled={dialog?.mode === 'edit'}
+    <>
+      <section className="border bg-card text-card-foreground shadow-sm">
+        <div className="border-b px-6 py-4 space-y-1">
+          <h2 className="text-lg font-semibold">{t('catalog.priceKinds.title', 'Price kinds')}</h2>
+          <p className="text-sm text-muted-foreground">
+            {t('catalog.priceKinds.description', 'Configure reusable price kinds that control pricing columns and tax display.')}
+          </p>
+        </div>
+        <div className="px-2 py-4 sm:px-4">
+          <DataTable<PriceKind>
+            data={filteredItems}
+            columns={columns}
+            embedded
+            isLoading={loading}
+            searchValue={search}
+            onSearchChange={setSearch}
+            searchPlaceholder={tableLabels.search}
+            emptyState={<p className="py-8 text-center text-sm text-muted-foreground">{tableLabels.empty}</p>}
+            actions={(
+              <Button size="sm" onClick={() => openDialog({ mode: 'create' })}>
+                {t('catalog.priceKinds.actions.add', 'Add price kind')}
+              </Button>
+            )}
+            refreshButton={{
+              label: t('catalog.priceKinds.actions.refresh', 'Refresh'),
+              onRefresh: () => { void loadItems() },
+              isRefreshing: loading,
+            }}
+            rowActions={(entry) => (
+              <RowActions
+                items={[
+                  {
+                    id: 'edit',
+                    label: t('catalog.priceKinds.actions.edit', 'Edit'),
+                    onSelect: () => openDialog({ mode: 'edit', entry }),
+                  },
+                  {
+                    id: 'delete',
+                    label: t('catalog.priceKinds.actions.delete', 'Delete'),
+                    destructive: true,
+                    onSelect: () => { void handleDelete(entry) },
+                  },
+                ]}
               />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="price-kind-title">{t('catalog.priceKinds.form.titleLabel', 'Title')}</Label>
-              <Input
-                id="price-kind-title"
-                value={form.title}
-                onChange={(event) => setForm((prev) => ({ ...prev, title: event.target.value }))}
-                placeholder={t('catalog.priceKinds.form.titlePlaceholder', 'e.g. Regular price')}
-              />
-            </div>
-            <div className="space-y-2">
-              <Label>{t('catalog.priceKinds.form.displayModeLabel', 'Display mode')}</Label>
-              <div className="grid gap-2 md:grid-cols-2">
-                {displayModeOptions.map((mode) => (
-                  <label
-                    key={mode.value}
-                    className={`flex cursor-pointer items-center gap-2 rounded-md border p-3 text-sm ${
-                      form.displayMode === mode.value ? 'border-primary bg-primary/5' : 'border-border'
-                    }`}
-                  >
-                    <input
-                      type="radio"
-                      name="displayMode"
-                      value={mode.value}
-                      checked={form.displayMode === mode.value}
-                      onChange={() => setForm((prev) => ({ ...prev, displayMode: mode.value }))}
-                    />
-                    <span>{mode.label}</span>
-                  </label>
-                ))}
+            )}
+            onRowClick={handleRowClick}
+          />
+        </div>
+        <Dialog open={dialog !== null} onOpenChange={(open) => { if (!open) closeDialog(); }}>
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle>
+                {dialog?.mode === 'edit'
+                  ? t('catalog.priceKinds.dialog.editTitle', 'Edit price kind')
+                  : t('catalog.priceKinds.dialog.createTitle', 'Create price kind')}
+              </DialogTitle>
+              <DialogDescription>
+                {dialog?.mode === 'edit'
+                  ? t('catalog.priceKinds.dialog.editDescription', 'Update labels or tax behavior for this price kind.')
+                  : t('catalog.priceKinds.dialog.createDescription', 'Define a reusable price kind for product pricing.')}
+              </DialogDescription>
+            </DialogHeader>
+            <form className="space-y-4" onKeyDown={formKeyHandler} onSubmit={(event) => { event.preventDefault(); void handleSubmit() }}>
+              <div className="space-y-2">
+                <Label htmlFor="price-kind-code">{t('catalog.priceKinds.form.codeLabel', 'Code')}</Label>
+                <Input
+                  id="price-kind-code"
+                  value={form.code}
+                  onChange={(event) => setForm((prev) => ({ ...prev, code: event.target.value }))}
+                  placeholder={t('catalog.priceKinds.form.codePlaceholder', 'e.g. regular')}
+                  className="font-mono uppercase"
+                  disabled={dialog?.mode === 'edit'}
+                />
               </div>
-            </div>
-            <div className="space-y-2">
-              <Label>{t('catalog.priceKinds.form.currencyLabel', 'Currency (optional)')}</Label>
-              <DictionaryEntrySelect
-                value={form.currencyCode || undefined}
-                onChange={(value) => setForm((prev) => ({ ...prev, currencyCode: value ?? '' }))}
-                fetchOptions={currencyOptionsLoader}
-                labels={currencyLabels}
-                allowInlineCreate={false}
-              />
-            </div>
-            <div className="flex flex-col gap-2">
-              <label className="flex items-center gap-2 text-sm font-medium">
-                <input
-                  type="checkbox"
-                  className="h-4 w-4 rounded border"
-                  checked={form.isPromotion}
-                  onChange={(event) => setForm((prev) => ({ ...prev, isPromotion: event.target.checked }))}
+              <div className="space-y-2">
+                <Label htmlFor="price-kind-title">{t('catalog.priceKinds.form.titleLabel', 'Title')}</Label>
+                <Input
+                  id="price-kind-title"
+                  value={form.title}
+                  onChange={(event) => setForm((prev) => ({ ...prev, title: event.target.value }))}
+                  placeholder={t('catalog.priceKinds.form.titlePlaceholder', 'e.g. Regular price')}
                 />
-                {t('catalog.priceKinds.form.promotionLabel', 'Mark as promotion')}
-              </label>
-              <label className="flex items-center gap-2 text-sm font-medium">
-                <input
-                  type="checkbox"
-                  className="h-4 w-4 rounded border"
-                  checked={form.isActive}
-                  onChange={(event) => setForm((prev) => ({ ...prev, isActive: event.target.checked }))}
+              </div>
+              <div className="space-y-2">
+                <Label>{t('catalog.priceKinds.form.displayModeLabel', 'Display mode')}</Label>
+                <div className="grid gap-2 md:grid-cols-2">
+                  {displayModeOptions.map((mode) => (
+                    <label
+                      key={mode.value}
+                      className={`flex cursor-pointer items-center gap-2 rounded-md border p-3 text-sm ${
+                        form.displayMode === mode.value ? 'border-primary bg-primary/5' : 'border-border'
+                      }`}
+                    >
+                      <input
+                        type="radio"
+                        name="displayMode"
+                        value={mode.value}
+                        checked={form.displayMode === mode.value}
+                        onChange={() => setForm((prev) => ({ ...prev, displayMode: mode.value }))}
+                      />
+                      <span>{mode.label}</span>
+                    </label>
+                  ))}
+                </div>
+              </div>
+              <div className="space-y-2">
+                <Label>{t('catalog.priceKinds.form.currencyLabel', 'Currency (optional)')}</Label>
+                <DictionaryEntrySelect
+                  value={form.currencyCode || undefined}
+                  onChange={(value) => setForm((prev) => ({ ...prev, currencyCode: value ?? '' }))}
+                  fetchOptions={currencyOptionsLoader}
+                  labels={currencyLabels}
+                  allowInlineCreate={false}
                 />
-                {t('catalog.priceKinds.form.activeLabel', 'Active')}
-              </label>
-            </div>
-            {error ? <p className="text-sm text-red-600">{error}</p> : null}
-          </form>
-          <DialogFooter>
-            <Button variant="ghost" onClick={closeDialog}>
-              {t('catalog.priceKinds.actions.cancel', 'Cancel')}
-            </Button>
-            <Button onClick={() => void handleSubmit()} disabled={submitting}>
-              {dialog?.mode === 'edit'
-                ? t('catalog.priceKinds.actions.saveChanges', 'Save changes')
-                : t('catalog.priceKinds.actions.create', 'Create')}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-    </section>
+              </div>
+              <div className="flex flex-col gap-2">
+                <label className="flex items-center gap-2 text-sm font-medium">
+                  <input
+                    type="checkbox"
+                    className="h-4 w-4 rounded border"
+                    checked={form.isPromotion}
+                    onChange={(event) => setForm((prev) => ({ ...prev, isPromotion: event.target.checked }))}
+                  />
+                  {t('catalog.priceKinds.form.promotionLabel', 'Mark as promotion')}
+                </label>
+                <label className="flex items-center gap-2 text-sm font-medium">
+                  <input
+                    type="checkbox"
+                    className="h-4 w-4 rounded border"
+                    checked={form.isActive}
+                    onChange={(event) => setForm((prev) => ({ ...prev, isActive: event.target.checked }))}
+                  />
+                  {t('catalog.priceKinds.form.activeLabel', 'Active')}
+                </label>
+              </div>
+              {error ? <p className="text-sm text-red-600">{error}</p> : null}
+            </form>
+            <DialogFooter>
+              <Button variant="ghost" onClick={closeDialog}>
+                {t('catalog.priceKinds.actions.cancel', 'Cancel')}
+              </Button>
+              <Button onClick={() => void handleSubmit()} disabled={submitting}>
+                {dialog?.mode === 'edit'
+                  ? t('catalog.priceKinds.actions.saveChanges', 'Save changes')
+                  : t('catalog.priceKinds.actions.create', 'Create')}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+      </section>
+      {ConfirmDialogElement}
+    </>
   )
 }

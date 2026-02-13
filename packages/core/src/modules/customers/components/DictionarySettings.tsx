@@ -11,6 +11,7 @@ import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { apiCallOrThrow, readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
 import type { CustomerDictionaryKind } from '../lib/dictionaries'
 import { ICON_SUGGESTIONS } from '@open-mercato/core/modules/dictionaries/components/dictionaryAppearance'
 import {
@@ -114,6 +115,7 @@ type CustomerDictionarySectionProps = SectionDefinition
 
 function CustomerDictionarySection({ kind, title, description }: CustomerDictionarySectionProps) {
   const t = useT()
+  const { confirm, ConfirmDialogElement } = useConfirmDialog()
   const scopeVersion = useOrganizationScopeVersion()
   const [entries, setEntries] = React.useState<DictionaryTableEntry[]>([])
   const [loading, setLoading] = React.useState<boolean>(true)
@@ -187,7 +189,11 @@ function CustomerDictionarySection({ kind, title, description }: CustomerDiction
       return
     }
     const message = deleteConfirmTemplate.replace('{{value}}', entry.label || entry.value)
-    if (!window.confirm(message)) return
+    const confirmed = await confirm({
+      title: message,
+      variant: 'destructive',
+    })
+    if (!confirmed) return
     try {
       await apiCallOrThrow(
         `/api/customers/dictionaries/${kind}/${encodeURIComponent(entry.id)}`,
@@ -201,7 +207,7 @@ function CustomerDictionarySection({ kind, title, description }: CustomerDiction
       const messageValue = err instanceof Error ? err.message : errorDelete
       flash(messageValue, 'error')
     }
-  }, [deleteConfirmTemplate, errorDelete, inheritedActionBlocked, kind, loadEntries, successDelete])
+  }, [confirm, deleteConfirmTemplate, errorDelete, inheritedActionBlocked, kind, loadEntries, successDelete])
 
   const submitForm = React.useCallback(async (values: DictionaryFormValues) => {
     const payload = {
@@ -345,6 +351,7 @@ function CustomerDictionarySection({ kind, title, description }: CustomerDiction
           />
         </DialogContent>
       </Dialog>
+      {ConfirmDialogElement}
     </section>
   )
 }

@@ -13,6 +13,7 @@ import { SwitchableMarkdownInput } from '../inputs/SwitchableMarkdownInput'
 import { ErrorMessage } from './ErrorMessage'
 import { LoadingMessage } from './LoadingMessage'
 import { TabEmptyState } from './TabEmptyState'
+import { useConfirmDialog } from '../confirm-dialog'
 
 type Translator = (key: string, fallback?: string, params?: Record<string, string | number>) => string
 
@@ -317,6 +318,7 @@ export function NotesSection<C = unknown>({
   writeMarkdownPreference,
   disableMarkdown,
 }: NotesSectionProps<C>) {
+  const { confirm, ConfirmDialogElement } = useConfirmDialog()
   const t = React.useMemo<Translator>(() => translator ?? ((key, fallback) => fallback ?? key), [translator])
   const label = React.useCallback(
     (suffix: string, fallback?: string, params?: Record<string, string | number>) =>
@@ -709,10 +711,11 @@ export function NotesSection<C = unknown>({
 
   const handleDeleteNote = React.useCallback(
     async (note: CommentSummary) => {
-      const confirmed =
-        typeof window === 'undefined'
-          ? true
-          : window.confirm(label('deleteConfirm', 'Delete this note? This action cannot be undone.'))
+      const confirmed = await confirm({
+        title: label('deleteConfirm', 'Delete this note?'),
+        text: 'This action cannot be undone.',
+        variant: 'destructive',
+      })
       if (!confirmed) return
       setDeletingNoteId(note.id)
       pushLoading()
@@ -728,7 +731,7 @@ export function NotesSection<C = unknown>({
         popLoading()
       }
     },
-    [dataAdapter, dataContext, popLoading, pushLoading, t],
+    [confirm, dataAdapter, dataContext, label, popLoading, pushLoading],
   )
 
   const handleSubmit = React.useCallback(
@@ -1270,6 +1273,7 @@ export function NotesSection<C = unknown>({
         savingLabel={appearanceDialogSavingLabel}
         cancelLabel={label('appearance.cancel')}
       />
+      {ConfirmDialogElement}
     </div>
   )
 }

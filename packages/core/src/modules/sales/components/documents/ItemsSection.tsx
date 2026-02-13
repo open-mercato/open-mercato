@@ -16,6 +16,7 @@ import {
 } from '@open-mercato/core/modules/dictionaries/components/dictionaryAppearance'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { useOrganizationScopeDetail } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
+import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
 import { emitSalesDocumentTotalsRefresh } from '@open-mercato/core/modules/sales/lib/frontend/documentTotalsEvents'
 import { LineItemDialog } from './LineItemDialog'
 import type { SalesLineRecord } from './lineItemTypes'
@@ -44,6 +45,7 @@ export function SalesDocumentItemsSection({
 }: SalesDocumentItemsSectionProps) {
   const t = useT()
   const { organizationId, tenantId } = useOrganizationScopeDetail()
+  const { confirm, ConfirmDialogElement } = useConfirmDialog()
   const resolvedOrganizationId = orgFromProps ?? organizationId ?? null
   const resolvedTenantId = tenantFromProps ?? tenantId ?? null
   const [items, setItems] = React.useState<SalesLineRecord[]>([])
@@ -304,9 +306,10 @@ export function SalesDocumentItemsSection({
 
   const handleDelete = React.useCallback(
     async (line: SalesLineRecord) => {
-      const confirmed =
-        typeof window === 'undefined' ||
-        window.confirm(t('sales.documents.items.deleteConfirm', 'Delete this line item?'))
+      const confirmed = await confirm({
+        title: t('sales.documents.items.deleteConfirm', 'Delete this line item?'),
+        variant: 'destructive',
+      })
       if (!confirmed) return
       try {
         const result = await deleteCrud(resourcePath, {
@@ -330,7 +333,7 @@ export function SalesDocumentItemsSection({
         flash(normalized.message || fallback, 'error')
       }
     },
-    [documentId, documentKey, kind, loadItems, resolvedOrganizationId, resourcePath, t, resolvedTenantId],
+    [confirm, documentId, documentKey, kind, loadItems, resolvedOrganizationId, resourcePath, t, resolvedTenantId],
   )
 
   const renderStatus = React.useCallback(
@@ -539,6 +542,7 @@ export function SalesDocumentItemsSection({
           emitSalesDocumentTotalsRefresh({ documentId, kind })
         }}
       />
+      {ConfirmDialogElement}
     </div>
   )
 }

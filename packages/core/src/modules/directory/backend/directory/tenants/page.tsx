@@ -12,6 +12,7 @@ import { Button } from '@open-mercato/ui/primitives/button'
 import { apiCall, readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { raiseCrudError } from '@open-mercato/ui/backend/utils/serverErrors'
+import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
 import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 
@@ -34,6 +35,7 @@ type TenantsResponse = {
 
 export default function DirectoryTenantsPage() {
   const queryClient = useQueryClient()
+  const { confirm, ConfirmDialogElement } = useConfirmDialog()
   const [sorting, setSorting] = React.useState<SortingState>([{ id: 'name', desc: false }])
   const [page, setPage] = React.useState(1)
   const [search, setSearch] = React.useState('')
@@ -114,7 +116,14 @@ export default function DirectoryTenantsPage() {
   const totalPages = data?.totalPages ?? 1
 
   const handleDelete = React.useCallback(async (tenant: TenantRow) => {
-    if (!window.confirm(t('directory.tenants.list.confirmDelete', 'Delete tenant "{{name}}"? This will archive it.').replace('{{name}}', tenant.name))) return
+    const confirmMessage = t('directory.tenants.list.confirmDelete', 'Delete tenant "{{name}}"? This will archive it.').replace('{{name}}', tenant.name)
+    const confirmed = await confirm({
+      title: t('common.delete', 'Delete'),
+      text: confirmMessage,
+      variant: 'destructive',
+    })
+    if (!confirmed) return
+
     try {
       const call = await apiCall(
         `/api/directory/tenants?id=${encodeURIComponent(tenant.id)}`,
@@ -129,7 +138,7 @@ export default function DirectoryTenantsPage() {
       const message = err instanceof Error ? err.message : t('directory.tenants.list.error.delete', 'Failed to delete tenant')
       flash(message, 'error')
     }
-  }, [queryClient, t])
+  }, [confirm, queryClient, t])
 
   return (
     <Page>
@@ -170,6 +179,7 @@ export default function DirectoryTenantsPage() {
           isLoading={isLoading}
         />
       </PageBody>
+      {ConfirmDialogElement}
     </Page>
   )
 }

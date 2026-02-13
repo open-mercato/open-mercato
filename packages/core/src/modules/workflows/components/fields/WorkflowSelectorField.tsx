@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Badge } from '@open-mercato/ui/primitives/badge'
 import { Label } from '@open-mercato/ui/primitives/label'
@@ -45,6 +46,7 @@ export function WorkflowSelectorField({
   description: descriptionProp,
 }: WorkflowSelectorFieldProps) {
   const t = useT()
+  const { confirm, ConfirmDialogElement } = useConfirmDialog()
   const label = labelProp ?? t('workflows.fieldEditors.workflowSelector.label')
   const description = descriptionProp ?? t('workflows.fieldEditors.workflowSelector.description')
   const [isModalOpen, setIsModalOpen] = useState(false)
@@ -102,10 +104,14 @@ export function WorkflowSelectorField({
     setIsModalOpen(false)
   }
 
-  const handleClear = () => {
-    if (typeof window !== 'undefined' && !window.confirm(t('workflows.fieldEditors.workflowSelector.confirmClear'))) {
-      return
-    }
+  const handleClear = async () => {
+    const confirmed = await confirm({
+      title: t('workflows.common.clear'),
+      text: t('workflows.fieldEditors.workflowSelector.confirmClear'),
+      variant: 'default',
+    })
+    if (!confirmed) return
+
     setValue('')
     setWorkflowDetails(null)
   }
@@ -224,6 +230,7 @@ export function WorkflowSelectorField({
         description={t('workflows.fieldEditors.workflowSelector.selectSubWorkflowDescription')}
         onlyEnabled={true}
       />
+      {ConfirmDialogElement}
     </div>
   )
 }

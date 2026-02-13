@@ -2,6 +2,7 @@
 
 import { useState } from 'react'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Badge } from '@open-mercato/ui/primitives/badge'
 import { Input } from '@open-mercato/ui/primitives/input'
@@ -47,6 +48,7 @@ export function FormFieldArrayEditor({
   isJsonSchemaFormat = false,
 }: FormFieldArrayEditorProps) {
   const t = useT()
+  const { confirm, ConfirmDialogElement } = useConfirmDialog()
   const [expandedIndices, setExpandedIndices] = useState<Set<number>>(new Set())
 
   const formFields = Array.isArray(value) ? value : []
@@ -78,10 +80,14 @@ export function FormFieldArrayEditor({
     setExpandedIndices(newExpanded)
   }
 
-  const removeFormField = (index: number) => {
-    if (typeof window !== 'undefined' && !window.confirm(t('workflows.fieldEditors.formFields.confirmRemove'))) {
-      return
-    }
+  const removeFormField = async (index: number) => {
+    const confirmed = await confirm({
+      title: t('workflows.fieldEditors.formFields.removeField'),
+      text: t('workflows.fieldEditors.formFields.confirmRemove'),
+      variant: 'destructive',
+    })
+    if (!confirmed) return
+
     const newFields = formFields.filter((_, i) => i !== index)
     setValue(newFields)
 
@@ -330,6 +336,7 @@ export function FormFieldArrayEditor({
           })}
         </div>
       )}
+      {ConfirmDialogElement}
     </div>
   )
 }

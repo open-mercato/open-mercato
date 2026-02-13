@@ -14,6 +14,7 @@ import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { E } from '#generated/entities.ids.generated'
 import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
 import type { FilterDef, FilterValues } from '@open-mercato/ui/backend/FilterBar'
 import type { FilterOption } from '@open-mercato/ui/backend/FilterOverlay'
 import {
@@ -119,6 +120,7 @@ function mapApiItem(item: Record<string, unknown>): PersonRow | null {
 }
 
 export default function CustomersPeoplePage() {
+  const { confirm, ConfirmDialogElement } = useConfirmDialog()
   const [rows, setRows] = React.useState<PersonRow[]>([])
   const [page, setPage] = React.useState(1)
   const [pageSize] = React.useState(20)
@@ -420,7 +422,10 @@ export default function CustomersPeoplePage() {
   const handleDelete = React.useCallback(async (person: PersonRow) => {
     if (!person?.id) return
     const name = person.name || t('customers.people.list.deleteFallbackName')
-    const confirmed = window.confirm(t('customers.people.list.deleteConfirm', undefined, { name }))
+    const confirmed = await confirm({
+      title: t('customers.people.list.deleteConfirm', undefined, { name }),
+      variant: 'destructive',
+    })
     if (!confirmed) return
     try {
       await apiCallOrThrow(
@@ -439,7 +444,7 @@ export default function CustomersPeoplePage() {
       const message = err instanceof Error ? err.message : t('customers.people.list.deleteError')
       flash(message, 'error')
     }
-  }, [handleRefresh, t])
+  }, [confirm, handleRefresh, t])
 
   const handleFiltersApply = React.useCallback((values: FilterValues) => {
     const next: FilterValues = {}
@@ -636,6 +641,7 @@ export default function CustomersPeoplePage() {
           isLoading={isLoading}
         />
       </PageBody>
+      {ConfirmDialogElement}
     </Page>
   )
 }

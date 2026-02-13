@@ -7,6 +7,7 @@ import { fetchCrudList, updateCrud, deleteCrud } from '@open-mercato/ui/backend/
 import { pushWithFlash } from '@open-mercato/ui/backend/utils/flash'
 import type { TodoListItem } from '../../../../types'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
 
 type TodoItem = TodoListItem
 type TodoCustomFieldValues = Record<`cf_${string}`, unknown>
@@ -19,6 +20,7 @@ type TodoFormValues = {
 export default function EditTodoPage({ params }: { params?: { id?: string } }) {
   const t = useT()
   const router = useRouter()
+  const { confirm, ConfirmDialogElement } = useConfirmDialog()
   const id = params?.id
   const [initial, setInitial] = React.useState<TodoFormValues | null>(null)
   const [loading, setLoading] = React.useState(true)
@@ -134,7 +136,11 @@ export default function EditTodoPage({ params }: { params?: { id?: string } }) {
             onSubmit={async (vals) => { await updateCrud('example/todos', vals) }}
             onDelete={async () => {
               if (!id) return
-              if (!window.confirm(t('example.todos.table.confirm.delete'))) return
+              const confirmed = await confirm({
+                title: t('example.todos.table.confirm.delete'),
+                variant: 'destructive',
+              })
+              if (!confirmed) return
               try {
                 await deleteCrud('example/todos', String(id))
                 pushWithFlash(router, '/backend/todos', t('example.todos.form.flash.deleted'), 'success')
@@ -147,6 +153,7 @@ export default function EditTodoPage({ params }: { params?: { id?: string } }) {
           />
         )}
       </PageBody>
+      {ConfirmDialogElement}
     </Page>
   )
 }

@@ -13,6 +13,7 @@ import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { apiCallOrThrow, readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
+import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
 import { NotesSection, type SectionAction } from '@open-mercato/ui/backend/detail'
 import { ActivitiesSection } from '../../../../components/detail/ActivitiesSection'
 import { DealForm, type DealFormSubmitPayload } from '../../../../components/detail/DealForm'
@@ -93,6 +94,7 @@ function resolveDictionaryLabel(
 
 export default function DealDetailPage({ params }: { params?: { id?: string } }) {
   const t = useT()
+  const { confirm, ConfirmDialogElement } = useConfirmDialog()
   const detailTranslator = React.useMemo(() => createTranslatorWithFallback(t), [t])
   const notesAdapter = React.useMemo(() => createCustomerNotesAdapter(detailTranslator), [detailTranslator])
   const router = useRouter()
@@ -243,15 +245,13 @@ export default function DealDetailPage({ params }: { params?: { id?: string } })
 
   const handleDelete = React.useCallback(async () => {
     if (!data || isDeleting) return
-    const confirmed =
-      typeof window === 'undefined'
-        ? true
-        : window.confirm(
-            t(
-              'customers.deals.detail.deleteConfirm',
-              'Delete this deal? This action cannot be undone.',
-            ),
-          )
+    const confirmed = await confirm({
+      title: t(
+        'customers.deals.detail.deleteConfirm',
+        'Delete this deal? This action cannot be undone.',
+      ),
+      variant: 'destructive',
+    })
     if (!confirmed) return
 
     setIsDeleting(true)
@@ -276,7 +276,7 @@ export default function DealDetailPage({ params }: { params?: { id?: string } })
     } finally {
       setIsDeleting(false)
     }
-  }, [data, isDeleting, router, t])
+  }, [confirm, data, isDeleting, router, t])
 
   React.useEffect(() => {
     setSectionAction(null)
@@ -636,6 +636,7 @@ export default function DealDetailPage({ params }: { params?: { id?: string } })
           </div>
         </div>
       </PageBody>
+      {ConfirmDialogElement}
     </Page>
   )
 }

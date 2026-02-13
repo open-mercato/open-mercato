@@ -17,6 +17,7 @@ import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { useQueryClient } from '@tanstack/react-query'
 import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
 import { AppearanceSelector, useAppearanceState } from './AppearanceSelector'
 import { DictionaryValue } from './dictionaryAppearance'
 import {
@@ -43,6 +44,7 @@ type FormState = {
 
 export function DictionaryEntriesEditor({ dictionaryId, dictionaryName, readOnly = false }: DictionaryEntriesEditorProps) {
   const t = useT()
+  const { confirm, ConfirmDialogElement } = useConfirmDialog()
   const readOnlyMessage = t('dictionaries.config.entries.readOnly', 'Inherited dictionaries are managed at the parent organization.')
   const queryClient = useQueryClient()
   const scopeVersion = useOrganizationScopeVersion()
@@ -179,9 +181,10 @@ export function DictionaryEntriesEditor({ dictionaryId, dictionaryName, readOnly
         return
       }
       if (!entry.id) return
-      const confirmDelete = window.confirm(
-        t('dictionaries.config.entries.delete.confirm', 'Delete "{{value}}"?', { value: entry.label || entry.value }),
-      )
+      const confirmDelete = await confirm({
+        title: t('dictionaries.config.entries.delete.confirm', 'Delete "{{value}}"?', { value: entry.label || entry.value }),
+        variant: 'destructive',
+      })
       if (!confirmDelete) return
       setIsDeleting(true)
       try {
@@ -203,7 +206,7 @@ export function DictionaryEntriesEditor({ dictionaryId, dictionaryName, readOnly
         setIsDeleting(false)
       }
     },
-    [dictionaryId, queryClient, readOnly, readOnlyMessage, t],
+    [confirm, dictionaryId, queryClient, readOnly, readOnlyMessage, t],
   )
 
   const tableContent = React.useMemo(() => {
@@ -423,6 +426,7 @@ export function DictionaryEntriesEditor({ dictionaryId, dictionaryName, readOnly
           </DialogFooter>
         </DialogContent>
       </Dialog>
+      {ConfirmDialogElement}
     </div>
   )
 }

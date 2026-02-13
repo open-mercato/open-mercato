@@ -13,6 +13,7 @@ import { deleteCrud, updateCrud } from "@open-mercato/ui/backend/utils/crud";
 import { Button } from "@open-mercato/ui/primitives/button";
 import { Badge } from "@open-mercato/ui/primitives/badge";
 import Link from "next/link";
+import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog';
 import { FeatureToggleType } from "../data/entities";
 
 type Row = {
@@ -28,6 +29,7 @@ type BadgeVariant = 'default' | 'secondary' | 'destructive' | 'outline' | 'muted
 
 export function FeatureTogglesTable() {
   const t = useT()
+  const { confirm, ConfirmDialogElement } = useConfirmDialog()
   const queryClient = useQueryClient()
 
   const featureToggleTypeLabelMap = React.useMemo(() => new Map<FeatureToggleType, { label: string; variant: BadgeVariant }>([
@@ -132,9 +134,13 @@ export function FeatureTogglesTable() {
   })
 
   const handleDelete = React.useCallback(async (row: Row) => {
-    if (!window.confirm(t('feature_toggles.list.confirmDelete', 'Delete feature toggle "{identifier}"?', { identifier: row.identifier }))) return
+    const confirmed = await confirm({
+      title: t('feature_toggles.list.confirmDelete', 'Delete feature toggle "{identifier}"?', { identifier: row.identifier }),
+      variant: 'destructive',
+    })
+    if (!confirmed) return
     await deleteFeatureToggleMutation.mutateAsync(row)
-  }, [deleteFeatureToggleMutation, t])
+  }, [confirm, deleteFeatureToggleMutation, t])
 
   const columns = React.useMemo<ColumnDef<Row>[]>(() => {
     const base: ColumnDef<Row>[] = [
@@ -176,8 +182,9 @@ export function FeatureTogglesTable() {
   }, [t, featureToggleTypeLabelMap])
 
   return (
-    <DataTable
-      title={t('feature_toggles.global.help.title', 'Feature Toggles')}
+    <>
+      <DataTable
+        title={t('feature_toggles.global.help.title', 'Feature Toggles')}
       disableRowClick
       actions={
         <Button asChild>
@@ -210,6 +217,8 @@ export function FeatureTogglesTable() {
           { id: 'delete', label: t('common.delete', 'Delete'), destructive: true, onSelect: () => { void handleDelete(row) } },
         ]} />
       )}
-    />
+      />
+      {ConfirmDialogElement}
+    </>
   )
 }

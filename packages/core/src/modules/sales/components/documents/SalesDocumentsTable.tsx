@@ -14,6 +14,7 @@ import { buildCrudExportUrl, deleteCrud } from '@open-mercato/ui/backend/utils/c
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
 import { E } from '#generated/entities.ids.generated'
 import {
   DictionaryValue,
@@ -141,6 +142,7 @@ export function SalesDocumentsTable({ kind }: { kind: SalesDocumentKind }) {
   const t = useT()
   const router = useRouter()
   const scopeVersion = useOrganizationScopeVersion()
+  const { confirm, ConfirmDialogElement } = useConfirmDialog()
   const [rows, setRows] = React.useState<SalesDocumentRow[]>([])
   const [page, setPage] = React.useState(1)
   const [total, setTotal] = React.useState(0)
@@ -529,7 +531,11 @@ export function SalesDocumentsTable({ kind }: { kind: SalesDocumentKind }) {
               'sales.documents.list.table.deleteQuoteConfirm',
               'Delete this sales quote? Related addresses, comments, and items will be removed.'
             )
-      if (typeof window !== 'undefined' && !window.confirm(confirmMessage)) return
+      const confirmed = await confirm({
+        title: confirmMessage,
+        variant: 'destructive',
+      })
+      if (!confirmed) return
       try {
         const result = await deleteCrud(`sales/${resource}`, row.id, {
           errorMessage: t('sales.documents.list.table.deleteError', 'Failed to delete document.'),
@@ -548,7 +554,7 @@ export function SalesDocumentsTable({ kind }: { kind: SalesDocumentKind }) {
         flash(t('sales.documents.list.table.deleteError', 'Failed to delete document.'), 'error')
       }
     },
-    [handleRefresh, kind, resource, t]
+    [confirm, handleRefresh, kind, resource, t]
   )
 
   const handleRowClick = React.useCallback((row: SalesDocumentRow) => {
@@ -722,6 +728,7 @@ export function SalesDocumentsTable({ kind }: { kind: SalesDocumentKind }) {
           }
         />
       </PageBody>
+      {ConfirmDialogElement}
     </Page>
   )
 }

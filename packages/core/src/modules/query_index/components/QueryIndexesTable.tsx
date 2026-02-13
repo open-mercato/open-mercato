@@ -8,6 +8,7 @@ import { Button } from '@open-mercato/ui/primitives/button'
 import { apiCallOrThrow, readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
 
 type Translator = (key: string, params?: Record<string, string | number>) => string
 
@@ -223,6 +224,7 @@ export default function QueryIndexesTable() {
   const scopeVersion = useOrganizationScopeVersion()
   const [refreshSeq, setRefreshSeq] = React.useState(0)
   const t = useT()
+  const { confirm, ConfirmDialogElement } = useConfirmDialog()
   const columns = React.useMemo(() => createColumns(t), [t])
 
   const { data, isLoading } = useQuery<Resp>({
@@ -273,8 +275,11 @@ export default function QueryIndexesTable() {
 
   const triggerVector = React.useCallback(
     async (action: 'reindex' | 'purge', entityId: string) => {
-      if (action === 'purge' && typeof window !== 'undefined') {
-        const confirmed = window.confirm(t('query_index.table.confirm.vectorPurge'))
+      if (action === 'purge') {
+        const confirmed = await confirm({
+          title: t('query_index.table.confirm.vectorPurge'),
+          variant: 'destructive',
+        })
         if (!confirmed) return
       }
 
@@ -302,13 +307,16 @@ export default function QueryIndexesTable() {
       }
       qc.invalidateQueries({ queryKey: ['query-index-status'] })
     },
-    [qc, t],
+    [confirm, qc, t],
   )
 
   const triggerFulltext = React.useCallback(
     async (action: 'reindex' | 'purge', entityId: string) => {
-      if (action === 'purge' && typeof window !== 'undefined') {
-        const confirmed = window.confirm(t('query_index.table.confirm.fulltextPurge'))
+      if (action === 'purge') {
+        const confirmed = await confirm({
+          title: t('query_index.table.confirm.fulltextPurge'),
+          variant: 'destructive',
+        })
         if (!confirmed) return
       }
 
@@ -334,89 +342,92 @@ export default function QueryIndexesTable() {
       }
       qc.invalidateQueries({ queryKey: ['query-index-status'] })
     },
-    [qc, t],
+    [confirm, qc, t],
   )
 
   return (
-    <DataTable
-      title={t('query_index.nav.queryIndexes')}
-      actions={(
-        <>
-          <Button
-            variant="outline"
-            onClick={() => {
-              setRefreshSeq((v) => v + 1)
-              qc.invalidateQueries({ queryKey: ['query-index-status'] })
-            }}
-          >
-            {t('query_index.table.refresh')}
-          </Button>
-        </>
-      )}
-      columns={columns}
-      data={rows}
-      searchValue={search}
-      searchPlaceholder={t('query_index.table.searchPlaceholder')}
-      onSearchChange={(value) => {
-        setSearch(value)
-        setPage(1)
-      }}
-      sortable
-      sorting={sorting}
-      onSortingChange={setSorting}
-      perspective={{ tableId: 'query_index.status.list' }}
-      rowActions={(row) => {
-        const items: Array<{ id: string; label: string; onSelect: () => void; destructive?: boolean }> = [
-          { id: 'reindex', label: t('query_index.table.actions.reindex'), onSelect: () => trigger('reindex', row.entityId) },
-          {
-            id: 'reindex-force',
-            label: t('query_index.table.actions.reindexForce'),
-            onSelect: () => trigger('reindex', row.entityId, { force: true }),
-          },
-          {
-            id: 'purge',
-            label: t('query_index.table.actions.purge'),
-            destructive: true,
-            onSelect: () => trigger('purge', row.entityId),
-          },
-        ]
-
-        if (row.vectorEnabled) {
-          items.push(
+    <>
+      <DataTable
+        title={t('query_index.nav.queryIndexes')}
+        actions={(
+          <>
+            <Button
+              variant="outline"
+              onClick={() => {
+                setRefreshSeq((v) => v + 1)
+                qc.invalidateQueries({ queryKey: ['query-index-status'] })
+              }}
+            >
+              {t('query_index.table.refresh')}
+            </Button>
+          </>
+        )}
+        columns={columns}
+        data={rows}
+        searchValue={search}
+        searchPlaceholder={t('query_index.table.searchPlaceholder')}
+        onSearchChange={(value) => {
+          setSearch(value)
+          setPage(1)
+        }}
+        sortable
+        sorting={sorting}
+        onSortingChange={setSorting}
+        perspective={{ tableId: 'query_index.status.list' }}
+        rowActions={(row) => {
+          const items: Array<{ id: string; label: string; onSelect: () => void; destructive?: boolean }> = [
+            { id: 'reindex', label: t('query_index.table.actions.reindex'), onSelect: () => trigger('reindex', row.entityId) },
             {
-              id: 'vector-reindex',
-              label: t('query_index.table.actions.vectorReindex'),
-              onSelect: () => triggerVector('reindex', row.entityId),
+              id: 'reindex-force',
+              label: t('query_index.table.actions.reindexForce'),
+              onSelect: () => trigger('reindex', row.entityId, { force: true }),
             },
             {
-              id: 'vector-purge',
-              label: t('query_index.table.actions.vectorPurge'),
+              id: 'purge',
+              label: t('query_index.table.actions.purge'),
               destructive: true,
-              onSelect: () => triggerVector('purge', row.entityId),
+              onSelect: () => trigger('purge', row.entityId),
             },
-          )
-        }
+          ]
 
-        if (row.fulltextEnabled) {
-          items.push(
-            {
-              id: 'fulltext-reindex',
-              label: t('query_index.table.actions.fulltextReindex'),
-              onSelect: () => triggerFulltext('reindex', row.entityId),
-            },
-            {
-              id: 'fulltext-purge',
-              label: t('query_index.table.actions.fulltextPurge'),
-              destructive: true,
-              onSelect: () => triggerFulltext('purge', row.entityId),
-            },
-          )
-        }
+          if (row.vectorEnabled) {
+            items.push(
+              {
+                id: 'vector-reindex',
+                label: t('query_index.table.actions.vectorReindex'),
+                onSelect: () => triggerVector('reindex', row.entityId),
+              },
+              {
+                id: 'vector-purge',
+                label: t('query_index.table.actions.vectorPurge'),
+                destructive: true,
+                onSelect: () => triggerVector('purge', row.entityId),
+              },
+            )
+          }
 
-        return <RowActions items={items} />
-      }}
-      pagination={{ page, pageSize: 50, total: rows.length, totalPages: 1, onPageChange: setPage }}
-      isLoading={isLoading}
-    />
+          if (row.fulltextEnabled) {
+            items.push(
+              {
+                id: 'fulltext-reindex',
+                label: t('query_index.table.actions.fulltextReindex'),
+                onSelect: () => triggerFulltext('reindex', row.entityId),
+              },
+              {
+                id: 'fulltext-purge',
+                label: t('query_index.table.actions.fulltextPurge'),
+                destructive: true,
+                onSelect: () => triggerFulltext('purge', row.entityId),
+              },
+            )
+          }
+
+          return <RowActions items={items} />
+        }}
+        pagination={{ page, pageSize: 50, total: rows.length, totalPages: 1, onPageChange: setPage }}
+        isLoading={isLoading}
+      />
+      {ConfirmDialogElement}
+    </>
   )
 }
