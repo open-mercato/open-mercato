@@ -11,6 +11,10 @@ type ModuleMetadata = {
 const SKIP_DIRS = new Set(['__tests__', '__mocks__', 'node_modules'])
 const SOURCE_FILE_EXTENSIONS = ['.ts', '.tsx', '.js', '.jsx', '.mjs', '.cjs']
 
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+}
+
 function collectSourceFiles(dir: string): string[] {
   const files: string[] = []
   const entries = fs.readdirSync(dir, { withFileTypes: true })
@@ -178,18 +182,19 @@ export function updateModulesTs(modulesPath: string, moduleId: string): void {
   }
 
   const source = fs.readFileSync(modulesPath, 'utf8')
+  const escapedModuleId = escapeRegExp(moduleId)
 
   // Match the module entry and replace its `from` value with '@app'
   // Handles patterns like: { id: 'currencies', from: '@open-mercato/core' }
   const pattern = new RegExp(
-    `(\\{\\s*id:\\s*['"]${moduleId}['"]\\s*,\\s*from:\\s*)'([^']*)'`,
+    `(\\{\\s*id:\\s*['"]${escapedModuleId}['"]\\s*,\\s*from:\\s*)'([^']*)'`,
   )
   const patternDouble = new RegExp(
-    `(\\{\\s*id:\\s*['"]${moduleId}['"]\\s*,\\s*from:\\s*)"([^"]*)"`,
+    `(\\{\\s*id:\\s*['"]${escapedModuleId}['"]\\s*,\\s*from:\\s*)"([^"]*)"`,
   )
   // Handle entries without an explicit `from`, e.g. { id: 'currencies' }
   const patternNoFrom = new RegExp(
-    `(\\{[^}]*id:\\s*['"]${moduleId}['"][^}]*)(?![^}]*\\bfrom\\b)\\}`,
+    `(\\{[^}]*id:\\s*['"]${escapedModuleId}['"][^}]*)(?![^}]*\\bfrom\\b)\\}`,
   )
 
   let updated: string
