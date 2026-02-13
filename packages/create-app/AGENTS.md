@@ -59,7 +59,7 @@ yarn dev
 
 1. Make changes in monorepo packages
 2. Run `yarn registry:publish` to republish to Verdaccio
-3. In standalone app: `rm -rf node_modules .next && yarn install && yarn dev`
+3. In standalone app: `rm -rf node_modules .mercato/next && yarn install && yarn dev`
 4. Verify the app starts and affected features work
 5. Test `yarn generate` produces correct output from compiled files
 

@@ -509,9 +509,7 @@ const processActivities: ModuleCli = {
       const { WORKFLOW_ACTIVITIES_QUEUE_NAME } = await import('./lib/activity-queue-types')
 
       // Create queue instance
-      const queue = createQueue(WORKFLOW_ACTIVITIES_QUEUE_NAME, 'local', {
-        baseDir: process.env.QUEUE_BASE_DIR || '.queue',
-      })
+      const queue = createQueue(WORKFLOW_ACTIVITIES_QUEUE_NAME, 'local')
 
       // Create handler
       const handler = createActivityWorkerHandler(em, container)

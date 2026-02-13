@@ -964,6 +964,8 @@ export async function run(argv = process.argv) {
 
           const processes: ChildProcess[] = []
           const autoSpawnWorkers = process.env.AUTO_SPAWN_WORKERS !== 'false'
+          const autoSpawnScheduler = process.env.AUTO_SPAWN_SCHEDULER !== 'false'
+          const queueStrategy = process.env.QUEUE_STRATEGY || 'local'
 
           function cleanup() {
             console.log('[server] Shutting down...')
@@ -1002,6 +1004,16 @@ export async function run(argv = process.argv) {
             processes.push(workerProcess)
           }
 
+          if (autoSpawnScheduler && queueStrategy === 'local') {
+            console.log('[server] Starting scheduler polling engine...')
+            const schedulerProcess = spawn('node', [mercatoBin, 'scheduler', 'start'], {
+              stdio: 'inherit',
+              env: process.env,
+              cwd: appDir,
+            })
+            processes.push(schedulerProcess)
+          }
+
           // Wait for any process to exit
           await Promise.race(
             processes.map(
@@ -1029,6 +1041,8 @@ export async function run(argv = process.argv) {
 
           const processes: ChildProcess[] = []
           const autoSpawnWorkers = process.env.AUTO_SPAWN_WORKERS !== 'false'
+          const autoSpawnScheduler = process.env.AUTO_SPAWN_SCHEDULER !== 'false'
+          const queueStrategy = process.env.QUEUE_STRATEGY || 'local'
 
           function cleanup() {
             console.log('[server] Shutting down...')
@@ -1065,6 +1079,16 @@ export async function run(argv = process.argv) {
               cwd: appDir,
             })
             processes.push(workerProcess)
+          }
+
+          if (autoSpawnScheduler && queueStrategy === 'local') {
+            console.log('[server] Starting scheduler polling engine...')
+            const schedulerProcess = spawn('node', [mercatoBin, 'scheduler', 'start'], {
+              stdio: 'inherit',
+              env: process.env,
+              cwd: appDir,
+            })
+            processes.push(schedulerProcess)
           }
 
           // Wait for any process to exit

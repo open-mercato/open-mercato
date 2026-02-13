@@ -521,7 +521,7 @@ yarn mercato search worker fulltext-indexing --concurrency=5
 yarn mercato search worker vector-indexing --concurrency=10
 ```
 
-For development with `QUEUE_STRATEGY=local`, jobs process from `.queue/` automatically.
+For development with `QUEUE_STRATEGY=local`, jobs process from `.mercato/queue/` automatically (or `QUEUE_BASE_DIR` if set).
 
 ## Use CLI Commands
 
