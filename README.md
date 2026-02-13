@@ -203,7 +203,7 @@ Yarn 4 is now required. Ensure you have Yarn 4+ installed before proceeding.
 
 This is a quickest way to get Open Mercato up and running on your localhost / server - ready for testing / demoing or for `Core development`!
 
-[![Watch on YouTube](https://img.youtube.com/vi/OsalmbiWQ-I/maxresdefault.jpg)](https://youtu.be/OsalmbiWQ-I)
+[![Watch on YouTube](https://img.youtube.com/vi/-ba8Bmc56EQ/maxresdefault.jpg)](https://youtu.be/-ba8Bmc56EQ)
 
 ### Installation update
 **Node.js 24.x is required**
