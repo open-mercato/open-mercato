@@ -1613,6 +1613,7 @@ export function CrudForm<TValues extends Record<string, unknown>>({
           </form>
         </DataLoader>
         {fieldsetManagerDialog}
+        {ConfirmDialogElement}
       </div>
     )
   }
