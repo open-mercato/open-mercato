@@ -9,6 +9,126 @@ type ModuleMetadata = {
 }
 
 const SKIP_DIRS = new Set(['__tests__', '__mocks__', 'node_modules'])
+const SOURCE_FILE_EXTENSIONS = ['.ts', '.tsx', '.js', '.jsx', '.mjs', '.cjs']
+
+function collectSourceFiles(dir: string): string[] {
+  const files: string[] = []
+  const entries = fs.readdirSync(dir, { withFileTypes: true })
+  for (const entry of entries) {
+    if (SKIP_DIRS.has(entry.name)) continue
+    const fullPath = path.join(dir, entry.name)
+    if (entry.isDirectory()) {
+      files.push(...collectSourceFiles(fullPath))
+      continue
+    }
+    const ext = path.extname(entry.name)
+    if (!SOURCE_FILE_EXTENSIONS.includes(ext)) continue
+    files.push(fullPath)
+  }
+  return files
+}
+
+function resolveRelativeImportTarget(sourceFile: string, importPath: string): string | null {
+  if (!importPath.startsWith('.')) return null
+
+  const basePath = path.resolve(path.dirname(sourceFile), importPath)
+  const candidates = [basePath]
+
+  for (const ext of SOURCE_FILE_EXTENSIONS) {
+    candidates.push(`${basePath}${ext}`)
+    candidates.push(path.join(basePath, `index${ext}`))
+  }
+
+  for (const candidate of candidates) {
+    if (fs.existsSync(candidate)) {
+      return candidate
+    }
+  }
+
+  return null
+}
+
+function rewriteRelativeSpecifier(
+  sourceFile: string,
+  specifier: string,
+  modulesRoot: string,
+  moduleId: string,
+  packageName: string,
+): string {
+  const resolvedTarget = resolveRelativeImportTarget(sourceFile, specifier)
+  if (!resolvedTarget) return specifier
+
+  const modulesRootPrefix = `${modulesRoot}${path.sep}`
+  if (!resolvedTarget.startsWith(modulesRootPrefix)) return specifier
+
+  const relativeFromModules = path.relative(modulesRoot, resolvedTarget)
+  let normalizedRelative = relativeFromModules.split(path.sep).join('/')
+  const matchedExt = SOURCE_FILE_EXTENSIONS.find((ext) => normalizedRelative.endsWith(ext))
+  if (matchedExt) {
+    normalizedRelative = normalizedRelative.slice(0, -matchedExt.length)
+  }
+  if (normalizedRelative.endsWith('/index')) {
+    normalizedRelative = normalizedRelative.slice(0, -'/index'.length)
+  }
+  const segments = normalizedRelative.split('/')
+  const targetModuleId = segments[0]
+
+  if (!targetModuleId || targetModuleId === moduleId) return specifier
+
+  return `${packageName}/modules/${normalizedRelative}`
+}
+
+export function rewriteCrossModuleImports(
+  pkgBase: string,
+  appBase: string,
+  moduleId: string,
+  packageName: string,
+): void {
+  const modulesRoot = path.resolve(pkgBase, '..')
+  const appFiles = collectSourceFiles(appBase)
+
+  for (const appFile of appFiles) {
+    const relativePath = path.relative(appBase, appFile)
+    const sourceFile = path.join(pkgBase, relativePath)
+
+    if (!fs.existsSync(sourceFile)) continue
+
+    const content = fs.readFileSync(appFile, 'utf8')
+    let updated = content
+
+    updated = updated.replace(
+      /(\bfrom\s*['"])([^'"]+)(['"])/g,
+      (_match, prefix: string, specifier: string, suffix: string) => {
+        const rewritten = rewriteRelativeSpecifier(
+          sourceFile,
+          specifier,
+          modulesRoot,
+          moduleId,
+          packageName,
+        )
+        return `${prefix}${rewritten}${suffix}`
+      },
+    )
+
+    updated = updated.replace(
+      /(\bimport\s*\(\s*['"])([^'"]+)(['"]\s*\))/g,
+      (_match, prefix: string, specifier: string, suffix: string) => {
+        const rewritten = rewriteRelativeSpecifier(
+          sourceFile,
+          specifier,
+          modulesRoot,
+          moduleId,
+          packageName,
+        )
+        return `${prefix}${rewritten}${suffix}`
+      },
+    )
+
+    if (updated !== content) {
+      fs.writeFileSync(appFile, updated)
+    }
+  }
+}
 
 export function parseModuleMetadata(indexPath: string): ModuleMetadata {
   if (!fs.existsSync(indexPath)) return {}
@@ -164,6 +284,7 @@ export function ejectModule(resolver: PackageResolver, moduleId: string): void {
   }
 
   copyDirRecursive(pkgBase, appBase)
+  rewriteCrossModuleImports(pkgBase, appBase, moduleId, entry.from || '@open-mercato/core')
 
   const modulesPath = resolver.getModulesConfigPath()
   updateModulesTs(modulesPath, moduleId)
