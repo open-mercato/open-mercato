@@ -1,4 +1,4 @@
-# SPEC-023: AI-Assisted Business Rule Editing
+# SPEC-025: AI-Assisted Business Rule Editing
 
 ## TLDR
 
