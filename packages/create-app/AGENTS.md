@@ -9,6 +9,7 @@ Use `packages/create-app` to scaffold standalone Open Mercato applications via `
 3. **MUST follow build order** — `yarn build:packages` → `yarn generate` → `yarn build:packages`
 4. **MUST build before publishing** — generators scan `node_modules/@open-mercato/*/dist/modules/` for `.js` files
 5. **MUST NOT break the standalone app template** — it's the user's first experience with Open Mercato
+6. **MUST sync template equivalents when app shell/layout files change** — when touching `apps/mercato/src/app/**` bootstrap/layout/provider wiring, update matching files in `packages/create-app/template/src/app/**` (and required template components) in the same task
 
 ## Standalone App vs Monorepo
 
@@ -18,6 +19,14 @@ Use `packages/create-app` to scaffold standalone Open Mercato applications via `
 | Package format | TypeScript source (`src/`) | Compiled JavaScript (`dist/`) |
 | Generators read from | `src/modules/*.ts` | `dist/modules/*.js` |
 | Module location | `apps/mercato/src/modules/` | `src/modules/` (app root) |
+
+## Template Sync Checklist
+
+When changes affect app shell behavior, verify all relevant template files are reviewed and updated:
+
+1. `apps/mercato/src/app/layout.tsx` ↔ `packages/create-app/template/src/app/layout.tsx`
+2. `apps/mercato/src/app/(backend)/backend/layout.tsx` ↔ `packages/create-app/template/src/app/(backend)/backend/layout.tsx`
+3. `apps/mercato/src/components/*` wrappers used by layouts ↔ `packages/create-app/template/src/components/*`
 
 ## Standalone App Structure
 
