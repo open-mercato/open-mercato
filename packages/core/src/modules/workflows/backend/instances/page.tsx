@@ -13,6 +13,7 @@ import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import type { FilterDef, FilterValues } from '@open-mercato/ui/backend/FilterBar'
+import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
 
 type WorkflowInstance = {
   id: string
@@ -51,6 +52,7 @@ export default function WorkflowInstancesListPage() {
   const t = useT()
   const router = useRouter()
   const queryClient = useQueryClient()
+  const { confirm: confirmDialog, ConfirmDialogElement } = useConfirmDialog()
   const [filterValues, setFilterValues] = React.useState<FilterValues>({})
 
   const { data, isLoading, error } = useQuery({
@@ -87,7 +89,11 @@ export default function WorkflowInstancesListPage() {
   })
 
   const handleCancel = async (id: string, workflowId: string) => {
-    if (!confirm(t('workflows.instances.confirm.cancel', { id: workflowId }))) {
+    const confirmed = await confirmDialog({
+      title: t('workflows.instances.confirm.cancel', { id: workflowId }),
+      variant: 'destructive',
+    })
+    if (!confirmed) {
       return
     }
 
@@ -104,7 +110,11 @@ export default function WorkflowInstancesListPage() {
   }
 
   const handleRetry = async (id: string, workflowId: string) => {
-    if (!confirm(t('workflows.instances.confirm.retry', { id: workflowId }))) {
+    const ok = await confirmDialog({
+      title: t('workflows.instances.confirm.retry', { id: workflowId }),
+      variant: 'default',
+    })
+    if (!ok) {
       return
     }
 
@@ -327,6 +337,7 @@ export default function WorkflowInstancesListPage() {
           pagination={{ page, pageSize, total, totalPages, onPageChange: setPage }}
         />
       </PageBody>
+      {ConfirmDialogElement}
     </Page>
   )
 }

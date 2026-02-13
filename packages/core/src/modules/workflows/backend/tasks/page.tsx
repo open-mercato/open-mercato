@@ -13,6 +13,7 @@ import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import type { FilterDef, FilterValues } from '@open-mercato/ui/backend/FilterBar'
+import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
 
 type UserTaskStatus = 'PENDING' | 'IN_PROGRESS' | 'COMPLETED' | 'CANCELLED'
 
@@ -59,6 +60,7 @@ export default function UserTasksListPage() {
   const t = useT()
   const router = useRouter()
   const queryClient = useQueryClient()
+  const { confirm: confirmDialog, ConfirmDialogElement } = useConfirmDialog()
   const [filterValues, setFilterValues] = React.useState<FilterValues>({
     myTasks: 'true', // Default to "My Tasks" view
   })
@@ -95,7 +97,11 @@ export default function UserTasksListPage() {
   })
 
   const handleClaim = async (id: string, taskName: string) => {
-    if (!confirm(t('workflows.tasks.confirm.claim', { name: taskName }))) {
+    const confirmed = await confirmDialog({
+      title: t('workflows.tasks.confirm.claim', { name: taskName }),
+      variant: 'default',
+    })
+    if (!confirmed) {
       return
     }
 
@@ -340,6 +346,7 @@ export default function UserTasksListPage() {
           pagination={{ page, pageSize, total, totalPages, onPageChange: setPage }}
         />
       </PageBody>
+      {ConfirmDialogElement}
     </Page>
   )
 }
