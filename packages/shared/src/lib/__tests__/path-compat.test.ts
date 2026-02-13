@@ -87,12 +87,13 @@ describe('Cross-platform path handling', () => {
   })
 
   describe('pathToFileURL conversion', () => {
-    it('converts Windows paths to file:// URLs', () => {
-      const windowsPath = 'C:\\work\\project\\file.js'
-      const url = pathToFileURL(windowsPath)
+    it('converts native absolute paths to file:// URLs', () => {
+      const nativeAbsolutePath = process.platform === 'win32'
+        ? 'C:\\work\\project\\file.js'
+        : '/work/project/file.js'
+      const url = pathToFileURL(nativeAbsolutePath)
       expect(url.protocol).toBe('file:')
       expect(url.href).toMatch(/^file:\/\/\//)
-      // The path should be normalized with forward slashes
       expect(url.href).toContain('/work/project/file.js')
     })
 
