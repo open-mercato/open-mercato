@@ -170,9 +170,11 @@ describe('utils', () => {
       ] as any)
       mockFs.readdirSync.mockReturnValueOnce([])
 
-      rimrafDir('/project/generated/test')
+      const testDir = '/project/generated/test'
+      rimrafDir(testDir)
 
-      expect(mockFs.unlinkSync).toHaveBeenCalledWith('/project/generated/test/file.txt')
+      // Use path.join to get platform-correct path separators
+      expect(mockFs.unlinkSync).toHaveBeenCalledWith(path.join(testDir, 'file.txt'))
       expect(mockFs.rmdirSync).toHaveBeenCalled()
     })
   })

@@ -6,7 +6,18 @@ import { fileURLToPath } from 'node:url'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 
-const entryPoints = await glob(join(__dirname, 'src/**/*.ts'), { ignore: ['**/__tests__/**', '**/*.test.ts'] })
+const entryPoints = await glob('src/**/*.ts', {
+  cwd: __dirname,
+  ignore: ['**/__tests__/**', '**/*.test.ts'],
+  absolute: true,
+})
+
+if (entryPoints.length === 0) {
+  console.error('No entry points found!')
+  process.exit(1)
+}
+
+console.log(`Found ${entryPoints.length} entry points`)
 
 // Plugin to add .js extension to relative imports
 const addJsExtension = {
@@ -14,7 +25,7 @@ const addJsExtension = {
   setup(build) {
     build.onEnd(async (result) => {
       if (result.errors.length > 0) return
-      const outputFiles = await glob(join(__dirname, 'dist/**/*.js'))
+      const outputFiles = await glob('dist/**/*.js', { cwd: __dirname, absolute: true })
       for (const file of outputFiles) {
         const fileDir = dirname(file)
         let content = readFileSync(file, 'utf-8')
@@ -57,7 +68,7 @@ const addJsExtension = {
 
 const outdir = join(__dirname, 'dist')
 
-await esbuild.build({
+const result = await esbuild.build({
   entryPoints,
   outdir,
   outbase: join(__dirname, 'src'),
@@ -66,8 +77,14 @@ await esbuild.build({
   target: 'node18',
   sourcemap: true,
   bundle: false,
+  write: true,
   plugins: [addJsExtension],
 })
+
+if (result.errors.length > 0) {
+  console.error('Build errors:', result.errors)
+  process.exit(1)
+}
 
 // Make bin.js executable with shebang
 const binPath = join(__dirname, 'dist/bin.js')
