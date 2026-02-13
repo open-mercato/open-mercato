@@ -180,7 +180,7 @@ export function ConfirmDialog({
           // Backdrop styling
           "backdrop:bg-black/50 backdrop:backdrop-blur-sm backdrop:transition-opacity",
           // Mobile: bottom sheet
-          "fixed inset-x-0 bottom-0 w-full",
+          "fixed inset-x-0 bottom-0 top-auto w-full",
           // Desktop: centered
           "sm:inset-auto sm:mx-auto sm:my-auto sm:max-w-md sm:top-1/2 sm:left-1/2 sm:-translate-x-1/2 sm:-translate-y-1/2",
           // Animation with reduced motion support
