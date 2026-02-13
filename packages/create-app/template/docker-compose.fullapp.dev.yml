@@ -1,0 +1,129 @@
+# Full stack with app in dev mode: mounted source + yarn dev (watch).
+# Usage: docker compose -f docker-compose.fullapp.dev.yml up --build
+
+services:
+  app:
+    build:
+      context: .
+      target: dev
+    image: open-mercato/app:${DEPLOY_ENV:-local}-dev
+    user: "0"
+    command: ["/bin/sh", "/app/docker/scripts/dev-entrypoint.sh"]
+    volumes:
+      - .:/app
+      - app_node_modules:/app/node_modules
+      - app_next:/app/.next
+      - init_marker:/tmp/init-marker
+      - attachments_storage:/app/storage
+    ports:
+      - "${APP_PORT:-3000}:3000"
+    environment:
+      CHOKIDAR_USEPOLLING: ${CHOKIDAR_USEPOLLING:-true}
+      WATCHPACK_POLLING: ${WATCHPACK_POLLING:-true}
+      REDIS_URL: redis://redis:6379
+      QUEUE_REDIS_URL: redis://redis:6379
+      TENANT_DATA_ENCRYPTION: ${TENANT_DATA_ENCRYPTION:-true}
+      TENANT_DATA_ENCRYPTION_DEBUG: ${TENANT_DATA_ENCRYPTION_DEBUG:-false}
+      TENANT_DATA_ENCRYPTION_FALLBACK_KEY: ${TENANT_DATA_ENCRYPTION_FALLBACK_KEY:-dev-tenant-encryption-fallback-key-32chars}
+      NODE_ENV: development
+      DEPLOY_ENV: ${DEPLOY_ENV:-local}
+      PORT: 3000
+      DATABASE_URL: postgres://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/${POSTGRES_DB:-open-mercato}
+      JWT_SECRET: ${JWT_SECRET:-JWT}
+      APP_URL: ${APP_URL:-http://localhost:3000}
+      CACHE_REDIS_URL: redis://redis:6379
+      CACHE_STRATEGY: ${CACHE_STRATEGY:-redis}
+      ENABLE_CRUD_API_CACHE: ${ENABLE_CRUD_API_CACHE:-true}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      MEILISEARCH_HOST: http://meilisearch:7700
+      MEILISEARCH_API_KEY: ${MEILISEARCH_API_KEY:-meilisearch-dev-key}
+      MEILISEARCH_MASTER_KEY: ${MEILISEARCH_MASTER_KEY:-meilisearch-dev-key}
+      NEXT_PUBLIC_UPGRADE_ACTIONS_ENABLED: ${NEXT_PUBLIC_UPGRADE_ACTIONS_ENABLED:-true}
+      UPGRADE_ACTIONS_ENABLED: ${UPGRADE_ACTIONS_ENABLED:-true}
+      SELF_SERVICE_ONBOARDING_ENABLED: ${SELF_SERVICE_ONBOARDING_ENABLED:-true}
+      DEMO_MODE: ${DEMO_MODE:-true}
+      RESEND_API_KEY: ${RESEND_API_KEY:-}
+      EMAIL_FROM: ${EMAIL_FROM:-}
+      TENANT_DATA_ENCRYPTION_KEY: ${TENANT_DATA_ENCRYPTION_KEY:-}
+      ADMIN_EMAIL: ${ADMIN_EMAIL:-admin@example.com}
+      OM_INIT_SUPERADMIN_EMAIL: ${OM_INIT_SUPERADMIN_EMAIL:-}
+      OM_INIT_SUPERADMIN_PASSWORD: ${OM_INIT_SUPERADMIN_PASSWORD:-password}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      meilisearch:
+        condition: service_healthy
+    networks:
+      - mercato-network-fullapp
+
+  postgres:
+    image: pgvector/pgvector:pg17-trixie
+    container_name: mercato-postgres-${DEPLOY_ENV:-local}
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+      POSTGRES_DB: ${POSTGRES_DB:-open-mercato}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - mercato-network-fullapp
+
+  redis:
+    image: redis:7-alpine
+    container_name: mercato-redis-${DEPLOY_ENV:-local}
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - mercato-network-fullapp
+
+  meilisearch:
+    image: getmeili/meilisearch:v1.11
+    container_name: mercato-meilisearch-${DEPLOY_ENV:-local}
+    restart: unless-stopped
+    environment:
+      MEILI_ENV: development
+      MEILI_MASTER_KEY: ${MEILISEARCH_MASTER_KEY:-meilisearch-dev-key}
+      MEILI_NO_ANALYTICS: "true"
+    volumes:
+      - meilisearch_data:/meili_data
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:7700/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - mercato-network-fullapp
+
+volumes:
+  postgres_data:
+    name: mercato-postgres-data-${DEPLOY_ENV:-local}
+  redis_data:
+    name: mercato-redis-data-${DEPLOY_ENV:-local}
+  meilisearch_data:
+    name: mercato-meilisearch-data-${DEPLOY_ENV:-local}
+  init_marker:
+    name: mercato-init-marker-${DEPLOY_ENV:-local}
+  attachments_storage:
+    name: mercato-attachments-storage-${DEPLOY_ENV:-local}
+  app_node_modules:
+    name: mercato-app-node-modules-${DEPLOY_ENV:-local}
+  app_next:
+    name: mercato-app-next-${DEPLOY_ENV:-local}
+
+networks:
+  mercato-network-fullapp:
+    name: mercato-network-${DEPLOY_ENV:-local}
+    driver: bridge
