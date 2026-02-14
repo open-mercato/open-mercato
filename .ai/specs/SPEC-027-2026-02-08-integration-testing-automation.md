@@ -1,11 +1,31 @@
-# SPEC-022: Integration Testing Automation
+# SPEC-027: Integration Testing Automation
 
 **Date:** 2026-02-08
-**Status:** Draft
+**Status:** Ready for implementation
 **Module:** QA infrastructure (`.ai/qa/`)
 **Related:** Scenarios in `.ai/qa/scenarios/TC-*.md`, tests in `.ai/qa/tests/`
 
 ---
+
+## TLDR
+
+Standardize integration testing around Playwright test files in `.ai/qa/tests/` and add an optional ephemeral runner in `packages/cli` backed by Testcontainers. Keep markdown scenarios optional. Make CI rely on executable tests (`yarn test:integration`) and support fully isolated execution (`yarn test:integration:ephemeral`) without a pre-running dev stack.
+
+## Problem Statement
+
+Current QA relies heavily on manual or AI-driven scenario execution. This creates inconsistent coverage, token cost, and regression risk. There is no single, deterministic command to run the whole integration suite in a disposable environment.
+
+## Proposed Solution
+
+Deliver in two phases with explicit boundaries:
+
+1. Phase 1: Playwright-first execution model with stable test structure, helpers, and local/CI runner (`yarn test:integration`).
+2. Phase 2: Deterministic ephemeral execution via CLI (`yarn mercato test:integration`) wrapped by `yarn test:integration:ephemeral`.
+
+Out of scope:
+
+- Replacing unit tests or e2e smoke tests outside `.ai/qa/tests`.
+- Introducing a new generic public `/api/health` endpoint in core modules.
 
 ## Overview
 
@@ -158,8 +178,11 @@ export async function getAuthToken(
   password = 'secret',
 ): Promise<string> {
   const response = await request.post(`${BASE_URL}/api/auth/login`, {
-    data: { email, password },
+    form: { email, password },
   });
+  if (!response.ok()) {
+    throw new Error(`Login failed with status ${response.status()}`);
+  }
   const body = await response.json();
   return body.token;
 }
@@ -220,7 +243,7 @@ Add to root `package.json`:
 
 ### 6. MCP Configuration for Playwright
 
-Add `.claude/settings.json` entry (project-level) so Claude Code agents have Playwright MCP available by default:
+Add Playwright MCP to `.claude/settings.local.json` (preferred local setup) or `.claude/settings.json` (project-level shared setup):
 
 ```json
 {
@@ -293,7 +316,7 @@ yarn test:integration:ephemeral
 │  2. Run database migrations (yarn db:migrate)       │
 │  3. Seed data (yarn initialize)                     │
 │  4. Build & start app in container                  │
-│  5. Wait for health check (GET /api/health)         │
+│  5. Wait for readiness check (GET /login)            │
 │  6. Run Playwright tests against container URL      │
 │  7. Collect results & artifacts                     │
 │  8. Tear down all containers                        │
@@ -332,20 +355,20 @@ Responsibilities:
 2. **Configure environment** — generate `.env.test` with the dynamic Postgres URL
 3. **Run migrations** — execute `yarn db:migrate` against the ephemeral DB
 4. **Seed data** — execute `yarn initialize` to create default tenant, users, seed data
-5. **Start the app** — run `yarn dev` or a production build against the ephemeral DB, wait for health check
+5. **Start the app** — run production mode only (`yarn build` once, then `yarn start`) against the ephemeral DB
 6. **Execute tests** — run Playwright with `BASE_URL` pointing to the ephemeral app
 7. **Collect artifacts** — copy test results, screenshots, traces to the host
 8. **Tear down** — stop and remove all containers (unless `--keep` flag)
 
 #### Health Check
 
-Before running tests, the orchestrator polls the app's health endpoint:
+Before running tests, the orchestrator polls a public readiness endpoint:
 
 ```
-GET http://localhost:{dynamic_port}/api/health
+GET http://localhost:{dynamic_port}/login
 ```
 
-Retry up to 60 seconds with 1-second intervals. Fail the run if the app doesn't respond.
+Retry up to 90 seconds with 1-second intervals. Treat 200/302 as ready. Fail the run if the app doesn't respond.
 
 #### Environment Variables (Ephemeral Mode)
 
@@ -363,7 +386,6 @@ Add as dev dependencies (root `package.json`):
 ```json
 {
   "devDependencies": {
-    "@playwright/test": "^1.50.0",
     "testcontainers": "^10.0.0"
   }
 }
@@ -467,19 +489,6 @@ jobs:
 | `CI` | - | When set, enables stricter timeouts |
 | `DATABASE_URL` | - | Overridden automatically in ephemeral mode |
 
-### Dependencies
-
-Add as dev dependencies (root `package.json`):
-
-```json
-{
-  "devDependencies": {
-    "@playwright/test": "^1.50.0",
-    "testcontainers": "^10.0.0"
-  }
-}
-```
-
 Install browsers:
 
 ```bash
@@ -540,6 +549,55 @@ npx playwright install chromium
 
 ---
 
+## Acceptance Criteria
+
+### Phase 1
+
+- `yarn test:integration` runs all `.ai/qa/tests/**/*.spec.ts` and exits non-zero on failure.
+- JSON and HTML reports are generated under `.ai/qa/tests/test-results/`.
+- At least one test in each currently present category folder executes (`auth`, `catalog`, `crm`, `sales`, `admin`, `api`, `integration`) if tests exist in that folder.
+
+### Phase 2
+
+- `yarn test:integration:ephemeral` starts a disposable Postgres and app runtime, runs tests, and tears down by default.
+- `--keep` preserves containers for debugging.
+- Runner uses production startup path only (no `yarn dev`) and exposes `BASE_URL` dynamically.
+
+---
+
+## Final Compliance Report — 2026-02-14
+
+### AGENTS.md Files Reviewed
+
+- `AGENTS.md` (root)
+- `.ai/specs/AGENTS.md`
+- `.ai/qa/AGENTS.md`
+- `packages/cli/AGENTS.md`
+- `packages/ai-assistant/AGENTS.md`
+
+### Compliance Matrix
+
+| Rule Source | Rule | Status | Notes |
+|-------------|------|--------|-------|
+| `.ai/specs/AGENTS.md` | Non-trivial specs include required core sections | Compliant | Added TLDR, Problem Statement, Proposed Solution, Final Compliance Report |
+| `AGENTS.md` (root) | Integration testing guidance must align with `.ai/qa/AGENTS.md` | Compliant | Paths and command model aligned |
+| `packages/cli/AGENTS.md` | CLI features belong in `packages/cli` | Compliant | Phase 2 command scoped to CLI package |
+| `packages/ai-assistant/AGENTS.md` | Health endpoint constraints documented in ai-assistant module | Compliant | Replaced generic `/api/health` assumption with public readiness probe |
+
+### Internal Consistency Check
+
+| Check | Status | Notes |
+|-------|--------|-------|
+| Data models match API contracts | Pass | API helper now uses `form` login payload |
+| API contracts match UI/UX section | Pass | Login helper and API helper align with current auth route behavior |
+| Risks cover all write operations | Pass | Core risks documented for flaky tests, data, Docker, startup |
+| Commands defined for all mutations | N/A | Testing infrastructure spec, no domain command mutations |
+| Cache strategy covers all read APIs | N/A | No new cache surface introduced |
+
+### Verdict
+
+- **Fully compliant**: Approved — ready for implementation
+
 ## Changelog
 
 ### 2026-02-08
@@ -547,3 +605,11 @@ npx playwright install chromium
 - Added `create-qa-scenario` skill for auto-generating QA tests from specs
 - Moved markdown scenarios to `.ai/qa/scenarios/` subfolder (optional reference material)
 - Added Phase 2: Testcontainers ephemeral environment for fully self-contained test execution
+
+### 2026-02-14
+- Corrected spec identifier and promoted status to implementation-ready
+- Added missing required sections (TLDR, Problem Statement, Proposed Solution, Final Compliance Report)
+- Fixed API helper contract to use form payload for `/api/auth/login`
+- Replaced unsupported generic `/api/health` dependency with `/login` readiness probe
+- Removed duplicate dependencies section and clarified deterministic production startup for Phase 2
+- Added explicit phase acceptance criteria
