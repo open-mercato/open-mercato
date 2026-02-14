@@ -14,6 +14,7 @@ import { LoadingMessage, ErrorMessage } from '@open-mercato/ui/backend/detail'
 import { JobLogsModal } from '../../../../components/JobLogsModal'
 import { ExecutionDetailsDialog } from '../../../../components/ExecutionDetailsDialog'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
+import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import type { ColumnDef } from '@tanstack/react-table'
 import { formatDistanceToNow } from 'date-fns'
@@ -55,6 +56,7 @@ export default function ScheduleDetailPage() {
   const params = useParams()
   const router = useRouter()
   const t = useT()
+  const { confirm, ConfirmDialogElement } = useConfirmDialog()
   // Extract schedule ID from either params.id or params.slug
   // When using catch-all routes, the ID is in params.slug[2]
   const scheduleId = params.id 
@@ -110,9 +112,19 @@ export default function ScheduleDetailPage() {
     if (!scheduleId || !schedule) return
     
     // Confirm before triggering
-    const confirmed = window.confirm(
-      t('scheduler.confirm.trigger', 'Are you sure you want to trigger "{name}" now?\n\nThis will execute the {targetType} immediately.').replace('{name}', schedule.name).replace('{targetType}', schedule.targetType === 'queue' ? t('scheduler.target.queue', 'queue job') : t('scheduler.target.command', 'command'))
+    const targetTypeLabel =
+      schedule.targetType === 'queue'
+        ? t('scheduler.target.queue', 'queue job')
+        : t('scheduler.target.command', 'command')
+    const triggerConfirmText = t(
+      'scheduler.confirm.trigger',
+      'Are you sure you want to trigger "{name}" now?\n\nThis will execute the {targetType} immediately.',
+      { name: schedule.name, targetType: targetTypeLabel }
     )
+    const confirmed = await confirm({
+      title: t('scheduler.action.trigger', 'Trigger Now'),
+      text: triggerConfirmText,
+    })
     
     if (!confirmed) return
     
@@ -243,6 +255,7 @@ export default function ScheduleDetailPage() {
 
   return (
     <Page>
+      {ConfirmDialogElement}
       <PageHeader
         title={schedule.name}
         description={schedule.description}
