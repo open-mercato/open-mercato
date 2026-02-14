@@ -15,6 +15,12 @@ type AddLineOptions = {
   taxClassName?: string;
 };
 
+type AddAdjustmentOptions = {
+  label: string;
+  kindLabel?: string;
+  netAmount: number;
+};
+
 function escapeRegExp(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
@@ -117,10 +123,54 @@ export async function deleteLine(page: Page, lineName: string): Promise<void> {
   await expect(row).toBeVisible();
   await row.locator('button').last().click();
 
-  const confirmDelete = page.getByRole('button', { name: /^Delete$/i }).last();
-  if (await confirmDelete.isVisible().catch(() => false)) {
-    await confirmDelete.click();
+  const confirmDialog = page.getByRole('alertdialog');
+  if (await confirmDialog.isVisible().catch(() => false)) {
+    await confirmDialog.getByRole('button', { name: /^Delete$/i }).first().click();
+    await expect(confirmDialog).toBeHidden();
   }
 
   await expect(page.getByRole('row', { name: new RegExp(escapeRegExp(lineName), 'i') })).toHaveCount(0);
+}
+
+export async function addAdjustment(page: Page, options: AddAdjustmentOptions): Promise<void> {
+  await page.getByRole('button', { name: /^Adjustments$/i }).click();
+  await page.getByRole('button', { name: /Add adjustment/i }).first().click();
+
+  const dialog = page.getByRole('dialog', { name: /Add adjustment/i });
+  await expect(dialog).toBeVisible();
+
+  await dialog.getByRole('textbox', { name: /e\.g\. Shipping fee/i }).fill(options.label);
+  if (options.kindLabel) {
+    const kindSelect = dialog.locator('select').filter({ has: dialog.locator('option', { hasText: 'Discount' }) }).first();
+    if ((await kindSelect.count()) > 0) {
+      await kindSelect.selectOption({ label: options.kindLabel });
+    }
+  }
+  await dialog.getByRole('textbox', { name: '0.00' }).nth(1).fill(String(options.netAmount));
+  await dialog.getByRole('textbox', { name: '0.00' }).nth(2).fill(String(options.netAmount));
+  await dialog.getByRole('button', { name: /Add adjustment/i }).click();
+
+  await expect(page.getByRole('row', { name: new RegExp(escapeRegExp(options.label), 'i') })).toBeVisible();
+}
+
+export async function addPayment(page: Page, amount: number): Promise<void> {
+  await page.getByRole('button', { name: /^Payments$/i }).click();
+  await page.getByRole('button', { name: /Add payment/i }).click();
+
+  const dialog = page.getByRole('dialog', { name: /Add payment/i });
+  await expect(dialog).toBeVisible();
+  await dialog.getByRole('spinbutton').first().fill(String(amount));
+  await dialog.getByRole('button', { name: /Select$/i }).first().click();
+  await dialog.getByRole('button', { name: /Save/i }).click();
+}
+
+export async function addShipment(page: Page): Promise<void> {
+  await page.getByRole('button', { name: /^Shipments$/i }).click();
+  await page.getByRole('button', { name: /Add shipment/i }).click();
+
+  const dialog = page.getByRole('dialog', { name: /Add shipment/i });
+  await expect(dialog).toBeVisible();
+  await dialog.getByRole('textbox').first().fill(`SHIP-${Date.now()}`);
+  await dialog.getByRole('button', { name: /Select$/i }).first().click();
+  await dialog.getByRole('button', { name: /Save/i }).click();
 }

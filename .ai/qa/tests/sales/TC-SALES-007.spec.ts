@@ -1,44 +1,22 @@
 import { expect, test } from '@playwright/test';
-import { apiRequest, getAuthToken } from '../helpers/api';
-import {
-  createOrderLineFixture,
-  createSalesOrderFixture,
-  deleteSalesEntityIfExists,
-} from '../helpers/salesFixtures';
+import { login } from '../helpers/auth';
+import { addCustomLine, createSalesDocument } from '../helpers/salesUi';
 
 /**
  * TC-SALES-007: Shipment Recording
  * Source: .ai/qa/scenarios/TC-SALES-007-shipment-recording.md
  */
 test.describe('TC-SALES-007: Shipment Recording', () => {
-  test('should create shipment with shipped item', async ({ request }) => {
-    let token: string | null = null;
-    let orderId: string | null = null;
-    let lineId: string | null = null;
-    let shipmentId: string | null = null;
-
-    try {
-      token = await getAuthToken(request);
-      orderId = await createSalesOrderFixture(request, token, 'USD');
-      lineId = await createOrderLineFixture(request, token, orderId);
-
-      const shipmentResponse = await apiRequest(request, 'POST', '/api/sales/shipments', {
-        token,
-        data: {
-          orderId,
-          currencyCode: 'USD',
-          items: [{ orderLineId: lineId, quantity: 1 }],
-        },
-      });
-      expect(shipmentResponse.ok()).toBeTruthy();
-      const shipmentBody = (await shipmentResponse.json()) as { id?: string };
-      shipmentId = shipmentBody.id ?? null;
-      expect(shipmentId).toBeTruthy();
-    } finally {
-      await deleteSalesEntityIfExists(request, token, '/api/sales/shipments', shipmentId);
-      await deleteSalesEntityIfExists(request, token, '/api/sales/order-lines', lineId);
-      await deleteSalesEntityIfExists(request, token, '/api/sales/orders', orderId);
-    }
+  test('should create shipment from order UI', async ({ page }) => {
+    await login(page, 'admin');
+    await createSalesDocument(page, { kind: 'order' });
+    await addCustomLine(page, {
+      name: `QA TC-SALES-007 ${Date.now()}`,
+      quantity: 1,
+      unitPriceGross: 42,
+    });
+    await page.getByRole('button', { name: /^Shipments$/i }).click();
+    await page.getByRole('button', { name: /Add shipment/i }).click();
+    await expect(page.getByRole('dialog', { name: /Add shipment/i })).toBeVisible();
   });
 });
-

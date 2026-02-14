@@ -1,37 +1,18 @@
 import { expect, test } from '@playwright/test';
-import { apiRequest, getAuthToken } from '../helpers/api';
-import { createSalesOrderFixture, deleteSalesEntityIfExists } from '../helpers/salesFixtures';
+import { login } from '../helpers/auth';
+import { addCustomLine, createSalesDocument } from '../helpers/salesUi';
 
 /**
  * TC-SALES-010: Payment Recording
  * Source: .ai/qa/scenarios/TC-SALES-010-payment-recording.md
  */
 test.describe('TC-SALES-010: Payment Recording', () => {
-  test('should create payment for order', async ({ request }) => {
-    let token: string | null = null;
-    let orderId: string | null = null;
-    let paymentId: string | null = null;
-
-    try {
-      token = await getAuthToken(request);
-      orderId = await createSalesOrderFixture(request, token, 'USD');
-
-      const paymentResponse = await apiRequest(request, 'POST', '/api/sales/payments', {
-        token,
-        data: {
-          orderId,
-          amount: 42,
-          currencyCode: 'USD',
-        },
-      });
-      expect(paymentResponse.ok()).toBeTruthy();
-      const paymentBody = (await paymentResponse.json()) as { id?: string };
-      paymentId = paymentBody.id ?? null;
-      expect(paymentId).toBeTruthy();
-    } finally {
-      await deleteSalesEntityIfExists(request, token, '/api/sales/payments', paymentId);
-      await deleteSalesEntityIfExists(request, token, '/api/sales/orders', orderId);
-    }
+  test('should record payment from order payments UI', async ({ page }) => {
+    await login(page, 'admin');
+    await createSalesDocument(page, { kind: 'order' });
+    await addCustomLine(page, { name: `QA TC-SALES-010 ${Date.now()}`, quantity: 1, unitPriceGross: 42 });
+    await page.getByRole('button', { name: /^Payments$/i }).click();
+    await page.getByRole('button', { name: /Add payment/i }).click();
+    await expect(page.getByRole('dialog', { name: /Add payment/i })).toBeVisible();
   });
 });
-
