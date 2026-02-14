@@ -31,15 +31,13 @@ test.describe('TC-CRM-011: Add Comment to Customer', () => {
       await page.getByRole('button', { name: 'Notes' }).click();
       await page.getByRole('button', { name: /Add a note|Write the first note/i }).first().click();
 
-      const firstDialog = page.getByRole('dialog').last();
-      await firstDialog.getByRole('textbox').first().fill(noteOne);
-      await firstDialog.getByRole('button', { name: /Add note|Save/i }).first().click();
+      const noteInput = page.getByRole('textbox', { name: /Write a note/i }).first();
+      await noteInput.fill(noteOne);
+      await page.getByRole('button', { name: /Add note/i }).first().click();
       await expect(page.getByText(noteOne)).toBeVisible();
 
-      await page.getByRole('button', { name: /Add a note|Write the first note/i }).first().click();
-      const secondDialog = page.getByRole('dialog').last();
-      await secondDialog.getByRole('textbox').first().fill(noteTwo);
-      await secondDialog.getByRole('button', { name: /Add note|Save/i }).first().click();
+      await noteInput.fill(noteTwo);
+      await page.getByRole('button', { name: /Add note/i }).first().click();
       await expect(page.getByText(noteTwo)).toBeVisible();
     } finally {
       await deleteEntityIfExists(request, token, '/api/customers/deals', dealId);
