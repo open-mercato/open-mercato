@@ -59,6 +59,11 @@ export function ConfirmDialog({
   const setOpen = isControlled
     ? onOpenChange || (() => {})
     : setInternalOpen;
+  const handleCancelCallback = React.useCallback(() => {
+    if (!isControlled) {
+      onCancel?.();
+    }
+  }, [isControlled, onCancel]);
 
   // Default text values from i18n
   const resolvedTitle =
@@ -109,19 +114,19 @@ export function ConfirmDialog({
         return;
       }
       setOpen(false);
-      onCancel?.();
+      handleCancelCallback();
     };
 
     dialog.addEventListener("cancel", handleCancel);
     return () => dialog.removeEventListener("cancel", handleCancel);
-  }, [loading, setOpen, onCancel]);
+  }, [loading, setOpen, handleCancelCallback]);
 
   // Handle backdrop click
   const handleBackdropClick = (e: React.MouseEvent<HTMLDialogElement>) => {
     // Only close if clicking directly on the dialog (backdrop), not its children
     if (e.target === dialogRef.current && !loading) {
       setOpen(false);
-      onCancel?.();
+      handleCancelCallback();
     }
   };
 
@@ -151,7 +156,7 @@ export function ConfirmDialog({
 
   const handleCancel = () => {
     setOpen(false);
-    onCancel?.();
+    handleCancelCallback();
   };
 
   const handleTriggerClick = () => {

@@ -1,6 +1,6 @@
 "use client";
 import * as React from "react";
-import { ConfirmDialog, type ConfirmDialogProps } from "./ConfirmDialog";
+import { ConfirmDialog } from "./ConfirmDialog";
 
 export type ConfirmDialogOptions = {
   title?: string;
@@ -22,43 +22,52 @@ export function useConfirmDialog(): UseConfirmDialogReturn {
   const [options, setOptions] = React.useState<ConfirmDialogOptions>({});
   const [loading, setLoading] = React.useState(false);
   const resolveRef = React.useRef<((value: boolean) => void) | null>(null);
-  const isMountedRef = React.useRef(false);
+  const openRef = React.useRef(false);
+  const isDialogElementRenderedRef = React.useRef(false);
   const queueRef = React.useRef<Array<{
     options?: ConfirmDialogOptions;
     resolve: (value: boolean) => void;
   }>>([]);
 
-  // Track if the dialog element has been mounted
-  React.useEffect(() => {
-    isMountedRef.current = true;
-    return () => {
-      isMountedRef.current = false;
-    };
+  const setOpenState = React.useCallback((nextOpen: boolean) => {
+    openRef.current = nextOpen;
+    setOpen(nextOpen);
   }, []);
+
+  const processQueue = React.useCallback(() => {
+    const next = queueRef.current.shift();
+    if (!next) return;
+    resolveRef.current = next.resolve;
+    setOptions(next.options || {});
+    setOpenState(true);
+  }, [setOpenState]);
 
   const confirm = React.useCallback(
     (newOptions?: ConfirmDialogOptions): Promise<boolean> => {
       return new Promise<boolean>((resolve) => {
         // Development-mode guard: warn if dialog element is not mounted
-        if (process.env.NODE_ENV === "development" && !isMountedRef.current) {
+        if (
+          process.env.NODE_ENV === "development" &&
+          !isDialogElementRenderedRef.current
+        ) {
           console.warn(
             "useConfirmDialog: confirm() was called but ConfirmDialogElement is not rendered. Add {ConfirmDialogElement} to your JSX."
           );
         }
 
         // If dialog is already open, queue this request
-        if (open) {
+        if (openRef.current || resolveRef.current) {
           queueRef.current.push({ options: newOptions, resolve });
           return;
         }
 
         // Otherwise, show the dialog immediately
-        setOptions(newOptions || {});
-        setOpen(true);
         resolveRef.current = resolve;
+        setOptions(newOptions || {});
+        setOpenState(true);
       });
     },
-    [open]
+    [setOpenState]
   );
 
   const handleConfirm = React.useCallback(async () => {
@@ -69,68 +78,62 @@ export function useConfirmDialog(): UseConfirmDialogReturn {
       resolveRef.current = null;
     } finally {
       setLoading(false);
-      setOpen(false);
-
-      // Process queue if there are pending requests
-      if (queueRef.current.length > 0) {
-        const next = queueRef.current.shift();
-        if (next) {
-          setOptions(next.options || {});
-          setOpen(true);
-          resolveRef.current = next.resolve;
-        }
-      }
+      setOpenState(false);
+      processQueue();
     }
-  }, []);
+  }, [processQueue, setOpenState]);
 
   const handleCancel = React.useCallback(() => {
     // Resolve with false (cancelled)
     resolveRef.current?.(false);
     resolveRef.current = null;
-    setOpen(false);
-
-    // Process queue if there are pending requests
-    if (queueRef.current.length > 0) {
-      const next = queueRef.current.shift();
-      if (next) {
-        setOptions(next.options || {});
-        setOpen(true);
-        resolveRef.current = next.resolve;
-      }
-    }
-  }, []);
+    setOpenState(false);
+    processQueue();
+  }, [processQueue, setOpenState]);
 
   const handleOpenChange = React.useCallback(
     (newOpen: boolean) => {
-      if (!newOpen) {
+      if (!newOpen && openRef.current) {
         handleCancel();
       }
     },
     [handleCancel]
   );
 
+  const DialogMountTracker = React.useCallback(() => {
+    React.useEffect(() => {
+      isDialogElementRenderedRef.current = true;
+      return () => {
+        isDialogElementRenderedRef.current = false;
+      };
+    }, []);
+    return null;
+  }, []);
+
   const ConfirmDialogElement = React.useMemo(
     () => (
-      <ConfirmDialog
-        open={open}
-        onOpenChange={handleOpenChange}
-        onConfirm={handleConfirm}
-        onCancel={handleCancel}
-        title={options.title}
-        text={options.text}
-        confirmText={options.confirmText}
-        cancelText={options.cancelText}
-        variant={options.variant}
-        loading={loading}
-      />
+      <>
+        <DialogMountTracker />
+        <ConfirmDialog
+          open={open}
+          onOpenChange={handleOpenChange}
+          onConfirm={handleConfirm}
+          title={options.title}
+          text={options.text}
+          confirmText={options.confirmText}
+          cancelText={options.cancelText}
+          variant={options.variant}
+          loading={loading}
+        />
+      </>
     ),
     [
       open,
       handleOpenChange,
       handleConfirm,
-      handleCancel,
       options,
       loading,
+      DialogMountTracker,
     ]
   );
 
