@@ -1,0 +1,344 @@
+---
+title: Messages System
+description: Internal messaging with threads, object/file attachments, actionable workflows, and email access links
+---
+
+# Messages System
+
+The Messages module provides internal, tenant-scoped messaging with inbox/sent/drafts flows, deterministic object attachment, file attachments, actionable buttons, and optional email forwarding with token-based access links.
+
+## Overview
+
+- **Location**: `packages/core/src/modules/messages/`
+- **UI Components**: `packages/ui/src/backend/messages/`
+- **Package**: `@open-mercato/core`
+- **Auto refresh**: Polling every 5 seconds via `useMessagesPoll`
+- **Threading**: Native reply/reply-all and forward flows
+- **Actionable**: Message-level action buttons with command/link support
+- **Module-extensible**: Add message types and object types in module files and let generated bootstrap register them
+
+## Key Features
+
+- Inbox, sent, drafts, archived, and all folders with filters/pagination
+- Rich compose flow with recipients (`to`/`cc`/`bcc`), priority, and body format
+- Object attachments scoped by selected message type (`/api/messages/object-types` + `/api/messages/object-options`)
+- File attachment picker integrated with the attachments module
+- Message actions with confirmation and execution state tracking
+- Built-in confirmation message type (`messages.confirmation`) with status endpoint
+- Optional email delivery and token-based message view page
+- Multi-tenant + organization-aware isolation on all APIs
+
+## Quick Start
+
+### 1. Compose and Send a Message
+
+```typescript
+import { apiCallOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
+
+await apiCallOrThrow('/api/messages', {
+  method: 'POST',
+  body: JSON.stringify({
+    type: 'default',
+    recipients: [{ userId: 'recipient-user-uuid', type: 'to' }],
+    subject: 'Weekly status update',
+    body: 'Please review the attached update and confirm.',
+    bodyFormat: 'text',
+    priority: 'normal',
+    sendViaEmail: false,
+    isDraft: false,
+  }),
+})
+```
+
+### 2. Save or Update Drafts
+
+```typescript
+// Save draft
+await apiCallOrThrow('/api/messages', {
+  method: 'POST',
+  body: JSON.stringify({
+    type: 'default',
+    recipients: [{ userId: 'recipient-user-uuid', type: 'to' }],
+    subject: 'Draft message',
+    body: 'Draft content',
+    isDraft: true,
+  }),
+})
+
+// Update existing draft
+await apiCallOrThrow(`/api/messages/${draftId}`, {
+  method: 'PATCH',
+  body: JSON.stringify({
+    subject: 'Updated draft subject',
+    body: 'Updated draft body',
+  }),
+})
+```
+
+### 3. Add Real-Time Inbox Badge Updates
+
+```tsx
+'use client'
+
+import { MessagesIcon } from '@open-mercato/ui/backend/messages'
+
+export function HeaderMessagesButton() {
+  return <MessagesIcon className="h-5 w-5" />
+}
+```
+
+`MessagesIcon` uses `useMessagesPoll()` to poll inbox + unread count every 5 seconds.
+
+## Message Input Schema
+
+### Compose Payload Shape
+
+```typescript
+{
+  type?: string // default: 'default'
+  recipients?: Array<{ userId: string; type?: 'to' | 'cc' | 'bcc' }>
+  subject?: string
+  body?: string
+  visibility?: 'public' | 'internal' | null
+  sourceEntityType?: string
+  sourceEntityId?: string
+
+  externalEmail?: string
+  externalName?: string
+
+  bodyFormat?: 'text' | 'markdown' // default: 'text'
+  priority?: 'low' | 'normal' | 'high' | 'urgent' // default: 'normal'
+
+  // Deterministic object attachments
+  objects?: Array<{
+    entityModule: string
+    entityType: string
+    entityId: string
+    actionRequired?: boolean
+    actionType?: string
+    actionLabel?: string
+  }>
+
+  // File attachments (from picker)
+  attachmentIds?: string[]
+  attachmentRecordId?: string // temporary picker record id
+
+  // Message-level actions
+  actionData?: {
+    actions: Array<{
+      id: string
+      label: string
+      labelKey?: string
+      variant?: 'default' | 'secondary' | 'destructive' | 'outline' | 'ghost'
+      icon?: string
+      commandId?: string
+      href?: string
+      isTerminal?: boolean
+      confirmRequired?: boolean
+      confirmMessage?: string
+    }>
+    primaryActionId?: string
+    expiresAt?: string
+  }
+
+  sendViaEmail?: boolean
+  parentMessageId?: string
+  isDraft?: boolean
+}
+```
+
+### Validation Rules
+
+- For non-drafts (`isDraft: false`): `subject` and `body` are required.
+- For non-drafts with `visibility: 'internal'`: at least one `recipient` is required.
+- For non-drafts with `visibility: 'public'`: `externalEmail` is required and `recipients` must be empty.
+- Recipient user IDs must be unique.
+
+Validation is defined in `packages/core/src/modules/messages/data/validators.ts` and enforces `pageSize <= 100` for list/object-option routes.
+
+## API Routes
+
+All routes live under `packages/core/src/modules/messages/api/` and export `openApi` docs.
+
+| Route | Methods | Purpose |
+|---|---|---|
+| `/api/messages` | `GET`, `POST` | List folders and compose/send message |
+| `/api/messages/[id]` | `GET`, `PATCH`, `DELETE` | Message detail, draft update, contextual delete |
+| `/api/messages/[id]/reply` | `POST` | Reply/reply-all within thread |
+| `/api/messages/[id]/forward` | `POST` | Forward message |
+| `/api/messages/[id]/read` | `PUT`, `DELETE` | Mark read / unread |
+| `/api/messages/[id]/archive` | `PUT`, `DELETE` | Archive / unarchive |
+| `/api/messages/[id]/actions/[actionId]` | `POST` | Execute action button |
+| `/api/messages/[id]/confirmation` | `GET` | Read confirmation status (`confirmed`, `confirmedAt`, `confirmedByUserId`) |
+| `/api/messages/[id]/attachments` | `GET`, `POST`, `DELETE` | List/link/unlink draft attachments |
+| `/api/messages/unread-count` | `GET` | Inbox unread badge count |
+| `/api/messages/types` | `GET` | Registered message types |
+| `/api/messages/object-types` | `GET` | Allowed object types for selected message type |
+| `/api/messages/object-options` | `GET` | Picker options for specific object type |
+| `/api/messages/token/[token]` | `GET` | Resolve email token to message payload |
+
+## UI Pages
+
+### Backend Pages
+
+- `/backend/messages` (`packages/core/src/modules/messages/backend/page.tsx`)
+- `/backend/messages/[id]` (`packages/core/src/modules/messages/backend/messages/[id]/page.tsx`)
+- `/backend/messages/compose` (`packages/core/src/modules/messages/backend/messages/compose/page.tsx`)
+
+### Public Token Page
+
+- `/messages/view/[token]` (`packages/core/src/modules/messages/frontend/messages/view/[token]/page.tsx`)
+
+### Shared UI Components
+
+- `MessageComposer`
+- `MessageAttachmentPicker`
+- `ObjectAttachmentPicker`
+- `MessageObjectRecordPicker`
+- `MessagesIcon`
+- `useMessagesPoll`
+
+All exported from `@open-mercato/ui/backend/messages`.
+
+## Message Types (Module Extension)
+
+Message type definitions are declared in each module's `message-types.ts` and auto-registered from generated bootstrap imports (`@/.mercato/generated/message-types.generated` in `apps/mercato/src/bootstrap.ts`).
+
+```typescript
+// packages/core/src/modules/staff/message-types.ts
+import type { MessageTypeDefinition } from '@open-mercato/shared/modules/messages/types'
+
+export const messageTypes: MessageTypeDefinition[] = [
+  {
+    type: 'staff.leave_request_approval',
+    module: 'staff',
+    labelKey: 'staff.messages.leaveRequestApproval',
+    icon: 'calendar-clock',
+    color: 'amber',
+    isCreateableByUser: true,
+    ui: {
+      listItemComponent: 'messages.default.listItem',
+      contentComponent: 'messages.default.content',
+      actionsComponent: 'messages.default.actions',
+    },
+    allowReply: true,
+    allowForward: true,
+    actionsExpireAfterHours: 168,
+  },
+  {
+    type: 'staff.leave_request_status',
+    module: 'staff',
+    labelKey: 'staff.messages.leaveRequestStatus',
+    icon: 'calendar-check',
+    color: 'green',
+    isCreateableByUser: true,
+    ui: {
+      listItemComponent: 'messages.default.listItem',
+      contentComponent: 'messages.default.content',
+      actionsComponent: 'messages.default.actions',
+    },
+    allowReply: true,
+    allowForward: true,
+  },
+]
+```
+
+### Built-in Types
+
+- `default` (reply + forward enabled)
+- `messages.confirmation` (includes default confirm action via `messages.confirmations.confirm`)
+
+Defined in `packages/core/src/modules/messages/message-types.ts`.
+
+## Object Types (Deterministic Attachments)
+
+Object type definitions are declared in each module's `message-objects.ts` and auto-registered from generated bootstrap imports (`@/.mercato/generated/message-objects.generated` in `apps/mercato/src/bootstrap.ts`).
+
+```typescript
+// packages/core/src/modules/staff/message-objects.ts
+import type { MessageObjectTypeDefinition } from '@open-mercato/shared/modules/messages/types'
+import { LeaveRequestDetail } from './components/LeaveRequestDetail'
+import { LeaveRequestPreview } from './components/LeaveRequestPreview'
+
+export const messageObjectTypes: MessageObjectTypeDefinition[] = [
+  {
+    module: 'staff',
+    entityType: 'leave_request',
+    messageTypes: ['default', 'staff.leave_request_approval', 'staff.leave_request_status'],
+    entityId: 'staff:staff_leave_request',
+    optionLabelField: 'id',
+    optionSubtitleField: 'status',
+    labelKey: 'staff.messageObjects.leaveRequest',
+    icon: 'calendar-clock',
+    PreviewComponent: LeaveRequestPreview,
+    DetailComponent: LeaveRequestDetail,
+    actions: [
+      {
+        id: 'approve',
+        labelKey: 'staff.notifications.leaveRequest.actions.approve',
+        variant: 'default',
+        commandId: 'staff.leave-requests.accept',
+        icon: 'check',
+      },
+      {
+        id: 'reject',
+        labelKey: 'staff.notifications.leaveRequest.actions.reject',
+        variant: 'destructive',
+        commandId: 'staff.leave-requests.reject',
+        icon: 'x',
+      },
+      {
+        id: 'view',
+        labelKey: 'common.view',
+        variant: 'outline',
+        href: '/backend/staff/leave-requests/{entityId}',
+        icon: 'external-link',
+        isTerminal: false,
+      },
+    ],
+    loadPreview: async (entityId, ctx) => {
+      if (typeof window !== 'undefined') {
+        return { title: 'Leave request', subtitle: entityId }
+      }
+      const { loadLeaveRequestPreview } = await import('./lib/messageObjectPreviews')
+      return loadLeaveRequestPreview(entityId, ctx)
+    },
+  },
+]
+```
+
+The compose UI then uses:
+
+1. `/api/messages/types`
+2. `/api/messages/object-types?messageType=<type>`
+3. `/api/messages/object-options?...`
+
+to keep object selection deterministic and scoped.
+
+`href` actions support template placeholders such as `{entityId}`, `{messageId}`, and `{threadId}`.
+
+## Access Control
+
+Module features are declared in `packages/core/src/modules/messages/acl.ts`:
+
+- `messages.view`
+- `messages.compose`
+- `messages.attach`
+- `messages.attach_files`
+- `messages.email`
+- `messages.actions`
+- `messages.manage`
+
+Default role feature seeding is defined in `packages/core/src/modules/messages/setup.ts`.
+
+## Database Model
+
+Entities are defined in `packages/core/src/modules/messages/data/entities.ts`:
+
+- `messages`
+- `message_recipients`
+- `message_objects`
+- `message_access_tokens`
+- `message_confirmations`
+
+This model supports draft/sent state, recipient status transitions (`unread`/`read`/`archived`/`deleted`), thread linkage, object attachments, action state, confirmation state, and secure email-link access.
