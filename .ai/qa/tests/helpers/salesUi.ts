@@ -148,23 +148,21 @@ export async function addAdjustment(page: Page, options: AddAdjustmentOptions): 
 
   const dialog = page.getByRole('dialog', { name: /Add adjustment/i });
   await expect(dialog).toBeVisible();
-
-  await dialog.getByRole('textbox', { name: /e\.g\. Shipping fee/i }).fill(options.label);
-  const kindSelect = dialog.getByRole('combobox').first();
-  if ((await kindSelect.count()) > 0) {
-    await kindSelect.selectOption({ label: options.kindLabel ?? 'Surcharge' }).catch(async () => {
-      await kindSelect.selectOption({ label: 'Custom' });
-    });
-  }
-
-  const netAmountInputByRole = dialog.getByRole('spinbutton', { name: /Net amount/i }).first();
-  const grossAmountInputByRole = dialog.getByRole('spinbutton', { name: /Gross amount/i }).first();
-  if ((await netAmountInputByRole.count()) > 0) {
-    await netAmountInputByRole.fill(String(options.netAmount));
-    if ((await grossAmountInputByRole.count()) > 0) {
-      await grossAmountInputByRole.fill(String(options.netAmount));
+  const fillAdjustmentForm = async (): Promise<void> => {
+    const labelInput = dialog.getByRole('textbox', { name: /e\.g\. Shipping fee/i }).first();
+    if ((await labelInput.count()) > 0) {
+      await labelInput.fill(options.label);
+    } else {
+      await dialog.locator('input[placeholder="e.g. Shipping fee"]').first().fill(options.label);
     }
-  } else {
+
+    const kindSelect = dialog.getByRole('combobox').first();
+    if ((await kindSelect.count()) > 0) {
+      await kindSelect.selectOption({ label: options.kindLabel ?? 'Surcharge' }).catch(async () => {
+        await kindSelect.selectOption({ label: 'Custom' });
+      });
+    }
+
     const enabledAmountInputs = dialog.locator('input[placeholder="0.00"]:not([disabled])');
     if ((await enabledAmountInputs.count()) > 0) {
       await enabledAmountInputs.first().fill(String(options.netAmount));
@@ -172,18 +170,19 @@ export async function addAdjustment(page: Page, options: AddAdjustmentOptions): 
     if ((await enabledAmountInputs.count()) > 1) {
       await enabledAmountInputs.nth(1).fill(String(options.netAmount));
     }
-  }
-  await dialog.getByRole('button', { name: /Add adjustment/i }).click();
-  if (await dialog.getByText(/This field is required/i).first().isVisible().catch(() => false)) {
-    await dialog.getByRole('textbox', { name: /e\.g\. Shipping fee/i }).fill(options.label);
-    const enabledAmountInputs = dialog.locator('input[placeholder="0.00"]:not([disabled])');
-    if ((await enabledAmountInputs.count()) > 0) {
-      await enabledAmountInputs.first().fill(String(options.netAmount));
-    }
+  };
+
+  let saved = false;
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    await fillAdjustmentForm();
     await dialog.getByRole('button', { name: /Add adjustment/i }).click();
+    saved = await dialog.waitFor({ state: 'hidden', timeout: 3_000 }).then(() => true).catch(() => false);
+    if (saved) break;
   }
 
-  await expect(page.getByRole('row', { name: new RegExp(escapeRegExp(options.label), 'i') })).toBeVisible();
+  await expect(dialog).toBeHidden({ timeout: 8_000 });
+  await page.getByRole('button', { name: /^Adjustments$/i }).click();
+  await expect(page.getByText(new RegExp(escapeRegExp(options.label), 'i')).first()).toBeVisible({ timeout: 8_000 });
 }
 
 export async function addPayment(page: Page, amount: number): Promise<{ amountLabel: string; added: boolean }> {

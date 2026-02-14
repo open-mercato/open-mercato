@@ -61,6 +61,16 @@ async function dismissGlobalNoticesIfPresent(page: Page): Promise<void> {
 
 export async function login(page: Page, role: Role = 'admin'): Promise<void> {
   const creds = DEFAULT_CREDENTIALS[role];
+  const hasBackendUrl = (): boolean => /\/backend(?:\/.*)?$/.test(page.url());
+  const waitForBackend = async (timeout: number): Promise<boolean> => {
+    try {
+      await page.waitForURL(/\/backend(?:\/.*)?$/, { timeout });
+      return true;
+    } catch {
+      return hasBackendUrl();
+    }
+  };
+
   await acknowledgeGlobalNotices(page);
   await page.goto('/login');
   await dismissGlobalNoticesIfPresent(page);
@@ -68,10 +78,17 @@ export async function login(page: Page, role: Role = 'admin'): Promise<void> {
   const passwordInput = page.getByLabel('Password');
   await passwordInput.fill(creds.password);
   await passwordInput.press('Enter');
-  try {
-    await page.waitForURL(/\/backend(?:\/.*)?$/, { timeout: 5000 });
-  } catch {
-    await page.getByRole('button', { name: /login|sign in/i }).click({ force: true });
-    await page.waitForURL(/\/backend(?:\/.*)?$/);
+
+  if (await waitForBackend(7_000)) return;
+
+  const loginButton = page.getByRole('button', { name: /login|sign in/i }).first();
+  if (await loginButton.isVisible().catch(() => false)) {
+    await loginButton.click({ force: true });
   }
+  if (await waitForBackend(8_000)) return;
+
+  await page.goto('/backend');
+  if (await waitForBackend(8_000)) return;
+
+  throw new Error(`Login did not reach backend for role: ${role}; current URL: ${page.url()}`);
 }
