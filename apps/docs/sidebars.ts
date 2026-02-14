@@ -222,6 +222,7 @@ const sidebars: SidebarsConfig = {
             "framework/modules/overview",
             "framework/modules/routes-and-pages",
             "framework/modules/notifications",
+            "framework/modules/messages",
             "framework/modules/currencies",
             "framework/modules/sales-providers",
             "framework/modules/sales-calculations",

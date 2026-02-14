@@ -14,6 +14,7 @@ import {
 import type { AdminNavItem } from '@open-mercato/ui/backend/utils/nav'
 import { ProfileDropdown } from '@open-mercato/ui/backend/ProfileDropdown'
 import { SettingsButton } from '@open-mercato/ui/backend/SettingsButton'
+import { MessagesIcon } from '@open-mercato/ui/backend/messages'
 import { GlobalSearchDialog } from '@open-mercato/search/modules/search/frontend'
 import OrganizationSwitcher from '@/components/OrganizationSwitcher'
 import { NotificationBellWrapper } from '@/components/NotificationBellWrapper'
@@ -335,6 +336,7 @@ export default async function BackendLayout({ children, params }: { children: Re
       <SettingsButton />
       <ProfileDropdown email={auth?.email} />
       <NotificationBellWrapper />
+      <MessagesIcon />
     </>
   )
 
