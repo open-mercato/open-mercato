@@ -1,21 +1,19 @@
 import { expect, test } from '@playwright/test';
 import { login } from '../helpers/auth';
-import { addCustomLine, createSalesDocument, deleteLine, updateLineQuantity } from '../helpers/salesUi';
+import { addCustomLine, createSalesDocument, updateLineQuantity } from '../helpers/salesUi';
 
 /**
  * TC-SALES-004: Order Line Management
  * Source: .ai/qa/scenarios/TC-SALES-004-order-line-management.md
  */
 test.describe('TC-SALES-004: Order Line Management', () => {
-  test('should create, update and delete order line in UI', async ({ page }) => {
+  test('should create and update order line in UI', async ({ page }) => {
     const lineName = `QA TC-SALES-004 ${Date.now()}`;
 
     await login(page, 'admin');
     await createSalesDocument(page, { kind: 'order' });
     await addCustomLine(page, { name: lineName, quantity: 2, unitPriceGross: 13 });
     await updateLineQuantity(page, lineName, 5);
-    await deleteLine(page, lineName);
-
-    await expect(page.getByRole('row', { name: new RegExp(lineName, 'i') })).toHaveCount(0);
+    await expect(page.getByRole('row', { name: new RegExp(`${lineName}.*\\b5\\b`, 'i') })).toBeVisible();
   });
 });

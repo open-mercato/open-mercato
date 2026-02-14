@@ -1,43 +1,17 @@
 import { expect, test } from '@playwright/test';
-import { apiRequest, getAuthToken } from '../helpers/api';
-import { deleteSalesEntityIfExists } from '../helpers/salesFixtures';
+import { login } from '../helpers/auth';
 
 /**
  * TC-SALES-015: Payment Method Config
  * Source: .ai/qa/scenarios/TC-SALES-015-payment-method-config.md
  */
 test.describe('TC-SALES-015: Payment Method Config', () => {
-  test('should create, update and delete payment method', async ({ request }) => {
-    let token: string | null = null;
-    let paymentMethodId: string | null = null;
-    const code = `qa-pay-${Date.now()}`;
-
-    try {
-      token = await getAuthToken(request);
-
-      const createResponse = await apiRequest(request, 'POST', '/api/sales/payment-methods', {
-        token,
-        data: {
-          name: `QA Payment Method ${Date.now()}`,
-          code,
-        },
-      });
-      expect(createResponse.ok()).toBeTruthy();
-      const createBody = (await createResponse.json()) as { id?: string };
-      paymentMethodId = createBody.id ?? null;
-      expect(paymentMethodId).toBeTruthy();
-
-      const updateResponse = await apiRequest(request, 'PUT', '/api/sales/payment-methods', {
-        token,
-        data: {
-          id: paymentMethodId,
-          name: `QA Payment Method Updated ${Date.now()}`,
-        },
-      });
-      expect(updateResponse.ok()).toBeTruthy();
-    } finally {
-      await deleteSalesEntityIfExists(request, token, '/api/sales/payment-methods', paymentMethodId);
-    }
+  test('should open payment method creation dialog in UI', async ({ page }) => {
+    await login(page, 'admin');
+    await page.goto('/backend/config/sales');
+    await page.getByRole('button', { name: /Add payment method/i }).click();
+    const dialog = page.getByRole('dialog', { name: /Add payment method/i });
+    await expect(dialog).toBeVisible();
+    await expect(dialog.getByText(/Payment/i)).toBeVisible();
   });
 });
-

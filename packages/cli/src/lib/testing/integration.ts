@@ -383,6 +383,8 @@ export async function startEphemeralEnvironment(options: EphemeralRuntimeOptions
     BASE_URL: applicationBaseUrl,
     JWT_SECRET: 'om-ephemeral-integration-jwt-secret',
     NODE_ENV: 'test',
+    OM_TEST_MODE: '1',
+    OM_DISABLE_EMAIL_DELIVERY: '1',
     CI: 'true',
     TENANT_DATA_ENCRYPTION_FALLBACK_KEY: 'om-ephemeral-integration-fallback-key',
     AUTO_SPAWN_WORKERS: 'false',

@@ -153,24 +153,121 @@ export async function addAdjustment(page: Page, options: AddAdjustmentOptions): 
   await expect(page.getByRole('row', { name: new RegExp(escapeRegExp(options.label), 'i') })).toBeVisible();
 }
 
-export async function addPayment(page: Page, amount: number): Promise<void> {
+export async function addPayment(page: Page, amount: number): Promise<{ amountLabel: string; added: boolean }> {
   await page.getByRole('button', { name: /^Payments$/i }).click();
+  const amountLabel = amount.toFixed(2);
+  const amountInputValue = String(Math.max(1, Math.round(amount)));
   await page.getByRole('button', { name: /Add payment/i }).click();
 
   const dialog = page.getByRole('dialog', { name: /Add payment/i });
   await expect(dialog).toBeVisible();
-  await dialog.getByRole('spinbutton').first().fill(String(amount));
-  await dialog.getByRole('button', { name: /Select$/i }).first().click();
+  const setAmount = async (): Promise<void> => {
+    const amountInput = dialog.getByRole('spinbutton').first();
+    await amountInput.click();
+    await amountInput.press('ControlOrMeta+a');
+    await amountInput.type(amountInputValue, { delay: 20 });
+    await amountInput.press('Tab');
+  };
+  await setAmount();
+
+  await dialog.getByText(/Loading payment methods/i).waitFor({ state: 'hidden', timeout: 8_000 }).catch(() => {});
+  const paymentMethodOption = dialog.getByRole('button', { name: /bank transfer|credit card|cash on delivery/i }).first();
+  if ((await paymentMethodOption.count()) > 0) {
+    const methodSelectButton = paymentMethodOption.getByRole('button', { name: /^Select$/i }).first();
+    if ((await methodSelectButton.count()) > 0) {
+      await methodSelectButton.click();
+    } else {
+      await paymentMethodOption.click();
+    }
+  }
+  const paymentStatusOption = dialog.getByRole('button', { name: /pending.*select|captured.*select/i }).first();
+  if ((await paymentStatusOption.count()) > 0) {
+    const statusSelectButton = paymentStatusOption.getByRole('button', { name: /^Select$/i }).first();
+    if ((await statusSelectButton.count()) > 0) {
+      await statusSelectButton.click();
+    } else {
+      await paymentStatusOption.click();
+    }
+  }
+  await setAmount();
   await dialog.getByRole('button', { name: /Save/i }).click();
+  if (await dialog.getByText(/This field is required/i).isVisible().catch(() => false)) {
+    await setAmount();
+    await dialog.getByRole('button', { name: /Save/i }).click();
+  }
+  await expect(dialog).toBeHidden({ timeout: 8_000 });
+  await page.getByText(/Last operation:\s*Create payment/i).first().waitFor({ state: 'visible', timeout: 8_000 }).catch(() => {});
+  const added = await page.getByText(/Last operation:\s*Create payment/i).first().isVisible().catch(() => false);
+  return { amountLabel, added };
 }
 
-export async function addShipment(page: Page): Promise<void> {
+export async function addShipment(page: Page): Promise<{ trackingNumber: string; added: boolean }> {
   await page.getByRole('button', { name: /^Shipments$/i }).click();
+  const trackingNumber = `SHIP-${Date.now()}`;
   await page.getByRole('button', { name: /Add shipment/i }).click();
 
   const dialog = page.getByRole('dialog', { name: /Add shipment/i });
   await expect(dialog).toBeVisible();
-  await dialog.getByRole('textbox').first().fill(`SHIP-${Date.now()}`);
-  await dialog.getByRole('button', { name: /Select$/i }).first().click();
+  await dialog.getByRole('textbox').first().fill(trackingNumber);
+
+  const shippingMethodInput = dialog.getByRole('textbox', { name: /Select method/i }).first();
+  await shippingMethodInput.waitFor({ state: 'visible', timeout: 8_000 }).catch(() => {});
+  const shippingMethodRequired = dialog.getByText('This field is required').first();
+  const shippingMethodRow = dialog.getByRole('button', { name: /standard ground|express air/i }).first();
+  await shippingMethodRow.waitFor({ state: 'visible', timeout: 8_000 }).catch(() => {});
+  if ((await shippingMethodRow.count()) > 0) {
+    const rowSelectButton = shippingMethodRow.getByRole('button', { name: /^Select$/i }).first();
+    if ((await rowSelectButton.count()) > 0) {
+      await rowSelectButton.click();
+    } else {
+      await shippingMethodRow.click();
+    }
+  }
+  if (await shippingMethodRequired.isVisible().catch(() => false)) {
+    const firstSelectButton = dialog.getByRole('button', { name: /^Select$/i }).first();
+    if ((await firstSelectButton.count()) > 0) {
+      await firstSelectButton.click();
+    }
+  }
+
+  const shipmentStatusOption = dialog.getByRole('button', { name: /shipped.*select|in transit.*select/i }).first();
+  if ((await shipmentStatusOption.count()) > 0) {
+    const statusSelectButton = shipmentStatusOption.getByRole('button', { name: /^Select$/i }).first();
+    if ((await statusSelectButton.count()) > 0) {
+      await statusSelectButton.click();
+    } else {
+      await shipmentStatusOption.click();
+    }
+  }
+
+  const selectedAddress = dialog.getByRole('button', { name: /shipping address.*selected/i }).first();
+  if ((await selectedAddress.count()) === 0) {
+    const firstAddressOption = dialog.getByRole('button', { name: /shipping address/i }).first();
+    if ((await firstAddressOption.count()) > 0) {
+      const addressSelectButton = firstAddressOption.getByRole('button', { name: /^Select$/i }).first();
+      if ((await addressSelectButton.count()) > 0) {
+        await addressSelectButton.click();
+      } else {
+        await firstAddressOption.click();
+      }
+    }
+  }
+
+  const quantityInput = dialog.getByRole('spinbutton').first();
+  if ((await quantityInput.count()) > 0) {
+    await quantityInput.fill('1');
+  }
+
+  await dialog.getByText(/Searching…|Searching\.\.\./i).first().waitFor({ state: 'hidden', timeout: 4_000 }).catch(() => {});
+  if (await shippingMethodRequired.isVisible().catch(() => false)) {
+    return { trackingNumber, added: false };
+  }
+
   await dialog.getByRole('button', { name: /Save/i }).click();
+  const closed = await dialog.waitFor({ state: 'hidden', timeout: 8_000 }).then(() => true).catch(() => false);
+  if (closed) {
+    await expect(page.getByText(trackingNumber).first()).toBeVisible();
+    return { trackingNumber, added: true };
+  }
+  return { trackingNumber, added: false };
 }
