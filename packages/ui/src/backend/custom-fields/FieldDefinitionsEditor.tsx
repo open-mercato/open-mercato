@@ -5,6 +5,7 @@ import { Cog, GripVertical, Pencil, Plus, Trash2 } from 'lucide-react'
 import { CUSTOM_FIELD_KINDS } from '@open-mercato/shared/modules/entities/kinds'
 import { FieldRegistry } from '../fields/registry'
 import { slugify } from '@open-mercato/shared/lib/slugify'
+import { useConfirmDialog } from '../confirm-dialog'
 import {
   Dialog,
   DialogContent,
@@ -158,6 +159,7 @@ export function FieldDefinitionsEditor({
   listProps,
   translate,
 }: FieldDefinitionsEditorProps) {
+  const { confirm, ConfirmDialogElement } = useConfirmDialog()
   const dragIndex = React.useRef<number | null>(null)
   const hasFieldsets = fieldsets.length > 0
   const t = React.useCallback((key: string, fallback: string) => (translate ? translate(key, fallback) : fallback), [translate])
@@ -215,10 +217,15 @@ export function FieldDefinitionsEditor({
     onActiveFieldsetChange?.(code)
   }
 
-  const handleRemoveFieldset = () => {
+  const handleRemoveFieldset = async () => {
     if (!onFieldsetsChange) return
     if (!resolvedActiveFieldset) return
-    if (!window.confirm(`Delete fieldset "${resolvedActiveFieldset}"? This will move its fields to Unassigned.`)) return
+    const confirmed = await confirm({
+      title: `Delete fieldset "${resolvedActiveFieldset}"?`,
+      text: 'This will move its fields to Unassigned.',
+      variant: 'destructive',
+    })
+    if (!confirmed) return
     const next = fieldsets.filter((fs) => fs.code !== resolvedActiveFieldset)
     onFieldsetsChange(next)
     onFieldsetRemoved?.(resolvedActiveFieldset)
@@ -465,6 +472,7 @@ export function FieldDefinitionsEditor({
           </div>
         ) : null}
       </div>
+      {ConfirmDialogElement}
     </div>
   )
 }

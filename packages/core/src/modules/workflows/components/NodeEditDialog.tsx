@@ -12,6 +12,7 @@ import {WorkflowDefinition, WorkflowSelector} from './WorkflowSelector'
 import {JsonBuilder} from '@open-mercato/ui/backend/JsonBuilder'
 import {StartPreConditionsEditor, type StartPreCondition} from './fields/StartPreConditionsEditor'
 import {useT} from '@open-mercato/shared/lib/i18n/context'
+import {useConfirmDialog} from '@open-mercato/ui/backend/confirm-dialog'
 
 export interface NodeEditDialogProps {
   node: Node | null
@@ -42,6 +43,7 @@ interface FormField {
 
 export function NodeEditDialog({ node, isOpen, onClose, onSave, onDelete }: NodeEditDialogProps) {
   const t = useT()
+  const { confirm: confirmDialog, ConfirmDialogElement } = useConfirmDialog()
   const [stepName, setStepName] = useState('')
   const [description, setDescription] = useState('')
   const [assignedTo, setAssignedTo] = useState('')
@@ -265,8 +267,12 @@ export function NodeEditDialog({ node, isOpen, onClose, onSave, onDelete }: Node
     setExpandedFields(newExpanded)
   }
 
-  const removeFormField = (index: number) => {
-    if (confirm(t('workflows.confirm.removeField'))) {
+  const removeFormField = async (index: number) => {
+    const confirmed = await confirmDialog({
+      title: t('workflows.confirm.removeField'),
+      variant: 'destructive',
+    })
+    if (confirmed) {
       setFormFields(formFields.filter((_, i) => i !== index))
       const newExpanded = new Set(expandedFields)
       newExpanded.delete(index)
@@ -413,9 +419,13 @@ export function NodeEditDialog({ node, isOpen, onClose, onSave, onDelete }: Node
     onClose()
   }
 
-  const handleDelete = () => {
+  const handleDelete = async () => {
     if (!node || !onDelete) return
-    if (confirm(t('workflows.confirm.deleteStep', { name: stepName || node.id }))) {
+    const confirmed = await confirmDialog({
+      title: t('workflows.confirm.deleteStep', { name: stepName || node.id }),
+      variant: 'destructive',
+    })
+    if (confirmed) {
       onDelete(node.id)
       onClose()
     }
@@ -1420,6 +1430,7 @@ export function NodeEditDialog({ node, isOpen, onClose, onSave, onDelete }: Node
           onlyEnabled={true}
         />
       )}
+      {ConfirmDialogElement}
     </Dialog>
   )
 }

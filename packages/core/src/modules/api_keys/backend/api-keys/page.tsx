@@ -10,6 +10,7 @@ import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
 
 type RoleSummary = { id: string; name: string | null }
 
@@ -54,6 +55,7 @@ export default function ApiKeysListPage() {
   const [reloadToken, setReloadToken] = React.useState(0)
   const scopeVersion = useOrganizationScopeVersion()
   const t = useT()
+  const { confirm, ConfirmDialogElement } = useConfirmDialog()
 
   React.useEffect(() => {
     let cancelled = false
@@ -96,7 +98,11 @@ export default function ApiKeysListPage() {
   }, [page, search, reloadToken, scopeVersion, t])
 
   const handleDelete = React.useCallback(async (row: Row) => {
-    if (!window.confirm(t('api_keys.list.confirmDelete', { name: row.name }))) return
+    const confirmed = await confirm({
+      title: t('api_keys.list.confirmDelete', { name: row.name }),
+      variant: 'destructive',
+    })
+    if (!confirmed) return
     try {
       const call = await apiCall<{ error?: string }>(
         `/api/api_keys/keys?id=${encodeURIComponent(row.id)}`,
@@ -115,7 +121,7 @@ export default function ApiKeysListPage() {
       const message = error instanceof Error ? error.message : t('api_keys.list.error.deleteFailed')
       flash(message, 'error')
     }
-  }, [t])
+  }, [confirm, t])
 
   const columns = React.useMemo<ColumnDef<Row>[]>(() => [
     { accessorKey: 'name', header: t('api_keys.list.columns.name') },
@@ -182,6 +188,7 @@ export default function ApiKeysListPage() {
           isLoading={isLoading}
         />
       </PageBody>
+      {ConfirmDialogElement}
     </Page>
   )
 }

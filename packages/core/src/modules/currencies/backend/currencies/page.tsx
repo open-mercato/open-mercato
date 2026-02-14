@@ -14,6 +14,7 @@ import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
+import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
 import type { FilterDef, FilterValues } from '@open-mercato/ui/backend/FilterBar'
 
 type CurrencyRow = {
@@ -39,6 +40,7 @@ type ResponsePayload = {
 
 export default function CurrenciesPage() {
   const t = useT()
+  const { confirm: confirmDialog, ConfirmDialogElement } = useConfirmDialog()
   const [rows, setRows] = React.useState<CurrencyRow[]>([])
   const [page, setPage] = React.useState(1)
   const [total, setTotal] = React.useState(0)
@@ -119,9 +121,11 @@ export default function CurrenciesPage() {
 
   const handleDelete = React.useCallback(
     async (row: CurrencyRow) => {
-      if (!confirm(t('currencies.list.confirmDelete', { code: row.code }))) {
-        return
-      }
+      const confirmed = await confirmDialog({
+        title: t('currencies.list.confirmDelete', { code: row.code }),
+        variant: 'destructive',
+      })
+      if (!confirmed) return
 
       try {
         const call = await apiCall(`/api/currencies/currencies`, {
@@ -141,7 +145,7 @@ export default function CurrenciesPage() {
         flash(t('currencies.flash.deleteError'), 'error')
       }
     },
-    [t]
+    [t, confirmDialog]
   )
 
   const columns = React.useMemo<ColumnDef<CurrencyRow>[]>(
@@ -287,6 +291,7 @@ export default function CurrenciesPage() {
           perspective={{ tableId: 'currencies.list' }}
         />
       </PageBody>
+      {ConfirmDialogElement}
     </Page>
   )
 }

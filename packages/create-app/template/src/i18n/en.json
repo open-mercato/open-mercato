@@ -251,6 +251,8 @@
   "ui.badges.severity.high": "High",
   "ui.filters.title": "Filters",
   "ui.dialogs.confirm.defaultTitle": "Are you sure?",
+  "ui.dialogs.confirm.confirmText": "Confirm",
+  "ui.dialogs.confirm.cancelText": "Cancel",
   "ui.dataTable.export.label": "Export",
   "ui.dataTable.export.format.markdown": "Markdown",
   "ui.dataTable.customizeColumns.ariaLabel": "Customize columns",

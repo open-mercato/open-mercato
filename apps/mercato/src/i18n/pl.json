@@ -260,6 +260,8 @@
   "ui.badges.severity.high": "Wysoki",
   "ui.filters.title": "Filtry",
   "ui.dialogs.confirm.defaultTitle": "Czy na pewno?",
+  "ui.dialogs.confirm.confirmText": "Potwierdź",
+  "ui.dialogs.confirm.cancelText": "Anuluj",
   "ui.dataTable.export.label": "Eksportuj",
   "ui.dataTable.export.format.markdown": "Markdown",
   "ui.dataTable.customizeColumns.ariaLabel": "Dostosuj kolumny",

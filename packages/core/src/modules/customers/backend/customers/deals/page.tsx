@@ -16,6 +16,7 @@ import { Button } from '@open-mercato/ui/primitives/button'
 import { E } from '#generated/entities.ids.generated'
 import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
 import {
   DictionaryValue,
   type CustomerDictionaryKind,
@@ -261,6 +262,7 @@ function arraysEqual(a: string[], b: string[]): boolean {
 
 export default function CustomersDealsPage() {
   const t = useT()
+  const { confirm, ConfirmDialogElement } = useConfirmDialog()
   const router = useRouter()
   const pathname = usePathname()
   const searchParams = useSearchParams()
@@ -678,15 +680,13 @@ export default function CustomersDealsPage() {
   const handleDeleteDeal = React.useCallback(
     async (dealId: string) => {
       if (pendingDeleteId) return
-      const confirmed =
-        typeof window === 'undefined'
-          ? true
-          : window.confirm(
-              t(
-                'customers.deals.list.deleteConfirm',
-                'Delete this deal? This action cannot be undone.',
-              ),
-            )
+      const confirmed = await confirm({
+        title: t(
+          'customers.deals.list.deleteConfirm',
+          'Delete this deal? This action cannot be undone.',
+        ),
+        variant: 'destructive',
+      })
       if (!confirmed) return
       setPendingDeleteId(dealId)
       try {
@@ -708,7 +708,7 @@ export default function CustomersDealsPage() {
         setPendingDeleteId(null)
       }
     },
-    [handleRefresh, pendingDeleteId, t],
+    [confirm, handleRefresh, pendingDeleteId, t],
   )
 
   const personOptions = peopleState.options
@@ -939,6 +939,7 @@ export default function CustomersDealsPage() {
           perspective={{ tableId: 'customers.deals.list' }}
         />
       </PageBody>
+      {ConfirmDialogElement}
     </Page>
   )
 }

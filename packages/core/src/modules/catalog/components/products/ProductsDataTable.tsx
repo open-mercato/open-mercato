@@ -16,6 +16,7 @@ import type { FilterOption } from '@open-mercato/ui/backend/FilterOverlay'
 import { BooleanIcon } from '@open-mercato/ui/backend/ValueIcons'
 import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
 import { E } from '#generated/entities.ids.generated'
 import { ProductImageCell } from './ProductImageCell'
 
@@ -140,6 +141,7 @@ function renderPrice(pricing: PricingInfo | undefined, currency?: string | null,
 
 export default function ProductsDataTable() {
   const t = useT()
+  const { confirm, ConfirmDialogElement } = useConfirmDialog()
   const scopeVersion = useOrganizationScopeVersion()
   const [rows, setRows] = React.useState<ProductRow[]>([])
   const [page, setPage] = React.useState(1)
@@ -572,7 +574,11 @@ export default function ProductsDataTable() {
   }, [queryParams, reloadToken, scopeVersion, t])
 
   const handleDelete = React.useCallback(async (row: ProductRow) => {
-    if (!window.confirm(t('catalog.products.list.deleteConfirm', 'Delete this product?'))) return
+    const confirmed = await confirm({
+      title: t('catalog.products.list.deleteConfirm', 'Delete this product?'),
+      variant: 'destructive',
+    })
+    if (!confirmed) return
     try {
       await deleteCrud('catalog/products', row.id, {
         errorMessage: t('catalog.products.list.error.delete', 'Failed to delete product'),
@@ -586,7 +592,7 @@ export default function ProductsDataTable() {
           : t('catalog.products.list.error.delete', 'Failed to delete product')
       flash(message, 'error')
     }
-  }, [t])
+  }, [confirm, t])
 
   const currentParams = React.useMemo(() => Object.fromEntries(new URLSearchParams(queryParams)), [queryParams])
 
@@ -602,69 +608,72 @@ export default function ProductsDataTable() {
   }), [currentParams])
 
   return (
-    <DataTable<ProductRow>
-      title={t('catalog.products.page.title', 'Products & services')}
-      entityId={ENTITY_ID}
-      customFieldFilterKeyExtras={[scopeVersion, reloadToken]}
-      refreshButton={{
-        label: t('catalog.products.actions.refresh', 'Refresh'),
-        onRefresh: handleRefresh,
-        isRefreshing: isLoading,
-      }}
-      actions={(
-        <Button asChild>
-          <Link href="/backend/catalog/products/create">
-            {t('catalog.products.actions.create', 'Create')}
-          </Link>
-        </Button>
-      )}
-      columns={columns}
-      data={rows}
-      searchValue={search}
-      onSearchChange={handleSearchChange}
-      filters={filters}
-      filterValues={filterValues}
-      onFiltersApply={handleFiltersApply}
-      onFiltersClear={handleFiltersClear}
-      onCustomFieldFilterFieldsetChange={handleCustomFieldsetFilterChange}
-      sorting={sorting}
-      onSortingChange={setSorting}
-      injectionSpotId="data-table:catalog.products"
-      injectionContext={{
-        search,
-        filters: filterValues,
-        page,
-        scopeVersion,
-      }}
-      pagination={{
-        page,
-        pageSize: PAGE_SIZE,
-        total,
-        totalPages,
-        onPageChange: setPage,
-      }}
-      exporter={exportConfig}
-      isLoading={isLoading}
-      perspective={{ tableId: 'catalog.products.list' }}
-      rowActions={(row) => (
-        <RowActions
-          items={[
-            {
-              id: 'edit',
-              label: t('catalog.products.table.actions.edit', 'Edit'),
-              href: `/backend/catalog/products/${row.id}`,
-            },
-            {
-              id: 'delete',
-              label: t('catalog.products.table.actions.delete', 'Delete'),
-              destructive: true,
-              onSelect: () => {
-                void handleDelete(row)
+    <>
+      <DataTable<ProductRow>
+        title={t('catalog.products.page.title', 'Products & services')}
+        entityId={ENTITY_ID}
+        customFieldFilterKeyExtras={[scopeVersion, reloadToken]}
+        refreshButton={{
+          label: t('catalog.products.actions.refresh', 'Refresh'),
+          onRefresh: handleRefresh,
+          isRefreshing: isLoading,
+        }}
+        actions={(
+          <Button asChild>
+            <Link href="/backend/catalog/products/create">
+              {t('catalog.products.actions.create', 'Create')}
+            </Link>
+          </Button>
+        )}
+        columns={columns}
+        data={rows}
+        searchValue={search}
+        onSearchChange={handleSearchChange}
+        filters={filters}
+        filterValues={filterValues}
+        onFiltersApply={handleFiltersApply}
+        onFiltersClear={handleFiltersClear}
+        onCustomFieldFilterFieldsetChange={handleCustomFieldsetFilterChange}
+        sorting={sorting}
+        onSortingChange={setSorting}
+        injectionSpotId="data-table:catalog.products"
+        injectionContext={{
+          search,
+          filters: filterValues,
+          page,
+          scopeVersion,
+        }}
+        pagination={{
+          page,
+          pageSize: PAGE_SIZE,
+          total,
+          totalPages,
+          onPageChange: setPage,
+        }}
+        exporter={exportConfig}
+        isLoading={isLoading}
+        perspective={{ tableId: 'catalog.products.list' }}
+        rowActions={(row) => (
+          <RowActions
+            items={[
+              {
+                id: 'edit',
+                label: t('catalog.products.table.actions.edit', 'Edit'),
+                href: `/backend/catalog/products/${row.id}`,
               },
-            },
-          ]}
-        />
-      )}
-    />
+              {
+                id: 'delete',
+                label: t('catalog.products.table.actions.delete', 'Delete'),
+                destructive: true,
+                onSelect: () => {
+                  void handleDelete(row)
+                },
+              },
+            ]}
+          />
+        )}
+      />
+      {ConfirmDialogElement}
+    </>
   )
 }
