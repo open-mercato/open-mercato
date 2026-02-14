@@ -226,7 +226,15 @@ Apply every applicable section based on which files changed. Skip sections that 
 - [ ] No imports from generated files in packages (only app bootstrap imports)
 - [ ] Project still builds after changes (`yarn build`)
 
-## 20. Anti-Pattern Checklist
+## 20. Testing Coverage
+
+- [ ] Changed behavior is covered by unit tests and/or integration tests
+- [ ] High-risk changes (auth, tenant isolation, payments, workflows, undo/redo, eventing) include integration tests
+- [ ] Tests validate both happy path and key failure/edge cases
+- [ ] New API behavior is covered by route-level integration tests
+- [ ] Missing test coverage is explicitly called out in review findings with proposed test files/cases
+
+## 21. Anti-Pattern Checklist
 
 Flag any of these patterns as violations:
 
@@ -243,6 +251,7 @@ Flag any of these patterns as violations:
 | `any` type | Medium | Use zod + `z.infer` |
 | Hardcoded user-facing string | Medium | Use i18n translation key |
 | Hand-written migration | Medium | Delete and run `yarn db:generate` |
+| Behavior change without unit/integration test coverage | High | Add focused unit/integration tests for changed paths |
 | `alert()` or custom toast | Medium | Use `flash()` |
 | One-letter variable name | Low | Use descriptive name |
 | Inline comment on self-explanatory code | Low | Remove comment |
