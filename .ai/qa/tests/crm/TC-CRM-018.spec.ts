@@ -9,24 +9,30 @@ test.describe('TC-CRM-018: Person Display Name Edit And Undo', () => {
     await login(page, 'admin');
     await page.goto('/backend/customers/people');
 
-    const personRow = page.locator('table tbody tr').first();
-    await expect(personRow).toBeVisible();
-    await personRow.click();
+    const personLink = page.locator('table tbody tr').first().getByRole('link').first();
+    await expect(personLink).toBeVisible();
+    await personLink.click();
 
-    const displayNameButton = page.getByRole('button', { name: /^Display name / });
-    if ((await displayNameButton.count()) > 0) {
-      await displayNameButton.click();
+    const displayNameButton = page.getByRole('button', { name: /^Display name / }).first();
+    await expect(displayNameButton).toBeVisible();
+    const displayNameLabel = ((await displayNameButton.innerText()) || '').trim();
+    const originalName = displayNameLabel.replace(/^Display name\s+/, '').trim();
+
+    const editButton = displayNameButton.locator('xpath=..').getByRole('button').nth(1);
+    await editButton.click();
+
+    let input = page.getByPlaceholder(/Enter (display name|full name|name)/i).first();
+    if ((await input.count()) === 0) {
+      input = page.locator('main input[type="text"]').first();
     }
-
-    const input = page.getByRole('textbox', { name: /Enter (display name|full name)/i });
-    const originalName = (await input.inputValue()).trim();
+    await expect(input).toBeVisible();
     const updatedName = `${originalName} QA`;
 
     await input.fill(updatedName);
     await page.getByRole('button', { name: /Save/ }).click();
-    await expect(page.getByText(updatedName, { exact: true }).first()).toBeVisible();
+    await expect(displayNameButton).toContainText(updatedName);
 
     await page.getByRole('button', { name: /^Undo(?: last action)?$/ }).click();
-    await expect(page.getByText(originalName, { exact: true }).first()).toBeVisible();
+    await expect(displayNameButton).toContainText(originalName);
   });
 });
