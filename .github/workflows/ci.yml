@@ -47,6 +47,49 @@ jobs:
       - name: Build
         run: yarn build:app
 
+  ephemeral-integration:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      - name: Enable Corepack
+        run: corepack enable
+
+      - name: Install dependencies
+        run: yarn install --immutable
+
+      - name: Build packages
+        run: yarn build:packages
+
+      - name: Prepare generated modules
+        run: yarn generate
+
+      - name: Rebuild packages with generated files
+        run: yarn build:packages
+
+      - name: Build app
+        run: yarn workspace @open-mercato/app build
+
+      - name: Install Playwright browser
+        run: npx playwright install --with-deps chromium
+
+      - name: Run ephemeral integration pipeline
+        run: yarn test:integration:ephemeral
+
+      - name: Upload integration test artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: integration-test-results
+          path: .ai/qa/test-results/
+          if-no-files-found: ignore
+
   docker-build:
     runs-on: ubuntu-latest
     # Only run on non-fork PRs (forks don't have access to GHA cache)

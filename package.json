@@ -35,12 +35,18 @@
     "install-skills": "./scripts/install-skills.sh",
     "mcp:serve": "turbo run mcp:serve --filter=@open-mercato/ai-assistant",
     "mcp:dev": "turbo run mcp:dev --filter=@open-mercato/ai-assistant",
+    "mercato": "node packages/cli/dist/bin.js",
     "registry:setup-user": "./scripts/registry/setup-user.sh",
     "registry:publish": "./scripts/registry/publish.sh",
     "release:canary": "./scripts/release-canary.sh",
     "release:patch": "./scripts/release-patch.sh",
     "release:minor": "./scripts/release-minor.sh",
-    "release:major": "./scripts/release-major.sh"
+    "release:major": "./scripts/release-major.sh",
+    "test:integration": "npx playwright test --config .ai/qa/tests/playwright.config.ts",
+    "test:integration:report": "npx playwright show-report .ai/qa/test-results/html",
+    "test:integration:ephemeral": "yarn mercato test:integration",
+    "test:integration:ephemeral:start": "yarn mercato test:ephemeral",
+    "test:integration:ephemeral:start:verbose": "yarn mercato test:ephemeral --verbose"
   },
   "dependencies": {
     "@ai-sdk/openai": "^2.0.80",
@@ -81,6 +87,7 @@
   },
   "devDependencies": {
     "@eslint/eslintrc": "^3.3.3",
+    "@playwright/test": "^1.50.0",
     "@types/better-sqlite3": "^7.6.11",
     "@types/jest": "^30.0.0",
     "@types/node": "^20.0.0",

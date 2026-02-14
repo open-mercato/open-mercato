@@ -187,6 +187,11 @@ const sidebars: SidebarsConfig = {
           label: "Entities",
           items: ["cli/entities-install"],
         },
+        {
+          type: "category",
+          label: "Integration Testing",
+          items: ["cli/test-integration", "cli/test-ephemeral"],
+        },
         "cli/scheduler",
         "cli/eject",
       ],

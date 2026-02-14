@@ -1,0 +1,53 @@
+---
+title: yarn test:integration:ephemeral:start
+sidebar_label: yarn test:integration:ephemeral:start
+description: Starts a disposable Open Mercato app + database for manual QA or MCP-based exploration.
+---
+
+`yarn test:integration:ephemeral:start` executes `yarn mercato test:ephemeral`.
+
+This command boots an isolated environment and keeps it running until you stop it with `Ctrl+C`.
+
+## Usage
+
+```bash
+# Preferred script
+yarn test:integration:ephemeral:start
+
+# Direct CLI command (alias form)
+yarn mercato test:ephemeral
+
+# Direct CLI command (module/command form)
+yarn mercato test ephemeral
+```
+
+## Options
+
+| Option | Description |
+| --- | --- |
+| `--verbose` | Shows detailed bootstrap/build logs. |
+| `--screenshots` | Enables screenshot capture for Playwright sessions. |
+| `--no-screenshots` | Disables screenshot capture for Playwright sessions. |
+
+## Examples
+
+```bash
+# Start ephemeral environment for manual QA
+yarn test:integration:ephemeral:start
+
+# Start with verbose setup logs
+yarn mercato test:ephemeral --verbose
+```
+
+## Runtime Output
+
+When ready, the command prints:
+
+- The ephemeral base URL (for example `http://127.0.0.1:<port>`)
+- QA login credentials: `admin@acme.com / secret`
+- A reminder to use `Ctrl+C` to stop and clean up
+
+## Requirements
+
+- Node.js `24.x`
+- Docker runtime available (`docker info` must succeed)

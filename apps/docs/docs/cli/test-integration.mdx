@@ -1,0 +1,56 @@
+---
+title: yarn test:integration:ephemeral
+sidebar_label: yarn test:integration:ephemeral
+description: Runs the Playwright integration suite in a fully isolated ephemeral environment using disposable containers.
+---
+
+`yarn test:integration:ephemeral` executes `yarn mercato test:integration`.
+
+The command starts a disposable Postgres container and app runtime, runs the Playwright suite, and tears everything down when tests finish.
+
+## Usage
+
+```bash
+# Preferred script
+yarn test:integration:ephemeral
+
+# Direct CLI command (alias form)
+yarn mercato test:integration
+
+# Direct CLI command (module/command form)
+yarn mercato test integration
+```
+
+## Options
+
+| Option | Description |
+| --- | --- |
+| `--filter <pattern>` | Runs only tests matching a Playwright filter (same as positional filter). |
+| `<pattern>` | Positional shorthand for `--filter`. |
+| `--keep` | Keeps app and database running after tests (for debugging). |
+| `--verbose` | Shows detailed bootstrap/build logs. |
+| `--screenshots` | Forces screenshot capture during test runs. |
+| `--no-screenshots` | Disables screenshot capture during test runs. |
+
+## Examples
+
+```bash
+# Run everything in ephemeral containers
+yarn test:integration:ephemeral
+
+# Run only auth-related tests
+yarn mercato test:integration --filter auth/
+
+# Keep environment alive for debugging after tests
+yarn mercato test:integration --keep --verbose
+```
+
+## Requirements
+
+- Node.js `24.x`
+- Docker runtime available (`docker info` must succeed)
+
+## Notes
+
+- By default, screenshot capture is enabled locally and disabled in CI.
+- The command ensures Playwright Chromium is installed before running tests.
