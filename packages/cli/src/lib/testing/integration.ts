@@ -381,6 +381,7 @@ export async function startEphemeralEnvironment(options: EphemeralRuntimeOptions
   const commandEnvironment = buildEnvironment({
     DATABASE_URL: databaseUrl,
     BASE_URL: applicationBaseUrl,
+    JWT_SECRET: 'om-ephemeral-integration-jwt-secret',
     NODE_ENV: 'test',
     CI: 'true',
     TENANT_DATA_ENCRYPTION_FALLBACK_KEY: 'om-ephemeral-integration-fallback-key',

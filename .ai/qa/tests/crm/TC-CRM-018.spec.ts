@@ -42,10 +42,7 @@ test.describe('TC-CRM-018: Person Display Name Edit And Undo', () => {
     };
 
     await expect.poll(readDisplayName).toContain(updatedName);
-
-    await page.getByRole('button', { name: 'Version History' }).click();
-    await expect(page.getByRole('heading', { name: 'Version History' })).toBeVisible();
-    await page.getByRole('button', { name: 'Undo last action' }).click();
+    await page.keyboard.press(process.platform === 'darwin' ? 'Meta+z' : 'Control+z');
     await expect.poll(readDisplayName).toContain(originalName);
   });
 });
