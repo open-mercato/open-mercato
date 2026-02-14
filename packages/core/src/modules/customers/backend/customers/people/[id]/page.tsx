@@ -12,6 +12,7 @@ import { collectCustomFieldValues } from '@open-mercato/ui/backend/utils/customF
 import { mapCrudServerErrorToFormErrors } from '@open-mercato/ui/backend/utils/serverErrors'
 import { E } from '#generated/entities.ids.generated'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
 import {
   ActivitiesSection,
 } from '../../../../components/detail/ActivitiesSection'
@@ -98,6 +99,7 @@ type ProfileEditableField = 'firstName' | 'lastName' | 'jobTitle' | 'department'
 export default function CustomerPersonDetailPage({ params }: { params?: { id?: string } }) {
   const id = params?.id
   const t = useT()
+  const { confirm, ConfirmDialogElement } = useConfirmDialog()
   const detailTranslator = React.useMemo(() => createTranslatorWithFallback(t), [t])
   const notesAdapter = React.useMemo(() => createCustomerNotesAdapter(detailTranslator), [detailTranslator])
   const router = useRouter()
@@ -328,10 +330,10 @@ export default function CustomerPersonDetailPage({ params }: { params?: { id?: s
 
   const handleDelete = React.useCallback(async () => {
     if (!personId) return
-    const confirmed =
-      typeof window === 'undefined'
-        ? true
-        : window.confirm(t('customers.people.list.deleteConfirm', undefined, { name: personName }))
+    const confirmed = await confirm({
+      title: t('customers.people.list.deleteConfirm', undefined, { name: personName }),
+      variant: 'destructive',
+    })
     if (!confirmed) return
     setIsDeleting(true)
     try {
@@ -351,7 +353,7 @@ export default function CustomerPersonDetailPage({ params }: { params?: { id?: s
     } finally {
       setIsDeleting(false)
     }
-  }, [personId, personName, router, t])
+  }, [confirm, personId, personName, router, t])
 
   const handleTagsChange = React.useCallback((nextTags: TagOption[]) => {
     setData((prev) => (prev ? { ...prev, tags: nextTags } : prev))
@@ -832,8 +834,9 @@ export default function CustomerPersonDetailPage({ params }: { params?: { id?: s
               isSubmitting={false}
             />
           </div>
-  
+
         </PageBody>
+        {ConfirmDialogElement}
       </Page>
     )
   }

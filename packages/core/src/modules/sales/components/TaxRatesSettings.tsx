@@ -14,6 +14,7 @@ import { readApiResultOrThrow, apiCall } from '@open-mercato/ui/backend/utils/ap
 import { raiseCrudError } from '@open-mercato/ui/backend/utils/serverErrors'
 import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
 
 type TaxRateRow = {
   id: string
@@ -59,6 +60,7 @@ const DEFAULT_FORM_VALUES: TaxRateFormValues = {
 export function TaxRatesSettings() {
   const t = useT()
   const scopeVersion = useOrganizationScopeVersion()
+  const { confirm, ConfirmDialogElement } = useConfirmDialog()
   const [entries, setEntries] = React.useState<TaxRateRow[]>([])
   const [loading, setLoading] = React.useState(false)
   const [dialog, setDialog] = React.useState<DialogState | null>(null)
@@ -223,7 +225,11 @@ export function TaxRatesSettings() {
 
   const deleteEntry = React.useCallback(async (entry: TaxRateRow) => {
     const message = translations.actions.deleteConfirm.replace('{{name}}', entry.name || entry.code || entry.id)
-    if (typeof window !== 'undefined' && !window.confirm(message)) return
+    const confirmed = await confirm({
+      title: message,
+      variant: 'destructive',
+    })
+    if (!confirmed) return
     try {
       const call = await apiCall('/api/sales/tax-rates', {
         method: 'DELETE',
@@ -240,7 +246,7 @@ export function TaxRatesSettings() {
       console.error('sales.tax-rates.delete failed', err)
       flash(translations.errors.delete, 'error')
     }
-  }, [translations.actions.deleteConfirm, translations.errors.delete, translations.messages.deleted, loadEntries])
+  }, [confirm, translations.actions.deleteConfirm, translations.errors.delete, translations.messages.deleted, loadEntries])
 
   const columns = React.useMemo<ColumnDef<TaxRateRow>[]>(() => [
     {
@@ -366,6 +372,7 @@ export function TaxRatesSettings() {
           />
         </DialogContent>
       </Dialog>
+      {ConfirmDialogElement}
     </section>
   )
 }

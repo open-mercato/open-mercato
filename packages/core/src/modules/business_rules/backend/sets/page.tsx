@@ -13,6 +13,7 @@ import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import type { FilterDef, FilterValues } from '@open-mercato/ui/backend/FilterBar'
+import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
 
 type RuleSet = {
   id: string
@@ -42,6 +43,7 @@ export default function RuleSetsListPage() {
   const t = useT()
   const router = useRouter()
   const queryClient = useQueryClient()
+  const { confirm, ConfirmDialogElement } = useConfirmDialog()
   const [filterValues, setFilterValues] = React.useState<FilterValues>({})
 
   const { data, isLoading, error } = useQuery({
@@ -75,9 +77,11 @@ export default function RuleSetsListPage() {
   })
 
   const handleDelete = async (id: string, setName: string) => {
-    if (!confirm(t('business_rules.sets.confirm.delete', { name: setName }))) {
-      return
-    }
+    const confirmed = await confirm({
+      title: t('business_rules.sets.confirm.delete', { name: setName }),
+      variant: 'destructive',
+    })
+    if (!confirmed) return
 
     const result = await apiCall(`/api/business_rules/sets?id=${id}`, {
       method: 'DELETE',
@@ -240,6 +244,7 @@ export default function RuleSetsListPage() {
           pagination={{ page, pageSize, total, totalPages, onPageChange: setPage }}
         />
       </PageBody>
+      {ConfirmDialogElement}
     </Page>
   )
 }

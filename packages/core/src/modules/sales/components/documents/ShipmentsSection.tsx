@@ -10,6 +10,7 @@ import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { deleteCrud } from '@open-mercato/ui/backend/utils/crud'
 import { useOrganizationScopeDetail } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
 import { emitSalesDocumentTotalsRefresh } from '@open-mercato/core/modules/sales/lib/frontend/documentTotalsEvents'
 import type { SectionAction } from '@open-mercato/core/modules/customers/components/detail/types'
 import { generateTempId } from '@open-mercato/core/modules/customers/lib/detailHelpers'
@@ -113,6 +114,7 @@ export function SalesShipmentsSection({
 }: SalesShipmentsSectionProps) {
   const t = useT()
   const { organizationId, tenantId } = useOrganizationScopeDetail()
+  const { confirm, ConfirmDialogElement } = useConfirmDialog()
   const resolvedOrganizationId = organizationIdProp ?? organizationId ?? null
   const resolvedTenantId = tenantIdProp ?? tenantId ?? null
   const addShipmentLabel = React.useMemo(
@@ -379,9 +381,10 @@ export function SalesShipmentsSection({
 
   const handleDelete = React.useCallback(
     async (shipment: ShipmentRow) => {
-      const confirmed = window.confirm(
-        t('sales.documents.shipments.confirmDelete', 'Delete this shipment?')
-      )
+      const confirmed = await confirm({
+        title: t('sales.documents.shipments.confirmDelete', 'Delete this shipment?'),
+        variant: 'default',
+      })
       if (!confirmed) return
       try {
         const result = await deleteCrud('sales/shipments', {
@@ -402,7 +405,7 @@ export function SalesShipmentsSection({
         flash(t('sales.documents.shipments.errorDelete', 'Failed to delete shipment.'), 'error')
       }
     },
-    [loadShipments, orderId, resolvedOrganizationId, resolvedTenantId, t]
+    [confirm, loadShipments, orderId, resolvedOrganizationId, resolvedTenantId, t]
   )
 
   const renderItemList = (items: ShipmentItem[]) => (
@@ -560,6 +563,7 @@ export function SalesShipmentsSection({
         }}
         onAddComment={onAddComment}
       />
+      {ConfirmDialogElement}
     </div>
   )
 }

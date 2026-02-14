@@ -114,6 +114,8 @@ export type ModuleInfo = {
   copyright?: string
   // Optional hard dependencies: module ids that must be enabled
   requires?: string[]
+  // Whether this module can be ejected into the app's src/modules/ for customization
+  ejectable?: boolean
 }
 
 export type ModuleDashboardWidgetEntry = {

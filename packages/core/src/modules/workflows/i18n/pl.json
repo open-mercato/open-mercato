@@ -542,10 +542,12 @@
         "loadFailed": "Nie udało się załadować zadań użytkowników"
       },
       "roles": "Role",
+      "backToList": "Powrót do Zadań",
       "detail": {
         "loading": "Ładowanie zadania...",
         "notFound": "Zadanie nie znalezione",
         "backToList": "Powrót do Zadań",
+        "type": "Zadanie Użytkownika",
         "overdueWarning": "⚠ To zadanie jest przeterminowane!",
         "cannotComplete": "To zadanie zostało już zakończone lub anulowane i nie może być modyfikowane.",
         "noFormSchema": "To zadanie nie ma formularza do wypełnienia. Możesz dodać opcjonalne komentarze i wysłać.",
@@ -1010,6 +1012,42 @@
         "confirmRemove": "Czy na pewno chcesz usunąć to mapowanie?"
       }
     },
+    "visualEditor": {
+      "clearTitle": "Wyczyścić wszystko?",
+      "clearDescription": "Spowoduje to wyczyszczenie wszystkich metadanych i obszaru roboczego przepływu pracy. Tej czynności nie można cofnąć.",
+      "showMetadata": "Pokaż metadane",
+      "hideMetadata": "Ukryj metadane",
+      "loadExample": "Załaduj przykład",
+      "clear": "Wyczyść",
+      "validate": "Waliduj",
+      "runTest": "Uruchom test",
+      "workflowMetadata": "Metadane przepływu pracy"
+    },
+    "mobile": {
+      "viewFullGraph": "Pokaż pełny graf",
+      "metadata": "Metadane",
+      "addStep": "Dodaj krok",
+      "addTransition": "Dodaj przejście",
+      "noSteps": "Brak zdefiniowanych kroków.",
+      "noTransitions": "Brak zdefiniowanych przejść.",
+      "moreActions": "Więcej akcji",
+      "stepTimeline": "Oś czasu kroków",
+      "eventLog": "Dziennik zdarzeń",
+      "showDetails": "Pokaż szczegóły",
+      "hideDetails": "Ukryj szczegóły",
+      "startBuilding": "Zacznij budować",
+      "startBuildingHint": "Dotknij typu kroku powyżej, aby go dodać",
+      "loadExample": "Załaduj przykładowy przepływ",
+      "runTest": "Uruchom test",
+      "clear": "Wyczyść",
+      "editStep": "Edytuj krok",
+      "deleteStep": "Usuń krok",
+      "editTransition": "Edytuj przejście",
+      "deleteTransition": "Usuń przejście",
+      "validate": "Waliduj",
+      "saving": "Zapisywanie…",
+      "save": "Zapisz"
+    },
     "validation": {
       "required": "To pole jest wymagane",
       "invalidFormat": "Nieprawidłowy format",
@@ -1080,6 +1118,9 @@
     "disabled": "Wyłączone",
     "yes": "Tak",
     "no": "Nie",
+    "on": "Włączone",
+    "off": "Wyłączone",
+    "done": "Gotowe",
     "edit": "Edytuj",
     "delete": "Usuń",
     "duplicate": "Duplikuj",
@@ -1089,7 +1130,8 @@
     "refresh": "Odśwież",
     "refreshing": "Odświeżanie...",
     "details": "Szczegóły",
-    "cancel": "Anuluj"
+    "cancel": "Anuluj",
+    "loading": "Ładowanie..."
   },
   "demo": {
     "userTask": {

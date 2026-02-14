@@ -134,7 +134,7 @@ export default function EditTodoPage({ params }: { params?: { id?: string } }) {
             onSubmit={async (vals) => { await updateCrud('example/todos', vals) }}
             onDelete={async () => {
               if (!id) return
-              if (!window.confirm(t('example.todos.table.confirm.delete'))) return
+
               try {
                 await deleteCrud('example/todos', String(id))
                 pushWithFlash(router, '/backend/todos', t('example.todos.form.flash.deleted'), 'success')

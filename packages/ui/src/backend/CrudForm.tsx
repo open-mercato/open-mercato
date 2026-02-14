@@ -57,6 +57,7 @@ import type { CustomFieldDefLike } from '@open-mercato/shared/modules/entities/v
 import type { MDEditorProps as UiWMDEditorProps } from '@uiw/react-md-editor'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '../primitives/dialog'
 import { FieldDefinitionsManager, type FieldDefinitionsManagerHandle } from './custom-fields/FieldDefinitionsManager'
+import { useConfirmDialog } from './confirm-dialog'
 import { useInjectionSpotEvents, InjectionSpot, useInjectionWidgets } from './injection/InjectionSpot'
 import { VersionHistoryAction } from './version-history/VersionHistoryAction'
 
@@ -295,6 +296,7 @@ export function CrudForm<TValues extends Record<string, unknown>>({
 }: CrudFormProps<TValues>) {
   // Ensure module field components are registered (client-side)
   React.useEffect(() => { loadGeneratedFieldRegistrations().catch(() => {}) }, [])
+  const { confirm, ConfirmDialogElement } = useConfirmDialog()
   const router = useRouter()
   const t = useT()
   const resolvedSubmitLabel = submitLabel ?? t('ui.forms.actions.save')
@@ -413,8 +415,11 @@ export function CrudForm<TValues extends Record<string, unknown>>({
   const handleDelete = React.useCallback(async () => {
     if (!onDelete) return
     try {
-      const ok = typeof window !== 'undefined' ? window.confirm(deleteConfirmMessage) : true
-      if (!ok) return
+      const confirmed = await confirm({
+        title: deleteConfirmMessage,
+        variant: 'destructive',
+      })
+      if (!confirmed) return
       await onDelete()
       try { flash(deleteSuccessMessage, 'success') } catch {}
       // Redirect if requested by caller
@@ -425,7 +430,7 @@ export function CrudForm<TValues extends Record<string, unknown>>({
       const message = err instanceof Error && err.message ? err.message : deleteErrorMessage
       try { flash(message, 'error') } catch {}
     }
-  }, [onDelete, deleteRedirect, router, deleteConfirmMessage, deleteSuccessMessage, deleteErrorMessage])
+  }, [confirm, onDelete, deleteRedirect, router, deleteConfirmMessage, deleteSuccessMessage, deleteErrorMessage])
   
   // Determine whether this form is creating a new record (no `id` yet)
   const isNewRecord = React.useMemo(() => {
@@ -1608,6 +1613,7 @@ export function CrudForm<TValues extends Record<string, unknown>>({
           </form>
         </DataLoader>
         {fieldsetManagerDialog}
+        {ConfirmDialogElement}
       </div>
     )
   }
@@ -1698,6 +1704,7 @@ export function CrudForm<TValues extends Record<string, unknown>>({
         </div>
       </DataLoader>
       {fieldsetManagerDialog}
+      {ConfirmDialogElement}
     </div>
   )
 }
@@ -1941,7 +1948,7 @@ function TextAreaInput({
 
   return (
     <textarea
-      className="w-full rounded border px-2 py-2 min-h-[120px] text-sm"
+      className="w-full rounded border px-2 py-2 min-h-[80px] sm:min-h-[120px] text-sm"
       placeholder={placeholder}
       value={local}
       onChange={handleChange}
@@ -2062,7 +2069,7 @@ const HtmlRichTextEditor = React.memo(function HtmlRichTextEditor({ value = '', 
       </div>
       <div
         ref={ref}
-        className="w-full px-2 py-2 min-h-[160px] focus:outline-none prose prose-sm max-w-none"
+        className="w-full px-2 py-2 min-h-[100px] sm:min-h-[160px] focus:outline-none prose prose-sm max-w-none"
         contentEditable
         suppressContentEditableWarning
         onKeyDown={onKeyDown}
@@ -2128,7 +2135,7 @@ const SimpleMarkdownEditor = React.memo(function SimpleMarkdownEditor({ value = 
       </div>
       <textarea
         ref={taRef}
-        className="w-full min-h-[160px] resize-y px-2 py-2 font-mono text-sm outline-none"
+        className="w-full min-h-[100px] sm:min-h-[160px] resize-y px-2 py-2 font-mono text-sm outline-none"
         spellCheck={false}
         value={local}
         onChange={(e) => { typingRef.current = true; setLocal(e.target.value) }}

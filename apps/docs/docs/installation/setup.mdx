@@ -7,6 +7,10 @@ description: Step-by-step checklist to run Open Mercato locally.
 
 **Recommended: follow the develop branch track.** It contains the latest monorepo setup and is the default path for active development.
 
+:::tip Windows users
+If you are on **Windows**, skip the native setup and jump straight to the [Docker development setup](#docker-development-setup) below. It runs the entire stack — app, database, Redis, and search — inside containers, so you don't need Node.js, Yarn, or native build tools installed on your machine. This is also a great option for any platform where you prefer a fully containerized workflow.
+:::
+
 [![Watch on YouTube](https://img.youtube.com/vi/OsalmbiWQ-I/maxresdefault.jpg)](https://youtu.be/OsalmbiWQ-I)
 
 ### Develop branch (recommended)
@@ -19,15 +23,11 @@ git checkout develop
 
 Continue with the develop setup steps below.
 
-### Legacy main branch
+### Docker-based setup (all platforms)
 
-```bash
-git clone https://github.com/open-mercato/open-mercato.git
-cd open-mercato
-git checkout main
-```
+Use this track if you want to run the **entire stack inside Docker** with hot reload — no local Node.js or Yarn required. This is the **recommended path for Windows** and works on macOS/Linux too.
 
-Use this only if you need to match a legacy environment. The develop branch is the preferred path for new work.
+See the [full Docker Development Setup](#docker-development-setup) section below for step-by-step instructions.
 
 ## Develop setup steps (recommended)
 
@@ -75,61 +75,6 @@ Follow these steps after the [prerequisites](./prerequisites) are in place:
    ```
    Navigate to `http://localhost:3000/backend` and sign in with the credentials printed by `yarn initialize`.
 
-## Legacy main setup steps
-
-Use these steps only for the `main` branch.
-
-1. **Start Docker services**
-   ```bash
-   docker compose up -d
-   ```
-2. **Install workspace dependencies**
-   ```bash
-   yarn install
-   ```
-3. **Copy the environment template**
-   ```bash
-   cp apps/mercato/.env.example apps/mercato/.env
-   ```
-   Make sure these required variables are set in `apps/mercato/.env` before continuing:
-   ```env
-   DATABASE_URL=postgres://postgres:postgres@localhost:5432/open-mercato
-   JWT_SECRET=change-me-dev-secret
-   REDIS_URL=redis://localhost:6379
-   ```
-   If you prefer a separate events Redis, set `EVENTS_REDIS_URL` instead of `REDIS_URL`.
-4. **Bootstrap everything with one command**
-   ```bash
-   yarn mercato init
-   ```
-5. **Launch the app**
-   ```bash
-   yarn dev
-   ```
-   Navigate to `http://localhost:3000/backend` and sign in with the credentials printed by `yarn mercato init`.
-   If you plan to use the email-enabled onboarding flow, opt-in by setting the following environment variables in your `.env` (the toggle defaults to `false`):
-    ```env
-    RESEND_API_KEY=your_resend_api_key
-    APP_URL=http://localhost:3000
-    EMAIL_FROM=no-reply@your-domain.com
-    SELF_SERVICE_ONBOARDING_ENABLED=true
-    ADMIN_EMAIL=ops@your-domain.com
-    ```
-
-   Vector search relies on OpenAI embeddings. Add the API key to `.env` to activate the command palette and Data Designer page:
-
-   ```env
-   OPENAI_API_KEY=sk-your-key
-   ```
-
-   When the variable is omitted the UI keeps the feature visible but displays a reminder banner instead of search results.
-
-   For a full catalogue of backend flags (including profiler, cache, and query index switches) see the [System status variables](../framework/operations/system-status) reference—each entry links back to the admin System status page for quick adjustments.
-
-![Open Mercato admin home](/screenshots/open-mercato-homepage.png)
-
-> 💡 Need a clean slate? Run `yarn mercato init --reinstall`. It wipes module migrations and **drops the database**, so only use it when you intentionally want to reset everything. Prefer `yarn mercato init --no-examples` if you just want an empty CRM without resetting the database.
-
 ## Docker Management
 
 **Stop services:**
@@ -154,9 +99,133 @@ yarn mercato init
 docker exec mercato-postgres psql -U postgres -d open-mercato -c "SELECT extname, extversion FROM pg_extension WHERE extname = 'vector';"
 ```
 
+## Docker Development Setup
+
+Run the entire Open Mercato stack inside Docker **with hot reload**. Source code is mounted from the host so every file change is picked up automatically — no local Node.js, Yarn, or native build tools required. This is the **recommended setup for Windows** and a convenient option on any OS.
+
+### Prerequisites
+
+- **Docker Desktop** — [Download for Windows](https://docs.docker.com/desktop/setup/install/windows-install/), [macOS](https://docs.docker.com/desktop/setup/install/mac-install/), or [Linux](https://docs.docker.com/desktop/setup/install/linux/)
+- Docker Compose v2+ (bundled with Docker Desktop)
+- **Git** — [Download for Windows](https://git-scm.com/download/win) (includes Git Bash)
+- At least **4 GB RAM** allocated to Docker (check Docker Desktop → Settings → Resources)
+
+:::info Windows-specific notes
+- Use **Git Bash**, **PowerShell**, or **Windows Terminal** for running commands.
+- When cloning the repo, make sure Git preserves line endings for shell scripts:
+  ```bash
+  git config --global core.autocrlf input
+  ```
+- In Docker Desktop, ensure **WSL 2 backend** is enabled (Settings → General → "Use the WSL 2 based engine"). This is required for volume mounts and file watching to work correctly.
+:::
+
+### Quick Start
+
+```bash
+# Clone the repository
+git clone https://github.com/open-mercato/open-mercato.git
+cd open-mercato
+git checkout develop
+
+# (Optional) Copy and customize environment
+cp apps/mercato/.env.example apps/mercato/.env
+
+# Build and start the full dev stack
+docker compose -f docker-compose.fullapp.dev.yml up --build
+```
+
+The first run takes several minutes — Docker builds the image, installs dependencies, builds packages, runs migrations, and seeds demo data. Subsequent starts are much faster because initialization is cached in a named volume.
+
+Once the logs show the Next.js dev server is ready, open `http://localhost:3000/backend` and sign in with the default credentials printed during initialization (typically `admin@example.com` / `password`).
+
+### How It Works
+
+The `docker-compose.fullapp.dev.yml` file orchestrates five services:
+
+| Service | Image | Purpose |
+|---------|-------|---------|
+| **app** | Built from `Dockerfile` (dev stage) | Next.js app with hot reload |
+| **postgres** | `pgvector/pgvector:pg17-trixie` | PostgreSQL 17 with pgvector |
+| **redis** | `redis:7-alpine` | Caching and event persistence |
+| **meilisearch** | `getmeili/meilisearch:v1.11` | Full-text search |
+| **opencode** | Custom | Claude Code integration (optional) |
+
+The app container:
+- **Mounts your source code** from the host into `/app`
+- Uses **named volumes** for `node_modules`, `.next`, and package `dist/` directories so the container manages its own builds
+- Enables **file-watching via polling** (`CHOKIDAR_USEPOLLING`, `WATCHPACK_POLLING`) for reliable change detection on all platforms
+- On first run, executes `yarn mercato init` (migrations + seeding); on subsequent runs, applies pending migrations only
+
+### Common Operations
+
+**Start in detached mode (background):**
+```bash
+docker compose -f docker-compose.fullapp.dev.yml up -d
+```
+
+**View logs:**
+```bash
+docker compose -f docker-compose.fullapp.dev.yml logs -f        # all services
+docker compose -f docker-compose.fullapp.dev.yml logs -f app    # app only
+```
+
+**Rebuild after pulling new changes:**
+```bash
+docker compose -f docker-compose.fullapp.dev.yml up --build
+```
+
+**Stop all services:**
+```bash
+docker compose -f docker-compose.fullapp.dev.yml down
+```
+
+**Full reset (deletes all data and cached builds):**
+```bash
+docker compose -f docker-compose.fullapp.dev.yml down -v
+docker compose -f docker-compose.fullapp.dev.yml up --build
+```
+
+### Environment Variables
+
+All environment variables are pre-configured with sensible defaults inside the compose file. To customize, edit `apps/mercato/.env` before starting — the compose file reads from it automatically.
+
+Key variables you may want to override:
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `APP_PORT` | `3000` | Host port for the app |
+| `POSTGRES_USER` | `postgres` | Database username |
+| `POSTGRES_PASSWORD` | `postgres` | Database password |
+| `JWT_SECRET` | `JWT` | Auth token secret |
+| `OPENAI_API_KEY` | — | Required for vector search and AI features |
+| `DEMO_MODE` | `true` | Seeds demo CRM data on first run |
+
+### Troubleshooting
+
+**Container fails to start on Windows:**
+- Ensure WSL 2 backend is enabled in Docker Desktop
+- Check that the repository was cloned with `core.autocrlf=input` to avoid CRLF issues in shell scripts
+- Verify Docker Desktop has enough memory allocated (4 GB minimum)
+
+**File changes not detected:**
+- The compose file sets `CHOKIDAR_USEPOLLING=true` and `WATCHPACK_POLLING=true` by default. If changes are still not picked up, restart the app container:
+  ```bash
+  docker compose -f docker-compose.fullapp.dev.yml restart app
+  ```
+
+**Port conflicts:**
+- If port 3000 is already in use, override it: `APP_PORT=3001 docker compose -f docker-compose.fullapp.dev.yml up`
+
+**Slow file watching on Windows/WSL 2:**
+- Store the repository inside the WSL 2 filesystem (`\\wsl$\Ubuntu\home\...`) rather than on the Windows filesystem (`/mnt/c/...`) for significantly better I/O performance.
+
+---
+
 ## Docker Deployment (Full Stack)
 
 Run the complete Open Mercato stack with Docker Compose, including the application, PostgreSQL, Redis, and Meilisearch. This approach is ideal for quick demos, testing, or containerized deployments.
+
+[![Watch: Deploy Open Mercato on a VPS](https://img.youtube.com/vi/xau17YBP9ek/maxresdefault.jpg)](https://www.youtube.com/watch?v=xau17YBP9ek)
 
 ### Prerequisites
 

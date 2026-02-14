@@ -8,6 +8,7 @@ import type { Module } from '@open-mercato/shared/modules/registry'
 import { getCliModules, hasCliModules, registerCliModules } from './registry'
 export { getCliModules, hasCliModules, registerCliModules }
 import { parseBooleanToken } from '@open-mercato/shared/lib/boolean'
+import { getRedisUrl } from '@open-mercato/shared/lib/redis/connection'
 import { resolveInitDerivedSecrets } from './lib/init-secrets'
 import type { ChildProcess } from 'node:child_process'
 import path from 'node:path'
@@ -214,13 +215,51 @@ export async function run(argv = process.argv) {
         // Also flush Redis
         try {
           const Redis = (await import('ioredis')).default
-          const redisUrl = process.env.REDIS_URL || 'redis://localhost:6379'
-          const redis = new Redis(redisUrl)
+          const redis = new Redis(getRedisUrl())
           await redis.flushall()
           await redis.quit()
           console.log('   Redis flushed.')
         } catch {}
         console.log('✅ Database cleared. Proceeding with fresh initialization...\n')
+      }
+
+      if (!reinstall) {
+        await ensureEnvLoaded()
+        const dbUrl = process.env.DATABASE_URL
+        if (!dbUrl) {
+          console.error('DATABASE_URL is not set. Aborting initialization.')
+          return 1
+        }
+
+        const { Client } = await import('pg')
+        const client = new Client({ connectionString: dbUrl })
+        try {
+          await client.connect()
+          const tableCheck = await client.query<{ regclass: string | null }>(
+            `SELECT to_regclass('public.users') AS regclass`,
+          )
+          const hasUsersTable = Boolean(tableCheck.rows?.[0]?.regclass)
+          if (hasUsersTable) {
+            const countResult = await client.query<{ count: string }>(
+              'SELECT COUNT(*)::text AS count FROM users',
+            )
+            const existingUsersCount = Number.parseInt(countResult.rows?.[0]?.count ?? '0', 10)
+            if (Number.isFinite(existingUsersCount) && existingUsersCount > 0) {
+              console.error(
+                `❌ Initialization aborted: found ${existingUsersCount} existing user(s) in the database.`,
+              )
+              console.error(
+                '   To reset and initialize from scratch, run: yarn mercato init --reinstall',
+              )
+              console.error('   Shortcut script: yarn reinstall')
+              return 1
+            }
+          }
+        } finally {
+          try {
+            await client.end()
+          } catch {}
+        }
       }
 
       // Step 1: Run generators directly (no process spawn)
@@ -470,6 +509,46 @@ export async function run(argv = process.argv) {
     }
   }
 
+  // Handle eject command directly (bootstrap-free)
+  if (first === 'eject') {
+    try {
+      const { createResolver } = await import('./lib/resolver')
+      const { listEjectableModules, ejectModule } = await import('./lib/eject')
+      const resolver = createResolver()
+
+      const isList = second === '--list' || second === '-l'
+      const moduleId = !isList ? second : undefined
+
+      if (isList || !moduleId) {
+        const ejectable = listEjectableModules(resolver)
+        if (ejectable.length === 0) {
+          console.log('No ejectable modules found.')
+        } else {
+          console.log('Ejectable modules:\n')
+          for (const mod of ejectable) {
+            const desc = mod.description ? ` — ${mod.description}` : ''
+            console.log(`  ${mod.id} (from: ${mod.from})${desc}`)
+          }
+          console.log('\nUsage: yarn mercato eject <moduleId>')
+        }
+        return 0
+      }
+
+      console.log(`Ejecting module "${moduleId}"...`)
+      ejectModule(resolver, moduleId)
+      console.log(`\n✅ Module "${moduleId}" ejected successfully!\n`)
+      console.log('Next steps:')
+      console.log('  1. Run generators:  yarn mercato generate all')
+      console.log(`  2. Customize:       edit src/modules/${moduleId}/`)
+      console.log('  3. Start dev:       yarn dev')
+      return 0
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : String(error)
+      console.error(`❌ Eject failed: ${message}`)
+      return 1
+    }
+  }
+
   let modName = first
   let cmdName = second
   let rest = remaining
@@ -556,7 +635,7 @@ export async function run(argv = process.argv) {
 
               await runWorker({
                 queueName: queue,
-                connection: { url: process.env.REDIS_URL || process.env.QUEUE_REDIS_URL },
+                connection: { url: getRedisUrl('QUEUE') },
                 concurrency,
                 background: true,
                 handler: async (job, ctx) => {
@@ -586,7 +665,7 @@ export async function run(argv = process.argv) {
 
               await runWorker({
                 queueName: queueName!,
-                connection: { url: process.env.REDIS_URL || process.env.QUEUE_REDIS_URL },
+                connection: { url: getRedisUrl('QUEUE') },
                 concurrency,
                 handler: async (job, ctx) => {
                   for (const worker of queueWorkers) {
@@ -617,7 +696,7 @@ export async function run(argv = process.argv) {
 
           const queue = strategyEnv === 'async'
             ? createQueue(queueName, 'async', {
-                connection: { url: process.env.REDIS_URL || process.env.QUEUE_REDIS_URL },
+                connection: { url: getRedisUrl('QUEUE') },
               })
             : createQueue(queueName, 'local')
 
@@ -640,7 +719,7 @@ export async function run(argv = process.argv) {
 
           const queue = strategyEnv === 'async'
             ? createQueue(queueName, 'async', {
-                connection: { url: process.env.REDIS_URL || process.env.QUEUE_REDIS_URL },
+                connection: { url: getRedisUrl('QUEUE') },
               })
             : createQueue(queueName, 'local')
 
@@ -924,6 +1003,8 @@ export async function run(argv = process.argv) {
 
           const processes: ChildProcess[] = []
           const autoSpawnWorkers = process.env.AUTO_SPAWN_WORKERS !== 'false'
+          const autoSpawnScheduler = process.env.AUTO_SPAWN_SCHEDULER !== 'false'
+          const queueStrategy = process.env.QUEUE_STRATEGY || 'local'
 
           function cleanup() {
             console.log('[server] Shutting down...')
@@ -962,6 +1043,16 @@ export async function run(argv = process.argv) {
             processes.push(workerProcess)
           }
 
+          if (autoSpawnScheduler && queueStrategy === 'local') {
+            console.log('[server] Starting scheduler polling engine...')
+            const schedulerProcess = spawn('node', [mercatoBin, 'scheduler', 'start'], {
+              stdio: 'inherit',
+              env: process.env,
+              cwd: appDir,
+            })
+            processes.push(schedulerProcess)
+          }
+
           // Wait for any process to exit
           await Promise.race(
             processes.map(
@@ -989,6 +1080,8 @@ export async function run(argv = process.argv) {
 
           const processes: ChildProcess[] = []
           const autoSpawnWorkers = process.env.AUTO_SPAWN_WORKERS !== 'false'
+          const autoSpawnScheduler = process.env.AUTO_SPAWN_SCHEDULER !== 'false'
+          const queueStrategy = process.env.QUEUE_STRATEGY || 'local'
 
           function cleanup() {
             console.log('[server] Shutting down...')
@@ -1025,6 +1118,16 @@ export async function run(argv = process.argv) {
               cwd: appDir,
             })
             processes.push(workerProcess)
+          }
+
+          if (autoSpawnScheduler && queueStrategy === 'local') {
+            console.log('[server] Starting scheduler polling engine...')
+            const schedulerProcess = spawn('node', [mercatoBin, 'scheduler', 'start'], {
+              stdio: 'inherit',
+              env: process.env,
+              cwd: appDir,
+            })
+            processes.push(schedulerProcess)
           }
 
           // Wait for any process to exit

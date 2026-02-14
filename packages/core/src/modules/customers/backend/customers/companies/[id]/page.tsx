@@ -13,6 +13,7 @@ import { collectCustomFieldValues } from '@open-mercato/ui/backend/utils/customF
 import { mapCrudServerErrorToFormErrors } from '@open-mercato/ui/backend/utils/serverErrors'
 import { E } from '#generated/entities.ids.generated'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
 import { DetailFieldsSection, type DetailFieldConfig } from '@open-mercato/ui/backend/detail'
 import {
   ActivitiesSection,
@@ -95,6 +96,7 @@ type SectionKey = 'notes' | 'activities' | 'deals' | 'people' | 'addresses' | 't
 export default function CustomerCompanyDetailPage({ params }: { params?: { id?: string } }) {
   const id = params?.id
   const t = useT()
+  const { confirm, ConfirmDialogElement } = useConfirmDialog()
   const detailTranslator = React.useMemo(() => createTranslatorWithFallback(t), [t])
   const notesAdapter = React.useMemo(() => createCustomerNotesAdapter(detailTranslator), [detailTranslator])
   const router = useRouter()
@@ -434,10 +436,10 @@ export default function CustomerCompanyDetailPage({ params }: { params?: { id?: 
 
   const handleDelete = React.useCallback(async () => {
     if (!currentCompanyId) return
-    const confirmed =
-      typeof window === 'undefined'
-        ? true
-        : window.confirm(t('customers.companies.list.deleteConfirm', undefined, { name: companyName }))
+    const confirmed = await confirm({
+      title: t('customers.companies.list.deleteConfirm', undefined, { name: companyName }),
+      variant: 'destructive',
+    })
     if (!confirmed) return
     setIsDeleting(true)
     try {
@@ -457,7 +459,7 @@ export default function CustomerCompanyDetailPage({ params }: { params?: { id?: 
     } finally {
       setIsDeleting(false)
     }
-  }, [currentCompanyId, companyName, router, t])
+  }, [confirm, currentCompanyId, companyName, router, t])
 
   const handleTagsChange = React.useCallback((nextTags: TagOption[]) => {
     setData((prev) => (prev ? { ...prev, tags: nextTags } : prev))
@@ -875,6 +877,7 @@ export default function CustomerCompanyDetailPage({ params }: { params?: { id?: 
           <Separator className="my-4" />
         </div>
       </PageBody>
+      {ConfirmDialogElement}
     </Page>
   )
 }

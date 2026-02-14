@@ -13,6 +13,10 @@ Skills extend AI agents with task-specific capabilities. Each skill is a folder 
 │   ├── SKILL.md
 │   └── references/
 │       └── ui-components.md
+├── code-review/
+│   ├── SKILL.md
+│   └── references/
+│       └── review-checklist.md
 ├── create-agents-md/
 │   └── SKILL.md
 ├── create-qa-scenario/
@@ -64,6 +68,24 @@ Only include `name` and `description` in the frontmatter — no other fields.
 
 ## Installation
 
+### Using the Install Script
+
+Run the script to set up both Claude and Codex skills folders at once:
+
+```bash
+yarn install-skills
+```
+
+You should see emoji info messages like:
+
+```
+ℹ️  Linking .codex/skills → ../.ai/skills
+✅  Linked .codex/skills
+ℹ️  Linking .claude/skills → ../.ai/skills
+✅  Linked .claude/skills
+🎉  Skills installation complete.
+```
+
 ### Claude Code
 
 Symlink the skills folder:
@@ -89,7 +111,7 @@ Symlink the skills folder:
 
 ```bash
 mkdir -p .codex
-ln -s .ai/skills .codex/skills
+ln -s ../.ai/skills .codex/skills
 ```
 
 ### Verify
@@ -124,6 +146,7 @@ Skills also trigger automatically when a task matches the skill's `description`.
 | Skill | When to use |
 |-------|-------------|
 | `backend-ui-design` | Building admin pages, CRUD interfaces, data tables, forms, or detail pages with @open-mercato/ui |
+| `code-review` | Reviewing PRs, code changes, or auditing code quality against project conventions |
 | `create-agents-md` | Creating or rewriting AGENTS.md files for packages and modules |
 | `create-qa-scenario` | Auto-generating new QA test scenarios (markdown + Playwright TypeScript) from specs or feature descriptions |
 | `run-integration-tests` | Running existing integration tests, converting markdown test cases to Playwright TypeScript, executing QA test suite |

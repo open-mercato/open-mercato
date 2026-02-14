@@ -183,7 +183,7 @@ export function LookupSelect({
                   }}
                   aria-pressed={isSelected}
                 >
-                  <div className="flex h-12 w-12 shrink-0 items-center justify-center overflow-hidden rounded border bg-muted">
+                  <div className="flex h-10 w-10 sm:h-12 sm:w-12 shrink-0 items-center justify-center overflow-hidden rounded border bg-muted">
                     {item.icon ?? <span className="text-muted-foreground">•</span>}
                   </div>
                   <div className="flex min-w-0 flex-1 flex-col gap-1">

@@ -1,0 +1,209 @@
+---
+title: Create a standalone app
+description: Scaffold, configure, and develop a standalone Open Mercato application using create-mercato-app.
+---
+
+# Create a standalone app
+
+The `create-mercato-app` CLI scaffolds a fully configured, self-contained Open Mercato application outside the monorepo. The generated project includes Next.js, all core modules pre-enabled, Docker services, and development tooling — ready to customize and deploy independently.
+
+Standalone apps install Open Mercato packages from npm (or a private registry) instead of referencing local workspace packages. This is the recommended path for teams building production applications on top of Open Mercato.
+
+## Prerequisites
+
+- **Node.js 24+** — the generated project enforces this via a preinstall check.
+- **Yarn** — enabled through Corepack:
+  ```bash
+  corepack enable
+  corepack prepare yarn@stable --activate
+  ```
+- **Docker & Docker Compose** — for PostgreSQL (with pgvector), Redis, and Meilisearch.
+
+## Scaffold the app
+
+```bash
+npx create-mercato-app my-store
+```
+
+This creates a `my-store/` directory with the full application template, including `package.json`, `docker-compose.yml`, environment templates, and the `src/` tree.
+
+### Options
+
+| Option | Description |
+| --- | --- |
+| `--registry <url>` | Use a custom npm registry for `@open-mercato` packages. |
+| `--verdaccio` | Shorthand for `--registry http://localhost:4873` (local Verdaccio). |
+| `--help`, `-h` | Show usage information. |
+| `--version`, `-v` | Print the CLI version. |
+
+**App name rules:** lowercase alphanumeric characters and hyphens only. Cannot start or end with a hyphen.
+
+## Set up and run
+
+```bash
+cd my-store
+
+# 1. Copy environment template and configure
+cp .env.example .env
+# Edit .env — set DATABASE_URL, JWT_SECRET, REDIS_URL at minimum
+
+# 2. Start infrastructure
+docker compose up -d
+
+# 3. Install dependencies
+yarn install
+
+# 4. Bootstrap the app (generates modules, runs migrations, seeds data)
+yarn initialize
+
+# 5. Start the dev server
+yarn dev
+```
+
+Navigate to `http://localhost:3000/backend` and sign in with the credentials printed by `yarn initialize`.
+
+## Project structure
+
+```
+my-store/
+├── docker-compose.yml          # PostgreSQL, Redis, Meilisearch
+├── .env.example                # Environment variable reference
+├── package.json                # Scripts, dependencies
+├── next.config.ts              # Next.js configuration
+├── tsconfig.json               # TypeScript paths
+├── src/
+│   ├── modules.ts              # Enabled modules and their sources
+│   ├── modules/                # Your local modules (from: '@app')
+│   ├── bootstrap.ts            # App initialization
+│   ├── di.ts                   # DI overrides
+│   ├── app/
+│   │   ├── layout.tsx          # Root layout
+│   │   ├── (backend)/          # Admin panel routes
+│   │   ├── (frontend)/         # Frontend routes
+│   │   └── api/                # API dispatcher
+│   ├── components/             # Shared UI components
+│   └── i18n/                   # Locale files (en, pl, es, de)
+```
+
+### Key files
+
+- **`src/modules.ts`** — lists every enabled module and where it comes from. Core modules use `from: '@open-mercato/core'`; your custom modules use `from: '@app'`.
+- **`src/modules/`** — drop custom modules here. Each folder is a full module with the standard structure (`index.ts`, `backend/`, `api/`, `data/`, etc.).
+- **`src/di.ts`** — register app-level DI overrides that run after all module registrars.
+
+## Available scripts
+
+| Command | Description |
+| --- | --- |
+| `yarn dev` | Start the development server with hot reload. |
+| `yarn build` | Build the Next.js application for production. |
+| `yarn start` | Start the production server. |
+| `yarn generate` | Run all code generators (registry, entities, DI, API client). |
+| `yarn db:generate` | Generate database migrations from entity diffs. |
+| `yarn db:migrate` | Apply pending database migrations. |
+| `yarn db:greenfield` | Destructive reset — drops all tables and regenerates. |
+| `yarn initialize` | Full bootstrap: generate, migrate, seed roles and data. |
+| `yarn reinstall` | Drop everything and re-bootstrap from scratch. |
+| `yarn test` | Run the test suite. |
+| `yarn lint` | Lint the codebase. |
+
+## Add a custom module
+
+Create a new module under `src/modules/` and register it in `modules.ts`:
+
+1. Scaffold the directory:
+   ```bash
+   mkdir -p src/modules/inventory
+   ```
+
+2. Add `src/modules/inventory/index.ts`:
+   ```ts
+   export const metadata = { title: 'Inventory', group: 'Modules' }
+   ```
+
+3. Register in `src/modules.ts`:
+   ```ts
+   export const enabledModules: ModuleEntry[] = [
+     // ... existing modules
+     { id: 'inventory', from: '@app' },
+   ]
+   ```
+
+4. Regenerate and run:
+   ```bash
+   yarn generate
+   yarn dev
+   ```
+
+Add backend pages, API routes, entities, and other module files using the standard [module file conventions](../framework/modules/overview).
+
+## Eject a core module
+
+When you need to deeply customize a core module — changing its entities, business logic, or UI beyond what overrides allow — you can **eject** it. Ejecting copies the module's full source into your `src/modules/` directory and switches it to `from: '@app'` so the framework loads your local version.
+
+```bash
+# See which modules can be ejected
+yarn mercato eject --list
+
+# Eject the currencies module
+yarn mercato eject currencies
+
+# Regenerate after ejection
+yarn mercato generate all
+```
+
+After ejection, the module is fully yours to modify. See the [`mercato eject` CLI reference](../cli/eject) for the full list of ejectable modules and detailed usage.
+
+:::caution
+Ejected modules no longer receive automatic updates from package upgrades. You are responsible for merging upstream changes manually when upgrading Open Mercato versions.
+:::
+
+## Environment configuration
+
+The `.env.example` file documents all available variables. Key sections:
+
+| Variable | Required | Description |
+| --- | --- | --- |
+| `DATABASE_URL` | Yes | PostgreSQL connection string. |
+| `JWT_SECRET` | Yes | Secret for signing auth tokens. |
+| `REDIS_URL` | Yes | Redis connection for caching and events. |
+| `MEILISEARCH_HOST` | No | Meilisearch URL for full-text search. |
+| `OPENAI_API_KEY` | No | Required for vector search and AI features. |
+| `CACHE_STRATEGY` | No | `memory`, `sqlite`, `redis`, or `jsonfile`. Defaults to `memory`. |
+| `QUEUE_STRATEGY` | No | `local` or `async`. Use `async` with Redis for production. |
+| `APP_URL` | No | Public URL, used in emails and onboarding. |
+
+## Docker services
+
+The generated `docker-compose.yml` starts three services:
+
+| Service | Image | Default Port |
+| --- | --- | --- |
+| PostgreSQL | `pgvector/pgvector:pg17-trixie` | 5432 |
+| Redis | `redis:7-alpine` | 6379 |
+| Meilisearch | `getmeili/meilisearch:v1.11` | 7700 |
+
+Start them with `docker compose up -d` and stop with `docker compose down`. Add `-v` to remove volumes and reset all data.
+
+## Upgrading
+
+To upgrade Open Mercato packages in your standalone app:
+
+```bash
+# Update all @open-mercato packages to the latest version
+yarn up '@open-mercato/*'
+
+# Regenerate and apply any new migrations
+yarn generate
+yarn db:migrate
+```
+
+Review the [changelog](https://github.com/open-mercato/open-mercato/releases) for breaking changes before upgrading.
+
+## Troubleshooting
+
+- **`preinstall` check fails** — make sure you are running Node.js 24 or later. Use `nvm use 24` or `fnm use 24` to switch.
+- **Registry errors** — if using a private registry, pass `--registry <url>` when creating the app or edit `.yarnrc.yml` after scaffolding.
+- **Generators produce empty output** — run `yarn install` first so the `@open-mercato` packages are available in `node_modules`.
+- **Ejected module errors after upgrade** — ejected modules are not updated automatically. Compare your local copy with the upstream source and merge changes manually.
+- **Docker services not starting** — verify Docker is running and ports 5432, 6379, and 7700 are free. Use `docker compose logs` to inspect errors.

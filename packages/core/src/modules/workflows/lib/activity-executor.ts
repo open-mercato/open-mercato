@@ -14,6 +14,7 @@ import { EntityManager } from '@mikro-orm/core'
 import type { AwilixContainer } from 'awilix'
 import { WorkflowInstance } from '../data/entities'
 import { createQueue, Queue } from '@open-mercato/queue'
+import { getRedisUrl } from '@open-mercato/shared/lib/redis/connection'
 import { WorkflowActivityJob, WORKFLOW_ACTIVITIES_QUEUE_NAME } from './activity-queue-types'
 import { logWorkflowEvent } from './event-logger'
 
@@ -98,7 +99,7 @@ function getActivityQueue(): Queue<WorkflowActivityJob> {
         'async',
         {
           connection: {
-            url: process.env.REDIS_URL || process.env.QUEUE_REDIS_URL,
+            url: getRedisUrl('QUEUE'),
           },
           concurrency: parseInt(process.env.WORKFLOW_WORKER_CONCURRENCY || '5'),
         }
@@ -106,10 +107,7 @@ function getActivityQueue(): Queue<WorkflowActivityJob> {
     } else {
       activityQueue = createQueue<WorkflowActivityJob>(
         WORKFLOW_ACTIVITIES_QUEUE_NAME,
-        'local',
-        {
-          baseDir: process.env.QUEUE_BASE_DIR || '.queue',
-        }
+        'local'
       )
     }
   }

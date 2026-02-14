@@ -70,7 +70,7 @@ export function BarChart({
     return (
       <div className={wrapperClass}>
         {title && <h3 className="mb-4 text-base font-medium text-card-foreground">{title}</h3>}
-        <div className="flex h-48 items-center justify-center">
+        <div className="flex h-40 sm:h-48 items-center justify-center">
           <p className="text-sm text-destructive">{error}</p>
         </div>
       </div>
@@ -81,7 +81,7 @@ export function BarChart({
     return (
       <div className={wrapperClass}>
         {title && <h3 className="mb-4 text-base font-medium text-card-foreground">{title}</h3>}
-        <div className="flex h-48 items-center justify-center">
+        <div className="flex h-40 sm:h-48 items-center justify-center">
           <Spinner className="h-6 w-6 text-muted-foreground" />
         </div>
       </div>
@@ -92,7 +92,7 @@ export function BarChart({
     return (
       <div className={wrapperClass}>
         {title && <h3 className="mb-4 text-base font-medium text-card-foreground">{title}</h3>}
-        <div className="flex h-48 items-center justify-center">
+        <div className="flex h-40 sm:h-48 items-center justify-center">
           <p className="text-sm text-muted-foreground">{emptyMessage}</p>
         </div>
       </div>

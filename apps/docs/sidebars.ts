@@ -96,6 +96,7 @@ const sidebars: SidebarsConfig = {
           ],
         },
         "user-guide/audit-logs",
+        "user-guide/scheduler",
       ],
     },
     {
@@ -120,6 +121,7 @@ const sidebars: SidebarsConfig = {
             "api/attachments",
             "api/vector",
             "api/feature-toggles",
+            "api/scheduler",
             {
               type: "category",
               label: "Business Rules",
@@ -185,12 +187,15 @@ const sidebars: SidebarsConfig = {
           label: "Entities",
           items: ["cli/entities-install"],
         },
+        "cli/scheduler",
+        "cli/eject",
       ],
     },
     {
       type: "category",
       label: "Customization Tutorials",
       items: [
+        "customization/standalone-app",
         "customization/build-first-app",
         "customization/create-first-module",
         "customization/create-inventory-data",
@@ -302,6 +307,13 @@ const sidebars: SidebarsConfig = {
           label: "Operations",
           items: [
             "framework/operations/system-status",
+          ],
+        },
+        {
+          type: "category",
+          label: "Scheduler",
+          items: [
+            "framework/scheduler/overview",
           ],
         },
       ],

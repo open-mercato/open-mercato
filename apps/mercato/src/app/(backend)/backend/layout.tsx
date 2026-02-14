@@ -329,12 +329,16 @@ export default async function BackendLayout({ children, params }: { children: Re
     <>
       <AiChatHeaderButton />
       <GlobalSearchDialog embeddingConfigured={embeddingConfigured} missingConfigMessage={missingConfigMessage} />
-      <OrganizationSwitcher />
+      <div className="hidden lg:contents">
+        <OrganizationSwitcher />
+      </div>
       <SettingsButton />
       <ProfileDropdown email={auth?.email} />
       <NotificationBellWrapper />
     </>
   )
+
+  const mobileSidebarContent = <OrganizationSwitcher compact />
 
   const deployEnv = process.env.DEPLOY_ENV
   const baseProductName = translate('appShell.productName', 'Open Mercato')
@@ -365,6 +369,7 @@ export default async function BackendLayout({ children, params }: { children: Re
             breadcrumb={breadcrumb}
             sidebarCollapsedDefault={initialCollapsed}
             rightHeaderSlot={rightHeaderContent}
+            mobileSidebarSlot={mobileSidebarContent}
             adminNavApi="/api/auth/admin/nav"
             version={APP_VERSION}
             settingsPathPrefixes={settingsPathPrefixes}

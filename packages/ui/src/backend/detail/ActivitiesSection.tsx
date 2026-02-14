@@ -14,6 +14,7 @@ import { LoadingMessage, TabEmptyState } from './'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { createTranslatorWithFallback } from '@open-mercato/shared/lib/i18n/translate'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@open-mercato/ui/primitives/dialog'
+import { useConfirmDialog } from '../confirm-dialog'
 
 type Translator = (key: string, fallback?: string, params?: Record<string, string | number>) => string
 
@@ -748,6 +749,7 @@ export function ActivitiesSection<C = unknown>({
   dealLinkHref,
   manageHref,
 }: ActivitiesSectionProps<C>) {
+  const { confirm, ConfirmDialogElement } = useConfirmDialog()
   const tHook = useT()
   const baseTranslator = React.useMemo<Translator>(() => createTranslatorWithFallback(tHook), [tHook])
   const translate = React.useCallback(
@@ -997,15 +999,11 @@ export function ActivitiesSection<C = unknown>({
   const handleDelete = React.useCallback(
     async (activity: ActivitySummary) => {
       if (!activity.id) return
-      const confirmed =
-        typeof window === 'undefined'
-          ? true
-          : window.confirm(
-            t(
-              'deleteConfirm',
-              'Delete this activity? This action cannot be undone.',
-            ),
-          )
+      const confirmed = await confirm({
+        title: t('deleteConfirm', 'Delete this activity?'),
+        text: 'This action cannot be undone.',
+        variant: 'destructive',
+      })
       if (!confirmed) return
       setPendingAction({ kind: 'delete', id: activity.id })
       try {
@@ -1023,7 +1021,7 @@ export function ActivitiesSection<C = unknown>({
         setPendingAction(null)
       }
     },
-    [dataAdapter, dataContext, t],
+    [confirm, dataAdapter, dataContext, t],
   )
 
   const handleDialogSubmit = React.useCallback(
@@ -1195,7 +1193,7 @@ export function ActivitiesSection<C = unknown>({
                             </div>
                           ) : null}
                         </div>
-                        <div className="flex items-center gap-1 opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100">
+                        <div className="flex items-center gap-1 opacity-100 md:opacity-0 transition-opacity md:group-hover:opacity-100 focus-within:opacity-100">
                           <Button
                             type="button"
                             variant="ghost"
@@ -1277,6 +1275,7 @@ export function ActivitiesSection<C = unknown>({
         labelPrefix={labelPrefix}
         appearanceLabels={appearanceLabels}
       />
+      {ConfirmDialogElement}
     </div>
   )
 }

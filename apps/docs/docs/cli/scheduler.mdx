@@ -1,0 +1,530 @@
+---
+title: Scheduler CLI
+---
+
+# Scheduler CLI Commands
+
+The scheduler module provides CLI commands for managing scheduled jobs from the command line.
+
+## Available Commands
+
+### scheduler list
+
+List all scheduled jobs with optional filtering.
+
+```bash
+yarn mercato scheduler list [options]
+```
+
+**Options:**
+
+| Option | Description | Example |
+|--------|-------------|---------|
+| `--tenant <id>` | Filter by tenant ID | `--tenant tenant-123` |
+| `--scope <type>` | Filter by scope type | `--scope system` |
+| `--enabled <bool>` | Filter by enabled status | `--enabled true` |
+| `--module <id>` | Filter by source module | `--module currencies` |
+
+**Examples:**
+
+```bash
+# List all schedules
+yarn mercato scheduler list
+
+# List only system-scoped schedules
+yarn mercato scheduler list --scope system
+
+# List enabled schedules for a tenant
+yarn mercato scheduler list --tenant tenant-123 --enabled true
+
+# List schedules created by a module
+yarn mercato scheduler list --module currencies
+```
+
+**Output:**
+
+```
+┌────────────────────────────────────┬─────────────────────┬──────────┬──────────┬────────────┬────────────┬─────────┬────────┐
+│ ID                                 │ Name                │ Type     │ Schedule │ Target     │ Next Run   │ Enabled │ Source │
+├────────────────────────────────────┼─────────────────────┼──────────┼──────────┼────────────┼────────────┼─────────┼────────┤
+│ currencies:fetch-rates:org-123     │ Fetch Currency Rates│ Cron     │ 0 */6 ** │ Queue      │ 2024-01-27 │ true    │ module │
+│                                    │                     │          │ * *      │ currency...│ 12:00:00   │         │        │
+├────────────────────────────────────┼─────────────────────┼──────────┼──────────┼────────────┼────────────┼─────────┼────────┤
+│ reports:daily:tenant-456           │ Daily Sales Report  │ Cron     │ 0 6 * * *│ Command    │ 2024-01-28 │ true    │ user   │
+│                                    │                     │          │          │ reports... │ 06:00:00   │         │        │
+└────────────────────────────────────┴─────────────────────┴──────────┴──────────┴────────────┴────────────┴─────────┴────────┘
+
+Found 2 schedules
+```
+
+---
+
+### scheduler status
+
+Show the current status of the scheduler system.
+
+```bash
+yarn mercato scheduler status
+```
+
+**Output (Local Strategy):**
+
+```
+Scheduler Status
+================
+
+Strategy: local
+Status: running
+Poll Interval: 30000ms
+
+Active Schedules: 5
+- System: 2
+- Organization: 1
+- Tenant: 2
+
+Next Upcoming Runs:
+- reports:daily:tenant-456 at 2024-01-28 06:00:00 (America/New_York)
+- currencies:fetch-rates:org-123 at 2024-01-27 12:00:00 (UTC)
+- cleanup:weekly:system at 2024-01-28 02:00:00 (UTC)
+
+Queue Strategy: local
+Database: connected
+```
+
+**Output (Async Strategy):**
+
+```
+Scheduler Status
+================
+
+Strategy: async
+Status: synced
+
+Active Schedules: 5
+- System: 2
+- Organization: 1
+- Tenant: 2
+
+BullMQ Status:
+- Redis: connected
+- Repeatable Jobs: 5
+- Execution Queue: scheduler-execution
+- Pending Jobs: 0
+- Active Jobs: 2
+- Failed Jobs: 1
+
+Next Upcoming Runs:
+- reports:daily:tenant-456 at 2024-01-28 06:00:00 (America/New_York)
+- currencies:fetch-rates:org-123 at 2024-01-27 12:00:00 (UTC)
+- cleanup:weekly:system at 2024-01-28 02:00:00 (UTC)
+
+Worker Status:
+- Workers running: 3
+- Total concurrency: 15
+
+Queue Strategy: async
+Redis: connected
+Database: connected
+```
+
+---
+
+### scheduler run
+
+Manually execute a scheduled job immediately.
+
+```bash
+yarn mercato scheduler run <schedule-id>
+```
+
+**Arguments:**
+
+| Argument | Description | Required |
+|----------|-------------|----------|
+| `schedule-id` | The UUID or ID of the schedule to run | Yes |
+
+**Examples:**
+
+```bash
+# Run by UUID
+yarn mercato scheduler run 123e4567-e89b-12d3-a456-426614174000
+
+# Run by custom ID
+yarn mercato scheduler run currencies:fetch-rates:org-123
+```
+
+**Output (Success):**
+
+```
+Running schedule: currencies:fetch-rates:org-123
+Schedule: Fetch Currency Rates
+Type: Cron (0 */6 * * *)
+Target: Queue (currency-rates)
+
+Execution started...
+Job enqueued: bullmq-job-12345
+Status: completed
+Duration: 2.3s
+
+Result:
+{
+  "fetched": 42,
+  "updated": 40,
+  "failed": 2
+}
+```
+
+**Output (Failure):**
+
+```
+Running schedule: reports:daily:tenant-456
+Schedule: Daily Sales Report
+Type: Cron (0 6 * * *)
+Target: Command (reports.generate-daily)
+
+Execution started...
+Error: Command failed after 5.2s
+
+Error details:
+{
+  "message": "Database connection timeout",
+  "code": "ETIMEDOUT"
+}
+```
+
+**Exit Codes:**
+
+- `0` - Success
+- `1` - Schedule not found
+- `2` - Schedule is disabled
+- `3` - Execution failed
+- `4` - Invalid schedule ID
+
+---
+
+### scheduler start
+
+Start the scheduler engine.
+
+:::tip
+Behavior differs based on `QUEUE_STRATEGY`:
+- **Local:** Starts polling engine (keeps running)
+- **Async:** One-time sync with BullMQ (exits after sync)
+:::
+
+```bash
+yarn mercato scheduler start
+```
+
+**Local Strategy Output:**
+
+```
+Starting scheduler in LOCAL mode...
+
+Configuration:
+- Poll Interval: 30000ms
+- Lock Strategy: PostgreSQL advisory locks
+- Execution: Direct (queue/command)
+
+Database connected
+Lock acquired: scheduler-poller
+
+Active schedules loaded: 5
+- System: 2
+- Organization: 1
+- Tenant: 2
+
+Polling started. Press Ctrl+C to stop gracefully...
+
+[10:00:00] Poll cycle 1: checked 5 schedules, executed 0
+[10:00:30] Poll cycle 2: checked 5 schedules, executed 1
+  - reports:daily:tenant-456 (completed in 2.1s)
+[10:01:00] Poll cycle 3: checked 5 schedules, executed 0
+...
+
+^C
+Shutting down gracefully...
+Lock released
+Scheduler stopped
+```
+
+**Async Strategy Output:**
+
+```
+Starting scheduler in ASYNC mode...
+
+Configuration:
+- Redis: redis://localhost:6379
+- Queue: scheduler-execution
+- Execution: BullMQ workers
+
+Database connected
+Redis connected
+
+Syncing schedules with BullMQ...
+
+Processing schedules:
+✓ currencies:fetch-rates:org-123 (synced)
+✓ reports:daily:tenant-456 (synced)
+✓ cleanup:weekly:system (synced)
+✓ backup:nightly:tenant-789 (synced)
+- old-schedule:removed (removed orphan)
+
+Sync complete:
+- Synced: 4
+- Removed: 1
+- Errors: 0
+
+Scheduler synced successfully.
+
+Next steps:
+1. Start workers: yarn mercato worker:start
+2. Monitor queue: yarn mercato queue status scheduler-execution
+
+Exiting...
+```
+
+**Options:**
+
+| Option | Description | Default |
+|--------|-------------|---------|
+| `--poll-interval <ms>` | Poll interval in milliseconds (local mode) | 30000 |
+| `--verbose` | Enable verbose logging | false |
+
+**Examples:**
+
+```bash
+# Start with default settings
+yarn mercato scheduler start
+
+# Start with custom poll interval (local mode)
+yarn mercato scheduler start --poll-interval 60000
+
+# Start with verbose logging
+yarn mercato scheduler start --verbose
+```
+
+**Exit Codes:**
+
+- `0` - Success (async: sync complete, local: clean shutdown)
+- `1` - Database connection failed
+- `2` - Redis connection failed (async mode)
+- `3` - Lock acquisition failed (local mode)
+- `130` - Interrupted by user (Ctrl+C, local mode)
+
+---
+
+## Common Workflows
+
+### Development Setup
+
+```bash
+# 1. Check scheduler status
+yarn mercato scheduler status
+
+# 2. List existing schedules
+yarn mercato scheduler list
+
+# 3. Start scheduler (keeps running)
+yarn mercato scheduler start
+
+# In another terminal, test a schedule
+yarn mercato scheduler run test:my-schedule
+```
+
+### Production Setup
+
+```bash
+# 1. Ensure environment is configured
+export QUEUE_STRATEGY=async
+export REDIS_URL=redis://localhost:6379
+
+# 2. Check status
+yarn mercato scheduler status
+
+# 3. Sync schedules (one-time)
+yarn mercato scheduler start
+
+# 4. Start workers (separate process)
+yarn mercato worker:start
+
+# 5. Monitor execution
+yarn mercato queue status scheduler-execution
+```
+
+### Debugging Failed Schedules
+
+```bash
+# 1. List all schedules
+yarn mercato scheduler list
+
+# 2. Check status
+yarn mercato scheduler status
+
+# 3. Run schedule manually to see error
+yarn mercato scheduler run <schedule-id>
+
+# 4. Check logs
+tail -f logs/scheduler.log
+
+# 5. Check queue status (async mode)
+yarn mercato queue status scheduler-execution
+
+# 6. View failed jobs (async mode)
+yarn mercato queue failed scheduler-execution
+```
+
+### Monitoring Production
+
+```bash
+# Check scheduler health
+yarn mercato scheduler status
+
+# View active schedules
+yarn mercato scheduler list --enabled true
+
+# Check for failed executions (async mode)
+yarn mercato queue failed scheduler-execution
+
+# View execution history (async mode)
+yarn mercato queue history scheduler-execution --limit 20
+
+# Check worker health (async mode)
+yarn mercato worker:status
+```
+
+## Environment Variables
+
+The scheduler CLI respects these environment variables:
+
+| Variable | Description | Default |
+|----------|-------------|---------|
+| `QUEUE_STRATEGY` | Execution strategy: `local` or `async` | `local` |
+| `REDIS_URL` | Redis connection URL (async mode) | `redis://localhost:6379` |
+| `SCHEDULER_POLL_INTERVAL_MS` | Poll interval in milliseconds (local mode) | `30000` |
+| `DATABASE_URL` | PostgreSQL connection URL | Required |
+| `LOG_LEVEL` | Logging level: `debug`, `info`, `warn`, `error` | `info` |
+
+## Exit Codes Reference
+
+| Code | Meaning | Context |
+|------|---------|---------|
+| `0` | Success | All commands |
+| `1` | General error | All commands |
+| `2` | Configuration error | scheduler start |
+| `3` | Execution error | scheduler run |
+| `4` | Not found | scheduler run |
+| `130` | User interrupt (Ctrl+C) | scheduler start (local) |
+
+## Integration with Other CLI Tools
+
+### Worker Management
+
+```bash
+# Start all workers (includes scheduler execution worker)
+yarn mercato worker:start
+
+# Start only scheduler worker
+yarn mercato worker:start --queue scheduler-execution
+
+# Check worker status
+yarn mercato worker:status
+```
+
+### Queue Management
+
+```bash
+# View scheduler execution queue
+yarn mercato queue status scheduler-execution
+
+# View pending jobs
+yarn mercato queue pending scheduler-execution
+
+# View failed jobs
+yarn mercato queue failed scheduler-execution
+
+# Retry failed jobs
+yarn mercato queue retry scheduler-execution <job-id>
+
+# Clean old jobs
+yarn mercato queue clean scheduler-execution --grace 86400
+```
+
+### Database Management
+
+```bash
+# View scheduler tables
+yarn mercato db:schema --table scheduled_jobs
+
+# Run migrations
+yarn mercato db:migrate
+
+# Generate new migration (after entity changes)
+yarn mercato db:generate
+```
+
+## Troubleshooting
+
+### "Schedule not found"
+
+```bash
+# List all schedules to verify ID
+yarn mercato scheduler list
+
+# Check if schedule was soft-deleted
+yarn mercato db:query "SELECT * FROM scheduled_jobs WHERE id = '<id>'"
+```
+
+### "Lock acquisition failed"
+
+```bash
+# Check if another scheduler instance is running
+ps aux | grep "scheduler start"
+
+# Release stuck lock (PostgreSQL)
+yarn mercato db:query "SELECT pg_advisory_unlock_all()"
+```
+
+### "Redis connection failed"
+
+```bash
+# Check Redis status
+redis-cli ping
+
+# Verify REDIS_URL
+echo $REDIS_URL
+
+# Test connection
+redis-cli -u $REDIS_URL ping
+```
+
+### "No workers running"
+
+```bash
+# Check worker status
+yarn mercato worker:status
+
+# Start workers
+yarn mercato worker:start
+
+# Check worker logs
+tail -f logs/worker.log
+```
+
+## Best Practices
+
+1. **Use scripts for automation** - Add scheduler commands to package.json scripts
+2. **Monitor in production** - Set up cron jobs to check scheduler status
+3. **Log everything** - Use `--verbose` flag when debugging
+4. **Test manually first** - Use `scheduler run` before enabling new schedules
+5. **Graceful shutdowns** - Always use Ctrl+C instead of kill -9
+6. **Check status regularly** - Run `scheduler status` to catch issues early
+7. **Filter list output** - Use filters to reduce noise in large deployments
+8. **Sync after changes** - Re-run `scheduler start` after modifying schedules (async mode)
+
+## See Also
+
+- [User Guide: Scheduled Jobs](../user-guide/scheduler.mdx)
+- [Framework Reference: Scheduler Module](../framework/scheduler/overview.mdx)
+- [API Reference: Scheduler API](../api/scheduler.mdx)
+- [CLI: Overview](./overview.mdx)

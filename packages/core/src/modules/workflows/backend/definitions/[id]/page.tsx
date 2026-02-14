@@ -20,11 +20,14 @@ import {
 import { StepsEditor } from '../../../components/StepsEditor'
 import { TransitionsEditor } from '../../../components/TransitionsEditor'
 import { EventTriggersEditor } from '../../../components/EventTriggersEditor'
+import { MobileDefinitionDetail } from '../../../components/mobile/MobileDefinitionDetail'
+import { useIsMobile } from '@open-mercato/ui/hooks/useIsMobile'
 
 export default function EditWorkflowDefinitionPage() {
   const router = useRouter()
   const params = useParams()
   const t = useT()
+  const isMobile = useIsMobile()
 
   // Handle catch-all route: params.slug = ['definitions', 'uuid']
   let definitionId: string | undefined
@@ -75,9 +78,13 @@ export default function EditWorkflowDefinitionPage() {
   const fields = React.useMemo(() => createFieldDefinitions(t), [t])
 
   const formGroups = React.useMemo(
-    () => createFormGroups(t, StepsEditor, TransitionsEditor),
-    [t]
+    () => isMobile ? [] : createFormGroups(t, StepsEditor, TransitionsEditor),
+    [t, isMobile]
   )
+
+  const navigateToVisualEditor = React.useCallback(() => {
+    router.push(`/backend/definitions/visual-editor?id=${definitionId}`)
+  }, [router, definitionId])
 
   if (isLoading) {
     return (
@@ -114,8 +121,8 @@ export default function EditWorkflowDefinitionPage() {
   return (
     <Page>
       <PageBody>
-        <div className="mb-4 p-4 bg-blue-50 dark:bg-blue-950/50 border border-blue-200 dark:border-blue-800 rounded-lg flex items-center justify-between">
-          <div className="flex items-center gap-3">
+        <div className="mb-4 p-4 bg-blue-50 dark:bg-blue-950/50 border border-blue-200 dark:border-blue-800 rounded-lg flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex items-start gap-3">
             <svg className="w-5 h-5 text-blue-600 dark:text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
             </svg>
@@ -128,7 +135,7 @@ export default function EditWorkflowDefinitionPage() {
               </p>
             </div>
           </div>
-          <Button asChild variant="outline" size="sm" className="border-blue-300 dark:border-blue-600 text-blue-700 dark:text-blue-300 hover:bg-blue-100 dark:hover:bg-blue-900/50">
+          <Button asChild variant="outline" size="sm" className="w-full sm:w-auto border-blue-300 dark:border-blue-600 text-blue-700 dark:text-blue-300 hover:bg-blue-100 dark:hover:bg-blue-900/50">
             <a href={`/backend/definitions/visual-editor?id=${definitionId}`}>
               {t('workflows.actions.openVisualEditor')}
             </a>
@@ -146,6 +153,21 @@ export default function EditWorkflowDefinitionPage() {
           groups={formGroups}
           submitLabel={t('workflows.form.update')}
         />
+
+        {/* Mobile Steps & Transitions View */}
+        {isMobile && initialValues && (
+          <div className="mt-4">
+            <MobileDefinitionDetail
+              values={initialValues}
+              onEditStep={navigateToVisualEditor}
+              onDeleteStep={navigateToVisualEditor}
+              onAddStep={navigateToVisualEditor}
+              onEditTransition={navigateToVisualEditor}
+              onDeleteTransition={navigateToVisualEditor}
+              onAddTransition={navigateToVisualEditor}
+            />
+          </div>
+        )}
 
         {/* Event Triggers Section */}
         <div className="mt-8">

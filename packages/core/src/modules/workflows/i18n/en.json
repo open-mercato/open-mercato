@@ -542,10 +542,12 @@
         "loadFailed": "Failed to load user tasks"
       },
       "roles": "Roles",
+      "backToList": "Back to Tasks",
       "detail": {
         "loading": "Loading task...",
         "notFound": "Task not found",
         "backToList": "Back to Tasks",
+        "type": "User Task",
         "overdueWarning": "⚠ This task is overdue!",
         "cannotComplete": "This task has already been completed or cancelled and cannot be modified.",
         "noFormSchema": "This task has no form to complete. You can add optional comments and submit.",
@@ -1010,6 +1012,42 @@
         "confirmRemove": "Are you sure you want to remove this mapping?"
       }
     },
+    "visualEditor": {
+      "clearTitle": "Clear Everything?",
+      "clearDescription": "This will clear all metadata and the workflow canvas. This action cannot be undone.",
+      "showMetadata": "Show Metadata",
+      "hideMetadata": "Hide Metadata",
+      "loadExample": "Load Example",
+      "clear": "Clear",
+      "validate": "Validate",
+      "runTest": "Run Test",
+      "workflowMetadata": "Workflow Metadata"
+    },
+    "mobile": {
+      "viewFullGraph": "View Full Graph",
+      "metadata": "Metadata",
+      "addStep": "Add Step",
+      "addTransition": "Add Transition",
+      "noSteps": "No steps defined yet.",
+      "noTransitions": "No transitions defined yet.",
+      "moreActions": "More Actions",
+      "stepTimeline": "Step Timeline",
+      "eventLog": "Event Log",
+      "showDetails": "Show Details",
+      "hideDetails": "Hide Details",
+      "startBuilding": "Start Building",
+      "startBuildingHint": "Tap a step type above to add it",
+      "loadExample": "Load an example workflow",
+      "runTest": "Run Test",
+      "clear": "Clear",
+      "editStep": "Edit step",
+      "deleteStep": "Delete step",
+      "editTransition": "Edit transition",
+      "deleteTransition": "Delete transition",
+      "validate": "Validate",
+      "saving": "Saving...",
+      "save": "Save"
+    },
     "validation": {
       "required": "This field is required",
       "invalidFormat": "Invalid format",
@@ -1080,6 +1118,9 @@
     "disabled": "Disabled",
     "yes": "Yes",
     "no": "No",
+    "on": "On",
+    "off": "Off",
+    "done": "Done",
     "edit": "Edit",
     "delete": "Delete",
     "duplicate": "Duplicate",
@@ -1089,7 +1130,8 @@
     "refresh": "Refresh",
     "refreshing": "Refreshing...",
     "details": "Details",
-    "cancel": "Cancel"
+    "cancel": "Cancel",
+    "loading": "Loading..."
   },
   "demo": {
     "userTask": {
