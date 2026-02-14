@@ -7,10 +7,29 @@ export async function getAuthToken(
   email = 'admin@acme.com',
   password = 'secret',
 ): Promise<string> {
+  const form = new URLSearchParams();
+  form.set('email', email);
+  form.set('password', password);
+
   const response = await request.post(`${BASE_URL}/api/auth/login`, {
-    data: { email, password },
+    headers: {
+      'content-type': 'application/x-www-form-urlencoded',
+    },
+    data: form.toString(),
   });
-  const body = await response.json();
+
+  const raw = await response.text();
+  let body: Record<string, unknown> | null = null;
+  try {
+    body = raw ? (JSON.parse(raw) as Record<string, unknown>) : null;
+  } catch {
+    body = null;
+  }
+
+  if (!response.ok() || !body || typeof body.token !== 'string' || !body.token) {
+    throw new Error(`Failed to obtain auth token (status ${response.status()})`);
+  }
+
   return body.token;
 }
 

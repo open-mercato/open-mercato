@@ -3,11 +3,30 @@ import { spawn, type ChildProcess, type StdioOptions } from 'node:child_process'
 import { createServer } from 'node:net'
 import { createResolver } from '../resolver'
 
+type EphemeralRuntimeOptions = {
+  verbose: boolean
+  captureScreenshots: boolean
+  logPrefix: string
+}
+
+export type EphemeralEnvironmentHandle = {
+  baseUrl: string
+  port: number
+  databaseUrl: string
+  commandEnvironment: NodeJS.ProcessEnv
+  stop: () => Promise<void>
+}
+
 type IntegrationOptions = {
   keep: boolean
   filter: string | null
   captureScreenshots: boolean
   verbose: boolean
+}
+
+type EphemeralAppOptions = {
+  verbose: boolean
+  captureScreenshots: boolean
 }
 
 const APP_READY_TIMEOUT_MS = 90_000
@@ -96,10 +115,6 @@ function runYarnWorkspaceCommand(
   opts: { silent?: boolean } = {},
 ): Promise<void> {
   return runYarnRawCommand(['workspace', workspaceName, commandName, ...commandArgs], environment, opts)
-}
-
-function startYarnCommand(args: string[], environment: NodeJS.ProcessEnv): ChildProcess {
-  return startYarnRawCommand(['run', ...args], environment)
 }
 
 function startYarnRawCommand(
@@ -313,10 +328,37 @@ function parseOptions(rawArgs: string[]): IntegrationOptions {
   }
 }
 
-export async function runIntegrationTestsInEphemeralEnvironment(rawArgs: string[]): Promise<void> {
-  const options = parseOptions(rawArgs)
+function parseEphemeralAppOptions(rawArgs: string[]): EphemeralAppOptions {
+  let verbose = false
+  let captureScreenshots: boolean | null = null
+
+  for (const argument of rawArgs) {
+    if (argument === '--verbose') {
+      verbose = true
+      continue
+    }
+    if (argument === '--screenshots') {
+      captureScreenshots = true
+      continue
+    }
+    if (argument === '--no-screenshots') {
+      captureScreenshots = false
+      continue
+    }
+    throw new Error(`Unknown option: ${argument}`)
+  }
+
+  const defaultCaptureScreenshots = process.env.CI !== 'true'
+  return {
+    verbose,
+    captureScreenshots: captureScreenshots ?? defaultCaptureScreenshots,
+  }
+}
+
+export async function startEphemeralEnvironment(options: EphemeralRuntimeOptions): Promise<EphemeralEnvironmentHandle> {
   assertNode24Runtime()
   await assertContainerRuntimeAvailable()
+
   const appWorkspace = '@open-mercato/app'
   const applicationPort = await getFreePort()
   const applicationBaseUrl = `http://127.0.0.1:${applicationPort}`
@@ -352,63 +394,126 @@ export async function runIntegrationTestsInEphemeralEnvironment(rawArgs: string[
   })
 
   let applicationProcess: ChildProcess | null = null
+  let isStopped = false
+  const stop = async (): Promise<void> => {
+    if (isStopped) return
+    isStopped = true
+    if (applicationProcess && !applicationProcess.killed) {
+      applicationProcess.kill('SIGTERM')
+    }
+    await databaseContainer.stop()
+  }
 
   try {
-    console.log(`[integration] Ephemeral database ready at ${databaseHost}:${databasePort}`)
-    console.log('[integration] Initializing application data (includes migrations)...')
+    console.log(`[${options.logPrefix}] Ephemeral database ready at ${databaseHost}:${databasePort}`)
+    console.log(`[${options.logPrefix}] Initializing application data (includes migrations)...`)
     await runYarnWorkspaceCommand(appWorkspace, 'initialize', [], commandEnvironment, {
       silent: !options.verbose,
     })
 
-    console.log('[integration] Building packages...')
+    console.log(`[${options.logPrefix}] Building packages...`)
     await runYarnCommand(['build:packages'], commandEnvironment, {
       silent: !options.verbose,
     })
 
-    console.log('[integration] Regenerating module artifacts...')
+    console.log(`[${options.logPrefix}] Regenerating module artifacts...`)
     await runYarnCommand(['generate'], commandEnvironment, {
       silent: !options.verbose,
     })
 
-    console.log('[integration] Rebuilding packages after generation...')
+    console.log(`[${options.logPrefix}] Rebuilding packages after generation...`)
     await runYarnCommand(['build:packages'], commandEnvironment, {
       silent: !options.verbose,
     })
 
-    console.log('[integration] Building application...')
+    console.log(`[${options.logPrefix}] Building application...`)
     await runYarnWorkspaceCommand(appWorkspace, 'build', [], commandEnvironment, {
       silent: !options.verbose,
     })
 
-    console.log(`[integration] Starting application on ${applicationBaseUrl}...`)
+    console.log(`[${options.logPrefix}] Starting application on ${applicationBaseUrl}...`)
     applicationProcess = startYarnWorkspaceCommand(appWorkspace, 'start', [], commandEnvironment, {
       silent: !options.verbose,
     })
 
     await waitForApplicationReadiness(applicationBaseUrl, applicationProcess)
-    console.log('[integration] Application is ready, running Playwright suite...')
+    console.log(`[${options.logPrefix}] Application is ready at ${applicationBaseUrl}`)
+    return {
+      baseUrl: applicationBaseUrl,
+      port: applicationPort,
+      databaseUrl,
+      commandEnvironment,
+      stop,
+    }
+  } catch (error) {
+    await stop()
+    throw error
+  }
+}
+
+async function keepEnvironmentRunningForever(options: { logPrefix: string; stop: () => Promise<void> }): Promise<void> {
+  const onSignal = async (signal: string): Promise<void> => {
+    console.log(`[${options.logPrefix}] Received ${signal}, stopping ephemeral environment...`)
+    await options.stop()
+    process.exit(0)
+  }
+
+  process.once('SIGINT', () => void onSignal('SIGINT'))
+  process.once('SIGTERM', () => void onSignal('SIGTERM'))
+  await new Promise<void>(() => {})
+}
+
+export async function runIntegrationTestsInEphemeralEnvironment(rawArgs: string[]): Promise<void> {
+  const options = parseOptions(rawArgs)
+  const environment = await startEphemeralEnvironment({
+    verbose: options.verbose,
+    captureScreenshots: options.captureScreenshots,
+    logPrefix: 'integration',
+  })
+
+  try {
+    console.log('[integration] Running Playwright suite...')
     console.log(
       `[integration] Screenshot capture is ${options.captureScreenshots ? 'enabled' : 'disabled'} (override with --screenshots / --no-screenshots)`,
     )
     console.log('[integration] Ensuring Playwright Chromium is installed...')
-    await runNpxCommand(['playwright', 'install', 'chromium'], commandEnvironment)
+    await runNpxCommand(['playwright', 'install', 'chromium'], environment.commandEnvironment)
 
     const testArgs = ['test:integration']
     if (options.filter) {
       testArgs.push(options.filter)
     }
-    await runYarnCommand(testArgs, commandEnvironment)
+    await runYarnCommand(testArgs, environment.commandEnvironment)
 
     if (options.keep) {
       console.log('[integration] --keep enabled: leaving app and database running. Press Ctrl+C to stop.')
-      await new Promise<void>(() => {})
+      await keepEnvironmentRunningForever({
+        logPrefix: 'integration',
+        stop: environment.stop,
+      })
     }
   } finally {
     if (!options.keep) {
-      if (applicationProcess && !applicationProcess.killed) {
-        applicationProcess.kill('SIGTERM')
-      }
-      await databaseContainer.stop()
+      await environment.stop()
     }
   }
+}
+
+export async function runEphemeralAppForQa(rawArgs: string[]): Promise<void> {
+  const options = parseEphemeralAppOptions(rawArgs)
+  const environment = await startEphemeralEnvironment({
+    verbose: options.verbose,
+    captureScreenshots: options.captureScreenshots,
+    logPrefix: 'ephemeral',
+  })
+
+  console.log(`[ephemeral] Ready for QA exploration at ${environment.baseUrl}`)
+  console.log('[ephemeral] Use Playwright MCP against this URL to avoid interference with other local instances.')
+  console.log('[ephemeral] Default credentials: admin@acme.com / secret')
+  console.log('[ephemeral] Press Ctrl+C to stop.')
+
+  await keepEnvironmentRunningForever({
+    logPrefix: 'ephemeral',
+    stop: environment.stop,
+  })
 }

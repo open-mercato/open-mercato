@@ -14,6 +14,7 @@ This skill guides you through running integration tests and converting test scen
 | Run all tests | `yarn test:integration` |
 | Run single test | `npx playwright test --config .ai/qa/tests/playwright.config.ts <path>` |
 | Run in ephemeral containers | `yarn test:integration:ephemeral` |
+| Start ephemeral app only (for MCP exploration) | `yarn test:integration:ephemeral:start` |
 | View report | `yarn test:integration:report` |
 | Test files location | `.ai/qa/tests/<category>/TC-XXX.spec.ts` |
 | Scenario sources (optional) | `.ai/qa/scenarios/TC-XXX-*.md` |
@@ -32,10 +33,18 @@ Identify whether this is a **UI test** (uses browser) or **API test** (uses HTTP
 
 ### Phase 2 — Explore via Playwright MCP
 
-Use Playwright MCP to walk through the test scenario interactively:
+Start an isolated Open Mercato instance first, then use Playwright MCP to walk through the scenario:
+
+```bash
+yarn test:integration:ephemeral:start
+```
+
+The command prints an ephemeral base URL (`http://127.0.0.1:<port>`). Use that URL for MCP navigation. This avoids interference with any other app instance running on `localhost:3000`.
+
+Use Playwright MCP against the printed URL:
 
 ```
-mcp__playwright__browser_navigate({ url: "http://localhost:3000/login" })
+mcp__playwright__browser_navigate({ url: "http://127.0.0.1:<ephemeral-port>/login" })
 mcp__playwright__browser_snapshot()
 mcp__playwright__browser_click({ element: "...", ref: "..." })
 ```
@@ -147,6 +156,9 @@ npx playwright test --config .ai/qa/tests/playwright.config.ts auth/
 
 # Run in ephemeral containers (Docker required, no dev server needed)
 yarn test:integration:ephemeral
+
+# Start isolated ephemeral app only (for MCP/manual exploration)
+yarn test:integration:ephemeral:start
 
 # View HTML report after run
 yarn test:integration:report

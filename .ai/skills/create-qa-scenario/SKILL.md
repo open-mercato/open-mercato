@@ -36,7 +36,13 @@ Use the highest number found across both directories, then increment. For exampl
 
 ### Phase 3 — Explore the Feature via Playwright MCP
 
-Navigate to the feature in the running app and discover the actual UI:
+Start an isolated app instance first:
+
+```bash
+yarn test:integration:ephemeral:start
+```
+
+Use the printed base URL (`http://127.0.0.1:<port>`) for MCP navigation, then discover the actual UI:
 
 1. Login with the appropriate role
 2. Navigate to the relevant page
@@ -124,10 +130,11 @@ If it fails, fix it. Do not leave broken tests.
 ## Rules
 
 - MUST explore the running app before writing — never guess selectors or flows
+- MUST self-start isolated app mode with `yarn test:integration:ephemeral:start` before MCP exploration
+- MUST use the ephemeral URL printed by the command (never assume `localhost:3000`)
 - MUST create the `.spec.ts` — the markdown scenario is optional
 - MUST use actual locators from Playwright MCP snapshots (`getByRole`, `getByLabel`, `getByText`)
 - MUST verify the test passes before finishing
-- If the app is not running, inform the user and stop — do not write speculative tests
 - When deriving from a spec, focus on the happy path first, then add edge cases as separate test cases if they warrant it
 - Each test file covers one scenario — create multiple files for multiple scenarios
 

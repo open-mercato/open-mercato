@@ -12,6 +12,9 @@ npx playwright test --config .ai/qa/tests/playwright.config.ts auth/
 # Run all tests in ephemeral containers (no dev server needed, Docker required)
 yarn test:integration:ephemeral
 
+# Start isolated ephemeral app only (for MCP/manual exploration)
+yarn test:integration:ephemeral:start
+
 # View HTML report
 yarn test:integration:report
 ```
@@ -98,10 +101,18 @@ Read one of:
 
 #### Step 2 — Explore via Playwright MCP
 
+Start isolated app mode first:
+
+```bash
+yarn test:integration:ephemeral:start
+```
+
+Use the printed ephemeral URL (`http://127.0.0.1:<port>`) to avoid interference with any other local app instance.
+
 Walk through the test flow interactively to discover actual selectors:
 
 ```
-mcp__playwright__browser_navigate({ url: "http://localhost:3000/login" })
+mcp__playwright__browser_navigate({ url: "http://127.0.0.1:<ephemeral-port>/login" })
 mcp__playwright__browser_snapshot()
 mcp__playwright__browser_click({ element: "Submit button", ref: "..." })
 ```
@@ -204,7 +215,7 @@ Use Playwright MCP to execute UI test scenarios. The browser automation handles 
 
 ```bash
 # Example: Navigate and interact
-mcp__playwright__browser_navigate({ url: "http://localhost:3000/backend/login" })
+mcp__playwright__browser_navigate({ url: "http://127.0.0.1:<ephemeral-port>/backend/login" })
 mcp__playwright__browser_snapshot()
 mcp__playwright__browser_fill_form({ fields: [...] })
 mcp__playwright__browser_click({ element: "Submit button", ref: "..." })
@@ -222,12 +233,12 @@ Use cURL for direct API endpoint testing.
 
 ```bash
 # Login and get token
-curl -X POST http://localhost:3000/api/auth/login \
+curl -X POST http://127.0.0.1:<ephemeral-port>/api/auth/login \
   -H "Content-Type: application/json" \
   -d '{"email": "admin@acme.com", "password": "secret"}'
 
 # Authenticated request
-curl -X GET http://localhost:3000/api/customers/companies \
+curl -X GET http://127.0.0.1:<ephemeral-port>/api/customers/companies \
   -H "Authorization: Bearer <token>" \
   -H "Content-Type: application/json"
 ```

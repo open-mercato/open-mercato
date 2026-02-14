@@ -71,7 +71,8 @@ IMPORTANT: Before any research or coding, match the task to the root `AGENTS.md`
 
 - Specs live in `.ai/specs/` — see `.ai/specs/AGENTS.md` for naming, structure, and changelog conventions.
 - Always check for existing specs before modifying a module. Update specs when implementing significant changes.
-- After implementing a spec, create a corresponding integration test — see `.ai/qa/AGENTS.md` for the workflow.
+- For every new feature, the spec MUST list integration coverage for all affected API paths and key UI paths.
+- For every new feature, implement the integration tests defined in the spec as part of the same change — see `.ai/qa/AGENTS.md` for the workflow.
 
 ## Monorepo Structure
 

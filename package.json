@@ -43,8 +43,10 @@
     "release:minor": "./scripts/release-minor.sh",
     "release:major": "./scripts/release-major.sh",
     "test:integration": "npx playwright test --config .ai/qa/tests/playwright.config.ts",
-    "test:integration:report": "npx playwright show-report .ai/qa/tests/test-results/html",
-    "test:integration:ephemeral": "yarn mercato test:integration"
+    "test:integration:report": "npx playwright show-report .ai/qa/test-results/html",
+    "test:integration:ephemeral": "yarn mercato test:integration",
+    "test:integration:ephemeral:start": "yarn mercato test:ephemeral",
+    "test:integration:ephemeral:start:verbose": "yarn mercato test:ephemeral --verbose"
   },
   "dependencies": {
     "@ai-sdk/openai": "^2.0.80",
