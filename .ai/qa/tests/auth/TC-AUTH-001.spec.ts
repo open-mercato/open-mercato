@@ -1,4 +1,5 @@
 import { test, expect } from '@playwright/test';
+import { login } from '../helpers/auth';
 
 /**
  * TC-AUTH-001: Successful User Login
@@ -6,14 +7,7 @@ import { test, expect } from '@playwright/test';
  */
 test.describe('TC-AUTH-001: Successful User Login', () => {
   test('should login with valid credentials and redirect to dashboard', async ({ page }) => {
-    await page.goto('/login');
-    await expect(page.getByLabel('Email')).toBeVisible();
-
-    await page.getByLabel('Email').fill('admin@acme.com');
-    await page.getByLabel('Password').fill('secret');
-    await page.getByRole('button', { name: /login|sign in/i }).click();
-
-    await page.waitForURL('**/backend/**');
+    await login(page, 'admin');
     await expect(page).toHaveURL(/\/backend/);
   });
 });

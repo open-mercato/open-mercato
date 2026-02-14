@@ -1,5 +1,7 @@
 import { defineConfig } from '@playwright/test';
 
+const captureScreenshots = process.env.PW_CAPTURE_SCREENSHOTS === '1';
+
 export default defineConfig({
   testDir: '.',
   testMatch: '**/*.spec.ts',
@@ -9,7 +11,7 @@ export default defineConfig({
   use: {
     baseURL: process.env.BASE_URL || 'http://localhost:3000',
     headless: true,
-    screenshot: 'only-on-failure',
+    screenshot: captureScreenshots ? 'on' : 'only-on-failure',
     trace: 'on-first-retry',
   },
   reporter: [

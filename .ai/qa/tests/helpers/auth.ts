@@ -8,9 +8,45 @@ export const DEFAULT_CREDENTIALS = {
 
 export type Role = keyof typeof DEFAULT_CREDENTIALS;
 
+async function acknowledgeGlobalNotices(page: Page): Promise<void> {
+  const baseUrl = process.env.BASE_URL || 'http://localhost:3000';
+  await page.context().addCookies([
+    {
+      name: 'om_demo_notice_ack',
+      value: 'ack',
+      url: baseUrl,
+      sameSite: 'Lax',
+    },
+    {
+      name: 'om_cookie_notice_ack',
+      value: 'ack',
+      url: baseUrl,
+      sameSite: 'Lax',
+    },
+  ]);
+}
+
+async function dismissGlobalNoticesIfPresent(page: Page): Promise<void> {
+  const cookieAcceptButton = page.getByRole('button', { name: /accept cookies/i }).first();
+  if (await cookieAcceptButton.isVisible().catch(() => false)) {
+    await cookieAcceptButton.click();
+  }
+
+  const demoNotice = page.getByText(/this instance is provided for demo purposes only/i).first();
+  if (await demoNotice.isVisible().catch(() => false)) {
+    const noticeContainer = demoNotice.locator('xpath=ancestor::div[contains(@class,"pointer-events-auto")]').first();
+    const dismissButton = noticeContainer.locator('button').first();
+    if (await dismissButton.isVisible().catch(() => false)) {
+      await dismissButton.click();
+    }
+  }
+}
+
 export async function login(page: Page, role: Role = 'admin'): Promise<void> {
   const creds = DEFAULT_CREDENTIALS[role];
+  await acknowledgeGlobalNotices(page);
   await page.goto('/login');
+  await dismissGlobalNoticesIfPresent(page);
   await page.getByLabel('Email').fill(creds.email);
   await page.getByLabel('Password').fill(creds.password);
   await page.getByRole('button', { name: /login|sign in/i }).click();
