@@ -1,7 +1,7 @@
 import { expect, test } from '@playwright/test';
 import { login } from '../helpers/auth';
 import { getAuthToken } from '../helpers/api';
-import { createCompanyFixture, createDealFixture, createPersonFixture, deleteEntityIfExists } from '../helpers/crmFixtures';
+import { createDealFixture, createPersonFixture, deleteEntityIfExists } from '../helpers/crmFixtures';
 
 /**
  * TC-CRM-019: Deal Association Remove And Undo
@@ -9,23 +9,19 @@ import { createCompanyFixture, createDealFixture, createPersonFixture, deleteEnt
 test.describe('TC-CRM-019: Deal Association Remove And Undo', () => {
   test('should remove a linked person from deal and restore via undo', async ({ page, request }) => {
     let token: string | null = null;
-    let companyId: string | null = null;
     let personId: string | null = null;
     let dealId: string | null = null;
     const personDisplayName = `QA TC-CRM-019 Person ${Date.now()}`;
 
     try {
       token = await getAuthToken(request);
-      companyId = await createCompanyFixture(request, token, `QA TC-CRM-019 Company ${Date.now()}`);
       personId = await createPersonFixture(request, token, {
         firstName: 'QA',
         lastName: `TCCRM019${Date.now()}`,
         displayName: personDisplayName,
-        companyEntityId: companyId,
       });
       dealId = await createDealFixture(request, token, {
         title: `QA TC-CRM-019 Deal ${Date.now()}`,
-        companyIds: [companyId],
         personIds: [personId],
       });
 
@@ -43,7 +39,6 @@ test.describe('TC-CRM-019: Deal Association Remove And Undo', () => {
     } finally {
       await deleteEntityIfExists(request, token, '/api/customers/deals', dealId);
       await deleteEntityIfExists(request, token, '/api/customers/people', personId);
-      await deleteEntityIfExists(request, token, '/api/customers/companies', companyId);
     }
   });
 });

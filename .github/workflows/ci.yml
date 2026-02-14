@@ -64,6 +64,15 @@ jobs:
       - name: Install dependencies
         run: yarn install --immutable
 
+      - name: Build packages
+        run: yarn build:packages
+
+      - name: Prepare generated modules
+        run: yarn generate
+
+      - name: Rebuild packages with generated files
+        run: yarn build:packages
+
       - name: Build app
         run: yarn workspace @open-mercato/app build
 

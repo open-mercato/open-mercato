@@ -56,7 +56,7 @@ export async function createCompanyFixture(
   token: string,
   displayName: string,
 ): Promise<string> {
-  return createEntity(request, token, '/api/customers/companies', { displayName }, ['companyId', 'id', 'entityId']);
+  return createEntity(request, token, '/api/customers/companies', { displayName }, ['id', 'entityId', 'companyId']);
 }
 
 export async function createPersonFixture(
@@ -72,7 +72,7 @@ export async function createPersonFixture(
   if (input.companyEntityId) {
     data.companyEntityId = input.companyEntityId;
   }
-  return createEntity(request, token, '/api/customers/people', data, ['personId', 'id', 'entityId']);
+  return createEntity(request, token, '/api/customers/people', data, ['id', 'entityId', 'personId']);
 }
 
 export async function createDealFixture(
@@ -93,5 +93,9 @@ export async function deleteEntityIfExists(
   id: string | null,
 ): Promise<void> {
   if (!token || !id) return;
-  await apiRequest(request, 'DELETE', `${path}?id=${encodeURIComponent(id)}`, { token });
+  try {
+    await apiRequest(request, 'DELETE', `${path}?id=${encodeURIComponent(id)}`, { token });
+  } catch {
+    return;
+  }
 }

@@ -17,7 +17,9 @@ test.describe('TC-CRM-017: Company Delete And Undo', () => {
       companyId = await createCompanyFixture(request, token, companyName);
 
       await login(page, 'admin');
-      await page.goto(`/backend/customers/companies/${companyId}`);
+      await page.goto('/backend/customers/companies');
+      await page.getByRole('textbox', { name: 'Search companies' }).fill(companyName);
+      await page.getByRole('link', { name: companyName, exact: true }).click();
 
       await page.getByRole('button', { name: 'Delete company' }).click();
       await page.getByRole('button', { name: 'Confirm' }).click();
