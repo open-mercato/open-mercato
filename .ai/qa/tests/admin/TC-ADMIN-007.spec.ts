@@ -59,7 +59,7 @@ test.describe('TC-ADMIN-007: Custom Entity Creation', () => {
     await expect(page.getByRole('checkbox', { name: 'Show in sidebar' })).toBeVisible();
 
     // Verify Create and Cancel buttons
-    await expect(page.getByRole('button', { name: 'Create' })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Create' }).first()).toBeVisible();
     await expect(page.getByRole('link', { name: 'Cancel' }).first()).toBeVisible();
 
     // Verify Back link
