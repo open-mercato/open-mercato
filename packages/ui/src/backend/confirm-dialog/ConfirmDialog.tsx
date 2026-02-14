@@ -225,7 +225,7 @@ export function ConfirmDialog({
           <h2
             id="confirm-dialog-title"
             className={cn(
-              "text-lg font-medium leading-none tracking-tight pr-6",
+              "text-sm font-medium leading-snug tracking-tight pr-6",
               // Mobile: centered, Desktop: left-aligned
               "text-center sm:text-left"
             )}
@@ -237,7 +237,7 @@ export function ConfirmDialog({
           {text && (
             <p
               id="confirm-dialog-description"
-              className="text-sm font-medium text-muted-foreground"
+              className="text-sm font-medium leading-snug text-muted-foreground"
             >
               {text}
             </p>
