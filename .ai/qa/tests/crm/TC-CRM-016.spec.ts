@@ -1,35 +1,30 @@
-import { test, expect } from '@playwright/test';
+import { expect, test } from '@playwright/test';
 import { login } from '../helpers/auth';
 
 /**
- * TC-CRM-016: Company Edit History And Undo
+ * TC-CRM-016: Company Note And Activity CRUD
  */
-test.describe('TC-CRM-016: Company Edit History And Undo', () => {
-  test('should record company name edit in history and undo the change', async ({ page }) => {
+test.describe('TC-CRM-016: Company Note And Activity CRUD', () => {
+  test('should add a company note and log an activity', async ({ page }) => {
     await login(page, 'admin');
-    await page.goto('/backend/customers/companies');
+    await page.goto('/backend/customers/companies/bf8b4414-c5ab-4b15-aac2-dc57d700bf15');
 
-    const firstCompanyLink = page.getByRole('row').nth(1).getByRole('link').first();
-    await expect(firstCompanyLink).toBeVisible();
+    const noteText = `QA company note ${Date.now()}`;
+    await page.getByRole('button', { name: 'Add note' }).click();
+    await page.getByRole('textbox', { name: 'Write a note about this company…' }).fill(noteText);
+    await page.getByRole('button', { name: /Add note/ }).click();
+    await expect(page.getByText(noteText)).toBeVisible();
 
-    const originalName = (await firstCompanyLink.innerText()).trim();
-    const updatedName = `${originalName} QA Undo`;
+    const activitySubject = `QA company activity ${Date.now()}`;
+    await page.getByRole('tab', { name: 'Activities' }).click();
+    await page.getByRole('button', { name: 'Log activity' }).click();
 
-    await firstCompanyLink.click();
-    await expect(page.getByRole('button', { name: originalName, exact: true })).toBeVisible();
+    const dialog = page.getByRole('dialog', { name: 'Add activity' });
+    await dialog.getByRole('combobox').first().selectOption({ label: 'Call' });
+    await dialog.getByRole('textbox', { name: 'Add a subject (optional)' }).fill(activitySubject);
+    await dialog.getByRole('textbox', { name: 'Describe the interaction' }).fill('QA activity description');
+    await dialog.getByRole('button', { name: /Save activity/ }).click();
 
-    await page.getByRole('button', { name: /^Display name / }).click();
-    await page.getByRole('textbox', { name: 'Enter company name' }).fill(updatedName);
-    await page.getByRole('button', { name: /^Save / }).click();
-
-    await expect(page.getByRole('button', { name: updatedName, exact: true })).toBeVisible();
-
-    await page.getByRole('button', { name: 'Version History' }).click();
-    await expect(page.getByRole('heading', { name: 'Version History' })).toBeVisible();
-    await expect(page.getByRole('button', { name: /Update company.*Done/ })).toBeVisible();
-
-    await page.getByRole('button', { name: 'Undo last action' }).click();
-    await expect(page.getByRole('button', { name: originalName, exact: true })).toBeVisible();
-    await expect(page.getByRole('button', { name: /^Display name / })).toContainText(originalName);
+    await expect(page.getByText(activitySubject)).toBeVisible();
   });
 });
