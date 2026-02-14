@@ -150,15 +150,38 @@ export async function addAdjustment(page: Page, options: AddAdjustmentOptions): 
   await expect(dialog).toBeVisible();
 
   await dialog.getByRole('textbox', { name: /e\.g\. Shipping fee/i }).fill(options.label);
-  if (options.kindLabel) {
-    const kindSelect = dialog.locator('select').filter({ has: dialog.locator('option', { hasText: 'Discount' }) }).first();
-    if ((await kindSelect.count()) > 0) {
-      await kindSelect.selectOption({ label: options.kindLabel });
+  const kindSelect = dialog.getByRole('combobox').first();
+  if ((await kindSelect.count()) > 0) {
+    await kindSelect.selectOption({ label: options.kindLabel ?? 'Surcharge' }).catch(async () => {
+      await kindSelect.selectOption({ label: 'Custom' });
+    });
+  }
+
+  const netAmountInputByRole = dialog.getByRole('spinbutton', { name: /Net amount/i }).first();
+  const grossAmountInputByRole = dialog.getByRole('spinbutton', { name: /Gross amount/i }).first();
+  if ((await netAmountInputByRole.count()) > 0) {
+    await netAmountInputByRole.fill(String(options.netAmount));
+    if ((await grossAmountInputByRole.count()) > 0) {
+      await grossAmountInputByRole.fill(String(options.netAmount));
+    }
+  } else {
+    const enabledAmountInputs = dialog.locator('input[placeholder="0.00"]:not([disabled])');
+    if ((await enabledAmountInputs.count()) > 0) {
+      await enabledAmountInputs.first().fill(String(options.netAmount));
+    }
+    if ((await enabledAmountInputs.count()) > 1) {
+      await enabledAmountInputs.nth(1).fill(String(options.netAmount));
     }
   }
-  await dialog.getByRole('textbox', { name: '0.00' }).nth(1).fill(String(options.netAmount));
-  await dialog.getByRole('textbox', { name: '0.00' }).nth(2).fill(String(options.netAmount));
   await dialog.getByRole('button', { name: /Add adjustment/i }).click();
+  if (await dialog.getByText(/This field is required/i).first().isVisible().catch(() => false)) {
+    await dialog.getByRole('textbox', { name: /e\.g\. Shipping fee/i }).fill(options.label);
+    const enabledAmountInputs = dialog.locator('input[placeholder="0.00"]:not([disabled])');
+    if ((await enabledAmountInputs.count()) > 0) {
+      await enabledAmountInputs.first().fill(String(options.netAmount));
+    }
+    await dialog.getByRole('button', { name: /Add adjustment/i }).click();
+  }
 
   await expect(page.getByRole('row', { name: new RegExp(escapeRegExp(options.label), 'i') })).toBeVisible();
 }
