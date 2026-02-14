@@ -1,12 +1,29 @@
 import { type Page } from '@playwright/test';
+import { readFileSync } from 'fs';
+import { resolve } from 'path';
 
-export const DEFAULT_CREDENTIALS = {
-  superadmin: { email: 'superadmin@acme.com', password: 'secret' },
+function loadEnvValue(key: string): string | undefined {
+  if (process.env[key]) return process.env[key];
+  try {
+    const envPath = resolve(__dirname, '../../../../apps/mercato/.env');
+    const content = readFileSync(envPath, 'utf-8');
+    const match = content.match(new RegExp(`^${key}=(.+)$`, 'm'));
+    return match?.[1]?.trim();
+  } catch {
+    return undefined;
+  }
+}
+
+export const DEFAULT_CREDENTIALS: Record<string, { email: string; password: string }> = {
+  superadmin: {
+    email: loadEnvValue('OM_INIT_SUPERADMIN_EMAIL') || 'superadmin@acme.com',
+    password: loadEnvValue('OM_INIT_SUPERADMIN_PASSWORD') || 'secret',
+  },
   admin: { email: 'admin@acme.com', password: 'secret' },
   employee: { email: 'employee@acme.com', password: 'secret' },
-} as const;
+};
 
-export type Role = keyof typeof DEFAULT_CREDENTIALS;
+export type Role = 'superadmin' | 'admin' | 'employee';
 
 async function acknowledgeGlobalNotices(page: Page): Promise<void> {
   const baseUrl = process.env.BASE_URL || 'http://localhost:3000';
