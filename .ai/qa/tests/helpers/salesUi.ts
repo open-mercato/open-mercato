@@ -25,6 +25,16 @@ function escapeRegExp(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
+function parseCurrencyAmount(value: string): number {
+  const normalized = value.replace(/,/g, '');
+  const matches = normalized.match(/-?\$[0-9]+(?:\.[0-9]{2})?/g);
+  const lastMatch = matches?.[matches.length - 1];
+  if (!lastMatch) {
+    throw new Error(`Could not parse currency from: ${value}`);
+  }
+  return Number.parseFloat(lastMatch.replace('$', ''));
+}
+
 async function selectFirstAddressIfAvailable(page: Page): Promise<void> {
   const addressSelect = page
     .locator('select')
@@ -270,4 +280,11 @@ export async function addShipment(page: Page): Promise<{ trackingNumber: string;
     return { trackingNumber, added: true };
   }
   return { trackingNumber, added: false };
+}
+
+export async function readGrandTotalGross(page: Page): Promise<number> {
+  const row = page.getByRole('row', { name: /Grand total \(gross\)/i }).first();
+  await expect(row).toBeVisible();
+  const text = (await row.innerText()).trim();
+  return parseCurrencyAmount(text);
 }
