@@ -1,23 +1,18 @@
 import { expect, test } from '@playwright/test';
-import { getAuthToken } from '../helpers/api';
-import { createSalesOrderFixture, deleteSalesEntityIfExists } from '../helpers/salesFixtures';
+import { login } from '../helpers/auth';
+import { createSalesDocument } from '../helpers/salesUi';
 
 /**
  * TC-SALES-003: Order Creation
  * Source: .ai/qa/scenarios/TC-SALES-003-order-creation.md
  */
 test.describe('TC-SALES-003: Order Creation', () => {
-  test('should create and delete a sales order', async ({ request }) => {
-    let token: string | null = null;
-    let orderId: string | null = null;
+  test('should create a sales order from UI create form', async ({ page }) => {
+    await login(page, 'admin');
+    const orderId = await createSalesDocument(page, { kind: 'order' });
 
-    try {
-      token = await getAuthToken(request);
-      orderId = await createSalesOrderFixture(request, token, 'USD');
-      expect(orderId).toBeTruthy();
-    } finally {
-      await deleteSalesEntityIfExists(request, token, '/api/sales/orders', orderId);
-    }
+    expect(orderId).toMatch(/[0-9a-f-]{36}/i);
+    await expect(page.getByText('Sales order', { exact: true })).toBeVisible();
+    await expect(page.getByRole('button', { name: /ORDER-/i })).toBeVisible();
   });
 });
-
