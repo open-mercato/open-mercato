@@ -41,6 +41,10 @@ export function useConfirmDialog(): UseConfirmDialogReturn {
     setOptions(next.options || {});
     setOpenState(true);
   }, [setOpenState]);
+  const finalizeInteraction = React.useCallback(() => {
+    setOpenState(false);
+    processQueue();
+  }, [processQueue, setOpenState]);
 
   const confirm = React.useCallback(
     (newOptions?: ConfirmDialogOptions): Promise<boolean> => {
@@ -78,18 +82,16 @@ export function useConfirmDialog(): UseConfirmDialogReturn {
       resolveRef.current = null;
     } finally {
       setLoading(false);
-      setOpenState(false);
-      processQueue();
+      finalizeInteraction();
     }
-  }, [processQueue, setOpenState]);
+  }, [finalizeInteraction]);
 
   const handleCancel = React.useCallback(() => {
     // Resolve with false (cancelled)
     resolveRef.current?.(false);
     resolveRef.current = null;
-    setOpenState(false);
-    processQueue();
-  }, [processQueue, setOpenState]);
+    finalizeInteraction();
+  }, [finalizeInteraction]);
 
   const handleOpenChange = React.useCallback(
     (newOpen: boolean) => {

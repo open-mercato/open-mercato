@@ -77,6 +77,10 @@ export function ConfirmDialog({
       ? false
       : cancelText ?? t("ui.dialogs.confirm.cancelText", "Cancel");
   const closeAriaLabel = t("ui.dialog.close.ariaLabel", "Close");
+  const requestClose = React.useCallback(() => {
+    setOpen(false);
+    handleCancelCallback();
+  }, [setOpen, handleCancelCallback]);
 
   // Handle dialog open/close with native showModal/close
   React.useEffect(() => {
@@ -113,20 +117,18 @@ export function ConfirmDialog({
         e.preventDefault();
         return;
       }
-      setOpen(false);
-      handleCancelCallback();
+      requestClose();
     };
 
     dialog.addEventListener("cancel", handleCancel);
     return () => dialog.removeEventListener("cancel", handleCancel);
-  }, [loading, setOpen, handleCancelCallback]);
+  }, [loading, requestClose]);
 
   // Handle backdrop click
   const handleBackdropClick = (e: React.MouseEvent<HTMLDialogElement>) => {
     // Only close if clicking directly on the dialog (backdrop), not its children
     if (e.target === dialogRef.current && !loading) {
-      setOpen(false);
-      handleCancelCallback();
+      requestClose();
     }
   };
 
@@ -155,8 +157,7 @@ export function ConfirmDialog({
   };
 
   const handleCancel = () => {
-    setOpen(false);
-    handleCancelCallback();
+    requestClose();
   };
 
   const handleTriggerClick = () => {
@@ -199,7 +200,7 @@ export function ConfirmDialog({
           role="document"
           className={cn(
             // Panel container
-            "flex flex-col gap-4 rounded-t-2xl border-t bg-card p-6 shadow-lg",
+            "flex flex-col gap-4 rounded-t-2xl border-t bg-card p-6 text-foreground shadow-lg",
             "sm:rounded-xl sm:border",
             // Relative positioning for close button
             "relative"
@@ -224,7 +225,7 @@ export function ConfirmDialog({
           <h2
             id="confirm-dialog-title"
             className={cn(
-              "text-lg font-semibold leading-none tracking-tight pr-6",
+              "text-lg font-medium leading-none tracking-tight pr-6",
               // Mobile: centered, Desktop: left-aligned
               "text-center sm:text-left"
             )}
@@ -236,7 +237,7 @@ export function ConfirmDialog({
           {text && (
             <p
               id="confirm-dialog-description"
-              className="text-sm text-muted-foreground"
+              className="text-sm font-medium text-muted-foreground"
             >
               {text}
             </p>

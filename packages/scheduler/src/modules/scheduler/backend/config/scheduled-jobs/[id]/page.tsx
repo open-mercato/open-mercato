@@ -118,10 +118,9 @@ export default function ScheduleDetailPage() {
         : t('scheduler.target.command', 'command')
     const triggerConfirmText = t(
       'scheduler.confirm.trigger',
-      'Are you sure you want to trigger "{name}" now?\n\nThis will execute the {targetType} immediately.'
+      'Are you sure you want to trigger "{name}" now?\n\nThis will execute the {targetType} immediately.',
+      { name: schedule.name, targetType: targetTypeLabel }
     )
-      .replace('{name}', schedule.name)
-      .replace('{targetType}', targetTypeLabel)
     const confirmed = await confirm({
       title: t('scheduler.action.trigger', 'Trigger Now'),
       text: triggerConfirmText,
