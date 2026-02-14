@@ -50,5 +50,5 @@ export async function login(page: Page, role: Role = 'admin'): Promise<void> {
   await page.getByLabel('Email').fill(creds.email);
   await page.getByLabel('Password').fill(creds.password);
   await page.getByRole('button', { name: /login|sign in/i }).click();
-  await page.waitForURL('**/backend/**');
+  await page.waitForURL(/\/backend(?:\/.*)?$/);
 }

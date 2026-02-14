@@ -1,5 +1,5 @@
 import { GenericContainer } from 'testcontainers'
-import { spawn, type ChildProcess } from 'node:child_process'
+import { spawn, type ChildProcess, type StdioOptions } from 'node:child_process'
 import { createServer } from 'node:net'
 import { createResolver } from '../resolver'
 
@@ -7,6 +7,7 @@ type IntegrationOptions = {
   keep: boolean
   filter: string | null
   captureScreenshots: boolean
+  verbose: boolean
 }
 
 const APP_READY_TIMEOUT_MS = 90_000
@@ -25,24 +26,45 @@ function buildEnvironment(overrides: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
   }
 }
 
-function runYarnCommand(args: string[], environment: NodeJS.ProcessEnv): Promise<void> {
-  return runYarnRawCommand(['run', ...args], environment)
+function runYarnCommand(
+  args: string[],
+  environment: NodeJS.ProcessEnv,
+  opts: { silent?: boolean } = {},
+): Promise<void> {
+  return runYarnRawCommand(['run', ...args], environment, opts)
 }
 
-function runYarnRawCommand(commandArgs: string[], environment: NodeJS.ProcessEnv): Promise<void> {
+function runYarnRawCommand(
+  commandArgs: string[],
+  environment: NodeJS.ProcessEnv,
+  opts: { silent?: boolean } = {},
+): Promise<void> {
   return new Promise((resolve, reject) => {
-    const command = spawn(resolveYarnBinary(), commandArgs, {
+    const outputMode: StdioOptions = opts.silent ? ['ignore', 'pipe', 'pipe'] : 'inherit'
+    const command: ChildProcess = spawn(resolveYarnBinary(), commandArgs, {
       cwd: projectRootDirectory,
       env: environment,
-      stdio: 'inherit',
+      stdio: outputMode,
     })
+    let bufferedOutput = ''
+    if (opts.silent) {
+      command.stdout?.on('data', (chunk: Buffer | string) => {
+        bufferedOutput += chunk.toString()
+      })
+      command.stderr?.on('data', (chunk: Buffer | string) => {
+        bufferedOutput += chunk.toString()
+      })
+    }
     command.on('error', reject)
-    command.on('exit', (code) => {
+    command.on('exit', (code: number | null) => {
       if (code === 0) {
         resolve()
         return
       }
-      reject(new Error(`Command failed: yarn ${commandArgs.join(' ')} (exit ${code ?? 'unknown'})`))
+      const extra = opts.silent && bufferedOutput.trim().length > 0
+        ? `\nLast output:\n${bufferedOutput.trim().split('\n').slice(-20).join('\n')}`
+        : ''
+      reject(new Error(`Command failed: yarn ${commandArgs.join(' ')} (exit ${code ?? 'unknown'})${extra}`))
     })
   })
 }
@@ -71,20 +93,31 @@ function runYarnWorkspaceCommand(
   commandName: string,
   commandArgs: string[],
   environment: NodeJS.ProcessEnv,
+  opts: { silent?: boolean } = {},
 ): Promise<void> {
-  return runYarnRawCommand(['workspace', workspaceName, commandName, ...commandArgs], environment)
+  return runYarnRawCommand(['workspace', workspaceName, commandName, ...commandArgs], environment, opts)
 }
 
 function startYarnCommand(args: string[], environment: NodeJS.ProcessEnv): ChildProcess {
   return startYarnRawCommand(['run', ...args], environment)
 }
 
-function startYarnRawCommand(commandArgs: string[], environment: NodeJS.ProcessEnv): ChildProcess {
-  return spawn(resolveYarnBinary(), commandArgs, {
+function startYarnRawCommand(
+  commandArgs: string[],
+  environment: NodeJS.ProcessEnv,
+  opts: { silent?: boolean } = {},
+): ChildProcess {
+  const outputMode: StdioOptions = opts.silent ? ['ignore', 'pipe', 'pipe'] : 'inherit'
+  const processHandle: ChildProcess = spawn(resolveYarnBinary(), commandArgs, {
     cwd: projectRootDirectory,
     env: environment,
-    stdio: 'inherit',
+    stdio: outputMode,
   })
+  if (opts.silent) {
+    processHandle.stdout?.on('data', () => {})
+    processHandle.stderr?.on('data', () => {})
+  }
+  return processHandle
 }
 
 function startYarnWorkspaceCommand(
@@ -92,8 +125,9 @@ function startYarnWorkspaceCommand(
   commandName: string,
   commandArgs: string[],
   environment: NodeJS.ProcessEnv,
+  opts: { silent?: boolean } = {},
 ): ChildProcess {
-  return startYarnRawCommand(['workspace', workspaceName, commandName, ...commandArgs], environment)
+  return startYarnRawCommand(['workspace', workspaceName, commandName, ...commandArgs], environment, opts)
 }
 
 function runCommandAndCapture(command: string, args: string[]): Promise<{ code: number | null; stderr: string }> {
@@ -224,6 +258,7 @@ function parseOptions(rawArgs: string[]): IntegrationOptions {
   let keep = false
   let filter: string | null = null
   let captureScreenshots: boolean | null = null
+  let verbose = false
 
   for (let index = 0; index < rawArgs.length; index += 1) {
     const argument = rawArgs[index]
@@ -237,6 +272,10 @@ function parseOptions(rawArgs: string[]): IntegrationOptions {
     }
     if (argument === '--no-screenshots') {
       captureScreenshots = false
+      continue
+    }
+    if (argument === '--verbose') {
+      verbose = true
       continue
     }
     if (argument === '--filter') {
@@ -270,6 +309,7 @@ function parseOptions(rawArgs: string[]): IntegrationOptions {
     keep,
     filter,
     captureScreenshots: captureScreenshots ?? defaultCaptureScreenshots,
+    verbose,
   }
 }
 
@@ -304,6 +344,9 @@ export async function runIntegrationTestsInEphemeralEnvironment(rawArgs: string[
     TENANT_DATA_ENCRYPTION_FALLBACK_KEY: 'om-ephemeral-integration-fallback-key',
     AUTO_SPAWN_WORKERS: 'false',
     AUTO_SPAWN_SCHEDULER: 'false',
+    OM_CLI_QUIET: '1',
+    MERCATO_QUIET: '1',
+    NODE_NO_WARNINGS: '1',
     PORT: String(applicationPort),
     PW_CAPTURE_SCREENSHOTS: options.captureScreenshots ? '1' : '0',
   })
@@ -313,13 +356,34 @@ export async function runIntegrationTestsInEphemeralEnvironment(rawArgs: string[
   try {
     console.log(`[integration] Ephemeral database ready at ${databaseHost}:${databasePort}`)
     console.log('[integration] Initializing application data (includes migrations)...')
-    await runYarnWorkspaceCommand(appWorkspace, 'initialize', [], commandEnvironment)
+    await runYarnWorkspaceCommand(appWorkspace, 'initialize', [], commandEnvironment, {
+      silent: !options.verbose,
+    })
+
+    console.log('[integration] Building packages...')
+    await runYarnCommand(['build:packages'], commandEnvironment, {
+      silent: !options.verbose,
+    })
+
+    console.log('[integration] Regenerating module artifacts...')
+    await runYarnCommand(['generate'], commandEnvironment, {
+      silent: !options.verbose,
+    })
+
+    console.log('[integration] Rebuilding packages after generation...')
+    await runYarnCommand(['build:packages'], commandEnvironment, {
+      silent: !options.verbose,
+    })
 
     console.log('[integration] Building application...')
-    await runYarnWorkspaceCommand(appWorkspace, 'build', [], commandEnvironment)
+    await runYarnWorkspaceCommand(appWorkspace, 'build', [], commandEnvironment, {
+      silent: !options.verbose,
+    })
 
     console.log(`[integration] Starting application on ${applicationBaseUrl}...`)
-    applicationProcess = startYarnWorkspaceCommand(appWorkspace, 'start', [], commandEnvironment)
+    applicationProcess = startYarnWorkspaceCommand(appWorkspace, 'start', [], commandEnvironment, {
+      silent: !options.verbose,
+    })
 
     await waitForApplicationReadiness(applicationBaseUrl, applicationProcess)
     console.log('[integration] Application is ready, running Playwright suite...')
