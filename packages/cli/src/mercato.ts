@@ -10,6 +10,7 @@ export { getCliModules, hasCliModules, registerCliModules }
 import { parseBooleanToken } from '@open-mercato/shared/lib/boolean'
 import { getRedisUrl } from '@open-mercato/shared/lib/redis/connection'
 import { resolveInitDerivedSecrets } from './lib/init-secrets'
+import { runIntegrationTestsInEphemeralEnvironment } from './lib/testing/integration'
 import type { ChildProcess } from 'node:child_process'
 import path from 'node:path'
 import fs from 'node:fs'
@@ -552,6 +553,18 @@ export async function run(argv = process.argv) {
   let modName = first
   let cmdName = second
   let rest = remaining
+
+  if (first === 'test:integration') {
+    modName = 'test'
+    cmdName = 'integration'
+    rest = second !== undefined ? [second, ...remaining] : []
+  }
+
+  if (first === 'test' && second === 'integration') {
+    modName = 'test'
+    cmdName = 'integration'
+    rest = remaining
+  }
 
   if (first === 'reindex') {
     modName = 'query_index'
@@ -1141,6 +1154,18 @@ export async function run(argv = process.argv) {
           )
 
           cleanup()
+        },
+      },
+    ],
+  } as any)
+
+  all.push({
+    id: 'test',
+    cli: [
+      {
+        command: 'integration',
+        run: async (args: string[]) => {
+          await runIntegrationTestsInEphemeralEnvironment(args)
         },
       },
     ],
