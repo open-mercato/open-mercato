@@ -7,16 +7,25 @@ import { login } from '../helpers/auth';
 test.describe('TC-CRM-020: Deal Note And Activity Creation', () => {
   test('should add a deal note and log a deal activity', async ({ page }) => {
     await login(page, 'admin');
-    await page.goto('/backend/customers/deals/34757305-7e77-4c59-aec0-4567f1b76c33');
+    await page.goto('/backend/customers/deals');
+
+    const dealRow = page.locator('table tbody tr').first();
+    await expect(dealRow).toBeVisible();
+    await dealRow.click();
 
     const noteText = `QA deal note ${Date.now()}`;
-    await page.getByRole('button', { name: 'Add a note' }).click();
-    await page.getByRole('textbox', { name: 'Write a note about this person…' }).fill(noteText);
-    await page.getByRole('button', { name: /Add note/ }).click();
+    await page.getByRole('button', { name: /Add( a)? note/i }).first().click();
+    await page.getByRole('textbox', { name: /Write a note/i }).fill(noteText);
+    await page.getByRole('button', { name: /Add note.*Ctrl\+Enter/i }).click();
     await expect(page.getByText(noteText)).toBeVisible();
 
     const activitySubject = `QA deal activity ${Date.now()}`;
-    await page.getByRole('button', { name: 'Activities' }).click();
+    const activitiesTab = page.getByRole('tab', { name: 'Activities' });
+    if ((await activitiesTab.count()) > 0) {
+      await activitiesTab.click();
+    } else {
+      await page.getByRole('button', { name: 'Activities' }).click();
+    }
     await page.getByRole('button', { name: 'Log activity' }).click();
 
     const dialog = page.getByRole('dialog', { name: 'Add activity' });

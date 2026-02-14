@@ -7,16 +7,25 @@ import { login } from '../helpers/auth';
 test.describe('TC-CRM-016: Company Note And Activity CRUD', () => {
   test('should add a company note and log an activity', async ({ page }) => {
     await login(page, 'admin');
-    await page.goto('/backend/customers/companies/bf8b4414-c5ab-4b15-aac2-dc57d700bf15');
+    await page.goto('/backend/customers/companies');
+
+    const companyLink = page.locator('table tbody tr').first().getByRole('link').first();
+    await expect(companyLink).toBeVisible();
+    await companyLink.click();
 
     const noteText = `QA company note ${Date.now()}`;
     await page.getByRole('button', { name: 'Add note' }).click();
-    await page.getByRole('textbox', { name: 'Write a note about this company…' }).fill(noteText);
-    await page.getByRole('button', { name: /Add note/ }).click();
+    await page.getByRole('textbox', { name: /Write a note about this company/i }).fill(noteText);
+    await page.getByRole('button', { name: /Add note.*Ctrl\+Enter/i }).click();
     await expect(page.getByText(noteText)).toBeVisible();
 
     const activitySubject = `QA company activity ${Date.now()}`;
-    await page.getByRole('tab', { name: 'Activities' }).click();
+    const activitiesTab = page.getByRole('tab', { name: 'Activities' });
+    if ((await activitiesTab.count()) > 0) {
+      await activitiesTab.click();
+    } else {
+      await page.getByRole('button', { name: 'Activities' }).click();
+    }
     await page.getByRole('button', { name: 'Log activity' }).click();
 
     const dialog = page.getByRole('dialog', { name: 'Add activity' });

@@ -61,6 +61,7 @@ For API tests, use cURL to discover:
 Create `.ai/qa/tests/<category>/TC-{CATEGORY}-{XXX}.spec.ts`
 
 Use the locators discovered in Phase 3 (not guessed). If a scenario was written, reference it in a comment.
+Do not hardcode entity IDs in routes, payloads, or assertions. Resolve entities dynamically at runtime by creating fixtures through API/UI steps or by selecting existing rows via stable UI text/role locators.
 
 Category-to-folder mapping:
 
@@ -132,6 +133,8 @@ If it fails, fix it. Do not leave broken tests.
 - MUST explore the running app before writing — never guess selectors or flows
 - MUST self-start isolated app mode with `yarn test:integration:ephemeral:start` before MCP exploration
 - MUST use the ephemeral URL printed by the command (never assume `localhost:3000`)
+- MUST NOT hardcode record IDs (UUIDs/PKs) in generated tests
+- MUST discover or create test entities at runtime, then navigate using discovered links/URLs
 - MUST create the `.spec.ts` — the markdown scenario is optional
 - MUST use actual locators from Playwright MCP snapshots (`getByRole`, `getByLabel`, `getByText`)
 - MUST verify the test passes before finishing

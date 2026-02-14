@@ -58,6 +58,7 @@ For each test step:
 ### Phase 3 — Write TypeScript Test
 
 Create the test file at `.ai/qa/tests/<category>/TC-{CATEGORY}-{XXX}.spec.ts`
+Never hardcode entity IDs in test routes or payloads. Create/fetch entities during test setup or open them from list pages using stable user-facing locators.
 
 **Category-to-folder mapping:**
 
@@ -139,6 +140,8 @@ If it fails, fix the test and re-run. Do not leave broken tests.
 ## Rules
 
 - Use Playwright locators: `getByRole`, `getByLabel`, `getByText`, `getByPlaceholder` — avoid CSS selectors
+- Never hardcode record IDs (UUIDs/PKs) in generated or converted tests
+- Discover entities dynamically (API setup, create flow, or list-row navigation) before detail-page assertions
 - If a matching scenario exists, reference it in a comment
 - Keep tests independent — each test should handle its own login
 - Use helpers from `../helpers/auth` and `../helpers/api`
