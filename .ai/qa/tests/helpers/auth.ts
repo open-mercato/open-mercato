@@ -48,7 +48,13 @@ export async function login(page: Page, role: Role = 'admin'): Promise<void> {
   await page.goto('/login');
   await dismissGlobalNoticesIfPresent(page);
   await page.getByLabel('Email').fill(creds.email);
-  await page.getByLabel('Password').fill(creds.password);
-  await page.getByRole('button', { name: /login|sign in/i }).click();
-  await page.waitForURL(/\/backend(?:\/.*)?$/);
+  const passwordInput = page.getByLabel('Password');
+  await passwordInput.fill(creds.password);
+  await passwordInput.press('Enter');
+  try {
+    await page.waitForURL(/\/backend(?:\/.*)?$/, { timeout: 5000 });
+  } catch {
+    await page.getByRole('button', { name: /login|sign in/i }).click({ force: true });
+    await page.waitForURL(/\/backend(?:\/.*)?$/);
+  }
 }

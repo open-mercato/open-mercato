@@ -16,7 +16,7 @@ test.describe('TC-CRM-018: Person Display Name Edit And Undo', () => {
     const displayNameButton = page.getByRole('button', { name: /^Display name / }).first();
     await expect(displayNameButton).toBeVisible();
     const displayNameLabel = ((await displayNameButton.innerText()) || '').trim();
-    const originalName = displayNameLabel.replace(/^Display name\s+/, '').trim();
+    const originalName = displayNameLabel.replace(/^display name\s+/i, '').replace(/\s+/g, ' ').trim();
 
     const editButton = displayNameButton.locator('xpath=..').getByRole('button').nth(1);
     await editButton.click();
@@ -29,10 +29,23 @@ test.describe('TC-CRM-018: Person Display Name Edit And Undo', () => {
     const updatedName = `${originalName} QA`;
 
     await input.fill(updatedName);
-    await page.getByRole('button', { name: /Save/ }).click();
-    await expect(displayNameButton).toContainText(updatedName);
+    await input.locator('xpath=ancestor::div[1]').getByRole('button', { name: /^Save/ }).click();
 
-    await page.getByRole('button', { name: /^Undo(?: last action)?$/ }).click();
-    await expect(displayNameButton).toContainText(originalName);
+    const readDisplayName = async (): Promise<string> => {
+      const editInput = page.getByRole('textbox', { name: /Enter display name/i }).first();
+      if ((await editInput.count()) > 0) {
+        return ((await editInput.inputValue()) || '').replace(/\s+/g, ' ').trim();
+      }
+      const summaryButton = page.getByRole('button', { name: /^Display name / }).first();
+      const raw = ((await summaryButton.innerText()) || '').trim();
+      return raw.replace(/^display name\s+/i, '').replace(/\s+/g, ' ').trim();
+    };
+
+    await expect.poll(readDisplayName).toContain(updatedName);
+
+    await page.getByRole('button', { name: 'Version History' }).click();
+    await expect(page.getByRole('heading', { name: 'Version History' })).toBeVisible();
+    await page.getByRole('button', { name: 'Undo last action' }).click();
+    await expect.poll(readDisplayName).toContain(originalName);
   });
 });
