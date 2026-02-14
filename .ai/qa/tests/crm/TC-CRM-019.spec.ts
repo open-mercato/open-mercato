@@ -1,38 +1,49 @@
 import { expect, test } from '@playwright/test';
 import { login } from '../helpers/auth';
+import { getAuthToken } from '../helpers/api';
+import { createCompanyFixture, createDealFixture, createPersonFixture, deleteEntityIfExists } from '../helpers/crmFixtures';
 
 /**
  * TC-CRM-019: Deal Association Remove And Undo
  */
 test.describe('TC-CRM-019: Deal Association Remove And Undo', () => {
-  test('should remove a linked person from deal and restore via undo', async ({ page }) => {
-    await login(page, 'admin');
-    await page.goto('/backend/customers/deals');
+  test('should remove a linked person from deal and restore via undo', async ({ page, request }) => {
+    let token: string | null = null;
+    let companyId: string | null = null;
+    let personId: string | null = null;
+    let dealId: string | null = null;
+    const personDisplayName = `QA TC-CRM-019 Person ${Date.now()}`;
 
-    const dealRows = page.locator('table tbody tr');
-    const dealCount = await dealRows.count();
-    expect(dealCount, 'Expected at least one deal row').toBeGreaterThan(0);
+    try {
+      token = await getAuthToken(request);
+      companyId = await createCompanyFixture(request, token, `QA TC-CRM-019 Company ${Date.now()}`);
+      personId = await createPersonFixture(request, token, {
+        firstName: 'QA',
+        lastName: `TCCRM019${Date.now()}`,
+        displayName: personDisplayName,
+        companyEntityId: companyId,
+      });
+      dealId = await createDealFixture(request, token, {
+        title: `QA TC-CRM-019 Deal ${Date.now()}`,
+        companyIds: [companyId],
+        personIds: [personId],
+      });
 
-    let removedButtonLabel: string | null = null;
-    for (let i = 0; i < dealCount; i += 1) {
-      await dealRows.nth(i).click();
-      const removeButton = page.getByRole('button', { name: /^Remove / }).first();
-      if ((await removeButton.count()) === 0) {
-        await page.goto('/backend/customers/deals');
-        continue;
-      }
+      await login(page, 'admin');
+      await page.goto(`/backend/customers/deals/${dealId}`);
 
-      removedButtonLabel = (await removeButton.innerText()).trim();
-      await removeButton.click();
-      break;
+      const removeButtonName = `Remove ${personDisplayName}`;
+      await expect(page.getByRole('button', { name: removeButtonName, exact: true })).toBeVisible();
+      await page.getByRole('button', { name: removeButtonName, exact: true }).click();
+      await page.getByRole('button', { name: /Update deal/ }).click();
+
+      await expect(page.getByRole('button', { name: removeButtonName, exact: true })).toHaveCount(0);
+      await page.getByRole('button', { name: /^Undo(?: last action)?$/ }).click();
+      await expect(page.getByRole('button', { name: removeButtonName, exact: true })).toBeVisible();
+    } finally {
+      await deleteEntityIfExists(request, token, '/api/customers/deals', dealId);
+      await deleteEntityIfExists(request, token, '/api/customers/people', personId);
+      await deleteEntityIfExists(request, token, '/api/customers/companies', companyId);
     }
-
-    expect(removedButtonLabel, 'Expected at least one deal with a linked person to remove').not.toBeNull();
-    const personRemoveButtonName = removedButtonLabel as string;
-    await page.getByRole('button', { name: /Update deal/ }).click();
-
-    await expect(page.getByRole('button', { name: personRemoveButtonName, exact: true })).toHaveCount(0);
-    await page.getByRole('button', { name: /^Undo(?: last action)?$/ }).click();
-    await expect(page.getByRole('button', { name: personRemoveButtonName, exact: true })).toBeVisible();
   });
 });

@@ -1,35 +1,42 @@
 import { test, expect } from '@playwright/test';
 import { login } from '../helpers/auth';
+import { getAuthToken } from '../helpers/api';
+import { deleteEntityIfExists } from '../helpers/crmFixtures';
 
 /**
- * TC-CRM-001: Company Edit History And Undo
+ * TC-CRM-001: Company Creation
+ * Source: .ai/qa/scenarios/TC-CRM-001-company-creation.md
  */
-test.describe('TC-CRM-001: Company Edit History And Undo', () => {
-  test('should record company name edit in history and undo the change', async ({ page }) => {
-    await login(page, 'admin');
-    await page.goto('/backend/customers/companies');
+test.describe('TC-CRM-001: Company Creation', () => {
+  test('should create a company from create form and show it in companies list', async ({ page, request }) => {
+    let token: string | null = null;
+    let companyId: string | null = null;
+    const companyName = `QA TC-CRM-001 ${Date.now()}`;
 
-    const firstCompanyLink = page.getByRole('row').nth(1).getByRole('link').first();
-    await expect(firstCompanyLink).toBeVisible();
+    try {
+      token = await getAuthToken(request);
 
-    const originalName = (await firstCompanyLink.innerText()).trim();
-    const updatedName = `${originalName} QA Undo`;
+      await login(page, 'admin');
+      await page.goto('/backend/customers/companies');
 
-    await firstCompanyLink.click();
-    await expect(page.getByRole('button', { name: originalName, exact: true })).toBeVisible();
+      await page.getByRole('link', { name: /Create Company/i }).first().click();
+      await page.locator('form').getByRole('textbox').first().fill(companyName);
+      await page.getByPlaceholder('https://example.com').fill('https://example.com');
+      await page.locator('form').getByRole('button', { name: /Create Company/i }).click();
 
-    await page.getByRole('button', { name: /^Display name / }).click();
-    await page.getByRole('textbox', { name: 'Enter company name' }).fill(updatedName);
-    await page.getByRole('button', { name: /^Save / }).click();
+      await expect(page).toHaveURL(/\/backend\/customers\/companies\/[0-9a-f-]{36}$/i);
+      await expect(page.getByRole('button', { name: companyName, exact: true }).first()).toBeVisible();
 
-    await expect(page.getByRole('button', { name: updatedName, exact: true })).toBeVisible();
+      const url = page.url();
+      const idMatch = url.match(/\/backend\/customers\/companies\/([0-9a-f-]{36})$/i);
+      companyId = idMatch ? idMatch[1] : null;
+      expect(companyId, 'Expected created company id in detail URL').toBeTruthy();
 
-    await page.getByRole('button', { name: 'Version History' }).click();
-    await expect(page.getByRole('heading', { name: 'Version History' })).toBeVisible();
-    await expect(page.getByRole('button', { name: /Update company.*Done/ })).toBeVisible();
-
-    await page.getByRole('button', { name: 'Undo last action' }).click();
-    await expect(page.getByRole('button', { name: originalName, exact: true })).toBeVisible();
-    await expect(page.getByRole('button', { name: /^Display name / })).toContainText(originalName);
+      await page.goto('/backend/customers/companies');
+      await page.getByRole('textbox', { name: /Search companies/i }).fill(companyName);
+      await expect(page.getByRole('link', { name: companyName, exact: true })).toBeVisible();
+    } finally {
+      await deleteEntityIfExists(request, token, '/api/customers/companies', companyId);
+    }
   });
 });
