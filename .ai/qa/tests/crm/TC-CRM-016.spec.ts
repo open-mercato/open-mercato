@@ -21,9 +21,9 @@ test.describe('TC-CRM-016: Company Note And Activity CRUD', () => {
       await page.goto(`/backend/customers/companies/${companyId}`);
 
       const noteText = `QA company note ${Date.now()}`;
-      await page.getByRole('button', { name: /Add( a)? note/i }).first().click();
+      await page.getByRole('button', { name: /Create( a)? note|Add( a)? note/i }).first().click();
       await page.getByRole('textbox', { name: /Write a note about this company/i }).fill(noteText);
-      await page.getByRole('button', { name: /Add note.*Ctrl\+Enter/i }).click();
+      await page.getByRole('button', { name: /Add note.*Ctrl\+Enter|Save note.*Ctrl\+Enter/i }).first().click();
       await expect(page.getByText(noteText)).toBeVisible();
 
       const activitySubject = `QA company activity ${Date.now()}`;
@@ -37,11 +37,12 @@ test.describe('TC-CRM-016: Company Note And Activity CRUD', () => {
 
       const dialog = page.getByRole('dialog', { name: 'Add activity' });
       await expect(dialog).toBeVisible();
-      await dialog
-        .locator('select')
-        .filter({ has: dialog.locator('option', { hasText: /^Call$/i }) })
-        .first()
-        .selectOption({ label: 'Call' });
+      const activityType = dialog.getByRole('combobox').first();
+      await expect(activityType).toBeVisible();
+      await activityType.selectOption({ label: 'Call' }).catch(async () => {
+        await activityType.click();
+        await dialog.getByRole('option', { name: /^Call$/i }).click();
+      });
       await dialog.getByRole('textbox', { name: 'Add a subject (optional)' }).fill(activitySubject);
       await dialog.getByRole('textbox', { name: 'Describe the interaction' }).fill('QA activity description');
       await dialog.getByRole('button', { name: /Save activity/ }).click();

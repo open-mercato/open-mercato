@@ -1,7 +1,7 @@
 import { GenericContainer } from 'testcontainers'
 import { spawn, type ChildProcess, type StdioOptions } from 'node:child_process'
 import { createServer } from 'node:net'
-import { mkdir, readdir, readFile, rm } from 'node:fs/promises'
+import { mkdir, readdir, readFile, rm, writeFile } from 'node:fs/promises'
 import path from 'node:path'
 import { createInterface, type Interface } from 'node:readline/promises'
 import { stdin as input, stdout as output } from 'node:process'
@@ -11,6 +11,7 @@ type EphemeralRuntimeOptions = {
   verbose: boolean
   captureScreenshots: boolean
   logPrefix: string
+  reuseExisting?: boolean
   environmentOverrides?: NodeJS.ProcessEnv
 }
 
@@ -19,6 +20,7 @@ export type EphemeralEnvironmentHandle = {
   port: number
   databaseUrl: string
   commandEnvironment: NodeJS.ProcessEnv
+  ownedByCurrentProcess: boolean
   stop: () => Promise<void>
 }
 
@@ -89,10 +91,22 @@ type IntegrationCoverageReport = {
   testsWithoutScenarioIds: string[]
 }
 
+type EphemeralEnvironmentState = {
+  status: 'running'
+  baseUrl: string
+  port: number
+  source: string
+  captureScreenshots: boolean
+  startedAt: string
+}
+
 const APP_READY_TIMEOUT_MS = 90_000
 const APP_READY_INTERVAL_MS = 1_000
+const DEFAULT_EPHEMERAL_APP_PORT = 5001
 const resolver = createResolver()
 const projectRootDirectory = resolver.getRootDir()
+const EPHEMERAL_ENV_FILE_PATH = path.join(projectRootDirectory, '.ai', 'qa', 'ephemeral-env.json')
+const LEGACY_EPHEMERAL_ENV_FILE_PATH = path.join(projectRootDirectory, '.ai', 'qa', 'ephemeral-env.md')
 const EXPECTED_TEST_FOLDERS = ['auth', 'catalog', 'crm', 'sales', 'admin', 'api', 'integration'] as const
 const FOLDER_TO_CATEGORY_CODE: Record<string, string> = {
   admin: 'ADMIN',
@@ -306,6 +320,153 @@ async function getFreePort(): Promise<number> {
       })
     })
   })
+}
+
+async function isPortAvailable(port: number): Promise<boolean> {
+  return new Promise((resolve) => {
+    const server = createServer()
+    server.once('error', () => {
+      resolve(false)
+    })
+    server.listen(port, '127.0.0.1', () => {
+      server.close(() => {
+        resolve(true)
+      })
+    })
+  })
+}
+
+async function getPreferredPort(preferredPort: number): Promise<number> {
+  if (await isPortAvailable(preferredPort)) {
+    return preferredPort
+  }
+  const fallbackPort = await getFreePort()
+  console.log(`[ephemeral] Port ${preferredPort} is busy, using fallback port ${fallbackPort}.`)
+  return fallbackPort
+}
+
+async function writeEphemeralEnvironmentState(input: {
+  baseUrl: string
+  port: number
+  logPrefix: string
+  captureScreenshots: boolean
+}): Promise<void> {
+  const content: EphemeralEnvironmentState = {
+    status: 'running',
+    baseUrl: input.baseUrl,
+    port: input.port,
+    source: input.logPrefix,
+    captureScreenshots: input.captureScreenshots,
+    startedAt: new Date().toISOString(),
+  }
+  await writeFile(EPHEMERAL_ENV_FILE_PATH, `${JSON.stringify(content, null, 2)}\n`, 'utf8')
+}
+
+async function clearEphemeralEnvironmentState(): Promise<void> {
+  await rm(EPHEMERAL_ENV_FILE_PATH, { force: true })
+  await rm(LEGACY_EPHEMERAL_ENV_FILE_PATH, { force: true })
+}
+
+async function readEphemeralEnvironmentState(): Promise<EphemeralEnvironmentState | null> {
+  let sourceText = ''
+  try {
+    sourceText = await readFile(EPHEMERAL_ENV_FILE_PATH, 'utf8')
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
+      return null
+    }
+    throw error
+  }
+
+  let parsed: unknown = null
+  try {
+    parsed = JSON.parse(sourceText)
+  } catch {
+    return null
+  }
+
+  if (!parsed || typeof parsed !== 'object') {
+    return null
+  }
+
+  const record = parsed as Partial<EphemeralEnvironmentState>
+  if (record.status !== 'running') {
+    return null
+  }
+  if (typeof record.baseUrl !== 'string' || record.baseUrl.length === 0) {
+    return null
+  }
+  if (typeof record.port !== 'number' || !Number.isFinite(record.port) || record.port < 1) {
+    return null
+  }
+  if (typeof record.source !== 'string' || record.source.length === 0) {
+    return null
+  }
+  if (typeof record.captureScreenshots !== 'boolean') {
+    return null
+  }
+  if (typeof record.startedAt !== 'string' || record.startedAt.length === 0) {
+    return null
+  }
+
+  return {
+    status: 'running',
+    baseUrl: record.baseUrl,
+    port: record.port,
+    source: record.source,
+    captureScreenshots: record.captureScreenshots,
+    startedAt: record.startedAt,
+  }
+}
+
+async function isApplicationReachable(baseUrl: string): Promise<boolean> {
+  try {
+    const response = await fetch(`${baseUrl}/login`, {
+      method: 'GET',
+      redirect: 'manual',
+    })
+    return response.status === 200 || response.status === 302
+  } catch {
+    return false
+  }
+}
+
+function buildReusableEnvironment(baseUrl: string, captureScreenshots: boolean): NodeJS.ProcessEnv {
+  return buildEnvironment({
+    BASE_URL: baseUrl,
+    NODE_ENV: 'test',
+    OM_TEST_MODE: '1',
+    ENABLE_CRUD_API_CACHE: 'true',
+    CI: 'true',
+    OM_CLI_QUIET: '1',
+    MERCATO_QUIET: '1',
+    NODE_NO_WARNINGS: '1',
+    PW_CAPTURE_SCREENSHOTS: captureScreenshots ? '1' : '0',
+  })
+}
+
+async function tryReuseExistingEnvironment(options: EphemeralRuntimeOptions): Promise<EphemeralEnvironmentHandle | null> {
+  const state = await readEphemeralEnvironmentState()
+  if (!state) {
+    return null
+  }
+
+  const reachable = await isApplicationReachable(state.baseUrl)
+  if (!reachable) {
+    console.log(`[${options.logPrefix}] Found stale ephemeral state. Clearing ${EPHEMERAL_ENV_FILE_PATH}.`)
+    await clearEphemeralEnvironmentState()
+    return null
+  }
+
+  console.log(`[${options.logPrefix}] Reusing existing ephemeral environment at ${state.baseUrl}.`)
+  return {
+    baseUrl: state.baseUrl,
+    port: state.port,
+    databaseUrl: '',
+    commandEnvironment: buildReusableEnvironment(state.baseUrl, options.captureScreenshots),
+    ownedByCurrentProcess: false,
+    stop: async () => {},
+  }
 }
 
 async function waitForApplicationReadiness(baseUrl: string, appProcess: ChildProcess): Promise<void> {
@@ -953,31 +1114,51 @@ export async function runIntegrationCoverageReport(rawArgs: string[]): Promise<v
     verbose: options.verbose,
     captureScreenshots: options.captureScreenshots,
     logPrefix: 'coverage',
+    reuseExisting: false,
     environmentOverrides: {
       NODE_V8_COVERAGE: coveragePaths.rawDirectory,
     },
   })
 
+  let testRunError: Error | null = null
   try {
     console.log('[coverage] Running Playwright integration suite with V8 coverage enabled...')
     console.log('[coverage] Ensuring Playwright Chromium is installed...')
     await runNpxCommand(['playwright', 'install', 'chromium'], environment.commandEnvironment)
-    await runPlaywrightSelection(
-      environment,
-      options.filter,
-      {
-        verbose: options.verbose,
-        captureScreenshots: options.captureScreenshots,
-        workers: options.workers,
-        retries: options.retries,
-      },
-    )
+    try {
+      await runPlaywrightSelection(
+        environment,
+        options.filter,
+        {
+          verbose: options.verbose,
+          captureScreenshots: options.captureScreenshots,
+          workers: options.workers,
+          retries: options.retries,
+        },
+      )
+    } catch (error) {
+      testRunError = error instanceof Error ? error : new Error(String(error))
+      console.error(`[coverage] Playwright run failed: ${testRunError.message}`)
+      console.error('[coverage] Continuing to generate coverage report from collected V8 data...')
+    }
   } finally {
     await environment.stop()
   }
 
   console.log('[coverage] Generating code coverage report...')
-  await generateC8CoverageReport(environment.commandEnvironment, coveragePaths.rawDirectory, coveragePaths.reportDirectory)
+  let coverageReportError: Error | null = null
+  try {
+    await generateC8CoverageReport(environment.commandEnvironment, coveragePaths.rawDirectory, coveragePaths.reportDirectory)
+  } catch (error) {
+    coverageReportError = error instanceof Error ? error : new Error(String(error))
+  }
+
+  if (coverageReportError) {
+    if (!options.keepRawV8) {
+      await rm(coveragePaths.rawDirectory, { recursive: true, force: true })
+    }
+    throw coverageReportError
+  }
 
   const summaryPath = path.join(coveragePaths.reportDirectory, 'coverage-summary.json')
   const summaryRaw = await readFile(summaryPath, 'utf8')
@@ -1002,22 +1183,44 @@ export async function runIntegrationCoverageReport(rawArgs: string[]): Promise<v
     },
   }
 
-  if (!options.keepRawV8) {
-    await rm(coveragePaths.rawDirectory, { recursive: true, force: true })
-  }
-
-  if (options.json) {
-    console.log(JSON.stringify(output, null, 2))
-    return
-  }
-
   const linePct = output.totals.lines?.pct ?? 0
   const statementPct = output.totals.statements?.pct ?? 0
   const functionPct = output.totals.functions?.pct ?? 0
   const branchPct = output.totals.branches?.pct ?? 0
-  console.log(`[coverage] Code coverage summary: lines=${linePct}%, statements=${statementPct}%, functions=${functionPct}%, branches=${branchPct}%`)
+  const lineCovered = output.totals.lines?.covered ?? 0
+  const lineTotal = output.totals.lines?.total ?? 0
+  const statementCovered = output.totals.statements?.covered ?? 0
+  const statementTotal = output.totals.statements?.total ?? 0
+  const functionCovered = output.totals.functions?.covered ?? 0
+  const functionTotal = output.totals.functions?.total ?? 0
+  const branchCovered = output.totals.branches?.covered ?? 0
+  const branchTotal = output.totals.branches?.total ?? 0
+
+  if (!options.keepRawV8) {
+    await rm(coveragePaths.rawDirectory, { recursive: true, force: true })
+  }
+
+  console.log('[coverage] Coverage totals:')
+  console.log(`  lines: ${lineCovered}/${lineTotal} (${linePct}%)`)
+  console.log(`  statements: ${statementCovered}/${statementTotal} (${statementPct}%)`)
+  console.log(`  functions: ${functionCovered}/${functionTotal} (${functionPct}%)`)
+  console.log(`  branches: ${branchCovered}/${branchTotal} (${branchPct}%)`)
   console.log(`[coverage] HTML report: ${output.reportDirectory}/index.html`)
+
+  if (options.json) {
+    console.log(JSON.stringify(output, null, 2))
+    if (testRunError) {
+      throw testRunError
+    }
+    return
+  }
+
+  console.log(`[coverage] Code coverage summary: lines=${linePct}%, statements=${statementPct}%, functions=${functionPct}%, branches=${branchPct}%`)
   console.log('[coverage] Use --json for machine-readable output or --keep-raw-v8 to keep raw process coverage files.')
+
+  if (testRunError) {
+    throw testRunError
+  }
 }
 
 async function runPlaywrightSelection(
@@ -1077,9 +1280,15 @@ async function promptAfterRun(
 export async function startEphemeralEnvironment(options: EphemeralRuntimeOptions): Promise<EphemeralEnvironmentHandle> {
   assertNode24Runtime()
   await assertContainerRuntimeAvailable()
+  if (options.reuseExisting !== false) {
+    const existingEnvironment = await tryReuseExistingEnvironment(options)
+    if (existingEnvironment) {
+      return existingEnvironment
+    }
+  }
 
   const appWorkspace = '@open-mercato/app'
-  const applicationPort = await getFreePort()
+  const applicationPort = await getPreferredPort(DEFAULT_EPHEMERAL_APP_PORT)
   const applicationBaseUrl = `http://127.0.0.1:${applicationPort}`
   const databaseName = 'mercato_test'
   const databaseUser = 'mercato'
@@ -1126,6 +1335,7 @@ export async function startEphemeralEnvironment(options: EphemeralRuntimeOptions
       applicationProcess.kill('SIGTERM')
     }
     await databaseContainer.stop()
+    await clearEphemeralEnvironmentState()
   }
 
   try {
@@ -1162,11 +1372,18 @@ export async function startEphemeralEnvironment(options: EphemeralRuntimeOptions
 
     await waitForApplicationReadiness(applicationBaseUrl, applicationProcess)
     console.log(`[${options.logPrefix}] Application is ready at ${applicationBaseUrl}`)
+    await writeEphemeralEnvironmentState({
+      baseUrl: applicationBaseUrl,
+      port: applicationPort,
+      logPrefix: options.logPrefix,
+      captureScreenshots: options.captureScreenshots,
+    })
     return {
       baseUrl: applicationBaseUrl,
       port: applicationPort,
       databaseUrl,
       commandEnvironment,
+      ownedByCurrentProcess: true,
       stop,
     }
   } catch (error) {
@@ -1196,6 +1413,9 @@ export async function runIntegrationTestsInEphemeralEnvironment(rawArgs: string[
   })
 
   try {
+    if (!environment.ownedByCurrentProcess) {
+      console.log('[integration] Attached to an already running ephemeral environment from .ai/qa/ephemeral-env.json.')
+    }
     console.log('[integration] Running Playwright suite...')
     console.log(
       `[integration] Screenshot capture is ${options.captureScreenshots ? 'enabled' : 'disabled'} (override with --screenshots / --no-screenshots)`,
@@ -1234,7 +1454,11 @@ export async function runEphemeralAppForQa(rawArgs: string[]): Promise<void> {
   console.log(`[ephemeral] Ready for QA exploration at ${environment.baseUrl}`)
   console.log('[ephemeral] Use Playwright MCP against this URL to avoid interference with other local instances.')
   console.log('[ephemeral] Default credentials: admin@acme.com / secret')
-  console.log('[ephemeral] Press Ctrl+C to stop.')
+  if (environment.ownedByCurrentProcess) {
+    console.log('[ephemeral] Press Ctrl+C to stop.')
+  } else {
+    console.log('[ephemeral] Reused existing environment. Press Ctrl+C to exit without stopping the shared runtime.')
+  }
 
   await keepEnvironmentRunningForever({
     logPrefix: 'ephemeral',
@@ -1255,6 +1479,9 @@ export async function runInteractiveIntegrationInEphemeralEnvironment(rawArgs: s
   let activeFilter = ''
 
   console.log('[interactive] 🎯 Integration menu ready.')
+  if (!environment.ownedByCurrentProcess) {
+    console.log('[interactive] 🔁 Reusing existing environment from .ai/qa/ephemeral-env.json.')
+  }
   console.log(`[interactive] 🌐 Running against ${environment.baseUrl}`)
   console.log('[interactive] ⌨️ Enter a number to run, type text (for example "crm") to filter, "a" to clear filter, "r" to refresh, "h" for HTML report, "q" to quit.')
 

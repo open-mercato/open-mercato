@@ -205,7 +205,7 @@ function lineDialog(page: Page): Locator {
 
 async function selectFirstOption(container: Locator, rowNamePattern: RegExp): Promise<void> {
   const optionRow = container.getByRole('button', { name: rowNamePattern }).first();
-  await optionRow.waitFor({ state: 'visible', timeout: 5_000 }).catch(() => {});
+  await optionRow.waitFor({ state: 'visible', timeout: 4_000 }).catch(() => {});
   if ((await optionRow.count()) === 0) return;
 
   const selectButton = optionRow.getByRole('button', { name: /^Select$/i }).first();
@@ -261,15 +261,6 @@ async function fillShipmentQuantity(dialog: Locator): Promise<void> {
     await input.press('ControlOrMeta+a').catch(() => {});
     await input.type('1', { delay: 20 }).catch(() => {});
   }
-}
-
-async function clickFirstSelectAction(page: Page): Promise<boolean> {
-  const selectAction = page.getByRole('button', { name: /^Select$/i }).first();
-  if (await selectAction.isVisible().catch(() => false)) {
-    await selectAction.click().catch(() => {});
-    return true;
-  }
-  return false;
 }
 
 export async function addCustomLine(page: Page, options: AddLineOptions): Promise<void> {
@@ -424,33 +415,32 @@ export async function addShipment(page: Page): Promise<{ trackingNumber: string;
 
   const dialog = page.getByRole('dialog', { name: /Add shipment/i });
   await expect(dialog).toBeVisible();
-  await dialog.getByRole('textbox').first().fill(trackingNumber);
-
+  const trackingInput = dialog.getByLabel(/Tracking numbers/i).first();
+  if ((await trackingInput.count()) > 0) {
+    await trackingInput.fill(trackingNumber);
+  } else {
+    await dialog.getByPlaceholder(/One per line or comma separated/i).first().fill(trackingNumber);
+  }
   await selectShipmentMethod(dialog);
-  await clickFirstSelectAction(page);
   await selectShipmentStatus(dialog);
-  await clickFirstSelectAction(page);
   await selectShipmentAddress(dialog);
-  await clickFirstSelectAction(page);
   await fillShipmentQuantity(dialog);
 
-  await dialog.getByText(/Searching…|Searching\.\.\./i).first().waitFor({ state: 'hidden', timeout: 6_000 }).catch(() => {});
   let closed = false;
-  for (let attempt = 0; attempt < 5; attempt += 1) {
-    await dialog.getByText(/Searching…|Searching\.\.\./i).first().waitFor({ state: 'hidden', timeout: 3_000 }).catch(() => {});
-    await selectShipmentMethod(dialog);
-    await clickFirstSelectAction(page);
-    await selectShipmentStatus(dialog);
-    await clickFirstSelectAction(page);
-    await selectShipmentAddress(dialog);
-    await clickFirstSelectAction(page);
-    await fillShipmentQuantity(dialog);
-    await dialog.getByRole('button', { name: /Save/i }).first().click({ force: true });
-    closed = await dialog.waitFor({ state: 'hidden', timeout: 4_000 }).then(() => true).catch(() => false);
-    if (!closed) {
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    await dialog.getByText(/Searching…|Searching\.\.\./i).first().waitFor({ state: 'hidden', timeout: 4_000 }).catch(() => {});
+    const saveButton = dialog.getByRole('button', { name: /^Save\b/i }).first();
+    const canClickSave = (await saveButton.count()) > 0 && (await saveButton.isVisible().catch(() => false));
+    if (canClickSave) {
+      await saveButton.click({ timeout: 2_000 }).catch(() => {});
+    } else {
       await dialog.press('ControlOrMeta+Enter').catch(() => {});
-      closed = await dialog.waitFor({ state: 'hidden', timeout: 2_000 }).then(() => true).catch(() => false);
     }
+
+    closed = await dialog
+      .waitFor({ state: 'hidden', timeout: 4_000 })
+      .then(() => true)
+      .catch(() => false);
     if (closed) break;
 
     const unrecoverableAddressError = await dialog
@@ -458,20 +448,23 @@ export async function addShipment(page: Page): Promise<{ trackingNumber: string;
       .first()
       .isVisible()
       .catch(() => false);
-    if (unrecoverableAddressError) break;
+    if (unrecoverableAddressError) {
+      return { trackingNumber, added: false };
+    }
+
+    await selectShipmentMethod(dialog);
+    await selectShipmentStatus(dialog);
+    await selectShipmentAddress(dialog);
+    await fillShipmentQuantity(dialog);
   }
-  if (closed) {
-    await expect(page.getByText(trackingNumber).first()).toBeVisible();
-    return { trackingNumber, added: true };
+
+  if (!closed) {
+    return { trackingNumber, added: false };
   }
-  const closeButton = dialog.getByRole('button', { name: /Close/i }).first();
-  if ((await closeButton.count()) > 0) {
-    await closeButton.click().catch(() => {});
-  } else {
-    await dialog.press('Escape').catch(() => {});
-  }
-  await dialog.waitFor({ state: 'hidden', timeout: 2_000 }).catch(() => {});
-  return { trackingNumber, added: false };
+
+  await page.getByRole('button', { name: /^Shipments$/i }).click();
+  await expect(page.getByText(trackingNumber).first()).toBeVisible();
+  return { trackingNumber, added: true };
 }
 
 export async function readGrandTotalGross(page: Page): Promise<number> {

@@ -79,8 +79,54 @@ jobs:
       - name: Install Playwright browser
         run: npx playwright install --with-deps chromium
 
-      - name: Run ephemeral integration pipeline
-        run: yarn test:integration:ephemeral
+      - name: Run ephemeral integration tests with code coverage
+        run: yarn test:integration:coverage
+
+      - name: Display integration coverage summary
+        if: always()
+        run: |
+          SUMMARY_FILE=".ai/qa/test-results/coverage/code/coverage-summary.json"
+          if [ ! -f "$SUMMARY_FILE" ]; then
+            echo "Coverage summary not found at $SUMMARY_FILE"
+            echo "## Integration Coverage" >> "$GITHUB_STEP_SUMMARY"
+            echo "Coverage summary file was not generated." >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+
+          node -e "
+          const fs = require('fs');
+          const p = process.argv[1];
+          const summary = JSON.parse(fs.readFileSync(p, 'utf8'));
+          const t = summary.total || {};
+          const f = (name) => {
+            const m = t[name] || {};
+            const covered = m.covered ?? 0;
+            const total = m.total ?? 0;
+            const pct = m.pct ?? 0;
+            return \`\${name}: \${covered}/\${total} (\${pct}%)\`;
+          };
+          const lines = [
+            '[coverage] Final integration coverage summary',
+            f('lines'),
+            f('statements'),
+            f('functions'),
+            f('branches'),
+          ];
+          console.log(lines.join('\n'));
+          fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY, [
+            '## Integration Coverage',
+            '',
+            '| Metric | Covered/Total | Percent |',
+            '|---|---:|---:|',
+            \`| Lines | \${t.lines?.covered ?? 0}/\${t.lines?.total ?? 0} | \${t.lines?.pct ?? 0}% |\`,
+            \`| Statements | \${t.statements?.covered ?? 0}/\${t.statements?.total ?? 0} | \${t.statements?.pct ?? 0}% |\`,
+            \`| Functions | \${t.functions?.covered ?? 0}/\${t.functions?.total ?? 0} | \${t.functions?.pct ?? 0}% |\`,
+            \`| Branches | \${t.branches?.covered ?? 0}/\${t.branches?.total ?? 0} | \${t.branches?.pct ?? 0}% |\`,
+            '',
+            'Source: `.ai/qa/test-results/coverage/code/coverage-summary.json`',
+            '',
+          ].join('\n'));
+          " "$SUMMARY_FILE"
 
       - name: Upload integration test artifacts
         if: always()

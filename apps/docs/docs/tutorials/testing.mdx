@@ -190,8 +190,9 @@ test.describe('TC-ADMIN-999: Example flow', () => {
 
 `yarn test:integration:ephemeral` rebuilds and boots a fresh isolated environment on each run. That is reliable but slower for tight development loops.
 
-- Start once and reuse:
-  - `yarn test:integration:ephemeral:start --no-screenshots`
+- Start once in interactive mode and reuse:
+  - `yarn test:integration:ephemeral:interactive --no-screenshots`
+- Reuse the active URL from `.ai/qa/ephemeral-env.md` (`base_url`)
 - Then run only the target test against the printed base URL:
   - `BASE_URL=http://127.0.0.1:<port> npx playwright test --config .ai/qa/tests/playwright.config.ts sales/TC-SALES-007.spec.ts --retries=0`
 - Run in parallel locally when tests are independent:
@@ -206,5 +207,6 @@ For repeated local runs, prefer `yarn test:integration:ephemeral:interactive` to
 ### Notes
 
 - Base URL defaults to `http://localhost:3000` and can be overridden with `BASE_URL`.
+- Ephemeral integration mode defaults to port `5001` when available and writes the active URL to `.ai/qa/ephemeral-env.md`.
 - Reports are generated under `.ai/qa/tests/test-results/`.
 - Capture screenshots for each step by setting `PW_CAPTURE_SCREENSHOTS=1`.

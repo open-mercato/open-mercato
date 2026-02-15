@@ -22,6 +22,11 @@ yarn test:integration:ephemeral:start
 yarn test:integration:report
 ```
 
+Preferred local workflow for short iterations:
+1. Start `yarn test:integration:ephemeral:start`
+2. Reuse the running environment from `.ai/qa/ephemeral-env.json`
+3. Use `/run-integration-tests` or `/create-qa-scenario` against that URL
+
 ---
 
 ## Directory Structure
@@ -81,7 +86,7 @@ An AI agent reads a scenario or spec and executes it interactively via Playwrigh
 
 ## Interactive Ephemeral Runner
 
-Use interactive mode when you want one ephemeral app/database session and multiple test runs without repeating full bootstrap.
+Use interactive mode as the default local workflow when you want one ephemeral app/database session and multiple test runs without repeating full bootstrap.
 
 ```bash
 yarn test:integration:ephemeral:interactive
@@ -102,6 +107,13 @@ Useful flags:
 - `--verbose`
 - `--screenshots`
 - `--no-screenshots`
+
+Environment state:
+
+- Active ephemeral environment is written to `.ai/qa/ephemeral-env.json`
+- Default app port is `5001` when available
+- If `5001` is busy, a free fallback port is used and written to `.ai/qa/ephemeral-env.json`
+- File is cleared automatically when the ephemeral environment is stopped
 
 ---
 
@@ -130,13 +142,21 @@ Read one of:
 
 #### Step 2 — Explore via Playwright MCP
 
-Start isolated app mode first:
+Always check `.ai/qa/ephemeral-env.json` first and reuse an existing running environment.
+
+If no active environment exists, start interactive mode first:
 
 ```bash
 yarn test:integration:ephemeral:start
 ```
 
-Use the printed ephemeral URL (`http://127.0.0.1:<port>`) to avoid interference with any other local app instance.
+Use isolated app mode only for MCP/manual exploration without the menu:
+
+```bash
+yarn test:integration:ephemeral:start
+```
+
+Use `base_url` from `.ai/qa/ephemeral-env.json` to avoid interference with any other local app instance.
 
 Walk through the test flow interactively to discover actual selectors:
 

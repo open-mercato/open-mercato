@@ -28,7 +28,7 @@ test.describe('TC-INT-003: Product Creation to Sales Channel to Order', () => {
       await expect(page).toHaveURL(/\/backend\/catalog\/products$/);
 
       await page.getByRole('textbox', { name: 'Search' }).fill(productName);
-      const productRow = page.getByText(productName, { exact: true }).first();
+      const productRow = page.getByRole('row', { name: new RegExp(productName) }).first();
       await expect(productRow).toBeVisible();
       await productRow.click();
       await expect(page).toHaveURL(/\/backend\/catalog\/products\/[0-9a-f-]{36}$/i);

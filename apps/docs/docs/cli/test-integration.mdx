@@ -92,8 +92,8 @@ yarn mercato test:integration --keep --verbose
 `yarn test:integration:ephemeral` is optimized for clean, fully isolated runs, not for quick iteration. For day-to-day development, use one of these faster patterns:
 
 ```bash
-# 1) Start ephemeral environment once, then reuse it
-yarn test:integration:ephemeral:start --no-screenshots
+# 1) Start interactive ephemeral mode once (preferred)
+yarn test:integration:ephemeral:interactive --no-screenshots
 
 # 2) Run only the test you are changing against that running environment
 BASE_URL=http://127.0.0.1:<port> npx playwright test --config .ai/qa/tests/playwright.config.ts sales/TC-SALES-007.spec.ts --retries=0
@@ -107,7 +107,8 @@ yarn test:integration:ephemeral -- --filter sales/TC-SALES-007.spec.ts --no-scre
 
 Notes:
 
-- Replace `<port>` with the URL printed by `yarn test:integration:ephemeral:start` (for example `http://127.0.0.1:43123`).
+- Ephemeral state is written to `.ai/qa/ephemeral-env.md`; read `base_url` from this file before running manual Playwright commands.
+- Default ephemeral port is `5001` when available; fallback ports are recorded in `.ai/qa/ephemeral-env.md`.
 - Use `--workers` only if tests do not share mutable state.
 - Keep full `yarn test:integration:ephemeral` for pre-merge confidence and CI parity.
 
@@ -128,6 +129,8 @@ Use interactive mode when you want to keep one ephemeral app/database running an
 ```bash
 yarn test:integration:ephemeral:interactive
 ```
+
+The command writes active environment details to `.ai/qa/ephemeral-env.md` and clears the file when the environment is closed.
 
 Menu actions:
 

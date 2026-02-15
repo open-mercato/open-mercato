@@ -14,10 +14,24 @@ This skill guides you through running integration tests and converting test scen
 | Run all tests | `yarn test:integration` |
 | Run single test | `npx playwright test --config .ai/qa/tests/playwright.config.ts <path>` |
 | Run in ephemeral containers | `yarn test:integration:ephemeral` |
-| Start ephemeral app only (for MCP exploration) | `yarn test:integration:ephemeral:start` |
+| Run interactive ephemeral mode | `yarn test:integration:ephemeral:interactive` |
+| Start ephemeral app only (for MCP exploration, for tests development and debugging) | `yarn test:integration:ephemeral:start` |
 | View report | `yarn test:integration:report` |
 | Test files location | `.ai/qa/tests/<category>/TC-XXX.spec.ts` |
 | Scenario sources (optional) | `.ai/qa/scenarios/TC-XXX-*.md` |
+| Reusable env state file | `.ai/qa/ephemeral-env.json` |
+
+## Fast Triage Mode (Fail Fast)
+
+Use this mode when fixing CI failures quickly:
+
+1. Set quick config first:
+   - `timeout: 10_000`
+   - `expect.timeout: 10_000`
+   - `retries: 0`
+2. Run only the failing test(s), not the full suite.
+3. Iterate in short cycles: run one test, patch one issue, rerun.
+4. After fixes are validated, restore normal timeout/retry policy if needed.
 
 ## Workflow: Create a New Integration Test
 
@@ -31,15 +45,22 @@ Read one of these (in priority order):
 
 Identify whether this is a **UI test** (uses browser) or **API test** (uses HTTP requests).
 
-### Phase 2 — Explore via Playwright MCP
+### Phase 2 — Reuse Existing Ephemeral Environment First
 
-Start an isolated Open Mercato instance first, then use Playwright MCP to walk through the scenario:
+Before starting a new ephemeral environment, read `.ai/qa/ephemeral-env.json`.
+
+- If the file exists and shows `status: running`, reuse `base_url` from that file.
+- If the file does not exist (or is stale), start an environment with:
 
 ```bash
 yarn test:integration:ephemeral:start
 ```
 
-The command prints an ephemeral base URL (`http://127.0.0.1:<port>`). Use that URL for MCP navigation. This avoids interference with any other app instance running on `localhost:3000`.
+### Phase 3 — Explore via Playwright MCP
+
+Use the active ephemeral base URL from `.ai/qa/ephemeral-env.json`, then use Playwright MCP to walk through the scenario.
+
+Default port is `5001` when available; if occupied, the CLI falls back to another free local port and updates `.ai/qa/ephemeral-env.json`.
 
 Use Playwright MCP against the printed URL:
 
@@ -55,7 +76,7 @@ For each test step:
 3. Verify the expected result matches reality
 4. Note the exact locator strategy that works
 
-### Phase 3 — Write TypeScript Test
+### Phase 4 — Write TypeScript Test
 
 Create the test file at `.ai/qa/tests/<category>/TC-{CATEGORY}-{XXX}.spec.ts`
 Never hardcode entity IDs in test routes or payloads. Create/fetch entities during test setup or open them from list pages using stable user-facing locators.
@@ -127,7 +148,7 @@ test.describe('TC-{CATEGORY}-{XXX}: {Title}', () => {
 });
 ```
 
-### Phase 4 — Verify
+### Phase 5 — Verify
 
 Run the test headlessly to confirm:
 
@@ -140,6 +161,7 @@ If it fails, fix the test and re-run. Do not leave broken tests.
 ## Rules
 
 - Use Playwright locators: `getByRole`, `getByLabel`, `getByText`, `getByPlaceholder` — avoid CSS selectors
+- Always check `.ai/qa/ephemeral-env.json` first before starting any new ephemeral environment
 - Never hardcode record IDs (UUIDs/PKs) in generated or converted tests
 - Discover entities dynamically (API setup, create flow, or list-row navigation) before detail-page assertions
 - Do not rely on seeded/demo data; tests must create or discover their own prerequisites at runtime
@@ -163,6 +185,9 @@ npx playwright test --config .ai/qa/tests/playwright.config.ts auth/
 
 # Run in ephemeral containers (Docker required, no dev server needed)
 yarn test:integration:ephemeral
+
+# Preferred for short local loops (reused ephemeral app + DB)
+yarn test:integration:ephemeral:interactive
 
 # Start isolated ephemeral app only (for MCP/manual exploration)
 yarn test:integration:ephemeral:start

@@ -7,6 +7,8 @@ import { addCustomLine, addShipment, createSalesDocument } from '../helpers/sale
  * Source: .ai/qa/scenarios/TC-SALES-007-shipment-recording.md
  */
 test.describe('TC-SALES-007: Shipment Recording', () => {
+  test.setTimeout(30_000);
+
   test('should create shipment from order UI', async ({ page }) => {
     await login(page, 'admin');
     await createSalesDocument(page, { kind: 'order' });
@@ -15,13 +17,7 @@ test.describe('TC-SALES-007: Shipment Recording', () => {
       quantity: 1,
       unitPriceGross: 42,
     });
-    let shipmentResult = await addShipment(page);
-    if (!shipmentResult.added) {
-      shipmentResult = await addShipment(page);
-    }
-    if (!shipmentResult.added) {
-      test.skip(true, 'Shipment creation is unavailable in this environment state.');
-    }
+    const shipmentResult = await addShipment(page);
     expect(shipmentResult.added, 'Shipment should be saved successfully').toBeTruthy();
     await page.getByRole('button', { name: /^Shipments$/i }).click();
     await expect(page.getByText(shipmentResult.trackingNumber).first()).toBeVisible();

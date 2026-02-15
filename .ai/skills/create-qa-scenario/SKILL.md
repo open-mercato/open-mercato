@@ -34,15 +34,22 @@ ls .ai/qa/tests/<category>/TC-{CATEGORY}-*.spec.ts 2>/dev/null | sort | tail -1
 
 Use the highest number found across both directories, then increment. For example, if the last scenario is TC-CRM-011 but the last test is TC-CRM-013, use TC-CRM-014.
 
-### Phase 3 — Explore the Feature via Playwright MCP
+### Phase 3 — Reuse Existing Ephemeral Environment First
 
-Start an isolated app instance first:
+Before starting any new ephemeral app, read `.ai/qa/ephemeral-env.json`.
+
+- If it exists and contains `status: running`, use `base_url` from that file.
+- If it does not exist (or cannot be reused), start:
 
 ```bash
 yarn test:integration:ephemeral:start
 ```
 
-Use the printed base URL (`http://127.0.0.1:<port>`) for MCP navigation, then discover the actual UI:
+Default ephemeral app port is `5001` when available; fallback port is recorded in `.ai/qa/ephemeral-env.json`.
+
+### Phase 4 — Explore the Feature via Playwright MCP
+
+Use the active base URL from `.ai/qa/ephemeral-env.json` for MCP navigation, then discover the actual UI:
 
 1. Login with the appropriate role
 2. Navigate to the relevant page
@@ -56,7 +63,7 @@ For API tests, use cURL to discover:
 3. The actual response structure
 4. Error responses for invalid inputs
 
-### Phase 4 — Write the Playwright Test
+### Phase 5 — Write the Playwright Test
 
 Create `.ai/qa/tests/<category>/TC-{CATEGORY}-{XXX}.spec.ts`
 
@@ -75,7 +82,7 @@ Category-to-folder mapping:
 | INT | `integration/` |
 | API-* | `api/` |
 
-### Phase 5 — Optionally Write the Markdown Scenario
+### Phase 6 — Optionally Write the Markdown Scenario
 
 If documentation is desired, create `.ai/qa/scenarios/TC-{CATEGORY}-{XXX}-{slug}.md` using the template:
 
@@ -118,7 +125,7 @@ Fill steps with **actual** actions and results observed during Phase 3, not hypo
 
 This step is **optional** — skip it if the user only wants the executable test.
 
-### Phase 6 — Verify
+### Phase 7 — Verify
 
 Run the new test to confirm it passes:
 
@@ -131,8 +138,8 @@ If it fails, fix it. Do not leave broken tests.
 ## Rules
 
 - MUST explore the running app before writing — never guess selectors or flows
-- MUST self-start isolated app mode with `yarn test:integration:ephemeral:start` before MCP exploration
-- MUST use the ephemeral URL printed by the command (never assume `localhost:3000`)
+- MUST check `.ai/qa/ephemeral-env.json` first and reuse existing environment when available
+- MUST use the active URL from `.ai/qa/ephemeral-env.json` (never assume `localhost:3000`)
 - MUST NOT hardcode record IDs (UUIDs/PKs) in generated tests
 - MUST discover or create test entities at runtime, then navigate using discovered links/URLs
 - MUST NOT rely on seeded/demo data for prerequisites
