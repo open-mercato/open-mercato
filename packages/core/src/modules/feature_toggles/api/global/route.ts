@@ -14,15 +14,15 @@ import {
 const rawBodySchema = z.object({}).passthrough()
 const listQuerySchema = z
   .object({
-    page: z.coerce.number().min(1).default(1),
-    pageSize: z.coerce.number().min(1).max(200).default(50),
-    search: z.string().optional(),
-    type: toggleTypeSchema.optional(),
-    category: z.string().optional(),
-    name: z.string().optional(),
-    identifier: z.string().optional(),
-    sortField: z.enum(['id', 'category', 'identifier', 'name', 'createdAt', 'updatedAt', 'type']).optional(),
-    sortDir: z.enum(['asc', 'desc']).optional(),
+    page: z.coerce.number().min(1).default(1).describe('Page number for pagination'),
+    pageSize: z.coerce.number().min(1).max(200).default(50).describe('Number of items per page (max 200)'),
+    search: z.string().optional().describe('Case-insensitive search across identifier, name, description, and category'),
+    type: toggleTypeSchema.optional().describe('Filter by toggle type (boolean, string, number, json)'),
+    category: z.string().optional().describe('Filter by category (case-insensitive partial match)'),
+    name: z.string().optional().describe('Filter by name (case-insensitive partial match)'),
+    identifier: z.string().optional().describe('Filter by identifier (case-insensitive partial match)'),
+    sortField: z.enum(['id', 'category', 'identifier', 'name', 'createdAt', 'updatedAt', 'type']).optional().describe('Field to sort by'),
+    sortDir: z.enum(['asc', 'desc']).optional().describe('Sort direction (ascending or descending)'),
   })
   .passthrough()
 
