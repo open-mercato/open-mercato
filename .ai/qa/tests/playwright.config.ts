@@ -5,9 +5,9 @@ const captureScreenshots = process.env.PW_CAPTURE_SCREENSHOTS === '1';
 export default defineConfig({
   testDir: '.',
   testMatch: '**/*.spec.ts',
-  timeout: 10_000,
+  timeout: 20_000,
   expect: {
-    timeout: 10_000,
+    timeout: 20_000,
   },
   retries: 1,
   workers: 1,

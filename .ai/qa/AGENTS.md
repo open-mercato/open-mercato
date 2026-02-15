@@ -25,7 +25,7 @@ yarn test:integration:report
 Preferred local workflow for short iterations:
 1. Start `yarn test:integration:ephemeral:start`
 2. Reuse the running environment from `.ai/qa/ephemeral-env.json`
-3. Use `/run-integration-tests` or `/integration-tests` against that URL
+3. Use `/integration-tests` against that URL
 
 ---
 
@@ -127,11 +127,7 @@ The skill reads the related spec, explores the running app via Playwright MCP, a
 /integration-tests
 ```
 
-### Option B: Use `/run-integration-tests` Skill
-
-If a markdown scenario already exists, this skill converts it to an executable test.
-
-### Option C: Manual Workflow
+### Option B: Manual Workflow
 
 #### Step 1 — Understand What to Test
 
