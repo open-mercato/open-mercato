@@ -97,11 +97,19 @@ yarn test:integration:ephemeral:interactive
 
 Menu actions:
 
-- Run all tests
-- Run one selected test file from the list
+- Run all tests (or all filtered tests when a text filter is active)
+- Run one selected test file from the list (with test description shown next to each file)
+- Type text (for example `crm`) to filter the visible list interactively by path/description
 - Refresh test list
+- Clear active filter (`a`)
 - Open Playwright HTML report (`show-report`)
 - Quit and tear down ephemeral environment
+
+After each test run, the CLI asks whether to:
+
+- Return to the menu (press any key, then Enter)
+- Open HTML report immediately (`h`)
+- Quit (`q`)
 
 Supported options:
 

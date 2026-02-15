@@ -65,9 +65,29 @@ async function ensureSalesDocumentFixtures(
 
   const token = await getAuthToken(page.request, 'admin').catch(() => null);
   if (!token) {
+    if (!customerQuery) {
+      customerQuery = `QA Sales Customer ${Date.now()}`;
+      await page.goto('/backend/customers/companies/create');
+      await page.locator('form').getByRole('textbox').first().fill(customerQuery);
+      await page.getByPlaceholder('https://example.com').fill('https://example.com');
+      await page.locator('form').getByRole('button', { name: /Create Company/i }).click();
+      await expect(page).toHaveURL(/\/backend\/customers\/companies\/[0-9a-f-]{36}$/i);
+    }
+    if (!channelQuery) {
+      const timestamp = Date.now();
+      channelQuery = `QA Sales Channel ${timestamp}`;
+      const channelCode = `qa-sales-channel-${timestamp}`;
+      await page.goto('/backend/sales/channels');
+      await page.getByRole('link', { name: /Add channel/i }).click();
+      const createForm = page.locator('form').first();
+      await createForm.getByRole('textbox').nth(0).fill(channelQuery);
+      await createForm.getByRole('textbox').nth(1).fill(channelCode);
+      await page.getByRole('button', { name: /Create channel|Create/i }).last().click();
+      await expect(page).toHaveURL(/\/backend\/sales\/channels$/i);
+    }
     return {
-      customerQuery: customerQuery ?? 'Copperleaf',
-      channelQuery: channelQuery ?? 'online',
+      customerQuery,
+      channelQuery,
     };
   }
 

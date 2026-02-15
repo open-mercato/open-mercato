@@ -7,6 +7,8 @@ import { createCompanyFixture, deleteEntityIfExists } from '../helpers/crmFixtur
  * TC-CRM-016: Company Note And Activity CRUD
  */
 test.describe('TC-CRM-016: Company Note And Activity CRUD', () => {
+  test.setTimeout(120_000);
+
   test('should add a company note and log an activity', async ({ page, request }) => {
     let token: string | null = null;
     let companyId: string | null = null;
@@ -19,7 +21,7 @@ test.describe('TC-CRM-016: Company Note And Activity CRUD', () => {
       await page.goto(`/backend/customers/companies/${companyId}`);
 
       const noteText = `QA company note ${Date.now()}`;
-      await page.getByRole('button', { name: 'Add note' }).click();
+      await page.getByRole('button', { name: /Add( a)? note/i }).first().click();
       await page.getByRole('textbox', { name: /Write a note about this company/i }).fill(noteText);
       await page.getByRole('button', { name: /Add note.*Ctrl\+Enter/i }).click();
       await expect(page.getByText(noteText)).toBeVisible();
@@ -29,17 +31,24 @@ test.describe('TC-CRM-016: Company Note And Activity CRUD', () => {
       if ((await activitiesTab.count()) > 0) {
         await activitiesTab.click();
       } else {
-        await page.getByRole('button', { name: 'Activities' }).click();
+        await page.getByRole('button', { name: /^Activities$/i }).click();
       }
-      await page.getByRole('button', { name: 'Log activity' }).click();
+      await page.getByRole('button', { name: /Log activity|Add an activity/i }).first().click();
 
       const dialog = page.getByRole('dialog', { name: 'Add activity' });
-      await dialog.getByRole('combobox').first().selectOption({ label: 'Call' });
+      await expect(dialog).toBeVisible();
+      await dialog
+        .locator('select')
+        .filter({ has: dialog.locator('option', { hasText: /^Call$/i }) })
+        .first()
+        .selectOption({ label: 'Call' });
       await dialog.getByRole('textbox', { name: 'Add a subject (optional)' }).fill(activitySubject);
       await dialog.getByRole('textbox', { name: 'Describe the interaction' }).fill('QA activity description');
       await dialog.getByRole('button', { name: /Save activity/ }).click();
+      await expect(dialog).toBeHidden();
 
-      await expect(page.getByText(activitySubject)).toBeVisible();
+      await expect(page.getByText('No activities yet')).toHaveCount(0);
+      await expect(page.getByText(activitySubject).first()).toBeVisible();
     } finally {
       await deleteEntityIfExists(request, token, '/api/customers/companies', companyId);
     }

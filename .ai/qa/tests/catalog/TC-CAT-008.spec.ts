@@ -8,11 +8,33 @@ import { apiRequest, getAuthToken } from '../helpers/api';
  */
 test.describe('TC-CAT-008: Create Nested Category Hierarchy', () => {
   test('should create child category under an existing parent', async ({ page, request }) => {
-    const parentName = `QA TC-CAT-008 Parent ${Date.now()}`;
-    const childName = `QA TC-CAT-008 Child ${Date.now()}`;
+    const stamp = Date.now();
+    const parentName = `QA TC-CAT-008 Parent ${stamp}`;
+    const childName = `QA TC-CAT-008 Child ${stamp}`;
     let token: string | null = null;
     let parentCategoryId: string | null = null;
     let childCategoryId: string | null = null;
+
+    const waitForList = async (): Promise<void> => {
+      await page.getByText('Loading data...').waitFor({ state: 'hidden', timeout: 10_000 }).catch(() => {});
+    };
+
+    const selectParent = async (): Promise<void> => {
+      const parentSelect = page.getByRole('combobox').filter({ hasText: /Root level/i }).first();
+      await expect(parentSelect).toBeEnabled();
+      await parentSelect.selectOption({ label: parentName }).catch(async () => {
+        const selectedValue = await parentSelect.evaluate((element, label) => {
+          const select = element as HTMLSelectElement;
+          const option = Array.from(select.options).find((entry) => entry.text.trim() === label);
+          return option?.value ?? null;
+        }, parentName);
+        if (selectedValue) {
+          await parentSelect.selectOption(selectedValue);
+          return;
+        }
+        throw new Error(`Parent category option not available: ${parentName}`);
+      });
+    };
 
     try {
       token = await getAuthToken(request);
@@ -22,9 +44,9 @@ test.describe('TC-CAT-008: Create Nested Category Hierarchy', () => {
       await page.getByRole('textbox', { name: 'e.g., Footwear' }).fill(parentName);
       await page.getByRole('button', { name: 'Create' }).last().click();
       await expect(page).toHaveURL(/\/backend\/catalog\/categories$/);
+      await waitForList();
 
-      const search = page.getByRole('textbox', { name: 'Search categories' });
-      await search.fill(parentName);
+      await page.getByRole('textbox', { name: 'Search categories' }).fill(parentName);
       const parentRow = page.getByRole('row', { name: new RegExp(parentName) });
       await expect(parentRow).toBeVisible();
       await parentRow.getByText(parentName, { exact: true }).first().click();
@@ -32,14 +54,13 @@ test.describe('TC-CAT-008: Create Nested Category Hierarchy', () => {
       parentCategoryId = page.url().match(/\/backend\/catalog\/categories\/([0-9a-f-]{36})\/edit$/i)?.[1] ?? null;
 
       await page.goto('/backend/catalog/categories/create');
-      const parentSelect = page.getByRole('combobox').filter({ hasText: 'Root level' }).first();
-      await expect(parentSelect).toBeEnabled();
       await page.getByRole('textbox', { name: 'e.g., Footwear' }).fill(childName);
-      await parentSelect.selectOption({ label: parentName });
+      await selectParent();
       await page.getByRole('button', { name: 'Create' }).last().click();
       await expect(page).toHaveURL(/\/backend\/catalog\/categories$/);
+      await waitForList();
 
-      await search.fill(childName);
+      await page.getByRole('textbox', { name: 'Search categories' }).fill(childName);
       const childRow = page.getByRole('row', { name: new RegExp(childName) });
       await expect(childRow).toContainText(parentName);
       await childRow.getByText(childName, { exact: true }).first().click();

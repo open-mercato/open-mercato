@@ -2,6 +2,10 @@ import { expect, test } from '@playwright/test';
 import { login } from '../helpers/auth';
 import { apiRequest, getAuthToken } from '../helpers/api';
 
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
 /**
  * TC-ADMIN-008: Create Custom Entity Record
  * Source: .ai/qa/scenarios/TC-ADMIN-008-custom-entity-record.md
@@ -16,8 +20,22 @@ test.describe('TC-ADMIN-008: Create Custom Entity Record', () => {
     let token: string | null = null;
     let recordId: string | null = null;
 
+    const fillField = async (label: string, fallbackIndex: number, value: string): Promise<void> => {
+      const namedInput = page
+        .getByRole('textbox', { name: new RegExp(`^${escapeRegExp(label)}$`, 'i') })
+        .first();
+      if ((await namedInput.count()) > 0) {
+        await namedInput.fill(value);
+        return;
+      }
+
+      const textboxes = page.locator('main').getByRole('textbox');
+      await expect(textboxes.nth(fallbackIndex)).toBeVisible();
+      await textboxes.nth(fallbackIndex).fill(value);
+    };
+
     try {
-      token = await getAuthToken(request);
+      token = await getAuthToken(request, 'superadmin');
       const entityCreateResponse = await apiRequest(request, 'POST', '/api/entities/entities', {
         token,
         data: {
@@ -50,16 +68,17 @@ test.describe('TC-ADMIN-008: Create Custom Entity Record', () => {
         expect(definitionResponse.ok()).toBeTruthy();
       }
 
-      await login(page, 'admin');
+      await login(page, 'superadmin');
       await page.goto(`/backend/entities/user/${encodeURIComponent(entityId)}/records`);
+      await page.getByText('Loading data...').waitFor({ state: 'hidden', timeout: 10_000 }).catch(() => {});
 
       await expect(page.getByRole('heading', { name: new RegExp(`Records:\\s*${entityId}`, 'i') })).toBeVisible();
       await page.getByRole('link', { name: 'Create' }).click();
 
       await expect(page).toHaveURL(new RegExp(`/backend/entities/user/${encodeURIComponent(entityId)}/records/create$`, 'i'));
-      await page.getByRole('textbox', { name: 'Location' }).fill(location);
-      await page.getByRole('textbox', { name: 'Title' }).fill(title);
-      await page.getByRole('textbox', { name: 'Event Date' }).fill('2026-02-14');
+      await fillField('Location', 0, location);
+      await fillField('Title', 1, title);
+      await fillField('Event Date', 2, '2026-02-14');
       await page.getByRole('button', { name: 'Save' }).first().click();
 
       await expect(page).toHaveURL(new RegExp(`/backend/entities/user/${encodeURIComponent(entityId)}/records$`, 'i'));
@@ -71,7 +90,7 @@ test.describe('TC-ADMIN-008: Create Custom Entity Record', () => {
         page.url().match(new RegExp(`/backend/entities/user/${encodeURIComponent(entityId)}/records/([^/?#]+)$`, 'i'))?.[1] ??
         null;
 
-      await page.getByRole('textbox', { name: 'Title' }).fill(updatedTitle);
+      await fillField('Title', 1, updatedTitle);
       await page.getByRole('button', { name: 'Save' }).first().click();
 
       await expect(page).toHaveURL(new RegExp(`/backend/entities/user/${encodeURIComponent(entityId)}/records$`, 'i'));

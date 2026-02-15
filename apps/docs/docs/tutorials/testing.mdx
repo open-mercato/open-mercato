@@ -183,6 +183,7 @@ test.describe('TC-ADMIN-999: Example flow', () => {
 - Run one test file:
   - `npx playwright test --config .ai/qa/tests/playwright.config.ts admin/TC-ADMIN-002-api-key-revocation.spec.ts`
 - Run with ephemeral environment (auto bootstrapped app + infra): `yarn test:integration:ephemeral`
+- Run with interactive ephemeral menu (persisted app + DB): `yarn test:integration:ephemeral:interactive`
 - Open HTML report: `yarn test:integration:report`
 
 ### How to speed up ephemeral integration runs
@@ -199,6 +200,8 @@ test.describe('TC-ADMIN-999: Example flow', () => {
   - `yarn test:integration:ephemeral -- --filter sales/TC-SALES-007.spec.ts --no-screenshots`
 
 Use full `yarn test:integration:ephemeral` for pre-merge validation and CI-like isolation.
+
+For repeated local runs, prefer `yarn test:integration:ephemeral:interactive` to select tests from a menu and run them against one persisted ephemeral environment.
 
 ### Notes
 

@@ -12,6 +12,9 @@ npx playwright test --config .ai/qa/tests/playwright.config.ts auth/
 # Run all tests in ephemeral containers (no dev server needed, Docker required)
 yarn test:integration:ephemeral
 
+# Run tests from an interactive menu in persisted ephemeral environment
+yarn test:integration:ephemeral:interactive
+
 # Start isolated ephemeral app only (for MCP/manual exploration)
 yarn test:integration:ephemeral:start
 
@@ -73,6 +76,32 @@ yarn test:integration
 ### 2. Manual AI-Driven Tests (Playwright MCP)
 
 An AI agent reads a scenario or spec and executes it interactively via Playwright MCP. Useful for exploratory testing and for creating new executable tests.
+
+---
+
+## Interactive Ephemeral Runner
+
+Use interactive mode when you want one ephemeral app/database session and multiple test runs without repeating full bootstrap.
+
+```bash
+yarn test:integration:ephemeral:interactive
+```
+
+What you can do from the menu:
+
+- Run all tests
+- Run one selected `.spec.ts` file
+- Refresh the discovered test list
+- Open Playwright HTML report
+- Quit and clean up the environment
+
+Useful flags:
+
+- `--workers <n>`
+- `--retries <n>`
+- `--verbose`
+- `--screenshots`
+- `--no-screenshots`
 
 ---
 

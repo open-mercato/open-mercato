@@ -1,9 +1,9 @@
 import { GenericContainer } from 'testcontainers'
 import { spawn, type ChildProcess, type StdioOptions } from 'node:child_process'
 import { createServer } from 'node:net'
-import { readdir } from 'node:fs/promises'
+import { readdir, readFile } from 'node:fs/promises'
 import path from 'node:path'
-import { createInterface } from 'node:readline/promises'
+import { createInterface, type Interface } from 'node:readline/promises'
 import { stdin as input, stdout as output } from 'node:process'
 import { createResolver } from '../resolver'
 
@@ -38,6 +38,11 @@ type InteractiveIntegrationOptions = {
   captureScreenshots: boolean
   workers: number | null
   retries: number | null
+}
+
+type IntegrationSpecTarget = {
+  path: string
+  description: string
 }
 
 const APP_READY_TIMEOUT_MS = 90_000
@@ -470,10 +475,35 @@ async function collectIntegrationSpecFiles(
   return collected
 }
 
-async function listIntegrationSpecFiles(): Promise<string[]> {
+async function extractSpecDescription(relativePath: string): Promise<string> {
+  const absolutePath = path.join(projectRootDirectory, relativePath)
+  try {
+    const source = await readFile(absolutePath, 'utf8')
+    const describeTitleMatch = source.match(/test\.describe\(\s*['"`]([^'"`]+)['"`]/)
+    if (describeTitleMatch?.[1]) {
+      return describeTitleMatch[1].trim()
+    }
+    const testCaseTitleMatch = source.match(/TC-[A-Z]+-\d+\s*:\s*([^\n*]+)/)
+    if (testCaseTitleMatch?.[1]) {
+      return testCaseTitleMatch[1].trim()
+    }
+  } catch {
+    return path.basename(relativePath, '.spec.ts')
+  }
+  return path.basename(relativePath, '.spec.ts')
+}
+
+async function listIntegrationSpecFiles(): Promise<IntegrationSpecTarget[]> {
   const testRoot = path.join(projectRootDirectory, '.ai', 'qa', 'tests')
   const files = await collectIntegrationSpecFiles(testRoot, projectRootDirectory)
-  return files.sort((left, right) => left.localeCompare(right))
+  const sortedFiles = files.sort((left, right) => left.localeCompare(right))
+  const targets = await Promise.all(
+    sortedFiles.map(async (filePath) => ({
+      path: filePath,
+      description: await extractSpecDescription(filePath),
+    })),
+  )
+  return targets
 }
 
 async function runPlaywrightSelection(
@@ -496,6 +526,36 @@ async function runPlaywrightSelection(
 
 async function openIntegrationHtmlReport(environment: EphemeralEnvironmentHandle): Promise<void> {
   await runNpxCommand(['playwright', 'show-report', '.ai/qa/test-results/html'], environment.commandEnvironment)
+}
+
+async function promptAfterRun(
+  rl: Interface,
+  environment: EphemeralEnvironmentHandle,
+): Promise<'menu' | 'quit'> {
+  const followUpChoice = (
+    await rl.question(
+      '\n[interactive] 🔁 Press any key then Enter to return to menu, 📊 "h" for HTML report, or 🚪 "q" to quit: ',
+    )
+  )
+    .trim()
+    .toLowerCase()
+
+  if (followUpChoice === 'h') {
+    console.log('[interactive] 📊 Opening HTML report...')
+    try {
+      await openIntegrationHtmlReport(environment)
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error)
+      console.error(`[interactive] ❌ Failed to open report: ${message}`)
+    }
+    return 'menu'
+  }
+
+  if (followUpChoice === 'q') {
+    return 'quit'
+  }
+
+  return 'menu'
 }
 
 export async function startEphemeralEnvironment(options: EphemeralRuntimeOptions): Promise<EphemeralEnvironmentHandle> {
@@ -675,23 +735,40 @@ export async function runInteractiveIntegrationInEphemeralEnvironment(rawArgs: s
 
   const rl = createInterface({ input, output })
   let specFiles = await listIntegrationSpecFiles()
+  let activeFilter = ''
 
-  console.log('[interactive] Integration menu ready.')
-  console.log(`[interactive] Running against ${environment.baseUrl}`)
-  console.log('[interactive] Enter a number, "r" to refresh tests, "h" for HTML report, "q" to quit.')
+  console.log('[interactive] 🎯 Integration menu ready.')
+  console.log(`[interactive] 🌐 Running against ${environment.baseUrl}`)
+  console.log('[interactive] ⌨️ Enter a number to run, type text (for example "crm") to filter, "a" to clear filter, "r" to refresh, "h" for HTML report, "q" to quit.')
 
   try {
     while (true) {
-      console.log('\n[interactive] Available targets:')
-      console.log('  0) Run all tests')
-      specFiles.forEach((filePath, index) => {
-        console.log(`  ${index + 1}) ${filePath}`)
+      const normalizedFilter = activeFilter.trim().toLowerCase()
+      const visibleTargets = normalizedFilter.length === 0
+        ? specFiles
+        : specFiles.filter((target) => {
+            const haystack = `${target.path} ${target.description}`.toLowerCase()
+            return haystack.includes(normalizedFilter)
+          })
+
+      console.log('\n[interactive] 📚 Available targets:')
+      if (normalizedFilter.length > 0) {
+        console.log(`  🔎 Filter: "${activeFilter}" (${visibleTargets.length}/${specFiles.length})`)
+      }
+      if (normalizedFilter.length > 0) {
+        console.log(`  0) Run all filtered tests (${visibleTargets.length})`)
+      } else {
+        console.log('  0) Run all tests')
+      }
+      visibleTargets.forEach((target, index) => {
+        console.log(`  ${index + 1}) ${target.path} - ${target.description}`)
       })
       console.log('  h) Open HTML report')
+      console.log('  a) Clear filter')
       console.log('  r) Refresh test list')
       console.log('  q) Quit')
 
-      const rawChoice = (await rl.question('\n[interactive] Select option: ')).trim()
+      const rawChoice = (await rl.question('\n[interactive] 👉 Select option: ')).trim()
       if (!rawChoice) {
         continue
       }
@@ -702,49 +779,94 @@ export async function runInteractiveIntegrationInEphemeralEnvironment(rawArgs: s
       }
       if (normalizedChoice === 'r') {
         specFiles = await listIntegrationSpecFiles()
-        console.log(`[interactive] Refreshed test list (${specFiles.length} files).`)
+        if (activeFilter.trim().length > 0) {
+          console.log(`[interactive] 🔄 Refreshed test list (${specFiles.length} files), keeping filter "${activeFilter}".`)
+        } else {
+          console.log(`[interactive] 🔄 Refreshed test list (${specFiles.length} files).`)
+        }
+        continue
+      }
+      if (normalizedChoice === 'a') {
+        activeFilter = ''
+        console.log('[interactive] 🧹 Filter cleared.')
+        console.log(`[interactive] 🔄 Refreshed test list (${specFiles.length} files).`)
         continue
       }
       if (normalizedChoice === 'h') {
-        console.log('[interactive] Opening HTML report...')
+        console.log('[interactive] 📊 Opening HTML report...')
         try {
           await openIntegrationHtmlReport(environment)
         } catch (error) {
           const message = error instanceof Error ? error.message : String(error)
-          console.error(`[interactive] Failed to open report: ${message}`)
+          console.error(`[interactive] ❌ Failed to open report: ${message}`)
         }
         continue
       }
 
       const parsedIndex = Number.parseInt(rawChoice, 10)
       if (!Number.isFinite(parsedIndex) || parsedIndex < 0) {
-        console.error(`[interactive] Invalid selection: ${rawChoice}`)
-        continue
-      }
-
-      if (parsedIndex === 0) {
-        console.log('[interactive] Running full integration suite...')
-        try {
-          await runPlaywrightSelection(environment, null, options)
-        } catch (error) {
-          const message = error instanceof Error ? error.message : String(error)
-          console.error(`[interactive] Test run failed: ${message}`)
+        activeFilter = rawChoice
+        const filteredCount = specFiles.filter((target) => {
+          const haystack = `${target.path} ${target.description}`.toLowerCase()
+          return haystack.includes(activeFilter.trim().toLowerCase())
+        }).length
+        if (filteredCount === 0) {
+          console.error(`[interactive] ⚠️ No tests matched filter "${activeFilter}".`)
+        } else {
+          console.log(`[interactive] 🔎 Filtered list to "${activeFilter}" (${filteredCount} matches).`)
         }
         continue
       }
 
-      const selectedFile = specFiles[parsedIndex - 1]
-      if (!selectedFile) {
-        console.error(`[interactive] Selection out of range: ${parsedIndex}`)
+      if (parsedIndex === 0) {
+        if (normalizedFilter.length > 0) {
+          if (visibleTargets.length === 0) {
+            console.error(`[interactive] ⚠️ No tests matched filter "${activeFilter}".`)
+            continue
+          }
+          console.log(
+            `[interactive] 🧪 Running ${visibleTargets.length} filtered test(s) for "${activeFilter}"...`,
+          )
+          try {
+            for (const target of visibleTargets) {
+              await runPlaywrightSelection(environment, target.path, options)
+            }
+          } catch (error) {
+            const message = error instanceof Error ? error.message : String(error)
+            console.error(`[interactive] ❌ Test run failed: ${message}`)
+          }
+        } else {
+          console.log('[interactive] 🧪 Running full integration suite...')
+          try {
+            await runPlaywrightSelection(environment, null, options)
+          } catch (error) {
+            const message = error instanceof Error ? error.message : String(error)
+            console.error(`[interactive] ❌ Test run failed: ${message}`)
+          }
+        }
+        const nextAction = await promptAfterRun(rl, environment)
+        if (nextAction === 'quit') {
+          break
+        }
         continue
       }
 
-      console.log(`[interactive] Running ${selectedFile}...`)
+      const selectedTarget = visibleTargets[parsedIndex - 1]
+      if (!selectedTarget) {
+        console.error(`[interactive] ⚠️ Selection out of range: ${parsedIndex}`)
+        continue
+      }
+
+      console.log(`[interactive] 🧪 Running ${selectedTarget.path}...`)
       try {
-        await runPlaywrightSelection(environment, selectedFile, options)
+        await runPlaywrightSelection(environment, selectedTarget.path, options)
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error)
-        console.error(`[interactive] Test run failed: ${message}`)
+        console.error(`[interactive] ❌ Test run failed: ${message}`)
+      }
+      const nextAction = await promptAfterRun(rl, environment)
+      if (nextAction === 'quit') {
+        break
       }
     }
   } finally {
