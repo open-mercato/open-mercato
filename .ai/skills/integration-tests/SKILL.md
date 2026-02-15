@@ -1,9 +1,9 @@
 ---
-name: create-qa-scenario
+name: integration-tests
 description: Automatically create a new QA integration test (Playwright TypeScript) for a feature or spec, with an optional markdown scenario for documentation. Use when a new feature has been implemented and needs test coverage, after completing a spec implementation, or when the user says "create test for", "add QA scenario", "generate test case", "write integration test for this feature". This skill auto-discovers what to test by reading the related spec and exploring the running app via Playwright MCP.
 ---
 
-# QA Scenario Creator
+# Integration Tests Skill
 
 This skill generates executable Playwright tests (`.ai/qa/tests/<category>/TC-*.spec.ts`) by exploring the running application. It optionally produces a markdown scenario (`.ai/qa/scenarios/TC-*.md`) for documentation — the scenario is **not required**.
 

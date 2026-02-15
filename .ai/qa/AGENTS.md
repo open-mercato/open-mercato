@@ -25,7 +25,7 @@ yarn test:integration:report
 Preferred local workflow for short iterations:
 1. Start `yarn test:integration:ephemeral:start`
 2. Reuse the running environment from `.ai/qa/ephemeral-env.json`
-3. Use `/run-integration-tests` or `/create-qa-scenario` against that URL
+3. Use `/run-integration-tests` or `/integration-tests` against that URL
 
 ---
 
@@ -64,7 +64,7 @@ Markdown test scenarios (`.ai/qa/scenarios/TC-*.md`) are **optional reference ma
 | **From spec** | `.ai/specs/SPEC-*.md` | `.spec.ts` directly (no scenario needed) |
 | **From scenario** | `.ai/qa/scenarios/TC-*.md` | `.spec.ts` mapped from scenario steps |
 | **From description** | Verbal/written feature description | `.spec.ts` directly |
-| **From skill** | `/create-qa-scenario` | `.spec.ts` + optional scenario markdown |
+| **From skill** | `/integration-tests` | `.spec.ts` + optional scenario markdown |
 
 ---
 
@@ -119,12 +119,12 @@ Environment state:
 
 ## How to Create New Tests
 
-### Option A: Use `/create-qa-scenario` Skill (Recommended)
+### Option A: Use `/integration-tests` Skill (Recommended)
 
 The skill reads the related spec, explores the running app via Playwright MCP, and produces executable tests automatically. It optionally generates a markdown scenario for documentation.
 
 ```
-/create-qa-scenario
+/integration-tests
 ```
 
 ### Option B: Use `/run-integration-tests` Skill
