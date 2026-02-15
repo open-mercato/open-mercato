@@ -73,6 +73,7 @@ IMPORTANT: Before any research or coding, match the task to the root `AGENTS.md`
 - Always check for existing specs before modifying a module. Update specs when implementing significant changes.
 - For every new feature, the spec MUST list integration coverage for all affected API paths and key UI paths.
 - For every new feature, implement the integration tests defined in the spec as part of the same change — see `.ai/qa/AGENTS.md` for the workflow.
+- Integration tests MUST be self-contained: create required fixtures in test setup (prefer API fixtures), clean up created records in teardown/finally, and remain stable without relying on seeded/demo data.
 
 ## Monorepo Structure
 

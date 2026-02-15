@@ -1,11 +1,38 @@
 ---
-name: create-qa-scenario
-description: Automatically create a new QA integration test (Playwright TypeScript) for a feature or spec, with an optional markdown scenario for documentation. Use when a new feature has been implemented and needs test coverage, after completing a spec implementation, or when the user says "create test for", "add QA scenario", "generate test case", "write integration test for this feature". This skill auto-discovers what to test by reading the related spec and exploring the running app via Playwright MCP.
+name: integration-tests
+description: Run and create QA integration tests (Playwright TypeScript), including executing the full suite, converting optional markdown scenarios, and generating new tests from specs or feature descriptions. Use when the user says "run integration tests", "test this feature", "create test for", "convert test case", "run QA tests", or "integration test".
 ---
 
-# QA Scenario Creator
+# Integration Tests Skill
 
 This skill generates executable Playwright tests (`.ai/qa/tests/<category>/TC-*.spec.ts`) by exploring the running application. It optionally produces a markdown scenario (`.ai/qa/scenarios/TC-*.md`) for documentation — the scenario is **not required**.
+
+## Quick Reference
+
+| Action | Command |
+|--------|---------|
+| Run all tests | `yarn test:integration` |
+| Run single test | `npx playwright test --config .ai/qa/tests/playwright.config.ts <path>` |
+| Run in ephemeral containers | `yarn test:integration:ephemeral` |
+| Run interactive ephemeral mode | `yarn test:integration:ephemeral:interactive` |
+| Start ephemeral app only (for MCP exploration, tests development, and debugging) | `yarn test:integration:ephemeral:start` |
+| View report | `yarn test:integration:report` |
+| Test files location | `.ai/qa/tests/<category>/TC-XXX.spec.ts` |
+| Scenario sources (optional) | `.ai/qa/scenarios/TC-XXX-*.md` |
+| Reusable env state file | `.ai/qa/ephemeral-env.json` |
+
+## Runtime Policy
+
+Default QA runtime policy:
+- Keep global settings in `.ai/qa/tests/playwright.config.ts`:
+  - `timeout: 10_000`
+  - `expect.timeout: 10_000`
+  - `retries: 1`
+- Do not add per-test timeout or retry overrides in `.spec.ts` files (`test.setTimeout`, `test.describe.configure({ retries })`, `test.retry`).
+
+Debug/development policy (fail fast while authoring/fixing tests):
+- Override retries at command level with `--retries=0`.
+- Do not edit global config just to debug a single test.
 
 ## Workflow
 
@@ -34,15 +61,22 @@ ls .ai/qa/tests/<category>/TC-{CATEGORY}-*.spec.ts 2>/dev/null | sort | tail -1
 
 Use the highest number found across both directories, then increment. For example, if the last scenario is TC-CRM-011 but the last test is TC-CRM-013, use TC-CRM-014.
 
-### Phase 3 — Explore the Feature via Playwright MCP
+### Phase 3 — Reuse Existing Ephemeral Environment First
 
-Start an isolated app instance first:
+Before starting any new ephemeral app, read `.ai/qa/ephemeral-env.json`.
+
+- If it exists and contains `status: running`, use `base_url` from that file.
+- If it does not exist (or cannot be reused), start:
 
 ```bash
 yarn test:integration:ephemeral:start
 ```
 
-Use the printed base URL (`http://127.0.0.1:<port>`) for MCP navigation, then discover the actual UI:
+Default ephemeral app port is `5001` when available; fallback port is recorded in `.ai/qa/ephemeral-env.json`.
+
+### Phase 4 — Explore the Feature via Playwright MCP
+
+Use the active base URL from `.ai/qa/ephemeral-env.json` for MCP navigation, then discover the actual UI:
 
 1. Login with the appropriate role
 2. Navigate to the relevant page
@@ -56,7 +90,7 @@ For API tests, use cURL to discover:
 3. The actual response structure
 4. Error responses for invalid inputs
 
-### Phase 4 — Write the Playwright Test
+### Phase 5 — Write the Playwright Test
 
 Create `.ai/qa/tests/<category>/TC-{CATEGORY}-{XXX}.spec.ts`
 
@@ -75,7 +109,7 @@ Category-to-folder mapping:
 | INT | `integration/` |
 | API-* | `api/` |
 
-### Phase 5 — Optionally Write the Markdown Scenario
+### Phase 6 — Optionally Write the Markdown Scenario
 
 If documentation is desired, create `.ai/qa/scenarios/TC-{CATEGORY}-{XXX}-{slug}.md` using the template:
 
@@ -118,7 +152,7 @@ Fill steps with **actual** actions and results observed during Phase 3, not hypo
 
 This step is **optional** — skip it if the user only wants the executable test.
 
-### Phase 6 — Verify
+### Phase 7 — Verify
 
 Run the new test to confirm it passes:
 
@@ -126,15 +160,26 @@ Run the new test to confirm it passes:
 npx playwright test --config .ai/qa/tests/playwright.config.ts <category>/TC-{CATEGORY}-{XXX}.spec.ts
 ```
 
+When developing/debugging the test, run fail-fast with no retries:
+
+```bash
+npx playwright test --config .ai/qa/tests/playwright.config.ts <category>/TC-{CATEGORY}-{XXX}.spec.ts --retries=0
+```
+
 If it fails, fix it. Do not leave broken tests.
 
 ## Rules
 
 - MUST explore the running app before writing — never guess selectors or flows
-- MUST self-start isolated app mode with `yarn test:integration:ephemeral:start` before MCP exploration
-- MUST use the ephemeral URL printed by the command (never assume `localhost:3000`)
+- MUST check `.ai/qa/ephemeral-env.json` first and reuse existing environment when available
+- MUST use the active URL from `.ai/qa/ephemeral-env.json` (never assume `localhost:3000`)
 - MUST NOT hardcode record IDs (UUIDs/PKs) in generated tests
 - MUST discover or create test entities at runtime, then navigate using discovered links/URLs
+- MUST NOT rely on seeded/demo data for prerequisites
+- MUST create required fixtures per test (prefer API fixture setup for stability)
+- MUST clean up any data created by the test in `finally`/teardown
+- MUST keep tests deterministic and isolated from run order or retries
+- MUST NOT add per-test timeout/retry overrides in `.spec.ts`; rely on global Playwright config (`timeout: 10s`, `expect.timeout: 10s`, `retries: 1`)
 - MUST create the `.spec.ts` — the markdown scenario is optional
 - MUST use actual locators from Playwright MCP snapshots (`getByRole`, `getByLabel`, `getByText`)
 - MUST verify the test passes before finishing
@@ -165,3 +210,34 @@ Given SPEC-017 (Version History Panel), the skill would produce:
 - `tests/api/TC-API-AUD-007.spec.ts` — API: fetch audit logs for entity
 - `tests/admin/TC-ADMIN-012.spec.ts` — UI: restore a previous version
 - Optionally: matching `.ai/qa/scenarios/TC-ADMIN-011-*.md` files for documentation
+
+## Running Existing Tests
+
+```bash
+# Run all integration tests headlessly (zero token cost)
+yarn test:integration
+
+# Run a specific category
+npx playwright test --config .ai/qa/tests/playwright.config.ts auth/
+
+# Run a single test
+npx playwright test --config .ai/qa/tests/playwright.config.ts .ai/qa/tests/auth/TC-AUTH-001.spec.ts
+
+# Run fail-fast in local debugging
+npx playwright test --config .ai/qa/tests/playwright.config.ts .ai/qa/tests/auth/TC-AUTH-001.spec.ts --retries=0
+
+# Run in ephemeral containers (Docker required)
+yarn test:integration:ephemeral
+
+# Preferred for short local loops (reused ephemeral app + DB)
+yarn test:integration:ephemeral:interactive
+```
+
+## Batch Conversion
+
+When converting multiple scenarios at once:
+
+1. List unconverted scenarios by comparing `.ai/qa/scenarios/` vs `.ai/qa/tests/`
+2. Convert one category at a time
+3. Run the full suite after each category to catch cross-test issues
+4. Report summary: total converted, passed, failed

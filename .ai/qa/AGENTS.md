@@ -12,12 +12,20 @@ npx playwright test --config .ai/qa/tests/playwright.config.ts auth/
 # Run all tests in ephemeral containers (no dev server needed, Docker required)
 yarn test:integration:ephemeral
 
+# Run tests from an interactive menu in persisted ephemeral environment
+yarn test:integration:ephemeral:interactive
+
 # Start isolated ephemeral app only (for MCP/manual exploration)
 yarn test:integration:ephemeral:start
 
 # View HTML report
 yarn test:integration:report
 ```
+
+Preferred local workflow for short iterations:
+1. Start `yarn test:integration:ephemeral:start`
+2. Reuse the running environment from `.ai/qa/ephemeral-env.json`
+3. Use `/integration-tests` against that URL
 
 ---
 
@@ -56,7 +64,7 @@ Markdown test scenarios (`.ai/qa/scenarios/TC-*.md`) are **optional reference ma
 | **From spec** | `.ai/specs/SPEC-*.md` | `.spec.ts` directly (no scenario needed) |
 | **From scenario** | `.ai/qa/scenarios/TC-*.md` | `.spec.ts` mapped from scenario steps |
 | **From description** | Verbal/written feature description | `.spec.ts` directly |
-| **From skill** | `/create-qa-scenario` | `.spec.ts` + optional scenario markdown |
+| **From skill** | `/integration-tests` | `.spec.ts` + optional scenario markdown |
 
 ---
 
@@ -76,21 +84,50 @@ An AI agent reads a scenario or spec and executes it interactively via Playwrigh
 
 ---
 
+## Interactive Ephemeral Runner
+
+Use interactive mode as the default local workflow when you want one ephemeral app/database session and multiple test runs without repeating full bootstrap.
+
+```bash
+yarn test:integration:ephemeral:interactive
+```
+
+What you can do from the menu:
+
+- Run all tests
+- Run one selected `.spec.ts` file
+- Refresh the discovered test list
+- Open Playwright HTML report
+- Quit and clean up the environment
+
+Useful flags:
+
+- `--workers <n>`
+- `--retries <n>`
+- `--verbose`
+- `--screenshots`
+- `--no-screenshots`
+
+Environment state:
+
+- Active ephemeral environment is written to `.ai/qa/ephemeral-env.json`
+- Default app port is `5001` when available
+- If `5001` is busy, a free fallback port is used and written to `.ai/qa/ephemeral-env.json`
+- File is cleared automatically when the ephemeral environment is stopped
+
+---
+
 ## How to Create New Tests
 
-### Option A: Use `/create-qa-scenario` Skill (Recommended)
+### Option A: Use `/integration-tests` Skill (Recommended)
 
 The skill reads the related spec, explores the running app via Playwright MCP, and produces executable tests automatically. It optionally generates a markdown scenario for documentation.
 
 ```
-/create-qa-scenario
+/integration-tests
 ```
 
-### Option B: Use `/run-integration-tests` Skill
-
-If a markdown scenario already exists, this skill converts it to an executable test.
-
-### Option C: Manual Workflow
+### Option B: Manual Workflow
 
 #### Step 1 — Understand What to Test
 
@@ -101,13 +138,21 @@ Read one of:
 
 #### Step 2 — Explore via Playwright MCP
 
-Start isolated app mode first:
+Always check `.ai/qa/ephemeral-env.json` first and reuse an existing running environment.
+
+If no active environment exists, start interactive mode first:
 
 ```bash
 yarn test:integration:ephemeral:start
 ```
 
-Use the printed ephemeral URL (`http://127.0.0.1:<port>`) to avoid interference with any other local app instance.
+Use isolated app mode only for MCP/manual exploration without the menu:
+
+```bash
+yarn test:integration:ephemeral:start
+```
+
+Use `base_url` from `.ai/qa/ephemeral-env.json` to avoid interference with any other local app instance.
 
 Walk through the test flow interactively to discover actual selectors:
 
@@ -201,6 +246,9 @@ npx playwright test --config .ai/qa/tests/playwright.config.ts <category>/TC-{CA
 - Use Playwright locators: `getByRole`, `getByLabel`, `getByText`, `getByPlaceholder` — avoid CSS selectors
 - If a matching scenario exists, reference it in a comment (e.g., `Source: .ai/qa/scenarios/TC-AUTH-001-*.md`)
 - Keep tests independent — each test handles its own login
+- Keep tests data-independent — do not rely on seeded/demo records being present
+- Create required fixtures per test (prefer API setup), and always clean up created data in `finally`/teardown
+- Ensure tests are deterministic/stable across retries and run order (no cross-test state coupling)
 - Use helpers from `../helpers/auth` and `../helpers/api`
 - One `.spec.ts` file per test case
 - MUST NOT leave broken tests — fix or skip with `test.skip()` and a reason

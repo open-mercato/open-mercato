@@ -33,8 +33,8 @@ Add a complete integration testing pipeline with two implementation phases:
 
 **Phase 1 — Playwright Test Infrastructure** (current)
 1. **Default Playwright + MCP configuration** so Claude Code and Codex agents can run browser tests out of the box
-2. **An AI skill** (`/run-integration-tests`) that lets an agent execute test cases via Playwright MCP, then auto-generate TypeScript code from the session
-3. **An AI skill** (`/create-qa-scenario`) that auto-generates new QA test cases by reading a spec and exploring the running app via Playwright MCP
+2. **A unified AI skill** (`/integration-tests`) that runs existing QA tests and auto-generates new test cases by reading specs/scenarios and exploring the running app via Playwright MCP
+3. **Clear skill behavior** where markdown scenarios remain optional and the same skill supports both execution and generation flows
 4. **Clear instructions** in `.ai/qa/AGENTS.md` for agents to write executable tests
 5. **A CLI runner** (`yarn test:integration`) that executes all TypeScript tests headlessly and produces a summary report — zero token cost, suitable for CI
 
@@ -54,7 +54,7 @@ Markdown test scenarios (`.ai/qa/scenarios/TC-*.md`) are **optional reference ma
 
 - **With scenario**: Agent reads the markdown TC, then generates `.spec.ts` from it
 - **Without scenario**: Agent reads the spec (`.ai/specs/SPEC-*.md`) or receives a feature description, explores the running app via Playwright MCP, and generates `.spec.ts` directly
-- **Scenario output**: The `/create-qa-scenario` skill can optionally produce a markdown scenario alongside the test, but this is not required
+- **Scenario output**: The `/integration-tests` skill can optionally produce a markdown scenario alongside the test, but this is not required
 
 ---
 
@@ -96,11 +96,10 @@ Markdown test scenarios (`.ai/qa/scenarios/TC-*.md`) are **optional reference ma
 ### Flow
 
 ```
-                      /create-qa-scenario
+                      /integration-tests
 Spec (SPEC-*.md) ──────────────────────────▶ .spec.ts (+ optional scenario.md) ──▶ CI runs headlessly
                                                    │
-                      /run-integration-tests       │ (if scenario exists)
-Existing Scenario ─────────────────────────▶ .spec.ts ─────────────────────────┤
+Existing Scenario ───────────── /integration-tests ────────────────▶ .spec.ts ┤
                                                                                ▼
                                                          yarn test:integration
                                                     (headless, no tokens, report)
@@ -256,18 +255,9 @@ Add Playwright MCP to `.claude/settings.local.json` (preferred local setup) or `
 }
 ```
 
-### 7. AI Skill: `run-integration-tests`
+### 7. AI Skill: `integration-tests`
 
-A new skill at `.ai/skills/run-integration-tests/SKILL.md` that guides the agent through:
-
-1. Reading a markdown scenario (if one exists) or accepting a feature description
-2. Executing it interactively via Playwright MCP to validate it works
-3. Converting the session into a TypeScript `.spec.ts` file
-4. Saving to `.ai/qa/tests/<category>/TC-XXX.spec.ts`
-
-### 8. AI Skill: `create-qa-scenario`
-
-A new skill at `.ai/skills/create-qa-scenario/SKILL.md` that **automatically generates** new QA tests from scratch. The agent:
+A unified skill at `.ai/skills/integration-tests/SKILL.md` that runs existing tests and **automatically generates** new QA tests from scratch. The agent:
 
 1. Reads the related spec (`.ai/specs/SPEC-*.md`) or uses a feature description to identify testable scenarios
 2. Finds the next available TC number in the target category
@@ -602,7 +592,7 @@ npx playwright install chromium
 
 ### 2026-02-08
 - Initial specification
-- Added `create-qa-scenario` skill for auto-generating QA tests from specs
+- Added `integration-tests` skill for auto-generating QA tests from specs
 - Moved markdown scenarios to `.ai/qa/scenarios/` subfolder (optional reference material)
 - Added Phase 2: Testcontainers ephemeral environment for fully self-contained test execution
 
@@ -613,3 +603,9 @@ npx playwright install chromium
 - Replaced unsupported generic `/api/health` dependency with `/login` readiness probe
 - Removed duplicate dependencies section and clarified deterministic production startup for Phase 2
 - Added explicit phase acceptance criteria
+
+### 2026-02-15
+- Added CLI coverage report command: `yarn mercato test:integration:coverage`
+- Added root script alias: `yarn test:integration:coverage`
+- `test:integration:coverage` now measures runtime code coverage using Node V8 + Playwright integration runs
+- Added `test:integration:spec-coverage` to preserve scenario-to-test mapping coverage (`TC-*`)

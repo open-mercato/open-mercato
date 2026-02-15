@@ -8,6 +8,8 @@ description: Starts a disposable Open Mercato app + database for manual QA or MC
 
 This command boots an isolated environment and keeps it running until you stop it with `Ctrl+C`.
 
+For short integration-development loops, prefer `yarn test:integration:ephemeral:interactive` so you can run many tests without repeated bootstrap.
+
 ## Usage
 
 ```bash
@@ -46,6 +48,12 @@ When ready, the command prints:
 - The ephemeral base URL (for example `http://127.0.0.1:<port>`)
 - QA login credentials: `admin@acme.com / secret`
 - A reminder to use `Ctrl+C` to stop and clean up
+
+The command also writes environment state to `.ai/qa/ephemeral-env.md`:
+
+- `base_url` and `port` for reuse by tools/skills
+- Default app port is `5001` when available
+- File is cleared automatically when the environment stops
 
 ## Requirements
 

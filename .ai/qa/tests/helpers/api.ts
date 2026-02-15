@@ -1,15 +1,26 @@
 import { type APIRequestContext } from '@playwright/test';
+import { DEFAULT_CREDENTIALS, type Role } from './auth';
 
 const BASE_URL = process.env.BASE_URL || 'http://localhost:3000';
 
 export async function getAuthToken(
   request: APIRequestContext,
-  email = 'admin@acme.com',
-  password = 'secret',
+  roleOrEmail: Role | string = 'admin',
+  password?: string,
 ): Promise<string> {
+  let email: string;
+  let pass: string;
+  if (roleOrEmail in DEFAULT_CREDENTIALS) {
+    const creds = DEFAULT_CREDENTIALS[roleOrEmail as Role];
+    email = creds.email;
+    pass = password ?? creds.password;
+  } else {
+    email = roleOrEmail;
+    pass = password ?? 'secret';
+  }
   const form = new URLSearchParams();
   form.set('email', email);
-  form.set('password', password);
+  form.set('password', pass);
 
   const response = await request.post(`${BASE_URL}/api/auth/login`, {
     headers: {

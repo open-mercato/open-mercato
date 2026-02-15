@@ -8,8 +8,6 @@ import { login } from '../helpers/auth';
  * Source: .ai/qa/scenarios/TC-CRM-006-address-management.md
  */
 test.describe('TC-CRM-006: Customer Address Management', () => {
-  test.setTimeout(120_000);
-
   test('should add multiple company addresses and mark one as primary', async ({ page, request }) => {
     let token: string | null = null;
     let companyId: string | null = null;

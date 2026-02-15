@@ -10,7 +10,13 @@ export { getCliModules, hasCliModules, registerCliModules }
 import { parseBooleanToken } from '@open-mercato/shared/lib/boolean'
 import { getRedisUrl } from '@open-mercato/shared/lib/redis/connection'
 import { resolveInitDerivedSecrets } from './lib/init-secrets'
-import { runEphemeralAppForQa, runIntegrationTestsInEphemeralEnvironment } from './lib/testing/integration'
+import {
+  runEphemeralAppForQa,
+  runIntegrationCoverageReport,
+  runIntegrationSpecCoverageReport,
+  runIntegrationTestsInEphemeralEnvironment,
+  runInteractiveIntegrationInEphemeralEnvironment,
+} from './lib/testing/integration'
 import type { ChildProcess } from 'node:child_process'
 import path from 'node:path'
 import fs from 'node:fs'
@@ -566,6 +572,24 @@ export async function run(argv = process.argv) {
     rest = second !== undefined ? [second, ...remaining] : []
   }
 
+  if (first === 'test:integration:interactive') {
+    modName = 'test'
+    cmdName = 'interactive'
+    rest = second !== undefined ? [second, ...remaining] : []
+  }
+
+  if (first === 'test:integration:coverage') {
+    modName = 'test'
+    cmdName = 'coverage'
+    rest = second !== undefined ? [second, ...remaining] : []
+  }
+
+  if (first === 'test:integration:spec-coverage') {
+    modName = 'test'
+    cmdName = 'spec-coverage'
+    rest = second !== undefined ? [second, ...remaining] : []
+  }
+
   if (first === 'test' && second === 'integration') {
     modName = 'test'
     cmdName = 'integration'
@@ -575,6 +599,24 @@ export async function run(argv = process.argv) {
   if (first === 'test' && second === 'ephemeral') {
     modName = 'test'
     cmdName = 'ephemeral'
+    rest = remaining
+  }
+
+  if (first === 'test' && second === 'interactive') {
+    modName = 'test'
+    cmdName = 'interactive'
+    rest = remaining
+  }
+
+  if (first === 'test' && second === 'coverage') {
+    modName = 'test'
+    cmdName = 'coverage'
+    rest = remaining
+  }
+
+  if (first === 'test' && second === 'spec-coverage') {
+    modName = 'test'
+    cmdName = 'spec-coverage'
     rest = remaining
   }
 
@@ -1184,6 +1226,24 @@ export async function run(argv = process.argv) {
         command: 'ephemeral',
         run: async (args: string[]) => {
           await runEphemeralAppForQa(args)
+        },
+      },
+      {
+        command: 'interactive',
+        run: async (args: string[]) => {
+          await runInteractiveIntegrationInEphemeralEnvironment(args)
+        },
+      },
+      {
+        command: 'coverage',
+        run: async (args: string[]) => {
+          await runIntegrationCoverageReport(args)
+        },
+      },
+      {
+        command: 'spec-coverage',
+        run: async (args: string[]) => {
+          await runIntegrationSpecCoverageReport(args)
         },
       },
     ],
