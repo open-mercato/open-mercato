@@ -102,28 +102,59 @@ async function selectFirstOption(container: Locator, rowNamePattern: RegExp): Pr
 }
 
 async function selectShipmentMethod(dialog: Locator): Promise<void> {
-  const shippingMethodInput = dialog.getByRole('textbox', { name: /Select method/i }).first();
-  await shippingMethodInput.waitFor({ state: 'visible', timeout: 8_000 }).catch(() => {});
-  await shippingMethodInput.fill('Standard').catch(() => {});
+  const shippingMethodInput = dialog.getByPlaceholder(/Select method/i).first();
+  if ((await shippingMethodInput.count()) === 0) return;
+  await shippingMethodInput.click().catch(() => {});
+  await shippingMethodInput.press('ControlOrMeta+a').catch(() => {});
+  await shippingMethodInput.type('Standard', { delay: 20 }).catch(() => {});
   await shippingMethodInput.press('Enter').catch(() => {});
-  await selectFirstOption(dialog, /standard ground|express air/i);
+  await selectFirstOption(dialog, /standard ground|express air|select/i);
 }
 
 async function selectShipmentStatus(dialog: Locator): Promise<void> {
-  await selectFirstOption(dialog, /shipped.*select|in transit.*select|packed.*select/i);
+  const statusInput = dialog.getByPlaceholder(/Select shipment status/i).first();
+  if ((await statusInput.count()) > 0) {
+    await statusInput.click().catch(() => {});
+    await statusInput.press('ControlOrMeta+a').catch(() => {});
+    await statusInput.type('Shipped', { delay: 20 }).catch(() => {});
+    await statusInput.press('Enter').catch(() => {});
+  }
+  await selectFirstOption(dialog, /shipped.*select|in transit.*select|packed.*select|select/i);
 }
 
 async function selectShipmentAddress(dialog: Locator): Promise<void> {
-  const selectedAddress = dialog.getByRole('button', { name: /shipping address.*selected/i }).first();
-  if ((await selectedAddress.count()) > 0) return;
-  await selectFirstOption(dialog, /shipping address/i);
+  const addressInput = dialog.getByPlaceholder(/Select address/i).first();
+  if ((await addressInput.count()) === 0) return;
+  const currentValue = await addressInput.inputValue().catch(() => '');
+  if (currentValue.trim().length > 0) return;
+  if ((await addressInput.count()) > 0) {
+    await addressInput.click().catch(() => {});
+    await addressInput.press('Enter').catch(() => {});
+  }
+  await selectFirstOption(dialog, /shipping address|select/i);
 }
 
 async function fillShipmentQuantity(dialog: Locator): Promise<void> {
-  const quantityInput = dialog.getByRole('spinbutton').first();
-  if ((await quantityInput.count()) > 0) {
-    await quantityInput.fill('1');
+  const quantityInputs = dialog.getByRole('spinbutton');
+  const count = await quantityInputs.count();
+  for (let index = 0; index < count; index += 1) {
+    const input = quantityInputs.nth(index);
+    const isVisible = await input.isVisible().catch(() => false);
+    const isEnabled = await input.isEnabled().catch(() => false);
+    if (!isVisible || !isEnabled) continue;
+    await input.click().catch(() => {});
+    await input.press('ControlOrMeta+a').catch(() => {});
+    await input.type('1', { delay: 20 }).catch(() => {});
   }
+}
+
+async function clickFirstSelectAction(page: Page): Promise<boolean> {
+  const selectAction = page.getByRole('button', { name: /^Select$/i }).first();
+  if (await selectAction.isVisible().catch(() => false)) {
+    await selectAction.click().catch(() => {});
+    return true;
+  }
+  return false;
 }
 
 export async function addCustomLine(page: Page, options: AddLineOptions): Promise<void> {
@@ -281,14 +312,24 @@ export async function addShipment(page: Page): Promise<{ trackingNumber: string;
   await dialog.getByRole('textbox').first().fill(trackingNumber);
 
   await selectShipmentMethod(dialog);
+  await clickFirstSelectAction(page);
   await selectShipmentStatus(dialog);
+  await clickFirstSelectAction(page);
   await selectShipmentAddress(dialog);
+  await clickFirstSelectAction(page);
   await fillShipmentQuantity(dialog);
 
   await dialog.getByText(/Searching…|Searching\.\.\./i).first().waitFor({ state: 'hidden', timeout: 6_000 }).catch(() => {});
   let closed = false;
-  for (let attempt = 0; attempt < 3; attempt += 1) {
+  for (let attempt = 0; attempt < 5; attempt += 1) {
     await dialog.getByText(/Searching…|Searching\.\.\./i).first().waitFor({ state: 'hidden', timeout: 3_000 }).catch(() => {});
+    await selectShipmentMethod(dialog);
+    await clickFirstSelectAction(page);
+    await selectShipmentStatus(dialog);
+    await clickFirstSelectAction(page);
+    await selectShipmentAddress(dialog);
+    await clickFirstSelectAction(page);
+    await fillShipmentQuantity(dialog);
     await dialog.getByRole('button', { name: /Save/i }).first().click({ force: true });
     closed = await dialog.waitFor({ state: 'hidden', timeout: 4_000 }).then(() => true).catch(() => false);
     if (!closed) {
@@ -297,10 +338,12 @@ export async function addShipment(page: Page): Promise<{ trackingNumber: string;
     }
     if (closed) break;
 
-    await selectShipmentMethod(dialog);
-    await selectShipmentStatus(dialog);
-    await selectShipmentAddress(dialog);
-    await fillShipmentQuantity(dialog);
+    const unrecoverableAddressError = await dialog
+      .getByText(/Add an address to this document before creating a shipment/i)
+      .first()
+      .isVisible()
+      .catch(() => false);
+    if (unrecoverableAddressError) break;
   }
   if (closed) {
     await expect(page.getByText(trackingNumber).first()).toBeVisible();

@@ -21,9 +21,7 @@ test.describe('TC-CAT-005: Create Product Variant', () => {
       productId = await createProductFixture(request, token, { title: productName, sku: baseSku });
 
       await login(page, 'admin');
-      await page.goto(`/backend/catalog/products/${productId}`);
-
-      await page.getByRole('link', { name: 'Add variant' }).click();
+      await page.goto(`/backend/catalog/products/${productId}/variants/create`);
       await expect(page).toHaveURL(/\/variants\/create$/);
       await page.getByRole('textbox', { name: 'e.g., Blue / Small' }).fill(variantName);
       await page.getByRole('textbox', { name: 'Unique identifier' }).fill(variantSku);
