@@ -1,9 +1,15 @@
 import { makeCrudRoute, type CrudCtx } from '@open-mercato/shared/lib/crud/factory'
 import { z } from 'zod'
+import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { FeatureToggle } from '../../data/entities'
 import { E } from '#generated/entities.ids.generated'
 import { escapeLikePattern } from '@open-mercato/shared/lib/db/escapeLikePattern'
-import { toggleTypeSchema } from '../../data/validators'
+import { toggleTypeSchema, toggleCreateSchema, toggleUpdateSchema } from '../../data/validators'
+import {
+  featureTogglesTag,
+  featureToggleListResponseSchema,
+  featureToggleErrorSchema
+} from '../openapi'
 
 const rawBodySchema = z.object({}).passthrough()
 const listQuerySchema = z
@@ -36,6 +42,7 @@ const listFields = [
   'description',
   'category',
   'type',
+  'default_value',
   'created_at',
   'updated_at',
 ]
@@ -95,6 +102,20 @@ const crud = makeCrudRoute({
       updatedAt: 'updated_at',
       type: 'type',
     },
+    transformItem: (item: Record<string, unknown>) => {
+      if (!item) return item
+      return {
+        id: item.id,
+        identifier: item.identifier,
+        name: item.name,
+        description: item.description ?? null,
+        category: item.category ?? null,
+        type: item.type,
+        defaultValue: item.default_value,
+        created_at: item.created_at,
+        updated_at: item.updated_at,
+      }
+    },
     buildFilters: async (query) => buildFilters(query),
   },
   actions: {
@@ -124,3 +145,90 @@ export const GET = crud.GET
 export const POST = crud.POST
 export const PUT = crud.PUT
 export const DELETE = crud.DELETE
+
+const createResponseSchema = z.object({
+  id: z.string().uuid(),
+})
+
+const updateResponseSchema = z.object({
+  id: z.string().uuid(),
+})
+
+const deleteResponseSchema = z.object({
+  id: z.string().uuid(),
+})
+
+export const openApi: OpenApiRouteDoc = {
+  tag: featureTogglesTag,
+  summary: 'Global feature toggle management',
+  methods: {
+    GET: {
+      summary: 'List global feature toggles',
+      description: 'Returns all global feature toggles with filtering and pagination. Requires superadmin role.',
+      query: listQuerySchema,
+      responses: [
+        { status: 200, description: 'Feature toggles collection', schema: featureToggleListResponseSchema },
+      ],
+      errors: [
+        { status: 400, description: 'Invalid query parameters', schema: featureToggleErrorSchema },
+        { status: 401, description: 'Unauthorized', schema: featureToggleErrorSchema },
+        { status: 403, description: 'Forbidden - superadmin role required', schema: featureToggleErrorSchema },
+      ],
+    },
+    POST: {
+      summary: 'Create global feature toggle',
+      description: 'Creates a new global feature toggle. Requires superadmin role.',
+      requestBody: {
+        contentType: 'application/json',
+        schema: toggleCreateSchema,
+      },
+      responses: [
+        {
+          status: 201,
+          description: 'Feature toggle created',
+          schema: createResponseSchema,
+        },
+      ],
+      errors: [
+        { status: 400, description: 'Invalid payload', schema: featureToggleErrorSchema },
+        { status: 401, description: 'Unauthorized', schema: featureToggleErrorSchema },
+        { status: 403, description: 'Forbidden - superadmin role required', schema: featureToggleErrorSchema },
+      ],
+    },
+    PUT: {
+      summary: 'Update global feature toggle',
+      description: 'Updates an existing global feature toggle. Requires superadmin role.',
+      requestBody: {
+        contentType: 'application/json',
+        schema: toggleUpdateSchema,
+      },
+      responses: [
+        {
+          status: 200,
+          description: 'Feature toggle updated',
+          schema: updateResponseSchema,
+        },
+      ],
+      errors: [
+        { status: 400, description: 'Invalid payload', schema: featureToggleErrorSchema },
+        { status: 401, description: 'Unauthorized', schema: featureToggleErrorSchema },
+        { status: 403, description: 'Forbidden - superadmin role required', schema: featureToggleErrorSchema },
+        { status: 404, description: 'Feature toggle not found', schema: featureToggleErrorSchema },
+      ],
+    },
+    DELETE: {
+      summary: 'Delete global feature toggle',
+      description: 'Soft deletes a global feature toggle by ID. Requires superadmin role.',
+      query: z.object({ id: z.string().uuid().describe('Feature toggle identifier') }),
+      responses: [
+        { status: 200, description: 'Feature toggle deleted', schema: deleteResponseSchema },
+      ],
+      errors: [
+        { status: 400, description: 'Invalid identifier', schema: featureToggleErrorSchema },
+        { status: 401, description: 'Unauthorized', schema: featureToggleErrorSchema },
+        { status: 403, description: 'Forbidden - superadmin role required', schema: featureToggleErrorSchema },
+        { status: 404, description: 'Feature toggle not found', schema: featureToggleErrorSchema },
+      ],
+    },
+  },
+}
