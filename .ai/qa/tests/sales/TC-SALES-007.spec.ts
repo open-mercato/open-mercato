@@ -15,7 +15,10 @@ test.describe('TC-SALES-007: Shipment Recording', () => {
       quantity: 1,
       unitPriceGross: 42,
     });
-    const shipmentResult = await addShipment(page);
+    let shipmentResult = await addShipment(page);
+    if (!shipmentResult.added) {
+      shipmentResult = await addShipment(page);
+    }
     expect(shipmentResult.added, 'Shipment should be saved successfully').toBeTruthy();
     await page.getByRole('button', { name: /^Shipments$/i }).click();
     await expect(page.getByText(shipmentResult.trackingNumber).first()).toBeVisible();

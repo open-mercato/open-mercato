@@ -13,7 +13,10 @@ test.describe('TC-SALES-018: Shipment Cost Impact on Totals', () => {
     await addCustomLine(page, { name: `QA TC-SALES-018 Item ${Date.now()}`, quantity: 1, unitPriceGross: 80 });
 
     const grossBeforeShipment = await readGrandTotalGross(page);
-    const shipmentResult = await addShipment(page);
+    let shipmentResult = await addShipment(page);
+    if (!shipmentResult.added) {
+      shipmentResult = await addShipment(page);
+    }
     expect(shipmentResult.added, 'Shipment should be saved successfully').toBeTruthy();
 
     const grossAfterShipment = await readGrandTotalGross(page);

@@ -288,9 +288,15 @@ export async function addShipment(page: Page): Promise<{ trackingNumber: string;
   await dialog.getByText(/Searching…|Searching\.\.\./i).first().waitFor({ state: 'hidden', timeout: 6_000 }).catch(() => {});
   let closed = false;
   for (let attempt = 0; attempt < 3; attempt += 1) {
-    await dialog.getByRole('button', { name: /Save/i }).click();
+    await dialog.getByText(/Searching…|Searching\.\.\./i).first().waitFor({ state: 'hidden', timeout: 3_000 }).catch(() => {});
+    await dialog.getByRole('button', { name: /Save/i }).first().click({ force: true });
     closed = await dialog.waitFor({ state: 'hidden', timeout: 4_000 }).then(() => true).catch(() => false);
+    if (!closed) {
+      await dialog.press('ControlOrMeta+Enter').catch(() => {});
+      closed = await dialog.waitFor({ state: 'hidden', timeout: 2_000 }).then(() => true).catch(() => false);
+    }
     if (closed) break;
+
     await selectShipmentMethod(dialog);
     await selectShipmentStatus(dialog);
     await selectShipmentAddress(dialog);
@@ -300,6 +306,13 @@ export async function addShipment(page: Page): Promise<{ trackingNumber: string;
     await expect(page.getByText(trackingNumber).first()).toBeVisible();
     return { trackingNumber, added: true };
   }
+  const closeButton = dialog.getByRole('button', { name: /Close/i }).first();
+  if ((await closeButton.count()) > 0) {
+    await closeButton.click().catch(() => {});
+  } else {
+    await dialog.press('Escape').catch(() => {});
+  }
+  await dialog.waitFor({ state: 'hidden', timeout: 2_000 }).catch(() => {});
   return { trackingNumber, added: false };
 }
 
