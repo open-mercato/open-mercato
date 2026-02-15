@@ -8,7 +8,7 @@ import { login } from '../helpers/auth';
  * Source: .ai/qa/scenarios/TC-CRM-015-customer-search-filter.md
  */
 test.describe('TC-CRM-015: Customer Search and Filter', () => {
-  test.setTimeout(120_000);
+  test.setTimeout(10_000);
 
   test('should search companies by name/email and filter by status, lifecycle and tag', async ({ page, request }) => {
     let token: string | null = null;
