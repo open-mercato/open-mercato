@@ -7,8 +7,6 @@ import { addCustomLine, addShipment, createSalesDocument } from '../helpers/sale
  * Source: .ai/qa/scenarios/TC-SALES-007-shipment-recording.md
  */
 test.describe('TC-SALES-007: Shipment Recording', () => {
-  test.setTimeout(30_000);
-
   test('should create shipment from order UI', async ({ page }) => {
     await login(page, 'admin');
     await createSalesDocument(page, { kind: 'order' });

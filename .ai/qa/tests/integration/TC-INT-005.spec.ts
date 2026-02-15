@@ -7,8 +7,6 @@ import { addCustomLine, addPayment, addShipment, createSalesDocument } from '../
  * Source: .ai/qa/scenarios/TC-INT-005-order-shipment-invoice-flow.md
  */
 test.describe('TC-INT-005: Order to Shipment to Invoice to Credit Memo', () => {
-  test.setTimeout(45_000);
-
   test('should record shipment and payment on an order flow', async ({ page }) => {
     await login(page, 'admin');
     await createSalesDocument(page, { kind: 'order' });
@@ -19,10 +17,7 @@ test.describe('TC-INT-005: Order to Shipment to Invoice to Credit Memo', () => {
 
     const paymentsSectionButton = page.getByRole('button', { name: /^Payments$/i });
     await expect(paymentsSectionButton).toBeVisible();
-    let paymentResult = await addPayment(page, 40);
-    if (!paymentResult.added) {
-      paymentResult = await addPayment(page, 40);
-    }
+    const paymentResult = await addPayment(page, 40);
     expect(paymentResult.added, 'Payment should be saved successfully').toBeTruthy();
 
     await page.getByRole('button', { name: /^Shipments$/i }).click();

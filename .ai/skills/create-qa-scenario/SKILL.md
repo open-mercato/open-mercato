@@ -133,6 +133,12 @@ Run the new test to confirm it passes:
 npx playwright test --config .ai/qa/tests/playwright.config.ts <category>/TC-{CATEGORY}-{XXX}.spec.ts
 ```
 
+When developing/debugging the test, run fail-fast with no retries:
+
+```bash
+npx playwright test --config .ai/qa/tests/playwright.config.ts <category>/TC-{CATEGORY}-{XXX}.spec.ts --retries=0
+```
+
 If it fails, fix it. Do not leave broken tests.
 
 ## Rules
@@ -146,6 +152,7 @@ If it fails, fix it. Do not leave broken tests.
 - MUST create required fixtures per test (prefer API fixture setup for stability)
 - MUST clean up any data created by the test in `finally`/teardown
 - MUST keep tests deterministic and isolated from run order or retries
+- MUST NOT add per-test timeout/retry overrides in `.spec.ts`; rely on global Playwright config (`timeout: 10s`, `expect.timeout: 10s`, `retries: 1`)
 - MUST create the `.spec.ts` — the markdown scenario is optional
 - MUST use actual locators from Playwright MCP snapshots (`getByRole`, `getByLabel`, `getByText`)
 - MUST verify the test passes before finishing

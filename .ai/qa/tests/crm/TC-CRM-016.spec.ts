@@ -7,8 +7,6 @@ import { createCompanyFixture, deleteEntityIfExists } from '../helpers/crmFixtur
  * TC-CRM-016: Company Note And Activity CRUD
  */
 test.describe('TC-CRM-016: Company Note And Activity CRUD', () => {
-  test.setTimeout(20_000);
-
   test('should add a company note and log an activity', async ({ page, request }) => {
     let token: string | null = null;
     let companyId: string | null = null;

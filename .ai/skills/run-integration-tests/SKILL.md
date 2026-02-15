@@ -21,17 +21,18 @@ This skill guides you through running integration tests and converting test scen
 | Scenario sources (optional) | `.ai/qa/scenarios/TC-XXX-*.md` |
 | Reusable env state file | `.ai/qa/ephemeral-env.json` |
 
-## Fast Triage Mode (Fail Fast)
+## Runtime Policy
 
-Use this mode when fixing CI failures quickly:
+Default QA runtime policy:
+- Keep global settings in `.ai/qa/tests/playwright.config.ts`:
+  - `timeout: 10_000`
+  - `expect.timeout: 10_000`
+  - `retries: 1`
+- Do not add per-test timeout or retry overrides in `.spec.ts` files (`test.setTimeout`, `test.describe.configure({ retries })`, `test.retry`).
 
-1. Set quick config first:
-   - `timeout: 10_000`
-   - `expect.timeout: 10_000`
-   - `retries: 0`
-2. Run only the failing test(s), not the full suite.
-3. Iterate in short cycles: run one test, patch one issue, rerun.
-4. After fixes are validated, restore normal timeout/retry policy if needed.
+Debug/development policy (fail fast while authoring/fixing tests):
+- Override retries at command level with `--retries=0`.
+- Do not edit global config just to debug a single test.
 
 ## Workflow: Create a New Integration Test
 
@@ -154,6 +155,12 @@ Run the test headlessly to confirm:
 
 ```bash
 npx playwright test --config .ai/qa/tests/playwright.config.ts <category>/TC-{CATEGORY}-{XXX}.spec.ts
+```
+
+For debugging/development, run with retries disabled:
+
+```bash
+npx playwright test --config .ai/qa/tests/playwright.config.ts <category>/TC-{CATEGORY}-{XXX}.spec.ts --retries=0
 ```
 
 If it fails, fix the test and re-run. Do not leave broken tests.

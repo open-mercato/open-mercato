@@ -7,8 +7,6 @@ import { addCustomLine, addShipment, createSalesDocument, readGrandTotalGross } 
  * Source: .ai/qa/scenarios/TC-SALES-018-shipment-cost-total-impact.md
  */
 test.describe('TC-SALES-018: Shipment Cost Impact on Totals', () => {
-  test.setTimeout(30_000);
-
   test('should change totals after recording shipment with tracking', async ({ page }) => {
     await login(page, 'admin');
     await createSalesDocument(page, { kind: 'order' });

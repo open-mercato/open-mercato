@@ -22,6 +22,8 @@ type AddAdjustmentOptions = {
   netAmount: number;
 };
 
+const TEST_WAIT_TIMEOUT_MS = 10_000;
+
 function escapeRegExp(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
@@ -263,6 +265,41 @@ async function fillShipmentQuantity(dialog: Locator): Promise<void> {
   }
 }
 
+async function selectShipmentRequiredOptions(dialog: Locator): Promise<void> {
+  for (let attempt = 0; attempt < 6; attempt += 1) {
+    const pendingSelect = dialog.getByRole('button', { name: /^Select$/i }).first();
+    if ((await pendingSelect.count()) === 0) return;
+    if (!(await pendingSelect.isVisible().catch(() => false))) return;
+    await pendingSelect.click().catch(() => {});
+    await dialog.getByText(/Searching…|Searching\.\.\./i).first().waitFor({ state: 'hidden', timeout: 3_000 }).catch(() => {});
+  }
+}
+
+async function fillShipmentDates(dialog: Locator): Promise<void> {
+  const now = new Date();
+  const day = String(now.getDate()).padStart(2, '0');
+  const month = String(now.getMonth() + 1).padStart(2, '0');
+  const year = String(now.getFullYear());
+  const shippedDateValue = `${day}/${month}/${year}`;
+
+  const shippedDateInput = dialog.getByLabel(/Shipped date/i).first();
+  if ((await shippedDateInput.count()) > 0) {
+    const currentValue = await shippedDateInput.inputValue().catch(() => '');
+    if (currentValue.trim().length === 0) {
+      await shippedDateInput.fill(shippedDateValue).catch(() => {});
+    }
+  }
+}
+
+async function fillShipmentNumber(dialog: Locator, shipmentNumber: string): Promise<void> {
+  const shipmentNumberInput = dialog.getByRole('textbox').first();
+  if ((await shipmentNumberInput.count()) === 0) return;
+  await shipmentNumberInput.click().catch(() => {});
+  await shipmentNumberInput.press('ControlOrMeta+a').catch(() => {});
+  await shipmentNumberInput.type(shipmentNumber, { delay: 20 }).catch(() => {});
+  await shipmentNumberInput.press('Tab').catch(() => {});
+}
+
 export async function addCustomLine(page: Page, options: AddLineOptions): Promise<void> {
   await page.getByRole('button', { name: /^Items$/i }).click();
   await page.getByRole('button', { name: /Add item/i }).first().click();
@@ -377,7 +414,7 @@ export async function addPayment(page: Page, amount: number): Promise<{ amountLa
   };
   await setAmount();
 
-  await dialog.getByText(/Loading payment methods/i).waitFor({ state: 'hidden', timeout: 8_000 }).catch(() => {});
+  await dialog.getByText(/Loading payment methods/i).waitFor({ state: 'hidden', timeout: TEST_WAIT_TIMEOUT_MS }).catch(() => {});
   const paymentMethodOption = dialog.getByRole('button', { name: /bank transfer|credit card|cash on delivery/i }).first();
   if ((await paymentMethodOption.count()) > 0) {
     const methodSelectButton = paymentMethodOption.getByRole('button', { name: /^Select$/i }).first();
@@ -402,8 +439,12 @@ export async function addPayment(page: Page, amount: number): Promise<{ amountLa
     await setAmount();
     await dialog.getByRole('button', { name: /Save/i }).click();
   }
-  await expect(dialog).toBeHidden({ timeout: 8_000 });
-  await page.getByText(/Last operation:\s*Create payment/i).first().waitFor({ state: 'visible', timeout: 8_000 }).catch(() => {});
+  await expect(dialog).toBeHidden({ timeout: TEST_WAIT_TIMEOUT_MS });
+  await page
+    .getByText(/Last operation:\s*Create payment/i)
+    .first()
+    .waitFor({ state: 'visible', timeout: TEST_WAIT_TIMEOUT_MS })
+    .catch(() => {});
   const added = await page.getByText(/Last operation:\s*Create payment/i).first().isVisible().catch(() => false);
   return { amountLabel, added };
 }
@@ -411,10 +452,12 @@ export async function addPayment(page: Page, amount: number): Promise<{ amountLa
 export async function addShipment(page: Page): Promise<{ trackingNumber: string; added: boolean }> {
   await page.getByRole('button', { name: /^Shipments$/i }).click();
   const trackingNumber = `SHIP-${Date.now()}`;
+  const shipmentNumber = String(Date.now());
   await page.getByRole('button', { name: /Add shipment/i }).click();
 
   const dialog = page.getByRole('dialog', { name: /Add shipment/i });
   await expect(dialog).toBeVisible();
+  await fillShipmentNumber(dialog, shipmentNumber);
   const trackingInput = dialog.getByLabel(/Tracking numbers/i).first();
   if ((await trackingInput.count()) > 0) {
     await trackingInput.fill(trackingNumber);
@@ -425,38 +468,23 @@ export async function addShipment(page: Page): Promise<{ trackingNumber: string;
   await selectShipmentStatus(dialog);
   await selectShipmentAddress(dialog);
   await fillShipmentQuantity(dialog);
+  await fillShipmentDates(dialog);
+  await selectShipmentRequiredOptions(dialog);
+  await fillShipmentNumber(dialog, shipmentNumber);
 
-  let closed = false;
-  for (let attempt = 0; attempt < 3; attempt += 1) {
-    await dialog.getByText(/Searching…|Searching\.\.\./i).first().waitFor({ state: 'hidden', timeout: 4_000 }).catch(() => {});
-    const saveButton = dialog.getByRole('button', { name: /^Save\b/i }).first();
-    const canClickSave = (await saveButton.count()) > 0 && (await saveButton.isVisible().catch(() => false));
-    if (canClickSave) {
-      await saveButton.click({ timeout: 2_000 }).catch(() => {});
-    } else {
-      await dialog.press('ControlOrMeta+Enter').catch(() => {});
-    }
-
-    closed = await dialog
-      .waitFor({ state: 'hidden', timeout: 4_000 })
-      .then(() => true)
-      .catch(() => false);
-    if (closed) break;
-
-    const unrecoverableAddressError = await dialog
-      .getByText(/Add an address to this document before creating a shipment/i)
-      .first()
-      .isVisible()
-      .catch(() => false);
-    if (unrecoverableAddressError) {
-      return { trackingNumber, added: false };
-    }
-
-    await selectShipmentMethod(dialog);
-    await selectShipmentStatus(dialog);
-    await selectShipmentAddress(dialog);
-    await fillShipmentQuantity(dialog);
+  await dialog.getByText(/Searching…|Searching\.\.\./i).first().waitFor({ state: 'hidden', timeout: TEST_WAIT_TIMEOUT_MS }).catch(() => {});
+  const saveButton = dialog.getByRole('button', { name: /^Save\b/i }).first();
+  const canClickSave = (await saveButton.count()) > 0 && (await saveButton.isVisible().catch(() => false));
+  if (canClickSave) {
+    await saveButton.click({ timeout: TEST_WAIT_TIMEOUT_MS }).catch(() => {});
+  } else {
+    await dialog.press('ControlOrMeta+Enter').catch(() => {});
   }
+
+  const closed = await dialog
+    .waitFor({ state: 'hidden', timeout: TEST_WAIT_TIMEOUT_MS })
+    .then(() => true)
+    .catch(() => false);
 
   if (!closed) {
     return { trackingNumber, added: false };
