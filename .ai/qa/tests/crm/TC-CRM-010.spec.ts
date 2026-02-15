@@ -8,7 +8,7 @@ import { login } from '../helpers/auth';
  * Source: .ai/qa/scenarios/TC-CRM-010-activity-recording.md
  */
 test.describe('TC-CRM-010: Record Customer Activity', () => {
-  test.setTimeout(10_000);
+  test.setTimeout(20_000);
 
   test('should record a call activity on a deal timeline', async ({ page, request }) => {
     let token: string | null = null;

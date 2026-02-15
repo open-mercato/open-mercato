@@ -142,6 +142,10 @@ If it fails, fix the test and re-run. Do not leave broken tests.
 - Use Playwright locators: `getByRole`, `getByLabel`, `getByText`, `getByPlaceholder` — avoid CSS selectors
 - Never hardcode record IDs (UUIDs/PKs) in generated or converted tests
 - Discover entities dynamically (API setup, create flow, or list-row navigation) before detail-page assertions
+- Do not rely on seeded/demo data; tests must create or discover their own prerequisites at runtime
+- Prefer API-based fixture setup for speed and stability
+- Always clean up records created by the test in `finally`/teardown to avoid cross-test pollution
+- Keep tests deterministic and independent from run order/retries
 - If a matching scenario exists, reference it in a comment
 - Keep tests independent — each test should handle its own login
 - Use helpers from `../helpers/auth` and `../helpers/api`

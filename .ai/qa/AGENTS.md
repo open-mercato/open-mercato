@@ -230,6 +230,9 @@ npx playwright test --config .ai/qa/tests/playwright.config.ts <category>/TC-{CA
 - Use Playwright locators: `getByRole`, `getByLabel`, `getByText`, `getByPlaceholder` — avoid CSS selectors
 - If a matching scenario exists, reference it in a comment (e.g., `Source: .ai/qa/scenarios/TC-AUTH-001-*.md`)
 - Keep tests independent — each test handles its own login
+- Keep tests data-independent — do not rely on seeded/demo records being present
+- Create required fixtures per test (prefer API setup), and always clean up created data in `finally`/teardown
+- Ensure tests are deterministic/stable across retries and run order (no cross-test state coupling)
 - Use helpers from `../helpers/auth` and `../helpers/api`
 - One `.spec.ts` file per test case
 - MUST NOT leave broken tests — fix or skip with `test.skip()` and a reason

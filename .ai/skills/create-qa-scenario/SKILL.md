@@ -135,6 +135,10 @@ If it fails, fix it. Do not leave broken tests.
 - MUST use the ephemeral URL printed by the command (never assume `localhost:3000`)
 - MUST NOT hardcode record IDs (UUIDs/PKs) in generated tests
 - MUST discover or create test entities at runtime, then navigate using discovered links/URLs
+- MUST NOT rely on seeded/demo data for prerequisites
+- MUST create required fixtures per test (prefer API fixture setup for stability)
+- MUST clean up any data created by the test in `finally`/teardown
+- MUST keep tests deterministic and isolated from run order or retries
 - MUST create the `.spec.ts` — the markdown scenario is optional
 - MUST use actual locators from Playwright MCP snapshots (`getByRole`, `getByLabel`, `getByText`)
 - MUST verify the test passes before finishing
