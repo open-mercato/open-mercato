@@ -22,6 +22,15 @@ test.describe('TC-CAT-008: Create Nested Category Hierarchy', () => {
     const selectParent = async (): Promise<void> => {
       const parentSelect = page.getByRole('combobox').filter({ hasText: /Root level/i }).first();
       await expect(parentSelect).toBeEnabled();
+      await parentSelect.selectOption(parentCategoryId ?? undefined).catch(async () => {
+        if (parentCategoryId) {
+          await parentSelect.selectOption({ value: parentCategoryId }).catch(() => {});
+        }
+      });
+      const selectedValue = await parentSelect.inputValue().catch(() => '');
+      if (parentCategoryId && selectedValue === parentCategoryId) {
+        return;
+      }
       await parentSelect.selectOption({ label: parentName }).catch(async () => {
         const selectedValue = await parentSelect.evaluate((element, label) => {
           const select = element as HTMLSelectElement;
@@ -61,11 +70,26 @@ test.describe('TC-CAT-008: Create Nested Category Hierarchy', () => {
       await waitForList();
 
       await page.getByRole('textbox', { name: 'Search categories' }).fill(childName);
-      const childRow = page.getByRole('row', { name: new RegExp(childName) });
-      await expect(childRow).toContainText(parentName);
-      await childRow.getByText(childName, { exact: true }).first().click();
+      const childRow = page.getByRole('row', { name: new RegExp(childName) }).first();
+      await expect(childRow).toBeVisible();
+      await childRow.click();
       await expect(page).toHaveURL(/\/backend\/catalog\/categories\/[0-9a-f-]{36}\/edit$/i);
       childCategoryId = page.url().match(/\/backend\/catalog\/categories\/([0-9a-f-]{36})\/edit$/i)?.[1] ?? null;
+      if (parentCategoryId) {
+        const parentSelect = page.getByRole('combobox').filter({ hasText: /Root level/i }).first();
+        await expect(parentSelect).toBeVisible();
+        const selectedValue = await parentSelect.inputValue().catch(() => '');
+        if (selectedValue) {
+          expect(selectedValue).toBe(parentCategoryId);
+        } else {
+          const selectedLabel = await parentSelect
+            .locator('option:checked')
+            .first()
+            .innerText()
+            .catch(() => '');
+          expect(selectedLabel).toContain(parentName);
+        }
+      }
     } finally {
       if (token && childCategoryId) {
         await apiRequest(request, 'DELETE', `/api/catalog/categories?id=${encodeURIComponent(childCategoryId)}`, { token }).catch(() => {});

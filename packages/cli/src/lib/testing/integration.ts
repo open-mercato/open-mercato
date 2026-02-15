@@ -508,7 +508,7 @@ async function listIntegrationSpecFiles(): Promise<IntegrationSpecTarget[]> {
 
 async function runPlaywrightSelection(
   environment: EphemeralEnvironmentHandle,
-  selection: string | null,
+  selection: string | string[] | null,
   options: InteractiveIntegrationOptions,
 ): Promise<void> {
   const args = ['playwright', 'test', '--config', '.ai/qa/tests/playwright.config.ts']
@@ -518,7 +518,9 @@ async function runPlaywrightSelection(
   if (options.retries !== null) {
     args.push('--retries', String(options.retries))
   }
-  if (selection) {
+  if (Array.isArray(selection) && selection.length > 0) {
+    args.push(...selection)
+  } else if (typeof selection === 'string' && selection.length > 0) {
     args.push(selection)
   }
   await runNpxCommand(args, environment.commandEnvironment)
@@ -828,9 +830,11 @@ export async function runInteractiveIntegrationInEphemeralEnvironment(rawArgs: s
             `[interactive] 🧪 Running ${visibleTargets.length} filtered test(s) for "${activeFilter}"...`,
           )
           try {
-            for (const target of visibleTargets) {
-              await runPlaywrightSelection(environment, target.path, options)
-            }
+            await runPlaywrightSelection(
+              environment,
+              visibleTargets.map((target) => target.path),
+              options,
+            )
           } catch (error) {
             const message = error instanceof Error ? error.message : String(error)
             console.error(`[interactive] ❌ Test run failed: ${message}`)
