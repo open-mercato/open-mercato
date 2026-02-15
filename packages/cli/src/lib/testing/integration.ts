@@ -385,6 +385,7 @@ export async function startEphemeralEnvironment(options: EphemeralRuntimeOptions
     NODE_ENV: 'test',
     OM_TEST_MODE: '1',
     OM_DISABLE_EMAIL_DELIVERY: '1',
+    ENABLE_CRUD_API_CACHE: 'true',
     CI: 'true',
     TENANT_DATA_ENCRYPTION_FALLBACK_KEY: 'om-ephemeral-integration-fallback-key',
     AUTO_SPAWN_WORKERS: 'false',

@@ -242,61 +242,72 @@ export async function addShipment(page: Page): Promise<{ trackingNumber: string;
   await expect(dialog).toBeVisible();
   await dialog.getByRole('textbox').first().fill(trackingNumber);
 
-  const shippingMethodInput = dialog.getByRole('textbox', { name: /Select method/i }).first();
-  await shippingMethodInput.waitFor({ state: 'visible', timeout: 8_000 }).catch(() => {});
-  const shippingMethodRequired = dialog.getByText('This field is required').first();
-  const shippingMethodRow = dialog.getByRole('button', { name: /standard ground|express air/i }).first();
-  await shippingMethodRow.waitFor({ state: 'visible', timeout: 8_000 }).catch(() => {});
-  if ((await shippingMethodRow.count()) > 0) {
-    const rowSelectButton = shippingMethodRow.getByRole('button', { name: /^Select$/i }).first();
-    if ((await rowSelectButton.count()) > 0) {
-      await rowSelectButton.click();
-    } else {
-      await shippingMethodRow.click();
-    }
-  }
-  if (await shippingMethodRequired.isVisible().catch(() => false)) {
-    const firstSelectButton = dialog.getByRole('button', { name: /^Select$/i }).first();
-    if ((await firstSelectButton.count()) > 0) {
-      await firstSelectButton.click();
-    }
-  }
-
-  const shipmentStatusOption = dialog.getByRole('button', { name: /shipped.*select|in transit.*select/i }).first();
-  if ((await shipmentStatusOption.count()) > 0) {
-    const statusSelectButton = shipmentStatusOption.getByRole('button', { name: /^Select$/i }).first();
-    if ((await statusSelectButton.count()) > 0) {
-      await statusSelectButton.click();
-    } else {
-      await shipmentStatusOption.click();
-    }
-  }
-
-  const selectedAddress = dialog.getByRole('button', { name: /shipping address.*selected/i }).first();
-  if ((await selectedAddress.count()) === 0) {
-    const firstAddressOption = dialog.getByRole('button', { name: /shipping address/i }).first();
-    if ((await firstAddressOption.count()) > 0) {
-      const addressSelectButton = firstAddressOption.getByRole('button', { name: /^Select$/i }).first();
-      if ((await addressSelectButton.count()) > 0) {
-        await addressSelectButton.click();
+  const selectShipmentMethod = async (): Promise<void> => {
+    const shippingMethodInput = dialog.getByRole('textbox', { name: /Select method/i }).first();
+    await shippingMethodInput.waitFor({ state: 'visible', timeout: 8_000 }).catch(() => {});
+    await shippingMethodInput.fill('Standard').catch(() => {});
+    await shippingMethodInput.press('Enter').catch(() => {});
+    const shippingMethodRow = dialog.getByRole('button', { name: /standard ground|express air/i }).first();
+    await shippingMethodRow.waitFor({ state: 'visible', timeout: 5_000 }).catch(() => {});
+    if ((await shippingMethodRow.count()) > 0) {
+      const rowSelectButton = shippingMethodRow.getByRole('button', { name: /^Select$/i }).first();
+      if ((await rowSelectButton.count()) > 0) {
+        await rowSelectButton.click();
       } else {
-        await firstAddressOption.click();
+        await shippingMethodRow.click();
       }
     }
-  }
+  };
+
+  const selectShipmentStatus = async (): Promise<void> => {
+    const shipmentStatusOption = dialog.getByRole('button', { name: /shipped.*select|in transit.*select|packed.*select/i }).first();
+    if ((await shipmentStatusOption.count()) > 0) {
+      const statusSelectButton = shipmentStatusOption.getByRole('button', { name: /^Select$/i }).first();
+      if ((await statusSelectButton.count()) > 0) {
+        await statusSelectButton.click();
+      } else {
+        await shipmentStatusOption.click();
+      }
+    }
+  };
+
+  const selectShipmentAddress = async (): Promise<void> => {
+    const selectedAddress = dialog.getByRole('button', { name: /shipping address.*selected/i }).first();
+    if ((await selectedAddress.count()) === 0) {
+      const firstAddressOption = dialog.getByRole('button', { name: /shipping address/i }).first();
+      if ((await firstAddressOption.count()) > 0) {
+        const addressSelectButton = firstAddressOption.getByRole('button', { name: /^Select$/i }).first();
+        if ((await addressSelectButton.count()) > 0) {
+          await addressSelectButton.click();
+        } else {
+          await firstAddressOption.click();
+        }
+      }
+    }
+  };
+
+  await selectShipmentMethod();
+  await selectShipmentStatus();
+  await selectShipmentAddress();
 
   const quantityInput = dialog.getByRole('spinbutton').first();
   if ((await quantityInput.count()) > 0) {
     await quantityInput.fill('1');
   }
 
-  await dialog.getByText(/Searching…|Searching\.\.\./i).first().waitFor({ state: 'hidden', timeout: 4_000 }).catch(() => {});
-  if (await shippingMethodRequired.isVisible().catch(() => false)) {
-    return { trackingNumber, added: false };
+  await dialog.getByText(/Searching…|Searching\.\.\./i).first().waitFor({ state: 'hidden', timeout: 6_000 }).catch(() => {});
+  let closed = false;
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    await dialog.getByRole('button', { name: /Save/i }).click();
+    closed = await dialog.waitFor({ state: 'hidden', timeout: 4_000 }).then(() => true).catch(() => false);
+    if (closed) break;
+    await selectShipmentMethod();
+    await selectShipmentStatus();
+    await selectShipmentAddress();
+    if ((await quantityInput.count()) > 0) {
+      await quantityInput.fill('1');
+    }
   }
-
-  await dialog.getByRole('button', { name: /Save/i }).click();
-  const closed = await dialog.waitFor({ state: 'hidden', timeout: 8_000 }).then(() => true).catch(() => false);
   if (closed) {
     await expect(page.getByText(trackingNumber).first()).toBeVisible();
     return { trackingNumber, added: true };
