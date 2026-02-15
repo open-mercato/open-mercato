@@ -185,6 +185,21 @@ test.describe('TC-ADMIN-999: Example flow', () => {
 - Run with ephemeral environment (auto bootstrapped app + infra): `yarn test:integration:ephemeral`
 - Open HTML report: `yarn test:integration:report`
 
+### How to speed up ephemeral integration runs
+
+`yarn test:integration:ephemeral` rebuilds and boots a fresh isolated environment on each run. That is reliable but slower for tight development loops.
+
+- Start once and reuse:
+  - `yarn test:integration:ephemeral:start --no-screenshots`
+- Then run only the target test against the printed base URL:
+  - `BASE_URL=http://127.0.0.1:<port> npx playwright test --config .ai/qa/tests/playwright.config.ts sales/TC-SALES-007.spec.ts --retries=0`
+- Run in parallel locally when tests are independent:
+  - `BASE_URL=http://127.0.0.1:<port> npx playwright test --config .ai/qa/tests/playwright.config.ts --workers=4 --retries=0`
+- If you still use full ephemeral command, filter aggressively:
+  - `yarn test:integration:ephemeral -- --filter sales/TC-SALES-007.spec.ts --no-screenshots`
+
+Use full `yarn test:integration:ephemeral` for pre-merge validation and CI-like isolation.
+
 ### Notes
 
 - Base URL defaults to `http://localhost:3000` and can be overridden with `BASE_URL`.

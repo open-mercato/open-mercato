@@ -27,7 +27,7 @@ test.describe('TC-CRM-007: Create Deal', () => {
       await page.locator('select').filter({ has: page.locator('option', { hasText: 'Open' }) }).first().selectOption({ label: 'Open' });
       await page.locator('select').filter({ has: page.locator('option', { hasText: 'Opportunity' }) }).first().selectOption({ label: 'Opportunity' });
       await page.getByRole('spinbutton').first().fill('25000');
-      await page.locator('select').filter({ has: page.locator('option', { hasText: 'USD – USD – US Dollar' }) }).first().selectOption({ label: 'USD – USD – US Dollar' });
+      await page.locator('select').filter({ has: page.locator('option', { hasText: /USD/i }) }).first().selectOption({ index: 1 });
       await page.getByRole('spinbutton').nth(1).fill('60');
       await page.locator('input[type="date"]').fill('2026-12-31');
 

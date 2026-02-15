@@ -1,4 +1,5 @@
 import { expect, type Locator, type Page } from '@playwright/test';
+import { apiRequest, getAuthToken } from './api';
 
 type DocumentKind = 'quote' | 'order';
 
@@ -35,6 +36,95 @@ function parseCurrencyAmount(value: string): number {
   return Number.parseFloat(lastMatch.replace('$', ''));
 }
 
+function readId(payload: unknown, keys: string[]): string | null {
+  if (!payload || typeof payload !== 'object') return null;
+  const map = payload as Record<string, unknown>;
+  for (const key of keys) {
+    const value = map[key];
+    if (typeof value === 'string' && value.length > 0) return value;
+  }
+  for (const value of Object.values(map)) {
+    if (value && typeof value === 'object' && !Array.isArray(value)) {
+      const nested = readId(value, keys);
+      if (nested) return nested;
+    }
+  }
+  return null;
+}
+
+async function ensureSalesDocumentFixtures(
+  page: Page,
+  options: CreateDocumentOptions,
+): Promise<{ customerQuery: string; channelQuery: string }> {
+  let customerQuery = options.customerQuery;
+  let channelQuery = options.channelQuery;
+
+  if (customerQuery && channelQuery) {
+    return { customerQuery, channelQuery };
+  }
+
+  const token = await getAuthToken(page.request, 'admin').catch(() => null);
+  if (!token) {
+    return {
+      customerQuery: customerQuery ?? 'Copperleaf',
+      channelQuery: channelQuery ?? 'online',
+    };
+  }
+
+  if (!customerQuery) {
+    const companyName = `QA Sales Customer ${Date.now()}`;
+    const companyResponse = await apiRequest(page.request, 'POST', '/api/customers/companies', {
+      token,
+      data: { displayName: companyName },
+    }).catch(() => null);
+    if (companyResponse && companyResponse.ok()) {
+      const companyBody = (await companyResponse.json().catch(() => null)) as unknown;
+      const companyId = readId(companyBody, ['id', 'entityId', 'companyId']);
+      if (companyId) {
+        await apiRequest(page.request, 'POST', '/api/customers/addresses', {
+          token,
+          data: {
+            entityId: companyId,
+            name: 'Primary',
+            purpose: 'Shipping',
+            addressLine1: '100 QA Street',
+            city: 'Austin',
+            postalCode: '78701',
+            country: 'US',
+            isPrimary: true,
+          },
+        }).catch(() => {});
+      }
+      customerQuery = companyName;
+    } else {
+      customerQuery = 'Copperleaf';
+    }
+  }
+
+  if (!channelQuery) {
+    const timestamp = Date.now();
+    const channelName = `QA Sales Channel ${timestamp}`;
+    const channelCode = `qa-sales-channel-${timestamp}`;
+    const channelResponse = await apiRequest(page.request, 'POST', '/api/sales/channels', {
+      token,
+      data: {
+        name: channelName,
+        code: channelCode,
+      },
+    }).catch(() => null);
+    if (channelResponse && channelResponse.ok()) {
+      channelQuery = channelName;
+    } else {
+      channelQuery = 'online';
+    }
+  }
+
+  return {
+    customerQuery: customerQuery ?? 'Copperleaf',
+    channelQuery: channelQuery ?? 'online',
+  };
+}
+
 async function selectFirstAddressIfAvailable(page: Page): Promise<void> {
   const addressSelect = page
     .locator('select')
@@ -53,8 +143,9 @@ async function selectFirstAddressIfAvailable(page: Page): Promise<void> {
 }
 
 export async function createSalesDocument(page: Page, options: CreateDocumentOptions): Promise<string> {
-  const customerQuery = options.customerQuery ?? 'Copperleaf';
-  const channelQuery = options.channelQuery ?? 'online';
+  const fixtureContext = await ensureSalesDocumentFixtures(page, options);
+  const customerQuery = fixtureContext.customerQuery;
+  const channelQuery = fixtureContext.channelQuery;
 
   await page.goto('/backend/sales/documents/create');
   await page.getByRole('button', { name: new RegExp(`^${options.kind === 'order' ? 'Order' : 'Quote'}$`, 'i') }).click();
@@ -66,11 +157,15 @@ export async function createSalesDocument(page: Page, options: CreateDocumentOpt
     .click();
 
   await page.getByRole('textbox', { name: /Select a channel/i }).fill(channelQuery);
-  await page
+  const channelSelect = page
     .getByRole('button', { name: /Select$/i })
-    .filter({ hasText: /online|field-sales|fashion-online/i })
-    .first()
-    .click();
+    .filter({ hasText: new RegExp(escapeRegExp(channelQuery), 'i') })
+    .first();
+  if ((await channelSelect.count()) > 0) {
+    await channelSelect.click();
+  } else {
+    await page.getByRole('button', { name: /Select$/i }).first().click();
+  }
 
   await selectFirstAddressIfAvailable(page);
 

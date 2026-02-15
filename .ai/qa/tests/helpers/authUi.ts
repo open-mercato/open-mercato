@@ -9,13 +9,18 @@ export async function createUserViaUi(page: Page, input: { email: string; passwo
   await page.getByRole('textbox').nth(0).fill(input.email);
   await page.getByRole('textbox').nth(1).fill(input.password);
 
-  const orgSelect = page
-    .locator('main')
-    .locator('select')
-    .filter({ has: page.locator('option', { hasText: 'Acme Corp' }) })
-    .first();
+  const orgSelect = page.locator('main').locator('select').first();
   await expect(orgSelect).toBeEnabled();
-  await orgSelect.selectOption({ label: 'Acme Corp' });
+  const orgValue = await orgSelect.evaluate((element) => {
+    const select = element as HTMLSelectElement;
+    for (const option of Array.from(select.options)) {
+      if (option.value && option.value.trim().length > 0) return option.value;
+    }
+    return '';
+  });
+  if (orgValue) {
+    await orgSelect.selectOption(orgValue);
+  }
 
   const rolesInput = page.getByRole('textbox', { name: /add tag and press enter/i });
   await rolesInput.fill(role);

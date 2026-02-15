@@ -14,11 +14,19 @@ The command starts a disposable Postgres container and app runtime, runs the Pla
 # Preferred script
 yarn test:integration:ephemeral
 
+# Interactive menu (persisted ephemeral environment)
+yarn test:integration:ephemeral:interactive
+
 # Direct CLI command (alias form)
 yarn mercato test:integration
 
 # Direct CLI command (module/command form)
 yarn mercato test integration
+
+# Direct CLI command (interactive menu)
+yarn mercato test:integration:interactive
+# or
+yarn mercato test interactive
 ```
 
 ## Options
@@ -45,6 +53,30 @@ yarn mercato test:integration --filter auth/
 yarn mercato test:integration --keep --verbose
 ```
 
+## Speed up local runs
+
+`yarn test:integration:ephemeral` is optimized for clean, fully isolated runs, not for quick iteration. For day-to-day development, use one of these faster patterns:
+
+```bash
+# 1) Start ephemeral environment once, then reuse it
+yarn test:integration:ephemeral:start --no-screenshots
+
+# 2) Run only the test you are changing against that running environment
+BASE_URL=http://127.0.0.1:<port> npx playwright test --config .ai/qa/tests/playwright.config.ts sales/TC-SALES-007.spec.ts --retries=0
+
+# 3) Run with more workers locally when tests are independent
+BASE_URL=http://127.0.0.1:<port> npx playwright test --config .ai/qa/tests/playwright.config.ts --workers=4 --retries=0
+
+# 4) Keep ephemeral mode but filter aggressively
+yarn test:integration:ephemeral -- --filter sales/TC-SALES-007.spec.ts --no-screenshots
+```
+
+Notes:
+
+- Replace `<port>` with the URL printed by `yarn test:integration:ephemeral:start` (for example `http://127.0.0.1:43123`).
+- Use `--workers` only if tests do not share mutable state.
+- Keep full `yarn test:integration:ephemeral` for pre-merge confidence and CI parity.
+
 ## Requirements
 
 - Node.js `24.x`
@@ -54,3 +86,27 @@ yarn mercato test:integration --keep --verbose
 
 - By default, screenshot capture is enabled locally and disabled in CI.
 - The command ensures Playwright Chromium is installed before running tests.
+
+## Interactive mode
+
+Use interactive mode when you want to keep one ephemeral app/database running and execute multiple tests without re-bootstrapping each time.
+
+```bash
+yarn test:integration:ephemeral:interactive
+```
+
+Menu actions:
+
+- Run all tests
+- Run one selected test file from the list
+- Refresh test list
+- Open Playwright HTML report (`show-report`)
+- Quit and tear down ephemeral environment
+
+Supported options:
+
+- `--verbose`
+- `--screenshots`
+- `--no-screenshots`
+- `--workers <n>`
+- `--retries <n>`

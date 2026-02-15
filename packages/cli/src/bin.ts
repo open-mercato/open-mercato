@@ -11,7 +11,19 @@ import { run } from './mercato.js'
 // - db: uses resolver directly to find modules and migrations
 // - init: runs yarn commands to set up the app
 // - help: just shows help text
-const BOOTSTRAP_FREE_COMMANDS = ['generate', 'db', 'init', 'eject', 'test', 'test:integration', 'test:ephemeral', 'help', '--help', '-h']
+const BOOTSTRAP_FREE_COMMANDS = [
+  'generate',
+  'db',
+  'init',
+  'eject',
+  'test',
+  'test:integration',
+  'test:ephemeral',
+  'test:integration:interactive',
+  'help',
+  '--help',
+  '-h',
+]
 
 function needsBootstrap(argv: string[]): boolean {
   const [, , first] = argv

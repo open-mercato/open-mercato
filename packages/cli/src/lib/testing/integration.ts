@@ -1,6 +1,10 @@
 import { GenericContainer } from 'testcontainers'
 import { spawn, type ChildProcess, type StdioOptions } from 'node:child_process'
 import { createServer } from 'node:net'
+import { readdir } from 'node:fs/promises'
+import path from 'node:path'
+import { createInterface } from 'node:readline/promises'
+import { stdin as input, stdout as output } from 'node:process'
 import { createResolver } from '../resolver'
 
 type EphemeralRuntimeOptions = {
@@ -27,6 +31,13 @@ type IntegrationOptions = {
 type EphemeralAppOptions = {
   verbose: boolean
   captureScreenshots: boolean
+}
+
+type InteractiveIntegrationOptions = {
+  verbose: boolean
+  captureScreenshots: boolean
+  workers: number | null
+  retries: number | null
 }
 
 const APP_READY_TIMEOUT_MS = 90_000
@@ -355,6 +366,138 @@ function parseEphemeralAppOptions(rawArgs: string[]): EphemeralAppOptions {
   }
 }
 
+function parseInteractiveIntegrationOptions(rawArgs: string[]): InteractiveIntegrationOptions {
+  let verbose = false
+  let captureScreenshots: boolean | null = null
+  let workers: number | null = null
+  let retries: number | null = null
+
+  for (let index = 0; index < rawArgs.length; index += 1) {
+    const argument = rawArgs[index]
+    if (argument === '--verbose') {
+      verbose = true
+      continue
+    }
+    if (argument === '--screenshots') {
+      captureScreenshots = true
+      continue
+    }
+    if (argument === '--no-screenshots') {
+      captureScreenshots = false
+      continue
+    }
+    if (argument === '--workers') {
+      const value = rawArgs[index + 1]
+      if (!value || value.startsWith('--')) {
+        throw new Error('Missing value for --workers')
+      }
+      const parsed = Number.parseInt(value, 10)
+      if (!Number.isFinite(parsed) || parsed < 1) {
+        throw new Error(`Invalid --workers value: ${value}`)
+      }
+      workers = parsed
+      index += 1
+      continue
+    }
+    if (argument.startsWith('--workers=')) {
+      const value = argument.slice('--workers='.length)
+      const parsed = Number.parseInt(value, 10)
+      if (!Number.isFinite(parsed) || parsed < 1) {
+        throw new Error(`Invalid --workers value: ${value}`)
+      }
+      workers = parsed
+      continue
+    }
+    if (argument === '--retries') {
+      const value = rawArgs[index + 1]
+      if (!value || value.startsWith('--')) {
+        throw new Error('Missing value for --retries')
+      }
+      const parsed = Number.parseInt(value, 10)
+      if (!Number.isFinite(parsed) || parsed < 0) {
+        throw new Error(`Invalid --retries value: ${value}`)
+      }
+      retries = parsed
+      index += 1
+      continue
+    }
+    if (argument.startsWith('--retries=')) {
+      const value = argument.slice('--retries='.length)
+      const parsed = Number.parseInt(value, 10)
+      if (!Number.isFinite(parsed) || parsed < 0) {
+        throw new Error(`Invalid --retries value: ${value}`)
+      }
+      retries = parsed
+      continue
+    }
+    throw new Error(`Unknown option: ${argument}`)
+  }
+
+  const defaultCaptureScreenshots = process.env.CI !== 'true'
+  return {
+    verbose,
+    captureScreenshots: captureScreenshots ?? defaultCaptureScreenshots,
+    workers,
+    retries,
+  }
+}
+
+function normalizePath(filePath: string): string {
+  return filePath.split(path.sep).join('/')
+}
+
+async function collectIntegrationSpecFiles(
+  directoryPath: string,
+  rootPath: string,
+): Promise<string[]> {
+  const entries = await readdir(directoryPath, { withFileTypes: true })
+  const collected: string[] = []
+
+  for (const entry of entries) {
+    const absolutePath = path.join(directoryPath, entry.name)
+    if (entry.isDirectory()) {
+      const nested = await collectIntegrationSpecFiles(absolutePath, rootPath)
+      collected.push(...nested)
+      continue
+    }
+    if (!entry.isFile() || !entry.name.endsWith('.spec.ts')) {
+      continue
+    }
+    const relativePath = path.relative(rootPath, absolutePath)
+    collected.push(normalizePath(relativePath))
+  }
+
+  return collected
+}
+
+async function listIntegrationSpecFiles(): Promise<string[]> {
+  const testRoot = path.join(projectRootDirectory, '.ai', 'qa', 'tests')
+  const files = await collectIntegrationSpecFiles(testRoot, projectRootDirectory)
+  return files.sort((left, right) => left.localeCompare(right))
+}
+
+async function runPlaywrightSelection(
+  environment: EphemeralEnvironmentHandle,
+  selection: string | null,
+  options: InteractiveIntegrationOptions,
+): Promise<void> {
+  const args = ['playwright', 'test', '--config', '.ai/qa/tests/playwright.config.ts']
+  if (options.workers !== null) {
+    args.push('--workers', String(options.workers))
+  }
+  if (options.retries !== null) {
+    args.push('--retries', String(options.retries))
+  }
+  if (selection) {
+    args.push(selection)
+  }
+  await runNpxCommand(args, environment.commandEnvironment)
+}
+
+async function openIntegrationHtmlReport(environment: EphemeralEnvironmentHandle): Promise<void> {
+  await runNpxCommand(['playwright', 'show-report', '.ai/qa/test-results/html'], environment.commandEnvironment)
+}
+
 export async function startEphemeralEnvironment(options: EphemeralRuntimeOptions): Promise<EphemeralEnvironmentHandle> {
   assertNode24Runtime()
   await assertContainerRuntimeAvailable()
@@ -520,4 +663,92 @@ export async function runEphemeralAppForQa(rawArgs: string[]): Promise<void> {
     logPrefix: 'ephemeral',
     stop: environment.stop,
   })
+}
+
+export async function runInteractiveIntegrationInEphemeralEnvironment(rawArgs: string[]): Promise<void> {
+  const options = parseInteractiveIntegrationOptions(rawArgs)
+  const environment = await startEphemeralEnvironment({
+    verbose: options.verbose,
+    captureScreenshots: options.captureScreenshots,
+    logPrefix: 'interactive',
+  })
+
+  const rl = createInterface({ input, output })
+  let specFiles = await listIntegrationSpecFiles()
+
+  console.log('[interactive] Integration menu ready.')
+  console.log(`[interactive] Running against ${environment.baseUrl}`)
+  console.log('[interactive] Enter a number, "r" to refresh tests, "h" for HTML report, "q" to quit.')
+
+  try {
+    while (true) {
+      console.log('\n[interactive] Available targets:')
+      console.log('  0) Run all tests')
+      specFiles.forEach((filePath, index) => {
+        console.log(`  ${index + 1}) ${filePath}`)
+      })
+      console.log('  h) Open HTML report')
+      console.log('  r) Refresh test list')
+      console.log('  q) Quit')
+
+      const rawChoice = (await rl.question('\n[interactive] Select option: ')).trim()
+      if (!rawChoice) {
+        continue
+      }
+
+      const normalizedChoice = rawChoice.toLowerCase()
+      if (normalizedChoice === 'q') {
+        break
+      }
+      if (normalizedChoice === 'r') {
+        specFiles = await listIntegrationSpecFiles()
+        console.log(`[interactive] Refreshed test list (${specFiles.length} files).`)
+        continue
+      }
+      if (normalizedChoice === 'h') {
+        console.log('[interactive] Opening HTML report...')
+        try {
+          await openIntegrationHtmlReport(environment)
+        } catch (error) {
+          const message = error instanceof Error ? error.message : String(error)
+          console.error(`[interactive] Failed to open report: ${message}`)
+        }
+        continue
+      }
+
+      const parsedIndex = Number.parseInt(rawChoice, 10)
+      if (!Number.isFinite(parsedIndex) || parsedIndex < 0) {
+        console.error(`[interactive] Invalid selection: ${rawChoice}`)
+        continue
+      }
+
+      if (parsedIndex === 0) {
+        console.log('[interactive] Running full integration suite...')
+        try {
+          await runPlaywrightSelection(environment, null, options)
+        } catch (error) {
+          const message = error instanceof Error ? error.message : String(error)
+          console.error(`[interactive] Test run failed: ${message}`)
+        }
+        continue
+      }
+
+      const selectedFile = specFiles[parsedIndex - 1]
+      if (!selectedFile) {
+        console.error(`[interactive] Selection out of range: ${parsedIndex}`)
+        continue
+      }
+
+      console.log(`[interactive] Running ${selectedFile}...`)
+      try {
+        await runPlaywrightSelection(environment, selectedFile, options)
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error)
+        console.error(`[interactive] Test run failed: ${message}`)
+      }
+    }
+  } finally {
+    rl.close()
+    await environment.stop()
+  }
 }
