@@ -18,6 +18,8 @@ const BOOTSTRAP_FREE_COMMANDS = [
   'eject',
   'test',
   'test:integration',
+  'test:integration:coverage',
+  'test:integration:spec-coverage',
   'test:ephemeral',
   'test:integration:interactive',
   'help',

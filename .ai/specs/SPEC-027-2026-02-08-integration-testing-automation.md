@@ -613,3 +613,9 @@ npx playwright install chromium
 - Replaced unsupported generic `/api/health` dependency with `/login` readiness probe
 - Removed duplicate dependencies section and clarified deterministic production startup for Phase 2
 - Added explicit phase acceptance criteria
+
+### 2026-02-15
+- Added CLI coverage report command: `yarn mercato test:integration:coverage`
+- Added root script alias: `yarn test:integration:coverage`
+- `test:integration:coverage` now measures runtime code coverage using Node V8 + Playwright integration runs
+- Added `test:integration:spec-coverage` to preserve scenario-to-test mapping coverage (`TC-*`)

@@ -1,7 +1,7 @@
 import { GenericContainer } from 'testcontainers'
 import { spawn, type ChildProcess, type StdioOptions } from 'node:child_process'
 import { createServer } from 'node:net'
-import { readdir, readFile } from 'node:fs/promises'
+import { mkdir, readdir, readFile, rm } from 'node:fs/promises'
 import path from 'node:path'
 import { createInterface, type Interface } from 'node:readline/promises'
 import { stdin as input, stdout as output } from 'node:process'
@@ -11,6 +11,7 @@ type EphemeralRuntimeOptions = {
   verbose: boolean
   captureScreenshots: boolean
   logPrefix: string
+  environmentOverrides?: NodeJS.ProcessEnv
 }
 
 export type EphemeralEnvironmentHandle = {
@@ -45,10 +46,63 @@ type IntegrationSpecTarget = {
   description: string
 }
 
+type IntegrationCoverageOptions = {
+  filter: string | null
+  captureScreenshots: boolean
+  verbose: boolean
+  workers: number | null
+  retries: number | null
+  json: boolean
+  keepRawV8: boolean
+}
+
+type IntegrationSpecCoverageOptions = {
+  json: boolean
+  strict: boolean
+}
+
+type IntegrationCoverageReport = {
+  generatedAt: string
+  scenarios: {
+    total: number
+    covered: number
+    uncovered: number
+    coveragePercent: number
+  }
+  tests: {
+    total: number
+    withScenario: number
+    withoutScenario: number
+  }
+  categories: Array<{
+    code: string
+    scenarioCount: number
+    coveredScenarioCount: number
+    testCount: number
+    coveragePercent: number | null
+  }>
+  requiredTestFolders: {
+    present: string[]
+    missing: string[]
+  }
+  uncoveredScenarioIds: string[]
+  testsWithoutScenarioIds: string[]
+}
+
 const APP_READY_TIMEOUT_MS = 90_000
 const APP_READY_INTERVAL_MS = 1_000
 const resolver = createResolver()
 const projectRootDirectory = resolver.getRootDir()
+const EXPECTED_TEST_FOLDERS = ['auth', 'catalog', 'crm', 'sales', 'admin', 'api', 'integration'] as const
+const FOLDER_TO_CATEGORY_CODE: Record<string, string> = {
+  admin: 'ADMIN',
+  auth: 'AUTH',
+  catalog: 'CAT',
+  crm: 'CRM',
+  sales: 'SALES',
+  api: 'API',
+  integration: 'INT',
+}
 
 function resolveYarnBinary(): string {
   return process.platform === 'win32' ? 'yarn.cmd' : 'yarn'
@@ -447,6 +501,134 @@ function parseInteractiveIntegrationOptions(rawArgs: string[]): InteractiveInteg
   }
 }
 
+function parseIntegrationCoverageOptions(rawArgs: string[]): IntegrationCoverageOptions {
+  let filter: string | null = null
+  let captureScreenshots: boolean | null = null
+  let verbose = false
+  let workers: number | null = null
+  let retries: number | null = null
+  let json = false
+  let keepRawV8 = false
+
+  for (let index = 0; index < rawArgs.length; index += 1) {
+    const argument = rawArgs[index]
+    if (argument === '--filter') {
+      const nextValue = rawArgs[index + 1]
+      if (!nextValue || nextValue.startsWith('--')) {
+        throw new Error('Missing value for --filter')
+      }
+      filter = nextValue
+      index += 1
+      continue
+    }
+    if (argument.startsWith('--filter=')) {
+      const filterValue = argument.slice('--filter='.length).trim()
+      if (!filterValue) {
+        throw new Error('Missing value for --filter')
+      }
+      filter = filterValue
+      continue
+    }
+    if (!argument.startsWith('--') && !filter) {
+      filter = argument
+      continue
+    }
+    if (argument === '--verbose') {
+      verbose = true
+      continue
+    }
+    if (argument === '--screenshots') {
+      captureScreenshots = true
+      continue
+    }
+    if (argument === '--no-screenshots') {
+      captureScreenshots = false
+      continue
+    }
+    if (argument === '--workers') {
+      const value = rawArgs[index + 1]
+      if (!value || value.startsWith('--')) {
+        throw new Error('Missing value for --workers')
+      }
+      const parsed = Number.parseInt(value, 10)
+      if (!Number.isFinite(parsed) || parsed < 1) {
+        throw new Error(`Invalid --workers value: ${value}`)
+      }
+      workers = parsed
+      index += 1
+      continue
+    }
+    if (argument.startsWith('--workers=')) {
+      const value = argument.slice('--workers='.length)
+      const parsed = Number.parseInt(value, 10)
+      if (!Number.isFinite(parsed) || parsed < 1) {
+        throw new Error(`Invalid --workers value: ${value}`)
+      }
+      workers = parsed
+      continue
+    }
+    if (argument === '--retries') {
+      const value = rawArgs[index + 1]
+      if (!value || value.startsWith('--')) {
+        throw new Error('Missing value for --retries')
+      }
+      const parsed = Number.parseInt(value, 10)
+      if (!Number.isFinite(parsed) || parsed < 0) {
+        throw new Error(`Invalid --retries value: ${value}`)
+      }
+      retries = parsed
+      index += 1
+      continue
+    }
+    if (argument.startsWith('--retries=')) {
+      const value = argument.slice('--retries='.length)
+      const parsed = Number.parseInt(value, 10)
+      if (!Number.isFinite(parsed) || parsed < 0) {
+        throw new Error(`Invalid --retries value: ${value}`)
+      }
+      retries = parsed
+      continue
+    }
+    if (argument === '--json') {
+      json = true
+      continue
+    }
+    if (argument === '--keep-raw-v8') {
+      keepRawV8 = true
+      continue
+    }
+    throw new Error(`Unknown option: ${argument}`)
+  }
+
+  const defaultCaptureScreenshots = process.env.CI !== 'true'
+  return {
+    filter,
+    captureScreenshots: captureScreenshots ?? defaultCaptureScreenshots,
+    verbose,
+    workers,
+    retries,
+    json,
+    keepRawV8,
+  }
+}
+
+function parseIntegrationSpecCoverageOptions(rawArgs: string[]): IntegrationSpecCoverageOptions {
+  let json = false
+  let strict = false
+  for (const argument of rawArgs) {
+    if (argument === '--json') {
+      json = true
+      continue
+    }
+    if (argument === '--strict') {
+      strict = true
+      continue
+    }
+    throw new Error(`Unknown option: ${argument}`)
+  }
+  return { json, strict }
+}
+
 function normalizePath(filePath: string): string {
   return filePath.split(path.sep).join('/')
 }
@@ -504,6 +686,338 @@ async function listIntegrationSpecFiles(): Promise<IntegrationSpecTarget[]> {
     })),
   )
   return targets
+}
+
+async function collectFilesByExtension(
+  directoryPath: string,
+  extension: string,
+  rootPath: string,
+): Promise<string[]> {
+  let entries
+  try {
+    entries = await readdir(directoryPath, { withFileTypes: true })
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
+      return []
+    }
+    throw error
+  }
+  const collected: string[] = []
+  for (const entry of entries) {
+    const absolutePath = path.join(directoryPath, entry.name)
+    if (entry.isDirectory()) {
+      const nestedFiles = await collectFilesByExtension(absolutePath, extension, rootPath)
+      collected.push(...nestedFiles)
+      continue
+    }
+    if (!entry.isFile() || !entry.name.endsWith(extension)) {
+      continue
+    }
+    const relativePath = path.relative(rootPath, absolutePath)
+    collected.push(normalizePath(relativePath))
+  }
+  return collected
+}
+
+function extractTestCaseId(value: string): string | null {
+  const match = value.match(/TC-([A-Z]+)-(\d{3})/i)
+  if (!match) {
+    return null
+  }
+  const category = match[1]?.toUpperCase()
+  const sequence = match[2]
+  if (!category || !sequence) {
+    return null
+  }
+  return `TC-${category}-${sequence}`
+}
+
+function findFolderSegmentFromPath(relativePath: string): string {
+  const normalized = normalizePath(relativePath)
+  const marker = '.ai/qa/tests/'
+  const markerIndex = normalized.indexOf(marker)
+  if (markerIndex === -1) {
+    return ''
+  }
+  const trailing = normalized.slice(markerIndex + marker.length)
+  return trailing.split('/')[0] ?? ''
+}
+
+function extractCategoryCodeFromCaseId(caseId: string): string | null {
+  const match = caseId.match(/^TC-([A-Z]+)-\d{3}$/)
+  return match?.[1] ?? null
+}
+
+function computePercent(numerator: number, denominator: number): number {
+  if (denominator <= 0) {
+    return 100
+  }
+  return Math.round((numerator / denominator) * 10000) / 100
+}
+
+function formatPercent(value: number | null): string {
+  if (value === null) {
+    return 'n/a'
+  }
+  return `${value.toFixed(2)}%`
+}
+
+export async function runIntegrationSpecCoverageReport(rawArgs: string[]): Promise<void> {
+  const options = parseIntegrationSpecCoverageOptions(rawArgs)
+  const testRoot = path.join(projectRootDirectory, '.ai', 'qa', 'tests')
+  const scenarioRoot = path.join(projectRootDirectory, '.ai', 'qa', 'scenarios')
+  const testFiles = await collectFilesByExtension(testRoot, '.spec.ts', projectRootDirectory)
+  const scenarioFiles = await collectFilesByExtension(scenarioRoot, '.md', projectRootDirectory)
+
+  const testCaseIds = new Set<string>()
+  const scenarioCaseIds = new Set<string>()
+  const testsByFolder = new Map<string, number>()
+
+  for (const testFile of testFiles) {
+    const caseId = extractTestCaseId(path.basename(testFile))
+    if (caseId) {
+      testCaseIds.add(caseId)
+    }
+    const folder = findFolderSegmentFromPath(testFile)
+    testsByFolder.set(folder, (testsByFolder.get(folder) ?? 0) + 1)
+  }
+
+  for (const scenarioFile of scenarioFiles) {
+    const caseId = extractTestCaseId(path.basename(scenarioFile))
+    if (caseId) {
+      scenarioCaseIds.add(caseId)
+    }
+  }
+
+  const coveredScenarioIds = Array.from(scenarioCaseIds).filter((id) => testCaseIds.has(id))
+  const uncoveredScenarioIds = Array.from(scenarioCaseIds)
+    .filter((id) => !testCaseIds.has(id))
+    .sort((left, right) => left.localeCompare(right))
+  const testsWithoutScenarioIds = Array.from(testCaseIds)
+    .filter((id) => !scenarioCaseIds.has(id))
+    .sort((left, right) => left.localeCompare(right))
+
+  const categories = new Set<string>()
+  for (const scenarioId of scenarioCaseIds) {
+    const category = extractCategoryCodeFromCaseId(scenarioId)
+    if (category) {
+      categories.add(category)
+    }
+  }
+  for (const testId of testCaseIds) {
+    const category = extractCategoryCodeFromCaseId(testId)
+    if (category) {
+      categories.add(category)
+    }
+  }
+
+  const categoryRows = Array.from(categories)
+    .sort((left, right) => left.localeCompare(right))
+    .map((categoryCode) => {
+      const scenarioCount = Array.from(scenarioCaseIds).filter((id) => id.startsWith(`TC-${categoryCode}-`)).length
+      const coveredScenarioCount = coveredScenarioIds.filter((id) => id.startsWith(`TC-${categoryCode}-`)).length
+      const testCount = Array.from(testCaseIds).filter((id) => id.startsWith(`TC-${categoryCode}-`)).length
+      const coveragePercent = scenarioCount > 0 ? computePercent(coveredScenarioCount, scenarioCount) : null
+      return {
+        code: categoryCode,
+        scenarioCount,
+        coveredScenarioCount,
+        testCount,
+        coveragePercent,
+      }
+    })
+
+  const presentRequiredFolders = EXPECTED_TEST_FOLDERS.filter((folder) => (testsByFolder.get(folder) ?? 0) > 0)
+  const missingRequiredFolders = EXPECTED_TEST_FOLDERS.filter((folder) => (testsByFolder.get(folder) ?? 0) === 0)
+  const coveragePercent = computePercent(coveredScenarioIds.length, scenarioCaseIds.size)
+
+  const report: IntegrationCoverageReport = {
+    generatedAt: new Date().toISOString(),
+    scenarios: {
+      total: scenarioCaseIds.size,
+      covered: coveredScenarioIds.length,
+      uncovered: uncoveredScenarioIds.length,
+      coveragePercent,
+    },
+    tests: {
+      total: testCaseIds.size,
+      withScenario: testCaseIds.size - testsWithoutScenarioIds.length,
+      withoutScenario: testsWithoutScenarioIds.length,
+    },
+    categories: categoryRows,
+    requiredTestFolders: {
+      present: presentRequiredFolders,
+      missing: missingRequiredFolders,
+    },
+    uncoveredScenarioIds,
+    testsWithoutScenarioIds,
+  }
+
+  if (options.json) {
+    console.log(JSON.stringify(report, null, 2))
+  } else {
+    console.log('[coverage] Integration test coverage report')
+    console.log(`[coverage] Generated at: ${report.generatedAt}`)
+    console.log(
+      `[coverage] Scenario coverage: ${report.scenarios.covered}/${report.scenarios.total} (${formatPercent(report.scenarios.coveragePercent)})`,
+    )
+    console.log(`[coverage] Tests discovered: ${report.tests.total}`)
+    console.log(`[coverage] Tests linked to scenarios: ${report.tests.withScenario}`)
+    console.log(`[coverage] Tests without scenarios: ${report.tests.withoutScenario}`)
+    console.log(
+      `[coverage] Required folders with tests: ${report.requiredTestFolders.present.length}/${EXPECTED_TEST_FOLDERS.length} (${report.requiredTestFolders.present.join(', ') || '-'})`,
+    )
+    if (report.requiredTestFolders.missing.length > 0) {
+      console.log(`[coverage] Missing required folders: ${report.requiredTestFolders.missing.join(', ')}`)
+    }
+    console.log('[coverage] Category breakdown:')
+    for (const category of report.categories) {
+      const folder = Object.entries(FOLDER_TO_CATEGORY_CODE).find(([, code]) => code === category.code)?.[0]
+      const folderLabel = folder ? ` (${folder})` : ''
+      console.log(
+        `  - ${category.code}${folderLabel}: scenarios ${category.coveredScenarioCount}/${category.scenarioCount}, tests ${category.testCount}, coverage ${formatPercent(category.coveragePercent)}`,
+      )
+    }
+    if (report.uncoveredScenarioIds.length > 0) {
+      console.log('[coverage] Missing test implementations for scenarios:')
+      for (const scenarioId of report.uncoveredScenarioIds) {
+        console.log(`  - ${scenarioId}`)
+      }
+    }
+    if (report.testsWithoutScenarioIds.length > 0) {
+      console.log('[coverage] Tests without matching scenario files:')
+      for (const testId of report.testsWithoutScenarioIds) {
+        console.log(`  - ${testId}`)
+      }
+    }
+  }
+
+  if (options.strict && (report.uncoveredScenarioIds.length > 0 || report.requiredTestFolders.missing.length > 0)) {
+    throw new Error(
+      `Coverage check failed in strict mode: uncovered scenarios=${report.uncoveredScenarioIds.length}, missing required folders=${report.requiredTestFolders.missing.length}`,
+    )
+  }
+}
+
+async function resetDirectory(directoryPath: string): Promise<void> {
+  await rm(directoryPath, { recursive: true, force: true })
+  await mkdir(directoryPath, { recursive: true })
+}
+
+function getCoveragePaths(): { rawDirectory: string; reportDirectory: string } {
+  const rawDirectory = path.join(projectRootDirectory, '.ai', 'qa', 'test-results', 'coverage', 'raw-v8')
+  const reportDirectory = path.join(projectRootDirectory, '.ai', 'qa', 'test-results', 'coverage', 'code')
+  return { rawDirectory, reportDirectory }
+}
+
+async function generateC8CoverageReport(environment: NodeJS.ProcessEnv, rawDirectory: string, reportDirectory: string): Promise<void> {
+  const c8Args = [
+    'c8',
+    'report',
+    '--temp-directory',
+    rawDirectory,
+    '--report-dir',
+    reportDirectory,
+    '--reporter',
+    'text-summary',
+    '--reporter',
+    'json-summary',
+    '--reporter',
+    'lcov',
+    '--reporter',
+    'html',
+    '--exclude-after-remap',
+    '--exclude',
+    '**/node_modules/**',
+    '--exclude',
+    '**/*.spec.ts',
+    '--exclude',
+    '.ai/**',
+    '--exclude',
+    'apps/docs/**',
+    '--exclude',
+    'packages/cli/**',
+    '--exclude',
+    'coverage/**',
+  ]
+  await runNpxCommand(c8Args, environment)
+}
+
+export async function runIntegrationCoverageReport(rawArgs: string[]): Promise<void> {
+  const options = parseIntegrationCoverageOptions(rawArgs)
+  const coveragePaths = getCoveragePaths()
+  await resetDirectory(coveragePaths.rawDirectory)
+  await resetDirectory(coveragePaths.reportDirectory)
+
+  const environment = await startEphemeralEnvironment({
+    verbose: options.verbose,
+    captureScreenshots: options.captureScreenshots,
+    logPrefix: 'coverage',
+    environmentOverrides: {
+      NODE_V8_COVERAGE: coveragePaths.rawDirectory,
+    },
+  })
+
+  try {
+    console.log('[coverage] Running Playwright integration suite with V8 coverage enabled...')
+    console.log('[coverage] Ensuring Playwright Chromium is installed...')
+    await runNpxCommand(['playwright', 'install', 'chromium'], environment.commandEnvironment)
+    await runPlaywrightSelection(
+      environment,
+      options.filter,
+      {
+        verbose: options.verbose,
+        captureScreenshots: options.captureScreenshots,
+        workers: options.workers,
+        retries: options.retries,
+      },
+    )
+  } finally {
+    await environment.stop()
+  }
+
+  console.log('[coverage] Generating code coverage report...')
+  await generateC8CoverageReport(environment.commandEnvironment, coveragePaths.rawDirectory, coveragePaths.reportDirectory)
+
+  const summaryPath = path.join(coveragePaths.reportDirectory, 'coverage-summary.json')
+  const summaryRaw = await readFile(summaryPath, 'utf8')
+  const summary = JSON.parse(summaryRaw) as {
+    total?: {
+      lines?: { total?: number; covered?: number; pct?: number }
+      statements?: { total?: number; covered?: number; pct?: number }
+      functions?: { total?: number; covered?: number; pct?: number }
+      branches?: { total?: number; covered?: number; pct?: number }
+    }
+  }
+  const totals = summary.total ?? {}
+  const output = {
+    generatedAt: new Date().toISOString(),
+    reportDirectory: normalizePath(path.relative(projectRootDirectory, coveragePaths.reportDirectory)),
+    rawCoverageDirectory: normalizePath(path.relative(projectRootDirectory, coveragePaths.rawDirectory)),
+    totals: {
+      lines: totals.lines ?? null,
+      statements: totals.statements ?? null,
+      functions: totals.functions ?? null,
+      branches: totals.branches ?? null,
+    },
+  }
+
+  if (!options.keepRawV8) {
+    await rm(coveragePaths.rawDirectory, { recursive: true, force: true })
+  }
+
+  if (options.json) {
+    console.log(JSON.stringify(output, null, 2))
+    return
+  }
+
+  const linePct = output.totals.lines?.pct ?? 0
+  const statementPct = output.totals.statements?.pct ?? 0
+  const functionPct = output.totals.functions?.pct ?? 0
+  const branchPct = output.totals.branches?.pct ?? 0
+  console.log(`[coverage] Code coverage summary: lines=${linePct}%, statements=${statementPct}%, functions=${functionPct}%, branches=${branchPct}%`)
+  console.log(`[coverage] HTML report: ${output.reportDirectory}/index.html`)
+  console.log('[coverage] Use --json for machine-readable output or --keep-raw-v8 to keep raw process coverage files.')
 }
 
 async function runPlaywrightSelection(
@@ -600,6 +1114,7 @@ export async function startEphemeralEnvironment(options: EphemeralRuntimeOptions
     NODE_NO_WARNINGS: '1',
     PORT: String(applicationPort),
     PW_CAPTURE_SCREENSHOTS: options.captureScreenshots ? '1' : '0',
+    ...(options.environmentOverrides ?? {}),
   })
 
   let applicationProcess: ChildProcess | null = null

@@ -14,6 +14,9 @@ The command starts a disposable Postgres container and app runtime, runs the Pla
 # Preferred script
 yarn test:integration:ephemeral
 
+# Code coverage report from integration tests
+yarn test:integration:coverage
+
 # Interactive menu (persisted ephemeral environment)
 yarn test:integration:ephemeral:interactive
 
@@ -27,6 +30,37 @@ yarn mercato test integration
 yarn mercato test:integration:interactive
 # or
 yarn mercato test interactive
+
+# Direct CLI command (coverage)
+yarn mercato test:integration:coverage
+# or
+yarn mercato test coverage
+```
+
+## Coverage command
+
+Use `yarn test:integration:coverage` to measure real Open Mercato runtime code coverage driven by integration tests.
+
+The command:
+
+- Starts the ephemeral integration environment
+- Enables Node.js V8 coverage for the running app
+- Executes Playwright integration tests
+- Produces coverage reports in `.ai/qa/test-results/coverage/code/` (`index.html`, `lcov.info`, `coverage-summary.json`)
+
+Options for `yarn test:integration:coverage`:
+
+- `--filter <pattern>` or positional `<pattern>` to run subset of tests
+- `--workers <n>` and `--retries <n>` passed to Playwright
+- `--verbose`
+- `--screenshots` / `--no-screenshots`
+- `--json` outputs machine-readable totals
+- `--keep-raw-v8` keeps raw process coverage files in `.ai/qa/test-results/coverage/raw-v8/`
+
+If you still need scenario/spec mapping coverage:
+
+```bash
+yarn test:integration:spec-coverage
 ```
 
 ## Options
