@@ -113,3 +113,4 @@ docker/opencode/opencode.jsonc
 .playwright-mcp
 .ai/qa/ephemeral-env.lock/owner.json
 .ai/qa/ephemeral-env.lock/*
+.ai/qa/ephemeral-build-cache.json

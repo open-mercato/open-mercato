@@ -2,6 +2,7 @@ import path from 'node:path'
 import os from 'node:os'
 import { mkdtemp, mkdir, readFile, rm, stat, utimes, writeFile } from 'node:fs/promises'
 import { createHash } from 'node:crypto'
+import { createResolver } from '../../resolver'
 import {
   parseEphemeralAppOptions,
   parseIntegrationCoverageOptions,
@@ -15,6 +16,8 @@ import {
 } from '../integration'
 
 const CACHE_TTL_ENV_VAR = 'OM_INTEGRATION_BUILD_CACHE_TTL_SECONDS'
+const resolver = createResolver()
+const projectRootDirectory = resolver.getRootDir()
 
 const resolveBuildCacheFingerprint = async (
   projectRoot: string,
@@ -28,8 +31,8 @@ const resolveBuildCacheFingerprint = async (
 }
 
 describe('integration cache and options', () => {
-  const ephemeralEnvFilePath = path.join(process.cwd(), '.ai', 'qa', 'ephemeral-env.json')
-  const ephemeralLegacyEnvFilePath = path.join(process.cwd(), '.ai', 'qa', 'ephemeral-env.md')
+  const ephemeralEnvFilePath = path.join(projectRootDirectory, '.ai', 'qa', 'ephemeral-env.json')
+  const ephemeralLegacyEnvFilePath = path.join(projectRootDirectory, '.ai', 'qa', 'ephemeral-env.md')
   const originalCacheTtl = process.env[CACHE_TTL_ENV_VAR]
   let originalEphemeralEnvState: string | null = null
   let originalEphemeralLegacyEnvState: string | null = null
@@ -121,6 +124,32 @@ describe('integration cache and options', () => {
     }
   })
 
+  it('does not reuse an existing ephemeral environment when source requirement does not match', async () => {
+    const baseUrl = 'http://127.0.0.1:5001'
+    const fetchSpy = jest.spyOn(global, 'fetch').mockResolvedValue({ status: 200 } as unknown as Response)
+
+    try {
+      await writeEphemeralEnvironmentState({
+        baseUrl,
+        port: 5001,
+        logPrefix: 'integration',
+        captureScreenshots: true,
+      })
+
+      const environment = await tryReuseExistingEnvironment({
+        verbose: false,
+        captureScreenshots: true,
+        logPrefix: 'coverage',
+        forceRebuild: false,
+        requiredExistingSource: 'coverage',
+      })
+
+      expect(environment).toBeNull()
+    } finally {
+      fetchSpy.mockRestore()
+    }
+  })
+
   it('parses --force-rebuild for integration test commands', () => {
     expect(parseOptions(['--force-rebuild'])).toMatchObject({ forceRebuild: true })
     expect(parseEphemeralAppOptions(['--force-rebuild'])).toMatchObject({ forceRebuild: true })
@@ -129,14 +158,14 @@ describe('integration cache and options', () => {
 
   it('resolves build cache TTL from env variable', () => {
     delete process.env[CACHE_TTL_ENV_VAR]
-    expect(resolveBuildCacheTtlSeconds('integration')).toBe(120)
+    expect(resolveBuildCacheTtlSeconds('integration')).toBe(600)
 
     process.env[CACHE_TTL_ENV_VAR] = '180'
     expect(resolveBuildCacheTtlSeconds('integration')).toBe(180)
 
     const warn = jest.spyOn(console, 'warn').mockImplementation(() => {})
     process.env[CACHE_TTL_ENV_VAR] = 'invalid'
-    expect(resolveBuildCacheTtlSeconds('integration')).toBe(120)
+    expect(resolveBuildCacheTtlSeconds('integration')).toBe(600)
     expect(warn).toHaveBeenCalledWith(expect.stringContaining('Invalid'))
     warn.mockRestore()
   })

@@ -14,6 +14,7 @@ type EphemeralRuntimeOptions = {
   logPrefix: string
   forceRebuild?: boolean
   reuseExisting?: boolean
+  requiredExistingSource?: string
   environmentOverrides?: NodeJS.ProcessEnv
 }
 
@@ -113,7 +114,7 @@ const APP_READY_INTERVAL_MS = 1_000
 const DEFAULT_EPHEMERAL_APP_PORT = 5001
 const EPHEMERAL_ENV_LOCK_TIMEOUT_MS = 60_000
 const EPHEMERAL_ENV_LOCK_POLL_MS = 500
-const DEFAULT_BUILD_CACHE_TTL_SECONDS = 120
+const DEFAULT_BUILD_CACHE_TTL_SECONDS = 600
 const BUILD_CACHE_TTL_ENV_VAR = 'OM_INTEGRATION_BUILD_CACHE_TTL_SECONDS'
 const resolver = createResolver()
 const projectRootDirectory = resolver.getRootDir()
@@ -599,6 +600,14 @@ export async function shouldReuseBuildArtifacts(
   return true
 }
 
+export async function shouldRebuildBuildArtifacts(
+  ttlSeconds: number,
+  logPrefix: string,
+  options: BuildCacheOptions = {},
+): Promise<boolean> {
+  return !(await shouldReuseBuildArtifacts(ttlSeconds, logPrefix, options))
+}
+
 async function getFreePort(): Promise<number> {
   return new Promise((resolve, reject) => {
     const server = createServer()
@@ -849,6 +858,13 @@ function buildReusableEnvironment(baseUrl: string, captureScreenshots: boolean):
 export async function tryReuseExistingEnvironment(options: EphemeralRuntimeOptions): Promise<EphemeralEnvironmentHandle | null> {
   const state = await readEphemeralEnvironmentState()
   if (!state) {
+    return null
+  }
+
+  if (options.requiredExistingSource && state.source !== options.requiredExistingSource) {
+    console.log(
+      `[${options.logPrefix}] Existing ephemeral environment source "${state.source}" does not match required "${options.requiredExistingSource}".`,
+    )
     return null
   }
 
@@ -1545,7 +1561,6 @@ export async function runIntegrationCoverageReport(rawArgs: string[]): Promise<v
     captureScreenshots: options.captureScreenshots,
     forceRebuild: options.forceRebuild,
     logPrefix: 'coverage',
-    reuseExisting: false,
     environmentOverrides: {
       NODE_V8_COVERAGE: coveragePaths.rawDirectory,
     },
@@ -1674,6 +1689,78 @@ async function runPlaywrightSelection(
   await runNpxCommand(args, environment.commandEnvironment)
 }
 
+type IntegrationTestRunResult = {
+  retried: boolean
+  error: Error | null
+}
+
+async function runIntegrationTestSuiteOnce(
+  environment: EphemeralEnvironmentHandle,
+  options: IntegrationOptions,
+): Promise<void> {
+  const testArgs = ['test:integration']
+  if (options.filter) {
+    testArgs.push(options.filter)
+  }
+  await runYarnCommand(testArgs, environment.commandEnvironment)
+}
+
+async function isEnvironmentUnavailable(baseUrl: string): Promise<boolean> {
+  return !(await isApplicationReachable(baseUrl))
+}
+
+async function runIntegrationTestSuiteWithRecovery(
+  startOptions: Pick<EphemeralRuntimeOptions, 'verbose' | 'captureScreenshots' | 'forceRebuild'>,
+  integrationOptions: IntegrationOptions,
+  prepareTestEnvironment: (environment: EphemeralEnvironmentHandle) => Promise<void>,
+): Promise<{
+  environment: EphemeralEnvironmentHandle
+  testRunResult: IntegrationTestRunResult
+}> {
+  let environment = await startEphemeralEnvironment({
+    ...startOptions,
+    logPrefix: 'integration',
+  })
+
+  try {
+    await prepareTestEnvironment(environment)
+    await runIntegrationTestSuiteOnce(environment, integrationOptions)
+    return { environment, testRunResult: { retried: false, error: null } }
+  } catch (error) {
+    const originalError = error instanceof Error ? error : new Error(String(error))
+    const environmentUnreachable = await isEnvironmentUnavailable(environment.baseUrl)
+    if (!environmentUnreachable) {
+      return { environment, testRunResult: { retried: false, error: originalError } }
+    }
+
+    console.error('[integration] The ephemeral integration environment became unreachable while tests were running.')
+    console.error('[integration] Rebuilding ephemeral environment and rerunning tests.')
+    try {
+      await environment.stop()
+    } catch (stopError) {
+      console.error(`[integration] Failed to stop old ephemeral environment before restart: ${(stopError as Error).message}`)
+    }
+
+    environment = await startEphemeralEnvironment({
+      ...startOptions,
+      logPrefix: 'integration',
+    })
+    try {
+      await prepareTestEnvironment(environment)
+      await runIntegrationTestSuiteOnce(environment, integrationOptions)
+      return { environment, testRunResult: { retried: true, error: null } }
+    } catch (retryError) {
+      return {
+        environment,
+        testRunResult: {
+          retried: true,
+          error: retryError instanceof Error ? retryError : new Error(String(retryError)),
+        },
+      }
+    }
+  }
+}
+
 async function openIntegrationHtmlReport(environment: EphemeralEnvironmentHandle): Promise<void> {
   await runNpxCommand(['playwright', 'show-report', '.ai/qa/test-results/html'], environment.commandEnvironment)
 }
@@ -1774,20 +1861,20 @@ export async function startEphemeralEnvironment(options: EphemeralRuntimeOptions
     try {
       const buildCacheTtlSeconds = resolveBuildCacheTtlSeconds(options.logPrefix)
       let buildInputFingerprintValue: string | null = null
-      let useBuildCache = false
+      let needsBuild = true
       let shouldPersistBuildCache = true
 
       try {
         buildInputFingerprintValue = await buildInputFingerprint()
-        useBuildCache = options.forceRebuild
-          ? false
-          : await shouldReuseBuildArtifacts(buildCacheTtlSeconds, options.logPrefix, {
+        needsBuild = options.forceRebuild
+          ? true
+          : await shouldRebuildBuildArtifacts(buildCacheTtlSeconds, options.logPrefix, {
               precomputedInputFingerprint: buildInputFingerprintValue ?? undefined,
             })
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error)
         shouldPersistBuildCache = false
-        useBuildCache = false
+        needsBuild = true
         buildInputFingerprintValue = null
         console.warn(
           `[${options.logPrefix}] Build cache check failed (${message}). Rebuilding with cache bypass.`,
@@ -1802,11 +1889,12 @@ export async function startEphemeralEnvironment(options: EphemeralRuntimeOptions
 
       if (options.forceRebuild) {
         console.log(`[${options.logPrefix}] --force-rebuild enabled. Running full build pipeline.`)
-      } else if (useBuildCache) {
+      } else if (!needsBuild) {
         console.log(
-          `[${options.logPrefix}] Skipping build pipeline due to ${BUILD_CACHE_TTL_ENV_VAR}=${buildCacheTtlSeconds}.`,
+          `[${options.logPrefix}] Build cache valid (within ${BUILD_CACHE_TTL_ENV_VAR}=${buildCacheTtlSeconds}s). Skipping build pipeline.`,
         )
       } else {
+        console.log(`[${options.logPrefix}] Build artifacts missing, stale, or out of date; rebuilding artifacts.`)
         console.log(`[${options.logPrefix}] Building packages...`)
         await runYarnCommand(['build:packages'], commandEnvironment, {
           silent: !options.verbose,
@@ -1876,30 +1964,41 @@ async function keepEnvironmentRunningForever(options: { logPrefix: string; stop:
 
 export async function runIntegrationTestsInEphemeralEnvironment(rawArgs: string[]): Promise<void> {
   const options = parseOptions(rawArgs)
-  const environment = await startEphemeralEnvironment({
+  const startOptions: Pick<EphemeralRuntimeOptions, 'verbose' | 'captureScreenshots' | 'forceRebuild'> = {
     verbose: options.verbose,
     captureScreenshots: options.captureScreenshots,
     forceRebuild: options.forceRebuild,
-    logPrefix: 'integration',
-  })
+  }
+  let environment: EphemeralEnvironmentHandle | null = null
+  let testRunResult: IntegrationTestRunResult
 
   try {
+    console.log('[integration] Running Playwright suite...')
+    const environmentState = await runIntegrationTestSuiteWithRecovery(
+      startOptions,
+      options,
+      async (runtimeEnvironment) => {
+        console.log('[integration] Ensuring Playwright Chromium is installed...')
+        await runNpxCommand(['playwright', 'install', 'chromium'], runtimeEnvironment.commandEnvironment)
+      },
+    )
+    environment = environmentState.environment
+    testRunResult = environmentState.testRunResult
+
     if (!environment.ownedByCurrentProcess) {
       console.log('[integration] Attached to an already running ephemeral environment from .ai/qa/ephemeral-env.json.')
     }
+    if (testRunResult.retried) {
+      console.log('[integration] Retried integration tests after restarting ephemeral environment.')
+    }
     const effectiveCaptureScreenshots = environment.commandEnvironment.PW_CAPTURE_SCREENSHOTS === '1'
-    console.log('[integration] Running Playwright suite...')
     console.log(
       `[integration] Screenshot capture is ${effectiveCaptureScreenshots ? 'enabled' : 'disabled'} (override with --screenshots / --no-screenshots)`,
     )
-    console.log('[integration] Ensuring Playwright Chromium is installed...')
-    await runNpxCommand(['playwright', 'install', 'chromium'], environment.commandEnvironment)
 
-    const testArgs = ['test:integration']
-    if (options.filter) {
-      testArgs.push(options.filter)
+    if (testRunResult.error) {
+      throw testRunResult.error
     }
-    await runYarnCommand(testArgs, environment.commandEnvironment)
 
     if (options.keep) {
       console.log('[integration] --keep enabled: leaving app and database running. Press Ctrl+C to stop.')
@@ -1910,7 +2009,7 @@ export async function runIntegrationTestsInEphemeralEnvironment(rawArgs: string[
     }
   } finally {
     if (!options.keep) {
-      await environment.stop()
+      await environment?.stop()
     }
   }
 }
