@@ -30,6 +30,7 @@ yarn mercato test ephemeral
 | `--verbose` | Shows detailed bootstrap/build logs. |
 | `--screenshots` | Enables screenshot capture for Playwright sessions. |
 | `--no-screenshots` | Disables screenshot capture for Playwright sessions. |
+| `--no-reuse-env` | Forces a brand-new ephemeral environment instead of attaching to an existing one. |
 
 ## Examples
 
@@ -39,6 +40,9 @@ yarn test:integration:ephemeral:start
 
 # Start with verbose setup logs
 yarn mercato test:ephemeral --verbose
+
+# Always start a fresh instance on an isolated port
+yarn mercato test:ephemeral --no-reuse-env
 ```
 
 ## Runtime Output

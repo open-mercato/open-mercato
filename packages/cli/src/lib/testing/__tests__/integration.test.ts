@@ -6,6 +6,7 @@ import { createResolver } from '../../resolver'
 import {
   parseEphemeralAppOptions,
   parseIntegrationCoverageOptions,
+  parseInteractiveIntegrationOptions,
   parseOptions,
   tryReuseExistingEnvironment,
   writeEphemeralEnvironmentState,
@@ -150,10 +151,14 @@ describe('integration cache and options', () => {
     }
   })
 
-  it('parses --force-rebuild for integration test commands', () => {
+  it('parses --force-rebuild and --no-reuse-env for integration test commands', () => {
     expect(parseOptions(['--force-rebuild'])).toMatchObject({ forceRebuild: true })
+    expect(parseOptions(['--no-reuse-env'])).toMatchObject({ reuseExisting: false })
     expect(parseEphemeralAppOptions(['--force-rebuild'])).toMatchObject({ forceRebuild: true })
+    expect(parseEphemeralAppOptions(['--no-reuse-env'])).toMatchObject({ reuseExisting: false })
+    expect(parseInteractiveIntegrationOptions(['--no-reuse-env'])).toMatchObject({ reuseExisting: false })
     expect(parseIntegrationCoverageOptions(['--force-rebuild'])).toMatchObject({ forceRebuild: true })
+    expect(parseIntegrationCoverageOptions(['--no-reuse-env'])).toMatchObject({ reuseExisting: false })
   })
 
   it('resolves build cache TTL from env variable', () => {

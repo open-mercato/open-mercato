@@ -33,12 +33,14 @@ type IntegrationOptions = {
   captureScreenshots: boolean
   verbose: boolean
   forceRebuild: boolean
+  reuseExisting: boolean
 }
 
 type EphemeralAppOptions = {
   verbose: boolean
   captureScreenshots: boolean
   forceRebuild: boolean
+  reuseExisting: boolean
 }
 
 type InteractiveIntegrationOptions = {
@@ -47,6 +49,7 @@ type InteractiveIntegrationOptions = {
   workers: number | null
   retries: number | null
   forceRebuild: boolean
+  reuseExisting: boolean
 }
 
 type IntegrationSpecTarget = {
@@ -63,6 +66,7 @@ type IntegrationCoverageOptions = {
   json: boolean
   keepRawV8: boolean
   forceRebuild: boolean
+  reuseExisting: boolean
 }
 
 type IntegrationSpecCoverageOptions = {
@@ -1323,6 +1327,7 @@ export function parseOptions(rawArgs: string[]): IntegrationOptions {
   let captureScreenshots: boolean | null = null
   let verbose = false
   let forceRebuild = false
+  let reuseExisting = true
 
   for (let index = 0; index < rawArgs.length; index += 1) {
     const argument = rawArgs[index]
@@ -1344,6 +1349,10 @@ export function parseOptions(rawArgs: string[]): IntegrationOptions {
     }
     if (argument === '--force-rebuild') {
       forceRebuild = true
+      continue
+    }
+    if (argument === '--no-reuse-env') {
+      reuseExisting = false
       continue
     }
     if (argument === '--filter') {
@@ -1379,6 +1388,7 @@ export function parseOptions(rawArgs: string[]): IntegrationOptions {
     captureScreenshots: captureScreenshots ?? defaultCaptureScreenshots,
     verbose,
     forceRebuild,
+    reuseExisting,
   }
 }
 
@@ -1386,6 +1396,7 @@ export function parseEphemeralAppOptions(rawArgs: string[]): EphemeralAppOptions
   let verbose = false
   let captureScreenshots: boolean | null = null
   let forceRebuild = false
+  let reuseExisting = true
 
   for (const argument of rawArgs) {
     if (argument === '--verbose') {
@@ -1404,6 +1415,10 @@ export function parseEphemeralAppOptions(rawArgs: string[]): EphemeralAppOptions
       forceRebuild = true
       continue
     }
+    if (argument === '--no-reuse-env') {
+      reuseExisting = false
+      continue
+    }
     throw new Error(`Unknown option: ${argument}`)
   }
 
@@ -1412,6 +1427,7 @@ export function parseEphemeralAppOptions(rawArgs: string[]): EphemeralAppOptions
     verbose,
     captureScreenshots: captureScreenshots ?? defaultCaptureScreenshots,
     forceRebuild,
+    reuseExisting,
   }
 }
 
@@ -1421,6 +1437,7 @@ export function parseInteractiveIntegrationOptions(rawArgs: string[]): Interacti
   let workers: number | null = null
   let retries: number | null = null
   let forceRebuild = false
+  let reuseExisting = true
 
   for (let index = 0; index < rawArgs.length; index += 1) {
     const argument = rawArgs[index]
@@ -1438,6 +1455,10 @@ export function parseInteractiveIntegrationOptions(rawArgs: string[]): Interacti
     }
     if (argument === '--force-rebuild') {
       forceRebuild = true
+      continue
+    }
+    if (argument === '--no-reuse-env') {
+      reuseExisting = false
       continue
     }
     if (argument === '--workers') {
@@ -1494,6 +1515,7 @@ export function parseInteractiveIntegrationOptions(rawArgs: string[]): Interacti
     workers,
     retries,
     forceRebuild,
+    reuseExisting,
   }
 }
 
@@ -1506,6 +1528,7 @@ export function parseIntegrationCoverageOptions(rawArgs: string[]): IntegrationC
   let json = false
   let keepRawV8 = false
   let forceRebuild = false
+  let reuseExisting = true
 
   for (let index = 0; index < rawArgs.length; index += 1) {
     const argument = rawArgs[index]
@@ -1598,6 +1621,10 @@ export function parseIntegrationCoverageOptions(rawArgs: string[]): IntegrationC
       forceRebuild = true
       continue
     }
+    if (argument === '--no-reuse-env') {
+      reuseExisting = false
+      continue
+    }
     throw new Error(`Unknown option: ${argument}`)
   }
 
@@ -1611,6 +1638,7 @@ export function parseIntegrationCoverageOptions(rawArgs: string[]): IntegrationC
     json,
     keepRawV8,
     forceRebuild,
+    reuseExisting,
   }
 }
 
@@ -1955,6 +1983,7 @@ export async function runIntegrationCoverageReport(rawArgs: string[]): Promise<v
     verbose: options.verbose,
     captureScreenshots: options.captureScreenshots,
     forceRebuild: options.forceRebuild,
+    reuseExisting: options.reuseExisting,
     logPrefix: 'coverage',
     environmentOverrides: {
       NODE_V8_COVERAGE: coveragePaths.rawDirectory,
@@ -2130,8 +2159,40 @@ function isEnvironmentUnavailableError(error: unknown): boolean {
   return (error as IntegrationCommandError).environmentUnavailableFromOutput === true
 }
 
+function normalizeError(error: unknown): Error {
+  return error instanceof Error ? error : new Error(String(error))
+}
+
+async function runIntegrationTestAttempt(
+  environment: EphemeralEnvironmentHandle,
+  integrationOptions: IntegrationOptions,
+  prepareTestEnvironment: (environment: EphemeralEnvironmentHandle) => Promise<void>,
+): Promise<Error | null> {
+  try {
+    await prepareTestEnvironment(environment)
+    await runIntegrationTestSuiteOnce(environment, integrationOptions)
+    return null
+  } catch (error) {
+    return normalizeError(error)
+  }
+}
+
+async function detectEnvironmentFailure(
+  error: Error,
+  baseUrl: string,
+): Promise<{ unavailable: boolean; fromOutput: boolean }> {
+  const fromOutput = isEnvironmentUnavailableError(error)
+  if (fromOutput) {
+    return { unavailable: true, fromOutput: true }
+  }
+  return {
+    unavailable: await isEnvironmentUnavailable(baseUrl),
+    fromOutput: false,
+  }
+}
+
 async function runIntegrationTestSuiteWithRecovery(
-  startOptions: Pick<EphemeralRuntimeOptions, 'verbose' | 'captureScreenshots' | 'forceRebuild'>,
+  startOptions: Pick<EphemeralRuntimeOptions, 'verbose' | 'captureScreenshots' | 'forceRebuild' | 'reuseExisting'>,
   integrationOptions: IntegrationOptions,
   prepareTestEnvironment: (environment: EphemeralEnvironmentHandle) => Promise<void>,
 ): Promise<{
@@ -2143,48 +2204,39 @@ async function runIntegrationTestSuiteWithRecovery(
     logPrefix: 'integration',
   })
 
-  try {
-    await prepareTestEnvironment(environment)
-    await runIntegrationTestSuiteOnce(environment, integrationOptions)
+  const firstAttemptError = await runIntegrationTestAttempt(environment, integrationOptions, prepareTestEnvironment)
+  if (!firstAttemptError) {
     return { environment, testRunResult: { retried: false, error: null } }
-  } catch (error) {
-    const originalError = error instanceof Error ? error : new Error(String(error))
-    const environmentUnreachable =
-      isEnvironmentUnavailableError(error) || (await isEnvironmentUnavailable(environment.baseUrl))
+  }
 
-    if (isEnvironmentUnavailableError(error)) {
-      console.error('[integration] Playwright output indicates connection loss to the app. Restarting environment.')
-    }
+  const failure = await detectEnvironmentFailure(firstAttemptError, environment.baseUrl)
+  if (!failure.unavailable) {
+    return { environment, testRunResult: { retried: false, error: firstAttemptError } }
+  }
 
-    if (!environmentUnreachable) {
-      return { environment, testRunResult: { retried: false, error: originalError } }
-    }
+  if (failure.fromOutput) {
+    console.error('[integration] Playwright output indicates connection loss to the app. Restarting environment.')
+  }
+  console.error('[integration] The ephemeral integration environment became unreachable while tests were running.')
+  console.error('[integration] Rebuilding ephemeral environment and rerunning tests.')
 
-    console.error('[integration] The ephemeral integration environment became unreachable while tests were running.')
-    console.error('[integration] Rebuilding ephemeral environment and rerunning tests.')
-    try {
-      await environment.stop()
-    } catch (stopError) {
-      console.error(`[integration] Failed to stop old ephemeral environment before restart: ${(stopError as Error).message}`)
-    }
+  try {
+    await environment.stop()
+  } catch (stopError) {
+    console.error(`[integration] Failed to stop old ephemeral environment before restart: ${normalizeError(stopError).message}`)
+  }
 
-    environment = await startEphemeralEnvironment({
-      ...startOptions,
-      logPrefix: 'integration',
-    })
-    try {
-      await prepareTestEnvironment(environment)
-      await runIntegrationTestSuiteOnce(environment, integrationOptions)
-      return { environment, testRunResult: { retried: true, error: null } }
-    } catch (retryError) {
-      return {
-        environment,
-        testRunResult: {
-          retried: true,
-          error: retryError instanceof Error ? retryError : new Error(String(retryError)),
-        },
-      }
-    }
+  environment = await startEphemeralEnvironment({
+    ...startOptions,
+    logPrefix: 'integration',
+  })
+  const retryError = await runIntegrationTestAttempt(environment, integrationOptions, prepareTestEnvironment)
+  return {
+    environment,
+    testRunResult: {
+      retried: true,
+      error: retryError,
+    },
   }
 }
 
@@ -2227,6 +2279,12 @@ export async function startEphemeralEnvironment(options: EphemeralRuntimeOptions
   await assertContainerRuntimeAvailable()
   const setupLock = await acquireEphemeralEnvironmentLock(options.logPrefix)
   try {
+    const existingStateBeforeReuseAttempt = await readEphemeralEnvironmentState()
+    if (options.reuseExisting === false) {
+      console.log(
+        `[${options.logPrefix}] --no-reuse-env enabled. Skipping reuse checks and starting a new ephemeral environment.`,
+      )
+    }
     if (options.reuseExisting !== false) {
       const existingEnvironment = await tryReuseExistingEnvironment(options)
       if (existingEnvironment) {
@@ -2235,7 +2293,15 @@ export async function startEphemeralEnvironment(options: EphemeralRuntimeOptions
     }
 
     const appWorkspace = '@open-mercato/app'
-    const applicationPort = await getPreferredPort(DEFAULT_EPHEMERAL_APP_PORT)
+    const shouldUseIsolatedPort = options.reuseExisting === false || existingStateBeforeReuseAttempt !== null
+    const applicationPort = shouldUseIsolatedPort
+      ? await getFreePort()
+      : await getPreferredPort(DEFAULT_EPHEMERAL_APP_PORT)
+    if (shouldUseIsolatedPort) {
+      console.log(
+        `[${options.logPrefix}] Existing ephemeral environment could not be reused. Starting a fresh instance on isolated port ${applicationPort}.`,
+      )
+    }
     const applicationBaseUrl = `http://127.0.0.1:${applicationPort}`
     const databaseName = 'mercato_test'
     const databaseUser = 'mercato'
@@ -2397,19 +2463,22 @@ async function keepEnvironmentRunningForever(options: { logPrefix: string; stop:
 
 export async function runIntegrationTestsInEphemeralEnvironment(rawArgs: string[]): Promise<void> {
   const options = parseOptions(rawArgs)
-  const startOptions: Pick<EphemeralRuntimeOptions, 'verbose' | 'captureScreenshots' | 'forceRebuild'> = {
+  const startOptions: Pick<EphemeralRuntimeOptions, 'verbose' | 'captureScreenshots' | 'forceRebuild' | 'reuseExisting'> = {
     verbose: options.verbose,
     captureScreenshots: options.captureScreenshots,
     forceRebuild: options.forceRebuild,
+    reuseExisting: options.reuseExisting,
   }
   let environment: EphemeralEnvironmentHandle | null = null
   let testRunResult: IntegrationTestRunResult
 
   try {
-    if (!environment.ownedByCurrentProcess) {
-      console.log('[integration] Attached to an already running ephemeral environment from .ai/qa/ephemeral-env.json.')
-    }
     console.log('[integration] Running Playwright suite...')
+    if (options.reuseExisting) {
+      console.log('[integration] Checking whether an existing ephemeral environment can be reused...')
+    } else {
+      console.log('[integration] --no-reuse-env enabled: always booting a fresh ephemeral environment.')
+    }
     const environmentState = await runIntegrationTestSuiteWithRecovery(
       startOptions,
       options,
@@ -2456,6 +2525,7 @@ export async function runEphemeralAppForQa(rawArgs: string[]): Promise<void> {
     verbose: options.verbose,
     captureScreenshots: options.captureScreenshots,
     forceRebuild: options.forceRebuild,
+    reuseExisting: options.reuseExisting,
     logPrefix: 'ephemeral',
   })
 
@@ -2480,6 +2550,7 @@ export async function runInteractiveIntegrationInEphemeralEnvironment(rawArgs: s
     verbose: options.verbose,
     captureScreenshots: options.captureScreenshots,
     forceRebuild: options.forceRebuild,
+    reuseExisting: options.reuseExisting,
     logPrefix: 'interactive',
   })
 
