@@ -6,24 +6,10 @@ import { useRouter } from 'next/navigation'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { cn } from '@open-mercato/shared/lib/utils'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { formatRelativeTime } from '@open-mercato/ui/backend/detail'
 import type { NotificationRendererProps } from '@open-mercato/shared/modules/notifications/types'
 import { formatMoney } from '../../components/documents/lineItemUtils'
 import { useSalesDocumentTotals } from './useSalesDocumentTotals'
-
-function formatTimeAgo(dateString: string, t: (key: string, fallback?: string) => string): string {
-  const date = new Date(dateString)
-  const now = new Date()
-  const diffMs = now.getTime() - date.getTime()
-  const diffMins = Math.floor(diffMs / 60000)
-  const diffHours = Math.floor(diffMs / 3600000)
-  const diffDays = Math.floor(diffMs / 86400000)
-
-  if (diffMins < 1) return t('common.time.justNow', 'just now')
-  if (diffMins < 60) return t('common.time.minutesAgo', '{count}m ago').replace('{count}', String(diffMins))
-  if (diffHours < 24) return t('common.time.hoursAgo', '{count}h ago').replace('{count}', String(diffHours))
-  if (diffDays < 7) return t('common.time.daysAgo', '{count}d ago').replace('{count}', String(diffDays))
-  return date.toLocaleDateString()
-}
 
 function normalizeTotal(value?: string | null): string | null {
   if (!value) return null
@@ -105,7 +91,7 @@ export function SalesQuoteCreatedRenderer({
             </div>
             <span className="flex-shrink-0 text-xs text-muted-foreground flex items-center gap-1">
               <Calendar className="h-3 w-3" />
-              {formatTimeAgo(notification.createdAt, t)}
+              {formatRelativeTime(notification.createdAt, { translate: t }) ?? ''}
             </span>
           </div>
 

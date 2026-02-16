@@ -8,6 +8,7 @@ import { Spinner } from '@open-mercato/ui/primitives/spinner'
 import { Badge } from '@open-mercato/ui/primitives/badge'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { DEFAULT_SETTINGS, hydrateSalesNewQuotesSettings, type DatePeriodOption, type SalesNewQuotesSettings } from './config'
+import { formatRelativeTime } from '@open-mercato/ui/backend/detail'
 
 type NewQuoteItem = {
   id: string
@@ -125,33 +126,6 @@ function formatAmount(value: string, currency: string | null, locale?: string): 
   }
 }
 
-function formatRelativeDate(value: string, locale?: string): string {
-  const parsed = new Date(value)
-  if (Number.isNaN(parsed.getTime())) return ''
-  const nowMs = Date.now()
-  const diffSeconds = Math.round((parsed.getTime() - nowMs) / 1000)
-  const absSeconds = Math.abs(diffSeconds)
-
-  let unit: Intl.RelativeTimeFormatUnit = 'second'
-  let amount = diffSeconds
-
-  if (absSeconds >= 60 && absSeconds < 3600) {
-    unit = 'minute'
-    amount = Math.round(diffSeconds / 60)
-  } else if (absSeconds >= 3600 && absSeconds < 86400) {
-    unit = 'hour'
-    amount = Math.round(diffSeconds / 3600)
-  } else if (absSeconds >= 86400 && absSeconds < 604800) {
-    unit = 'day'
-    amount = Math.round(diffSeconds / 86400)
-  } else if (absSeconds >= 604800) {
-    unit = 'week'
-    amount = Math.round(diffSeconds / 604800)
-  }
-
-  const formatter = new Intl.RelativeTimeFormat(locale ?? undefined, { numeric: 'auto' })
-  return formatter.format(amount, unit)
-}
 
 const SalesNewQuotesWidget: React.FC<DashboardWidgetComponentProps<SalesNewQuotesSettings>> = ({
   mode,
@@ -296,7 +270,7 @@ const SalesNewQuotesWidget: React.FC<DashboardWidgetComponentProps<SalesNewQuote
       {items.map((item) => {
         const detailHref = resolveDetailHref(item)
         const amountLabel = formatAmount(item.grossAmount, item.currency, locale)
-        const createdLabel = formatRelativeDate(item.createdAt, locale)
+        const createdLabel = formatRelativeTime(item.createdAt) ?? ''
         return (
           <li key={item.id} className="rounded-md border p-3">
             <div className="flex items-start justify-between gap-3">

@@ -18,6 +18,11 @@ import { useConfirmDialog } from '../confirm-dialog'
 
 type Translator = (key: string, fallback?: string, params?: Record<string, string | number>) => string
 
+type FormatRelativeTimeOptions = {
+  translate?: Translator
+  locale?: string | string[]
+}
+
 export type ActivitySummary = {
   id: string
   activityType: string
@@ -127,21 +132,24 @@ function formatDateTime(value?: string | null): string | null {
   return date.toLocaleString()
 }
 
-function formatRelativeTime(value?: string | null): string | null {
+export function formatRelativeTime(value?: string | null, options?: FormatRelativeTimeOptions): string | null {
   if (!value) return null
   const date = new Date(value)
   if (Number.isNaN(date.getTime())) return null
   const now = Date.now()
   const diffSeconds = (date.getTime() - now) / 1000
   const absSeconds = Math.abs(diffSeconds)
+  const translate = options?.translate
   const rtf =
     typeof Intl !== 'undefined' && typeof Intl.RelativeTimeFormat === 'function'
-      ? new Intl.RelativeTimeFormat(undefined, { numeric: 'auto' })
+      ? new Intl.RelativeTimeFormat(options?.locale, { numeric: 'auto' })
       : null
   const format = (unit: Intl.RelativeTimeFormatUnit, divisor: number) => {
     const valueToFormat = Math.round(diffSeconds / divisor)
     if (rtf) return rtf.format(valueToFormat, unit)
-    const suffix = valueToFormat <= 0 ? 'ago' : 'from now'
+    const fallbackSuffix = valueToFormat <= 0 ? 'ago' : 'from now'
+    const suffixKey = valueToFormat <= 0 ? 'time.relative.ago' : 'time.relative.fromNow'
+    const suffix = translate ? translate(suffixKey, fallbackSuffix) : fallbackSuffix
     const magnitude = Math.abs(valueToFormat)
     return `${magnitude} ${unit}${magnitude === 1 ? '' : 's'} ${suffix}`
   }

@@ -7,7 +7,7 @@ export * from './CustomDataSection'
 export * from './TagsSection'
 export { NotesSection, mapCommentSummary } from './NotesSection'
 export type { NotesSectionProps, CommentSummary, SectionAction, TabEmptyStateConfig } from './NotesSection'
-export { ActivitiesSection } from './ActivitiesSection'
+export { ActivitiesSection, formatRelativeTime } from './ActivitiesSection'
 export type {
   ActivitiesSectionProps,
   ActivitiesDataAdapter,
