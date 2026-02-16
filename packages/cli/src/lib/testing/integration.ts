@@ -116,6 +116,15 @@ const EPHEMERAL_ENV_LOCK_TIMEOUT_MS = 60_000
 const EPHEMERAL_ENV_LOCK_POLL_MS = 500
 const DEFAULT_BUILD_CACHE_TTL_SECONDS = 600
 const BUILD_CACHE_TTL_ENV_VAR = 'OM_INTEGRATION_BUILD_CACHE_TTL_SECONDS'
+const PLAYWRIGHT_ENV_UNAVAILABLE_PATTERNS: RegExp[] = [
+  /net::ERR_CONNECTION_REFUSED/i,
+  /Failed to connect to .* (localhost|127\.0\.0\.1)/i,
+  /Error: connect ECONNREFUSED/i,
+  /Error: read ECONNRESET/i,
+  /socket hang up/i,
+  /ERR_CONNECTION_RESET/i,
+  /ERR_ADDRESS_UNREACHABLE/i,
+]
 const resolver = createResolver()
 const projectRootDirectory = resolver.getRootDir()
 const EPHEMERAL_ENV_FILE_PATH = path.join(projectRootDirectory, '.ai', 'qa', 'ephemeral-env.json')
@@ -184,6 +193,17 @@ type BuildCacheOptions = {
   precomputedInputFingerprint?: string
 }
 
+type CommandOutputMonitoringResult = {
+  exitCode: number | null
+  output: string
+  environmentUnavailableFromOutput: boolean
+}
+
+type IntegrationCommandError = Error & {
+  environmentUnavailableFromOutput?: boolean
+  commandOutput?: string
+}
+
 function resolveYarnBinary(): string {
   return process.platform === 'win32' ? 'yarn.cmd' : 'yarn'
 }
@@ -201,6 +221,114 @@ function runYarnCommand(
   opts: { silent?: boolean } = {},
 ): Promise<void> {
   return runYarnRawCommand(['run', ...args], environment, opts)
+}
+
+function isPlaywrightEnvironmentUnavailableChunk(chunk: string): boolean {
+  return PLAYWRIGHT_ENV_UNAVAILABLE_PATTERNS.some((pattern) => pattern.test(chunk))
+}
+
+async function runCommandWithOutputMonitoring(
+  command: string,
+  commandArgs: string[],
+  environment: NodeJS.ProcessEnv,
+  opts: {
+    detectEnvironmentUnavailable?: boolean
+    abortOnEnvironmentUnavailable?: boolean
+  } = {},
+): Promise<CommandOutputMonitoringResult> {
+  return new Promise((resolve, reject) => {
+    const commandHandle = spawn(command, commandArgs, {
+      cwd: projectRootDirectory,
+      env: environment,
+      stdio: ['ignore', 'pipe', 'pipe'],
+    })
+
+    let output = ''
+    let environmentUnavailableFromOutput = false
+    let terminatedByOutput = false
+
+    const handleChunk = (chunk: Buffer | string, stream: 'stdout' | 'stderr') => {
+      const text = chunk.toString()
+      if (stream === 'stdout') {
+        process.stdout.write(text)
+      } else {
+        process.stderr.write(text)
+      }
+
+      output += text
+      if (output.length > 120_000) {
+        output = output.slice(-80_000)
+      }
+
+      if (!environmentUnavailableFromOutput && opts.detectEnvironmentUnavailable && isPlaywrightEnvironmentUnavailableChunk(text)) {
+        environmentUnavailableFromOutput = true
+        if (opts.abortOnEnvironmentUnavailable) {
+          terminatedByOutput = true
+          commandHandle.kill('SIGTERM')
+        }
+      }
+    }
+
+    commandHandle.stdout?.on('data', (chunk) => {
+      handleChunk(chunk, 'stdout')
+    })
+    commandHandle.stderr?.on('data', (chunk) => {
+      handleChunk(chunk, 'stderr')
+    })
+    commandHandle.on('error', reject)
+    commandHandle.on('exit', (code: number | null) => {
+      resolve({
+        exitCode: code,
+        output: output.trim(),
+        environmentUnavailableFromOutput: environmentUnavailableFromOutput || terminatedByOutput,
+      })
+    })
+  })
+}
+
+async function runYarnCommandWithOutputMonitoring(
+  args: string[],
+  environment: NodeJS.ProcessEnv,
+  opts: { detectEnvironmentUnavailable?: boolean; abortOnEnvironmentUnavailable?: boolean } = {},
+): Promise<void> {
+  const result = await runCommandWithOutputMonitoring(resolveYarnBinary(), ['run', ...args], environment, {
+    detectEnvironmentUnavailable: opts.detectEnvironmentUnavailable,
+    abortOnEnvironmentUnavailable: opts.abortOnEnvironmentUnavailable,
+  })
+
+  if (result.exitCode === 0) {
+    return
+  }
+
+  const error = new Error(
+    `Command failed: yarn ${['run', ...args].join(' ')} (exit ${result.exitCode ?? 'unknown'}).`,
+  ) as IntegrationCommandError
+  error.environmentUnavailableFromOutput = result.environmentUnavailableFromOutput
+  error.commandOutput = result.output
+  throw error
+}
+
+async function runNpxCommandWithOutputMonitoring(
+  args: string[],
+  environment: NodeJS.ProcessEnv,
+  opts: { detectEnvironmentUnavailable?: boolean; abortOnEnvironmentUnavailable?: boolean } = {},
+): Promise<void> {
+  const binary = process.platform === 'win32' ? 'npx.cmd' : 'npx'
+  const result = await runCommandWithOutputMonitoring(binary, args, environment, {
+    detectEnvironmentUnavailable: opts.detectEnvironmentUnavailable,
+    abortOnEnvironmentUnavailable: opts.abortOnEnvironmentUnavailable,
+  })
+
+  if (result.exitCode === 0) {
+    return
+  }
+
+  const error = new Error(
+    `Command failed: npx ${args.join(' ')} (exit ${result.exitCode ?? 'unknown'}).`,
+  ) as IntegrationCommandError
+  error.environmentUnavailableFromOutput = result.environmentUnavailableFromOutput
+  error.commandOutput = result.output
+  throw error
 }
 
 function runYarnRawCommand(
@@ -1584,6 +1712,9 @@ export async function runIntegrationCoverageReport(rawArgs: string[]): Promise<v
       )
     } catch (error) {
       testRunError = error instanceof Error ? error : new Error(String(error))
+      if (isEnvironmentUnavailableError(testRunError)) {
+        console.error('[coverage] Playwright output indicates connection loss to the ephemeral app during coverage run.')
+      }
       console.error(`[coverage] Playwright run failed: ${testRunError.message}`)
       console.error('[coverage] Continuing to generate coverage report from collected V8 data...')
     }
@@ -1686,7 +1817,9 @@ async function runPlaywrightSelection(
   } else if (typeof selection === 'string' && selection.length > 0) {
     args.push(selection)
   }
-  await runNpxCommand(args, environment.commandEnvironment)
+  await runNpxCommandWithOutputMonitoring(args, environment.commandEnvironment, {
+    detectEnvironmentUnavailable: true,
+  })
 }
 
 type IntegrationTestRunResult = {
@@ -1702,11 +1835,21 @@ async function runIntegrationTestSuiteOnce(
   if (options.filter) {
     testArgs.push(options.filter)
   }
-  await runYarnCommand(testArgs, environment.commandEnvironment)
+  await runYarnCommandWithOutputMonitoring(testArgs, environment.commandEnvironment, {
+    detectEnvironmentUnavailable: true,
+    abortOnEnvironmentUnavailable: true,
+  })
 }
 
 async function isEnvironmentUnavailable(baseUrl: string): Promise<boolean> {
   return !(await isApplicationReachable(baseUrl))
+}
+
+function isEnvironmentUnavailableError(error: unknown): boolean {
+  if (!(error instanceof Error)) {
+    return false
+  }
+  return (error as IntegrationCommandError).environmentUnavailableFromOutput === true
 }
 
 async function runIntegrationTestSuiteWithRecovery(
@@ -1728,7 +1871,13 @@ async function runIntegrationTestSuiteWithRecovery(
     return { environment, testRunResult: { retried: false, error: null } }
   } catch (error) {
     const originalError = error instanceof Error ? error : new Error(String(error))
-    const environmentUnreachable = await isEnvironmentUnavailable(environment.baseUrl)
+    const environmentUnreachable =
+      isEnvironmentUnavailableError(error) || (await isEnvironmentUnavailable(environment.baseUrl))
+
+    if (isEnvironmentUnavailableError(error)) {
+      console.error('[integration] Playwright output indicates connection loss to the app. Restarting environment.')
+    }
+
     if (!environmentUnreachable) {
       return { environment, testRunResult: { retried: false, error: originalError } }
     }
