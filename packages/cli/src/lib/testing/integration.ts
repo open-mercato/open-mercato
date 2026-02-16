@@ -2335,6 +2335,9 @@ export async function runIntegrationTestsInEphemeralEnvironment(rawArgs: string[
   let testRunResult: IntegrationTestRunResult
 
   try {
+    if (!environment.ownedByCurrentProcess) {
+      console.log('[integration] Attached to an already running ephemeral environment from .ai/qa/ephemeral-env.json.')
+    }
     console.log('[integration] Running Playwright suite...')
     const environmentState = await runIntegrationTestSuiteWithRecovery(
       startOptions,
