@@ -125,6 +125,10 @@ const PLAYWRIGHT_ENV_UNAVAILABLE_PATTERNS: RegExp[] = [
   /ERR_CONNECTION_RESET/i,
   /ERR_ADDRESS_UNREACHABLE/i,
 ]
+const PLAYWRIGHT_QUICK_FAILURE_THRESHOLD = 6
+const PLAYWRIGHT_QUICK_FAILURE_MAX_DURATION_MS = 1_500
+const PLAYWRIGHT_HEALTH_PROBE_INTERVAL_MS = 3_000
+const ANSI_ESCAPE_REGEX = /\u001b\[[0-?]*[ -/]*[@-~]/g
 const resolver = createResolver()
 const projectRootDirectory = resolver.getRootDir()
 const EPHEMERAL_ENV_FILE_PATH = path.join(projectRootDirectory, '.ai', 'qa', 'ephemeral-env.json')
@@ -181,6 +185,7 @@ type BuildCacheState = {
   version: number
   builtAt: number
   inputFingerprint: string
+  typescriptInputFingerprint: string
   artifactPaths: string[]
   projectRoot: string
 }
@@ -191,6 +196,7 @@ type BuildCacheOptions = {
   cacheStatePath?: string
   projectRoot?: string
   precomputedInputFingerprint?: string
+  precomputedTypescriptInputFingerprint?: string
 }
 
 type CommandOutputMonitoringResult = {
@@ -202,6 +208,13 @@ type CommandOutputMonitoringResult = {
 type IntegrationCommandError = Error & {
   environmentUnavailableFromOutput?: boolean
   commandOutput?: string
+}
+
+type PlaywrightFailureHealthCheckOptions = {
+  baseUrl: string
+  consecutiveFailureThreshold?: number
+  quickFailureMaxDurationMs?: number
+  minProbeIntervalMs?: number
 }
 
 function resolveYarnBinary(): string {
@@ -227,6 +240,30 @@ function isPlaywrightEnvironmentUnavailableChunk(chunk: string): boolean {
   return PLAYWRIGHT_ENV_UNAVAILABLE_PATTERNS.some((pattern) => pattern.test(chunk))
 }
 
+function stripAnsiSequences(value: string): string {
+  return value.replace(ANSI_ESCAPE_REGEX, '')
+}
+
+function parsePlaywrightResultLine(line: string): { kind: 'pass' | 'fail'; durationMs: number } | null {
+  const match = line.match(/^\s*([✓✘])\s+\d+\s+.+\(([\d.]+)(ms|s)\)\s*$/u)
+  if (!match) {
+    return null
+  }
+
+  const symbol = match[1]
+  const rawDuration = Number.parseFloat(match[2] ?? '')
+  const unit = match[3]
+  if (!Number.isFinite(rawDuration) || rawDuration < 0) {
+    return null
+  }
+
+  const durationMs = unit === 's' ? Math.round(rawDuration * 1000) : Math.round(rawDuration)
+  return {
+    kind: symbol === '✘' ? 'fail' : 'pass',
+    durationMs,
+  }
+}
+
 async function runCommandWithOutputMonitoring(
   command: string,
   commandArgs: string[],
@@ -234,6 +271,7 @@ async function runCommandWithOutputMonitoring(
   opts: {
     detectEnvironmentUnavailable?: boolean
     abortOnEnvironmentUnavailable?: boolean
+    playwrightFailureHealthCheck?: PlaywrightFailureHealthCheckOptions
   } = {},
 ): Promise<CommandOutputMonitoringResult> {
   return new Promise((resolve, reject) => {
@@ -246,9 +284,62 @@ async function runCommandWithOutputMonitoring(
     let output = ''
     let environmentUnavailableFromOutput = false
     let terminatedByOutput = false
+    let trailingOutputLine = ''
+    let consecutiveQuickFailures = 0
+    let lastHealthProbeAt = 0
+    let healthProbeQueue: Promise<void> = Promise.resolve()
+
+    const failureHealthCheck = opts.playwrightFailureHealthCheck
+    const quickFailureThreshold = failureHealthCheck?.consecutiveFailureThreshold ?? PLAYWRIGHT_QUICK_FAILURE_THRESHOLD
+    const quickFailureMaxDurationMs = failureHealthCheck?.quickFailureMaxDurationMs ?? PLAYWRIGHT_QUICK_FAILURE_MAX_DURATION_MS
+    const minProbeIntervalMs = failureHealthCheck?.minProbeIntervalMs ?? PLAYWRIGHT_HEALTH_PROBE_INTERVAL_MS
+
+    const maybeProbeEnvironmentHealth = () => {
+      if (!failureHealthCheck || terminatedByOutput || environmentUnavailableFromOutput) {
+        return
+      }
+      if (consecutiveQuickFailures < quickFailureThreshold) {
+        return
+      }
+      const now = Date.now()
+      if (now - lastHealthProbeAt < minProbeIntervalMs) {
+        return
+      }
+      lastHealthProbeAt = now
+      healthProbeQueue = healthProbeQueue
+        .then(async () => {
+          const unavailable = await isEnvironmentUnavailable(failureHealthCheck.baseUrl)
+          if (unavailable && !terminatedByOutput) {
+            environmentUnavailableFromOutput = true
+            terminatedByOutput = true
+            commandHandle.kill('SIGTERM')
+          }
+        })
+        .catch(() => undefined)
+    }
+
+    const processOutputLine = (line: string) => {
+      const parsed = parsePlaywrightResultLine(line)
+      if (!parsed) {
+        return
+      }
+      if (parsed.kind === 'pass') {
+        consecutiveQuickFailures = 0
+        return
+      }
+
+      if (parsed.durationMs <= quickFailureMaxDurationMs) {
+        consecutiveQuickFailures += 1
+        maybeProbeEnvironmentHealth()
+        return
+      }
+
+      consecutiveQuickFailures = 0
+    }
 
     const handleChunk = (chunk: Buffer | string, stream: 'stdout' | 'stderr') => {
       const text = chunk.toString()
+      const normalizedText = stripAnsiSequences(text)
       if (stream === 'stdout') {
         process.stdout.write(text)
       } else {
@@ -260,12 +351,25 @@ async function runCommandWithOutputMonitoring(
         output = output.slice(-80_000)
       }
 
-      if (!environmentUnavailableFromOutput && opts.detectEnvironmentUnavailable && isPlaywrightEnvironmentUnavailableChunk(text)) {
+      if (
+        !environmentUnavailableFromOutput &&
+        opts.detectEnvironmentUnavailable &&
+        isPlaywrightEnvironmentUnavailableChunk(normalizedText)
+      ) {
         environmentUnavailableFromOutput = true
         if (opts.abortOnEnvironmentUnavailable) {
           terminatedByOutput = true
           commandHandle.kill('SIGTERM')
         }
+      }
+
+      trailingOutputLine += normalizedText
+      let newlineIndex = trailingOutputLine.indexOf('\n')
+      while (newlineIndex >= 0) {
+        const currentLine = trailingOutputLine.slice(0, newlineIndex).replace(/\r$/, '')
+        processOutputLine(currentLine)
+        trailingOutputLine = trailingOutputLine.slice(newlineIndex + 1)
+        newlineIndex = trailingOutputLine.indexOf('\n')
       }
     }
 
@@ -277,10 +381,15 @@ async function runCommandWithOutputMonitoring(
     })
     commandHandle.on('error', reject)
     commandHandle.on('exit', (code: number | null) => {
-      resolve({
-        exitCode: code,
-        output: output.trim(),
-        environmentUnavailableFromOutput: environmentUnavailableFromOutput || terminatedByOutput,
+      if (trailingOutputLine.trim().length > 0) {
+        processOutputLine(trailingOutputLine.trimEnd())
+      }
+      healthProbeQueue.finally(() => {
+        resolve({
+          exitCode: code,
+          output: output.trim(),
+          environmentUnavailableFromOutput: environmentUnavailableFromOutput || terminatedByOutput,
+        })
       })
     })
   })
@@ -289,11 +398,16 @@ async function runCommandWithOutputMonitoring(
 async function runYarnCommandWithOutputMonitoring(
   args: string[],
   environment: NodeJS.ProcessEnv,
-  opts: { detectEnvironmentUnavailable?: boolean; abortOnEnvironmentUnavailable?: boolean } = {},
+  opts: {
+    detectEnvironmentUnavailable?: boolean
+    abortOnEnvironmentUnavailable?: boolean
+    playwrightFailureHealthCheck?: PlaywrightFailureHealthCheckOptions
+  } = {},
 ): Promise<void> {
   const result = await runCommandWithOutputMonitoring(resolveYarnBinary(), ['run', ...args], environment, {
     detectEnvironmentUnavailable: opts.detectEnvironmentUnavailable,
     abortOnEnvironmentUnavailable: opts.abortOnEnvironmentUnavailable,
+    playwrightFailureHealthCheck: opts.playwrightFailureHealthCheck,
   })
 
   if (result.exitCode === 0) {
@@ -311,12 +425,17 @@ async function runYarnCommandWithOutputMonitoring(
 async function runNpxCommandWithOutputMonitoring(
   args: string[],
   environment: NodeJS.ProcessEnv,
-  opts: { detectEnvironmentUnavailable?: boolean; abortOnEnvironmentUnavailable?: boolean } = {},
+  opts: {
+    detectEnvironmentUnavailable?: boolean
+    abortOnEnvironmentUnavailable?: boolean
+    playwrightFailureHealthCheck?: PlaywrightFailureHealthCheckOptions
+  } = {},
 ): Promise<void> {
   const binary = process.platform === 'win32' ? 'npx.cmd' : 'npx'
   const result = await runCommandWithOutputMonitoring(binary, args, environment, {
     detectEnvironmentUnavailable: opts.detectEnvironmentUnavailable,
     abortOnEnvironmentUnavailable: opts.abortOnEnvironmentUnavailable,
+    playwrightFailureHealthCheck: opts.playwrightFailureHealthCheck,
   })
 
   if (result.exitCode === 0) {
@@ -555,7 +674,16 @@ async function getAllBuildInputFiles(inputPath: string, projectRoot: string): Pr
   return files
 }
 
-async function buildInputFingerprint(options: BuildCacheOptions = {}): Promise<string | null> {
+type BuildInputFingerprintFilter = (filePath: string) => boolean
+
+function isTypeScriptBuildInput(filePath: string): boolean {
+  return /\.(ts|tsx|mts|cts)$/i.test(filePath)
+}
+
+async function buildInputFingerprintWithFilter(
+  options: BuildCacheOptions = {},
+  filter?: BuildInputFingerprintFilter,
+): Promise<string | null> {
   const { inputPaths, projectRoot } = buildCacheDefaults(options)
   const seenPaths = new Set<string>()
   const absoluteFiles: string[] = []
@@ -573,6 +701,9 @@ async function buildInputFingerprint(options: BuildCacheOptions = {}): Promise<s
 
     for (const filePath of collected) {
       const resolvedPath = path.isAbsolute(filePath) ? filePath : path.resolve(projectRoot, filePath)
+      if (filter && !filter(resolvedPath)) {
+        continue
+      }
       if (!seenPaths.has(resolvedPath)) {
         seenPaths.add(resolvedPath)
         absoluteFiles.push(resolvedPath)
@@ -599,6 +730,14 @@ async function buildInputFingerprint(options: BuildCacheOptions = {}): Promise<s
   }
 
   return createHash('sha256').update(fingerprintParts.join('\n'), 'utf8').digest('hex')
+}
+
+async function buildInputFingerprint(options: BuildCacheOptions = {}): Promise<string | null> {
+  return buildInputFingerprintWithFilter(options)
+}
+
+async function buildTypeScriptInputFingerprint(options: BuildCacheOptions = {}): Promise<string | null> {
+  return buildInputFingerprintWithFilter(options, isTypeScriptBuildInput)
 }
 
 async function readBuildCacheState(cacheStatePath: string): Promise<BuildCacheState | null> {
@@ -632,6 +771,12 @@ async function readBuildCacheState(cacheStatePath: string): Promise<BuildCacheSt
   if (typeof maybeState.inputFingerprint !== 'string' || maybeState.inputFingerprint.length === 0) {
     return null
   }
+  if (
+    typeof maybeState.typescriptInputFingerprint !== 'string'
+    || maybeState.typescriptInputFingerprint.length === 0
+  ) {
+    return null
+  }
   if (!Array.isArray(maybeState.artifactPaths) || maybeState.artifactPaths.length === 0) {
     return null
   }
@@ -643,12 +788,17 @@ async function readBuildCacheState(cacheStatePath: string): Promise<BuildCacheSt
     version: BUILD_CACHE_STATE_VERSION,
     builtAt: maybeState.builtAt,
     inputFingerprint: maybeState.inputFingerprint,
+    typescriptInputFingerprint: maybeState.typescriptInputFingerprint,
     artifactPaths: maybeState.artifactPaths.filter((entry): entry is string => typeof entry === 'string'),
     projectRoot: maybeState.projectRoot,
   }
 }
 
-async function writeBuildCacheState(inputFingerprint: string, options: BuildCacheOptions = {}): Promise<void> {
+async function writeBuildCacheState(
+  inputFingerprint: string,
+  typescriptInputFingerprint: string,
+  options: BuildCacheOptions = {},
+): Promise<void> {
   const defaults = buildCacheDefaults(options)
   await mkdir(path.dirname(defaults.cacheStatePath), { recursive: true })
   await writeFile(
@@ -658,6 +808,7 @@ async function writeBuildCacheState(inputFingerprint: string, options: BuildCach
         version: BUILD_CACHE_STATE_VERSION,
         builtAt: Date.now(),
         inputFingerprint,
+        typescriptInputFingerprint,
         artifactPaths: defaults.artifactPaths,
         projectRoot: defaults.projectRoot,
       },
@@ -668,14 +819,10 @@ async function writeBuildCacheState(inputFingerprint: string, options: BuildCach
   )
 }
 
-async function isFileMissingOrStale(filePath: string, ttlSeconds: number): Promise<boolean> {
+async function isBuildArtifactMissing(filePath: string): Promise<boolean> {
   try {
     const artifactStats = await stat(filePath)
-    if (!artifactStats.isFile()) {
-      return true
-    }
-    const ageSeconds = Math.floor((Date.now() - artifactStats.mtimeMs) / 1000)
-    return ageSeconds > ttlSeconds
+    return !artifactStats.isFile()
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
       return true
@@ -690,15 +837,22 @@ export async function shouldReuseBuildArtifacts(
   options: BuildCacheOptions = {},
 ): Promise<boolean> {
   if (ttlSeconds <= 0) {
+    console.log(`[${logPrefix}] Build cache disabled: ${BUILD_CACHE_TTL_ENV_VAR} is set to ${ttlSeconds}.`)
     return false
   }
 
   const defaults = buildCacheDefaults(options)
   const currentFingerprint = options.precomputedInputFingerprint ?? (await buildInputFingerprint(defaults))
+  const currentTypeScriptFingerprint = options.precomputedTypescriptInputFingerprint
+    ?? (await buildTypeScriptInputFingerprint(defaults))
   if (!currentFingerprint) {
     console.log(
       `[${logPrefix}] Build cache disabled: unable to collect build input fingerprints from tracked sources.`,
     )
+    return false
+  }
+  if (!currentTypeScriptFingerprint) {
+    console.log(`[${logPrefix}] Build cache disabled: unable to collect TypeScript input fingerprints from tracked sources.`)
     return false
   }
 
@@ -708,23 +862,39 @@ export async function shouldReuseBuildArtifacts(
     return false
   }
 
-  if (state.inputFingerprint !== currentFingerprint) {
-    console.log(`[${logPrefix}] Build cache disabled: tracked source inputs changed since last build.`)
-    return false
-  }
-
   if (state.projectRoot !== defaults.projectRoot) {
     console.log(`[${logPrefix}] Build cache disabled: project root changed since cache creation.`)
     return false
   }
 
+  const buildAgeSeconds = Math.floor((Date.now() - state.builtAt) / 1000)
+  if (buildAgeSeconds > ttlSeconds) {
+    console.log(
+      `[${logPrefix}] Build cache disabled: last build age ${buildAgeSeconds}s exceeds ${BUILD_CACHE_TTL_ENV_VAR}=${ttlSeconds}s.`,
+    )
+    return false
+  }
+
+  if (state.typescriptInputFingerprint !== currentTypeScriptFingerprint) {
+    console.log(`[${logPrefix}] Build cache disabled: TypeScript source files changed since last build.`)
+    return false
+  }
+
+  if (state.inputFingerprint !== currentFingerprint) {
+    console.log(`[${logPrefix}] Build cache disabled: tracked non-TypeScript build inputs changed since last build.`)
+    return false
+  }
+
   for (const artifactPath of defaults.artifactPaths) {
-    if (await isFileMissingOrStale(artifactPath, ttlSeconds)) {
+    if (await isBuildArtifactMissing(artifactPath)) {
+      console.log(`[${logPrefix}] Build cache disabled: missing build artifact ${artifactPath}.`)
       return false
     }
   }
 
-  console.log(`[${logPrefix}] Reusing existing build artifacts (all <= ${ttlSeconds}s old).`)
+  console.log(
+    `[${logPrefix}] Reusing existing build artifacts (last build age ${buildAgeSeconds}s, TTL ${ttlSeconds}s).`,
+  )
   return true
 }
 
@@ -868,6 +1038,26 @@ async function isApplicationReachable(baseUrl: string): Promise<boolean> {
   }
 }
 
+async function isBackendLoginEndpointHealthy(baseUrl: string): Promise<boolean> {
+  try {
+    const form = new URLSearchParams()
+    form.set('email', 'integration-healthcheck@example.invalid')
+    form.set('password', 'invalid-password')
+    const response = await fetch(`${baseUrl}/api/auth/login`, {
+      method: 'POST',
+      redirect: 'manual',
+      headers: {
+        'Content-Type': 'application/x-www-form-urlencoded',
+      },
+      body: form.toString(),
+    })
+
+    return response.status === 200 || response.status === 400 || response.status === 401 || response.status === 403
+  } catch {
+    return false
+  }
+}
+
 async function acquireEphemeralEnvironmentLock(logPrefix: string): Promise<{ release: () => Promise<void> }> {
   await mkdir(path.dirname(EPHEMERAL_ENV_LOCK_PATH), { recursive: true })
   const deadlineTimestamp = Date.now() + EPHEMERAL_ENV_LOCK_TIMEOUT_MS
@@ -996,8 +1186,8 @@ export async function tryReuseExistingEnvironment(options: EphemeralRuntimeOptio
     return null
   }
 
-  const reachable = await isApplicationReachable(state.baseUrl)
-  if (!reachable) {
+  const unavailable = await isEnvironmentUnavailable(state.baseUrl)
+  if (unavailable) {
     console.log(`[${options.logPrefix}] Found stale ephemeral state. Clearing ${EPHEMERAL_ENV_FILE_PATH}.`)
     await clearEphemeralEnvironmentState()
     return null
@@ -1819,6 +2009,10 @@ async function runPlaywrightSelection(
   }
   await runNpxCommandWithOutputMonitoring(args, environment.commandEnvironment, {
     detectEnvironmentUnavailable: true,
+    abortOnEnvironmentUnavailable: true,
+    playwrightFailureHealthCheck: {
+      baseUrl: environment.baseUrl,
+    },
   })
 }
 
@@ -1838,11 +2032,18 @@ async function runIntegrationTestSuiteOnce(
   await runYarnCommandWithOutputMonitoring(testArgs, environment.commandEnvironment, {
     detectEnvironmentUnavailable: true,
     abortOnEnvironmentUnavailable: true,
+    playwrightFailureHealthCheck: {
+      baseUrl: environment.baseUrl,
+    },
   })
 }
 
 async function isEnvironmentUnavailable(baseUrl: string): Promise<boolean> {
-  return !(await isApplicationReachable(baseUrl))
+  const [applicationReachable, backendHealthy] = await Promise.all([
+    isApplicationReachable(baseUrl),
+    isBackendLoginEndpointHealthy(baseUrl),
+  ])
+  return !applicationReachable || !backendHealthy
 }
 
 function isEnvironmentUnavailableError(error: unknown): boolean {
@@ -2010,21 +2211,25 @@ export async function startEphemeralEnvironment(options: EphemeralRuntimeOptions
     try {
       const buildCacheTtlSeconds = resolveBuildCacheTtlSeconds(options.logPrefix)
       let buildInputFingerprintValue: string | null = null
+      let typeScriptInputFingerprintValue: string | null = null
       let needsBuild = true
       let shouldPersistBuildCache = true
 
       try {
         buildInputFingerprintValue = await buildInputFingerprint()
+        typeScriptInputFingerprintValue = await buildTypeScriptInputFingerprint()
         needsBuild = options.forceRebuild
           ? true
           : await shouldRebuildBuildArtifacts(buildCacheTtlSeconds, options.logPrefix, {
               precomputedInputFingerprint: buildInputFingerprintValue ?? undefined,
+              precomputedTypescriptInputFingerprint: typeScriptInputFingerprintValue ?? undefined,
             })
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error)
         shouldPersistBuildCache = false
         needsBuild = true
         buildInputFingerprintValue = null
+        typeScriptInputFingerprintValue = null
         console.warn(
           `[${options.logPrefix}] Build cache check failed (${message}). Rebuilding with cache bypass.`,
         )
@@ -2065,8 +2270,8 @@ export async function startEphemeralEnvironment(options: EphemeralRuntimeOptions
         })
       }
 
-      if (shouldPersistBuildCache && buildInputFingerprintValue) {
-        await writeBuildCacheState(buildInputFingerprintValue)
+      if (shouldPersistBuildCache && buildInputFingerprintValue && typeScriptInputFingerprintValue) {
+        await writeBuildCacheState(buildInputFingerprintValue, typeScriptInputFingerprintValue)
       }
 
       console.log(`[${options.logPrefix}] Starting application on ${applicationBaseUrl}...`)

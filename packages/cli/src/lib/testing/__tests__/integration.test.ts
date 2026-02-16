@@ -1,6 +1,6 @@
 import path from 'node:path'
 import os from 'node:os'
-import { mkdtemp, mkdir, readFile, rm, stat, utimes, writeFile } from 'node:fs/promises'
+import { mkdtemp, mkdir, readFile, rm, stat, writeFile } from 'node:fs/promises'
 import { createHash } from 'node:crypto'
 import { createResolver } from '../../resolver'
 import {
@@ -189,6 +189,7 @@ describe('integration cache and options', () => {
           version: 1,
           builtAt: Date.now(),
           inputFingerprint: initialFingerprint,
+          typescriptInputFingerprint: initialFingerprint,
           artifactPaths: [artifactPath],
           projectRoot: tempRoot,
         }, null, 2)}\n`,
@@ -214,16 +215,15 @@ describe('integration cache and options', () => {
         }),
       ).resolves.toBe(false)
 
-      const oldDate = new Date(Date.now() - 240_000)
-      await utimes(artifactPath, oldDate, oldDate)
       await writeFile(sourceFile, 'const value = 1')
       const refreshedFingerprint = await resolveBuildCacheFingerprint(tempRoot, sourceFile)
       await writeFile(
         cacheStatePath,
         `${JSON.stringify({
           version: 1,
-          builtAt: Date.now(),
+          builtAt: Date.now() - 240_000,
           inputFingerprint: refreshedFingerprint,
+          typescriptInputFingerprint: refreshedFingerprint,
           artifactPaths: [artifactPath],
           projectRoot: tempRoot,
         }, null, 2)}\n`,
