@@ -1032,6 +1032,24 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
         transformedItems = await decorateItemsWithCustomFields(transformedItems, ctx)
         profiler.mark('custom_fields_complete', { itemCount: transformedItems.length })
 
+        if (opts.list?.entityId && request) {
+          try {
+            const { resolveLocaleFromRequest } = await import('@open-mercato/core/modules/translations/lib/locale')
+            const locale = resolveLocaleFromRequest(request)
+            if (locale) {
+              const { applyTranslationOverlays } = await import('@open-mercato/core/modules/translations/lib/apply')
+              transformedItems = await applyTranslationOverlays(transformedItems, {
+                entityType: String(opts.list.entityId),
+                locale,
+                tenantId: ctx.auth?.tenantId ?? null,
+                organizationId: ctx.selectedOrganizationId ?? null,
+                container: ctx.container,
+              })
+            }
+          } catch {}
+          profiler.mark('translation_overlays_complete', { itemCount: transformedItems.length })
+        }
+
         await logCrudAccess({
           container: ctx.container,
           auth: ctx.auth,
@@ -1179,6 +1197,25 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
       profiler.mark('orm_query_complete', { itemCount: Array.isArray(list) ? list.length : 0 })
       list = await decorateItemsWithCustomFields(list, ctx)
       profiler.mark('fallback_custom_fields_complete', { itemCount: Array.isArray(list) ? list.length : 0 })
+
+      if (opts.list?.entityId && request) {
+        try {
+          const { resolveLocaleFromRequest } = await import('@open-mercato/core/modules/translations/lib/locale')
+          const locale = resolveLocaleFromRequest(request)
+          if (locale) {
+            const { applyTranslationOverlays } = await import('@open-mercato/core/modules/translations/lib/apply')
+            list = await applyTranslationOverlays(list, {
+              entityType: String(opts.list.entityId),
+              locale,
+              tenantId: ctx.auth?.tenantId ?? null,
+              organizationId: ctx.selectedOrganizationId ?? null,
+              container: ctx.container,
+            })
+          }
+        } catch {}
+        profiler.mark('fallback_translation_overlays_complete', { itemCount: Array.isArray(list) ? list.length : 0 })
+      }
+
       await logCrudAccess({
         container: ctx.container,
         auth: ctx.auth,

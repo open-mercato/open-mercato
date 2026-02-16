@@ -364,7 +364,7 @@ export const searchConfig: SearchModuleConfig = {
       },
       fieldPolicy: {
         searchable: ['title', 'description'],
-        excluded: ['metadata', 'localized_content'],
+        excluded: ['metadata'],
       },
     },
     {
