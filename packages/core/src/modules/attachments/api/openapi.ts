@@ -79,7 +79,7 @@ export const partitionSchema = z.object({
 })
 
 export const partitionListResponseSchema = z.object({
-  data: z.array(partitionSchema),
+  items: z.array(partitionSchema),
 })
 
 // ============================================================================
@@ -95,4 +95,56 @@ export const transferResponseSchema = z.object({
   success: z.boolean(),
   message: z.string(),
   attachment: attachmentSchema.optional(),
+})
+
+// ============================================================================
+// Partition Management Schemas
+// ============================================================================
+
+export const partitionCreateSchema = z.object({
+  code: z
+    .string()
+    .min(2)
+    .max(60)
+    .regex(/^[A-Za-z0-9_-]+$/)
+    .describe('Partition code (letters, numbers, dashes, underscores)'),
+  title: z.string().min(1).max(120).describe('Partition title'),
+  description: z.string().max(500).nullable().optional().describe('Optional description'),
+  isPublic: z.boolean().optional().describe('Whether partition is publicly accessible'),
+  requiresOcr: z.boolean().optional().describe('Whether OCR should be performed on uploads'),
+  ocrModel: z.string().max(50).nullable().optional().describe('OCR model to use'),
+})
+
+export const partitionUpdateSchema = partitionCreateSchema.extend({
+  id: z.string().uuid().describe('Partition ID'),
+})
+
+export const partitionResponseSchema = z.object({
+  item: partitionSchema,
+})
+
+// ============================================================================
+// Transfer Schemas (Extended)
+// ============================================================================
+
+export const transferAttachmentsRequestSchema = z.object({
+  entityId: z.string().min(1).describe('Entity type identifier'),
+  attachmentIds: z.array(z.string().uuid()).min(1).describe('Array of attachment IDs to transfer'),
+  fromRecordId: z.string().min(1).optional().describe('Optional source record ID'),
+  toRecordId: z.string().min(1).describe('Target record ID'),
+})
+
+export const transferAttachmentsResponseSchema = z.object({
+  ok: z.literal(true),
+  updated: z.number().int().describe('Number of attachments transferred'),
+})
+
+// ============================================================================
+// Image Serving Schemas
+// ============================================================================
+
+export const imageQuerySchema = z.object({
+  width: z.coerce.number().int().min(1).max(4000).optional().describe('Target width in pixels (max 4000)'),
+  height: z.coerce.number().int().min(1).max(4000).optional().describe('Target height in pixels (max 4000)'),
+  cropType: z.enum(['cover', 'contain']).optional().describe('Resize behavior: cover (crop to fill) or contain (fit within bounds)'),
 })

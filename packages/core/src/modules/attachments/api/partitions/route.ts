@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
 import { z } from 'zod'
+import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { Attachment, AttachmentPartition } from '../../data/entities'
@@ -7,6 +8,14 @@ import { ensureDefaultPartitions, DEFAULT_ATTACHMENT_PARTITIONS, sanitizePartiti
 import { resolvePartitionEnvKey } from '../../lib/partitionEnv'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { resolveDefaultAttachmentOcrEnabled } from '../../lib/ocrConfig'
+import {
+  attachmentsTag,
+  partitionCreateSchema,
+  partitionUpdateSchema,
+  partitionResponseSchema,
+  partitionListResponseSchema,
+  attachmentErrorSchema,
+} from '../openapi'
 
 const partitionBaseSchema = z.object({
   code: z
@@ -189,4 +198,69 @@ export async function DELETE(req: Request) {
   }
   await em.removeAndFlush(entry)
   return NextResponse.json({ ok: true })
+}
+
+export const openApi: OpenApiRouteDoc = {
+  tag: attachmentsTag,
+  summary: 'Attachment partition management',
+  methods: {
+    GET: {
+      summary: 'List all attachment partitions',
+      description: 'Returns all configured attachment partitions with storage settings, OCR configuration, and access control settings.',
+      responses: [
+        { status: 200, description: 'List of partitions', schema: partitionListResponseSchema },
+      ],
+      errors: [
+        { status: 401, description: 'Unauthorized', schema: attachmentErrorSchema },
+      ],
+    },
+    POST: {
+      summary: 'Create new partition',
+      description: 'Creates a new attachment partition with specified storage and OCR settings. Requires unique partition code.',
+      requestBody: {
+        contentType: 'application/json',
+        schema: partitionCreateSchema,
+      },
+      responses: [
+        { status: 201, description: 'Partition created successfully', schema: partitionResponseSchema },
+      ],
+      errors: [
+        { status: 400, description: 'Invalid payload or partition code', schema: attachmentErrorSchema },
+        { status: 401, description: 'Unauthorized', schema: attachmentErrorSchema },
+        { status: 403, description: 'Partitions locked in demo mode', schema: attachmentErrorSchema },
+        { status: 409, description: 'Partition code already exists', schema: attachmentErrorSchema },
+      ],
+    },
+    PUT: {
+      summary: 'Update partition',
+      description: 'Updates an existing partition. Partition code cannot be changed. Title, description, OCR settings, and access control can be modified.',
+      requestBody: {
+        contentType: 'application/json',
+        schema: partitionUpdateSchema,
+      },
+      responses: [
+        { status: 200, description: 'Partition updated successfully', schema: partitionResponseSchema },
+      ],
+      errors: [
+        { status: 400, description: 'Invalid payload or code change attempt', schema: attachmentErrorSchema },
+        { status: 401, description: 'Unauthorized', schema: attachmentErrorSchema },
+        { status: 403, description: 'Partitions locked in demo mode', schema: attachmentErrorSchema },
+        { status: 404, description: 'Partition not found', schema: attachmentErrorSchema },
+      ],
+    },
+    DELETE: {
+      summary: 'Delete partition',
+      description: 'Deletes a partition. Default partitions cannot be deleted. Partitions with existing attachments cannot be deleted.',
+      responses: [
+        { status: 200, description: 'Partition deleted successfully', schema: z.object({ ok: z.literal(true) }) },
+      ],
+      errors: [
+        { status: 400, description: 'Invalid ID or default partition deletion attempt', schema: attachmentErrorSchema },
+        { status: 401, description: 'Unauthorized', schema: attachmentErrorSchema },
+        { status: 403, description: 'Partitions locked in demo mode', schema: attachmentErrorSchema },
+        { status: 404, description: 'Partition not found', schema: attachmentErrorSchema },
+        { status: 409, description: 'Partition in use', schema: attachmentErrorSchema },
+      ],
+    },
+  },
 }
