@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
 import { z } from 'zod'
+import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { EntityManager } from '@mikro-orm/postgresql'
@@ -9,6 +10,12 @@ import { readAttachmentMetadata } from '../../lib/metadata'
 import type { QueryEngine } from '@open-mercato/shared/lib/query/types'
 import { applyAssignmentEnrichments, resolveAssignmentEnrichments } from '../../lib/assignmentDetails'
 import { escapeLikePattern } from '@open-mercato/shared/lib/db/escapeLikePattern'
+import {
+  attachmentsTag,
+  attachmentListQuerySchema as openApiListQuerySchema,
+  attachmentListResponseSchema,
+  attachmentErrorSchema,
+} from '../openapi'
 
 const listQuerySchema = z.object({
   page: z.coerce.number().min(1).default(1),
@@ -170,4 +177,23 @@ export async function GET(req: Request) {
       isPublic: entry.isPublic ?? false,
     })),
   })
+}
+
+export const openApi: OpenApiRouteDoc = {
+  tag: attachmentsTag,
+  summary: 'Attachment library management',
+  methods: {
+    GET: {
+      summary: 'List attachments',
+      description: 'Returns paginated list of attachments with optional filtering by search term, partition, and tags. Includes available tags and partitions.',
+      query: openApiListQuerySchema,
+      responses: [
+        { status: 200, description: 'Attachments list with pagination and metadata', schema: attachmentListResponseSchema },
+      ],
+      errors: [
+        { status: 400, description: 'Invalid query parameters', schema: attachmentErrorSchema },
+        { status: 401, description: 'Unauthorized', schema: attachmentErrorSchema },
+      ],
+    },
+  },
 }
