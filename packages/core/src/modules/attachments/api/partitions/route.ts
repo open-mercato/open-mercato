@@ -17,23 +17,6 @@ import {
   attachmentErrorSchema,
 } from '../openapi'
 
-const partitionBaseSchema = z.object({
-  code: z
-    .string()
-    .min(2)
-    .max(60)
-    .regex(/^[A-Za-z0-9_-]+$/, 'Invalid code. Use letters, numbers, dashes, or underscores.'),
-  title: z.string().min(1).max(120),
-  description: z.string().max(500).optional().nullable(),
-  isPublic: z.boolean().optional(),
-  requiresOcr: z.boolean().optional(),
-  ocrModel: z.string().max(50).optional().nullable(),
-})
-
-const partitionUpdateSchema = partitionBaseSchema.extend({
-  id: z.string().uuid(),
-})
-
 const deleteSchema = z.object({
   id: z.string().uuid(),
 })
@@ -95,7 +78,7 @@ export async function POST(req: Request) {
   } catch {
     json = null
   }
-  const parsed = partitionBaseSchema.safeParse(json)
+  const parsed = partitionCreateSchema.safeParse(json)
   if (!parsed.success) {
     return NextResponse.json({ error: 'Invalid payload' }, { status: 400 })
   }
