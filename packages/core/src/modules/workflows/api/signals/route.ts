@@ -1,9 +1,16 @@
 import { NextRequest, NextResponse } from 'next/server'
+import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/directory/utils/organizationScope'
 import { z } from 'zod'
 import { sendSignalByCorrelationKey } from '../../lib/signal-handler'
+import {
+  workflowsTag,
+  registerSignalRequestSchema,
+  registerSignalResponseSchema,
+  workflowErrorSchema,
+} from '../openapi'
 
 export const metadata = {
   requireAuth: true,
@@ -78,4 +85,28 @@ export async function POST(request: NextRequest) {
       { status: 500 }
     )
   }
+}
+
+export const openApi: OpenApiRouteDoc = {
+  tag: workflowsTag,
+  summary: 'Send signal by correlation key',
+  methods: {
+    POST: {
+      summary: 'Send signal to workflows by correlation key',
+      description: 'Sends a signal to all workflow instances waiting for the specified signal that match the correlation key. Returns the count of workflows that received the signal.',
+      requestBody: {
+        contentType: 'application/json',
+        schema: registerSignalRequestSchema,
+      },
+      responses: [
+        { status: 200, description: 'Signal sent to matching workflows', schema: registerSignalResponseSchema },
+      ],
+      errors: [
+        { status: 400, description: 'Missing tenant or organization context', schema: workflowErrorSchema },
+        { status: 401, description: 'Unauthorized', schema: workflowErrorSchema },
+        { status: 403, description: 'Insufficient permissions', schema: workflowErrorSchema },
+        { status: 500, description: 'Internal server error', schema: workflowErrorSchema },
+      ],
+    },
+  },
 }
