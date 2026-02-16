@@ -120,37 +120,7 @@ export const openApi: OpenApiRouteDoc = {
   methods: {
     GET: {
       summary: 'Serve image with optional resizing',
-      description: 'Returns an image attachment with optional on-the-fly resizing and cropping. Resized images are cached for performance. Only works with image MIME types. Supports width/height constraints and cover/contain crop modes.',
-      parameters: [
-        {
-          name: 'id',
-          in: 'path',
-          description: 'Attachment UUID',
-          required: true,
-          schema: z.string().uuid(),
-        },
-        {
-          name: 'width',
-          in: 'query',
-          description: 'Target width in pixels (1-4000)',
-          required: false,
-          schema: z.coerce.number().int().min(1).max(4000),
-        },
-        {
-          name: 'height',
-          in: 'query',
-          description: 'Target height in pixels (1-4000)',
-          required: false,
-          schema: z.coerce.number().int().min(1).max(4000),
-        },
-        {
-          name: 'cropType',
-          in: 'query',
-          description: 'Resize behavior: "cover" crops to fill dimensions, "contain" fits within bounds',
-          required: false,
-          schema: z.enum(['cover', 'contain']),
-        },
-      ],
+      description: 'Returns an image attachment with optional on-the-fly resizing and cropping. Resized images are cached for performance. Only works with image MIME types. Path parameter: {id} - Attachment UUID. Query parameters: ?width=N (1-4000 pixels), ?height=N (1-4000 pixels), ?cropType=cover|contain (resize behavior).',
       responses: [
         {
           status: 200,

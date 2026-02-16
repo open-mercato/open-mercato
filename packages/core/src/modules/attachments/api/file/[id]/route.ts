@@ -95,24 +95,7 @@ export const openApi: OpenApiRouteDoc = {
     GET: {
       summary: "Download or serve attachment file",
       description:
-        "Returns the raw file content for an attachment. Supports optional download parameter to force download instead of inline display. Access control is enforced based on partition settings.",
-      parameters: [
-        {
-          name: "id",
-          in: "path",
-          description: "Attachment UUID",
-          required: true,
-          schema: z.string().uuid(),
-        },
-        {
-          name: "download",
-          in: "query",
-          description:
-            'Set to "1" to force file download with Content-Disposition header',
-          required: false,
-          schema: z.enum(["1"]),
-        },
-      ],
+        "Returns the raw file content for an attachment. Path parameter: {id} - Attachment UUID. Query parameter: ?download=1 - Force file download with Content-Disposition header. Access control is enforced based on partition settings.",
       responses: [
         {
           status: 200,
