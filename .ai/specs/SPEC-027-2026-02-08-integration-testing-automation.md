@@ -609,3 +609,11 @@ npx playwright install chromium
 - Added root script alias: `yarn test:integration:coverage`
 - `test:integration:coverage` now measures runtime code coverage using Node V8 + Playwright integration runs
 - Added `test:integration:spec-coverage` to preserve scenario-to-test mapping coverage (`TC-*`)
+
+### 2026-02-16
+- Added an exclusive filesystem lock for ephemeral environment bootstrap in `packages/cli/src/lib/testing/integration.ts`
+- Lock waits up to 60 seconds for ongoing environment preparation to finish, preventing duplicate concurrent builds
+- Reused ephemeral runs now apply `captureScreenshots` from `.ai/qa/ephemeral-env.json` as the effective runtime setting
+- Added build artifact freshness cache for ephemeral test bootstrapping; build pipeline is skipped when artifacts are present and younger than TTL
+- Added env-configurable TTL via `OM_INTEGRATION_BUILD_CACHE_TTL_SECONDS` (default `120`)
+- Added `--force-rebuild` flag for ephemeral integration commands to bypass build cache and execute full build pipeline

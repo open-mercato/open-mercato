@@ -18,6 +18,6 @@ test.describe('TC-SALES-007: Shipment Recording', () => {
     const shipmentResult = await addShipment(page);
     expect(shipmentResult.added, 'Shipment should be saved successfully').toBeTruthy();
     await page.getByRole('button', { name: /^Shipments$/i }).click();
-    await expect(page.getByText(shipmentResult.trackingNumber).first()).toBeVisible();
+    await expect(page.getByText(new RegExp(`Shipment\\s+${shipmentResult.shipmentNumber}`, 'i')).first()).toBeVisible();
   });
 });

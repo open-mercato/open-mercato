@@ -20,6 +20,6 @@ test.describe('TC-SALES-018: Shipment Cost Impact on Totals', () => {
     expect(grossAfterShipment).toBeGreaterThan(grossBeforeShipment);
 
     await page.getByRole('button', { name: /^Shipments$/i }).click();
-    await expect(page.getByText(shipmentResult.trackingNumber).first()).toBeVisible();
+    await expect(page.getByText(new RegExp(`Shipment\\s+${shipmentResult.shipmentNumber}`, 'i')).first()).toBeVisible();
   });
 });
