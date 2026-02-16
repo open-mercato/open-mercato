@@ -8,6 +8,7 @@ import {
   parseIntegrationCoverageOptions,
   parseInteractiveIntegrationOptions,
   parseOptions,
+  shouldUseIsolatedPortForFreshEnvironment,
   tryReuseExistingEnvironment,
   writeEphemeralEnvironmentState,
   readEphemeralEnvironmentState,
@@ -159,6 +160,38 @@ describe('integration cache and options', () => {
     expect(parseInteractiveIntegrationOptions(['--no-reuse-env'])).toMatchObject({ reuseExisting: false })
     expect(parseIntegrationCoverageOptions(['--force-rebuild'])).toMatchObject({ forceRebuild: true })
     expect(parseIntegrationCoverageOptions(['--no-reuse-env'])).toMatchObject({ reuseExisting: false })
+  })
+
+  it('uses isolated port for fresh environment when reuse is disabled or stale state exists', () => {
+    const existingState = {
+      status: 'running' as const,
+      baseUrl: 'http://127.0.0.1:5001',
+      port: 5001,
+      source: 'integration',
+      captureScreenshots: true,
+      startedAt: new Date().toISOString(),
+    }
+
+    expect(
+      shouldUseIsolatedPortForFreshEnvironment({
+        reuseExisting: false,
+        existingStateBeforeReuseAttempt: null,
+      }),
+    ).toBe(true)
+
+    expect(
+      shouldUseIsolatedPortForFreshEnvironment({
+        reuseExisting: true,
+        existingStateBeforeReuseAttempt: existingState,
+      }),
+    ).toBe(true)
+
+    expect(
+      shouldUseIsolatedPortForFreshEnvironment({
+        reuseExisting: true,
+        existingStateBeforeReuseAttempt: null,
+      }),
+    ).toBe(false)
   })
 
   it('resolves build cache TTL from env variable', () => {

@@ -112,8 +112,8 @@ yarn test:integration:ephemeral -- --filter sales/TC-SALES-007.spec.ts --no-scre
 
 Notes:
 
-- Ephemeral state is written to `.ai/qa/ephemeral-env.md`; read `base_url` from this file before running manual Playwright commands.
-- Default ephemeral port is `5001` when available; fallback ports are recorded in `.ai/qa/ephemeral-env.md`.
+- Ephemeral state is written to `.ai/qa/ephemeral-env.json`; read `baseUrl` from this file before running manual Playwright commands.
+- Default ephemeral port is `5001` when available; fallback ports are recorded in `.ai/qa/ephemeral-env.json`.
 - Use `--workers` only if tests do not share mutable state.
 - Keep full `yarn test:integration:ephemeral` for pre-merge confidence and CI parity.
 
@@ -135,7 +135,7 @@ Use interactive mode when you want to keep one ephemeral app/database running an
 yarn test:integration:ephemeral:interactive
 ```
 
-The command writes active environment details to `.ai/qa/ephemeral-env.md` and clears the file when the environment is closed.
+The command writes active environment details to `.ai/qa/ephemeral-env.json` and clears the file when the environment is closed.
 
 Menu actions:
 

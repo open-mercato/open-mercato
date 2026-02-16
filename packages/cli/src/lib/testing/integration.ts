@@ -102,6 +102,13 @@ type IntegrationCoverageReport = {
   testsWithoutScenarioIds: string[]
 }
 
+export function shouldUseIsolatedPortForFreshEnvironment(options: {
+  reuseExisting: boolean | undefined
+  existingStateBeforeReuseAttempt: EphemeralEnvironmentState | null
+}): boolean {
+  return options.reuseExisting === false || options.existingStateBeforeReuseAttempt !== null
+}
+
 type EphemeralEnvironmentState = {
   status: 'running'
   baseUrl: string
@@ -2293,11 +2300,18 @@ export async function startEphemeralEnvironment(options: EphemeralRuntimeOptions
     }
 
     const appWorkspace = '@open-mercato/app'
-    const shouldUseIsolatedPort = options.reuseExisting === false || existingStateBeforeReuseAttempt !== null
+    const shouldUseIsolatedPort = shouldUseIsolatedPortForFreshEnvironment({
+      reuseExisting: options.reuseExisting,
+      existingStateBeforeReuseAttempt,
+    })
     const applicationPort = shouldUseIsolatedPort
       ? await getFreePort()
       : await getPreferredPort(DEFAULT_EPHEMERAL_APP_PORT)
-    if (shouldUseIsolatedPort) {
+    if (options.reuseExisting === false) {
+      console.log(
+        `[${options.logPrefix}] Starting a fresh ephemeral instance on isolated port ${applicationPort} because --no-reuse-env is enabled.`,
+      )
+    } else if (shouldUseIsolatedPort) {
       console.log(
         `[${options.logPrefix}] Existing ephemeral environment could not be reused. Starting a fresh instance on isolated port ${applicationPort}.`,
       )
@@ -2419,12 +2433,13 @@ export async function startEphemeralEnvironment(options: EphemeralRuntimeOptions
       }
 
       console.log(`[${options.logPrefix}] Starting application on ${applicationBaseUrl}...`)
-      applicationProcess = startYarnWorkspaceCommand(appWorkspace, 'start', [], commandEnvironment, {
+      const startedAppProcess = startYarnWorkspaceCommand(appWorkspace, 'start', [], commandEnvironment, {
         silent: !options.verbose,
       })
+      applicationProcess = startedAppProcess
 
       await runTimedStep(options.logPrefix, 'Waiting for application readiness', { expectedSeconds: 12 }, async () =>
-        waitForApplicationReadiness(applicationBaseUrl, applicationProcess))
+        waitForApplicationReadiness(applicationBaseUrl, startedAppProcess))
       console.log(`[${options.logPrefix}] Application is ready at ${applicationBaseUrl}`)
       await writeEphemeralEnvironmentState({
         baseUrl: applicationBaseUrl,
