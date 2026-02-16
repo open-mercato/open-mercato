@@ -2,6 +2,7 @@ import { GenericContainer } from 'testcontainers'
 import { spawn, type ChildProcess, type StdioOptions } from 'node:child_process'
 import { createServer } from 'node:net'
 import { mkdir, readdir, readFile, rm, stat, writeFile } from 'node:fs/promises'
+import { createHash } from 'node:crypto'
 import path from 'node:path'
 import { createInterface, type Interface } from 'node:readline/promises'
 import { stdin as input, stdout as output } from 'node:process'
@@ -105,6 +106,8 @@ type EphemeralEnvironmentState = {
   startedAt: string
 }
 
+type PlaywrightRunOptions = Pick<InteractiveIntegrationOptions, 'verbose' | 'captureScreenshots' | 'workers' | 'retries'>
+
 const APP_READY_TIMEOUT_MS = 90_000
 const APP_READY_INTERVAL_MS = 1_000
 const DEFAULT_EPHEMERAL_APP_PORT = 5001
@@ -117,11 +120,27 @@ const projectRootDirectory = resolver.getRootDir()
 const EPHEMERAL_ENV_FILE_PATH = path.join(projectRootDirectory, '.ai', 'qa', 'ephemeral-env.json')
 const EPHEMERAL_ENV_LOCK_PATH = path.join(projectRootDirectory, '.ai', 'qa', 'ephemeral-env.lock')
 const LEGACY_EPHEMERAL_ENV_FILE_PATH = path.join(projectRootDirectory, '.ai', 'qa', 'ephemeral-env.md')
+const EPHEMERAL_BUILD_CACHE_STATE_PATH = path.join(projectRootDirectory, '.ai', 'qa', 'ephemeral-build-cache.json')
 const APP_BUILD_ARTIFACTS = [
   path.join(projectRootDirectory, 'apps', 'mercato', '.next', 'BUILD_ID'),
   path.join(projectRootDirectory, 'apps', 'mercato', '.mercato', 'generated', 'modules.generated.ts'),
   path.join(projectRootDirectory, 'packages', 'core', 'dist', 'index.js'),
   path.join(projectRootDirectory, 'packages', 'ui', 'dist', 'index.js'),
+]
+const APP_BUILD_INPUT_PATHS = [
+  path.join(projectRootDirectory, 'apps', 'mercato', 'src'),
+  path.join(projectRootDirectory, 'apps', 'mercato', 'package.json'),
+  path.join(projectRootDirectory, 'apps', 'mercato', 'next.config.ts'),
+  path.join(projectRootDirectory, 'apps', 'mercato', 'tsconfig.json'),
+  path.join(projectRootDirectory, 'packages', 'core', 'src'),
+  path.join(projectRootDirectory, 'packages', 'core', 'package.json'),
+  path.join(projectRootDirectory, 'packages', 'core', 'tsconfig.json'),
+  path.join(projectRootDirectory, 'packages', 'ui', 'src'),
+  path.join(projectRootDirectory, 'packages', 'ui', 'package.json'),
+  path.join(projectRootDirectory, 'packages', 'ui', 'tsconfig.json'),
+  path.join(projectRootDirectory, 'package.json'),
+  path.join(projectRootDirectory, 'tsconfig.base.json'),
+  path.join(projectRootDirectory, 'yarn.lock'),
 ]
 const EXPECTED_TEST_FOLDERS = ['auth', 'catalog', 'crm', 'sales', 'admin', 'api', 'integration'] as const
 const FOLDER_TO_CATEGORY_CODE: Record<string, string> = {
@@ -132,6 +151,36 @@ const FOLDER_TO_CATEGORY_CODE: Record<string, string> = {
   sales: 'SALES',
   api: 'API',
   integration: 'INT',
+}
+const BUILD_CACHE_STATE_VERSION = 1
+const IGNORED_EPHEMERAL_BUILD_CACHE_DIRS = new Set([
+  'node_modules',
+  '.next',
+  'dist',
+  '.turbo',
+  '.yarn',
+  '.cache',
+  'tmp',
+  'temp',
+  'coverage',
+  '.git',
+  '.ai',
+])
+
+type BuildCacheState = {
+  version: number
+  builtAt: number
+  inputFingerprint: string
+  artifactPaths: string[]
+  projectRoot: string
+}
+
+type BuildCacheOptions = {
+  artifactPaths?: string[]
+  inputPaths?: string[]
+  cacheStatePath?: string
+  projectRoot?: string
+  precomputedInputFingerprint?: string
 }
 
 function resolveYarnBinary(): string {
@@ -315,7 +364,7 @@ function delay(milliseconds: number): Promise<void> {
   })
 }
 
-function resolveBuildCacheTtlSeconds(logPrefix: string): number {
+export function resolveBuildCacheTtlSeconds(logPrefix: string): number {
   const rawValue = process.env[BUILD_CACHE_TTL_ENV_VAR]
   if (!rawValue) {
     return DEFAULT_BUILD_CACHE_TTL_SECONDS
@@ -330,33 +379,218 @@ function resolveBuildCacheTtlSeconds(logPrefix: string): number {
   return parsed
 }
 
-async function getArtifactAgeSeconds(filePath: string): Promise<number | null> {
-  try {
-    const artifactStats = await stat(filePath)
-    if (!artifactStats.isFile()) {
-      return null
+function buildCacheDefaults(overrides: BuildCacheOptions = {}): {
+  artifactPaths: string[]
+  inputPaths: string[]
+  cacheStatePath: string
+  projectRoot: string
+} {
+  return {
+    artifactPaths: overrides.artifactPaths ?? APP_BUILD_ARTIFACTS,
+    inputPaths: overrides.inputPaths ?? APP_BUILD_INPUT_PATHS,
+    cacheStatePath: overrides.cacheStatePath ?? EPHEMERAL_BUILD_CACHE_STATE_PATH,
+    projectRoot: overrides.projectRoot ?? projectRootDirectory,
+  }
+}
+
+function isIgnoredBuildCacheDirectory(entryName: string): boolean {
+  return IGNORED_EPHEMERAL_BUILD_CACHE_DIRS.has(entryName) || entryName.startsWith('.')
+}
+
+async function getAllBuildInputFiles(inputPath: string, projectRoot: string): Promise<string[]> {
+  const normalized = path.normalize(inputPath)
+  const pathStats = await stat(normalized)
+  if (pathStats.isFile()) {
+    return [path.relative(projectRoot, normalized)]
+  }
+  if (!pathStats.isDirectory()) {
+    return []
+  }
+
+  const entries = await readdir(normalized, { withFileTypes: true })
+  const files: string[] = []
+  for (const entry of entries) {
+    if (entry.isDirectory() && isIgnoredBuildCacheDirectory(entry.name)) {
+      continue
     }
-    const ageSeconds = Math.floor((Date.now() - artifactStats.mtimeMs) / 1000)
-    return Math.max(0, ageSeconds)
+    if (entry.isDirectory()) {
+      const nested = await getAllBuildInputFiles(path.join(normalized, entry.name), projectRoot)
+      files.push(...nested)
+      continue
+    }
+    if (!entry.isFile()) {
+      continue
+    }
+    files.push(path.join(normalized, entry.name))
+  }
+  return files
+}
+
+async function buildInputFingerprint(options: BuildCacheOptions = {}): Promise<string | null> {
+  const { inputPaths, projectRoot } = buildCacheDefaults(options)
+  const seenPaths = new Set<string>()
+  const absoluteFiles: string[] = []
+
+  for (const inputPath of inputPaths) {
+    let collected: string[]
+    try {
+      collected = await getAllBuildInputFiles(inputPath, projectRoot)
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
+        return null
+      }
+      throw error
+    }
+
+    for (const filePath of collected) {
+      const resolvedPath = path.isAbsolute(filePath) ? filePath : path.resolve(projectRoot, filePath)
+      if (!seenPaths.has(resolvedPath)) {
+        seenPaths.add(resolvedPath)
+        absoluteFiles.push(resolvedPath)
+      }
+    }
+  }
+
+  if (absoluteFiles.length === 0) {
+    return null
+  }
+
+  const fingerprintParts: string[] = []
+  for (const filePath of absoluteFiles.sort()) {
+    const fileStat = await stat(filePath)
+    if (!fileStat.isFile()) {
+      continue
+    }
+    const relativePath = path.relative(projectRoot, filePath).split(path.sep).join('/')
+    fingerprintParts.push(`${relativePath}:${fileStat.size}:${Math.floor(fileStat.mtimeMs)}`)
+  }
+
+  if (fingerprintParts.length === 0) {
+    return null
+  }
+
+  return createHash('sha256').update(fingerprintParts.join('\n'), 'utf8').digest('hex')
+}
+
+async function readBuildCacheState(cacheStatePath: string): Promise<BuildCacheState | null> {
+  let rawText: string
+  try {
+    rawText = await readFile(cacheStatePath, 'utf8')
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
       return null
     }
     throw error
   }
+
+  let parsed: unknown = null
+  try {
+    parsed = JSON.parse(rawText)
+  } catch {
+    return null
+  }
+
+  if (!parsed || typeof parsed !== 'object') {
+    return null
+  }
+  const maybeState = parsed as Partial<BuildCacheState>
+  if (maybeState.version !== BUILD_CACHE_STATE_VERSION) {
+    return null
+  }
+  if (typeof maybeState.builtAt !== 'number' || !Number.isFinite(maybeState.builtAt)) {
+    return null
+  }
+  if (typeof maybeState.inputFingerprint !== 'string' || maybeState.inputFingerprint.length === 0) {
+    return null
+  }
+  if (!Array.isArray(maybeState.artifactPaths) || maybeState.artifactPaths.length === 0) {
+    return null
+  }
+  if (typeof maybeState.projectRoot !== 'string' || maybeState.projectRoot.length === 0) {
+    return null
+  }
+
+  return {
+    version: BUILD_CACHE_STATE_VERSION,
+    builtAt: maybeState.builtAt,
+    inputFingerprint: maybeState.inputFingerprint,
+    artifactPaths: maybeState.artifactPaths.filter((entry): entry is string => typeof entry === 'string'),
+    projectRoot: maybeState.projectRoot,
+  }
 }
 
-async function shouldReuseBuildArtifacts(ttlSeconds: number, logPrefix: string): Promise<boolean> {
+async function writeBuildCacheState(inputFingerprint: string, options: BuildCacheOptions = {}): Promise<void> {
+  const defaults = buildCacheDefaults(options)
+  await mkdir(path.dirname(defaults.cacheStatePath), { recursive: true })
+  await writeFile(
+    defaults.cacheStatePath,
+    `${JSON.stringify(
+      {
+        version: BUILD_CACHE_STATE_VERSION,
+        builtAt: Date.now(),
+        inputFingerprint,
+        artifactPaths: defaults.artifactPaths,
+        projectRoot: defaults.projectRoot,
+      },
+      null,
+      2,
+    )}\n`,
+    'utf8',
+  )
+}
+
+async function isFileMissingOrStale(filePath: string, ttlSeconds: number): Promise<boolean> {
+  try {
+    const artifactStats = await stat(filePath)
+    if (!artifactStats.isFile()) {
+      return true
+    }
+    const ageSeconds = Math.floor((Date.now() - artifactStats.mtimeMs) / 1000)
+    return ageSeconds > ttlSeconds
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
+      return true
+    }
+    throw error
+  }
+}
+
+export async function shouldReuseBuildArtifacts(
+  ttlSeconds: number,
+  logPrefix: string,
+  options: BuildCacheOptions = {},
+): Promise<boolean> {
   if (ttlSeconds <= 0) {
     return false
   }
 
-  for (const artifactPath of APP_BUILD_ARTIFACTS) {
-    const ageSeconds = await getArtifactAgeSeconds(artifactPath)
-    if (ageSeconds === null) {
-      return false
-    }
-    if (ageSeconds > ttlSeconds) {
+  const defaults = buildCacheDefaults(options)
+  const currentFingerprint = options.precomputedInputFingerprint ?? (await buildInputFingerprint(defaults))
+  if (!currentFingerprint) {
+    console.log(
+      `[${logPrefix}] Build cache disabled: unable to collect build input fingerprints from tracked sources.`,
+    )
+    return false
+  }
+
+  const state = await readBuildCacheState(defaults.cacheStatePath)
+  if (!state) {
+    console.log(`[${logPrefix}] Build cache disabled: missing or invalid cache metadata (${defaults.cacheStatePath}).`)
+    return false
+  }
+
+  if (state.inputFingerprint !== currentFingerprint) {
+    console.log(`[${logPrefix}] Build cache disabled: tracked source inputs changed since last build.`)
+    return false
+  }
+
+  if (state.projectRoot !== defaults.projectRoot) {
+    console.log(`[${logPrefix}] Build cache disabled: project root changed since cache creation.`)
+    return false
+  }
+
+  for (const artifactPath of defaults.artifactPaths) {
+    if (await isFileMissingOrStale(artifactPath, ttlSeconds)) {
       return false
     }
   }
@@ -411,7 +645,7 @@ async function getPreferredPort(preferredPort: number): Promise<number> {
   return fallbackPort
 }
 
-async function writeEphemeralEnvironmentState(input: {
+export async function writeEphemeralEnvironmentState(input: {
   baseUrl: string
   port: number
   logPrefix: string
@@ -428,12 +662,12 @@ async function writeEphemeralEnvironmentState(input: {
   await writeFile(EPHEMERAL_ENV_FILE_PATH, `${JSON.stringify(content, null, 2)}\n`, 'utf8')
 }
 
-async function clearEphemeralEnvironmentState(): Promise<void> {
+export async function clearEphemeralEnvironmentState(): Promise<void> {
   await rm(EPHEMERAL_ENV_FILE_PATH, { force: true })
   await rm(LEGACY_EPHEMERAL_ENV_FILE_PATH, { force: true })
 }
 
-async function readEphemeralEnvironmentState(): Promise<EphemeralEnvironmentState | null> {
+export async function readEphemeralEnvironmentState(): Promise<EphemeralEnvironmentState | null> {
   let sourceText = ''
   try {
     sourceText = await readFile(EPHEMERAL_ENV_FILE_PATH, 'utf8')
@@ -549,10 +783,23 @@ function isProcessRunning(processId: number): boolean {
   }
 }
 
+async function getPathAgeMilliseconds(targetPath: string): Promise<number | null> {
+  try {
+    const stats = await stat(targetPath)
+    return Date.now() - stats.mtimeMs
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
+      return null
+    }
+    throw error
+  }
+}
+
 async function clearStaleEphemeralEnvironmentLock(logPrefix: string): Promise<boolean> {
   const lockOwnerPath = path.join(EPHEMERAL_ENV_LOCK_PATH, 'owner.json')
   let ownerPid: number | null = null
 
+  let ownerReadFailed = false
   try {
     const ownerSource = await readFile(lockOwnerPath, 'utf8')
     const parsed = JSON.parse(ownerSource) as { pid?: unknown }
@@ -560,10 +807,23 @@ async function clearStaleEphemeralEnvironmentLock(logPrefix: string): Promise<bo
       ownerPid = parsed.pid
     }
   } catch {
+    ownerReadFailed = true
+  }
+
+  if (ownerPid === null) {
+    const lockAge = await getPathAgeMilliseconds(EPHEMERAL_ENV_LOCK_PATH)
+    if (lockAge === null) {
+      return false
+    }
+    if (ownerReadFailed && lockAge > EPHEMERAL_ENV_LOCK_TIMEOUT_MS) {
+      await rm(EPHEMERAL_ENV_LOCK_PATH, { recursive: true, force: true })
+      console.log(`[${logPrefix}] Removed stale ephemeral environment lock with invalid owner metadata.`)
+      return true
+    }
     return false
   }
 
-  if (ownerPid === null || isProcessRunning(ownerPid)) {
+  if (isProcessRunning(ownerPid)) {
     return false
   }
 
@@ -586,7 +846,7 @@ function buildReusableEnvironment(baseUrl: string, captureScreenshots: boolean):
   })
 }
 
-async function tryReuseExistingEnvironment(options: EphemeralRuntimeOptions): Promise<EphemeralEnvironmentHandle | null> {
+export async function tryReuseExistingEnvironment(options: EphemeralRuntimeOptions): Promise<EphemeralEnvironmentHandle | null> {
   const state = await readEphemeralEnvironmentState()
   if (!state) {
     return null
@@ -646,7 +906,7 @@ async function waitForApplicationReadiness(baseUrl: string, appProcess: ChildPro
   throw new Error(`Application did not become ready within ${APP_READY_TIMEOUT_MS / 1000} seconds`)
 }
 
-function parseOptions(rawArgs: string[]): IntegrationOptions {
+export function parseOptions(rawArgs: string[]): IntegrationOptions {
   let keep = false
   let filter: string | null = null
   let captureScreenshots: boolean | null = null
@@ -711,7 +971,7 @@ function parseOptions(rawArgs: string[]): IntegrationOptions {
   }
 }
 
-function parseEphemeralAppOptions(rawArgs: string[]): EphemeralAppOptions {
+export function parseEphemeralAppOptions(rawArgs: string[]): EphemeralAppOptions {
   let verbose = false
   let captureScreenshots: boolean | null = null
   let forceRebuild = false
@@ -744,7 +1004,7 @@ function parseEphemeralAppOptions(rawArgs: string[]): EphemeralAppOptions {
   }
 }
 
-function parseInteractiveIntegrationOptions(rawArgs: string[]): InteractiveIntegrationOptions {
+export function parseInteractiveIntegrationOptions(rawArgs: string[]): InteractiveIntegrationOptions {
   let verbose = false
   let captureScreenshots: boolean | null = null
   let workers: number | null = null
@@ -826,7 +1086,7 @@ function parseInteractiveIntegrationOptions(rawArgs: string[]): InteractiveInteg
   }
 }
 
-function parseIntegrationCoverageOptions(rawArgs: string[]): IntegrationCoverageOptions {
+export function parseIntegrationCoverageOptions(rawArgs: string[]): IntegrationCoverageOptions {
   let filter: string | null = null
   let captureScreenshots: boolean | null = null
   let verbose = false
@@ -1397,7 +1657,7 @@ export async function runIntegrationCoverageReport(rawArgs: string[]): Promise<v
 async function runPlaywrightSelection(
   environment: EphemeralEnvironmentHandle,
   selection: string | string[] | null,
-  options: InteractiveIntegrationOptions,
+  options: PlaywrightRunOptions,
 ): Promise<void> {
   const args = ['playwright', 'test', '--config', '.ai/qa/tests/playwright.config.ts']
   if (options.workers !== null) {
@@ -1513,9 +1773,12 @@ export async function startEphemeralEnvironment(options: EphemeralRuntimeOptions
 
     try {
       const buildCacheTtlSeconds = resolveBuildCacheTtlSeconds(options.logPrefix)
+      const buildInputFingerprintValue = await buildInputFingerprint()
       const useBuildCache = options.forceRebuild
         ? false
-        : await shouldReuseBuildArtifacts(buildCacheTtlSeconds, options.logPrefix)
+        : await shouldReuseBuildArtifacts(buildCacheTtlSeconds, options.logPrefix, {
+            precomputedInputFingerprint: buildInputFingerprintValue ?? undefined,
+          })
 
       console.log(`[${options.logPrefix}] Ephemeral database ready at ${databaseHost}:${databasePort}`)
       console.log(`[${options.logPrefix}] Initializing application data (includes migrations)...`)
@@ -1549,6 +1812,10 @@ export async function startEphemeralEnvironment(options: EphemeralRuntimeOptions
         await runYarnWorkspaceCommand(appWorkspace, 'build', [], commandEnvironment, {
           silent: !options.verbose,
         })
+      }
+
+      if (buildInputFingerprintValue) {
+        await writeBuildCacheState(buildInputFingerprintValue)
       }
 
       console.log(`[${options.logPrefix}] Starting application on ${applicationBaseUrl}...`)
