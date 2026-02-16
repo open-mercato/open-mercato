@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
+import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { InboxDiscrepancy, InboxEmail, InboxProposal, InboxProposalAction } from '../../../../data/entities'
@@ -21,22 +22,17 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: 'Missing email ID' }, { status: 400 })
     }
 
-    const container = await createRequestContainer()
-    const em = (container.resolve('em') as EntityManager).fork()
-    const auth = container.resolve('auth') as {
-      userId?: string | null
-      sub?: string | null
-      tenantId?: string | null
-      organizationId?: string | null
-    }
-    const userId = typeof auth.userId === 'string' ? auth.userId : typeof auth.sub === 'string' ? auth.sub : null
-    if (!userId || !auth.tenantId || !auth.organizationId) {
+    const auth = await getAuthFromRequest(req)
+    if (!auth?.sub || !auth?.tenantId || !auth?.orgId) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
+    const userId = auth.sub
+    const container = await createRequestContainer()
+    const em = (container.resolve('em') as EntityManager).fork()
 
     const email = await em.findOne(InboxEmail, {
       id,
-      organizationId: auth.organizationId,
+      organizationId: auth.orgId,
       tenantId: auth.tenantId,
       deletedAt: null,
     })

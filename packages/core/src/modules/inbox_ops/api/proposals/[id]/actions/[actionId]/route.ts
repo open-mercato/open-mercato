@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
+import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { InboxProposal, InboxProposalAction } from '../../../../../data/entities'
@@ -27,14 +28,17 @@ export async function PATCH(req: Request) {
       return NextResponse.json({ error: 'Invalid payload', details: parsed.error.issues }, { status: 400 })
     }
 
+    const auth = await getAuthFromRequest(req)
+    if (!auth?.tenantId || !auth?.orgId) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    }
     const container = await createRequestContainer()
     const em = (container.resolve('em') as EntityManager).fork()
-    const auth = container.resolve('auth') as any
 
     const action = await em.findOne(InboxProposalAction, {
       id: actionId,
       proposalId,
-      organizationId: auth.organizationId,
+      organizationId: auth.orgId,
       tenantId: auth.tenantId,
       deletedAt: null,
     })
@@ -45,7 +49,7 @@ export async function PATCH(req: Request) {
 
     const proposal = await em.findOne(InboxProposal, {
       id: proposalId,
-      organizationId: auth.organizationId,
+      organizationId: auth.orgId,
       tenantId: auth.tenantId,
       isActive: true,
       deletedAt: null,
@@ -73,7 +77,7 @@ export async function PATCH(req: Request) {
         proposalId: action.proposalId,
         actionType: action.actionType,
         tenantId: auth.tenantId,
-        organizationId: auth.organizationId,
+        organizationId: auth.orgId,
       })
     }
 

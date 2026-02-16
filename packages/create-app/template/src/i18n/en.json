@@ -432,5 +432,10 @@
   "inbox_ops.empty.step2": "We'll analyze it and propose actions",
   "inbox_ops.empty.step3": "Review and accept with one click",
   "inbox_ops.notifications.proposal_created.title": "New inbox proposal",
-  "inbox_ops.notifications.proposal_created.body": "A proposal with {actionCount} actions is ready for review"
+  "inbox_ops.notifications.proposal_created.body": "A proposal with {actionCount} actions is ready for review",
+  "inbox_ops.nav.group": "InboxOps",
+  "inbox_ops.nav.proposals": "Proposals",
+  "inbox_ops.nav.settings": "Settings",
+  "inbox_ops.nav.log": "Processing Log",
+  "inbox_ops.nav.proposal_detail": "Proposal"
 }

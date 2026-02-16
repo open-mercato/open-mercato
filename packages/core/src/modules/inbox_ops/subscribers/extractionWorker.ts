@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { EventBus } from '@open-mercato/events/types'
 import { generateObject } from 'ai'
@@ -125,7 +126,11 @@ export default async function handle(payload: EmailReceivedPayload, ctx: Resolve
 
     // Step 4: Validate prices for order/quote actions
     const orderActions = extractionResult.proposedActions
-      .map((action, index) => ({ ...action, index }))
+      .map((action, index) => {
+        let payload: Record<string, unknown> = {}
+        try { payload = typeof action.payloadJson === 'string' ? JSON.parse(action.payloadJson) : {} } catch { /* ignore */ }
+        return { ...action, payload, index }
+      })
       .filter((a) => a.actionType === 'create_order' || a.actionType === 'create_quote')
 
     const priceDiscrepancies = await validatePrices(em, orderActions, scope)
@@ -147,7 +152,9 @@ export default async function handle(payload: EmailReceivedPayload, ctx: Resolve
     const possiblyIncomplete = extractionResult.possiblyIncomplete || detectPartialForward(email)
 
     // Step 7: Create proposal + actions + discrepancies atomically
+    const proposalId = randomUUID()
     const proposal = em.create(InboxProposal, {
+      id: proposalId,
       inboxEmailId: email.id,
       summary: extractionResult.summary,
       participants: enrichedParticipants,
@@ -164,23 +171,31 @@ export default async function handle(payload: EmailReceivedPayload, ctx: Resolve
 
     // Create actions
     const allActions = [
-      ...extractionResult.proposedActions.map((action, index) =>
-        em.create(InboxProposalAction, {
-          proposalId: proposal.id,
+      ...extractionResult.proposedActions.map((action, index) => {
+        let parsedPayload: Record<string, unknown> = {}
+        try {
+          parsedPayload = typeof action.payloadJson === 'string' ? JSON.parse(action.payloadJson) : {}
+        } catch {
+          parsedPayload = {}
+        }
+        return em.create(InboxProposalAction, {
+          id: randomUUID(),
+          proposalId: proposalId,
           sortOrder: index,
           actionType: action.actionType,
           description: action.description,
-          payload: action.payload,
+          payload: parsedPayload,
           status: 'pending',
           confidence: String(action.confidence.toFixed(2)),
           requiredFeature: action.requiredFeature || REQUIRED_FEATURES_MAP[action.actionType] || null,
           organizationId: email.organizationId,
           tenantId: email.tenantId,
-        }),
-      ),
+        })
+      }),
       ...extractionResult.draftReplies.map((reply, index) =>
         em.create(InboxProposalAction, {
-          proposalId: proposal.id,
+          id: randomUUID(),
+          proposalId: proposalId,
           sortOrder: extractionResult.proposedActions.length + index,
           actionType: 'draft_reply',
           description: `Draft reply to ${reply.toName || reply.to}: ${reply.subject}`,
@@ -208,7 +223,7 @@ export default async function handle(payload: EmailReceivedPayload, ctx: Resolve
     const allDiscrepancies = [
       ...extractionResult.discrepancies.map((d) =>
         em.create(InboxDiscrepancy, {
-          proposalId: proposal.id,
+          proposalId: proposalId,
           actionId: d.actionIndex !== undefined && allActions[d.actionIndex]
             ? allActions[d.actionIndex].id
             : null,
@@ -224,7 +239,7 @@ export default async function handle(payload: EmailReceivedPayload, ctx: Resolve
       ),
       ...priceDiscrepancies.map((d) =>
         em.create(InboxDiscrepancy, {
-          proposalId: proposal.id,
+          proposalId: proposalId,
           actionId: d.actionIndex !== undefined && allActions[d.actionIndex]
             ? allActions[d.actionIndex].id
             : null,
@@ -244,7 +259,7 @@ export default async function handle(payload: EmailReceivedPayload, ctx: Resolve
     for (const match of contactMatches) {
       if (!match.match && match.participant.email) {
         const disc = em.create(InboxDiscrepancy, {
-          proposalId: proposal.id,
+          proposalId: proposalId,
           type: 'unknown_contact',
           severity: 'warning',
           description: `No matching contact found for ${match.participant.name} (${match.participant.email})`,

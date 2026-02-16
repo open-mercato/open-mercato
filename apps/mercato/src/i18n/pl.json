@@ -450,5 +450,10 @@
   "inbox_ops.empty.step2": "Przeanalizujemy go i zaproponujemy akcje",
   "inbox_ops.empty.step3": "Przejrzyj i zaakceptuj jednym kliknięciem",
   "inbox_ops.notifications.proposal_created.title": "Nowa propozycja skrzynki",
-  "inbox_ops.notifications.proposal_created.body": "Propozycja z {actionCount} akcjami jest gotowa do przeglądu"
+  "inbox_ops.notifications.proposal_created.body": "Propozycja z {actionCount} akcjami jest gotowa do przeglądu",
+  "inbox_ops.nav.group": "InboxOps",
+  "inbox_ops.nav.proposals": "Propozycje",
+  "inbox_ops.nav.settings": "Ustawienia",
+  "inbox_ops.nav.log": "Dziennik przetwarzania",
+  "inbox_ops.nav.proposal_detail": "Propozycja"
 }

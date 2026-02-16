@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import { z } from 'zod'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
+import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { findAndCountWithDecryption } from '@open-mercato/shared/lib/encryption/find'
@@ -21,18 +22,15 @@ export async function GET(req: Request) {
       pageSize: url.searchParams.get('pageSize') || undefined,
     })
 
-    const container = await createRequestContainer()
-    const em = (container.resolve('em') as EntityManager).fork()
-    const auth = container.resolve('auth') as {
-      tenantId?: string | null
-      organizationId?: string | null
-    }
-    if (!auth.tenantId || !auth.organizationId) {
+    const auth = await getAuthFromRequest(req)
+    if (!auth?.tenantId || !auth?.orgId) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
+    const container = await createRequestContainer()
+    const em = (container.resolve('em') as EntityManager).fork()
 
     const where: Record<string, unknown> = {
-      organizationId: auth.organizationId,
+      organizationId: auth.orgId,
       tenantId: auth.tenantId,
       deletedAt: null,
       isActive: true,
@@ -60,7 +58,7 @@ export async function GET(req: Request) {
         offset,
         orderBy: { createdAt: 'DESC' } as any,
       },
-      { tenantId: auth.tenantId, organizationId: auth.organizationId },
+      { tenantId: auth.tenantId, organizationId: auth.orgId },
     )
 
     return NextResponse.json({

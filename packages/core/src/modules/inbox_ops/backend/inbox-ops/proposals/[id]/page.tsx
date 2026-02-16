@@ -2,7 +2,7 @@
 
 import * as React from 'react'
 import Link from 'next/link'
-import { useRouter, useParams } from 'next/navigation'
+import { useRouter } from 'next/navigation'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
@@ -253,11 +253,20 @@ function ActionCard({
       {actionDiscrepancies.length > 0 && (
         <div className="mb-3 space-y-1">
           {actionDiscrepancies.map((d) => (
-            <div key={d.id} className={`flex items-start gap-2 text-xs rounded px-2 py-1 ${
+            <div key={d.id} className={`flex items-start gap-2 text-xs rounded px-2 py-1.5 ${
               d.severity === 'error' ? 'bg-red-50 text-red-700 dark:bg-red-950/20' : 'bg-yellow-50 text-yellow-700 dark:bg-yellow-950/20'
             }`}>
               <AlertTriangle className="h-3 w-3 mt-0.5 flex-shrink-0" />
-              <span>{d.description}</span>
+              <div>
+                <span>{d.description}</span>
+                {(d.expectedValue || d.foundValue) && (
+                  <div className="mt-0.5 text-[11px] opacity-80">
+                    {d.expectedValue && <span>Expected: {d.expectedValue}</span>}
+                    {d.expectedValue && d.foundValue && <span> · </span>}
+                    {d.foundValue && <span>Found: {d.foundValue}</span>}
+                  </div>
+                )}
+              </div>
             </div>
           ))}
         </div>
@@ -286,11 +295,10 @@ function ActionCard({
   )
 }
 
-export default function ProposalDetailPage() {
+export default function ProposalDetailPage({ params }: { params?: { id?: string } }) {
   const t = useT()
   const router = useRouter()
-  const params = useParams()
-  const proposalId = params?.id as string
+  const proposalId = params?.id
 
   const [proposal, setProposal] = React.useState<ProposalDetail | null>(null)
   const [actions, setActions] = React.useState<ActionDetail[]>([])
@@ -506,6 +514,40 @@ export default function ProposalDetailPage() {
                     </div>
                   )}
                 </div>
+
+                {/* Discrepancies not tied to a specific action */}
+                {(() => {
+                  const actionIds = new Set(actions.map((a) => a.id))
+                  const general = discrepancies.filter((d) => !d.resolved && (!d.actionId || !actionIds.has(d.actionId)))
+                  if (general.length === 0) return null
+                  return (
+                    <div className="border rounded-lg p-3 md:p-4 bg-yellow-50 dark:bg-yellow-950/20">
+                      <div className="flex items-center gap-2 mb-2">
+                        <AlertTriangle className="h-4 w-4 text-yellow-600" />
+                        <h3 className="font-semibold text-sm text-yellow-800 dark:text-yellow-300">{t('inbox_ops.discrepancies', 'Issues Detected')}</h3>
+                      </div>
+                      <div className="space-y-1.5">
+                        {general.map((d) => (
+                          <div key={d.id} className={`flex items-start gap-2 text-xs rounded px-2 py-1.5 ${
+                            d.severity === 'error' ? 'bg-red-100 text-red-700 dark:bg-red-950/30' : 'bg-yellow-100 text-yellow-700 dark:bg-yellow-950/30'
+                          }`}>
+                            <AlertTriangle className="h-3 w-3 mt-0.5 flex-shrink-0" />
+                            <div>
+                              <span>{d.description}</span>
+                              {(d.expectedValue || d.foundValue) && (
+                                <div className="mt-0.5 text-[11px] opacity-80">
+                                  {d.expectedValue && <span>Expected: {d.expectedValue}</span>}
+                                  {d.expectedValue && d.foundValue && <span> · </span>}
+                                  {d.foundValue && <span>Found: {d.foundValue}</span>}
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )
+                })()}
 
                 {/* Actions */}
                 <div>

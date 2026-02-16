@@ -432,5 +432,10 @@
   "inbox_ops.empty.step2": "Lo analizaremos y propondremos acciones",
   "inbox_ops.empty.step3": "Revise y acepte con un clic",
   "inbox_ops.notifications.proposal_created.title": "Nueva propuesta de bandeja",
-  "inbox_ops.notifications.proposal_created.body": "Una propuesta con {actionCount} acciones está lista para revisión"
+  "inbox_ops.notifications.proposal_created.body": "Una propuesta con {actionCount} acciones está lista para revisión",
+  "inbox_ops.nav.group": "InboxOps",
+  "inbox_ops.nav.proposals": "Propuestas",
+  "inbox_ops.nav.settings": "Configuración",
+  "inbox_ops.nav.log": "Registro de procesamiento",
+  "inbox_ops.nav.proposal_detail": "Propuesta"
 }

@@ -108,7 +108,7 @@ export const draftReplyPayloadSchema = z.object({
 
 export const extractedParticipantSchema = z.object({
   name: z.string(),
-  email: z.string().email(),
+  email: z.string(),
   role: z.enum(['buyer', 'seller', 'logistics', 'finance', 'other']),
 })
 
@@ -123,10 +123,10 @@ export const extractedActionSchema = z.object({
     'log_activity',
     'draft_reply',
   ]),
-  description: z.string().max(1000),
-  confidence: z.number().min(0).max(1),
+  description: z.string(),
+  confidence: z.number(),
   requiredFeature: z.string().optional(),
-  payload: z.record(z.string(), z.unknown()),
+  payloadJson: z.string().describe('JSON-encoded payload object for this action'),
 })
 
 export const extractedDiscrepancySchema = z.object({
@@ -141,26 +141,26 @@ export const extractedDiscrepancySchema = z.object({
     'other',
   ]),
   severity: z.enum(['warning', 'error']),
-  description: z.string().max(1000),
+  description: z.string(),
   expectedValue: z.string().optional(),
   foundValue: z.string().optional(),
-  actionIndex: z.number().int().min(0).optional(),
+  actionIndex: z.number().optional(),
 })
 
 export const extractionOutputSchema = z.object({
-  summary: z.string().max(2000),
-  participants: z.array(extractedParticipantSchema).max(50),
-  proposedActions: z.array(extractedActionSchema).max(20),
-  discrepancies: z.array(extractedDiscrepancySchema).max(50),
+  summary: z.string(),
+  participants: z.array(extractedParticipantSchema),
+  proposedActions: z.array(extractedActionSchema),
+  discrepancies: z.array(extractedDiscrepancySchema),
   draftReplies: z.array(z.object({
-    to: z.string().email(),
+    to: z.string(),
     toName: z.string().optional(),
     subject: z.string(),
     body: z.string(),
     context: z.string().optional(),
-  })).max(3),
-  confidence: z.number().min(0).max(1),
-  detectedLanguage: z.string().max(10).optional(),
+  })),
+  confidence: z.number(),
+  detectedLanguage: z.string().optional(),
   possiblyIncomplete: z.boolean().optional(),
 })
 

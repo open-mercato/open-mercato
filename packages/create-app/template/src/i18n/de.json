@@ -431,5 +431,10 @@
   "inbox_ops.empty.step2": "Wir analysieren ihn und schlagen Aktionen vor",
   "inbox_ops.empty.step3": "Überprüfen und mit einem Klick akzeptieren",
   "inbox_ops.notifications.proposal_created.title": "Neuer Posteingang-Vorschlag",
-  "inbox_ops.notifications.proposal_created.body": "Ein Vorschlag mit {actionCount} Aktionen ist zur Überprüfung bereit"
+  "inbox_ops.notifications.proposal_created.body": "Ein Vorschlag mit {actionCount} Aktionen ist zur Überprüfung bereit",
+  "inbox_ops.nav.group": "InboxOps",
+  "inbox_ops.nav.proposals": "Vorschläge",
+  "inbox_ops.nav.settings": "Einstellungen",
+  "inbox_ops.nav.log": "Verarbeitungsprotokoll",
+  "inbox_ops.nav.proposal_detail": "Vorschlag"
 }

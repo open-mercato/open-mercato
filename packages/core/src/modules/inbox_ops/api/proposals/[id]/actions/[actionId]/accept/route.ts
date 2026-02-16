@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import type { EntityManager } from '@mikro-orm/postgresql'
-import type { AuthContext } from '@open-mercato/shared/lib/auth/server'
+import { getAuthFromRequest, type AuthContext } from '@open-mercato/shared/lib/auth/server'
 import { InboxProposal, InboxProposalAction } from '../../../../../../data/entities'
 import { resolveOptionalEventBus } from '../../../../../../lib/eventBus'
 import { executeAction } from '../../../../../../lib/executionEngine'
@@ -22,23 +22,18 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: 'Missing IDs' }, { status: 400 })
     }
 
-    const container = await createRequestContainer()
-    const em = (container.resolve('em') as EntityManager).fork()
-    const auth = container.resolve('auth') as {
-      userId?: string | null
-      sub?: string | null
-      tenantId?: string | null
-      organizationId?: string | null
-    }
-    const userId = typeof auth.userId === 'string' ? auth.userId : typeof auth.sub === 'string' ? auth.sub : null
-    if (!userId || !auth.tenantId || !auth.organizationId) {
+    const auth = await getAuthFromRequest(req)
+    if (!auth?.sub || !auth?.tenantId || !auth?.orgId) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
+    const userId = auth.sub
+    const container = await createRequestContainer()
+    const em = (container.resolve('em') as EntityManager).fork()
 
     const action = await em.findOne(InboxProposalAction, {
       id: actionId,
       proposalId,
-      organizationId: auth.organizationId,
+      organizationId: auth.orgId,
       tenantId: auth.tenantId,
       deletedAt: null,
     })
@@ -49,7 +44,7 @@ export async function POST(req: Request) {
 
     const proposal = await em.findOne(InboxProposal, {
       id: proposalId,
-      organizationId: auth.organizationId,
+      organizationId: auth.orgId,
       tenantId: auth.tenantId,
       isActive: true,
       deletedAt: null,
@@ -64,10 +59,10 @@ export async function POST(req: Request) {
       em,
       userId,
       tenantId: auth.tenantId,
-      organizationId: auth.organizationId,
+      organizationId: auth.orgId,
       eventBus,
       container,
-      auth: auth as AuthContext,
+      auth,
     })
 
     if (!result.success) {

@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
+import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
@@ -19,13 +20,16 @@ export async function GET(req: Request) {
       return NextResponse.json({ error: 'Missing proposal ID' }, { status: 400 })
     }
 
+    const auth = await getAuthFromRequest(req)
+    if (!auth?.tenantId || !auth?.orgId) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    }
     const container = await createRequestContainer()
     const em = (container.resolve('em') as EntityManager).fork()
-    const auth = container.resolve('auth') as any
 
     const scope = {
       tenantId: auth.tenantId,
-      organizationId: auth.organizationId,
+      organizationId: auth.orgId,
     }
 
     const proposal = await findOneWithDecryption(
@@ -33,7 +37,7 @@ export async function GET(req: Request) {
       InboxProposal as any,
       {
         id,
-        organizationId: auth.organizationId,
+        organizationId: auth.orgId,
         tenantId: auth.tenantId,
         deletedAt: null,
       } as any,

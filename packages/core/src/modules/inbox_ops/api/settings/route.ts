@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
+import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { InboxSettings } from '../../data/entities'
@@ -8,14 +9,17 @@ export const metadata = {
   GET: { requireAuth: true, requireFeatures: ['inbox_ops.settings.manage'] },
 }
 
-export async function GET() {
+export async function GET(req: Request) {
   try {
+    const auth = await getAuthFromRequest(req)
+    if (!auth?.tenantId || !auth?.orgId) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    }
     const container = await createRequestContainer()
     const em = (container.resolve('em') as EntityManager).fork()
-    const auth = container.resolve('auth') as any
 
     const settings = await em.findOne(InboxSettings, {
-      organizationId: auth.organizationId,
+      organizationId: auth.orgId,
       tenantId: auth.tenantId,
       deletedAt: null,
     })
