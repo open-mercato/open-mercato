@@ -7,10 +7,17 @@
 
 import { NextRequest, NextResponse } from 'next/server'
 import { z } from 'zod'
+import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/directory/utils/organizationScope'
 import { completeUserTask } from '../../../../lib/task-handler'
+import {
+  workflowsTag,
+  completeTaskRequestSchema as openApiCompleteTaskSchema,
+  userTaskCompleteResponseSchema,
+  workflowErrorSchema,
+} from '../../../openapi'
 
 export const metadata = {
   requireAuth: true,
@@ -148,4 +155,29 @@ export async function POST(
       { status: 500 }
     )
   }
+}
+
+export const openApi: OpenApiRouteDoc = {
+  tag: workflowsTag,
+  summary: 'Complete user task',
+  methods: {
+    POST: {
+      summary: 'Complete a task with form data',
+      description: 'Validates form data against task schema, updates task with completion data, merges form data into workflow context, and resumes workflow execution.',
+      requestBody: {
+        contentType: 'application/json',
+        schema: openApiCompleteTaskSchema,
+      },
+      responses: [
+        { status: 200, description: 'Task completed successfully', schema: userTaskCompleteResponseSchema },
+      ],
+      errors: [
+        { status: 400, description: 'Invalid request body, validation failed, or missing context', schema: workflowErrorSchema },
+        { status: 401, description: 'Unauthorized', schema: workflowErrorSchema },
+        { status: 404, description: 'Task not found', schema: workflowErrorSchema },
+        { status: 409, description: 'Task already completed', schema: workflowErrorSchema },
+        { status: 500, description: 'Internal server error', schema: workflowErrorSchema },
+      ],
+    },
+  },
 }
