@@ -136,7 +136,7 @@ const EPHEMERAL_ENV_LOCK_PATH = path.join(projectRootDirectory, '.ai', 'qa', 'ep
 const LEGACY_EPHEMERAL_ENV_FILE_PATH = path.join(projectRootDirectory, '.ai', 'qa', 'ephemeral-env.md')
 const EPHEMERAL_BUILD_CACHE_STATE_PATH = path.join(projectRootDirectory, '.ai', 'qa', 'ephemeral-build-cache.json')
 const APP_BUILD_ARTIFACTS = [
-  path.join(projectRootDirectory, 'apps', 'mercato', '.next', 'BUILD_ID'),
+  path.join(projectRootDirectory, 'apps', 'mercato', '.mercato', 'next', 'BUILD_ID'),
   path.join(projectRootDirectory, 'apps', 'mercato', '.mercato', 'generated', 'modules.generated.ts'),
   path.join(projectRootDirectory, 'packages', 'core', 'dist', 'index.js'),
   path.join(projectRootDirectory, 'packages', 'ui', 'dist', 'index.js'),
@@ -184,8 +184,7 @@ const IGNORED_EPHEMERAL_BUILD_CACHE_DIRS = new Set([
 type BuildCacheState = {
   version: number
   builtAt: number
-  inputFingerprint: string
-  typescriptInputFingerprint: string
+  sourceFingerprint: string
   artifactPaths: string[]
   projectRoot: string
 }
@@ -195,8 +194,7 @@ type BuildCacheOptions = {
   inputPaths?: string[]
   cacheStatePath?: string
   projectRoot?: string
-  precomputedInputFingerprint?: string
-  precomputedTypescriptInputFingerprint?: string
+  precomputedSourceFingerprint?: string
 }
 
 type CommandOutputMonitoringResult = {
@@ -223,6 +221,11 @@ type PlaywrightFailureHealthCheckOptions = {
   minProbeIntervalMs?: number
 }
 
+type TimedStepOptions = {
+  expectedSeconds: number
+  updateIntervalSeconds?: number
+}
+
 function resolveYarnBinary(): string {
   return process.platform === 'win32' ? 'yarn.cmd' : 'yarn'
 }
@@ -240,6 +243,30 @@ function runYarnCommand(
   opts: { silent?: boolean } = {},
 ): Promise<void> {
   return runYarnRawCommand(['run', ...args], environment, opts)
+}
+
+async function runTimedStep<T>(
+  logPrefix: string,
+  label: string,
+  options: TimedStepOptions,
+  task: () => Promise<T>,
+): Promise<T> {
+  const startedAt = Date.now()
+  const intervalMs = Math.max(1, options.updateIntervalSeconds ?? 2) * 1000
+  const timer = setInterval(() => {
+    const elapsedSeconds = Math.max(1, Math.floor((Date.now() - startedAt) / 1000))
+    const remainingSeconds = Math.max(0, options.expectedSeconds - elapsedSeconds)
+    console.log(`[${logPrefix}] ${label}... ${elapsedSeconds}s elapsed, ~${remainingSeconds}s left`)
+  }, intervalMs)
+
+  try {
+    const result = await task()
+    const durationSeconds = Math.max(1, Math.floor((Date.now() - startedAt) / 1000))
+    console.log(`[${logPrefix}] ${label} completed in ${durationSeconds}s.`)
+    return result
+  } finally {
+    clearInterval(timer)
+  }
 }
 
 function isPlaywrightEnvironmentUnavailableChunk(chunk: string): boolean {
@@ -682,16 +709,7 @@ async function getAllBuildInputFiles(inputPath: string, projectRoot: string): Pr
   return files
 }
 
-type BuildInputFingerprintFilter = (filePath: string) => boolean
-
-function isTypeScriptBuildInput(filePath: string): boolean {
-  return /\.(ts|tsx|mts|cts)$/i.test(filePath)
-}
-
-async function buildInputFingerprintWithFilter(
-  options: BuildCacheOptions = {},
-  filter?: BuildInputFingerprintFilter,
-): Promise<string | null> {
+async function buildSourceFingerprint(options: BuildCacheOptions = {}): Promise<string | null> {
   const { inputPaths, projectRoot } = buildCacheDefaults(options)
   const seenPaths = new Set<string>()
   const absoluteFiles: string[] = []
@@ -709,9 +727,6 @@ async function buildInputFingerprintWithFilter(
 
     for (const filePath of collected) {
       const resolvedPath = path.isAbsolute(filePath) ? filePath : path.resolve(projectRoot, filePath)
-      if (filter && !filter(resolvedPath)) {
-        continue
-      }
       if (!seenPaths.has(resolvedPath)) {
         seenPaths.add(resolvedPath)
         absoluteFiles.push(resolvedPath)
@@ -740,12 +755,39 @@ async function buildInputFingerprintWithFilter(
   return createHash('sha256').update(fingerprintParts.join('\n'), 'utf8').digest('hex')
 }
 
-async function buildInputFingerprint(options: BuildCacheOptions = {}): Promise<string | null> {
-  return buildInputFingerprintWithFilter(options)
-}
+async function hasBuildInputChangesSince(
+  timestampMs: number,
+  options: BuildCacheOptions = {},
+): Promise<boolean> {
+  const { inputPaths, projectRoot } = buildCacheDefaults(options)
+  const seenPaths = new Set<string>()
 
-async function buildTypeScriptInputFingerprint(options: BuildCacheOptions = {}): Promise<string | null> {
-  return buildInputFingerprintWithFilter(options, isTypeScriptBuildInput)
+  for (const inputPath of inputPaths) {
+    let collected: string[]
+    try {
+      collected = await getAllBuildInputFiles(inputPath, projectRoot)
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
+        continue
+      }
+      throw error
+    }
+
+    for (const filePath of collected) {
+      const resolvedPath = path.isAbsolute(filePath) ? filePath : path.resolve(projectRoot, filePath)
+      if (seenPaths.has(resolvedPath)) {
+        continue
+      }
+      seenPaths.add(resolvedPath)
+
+      const fileStat = await stat(resolvedPath)
+      if (fileStat.isFile() && fileStat.mtimeMs > timestampMs) {
+        return true
+      }
+    }
+  }
+
+  return false
 }
 
 async function readBuildCacheState(cacheStatePath: string): Promise<BuildCacheState | null> {
@@ -776,13 +818,7 @@ async function readBuildCacheState(cacheStatePath: string): Promise<BuildCacheSt
   if (typeof maybeState.builtAt !== 'number' || !Number.isFinite(maybeState.builtAt)) {
     return null
   }
-  if (typeof maybeState.inputFingerprint !== 'string' || maybeState.inputFingerprint.length === 0) {
-    return null
-  }
-  if (
-    typeof maybeState.typescriptInputFingerprint !== 'string'
-    || maybeState.typescriptInputFingerprint.length === 0
-  ) {
+  if (typeof maybeState.sourceFingerprint !== 'string' || maybeState.sourceFingerprint.length === 0) {
     return null
   }
   if (!Array.isArray(maybeState.artifactPaths) || maybeState.artifactPaths.length === 0) {
@@ -795,16 +831,14 @@ async function readBuildCacheState(cacheStatePath: string): Promise<BuildCacheSt
   return {
     version: BUILD_CACHE_STATE_VERSION,
     builtAt: maybeState.builtAt,
-    inputFingerprint: maybeState.inputFingerprint,
-    typescriptInputFingerprint: maybeState.typescriptInputFingerprint,
+    sourceFingerprint: maybeState.sourceFingerprint,
     artifactPaths: maybeState.artifactPaths.filter((entry): entry is string => typeof entry === 'string'),
     projectRoot: maybeState.projectRoot,
   }
 }
 
 async function writeBuildCacheState(
-  inputFingerprint: string,
-  typescriptInputFingerprint: string,
+  sourceFingerprint: string,
   options: BuildCacheOptions = {},
 ): Promise<void> {
   const defaults = buildCacheDefaults(options)
@@ -815,8 +849,7 @@ async function writeBuildCacheState(
       {
         version: BUILD_CACHE_STATE_VERSION,
         builtAt: Date.now(),
-        inputFingerprint,
-        typescriptInputFingerprint,
+        sourceFingerprint,
         artifactPaths: defaults.artifactPaths,
         projectRoot: defaults.projectRoot,
       },
@@ -830,7 +863,7 @@ async function writeBuildCacheState(
 async function isBuildArtifactMissing(filePath: string): Promise<boolean> {
   try {
     const artifactStats = await stat(filePath)
-    return !artifactStats.isFile()
+    return !artifactStats.isFile() || artifactStats.size <= 0
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
       return true
@@ -850,17 +883,11 @@ export async function shouldReuseBuildArtifacts(
   }
 
   const defaults = buildCacheDefaults(options)
-  const currentFingerprint = options.precomputedInputFingerprint ?? (await buildInputFingerprint(defaults))
-  const currentTypeScriptFingerprint = options.precomputedTypescriptInputFingerprint
-    ?? (await buildTypeScriptInputFingerprint(defaults))
-  if (!currentFingerprint) {
+  const currentSourceFingerprint = options.precomputedSourceFingerprint ?? (await buildSourceFingerprint(defaults))
+  if (!currentSourceFingerprint) {
     console.log(
-      `[${logPrefix}] Build cache disabled: unable to collect build input fingerprints from tracked sources.`,
+      `[${logPrefix}] Build cache disabled: unable to collect source fingerprints from tracked sources.`,
     )
-    return false
-  }
-  if (!currentTypeScriptFingerprint) {
-    console.log(`[${logPrefix}] Build cache disabled: unable to collect TypeScript input fingerprints from tracked sources.`)
     return false
   }
 
@@ -883,13 +910,8 @@ export async function shouldReuseBuildArtifacts(
     return false
   }
 
-  if (state.typescriptInputFingerprint !== currentTypeScriptFingerprint) {
-    console.log(`[${logPrefix}] Build cache disabled: TypeScript source files changed since last build.`)
-    return false
-  }
-
-  if (state.inputFingerprint !== currentFingerprint) {
-    console.log(`[${logPrefix}] Build cache disabled: tracked non-TypeScript build inputs changed since last build.`)
+  if (state.sourceFingerprint !== currentSourceFingerprint) {
+    console.log(`[${logPrefix}] Build cache disabled: source files changed since last build.`)
     return false
   }
 
@@ -938,17 +960,34 @@ async function getFreePort(): Promise<number> {
 }
 
 async function isPortAvailable(port: number): Promise<boolean> {
-  return new Promise((resolve) => {
+  const canBind = (host: string): Promise<boolean | null> => new Promise((resolve) => {
     const server = createServer()
-    server.once('error', () => {
+    server.once('error', (error) => {
+      const errorCode = (error as NodeJS.ErrnoException).code
+      if (errorCode === 'EAFNOSUPPORT') {
+        resolve(null)
+        return
+      }
       resolve(false)
     })
-    server.listen(port, '127.0.0.1', () => {
+    server.listen(port, host, () => {
       server.close(() => {
         resolve(true)
       })
     })
   })
+
+  const ipv4Availability = await canBind('127.0.0.1')
+  if (ipv4Availability === false) {
+    return false
+  }
+
+  const ipv6Availability = await canBind('::1')
+  if (ipv6Availability === false) {
+    return false
+  }
+
+  return ipv4Availability === true || ipv6Availability === true
 }
 
 async function getPreferredPort(preferredPort: number): Promise<number> {
@@ -1201,6 +1240,28 @@ export async function tryReuseExistingEnvironment(options: EphemeralRuntimeOptio
     return null
   }
 
+  const cacheTtlSeconds = resolveBuildCacheTtlSeconds(options.logPrefix)
+  const startedAtMs = Date.parse(state.startedAt)
+  if (Number.isFinite(startedAtMs)) {
+    const environmentAgeSeconds = Math.floor((Date.now() - startedAtMs) / 1000)
+    if (environmentAgeSeconds > cacheTtlSeconds) {
+      console.log(
+        `[${options.logPrefix}] Existing ephemeral environment is ${environmentAgeSeconds}s old, exceeding ${BUILD_CACHE_TTL_ENV_VAR}=${cacheTtlSeconds}s. Rebuilding.`,
+      )
+      await clearEphemeralEnvironmentState()
+      return null
+    }
+
+    const sourceChangedSinceStart = await hasBuildInputChangesSince(startedAtMs)
+    if (sourceChangedSinceStart) {
+      console.log(
+        `[${options.logPrefix}] Source files changed since the current ephemeral environment started. Rebuilding.`,
+      )
+      await clearEphemeralEnvironmentState()
+      return null
+    }
+  }
+
   if (options.captureScreenshots !== state.captureScreenshots) {
     console.log(
       `[${options.logPrefix}] Reusing screenshot capture setting from ${EPHEMERAL_ENV_FILE_PATH}: ${state.captureScreenshots ? 'enabled' : 'disabled'}.`,
@@ -1220,6 +1281,7 @@ export async function tryReuseExistingEnvironment(options: EphemeralRuntimeOptio
 async function waitForApplicationReadiness(baseUrl: string, appProcess: ChildProcess): Promise<void> {
   const startTimestamp = Date.now()
   const exitPromise = getProcessExitPromise(appProcess)
+  const readinessStabilizationMs = 600
 
   while (Date.now() - startTimestamp < APP_READY_TIMEOUT_MS) {
     const responsePromise = fetch(`${baseUrl}/login`, {
@@ -1238,6 +1300,13 @@ async function waitForApplicationReadiness(baseUrl: string, appProcess: ChildPro
     ])
 
     if (result.kind === 'response' && (result.status === 200 || result.status === 302)) {
+      const processExited = await Promise.race([
+        exitPromise.then(() => true),
+        delay(readinessStabilizationMs).then(() => false),
+      ])
+      if (processExited) {
+        throw new Error('Application process exited immediately after readiness probe.')
+      }
       return
     }
     if (result.kind === 'exit') {
@@ -2218,26 +2287,22 @@ export async function startEphemeralEnvironment(options: EphemeralRuntimeOptions
 
     try {
       const buildCacheTtlSeconds = resolveBuildCacheTtlSeconds(options.logPrefix)
-      let buildInputFingerprintValue: string | null = null
-      let typeScriptInputFingerprintValue: string | null = null
+      let sourceFingerprintValue: string | null = null
       let needsBuild = true
       let shouldPersistBuildCache = true
 
       try {
-        buildInputFingerprintValue = await buildInputFingerprint()
-        typeScriptInputFingerprintValue = await buildTypeScriptInputFingerprint()
+        sourceFingerprintValue = await buildSourceFingerprint()
         needsBuild = options.forceRebuild
           ? true
           : await shouldRebuildBuildArtifacts(buildCacheTtlSeconds, options.logPrefix, {
-              precomputedInputFingerprint: buildInputFingerprintValue ?? undefined,
-              precomputedTypescriptInputFingerprint: typeScriptInputFingerprintValue ?? undefined,
+              precomputedSourceFingerprint: sourceFingerprintValue ?? undefined,
             })
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error)
         shouldPersistBuildCache = false
         needsBuild = true
-        buildInputFingerprintValue = null
-        typeScriptInputFingerprintValue = null
+        sourceFingerprintValue = null
         console.warn(
           `[${options.logPrefix}] Build cache check failed (${message}). Rebuilding with cache bypass.`,
         )
@@ -2245,9 +2310,10 @@ export async function startEphemeralEnvironment(options: EphemeralRuntimeOptions
 
       console.log(`[${options.logPrefix}] Ephemeral database ready at ${databaseHost}:${databasePort}`)
       console.log(`[${options.logPrefix}] Initializing application data (includes migrations)...`)
-      await runYarnWorkspaceCommand(appWorkspace, 'initialize', [], commandEnvironment, {
-        silent: !options.verbose,
-      })
+      await runTimedStep(options.logPrefix, 'Initializing application data', { expectedSeconds: 45 }, async () =>
+        runYarnWorkspaceCommand(appWorkspace, 'initialize', [], commandEnvironment, {
+          silent: !options.verbose,
+        }))
 
       if (options.forceRebuild) {
         console.log(`[${options.logPrefix}] --force-rebuild enabled. Running full build pipeline.`)
@@ -2258,28 +2324,32 @@ export async function startEphemeralEnvironment(options: EphemeralRuntimeOptions
       } else {
         console.log(`[${options.logPrefix}] Build artifacts missing, stale, or out of date; rebuilding artifacts.`)
         console.log(`[${options.logPrefix}] Building packages...`)
-        await runYarnCommand(['build:packages'], commandEnvironment, {
-          silent: !options.verbose,
-        })
+        await runTimedStep(options.logPrefix, 'Building packages', { expectedSeconds: 20 }, async () =>
+          runYarnCommand(['build:packages'], commandEnvironment, {
+            silent: !options.verbose,
+          }))
 
         console.log(`[${options.logPrefix}] Regenerating module artifacts...`)
-        await runYarnCommand(['generate'], commandEnvironment, {
-          silent: !options.verbose,
-        })
+        await runTimedStep(options.logPrefix, 'Regenerating module artifacts', { expectedSeconds: 8 }, async () =>
+          runYarnCommand(['generate'], commandEnvironment, {
+            silent: !options.verbose,
+          }))
 
         console.log(`[${options.logPrefix}] Rebuilding packages after generation...`)
-        await runYarnCommand(['build:packages'], commandEnvironment, {
-          silent: !options.verbose,
-        })
+        await runTimedStep(options.logPrefix, 'Rebuilding packages after generation', { expectedSeconds: 20 }, async () =>
+          runYarnCommand(['build:packages'], commandEnvironment, {
+            silent: !options.verbose,
+          }))
 
         console.log(`[${options.logPrefix}] Building application...`)
-        await runYarnWorkspaceCommand(appWorkspace, 'build', [], commandEnvironment, {
-          silent: !options.verbose,
-        })
+        await runTimedStep(options.logPrefix, 'Building application', { expectedSeconds: 35 }, async () =>
+          runYarnWorkspaceCommand(appWorkspace, 'build', [], commandEnvironment, {
+            silent: !options.verbose,
+          }))
       }
 
-      if (shouldPersistBuildCache && buildInputFingerprintValue && typeScriptInputFingerprintValue) {
-        await writeBuildCacheState(buildInputFingerprintValue, typeScriptInputFingerprintValue)
+      if (shouldPersistBuildCache && sourceFingerprintValue) {
+        await writeBuildCacheState(sourceFingerprintValue)
       }
 
       console.log(`[${options.logPrefix}] Starting application on ${applicationBaseUrl}...`)
@@ -2287,7 +2357,8 @@ export async function startEphemeralEnvironment(options: EphemeralRuntimeOptions
         silent: !options.verbose,
       })
 
-      await waitForApplicationReadiness(applicationBaseUrl, applicationProcess)
+      await runTimedStep(options.logPrefix, 'Waiting for application readiness', { expectedSeconds: 12 }, async () =>
+        waitForApplicationReadiness(applicationBaseUrl, applicationProcess))
       console.log(`[${options.logPrefix}] Application is ready at ${applicationBaseUrl}`)
       await writeEphemeralEnvironmentState({
         baseUrl: applicationBaseUrl,

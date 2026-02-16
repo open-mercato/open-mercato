@@ -188,8 +188,7 @@ describe('integration cache and options', () => {
         `${JSON.stringify({
           version: 1,
           builtAt: Date.now(),
-          inputFingerprint: initialFingerprint,
-          typescriptInputFingerprint: initialFingerprint,
+          sourceFingerprint: initialFingerprint,
           artifactPaths: [artifactPath],
           projectRoot: tempRoot,
         }, null, 2)}\n`,
@@ -222,8 +221,7 @@ describe('integration cache and options', () => {
         `${JSON.stringify({
           version: 1,
           builtAt: Date.now() - 240_000,
-          inputFingerprint: refreshedFingerprint,
-          typescriptInputFingerprint: refreshedFingerprint,
+          sourceFingerprint: refreshedFingerprint,
           artifactPaths: [artifactPath],
           projectRoot: tempRoot,
         }, null, 2)}\n`,

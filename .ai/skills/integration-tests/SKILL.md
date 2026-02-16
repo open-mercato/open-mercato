@@ -5,7 +5,7 @@ description: Run and create QA integration tests (Playwright TypeScript), includ
 
 # Integration Tests Skill
 
-This skill generates executable Playwright tests (`.ai/qa/tests/<category>/TC-*.spec.ts`) by exploring the running application. It optionally produces a markdown scenario (`.ai/qa/scenarios/TC-*.md`) for documentation — the scenario is **not required**.
+This skill generates executable Playwright tests (`.ai/qa/tests/<category>/TC-*.spec.ts`) by exploring the running application. It also covers running existing integration tests after feature/bug implementation and reporting failures with artifact-based diagnosis. It optionally produces a markdown scenario (`.ai/qa/scenarios/TC-*.md`) for documentation — the scenario is **not required**.
 
 ## Quick Reference
 
@@ -168,6 +168,38 @@ npx playwright test --config .ai/qa/tests/playwright.config.ts <category>/TC-{CA
 
 If it fails, fix it. Do not leave broken tests.
 
+### Shared — Failure Analysis and User Reporting (Mandatory on Failures)
+
+After any failed test run (single test or suite), analyze failure artifacts before responding. This shared section applies both when:
+- writing/updating tests
+- only running existing tests after implementing features or bug fixes
+
+1. Parse terminal output to capture the failing test names and first error stack/assertion.
+2. Inspect Playwright artifacts for each failed test from `test-results/` and the HTML report:
+   - `error-context.md`
+   - screenshots (expected/actual/diff where available)
+   - trace/video attachments if present
+3. Classify each failure into one primary reason:
+   - Product regression / real app bug
+   - Test issue (stale locator, brittle assertion, bad fixture/cleanup)
+   - Environment / data issue (service unavailable, auth/session drift, shared-state collision)
+4. Decide ownership per failing test:
+   - `User/Product team` when behavior looks like a real regression or requirement mismatch
+   - `Agent/QA` when failure is test-code quality, selector drift, or fixture instability
+   - `Shared` when both product behavior and test assumptions need adjustment
+5. Respond with a table (required format) before any optional narrative:
+
+| Failing test | Evidence used | Reasoning (why it failed) | Suggested owner | Next action |
+|--------------|---------------|---------------------------|-----------------|-------------|
+| `<path>::<test name>` | `stdout + screenshot + error-context` | `Concise technical diagnosis` | `User/Product team` / `Agent/QA` / `Shared` | `Concrete fix recommendation` |
+
+Do not provide a generic "tests failed" summary without per-test reasoning.
+
+### Running-Only Mode (No New Test Authoring)
+
+If the user asks only to run integration tests (full suite/category/single file), skip authoring phases and execute the requested run directly.  
+If the run fails, apply the shared failure-analysis section above.
+
 ## Rules
 
 - MUST explore the running app before writing — never guess selectors or flows
@@ -183,6 +215,9 @@ If it fails, fix it. Do not leave broken tests.
 - MUST create the `.spec.ts` — the markdown scenario is optional
 - MUST use actual locators from Playwright MCP snapshots (`getByRole`, `getByLabel`, `getByText`)
 - MUST verify the test passes before finishing
+- MUST analyze failed test artifacts (`stdout`, `error-context.md`, screenshots/report) before reporting failures
+- MUST report failures in a per-test table that includes reason, evidence, and suggested owner
+- MUST apply the same failure-analysis and table-reporting rules when only running existing tests after implementation work
 - When deriving from a spec, focus on the happy path first, then add edge cases as separate test cases if they warrant it
 - Each test file covers one scenario — create multiple files for multiple scenarios
 
