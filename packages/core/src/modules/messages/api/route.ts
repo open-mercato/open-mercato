@@ -1,6 +1,7 @@
 import { z } from 'zod'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { Knex } from 'knex'
+import type { CommandBus } from '@open-mercato/shared/lib/commands/command-bus'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi/types'
 import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { buildBatchNotificationFromType } from '../../notifications/lib/notificationBuilder'
@@ -13,13 +14,19 @@ import { MESSAGE_ATTACHMENT_ENTITY_ID } from '../lib/constants'
 import { getMessageType, isMessageTypeCreateableByUser } from '../lib/message-types-registry'
 import { notificationTypes } from '../notifications'
 import { validateMessageObjectsForType } from '../lib/object-validation'
+import { attachOperationMetadataHeader } from '../lib/operationMetadata'
 import { canUseMessageEmailFeature, resolveMessageContext } from '../lib/routeHelpers'
+import { MessageCommandExecuteResult } from '../commands/shared'
 import {
   composeMessageSchema as composeSchema,
   composeResponseSchema,
   listMessagesSchema as listSchema,
   messageListItemSchema,
 } from './openapi'
+
+type MessageCommandExecuteResultWithThreadId = MessageCommandExecuteResult & {
+  threadId: string
+}
 
 function getKnex(em: EntityManager): Knex {
   return (em.getConnection() as unknown as { getKnex: () => Knex }).getKnex()
@@ -267,7 +274,7 @@ export async function GET(req: Request) {
 
 export async function POST(req: Request) {
   const { ctx, scope } = await resolveMessageContext(req)
-  const em = (ctx.container.resolve('em') as EntityManager).fork()
+  const commandBus = ctx.container.resolve('commandBus') as CommandBus
   const body = await req.json().catch(() => ({}))
   const input = composeMessageSchema.parse(body)
   if (!isMessageTypeCreateableByUser(input.type)) {
@@ -286,103 +293,24 @@ export async function POST(req: Request) {
     }
   }
 
-  let messageId = ''
-  let responseThreadId: string | null = null
-  let responseExternalEmail: string | null = null
-
-  await em.transactional(async (trx) => {
-    const threadId = input.parentMessageId
-      ? (
-        await trx.findOne(Message, {
-          id: input.parentMessageId,
-          tenantId: scope.tenantId,
-          organizationId: scope.organizationId,
-          deletedAt: null,
-        })
-      )?.threadId ?? input.parentMessageId
-      : undefined
-
-    const message = trx.create(Message, {
-      type: input.type,
-      visibility: input.visibility ?? null,
-      sourceEntityType: input.sourceEntityType,
-      sourceEntityId: input.sourceEntityId,
-      externalEmail: input.externalEmail,
-      externalName: input.externalName,
-      threadId: threadId ?? undefined,
-      parentMessageId: input.parentMessageId,
-      senderUserId: scope.userId,
-      subject: input.subject,
-      body: input.body,
-      bodyFormat: input.bodyFormat,
-      priority: input.priority,
-      status: input.isDraft ? 'draft' : 'sent',
-      isDraft: input.isDraft ?? false,
-      sentAt: input.isDraft ? null : new Date(),
-      actionData: input.actionData,
+  const { result, logEntry } = await commandBus.execute('messages.messages.compose', {
+    input: {
+      ...input,
       sendViaEmail,
       tenantId: scope.tenantId,
       organizationId: scope.organizationId,
-    })
-
-    if (!threadId && !input.isDraft) {
-      message.threadId = message.id
-    }
-
-    await trx.persistAndFlush(message)
-
-    for (const recipient of input.recipients) {
-      const messageRecipient = trx.create(MessageRecipient, {
-        messageId: message.id,
-        recipientUserId: recipient.userId,
-        recipientType: recipient.type,
-        status: 'unread',
-      })
-      trx.persist(messageRecipient)
-    }
-
-    if (input.objects) {
-      for (const obj of input.objects) {
-        const messageObject = trx.create(MessageObject, {
-          messageId: message.id,
-          entityModule: obj.entityModule,
-          entityType: obj.entityType,
-          entityId: obj.entityId,
-          actionRequired: obj.actionRequired,
-          actionType: obj.actionType,
-          actionLabel: obj.actionLabel,
-        })
-        trx.persist(messageObject)
-      }
-    }
-
-    await trx.flush()
-
-    if (input.attachmentIds?.length) {
-      await linkAttachmentsToMessage(
-        trx,
-        message.id,
-        input.attachmentIds,
-        ctx.auth?.orgId ?? null,
-        scope.tenantId,
-      )
-    }
-
-    if (input.attachmentRecordId) {
-      await linkLibraryAttachmentsToMessage(
-        trx,
-        message.id,
-        input.attachmentRecordId,
-        ctx.auth?.orgId ?? null,
-        scope.tenantId,
-      )
-    }
-
-    messageId = message.id
-    responseThreadId = message.threadId ?? null
-    responseExternalEmail = message.externalEmail ?? null
+      userId: scope.userId,
+    },
+    ctx: {
+      container: ctx.container,
+      auth: ctx.auth ?? null,
+      organizationScope: null,
+      selectedOrganizationId: scope.organizationId,
+      organizationIds: scope.organizationId ? [scope.organizationId] : null,
+      request: req,
+    },
   })
-
+  const { id: messageId, externalEmail: responseExternalEmail, threadId: responseThreadId } = result as unknown as MessageCommandExecuteResultWithThreadId
   if (!input.isDraft) {
     const uniqueRecipientUserIds = Array.from(new Set(input.recipients.map((recipient) => recipient.userId)))
     const typeDef = notificationTypes.find((type) => type.type === 'messages.new')
@@ -418,7 +346,12 @@ export async function POST(req: Request) {
     )
   }
 
-  return Response.json({ id: messageId, threadId: responseThreadId }, { status: 201 })
+  const response = Response.json({ id: messageId, threadId: responseThreadId }, { status: 201 })
+  attachOperationMetadataHeader(response, logEntry, {
+    resourceKind: 'messages.message',
+    resourceId: messageId,
+  })
+  return response
 }
 
 export const openApi: OpenApiRouteDoc = {

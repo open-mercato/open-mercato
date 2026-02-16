@@ -3272,3 +3272,9 @@ export function register(container: AwilixContainer): void {
 | Polling updates | User has inbox open | 5 seconds elapse | New messages appear automatically |
 | Notification created | Message sent | Event processed | Notification created for recipient |
 | Action event emitted | User executes action | messages.action.taken emitted | Subscribers can react |
+
+---
+
+## Changelog
+
+- 2026-02-16: Refactored message write operations to command-bus handlers with undo support for message mutations, recipient state changes, draft attachment linking/unlinking, terminal action recording, and message confirmation state updates.

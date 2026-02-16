@@ -9,6 +9,7 @@ import {
   resolveActionHref,
 } from '../../../../lib/actions'
 import { getMessageType } from '../../../../lib/message-types-registry'
+import { attachOperationMetadataHeader, type OperationLogEntryLike } from '../../../../lib/operationMetadata'
 import { resolveMessageContext } from '../../../../lib/routeHelpers'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi/types'
 import { actionResultResponseSchema } from '../../../openapi'
@@ -93,6 +94,7 @@ export async function POST(
   }
 
   let result: Record<string, unknown> = {}
+  let operationLogEntry: OperationLogEntryLike | null = null
 
   if (action.commandId) {
     try {
@@ -137,6 +139,7 @@ export async function POST(
       })
 
       result = (commandResult.result as Record<string, unknown>) ?? {}
+      operationLogEntry = commandResult.logEntry ?? null
     } catch (error) {
       console.error(`[messages:action] Command ${action.commandId} failed:`, error)
       return Response.json(
@@ -159,13 +162,41 @@ export async function POST(
   }
 
   if (shouldRecordActionTaken) {
-    message.actionTaken = action.id
-    message.actionTakenByUserId = scope.userId
-    message.actionTakenAt = new Date()
-    message.actionResult = result
+    try {
+      await commandBus.execute('messages.actions.record_terminal', {
+        input: {
+          messageId: message.id,
+          actionId: action.id,
+          result,
+          tenantId: scope.tenantId,
+          organizationId: scope.organizationId,
+          userId: scope.userId,
+        },
+        ctx: {
+          container: ctx.container,
+          auth: ctx.auth ?? null,
+          organizationScope: null,
+          selectedOrganizationId: scope.organizationId,
+          organizationIds: scope.organizationId ? [scope.organizationId] : null,
+          request: req,
+        },
+      })
+    } catch (error) {
+      if (error instanceof Error && error.message === 'Action already taken') {
+        return Response.json(
+          {
+            error: 'Action already taken',
+            actionTaken: message.actionTaken,
+            actionTakenAt: message.actionTakenAt,
+          },
+          { status: 409 },
+        )
+      }
+      throw error
+    }
+  } else {
+    await em.flush()
   }
-
-  await em.flush()
 
   const eventBus = ctx.container.resolve('eventBus') as { emit: (event: string, payload: unknown, options?: unknown) => Promise<void> }
   if (shouldRecordActionTaken) {
@@ -183,7 +214,12 @@ export async function POST(
     )
   }
 
-  return Response.json({ ok: true, actionId: action.id, result })
+  const response = Response.json({ ok: true, actionId: action.id, result })
+  attachOperationMetadataHeader(response, operationLogEntry, {
+    resourceKind: 'messages.message',
+    resourceId: message.id,
+  })
+  return response
 }
 
 export const openApi: OpenApiRouteDoc = {

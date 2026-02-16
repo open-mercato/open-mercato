@@ -1,9 +1,12 @@
 import type { EntityManager } from '@mikro-orm/core'
+import type { CommandBus } from '@open-mercato/shared/lib/commands/command-bus'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi/types'
+import { parseUnlinkAttachmentIds } from '../../../commands/attachments'
 import { Message, MessageRecipient } from '../../../data/entities'
 import { attachmentIdsPayloadSchema, unlinkAttachmentPayloadSchema } from '../../../data/validators'
 import { getMessageAttachments, linkAttachmentsToMessage } from '../../../lib/attachments'
 import { MESSAGE_ATTACHMENT_ENTITY_ID } from '../../../lib/constants'
+import { attachOperationMetadataHeader } from '../../../lib/operationMetadata'
 import { resolveMessageContext } from '../../../lib/routeHelpers'
 import {
   attachmentIdsPayloadSchema as attachmentIdsOpenApiSchema,
@@ -92,15 +95,31 @@ export async function POST(req: Request, { params }: { params: { id: string } })
     return Response.json({ error: 'Attachments can only be modified on drafts' }, { status: 409 })
   }
 
-  await linkAttachmentsToMessage(
-    em,
-    message.id,
-    input.attachmentIds,
-    scope.organizationId,
-    scope.tenantId
-  )
+  const commandBus = ctx.container.resolve('commandBus') as CommandBus
+  const { logEntry } = await commandBus.execute('messages.attachments.link_to_draft', {
+    input: {
+      messageId: message.id,
+      tenantId: scope.tenantId,
+      organizationId: scope.organizationId,
+      userId: scope.userId,
+      attachmentIds: input.attachmentIds,
+    },
+    ctx: {
+      container: ctx.container,
+      auth: ctx.auth ?? null,
+      organizationScope: null,
+      selectedOrganizationId: scope.organizationId,
+      organizationIds: scope.organizationId ? [scope.organizationId] : null,
+      request: req,
+    },
+  })
 
-  return Response.json({ ok: true })
+  const response = Response.json({ ok: true })
+  attachOperationMetadataHeader(response, logEntry, {
+    resourceKind: 'messages.message',
+    resourceId: params.id,
+  })
+  return response
 }
 
 export async function DELETE(req: Request, { params }: { params: { id: string } }) {
@@ -131,19 +150,31 @@ export async function DELETE(req: Request, { params }: { params: { id: string } 
     return Response.json({ error: 'Attachments can only be modified on drafts' }, { status: 409 })
   }
 
-  const attachmentIds = input.attachmentIds ?? (input.attachmentId ? [input.attachmentId] : [])
-
-  const { Attachment } = await import('@open-mercato/core/modules/attachments/data/entities')
-
-  await em.nativeDelete(Attachment, {
-    id: { $in: attachmentIds },
-    entityId: MESSAGE_ATTACHMENT_ENTITY_ID,
-    recordId: message.id,
-    tenantId: scope.tenantId,
-    organizationId: scope.organizationId,
+  const commandBus = ctx.container.resolve('commandBus') as CommandBus
+  const { logEntry } = await commandBus.execute('messages.attachments.unlink_from_draft', {
+    input: {
+      messageId: message.id,
+      tenantId: scope.tenantId,
+      organizationId: scope.organizationId,
+      userId: scope.userId,
+      attachmentIds: parseUnlinkAttachmentIds(input),
+    },
+    ctx: {
+      container: ctx.container,
+      auth: ctx.auth ?? null,
+      organizationScope: null,
+      selectedOrganizationId: scope.organizationId,
+      organizationIds: scope.organizationId ? [scope.organizationId] : null,
+      request: req,
+    },
   })
 
-  return Response.json({ ok: true })
+  const response = Response.json({ ok: true })
+  attachOperationMetadataHeader(response, logEntry, {
+    resourceKind: 'messages.message',
+    resourceId: params.id,
+  })
+  return response
 }
 
 export const openApi: OpenApiRouteDoc = {

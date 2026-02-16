@@ -17,7 +17,7 @@ jest.mock('@open-mercato/core/modules/messages/lib/message-types-registry', () =
 }))
 
 jest.mock('@open-mercato/core/modules/notifications/lib/notificationService', () => ({
-  resolveNotificationService: (...args: unknown[]) => resolveNotificationServiceMock(...args),
+  resolveNotificationService: (...args: Parameters<typeof resolveNotificationServiceMock>) => resolveNotificationServiceMock(...args),
 }))
 
 jest.mock('@open-mercato/core/modules/notifications/lib/notificationBuilder', () => ({
@@ -38,6 +38,7 @@ describe('messages /api/messages POST', () => {
     transactional: jest.Mock
   }
   let eventBus: { emit: jest.Mock }
+  let commandBus: { execute: jest.Mock }
 
   beforeEach(() => {
     jest.clearAllMocks()
@@ -58,6 +59,19 @@ describe('messages /api/messages POST', () => {
 
     eventBus = {
       emit: jest.fn(async () => {}),
+    }
+    commandBus = {
+      execute: jest.fn(async () => ({
+        result: {
+          id: 'f47ac10b-58cc-4372-a567-0e02b2c3d479',
+          threadId: 'f47ac10b-58cc-4372-a567-0e02b2c3d479',
+          externalEmail: null,
+          recipientUserIds: [
+            'afe11af0-1afe-40a2-b6b6-5f6d95c29c4a',
+            '2ce61514-c312-4a54-8ec0-cd9b70d7e76f',
+          ],
+        },
+      })),
     }
 
     isMessageTypeCreateableByUserMock.mockReturnValue(true)
@@ -82,6 +96,7 @@ describe('messages /api/messages POST', () => {
           resolve: (name: string) => {
             if (name === 'em') return { fork: () => emFork }
             if (name === 'eventBus') return eventBus
+            if (name === 'commandBus') return commandBus
             return null
           },
         },
@@ -131,6 +146,18 @@ describe('messages /api/messages POST', () => {
         organizationId: '2045013f-8977-4f57-a1cc-9bb7d2f42a0e',
       },
     )
+    expect(commandBus.execute).toHaveBeenCalledWith(
+      'messages.messages.compose',
+      expect.objectContaining({
+        input: expect.objectContaining({
+          subject: 'Subject',
+          body: 'Body',
+          tenantId: '7fb7fe47-ddf6-4f65-b5ae-b08e2df2fdb7',
+          organizationId: '2045013f-8977-4f57-a1cc-9bb7d2f42a0e',
+          userId: '5be8e4d6-14d2-4352-8f55-b95f95fd9205',
+        }),
+      }),
+    )
     expect(eventBus.emit).toHaveBeenCalledWith(
       'messages.sent',
       expect.objectContaining({
@@ -157,5 +184,6 @@ describe('messages /api/messages POST', () => {
     expect(response.status).toBe(201)
     expect(resolveNotificationServiceMock).not.toHaveBeenCalled()
     expect(eventBus.emit).not.toHaveBeenCalled()
+    expect(commandBus.execute).toHaveBeenCalledTimes(1)
   })
 })
