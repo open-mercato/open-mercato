@@ -210,6 +210,12 @@ type IntegrationCommandError = Error & {
   commandOutput?: string
 }
 
+type CommandMonitoringOptions = {
+  detectEnvironmentUnavailable?: boolean
+  abortOnEnvironmentUnavailable?: boolean
+  playwrightFailureHealthCheck?: PlaywrightFailureHealthCheckOptions
+}
+
 type PlaywrightFailureHealthCheckOptions = {
   baseUrl: string
   consecutiveFailureThreshold?: number
@@ -245,21 +251,32 @@ function stripAnsiSequences(value: string): string {
 }
 
 function parsePlaywrightResultLine(line: string): { kind: 'pass' | 'fail'; durationMs: number } | null {
-  const match = line.match(/^\s*([✓✘])\s+\d+\s+.+\(([\d.]+)(ms|s)\)\s*$/u)
-  if (!match) {
+  const normalized = line.trim()
+  if (!normalized) {
     return null
   }
 
-  const symbol = match[1]
-  const rawDuration = Number.parseFloat(match[2] ?? '')
-  const unit = match[3]
+  const symbolMatch = normalized.match(/^\s*([✓✔✘xX])\s+\d+\s+/u)
+  if (!symbolMatch) {
+    return null
+  }
+
+  const durationMatches = Array.from(normalized.matchAll(/\(([\d.]+)(ms|s)\)/g))
+  const lastDurationMatch = durationMatches.at(-1)
+  if (!lastDurationMatch) {
+    return null
+  }
+
+  const symbol = symbolMatch[1]
+  const rawDuration = Number.parseFloat(lastDurationMatch[1] ?? '')
+  const unit = lastDurationMatch[2]
   if (!Number.isFinite(rawDuration) || rawDuration < 0) {
     return null
   }
 
   const durationMs = unit === 's' ? Math.round(rawDuration * 1000) : Math.round(rawDuration)
   return {
-    kind: symbol === '✘' ? 'fail' : 'pass',
+    kind: symbol === '✘' || symbol.toLowerCase() === 'x' ? 'fail' : 'pass',
     durationMs,
   }
 }
@@ -268,11 +285,7 @@ async function runCommandWithOutputMonitoring(
   command: string,
   commandArgs: string[],
   environment: NodeJS.ProcessEnv,
-  opts: {
-    detectEnvironmentUnavailable?: boolean
-    abortOnEnvironmentUnavailable?: boolean
-    playwrightFailureHealthCheck?: PlaywrightFailureHealthCheckOptions
-  } = {},
+  opts: CommandMonitoringOptions = {},
 ): Promise<CommandOutputMonitoringResult> {
   return new Promise((resolve, reject) => {
     const commandHandle = spawn(command, commandArgs, {
@@ -395,14 +408,23 @@ async function runCommandWithOutputMonitoring(
   })
 }
 
+function createMonitoredCommandError(
+  commandLabel: string,
+  args: string[],
+  result: CommandOutputMonitoringResult,
+): IntegrationCommandError {
+  const error = new Error(
+    `Command failed: ${commandLabel} ${args.join(' ')} (exit ${result.exitCode ?? 'unknown'}).`,
+  ) as IntegrationCommandError
+  error.environmentUnavailableFromOutput = result.environmentUnavailableFromOutput
+  error.commandOutput = result.output
+  return error
+}
+
 async function runYarnCommandWithOutputMonitoring(
   args: string[],
   environment: NodeJS.ProcessEnv,
-  opts: {
-    detectEnvironmentUnavailable?: boolean
-    abortOnEnvironmentUnavailable?: boolean
-    playwrightFailureHealthCheck?: PlaywrightFailureHealthCheckOptions
-  } = {},
+  opts: CommandMonitoringOptions = {},
 ): Promise<void> {
   const result = await runCommandWithOutputMonitoring(resolveYarnBinary(), ['run', ...args], environment, {
     detectEnvironmentUnavailable: opts.detectEnvironmentUnavailable,
@@ -414,22 +436,13 @@ async function runYarnCommandWithOutputMonitoring(
     return
   }
 
-  const error = new Error(
-    `Command failed: yarn ${['run', ...args].join(' ')} (exit ${result.exitCode ?? 'unknown'}).`,
-  ) as IntegrationCommandError
-  error.environmentUnavailableFromOutput = result.environmentUnavailableFromOutput
-  error.commandOutput = result.output
-  throw error
+  throw createMonitoredCommandError('yarn', ['run', ...args], result)
 }
 
 async function runNpxCommandWithOutputMonitoring(
   args: string[],
   environment: NodeJS.ProcessEnv,
-  opts: {
-    detectEnvironmentUnavailable?: boolean
-    abortOnEnvironmentUnavailable?: boolean
-    playwrightFailureHealthCheck?: PlaywrightFailureHealthCheckOptions
-  } = {},
+  opts: CommandMonitoringOptions = {},
 ): Promise<void> {
   const binary = process.platform === 'win32' ? 'npx.cmd' : 'npx'
   const result = await runCommandWithOutputMonitoring(binary, args, environment, {
@@ -442,12 +455,7 @@ async function runNpxCommandWithOutputMonitoring(
     return
   }
 
-  const error = new Error(
-    `Command failed: npx ${args.join(' ')} (exit ${result.exitCode ?? 'unknown'}).`,
-  ) as IntegrationCommandError
-  error.environmentUnavailableFromOutput = result.environmentUnavailableFromOutput
-  error.commandOutput = result.output
-  throw error
+  throw createMonitoredCommandError('npx', args, result)
 }
 
 function runYarnRawCommand(
