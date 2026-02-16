@@ -13,6 +13,7 @@ export * from './backend/utils/nav'
 export * from './backend/CrudForm'
 export * from './backend/JsonBuilder'
 export * from './backend/detail'
+export * from './backend/TruncatedCell'
 export * from './backend/schedule'
 
 export * from './backend/inputs'
