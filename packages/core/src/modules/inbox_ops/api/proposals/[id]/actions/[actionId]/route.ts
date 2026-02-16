@@ -3,7 +3,7 @@ import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { InboxProposal, InboxProposalAction } from '../../../../../data/entities'
-import { actionEditSchema } from '../../../../../data/validators'
+import { actionEditSchema, validateActionPayloadForType } from '../../../../../data/validators'
 import { resolveOptionalEventBus } from '../../../../../lib/eventBus'
 
 export const metadata = {
@@ -56,6 +56,11 @@ export async function PATCH(req: Request) {
 
     if (action.status !== 'pending' && action.status !== 'failed') {
       return NextResponse.json({ error: 'Action already processed' }, { status: 409 })
+    }
+
+    const payloadValidation = validateActionPayloadForType(action.actionType, parsed.data.payload)
+    if (!payloadValidation.success) {
+      return NextResponse.json({ error: payloadValidation.error }, { status: 400 })
     }
 
     action.payload = parsed.data.payload

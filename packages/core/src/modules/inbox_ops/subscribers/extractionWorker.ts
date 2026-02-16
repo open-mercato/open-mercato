@@ -13,6 +13,7 @@ import type { ExtractedParticipant } from '../data/entities'
 import { extractionOutputSchema } from '../data/validators'
 import { matchContacts } from '../lib/contactMatcher'
 import { buildExtractionSystemPrompt, buildExtractionUserPrompt, REQUIRED_FEATURES_MAP } from '../lib/extractionPrompt'
+import { fetchCatalogProductsForExtraction } from '../lib/catalogLookup'
 import { validatePrices } from '../lib/priceValidator'
 
 export const metadata = {
@@ -68,11 +69,14 @@ export default async function handle(payload: EmailReceivedPayload, ctx: Resolve
     const threadParticipants = extractParticipantsFromThread(email)
     const contactMatches = await matchContacts(em, threadParticipants, scope)
 
+    // Step 2b: Fetch catalog products for LLM context
+    const catalogProducts = await fetchCatalogProductsForExtraction(em, scope)
+
     // Step 3: Call LLM for extraction
     const maxTextSize = parseInt(process.env.INBOX_OPS_MAX_TEXT_SIZE || '204800', 10)
     const truncatedText = cleanedText.slice(0, maxTextSize)
 
-    const systemPrompt = buildExtractionSystemPrompt(contactMatches, [], undefined)
+    const systemPrompt = buildExtractionSystemPrompt(contactMatches, catalogProducts, undefined)
     const userPrompt = buildExtractionUserPrompt(truncatedText)
 
     let extractionResult: ReturnType<typeof extractionOutputSchema.parse>

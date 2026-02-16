@@ -7,6 +7,7 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import { InboxSettings, InboxEmail } from '../../data/entities'
 import { parseInboundEmail } from '../../lib/emailParser'
 import { resolveOptionalEventBus } from '../../lib/eventBus'
+import { checkRateLimit } from '../../lib/rateLimiter'
 
 export const metadata = {
   POST: { requireAuth: false },
@@ -87,6 +88,19 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: 'Missing recipient address' }, { status: 400 })
   }
 
+  const rateCheck = checkRateLimit(`webhook:${toAddress}`)
+  if (!rateCheck.allowed) {
+    return NextResponse.json(
+      { error: 'Rate limit exceeded' },
+      {
+        status: 429,
+        headers: rateCheck.retryAfterSeconds
+          ? { 'Retry-After': String(rateCheck.retryAfterSeconds) }
+          : undefined,
+      },
+    )
+  }
+
   const container = await createRequestContainer()
   const em = (container.resolve('em') as EntityManager).fork()
 
@@ -97,7 +111,7 @@ export async function POST(req: Request) {
   })
 
   if (!settings) {
-    return NextResponse.json({ error: 'Unknown inbox address' }, { status: 404 })
+    return NextResponse.json({ ok: true })
   }
 
   const parsed = parseInboundEmail({
@@ -232,8 +246,8 @@ export const openApi: OpenApiRouteDoc = {
       responses: [
         { status: 200, description: 'Email received and queued for processing' },
         { status: 400, description: 'Invalid payload or signature' },
-        { status: 404, description: 'Unknown tenant inbox address' },
         { status: 413, description: 'Payload too large' },
+        { status: 429, description: 'Rate limit exceeded' },
         { status: 503, description: 'Webhook secret not configured' },
       ],
     },

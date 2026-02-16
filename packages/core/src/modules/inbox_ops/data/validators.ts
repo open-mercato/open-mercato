@@ -193,3 +193,31 @@ export const emailListQuerySchema = z.object({
 export const actionEditSchema = z.object({
   payload: z.record(z.string(), z.unknown()),
 })
+
+const ACTION_PAYLOAD_SCHEMAS: Record<string, z.ZodType> = {
+  create_order: orderPayloadSchema,
+  create_quote: orderPayloadSchema,
+  update_order: updateOrderPayloadSchema,
+  update_shipment: updateShipmentPayloadSchema,
+  create_contact: createContactPayloadSchema,
+  link_contact: linkContactPayloadSchema,
+  log_activity: logActivityPayloadSchema,
+  draft_reply: draftReplyPayloadSchema,
+}
+
+export function validateActionPayloadForType(
+  actionType: string,
+  payload: Record<string, unknown>,
+): { success: true } | { success: false; error: string } {
+  const schema = ACTION_PAYLOAD_SCHEMAS[actionType]
+  if (!schema) {
+    return { success: true }
+  }
+
+  const result = schema.safeParse(payload)
+  if (!result.success) {
+    const issues = result.error.issues.map((i) => `${i.path.join('.')}: ${i.message}`).join('; ')
+    return { success: false, error: `Invalid payload for ${actionType}: ${issues}` }
+  }
+  return { success: true }
+}

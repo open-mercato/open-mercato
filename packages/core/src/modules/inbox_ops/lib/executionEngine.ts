@@ -210,28 +210,34 @@ export async function rejectProposal(
   ctx: ExecutionContext,
 ): Promise<void> {
   const em = ctx.em.fork()
-  const actions = await em.find(InboxProposalAction, {
-    proposalId,
-    status: 'pending',
-    deletedAt: null,
-  })
+  const rejectedAt = new Date()
 
-  for (const action of actions) {
-    action.status = 'rejected'
-    action.executedAt = new Date()
-    action.executedByUserId = ctx.userId
-  }
+  await em.nativeUpdate(
+    InboxProposalAction,
+    {
+      proposalId,
+      status: { $in: ACTION_EXECUTABLE_STATUSES },
+      tenantId: ctx.tenantId,
+      organizationId: ctx.organizationId,
+      deletedAt: null,
+    },
+    {
+      status: 'rejected',
+      executedAt: rejectedAt,
+      executedByUserId: ctx.userId,
+    },
+  )
 
-  await em.flush()
-
-  const discrepancies = await em.find(InboxDiscrepancy, {
-    proposalId,
-    resolved: false,
-  })
-  for (const discrepancy of discrepancies) {
-    discrepancy.resolved = true
-  }
-  await em.flush()
+  await em.nativeUpdate(
+    InboxDiscrepancy,
+    {
+      proposalId,
+      resolved: false,
+      tenantId: ctx.tenantId,
+      organizationId: ctx.organizationId,
+    },
+    { resolved: true },
+  )
 
   await recalculateProposalStatus(em, proposalId)
 
@@ -247,7 +253,7 @@ export async function rejectProposal(
 export async function acceptAllActions(
   proposalId: string,
   ctx: ExecutionContext,
-): Promise<{ results: ExecutionResult[] }> {
+): Promise<{ results: ExecutionResult[]; stoppedOnFailure: boolean }> {
   const em = ctx.em.fork()
   const actions = await em.find(
     InboxProposalAction,
@@ -260,13 +266,19 @@ export async function acceptAllActions(
   )
 
   const results: ExecutionResult[] = []
+  let stoppedOnFailure = false
 
   for (const action of actions) {
     const result = await executeAction(action, ctx)
     results.push(result)
+
+    if (!result.success) {
+      stoppedOnFailure = true
+      break
+    }
   }
 
-  return { results }
+  return { results, stoppedOnFailure }
 }
 
 async function executeByType(

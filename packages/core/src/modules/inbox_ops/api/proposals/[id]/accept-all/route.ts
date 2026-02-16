@@ -47,7 +47,7 @@ export async function POST(req: Request) {
 
     const eventBus = resolveOptionalEventBus(container)
 
-    const { results } = await acceptAllActions(proposalId, {
+    const { results, stoppedOnFailure } = await acceptAllActions(proposalId, {
       em,
       userId,
       tenantId: auth.tenantId,
@@ -60,7 +60,7 @@ export async function POST(req: Request) {
     const succeeded = results.filter((r) => r.success).length
     const failed = results.filter((r) => !r.success).length
 
-    return NextResponse.json({ ok: true, succeeded, failed, results })
+    return NextResponse.json({ ok: !stoppedOnFailure, succeeded, failed, stoppedOnFailure, results })
   } catch (err) {
     console.error('[inbox_ops:proposal:accept-all] Error:', err)
     return NextResponse.json({ error: 'Failed to accept all actions' }, { status: 500 })
