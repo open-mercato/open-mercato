@@ -157,18 +157,24 @@ describe('messages action execution route', () => {
       result: { ok: true },
     })
 
-    expect(commandBus.execute).toHaveBeenCalledWith(
+    expect(commandBus.execute).toHaveBeenNthCalledWith(
+      1,
       'sales.orders.approve',
       expect.objectContaining({
         input: { id: 'entity-1' },
       }),
     )
-
-    expect(message.actionTaken).toBe('approve')
-    expect(message.actionTakenByUserId).toBe('user-1')
-    expect(message.actionTakenAt).toBeInstanceOf(Date)
-    expect(message.actionResult).toEqual({ ok: true })
-    expect(emFork.flush).toHaveBeenCalledTimes(1)
+    expect(commandBus.execute).toHaveBeenNthCalledWith(
+      2,
+      'messages.actions.record_terminal',
+      expect.objectContaining({
+        input: expect.objectContaining({
+          messageId: 'message-1',
+          actionId: 'approve',
+          userId: 'user-1',
+        }),
+      }),
+    )
     expect(eventBus.emit).toHaveBeenCalledWith(
       'messages.action.taken',
       expect.objectContaining({ messageId: 'message-1', actionId: 'approve' }),
@@ -202,6 +208,7 @@ describe('messages action execution route', () => {
       result: { redirect: '/backend/messages/1' },
     })
     expect(message.actionTaken).toBeNull()
+    expect(commandBus.execute).toHaveBeenCalledTimes(0)
     expect(eventBus.emit).not.toHaveBeenCalled()
   })
 
