@@ -1,7 +1,7 @@
 import { GenericContainer } from 'testcontainers'
 import { spawn, type ChildProcess, type StdioOptions } from 'node:child_process'
 import { createServer } from 'node:net'
-import { mkdir, readdir, readFile, rm, writeFile } from 'node:fs/promises'
+import { mkdir, readdir, readFile, rm, stat, writeFile } from 'node:fs/promises'
 import path from 'node:path'
 import { createInterface, type Interface } from 'node:readline/promises'
 import { stdin as input, stdout as output } from 'node:process'
@@ -11,6 +11,7 @@ type EphemeralRuntimeOptions = {
   verbose: boolean
   captureScreenshots: boolean
   logPrefix: string
+  forceRebuild?: boolean
   reuseExisting?: boolean
   environmentOverrides?: NodeJS.ProcessEnv
 }
@@ -29,11 +30,13 @@ type IntegrationOptions = {
   filter: string | null
   captureScreenshots: boolean
   verbose: boolean
+  forceRebuild: boolean
 }
 
 type EphemeralAppOptions = {
   verbose: boolean
   captureScreenshots: boolean
+  forceRebuild: boolean
 }
 
 type InteractiveIntegrationOptions = {
@@ -41,6 +44,7 @@ type InteractiveIntegrationOptions = {
   captureScreenshots: boolean
   workers: number | null
   retries: number | null
+  forceRebuild: boolean
 }
 
 type IntegrationSpecTarget = {
@@ -56,6 +60,7 @@ type IntegrationCoverageOptions = {
   retries: number | null
   json: boolean
   keepRawV8: boolean
+  forceRebuild: boolean
 }
 
 type IntegrationSpecCoverageOptions = {
@@ -103,10 +108,21 @@ type EphemeralEnvironmentState = {
 const APP_READY_TIMEOUT_MS = 90_000
 const APP_READY_INTERVAL_MS = 1_000
 const DEFAULT_EPHEMERAL_APP_PORT = 5001
+const EPHEMERAL_ENV_LOCK_TIMEOUT_MS = 60_000
+const EPHEMERAL_ENV_LOCK_POLL_MS = 500
+const DEFAULT_BUILD_CACHE_TTL_SECONDS = 120
+const BUILD_CACHE_TTL_ENV_VAR = 'OM_INTEGRATION_BUILD_CACHE_TTL_SECONDS'
 const resolver = createResolver()
 const projectRootDirectory = resolver.getRootDir()
 const EPHEMERAL_ENV_FILE_PATH = path.join(projectRootDirectory, '.ai', 'qa', 'ephemeral-env.json')
+const EPHEMERAL_ENV_LOCK_PATH = path.join(projectRootDirectory, '.ai', 'qa', 'ephemeral-env.lock')
 const LEGACY_EPHEMERAL_ENV_FILE_PATH = path.join(projectRootDirectory, '.ai', 'qa', 'ephemeral-env.md')
+const APP_BUILD_ARTIFACTS = [
+  path.join(projectRootDirectory, 'apps', 'mercato', '.next', 'BUILD_ID'),
+  path.join(projectRootDirectory, 'apps', 'mercato', '.mercato', 'generated', 'modules.generated.ts'),
+  path.join(projectRootDirectory, 'packages', 'core', 'dist', 'index.js'),
+  path.join(projectRootDirectory, 'packages', 'ui', 'dist', 'index.js'),
+]
 const EXPECTED_TEST_FOLDERS = ['auth', 'catalog', 'crm', 'sales', 'admin', 'api', 'integration'] as const
 const FOLDER_TO_CATEGORY_CODE: Record<string, string> = {
   admin: 'ADMIN',
@@ -299,6 +315,56 @@ function delay(milliseconds: number): Promise<void> {
   })
 }
 
+function resolveBuildCacheTtlSeconds(logPrefix: string): number {
+  const rawValue = process.env[BUILD_CACHE_TTL_ENV_VAR]
+  if (!rawValue) {
+    return DEFAULT_BUILD_CACHE_TTL_SECONDS
+  }
+  const parsed = Number.parseInt(rawValue, 10)
+  if (!Number.isFinite(parsed) || parsed < 0) {
+    console.warn(
+      `[${logPrefix}] Invalid ${BUILD_CACHE_TTL_ENV_VAR} value "${rawValue}". Using default ${DEFAULT_BUILD_CACHE_TTL_SECONDS}s.`,
+    )
+    return DEFAULT_BUILD_CACHE_TTL_SECONDS
+  }
+  return parsed
+}
+
+async function getArtifactAgeSeconds(filePath: string): Promise<number | null> {
+  try {
+    const artifactStats = await stat(filePath)
+    if (!artifactStats.isFile()) {
+      return null
+    }
+    const ageSeconds = Math.floor((Date.now() - artifactStats.mtimeMs) / 1000)
+    return Math.max(0, ageSeconds)
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
+      return null
+    }
+    throw error
+  }
+}
+
+async function shouldReuseBuildArtifacts(ttlSeconds: number, logPrefix: string): Promise<boolean> {
+  if (ttlSeconds <= 0) {
+    return false
+  }
+
+  for (const artifactPath of APP_BUILD_ARTIFACTS) {
+    const ageSeconds = await getArtifactAgeSeconds(artifactPath)
+    if (ageSeconds === null) {
+      return false
+    }
+    if (ageSeconds > ttlSeconds) {
+      return false
+    }
+  }
+
+  console.log(`[${logPrefix}] Reusing existing build artifacts (all <= ${ttlSeconds}s old).`)
+  return true
+}
+
 async function getFreePort(): Promise<number> {
   return new Promise((resolve, reject) => {
     const server = createServer()
@@ -431,6 +497,81 @@ async function isApplicationReachable(baseUrl: string): Promise<boolean> {
   }
 }
 
+async function acquireEphemeralEnvironmentLock(logPrefix: string): Promise<{ release: () => Promise<void> }> {
+  await mkdir(path.dirname(EPHEMERAL_ENV_LOCK_PATH), { recursive: true })
+  const deadlineTimestamp = Date.now() + EPHEMERAL_ENV_LOCK_TIMEOUT_MS
+  let waitingLogged = false
+
+  while (true) {
+    try {
+      await mkdir(EPHEMERAL_ENV_LOCK_PATH)
+      const lockOwnerPath = path.join(EPHEMERAL_ENV_LOCK_PATH, 'owner.json')
+      await writeFile(
+        lockOwnerPath,
+        `${JSON.stringify({ pid: process.pid, source: logPrefix, acquiredAt: new Date().toISOString() }, null, 2)}\n`,
+        'utf8',
+      )
+      return {
+        release: async () => {
+          await rm(EPHEMERAL_ENV_LOCK_PATH, { recursive: true, force: true })
+        },
+      }
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'EEXIST') {
+        throw error
+      }
+      if (await clearStaleEphemeralEnvironmentLock(logPrefix)) {
+        continue
+      }
+    }
+
+    const remainingMilliseconds = deadlineTimestamp - Date.now()
+    if (remainingMilliseconds <= 0) {
+      throw new Error(
+        `Timed out after ${EPHEMERAL_ENV_LOCK_TIMEOUT_MS / 1000}s waiting for ephemeral environment setup lock at ${EPHEMERAL_ENV_LOCK_PATH}.`,
+      )
+    }
+
+    if (!waitingLogged) {
+      console.log(`[${logPrefix}] Waiting for another process to finish preparing the ephemeral environment...`)
+      waitingLogged = true
+    }
+    await delay(Math.min(EPHEMERAL_ENV_LOCK_POLL_MS, remainingMilliseconds))
+  }
+}
+
+function isProcessRunning(processId: number): boolean {
+  try {
+    process.kill(processId, 0)
+    return true
+  } catch (error) {
+    return (error as NodeJS.ErrnoException).code !== 'ESRCH'
+  }
+}
+
+async function clearStaleEphemeralEnvironmentLock(logPrefix: string): Promise<boolean> {
+  const lockOwnerPath = path.join(EPHEMERAL_ENV_LOCK_PATH, 'owner.json')
+  let ownerPid: number | null = null
+
+  try {
+    const ownerSource = await readFile(lockOwnerPath, 'utf8')
+    const parsed = JSON.parse(ownerSource) as { pid?: unknown }
+    if (typeof parsed.pid === 'number' && Number.isInteger(parsed.pid) && parsed.pid > 0) {
+      ownerPid = parsed.pid
+    }
+  } catch {
+    return false
+  }
+
+  if (ownerPid === null || isProcessRunning(ownerPid)) {
+    return false
+  }
+
+  await rm(EPHEMERAL_ENV_LOCK_PATH, { recursive: true, force: true })
+  console.log(`[${logPrefix}] Removed stale ephemeral environment lock from exited process ${ownerPid}.`)
+  return true
+}
+
 function buildReusableEnvironment(baseUrl: string, captureScreenshots: boolean): NodeJS.ProcessEnv {
   return buildEnvironment({
     BASE_URL: baseUrl,
@@ -458,12 +599,17 @@ async function tryReuseExistingEnvironment(options: EphemeralRuntimeOptions): Pr
     return null
   }
 
+  if (options.captureScreenshots !== state.captureScreenshots) {
+    console.log(
+      `[${options.logPrefix}] Reusing screenshot capture setting from ${EPHEMERAL_ENV_FILE_PATH}: ${state.captureScreenshots ? 'enabled' : 'disabled'}.`,
+    )
+  }
   console.log(`[${options.logPrefix}] Reusing existing ephemeral environment at ${state.baseUrl}.`)
   return {
     baseUrl: state.baseUrl,
     port: state.port,
     databaseUrl: '',
-    commandEnvironment: buildReusableEnvironment(state.baseUrl, options.captureScreenshots),
+    commandEnvironment: buildReusableEnvironment(state.baseUrl, state.captureScreenshots),
     ownedByCurrentProcess: false,
     stop: async () => {},
   }
@@ -505,6 +651,7 @@ function parseOptions(rawArgs: string[]): IntegrationOptions {
   let filter: string | null = null
   let captureScreenshots: boolean | null = null
   let verbose = false
+  let forceRebuild = false
 
   for (let index = 0; index < rawArgs.length; index += 1) {
     const argument = rawArgs[index]
@@ -522,6 +669,10 @@ function parseOptions(rawArgs: string[]): IntegrationOptions {
     }
     if (argument === '--verbose') {
       verbose = true
+      continue
+    }
+    if (argument === '--force-rebuild') {
+      forceRebuild = true
       continue
     }
     if (argument === '--filter') {
@@ -556,12 +707,14 @@ function parseOptions(rawArgs: string[]): IntegrationOptions {
     filter,
     captureScreenshots: captureScreenshots ?? defaultCaptureScreenshots,
     verbose,
+    forceRebuild,
   }
 }
 
 function parseEphemeralAppOptions(rawArgs: string[]): EphemeralAppOptions {
   let verbose = false
   let captureScreenshots: boolean | null = null
+  let forceRebuild = false
 
   for (const argument of rawArgs) {
     if (argument === '--verbose') {
@@ -576,6 +729,10 @@ function parseEphemeralAppOptions(rawArgs: string[]): EphemeralAppOptions {
       captureScreenshots = false
       continue
     }
+    if (argument === '--force-rebuild') {
+      forceRebuild = true
+      continue
+    }
     throw new Error(`Unknown option: ${argument}`)
   }
 
@@ -583,6 +740,7 @@ function parseEphemeralAppOptions(rawArgs: string[]): EphemeralAppOptions {
   return {
     verbose,
     captureScreenshots: captureScreenshots ?? defaultCaptureScreenshots,
+    forceRebuild,
   }
 }
 
@@ -591,6 +749,7 @@ function parseInteractiveIntegrationOptions(rawArgs: string[]): InteractiveInteg
   let captureScreenshots: boolean | null = null
   let workers: number | null = null
   let retries: number | null = null
+  let forceRebuild = false
 
   for (let index = 0; index < rawArgs.length; index += 1) {
     const argument = rawArgs[index]
@@ -604,6 +763,10 @@ function parseInteractiveIntegrationOptions(rawArgs: string[]): InteractiveInteg
     }
     if (argument === '--no-screenshots') {
       captureScreenshots = false
+      continue
+    }
+    if (argument === '--force-rebuild') {
+      forceRebuild = true
       continue
     }
     if (argument === '--workers') {
@@ -659,6 +822,7 @@ function parseInteractiveIntegrationOptions(rawArgs: string[]): InteractiveInteg
     captureScreenshots: captureScreenshots ?? defaultCaptureScreenshots,
     workers,
     retries,
+    forceRebuild,
   }
 }
 
@@ -670,6 +834,7 @@ function parseIntegrationCoverageOptions(rawArgs: string[]): IntegrationCoverage
   let retries: number | null = null
   let json = false
   let keepRawV8 = false
+  let forceRebuild = false
 
   for (let index = 0; index < rawArgs.length; index += 1) {
     const argument = rawArgs[index]
@@ -758,6 +923,10 @@ function parseIntegrationCoverageOptions(rawArgs: string[]): IntegrationCoverage
       keepRawV8 = true
       continue
     }
+    if (argument === '--force-rebuild') {
+      forceRebuild = true
+      continue
+    }
     throw new Error(`Unknown option: ${argument}`)
   }
 
@@ -770,6 +939,7 @@ function parseIntegrationCoverageOptions(rawArgs: string[]): IntegrationCoverage
     retries,
     json,
     keepRawV8,
+    forceRebuild,
   }
 }
 
@@ -1113,6 +1283,7 @@ export async function runIntegrationCoverageReport(rawArgs: string[]): Promise<v
   const environment = await startEphemeralEnvironment({
     verbose: options.verbose,
     captureScreenshots: options.captureScreenshots,
+    forceRebuild: options.forceRebuild,
     logPrefix: 'coverage',
     reuseExisting: false,
     environmentOverrides: {
@@ -1280,115 +1451,133 @@ async function promptAfterRun(
 export async function startEphemeralEnvironment(options: EphemeralRuntimeOptions): Promise<EphemeralEnvironmentHandle> {
   assertNode24Runtime()
   await assertContainerRuntimeAvailable()
-  if (options.reuseExisting !== false) {
-    const existingEnvironment = await tryReuseExistingEnvironment(options)
-    if (existingEnvironment) {
-      return existingEnvironment
-    }
-  }
-
-  const appWorkspace = '@open-mercato/app'
-  const applicationPort = await getPreferredPort(DEFAULT_EPHEMERAL_APP_PORT)
-  const applicationBaseUrl = `http://127.0.0.1:${applicationPort}`
-  const databaseName = 'mercato_test'
-  const databaseUser = 'mercato'
-  const databasePassword = 'secret'
-
-  const databaseContainer = await new GenericContainer('postgres:16')
-    .withEnvironment({
-      POSTGRES_DB: databaseName,
-      POSTGRES_USER: databaseUser,
-      POSTGRES_PASSWORD: databasePassword,
-    })
-    .withExposedPorts(5432)
-    .start()
-
-  const databaseHost = databaseContainer.getHost()
-  const databasePort = databaseContainer.getMappedPort(5432)
-  const databaseUrl = `postgres://${databaseUser}:${databasePassword}@${databaseHost}:${databasePort}/${databaseName}`
-  const commandEnvironment = buildEnvironment({
-    DATABASE_URL: databaseUrl,
-    BASE_URL: applicationBaseUrl,
-    JWT_SECRET: 'om-ephemeral-integration-jwt-secret',
-    NODE_ENV: 'test',
-    OM_TEST_MODE: '1',
-    OM_DISABLE_EMAIL_DELIVERY: '1',
-    ENABLE_CRUD_API_CACHE: 'true',
-    CI: 'true',
-    TENANT_DATA_ENCRYPTION_FALLBACK_KEY: 'om-ephemeral-integration-fallback-key',
-    AUTO_SPAWN_WORKERS: 'false',
-    AUTO_SPAWN_SCHEDULER: 'false',
-    OM_CLI_QUIET: '1',
-    MERCATO_QUIET: '1',
-    NODE_NO_WARNINGS: '1',
-    PORT: String(applicationPort),
-    PW_CAPTURE_SCREENSHOTS: options.captureScreenshots ? '1' : '0',
-    ...(options.environmentOverrides ?? {}),
-  })
-
-  let applicationProcess: ChildProcess | null = null
-  let isStopped = false
-  const stop = async (): Promise<void> => {
-    if (isStopped) return
-    isStopped = true
-    if (applicationProcess && !applicationProcess.killed) {
-      applicationProcess.kill('SIGTERM')
-    }
-    await databaseContainer.stop()
-    await clearEphemeralEnvironmentState()
-  }
-
+  const setupLock = await acquireEphemeralEnvironmentLock(options.logPrefix)
   try {
-    console.log(`[${options.logPrefix}] Ephemeral database ready at ${databaseHost}:${databasePort}`)
-    console.log(`[${options.logPrefix}] Initializing application data (includes migrations)...`)
-    await runYarnWorkspaceCommand(appWorkspace, 'initialize', [], commandEnvironment, {
-      silent: !options.verbose,
-    })
-
-    console.log(`[${options.logPrefix}] Building packages...`)
-    await runYarnCommand(['build:packages'], commandEnvironment, {
-      silent: !options.verbose,
-    })
-
-    console.log(`[${options.logPrefix}] Regenerating module artifacts...`)
-    await runYarnCommand(['generate'], commandEnvironment, {
-      silent: !options.verbose,
-    })
-
-    console.log(`[${options.logPrefix}] Rebuilding packages after generation...`)
-    await runYarnCommand(['build:packages'], commandEnvironment, {
-      silent: !options.verbose,
-    })
-
-    console.log(`[${options.logPrefix}] Building application...`)
-    await runYarnWorkspaceCommand(appWorkspace, 'build', [], commandEnvironment, {
-      silent: !options.verbose,
-    })
-
-    console.log(`[${options.logPrefix}] Starting application on ${applicationBaseUrl}...`)
-    applicationProcess = startYarnWorkspaceCommand(appWorkspace, 'start', [], commandEnvironment, {
-      silent: !options.verbose,
-    })
-
-    await waitForApplicationReadiness(applicationBaseUrl, applicationProcess)
-    console.log(`[${options.logPrefix}] Application is ready at ${applicationBaseUrl}`)
-    await writeEphemeralEnvironmentState({
-      baseUrl: applicationBaseUrl,
-      port: applicationPort,
-      logPrefix: options.logPrefix,
-      captureScreenshots: options.captureScreenshots,
-    })
-    return {
-      baseUrl: applicationBaseUrl,
-      port: applicationPort,
-      databaseUrl,
-      commandEnvironment,
-      ownedByCurrentProcess: true,
-      stop,
+    if (options.reuseExisting !== false) {
+      const existingEnvironment = await tryReuseExistingEnvironment(options)
+      if (existingEnvironment) {
+        return existingEnvironment
+      }
     }
-  } catch (error) {
-    await stop()
-    throw error
+
+    const appWorkspace = '@open-mercato/app'
+    const applicationPort = await getPreferredPort(DEFAULT_EPHEMERAL_APP_PORT)
+    const applicationBaseUrl = `http://127.0.0.1:${applicationPort}`
+    const databaseName = 'mercato_test'
+    const databaseUser = 'mercato'
+    const databasePassword = 'secret'
+
+    const databaseContainer = await new GenericContainer('postgres:16')
+      .withEnvironment({
+        POSTGRES_DB: databaseName,
+        POSTGRES_USER: databaseUser,
+        POSTGRES_PASSWORD: databasePassword,
+      })
+      .withExposedPorts(5432)
+      .start()
+
+    const databaseHost = databaseContainer.getHost()
+    const databasePort = databaseContainer.getMappedPort(5432)
+    const databaseUrl = `postgres://${databaseUser}:${databasePassword}@${databaseHost}:${databasePort}/${databaseName}`
+    const commandEnvironment = buildEnvironment({
+      DATABASE_URL: databaseUrl,
+      BASE_URL: applicationBaseUrl,
+      JWT_SECRET: 'om-ephemeral-integration-jwt-secret',
+      NODE_ENV: 'test',
+      OM_TEST_MODE: '1',
+      OM_DISABLE_EMAIL_DELIVERY: '1',
+      ENABLE_CRUD_API_CACHE: 'true',
+      CI: 'true',
+      TENANT_DATA_ENCRYPTION_FALLBACK_KEY: 'om-ephemeral-integration-fallback-key',
+      AUTO_SPAWN_WORKERS: 'false',
+      AUTO_SPAWN_SCHEDULER: 'false',
+      OM_CLI_QUIET: '1',
+      MERCATO_QUIET: '1',
+      NODE_NO_WARNINGS: '1',
+      PORT: String(applicationPort),
+      PW_CAPTURE_SCREENSHOTS: options.captureScreenshots ? '1' : '0',
+      ...(options.environmentOverrides ?? {}),
+    })
+
+    let applicationProcess: ChildProcess | null = null
+    let isStopped = false
+    const stop = async (): Promise<void> => {
+      if (isStopped) return
+      isStopped = true
+      if (applicationProcess && !applicationProcess.killed) {
+        applicationProcess.kill('SIGTERM')
+      }
+      await databaseContainer.stop()
+      await clearEphemeralEnvironmentState()
+    }
+
+    try {
+      const buildCacheTtlSeconds = resolveBuildCacheTtlSeconds(options.logPrefix)
+      const useBuildCache = options.forceRebuild
+        ? false
+        : await shouldReuseBuildArtifacts(buildCacheTtlSeconds, options.logPrefix)
+
+      console.log(`[${options.logPrefix}] Ephemeral database ready at ${databaseHost}:${databasePort}`)
+      console.log(`[${options.logPrefix}] Initializing application data (includes migrations)...`)
+      await runYarnWorkspaceCommand(appWorkspace, 'initialize', [], commandEnvironment, {
+        silent: !options.verbose,
+      })
+
+      if (options.forceRebuild) {
+        console.log(`[${options.logPrefix}] --force-rebuild enabled. Running full build pipeline.`)
+      } else if (useBuildCache) {
+        console.log(
+          `[${options.logPrefix}] Skipping build pipeline due to ${BUILD_CACHE_TTL_ENV_VAR}=${buildCacheTtlSeconds}.`,
+        )
+      } else {
+        console.log(`[${options.logPrefix}] Building packages...`)
+        await runYarnCommand(['build:packages'], commandEnvironment, {
+          silent: !options.verbose,
+        })
+
+        console.log(`[${options.logPrefix}] Regenerating module artifacts...`)
+        await runYarnCommand(['generate'], commandEnvironment, {
+          silent: !options.verbose,
+        })
+
+        console.log(`[${options.logPrefix}] Rebuilding packages after generation...`)
+        await runYarnCommand(['build:packages'], commandEnvironment, {
+          silent: !options.verbose,
+        })
+
+        console.log(`[${options.logPrefix}] Building application...`)
+        await runYarnWorkspaceCommand(appWorkspace, 'build', [], commandEnvironment, {
+          silent: !options.verbose,
+        })
+      }
+
+      console.log(`[${options.logPrefix}] Starting application on ${applicationBaseUrl}...`)
+      applicationProcess = startYarnWorkspaceCommand(appWorkspace, 'start', [], commandEnvironment, {
+        silent: !options.verbose,
+      })
+
+      await waitForApplicationReadiness(applicationBaseUrl, applicationProcess)
+      console.log(`[${options.logPrefix}] Application is ready at ${applicationBaseUrl}`)
+      await writeEphemeralEnvironmentState({
+        baseUrl: applicationBaseUrl,
+        port: applicationPort,
+        logPrefix: options.logPrefix,
+        captureScreenshots: options.captureScreenshots,
+      })
+      return {
+        baseUrl: applicationBaseUrl,
+        port: applicationPort,
+        databaseUrl,
+        commandEnvironment,
+        ownedByCurrentProcess: true,
+        stop,
+      }
+    } catch (error) {
+      await stop()
+      throw error
+    }
+  } finally {
+    await setupLock.release()
   }
 }
 
@@ -1409,6 +1598,7 @@ export async function runIntegrationTestsInEphemeralEnvironment(rawArgs: string[
   const environment = await startEphemeralEnvironment({
     verbose: options.verbose,
     captureScreenshots: options.captureScreenshots,
+    forceRebuild: options.forceRebuild,
     logPrefix: 'integration',
   })
 
@@ -1416,9 +1606,10 @@ export async function runIntegrationTestsInEphemeralEnvironment(rawArgs: string[
     if (!environment.ownedByCurrentProcess) {
       console.log('[integration] Attached to an already running ephemeral environment from .ai/qa/ephemeral-env.json.')
     }
+    const effectiveCaptureScreenshots = environment.commandEnvironment.PW_CAPTURE_SCREENSHOTS === '1'
     console.log('[integration] Running Playwright suite...')
     console.log(
-      `[integration] Screenshot capture is ${options.captureScreenshots ? 'enabled' : 'disabled'} (override with --screenshots / --no-screenshots)`,
+      `[integration] Screenshot capture is ${effectiveCaptureScreenshots ? 'enabled' : 'disabled'} (override with --screenshots / --no-screenshots)`,
     )
     console.log('[integration] Ensuring Playwright Chromium is installed...')
     await runNpxCommand(['playwright', 'install', 'chromium'], environment.commandEnvironment)
@@ -1448,6 +1639,7 @@ export async function runEphemeralAppForQa(rawArgs: string[]): Promise<void> {
   const environment = await startEphemeralEnvironment({
     verbose: options.verbose,
     captureScreenshots: options.captureScreenshots,
+    forceRebuild: options.forceRebuild,
     logPrefix: 'ephemeral',
   })
 
@@ -1471,6 +1663,7 @@ export async function runInteractiveIntegrationInEphemeralEnvironment(rawArgs: s
   const environment = await startEphemeralEnvironment({
     verbose: options.verbose,
     captureScreenshots: options.captureScreenshots,
+    forceRebuild: options.forceRebuild,
     logPrefix: 'interactive',
   })
 

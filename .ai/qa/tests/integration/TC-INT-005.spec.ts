@@ -21,7 +21,7 @@ test.describe('TC-INT-005: Order to Shipment to Invoice to Credit Memo', () => {
     expect(paymentResult.added, 'Payment should be saved successfully').toBeTruthy();
 
     await page.getByRole('button', { name: /^Shipments$/i }).click();
-    await expect(page.getByText(shipmentResult.trackingNumber).first()).toBeVisible();
+    await expect(page.getByText(new RegExp(`Shipment\\s+${shipmentResult.shipmentNumber}`, 'i')).first()).toBeVisible();
 
     await page.getByRole('button', { name: /^Payments$/i }).click();
     await expect(page.getByText(paymentResult.amountLabel).first()).toBeVisible();

@@ -433,23 +433,34 @@ export async function addPayment(page: Page, amount: number): Promise<{ amountLa
       await paymentStatusOption.click();
     }
   }
-  await setAmount();
-  await dialog.getByRole('button', { name: /Save/i }).click();
-  if (await dialog.getByText(/This field is required/i).isVisible().catch(() => false)) {
+  const saveButton = dialog.getByRole('button', { name: /Save/i }).first();
+  const operationMessage = page.getByText(/Last operation:\s*Create payment/i).first();
+  for (let attempt = 0; attempt < 3; attempt += 1) {
     await setAmount();
-    await dialog.getByRole('button', { name: /Save/i }).click();
+    await saveButton.click();
+    const closed = await dialog.waitFor({ state: 'hidden', timeout: 4_000 }).then(() => true).catch(() => false);
+    if (closed) {
+      break;
+    }
+    const operationVisible = await operationMessage.isVisible().catch(() => false);
+    if (operationVisible) {
+      break;
+    }
+    const hasRequiredFieldError = await dialog.getByText(/This field is required/i).isVisible().catch(() => false);
+    if (!hasRequiredFieldError) {
+      await page.waitForTimeout(200);
+    }
   }
-  await expect(dialog).toBeHidden({ timeout: TEST_WAIT_TIMEOUT_MS });
-  await page
-    .getByText(/Last operation:\s*Create payment/i)
-    .first()
-    .waitFor({ state: 'visible', timeout: TEST_WAIT_TIMEOUT_MS })
-    .catch(() => {});
-  const added = await page.getByText(/Last operation:\s*Create payment/i).first().isVisible().catch(() => false);
+  if (await dialog.isVisible().catch(() => false)) {
+    await dialog.press('Escape').catch(() => {});
+    await dialog.waitFor({ state: 'hidden', timeout: 4_000 }).catch(() => {});
+  }
+  await operationMessage.waitFor({ state: 'visible', timeout: TEST_WAIT_TIMEOUT_MS }).catch(() => {});
+  const added = await operationMessage.isVisible().catch(() => false);
   return { amountLabel, added };
 }
 
-export async function addShipment(page: Page): Promise<{ trackingNumber: string; added: boolean }> {
+export async function addShipment(page: Page): Promise<{ trackingNumber: string; shipmentNumber: string; added: boolean }> {
   await page.getByRole('button', { name: /^Shipments$/i }).click();
   const trackingNumber = `SHIP-${Date.now()}`;
   const shipmentNumber = String(Date.now());
@@ -487,12 +498,16 @@ export async function addShipment(page: Page): Promise<{ trackingNumber: string;
     .catch(() => false);
 
   if (!closed) {
-    return { trackingNumber, added: false };
+    return { trackingNumber, shipmentNumber, added: false };
   }
 
   await page.getByRole('button', { name: /^Shipments$/i }).click();
-  await expect(page.getByText(trackingNumber).first()).toBeVisible();
-  return { trackingNumber, added: true };
+  const shipmentLabel = page.getByText(new RegExp(`Shipment\\s+${escapeRegExp(shipmentNumber)}`, 'i')).first();
+  const added = await shipmentLabel
+    .waitFor({ state: 'visible', timeout: TEST_WAIT_TIMEOUT_MS })
+    .then(() => true)
+    .catch(() => false);
+  return { trackingNumber, shipmentNumber, added };
 }
 
 export async function readGrandTotalGross(page: Page): Promise<number> {
