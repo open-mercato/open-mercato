@@ -1773,12 +1773,26 @@ export async function startEphemeralEnvironment(options: EphemeralRuntimeOptions
 
     try {
       const buildCacheTtlSeconds = resolveBuildCacheTtlSeconds(options.logPrefix)
-      const buildInputFingerprintValue = await buildInputFingerprint()
-      const useBuildCache = options.forceRebuild
-        ? false
-        : await shouldReuseBuildArtifacts(buildCacheTtlSeconds, options.logPrefix, {
-            precomputedInputFingerprint: buildInputFingerprintValue ?? undefined,
-          })
+      let buildInputFingerprintValue: string | null = null
+      let useBuildCache = false
+      let shouldPersistBuildCache = true
+
+      try {
+        buildInputFingerprintValue = await buildInputFingerprint()
+        useBuildCache = options.forceRebuild
+          ? false
+          : await shouldReuseBuildArtifacts(buildCacheTtlSeconds, options.logPrefix, {
+              precomputedInputFingerprint: buildInputFingerprintValue ?? undefined,
+            })
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error)
+        shouldPersistBuildCache = false
+        useBuildCache = false
+        buildInputFingerprintValue = null
+        console.warn(
+          `[${options.logPrefix}] Build cache check failed (${message}). Rebuilding with cache bypass.`,
+        )
+      }
 
       console.log(`[${options.logPrefix}] Ephemeral database ready at ${databaseHost}:${databasePort}`)
       console.log(`[${options.logPrefix}] Initializing application data (includes migrations)...`)
@@ -1814,7 +1828,7 @@ export async function startEphemeralEnvironment(options: EphemeralRuntimeOptions
         })
       }
 
-      if (buildInputFingerprintValue) {
+      if (shouldPersistBuildCache && buildInputFingerprintValue) {
         await writeBuildCacheState(buildInputFingerprintValue)
       }
 
