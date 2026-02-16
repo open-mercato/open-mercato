@@ -1,6 +1,8 @@
 import type { EntityManager } from '@mikro-orm/core'
+import type { CommandBus } from '@open-mercato/shared/lib/commands/command-bus'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi/types'
 import { Message, MessageRecipient } from '../../../data/entities'
+import { attachOperationMetadataHeader } from '../../../lib/operationMetadata'
 import { resolveMessageContext } from '../../../lib/routeHelpers'
 import { errorResponseSchema, okResponseSchema } from '../../openapi'
 
@@ -56,23 +58,61 @@ async function resolveRecipientContext(
 export async function PUT(req: Request, { params }: { params: { id: string } }) {
   const context = await resolveRecipientContext(req, params.id)
   if ('response' in context) return context.response
+  const { ctx, scope } = await resolveMessageContext(req)
+  const commandBus = ctx.container.resolve('commandBus') as CommandBus
+  const { logEntry } = await commandBus.execute('messages.recipients.archive', {
+    input: {
+      messageId: params.id,
+      tenantId: scope.tenantId,
+      organizationId: scope.organizationId,
+      userId: scope.userId,
+    },
+    ctx: {
+      container: ctx.container,
+      auth: ctx.auth ?? null,
+      organizationScope: null,
+      selectedOrganizationId: scope.organizationId,
+      organizationIds: scope.organizationId ? [scope.organizationId] : null,
+      request: req,
+    },
+  })
 
-  context.recipient.archivedAt = new Date()
-  context.recipient.status = 'archived'
-  await context.em.flush()
-
-  return Response.json({ ok: true })
+  const response = Response.json({ ok: true })
+  attachOperationMetadataHeader(response, logEntry, {
+    resourceKind: 'messages.message',
+    resourceId: params.id,
+  })
+  return response
 }
 
 export async function DELETE(req: Request, { params }: { params: { id: string } }) {
   const context = await resolveRecipientContext(req, params.id)
   if ('response' in context) return context.response
+  const { ctx, scope } = await resolveMessageContext(req)
+  const commandBus = ctx.container.resolve('commandBus') as CommandBus
+  const { logEntry } = await commandBus.execute('messages.recipients.unarchive', {
+    input: {
+      messageId: params.id,
+      tenantId: scope.tenantId,
+      organizationId: scope.organizationId,
+      userId: scope.userId,
+    },
+    ctx: {
+      container: ctx.container,
+      auth: ctx.auth ?? null,
+      organizationScope: null,
+      selectedOrganizationId: scope.organizationId,
+      organizationIds: scope.organizationId ? [scope.organizationId] : null,
+      request: req,
+    },
+  })
 
-  context.recipient.archivedAt = null
-  context.recipient.status = context.recipient.readAt ? 'read' : 'unread'
-  await context.em.flush()
-
-  return Response.json({ ok: true })
+  const response = Response.json({ ok: true })
+  attachOperationMetadataHeader(response, logEntry, {
+    resourceKind: 'messages.message',
+    resourceId: params.id,
+  })
+  return response
 }
 
 export const openApi: OpenApiRouteDoc = {

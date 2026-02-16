@@ -9,6 +9,7 @@ jest.mock('@open-mercato/core/modules/messages/lib/routeHelpers', () => ({
 
 describe('messages /api/messages/[id]/read', () => {
   let emFork: { findOne: jest.Mock; flush: jest.Mock }
+  let commandBus: { execute: jest.Mock }
 
   beforeEach(() => {
     jest.clearAllMocks()
@@ -16,11 +17,18 @@ describe('messages /api/messages/[id]/read', () => {
       findOne: jest.fn(),
       flush: jest.fn(async () => {}),
     }
+    commandBus = {
+      execute: jest.fn(async () => ({ result: { ok: true } })),
+    }
 
     resolveMessageContextMock.mockResolvedValue({
       ctx: {
         container: {
-          resolve: (name: string) => (name === 'em' ? { fork: () => emFork } : null),
+          resolve: (name: string) => {
+            if (name === 'em') return { fork: () => emFork }
+            if (name === 'commandBus') return commandBus
+            return null
+          },
         },
       },
       scope: {
@@ -55,9 +63,15 @@ describe('messages /api/messages/[id]/read', () => {
     })
 
     expect(response.status).toBe(200)
-    expect(recipient.status).toBe('read')
-    expect(recipient.readAt).toBeInstanceOf(Date)
-    expect(emFork.flush).toHaveBeenCalledTimes(1)
+    expect(commandBus.execute).toHaveBeenCalledWith(
+      'messages.recipients.mark_read',
+      expect.objectContaining({
+        input: expect.objectContaining({
+          messageId: 'message-1',
+          userId: 'user-1',
+        }),
+      }),
+    )
   })
 
   it('marks recipient as unread on DELETE', async () => {
@@ -74,8 +88,14 @@ describe('messages /api/messages/[id]/read', () => {
     })
 
     expect(response.status).toBe(200)
-    expect(recipient.status).toBe('unread')
-    expect(recipient.readAt).toBeNull()
-    expect(emFork.flush).toHaveBeenCalledTimes(1)
+    expect(commandBus.execute).toHaveBeenCalledWith(
+      'messages.recipients.mark_unread',
+      expect.objectContaining({
+        input: expect.objectContaining({
+          messageId: 'message-1',
+          userId: 'user-1',
+        }),
+      }),
+    )
   })
 })

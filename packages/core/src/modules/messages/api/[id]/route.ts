@@ -1,4 +1,5 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
+import type { CommandBus } from '@open-mercato/shared/lib/commands/command-bus'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi/types'
 import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { User } from '../../../auth/data/entities'
@@ -10,6 +11,7 @@ import { MESSAGE_ATTACHMENT_ENTITY_ID } from '../../lib/constants'
 import { getMessageObjectType } from '../../lib/message-objects-registry'
 import { getMessageTypeOrDefault, isMessageTypeCreateableByUser } from '../../lib/message-types-registry'
 import { validateMessageObjectsForType } from '../../lib/object-validation'
+import { attachOperationMetadataHeader } from '../../lib/operationMetadata'
 import { resolveMessageContext } from '../../lib/routeHelpers'
 import {
   errorResponseSchema,
@@ -71,9 +73,23 @@ export async function GET(req: Request, { params }: { params: { id: string } }) 
   }
 
   if (recipient && recipient.status === 'unread') {
-    recipient.status = 'read'
-    recipient.readAt = new Date()
-    await em.flush()
+    const commandBus = ctx.container.resolve('commandBus') as CommandBus
+    await commandBus.execute('messages.recipients.mark_read', {
+      input: {
+        messageId: params.id,
+        tenantId: scope.tenantId,
+        organizationId: scope.organizationId,
+        userId: scope.userId,
+      },
+      ctx: {
+        container: ctx.container,
+        auth: ctx.auth ?? null,
+        organizationScope: null,
+        selectedOrganizationId: scope.organizationId,
+        organizationIds: scope.organizationId ? [scope.organizationId] : null,
+        request: req,
+      },
+    })
   }
 
   const objects = await em.find(MessageObject, { messageId: params.id })
@@ -214,6 +230,7 @@ export async function GET(req: Request, { params }: { params: { id: string } }) 
 export async function PATCH(req: Request, { params }: { params: { id: string } }) {
   const { ctx, scope } = await resolveMessageContext(req)
   const em = (ctx.container.resolve('em') as EntityManager).fork()
+  const commandBus = ctx.container.resolve('commandBus') as CommandBus
   const body = await req.json().catch(() => ({}))
   const input = updateDraftSchema.parse(body)
 
@@ -239,120 +256,55 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
     return Response.json({ error: 'Only draft messages can be edited' }, { status: 409 })
   }
 
-  const nextMessageType = input.type ?? message.type
-  if (input.type !== undefined && !isMessageTypeCreateableByUser(input.type)) {
-    return Response.json({ error: 'Message type cannot be created by users' }, { status: 400 })
-  }
-  if (input.objects) {
-    const objectValidationError = validateMessageObjectsForType(nextMessageType, input.objects)
-    if (objectValidationError) {
-      return Response.json({ error: objectValidationError }, { status: 400 })
-    }
-  } else if (input.type !== undefined) {
-    const existingObjects = await em.find(MessageObject, { messageId: message.id })
-    if (existingObjects.length > 0) {
-      const objectValidationError = validateMessageObjectsForType(
-        nextMessageType,
-        existingObjects.map((item) => ({
-          entityModule: item.entityModule,
-          entityType: item.entityType,
-          entityId: item.entityId,
-        })),
-      )
-      if (objectValidationError) {
-        return Response.json({ error: objectValidationError }, { status: 409 })
+  try {
+    const { logEntry } = await commandBus.execute('messages.messages.update_draft', {
+      input: {
+        ...input,
+        messageId: message.id,
+        tenantId: scope.tenantId,
+        organizationId: scope.organizationId,
+        userId: scope.userId,
+      },
+      ctx: {
+        container: ctx.container,
+        auth: ctx.auth ?? null,
+        organizationScope: null,
+        selectedOrganizationId: scope.organizationId,
+        organizationIds: scope.organizationId ? [scope.organizationId] : null,
+        request: req,
+      },
+    })
+
+    const response = Response.json({ ok: true, id: message.id })
+    attachOperationMetadataHeader(response, logEntry, {
+      resourceKind: 'messages.message',
+      resourceId: message.id,
+    })
+    return response
+  } catch (error) {
+    if (error instanceof Error) {
+      if (error.message === 'Message type cannot be created by users') {
+        return Response.json({ error: error.message }, { status: 400 })
+      }
+      if (error.message === 'Only draft messages can be edited') {
+        return Response.json({ error: error.message }, { status: 409 })
+      }
+      if (error.message.includes('must') || error.message.includes('required')) {
+        return Response.json({ error: error.message }, { status: 400 })
+      }
+      if (error.message === 'Access denied') {
+        return Response.json({ error: error.message }, { status: 403 })
       }
     }
+    throw error
   }
 
-  if (input.type !== undefined) message.type = input.type
-  if (input.visibility !== undefined) message.visibility = input.visibility
-  if (input.sourceEntityType !== undefined) message.sourceEntityType = input.sourceEntityType
-  if (input.sourceEntityId !== undefined) message.sourceEntityId = input.sourceEntityId
-  if (input.externalEmail !== undefined) message.externalEmail = input.externalEmail
-  if (input.externalName !== undefined) message.externalName = input.externalName
-  if (input.subject !== undefined) message.subject = input.subject
-  if (input.body !== undefined) message.body = input.body
-  if (input.bodyFormat !== undefined) message.bodyFormat = input.bodyFormat
-  if (input.priority !== undefined) message.priority = input.priority
-  if (input.actionData !== undefined) message.actionData = input.actionData
-  if (input.sendViaEmail !== undefined) message.sendViaEmail = input.sendViaEmail
-
-  if (input.recipients) {
-    await em.nativeDelete(MessageRecipient, { messageId: message.id })
-    for (const recipient of input.recipients) {
-      em.persist(em.create(MessageRecipient, {
-        messageId: message.id,
-        recipientUserId: recipient.userId,
-        recipientType: recipient.type,
-        status: 'unread',
-      }))
-    }
-  }
-
-  if (input.objects) {
-    await em.nativeDelete(MessageObject, { messageId: message.id })
-    for (const object of input.objects) {
-      em.persist(em.create(MessageObject, {
-        messageId: message.id,
-        entityModule: object.entityModule,
-        entityType: object.entityType,
-        entityId: object.entityId,
-        actionRequired: object.actionRequired,
-        actionType: object.actionType,
-        actionLabel: object.actionLabel,
-      }))
-    }
-  }
-
-  if (input.attachmentIds) {
-    const { Attachment } = await import('@open-mercato/core/modules/attachments/data/entities')
-
-    if (input.attachmentIds.length === 0) {
-      await em.nativeDelete(Attachment, {
-        entityId: MESSAGE_ATTACHMENT_ENTITY_ID,
-        recordId: message.id,
-        tenantId: scope.tenantId,
-        organizationId: scope.organizationId,
-      })
-    } else {
-      await em.nativeDelete(Attachment, {
-        entityId: MESSAGE_ATTACHMENT_ENTITY_ID,
-        recordId: message.id,
-        tenantId: scope.tenantId,
-        organizationId: scope.organizationId,
-        id: { $nin: input.attachmentIds },
-      })
-    }
-
-    try {
-      await linkAttachmentsToMessage(
-        em,
-        message.id,
-        input.attachmentIds,
-        scope.organizationId,
-        scope.tenantId
-      )
-    } catch (error) {
-      console.error('[messages:attachments] link failed via draft update', {
-        messageId: message.id,
-        attachmentIds: input.attachmentIds,
-        organizationId: scope.organizationId,
-        tenantId: scope.tenantId,
-        error,
-      })
-      throw error
-    }
-  }
-
-  await em.flush()
-
-  return Response.json({ ok: true, id: message.id })
 }
 
 export async function DELETE(req: Request, { params }: { params: { id: string } }) {
   const { ctx, scope } = await resolveMessageContext(req)
   const em = (ctx.container.resolve('em') as EntityManager).fork()
+  const commandBus = ctx.container.resolve('commandBus') as CommandBus
 
   const message = await em.findOne(Message, {
     id: params.id,
@@ -368,26 +320,37 @@ export async function DELETE(req: Request, { params }: { params: { id: string } 
     return Response.json({ error: 'Access denied' }, { status: 403 })
   }
 
-  const recipient = await em.findOne(MessageRecipient, {
-    messageId: params.id,
-    recipientUserId: scope.userId,
-    deletedAt: null,
-  })
+  try {
+    const { logEntry } = await commandBus.execute('messages.messages.delete_for_actor', {
+      input: {
+        messageId: params.id,
+        tenantId: scope.tenantId,
+        organizationId: scope.organizationId,
+        userId: scope.userId,
+      },
+      ctx: {
+        container: ctx.container,
+        auth: ctx.auth ?? null,
+        organizationScope: null,
+        selectedOrganizationId: scope.organizationId,
+        organizationIds: scope.organizationId ? [scope.organizationId] : null,
+        request: req,
+      },
+    })
 
-  if (recipient) {
-    recipient.status = 'deleted'
-    recipient.deletedAt = new Date()
-    await em.flush()
-    return Response.json({ ok: true })
+    const response = Response.json({ ok: true })
+    attachOperationMetadataHeader(response, logEntry, {
+      resourceKind: 'messages.message',
+      resourceId: params.id,
+    })
+    return response
+  } catch (error) {
+    if (error instanceof Error && error.message === 'Access denied') {
+      return Response.json({ error: 'Access denied' }, { status: 403 })
+    }
+    throw error
   }
 
-  if (message.senderUserId === scope.userId) {
-    message.deletedAt = new Date()
-    await em.flush()
-    return Response.json({ ok: true })
-  }
-
-  return Response.json({ error: 'Access denied' }, { status: 403 })
 }
 
 export const openApi: OpenApiRouteDoc = {
