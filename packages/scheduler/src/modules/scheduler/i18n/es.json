@@ -118,6 +118,7 @@
       "recent_executions": "Ejecuciones recientes",
       "no_executions": "Sin ejecuciones aún",
       "triggering": "Ejecutando...",
+      "executions_async_only": "El historial de ejecuciones y las ejecuciones manuales requieren la estrategia de cola asíncrona (QUEUE_STRATEGY=async).",
       "error": "Error",
       "not_found": "No encontrado"
     },

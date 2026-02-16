@@ -118,6 +118,7 @@
       "recent_executions": "Ostatnie wykonania",
       "no_executions": "Brak wykonań",
       "triggering": "Uruchamianie...",
+      "executions_async_only": "Historia wykonań i ręczne uruchamianie wymagają asynchronicznej strategii kolejki (QUEUE_STRATEGY=async).",
       "error": "Błąd",
       "not_found": "Nie znaleziono"
     },

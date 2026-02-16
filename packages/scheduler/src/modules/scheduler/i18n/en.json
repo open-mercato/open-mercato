@@ -131,6 +131,7 @@
       "recent_executions": "Recent Executions",
       "no_executions": "No executions yet",
       "triggering": "Triggering...",
+      "executions_async_only": "Execution history and manual triggers require async queue strategy (QUEUE_STRATEGY=async).",
       "error": "Error",
       "not_found": "Not Found"
     },

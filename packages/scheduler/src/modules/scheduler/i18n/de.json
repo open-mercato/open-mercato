@@ -118,6 +118,7 @@
       "recent_executions": "Letzte Ausführungen",
       "no_executions": "Noch keine Ausführungen",
       "triggering": "Wird ausgeführt...",
+      "executions_async_only": "Ausführungsverlauf und manuelle Auslösung erfordern die asynchrone Warteschlangenstrategie (QUEUE_STRATEGY=async).",
       "error": "Fehler",
       "not_found": "Nicht gefunden"
     },
