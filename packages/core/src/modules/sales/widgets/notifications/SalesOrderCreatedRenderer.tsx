@@ -5,7 +5,7 @@ import { ShoppingCart, ExternalLink, DollarSign, User, Calendar } from 'lucide-r
 import { useRouter } from 'next/navigation'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { cn } from '@open-mercato/shared/lib/utils'
-import { formatRelativeTime } from '@open-mercato/ui/backend/detail'
+import { formatRelativeTime } from '@open-mercato/shared/lib/time'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import type { NotificationRendererProps } from '@open-mercato/shared/modules/notifications/types'
 import { formatMoney } from '../../components/documents/lineItemUtils'

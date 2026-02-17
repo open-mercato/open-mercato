@@ -6,9 +6,9 @@ import type { DashboardWidgetComponentProps } from '@open-mercato/shared/modules
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { Spinner } from '@open-mercato/ui/primitives/spinner'
 import { Badge } from '@open-mercato/ui/primitives/badge'
+import { formatRelativeTime } from '@open-mercato/shared/lib/time'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { DEFAULT_SETTINGS, hydrateSalesNewOrdersSettings, type DatePeriodOption, type SalesNewOrdersSettings } from './config'
-import { formatRelativeTime } from '@open-mercato/ui/backend/detail'
 
 type NewOrderItem = {
   id: string

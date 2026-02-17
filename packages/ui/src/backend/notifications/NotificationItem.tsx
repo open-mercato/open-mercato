@@ -4,9 +4,9 @@ import { useRouter } from 'next/navigation'
 import { X, Bell, AlertTriangle, CheckCircle2, XCircle, Info, Loader2 } from 'lucide-react'
 import { Button } from '../../primitives/button'
 import { cn } from '@open-mercato/shared/lib/utils'
+import { formatRelativeTime } from '@open-mercato/shared/lib/time'
 import type { NotificationDto, NotificationRendererProps, NotificationTypeAction } from '@open-mercato/shared/modules/notifications/types'
 import type { TranslateFn } from '@open-mercato/shared/lib/i18n/context'
-import { formatRelativeTime } from '@open-mercato/ui/backend/detail'
 import type { ComponentType } from 'react'
 
 export type NotificationItemProps = {
