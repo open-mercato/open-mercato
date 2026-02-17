@@ -4,7 +4,7 @@
 **Updated**: 2026-02-17
 **Status**: In Progress
 **Module**: `inbox_ops` (`packages/core/src/modules/inbox_ops/`)
-**Related**: SPEC-002 (Messages Module), Issue #573, PR #569 (Messages Module)
+**Related**: SPEC-002 (Messages Module), Issue #573, Issue #414 (Messages/Email Accounts), PR #569 (Messages Module)
 
 ---
 
@@ -161,6 +161,15 @@ The `InboxEmail` entity is designed to be migratable to the messages module:
 - `subject` and content fields map to message body
 
 A Phase 2a migration script can create `message_objects` records linking existing `InboxEmail` records to new `message` entities, enabling unified message views across both modules.
+
+**Unified Email Accounts Vision (per @pkarw, issue #414):**
+
+The messages module currently uses Resend for outbound email only and has no concept of managed email accounts. @pkarw envisions adding configurable email accounts to the messages module so that both internal messages and inbound emails (like those processed by InboxOps) flow through the same UI and interpretation/dispatching mechanism. When email account management is added to the messages module:
+- InboxOps forwarding addresses would be registered as email accounts in the messages module rather than in `InboxSettings`.
+- Inbound emails would arrive via the messages module's email infrastructure and be routed to InboxOps for LLM extraction via the message type registry.
+- The same dispatching mechanism would handle both internal messages and external emails, eliminating the need for InboxOps to maintain its own webhook endpoint.
+
+This convergence is not blocked by Phase 1 — the `InboxEmail` entity and webhook endpoint are forward-compatible and can be replaced by messages module infrastructure when email accounts are implemented.
 
 ---
 
@@ -1676,6 +1685,7 @@ No parallel provider stack is introduced for InboxOps. The worker reuses the exi
 1. Register `inbox_ops_email` as a message type in the messages module registry. Use messages module's email forwarding infrastructure for draft replies. Create `message_objects` links between InboxEmail and messages entities. See section 5.2 for detailed integration plan.
 2. Leverage messages module's thread rendering for `EmailThreadViewer` if component API is compatible.
 3. Create `message` records for sent draft replies to enable dual audit trail (Activity + message).
+4. When the messages module adds email account management (per @pkarw, issue #414): migrate InboxOps forwarding addresses from `InboxSettings` to messages email accounts, and route inbound emails through the messages module's unified dispatching mechanism instead of InboxOps' own webhook. See section 5.2 for convergence design.
 
 **Testable**: Draft replies send via messages module infrastructure. InboxOps emails appear in unified message views.
 
