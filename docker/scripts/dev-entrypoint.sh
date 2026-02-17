@@ -1,8 +1,11 @@
 #!/bin/sh
 set -e
 
-# Build packages, then generate (writes packages/core/generated/), then rebuild so core gets dist/generated/
+# Ensure node_modules volume has all workspace symlinks (handles new packages added after volume creation)
 cd /app
+yarn install
+
+# Build packages, then generate (writes packages/core/generated/), then rebuild so core gets dist/generated/
 yarn build:packages
 yarn generate
 yarn build:packages
