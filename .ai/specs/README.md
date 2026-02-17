@@ -3,6 +3,8 @@
 
 This folder contains specifications and Architecture Decision Records (ADRs) that serve as the source of truth for design decisions and module behavior in Open Mercato.
 
+> Note: `.ai/specs/` documents Open Source edition features. Commercial Enterprise Edition specifications are stored in `.ai/specs/enterprise/`. For Enterprise Edition licensing and partnership details, see [`packages/enterprise/README.md`](../../packages/enterprise/README.md).
+
 ## Purpose
 
 The `.ai/specs/` folder is the central repository for:
@@ -31,6 +33,11 @@ Files like `AGENTS.md` and `CLAUDE.md` use UPPERCASE names and are not numberedâ
 
 - [AGENTS.md](AGENTS.md) - Guidelines for AI agents and humans working with specs
 - [CLAUDE.md](CLAUDE.md) - Claude-specific instructions (currently a placeholder)
+- [LICENSE.md](LICENSE.md) - Additional licensing notes for enterprise specifications in this area
+
+### Enterprise Specifications
+
+- [Enterprise Specs README](enterprise/README.md) - Enterprise specification directory, scope, and licensing contact
 
 ### Specifications
 
@@ -54,7 +61,7 @@ Files like `AGENTS.md` and `CLAUDE.md` use UPPERCASE names and are not numberedâ
 | [SPEC-016](SPEC-016-2026-02-03-form-headers-footers.md) | 2026-02-03 | Form Headers & Footers | Reusable FormHeader, FormFooter, FormActionButtons design system components |
 | [SPEC-017](SPEC-017-2026-02-03-version-history-panel.md) | 2026-02-03 | Version History Panel | Right-side panel showing record change history from audit logs |
 | [SPEC-018](SPEC-018-2026-02-05-safe-entity-flush.md) | 2026-02-05 | Atomic Phased Flush | `withAtomicFlush` â€” N-phase flush pipeline with optional transactions to prevent UoW data loss and partial commits |
-| [SPEC-019](SPEC-019-2026-02-05-two-factor-authentication.md) | 2026-02-05 | Two-Factor Authentication | TOTP-based 2FA with authenticator apps, recovery codes, and optional tenant enforcement |
+| [SPEC-019](SPEC-019-2026-02-05-two-factor-authentication.md) | 2026-02-05 | Two-Factor Authentication (Replaced) | Legacy OSS placeholder retained for history. Enterprise implementation is maintained separately. |
 | [SPEC-020](SPEC-020-2026-02-07-related-entity-version-history.md) | 2026-02-07 | Related Entity Version History | Show child entity changes (addresses, payments, notes, etc.) in parent entity version history panel |
 | [SPEC-021](SPEC-021-2026-02-07-compound-commands-graph-save.md) | 2026-02-07 | Compound Commands & Graph Save | Graph-save pattern for aggregate roots and compound command wrapper for atomic multi-command operations |
 | [SPEC-022](SPEC-022-2026-02-07-pos-module.md) | 2026-02-07 | POS Module | Point of Sale module for in-store retail operations |

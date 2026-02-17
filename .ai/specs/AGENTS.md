@@ -1,6 +1,13 @@
 # Specs Folder — Agent Rules
 
-Check `.ai/specs/` before modifying any module. Create or update specs when the change is non-trivial.
+Check `.ai/specs/` and `.ai/specs/enterprise/` before modifying any module. Create or update specs when the change is non-trivial.
+
+## Spec Separation
+
+- `.ai/specs/` contains Open Source edition specifications.
+- `.ai/specs/enterprise/` contains commercial Enterprise Edition specifications.
+- Enterprise specs are numbered independently and start from `SPEC-001` within `.ai/specs/enterprise/`.
+- Enterprise specifications are not distributed under the open source license. For commercial licensing and partnership details, see [`packages/enterprise/README.md`](../../packages/enterprise/README.md).
 
 ## Detailed Guidance
 

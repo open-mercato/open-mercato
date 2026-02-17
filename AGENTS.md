@@ -5,7 +5,7 @@ Leverage the module system and follow strict naming and coding conventions to ke
 ## Before Writing Code
 
 1. Check the Task Router below — a single task may match multiple rows; read **all** relevant guides.
-2. Check `.ai/specs/` for existing specs on the module you're modifying
+2. Check `.ai/specs/` and `.ai/specs/enterprise/` for existing specs on the module you're modifying
 3. Enter plan mode for non-trivial tasks (3+ steps or architectural decisions)
 4. Identify the reference module (customers) if building CRUD features
 
@@ -69,7 +69,7 @@ IMPORTANT: Before any research or coding, match the task to the root `AGENTS.md`
 
 ### Documentation and Specifications
 
-- Specs live in `.ai/specs/` — see `.ai/specs/AGENTS.md` for naming, structure, and changelog conventions.
+- OSS specs live in `.ai/specs/`; commercial/enterprise specs live in `.ai/specs/enterprise/` — see `.ai/specs/AGENTS.md` for naming, structure, and changelog conventions.
 - Always check for existing specs before modifying a module. Update specs when implementing significant changes.
 - For every new feature, the spec MUST list integration coverage for all affected API paths and key UI paths.
 - For every new feature, implement the integration tests defined in the spec as part of the same change — see `.ai/qa/AGENTS.md` for the workflow.
@@ -99,6 +99,7 @@ All packages use the `@open-mercato/<package>` naming convention:
 | **ai-assistant** | `@open-mercato/ai-assistant` | When working on AI assistant or MCP server tools |
 | **content** | `@open-mercato/content` | When adding static content pages (privacy, terms, legal) |
 | **onboarding** | `@open-mercato/onboarding` | When modifying setup wizards or tenant provisioning flows |
+| **enterprise** | `@open-mercato/enterprise` | When working on commercial enterprise-only modules and overlays |
 
 ### Where to Put Code
 
