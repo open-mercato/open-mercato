@@ -24,5 +24,7 @@ export default async function handle(
       .andWhereRaw('tenant_id is not distinct from ?', [tenantId])
       .andWhereRaw('organization_id is not distinct from ?', [organizationId])
       .del()
-  } catch {}
+  } catch (err) {
+    console.warn('[translations/cleanup] Failed to delete translations:', err instanceof Error ? err.message : 'unknown')
+  }
 }

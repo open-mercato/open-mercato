@@ -1153,10 +1153,16 @@ export class HybridQueryEngine implements QueryEngine {
       })
     }
 
-    // Determine CFs to include
+    // Determine CFs and l10n keys to include
     const cfKeys = new Set<string>()
-    for (const f of (opts.fields || [])) if (typeof f === 'string' && f.startsWith('cf:')) cfKeys.add(f.slice(3))
-    for (const filter of normalizedFilters) if (typeof filter.field === 'string' && filter.field.startsWith('cf:')) cfKeys.add(filter.field.slice(3))
+    for (const f of (opts.fields || [])) {
+      if (typeof f === 'string' && f.startsWith('cf:')) cfKeys.add(f.slice(3))
+      else if (typeof f === 'string' && f.startsWith('l10n:')) cfKeys.add(f)
+    }
+    for (const filter of normalizedFilters) {
+      if (typeof filter.field === 'string' && filter.field.startsWith('cf:')) cfKeys.add(filter.field.slice(3))
+      else if (typeof filter.field === 'string' && filter.field.startsWith('l10n:')) cfKeys.add(filter.field)
+    }
     if (opts.includeCustomFields === true) {
       try {
         const rows = await knex('custom_field_defs')

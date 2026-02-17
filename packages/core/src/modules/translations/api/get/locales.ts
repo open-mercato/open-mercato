@@ -3,24 +3,23 @@ import { z } from 'zod'
 import { resolveTranslationsRouteContext } from '@open-mercato/core/modules/translations/api/context'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { locales as defaultLocales } from '@open-mercato/shared/lib/i18n/config'
+import type { ModuleConfigService } from '@open-mercato/core/modules/configs/lib/module-config-service'
 import type { OpenApiMethodDoc, OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 
 export const metadata = {
-  GET: { requireAuth: true },
+  GET: { requireAuth: true, requireFeatures: ['translations.view'] },
 }
 
 async function GET(req: Request) {
   try {
     const context = await resolveTranslationsRouteContext(req)
 
-    const configRow = await context.knex('module_configs')
-      .where({ module_id: 'translations', name: 'supported_locales' })
-      .first()
+    const configService = context.container.resolve('moduleConfigService') as ModuleConfigService
+    const locales = await configService.getValue<string[]>('translations', 'supported_locales', {
+      defaultValue: [...defaultLocales],
+    })
 
-    const locales: string[] =
-      Array.isArray(configRow?.value_json) ? configRow.value_json : [...defaultLocales]
-
-    return NextResponse.json({ locales })
+    return NextResponse.json({ locales: Array.isArray(locales) ? locales : [...defaultLocales] })
   } catch (err) {
     if (err instanceof CrudHttpError) {
       return NextResponse.json(err.body, { status: err.status })

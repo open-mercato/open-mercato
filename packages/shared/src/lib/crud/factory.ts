@@ -42,6 +42,7 @@ import {
 } from './cache'
 import { deriveCrudSegmentTag } from './cache-stats'
 import { createProfiler, shouldEnableProfiler, type Profiler } from '@open-mercato/shared/lib/profiler'
+import { getTranslationOverlayPlugin } from '@open-mercato/shared/lib/localization/overlay-plugin'
 
 export type CrudHooks<TCreate, TUpdate, TList> = {
   beforeList?: (q: TList, ctx: CrudCtx) => Promise<void> | void
@@ -1034,17 +1035,18 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
 
         if (opts.list?.entityId && request) {
           try {
-            const { resolveLocaleFromRequest } = await import('@open-mercato/core/modules/translations/lib/locale')
-            const locale = resolveLocaleFromRequest(request)
-            if (locale) {
-              const { applyTranslationOverlays } = await import('@open-mercato/core/modules/translations/lib/apply')
-              transformedItems = await applyTranslationOverlays(transformedItems, {
-                entityType: String(opts.list.entityId),
-                locale,
-                tenantId: ctx.auth?.tenantId ?? null,
-                organizationId: ctx.selectedOrganizationId ?? null,
-                container: ctx.container,
-              })
+            const { overlay, resolveLocale } = getTranslationOverlayPlugin()
+            if (overlay && resolveLocale) {
+              const locale = resolveLocale(request)
+              if (locale) {
+                transformedItems = await overlay(transformedItems, {
+                  entityType: String(opts.list.entityId),
+                  locale,
+                  tenantId: ctx.auth?.tenantId ?? null,
+                  organizationId: ctx.selectedOrganizationId ?? null,
+                  container: ctx.container,
+                })
+              }
             }
           } catch {}
           profiler.mark('translation_overlays_complete', { itemCount: transformedItems.length })
@@ -1200,17 +1202,18 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
 
       if (opts.list?.entityId && request) {
         try {
-          const { resolveLocaleFromRequest } = await import('@open-mercato/core/modules/translations/lib/locale')
-          const locale = resolveLocaleFromRequest(request)
-          if (locale) {
-            const { applyTranslationOverlays } = await import('@open-mercato/core/modules/translations/lib/apply')
-            list = await applyTranslationOverlays(list, {
-              entityType: String(opts.list.entityId),
-              locale,
-              tenantId: ctx.auth?.tenantId ?? null,
-              organizationId: ctx.selectedOrganizationId ?? null,
-              container: ctx.container,
-            })
+          const { overlay, resolveLocale } = getTranslationOverlayPlugin()
+          if (overlay && resolveLocale) {
+            const locale = resolveLocale(request)
+            if (locale) {
+              list = await overlay(list, {
+                entityType: String(opts.list.entityId),
+                locale,
+                tenantId: ctx.auth?.tenantId ?? null,
+                organizationId: ctx.selectedOrganizationId ?? null,
+                container: ctx.container,
+              })
+            }
           }
         } catch {}
         profiler.mark('fallback_translation_overlays_complete', { itemCount: Array.isArray(list) ? list.length : 0 })

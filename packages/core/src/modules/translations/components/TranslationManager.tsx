@@ -14,12 +14,12 @@ import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/u
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { locales as defaultLocales } from '@open-mercato/shared/lib/i18n/config'
 import { ISO_639_1, isValidIso639, getIso639Label } from '@open-mercato/shared/lib/i18n/iso639'
-import { getEntityFields } from '#generated/entity-fields-registry'
-import { registerTranslatableFields, getTranslatableFields } from '@open-mercato/shared/lib/localization/translatable-fields'
+import { registerTranslatableFields } from '@open-mercato/shared/lib/localization/translatable-fields'
 import { catalogTranslatableFields } from '@open-mercato/core/modules/catalog/lib/translatable-fields'
 import { dictionaryTranslatableFields } from '@open-mercato/core/modules/dictionaries/lib/translatable-fields'
-import { isTranslatableField } from '../lib/translatable-fields'
-import { formatFieldLabel, formatEntityLabel, buildEntityListUrl, getRecordLabel } from '../lib/helpers'
+import { formatEntityLabel, buildEntityListUrl, getRecordLabel } from '../lib/helpers'
+import { resolveFieldList } from '../lib/resolve-field-list'
+import type { ResolvedField } from '../lib/resolve-field-list'
 
 registerTranslatableFields(catalogTranslatableFields)
 registerTranslatableFields(dictionaryTranslatableFields)
@@ -42,65 +42,6 @@ type TranslationsResponse = {
   translations: Record<string, Record<string, unknown>>
   createdAt?: string
   updatedAt?: string
-}
-
-type ResolvedField = { key: string; label: string; multiline: boolean }
-
-function resolveFieldList(
-  entityType: string,
-  explicitFields: string[] | undefined,
-  customFieldDefs: Array<{ key: string; kind: string; label?: string }>,
-): ResolvedField[] {
-  if (explicitFields?.length) {
-    return explicitFields.map((key) => ({
-      key,
-      label: formatFieldLabel(key),
-      multiline: key === 'description' || key.includes('description') || key.includes('content'),
-    }))
-  }
-
-  const registered = getTranslatableFields(entityType)
-  const fields: ResolvedField[] = []
-
-  if (registered) {
-    for (const key of registered) {
-      fields.push({
-        key,
-        label: formatFieldLabel(key),
-        multiline: key === 'description' || key.includes('description') || key.includes('content'),
-      })
-    }
-  } else {
-    const parts = entityType.split(':')
-    const entitySlug = parts[1]
-    if (entitySlug) {
-      const mod = getEntityFields(entitySlug)
-      if (mod) {
-        for (const raw of Object.values(mod)) {
-          if (typeof raw !== 'string' || !raw.trim()) continue
-          const value = raw.trim()
-          if (isTranslatableField(value) && !fields.some((f) => f.key === value)) {
-            fields.push({
-              key: value,
-              label: formatFieldLabel(value),
-              multiline: value === 'description' || value.includes('description') || value.includes('content'),
-            })
-          }
-        }
-      }
-    }
-  }
-
-  for (const def of customFieldDefs) {
-    const key = typeof def.key === 'string' ? def.key.trim() : ''
-    if (!key) continue
-    if (def.kind !== 'text' && def.kind !== 'multiline' && def.kind !== 'richtext') continue
-    if (fields.some((f) => f.key === key)) continue
-    const label = typeof def.label === 'string' && def.label.trim().length ? def.label : formatFieldLabel(key)
-    fields.push({ key, label, multiline: def.kind === 'multiline' || def.kind === 'richtext' })
-  }
-
-  return fields
 }
 
 function useTranslationLocales() {
@@ -477,6 +418,17 @@ export function TranslationManager({
       </div>
     )
   }
+
+  React.useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
+        e.preventDefault()
+        if (entityType && recordId && !mutation.isPending) mutation.mutate()
+      }
+    }
+    document.addEventListener('keydown', handler)
+    return () => document.removeEventListener('keydown', handler)
+  }, [entityType, recordId, mutation])
 
   if (compact) {
     return (

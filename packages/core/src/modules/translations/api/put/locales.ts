@@ -3,6 +3,7 @@ import { z } from 'zod'
 import { resolveTranslationsRouteContext } from '@open-mercato/core/modules/translations/api/context'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { isValidIso639 } from '@open-mercato/shared/lib/i18n/iso639'
+import type { ModuleConfigService } from '@open-mercato/core/modules/configs/lib/module-config-service'
 import type { OpenApiMethodDoc, OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 
 const bodySchema = z.object({
@@ -12,7 +13,7 @@ const bodySchema = z.object({
 })
 
 export const metadata = {
-  PUT: { requireAuth: true },
+  PUT: { requireAuth: true, requireFeatures: ['translations.manage_locales'] },
 }
 
 async function PUT(req: Request) {
@@ -21,24 +22,8 @@ async function PUT(req: Request) {
     const body = bodySchema.parse(await req.json())
     const uniqueLocales = [...new Set(body.locales.map((l) => l.toLowerCase().trim()))]
 
-    const existing = await context.knex('module_configs')
-      .where({ module_id: 'translations', name: 'supported_locales' })
-      .first()
-
-    if (existing) {
-      await context.knex('module_configs')
-        .where({ id: existing.id })
-        .update({ value_json: JSON.stringify(uniqueLocales), updated_at: new Date() })
-    } else {
-      await context.knex('module_configs').insert({
-        id: context.knex.raw('gen_random_uuid()'),
-        module_id: 'translations',
-        name: 'supported_locales',
-        value_json: JSON.stringify(uniqueLocales),
-        created_at: new Date(),
-        updated_at: new Date(),
-      })
-    }
+    const configService = context.container.resolve('moduleConfigService') as ModuleConfigService
+    await configService.setValue('translations', 'supported_locales', uniqueLocales)
 
     return NextResponse.json({ locales: uniqueLocales })
   } catch (err) {

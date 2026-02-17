@@ -21,12 +21,32 @@ export function formatEntityLabel(entityId: string, label?: string): string {
   return formatFieldLabel(name)
 }
 
+const PLURAL_EXCEPTIONS: Record<string, string> = {
+  category: 'categories',
+  entry: 'entries',
+  dictionary_entry: 'dictionary_entries',
+  currency: 'currencies',
+  company: 'companies',
+  activity: 'activities',
+  history: 'histories',
+  address: 'addresses',
+  tax: 'taxes',
+  status: 'statuses',
+}
+
+function pluralize(word: string): string {
+  if (PLURAL_EXCEPTIONS[word]) return PLURAL_EXCEPTIONS[word]
+  if (word.endsWith('s') || word.endsWith('x') || word.endsWith('z') || word.endsWith('sh') || word.endsWith('ch')) return word
+  if (word.endsWith('y') && !/[aeiou]y$/.test(word)) return `${word.slice(0, -1)}ies`
+  return `${word}s`
+}
+
 export function buildEntityListUrl(entityType: string): string | null {
   const [module, entity] = entityType.split(':')
   if (!module || !entity) return null
   const prefix = `${module}_`
   const base = entity.startsWith(prefix) ? entity.slice(prefix.length) : entity
-  const resource = base.endsWith('s') ? base : `${base}s`
+  const resource = pluralize(base)
   return `/api/${module}/${resource}`
 }
 

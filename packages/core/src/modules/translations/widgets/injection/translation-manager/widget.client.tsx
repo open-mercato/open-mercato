@@ -7,20 +7,10 @@ import { ExternalLink, Languages } from 'lucide-react'
 import type { InjectionWidgetComponentProps } from '@open-mercato/shared/modules/widgets/injection'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { TranslationManager } from '../../../components/TranslationManager'
+import { extractRecordId } from '../../../lib/extract-record-id'
 
 type WidgetContext = { entityId?: string }
 type WidgetData = Record<string, unknown> & { id?: string | number }
-
-function extractRecordId(params: Record<string, string | string[]>): string | undefined {
-  if (params.id) return String(Array.isArray(params.id) ? params.id[0] : params.id)
-  for (const [, value] of Object.entries(params)) {
-    const segments = Array.isArray(value) ? value : [value]
-    for (const seg of segments) {
-      if (seg && /^[0-9a-f-]{20,}$/i.test(seg)) return seg
-    }
-  }
-  return undefined
-}
 
 export default function TranslationWidget({ context, data }: InjectionWidgetComponentProps<WidgetContext, WidgetData>) {
   const entityType = context?.entityId

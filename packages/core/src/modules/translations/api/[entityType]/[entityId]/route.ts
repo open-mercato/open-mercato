@@ -11,9 +11,9 @@ const paramsSchema = z.object({
 })
 
 export const metadata = {
-  GET: { requireAuth: true },
-  PUT: { requireAuth: true },
-  DELETE: { requireAuth: true },
+  GET: { requireAuth: true, requireFeatures: ['translations.view'] },
+  PUT: { requireAuth: true, requireFeatures: ['translations.manage'] },
+  DELETE: { requireAuth: true, requireFeatures: ['translations.manage'] },
 }
 
 export async function GET(req: Request, ctx: { params?: { entityType?: string; entityId?: string } }) {
@@ -105,7 +105,9 @@ export async function PUT(req: Request, ctx: { params?: { entityType?: string; e
         organizationId: context.organizationId,
         tenantId: context.tenantId,
       })
-    } catch {}
+    } catch (err) {
+      console.warn('[translations] Failed to emit translations.translation.updated:', err instanceof Error ? err.message : 'unknown')
+    }
 
     const row = await context.knex('entity_translations')
       .where({
@@ -160,7 +162,9 @@ export async function DELETE(req: Request, ctx: { params?: { entityType?: string
         organizationId: context.organizationId,
         tenantId: context.tenantId,
       })
-    } catch {}
+    } catch (err) {
+      console.warn('[translations] Failed to emit translations.translation.deleted:', err instanceof Error ? err.message : 'unknown')
+    }
 
     return new NextResponse(null, { status: 204 })
   } catch (err) {

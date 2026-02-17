@@ -20,7 +20,7 @@ export class EntityTranslation {
   @Property({ name: 'tenant_id', type: 'uuid', nullable: true })
   tenantId?: string | null
 
-  @Property({ name: 'translations', type: 'json' })
+  @Property({ name: 'translations', type: 'jsonb' })
   translations!: Record<string, Record<string, unknown>>
 
   @Property({ name: 'created_at', type: Date, onCreate: () => new Date() })

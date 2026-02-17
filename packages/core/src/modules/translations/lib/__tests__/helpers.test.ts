@@ -103,8 +103,12 @@ describe('translation helpers', () => {
       expect(buildEntityListUrl('sales:sales_order')).toBe('/api/sales/orders')
     })
 
-    it('does not strip partial prefix match', () => {
-      expect(buildEntityListUrl('catalog:category')).toBe('/api/catalog/categorys')
+    it('correctly pluralizes category', () => {
+      expect(buildEntityListUrl('catalog:category')).toBe('/api/catalog/categories')
+    })
+
+    it('correctly pluralizes entity ending in y after consonant', () => {
+      expect(buildEntityListUrl('catalog:catalog_company')).toBe('/api/catalog/companies')
     })
   })
 
