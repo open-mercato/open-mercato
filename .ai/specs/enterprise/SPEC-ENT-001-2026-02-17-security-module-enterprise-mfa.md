@@ -1,4 +1,4 @@
-# SPEC-001: Security Module (Enterprise MFA, Sudo, Enforcement)
+# SPEC-ENT-001: Security Module (Enterprise MFA, Sudo, Enforcement)
 
 > **Supersedes:** #496 (feat: add 2FA — implement SPEC-019)
 > **Labels:** `enterprise`, `feature`, `security`
@@ -533,7 +533,7 @@ packages/enterprise/src/modules/security/
 ## Changelog
 
 ### 2026-02-17
-- Initial enterprise security module specification created as `SPEC-001` in `.ai/specs/enterprise`.
+- Initial enterprise security module specification created as `SPEC-ENT-001` in `.ai/specs/enterprise`.
 
 ### 2026-02-18
 - Aligned spec content with the full detailed proposal superseding #496.

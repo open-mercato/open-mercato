@@ -126,7 +126,9 @@ Every ADR must maintain a changelog at the bottom:
 
 ### When Creating New Modules
 
-1. Create a new specification file at `.ai/specs/SPEC-{next-number}-{YYYY-MM-DD}-{module-name}.md`
+1. Create a new specification file at:
+   - `.ai/specs/SPEC-{next-number}-{YYYY-MM-DD}-{module-name}.md` for Open Source edition scope
+   - `.ai/specs/enterprise/SPEC-ENT-{next-number}-{YYYY-MM-DD}-{module-name}.md` for Enterprise Edition scope (enterprise numbering starts at `SPEC-ENT-001` in that folder)
 2. Document the initial design before or alongside implementation
 3. Include a changelog entry for the initial specification
 4. Update this README.md with a link to the new specification

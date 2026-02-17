@@ -11,7 +11,7 @@ Use this package for commercial Open Mercato features.
 ## Current Focus
 
 - Security module implementation scaffolding lives in `src/modules/security/`.
-- MFA/2FA is one of the first enterprise features implemented from enterprise SPEC-019.
+- MFA/2FA is one of the first enterprise features implemented from enterprise SPEC-ENT-001.
 
 ## Licensing
 

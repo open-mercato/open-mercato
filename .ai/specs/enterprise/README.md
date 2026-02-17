@@ -8,10 +8,10 @@ For licensing, permissions, and partnership details, see [`packages/enterprise/R
 
 ## Numbering
 
-Enterprise specifications are numbered independently from OSS specs and start from `SPEC-001` in this folder.
+Enterprise specifications are numbered independently from OSS specs and use the `SPEC-ENT-{number}` format, starting from `SPEC-ENT-001` in this folder.
 
 ## Specification Directory
 
 | SPEC | Date | Title | Description |
 | --- | --- | --- | --- |
-| [SPEC-001](SPEC-001-2026-02-17-security-module-enterprise-mfa.md) | 2026-02-17 | Security Module (Enterprise MFA, Sudo, Enforcement) | Enterprise security module with pluggable MFA providers, enforcement policies, and sudo challenge flows |
+| [SPEC-ENT-001](SPEC-ENT-001-2026-02-17-security-module-enterprise-mfa.md) | 2026-02-17 | Security Module (Enterprise MFA, Sudo, Enforcement) | Enterprise security module with pluggable MFA providers, enforcement policies, and sudo challenge flows |
