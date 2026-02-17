@@ -3,7 +3,7 @@
 import * as React from 'react'
 import { useRouter } from 'next/navigation'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
-import { CrudForm, type CrudField, type CrudFormGroup } from '@open-mercato/ui/backend/CrudForm'
+import { CrudForm, type CrudField, type CrudFormGroup, type CrudCustomFieldRenderProps } from '@open-mercato/ui/backend/CrudForm'
 import { createCrud } from '@open-mercato/ui/backend/utils/crud'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
@@ -12,6 +12,7 @@ import { Label } from '@open-mercato/ui/primitives/label'
 import { z } from 'zod'
 import { ComboboxInput, type ComboboxOption } from '@open-mercato/ui/backend/inputs/ComboboxInput'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
+import { JsonBuilder } from '@open-mercato/ui/backend/JsonBuilder'
 
 type ScheduleFormValues = {
   name: string
@@ -23,13 +24,23 @@ type ScheduleFormValues = {
   targetType: 'queue' | 'command'
   targetQueue?: string
   targetCommand?: string
-  targetPayload?: string // JSON string
+  targetPayload?: Record<string, unknown>
   isEnabled: boolean
 }
 
 type TargetOptions = {
   queues: ComboboxOption[]
   commands: ComboboxOption[]
+}
+
+function PayloadJsonEditor({ value, setValue, disabled }: CrudCustomFieldRenderProps) {
+  return (
+    <JsonBuilder
+      value={value || {}}
+      onChange={setValue}
+      disabled={disabled}
+    />
+  )
 }
 
 export default function NewSchedulePage() {
@@ -92,18 +103,7 @@ export default function NewSchedulePage() {
         targetType: z.enum(['queue', 'command']),
         targetQueue: z.string().optional(),
         targetCommand: z.string().optional(),
-        targetPayload: z.string().optional().refine(
-          (val) => {
-            if (!val || val.trim() === '') return true
-            try {
-              JSON.parse(val)
-              return true
-            } catch {
-              return false
-            }
-          },
-          { message: t('scheduler.form.target_payload.invalid_json', 'Must be valid JSON') }
-        ),
+        targetPayload: z.record(z.string(), z.unknown()).optional(),
         isEnabled: z.boolean(),
       }),
     [t]
@@ -215,10 +215,10 @@ export default function NewSchedulePage() {
       },
       {
         id: 'targetPayload',
-        type: 'textarea',
+        type: 'custom',
         label: t('scheduler.form.target_payload', 'Job Arguments (JSON)'),
-        placeholder: t('scheduler.form.target_payload.placeholder', '{\n  "message": "Hello",\n  "value": 42\n}'),
-        description: t('scheduler.form.target_payload.description', 'Optional JSON object with arguments to pass to the command or queue job. Must be valid JSON format.'),
+        description: t('scheduler.form.target_payload.description', 'Optional JSON payload. Fields tenantId and organizationId are injected automatically at execution time.'),
+        component: (props) => <PayloadJsonEditor {...props} />,
       },
     ],
     [t, loadTimezoneOptions, loadQueueOptions, loadCommandOptions]
@@ -281,17 +281,9 @@ export default function NewSchedulePage() {
             </div>
           }
           onSubmit={async (values) => {
-            // Parse targetPayload from JSON string to object
-            let targetPayload = null
-            if (values.targetPayload && values.targetPayload.trim()) {
-              try {
-                targetPayload = JSON.parse(values.targetPayload)
-              } catch (error) {
-                console.error('Failed to parse targetPayload JSON:', error)
-                flash(t('scheduler.error.invalidPayload', 'Invalid JSON payload'), 'error')
-                return
-              }
-            }
+            const targetPayload = values.targetPayload && Object.keys(values.targetPayload).length > 0
+              ? values.targetPayload
+              : null
 
             await createCrud<{ id?: string }>(
               'scheduler/jobs',

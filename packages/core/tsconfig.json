@@ -2,7 +2,13 @@
   "$schema": "https://json.schemastore.org/tsconfig",
   "extends": "../../tsconfig.base.json",
   "compilerOptions": {
-    "noEmit": true
+    "noEmit": true,
+    "baseUrl": ".",
+    "paths": {
+      "@open-mercato/core/modules/core/__integration__/helpers/*": [
+        "./src/modules/core/__integration__/helpers/*"
+      ]
+    }
   },
   "include": ["src/**/*", "generated/**/*"],
   "exclude": ["node_modules", "dist", "**/__tests__/**"]
