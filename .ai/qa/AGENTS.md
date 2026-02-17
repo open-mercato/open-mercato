@@ -55,24 +55,24 @@ packages/enterprise/modules/<module>/__integration__/      # Optional enterprise
 
 ## Reusable Helpers
 
-Use shared helpers directly from `packages/core/src/modules/core/__integration__/helpers/` instead of creating module-local re-export wrappers.
+Use shared helpers directly from `@open-mercato/core/modules/core/__integration__/helpers/*` instead of creating module-local re-export wrappers.
 
-| Helper File | Main Exports | Typical Use |
+| Helper Import | Main Exports | Typical Use |
 |------|-------|--------|
-| `packages/core/src/modules/core/__integration__/helpers/auth.ts` | `login`, `DEFAULT_CREDENTIALS` | UI authentication and role-based login (`admin`, `employee`, `superadmin`) |
-| `packages/core/src/modules/core/__integration__/helpers/api.ts` | `getAuthToken`, `apiRequest` | Authenticated API setup and raw API calls in integration tests |
-| `packages/core/src/modules/core/__integration__/helpers/authUi.ts` | `createUserViaUi` | Auth module UI flows for user creation/edit smoke coverage |
-| `packages/core/src/modules/core/__integration__/helpers/catalogFixtures.ts` | `createProductFixture`, `deleteCatalogProductIfExists` | Catalog fixture lifecycle for setup/cleanup |
-| `packages/core/src/modules/core/__integration__/helpers/crmFixtures.ts` | `createCompanyFixture`, `createPersonFixture`, `createDealFixture`, `deleteEntityIfExists` | Customers/CRM fixture creation and cleanup |
-| `packages/core/src/modules/core/__integration__/helpers/salesFixtures.ts` | `createSalesQuoteFixture`, `createSalesOrderFixture`, `createOrderLineFixture`, `deleteSalesEntityIfExists` | Sales API fixture lifecycle |
-| `packages/core/src/modules/core/__integration__/helpers/salesUi.ts` | `createSalesDocument`, `addCustomLine`, `updateLineQuantity`, `deleteLine`, `addAdjustment`, `addPayment`, `addShipment`, `readGrandTotalGross` | Sales document UI interactions and totals assertions |
+| `@open-mercato/core/modules/core/__integration__/helpers/auth` | `login`, `DEFAULT_CREDENTIALS` | UI authentication and role-based login (`admin`, `employee`, `superadmin`) |
+| `@open-mercato/core/modules/core/__integration__/helpers/api` | `getAuthToken`, `apiRequest` | Authenticated API setup and raw API calls in integration tests |
+| `@open-mercato/core/modules/core/__integration__/helpers/authUi` | `createUserViaUi` | Auth module UI flows for user creation/edit smoke coverage |
+| `@open-mercato/core/modules/core/__integration__/helpers/catalogFixtures` | `createProductFixture`, `deleteCatalogProductIfExists` | Catalog fixture lifecycle for setup/cleanup |
+| `@open-mercato/core/modules/core/__integration__/helpers/crmFixtures` | `createCompanyFixture`, `createPersonFixture`, `createDealFixture`, `deleteEntityIfExists` | Customers/CRM fixture creation and cleanup |
+| `@open-mercato/core/modules/core/__integration__/helpers/salesFixtures` | `createSalesQuoteFixture`, `createSalesOrderFixture`, `createOrderLineFixture`, `deleteSalesEntityIfExists` | Sales API fixture lifecycle |
+| `@open-mercato/core/modules/core/__integration__/helpers/salesUi` | `createSalesDocument`, `addCustomLine`, `updateLineQuantity`, `deleteLine`, `addAdjustment`, `addPayment`, `addShipment`, `readGrandTotalGross` | Sales document UI interactions and totals assertions |
 | `packages/create-app/template/src/modules/auth/__integration__/helpers/auth.ts` | `login` | Template-local helper for generated apps (kept local to template) |
 
 Import pattern from module tests:
 
 ```ts
-import { login } from '../../core/__integration__/helpers/auth';
-import { apiRequest, getAuthToken } from '../../core/__integration__/helpers/api';
+import { login } from '@open-mercato/core/modules/core/__integration__/helpers/auth';
+import { apiRequest, getAuthToken } from '@open-mercato/core/modules/core/__integration__/helpers/api';
 ```
 
 ---

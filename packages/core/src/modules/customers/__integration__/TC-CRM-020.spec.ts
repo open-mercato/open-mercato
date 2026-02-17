@@ -1,12 +1,12 @@
 import { expect, test } from '@playwright/test';
-import { login } from '../../core/__integration__/helpers/auth';
-import { getAuthToken } from '../../core/__integration__/helpers/api';
+import { login } from '@open-mercato/core/modules/core/__integration__/helpers/auth';
+import { getAuthToken } from '@open-mercato/core/modules/core/__integration__/helpers/api';
 import {
   createCompanyFixture,
   createDealFixture,
   createPersonFixture,
   deleteEntityIfExists,
-} from '../../core/__integration__/helpers/crmFixtures';
+} from '@open-mercato/core/modules/core/__integration__/helpers/crmFixtures';
 
 /**
  * TC-CRM-020: Deal Note And Activity Creation

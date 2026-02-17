@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { login } from '../helpers/auth';
+import { login } from '@open-mercato/core/modules/core/__integration__/helpers/auth';
 
 /**
  * TC-ADMIN-009: View System Status Dashboard

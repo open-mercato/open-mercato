@@ -113,6 +113,10 @@
       "types": "./src/modules/api_keys/index.ts",
       "default": "./dist/modules/api_keys/index.js"
     },
+    "./modules/core/__integration__/helpers/*": {
+      "types": "./src/modules/core/__integration__/helpers/*.ts",
+      "default": "./src/modules/core/__integration__/helpers/*.ts"
+    },
     "./modules/widgets/lib/injection": {
       "types": "./src/modules/widgets/lib/injection.ts",
       "default": "./dist/modules/widgets/lib/injection.js"

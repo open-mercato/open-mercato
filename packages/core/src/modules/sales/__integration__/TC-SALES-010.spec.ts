@@ -1,6 +1,6 @@
 import { expect, test } from '@playwright/test';
-import { login } from '../../core/__integration__/helpers/auth';
-import { addCustomLine, addPayment, createSalesDocument } from '../../core/__integration__/helpers/salesUi';
+import { login } from '@open-mercato/core/modules/core/__integration__/helpers/auth';
+import { addCustomLine, addPayment, createSalesDocument } from '@open-mercato/core/modules/core/__integration__/helpers/salesUi';
 
 /**
  * TC-SALES-010: Payment Recording

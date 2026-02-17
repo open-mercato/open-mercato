@@ -1,7 +1,7 @@
 import { expect, test } from '@playwright/test';
-import { login } from '../helpers/auth';
-import { apiRequest, getAuthToken } from '../helpers/api';
-import { createUserViaUi } from '../helpers/authUi';
+import { login } from '@open-mercato/core/modules/core/__integration__/helpers/auth';
+import { apiRequest, getAuthToken } from '@open-mercato/core/modules/core/__integration__/helpers/api';
+import { createUserViaUi } from '@open-mercato/core/modules/core/__integration__/helpers/authUi';
 
 /**
  * TC-INT-004: User to Role to Permission to Access Verification

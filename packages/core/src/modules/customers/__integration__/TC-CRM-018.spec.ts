@@ -1,7 +1,7 @@
 import { expect, test } from '@playwright/test';
-import { login } from '../../core/__integration__/helpers/auth';
-import { getAuthToken } from '../../core/__integration__/helpers/api';
-import { createCompanyFixture, createPersonFixture, deleteEntityIfExists } from '../../core/__integration__/helpers/crmFixtures';
+import { login } from '@open-mercato/core/modules/core/__integration__/helpers/auth';
+import { getAuthToken } from '@open-mercato/core/modules/core/__integration__/helpers/api';
+import { createCompanyFixture, createPersonFixture, deleteEntityIfExists } from '@open-mercato/core/modules/core/__integration__/helpers/crmFixtures';
 
 /**
  * TC-CRM-018: Person Display Name Edit And Undo

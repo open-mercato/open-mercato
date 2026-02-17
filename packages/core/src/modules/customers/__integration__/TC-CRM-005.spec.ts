@@ -1,7 +1,7 @@
 import { expect, test } from '@playwright/test';
-import { createCompanyFixture, createPersonFixture, deleteEntityIfExists } from '../../core/__integration__/helpers/crmFixtures';
-import { getAuthToken } from '../../core/__integration__/helpers/api';
-import { login } from '../../core/__integration__/helpers/auth';
+import { createCompanyFixture, createPersonFixture, deleteEntityIfExists } from '@open-mercato/core/modules/core/__integration__/helpers/crmFixtures';
+import { getAuthToken } from '@open-mercato/core/modules/core/__integration__/helpers/api';
+import { login } from '@open-mercato/core/modules/core/__integration__/helpers/auth';
 
 /**
  * TC-CRM-005: Link Person to Company

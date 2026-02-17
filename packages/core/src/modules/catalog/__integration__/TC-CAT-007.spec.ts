@@ -1,6 +1,6 @@
 import { expect, test } from '@playwright/test';
-import { login } from '../../core/__integration__/helpers/auth';
-import { apiRequest, getAuthToken } from '../../core/__integration__/helpers/api';
+import { login } from '@open-mercato/core/modules/core/__integration__/helpers/auth';
+import { apiRequest, getAuthToken } from '@open-mercato/core/modules/core/__integration__/helpers/api';
 
 /**
  * TC-CAT-007: Create Product Category

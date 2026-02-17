@@ -1,7 +1,7 @@
 import { expect, test } from '@playwright/test';
-import { createProductFixture, deleteCatalogProductIfExists } from '../../core/__integration__/helpers/catalogFixtures';
-import { getAuthToken } from '../../core/__integration__/helpers/api';
-import { login } from '../../core/__integration__/helpers/auth';
+import { createProductFixture, deleteCatalogProductIfExists } from '@open-mercato/core/modules/core/__integration__/helpers/catalogFixtures';
+import { getAuthToken } from '@open-mercato/core/modules/core/__integration__/helpers/api';
+import { login } from '@open-mercato/core/modules/core/__integration__/helpers/auth';
 
 /**
  * TC-CAT-011: Configure Product Pricing

@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { apiRequest, getAuthToken } from '../../core/__integration__/helpers/api';
+import { apiRequest, getAuthToken } from '@open-mercato/core/modules/core/__integration__/helpers/api';
 
 /**
  * TC-CAT-010: Create Price Kind Configuration

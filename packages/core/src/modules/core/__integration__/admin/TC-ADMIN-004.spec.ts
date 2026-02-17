@@ -1,6 +1,6 @@
 import { test, expect } from '@playwright/test';
-import { login } from '../helpers/auth';
-import { apiRequest, getAuthToken } from '../helpers/api';
+import { login } from '@open-mercato/core/modules/core/__integration__/helpers/auth';
+import { apiRequest, getAuthToken } from '@open-mercato/core/modules/core/__integration__/helpers/api';
 
 /**
  * TC-ADMIN-004: Manage Dictionary Entries

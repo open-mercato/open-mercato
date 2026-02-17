@@ -1,8 +1,8 @@
 import { expect, test } from '@playwright/test';
-import { login } from '../helpers/auth';
-import { getAuthToken } from '../helpers/api';
-import { deleteEntityIfExists } from '../helpers/crmFixtures';
-import { createSalesDocument } from '../helpers/salesUi';
+import { login } from '@open-mercato/core/modules/core/__integration__/helpers/auth';
+import { getAuthToken } from '@open-mercato/core/modules/core/__integration__/helpers/api';
+import { deleteEntityIfExists } from '@open-mercato/core/modules/core/__integration__/helpers/crmFixtures';
+import { createSalesDocument } from '@open-mercato/core/modules/core/__integration__/helpers/salesUi';
 
 /**
  * TC-INT-002: Customer to Deal to Quote to Order Flow

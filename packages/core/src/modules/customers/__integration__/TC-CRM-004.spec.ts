@@ -1,7 +1,7 @@
 import { expect, test } from '@playwright/test';
-import { login } from '../../core/__integration__/helpers/auth';
-import { createCompanyFixture, deleteEntityIfExists } from '../../core/__integration__/helpers/crmFixtures';
-import { getAuthToken } from '../../core/__integration__/helpers/api';
+import { login } from '@open-mercato/core/modules/core/__integration__/helpers/auth';
+import { createCompanyFixture, deleteEntityIfExists } from '@open-mercato/core/modules/core/__integration__/helpers/crmFixtures';
+import { getAuthToken } from '@open-mercato/core/modules/core/__integration__/helpers/api';
 
 /**
  * TC-CRM-004: Create Contact/Person

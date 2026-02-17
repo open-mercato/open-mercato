@@ -1,6 +1,6 @@
 import { expect, test } from '@playwright/test';
-import { login } from '../helpers/auth';
-import { apiRequest, getAuthToken } from '../helpers/api';
+import { login } from '@open-mercato/core/modules/core/__integration__/helpers/auth';
+import { apiRequest, getAuthToken } from '@open-mercato/core/modules/core/__integration__/helpers/api';
 
 function escapeRegExp(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');

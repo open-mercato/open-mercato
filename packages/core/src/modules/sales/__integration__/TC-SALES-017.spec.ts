@@ -1,6 +1,6 @@
 import { expect, test } from '@playwright/test';
-import { login } from '../../core/__integration__/helpers/auth';
-import { addCustomLine, createSalesDocument, readGrandTotalGross } from '../../core/__integration__/helpers/salesUi';
+import { login } from '@open-mercato/core/modules/core/__integration__/helpers/auth';
+import { addCustomLine, createSalesDocument, readGrandTotalGross } from '@open-mercato/core/modules/core/__integration__/helpers/salesUi';
 
 /**
  * TC-SALES-017: Multi-Adjustment Totals Recalculation

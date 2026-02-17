@@ -1,6 +1,6 @@
 import { expect, test } from '@playwright/test';
-import { login } from '../../core/__integration__/helpers/auth';
-import { addAdjustment, addCustomLine, createSalesDocument } from '../../core/__integration__/helpers/salesUi';
+import { login } from '@open-mercato/core/modules/core/__integration__/helpers/auth';
+import { addAdjustment, addCustomLine, createSalesDocument } from '@open-mercato/core/modules/core/__integration__/helpers/salesUi';
 
 /**
  * TC-SALES-005: Order Discount Adjustment
