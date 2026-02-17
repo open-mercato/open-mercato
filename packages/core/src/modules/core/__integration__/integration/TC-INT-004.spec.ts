@@ -37,10 +37,14 @@ test.describe('TC-INT-004: User to Role to Permission to Access Verification', (
       userId = page.url().match(/\/backend\/users\/([0-9a-f-]{36})\/edit$/i)?.[1] ?? null;
 
       const browser = page.context().browser();
-      if (!browser) test.skip(true, 'No browser instance available for secondary session validation.');
+      if (!browser) {
+        test.skip(true, 'No browser instance available for secondary session validation.');
+        return;
+      }
 
-      limitedContext = await browser.newContext({ baseURL: process.env.BASE_URL || 'http://localhost:3000' });
-      const limitedPage = await limitedContext.newPage();
+      const ctx = await browser.newContext({ baseURL: process.env.BASE_URL || 'http://localhost:3000' });
+      limitedContext = ctx;
+      const limitedPage = await ctx.newPage();
       await limitedPage.goto('/login');
       await limitedPage.getByLabel('Email').fill(email);
       await limitedPage.getByLabel('Password').fill(password);

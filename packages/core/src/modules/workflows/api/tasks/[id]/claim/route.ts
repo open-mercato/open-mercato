@@ -6,10 +6,16 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server'
+import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/directory/utils/organizationScope'
 import { claimUserTask } from '../../../../lib/task-handler'
+import {
+  workflowsTag,
+  userTaskClaimResponseSchema,
+  workflowErrorSchema,
+} from '../../../openapi'
 
 export const metadata = {
   requireAuth: true,
@@ -97,4 +103,25 @@ export async function POST(
       { status: 500 }
     )
   }
+}
+
+export const openApi: OpenApiRouteDoc = {
+  tag: workflowsTag,
+  summary: 'Claim user task',
+  methods: {
+    POST: {
+      summary: 'Claim a task from role queue',
+      description: 'Allows a user to claim a task assigned to their role(s). Once claimed, the task moves to IN_PROGRESS status and is assigned to the claiming user.',
+      responses: [
+        { status: 200, description: 'Task claimed successfully', schema: userTaskClaimResponseSchema },
+      ],
+      errors: [
+        { status: 400, description: 'Missing tenant or organization context', schema: workflowErrorSchema },
+        { status: 401, description: 'Unauthorized', schema: workflowErrorSchema },
+        { status: 404, description: 'Task not found', schema: workflowErrorSchema },
+        { status: 409, description: 'Task already claimed', schema: workflowErrorSchema },
+        { status: 500, description: 'Internal server error', schema: workflowErrorSchema },
+      ],
+    },
+  },
 }
