@@ -1,0 +1,12 @@
+{
+  "version": 1,
+  "builtAt": 1771229965446,
+  "inputFingerprint": "1fc682708ad455fda63014adbb6623cc3559db3bcdf117d270c71fceffe23011",
+  "artifactPaths": [
+    "/Users/piotrkarwatka/Projects/mercato-development/apps/mercato/.next/BUILD_ID",
+    "/Users/piotrkarwatka/Projects/mercato-development/apps/mercato/.mercato/generated/modules.generated.ts",
+    "/Users/piotrkarwatka/Projects/mercato-development/packages/core/dist/index.js",
+    "/Users/piotrkarwatka/Projects/mercato-development/packages/ui/dist/index.js"
+  ],
+  "projectRoot": "/Users/piotrkarwatka/Projects/mercato-development"
+}

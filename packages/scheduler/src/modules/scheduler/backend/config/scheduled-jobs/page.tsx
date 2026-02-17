@@ -156,7 +156,8 @@ export default function SchedulerPage() {
         })
         flash(t('scheduler.success.triggered', 'Schedule triggered successfully'), 'success')
       } catch (error) {
-        flash(t('scheduler.error.trigger_failed', 'Failed to trigger schedule'), 'error')
+        const message = error instanceof Error ? error.message : t('scheduler.error.trigger_failed', 'Failed to trigger schedule')
+        flash(message, 'error')
       }
     },
     [t]

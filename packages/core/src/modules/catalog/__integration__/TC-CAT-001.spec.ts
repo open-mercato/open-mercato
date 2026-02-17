@@ -1,0 +1,32 @@
+import { expect, test } from '@playwright/test';
+import { login } from '@open-mercato/core/modules/core/__integration__/helpers/auth';
+
+/**
+ * TC-CAT-001: Create New Product
+ * Source: .ai/qa/scenarios/TC-CAT-001-product-creation.md
+ */
+test.describe('TC-CAT-001: Create New Product', () => {
+  test('should create a product from catalog create form', async ({ page }) => {
+    const productName = `QA TC-CAT-001 ${Date.now()}`;
+    const sku = `QA-CAT-001-${Date.now()}`;
+
+    await login(page, 'admin');
+    await page.goto('/backend/catalog/products/create');
+
+    await page.getByRole('textbox', { name: 'e.g., Summer sneaker' }).fill(productName);
+    await page
+      .getByRole('textbox', { name: 'Describe the product...' })
+      .fill('This is a catalog QA description long enough to satisfy SEO validation checks in create flow.');
+
+    await page.getByRole('button', { name: 'Variants' }).click();
+    await page.getByRole('textbox', { name: 'e.g., SKU-001' }).fill(sku);
+
+    await page.getByRole('button', { name: 'Create product' }).last().click();
+    await expect(page).toHaveURL(/\/backend\/catalog\/products$/);
+
+    const search = page.getByRole('textbox', { name: 'Search' });
+    await search.fill(productName);
+    await expect(page.getByText(productName, { exact: true })).toBeVisible();
+  });
+});
+

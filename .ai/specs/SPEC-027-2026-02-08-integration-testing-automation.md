@@ -3,13 +3,13 @@
 **Date:** 2026-02-08
 **Status:** Ready for implementation
 **Module:** QA infrastructure (`.ai/qa/`)
-**Related:** Scenarios in `.ai/qa/scenarios/TC-*.md`, tests in `.ai/qa/tests/`
+**Related:** Scenarios in `.ai/qa/scenarios/TC-*.md`, Playwright config in `.ai/qa/tests/playwright.config.ts`, discovered tests in module `__integration__` directories (legacy `.ai/qa/tests/` supported)
 
 ---
 
 ## TLDR
 
-Standardize integration testing around Playwright test files in `.ai/qa/tests/` and add an optional ephemeral runner in `packages/cli` backed by Testcontainers. Keep markdown scenarios optional. Make CI rely on executable tests (`yarn test:integration`) and support fully isolated execution (`yarn test:integration:ephemeral`) without a pre-running dev stack.
+Standardize integration testing around Playwright tests discovered from module-local `__integration__` directories (with legacy `.ai/qa/tests/` compatibility) and add an optional ephemeral runner in `packages/cli` backed by Testcontainers. Keep markdown scenarios optional. Make CI rely on executable tests (`yarn test:integration`) and support fully isolated execution (`yarn test:integration:ephemeral`) without a pre-running dev stack.
 
 ## Problem Statement
 
@@ -609,3 +609,30 @@ npx playwright install chromium
 - Added root script alias: `yarn test:integration:coverage`
 - `test:integration:coverage` now measures runtime code coverage using Node V8 + Playwright integration runs
 - Added `test:integration:spec-coverage` to preserve scenario-to-test mapping coverage (`TC-*`)
+
+### 2026-02-16
+- Added an exclusive filesystem lock for ephemeral environment bootstrap in `packages/cli/src/lib/testing/integration.ts`
+- Lock waits up to 60 seconds for ongoing environment preparation to finish, preventing duplicate concurrent builds
+- Reused ephemeral runs now apply `captureScreenshots` from `.ai/qa/ephemeral-env.json` as the effective runtime setting
+- Added build artifact freshness cache for ephemeral test bootstrapping; build pipeline is skipped when artifacts are present and younger than TTL
+- Added env-configurable TTL via `OM_INTEGRATION_BUILD_CACHE_TTL_SECONDS` (default `120`)
+- Added `--force-rebuild` flag for ephemeral integration commands to bypass build cache and execute full build pipeline
+
+### 2026-02-17
+- Switched integration test discovery from centralized category folders to dynamic module-local discovery via `**/__integration__/**/*.spec.ts`
+- Kept backward compatibility for legacy tests under `.ai/qa/tests/**/*.spec.ts`
+- Added enterprise overlay support: tests under `packages/enterprise/.../__integration__/` are included only when matching base-module integration tests exist
+- Updated QA guidance and integration test skill instructions to author tests in module-local `__integration__` folders
+- Added optional folder/test metadata (`meta.ts`, `index.ts`, `TC-*.meta.ts`, or in-file metadata) with module dependency keys (`dependsOnModules` / `requiredModules` / `requiresModules`)
+- Added dependency-based discovery filtering: tests are automatically excluded when required modules are not enabled
+- Moved existing integration suites into module-local folders:
+  - `auth` → `packages/core/src/modules/auth/__integration__/`
+  - `catalog` → `packages/core/src/modules/catalog/__integration__/`
+  - `crm` → `packages/core/src/modules/customers/__integration__/`
+  - `sales` → `packages/core/src/modules/sales/__integration__/`
+  - `admin` + `int` → `packages/core/src/modules/core/__integration__/`
+- Consolidated duplicated discovery logic into shared `packages/cli/src/lib/testing/integration-discovery.ts` used by both CLI runner and Playwright config
+- Added integration discovery coverage tests in `packages/cli/src/lib/testing/__tests__/integration-discovery.test.ts`
+- Added `create-mercato-app` template integration test support and example login test under `packages/create-app/template/src/modules/auth/__integration__/`
+- Standardized reusable helpers via centralized `packages/core/src/modules/core/__integration__/helpers/` with module-level helper re-exports
+- Removed broad Playwright fallback matching to prevent bypassing dependency-gated discovery
