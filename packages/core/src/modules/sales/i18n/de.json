@@ -29,6 +29,44 @@
         "pendingReview": "Ausstehende Prüfung"
       }
     },
+    "errors": {
+      "unauthorized": "Nicht autorisiert",
+      "tenant_required": "Mandantenkontext ist erforderlich",
+      "organization_required": "Organisationskontext ist erforderlich",
+      "invalid_query": "Ungültige Abfrageparameter"
+    },
+    "widgets": {
+      "newOrders": {
+        "error": "Bestellungen konnten nicht geladen werden",
+        "empty": "Keine Bestellungen in diesem Zeitraum gefunden",
+        "noCustomer": "Kein Kunde",
+        "settings": {
+          "pageSize": "Anzahl der Bestellungen",
+          "datePeriod": "Zeitraum",
+          "last24h": "Letzte 24 Stunden",
+          "last7d": "Letzte 7 Tage",
+          "last30d": "Letzte 30 Tage",
+          "custom": "Benutzerdefinierter Zeitraum",
+          "customFrom": "Von",
+          "customTo": "Bis"
+        }
+      },
+      "newQuotes": {
+        "error": "Angebote konnten nicht geladen werden",
+        "empty": "Keine Angebote in diesem Zeitraum gefunden",
+        "noCustomer": "Kein Kunde",
+        "settings": {
+          "pageSize": "Anzahl der Angebote",
+          "datePeriod": "Zeitraum",
+          "last24h": "Letzte 24 Stunden",
+          "last7d": "Letzte 7 Tage",
+          "last30d": "Letzte 30 Tage",
+          "custom": "Benutzerdefinierter Zeitraum",
+          "customFrom": "Von",
+          "customTo": "Bis"
+        }
+      }
+    },
     "quotes": {
       "send": {
         "action": "An Kunden senden",

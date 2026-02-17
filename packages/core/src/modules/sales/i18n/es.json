@@ -29,6 +29,44 @@
         "pendingReview": "Pendiente de revisión"
       }
     },
+    "errors": {
+      "unauthorized": "No autorizado",
+      "tenant_required": "Se requiere el contexto del inquilino",
+      "organization_required": "Se requiere el contexto de la organización",
+      "invalid_query": "Parámetros de consulta inválidos"
+    },
+    "widgets": {
+      "newOrders": {
+        "error": "No se pudieron cargar los pedidos",
+        "empty": "No se encontraron pedidos en este período",
+        "noCustomer": "Sin cliente",
+        "settings": {
+          "pageSize": "Número de pedidos",
+          "datePeriod": "Período",
+          "last24h": "Últimas 24 horas",
+          "last7d": "Últimos 7 días",
+          "last30d": "Últimos 30 días",
+          "custom": "Rango personalizado",
+          "customFrom": "Desde",
+          "customTo": "Hasta"
+        }
+      },
+      "newQuotes": {
+        "error": "No se pudieron cargar las cotizaciones",
+        "empty": "No se encontraron cotizaciones en este período",
+        "noCustomer": "Sin cliente",
+        "settings": {
+          "pageSize": "Número de cotizaciones",
+          "datePeriod": "Período",
+          "last24h": "Últimas 24 horas",
+          "last7d": "Últimos 7 días",
+          "last30d": "Últimos 30 días",
+          "custom": "Rango personalizado",
+          "customFrom": "Desde",
+          "customTo": "Hasta"
+        }
+      }
+    },
     "quotes": {
       "send": {
         "action": "Enviar al cliente",
