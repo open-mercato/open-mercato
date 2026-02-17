@@ -1,0 +1,122 @@
+import { test, expect, type APIRequestContext } from '@playwright/test';
+
+const BASE_URL = process.env.BASE_URL || 'http://localhost:3000';
+
+async function postForm(
+  request: APIRequestContext,
+  path: string,
+  data: Record<string, string>,
+) {
+  const form = new URLSearchParams();
+  for (const [key, value] of Object.entries(data)) form.set(key, value);
+  return request.post(`${BASE_URL}${path}`, {
+    headers: { 'content-type': 'application/x-www-form-urlencoded' },
+    data: form.toString(),
+  });
+}
+
+/**
+ * TC-AUTH-016: Rate Limiting on Authentication Endpoints
+ * Source: .ai/qa/scenarios/TC-AUTH-016-rate-limiting-auth-endpoints.md
+ *
+ * These tests verify that auth endpoints enforce rate limits and return
+ * proper 429 responses with rate-limit headers when limits are exceeded.
+ *
+ * Default compound limits: login=5 pts/60s, reset=3 pts/60s.
+ * Each test uses a unique email to avoid cross-test compound key pollution.
+ */
+test.describe('TC-AUTH-016: Rate Limiting on Authentication Endpoints', () => {
+  test('login rate limit — returns 429 after exceeding compound limit', async ({ request }) => {
+    const email = `ratelimit-login-${Date.now()}@test.invalid`;
+    const attempts = 6; // compound limit is 5
+    let lastResponse;
+
+    for (let i = 0; i < attempts; i++) {
+      lastResponse = await postForm(request, '/api/auth/login', {
+        email,
+        password: 'wrong-password',
+      });
+    }
+
+    expect(lastResponse!.status()).toBe(429);
+
+    const headers = lastResponse!.headers();
+    expect(headers['retry-after']).toBeDefined();
+    expect(headers['x-ratelimit-limit']).toBe('5');
+    expect(headers['x-ratelimit-remaining']).toBe('0');
+
+    const body = await lastResponse!.json();
+    expect(body).toHaveProperty('error');
+  });
+
+  test('login rate limit — different emails get independent limits', async ({ request }) => {
+    const emailA = `ratelimit-indep-a-${Date.now()}@test.invalid`;
+    const emailB = `ratelimit-indep-b-${Date.now()}@test.invalid`;
+
+    // Exhaust 5 attempts for email-A (at the compound limit)
+    for (let i = 0; i < 5; i++) {
+      await postForm(request, '/api/auth/login', {
+        email: emailA,
+        password: 'wrong-password',
+      });
+    }
+
+    // email-B should still be allowed (its own compound bucket is fresh)
+    const responseB = await postForm(request, '/api/auth/login', {
+      email: emailB,
+      password: 'wrong-password',
+    });
+
+    // email-B should get 401 (invalid credentials), not 429
+    expect(responseB.status()).not.toBe(429);
+  });
+
+  test('password reset rate limit — returns 429 after exceeding compound limit', async ({ request }) => {
+    const email = `ratelimit-reset-${Date.now()}@test.invalid`;
+    const attempts = 4; // compound limit is 3
+    let lastResponse;
+
+    for (let i = 0; i < attempts; i++) {
+      lastResponse = await postForm(request, '/api/auth/reset', {
+        email,
+      });
+    }
+
+    expect(lastResponse!.status()).toBe(429);
+
+    const headers = lastResponse!.headers();
+    expect(headers['retry-after']).toBeDefined();
+    expect(headers['x-ratelimit-limit']).toBe('3');
+    expect(headers['x-ratelimit-remaining']).toBe('0');
+
+    const body = await lastResponse!.json();
+    expect(body).toHaveProperty('error');
+  });
+
+  test('login — successful login resets compound counter', async ({ request }) => {
+    const email = 'admin@acme.com';
+    const password = 'secret';
+
+    // Send 4 failed attempts (under the compound limit of 5)
+    for (let i = 0; i < 4; i++) {
+      await postForm(request, '/api/auth/login', {
+        email,
+        password: 'wrong-password',
+      });
+    }
+
+    // Successful login should reset the compound counter
+    const successResponse = await postForm(request, '/api/auth/login', {
+      email,
+      password,
+    });
+    expect(successResponse.status()).toBe(200);
+
+    // After reset, another failed attempt should NOT be 429
+    const postResetResponse = await postForm(request, '/api/auth/login', {
+      email,
+      password: 'wrong-password',
+    });
+    expect(postResetResponse.status()).not.toBe(429);
+  });
+});
