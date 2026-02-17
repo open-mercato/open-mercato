@@ -796,6 +796,25 @@ All endpoints use the existing `makeCrudRoute` factory and OpenAPI specification
 - Where a mutation is logically reversible, command handlers must provide undo metadata/payload and follow the shared command/undo conventions from `@open-mercato/shared/lib/commands`.
 - For irreversible security actions (e.g. one-time recovery code consumption, challenge verification attempts), mark them as non-undoable and document that explicitly in command metadata/audit logs.
 
+### 7.0.1 Required command usage by endpoint
+
+The following endpoints MUST execute through command handlers (not direct service calls from route handlers):
+
+| Endpoint | Required command id (proposed) | Undo policy |
+|---|---|---|
+| `PUT /api/security/profile/password` | `security.password.change` | Non-undoable (credential mutation) |
+| `DELETE /api/security/mfa/methods/:id` | `security.mfa.method.remove` | Undoable (restore soft-deleted method) where possible |
+| `POST /api/security/mfa/recovery-codes/regenerate` | `security.mfa.recovery_codes.regenerate` | Non-undoable (old codes invalidated) |
+| `POST /api/security/enforcement` | `security.enforcement.create` | Undoable (delete created policy) |
+| `PUT /api/security/enforcement/:id` | `security.enforcement.update` | Undoable (revert previous policy snapshot) |
+| `DELETE /api/security/enforcement/:id` | `security.enforcement.delete` | Undoable (restore soft-deleted policy) |
+| `POST /api/security/users/:id/mfa/reset` | `security.admin.mfa.reset` | Non-undoable (security reset action; compensating action is re-enrollment) |
+| `POST /api/security/sudo/configs` | `security.sudo.config.create` | Undoable (delete created config) |
+| `PUT /api/security/sudo/configs/:id` | `security.sudo.config.update` | Undoable (revert previous config snapshot) |
+| `DELETE /api/security/sudo/configs/:id` | `security.sudo.config.delete` | Undoable (restore soft-deleted config) |
+
+Read-only endpoints (`GET ...`) remain direct query/service reads. Login/sudo verify flows that consume one-time challenges are intentionally non-undoable.
+
 ### 7.1 Profile and password
 
 | Method | Endpoint | Feature | Description |
@@ -1540,9 +1559,10 @@ Goal: module scaffolding, database entities, profile page with password manageme
 | Build profile page with widget injection points | High | 1.5 | PasswordService |
 | Build `PasswordChangeForm` component | High | 1 | Profile page |
 | Profile/password API endpoints with OpenAPI specs | High | 1 | PasswordService |
+| Command scaffold for password/enforcement/sudo config mutations | High | 1 | Scaffold |
 | Feature permissions and role setup (`setup.ts`, `acl.ts`) | High | 0.5 | Scaffold |
 | Event definitions and audit subscribers | Medium | 0.5 | Scaffold |
-| Unit tests for `PasswordService` | High | 1 | PasswordService |
+| Unit tests for `PasswordService` + command handlers | High | 1 | PasswordService |
 
 ### Phase 2: MFA core (weeks 3–4)
 
@@ -1573,12 +1593,12 @@ Goal: MFA enforcement policies, admin management UI, and MFA reset.
 | `MfaEnforcementService` | High | 1.5 | Phase 2 |
 | Enforcement redirect middleware | High | 1 | EnforcementService |
 | `MfaAdminService` (reset, status, bulk check) | High | 1 | Phase 2 |
-| Enforcement API endpoints | High | 1 | EnforcementService |
+| Enforcement API endpoints (wired through commands) | High | 1 | EnforcementService |
 | Admin enforcement management page | High | 1.5 | Enforcement APIs |
 | Admin user security management page | High | 1 | MfaAdminService |
 | Security dashboard page | Medium | 1 | All admin services |
 | Enforcement notification handlers (deadline reminders) | Medium | 0.5 | EnforcementService |
-| Tests for enforcement and admin flows | High | 1 | All Phase 3 |
+| Tests for enforcement/admin flows + command undo/compensation behavior | High | 1 | All Phase 3 |
 
 ### Phase 4: Sudo system and polish (weeks 7–8)
 
@@ -1591,6 +1611,7 @@ Goal: complete sudo challenge system, developer APIs, i18n, production hardening
 | `SudoChallengeModal` component | High | 1.5 | SudoService |
 | `useSudoChallenge` hook + `SudoProvider` | High | 1 | Modal |
 | Admin sudo configuration page | High | 1.5 | SudoService |
+| Sudo config commands (`create/update/delete`) + undo tests | High | 1 | SudoService |
 | Developer default registration during bootstrap | High | 0.5 | SudoService |
 | `withSudoProtection` HOC | Medium | 0.5 | useSudoChallenge |
 | Complete i18n translations (`i18n/en.json`) | Medium | 0.5 | All UI |
@@ -1711,6 +1732,18 @@ security/
 │   ├── MfaEnforcementService.ts                # Enforcement policy management
 │   ├── MfaAdminService.ts                      # Superadmin MFA operations
 │   └── SudoChallengeService.ts                 # Sudo challenge lifecycle
+│
+├── commands/
+│   ├── changePassword.ts                       # security.password.change (non-undoable)
+│   ├── removeMfaMethod.ts                      # security.mfa.method.remove (undoable where possible)
+│   ├── regenerateRecoveryCodes.ts              # security.mfa.recovery_codes.regenerate (non-undoable)
+│   ├── createEnforcementPolicy.ts              # security.enforcement.create (undoable)
+│   ├── updateEnforcementPolicy.ts              # security.enforcement.update (undoable)
+│   ├── deleteEnforcementPolicy.ts              # security.enforcement.delete (undoable)
+│   ├── resetUserMfa.ts                         # security.admin.mfa.reset (non-undoable)
+│   ├── createSudoConfig.ts                     # security.sudo.config.create (undoable)
+│   ├── updateSudoConfig.ts                     # security.sudo.config.update (undoable)
+│   └── deleteSudoConfig.ts                     # security.sudo.config.delete (undoable)
 │
 ├── lib/
 │   ├── mfa-provider-interface.ts               # MfaProviderInterface type definition
