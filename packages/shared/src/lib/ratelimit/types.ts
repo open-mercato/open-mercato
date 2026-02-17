@@ -27,4 +27,6 @@ export interface RateLimitGlobalConfig {
   strategy: RateLimitStrategy
   keyPrefix: string
   redisUrl?: string
+  /** Number of trusted reverse proxies for X-Forwarded-For IP extraction (default: 1) */
+  trustProxyDepth: number
 }

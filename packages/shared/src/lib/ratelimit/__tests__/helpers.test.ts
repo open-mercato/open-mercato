@@ -8,6 +8,7 @@ function createService(overrides: Partial<RateLimitGlobalConfig> = {}): RateLimi
     enabled: true,
     strategy: 'memory',
     keyPrefix: 'test',
+    trustProxyDepth: 1,
     ...overrides,
   })
 }
@@ -86,47 +87,95 @@ describe('checkRateLimit', () => {
 })
 
 describe('getClientIp', () => {
-  it('extracts IP from x-forwarded-for header', () => {
+  it('ignores x-forwarded-for when trustProxyDepth is 0', () => {
+    const req = new Request('http://localhost', {
+      headers: { 'x-forwarded-for': '10.0.0.1, 192.168.1.1' },
+    })
+    expect(getClientIp(req, 0)).toBeNull()
+  })
+
+  it('ignores x-forwarded-for by default (trustProxyDepth defaults to 0)', () => {
+    const req = new Request('http://localhost', {
+      headers: { 'x-forwarded-for': '10.0.0.1' },
+    })
+    expect(getClientIp(req)).toBeNull()
+  })
+
+  it('falls back to x-real-ip when trustProxyDepth is 0', () => {
+    const req = new Request('http://localhost', {
+      headers: {
+        'x-forwarded-for': 'spoofed-ip',
+        'x-real-ip': '172.16.0.5',
+      },
+    })
+    expect(getClientIp(req, 0)).toBe('172.16.0.5')
+  })
+
+  it('extracts last IP with trustProxyDepth=1 (single proxy)', () => {
+    const req = new Request('http://localhost', {
+      headers: { 'x-forwarded-for': 'client-ip, proxy-ip' },
+    })
+    expect(getClientIp(req, 1)).toBe('proxy-ip')
+  })
+
+  it('extracts client IP with trustProxyDepth=1 when single entry', () => {
     const req = new Request('http://localhost', {
       headers: { 'x-forwarded-for': '192.168.1.1' },
     })
-    expect(getClientIp(req)).toBe('192.168.1.1')
+    expect(getClientIp(req, 1)).toBe('192.168.1.1')
   })
 
-  it('takes first IP from comma-separated x-forwarded-for', () => {
+  it('extracts correct IP with trustProxyDepth=2 (two proxies)', () => {
     const req = new Request('http://localhost', {
-      headers: { 'x-forwarded-for': '10.0.0.1, 192.168.1.1, 172.16.0.1' },
+      headers: { 'x-forwarded-for': 'spoofed, real-client, proxy1' },
     })
-    expect(getClientIp(req)).toBe('10.0.0.1')
+    expect(getClientIp(req, 2)).toBe('real-client')
   })
 
-  it('trims whitespace from x-forwarded-for', () => {
+  it('falls back to first IP when fewer entries than trust depth', () => {
     const req = new Request('http://localhost', {
-      headers: { 'x-forwarded-for': '  10.0.0.1  , 192.168.1.1' },
+      headers: { 'x-forwarded-for': '192.168.1.1' },
     })
-    expect(getClientIp(req)).toBe('10.0.0.1')
+    expect(getClientIp(req, 3)).toBe('192.168.1.1')
+  })
+
+  it('trims whitespace from x-forwarded-for entries', () => {
+    const req = new Request('http://localhost', {
+      headers: { 'x-forwarded-for': '  10.0.0.1  ,  192.168.1.1  ' },
+    })
+    expect(getClientIp(req, 1)).toBe('192.168.1.1')
   })
 
   it('falls back to x-real-ip when x-forwarded-for is absent', () => {
     const req = new Request('http://localhost', {
       headers: { 'x-real-ip': '172.16.0.5' },
     })
-    expect(getClientIp(req)).toBe('172.16.0.5')
+    expect(getClientIp(req, 1)).toBe('172.16.0.5')
   })
 
-  it('returns unknown when no IP headers are present', () => {
+  it('returns null when no IP headers are present', () => {
     const req = new Request('http://localhost')
-    expect(getClientIp(req)).toBe('unknown')
+    expect(getClientIp(req)).toBeNull()
   })
 
-  it('prefers x-forwarded-for over x-real-ip', () => {
+  it('prefers x-forwarded-for over x-real-ip when trust depth > 0', () => {
     const req = new Request('http://localhost', {
       headers: {
         'x-forwarded-for': '10.0.0.1',
         'x-real-ip': '172.16.0.5',
       },
     })
-    expect(getClientIp(req)).toBe('10.0.0.1')
+    expect(getClientIp(req, 1)).toBe('10.0.0.1')
+  })
+
+  it('prevents IP spoofing by reading from the trusted end', () => {
+    const req = new Request('http://localhost', {
+      headers: { 'x-forwarded-for': 'attacker-spoofed-ip, real-client-ip' },
+    })
+    // With 1 trusted proxy, the last entry is from the proxy (real client IP it saw)
+    expect(getClientIp(req, 1)).toBe('real-client-ip')
+    // Attacker's spoofed IP is NOT returned
+    expect(getClientIp(req, 1)).not.toBe('attacker-spoofed-ip')
   })
 })
 

@@ -83,15 +83,17 @@ Auth endpoints use handler-level enforcement for compound `IP:email` keys. This 
 try {
   const rateLimiterService = getCachedRateLimiterService()
   if (rateLimiterService) {
-    const clientIp = getClientIp(req)
-    const compoundKey = `${clientIp}:${email.toLowerCase()}`
-    const rateLimitError = await checkRateLimit(
-      rateLimiterService,
-      rateLimitConfig,
-      compoundKey,
-      translate('api.errors.rateLimit', 'Too many requests. Please try again later.'),
-    )
-    if (rateLimitError) return rateLimitError
+    const clientIp = getClientIp(req, rateLimiterService.trustProxyDepth)
+    if (clientIp) {
+      // Layer 1: IP-only — caps total attempts from one IP
+      const ipError = await checkRateLimit(rateLimiterService, ipRateLimitConfig, clientIp, errorMsg)
+      if (ipError) return ipError
+
+      // Layer 2: IP + hashed email — caps attempts per account
+      const emailHash = computeEmailHash(email)
+      const compoundError = await checkRateLimit(rateLimiterService, rateLimitConfig, `${clientIp}:${emailHash}`, errorMsg)
+      if (compoundError) return compoundError
+    }
   }
 } catch {
   // fail-open: if rate limiting fails, allow the request through
@@ -99,9 +101,10 @@ try {
 ```
 
 Auth endpoints use handler-level because:
-1. They need compound `IP:email` keys (email is extracted from the request body before validation).
+1. They need compound `IP:emailHash` keys (email is hashed with `computeEmailHash()`, extracted from the request body before validation).
 2. They export `metadata = {}` (empty) — no dispatcher-level rate limiting.
 3. The fail-open `try/catch` ensures rate limiter infrastructure failures never block login/reset flows.
+4. The IP-only layer prevents email-rotation bypass (an attacker submitting unique emails per request).
 
 ### Service Singleton Pattern
 
@@ -171,13 +174,14 @@ When strategy is `redis` and Redis becomes unavailable, `rate-limiter-flexible` 
 
 ## Environment Variables
 
-Three variables control the rate limiter globally:
+Four variables control the rate limiter globally:
 
 | Variable | Type | Default | Description |
 |----------|------|---------|-------------|
 | `RATE_LIMIT_ENABLED` | `boolean` | `true` | Master switch. When `false`, all rate limit checks are skipped (returns allowed). |
 | `RATE_LIMIT_STRATEGY` | `'memory' \| 'redis'` | `memory` | Backend strategy. Use `redis` in production for distributed limiting. |
 | `RATE_LIMIT_KEY_PREFIX` | `string` | `'rl'` | Default key prefix for all rate limiter keys. Prevents collisions with other Redis data. |
+| `RATE_LIMIT_TRUST_PROXY_DEPTH` | `number` | `1` | Number of trusted reverse proxies for `X-Forwarded-For` IP extraction. `0` = ignore `X-Forwarded-For` entirely. |
 
 ### Redis Connection
 
@@ -189,12 +193,18 @@ Each protected endpoint defines its own limits. Default values are hardcoded but
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `RATE_LIMIT_LOGIN_POINTS` | `5` | Max login attempts per window |
+| `RATE_LIMIT_LOGIN_POINTS` | `5` | Max login attempts per IP+account pair per window |
 | `RATE_LIMIT_LOGIN_DURATION` | `60` | Window in seconds (1 min) |
 | `RATE_LIMIT_LOGIN_BLOCK_DURATION` | `60` | Block duration after exceeding limit (1 min) |
-| `RATE_LIMIT_RESET_POINTS` | `3` | Max password reset requests per window |
+| `RATE_LIMIT_LOGIN_IP_POINTS` | `20` | Max total login attempts per IP per window (regardless of email) |
+| `RATE_LIMIT_LOGIN_IP_DURATION` | `60` | Window in seconds (1 min) |
+| `RATE_LIMIT_LOGIN_IP_BLOCK_DURATION` | `60` | Block duration after exceeding IP limit (1 min) |
+| `RATE_LIMIT_RESET_POINTS` | `3` | Max password reset requests per IP+account pair per window |
 | `RATE_LIMIT_RESET_DURATION` | `60` | Window in seconds (1 min) |
 | `RATE_LIMIT_RESET_BLOCK_DURATION` | `60` | Block duration after exceeding limit (1 min) |
+| `RATE_LIMIT_RESET_IP_POINTS` | `10` | Max total reset requests per IP per window (regardless of email) |
+| `RATE_LIMIT_RESET_IP_DURATION` | `60` | Window in seconds (1 min) |
+| `RATE_LIMIT_RESET_IP_BLOCK_DURATION` | `60` | Block duration after exceeding IP limit (1 min) |
 | `RATE_LIMIT_2FA_VERIFY_POINTS` | `5` | Max 2FA verification attempts per challenge |
 | `RATE_LIMIT_2FA_VERIFY_DURATION` | `300` | Window in seconds (5 min) |
 
@@ -269,6 +279,8 @@ export interface RateLimitGlobalConfig {
   strategy: RateLimitStrategy
   keyPrefix: string
   redisUrl?: string
+  /** Number of trusted reverse proxies for X-Forwarded-For IP extraction (default: 1) */
+  trustProxyDepth: number
 }
 ```
 
@@ -286,9 +298,11 @@ export class RateLimiterService {
   private globalConfig: RateLimitGlobalConfig
   private limiters = new Map<string, RateLimiterMemory | RateLimiterRedis>()
   private redisClient: unknown | null = null
+  readonly trustProxyDepth: number
 
   constructor(globalConfig: RateLimitGlobalConfig) {
     this.globalConfig = globalConfig
+    this.trustProxyDepth = globalConfig.trustProxyDepth ?? 1
   }
 
   async initialize(): Promise<void> {
@@ -424,11 +438,14 @@ export function readRateLimitConfig(): RateLimitGlobalConfig {
     throw new Error(`Invalid RATE_LIMIT_STRATEGY "${strategy}". Must be one of: ${VALID_STRATEGIES.join(', ')}`)
   }
 
+  const trustProxyDepth = parsePositiveInt(process.env.RATE_LIMIT_TRUST_PROXY_DEPTH) ?? 1
+
   return {
     enabled: parseBooleanWithDefault(process.env.RATE_LIMIT_ENABLED, true),
     strategy,
     keyPrefix: process.env.RATE_LIMIT_KEY_PREFIX ?? 'rl',
     redisUrl: process.env.REDIS_URL,
+    trustProxyDepth,
   }
 }
 ```
@@ -478,10 +495,18 @@ export async function checkRateLimit(
   return null
 }
 
-export function getClientIp(req: Request): string {
+/**
+ * Extract client IP from a request, respecting reverse proxy trust depth.
+ * Returns null when the IP cannot be determined (callers skip rate limiting).
+ */
+export function getClientIp(req: Request, trustProxyDepth: number = 0): string | null {
   const forwarded = req.headers.get('x-forwarded-for')
-  if (forwarded) return forwarded.split(',')[0].trim()
-  return req.headers.get('x-real-ip') ?? 'unknown'
+  if (forwarded && trustProxyDepth > 0) {
+    const ips = forwarded.split(',').map((ip) => ip.trim())
+    const clientIndex = ips.length - trustProxyDepth
+    return clientIndex >= 0 ? ips[clientIndex] : ips[0]
+  }
+  return req.headers.get('x-real-ip') ?? null
 }
 ```
 
@@ -594,14 +619,16 @@ Insert rate limit check between `checkAuthorization` and handler invocation:
 if (methodMetadata?.rateLimit) {
   const rateLimiterService = getCachedRateLimiterService()
   if (rateLimiterService) {
-    const clientIp = getClientIp(req)
-    const rateLimitError = await checkRateLimit(
-      rateLimiterService,
-      methodMetadata.rateLimit,
-      clientIp,
-      t(RATE_LIMIT_ERROR_KEY, RATE_LIMIT_ERROR_FALLBACK),
-    )
-    if (rateLimitError) return rateLimitError
+    const clientIp = getClientIp(req, rateLimiterService.trustProxyDepth)
+    if (clientIp) {
+      const rateLimitError = await checkRateLimit(
+        rateLimiterService,
+        methodMetadata.rateLimit,
+        clientIp,
+        t(RATE_LIMIT_ERROR_KEY, RATE_LIMIT_ERROR_FALLBACK),
+      )
+      if (rateLimitError) return rateLimitError
+    }
   }
 }
 ```
@@ -617,24 +644,26 @@ Key points:
 
 ## Integration Points (Auth Endpoints)
 
-Auth endpoints use **handler-level enforcement** (not metadata-driven) because they need compound `IP:email` keys for credential stuffing protection. All three endpoints export `metadata = {}` (empty).
+Auth endpoints use **handler-level enforcement** (not metadata-driven) because they need compound `IP:emailHash` keys for credential stuffing protection. All three endpoints export `metadata = {}` (empty). Auth endpoints use **two-layer rate limiting**: an IP-only layer caps total attempts from one IP, and a compound `IP:emailHash` layer caps attempts per account. Emails are SHA-256 hashed via `computeEmailHash()` so raw emails never appear in storage keys.
 
 ### 1. Login Endpoint (`packages/core/src/modules/auth/api/login.ts`)
 
-**Rate limit config** (module-level constant):
+**Rate limit configs** (module-level constants):
 
 ```typescript
-const loginRateLimitConfig = {
-  points: parseInt(process.env.RATE_LIMIT_LOGIN_POINTS ?? '5'),
-  duration: parseInt(process.env.RATE_LIMIT_LOGIN_DURATION ?? '60'),
-  blockDuration: parseInt(process.env.RATE_LIMIT_LOGIN_BLOCK_DURATION ?? '60'),
-  keyPrefix: 'login',
-}
+import { computeEmailHash } from '@open-mercato/core/modules/auth/lib/emailHash'
+
+const loginRateLimitConfig = readEndpointRateLimitConfig('LOGIN', {
+  points: 5, duration: 60, blockDuration: 60, keyPrefix: 'login',
+})
+const loginIpRateLimitConfig = readEndpointRateLimitConfig('LOGIN_IP', {
+  points: 20, duration: 60, blockDuration: 60, keyPrefix: 'login-ip',
+})
 
 export const metadata = {}
 ```
 
-**Handler-level enforcement** — rate limit is checked before validation and DB work, using a compound `IP:email` key:
+**Handler-level enforcement** — two rate limit layers checked before validation and DB work:
 
 ```typescript
 export async function POST(req: Request) {
@@ -643,19 +672,32 @@ export async function POST(req: Request) {
   const email = String(form.get('email') ?? '')
   // ...
 
-  // Rate limit by IP + email — checked before validation and DB work
+  // Rate limit — two layers, both checked before validation and DB work:
+  // 1) IP-only: caps total attempts from a single IP regardless of email rotation
+  // 2) IP + hashed email: caps attempts against a specific account from one IP
   try {
     const rateLimiterService = getCachedRateLimiterService()
     if (rateLimiterService) {
-      const clientIp = getClientIp(req)
-      const compoundKey = `${clientIp}:${email.toLowerCase()}`
-      const rateLimitError = await checkRateLimit(
-        rateLimiterService,
-        loginRateLimitConfig,
-        compoundKey,
-        translate('api.errors.rateLimit', 'Too many requests. Please try again later.'),
-      )
-      if (rateLimitError) return rateLimitError
+      const clientIp = getClientIp(req, rateLimiterService.trustProxyDepth)
+      if (clientIp) {
+        const ipError = await checkRateLimit(
+          rateLimiterService,
+          loginIpRateLimitConfig,
+          clientIp,
+          translate('api.errors.rateLimit', 'Too many requests. Please try again later.'),
+        )
+        if (ipError) return ipError
+
+        const emailHash = computeEmailHash(email)
+        const compoundKey = `${clientIp}:${emailHash}`
+        const compoundError = await checkRateLimit(
+          rateLimiterService,
+          loginRateLimitConfig,
+          compoundKey,
+          translate('api.errors.rateLimit', 'Too many requests. Please try again later.'),
+        )
+        if (compoundError) return compoundError
+      }
     }
   } catch {
     // fail-open: if rate limiting fails, allow the request through
@@ -678,20 +720,20 @@ const rateLimitErrorSchema = z.object({
 
 ### 2. Password Reset (`packages/core/src/modules/auth/api/reset.ts`)
 
-**Rate limit config**:
+**Rate limit configs**:
 
 ```typescript
-const resetRateLimitConfig = {
-  points: parseInt(process.env.RATE_LIMIT_RESET_POINTS ?? '3'),
-  duration: parseInt(process.env.RATE_LIMIT_RESET_DURATION ?? '60'),
-  blockDuration: parseInt(process.env.RATE_LIMIT_RESET_BLOCK_DURATION ?? '60'),
-  keyPrefix: 'reset',
-}
+const resetRateLimitConfig = readEndpointRateLimitConfig('RESET', {
+  points: 3, duration: 60, blockDuration: 60, keyPrefix: 'reset',
+})
+const resetIpRateLimitConfig = readEndpointRateLimitConfig('RESET_IP', {
+  points: 10, duration: 60, blockDuration: 60, keyPrefix: 'reset-ip',
+})
 
 export const metadata = {}
 ```
 
-**Handler-level enforcement** — compound `IP:email` key, fail-open `try/catch`:
+**Handler-level enforcement** — two-layer rate limiting (IP-only + compound `IP:emailHash`), fail-open `try/catch`:
 
 ```typescript
 export async function POST(req: Request) {
@@ -701,16 +743,27 @@ export async function POST(req: Request) {
   try {
     const rateLimiterService = getCachedRateLimiterService()
     if (rateLimiterService) {
-      const clientIp = getClientIp(req)
-      const compoundKey = `${clientIp}:${email.toLowerCase()}`
-      const { translate } = await resolveTranslations()
-      const rateLimitError = await checkRateLimit(
-        rateLimiterService,
-        resetRateLimitConfig,
-        compoundKey,
-        translate('api.errors.rateLimit', 'Too many requests. Please try again later.'),
-      )
-      if (rateLimitError) return rateLimitError
+      const clientIp = getClientIp(req, rateLimiterService.trustProxyDepth)
+      if (clientIp) {
+        const { translate } = await resolveTranslations()
+        const ipError = await checkRateLimit(
+          rateLimiterService,
+          resetIpRateLimitConfig,
+          clientIp,
+          translate('api.errors.rateLimit', 'Too many requests. Please try again later.'),
+        )
+        if (ipError) return ipError
+
+        const emailHash = computeEmailHash(email)
+        const compoundKey = `${clientIp}:${emailHash}`
+        const compoundError = await checkRateLimit(
+          rateLimiterService,
+          resetRateLimitConfig,
+          compoundKey,
+          translate('api.errors.rateLimit', 'Too many requests. Please try again later.'),
+        )
+        if (compoundError) return compoundError
+      }
     }
   } catch {
     // fail-open
@@ -751,15 +804,17 @@ export async function POST(req: Request) {
   try {
     const rateLimiterService = getCachedRateLimiterService()
     if (rateLimiterService) {
-      const clientIp = getClientIp(req)
-      const { translate } = await resolveTranslations()
-      const rateLimitError = await checkRateLimit(
-        rateLimiterService,
-        resetConfirmRateLimitConfig,
-        clientIp,
-        translate('api.errors.rateLimit', 'Too many requests. Please try again later.'),
-      )
-      if (rateLimitError) return rateLimitError
+      const clientIp = getClientIp(req, rateLimiterService.trustProxyDepth)
+      if (clientIp) {
+        const { translate } = await resolveTranslations()
+        const rateLimitError = await checkRateLimit(
+          rateLimiterService,
+          resetConfirmRateLimitConfig,
+          clientIp,
+          translate('api.errors.rateLimit', 'Too many requests. Please try again later.'),
+        )
+        if (rateLimitError) return rateLimitError
+      }
     }
   } catch {
     // fail-open
@@ -857,6 +912,11 @@ RATE_LIMIT_STRATEGY=memory
 # Key prefix for rate limiter keys in storage (default: rl)
 RATE_LIMIT_KEY_PREFIX=rl
 
+# Number of trusted reverse proxies for X-Forwarded-For IP extraction (default: 1).
+# Set to the number of proxies (nginx, CloudFlare, ALB, etc.) between clients and the app.
+# 0 = ignore X-Forwarded-For entirely (fall back to X-Real-IP).
+# RATE_LIMIT_TRUST_PROXY_DEPTH=1
+
 # Per-endpoint overrides (optional — sensible defaults are hardcoded)
 # RATE_LIMIT_LOGIN_POINTS=5
 # RATE_LIMIT_LOGIN_DURATION=60
@@ -902,13 +962,14 @@ translate('api.errors.rateLimit', 'Too many requests. Please try again later.')
 
 ## Security Considerations
 
-1. **Compound Keys (IP + Email)**: Login and password reset endpoints use `${clientIp}:${email.toLowerCase()}` as the rate limit key. This prevents credential stuffing from a single IP against multiple accounts, and also limits attacks from distributed IPs against a single account.
-2. **IP Extraction**: Uses `x-forwarded-for` (first entry) behind reverse proxies, falling back to `x-real-ip`, then `'unknown'`. Operators must configure their proxy to set this header correctly.
-3. **Key Collision**: The global `keyPrefix` + per-endpoint `keyPrefix` combination prevents collisions between endpoints and between Open Mercato instances sharing the same Redis.
-4. **Fail-Open Design**: Handler-level enforcement wraps rate limit checks in `try/catch` to ensure rate limiter infrastructure failures never block authentication flows. The service itself also fails open on unexpected errors (not `RateLimiterRes`).
-5. **Null-Safe Service Access**: `getCachedRateLimiterService()` returns `null` if creation fails. All callers null-check before using.
-6. **Timing Attacks**: The generic "Too many requests" message does not leak whether the account exists.
-7. **DDoS vs Brute-Force**: In-memory `blockDuration` (via `rate-limiter-flexible`'s built-in mechanism) can be configured for additional DDoS protection at the process level, independent of Redis.
+1. **Two-Layer Rate Limiting**: Auth endpoints use two rate limit layers: (a) an IP-only layer that caps total attempts from a single IP regardless of email rotation, and (b) a compound `IP:emailHash` layer that caps attempts against a specific account. The email is SHA-256 hashed via `computeEmailHash()` before being used in the key — raw emails never appear in rate limit storage keys. This prevents credential stuffing from a single IP against multiple accounts, and also limits attacks from distributed IPs against a single account.
+2. **IP Extraction — Trust Proxy Depth**: `getClientIp` reads the Nth-from-last entry in `X-Forwarded-For` based on `RATE_LIMIT_TRUST_PROXY_DEPTH` (default: 1). This prevents attackers from spoofing `X-Forwarded-For` to bypass rate limiting. The leftmost entries are client-controlled; only the rightmost entries (appended by trusted proxies) are reliable. Operators must set the depth to match their proxy chain.
+3. **Unidentifiable Clients**: When no IP can be determined (`getClientIp` returns `null`), rate limiting is skipped (fail-open) rather than collapsing all unidentified clients into a shared `'unknown'` bucket. This prevents legitimate users from being blocked by unrelated traffic and avoids creating a single shared bucket that an attacker could exploit.
+4. **Key Collision**: The global `keyPrefix` + per-endpoint `keyPrefix` combination prevents collisions between endpoints and between Open Mercato instances sharing the same Redis.
+5. **Fail-Open Design**: Handler-level enforcement wraps rate limit checks in `try/catch` to ensure rate limiter infrastructure failures never block authentication flows. The service itself also fails open on unexpected errors (not `RateLimiterRes`).
+6. **Null-Safe Service Access**: `getCachedRateLimiterService()` returns `null` if creation fails. All callers null-check before using.
+7. **Timing Attacks**: The generic "Too many requests" message does not leak whether the account exists.
+8. **DDoS vs Brute-Force**: In-memory `blockDuration` (via `rate-limiter-flexible`'s built-in mechanism) can be configured for additional DDoS protection at the process level, independent of Redis.
 
 ---
 
@@ -999,7 +1060,6 @@ translate('api.errors.rateLimit', 'Too many requests. Please try again later.')
 2. Add `api.errors.rateLimit` to all locale files (`apps/mercato/src/i18n/{en,pl,de,es}.json`).
 
 ### Future Work
-- Add successful login counter reset (`delete()` on success) — friendlier for users who mistype passwords.
 - 2FA verification rate limiting (SPEC-019).
 - Session refresh rate limiting.
 - Integration tests for the full request flow.
@@ -1008,12 +1068,23 @@ translate('api.errors.rateLimit', 'Too many requests. Please try again later.')
 
 ## Open Questions
 
-1. **Should successful login reset the rate limit counter?** — Not currently implemented. Could add `rateLimiterService.delete(compoundKey, loginRateLimitConfig)` after successful auth. This would be friendlier to users who mistype passwords but slightly weaker against distributed attacks. Deferred to a follow-up.
+1. ~~**Should successful login reset the rate limit counter?**~~ — **Resolved (2026-02-17).** Implemented: `rateLimiterService.delete(compoundKey, loginRateLimitConfig)` runs after successful auth. Only the compound key is reset (not the IP-only layer), so IP-level protection remains intact.
 2. **Should rate limit state survive app restarts?** — With Redis strategy, yes. With memory strategy, no (acceptable for development). Document this trade-off.
 
 ---
 
 ## Changelog
+
+### 2026-02-17 (Security Hardening)
+- **IP spoofing prevention**: `getClientIp` now reads from the rightmost trusted entry in `X-Forwarded-For` based on configurable `RATE_LIMIT_TRUST_PROXY_DEPTH` (default: 1), instead of the leftmost (client-controlled) entry.
+- **Eliminated `'unknown'` fallback bucket**: `getClientIp` returns `null` when IP cannot be determined. Callers skip rate limiting (fail-open) instead of collapsing all unidentifiable clients into a shared bucket.
+- **`RateLimitGlobalConfig.trustProxyDepth`**: New required field on the global config type, read from `RATE_LIMIT_TRUST_PROXY_DEPTH` env var.
+- **`RateLimiterService.trustProxyDepth`**: Exposed as readonly property so callers can pass it to `getClientIp`.
+- **Hashed email in compound keys**: Compound rate limit keys now use `computeEmailHash()` (SHA-256) instead of raw email. Prevents PII leakage in rate limit storage (Redis/memory keys) and fixes key-length abuse where attackers submitted absurdly long email strings to create unique buckets.
+- **Two-layer rate limiting**: Added IP-only rate limit layer (`LOGIN_IP`, `RESET_IP`) in addition to compound `IP:emailHash` layer. The IP-only layer caps total attempts from a single IP regardless of email rotation, preventing bypass via unique emails.
+- **Successful login resets compound counter**: After successful authentication, `rateLimiterService.delete(compoundKey, loginRateLimitConfig)` resets the IP:emailHash counter. Only the compound key is reset — the IP-only layer remains untouched. Wrapped in best-effort try/catch.
+- Updated all handler and dispatcher code to pass `trustProxyDepth` and guard against `null` IP.
+- Updated Security Considerations section with trust proxy depth, null-IP handling, and two-layer model.
 
 ### 2026-02-09 (Implementation Update)
 - Updated spec to match actual implementation.

@@ -220,14 +220,16 @@ async function handleRequest(
   if (methodMetadata?.rateLimit) {
     const rateLimiterService = getCachedRateLimiterService()
     if (rateLimiterService) {
-      const clientIp = getClientIp(req)
-      const rateLimitError = await checkRateLimit(
-        rateLimiterService,
-        methodMetadata.rateLimit,
-        clientIp,
-        t(RATE_LIMIT_ERROR_KEY, RATE_LIMIT_ERROR_FALLBACK),
-      )
-      if (rateLimitError) return rateLimitError
+      const clientIp = getClientIp(req, rateLimiterService.trustProxyDepth)
+      if (clientIp) {
+        const rateLimitError = await checkRateLimit(
+          rateLimiterService,
+          methodMetadata.rateLimit,
+          clientIp,
+          t(RATE_LIMIT_ERROR_KEY, RATE_LIMIT_ERROR_FALLBACK),
+        )
+        if (rateLimitError) return rateLimitError
+      }
     }
   }
 

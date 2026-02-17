@@ -9,11 +9,15 @@ import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import type { EventBus } from '@open-mercato/events/types'
 import { parseBooleanToken } from '@open-mercato/shared/lib/boolean'
 import { getCachedRateLimiterService } from '@open-mercato/core/bootstrap'
-import { checkRateLimit, getClientIp } from '@open-mercato/shared/lib/ratelimit/helpers'
+import { checkRateLimit, getClientIp, rateLimitErrorSchema } from '@open-mercato/shared/lib/ratelimit/helpers'
 import { readEndpointRateLimitConfig } from '@open-mercato/shared/lib/ratelimit/config'
+import { computeEmailHash } from '@open-mercato/core/modules/auth/lib/emailHash'
 
 const loginRateLimitConfig = readEndpointRateLimitConfig('LOGIN', {
   points: 5, duration: 60, blockDuration: 60, keyPrefix: 'login',
+})
+const loginIpRateLimitConfig = readEndpointRateLimitConfig('LOGIN_IP', {
+  points: 20, duration: 60, blockDuration: 60, keyPrefix: 'login-ip',
 })
 
 export const metadata = {}
@@ -29,19 +33,33 @@ export async function POST(req: Request) {
   const tenantIdRaw = String(form.get('tenantId') ?? form.get('tenant') ?? '').trim()
   const requireRoleRaw = (String(form.get('requireRole') ?? form.get('role') ?? '')).trim()
   const requiredRoles = requireRoleRaw ? requireRoleRaw.split(',').map((s) => s.trim()).filter(Boolean) : []
-  // Rate limit by IP + email — checked before validation and DB work
+  // Rate limit — two layers, both checked before validation and DB work:
+  // 1) IP-only: caps total attempts from a single IP regardless of email rotation
+  // 2) IP + hashed email: caps attempts against a specific account from one IP
+  let rateLimitCompoundKey: string | null = null
   try {
     const rateLimiterService = getCachedRateLimiterService()
     if (rateLimiterService) {
-      const clientIp = getClientIp(req)
-      const compoundKey = `${clientIp}:${email.toLowerCase()}`
-      const rateLimitError = await checkRateLimit(
-        rateLimiterService,
-        loginRateLimitConfig,
-        compoundKey,
-        translate('api.errors.rateLimit', 'Too many requests. Please try again later.'),
-      )
-      if (rateLimitError) return rateLimitError
+      const clientIp = getClientIp(req, rateLimiterService.trustProxyDepth)
+      if (clientIp) {
+        const ipError = await checkRateLimit(
+          rateLimiterService,
+          loginIpRateLimitConfig,
+          clientIp,
+          translate('api.errors.rateLimit', 'Too many requests. Please try again later.'),
+        )
+        if (ipError) return ipError
+
+        const emailHash = computeEmailHash(email)
+        rateLimitCompoundKey = `${clientIp}:${emailHash}`
+        const compoundError = await checkRateLimit(
+          rateLimiterService,
+          loginRateLimitConfig,
+          rateLimitCompoundKey,
+          translate('api.errors.rateLimit', 'Too many requests. Please try again later.'),
+        )
+        if (compoundError) return compoundError
+      }
     }
   } catch {
     // fail-open: if rate limiting fails, allow the request through
@@ -86,6 +104,17 @@ export async function POST(req: Request) {
     }
   }
   await auth.updateLastLoginAt(user)
+  // Reset rate limit counter on successful login so legitimate users aren't penalized for prior typos
+  try {
+    if (rateLimitCompoundKey) {
+      const rateLimiterService = getCachedRateLimiterService()
+      if (rateLimiterService) {
+        await rateLimiterService.delete(rateLimitCompoundKey, loginRateLimitConfig)
+      }
+    }
+  } catch {
+    // best-effort — don't fail the login if counter reset fails
+  }
   const resolvedTenantId = tenantId ?? (user.tenantId ? String(user.tenantId) : null)
   const userRoleNames = await auth.getUserRoles(user, resolvedTenantId)
   try {
@@ -128,10 +157,6 @@ const loginSuccessSchema = z.object({
 const loginErrorSchema = z.object({
   ok: z.literal(false),
   error: z.string(),
-})
-
-const rateLimitErrorSchema = z.object({
-  error: z.string().describe('Rate limit exceeded message'),
 })
 
 const loginMethodDoc: OpenApiMethodDoc = {

@@ -11,11 +11,15 @@ import { resolveNotificationService } from '@open-mercato/core/modules/notificat
 import notificationTypes from '@open-mercato/core/modules/auth/notifications'
 import { z } from 'zod'
 import { getCachedRateLimiterService } from '@open-mercato/core/bootstrap'
-import { checkRateLimit, getClientIp } from '@open-mercato/shared/lib/ratelimit/helpers'
+import { checkRateLimit, getClientIp, rateLimitErrorSchema } from '@open-mercato/shared/lib/ratelimit/helpers'
 import { readEndpointRateLimitConfig } from '@open-mercato/shared/lib/ratelimit/config'
+import { computeEmailHash } from '@open-mercato/core/modules/auth/lib/emailHash'
 
 const resetRateLimitConfig = readEndpointRateLimitConfig('RESET', {
   points: 3, duration: 60, blockDuration: 60, keyPrefix: 'reset',
+})
+const resetIpRateLimitConfig = readEndpointRateLimitConfig('RESET_IP', {
+  points: 10, duration: 60, blockDuration: 60, keyPrefix: 'reset-ip',
 })
 
 // validation via requestPasswordResetSchema
@@ -23,20 +27,33 @@ const resetRateLimitConfig = readEndpointRateLimitConfig('RESET', {
 export async function POST(req: Request) {
   const form = await req.formData()
   const email = String(form.get('email') ?? '')
-  // Rate limit by IP + email — checked before validation and DB work
+  // Rate limit — two layers, both checked before validation and DB work:
+  // 1) IP-only: caps total reset requests from a single IP regardless of email rotation
+  // 2) IP + hashed email: caps requests targeting a specific account from one IP
   try {
     const rateLimiterService = getCachedRateLimiterService()
     if (rateLimiterService) {
-      const clientIp = getClientIp(req)
-      const compoundKey = `${clientIp}:${email.toLowerCase()}`
-      const { translate } = await resolveTranslations()
-      const rateLimitError = await checkRateLimit(
-        rateLimiterService,
-        resetRateLimitConfig,
-        compoundKey,
-        translate('api.errors.rateLimit', 'Too many requests. Please try again later.'),
-      )
-      if (rateLimitError) return rateLimitError
+      const clientIp = getClientIp(req, rateLimiterService.trustProxyDepth)
+      if (clientIp) {
+        const { translate } = await resolveTranslations()
+        const ipError = await checkRateLimit(
+          rateLimiterService,
+          resetIpRateLimitConfig,
+          clientIp,
+          translate('api.errors.rateLimit', 'Too many requests. Please try again later.'),
+        )
+        if (ipError) return ipError
+
+        const emailHash = computeEmailHash(email)
+        const compoundKey = `${clientIp}:${emailHash}`
+        const compoundError = await checkRateLimit(
+          rateLimiterService,
+          resetRateLimitConfig,
+          compoundKey,
+          translate('api.errors.rateLimit', 'Too many requests. Please try again later.'),
+        )
+        if (compoundError) return compoundError
+      }
     }
   } catch {
     // fail-open
@@ -94,10 +111,6 @@ const passwordResetRequestSchema = z.object({
 
 const passwordResetResponseSchema = z.object({
   ok: z.literal(true),
-})
-
-const rateLimitErrorSchema = z.object({
-  error: z.string().describe('Rate limit exceeded message'),
 })
 
 export const openApi: OpenApiRouteDoc = {

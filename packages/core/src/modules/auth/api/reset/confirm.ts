@@ -8,7 +8,7 @@ import { resolveNotificationService } from '@open-mercato/core/modules/notificat
 import notificationTypes from '@open-mercato/core/modules/auth/notifications'
 import { z } from 'zod'
 import { getCachedRateLimiterService } from '@open-mercato/core/bootstrap'
-import { checkRateLimit, getClientIp } from '@open-mercato/shared/lib/ratelimit/helpers'
+import { checkRateLimit, getClientIp, rateLimitErrorSchema } from '@open-mercato/shared/lib/ratelimit/helpers'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 
 const resetConfirmRateLimitConfig = {
@@ -27,15 +27,17 @@ export async function POST(req: Request) {
   try {
     const rateLimiterService = getCachedRateLimiterService()
     if (rateLimiterService) {
-      const clientIp = getClientIp(req)
-      const { translate } = await resolveTranslations()
-      const rateLimitError = await checkRateLimit(
-        rateLimiterService,
-        resetConfirmRateLimitConfig,
-        clientIp,
-        translate('api.errors.rateLimit', 'Too many requests. Please try again later.'),
-      )
-      if (rateLimitError) return rateLimitError
+      const clientIp = getClientIp(req, rateLimiterService.trustProxyDepth)
+      if (clientIp) {
+        const { translate } = await resolveTranslations()
+        const rateLimitError = await checkRateLimit(
+          rateLimiterService,
+          resetConfirmRateLimitConfig,
+          clientIp,
+          translate('api.errors.rateLimit', 'Too many requests. Please try again later.'),
+        )
+        if (rateLimitError) return rateLimitError
+      }
     }
   } catch {
     // fail-open
@@ -79,10 +81,6 @@ const passwordResetConfirmResponseSchema = z.object({
 const passwordResetErrorSchema = z.object({
   ok: z.literal(false),
   error: z.string(),
-})
-
-const rateLimitErrorSchema = z.object({
-  error: z.string().describe('Rate limit exceeded message'),
 })
 
 export const openApi: OpenApiRouteDoc = {

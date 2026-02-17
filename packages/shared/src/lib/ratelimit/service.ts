@@ -1,13 +1,21 @@
 import { RateLimiterMemory, RateLimiterRedis, RateLimiterRes } from 'rate-limiter-flexible'
 import type { RateLimitConfig, RateLimitResult, RateLimitGlobalConfig } from './types'
 
+/** Narrow interface for the ioredis client — only the methods we actually use. */
+interface RedisClient {
+  disconnect(): void
+}
+
 export class RateLimiterService {
   private globalConfig: RateLimitGlobalConfig
   private limiters = new Map<string, RateLimiterMemory | RateLimiterRedis>()
-  private redisClient: unknown | null = null
+  private redisClient: RedisClient | null = null
+
+  readonly trustProxyDepth: number
 
   constructor(globalConfig: RateLimitGlobalConfig) {
     this.globalConfig = globalConfig
+    this.trustProxyDepth = globalConfig.trustProxyDepth ?? 1
   }
 
   async initialize(): Promise<void> {
@@ -47,6 +55,7 @@ export class RateLimiterService {
   }
 
   async delete(key: string, config: RateLimitConfig): Promise<void> {
+    if (!this.globalConfig.enabled) return
     const limiter = this.getOrCreateLimiter(config)
     await limiter.delete(key)
   }
@@ -70,13 +79,14 @@ export class RateLimiterService {
   }
 
   async block(key: string, durationSec: number, config: RateLimitConfig): Promise<void> {
+    if (!this.globalConfig.enabled) return
     const limiter = this.getOrCreateLimiter(config)
     await limiter.block(key, durationSec)
   }
 
   async destroy(): Promise<void> {
-    if (this.redisClient && typeof (this.redisClient as any).disconnect === 'function') {
-      await (this.redisClient as any).disconnect()
+    if (this.redisClient) {
+      this.redisClient.disconnect()
     }
     this.limiters.clear()
   }
@@ -100,7 +110,7 @@ export class RateLimiterService {
       const insuranceLimiter = new RateLimiterMemory(baseOpts)
       limiter = new RateLimiterRedis({
         ...baseOpts,
-        storeClient: this.redisClient as any,
+        storeClient: this.redisClient,
         insuranceLimiter,
         rejectIfRedisNotReady: false,
       })

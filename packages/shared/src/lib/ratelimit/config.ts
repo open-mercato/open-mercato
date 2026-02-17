@@ -9,11 +9,14 @@ export function readRateLimitConfig(): RateLimitGlobalConfig {
     throw new Error(`Invalid RATE_LIMIT_STRATEGY "${strategy}". Must be one of: ${VALID_STRATEGIES.join(', ')}`)
   }
 
+  const trustProxyDepth = parsePositiveInt(process.env.RATE_LIMIT_TRUST_PROXY_DEPTH) ?? 1
+
   return {
     enabled: parseBooleanWithDefault(process.env.RATE_LIMIT_ENABLED, true),
     strategy,
     keyPrefix: process.env.RATE_LIMIT_KEY_PREFIX ?? 'rl',
     redisUrl: process.env.REDIS_URL,
+    trustProxyDepth,
   }
 }
 

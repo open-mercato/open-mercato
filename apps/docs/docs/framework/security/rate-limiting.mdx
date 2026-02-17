@@ -64,15 +64,17 @@ export async function POST(req: Request) {
   try {
     const rateLimiterService = getCachedRateLimiterService()
     if (rateLimiterService) {
-      const clientIp = getClientIp(req)
-      const compoundKey = `${clientIp}:${email.toLowerCase()}`
-      const rateLimitError = await checkRateLimit(
-        rateLimiterService,
-        { points: 5, duration: 60, blockDuration: 60, keyPrefix: 'login' },
-        compoundKey,
-        'Too many requests. Please try again later.',
-      )
-      if (rateLimitError) return rateLimitError
+      const clientIp = getClientIp(req, rateLimiterService.trustProxyDepth)
+      if (clientIp) {
+        const compoundKey = `${clientIp}:${email.toLowerCase()}`
+        const rateLimitError = await checkRateLimit(
+          rateLimiterService,
+          { points: 5, duration: 60, blockDuration: 60, keyPrefix: 'login' },
+          compoundKey,
+          'Too many requests. Please try again later.',
+        )
+        if (rateLimitError) return rateLimitError
+      }
     }
   } catch {
     // fail-open: if rate limiting fails, allow the request through
@@ -231,14 +233,17 @@ export async function POST(req: Request) {
   try {
     const rateLimiterService = getCachedRateLimiterService()
     if (rateLimiterService) {
-      const { translate } = await resolveTranslations()
-      const rateLimitError = await checkRateLimit(
-        rateLimiterService,
-        myRateLimitConfig,
-        getClientIp(req),
-        translate('api.errors.rateLimit', 'Too many requests. Please try again later.'),
-      )
-      if (rateLimitError) return rateLimitError
+      const clientIp = getClientIp(req, rateLimiterService.trustProxyDepth)
+      if (clientIp) {
+        const { translate } = await resolveTranslations()
+        const rateLimitError = await checkRateLimit(
+          rateLimiterService,
+          myRateLimitConfig,
+          clientIp,
+          translate('api.errors.rateLimit', 'Too many requests. Please try again later.'),
+        )
+        if (rateLimitError) return rateLimitError
+      }
     }
   } catch {
     // fail-open

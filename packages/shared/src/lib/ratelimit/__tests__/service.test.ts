@@ -6,6 +6,7 @@ function createConfig(overrides: Partial<RateLimitGlobalConfig> = {}): RateLimit
     enabled: true,
     strategy: 'memory',
     keyPrefix: 'test',
+    trustProxyDepth: 1,
     ...overrides,
   }
 }
@@ -47,6 +48,20 @@ describe('RateLimiterService', () => {
 
     it('reward returns allowed when disabled', async () => {
       const result = await service.reward('key1', 1, defaultLimitConfig)
+      expect(result.allowed).toBe(true)
+    })
+
+    it('delete is a no-op when disabled', async () => {
+      await service.delete('key1', defaultLimitConfig)
+      // Should not throw and should not create a limiter
+      const result = await service.consume('key1', defaultLimitConfig)
+      expect(result.allowed).toBe(true)
+    })
+
+    it('block is a no-op when disabled', async () => {
+      await service.block('key1', 60, defaultLimitConfig)
+      // Should not throw and should not actually block — consume still allowed
+      const result = await service.consume('key1', defaultLimitConfig)
       expect(result.allowed).toBe(true)
     })
   })
@@ -186,16 +201,18 @@ describe('RateLimiterService', () => {
       const { readRateLimitConfig } = await import('../config')
       expect(() => readRateLimitConfig()).toThrow('Invalid RATE_LIMIT_STRATEGY "invalid"')
 
-      process.env.RATE_LIMIT_STRATEGY = originalEnv
+      if (originalEnv !== undefined) process.env.RATE_LIMIT_STRATEGY = originalEnv; else delete process.env.RATE_LIMIT_STRATEGY
     })
 
     it('readRateLimitConfig uses defaults', async () => {
       const originalEnabled = process.env.RATE_LIMIT_ENABLED
       const originalStrategy = process.env.RATE_LIMIT_STRATEGY
       const originalPrefix = process.env.RATE_LIMIT_KEY_PREFIX
+      const originalTrustDepth = process.env.RATE_LIMIT_TRUST_PROXY_DEPTH
       delete process.env.RATE_LIMIT_ENABLED
       delete process.env.RATE_LIMIT_STRATEGY
       delete process.env.RATE_LIMIT_KEY_PREFIX
+      delete process.env.RATE_LIMIT_TRUST_PROXY_DEPTH
 
       const { readRateLimitConfig } = await import('../config')
       const config = readRateLimitConfig()
@@ -203,10 +220,23 @@ describe('RateLimiterService', () => {
       expect(config.enabled).toBe(true)
       expect(config.strategy).toBe('memory')
       expect(config.keyPrefix).toBe('rl')
+      expect(config.trustProxyDepth).toBe(1)
 
-      process.env.RATE_LIMIT_ENABLED = originalEnabled
-      process.env.RATE_LIMIT_STRATEGY = originalStrategy
-      process.env.RATE_LIMIT_KEY_PREFIX = originalPrefix
+      if (originalEnabled !== undefined) process.env.RATE_LIMIT_ENABLED = originalEnabled; else delete process.env.RATE_LIMIT_ENABLED
+      if (originalStrategy !== undefined) process.env.RATE_LIMIT_STRATEGY = originalStrategy; else delete process.env.RATE_LIMIT_STRATEGY
+      if (originalPrefix !== undefined) process.env.RATE_LIMIT_KEY_PREFIX = originalPrefix; else delete process.env.RATE_LIMIT_KEY_PREFIX
+      if (originalTrustDepth !== undefined) process.env.RATE_LIMIT_TRUST_PROXY_DEPTH = originalTrustDepth; else delete process.env.RATE_LIMIT_TRUST_PROXY_DEPTH
+    })
+
+    it('readRateLimitConfig reads RATE_LIMIT_TRUST_PROXY_DEPTH from env', async () => {
+      const original = process.env.RATE_LIMIT_TRUST_PROXY_DEPTH
+      process.env.RATE_LIMIT_TRUST_PROXY_DEPTH = '2'
+
+      const { readRateLimitConfig } = await import('../config')
+      const config = readRateLimitConfig()
+      expect(config.trustProxyDepth).toBe(2)
+
+      if (original !== undefined) process.env.RATE_LIMIT_TRUST_PROXY_DEPTH = original; else delete process.env.RATE_LIMIT_TRUST_PROXY_DEPTH
     })
   })
 
