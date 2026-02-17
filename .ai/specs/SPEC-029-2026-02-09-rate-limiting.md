@@ -77,33 +77,25 @@ export const metadata = {
 
 #### Path 2: Handler-Level (Manual)
 
-Auth endpoints use handler-level enforcement for compound `IP:email` keys. This provides stronger credential stuffing protection because the key includes both the client IP and the target email address. Each handler resolves the service via `getCachedRateLimiterService()` and wraps the check in a fail-open `try/catch`:
+Auth endpoints use handler-level enforcement for compound `IP:email` keys. This provides stronger credential stuffing protection because the key includes both the client IP and the target email address. The two-layer check logic is centralized in `checkAuthRateLimit` (`packages/core/src/modules/auth/lib/rateLimitCheck.ts`):
 
 ```typescript
-try {
-  const rateLimiterService = getCachedRateLimiterService()
-  if (rateLimiterService) {
-    const clientIp = getClientIp(req, rateLimiterService.trustProxyDepth)
-    if (clientIp) {
-      // Layer 1: IP-only — caps total attempts from one IP
-      const ipError = await checkRateLimit(rateLimiterService, ipRateLimitConfig, clientIp, errorMsg)
-      if (ipError) return ipError
+// Two-layer rate limit — checked before validation and DB work
+const { error: rateLimitError, compoundKey } = await checkAuthRateLimit({
+  req, ipConfig: loginIpRateLimitConfig, compoundConfig: loginRateLimitConfig, compoundIdentifier: email,
+})
+if (rateLimitError) return rateLimitError
 
-      // Layer 2: IP + hashed email — caps attempts per account
-      const emailHash = computeEmailHash(email)
-      const compoundError = await checkRateLimit(rateLimiterService, rateLimitConfig, `${clientIp}:${emailHash}`, errorMsg)
-      if (compoundError) return compoundError
-    }
-  }
-} catch {
-  // fail-open: if rate limiting fails, allow the request through
+// ... on successful auth, reset compound counter:
+if (compoundKey) {
+  await resetAuthRateLimit(compoundKey, loginRateLimitConfig)
 }
 ```
 
 Auth endpoints use handler-level because:
 1. They need compound `IP:emailHash` keys (email is hashed with `computeEmailHash()`, extracted from the request body before validation).
 2. They export `metadata = {}` (empty) — no dispatcher-level rate limiting.
-3. The fail-open `try/catch` ensures rate limiter infrastructure failures never block login/reset flows.
+3. The centralizer wraps all checks in fail-open `try/catch` — infrastructure failures never block login/reset flows.
 4. The IP-only layer prevents email-rotation bypass (an attacker submitting unique emails per request).
 
 ### Service Singleton Pattern
@@ -205,6 +197,8 @@ Each protected endpoint defines its own limits. Default values are hardcoded but
 | `RATE_LIMIT_RESET_IP_POINTS` | `10` | Max total reset requests per IP per window (regardless of email) |
 | `RATE_LIMIT_RESET_IP_DURATION` | `60` | Window in seconds (1 min) |
 | `RATE_LIMIT_RESET_IP_BLOCK_DURATION` | `60` | Block duration after exceeding IP limit (1 min) |
+| `RATE_LIMIT_RESET_CONFIRM_POINTS` | `5` | Max password reset confirmation attempts per IP per window |
+| `RATE_LIMIT_RESET_CONFIRM_DURATION` | `300` | Window in seconds (5 min) |
 | `RATE_LIMIT_2FA_VERIFY_POINTS` | `5` | Max 2FA verification attempts per challenge |
 | `RATE_LIMIT_2FA_VERIFY_DURATION` | `300` | Window in seconds (5 min) |
 
@@ -646,13 +640,51 @@ Key points:
 
 Auth endpoints use **handler-level enforcement** (not metadata-driven) because they need compound `IP:emailHash` keys for credential stuffing protection. All three endpoints export `metadata = {}` (empty). Auth endpoints use **two-layer rate limiting**: an IP-only layer caps total attempts from one IP, and a compound `IP:emailHash` layer caps attempts per account. Emails are SHA-256 hashed via `computeEmailHash()` so raw emails never appear in storage keys.
 
+### Centralizer: `checkAuthRateLimit` / `resetAuthRateLimit`
+
+The two-layer rate limit logic is centralized in `packages/core/src/modules/auth/lib/rateLimitCheck.ts` to avoid duplicating the 15+ line inline pattern across handlers:
+
+```typescript
+// packages/core/src/modules/auth/lib/rateLimitCheck.ts
+
+export interface CheckAuthRateLimitOptions {
+  req: Request
+  ipConfig: RateLimitConfig
+  compoundConfig?: RateLimitConfig
+  /** Raw identifier for compound key (e.g., email). Hashed internally before use. */
+  compoundIdentifier?: string
+}
+
+export interface CheckAuthRateLimitResult {
+  error: NextResponse | null
+  compoundKey: string | null
+}
+
+/**
+ * Fail-open rate limit check for auth endpoints.
+ * Layer 1: IP-only check with ipConfig.
+ * Layer 2 (optional): compound IP + hashed identifier check with compoundConfig.
+ */
+export async function checkAuthRateLimit(options: CheckAuthRateLimitOptions): Promise<CheckAuthRateLimitResult>
+
+/**
+ * Best-effort reset of a compound rate-limit key after successful authentication.
+ * Never throws — wrapped in try/catch.
+ */
+export async function resetAuthRateLimit(compoundKey: string, config: RateLimitConfig): Promise<void>
+```
+
+Key design decisions:
+- **Fail-open at every level**: returns `{ error: null }` when the service is `null`, IP is unresolvable, or any exception is thrown.
+- **Hashes email internally** via `computeEmailHash()` (SHA-256) — callers pass raw email, never construct compound keys themselves.
+- **Returns `compoundKey`** so the caller can pass it to `resetAuthRateLimit` on successful authentication.
+- **IP-only mode**: when `compoundConfig`/`compoundIdentifier` are omitted, only Layer 1 runs.
+
 ### 1. Login Endpoint (`packages/core/src/modules/auth/api/login.ts`)
 
 **Rate limit configs** (module-level constants):
 
 ```typescript
-import { computeEmailHash } from '@open-mercato/core/modules/auth/lib/emailHash'
-
 const loginRateLimitConfig = readEndpointRateLimitConfig('LOGIN', {
   points: 5, duration: 60, blockDuration: 60, keyPrefix: 'login',
 })
@@ -663,47 +695,26 @@ const loginIpRateLimitConfig = readEndpointRateLimitConfig('LOGIN_IP', {
 export const metadata = {}
 ```
 
-**Handler-level enforcement** — two rate limit layers checked before validation and DB work:
+**Handler-level enforcement** via centralizer — two layers checked before validation and DB work:
 
 ```typescript
 export async function POST(req: Request) {
-  const { translate } = await resolveTranslations()
-  const form = await req.formData()
-  const email = String(form.get('email') ?? '')
   // ...
+  const email = String(form.get('email') ?? '')
 
-  // Rate limit — two layers, both checked before validation and DB work:
-  // 1) IP-only: caps total attempts from a single IP regardless of email rotation
-  // 2) IP + hashed email: caps attempts against a specific account from one IP
-  try {
-    const rateLimiterService = getCachedRateLimiterService()
-    if (rateLimiterService) {
-      const clientIp = getClientIp(req, rateLimiterService.trustProxyDepth)
-      if (clientIp) {
-        const ipError = await checkRateLimit(
-          rateLimiterService,
-          loginIpRateLimitConfig,
-          clientIp,
-          translate('api.errors.rateLimit', 'Too many requests. Please try again later.'),
-        )
-        if (ipError) return ipError
+  const { error: rateLimitError, compoundKey: rateLimitCompoundKey } = await checkAuthRateLimit({
+    req, ipConfig: loginIpRateLimitConfig, compoundConfig: loginRateLimitConfig, compoundIdentifier: email,
+  })
+  if (rateLimitError) return rateLimitError
 
-        const emailHash = computeEmailHash(email)
-        const compoundKey = `${clientIp}:${emailHash}`
-        const compoundError = await checkRateLimit(
-          rateLimiterService,
-          loginRateLimitConfig,
-          compoundKey,
-          translate('api.errors.rateLimit', 'Too many requests. Please try again later.'),
-        )
-        if (compoundError) return compoundError
-      }
-    }
-  } catch {
-    // fail-open: if rate limiting fails, allow the request through
+  // ... validation, auth logic ...
+
+  // Reset rate limit counter on successful login so legitimate users aren't penalized for prior typos
+  if (rateLimitCompoundKey) {
+    await resetAuthRateLimit(rateLimitCompoundKey, loginRateLimitConfig)
   }
 
-  // ... validation and auth logic continues
+  // ... issue JWT, set cookies ...
 }
 ```
 
@@ -733,41 +744,17 @@ const resetIpRateLimitConfig = readEndpointRateLimitConfig('RESET_IP', {
 export const metadata = {}
 ```
 
-**Handler-level enforcement** — two-layer rate limiting (IP-only + compound `IP:emailHash`), fail-open `try/catch`:
+**Handler-level enforcement** via centralizer:
 
 ```typescript
 export async function POST(req: Request) {
   const form = await req.formData()
   const email = String(form.get('email') ?? '')
 
-  try {
-    const rateLimiterService = getCachedRateLimiterService()
-    if (rateLimiterService) {
-      const clientIp = getClientIp(req, rateLimiterService.trustProxyDepth)
-      if (clientIp) {
-        const { translate } = await resolveTranslations()
-        const ipError = await checkRateLimit(
-          rateLimiterService,
-          resetIpRateLimitConfig,
-          clientIp,
-          translate('api.errors.rateLimit', 'Too many requests. Please try again later.'),
-        )
-        if (ipError) return ipError
-
-        const emailHash = computeEmailHash(email)
-        const compoundKey = `${clientIp}:${emailHash}`
-        const compoundError = await checkRateLimit(
-          rateLimiterService,
-          resetRateLimitConfig,
-          compoundKey,
-          translate('api.errors.rateLimit', 'Too many requests. Please try again later.'),
-        )
-        if (compoundError) return compoundError
-      }
-    }
-  } catch {
-    // fail-open
-  }
+  const { error: rateLimitError } = await checkAuthRateLimit({
+    req, ipConfig: resetIpRateLimitConfig, compoundConfig: resetRateLimitConfig, compoundIdentifier: email,
+  })
+  if (rateLimitError) return rateLimitError
 
   // ... rest of handler
 }
@@ -781,44 +768,23 @@ export async function POST(req: Request) {
 
 ### 3. Password Reset Confirm (`packages/core/src/modules/auth/api/reset/confirm.ts`)
 
-**Rate limit config** (hardcoded, no env overrides):
+**Rate limit config** (ENV-overridable via `RATE_LIMIT_RESET_CONFIRM_*`):
 
 ```typescript
-const resetConfirmRateLimitConfig = {
-  points: 5,
-  duration: 300,
-  keyPrefix: 'reset-confirm',
-}
+const resetConfirmRateLimitConfig = readEndpointRateLimitConfig('RESET_CONFIRM', {
+  points: 5, duration: 300, keyPrefix: 'reset-confirm',
+})
 
 export const metadata = {}
 ```
 
-**Handler-level enforcement** — IP-only key (no email available at this point), fail-open `try/catch`:
+**Handler-level enforcement** via centralizer — IP-only key (no email available at this point):
 
 ```typescript
 export async function POST(req: Request) {
-  const form = await req.formData()
-  const token = String(form.get('token') ?? '')
-  const password = String(form.get('password') ?? '')
-
-  try {
-    const rateLimiterService = getCachedRateLimiterService()
-    if (rateLimiterService) {
-      const clientIp = getClientIp(req, rateLimiterService.trustProxyDepth)
-      if (clientIp) {
-        const { translate } = await resolveTranslations()
-        const rateLimitError = await checkRateLimit(
-          rateLimiterService,
-          resetConfirmRateLimitConfig,
-          clientIp,
-          translate('api.errors.rateLimit', 'Too many requests. Please try again later.'),
-        )
-        if (rateLimitError) return rateLimitError
-      }
-    }
-  } catch {
-    // fail-open
-  }
+  // ...
+  const { error: rateLimitError } = await checkAuthRateLimit({ req, ipConfig: resetConfirmRateLimitConfig })
+  if (rateLimitError) return rateLimitError
 
   // ... rest of handler
 }
@@ -918,12 +884,23 @@ RATE_LIMIT_KEY_PREFIX=rl
 # RATE_LIMIT_TRUST_PROXY_DEPTH=1
 
 # Per-endpoint overrides (optional — sensible defaults are hardcoded)
+# Auth endpoints use two-layer rate limiting:
+#   1) IP-only layer (LOGIN_IP/RESET_IP) — caps total attempts from one IP
+#   2) Compound layer (LOGIN/RESET) — caps attempts per IP+account pair (email is SHA-256 hashed)
 # RATE_LIMIT_LOGIN_POINTS=5
 # RATE_LIMIT_LOGIN_DURATION=60
 # RATE_LIMIT_LOGIN_BLOCK_DURATION=60
+# RATE_LIMIT_LOGIN_IP_POINTS=20
+# RATE_LIMIT_LOGIN_IP_DURATION=60
+# RATE_LIMIT_LOGIN_IP_BLOCK_DURATION=60
 # RATE_LIMIT_RESET_POINTS=3
 # RATE_LIMIT_RESET_DURATION=60
 # RATE_LIMIT_RESET_BLOCK_DURATION=60
+# RATE_LIMIT_RESET_IP_POINTS=10
+# RATE_LIMIT_RESET_IP_DURATION=60
+# RATE_LIMIT_RESET_IP_BLOCK_DURATION=60
+# RATE_LIMIT_RESET_CONFIRM_POINTS=5
+# RATE_LIMIT_RESET_CONFIRM_DURATION=300
 # RATE_LIMIT_2FA_VERIFY_POINTS=5
 # RATE_LIMIT_2FA_VERIFY_DURATION=300
 ```
@@ -991,15 +968,39 @@ translate('api.errors.rateLimit', 'Too many requests. Please try again later.')
 12. **Config validation**: Verify `readRateLimitConfig()` throws for invalid strategy; uses correct defaults when env vars are unset.
 13. **Destroy**: Verify clears all limiters and allows fresh start.
 
+### Unit Tests — Auth Centralizer (`packages/core/src/modules/auth/lib/__tests__/rateLimitCheck.test.ts`)
+
+Tests for `checkAuthRateLimit`:
+
+1. **Fail-open when service is null**: Returns `{ error: null }` when `getCachedRateLimiterService()` returns null.
+2. **Fail-open when IP is null**: Returns `{ error: null }` when `getClientIp` returns null.
+3. **IP-only error**: Returns error response when IP rate limit is exceeded.
+4. **Compound error**: Returns error when IP passes but compound `IP:hash` layer fails.
+5. **Happy path**: Returns `{ error: null, compoundKey }` when both layers pass.
+6. **IP-only mode**: Only Layer 1 runs when no `compoundConfig` is provided.
+7. **Fail-open on exception**: Returns `{ error: null }` when `checkRateLimit` throws.
+8. **Hashed email**: Verifies `computeEmailHash` is called, not raw email in compound key.
+
+Tests for `resetAuthRateLimit`:
+
+9. **Happy path**: Calls `rateLimiterService.delete` with correct args.
+10. **No-op when service is null**: Graceful degradation.
+11. **Swallows exceptions**: Never throws.
+
+### Integration Tests — Auth Rate Limiting (`packages/core/src/modules/auth/__integration__/TC-AUTH-016.spec.ts`)
+
+Playwright API-level tests verifying end-to-end rate limiting behavior:
+
+1. **Login compound limit**: 6 attempts with same email + wrong password → 6th returns 429 with correct `Retry-After`, `X-RateLimit-Limit`, `X-RateLimit-Remaining` headers.
+2. **Independent email buckets**: 5 attempts for email-A, then 1 for email-B → email-B is not rate limited.
+3. **Reset compound limit**: 4 reset requests with same email → 4th returns 429 with correct headers.
+4. **Successful login resets counter**: 4 failed attempts + 1 successful login → next failed attempt is not 429.
+
 ### Integration Tests (Future)
 
 1. **Metadata-driven enforcement**: Verify 429 response after N requests to a metadata-protected endpoint.
-2. **Handler-level enforcement**: Verify 429 after N attempts with same `IP:email` key.
-3. **Response headers**: Verify `Retry-After`, `X-RateLimit-*` headers on 429.
-4. **Password reset limiting**: Verify email abuse prevention.
-5. **Redis fallback**: Verify memory fallback when Redis is unavailable (if Redis strategy is configured).
-6. **No rate limit**: Verify endpoints without rate limiting are unaffected.
-7. **Fail-open**: Verify requests succeed when rate limiter service is unavailable.
+2. **Redis fallback**: Verify memory fallback when Redis is unavailable (if Redis strategy is configured).
+3. **Reset confirm rate limiting**: Verify IP-only limiting on `/api/auth/reset/confirm`.
 
 ---
 
@@ -1062,7 +1063,8 @@ translate('api.errors.rateLimit', 'Too many requests. Please try again later.')
 ### Future Work
 - 2FA verification rate limiting (SPEC-019).
 - Session refresh rate limiting.
-- Integration tests for the full request flow.
+- Integration test for `/api/auth/reset/confirm` rate limiting.
+- Metadata-driven enforcement integration test.
 
 ---
 
@@ -1074,6 +1076,13 @@ translate('api.errors.rateLimit', 'Too many requests. Please try again later.')
 ---
 
 ## Changelog
+
+### 2026-02-17 (Documentation & Test Coverage)
+- **`checkAuthRateLimit` centralizer documented**: Replaced inline rate limit code in all three auth handler examples with the `checkAuthRateLimit`/`resetAuthRateLimit` helper from `packages/core/src/modules/auth/lib/rateLimitCheck.ts`. Added centralizer interface and design decisions section.
+- **Per-endpoint env vars complete**: Added `RATE_LIMIT_RESET_CONFIRM_POINTS`/`RATE_LIMIT_RESET_CONFIRM_DURATION` to both the env vars table and `.env.example` section. Added `LOGIN_IP_*` and `RESET_IP_*` entries to the `.env.example` section to match the actual file.
+- **Unit tests for centralizer**: Added 11 tests in `packages/core/src/modules/auth/lib/__tests__/rateLimitCheck.test.ts` covering fail-open behavior, two-layer checks, email hashing, and `resetAuthRateLimit`.
+- **Integration tests implemented**: Added TC-AUTH-016 (`packages/core/src/modules/auth/__integration__/TC-AUTH-016.spec.ts`) with 4 Playwright API tests: compound limit enforcement for login and reset, independent email buckets, and successful-login counter reset. Updated Testing Strategy from "Future" to reflect implemented coverage.
+- **Future Work updated**: Removed "Integration tests for the full request flow" (now implemented). Added specific remaining gaps: reset/confirm integration test, metadata-driven enforcement integration test.
 
 ### 2026-02-17 (Security Hardening)
 - **IP spoofing prevention**: `getClientIp` now reads from the rightmost trusted entry in `X-Forwarded-For` based on configurable `RATE_LIMIT_TRUST_PROXY_DEPTH` (default: 1), instead of the leftmost (client-controlled) entry.
