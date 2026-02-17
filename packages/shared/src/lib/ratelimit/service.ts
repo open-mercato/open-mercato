@@ -30,7 +30,7 @@ export class RateLimiterService {
 
   async consume(key: string, config: RateLimitConfig): Promise<RateLimitResult> {
     if (!this.globalConfig.enabled) {
-      return { allowed: true, remainingPoints: config.points, msBeforeNext: 0, consumedPoints: 0 }
+      return this.disabledResult(config)
     }
 
     const limiter = this.getOrCreateLimiter(config)
@@ -42,7 +42,7 @@ export class RateLimiterService {
       if (error instanceof RateLimiterRes) {
         return this.toResult(error, false)
       }
-      return { allowed: true, remainingPoints: config.points, msBeforeNext: 0, consumedPoints: 0 }
+      return this.disabledResult(config)
     }
   }
 
@@ -62,7 +62,7 @@ export class RateLimiterService {
 
   async penalty(key: string, points: number, config: RateLimitConfig): Promise<RateLimitResult> {
     if (!this.globalConfig.enabled) {
-      return { allowed: true, remainingPoints: config.points, msBeforeNext: 0, consumedPoints: 0 }
+      return this.disabledResult(config)
     }
     const limiter = this.getOrCreateLimiter(config)
     const res = await limiter.penalty(key, points)
@@ -71,7 +71,7 @@ export class RateLimiterService {
 
   async reward(key: string, points: number, config: RateLimitConfig): Promise<RateLimitResult> {
     if (!this.globalConfig.enabled) {
-      return { allowed: true, remainingPoints: config.points, msBeforeNext: 0, consumedPoints: 0 }
+      return this.disabledResult(config)
     }
     const limiter = this.getOrCreateLimiter(config)
     const res = await limiter.reward(key, points)
@@ -89,6 +89,10 @@ export class RateLimiterService {
       this.redisClient.disconnect()
     }
     this.limiters.clear()
+  }
+
+  private disabledResult(config: RateLimitConfig): RateLimitResult {
+    return { allowed: true, remainingPoints: config.points, msBeforeNext: 0, consumedPoints: 0 }
   }
 
   private getOrCreateLimiter(config: RateLimitConfig): RateLimiterMemory | RateLimiterRedis {
