@@ -1866,43 +1866,4 @@ No parallel provider stack is introduced for InboxOps. The worker reuses the exi
 
 **Conditionally compliant** — Approved for Phase 1 implementation. Two items (cache strategy in Phase 2d, command handler registration in Phase 2b) are deferred with documented timelines. All core architectural rules (tenant isolation, encryption, zod validation, module independence, event conventions) are fully compliant.
 
----
-
-## 22) Changelog
-
-- **2026-02-17** — Phase restructuring per issue #573
-  - Consolidated Phase 2 (Hardening + Integrations) and Phase 3 (Advanced Features) into a single **Phase 2: Future Work** with five sub-phases: 2a (Messages Integration), 2b (Command Pattern), 2c (AI Tools & MCP), 2d (Hardening & Polish), 2e (Advanced Features)
-  - Updated all Phase 3 references throughout the document to point to Phase 2 sub-sections
-  - Added explicit message category types to Phase 2c AI tools: RFQ, Order, Order Update, Complaint, Shipping Update, Inquiry, Payment, Other (per @fto-aubergine)
-  - Added `inbox_ops_extract_references` MCP tool for NER-based reference number extraction (per @fto-aubergine)
-  - Added N8N integration as alternative approach for document extraction in Phase 2e (per @fto-aubergine)
-  - Made AI tools file path explicit: `packages/core/src/modules/inbox_ops/ai-tools.ts` with reference pattern
-  - Updated Module Integration Status table with Phase 2 sub-section references (2a, 2c, 2d, 2e)
-  - Updated Compliance Report with Phase 2 sub-section references for deferred items
-  - Updated Final Compliance Report date to 2026-02-17
-
-- **2026-02-16**
-  - Added Overview section with Market Reference (Front App, Levity AI, Mailchimp analysis)
-  - Added Proposed Solution section with four-stage pipeline description
-  - Added Alternatives Considered table (OAuth, auto-execution, IMAP, parallel infra, per-action calls, consensus engine)
-  - Added Command definitions for all InboxOps mutations with undo behavior and side-effect reversibility (section 10.5)
-  - Added Messages module (PR #569) integration plan as Phase 2 (section 5.2) with forward-compatibility design
-  - Updated Module Integration Status table with `messages` and `ai_assistant` modules and Phase 2 column
-  - Added Cache Strategy section (16.1) with tag-based invalidation for counts and settings endpoints
-  - Restructured Phasing: Phase 1 (current MVP on `feat/mail-agent` branch), Phase 2 (future work including messages integration, commands, AI tools, hardening, and advanced features)
-  - Added AI tools plan (message categorization, proposal queries, processing status) per @fto-aubergine suggestion
-  - Added Generic Extraction Engine with YAML schemas and Consensus Engine as Phase 2e future work per @fto-aubergine suggestion
-  - Added NER-based automatic customer/reference linking as Phase 2e future work per @fto-aubergine suggestion
-  - Expanded Risks section with three new categories: Cascading Failures & Side Effects, Migration & Deployment Risks, Operational Risks
-  - Added API contract details for key endpoints (proposals list, counts, accept, edit, reprocess) with request/response/error shapes
-  - Added Final Compliance Report with AGENTS.md cross-reference and compliance matrix
-  - Renumbered all sections (1-22) to accommodate new Overview and Proposed Solution sections
-  - Addressed all reviewer feedback from issue #573 (@pkarw: messages integration + command pattern, @fto-aubergine: categorization + NER + generic extraction)
-
-- **2026-02-15**
-  - Switched extraction design from direct Anthropic SDK usage to Vercel AI SDK structured outputs with the shared OpenCode provider contract.
-  - Replaced InboxOps-specific provider configuration with existing OpenCode env contract (`OPENCODE_PROVIDER` / `OPENCODE_MODEL` + provider API keys).
-  - Documented reprocess business rule: supersede active prior proposals for the same email, with 409 conflict when execution has already started.
-  - Documented UI requirement for failed action retry controls in proposal detail and processing log flows.
-  - Added targeted tests for OpenCode provider resolution, reprocess supersede/409 behavior, and failed-action retry flows.
 
