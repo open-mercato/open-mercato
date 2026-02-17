@@ -1,0 +1,271 @@
+---
+title: Rate Limiting
+description: Protect API endpoints against brute-force attacks and abuse with the built-in rate limiting utility.
+---
+
+# Rate Limiting
+
+Open Mercato ships with a built-in rate limiting utility powered by [`rate-limiter-flexible`](https://github.com/animir/node-rate-limiter-flexible). It supports in-memory and Redis backends, is globally configurable via environment variables, and integrates with the API dispatcher and route handlers.
+
+## Quick Start
+
+Rate limiting is **enabled by default** with an in-memory backend. No configuration is required for development. Authentication endpoints (login, password reset) are protected out of the box.
+
+To switch to Redis for production (distributed, multi-instance):
+
+```bash
+RATE_LIMIT_STRATEGY=redis
+REDIS_URL=redis://localhost:6379
+```
+
+## How It Works
+
+### Two Enforcement Paths
+
+Open Mercato supports two complementary ways to enforce rate limits:
+
+#### 1. Metadata-Driven (Automatic)
+
+Declare `rateLimit` in your route's `metadata` export. The API dispatcher enforces it automatically using the client IP as the key:
+
+```ts
+// packages/core/src/modules/my_module/api/some-endpoint/route.ts
+export const metadata = {
+  POST: {
+    requireAuth: true,
+    rateLimit: {
+      points: 10,      // max requests per window
+      duration: 60,     // window in seconds
+      keyPrefix: 'my-endpoint',
+    },
+  },
+}
+
+export async function POST(req: Request) {
+  // Rate limiting happens before this code runs.
+  // If the client exceeds the limit, the dispatcher returns 429 automatically.
+}
+```
+
+This follows the same pattern as `requireAuth` and `requireFeatures` — zero boilerplate in the handler.
+
+#### 2. Handler-Level (Manual)
+
+For advanced key strategies (e.g., compound `IP:email` keys), call the service directly in your handler. This is how the authentication endpoints work:
+
+```ts
+import { getCachedRateLimiterService } from '@open-mercato/core/bootstrap'
+import { checkRateLimit, getClientIp } from '@open-mercato/shared/lib/ratelimit/helpers'
+
+export async function POST(req: Request) {
+  const form = await req.formData()
+  const email = String(form.get('email') ?? '')
+
+  try {
+    const rateLimiterService = getCachedRateLimiterService()
+    if (rateLimiterService) {
+      const clientIp = getClientIp(req)
+      const compoundKey = `${clientIp}:${email.toLowerCase()}`
+      const rateLimitError = await checkRateLimit(
+        rateLimiterService,
+        { points: 5, duration: 60, blockDuration: 60, keyPrefix: 'login' },
+        compoundKey,
+        'Too many requests. Please try again later.',
+      )
+      if (rateLimitError) return rateLimitError
+    }
+  } catch {
+    // fail-open: if rate limiting fails, allow the request through
+  }
+
+  // ... rest of handler
+}
+```
+
+### When to Use Which
+
+| Approach | Key Strategy | Use Case |
+|----------|-------------|----------|
+| **Metadata-driven** | Client IP only | General API endpoints, simple abuse prevention |
+| **Handler-level** | Custom (IP+email, token, etc.) | Auth endpoints, credential stuffing protection |
+
+## Protected Endpoints
+
+The following authentication endpoints have rate limiting built in:
+
+| Endpoint | Key | Points | Window | Block |
+|----------|-----|--------|--------|-------|
+| `POST /api/login` | `IP:email` | 5 | 60s | 60s |
+| `POST /api/reset` | `IP:email` | 3 | 60s | 60s |
+| `POST /api/reset/confirm` | IP only | 5 | 300s | &mdash; |
+
+All limits can be overridden via environment variables (see [Configuration](#configuration)).
+
+## 429 Response Format
+
+When a client exceeds the rate limit, the API returns:
+
+```http
+HTTP/1.1 429 Too Many Requests
+Content-Type: application/json
+Retry-After: 47
+X-RateLimit-Limit: 5
+X-RateLimit-Remaining: 0
+X-RateLimit-Reset: 47
+
+{
+  "error": "Too many requests. Please try again later."
+}
+```
+
+The error message is translated according to the user's locale. Rate limit headers are only included on 429 responses.
+
+| Header | Description |
+|--------|-------------|
+| `Retry-After` | Seconds until the client can retry |
+| `X-RateLimit-Limit` | Maximum points allowed in the window |
+| `X-RateLimit-Remaining` | Points remaining (always 0 on 429) |
+| `X-RateLimit-Reset` | Seconds until the window resets |
+
+## Configuration
+
+### Global Settings
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `RATE_LIMIT_ENABLED` | `true` | Master switch. Set to `false` to disable all rate limiting. |
+| `RATE_LIMIT_STRATEGY` | `memory` | Backend: `memory` (single instance) or `redis` (distributed). |
+| `RATE_LIMIT_KEY_PREFIX` | `rl` | Key prefix in storage. Prevents collisions with other Redis data. |
+
+When using `redis` strategy, the service reads `REDIS_URL` (already used by cache, events, and queue modules).
+
+### Per-Endpoint Overrides
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `RATE_LIMIT_LOGIN_POINTS` | `5` | Max login attempts per window |
+| `RATE_LIMIT_LOGIN_DURATION` | `60` | Window in seconds |
+| `RATE_LIMIT_LOGIN_BLOCK_DURATION` | `60` | Block duration after exceeding limit |
+| `RATE_LIMIT_RESET_POINTS` | `3` | Max password reset requests per window |
+| `RATE_LIMIT_RESET_DURATION` | `60` | Window in seconds |
+| `RATE_LIMIT_RESET_BLOCK_DURATION` | `60` | Block duration after exceeding limit |
+| `RATE_LIMIT_2FA_VERIFY_POINTS` | `5` | Max 2FA verification attempts |
+| `RATE_LIMIT_2FA_VERIFY_DURATION` | `300` | Window in seconds |
+
+## Strategies
+
+### Memory (Default)
+
+Uses process memory. Suitable for development and single-instance deployments. Counters are lost on app restart.
+
+### Redis
+
+Uses Redis for distributed rate limiting across multiple application instances. When Redis becomes unavailable, the library automatically falls back to an in-memory insurance limiter (per-instance) to maintain protection.
+
+```bash
+RATE_LIMIT_STRATEGY=redis
+REDIS_URL=redis://localhost:6379
+```
+
+## Advanced Usage
+
+### Direct Service Access
+
+For advanced use cases (resetting counters, adding penalties, custom blocking), resolve the service from DI or use the global singleton:
+
+```ts
+import { getCachedRateLimiterService } from '@open-mercato/core/bootstrap'
+
+// Or via DI:
+const rateLimiterService = container.resolve('rateLimiterService')
+```
+
+Available methods:
+
+| Method | Description |
+|--------|-------------|
+| `consume(key, config)` | Consume 1 point. Returns `{ allowed, remainingPoints, msBeforeNext }`. |
+| `get(key, config)` | Check current state without consuming a point. |
+| `delete(key, config)` | Reset the counter for a key (e.g., after successful login). |
+| `penalty(key, points, config)` | Add extra penalty points. |
+| `reward(key, points, config)` | Return points (reduce consumed count). |
+| `block(key, durationSec, config)` | Manually block a key for a duration. |
+
+### Reset Counter on Success
+
+After a successful login, you may want to reset the rate limit counter so legitimate users aren't locked out after a few typos:
+
+```ts
+const rateLimiterService = getCachedRateLimiterService()
+if (rateLimiterService) {
+  await rateLimiterService.delete(compoundKey, loginRateLimitConfig)
+}
+```
+
+### Adding Rate Limiting to a New Endpoint
+
+**Option A: Metadata (recommended for IP-based limits)**
+
+```ts
+export const metadata = {
+  POST: {
+    rateLimit: {
+      points: 10,
+      duration: 60,
+      keyPrefix: 'my-endpoint',
+    },
+  },
+}
+```
+
+**Option B: Handler-level (for custom keys)**
+
+```ts
+import { getCachedRateLimiterService } from '@open-mercato/core/bootstrap'
+import { checkRateLimit, getClientIp } from '@open-mercato/shared/lib/ratelimit/helpers'
+import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
+
+const myRateLimitConfig = { points: 5, duration: 300, keyPrefix: 'my-action' }
+
+export async function POST(req: Request) {
+  try {
+    const rateLimiterService = getCachedRateLimiterService()
+    if (rateLimiterService) {
+      const { translate } = await resolveTranslations()
+      const rateLimitError = await checkRateLimit(
+        rateLimiterService,
+        myRateLimitConfig,
+        getClientIp(req),
+        translate('api.errors.rateLimit', 'Too many requests. Please try again later.'),
+      )
+      if (rateLimitError) return rateLimitError
+    }
+  } catch {
+    // fail-open
+  }
+
+  // ... handler logic
+}
+```
+
+## Security Notes
+
+- **Compound keys**: Login and password reset use `IP:email` keys to prevent credential stuffing from a single IP against multiple accounts and from distributed IPs against a single account.
+- **Fail-open**: Rate limit infrastructure failures never block authentication flows. Handlers wrap checks in `try/catch` and the service itself allows requests through on unexpected errors.
+- **IP extraction**: Uses `x-forwarded-for` (first entry), falling back to `x-real-ip`, then `'unknown'`. Configure your reverse proxy to set these headers correctly.
+- **No information leakage**: The generic "Too many requests" message does not reveal whether an account exists.
+
+## File Layout
+
+```
+packages/shared/src/lib/ratelimit/
+├── index.ts         # Public exports
+├── types.ts         # TypeScript types (RateLimitConfig, RateLimitResult, etc.)
+├── service.ts       # RateLimiterService class
+├── config.ts        # Environment variable reader
+├── helpers.ts       # checkRateLimit, getClientIp, error constants
+└── __tests__/
+    └── service.test.ts
+```
+
+The service singleton and DI registration live in `packages/core/src/bootstrap.ts`.

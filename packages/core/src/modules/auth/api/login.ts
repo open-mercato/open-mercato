@@ -8,6 +8,15 @@ import { signJwt } from '@open-mercato/shared/lib/auth/jwt'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import type { EventBus } from '@open-mercato/events/types'
 import { parseBooleanToken } from '@open-mercato/shared/lib/boolean'
+import { getCachedRateLimiterService } from '@open-mercato/core/bootstrap'
+import { checkRateLimit, getClientIp } from '@open-mercato/shared/lib/ratelimit/helpers'
+import { readEndpointRateLimitConfig } from '@open-mercato/shared/lib/ratelimit/config'
+
+const loginRateLimitConfig = readEndpointRateLimitConfig('LOGIN', {
+  points: 5, duration: 60, blockDuration: 60, keyPrefix: 'login',
+})
+
+export const metadata = {}
 
 // validation comes from userLoginSchema
 
@@ -20,6 +29,23 @@ export async function POST(req: Request) {
   const tenantIdRaw = String(form.get('tenantId') ?? form.get('tenant') ?? '').trim()
   const requireRoleRaw = (String(form.get('requireRole') ?? form.get('role') ?? '')).trim()
   const requiredRoles = requireRoleRaw ? requireRoleRaw.split(',').map((s) => s.trim()).filter(Boolean) : []
+  // Rate limit by IP + email — checked before validation and DB work
+  try {
+    const rateLimiterService = getCachedRateLimiterService()
+    if (rateLimiterService) {
+      const clientIp = getClientIp(req)
+      const compoundKey = `${clientIp}:${email.toLowerCase()}`
+      const rateLimitError = await checkRateLimit(
+        rateLimiterService,
+        loginRateLimitConfig,
+        compoundKey,
+        translate('api.errors.rateLimit', 'Too many requests. Please try again later.'),
+      )
+      if (rateLimitError) return rateLimitError
+    }
+  } catch {
+    // fail-open: if rate limiting fails, allow the request through
+  }
   const parsed = userLoginSchema.pick({ email: true, password: true, tenantId: true }).safeParse({
     email,
     password,
@@ -70,12 +96,12 @@ export async function POST(req: Request) {
   } catch {
     // optional warmup
   }
-  const token = signJwt({ 
-    sub: String(user.id), 
-    tenantId: resolvedTenantId, 
+  const token = signJwt({
+    sub: String(user.id),
+    tenantId: resolvedTenantId,
     orgId: user.organizationId ? String(user.organizationId) : null,
-    email: user.email, 
-    roles: userRoleNames 
+    email: user.email,
+    roles: userRoleNames
   })
   const res = NextResponse.json({ ok: true, token, redirect: '/backend' })
   res.cookies.set('auth_token', token, { httpOnly: true, path: '/', sameSite: 'lax', secure: process.env.NODE_ENV === 'production', maxAge: 60 * 60 * 8 })
@@ -104,6 +130,10 @@ const loginErrorSchema = z.object({
   error: z.string(),
 })
 
+const rateLimitErrorSchema = z.object({
+  error: z.string().describe('Rate limit exceeded message'),
+})
+
 const loginMethodDoc: OpenApiMethodDoc = {
   summary: 'Authenticate user credentials',
   description: 'Validates the submitted credentials and issues a bearer token cookie for subsequent API calls.',
@@ -124,6 +154,7 @@ const loginMethodDoc: OpenApiMethodDoc = {
     { status: 400, description: 'Validation failed', schema: loginErrorSchema },
     { status: 401, description: 'Invalid credentials', schema: loginErrorSchema },
     { status: 403, description: 'User lacks required role', schema: loginErrorSchema },
+    { status: 429, description: 'Too many login attempts', schema: rateLimitErrorSchema },
   ],
 }
 

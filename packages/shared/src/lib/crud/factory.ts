@@ -9,6 +9,7 @@ import type { DataEngine } from '@open-mercato/shared/lib/data/engine'
 import { resolveOrganizationScopeForRequest, type OrganizationScope } from '@open-mercato/core/modules/directory/utils/organizationScope'
 import { serializeOperationMetadata } from '@open-mercato/shared/lib/commands/operationMetadata'
 import { parseBooleanToken } from '@open-mercato/shared/lib/boolean'
+import type { RateLimitConfig } from '@open-mercato/shared/lib/ratelimit/types'
 import type {
   CrudEventAction,
   CrudEventsConfig,
@@ -54,11 +55,18 @@ export type CrudHooks<TCreate, TUpdate, TList> = {
   afterDelete?: (id: string, ctx: CrudCtx) => Promise<void> | void
 }
 
+export type CrudMethodMetadata = {
+  requireAuth?: boolean
+  requireRoles?: string[]
+  requireFeatures?: string[]
+  rateLimit?: RateLimitConfig
+}
+
 export type CrudMetadata = {
-  GET?: { requireAuth?: boolean; requireRoles?: string[]; requireFeatures?: string[] }
-  POST?: { requireAuth?: boolean; requireRoles?: string[]; requireFeatures?: string[] }
-  PUT?: { requireAuth?: boolean; requireRoles?: string[]; requireFeatures?: string[] }
-  DELETE?: { requireAuth?: boolean; requireRoles?: string[]; requireFeatures?: string[] }
+  GET?: CrudMethodMetadata
+  POST?: CrudMethodMetadata
+  PUT?: CrudMethodMetadata
+  DELETE?: CrudMethodMetadata
 }
 
 export type OrmEntityConfig = {

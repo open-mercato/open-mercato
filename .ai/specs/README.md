@@ -78,6 +78,7 @@ Files like `AGENTS.md` and `CLAUDE.md` use UPPERCASE names and are not numberedâ
 | [SPEC-026](SPEC-026-2026-02-11-catalog-localization.md) | 2026-02-11 | System-Wide Entity Translations | Dedicated `entity_translations` table (like `entity_indexes`), global locale support in all API routes, `applyLocalizedContent` overlay helper |
 | [SPEC-026a](SPEC-026a-2026-02-15-entity-translations-phase2.md) | 2026-02-15 | Entity Translations Phase 2 | TranslationManager UI (standalone + widget injection), search indexer `l10n:*` fields, per-entity translatable field definitions |
 | [SPEC-028](SPEC-028-2026-02-16-multiple-sales-pipelines.md) | 2026-02-16 | Multiple Sales Pipelines | Multiple CRM pipelines with configurable stages + deal assignment |
+| [SPEC-029](SPEC-022-2026-02-09-rate-limiting.md) | 2026-02-09 | Rate Limiting Utility | Strategy-based rate limiting for auth endpoints using rate-limiter-flexible |
 
 ## Specification Structure
 

@@ -241,6 +241,7 @@
   "api.errors.invalidPayload": "Nieprawidłowa ładunek.",
   "api.errors.invalidLocale": "Nieprawidłowy język",
   "api.errors.badRequest": "Nieprawidłowe żądanie",
+  "api.errors.rateLimit": "Zbyt wiele zapytań. Spróbuj ponownie później.",
   "api.docs.title": "API Open Mercato",
   "api.docs.description": "Automatycznie wygenerowana definicja OpenAPI dla wszystkich włączonych modułów.",
   "api.docs.serverDescription": "Domyślne środowisko",

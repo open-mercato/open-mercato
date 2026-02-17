@@ -240,6 +240,7 @@
   "api.errors.invalidPayload": "Ungültige Nutzlast.",
   "api.errors.invalidLocale": "Ungültige Sprache",
   "api.errors.badRequest": "Ungültige Anfrage",
+  "api.errors.rateLimit": "Zu viele Anfragen. Bitte versuchen Sie es später erneut.",
   "api.docs.title": "Open Mercato API",
   "api.docs.description": "Automatisch generierte OpenAPI-Definition für alle aktivierten Module.",
   "api.docs.serverDescription": "Standardumgebung",
