@@ -1,6 +1,6 @@
 import { expect, test } from '@playwright/test';
-import { login } from './helpers/auth';
-import { addCustomLine, createSalesDocument, updateLineQuantity } from './helpers/salesUi';
+import { login } from '../../core/__integration__/helpers/auth';
+import { addCustomLine, createSalesDocument, updateLineQuantity } from '../../core/__integration__/helpers/salesUi';
 
 /**
  * TC-SALES-004: Order Line Management

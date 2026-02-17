@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { login } from './helpers/auth';
+import { login } from '../../core/__integration__/helpers/auth';
 
 /**
  * TC-SALES-015: Payment Method Config

@@ -1,7 +1,7 @@
 import { expect, test } from '@playwright/test';
-import { createProductFixture, deleteCatalogProductIfExists } from './helpers/catalogFixtures';
-import { getAuthToken } from './helpers/api';
-import { login } from './helpers/auth';
+import { createProductFixture, deleteCatalogProductIfExists } from '../../core/__integration__/helpers/catalogFixtures';
+import { getAuthToken } from '../../core/__integration__/helpers/api';
+import { login } from '../../core/__integration__/helpers/auth';
 
 /**
  * TC-CAT-006: Edit Product Variant

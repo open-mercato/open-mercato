@@ -4,7 +4,7 @@ import path from 'node:path'
 export type IntegrationSpecDiscoveryItem = {
   path: string
   moduleName: string | null
-  isEnterpriseOverlay: boolean
+  isOverlay: boolean
   requiredModules: string[]
 }
 
@@ -26,6 +26,7 @@ const DISCOVERY_IGNORED_DIRS = new Set([
 ])
 const INTEGRATION_META_FILE_NAMES = ['meta.ts', 'index.ts'] as const
 const INTEGRATION_META_DEPENDENCY_KEYS = ['dependsOnModules', 'requiredModules', 'requiresModules'] as const
+const DEFAULT_OVERLAY_ROOT = 'packages/enterprise'
 
 export function normalizePath(filePath: string): string {
   return filePath.split(path.sep).join('/')
@@ -125,8 +126,16 @@ function extractModuleNameFromIntegrationPath(relativePath: string): string | nu
   return moduleSegment && moduleSegment.length > 0 ? moduleSegment : null
 }
 
-function isEnterpriseIntegrationPath(relativePath: string): boolean {
-  return normalizePath(relativePath).startsWith('packages/enterprise/')
+function resolveOverlayRootPath(): string {
+  const configured = process.env.OM_INTEGRATION_OVERLAY_ROOT?.trim()
+  if (!configured) {
+    return DEFAULT_OVERLAY_ROOT
+  }
+  return configured.replace(/\/+$/, '')
+}
+
+function isOverlayIntegrationPath(relativePath: string, overlayRoot: string): boolean {
+  return normalizePath(relativePath).startsWith(`${normalizePath(overlayRoot)}/`)
 }
 
 function extractDependencyListFromSource(source: string): string[] {
@@ -202,6 +211,7 @@ function resolveRequiredModulesForSpec(projectRoot: string, relativeSpecPath: st
 
 export function discoverIntegrationSpecFiles(projectRoot: string, legacyIntegrationRoot: string): IntegrationSpecDiscoveryItem[] {
   const discoveredByPath = new Map<string, IntegrationSpecDiscoveryItem>()
+  const overlayRoot = resolveOverlayRootPath()
   const discoveryRoots = [
     path.join(projectRoot, 'apps'),
     path.join(projectRoot, 'packages'),
@@ -212,7 +222,7 @@ export function discoverIntegrationSpecFiles(projectRoot: string, legacyIntegrat
     discoveredByPath.set(relativePath, {
       path: relativePath,
       moduleName: extractModuleNameFromIntegrationPath(relativePath),
-      isEnterpriseOverlay: isEnterpriseIntegrationPath(relativePath),
+      isOverlay: isOverlayIntegrationPath(relativePath, overlayRoot),
       requiredModules: resolveRequiredModulesForSpec(projectRoot, relativePath),
     })
   }
@@ -224,7 +234,7 @@ export function discoverIntegrationSpecFiles(projectRoot: string, legacyIntegrat
         discoveredByPath.set(relativePath, {
           path: relativePath,
           moduleName: extractModuleNameFromIntegrationPath(relativePath),
-          isEnterpriseOverlay: isEnterpriseIntegrationPath(relativePath),
+          isOverlay: isOverlayIntegrationPath(relativePath, overlayRoot),
           requiredModules: resolveRequiredModulesForSpec(projectRoot, relativePath),
         })
       }
@@ -235,7 +245,7 @@ export function discoverIntegrationSpecFiles(projectRoot: string, legacyIntegrat
   const enabledModules = resolveEnabledModuleIds(projectRoot)
   const enabledModuleNames = new Set<string>()
   for (const file of discovered) {
-    if (!file.isEnterpriseOverlay && file.moduleName) {
+    if (!file.isOverlay && file.moduleName) {
       enabledModuleNames.add(file.moduleName)
     }
   }
@@ -245,7 +255,7 @@ export function discoverIntegrationSpecFiles(projectRoot: string, legacyIntegrat
       if (file.requiredModules.some((moduleId) => !enabledModules.has(normalizeModuleId(moduleId)))) {
         return false
       }
-      if (!file.isEnterpriseOverlay || !file.moduleName) {
+      if (!file.isOverlay || !file.moduleName) {
         return true
       }
       return enabledModuleNames.has(file.moduleName)

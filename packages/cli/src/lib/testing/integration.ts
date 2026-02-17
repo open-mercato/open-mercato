@@ -61,7 +61,7 @@ type IntegrationSpecTarget = {
 type DiscoveredIntegrationSpecFile = {
   path: string
   moduleName: string | null
-  isEnterpriseOverlay: boolean
+  isOverlay: boolean
   requiredModules: string[]
 }
 

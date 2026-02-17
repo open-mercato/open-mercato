@@ -1,7 +1,7 @@
 import { expect, test } from '@playwright/test';
-import { login } from './helpers/auth';
-import { apiRequest, getAuthToken } from './helpers/api';
-import { createUserViaUi } from './helpers/authUi';
+import { login } from '../../core/__integration__/helpers/auth';
+import { apiRequest, getAuthToken } from '../../core/__integration__/helpers/api';
+import { createUserViaUi } from '../../core/__integration__/helpers/authUi';
 
 /**
  * TC-AUTH-010: Edit Existing User

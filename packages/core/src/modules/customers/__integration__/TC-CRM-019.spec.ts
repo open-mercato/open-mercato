@@ -1,7 +1,7 @@
 import { expect, test } from '@playwright/test';
-import { login } from './helpers/auth';
-import { getAuthToken } from './helpers/api';
-import { createDealFixture, createPersonFixture, deleteEntityIfExists } from './helpers/crmFixtures';
+import { login } from '../../core/__integration__/helpers/auth';
+import { getAuthToken } from '../../core/__integration__/helpers/api';
+import { createDealFixture, createPersonFixture, deleteEntityIfExists } from '../../core/__integration__/helpers/crmFixtures';
 
 /**
  * TC-CRM-019: Deal Association Remove And Undo

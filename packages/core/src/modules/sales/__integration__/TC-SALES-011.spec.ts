@@ -1,6 +1,6 @@
 import { expect, test } from '@playwright/test';
-import { login } from './helpers/auth';
-import { addCustomLine, createSalesDocument } from './helpers/salesUi';
+import { login } from '../../core/__integration__/helpers/auth';
+import { addCustomLine, createSalesDocument } from '../../core/__integration__/helpers/salesUi';
 
 /**
  * TC-SALES-011: Payment Allocation

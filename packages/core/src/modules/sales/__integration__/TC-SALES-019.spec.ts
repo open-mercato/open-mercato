@@ -1,6 +1,6 @@
 import { expect, test } from '@playwright/test';
-import { login } from './helpers/auth';
-import { addCustomLine, addPayment, createSalesDocument, readGrandTotalGross } from './helpers/salesUi';
+import { login } from '../../core/__integration__/helpers/auth';
+import { addCustomLine, addPayment, createSalesDocument, readGrandTotalGross } from '../../core/__integration__/helpers/salesUi';
 
 /**
  * TC-SALES-019: Payment Entry and Grand Total Stability

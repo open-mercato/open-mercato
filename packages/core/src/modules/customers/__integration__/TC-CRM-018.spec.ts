@@ -1,7 +1,7 @@
 import { expect, test } from '@playwright/test';
-import { login } from './helpers/auth';
-import { getAuthToken } from './helpers/api';
-import { createCompanyFixture, createPersonFixture, deleteEntityIfExists } from './helpers/crmFixtures';
+import { login } from '../../core/__integration__/helpers/auth';
+import { getAuthToken } from '../../core/__integration__/helpers/api';
+import { createCompanyFixture, createPersonFixture, deleteEntityIfExists } from '../../core/__integration__/helpers/crmFixtures';
 
 /**
  * TC-CRM-018: Person Display Name Edit And Undo

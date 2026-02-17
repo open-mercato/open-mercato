@@ -1,7 +1,7 @@
 import { expect, test } from '@playwright/test';
-import { login } from './helpers/auth';
-import { createCompanyFixture, deleteEntityIfExists } from './helpers/crmFixtures';
-import { getAuthToken } from './helpers/api';
+import { login } from '../../core/__integration__/helpers/auth';
+import { createCompanyFixture, deleteEntityIfExists } from '../../core/__integration__/helpers/crmFixtures';
+import { getAuthToken } from '../../core/__integration__/helpers/api';
 
 function escapeRegex(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');

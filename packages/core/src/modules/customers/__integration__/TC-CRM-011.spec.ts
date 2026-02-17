@@ -1,7 +1,7 @@
 import { expect, test } from '@playwright/test';
-import { createCompanyFixture, createDealFixture, deleteEntityIfExists } from './helpers/crmFixtures';
-import { getAuthToken } from './helpers/api';
-import { login } from './helpers/auth';
+import { createCompanyFixture, createDealFixture, deleteEntityIfExists } from '../../core/__integration__/helpers/crmFixtures';
+import { getAuthToken } from '../../core/__integration__/helpers/api';
+import { login } from '../../core/__integration__/helpers/auth';
 
 /**
  * TC-CRM-011: Add Comment to Customer

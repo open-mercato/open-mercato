@@ -1,7 +1,7 @@
 import { test, expect } from '@playwright/test';
-import { login } from './helpers/auth';
-import { getAuthToken } from './helpers/api';
-import { deleteEntityIfExists } from './helpers/crmFixtures';
+import { login } from '../../core/__integration__/helpers/auth';
+import { getAuthToken } from '../../core/__integration__/helpers/api';
+import { deleteEntityIfExists } from '../../core/__integration__/helpers/crmFixtures';
 
 /**
  * TC-CRM-001: Company Creation

@@ -1,12 +1,12 @@
 import { expect, test } from '@playwright/test';
-import { login } from './helpers/auth';
-import { getAuthToken } from './helpers/api';
+import { login } from '../../core/__integration__/helpers/auth';
+import { getAuthToken } from '../../core/__integration__/helpers/api';
 import {
   createCompanyFixture,
   createDealFixture,
   createPersonFixture,
   deleteEntityIfExists,
-} from './helpers/crmFixtures';
+} from '../../core/__integration__/helpers/crmFixtures';
 
 /**
  * TC-CRM-020: Deal Note And Activity Creation

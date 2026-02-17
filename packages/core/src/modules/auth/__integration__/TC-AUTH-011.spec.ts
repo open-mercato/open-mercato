@@ -1,6 +1,6 @@
 import { expect, test } from '@playwright/test';
-import { login } from './helpers/auth';
-import { createUserViaUi } from './helpers/authUi';
+import { login } from '../../core/__integration__/helpers/auth';
+import { createUserViaUi } from '../../core/__integration__/helpers/authUi';
 
 /**
  * TC-AUTH-011: Delete User Account

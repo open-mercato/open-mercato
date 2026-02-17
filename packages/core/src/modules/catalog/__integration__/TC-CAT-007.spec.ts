@@ -1,6 +1,6 @@
 import { expect, test } from '@playwright/test';
-import { login } from './helpers/auth';
-import { apiRequest, getAuthToken } from './helpers/api';
+import { login } from '../../core/__integration__/helpers/auth';
+import { apiRequest, getAuthToken } from '../../core/__integration__/helpers/api';
 
 /**
  * TC-CAT-007: Create Product Category
