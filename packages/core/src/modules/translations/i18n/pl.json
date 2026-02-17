@@ -47,7 +47,10 @@
         "loadTranslation": "Nie udało się załadować tłumaczeń",
         "selectRecord": "Wybierz encję i rekord przed zapisaniem",
         "save": "Nie udało się zapisać tłumaczeń"
-      }
+      },
+      "translateField": "Przetłumacz pole: {{key}}",
+      "translateEntry": "Przetłumacz: {{label}}",
+      "translateEntryDescription": "Zarządzaj tłumaczeniami tego wpisu słownika."
     },
     "locales": {
       "title": "Obsługiwane języki",

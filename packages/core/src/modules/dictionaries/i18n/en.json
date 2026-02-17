@@ -34,6 +34,7 @@
   "dictionaries.config.entries.subtitle": "Manage reusable values and appearance for this dictionary.",
   "dictionaries.config.entries.actions.refresh": "Refresh",
   "dictionaries.config.entries.actions.add": "Add entry",
+  "dictionaries.config.entries.actions.translate": "Translate",
   "dictionaries.config.entries.columns.value": "Value",
   "dictionaries.config.entries.columns.label": "Label",
   "dictionaries.config.entries.columns.appearance": "Appearance",

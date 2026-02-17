@@ -33,6 +33,7 @@
   "dictionaries.config.entries.subtitle": "Verwalten Sie wiederverwendbare Werte und ihr Erscheinungsbild für dieses Wörterbuch.",
   "dictionaries.config.entries.actions.refresh": "Aktualisieren",
   "dictionaries.config.entries.actions.add": "Eintrag hinzufügen",
+  "dictionaries.config.entries.actions.translate": "Übersetzen",
   "dictionaries.config.entries.columns.value": "Wert",
   "dictionaries.config.entries.columns.label": "Bezeichnung",
   "dictionaries.config.entries.columns.appearance": "Darstellung",

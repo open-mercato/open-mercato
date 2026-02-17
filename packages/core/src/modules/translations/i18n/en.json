@@ -47,7 +47,10 @@
         "loadTranslation": "Failed to load translations",
         "selectRecord": "Select an entity and record before saving",
         "save": "Failed to save translations"
-      }
+      },
+      "translateField": "Translate field: {{key}}",
+      "translateEntry": "Translate: {{label}}",
+      "translateEntryDescription": "Manage translations for this dictionary entry."
     },
     "locales": {
       "title": "Supported locales",

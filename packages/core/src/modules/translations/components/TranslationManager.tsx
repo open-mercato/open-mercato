@@ -13,14 +13,17 @@ import { Save, Plus, X } from 'lucide-react'
 import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { locales as defaultLocales } from '@open-mercato/shared/lib/i18n/config'
+import { ISO_639_1, isValidIso639, getIso639Label } from '@open-mercato/shared/lib/i18n/iso639'
 import { getEntityFields } from '#generated/entity-fields-registry'
 import { registerTranslatableFields, getTranslatableFields } from '@open-mercato/shared/lib/localization/translatable-fields'
 import { catalogTranslatableFields } from '@open-mercato/core/modules/catalog/lib/translatable-fields'
 import { dictionaryTranslatableFields } from '@open-mercato/core/modules/dictionaries/lib/translatable-fields'
 import { isTranslatableField } from '../lib/translatable-fields'
+import { formatFieldLabel, formatEntityLabel, buildEntityListUrl, getRecordLabel } from '../lib/helpers'
 
 registerTranslatableFields(catalogTranslatableFields)
 registerTranslatableFields(dictionaryTranslatableFields)
+registerTranslatableFields({ 'entities:custom_field_def': ['label', 'description'] })
 
 type TranslationManagerProps = {
   entityType?: string
@@ -39,30 +42,6 @@ type TranslationsResponse = {
   translations: Record<string, Record<string, unknown>>
   createdAt?: string
   updatedAt?: string
-}
-
-function formatFieldLabel(field: string): string {
-  return field
-    .split('_')
-    .map((segment) => (segment ? `${segment[0].toUpperCase()}${segment.slice(1)}` : ''))
-    .join(' ')
-    .trim() || field
-}
-
-function formatEntityLabel(entityId: string, label?: string): string {
-  if (label && label !== entityId) return label
-  const parts = entityId.split(':')
-  const name = parts.length > 1 ? parts[1] : parts[0]
-  return formatFieldLabel(name)
-}
-
-function buildEntityListUrl(entityType: string): string | null {
-  const [module, entity] = entityType.split(':')
-  if (!module || !entity) return null
-  const prefix = `${module}_`
-  const base = entity.startsWith(prefix) ? entity.slice(prefix.length) : entity
-  const resource = base.endsWith('s') ? base : `${base}s`
-  return `/api/${module}/${resource}`
 }
 
 type ResolvedField = { key: string; label: string; multiline: boolean }
@@ -122,10 +101,6 @@ function resolveFieldList(
   }
 
   return fields
-}
-
-function getRecordLabel(item: Record<string, unknown>): string {
-  return String(item.title ?? item.name ?? item.label ?? item.display_name ?? item.id ?? '')
 }
 
 function useTranslationLocales() {
@@ -227,9 +202,12 @@ export function TranslationManager({
     queryKey: ['translation-record-data', entityType, recordId, listUrl, scopeVersion],
     enabled: !isEmbedded && !!entityType && !!recordId && !!listUrl,
     queryFn: async () => {
-      const res = await apiCall<Record<string, unknown>>(`${listUrl}/${encodeURIComponent(recordId)}`)
+      const res = await apiCall<{ items: Array<Record<string, unknown>> }>(
+        `${listUrl}?id=${encodeURIComponent(recordId)}&pageSize=1`,
+      )
       if (!res.ok) return null
-      return res.result ?? null
+      const items = res.result?.items
+      return Array.isArray(items) && items.length > 0 ? items[0] : null
     },
   })
 
@@ -611,9 +589,17 @@ export function LocaleManager() {
     },
   })
 
+  const availableLocales = React.useMemo(
+    () => ISO_639_1.filter((entry) => !locales.includes(entry.code)).map((entry) => ({
+      value: entry.code,
+      label: `${entry.code.toUpperCase()} — ${entry.label}`,
+    })),
+    [locales],
+  )
+
   const addLocale = () => {
     const code = newLocale.toLowerCase().trim()
-    if (!code || code.length < 2 || locales.includes(code)) return
+    if (!code || !isValidIso639(code) || locales.includes(code)) return
     mutation.mutate([...locales, code])
     setNewLocale('')
   }
@@ -641,8 +627,9 @@ export function LocaleManager() {
           <span
             key={locale}
             className="inline-flex items-center gap-1.5 rounded-full border bg-muted/50 px-3 py-1 text-sm font-medium"
+            title={getIso639Label(locale) ?? locale}
           >
-            {locale.toUpperCase()}
+            {locale.toUpperCase()}{getIso639Label(locale) ? ` — ${getIso639Label(locale)}` : ''}
             {locales.length > 1 && (
               <button
                 type="button"
@@ -658,18 +645,23 @@ export function LocaleManager() {
       </div>
 
       <div className="flex gap-2 items-center">
-        <Input
-          className="max-w-[200px]"
-          value={newLocale}
-          onChange={(e) => setNewLocale(e.target.value)}
-          placeholder={t('translations.locales.addPlaceholder', 'e.g. fr, it, ja...')}
-          onKeyDown={(e) => { if (e.key === 'Enter') addLocale() }}
-        />
+        <div className="max-w-[240px] flex-1">
+          <ComboboxInput
+            value={newLocale}
+            onChange={setNewLocale}
+            placeholder={t('translations.locales.addPlaceholder', 'Search language...')}
+            suggestions={availableLocales}
+            resolveLabel={(value) => {
+              const label = getIso639Label(value)
+              return label ? `${value.toUpperCase()} — ${label}` : value.toUpperCase()
+            }}
+          />
+        </div>
         <Button
           variant="outline"
           size="sm"
           onClick={addLocale}
-          disabled={mutation.isPending || !newLocale.trim() || newLocale.trim().length < 2}
+          disabled={mutation.isPending || !newLocale.trim() || !isValidIso639(newLocale) || locales.includes(newLocale.toLowerCase().trim())}
         >
           <Plus className="mr-1 h-3 w-3" />
           {t('translations.locales.add', 'Add')}

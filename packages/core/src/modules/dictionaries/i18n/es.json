@@ -34,6 +34,7 @@
   "dictionaries.config.entries.subtitle": "Administra valores reutilizables y su apariencia para este diccionario.",
   "dictionaries.config.entries.actions.refresh": "Actualizar",
   "dictionaries.config.entries.actions.add": "Agregar entrada",
+  "dictionaries.config.entries.actions.translate": "Traducir",
   "dictionaries.config.entries.columns.value": "Valor",
   "dictionaries.config.entries.columns.label": "Etiqueta",
   "dictionaries.config.entries.columns.appearance": "Apariencia",

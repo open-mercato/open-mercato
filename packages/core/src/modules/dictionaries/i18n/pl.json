@@ -33,6 +33,7 @@
   "dictionaries.config.entries.subtitle": "Zarządzaj wartościami i ich wyglądem dla tego słownika.",
   "dictionaries.config.entries.actions.refresh": "Odśwież",
   "dictionaries.config.entries.actions.add": "Dodaj wpis",
+  "dictionaries.config.entries.actions.translate": "Przetłumacz",
   "dictionaries.config.entries.columns.value": "Wartość",
   "dictionaries.config.entries.columns.label": "Etykieta",
   "dictionaries.config.entries.columns.appearance": "Wygląd",

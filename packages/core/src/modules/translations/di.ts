@@ -5,4 +5,5 @@ import { dictionaryTranslatableFields } from '../dictionaries/lib/translatable-f
 export function register() {
   registerTranslatableFields(catalogTranslatableFields)
   registerTranslatableFields(dictionaryTranslatableFields)
+  registerTranslatableFields({ 'entities:custom_field_def': ['label', 'description'] })
 }

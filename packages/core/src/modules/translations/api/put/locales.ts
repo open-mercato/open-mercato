@@ -2,10 +2,13 @@ import { NextResponse } from 'next/server'
 import { z } from 'zod'
 import { resolveTranslationsRouteContext } from '@open-mercato/core/modules/translations/api/context'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
+import { isValidIso639 } from '@open-mercato/shared/lib/i18n/iso639'
 import type { OpenApiMethodDoc, OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 
 const bodySchema = z.object({
-  locales: z.array(z.string().min(2).max(10)).min(1).max(50),
+  locales: z.array(
+    z.string().min(2).max(10).refine(isValidIso639, { message: 'Invalid ISO 639-1 language code' }),
+  ).min(1).max(50),
 })
 
 export const metadata = {

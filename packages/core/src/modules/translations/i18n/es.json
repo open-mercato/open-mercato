@@ -47,7 +47,10 @@
         "loadTranslation": "Error al cargar las traducciones",
         "selectRecord": "Selecciona una entidad y un registro antes de guardar",
         "save": "Error al guardar las traducciones"
-      }
+      },
+      "translateField": "Traducir campo: {{key}}",
+      "translateEntry": "Traducir: {{label}}",
+      "translateEntryDescription": "Gestiona las traducciones de esta entrada de diccionario."
     },
     "locales": {
       "title": "Idiomas soportados",

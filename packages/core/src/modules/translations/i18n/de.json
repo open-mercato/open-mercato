@@ -47,7 +47,10 @@
         "loadTranslation": "Fehler beim Laden der Übersetzungen",
         "selectRecord": "Wähle eine Entität und einen Datensatz vor dem Speichern",
         "save": "Fehler beim Speichern der Übersetzungen"
-      }
+      },
+      "translateField": "Feld übersetzen: {{key}}",
+      "translateEntry": "Übersetzen: {{label}}",
+      "translateEntryDescription": "Verwalte Übersetzungen für diesen Wörterbucheintrag."
     },
     "locales": {
       "title": "Unterstützte Sprachen",
