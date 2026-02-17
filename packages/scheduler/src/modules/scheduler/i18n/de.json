@@ -1,0 +1,172 @@
+{
+  "scheduler": {
+    "module": {
+      "title": "Geplante Aufgaben",
+      "description": "Verwalten Sie automatisierte geplante Aufgaben mit Cron-Ausdrücken oder einfachen Intervallen."
+    },
+    "title": "Geplante Aufgaben",
+    "loading": "Zeitplan wird geladen...",
+    "search": {
+      "placeholder": "Zeitpläne durchsuchen..."
+    },
+    "field": {
+      "name": "Name",
+      "description": "Beschreibung",
+      "schedule_type": "Typ",
+      "schedule": "Zeitplan",
+      "schedule_value": "Zeitplanwert",
+      "target": "Ziel",
+      "next_run": "Nächste Ausführung",
+      "status": "Status",
+      "active": "Aktiv",
+      "source": "Quelle",
+      "timezone": "Zeitzone"
+    },
+    "scope": {
+      "system": "System",
+      "organization": "Organisation",
+      "tenant": "Mandant"
+    },
+    "type": {
+      "cron": "Cron-Ausdruck",
+      "interval": "Einfaches Intervall"
+    },
+    "target": {
+      "queue": "Warteschlange",
+      "command": "Befehl"
+    },
+    "status": {
+      "enabled": "Aktiviert",
+      "disabled": "Deaktiviert"
+    },
+    "action": {
+      "create": "Neuer Zeitplan",
+      "view": "Anzeigen",
+      "edit": "Bearbeiten",
+      "delete": "Löschen",
+      "trigger": "Jetzt ausführen",
+      "refresh": "Aktualisieren"
+    },
+    "create": {
+      "title": "Zeitplan erstellen"
+    },
+    "edit": {
+      "title": "Zeitplan bearbeiten"
+    },
+    "form": {
+      "name": "Name",
+      "name.required": "Name ist erforderlich",
+      "description": "Beschreibung",
+      "scope_type": "Bereich",
+      "schedule_type": "Zeitplantyp",
+      "schedule": "Zeitplan",
+      "schedule.required": "Zeitplan ist erforderlich",
+      "schedule_value": "Zeitplanwert",
+      "schedule_value.placeholder": "z.B. 0 */6 * * * oder 15m",
+      "schedule_value.description": "Für Cron: verwenden Sie Cron-Ausdruck (z.B. \"0 0 * * *\"). Für Intervall: verwenden Sie Format wie \"15m\", \"2h\", \"1d\" (s=Sekunden, m=Minuten, h=Stunden, d=Tage)",
+      "timezone": "Zeitzone",
+      "timezone.placeholder": "Zeitzone suchen...",
+      "target_type": "Zieltyp",
+      "target_queue": "Zielwarteschlange",
+      "target_queue.placeholder": "Warteschlangen suchen...",
+      "target_command": "Zielbefehl",
+      "target_command.placeholder": "Befehle suchen...",
+      "target_payload": "Aufgabenargumente (JSON)",
+      "target_payload.placeholder": "{\n  \"message\": \"Hello\",\n  \"value\": 42\n}",
+      "target_payload.description": "Optionales JSON-Objekt mit Argumenten für den Befehl oder die Warteschlangenaufgabe. Muss gültiges JSON-Format sein.",
+      "target_payload.invalid_json": "Muss gültiges JSON sein",
+      "is_enabled": "Aktiviert",
+      "enabled": "Aktiviert",
+      "disabled": "Deaktiviert",
+      "submit": "Zeitplan erstellen",
+      "save": "Änderungen speichern",
+      "group": {
+        "basic": "Grundinformationen",
+        "schedule": "Zeitplankonfiguration",
+        "target": "Zielkonfiguration"
+      }
+    },
+    "confirm": {
+      "delete": "Sind Sie sicher, dass Sie diesen Zeitplan löschen möchten?",
+      "trigger": "Sind Sie sicher, dass Sie \"{name}\" jetzt ausführen möchten?\n\nDies wird {targetType} sofort ausführen."
+    },
+    "success": {
+      "created": "Zeitplan erfolgreich erstellt",
+      "updated": "Zeitplan erfolgreich aktualisiert",
+      "deleted": "Zeitplan erfolgreich gelöscht",
+      "triggered": "Zeitplan erfolgreich ausgeführt",
+      "enabled": "Zeitplan aktiviert",
+      "disabled": "Zeitplan deaktiviert"
+    },
+    "error": {
+      "fetch_failed": "Fehler beim Laden der Zeitpläne",
+      "load_failed": "Fehler beim Laden des Zeitplans",
+      "not_found": "Zeitplan nicht gefunden",
+      "delete_failed": "Fehler beim Löschen des Zeitplans",
+      "trigger_failed": "Fehler beim Ausführen des Zeitplans",
+      "update_failed": "Fehler beim Aktualisieren des Zeitplans",
+      "invalidPayload": "Ungültiges JSON-Payload"
+    },
+    "details": {
+      "configuration": "Konfiguration",
+      "scope": "Bereich",
+      "source_module": "Modul",
+      "source_user": "Vom Benutzer erstellt",
+      "last_run": "Letzte Ausführung",
+      "required_feature": "Erforderliche Funktion",
+      "payload": "Nutzdaten",
+      "recent_executions": "Letzte Ausführungen",
+      "no_executions": "Noch keine Ausführungen",
+      "triggering": "Wird ausgeführt...",
+      "executions_async_only": "Ausführungsverlauf und manuelle Auslösung erfordern die asynchrone Warteschlangenstrategie (QUEUE_STRATEGY=async).",
+      "error": "Fehler",
+      "not_found": "Nicht gefunden"
+    },
+    "execution": {
+      "details_title": "Ausführungsdetails",
+      "run_id": "Ausführungs-ID",
+      "status": "Status",
+      "trigger_type": "Auslösertyp",
+      "started_at": "Gestartet um",
+      "finished_at": "Beendet um",
+      "duration": "Dauer",
+      "queue_job_id": "Warteschlangen-Job-ID",
+      "queue_name": "Warteschlangenname",
+      "error_message": "Fehlermeldung",
+      "stack_trace": "Stack-Trace",
+      "completed_message": "Diese Ausführung wurde erfolgreich ohne Fehler abgeschlossen.",
+      "running_message": "Diese Ausführung läuft derzeit.",
+      "skipped_message": "Diese Ausführung wurde übersprungen.",
+      "na": "N/V",
+      "started": "Gestartet",
+      "trigger": "Auslöser",
+      "actions": "Aktionen",
+      "view_details": "Details anzeigen",
+      "view_logs": "Logs anzeigen"
+    },
+    "job_logs": {
+      "title": "Warteschlangen-Job",
+      "job_id": "Job-ID",
+      "load_failed": "Fehler beim Laden der Job-Details",
+      "tab_overview": "Übersicht",
+      "tab_logs": "Logs",
+      "tab_payload": "Nutzdaten",
+      "tab_error": "Fehlerdetails",
+      "state": "Zustand",
+      "attempts": "Versuche",
+      "processed": "Verarbeitet",
+      "finished": "Beendet",
+      "duration": "Dauer",
+      "progress": "Fortschritt",
+      "return_value": "Rückgabewert",
+      "no_logs": "Keine Logs verfügbar",
+      "error_message": "Fehlermeldung",
+      "stack_trace": "Stack-Trace"
+    },
+    "audit": {
+      "create": "Zeitplan erstellen",
+      "update": "Zeitplan aktualisieren",
+      "delete": "Zeitplan löschen"
+    }
+  }
+}

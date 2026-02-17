@@ -19,6 +19,7 @@ import {
   type UnavailabilityReasonEntry,
 } from '@open-mercato/core/modules/planner/components/unavailabilityReasons'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
 import { parseAvailabilityRuleWindow } from '@open-mercato/core/modules/planner/lib/availabilitySchedule'
 import { CrudForm, type CrudField } from '@open-mercato/ui/backend/CrudForm'
 import { Calendar, Clock, List, PencilLine, Plus, Trash2 } from 'lucide-react'
@@ -350,6 +351,7 @@ export function AvailabilityRulesEditor({
   allowUnavailability,
 }: AvailabilityRulesEditorProps) {
   const t = useT()
+  const { confirm, ConfirmDialogElement } = useConfirmDialog()
   const isReadOnly = Boolean(readOnly)
   const canManageUnavailability = allowUnavailability ?? true
   const dialogRef = React.useRef<HTMLDivElement | null>(null)
@@ -957,7 +959,10 @@ export function AvailabilityRulesEditor({
     if (isReadOnly) return
     if (!onRulesetChange) return
     if (availabilityRules.length > 0 && nextId !== rulesetId) {
-      const confirmed = window.confirm(listLabels.ruleSetConfirm)
+      const confirmed = await confirm({
+        title: listLabels.ruleSetConfirm,
+        variant: 'default',
+      })
       if (!confirmed) return
       await Promise.all(
         availabilityRules.map((rule) => deleteCrud('planner/availability', rule.id, { errorMessage: listLabels.saveWeeklyError })),
@@ -968,7 +973,8 @@ export function AvailabilityRulesEditor({
     await refreshAvailability()
   }, [
     availabilityRules,
-    listLabels.ruleSetReset,
+    confirm,
+    listLabels.ruleSetConfirm,
     listLabels.saveWeeklyError,
     onRulesetChange,
     refreshAvailability,
@@ -1813,6 +1819,7 @@ export function AvailabilityRulesEditor({
           />
         </DialogContent>
       </Dialog>
+      {ConfirmDialogElement}
     </>
   )
 }

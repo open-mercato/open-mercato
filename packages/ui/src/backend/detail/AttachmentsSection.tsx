@@ -368,7 +368,7 @@ export function AttachmentsSection({
                     type="button"
                     variant="ghost"
                     size="icon"
-                    className="absolute right-2 top-2 opacity-0 transition-opacity group-hover:opacity-100"
+                    className="absolute right-2 top-2 opacity-100 md:opacity-0 transition-opacity md:group-hover:opacity-100"
                     onClick={(event) => {
                       event.stopPropagation()
                       openDeleteDialog(item)

@@ -19,6 +19,7 @@ import {Plus, Trash2} from 'lucide-react'
 import {type BusinessRule, BusinessRulesSelector} from './BusinessRulesSelector'
 import {JsonBuilder} from '@open-mercato/ui/backend/JsonBuilder'
 import {useT} from '@open-mercato/shared/lib/i18n/context'
+import {useConfirmDialog} from '@open-mercato/ui/backend/confirm-dialog'
 
 export interface EdgeEditDialogProps {
   edge: Edge | null
@@ -46,6 +47,7 @@ interface TransitionCondition {
  */
 export function EdgeEditDialog({ edge, isOpen, onClose, onSave, onDelete }: EdgeEditDialogProps) {
   const t = useT()
+  const { confirm: confirmDialog, ConfirmDialogElement } = useConfirmDialog()
   const [transitionName, setTransitionName] = useState('')
   const [trigger, setTrigger] = useState('auto')
   const [priority, setPriority] = useState('100')
@@ -157,8 +159,12 @@ export function EdgeEditDialog({ edge, isOpen, onClose, onSave, onDelete }: Edge
     setExpandedActivities(newExpanded)
   }
 
-  const removeActivity = (index: number) => {
-    if (confirm(t('workflows.edgeEditor.confirmRemoveActivity'))) {
+  const removeActivity = async (index: number) => {
+    const confirmed = await confirmDialog({
+      title: t('workflows.edgeEditor.confirmRemoveActivity'),
+      variant: 'destructive',
+    })
+    if (confirmed) {
       setActivities(activities.filter((_, i) => i !== index))
       // Remove from expanded set
       const newExpanded = new Set(expandedActivities)
@@ -284,9 +290,13 @@ export function EdgeEditDialog({ edge, isOpen, onClose, onSave, onDelete }: Edge
     onClose()
   }
 
-  const handleDelete = () => {
+  const handleDelete = async () => {
     if (!edge) return
-    if (confirm(t('workflows.edgeEditor.confirmDelete'))) {
+    const confirmed = await confirmDialog({
+      title: t('workflows.edgeEditor.confirmDelete'),
+      variant: 'destructive',
+    })
+    if (confirmed) {
       onDelete(edge.id)
       onClose()
     }
@@ -824,7 +834,7 @@ export function EdgeEditDialog({ edge, isOpen, onClose, onSave, onDelete }: Edge
                           {/* Retry Policy */}
                           <div className="border-t border-gray-200 pt-3">
                             <h4 className="text-xs font-semibold text-gray-900 mb-2">{t('workflows.edgeEditor.retryPolicy')}</h4>
-                            <div className="grid grid-cols-2 gap-2">
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                               <div>
                                 <label className="block text-xs font-medium text-gray-700 mb-1">{t('workflows.edgeEditor.maxAttempts')}</label>
                                 <input
@@ -1017,6 +1027,7 @@ export function EdgeEditDialog({ edge, isOpen, onClose, onSave, onDelete }: Edge
             : t('workflows.edgeEditor.postConditions').toLowerCase()
         })}
       />
+      {ConfirmDialogElement}
     </Dialog>
   )
 }

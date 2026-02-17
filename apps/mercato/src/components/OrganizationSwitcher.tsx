@@ -1,5 +1,6 @@
 "use client"
 import * as React from 'react'
+import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { raiseCrudError } from '@open-mercato/ui/backend/utils/serverErrors'
@@ -111,7 +112,11 @@ function findFirstSelectable(nodes: OrganizationMenuNode[] | undefined): string 
   return null
 }
 
-export default function OrganizationSwitcher() {
+type OrganizationSwitcherExternalProps = {
+  compact?: boolean
+}
+
+export default function OrganizationSwitcher({ compact }: OrganizationSwitcherExternalProps = {}) {
   const router = useRouter()
   const t = useT()
   const [state, setState] = React.useState<SwitcherState>({ status: 'loading' })
@@ -300,6 +305,7 @@ export default function OrganizationSwitcher() {
   }, [state])
 
   const hasOptions = nodes.length > 0 && state.status === 'ready'
+  const canManage = state.status === 'ready' && state.canManage
   const tenantSelectOptions = state.status === 'ready' ? state.tenants : []
   const tenantSelectValue = state.status === 'ready'
     ? state.tenantId ?? ''
@@ -308,6 +314,56 @@ export default function OrganizationSwitcher() {
 
   if (state.status === 'hidden') {
     return null
+  }
+
+  if (compact) {
+    return (
+      <div className="flex flex-col gap-2 w-full text-sm">
+        {showTenantSelect ? (
+          <div className="flex flex-col gap-1">
+            <label className="text-xs text-muted-foreground" htmlFor="tenant-switcher-compact">
+              {t('organizationSwitcher.tenantLabel', 'Tenant')}
+            </label>
+            <TenantSelect
+              id="tenant-switcher-compact"
+              value={tenantSelectValue}
+              onChange={handleTenantChange}
+              tenants={tenantSelectOptions}
+              fetchOnMount={false}
+              includeEmptyOption={false}
+              className="h-10 w-full rounded border px-2 text-sm"
+              aria-label={t('organizationSwitcher.tenantLabel', 'Tenant')}
+            />
+          </div>
+        ) : null}
+        <div className="flex flex-col gap-1">
+          <label className="text-xs text-muted-foreground" htmlFor="org-switcher-compact">{t('organizationSwitcher.label')}</label>
+          {state.status === 'loading' ? (
+            <span className="text-xs text-muted-foreground">{t('organizationSwitcher.loading')}</span>
+          ) : state.status === 'error' ? (
+            <span className="text-xs text-destructive">{t('organizationSwitcher.error')}</span>
+          ) : hasOptions ? (
+            <OrganizationSelect
+              id="org-switcher-compact"
+              value={value || null}
+              onChange={handleChange}
+              nodes={nodes}
+              fetchOnMount={false}
+              includeAllOption
+              aria-label={t('organizationSwitcher.label')}
+              className="h-10 w-full rounded border px-2 text-sm"
+            />
+          ) : (
+            <span className="text-xs text-muted-foreground">{t('organizationSwitcher.empty')}</span>
+          )}
+        </div>
+        {canManage ? (
+          <Link href="/backend/directory/organizations" className="text-xs text-muted-foreground hover:text-foreground">
+            {t('organizationSwitcher.manage')}
+          </Link>
+        ) : null}
+      </div>
+    )
   }
 
   return (

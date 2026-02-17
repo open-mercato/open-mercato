@@ -16,6 +16,7 @@ import { applyCustomFieldVisibility } from '@open-mercato/ui/backend/utils/custo
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 
@@ -87,6 +88,7 @@ export default function TodosTable() {
   const t = useT()
   const router = useRouter()
   const queryClient = useQueryClient()
+  const { confirm, ConfirmDialogElement } = useConfirmDialog()
   const severityPreset = useSeverityPreset()
   const [title, setTitle] = React.useState('')
   const [values, setValues] = React.useState<FilterValues>({})
@@ -256,71 +258,78 @@ export default function TodosTable() {
   }
 
   return (
-    <DataTable
-      title={t('example.todos.table.title')}
-      actions={(
-        <Button asChild>
-          <Link href="/backend/todos/create">{t('example.todos.table.actions.create')}</Link>
-        </Button>
-      )}
-      columns={effectiveColumns}
-      data={todosWithOrgNames}
-      exporter={exportConfig}
-      searchValue={title}
-      onSearchChange={(v) => {
-        setTitle(v)
-        setPage(1)
-      }}
-      searchAlign="right"
-      filters={[
-        { id: 'is_done', label: t('example.todos.table.filters.done'), type: 'checkbox' },
-        { id: 'created_at', label: t('example.todos.table.filters.createdAt'), type: 'dateRange' },
-      ]}
-      filterValues={values}
-      onFiltersApply={(vals: FilterValues) => {
-        setValues(vals)
-        setPage(1)
-      }}
-      onFiltersClear={() => handleReset()}
-      entityId="example:todo"
-      sortable
-      sorting={sorting}
-      onSortingChange={handleSortingChange}
-      perspective={{ tableId: 'example.todos.list' }}
-      rowActions={(row) => (
-        <RowActions
-          items={[
-            { label: t('example.todos.table.actions.edit'), href: `/backend/todos/${row.id}/edit` },
-            {
-              label: t('example.todos.table.actions.delete'),
-              destructive: true,
-              onSelect: async () => {
-                if (!window.confirm(t('example.todos.table.confirm.delete'))) return
-                try {
-                  await deleteCrud('example/todos', row.id)
-                  flash(t('example.todos.form.flash.deleted'), 'success')
-                  queryClient.invalidateQueries({ queryKey: ['todos'] })
-                } catch (err) {
-                  const message =
-                    err instanceof Error && err.message
-                      ? err.message
-                      : t('example.todos.table.error.delete')
-                  flash(message, 'error')
-                }
+    <>
+      <DataTable
+        title={t('example.todos.table.title')}
+        actions={(
+          <Button asChild>
+            <Link href="/backend/todos/create">{t('example.todos.table.actions.create')}</Link>
+          </Button>
+        )}
+        columns={effectiveColumns}
+        data={todosWithOrgNames}
+        exporter={exportConfig}
+        searchValue={title}
+        onSearchChange={(v) => {
+          setTitle(v)
+          setPage(1)
+        }}
+        searchAlign="right"
+        filters={[
+          { id: 'is_done', label: t('example.todos.table.filters.done'), type: 'checkbox' },
+          { id: 'created_at', label: t('example.todos.table.filters.createdAt'), type: 'dateRange' },
+        ]}
+        filterValues={values}
+        onFiltersApply={(vals: FilterValues) => {
+          setValues(vals)
+          setPage(1)
+        }}
+        onFiltersClear={() => handleReset()}
+        entityId="example:todo"
+        sortable
+        sorting={sorting}
+        onSortingChange={handleSortingChange}
+        perspective={{ tableId: 'example.todos.list' }}
+        rowActions={(row) => (
+          <RowActions
+            items={[
+              { label: t('example.todos.table.actions.edit'), href: `/backend/todos/${row.id}/edit` },
+              {
+                label: t('example.todos.table.actions.delete'),
+                destructive: true,
+                onSelect: async () => {
+                  const confirmed = await confirm({
+                    title: t('example.todos.table.confirm.delete'),
+                    variant: 'destructive',
+                  })
+                  if (!confirmed) return
+                  try {
+                    await deleteCrud('example/todos', row.id)
+                    flash(t('example.todos.form.flash.deleted'), 'success')
+                    queryClient.invalidateQueries({ queryKey: ['todos'] })
+                  } catch (err) {
+                    const message =
+                      err instanceof Error && err.message
+                        ? err.message
+                        : t('example.todos.table.error.delete')
+                    flash(message, 'error')
+                  }
+                },
               },
-            },
-          ]}
-        />
-      )}
-      pagination={{
-        page,
-        pageSize: 50,
-        total: todosData?.total || 0,
-        totalPages: todosData?.totalPages || 0,
-        onPageChange: setPage,
-      }}
-      isLoading={isLoading}
-      onRowClick={(row) => router.push(`/backend/todos/${row.id}/edit`)}
-    />
+            ]}
+          />
+        )}
+        pagination={{
+          page,
+          pageSize: 50,
+          total: todosData?.total || 0,
+          totalPages: todosData?.totalPages || 0,
+          onPageChange: setPage,
+        }}
+        isLoading={isLoading}
+        onRowClick={(row) => router.push(`/backend/todos/${row.id}/edit`)}
+      />
+      {ConfirmDialogElement}
+    </>
   )
 }

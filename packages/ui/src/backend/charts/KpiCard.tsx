@@ -127,7 +127,7 @@ export function KpiCard({
     return (
       <div className={wrapperClass}>
         {headerRow}
-        <p className="text-3xl font-semibold tracking-tight text-card-foreground">--</p>
+        <p className="text-2xl sm:text-3xl font-semibold tracking-tight text-card-foreground">--</p>
       </div>
     )
   }
@@ -136,7 +136,7 @@ export function KpiCard({
     <div className={wrapperClass}>
       {headerRow}
       <div className="flex items-baseline gap-3">
-        <p className="text-3xl font-semibold tracking-tight text-card-foreground">
+        <p className="text-2xl sm:text-3xl font-semibold tracking-tight text-card-foreground">
           {prefix}
           {formatValue(value)}
           {suffix}

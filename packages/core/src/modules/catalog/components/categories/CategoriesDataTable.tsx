@@ -13,6 +13,7 @@ import { apiCall, apiCallOrThrow, readApiResultOrThrow } from '@open-mercato/ui/
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
 import { formatCategoryTreeLabel } from '../../lib/categoryTree'
 
 type CategoryRow = {
@@ -49,6 +50,7 @@ function computeIndent(depth: number): number {
 
 export default function CategoriesDataTable() {
   const t = useT()
+  const { confirm, ConfirmDialogElement } = useConfirmDialog()
   const queryClient = useQueryClient()
   const scopeVersion = useOrganizationScopeVersion()
   const [page, setPage] = React.useState(1)
@@ -162,7 +164,11 @@ export default function CategoriesDataTable() {
       'Archive category "{{name}}"?',
       { name: category.name },
     )
-    if (!window.confirm(confirmLabel)) return
+    const confirmed = await confirm({
+      title: confirmLabel,
+      variant: 'destructive',
+    })
+    if (!confirmed) return
     try {
       await apiCallOrThrow(
         `/api/catalog/categories?id=${encodeURIComponent(category.id)}`,
@@ -176,65 +182,68 @@ export default function CategoriesDataTable() {
       const message = err instanceof Error ? err.message : fallback
       flash(message, 'error')
     }
-  }, [queryClient, t])
+  }, [confirm, queryClient, t])
 
   return (
-    <DataTable
-      title={t('catalog.categories.list.title', 'Categories')}
-      actions={canManage ? (
-        <Button asChild>
-          <Link href="/backend/catalog/categories/create">
-            {t('catalog.categories.list.actions.create', 'Create')}
-          </Link>
-        </Button>
-      ) : undefined}
-      columns={columns}
-      data={rows}
-      searchValue={search}
-      searchPlaceholder={t('catalog.categories.list.searchPlaceholder', 'Search categories')}
-      onSearchChange={(value) => { setSearch(value); setPage(1) }}
-      filters={[
-        {
-          id: 'status',
-          label: t('catalog.categories.list.filters.status', 'Status'),
-          type: 'select',
-          options: [
-            { value: 'all', label: t('catalog.categories.list.filters.all', 'All') },
-            { value: 'active', label: t('catalog.categories.list.filters.active', 'Active') },
-            { value: 'inactive', label: t('catalog.categories.list.filters.inactive', 'Inactive') },
-          ],
-        },
-      ]}
-      filterValues={status === 'all' ? {} : { status }}
-      onFiltersApply={(values: FilterValues) => {
-        const nextStatus = (values.status as 'all' | 'active' | 'inactive' | undefined) ?? 'all'
-        setStatus(nextStatus)
-        setPage(1)
-      }}
-      onFiltersClear={() => {
-        setStatus('all')
-        setPage(1)
-      }}
-      sortable={false}
-      perspective={{ tableId: 'catalog.categories.list' }}
-      rowActions={(row) => (
-        canManage ? (
-          <RowActions
-            items={[
-              { id: 'edit', label: t('catalog.categories.list.actions.edit', 'Edit'), href: `/backend/catalog/categories/${row.id}/edit` },
-              { id: 'delete', label: t('catalog.categories.list.actions.delete', 'Delete'), destructive: true, onSelect: () => handleDelete(row) },
-            ]}
-          />
-        ) : null
-      )}
-      pagination={{
-        page,
-        pageSize: PAGE_SIZE,
-        total,
-        totalPages,
-        onPageChange: setPage,
-      }}
-      isLoading={isLoading}
-    />
+    <>
+      <DataTable
+        title={t('catalog.categories.list.title', 'Categories')}
+        actions={canManage ? (
+          <Button asChild>
+            <Link href="/backend/catalog/categories/create">
+              {t('catalog.categories.list.actions.create', 'Create')}
+            </Link>
+          </Button>
+        ) : undefined}
+        columns={columns}
+        data={rows}
+        searchValue={search}
+        searchPlaceholder={t('catalog.categories.list.searchPlaceholder', 'Search categories')}
+        onSearchChange={(value) => { setSearch(value); setPage(1) }}
+        filters={[
+          {
+            id: 'status',
+            label: t('catalog.categories.list.filters.status', 'Status'),
+            type: 'select',
+            options: [
+              { value: 'all', label: t('catalog.categories.list.filters.all', 'All') },
+              { value: 'active', label: t('catalog.categories.list.filters.active', 'Active') },
+              { value: 'inactive', label: t('catalog.categories.list.filters.inactive', 'Inactive') },
+            ],
+          },
+        ]}
+        filterValues={status === 'all' ? {} : { status }}
+        onFiltersApply={(values: FilterValues) => {
+          const nextStatus = (values.status as 'all' | 'active' | 'inactive' | undefined) ?? 'all'
+          setStatus(nextStatus)
+          setPage(1)
+        }}
+        onFiltersClear={() => {
+          setStatus('all')
+          setPage(1)
+        }}
+        sortable={false}
+        perspective={{ tableId: 'catalog.categories.list' }}
+        rowActions={(row) => (
+          canManage ? (
+            <RowActions
+              items={[
+                { id: 'edit', label: t('catalog.categories.list.actions.edit', 'Edit'), href: `/backend/catalog/categories/${row.id}/edit` },
+                { id: 'delete', label: t('catalog.categories.list.actions.delete', 'Delete'), destructive: true, onSelect: () => handleDelete(row) },
+              ]}
+            />
+          ) : null
+        )}
+        pagination={{
+          page,
+          pageSize: PAGE_SIZE,
+          total,
+          totalPages,
+          onPageChange: setPage,
+        }}
+        isLoading={isLoading}
+      />
+      {ConfirmDialogElement}
+    </>
   )
 }

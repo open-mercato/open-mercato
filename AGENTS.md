@@ -4,8 +4,8 @@ Leverage the module system and follow strict naming and coding conventions to ke
 
 ## Before Writing Code
 
-1. Check the Task Router below — a single task may match multiple rows; read **all** relevant guides
-2. Check `.ai/specs/` for existing specs on the module you're modifying
+1. Check the Task Router below — a single task may match multiple rows; read **all** relevant guides.
+2. Check `.ai/specs/` and `.ai/specs/enterprise/` for existing specs on the module you're modifying
 3. Enter plan mode for non-trivial tasks (3+ steps or architectural decisions)
 4. Identify the reference module (customers) if building CRUD features
 
@@ -46,6 +46,8 @@ IMPORTANT: Before any research or coding, match the task to the root `AGENTS.md`
 | Adding onboarding wizard steps, tenant setup hooks (`onTenantCreated`/`seedDefaults`), welcome/invitation emails | `packages/onboarding/AGENTS.md` |
 | Adding static content pages (privacy policies, terms, legal pages) | `packages/content/AGENTS.md` |
 | Testing standalone apps with Verdaccio, publishing packages, canary releases, template scaffolding | `packages/create-app/AGENTS.md` |
+| **Testing** | |
+| Integration testing, creating/running Playwright tests, converting markdown test cases to TypeScript, CI test pipeline | `.ai/qa/AGENTS.md` + `.ai/skills/integration-tests/SKILL.md` |
 | **Other** | |
 | Writing new specs, updating existing specs after implementation, documenting architectural decisions, maintaining changelogs | `.ai/specs/AGENTS.md` |
 
@@ -57,24 +59,28 @@ IMPORTANT: Before any research or coding, match the task to the root `AGENTS.md`
 
 ## Workflow Orchestration
 
-1. **Spec-first**: Enter plan mode for non-trivial tasks (3+ steps or architectural decisions). Check `.ai/specs/` before coding; create SPEC files for new features (`SPEC-{number}-{date}-{title}.md`). Skip for small fixes/improvements.
-2. **Subagent strategy**: Use subagents liberally to keep main context clean. Offload research and parallel analysis. One task per subagent.
-3. **Self-improvement**: After corrections, update `.ai/lessons.md` or relevant AGENTS.md. Write rules that prevent the same mistake.
-4. **Verification**: Run tests, check build, suggest user verification. Ask: "Would a staff engineer approve this?"
-5. **Elegance**: For non-trivial changes, pause and ask "is there a more elegant way?" Skip for simple fixes.
-6. **Autonomous bug fixing**: When given a bug report, just fix it. Point at logs/errors, then resolve. Zero hand-holding.
+1.  **Spec-first**: Enter plan mode for non-trivial tasks (3+ steps or architectural decisions). Check `.ai/specs/` and `.ai/specs/enterprise/` before coding; create SPEC files using scope-appropriate naming (`SPEC-{number}-{date}-{title}.md` for OSS, `SPEC-ENT-{number}-{date}-{title}.md` for enterprise). Skip for small fixes.
+    -   **Detailed Workflow**: Refer to the **`spec-writing` skill** for research, phasing, and architectural review standards (`.ai/skills/spec-writing/SKILL.md`).
+2.  **Subagent strategy**: Use subagents liberally to keep main context clean. Offload research and parallel analysis. One task per subagent.
+3.  **Self-improvement**: After corrections, update `.ai/lessons.md` or relevant AGENTS.md. Write rules that prevent the same mistake.
+4.  **Verification**: Run tests, check build, suggest user verification. Ask: "Would a staff engineer approve this?"
+5.  **Elegance**: For non-trivial changes, pause and ask "is there a more elegant way?" Skip for simple fixes.
+6.  **Autonomous bug fixing**: When given a bug report, just fix it. Point at logs/errors, then resolve. Zero hand-holding.
 
 ### Documentation and Specifications
 
-- Specs live in `.ai/specs/` — see `.ai/specs/AGENTS.md` for naming, structure, and changelog conventions.
+- OSS specs live in `.ai/specs/`; commercial/enterprise specs live in `.ai/specs/enterprise/` — see `.ai/specs/AGENTS.md` for naming, structure, and changelog conventions.
 - Always check for existing specs before modifying a module. Update specs when implementing significant changes.
+- For every new feature, the spec MUST list integration coverage for all affected API paths and key UI paths.
+- For every new feature, implement the integration tests defined in the spec as part of the same change — see `.ai/qa/AGENTS.md` for the workflow.
+- Integration tests MUST be self-contained: create required fixtures in test setup (prefer API fixtures), clean up created records in teardown/finally, and remain stable without relying on seeded/demo data.
 
 ## Monorepo Structure
 
 ### Apps (`apps/`)
 
-- **mercato**: Main Next.js app. Put user-created modules in `apps/mercato/src/modules/`.
-- **docs**: Documentation site.
+-   **mercato**: Main Next.js app. Put user-created modules in `apps/mercato/src/modules/`.
+-   **docs**: Documentation site.
 
 ### Packages (`packages/`)
 
@@ -93,6 +99,7 @@ All packages use the `@open-mercato/<package>` naming convention:
 | **ai-assistant** | `@open-mercato/ai-assistant` | When working on AI assistant or MCP server tools |
 | **content** | `@open-mercato/content` | When adding static content pages (privacy, terms, legal) |
 | **onboarding** | `@open-mercato/onboarding` | When modifying setup wizards or tenant provisioning flows |
+| **enterprise** | `@open-mercato/enterprise` | When working on commercial enterprise-only modules and overlays |
 
 ### Where to Put Code
 
@@ -118,6 +125,7 @@ All packages use the `@open-mercato/<package>` naming convention:
 ## Conventions
 
 - Modules: plural, snake_case (folders and `id`). Special cases: `auth`, `example`.
+- **Event IDs**: `module.entity.action` (singular entity, past tense action, e.g., `pos.cart.completed`). use dots as separators.
 - JS/TS fields and identifiers: camelCase.
 - Database tables and columns: snake_case; table names plural.
 - Common columns: `id`, `created_at`, `updated_at`, `deleted_at`, `is_active`, `organization_id`, `tenant_id`.
@@ -162,6 +170,7 @@ All paths use `src/modules/<module>/` as shorthand. See `packages/core/AGENTS.md
 
 - API routes MUST export `openApi` for documentation generation
 - CRUD routes: use `makeCrudRoute` with `indexer: { entityType }` for query index coverage
+- Feature naming convention: `<module>.<action>` (e.g., `example.view`, `example.create`).
 - setup.ts: always declare `defaultRoleFeatures` when adding features to `acl.ts`
 - Custom fields: use `collectCustomFieldValues()` from `@open-mercato/ui/backend/utils/customFieldValues`
 - Events: use `createModuleEvents()` with `as const` for typed emit
@@ -173,34 +182,34 @@ All paths use `src/modules/<module>/` as shorthand. See `packages/core/AGENTS.md
 
 ### Architecture
 
-- **NO direct ORM relationships between modules** — use foreign key IDs, fetch separately
-- Always filter by `organization_id` for tenant-scoped entities
-- Never expose cross-tenant data from API handlers
-- Use DI (Awilix) to inject services; avoid `new`-ing directly
-- Modules must remain isomorphic and independent
-- When extending another module's data, add a separate extension entity and declare a link in `data/extensions.ts`
+-   **NO direct ORM relationships between modules** — use foreign key IDs, fetch separately
+-   Always filter by `organization_id` for tenant-scoped entities
+-   Never expose cross-tenant data from API handlers
+-   Use DI (Awilix) to inject services; avoid `new`-ing directly
+-   Modules must remain isomorphic and independent
+-   When extending another module's data, add a separate extension entity and declare a link in `data/extensions.ts`
 
 ### Data & Security
 
-- Validate all inputs with zod; place validators in `data/validators.ts`
-- Derive TypeScript types from zod via `z.infer<typeof schema>`
-- Use `findWithDecryption`/`findOneWithDecryption` instead of `em.find`/`em.findOne`
-- Never hand-write migrations — update ORM entities, run `yarn db:generate`
-- Hash passwords with bcryptjs (cost >=10), never log credentials
-- Return minimal error messages for auth (avoid revealing whether email exists)
-- RBAC: prefer declarative guards (`requireAuth`, `requireRoles`, `requireFeatures`) in page metadata
+-   Validate all inputs with zod; place validators in `data/validators.ts`
+-   Derive TypeScript types from zod via `z.infer<typeof schema>`
+-   Use `findWithDecryption`/`findOneWithDecryption` instead of `em.find`/`em.findOne`
+-   Never hand-write migrations — update ORM entities, run `yarn db:generate`
+-   Hash passwords with bcryptjs (cost >=10), never log credentials
+-   Return minimal error messages for auth (avoid revealing whether email exists)
+-   RBAC: prefer declarative guards (`requireAuth`, `requireRoles`, `requireFeatures`) in page metadata
 
 ### UI & HTTP
 
-- Use `apiCall`/`apiCallOrThrow`/`readApiResultOrThrow` from `@open-mercato/ui/backend/utils/apiCall` — never use raw `fetch`
-- For CRUD forms: `createCrud`/`updateCrud`/`deleteCrud` (auto-handle `raiseCrudError`)
-- For local validation errors: throw `createCrudFormError(message, fieldErrors?)` from `@open-mercato/ui/backend/utils/serverErrors`
-- Read JSON defensively: `readJsonSafe(response, fallback)` — never `.json().catch(() => ...)`
-- Use `LoadingMessage`/`ErrorMessage` from `@open-mercato/ui/backend/detail`
-- i18n: `useT()` client-side, `resolveTranslations()` server-side
-- Never hard-code user-facing strings — use locale files
-- Every dialog: `Cmd/Ctrl+Enter` submit, `Escape` cancel
-- Keep `pageSize` at or below 100
+-   Use `apiCall`/`apiCallOrThrow`/`readApiResultOrThrow` from `@open-mercato/ui/backend/utils/apiCall` — never use raw `fetch`
+-   For CRUD forms: `createCrud`/`updateCrud`/`deleteCrud` (auto-handle `raiseCrudError`)
+-   For local validation errors: throw `createCrudFormError(message, fieldErrors?)` from `@open-mercato/ui/backend/utils/serverErrors`
+-   Read JSON defensively: `readJsonSafe(response, fallback)` — never `.json().catch(() => ...)`
+-   Use `LoadingMessage`/`ErrorMessage` from `@open-mercato/ui/backend/detail`
+-   i18n: `useT()` client-side, `resolveTranslations()` server-side
+-   Never hard-code user-facing strings — use locale files
+-   Every dialog: `Cmd/Ctrl+Enter` submit, `Escape` cancel
+-   Keep `pageSize` at or below 100
 
 ### Code Quality
 
@@ -224,4 +233,6 @@ yarn db:generate          # Generate database migrations
 yarn db:migrate           # Apply database migrations
 yarn initialize           # Full project initialization
 yarn dev:greenfield       # Fresh dev environment setup
+yarn test:integration     # Run integration tests (Playwright, headless)
+yarn test:integration:report  # View HTML test report
 ```

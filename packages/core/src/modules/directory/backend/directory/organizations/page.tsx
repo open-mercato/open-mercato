@@ -11,6 +11,7 @@ import { BooleanIcon } from '@open-mercato/ui/backend/ValueIcons'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { apiCall, apiCallOrThrow, readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
+import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
 import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 
@@ -57,6 +58,7 @@ function computeIndent(depth: number): number {
 
 export default function DirectoryOrganizationsPage() {
   const queryClient = useQueryClient()
+  const { confirm, ConfirmDialogElement } = useConfirmDialog()
   const [page, setPage] = React.useState(1)
   const [status, setStatus] = React.useState<string>('all')
   const [search, setSearch] = React.useState('')
@@ -174,7 +176,13 @@ export default function DirectoryOrganizationsPage() {
 
   const handleDelete = React.useCallback(async (org: OrganizationRow) => {
     const confirmLabel = t('directory.organizations.list.confirmDelete', 'Archive organization "{{name}}"?', { name: org.name })
-    if (!window.confirm(confirmLabel)) return
+    const confirmed = await confirm({
+      title: t('directory.organizations.list.actions.delete', 'Delete'),
+      text: confirmLabel,
+      variant: 'destructive',
+    })
+    if (!confirmed) return
+
     try {
       await apiCallOrThrow(
         `/api/directory/organizations?id=${encodeURIComponent(org.id)}`,
@@ -188,7 +196,7 @@ export default function DirectoryOrganizationsPage() {
       const message = err instanceof Error ? err.message : fallback
       flash(message, 'error')
     }
-  }, [queryClient, t])
+  }, [confirm, queryClient, t])
 
   return (
     <Page>
@@ -245,6 +253,7 @@ export default function DirectoryOrganizationsPage() {
           isLoading={isLoading}
         />
       </PageBody>
+      {ConfirmDialogElement}
     </Page>
   )
 }

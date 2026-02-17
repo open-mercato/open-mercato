@@ -94,6 +94,10 @@ export type QueryOptions = {
   customFieldSources?: QueryCustomFieldSource[]
   joins?: QueryJoinEdge[]
   profiler?: Profiler
+  // When true, suppress automatic reindex scheduling triggered by coverage gap detection.
+  // Used by the search indexing pipeline to prevent feedback loops where indexing triggers
+  // re-indexing indefinitely.
+  skipAutoReindex?: boolean
 }
 
 export type PartialIndexWarning = {

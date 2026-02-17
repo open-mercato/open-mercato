@@ -167,7 +167,7 @@ function AssignmentInputRow({
   onRemove: () => void
 }) {
   return (
-    <div className="grid gap-2 rounded-md border border-border/70 bg-background p-3 md:grid-cols-[1.2fr_1.2fr_1.6fr_1fr_auto]">
+    <div className="grid grid-cols-1 gap-2 rounded-md border border-border/70 bg-background p-3 sm:grid-cols-2 lg:grid-cols-[1.2fr_1.2fr_1.6fr_1fr_auto]">
       <div className="space-y-1">
         <label className="text-xs font-medium">{labels.type}</label>
         <Input

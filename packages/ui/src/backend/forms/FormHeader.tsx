@@ -73,7 +73,7 @@ function EditHeader({
   actionsContent,
 }: FormHeaderEditProps & { resolvedBackLabel: string }) {
   return (
-    <div className="flex items-center justify-between gap-3">
+    <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between sm:gap-3">
       <div className="flex items-center gap-3">
         {backHref ? (
           <Link href={backHref} className="text-sm text-muted-foreground hover:text-foreground">
@@ -107,31 +107,31 @@ function DetailHeader({
   const hasActions = actionsContent || utilityActions || menuActions?.length || onDelete
 
   return (
-    <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-      <div className="flex flex-wrap items-center gap-3">
+    <div className="flex flex-col gap-2 md:gap-3 md:flex-row md:items-center md:justify-between">
+      <div className="flex flex-wrap items-center gap-2 md:gap-3 min-w-0">
         {backHref ? (
           <Link
             href={backHref}
-            className="inline-flex items-center text-sm text-muted-foreground hover:text-foreground"
+            className="inline-flex items-center text-sm text-muted-foreground hover:text-foreground shrink-0"
           >
             <span aria-hidden className="mr-1 text-base">&larr;</span>
             <span className="sr-only">{resolvedBackLabel}</span>
           </Link>
         ) : null}
-        <div className="space-y-1">
+        <div className="space-y-0.5 md:space-y-1 min-w-0">
           {entityTypeLabel ? (
             <p className="text-xs uppercase text-muted-foreground">{entityTypeLabel}</p>
           ) : null}
           {title ? (
             typeof title === 'string' ? (
-              <h1 className="text-2xl font-semibold leading-tight">{title}</h1>
+              <h1 className="text-lg md:text-2xl font-semibold leading-tight truncate">{title}</h1>
             ) : (
-              <div className="text-2xl font-semibold leading-tight">{title}</div>
+              <div className="text-lg md:text-2xl font-semibold leading-tight">{title}</div>
             )
           ) : null}
           {statusBadge}
           {subtitle ? (
-            <p className="text-sm text-muted-foreground">{subtitle}</p>
+            <p className="text-xs md:text-sm text-muted-foreground">{subtitle}</p>
           ) : null}
         </div>
       </div>

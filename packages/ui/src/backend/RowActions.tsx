@@ -70,24 +70,26 @@ export function RowActions({ items = [] }: { items?: RowActionItem[] }) {
     }
   }, [])
 
-  const handleMouseEnter = () => {
+  const handlePointerEnter = (event: React.PointerEvent) => {
+    if (event.pointerType === 'touch') return
     if (hoverTimeoutRef.current) {
       clearTimeout(hoverTimeoutRef.current)
     }
     setOpen(true)
   }
 
-  const handleMouseLeave = () => {
+  const handlePointerLeave = (event: React.PointerEvent) => {
+    if (event.pointerType === 'touch') return
     hoverTimeoutRef.current = setTimeout(() => {
       setOpen(false)
-    }, 150) // Small delay to prevent flickering when moving to menu
+    }, 150)
   }
 
   return (
     <div
       className="relative inline-block text-left"
-      onMouseEnter={handleMouseEnter}
-      onMouseLeave={handleMouseLeave}
+      onPointerEnter={handlePointerEnter}
+      onPointerLeave={handlePointerLeave}
     >
       <button
         ref={btnRef}
@@ -95,7 +97,7 @@ export function RowActions({ items = [] }: { items?: RowActionItem[] }) {
         className="h-8 w-8 inline-flex items-center justify-center rounded hover:bg-accent"
         aria-haspopup="menu"
         aria-expanded={open}
-        onClick={() => { setOpen((v) => !v); requestAnimationFrame(updatePosition) }}
+        onClick={(e) => { e.stopPropagation(); setOpen((v) => !v); requestAnimationFrame(updatePosition) }}
       >
         <span aria-hidden="true">⋯</span>
         <span className="sr-only">{t('ui.rowActions.openActions', 'Open actions')}</span>
@@ -104,14 +106,14 @@ export function RowActions({ items = [] }: { items?: RowActionItem[] }) {
         <div
           ref={menuRef}
           role="menu"
-          className="fixed w-44 rounded-md border bg-background p-1 shadow focus:outline-none z-[1000]"
+          className="fixed w-44 max-w-[calc(100vw-1rem)] rounded-md border bg-background p-1 shadow focus:outline-none z-[1000]"
           style={{
             top: direction === 'down' ? anchorRect.bottom + 8 : anchorRect.top - 8,
-            left: anchorRect.right,
+            left: Math.min(anchorRect.right, window.innerWidth - 8),
             transform: `translate(-100%, ${direction === 'down' ? '0' : '-100%'})`,
           }}
-          onMouseEnter={handleMouseEnter}
-          onMouseLeave={handleMouseLeave}
+          onPointerEnter={handlePointerEnter}
+          onPointerLeave={handlePointerLeave}
         >
           {items.map((it, idx) => (
             it.href ? (

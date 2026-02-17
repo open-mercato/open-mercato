@@ -407,7 +407,7 @@ The search module supports two queue strategies:
 
 ### Local Queue (Development)
 
-File-based queue stored in `.queue/` directory. No additional configuration required.
+File-based queue stored in `.mercato/queue/` by default (override with `QUEUE_BASE_DIR`).
 
 ```env
 QUEUE_STRATEGY=local

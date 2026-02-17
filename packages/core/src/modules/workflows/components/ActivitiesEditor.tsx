@@ -93,14 +93,14 @@ export function ActivitiesEditor({ value = [], onChange, error }: ActivitiesEdit
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <p className="text-sm text-muted-foreground">
             {t('workflows.form.descriptions.activities')}
           </p>
           {error && <p className="text-sm text-red-600 mt-1">{error}</p>}
         </div>
-        <Button type="button" onClick={addActivity} variant="outline" size="sm">
+        <Button type="button" onClick={addActivity} variant="outline" size="sm" className="w-full sm:w-auto">
           <Plus className="h-4 w-4 mr-1" />
           {t('workflows.form.addActivity')}
         </Button>
@@ -116,8 +116,8 @@ export function ActivitiesEditor({ value = [], onChange, error }: ActivitiesEdit
         {value.map((activity, index) => (
           <div key={index} className="p-4 border rounded-md bg-card shadow-sm border-l-4 border-l-green-500">
             <div className="space-y-3">
-              <div className="flex items-start justify-between gap-2">
-                <div className="flex-1 grid grid-cols-2 gap-3">
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                <div className="flex-1 grid grid-cols-1 sm:grid-cols-2 gap-3">
                   <div>
                     <Label htmlFor={`activity-${index}-id`} className="text-xs">
                       {t('workflows.activities.activityId')} *
@@ -143,7 +143,7 @@ export function ActivitiesEditor({ value = [], onChange, error }: ActivitiesEdit
                     />
                   </div>
                 </div>
-                <div className="flex items-center gap-1">
+                <div className="flex items-center gap-1 self-end sm:self-auto">
                   <Button
                     type="button"
                     variant="ghost"
@@ -176,7 +176,7 @@ export function ActivitiesEditor({ value = [], onChange, error }: ActivitiesEdit
                 </div>
               </div>
 
-              <div className="grid grid-cols-3 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                 <div>
                   <Label htmlFor={`activity-${index}-type`} className="text-xs">
                     {t('workflows.activities.activityType')} *
@@ -223,7 +223,7 @@ export function ActivitiesEditor({ value = [], onChange, error }: ActivitiesEdit
                 </div>
               </div>
 
-              <div className="grid grid-cols-3 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                 <div>
                   <Label htmlFor={`activity-${index}-retry-attempts`} className="text-xs">
                     {t('workflows.form.maxRetryAttempts')}

@@ -7,12 +7,14 @@ import type { AppearanceSelectorLabels } from '@open-mercato/core/modules/dictio
 import { AppearanceDialog } from '@open-mercato/core/modules/customers/components/detail/AppearanceDialog'
 import type { IconOption } from '@open-mercato/core/modules/dictionaries/components/dictionaryAppearance'
 import { ArrowUpRightSquare, FileCode, Loader2, Palette, Pencil, Plus, Trash2 } from 'lucide-react'
+import { formatRelativeTime } from '@open-mercato/shared/lib/time'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { flash } from '../FlashMessages'
 import { SwitchableMarkdownInput } from '../inputs/SwitchableMarkdownInput'
 import { ErrorMessage } from './ErrorMessage'
 import { LoadingMessage } from './LoadingMessage'
 import { TabEmptyState } from './TabEmptyState'
+import { useConfirmDialog } from '../confirm-dialog'
 
 type Translator = (key: string, fallback?: string, params?: Record<string, string | number>) => string
 
@@ -99,33 +101,6 @@ function formatDateTime(value?: string | null): string | null {
   const date = new Date(value)
   if (Number.isNaN(date.getTime())) return null
   return date.toLocaleString()
-}
-
-function formatRelativeTime(value?: string | null): string | null {
-  if (!value) return null
-  const date = new Date(value)
-  if (Number.isNaN(date.getTime())) return null
-  const now = Date.now()
-  const diffSeconds = (date.getTime() - now) / 1000
-  const absSeconds = Math.abs(diffSeconds)
-  const rtf =
-    typeof Intl !== 'undefined' && typeof Intl.RelativeTimeFormat === 'function'
-      ? new Intl.RelativeTimeFormat(undefined, { numeric: 'auto' })
-      : null
-  const format = (unit: Intl.RelativeTimeFormatUnit, divisor: number) => {
-    const valueToFormat = Math.round(diffSeconds / divisor)
-    if (rtf) return rtf.format(valueToFormat, unit)
-    const suffix = valueToFormat <= 0 ? 'ago' : 'from now'
-    const magnitude = Math.abs(valueToFormat)
-    return `${magnitude} ${unit}${magnitude === 1 ? '' : 's'} ${suffix}`
-  }
-  if (absSeconds < 45) return format('second', 1)
-  if (absSeconds < 45 * 60) return format('minute', 60)
-  if (absSeconds < 24 * 60 * 60) return format('hour', 60 * 60)
-  if (absSeconds < 7 * 24 * 60 * 60) return format('day', 24 * 60 * 60)
-  if (absSeconds < 30 * 24 * 60 * 60) return format('week', 7 * 24 * 60 * 60)
-  if (absSeconds < 365 * 24 * 60 * 60) return format('month', 30 * 24 * 60 * 60)
-  return format('year', 365 * 24 * 60 * 60)
 }
 
 type TimelineItemHeaderProps = {
@@ -317,6 +292,7 @@ export function NotesSection<C = unknown>({
   writeMarkdownPreference,
   disableMarkdown,
 }: NotesSectionProps<C>) {
+  const { confirm, ConfirmDialogElement } = useConfirmDialog()
   const t = React.useMemo<Translator>(() => translator ?? ((key, fallback) => fallback ?? key), [translator])
   const label = React.useCallback(
     (suffix: string, fallback?: string, params?: Record<string, string | number>) =>
@@ -709,10 +685,11 @@ export function NotesSection<C = unknown>({
 
   const handleDeleteNote = React.useCallback(
     async (note: CommentSummary) => {
-      const confirmed =
-        typeof window === 'undefined'
-          ? true
-          : window.confirm(label('deleteConfirm', 'Delete this note? This action cannot be undone.'))
+      const confirmed = await confirm({
+        title: label('deleteConfirm', 'Delete this note?'),
+        text: 'This action cannot be undone.',
+        variant: 'destructive',
+      })
       if (!confirmed) return
       setDeletingNoteId(note.id)
       pushLoading()
@@ -728,7 +705,7 @@ export function NotesSection<C = unknown>({
         popLoading()
       }
     },
-    [dataAdapter, dataContext, popLoading, pushLoading, t],
+    [confirm, dataAdapter, dataContext, label, popLoading, pushLoading],
   )
 
   const handleSubmit = React.useCallback(
@@ -1110,7 +1087,7 @@ export function NotesSection<C = unknown>({
                   </div>
                   <div
                     className={`flex items-center gap-2 transition-opacity ${
-                      isEditingContent ? 'opacity-100' : 'opacity-0 group-hover:opacity-100 focus-within:opacity-100'
+                      isEditingContent ? 'opacity-100' : 'opacity-100 md:opacity-0 md:group-hover:opacity-100 focus-within:opacity-100'
                     }`}
                   >
                     <Button
@@ -1270,6 +1247,7 @@ export function NotesSection<C = unknown>({
         savingLabel={appearanceDialogSavingLabel}
         cancelLabel={label('appearance.cancel')}
       />
+      {ConfirmDialogElement}
     </div>
   )
 }

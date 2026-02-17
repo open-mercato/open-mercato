@@ -15,6 +15,7 @@ import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 import { deleteCrud } from '@open-mercato/ui/backend/utils/crud'
 import { renderDictionaryColor, renderDictionaryIcon } from '@open-mercato/core/modules/dictionaries/components/dictionaryAppearance'
+import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
 import { Package } from 'lucide-react'
 import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
@@ -44,6 +45,7 @@ type ResourceTypesResponse = {
 
 export default function ResourcesResourceTypesPage() {
   const translate = useT()
+  const { confirm, ConfirmDialogElement } = useConfirmDialog()
   const router = useRouter()
   const scopeVersion = useOrganizationScopeVersion()
   const [rows, setRows] = React.useState<ResourceTypeRow[]>([])
@@ -224,7 +226,11 @@ export default function ResourcesResourceTypesPage() {
       return
     }
     const message = translations.actions.deleteConfirm.replace('{{name}}', entry.name)
-    if (typeof window !== 'undefined' && !window.confirm(message)) return
+    const confirmed = await confirm({
+      title: message,
+      variant: 'destructive',
+    })
+    if (!confirmed) return
     try {
       await deleteCrud('resources/resource-types', entry.id, { errorMessage: translations.errors.delete })
       flash(translations.messages.deleted, 'success')
@@ -233,7 +239,7 @@ export default function ResourcesResourceTypesPage() {
       console.error('resources.resource-types.delete', error)
       flash(translations.errors.delete, 'error')
     }
-  }, [handleRefresh, translations.actions.deleteConfirm, translations.errors.delete, translations.errors.deleteAssigned, translations.messages.deleted])
+  }, [confirm, handleRefresh, translations.actions.deleteConfirm, translations.errors.delete, translations.errors.deleteAssigned, translations.messages.deleted])
 
   return (
     <Page>
@@ -277,6 +283,7 @@ export default function ResourcesResourceTypesPage() {
           perspective={{ tableId: 'resources.resource-types.list' }}
         />
       </PageBody>
+      {ConfirmDialogElement}
     </Page>
   )
 }

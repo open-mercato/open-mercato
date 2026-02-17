@@ -27,3 +27,13 @@ Centralize shared command utilities like undo extraction in `packages/shared/src
 **Rule**: If an update command mutates scalar fields and then performs relation-sync queries, flush the main entity changes *before* those syncs (or split into two UoWs/transactions).
 
 **Applies to**: Commands that update a core record and then call sync helpers that query/modify relations using the same `EntityManager`.
+
+## Keep create-app template files in lockstep with app shell/layout changes
+
+**Context**: Core app layout behavior was updated in `apps/mercato/src/app/(backend)/backend/layout.tsx`, but equivalent files in `packages/create-app/template/src/app/` were not updated in the same change.
+
+**Problem**: Newly scaffolded apps diverged from monorepo defaults (missing newer navigation/profile/settings wiring and behavior fixes), causing inconsistent UX and harder debugging.
+
+**Rule**: Any change to shared bootstrap/layout shell behavior in `apps/mercato/src/app/**` must include a sync review and required updates in matching `packages/create-app/template/src/app/**` and dependent template components.
+
+**Applies to**: Root layout, backend layout, global providers, header/sidebar wiring, and related template-only wrapper components.

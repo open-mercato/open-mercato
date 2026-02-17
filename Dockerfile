@@ -93,7 +93,7 @@ COPY --from=builder /app/apps/mercato/package.json ./apps/mercato/
 RUN yarn workspaces focus @open-mercato/app --production
 
 # Copy built Next.js application
-COPY --from=builder /app/apps/mercato/.next ./apps/mercato/.next
+COPY --from=builder /app/apps/mercato/.mercato/next ./apps/mercato/.mercato/next
 COPY --from=builder /app/apps/mercato/public ./apps/mercato/public
 COPY --from=builder /app/apps/mercato/next.config.ts ./apps/mercato/
 COPY --from=builder /app/apps/mercato/components.json ./apps/mercato/

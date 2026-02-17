@@ -30,6 +30,7 @@
     "@open-mercato/events": "{{PACKAGE_VERSION}}",
     "@open-mercato/onboarding": "{{PACKAGE_VERSION}}",
     "@open-mercato/queue": "{{PACKAGE_VERSION}}",
+    "@open-mercato/scheduler": "{{PACKAGE_VERSION}}",
     "@open-mercato/search": "{{PACKAGE_VERSION}}",
     "@open-mercato/shared": "{{PACKAGE_VERSION}}",
     "@open-mercato/ui": "{{PACKAGE_VERSION}}",
@@ -84,6 +85,20 @@
     "better-sqlite3": "^12.5.0",
     "bullmq": "^5.34.8",
     "ioredis": "^5.8.2"
+  },
+  "imports": {
+    "#generated/entities.ids.generated": {
+      "types": "./.mercato/generated/entities.ids.generated.ts",
+      "default": "./.mercato/generated/entities.ids.generated.mjs"
+    },
+    "#generated/entity-fields-registry": {
+      "types": "./.mercato/generated/entity-fields-registry.ts",
+      "default": "./.mercato/generated/entity-fields-registry.ts"
+    },
+    "#generated/entities/*": {
+      "types": "./.mercato/generated/entities/*/index.ts",
+      "default": "./.mercato/generated/entities/*/index.ts"
+    }
   },
   "engines": {
     "node": ">=24.0.0"

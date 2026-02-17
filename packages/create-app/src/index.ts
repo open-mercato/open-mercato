@@ -207,6 +207,10 @@ async function main(): Promise<void> {
     console.log(pc.cyan('  yarn initialize'))
     console.log(pc.cyan('  yarn dev'))
     console.log('')
+    console.log('Docker alternatives:')
+    console.log(pc.cyan('  # Dev (recommended on Windows): docker compose -f docker-compose.fullapp.dev.yml up --build'))
+    console.log(pc.cyan('  # Production-style: docker compose -f docker-compose.fullapp.yml up --build'))
+    console.log('')
     console.log(pc.dim('For more information, visit https://github.com/open-mercato/open-mercato'))
     console.log('')
   } catch (error) {

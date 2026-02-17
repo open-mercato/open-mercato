@@ -12,7 +12,7 @@ import { apiFetch } from '@open-mercato/ui/backend/utils/api'
 import { EmptyState } from '@open-mercato/ui/backend/EmptyState'
 import { Spinner } from '@open-mercato/ui/primitives/spinner'
 import { Switch } from '@open-mercato/ui/primitives/switch'
-import { ConfirmDialog } from '@open-mercato/ui/backend/ConfirmDialog'
+import { ConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
 
 /**
  * StartPreCondition interface matching the schema in validators.ts
@@ -233,7 +233,7 @@ export function StartPreConditionsEditor({
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <p className="text-sm text-muted-foreground">
             {t('workflows.fieldEditors.preConditions.description')}
@@ -245,6 +245,7 @@ export function StartPreConditionsEditor({
           variant="outline"
           size="sm"
           disabled={disabled}
+          className="w-full sm:w-auto"
         >
           <Plus className="h-4 w-4 mr-1" />
           {t('workflows.fieldEditors.preConditions.addRule')}
@@ -264,7 +265,7 @@ export function StartPreConditionsEditor({
           <div key={index} className="border border-gray-200 rounded-lg bg-white p-4">
             <div className="space-y-3">
               {/* Header row with rule info and actions */}
-              <div className="flex items-start justify-between gap-2">
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                 <div className="flex-1 min-w-0">
                   {/* Rule Name/ID */}
                   {condition.loading ? (
@@ -298,7 +299,7 @@ export function StartPreConditionsEditor({
                 </div>
 
                 {/* Action buttons */}
-                <div className="flex items-center gap-1">
+                <div className="flex items-center gap-1 self-end sm:self-auto">
                   <Button
                     type="button"
                     variant="ghost"
@@ -332,7 +333,8 @@ export function StartPreConditionsEditor({
                       </Button>
                     }
                     title={t('workflows.fieldEditors.preConditions.removePreCondition')}
-                    description={t('workflows.fieldEditors.preConditions.confirmRemove')}
+                    text={t('workflows.fieldEditors.preConditions.confirmRemove')}
+                    variant="destructive"
                     onConfirm={() => removeCondition(index)}
                   />
                 </div>

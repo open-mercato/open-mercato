@@ -6,7 +6,7 @@ Use `@open-mercato/queue` for all background job processing. MUST NOT implement 
 
 | Strategy | When to use | Configuration |
 |----------|-------------|---------------|
-| Local | Use for development — jobs process from `.queue/` directory | `QUEUE_STRATEGY=local` |
+| Local | Use for development — jobs process from `.mercato/queue/` (or `QUEUE_BASE_DIR`) | `QUEUE_STRATEGY=local` |
 | BullMQ | Use for production — Redis-backed with retries and concurrency | `QUEUE_STRATEGY=async` |
 
 ## MUST Rules
@@ -46,7 +46,7 @@ export default async function handler(job) { /* ... */ }
 # Start a specific worker (production)
 yarn mercato <module> worker <queue-name> --concurrency=5
 
-# Development: local strategy auto-processes from .queue/
+# Development: local strategy auto-processes from .mercato/queue/
 ```
 
 ## Structure

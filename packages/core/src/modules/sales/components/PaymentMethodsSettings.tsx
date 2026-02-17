@@ -22,6 +22,7 @@ import { apiCall, readApiResultOrThrow } from '@open-mercato/ui/backend/utils/ap
 import { raiseCrudError } from '@open-mercato/ui/backend/utils/serverErrors'
 import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
 import {
   listPaymentProviders,
   type PaymentProvider,
@@ -215,6 +216,7 @@ function createPaymentProviderSettingsRenderer(params: {
 export function PaymentMethodsSettings() {
   const t = useT()
   const scopeVersion = useOrganizationScopeVersion()
+  const { confirm, ConfirmDialogElement } = useConfirmDialog()
   const providers = React.useMemo(() => listPaymentProviders(), [])
   const providerOptions = React.useMemo(
     () => providers.map((provider) => ({ value: provider.key, label: provider.label })),
@@ -368,7 +370,11 @@ export function PaymentMethodsSettings() {
 
   const deleteEntry = React.useCallback(async (entry: PaymentMethodRow) => {
     const message = translations.actions.deleteConfirm.replace('{{name}}', entry.name)
-    if (!window.confirm(message)) return
+    const confirmed = await confirm({
+      title: message,
+      variant: 'destructive',
+    })
+    if (!confirmed) return
     try {
       const call = await apiCall('/api/sales/payment-methods', {
         method: 'DELETE',
@@ -386,7 +392,7 @@ export function PaymentMethodsSettings() {
         err instanceof Error ? err.message : translations.errors.delete
       flash(message, 'error')
     }
-  }, [loadEntries, translations.actions.deleteConfirm, translations.errors.delete, translations.messages.deleted])
+  }, [confirm, loadEntries, translations.actions.deleteConfirm, translations.errors.delete, translations.messages.deleted])
 
   const handleSubmit = React.useCallback(async (values: PaymentFormValues) => {
     if (!dialog) return
@@ -559,6 +565,7 @@ export function PaymentMethodsSettings() {
           />
         </DialogContent>
       </Dialog>
+      {ConfirmDialogElement}
     </section>
   )
 }

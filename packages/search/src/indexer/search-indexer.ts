@@ -143,6 +143,19 @@ export class SearchIndexer {
   }
 
   /**
+   * Returns a wrapped QueryEngine that forces skipAutoReindex: true on every query.
+   * Used to prevent feedback loops when search indexing callbacks (buildSource, formatResult)
+   * call queryEngine.query() to hydrate related entities.
+   */
+  private get noReindexQueryEngine(): QueryEngine | undefined {
+    if (!this.queryEngine) return undefined
+    const wrapped: QueryEngine = {
+      query: (entity, opts) => this.queryEngine!.query(entity, { ...opts, skipAutoReindex: true }),
+    }
+    return wrapped
+  }
+
+  /**
    * Get the entity config for a given entity ID.
    */
   getEntityConfig(entityId: EntityId): SearchEntityConfig | undefined {
@@ -178,7 +191,7 @@ export class SearchIndexer {
       customFields: params.customFields ?? {},
       organizationId: params.organizationId,
       tenantId: params.tenantId,
-      queryEngine: this.queryEngine,
+      queryEngine: this.noReindexQueryEngine,
     }
 
     // Try buildSource first (provides text, presenter, links, checksumSource)
@@ -292,6 +305,7 @@ export class SearchIndexer {
         filters: { id: params.recordId },
         includeCustomFields: true,
         page: { page: 1, pageSize: 1 },
+        skipAutoReindex: true,
       })
 
       const record = result.items[0] as Record<string, unknown> | undefined
@@ -401,6 +415,7 @@ export class SearchIndexer {
           organizationId: params.organizationId ?? undefined,
           includeCustomFields: true,
           page: { page, pageSize },
+          skipAutoReindex: true,
         })
 
         const items = queryResult.items as Record<string, unknown>[]
@@ -640,6 +655,7 @@ export class SearchIndexer {
             tenantId: params.tenantId,
             organizationId: params.organizationId ?? undefined,
             page: { page, pageSize },
+            skipAutoReindex: true,
           })
 
           if (!queryResult.items.length) {
@@ -867,6 +883,7 @@ export class SearchIndexer {
           tenantId: params.tenantId,
           organizationId: params.organizationId ?? undefined,
           page: { page, pageSize },
+          skipAutoReindex: true,
         })
 
         if (!queryResult.items.length) break
@@ -1057,7 +1074,7 @@ export class SearchIndexer {
         customFields,
         organizationId,
         tenantId,
-        queryEngine: this.queryEngine,
+        queryEngine: this.noReindexQueryEngine,
       }
 
       // Try buildSource first (provides text, presenter, links, checksumSource)

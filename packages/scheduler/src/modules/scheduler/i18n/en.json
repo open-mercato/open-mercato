@@ -1,0 +1,196 @@
+{
+  "scheduler": {
+    "module": {
+      "title": "Scheduled Jobs",
+      "description": "Manage automated scheduled jobs with cron expressions or simple intervals."
+    },
+    "title": "Scheduled Jobs",
+    "loading": "Loading schedule...",
+    "search": {
+      "placeholder": "Search schedules..."
+    },
+    "field": {
+      "name": "Name",
+      "description": "Description",
+      "schedule_type": "Type",
+      "schedule": "Schedule",
+      "schedule_value": "Schedule Value",
+      "target": "Target",
+      "next_run": "Next Run",
+      "status": "Status",
+      "active": "Active",
+      "source": "Source",
+      "timezone": "Timezone"
+    },
+    "scope": {
+      "system": "System",
+      "organization": "Organization",
+      "tenant": "Tenant"
+    },
+    "type": {
+      "cron": "Cron Expression",
+      "interval": "Simple Interval"
+    },
+    "target": {
+      "queue": "Queue",
+      "command": "Command"
+    },
+    "status": {
+      "enabled": "Enabled",
+      "disabled": "Disabled"
+    },
+    "action": {
+      "create": "New Schedule",
+      "view": "View",
+      "edit": "Edit",
+      "delete": "Delete",
+      "trigger": "Run Now",
+      "refresh": "Refresh"
+    },
+    "create": {
+      "title": "Create Schedule"
+    },
+    "edit": {
+      "title": "Edit Schedule"
+    },
+    "form": {
+      "name": "Name",
+      "name.required": "Name is required",
+      "description": "Description",
+      "scope_type": "Scope",
+      "schedule_type": "Schedule Type",
+      "schedule": "Schedule",
+      "schedule.required": "Schedule is required",
+      "schedule_value": "Schedule Value",
+      "schedule_value.placeholder": "e.g. 0 */6 * * * or 15m",
+      "schedule_value.description": "For cron: use cron expression (e.g., \"0 0 * * *\"). For interval: use format like \"15m\", \"2h\", \"1d\" (s=seconds, m=minutes, h=hours, d=days)",
+      "timezone": "Timezone",
+      "timezone.placeholder": "Search timezone...",
+      "target_type": "Target Type",
+      "target_queue": "Target Queue",
+      "target_queue.placeholder": "Search queues...",
+      "target_command": "Target Command",
+      "target_command.placeholder": "Search commands...",
+      "target_payload": "Job Arguments (JSON)",
+      "target_payload.placeholder": "{\n  \"message\": \"Hello\",\n  \"value\": 42\n}",
+      "target_payload.description": "Optional JSON object with arguments to pass to the command or queue job. Must be valid JSON format.",
+      "target_payload.invalid_json": "Must be valid JSON",
+      "is_enabled": "Enabled",
+      "enabled": "Enabled",
+      "disabled": "Disabled",
+      "submit": "Create Schedule",
+      "save": "Save Changes",
+      "group": {
+        "basic": "Basic Information",
+        "schedule": "Schedule Configuration",
+        "target": "Target Configuration"
+      }
+    },
+    "confirm": {
+      "delete": "Are you sure you want to delete this schedule?",
+      "trigger": "Are you sure you want to trigger \"{name}\" now?\n\nThis will execute the {targetType} immediately."
+    },
+    "success": {
+      "created": "Schedule created successfully",
+      "updated": "Schedule updated successfully",
+      "deleted": "Schedule deleted successfully",
+      "triggered": "Schedule triggered successfully",
+      "enabled": "Schedule enabled",
+      "disabled": "Schedule disabled"
+    },
+    "error": {
+      "fetch_failed": "Failed to load schedules",
+      "load_failed": "Failed to load schedule",
+      "not_found": "Schedule not found",
+      "delete_failed": "Failed to delete schedule",
+      "trigger_failed": "Failed to trigger schedule",
+      "update_failed": "Failed to update schedule",
+      "invalidPayload": "Invalid JSON payload",
+      "unauthorized": "Unauthorized",
+      "access_denied": "Access denied",
+      "forbidden": "Forbidden",
+      "queue_param_required": "queue parameter required",
+      "invalid_queue_name": "Invalid queue name",
+      "async_strategy_required": "Execution history requires QUEUE_STRATEGY=async",
+      "async_strategy_hint": "Please set QUEUE_STRATEGY=async to view execution history",
+      "bullmq_required": "BullMQ job logs are only available with QUEUE_STRATEGY=async",
+      "job_not_found": "Job not found in BullMQ (may have been removed)",
+      "fetch_executions_failed": "Failed to fetch execution history",
+      "fetch_job_failed": "Failed to fetch job details",
+      "trigger_async_required": "Manual trigger requires QUEUE_STRATEGY=async",
+      "trigger_async_hint": "Execution history and manual triggers are only available with BullMQ (async strategy)"
+    },
+    "details": {
+      "configuration": "Configuration",
+      "scope": "Scope",
+      "source_module": "module",
+      "source_user": "User-created",
+      "last_run": "Last Run",
+      "required_feature": "Required Feature",
+      "payload": "Payload",
+      "recent_executions": "Recent Executions",
+      "no_executions": "No executions yet",
+      "triggering": "Triggering...",
+      "executions_async_only": "Execution history and manual triggers require async queue strategy (QUEUE_STRATEGY=async).",
+      "error": "Error",
+      "not_found": "Not Found"
+    },
+    "execution_status": {
+      "completed": "Completed",
+      "failed": "Failed",
+      "running": "Running",
+      "skipped": "Skipped",
+      "waiting": "Waiting"
+    },
+    "trigger_type": {
+      "scheduled": "Scheduled",
+      "manual": "Manual"
+    },
+    "execution": {
+      "details_title": "Execution Details",
+      "run_id": "Run ID",
+      "status": "Status",
+      "trigger_type": "Trigger Type",
+      "started_at": "Started At",
+      "finished_at": "Finished At",
+      "duration": "Duration",
+      "queue_job_id": "Queue Job ID",
+      "queue_name": "Queue Name",
+      "error_message": "Error Message",
+      "stack_trace": "Stack Trace",
+      "completed_message": "This execution completed successfully without errors.",
+      "running_message": "This execution is currently in progress.",
+      "skipped_message": "This execution was skipped.",
+      "na": "N/A",
+      "started": "Started",
+      "trigger": "Trigger",
+      "actions": "Actions",
+      "view_details": "View Details",
+      "view_logs": "View Logs"
+    },
+    "job_logs": {
+      "title": "Queue Job",
+      "job_id": "Job ID",
+      "load_failed": "Failed to load job details",
+      "tab_overview": "Overview",
+      "tab_logs": "Logs",
+      "tab_payload": "Payload",
+      "tab_error": "Error Details",
+      "state": "State",
+      "attempts": "Attempts",
+      "processed": "Processed",
+      "finished": "Finished",
+      "duration": "Duration",
+      "progress": "Progress",
+      "return_value": "Return Value",
+      "no_logs": "No logs available",
+      "error_message": "Error Message",
+      "stack_trace": "Stack Trace"
+    },
+    "audit": {
+      "create": "Create schedule",
+      "update": "Update schedule",
+      "delete": "Delete schedule"
+    }
+  }
+}

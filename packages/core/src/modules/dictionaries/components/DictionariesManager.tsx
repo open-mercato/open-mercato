@@ -9,6 +9,7 @@ import { Spinner } from '@open-mercato/ui/primitives/spinner'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
 import { DictionaryEntriesEditor } from './DictionaryEntriesEditor'
 
 export type DictionarySummary = {
@@ -30,6 +31,7 @@ type DialogState = {
 
 export function DictionariesManager() {
   const t = useT()
+  const { confirm, ConfirmDialogElement } = useConfirmDialog()
   const searchParams = useSearchParams()
   const [items, setItems] = React.useState<DictionarySummary[]>([])
   const [selectedId, setSelectedId] = React.useState<string | null>(null)
@@ -202,7 +204,10 @@ export function DictionariesManager() {
       const confirmMessage = rawConfirm && rawConfirm !== 'dictionaries.config.delete.confirm'
         ? rawConfirm
         : `Delete dictionary "${dictionary.name}"?`
-      const confirmed = window.confirm(confirmMessage)
+      const confirmed = await confirm({
+        title: confirmMessage,
+        variant: 'destructive',
+      })
       if (!confirmed) return
       setDeleting(dictionary.id)
       try {
@@ -219,7 +224,7 @@ export function DictionariesManager() {
         setDeleting(null)
       }
     },
-    [inheritedManageMessage, loadDictionaries, t],
+    [confirm, inheritedManageMessage, loadDictionaries, t],
   )
 
   const selectedDictionary = items.find((item) => item.id === selectedId) ?? null
@@ -395,6 +400,7 @@ export function DictionariesManager() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+      {ConfirmDialogElement}
     </div>
   )
 }

@@ -542,10 +542,12 @@
         "loadFailed": "Benutzeraufgaben konnten nicht geladen werden"
       },
       "roles": "Rollen",
+      "backToList": "Zurück zu Aufgaben",
       "detail": {
         "loading": "Aufgabe wird geladen…",
         "notFound": "Aufgabe nicht gefunden",
         "backToList": "Zurück zu Aufgaben",
+        "type": "Benutzeraufgabe",
         "overdueWarning": "Diese Aufgabe ist überfällig!",
         "cannotComplete": "Diese Aufgabe wurde bereits abgeschlossen oder abgebrochen und kann nicht mehr geändert werden.",
         "noFormSchema": "Diese Aufgabe hat kein auszufüllendes Formular. Sie können optionale Kommentare hinzufügen und absenden.",
@@ -1010,6 +1012,42 @@
         "confirmRemove": "Möchten Sie diese Zuordnung wirklich entfernen?"
       }
     },
+    "visualEditor": {
+      "clearTitle": "Alles löschen?",
+      "clearDescription": "Dies löscht alle Metadaten und die Workflow-Arbeitsfläche. Diese Aktion kann nicht rückgängig gemacht werden.",
+      "showMetadata": "Metadaten anzeigen",
+      "hideMetadata": "Metadaten ausblenden",
+      "loadExample": "Beispiel laden",
+      "clear": "Löschen",
+      "validate": "Validieren",
+      "runTest": "Test ausführen",
+      "workflowMetadata": "Workflow-Metadaten"
+    },
+    "mobile": {
+      "viewFullGraph": "Vollständigen Graphen anzeigen",
+      "metadata": "Metadaten",
+      "addStep": "Schritt hinzufügen",
+      "addTransition": "Übergang hinzufügen",
+      "noSteps": "Noch keine Schritte definiert.",
+      "noTransitions": "Noch keine Übergänge definiert.",
+      "moreActions": "Weitere Aktionen",
+      "stepTimeline": "Schritt-Zeitachse",
+      "eventLog": "Ereignisprotokoll",
+      "showDetails": "Details anzeigen",
+      "hideDetails": "Details ausblenden",
+      "startBuilding": "Aufbau starten",
+      "startBuildingHint": "Tippen Sie oben auf einen Schritttyp, um ihn hinzuzufügen",
+      "loadExample": "Beispiel-Workflow laden",
+      "runTest": "Test ausführen",
+      "clear": "Löschen",
+      "editStep": "Schritt bearbeiten",
+      "deleteStep": "Schritt löschen",
+      "editTransition": "Übergang bearbeiten",
+      "deleteTransition": "Übergang löschen",
+      "validate": "Validieren",
+      "saving": "Wird gespeichert…",
+      "save": "Speichern"
+    },
     "validation": {
       "required": "Dieses Feld ist erforderlich",
       "invalidFormat": "Ungültiges Format",
@@ -1080,6 +1118,9 @@
     "disabled": "Deaktiviert",
     "yes": "Ja",
     "no": "Nein",
+    "on": "Ein",
+    "off": "Aus",
+    "done": "Fertig",
     "edit": "Bearbeiten",
     "delete": "Löschen",
     "duplicate": "Duplizieren",
@@ -1089,7 +1130,8 @@
     "refresh": "Aktualisieren",
     "refreshing": "Wird aktualisiert…",
     "details": "Details",
-    "cancel": "Abbrechen"
+    "cancel": "Abbrechen",
+    "loading": "Wird geladen…"
   },
   "demo": {
     "userTask": {

@@ -159,7 +159,7 @@ describe('deliver notification subscriber', () => {
         },
       },
     })
-    resolveNotificationPanelUrl.mockReturnValue('/backend/notifications')
+    resolveNotificationPanelUrl.mockReturnValue('https://app.example.com/backend/notifications')
     getNotificationDeliveryStrategies.mockReturnValue([customStrategy])
     findOneWithDecryption.mockResolvedValue({ email: 'user@example.com', name: 'User' })
 
@@ -187,9 +187,99 @@ describe('deliver notification subscriber', () => {
     expect(customStrategy.deliver).toHaveBeenCalledWith(
       expect.objectContaining({
         config: { enabled: true, config: { url: 'https://hooks.example.com' } },
-        panelLink: `/backend/notifications?notificationId=${notification.id}`,
+        panelLink: `https://app.example.com/backend/notifications?notificationId=${notification.id}`,
       })
     )
+    expect(sendEmail).not.toHaveBeenCalled()
+  })
+
+  it('uses action href when provided instead of panelLink', async () => {
+    const notificationWithActionHref: Notification = {
+      ...notification,
+      actionData: {
+        actions: [
+          { id: 'view', label: 'View Details', href: '/backend/orders/123' },
+        ],
+        primaryActionId: 'view',
+      },
+    } as Notification
+
+    resolveNotificationDeliveryConfig.mockResolvedValue(baseConfig)
+    resolveNotificationPanelUrl.mockReturnValue('https://app.example.com/backend/notifications')
+    getNotificationDeliveryStrategies.mockReturnValue([])
+    findOneWithDecryption.mockResolvedValue({ email: 'user@example.com', name: 'User' })
+
+    const em = {
+      findOne: jest.fn().mockResolvedValue(notificationWithActionHref),
+    }
+
+    const { default: handle } = await import('../subscribers/deliver-notification')
+
+    await handle(
+      {
+        notificationId: notificationWithActionHref.id,
+        recipientUserId: notificationWithActionHref.recipientUserId,
+        tenantId: notificationWithActionHref.tenantId,
+        organizationId: null,
+      },
+      {
+        resolve: (name: string) => {
+          if (name === 'em') return em
+          throw new Error(`Missing dependency: ${name}`)
+        },
+      }
+    )
+
+    expect(NotificationEmail).toHaveBeenCalledWith(
+      expect.objectContaining({
+        actions: [
+          {
+            id: 'view',
+            label: 'View Details',
+            href: 'https://app.example.com/backend/orders/123',
+          },
+        ],
+      })
+    )
+  })
+
+  it('returns null when appUrl is missing', async () => {
+    const configWithoutAppUrl: NotificationDeliveryConfig = {
+      panelPath: '/backend/notifications',
+      strategies: {
+        database: { enabled: true },
+        email: { enabled: true },
+        custom: {},
+      },
+    }
+
+    resolveNotificationDeliveryConfig.mockResolvedValue(configWithoutAppUrl)
+    resolveNotificationPanelUrl.mockReturnValue(null)
+    getNotificationDeliveryStrategies.mockReturnValue([])
+    findOneWithDecryption.mockResolvedValue({ email: 'user@example.com', name: 'User' })
+
+    const em = {
+      findOne: jest.fn().mockResolvedValue(notification),
+    }
+
+    const { default: handle } = await import('../subscribers/deliver-notification')
+
+    await handle(
+      {
+        notificationId: notification.id,
+        recipientUserId: notification.recipientUserId,
+        tenantId: notification.tenantId,
+        organizationId: null,
+      },
+      {
+        resolve: (name: string) => {
+          if (name === 'em') return em
+          throw new Error(`Missing dependency: ${name}`)
+        },
+      }
+    )
+
+    // Email should not be sent when panelUrl is null
     expect(sendEmail).not.toHaveBeenCalled()
   })
 })

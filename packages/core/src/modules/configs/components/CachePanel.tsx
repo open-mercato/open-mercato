@@ -6,6 +6,7 @@ import { Button } from '@open-mercato/ui/primitives/button'
 import { readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
 
 const API_PATH = '/api/configs/cache'
 
@@ -31,6 +32,7 @@ type FetchState = {
 
 export function CachePanel() {
   const t = useT()
+  const { confirm, ConfirmDialogElement } = useConfirmDialog()
   const [state, setState] = React.useState<FetchState>({ loading: true, error: null, stats: null })
   const [canManage, setCanManage] = React.useState(false)
   const [checkingFeature, setCheckingFeature] = React.useState(true)
@@ -97,12 +99,11 @@ export function CachePanel() {
 
   const handlePurgeAll = React.useCallback(async () => {
     if (!canManage || purgingAll) return
-    if (typeof window !== 'undefined') {
-      const confirmed = window.confirm(
-        t('configs.cache.purgeAllConfirm', 'Purge all cached entries for this tenant?')
-      )
-      if (!confirmed) return
-    }
+    const confirmed = await confirm({
+      title: t('configs.cache.purgeAllConfirm', 'Purge all cached entries for this tenant?'),
+      variant: 'destructive',
+    })
+    if (!confirmed) return
     setPurgingAll(true)
     try {
       const payload = await readApiResultOrThrow<{ stats?: CrudCacheStats }>(
@@ -134,17 +135,16 @@ export function CachePanel() {
     } finally {
       setPurgingAll(false)
     }
-  }, [canManage, purgingAll, t, handleRefresh]);
+  }, [canManage, confirm, purgingAll, t, handleRefresh]);
 
 
   const handlePurgeSegment = React.useCallback(async (segment: string) => {
     if (!canManage || segmentPurges[segment]) return
-    if (typeof window !== 'undefined') {
-      const confirmed = window.confirm(
-        t('configs.cache.purgeSegmentConfirm', 'Purge cached entries for this segment?')
-      )
-      if (!confirmed) return
-    }
+    const confirmed = await confirm({
+      title: t('configs.cache.purgeSegmentConfirm', 'Purge cached entries for this segment?'),
+      variant: 'destructive',
+    })
+    if (!confirmed) return
     setSegmentPurges((prev) => ({ ...prev, [segment]: true }))
     try {
       const payload = await readApiResultOrThrow<{ stats?: CrudCacheStats; deleted?: number }>(
@@ -186,11 +186,12 @@ export function CachePanel() {
         return next
       })
     }
-  }, [canManage, segmentPurges, t, handleRefresh]);
+  }, [canManage, confirm, segmentPurges, t, handleRefresh]);
 
   if (state.loading) {
     return (
       <section className="space-y-3 rounded-lg border bg-background p-6">
+        {ConfirmDialogElement}
         <header className="space-y-1">
           <h2 className="text-lg font-semibold">{t('configs.cache.title', 'Cache overview')}</h2>
           <p className="text-sm text-muted-foreground">
@@ -208,6 +209,7 @@ export function CachePanel() {
   if (state.error) {
     return (
       <section className="space-y-3 rounded-lg border bg-background p-6">
+        {ConfirmDialogElement}
         <header className="space-y-1">
           <h2 className="text-lg font-semibold">{t('configs.cache.title', 'Cache overview')}</h2>
           <p className="text-sm text-muted-foreground">
@@ -346,6 +348,7 @@ export function CachePanel() {
           </p>
         )}
       </div>
+      {ConfirmDialogElement}
     </section>
   )
 }

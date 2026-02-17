@@ -1,6 +1,9 @@
+
 # Specifications & Architecture Decision Records
 
 This folder contains specifications and Architecture Decision Records (ADRs) that serve as the source of truth for design decisions and module behavior in Open Mercato.
+
+> Note: `.ai/specs/` documents Open Source edition features. Commercial Enterprise Edition specifications are stored in `.ai/specs/enterprise/`. For Enterprise Edition licensing and partnership details, see [`packages/enterprise/README.md`](../../packages/enterprise/README.md).
 
 ## Purpose
 
@@ -13,13 +16,18 @@ The `.ai/specs/` folder is the central repository for:
 ## Naming Convention
 
 ### Specification Files
-Specification files follow the pattern `SPEC-{number}-{date}-{title}.md`:
+Specification files follow scope-specific patterns:
+
+- OSS specs: `SPEC-{number}-{date}-{title}.md`
+- Enterprise specs: `SPEC-ENT-{number}-{date}-{title}.md`
 
 - **Number**: Sequential identifier (e.g., `001`, `002`, `003`)
 - **Date**: Creation date in ISO format (`YYYY-MM-DD`)
 - **Title**: Descriptive kebab-case title (e.g., `sidebar-reorganization`, `messages-module`)
 
-**Example**: `SPEC-007-2026-01-26-sidebar-reorganization.md`
+**Examples**:
+- `SPEC-007-2026-01-26-sidebar-reorganization.md`
+- `SPEC-ENT-001-2026-02-17-security-module-enterprise-mfa.md`
 
 ### Meta-Documentation Files
 Files like `AGENTS.md` and `CLAUDE.md` use UPPERCASE names and are not numberedâ€”they provide guidelines for working with the specs themselves.
@@ -30,6 +38,11 @@ Files like `AGENTS.md` and `CLAUDE.md` use UPPERCASE names and are not numberedâ
 
 - [AGENTS.md](AGENTS.md) - Guidelines for AI agents and humans working with specs
 - [CLAUDE.md](CLAUDE.md) - Claude-specific instructions (currently a placeholder)
+- [LICENSE.md](LICENSE.md) - Additional licensing notes for enterprise specifications in this area
+
+### Enterprise Specifications
+
+- [Enterprise Specs README](enterprise/README.md) - Enterprise specification directory, scope, and licensing contact
 
 ### Specifications
 
@@ -53,10 +66,19 @@ Files like `AGENTS.md` and `CLAUDE.md` use UPPERCASE names and are not numberedâ
 | [SPEC-016](SPEC-016-2026-02-03-form-headers-footers.md) | 2026-02-03 | Form Headers & Footers | Reusable FormHeader, FormFooter, FormActionButtons design system components |
 | [SPEC-017](SPEC-017-2026-02-03-version-history-panel.md) | 2026-02-03 | Version History Panel | Right-side panel showing record change history from audit logs |
 | [SPEC-018](SPEC-018-2026-02-05-safe-entity-flush.md) | 2026-02-05 | Atomic Phased Flush | `withAtomicFlush` â€” N-phase flush pipeline with optional transactions to prevent UoW data loss and partial commits |
-| [SPEC-019](SPEC-019-2026-02-05-two-factor-authentication.md) | 2026-02-05 | Two-Factor Authentication | TOTP-based 2FA with authenticator apps, recovery codes, and optional tenant enforcement |
+| [SPEC-019](SPEC-019-2026-02-05-two-factor-authentication.md) | 2026-02-05 | Two-Factor Authentication (Replaced) | Legacy OSS placeholder retained for history. Enterprise implementation is maintained separately. |
 | [SPEC-020](SPEC-020-2026-02-07-related-entity-version-history.md) | 2026-02-07 | Related Entity Version History | Show child entity changes (addresses, payments, notes, etc.) in parent entity version history panel |
 | [SPEC-021](SPEC-021-2026-02-07-compound-commands-graph-save.md) | 2026-02-07 | Compound Commands & Graph Save | Graph-save pattern for aggregate roots and compound command wrapper for atomic multi-command operations |
-| [SPEC-022](SPEC-022-2026-02-09-rate-limiting.md) | 2026-02-09 | Rate Limiting Utility | Strategy-based rate limiting for auth endpoints using rate-limiter-flexible |
+| [SPEC-022](SPEC-022-2026-02-07-pos-module.md) | 2026-02-07 | POS Module | Point of Sale module for in-store retail operations |
+| [SPEC-027](SPEC-027-2026-02-08-integration-testing-automation.md) | 2026-02-08 | Integration Testing Automation | Integration testing automation specification |
+| [SPEC-022a](SPEC-022a-2026-02-09-pos-tile-browsing.md) | 2026-02-09 | POS Tile Browsing | Tile-based product browsing UI for POS checkout |
+| [SPEC-023](SPEC-023-2026-02-11-confirmation-dialog-migration.md) | 2026-02-11 | ConfirmDialog Refactor | Native `<dialog>` migration and `window.confirm` elimination |
+| [SPEC-024](SPEC-024-2026-02-11-financial-module.md) | 2026-02-11 | ERP Financial Modules | ERP financial modules specification |
+| [SPEC-025](SPEC-025-2026-02-12-ai-assisted-business-rules.md) | 2026-02-12 | AI-Assisted Business Rules | AI-assisted business rule editing |
+| [SPEC-026](SPEC-026-2026-02-11-catalog-localization.md) | 2026-02-11 | System-Wide Entity Translations | Dedicated `entity_translations` table (like `entity_indexes`), global locale support in all API routes, `applyLocalizedContent` overlay helper |
+| [SPEC-026a](SPEC-026a-2026-02-15-entity-translations-phase2.md) | 2026-02-15 | Entity Translations Phase 2 | TranslationManager UI (standalone + widget injection), search indexer `l10n:*` fields, per-entity translatable field definitions |
+| [SPEC-028](SPEC-028-2026-02-16-multiple-sales-pipelines.md) | 2026-02-16 | Multiple Sales Pipelines | Multiple CRM pipelines with configurable stages + deal assignment |
+| [SPEC-029](SPEC-022-2026-02-09-rate-limiting.md) | 2026-02-09 | Rate Limiting Utility | Strategy-based rate limiting for auth endpoints using rate-limiter-flexible |
 
 ## Specification Structure
 
@@ -110,7 +132,9 @@ Every ADR must maintain a changelog at the bottom:
 
 ### When Creating New Modules
 
-1. Create a new specification file at `.ai/specs/SPEC-{next-number}-{YYYY-MM-DD}-{module-name}.md`
+1. Create a new specification file at:
+   - `.ai/specs/SPEC-{next-number}-{YYYY-MM-DD}-{module-name}.md` for Open Source edition scope
+   - `.ai/specs/enterprise/SPEC-ENT-{next-number}-{YYYY-MM-DD}-{module-name}.md` for Enterprise Edition scope (enterprise numbering starts at `SPEC-ENT-001` in that folder)
 2. Document the initial design before or alongside implementation
 3. Include a changelog entry for the initial specification
 4. Update this README.md with a link to the new specification
