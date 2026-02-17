@@ -1,4 +1,4 @@
-# SPEC-022: Rate Limiting Utility
+# SPEC-029: Rate Limiting Utility
 
 ## Overview
 
