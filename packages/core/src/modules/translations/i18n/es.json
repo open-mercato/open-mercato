@@ -1,0 +1,64 @@
+{
+  "translations": {
+    "module": {
+      "title": "Traducciones",
+      "description": "Gestiona las traducciones de registros de entidades en múltiples idiomas."
+    },
+    "config": {
+      "nav": {
+        "title": "Traducciones"
+      }
+    },
+    "widgets": {
+      "translationManager": {
+        "groupLabel": "Traducciones",
+        "groupDescription": "Gestiona las traducciones de este registro en los idiomas soportados."
+      }
+    },
+    "manager": {
+      "title": "Traducciones",
+      "description": "Gestiona las traducciones de registros de entidades en los idiomas soportados.",
+      "selectEntity": "Elegir entidad",
+      "selectRecord": "Seleccionar registro",
+      "searchRecords": "Buscar registros...",
+      "pickRecord": "Elige un registro",
+      "pasteId": "O pega el ID del registro directamente...",
+      "placeholder": "Selecciona una entidad",
+      "selectFirst": "Selecciona una entidad y un registro para gestionar las traducciones.",
+      "loading": "Cargando...",
+      "loadingTranslations": "Cargando traducciones...",
+      "noRecords": "No se encontraron registros. Prueba con otro término de búsqueda.",
+      "noFields": "No se encontraron campos traducibles para este tipo de entidad.",
+      "fields": {
+        "field": "Campo",
+        "baseValue": "Valor base",
+        "translation": "Traducción"
+      },
+      "actions": {
+        "save": "Guardar traducciones",
+        "saving": "Guardando...",
+        "retry": "Reintentar"
+      },
+      "flash": {
+        "saved": "Traducciones guardadas"
+      },
+      "errors": {
+        "loadEntities": "Error al cargar las entidades",
+        "loadTranslation": "Error al cargar las traducciones",
+        "selectRecord": "Selecciona una entidad y un registro antes de guardar",
+        "save": "Error al guardar las traducciones"
+      }
+    },
+    "locales": {
+      "title": "Idiomas soportados",
+      "description": "Configura los idiomas disponibles para las traducciones. Añade códigos ISO de idioma (p. ej. fr, it, ja, zh).",
+      "loading": "Cargando idiomas...",
+      "addPlaceholder": "p. ej. fr, it, ja...",
+      "add": "Añadir",
+      "flash": {
+        "saved": "Idiomas actualizados",
+        "error": "Error al actualizar los idiomas"
+      }
+    }
+  }
+}

@@ -168,10 +168,10 @@ export class HybridQueryEngine implements QueryEngine {
       }
 
       const normalizedFilters = normalizeFilters(opts.filters)
-      const cfFilters = normalizedFilters.filter((filter) => filter.field.startsWith('cf:'))
+      const cfFilters = normalizedFilters.filter((filter) => filter.field.startsWith('cf:') || filter.field.startsWith('l10n:'))
       const coverageScope = this.resolveCoverageSnapshotScope(opts)
       const wantsCf = (
-        (opts.fields || []).some((field) => typeof field === 'string' && field.startsWith('cf:')) ||
+        (opts.fields || []).some((field) => typeof field === 'string' && (field.startsWith('cf:') || field.startsWith('l10n:'))) ||
         cfFilters.length > 0 ||
         opts.includeCustomFields === true ||
         (Array.isArray(opts.includeCustomFields) && opts.includeCustomFields.length > 0)

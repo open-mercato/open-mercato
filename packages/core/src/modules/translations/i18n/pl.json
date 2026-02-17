@@ -1,0 +1,64 @@
+{
+  "translations": {
+    "module": {
+      "title": "Tłumaczenia",
+      "description": "Zarządzaj tłumaczeniami rekordów encji w wielu językach."
+    },
+    "config": {
+      "nav": {
+        "title": "Tłumaczenia"
+      }
+    },
+    "widgets": {
+      "translationManager": {
+        "groupLabel": "Tłumaczenia",
+        "groupDescription": "Zarządzaj tłumaczeniami tego rekordu w obsługiwanych językach."
+      }
+    },
+    "manager": {
+      "title": "Tłumaczenia",
+      "description": "Zarządzaj tłumaczeniami rekordów encji w obsługiwanych językach.",
+      "selectEntity": "Wybierz encję",
+      "selectRecord": "Wybierz rekord",
+      "searchRecords": "Szukaj rekordów...",
+      "pickRecord": "Wybierz rekord",
+      "pasteId": "Lub wklej ID rekordu bezpośrednio...",
+      "placeholder": "Wybierz encję",
+      "selectFirst": "Wybierz encję i rekord, aby zarządzać tłumaczeniami.",
+      "loading": "Ładowanie...",
+      "loadingTranslations": "Ładowanie tłumaczeń...",
+      "noRecords": "Nie znaleziono rekordów. Spróbuj innego wyszukiwania.",
+      "noFields": "Nie znaleziono pól do tłumaczenia dla tego typu encji.",
+      "fields": {
+        "field": "Pole",
+        "baseValue": "Wartość bazowa",
+        "translation": "Tłumaczenie"
+      },
+      "actions": {
+        "save": "Zapisz tłumaczenia",
+        "saving": "Zapisywanie...",
+        "retry": "Ponów"
+      },
+      "flash": {
+        "saved": "Tłumaczenia zapisane"
+      },
+      "errors": {
+        "loadEntities": "Nie udało się załadować encji",
+        "loadTranslation": "Nie udało się załadować tłumaczeń",
+        "selectRecord": "Wybierz encję i rekord przed zapisaniem",
+        "save": "Nie udało się zapisać tłumaczeń"
+      }
+    },
+    "locales": {
+      "title": "Obsługiwane języki",
+      "description": "Skonfiguruj dostępne języki dla tłumaczeń. Dodaj kody ISO języków (np. fr, it, ja, zh).",
+      "loading": "Ładowanie języków...",
+      "addPlaceholder": "np. fr, it, ja...",
+      "add": "Dodaj",
+      "flash": {
+        "saved": "Języki zaktualizowane",
+        "error": "Nie udało się zaktualizować języków"
+      }
+    }
+  }
+}

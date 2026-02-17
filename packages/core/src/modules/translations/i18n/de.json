@@ -1,0 +1,64 @@
+{
+  "translations": {
+    "module": {
+      "title": "Übersetzungen",
+      "description": "Verwalte Übersetzungen für Entitätsdatensätze in mehreren Sprachen."
+    },
+    "config": {
+      "nav": {
+        "title": "Übersetzungen"
+      }
+    },
+    "widgets": {
+      "translationManager": {
+        "groupLabel": "Übersetzungen",
+        "groupDescription": "Verwalte Übersetzungen für diesen Datensatz in unterstützten Sprachen."
+      }
+    },
+    "manager": {
+      "title": "Übersetzungen",
+      "description": "Verwalte Übersetzungen für Entitätsdatensätze in unterstützten Sprachen.",
+      "selectEntity": "Entität auswählen",
+      "selectRecord": "Datensatz auswählen",
+      "searchRecords": "Datensätze suchen...",
+      "pickRecord": "Datensatz auswählen",
+      "pasteId": "Oder Datensatz-ID direkt einfügen...",
+      "placeholder": "Entität auswählen",
+      "selectFirst": "Wähle eine Entität und einen Datensatz, um Übersetzungen zu verwalten.",
+      "loading": "Laden...",
+      "loadingTranslations": "Übersetzungen werden geladen...",
+      "noRecords": "Keine Datensätze gefunden. Versuche einen anderen Suchbegriff.",
+      "noFields": "Keine übersetzbaren Felder für diesen Entitätstyp gefunden.",
+      "fields": {
+        "field": "Feld",
+        "baseValue": "Basiswert",
+        "translation": "Übersetzung"
+      },
+      "actions": {
+        "save": "Übersetzungen speichern",
+        "saving": "Speichern...",
+        "retry": "Erneut versuchen"
+      },
+      "flash": {
+        "saved": "Übersetzungen gespeichert"
+      },
+      "errors": {
+        "loadEntities": "Fehler beim Laden der Entitäten",
+        "loadTranslation": "Fehler beim Laden der Übersetzungen",
+        "selectRecord": "Wähle eine Entität und einen Datensatz vor dem Speichern",
+        "save": "Fehler beim Speichern der Übersetzungen"
+      }
+    },
+    "locales": {
+      "title": "Unterstützte Sprachen",
+      "description": "Konfiguriere die verfügbaren Sprachen für Übersetzungen. Füge ISO-Sprachcodes hinzu (z.B. fr, it, ja, zh).",
+      "loading": "Sprachen werden geladen...",
+      "addPlaceholder": "z.B. fr, it, ja...",
+      "add": "Hinzufügen",
+      "flash": {
+        "saved": "Sprachen aktualisiert",
+        "error": "Fehler beim Aktualisieren der Sprachen"
+      }
+    }
+  }
+}

@@ -1,0 +1,64 @@
+{
+  "translations": {
+    "module": {
+      "title": "Translations",
+      "description": "Manage translations for entity records across multiple locales."
+    },
+    "config": {
+      "nav": {
+        "title": "Translations"
+      }
+    },
+    "widgets": {
+      "translationManager": {
+        "groupLabel": "Translations",
+        "groupDescription": "Manage translations for this record across supported locales."
+      }
+    },
+    "manager": {
+      "title": "Translations",
+      "description": "Manage translations for entity records across supported locales.",
+      "selectEntity": "Choose entity",
+      "selectRecord": "Select record",
+      "searchRecords": "Search records...",
+      "pickRecord": "Pick a record",
+      "pasteId": "Or paste record ID directly...",
+      "placeholder": "Select an entity",
+      "selectFirst": "Select an entity and record to manage translations.",
+      "loading": "Loading...",
+      "loadingTranslations": "Loading translations...",
+      "noRecords": "No records found. Try a different search term.",
+      "noFields": "No translatable fields found for this entity type.",
+      "fields": {
+        "field": "Field",
+        "baseValue": "Base value",
+        "translation": "Translation"
+      },
+      "actions": {
+        "save": "Save translations",
+        "saving": "Saving...",
+        "retry": "Retry"
+      },
+      "flash": {
+        "saved": "Translations saved"
+      },
+      "errors": {
+        "loadEntities": "Failed to load entities",
+        "loadTranslation": "Failed to load translations",
+        "selectRecord": "Select an entity and record before saving",
+        "save": "Failed to save translations"
+      }
+    },
+    "locales": {
+      "title": "Supported locales",
+      "description": "Configure which locales are available for translations. Add ISO language codes (e.g. fr, it, ja, zh).",
+      "loading": "Loading locales...",
+      "addPlaceholder": "e.g. fr, it, ja...",
+      "add": "Add",
+      "flash": {
+        "saved": "Locales updated",
+        "error": "Failed to update locales"
+      }
+    }
+  }
+}
