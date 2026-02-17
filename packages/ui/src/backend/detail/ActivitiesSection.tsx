@@ -1,4 +1,10 @@
 "use client"
+export function formatDateTime(value?: string | null): string | null {
+  if (!value) return null
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return null
+  return date.toLocaleString()
+}
 
 import * as React from 'react'
 import Link from 'next/link'
@@ -121,12 +127,7 @@ function toLocalDateTimeInput(value?: string | null): string {
   )}`
 }
 
-function formatDateTime(value?: string | null): string | null {
-  if (!value) return null
-  const date = new Date(value)
-  if (Number.isNaN(date.getTime())) return null
-  return date.toLocaleString()
-}
+// ...existing code...
 
 type TimelineItemHeaderProps = {
   title: React.ReactNode

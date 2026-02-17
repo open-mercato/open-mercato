@@ -2,14 +2,8 @@
 
 import type { DictionarySelectLabels } from '@open-mercato/core/modules/dictionaries/components/DictionaryEntrySelect'
 import type { CustomerDictionaryKind } from '../../lib/dictionaries'
-import { formatRelativeTime } from '@open-mercato/shared/lib/time'
 
-export function formatDateTime(value?: string | null): string | null {
-  if (!value) return null
-  const date = new Date(value)
-  if (Number.isNaN(date.getTime())) return null
-  return date.toLocaleString()
-}
+// ...existing code...
 
 export function formatDate(value?: string | null): string | null {
   if (!value) return null

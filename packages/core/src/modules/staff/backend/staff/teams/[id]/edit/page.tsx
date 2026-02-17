@@ -17,6 +17,7 @@ import { TeamForm, type TeamFormValues, buildTeamPayload } from '@open-mercato/c
 import { extractCustomFieldEntries } from '@open-mercato/shared/lib/crud/custom-fields-client'
 import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
 import { Plus } from 'lucide-react'
+import { formatDateTime } from '@open-mercato/ui/backend/detail/ActivitiesSection'
 
 const TEAM_MEMBERS_PAGE_SIZE = 50
 
@@ -424,8 +425,4 @@ function mapApiTeamMember(item: Record<string, unknown>): TeamMemberRow {
   }
 }
 
-function formatDateTime(value: string): string {
-  const parsed = new Date(value)
-  if (Number.isNaN(parsed.getTime())) return value
-  return parsed.toLocaleString()
-}
+

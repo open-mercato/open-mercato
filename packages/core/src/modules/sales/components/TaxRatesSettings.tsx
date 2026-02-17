@@ -15,6 +15,7 @@ import { raiseCrudError } from '@open-mercato/ui/backend/utils/serverErrors'
 import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
+import { formatDateTime } from '@open-mercato/ui/backend/detail/ActivitiesSection'
 
 type TaxRateRow = {
   id: string
@@ -386,8 +387,4 @@ function formatLocation(entry: TaxRateRow): string {
   return parts.length ? parts.join(', ') : '—'
 }
 
-function formatDateTime(value: string): string {
-  const date = new Date(value)
-  if (Number.isNaN(date.getTime())) return value
-  return date.toLocaleString()
-}
+
