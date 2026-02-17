@@ -7,6 +7,7 @@ import path from 'node:path'
 import { createInterface, type Interface } from 'node:readline/promises'
 import { stdin as input, stdout as output } from 'node:process'
 import { createResolver } from '../resolver'
+import { discoverIntegrationSpecFiles as discoverIntegrationSpecFilesShared } from './integration-discovery'
 
 type EphemeralRuntimeOptions = {
   verbose: boolean
@@ -55,6 +56,13 @@ type InteractiveIntegrationOptions = {
 type IntegrationSpecTarget = {
   path: string
   description: string
+}
+
+type DiscoveredIntegrationSpecFile = {
+  path: string
+  moduleName: string | null
+  isEnterpriseOverlay: boolean
+  requiredModules: string[]
 }
 
 type IntegrationCoverageOptions = {
@@ -146,6 +154,8 @@ const EPHEMERAL_ENV_FILE_PATH = path.join(projectRootDirectory, '.ai', 'qa', 'ep
 const EPHEMERAL_ENV_LOCK_PATH = path.join(projectRootDirectory, '.ai', 'qa', 'ephemeral-env.lock')
 const LEGACY_EPHEMERAL_ENV_FILE_PATH = path.join(projectRootDirectory, '.ai', 'qa', 'ephemeral-env.md')
 const EPHEMERAL_BUILD_CACHE_STATE_PATH = path.join(projectRootDirectory, '.ai', 'qa', 'ephemeral-build-cache.json')
+const PLAYWRIGHT_INTEGRATION_CONFIG_PATH = '.ai/qa/tests/playwright.config.ts'
+const LEGACY_INTEGRATION_TEST_ROOT = path.join(projectRootDirectory, '.ai', 'qa', 'tests')
 const APP_BUILD_ARTIFACTS = [
   path.join(projectRootDirectory, 'apps', 'mercato', '.mercato', 'next', 'BUILD_ID'),
   path.join(projectRootDirectory, 'apps', 'mercato', '.mercato', 'generated', 'modules.generated.ts'),
@@ -1670,28 +1680,8 @@ function normalizePath(filePath: string): string {
   return filePath.split(path.sep).join('/')
 }
 
-async function collectIntegrationSpecFiles(
-  directoryPath: string,
-  rootPath: string,
-): Promise<string[]> {
-  const entries = await readdir(directoryPath, { withFileTypes: true })
-  const collected: string[] = []
-
-  for (const entry of entries) {
-    const absolutePath = path.join(directoryPath, entry.name)
-    if (entry.isDirectory()) {
-      const nested = await collectIntegrationSpecFiles(absolutePath, rootPath)
-      collected.push(...nested)
-      continue
-    }
-    if (!entry.isFile() || !entry.name.endsWith('.spec.ts')) {
-      continue
-    }
-    const relativePath = path.relative(rootPath, absolutePath)
-    collected.push(normalizePath(relativePath))
-  }
-
-  return collected
+async function discoverIntegrationSpecFiles(): Promise<DiscoveredIntegrationSpecFile[]> {
+  return discoverIntegrationSpecFilesShared(projectRootDirectory, LEGACY_INTEGRATION_TEST_ROOT)
 }
 
 async function extractSpecDescription(relativePath: string): Promise<string> {
@@ -1713,9 +1703,8 @@ async function extractSpecDescription(relativePath: string): Promise<string> {
 }
 
 async function listIntegrationSpecFiles(): Promise<IntegrationSpecTarget[]> {
-  const testRoot = path.join(projectRootDirectory, '.ai', 'qa', 'tests')
-  const files = await collectIntegrationSpecFiles(testRoot, projectRootDirectory)
-  const sortedFiles = files.sort((left, right) => left.localeCompare(right))
+  const discoveredSpecs = await discoverIntegrationSpecFiles()
+  const sortedFiles = discoveredSpecs.map((entry) => entry.path)
   const targets = await Promise.all(
     sortedFiles.map(async (filePath) => ({
       path: filePath,
@@ -1771,7 +1760,7 @@ function extractTestCaseId(value: string): string | null {
 
 function findFolderSegmentFromPath(relativePath: string): string {
   const normalized = normalizePath(relativePath)
-  const marker = '.ai/qa/tests/'
+  const marker = `${normalizePath(path.relative(projectRootDirectory, LEGACY_INTEGRATION_TEST_ROOT))}/`
   const markerIndex = normalized.indexOf(marker)
   if (markerIndex === -1) {
     return ''
@@ -1801,9 +1790,8 @@ function formatPercent(value: number | null): string {
 
 export async function runIntegrationSpecCoverageReport(rawArgs: string[]): Promise<void> {
   const options = parseIntegrationSpecCoverageOptions(rawArgs)
-  const testRoot = path.join(projectRootDirectory, '.ai', 'qa', 'tests')
   const scenarioRoot = path.join(projectRootDirectory, '.ai', 'qa', 'scenarios')
-  const testFiles = await collectFilesByExtension(testRoot, '.spec.ts', projectRootDirectory)
+  const testFiles = (await discoverIntegrationSpecFiles()).map((entry) => entry.path)
   const scenarioFiles = await collectFilesByExtension(scenarioRoot, '.md', projectRootDirectory)
 
   const testCaseIds = new Set<string>()
@@ -1812,11 +1800,16 @@ export async function runIntegrationSpecCoverageReport(rawArgs: string[]): Promi
 
   for (const testFile of testFiles) {
     const caseId = extractTestCaseId(path.basename(testFile))
+    const categoryCode = caseId ? extractCategoryCodeFromCaseId(caseId) : null
     if (caseId) {
       testCaseIds.add(caseId)
     }
-    const folder = findFolderSegmentFromPath(testFile)
-    testsByFolder.set(folder, (testsByFolder.get(folder) ?? 0) + 1)
+    const folder = categoryCode
+      ? Object.entries(FOLDER_TO_CATEGORY_CODE).find(([, mappedCategoryCode]) => mappedCategoryCode === categoryCode)?.[0]
+      : findFolderSegmentFromPath(testFile)
+    if (folder) {
+      testsByFolder.set(folder, (testsByFolder.get(folder) ?? 0) + 1)
+    }
   }
 
   for (const scenarioFile of scenarioFiles) {
@@ -2108,7 +2101,7 @@ async function runPlaywrightSelection(
   selection: string | string[] | null,
   options: PlaywrightRunOptions,
 ): Promise<void> {
-  const args = ['playwright', 'test', '--config', '.ai/qa/tests/playwright.config.ts']
+  const args = ['playwright', 'test', '--config', PLAYWRIGHT_INTEGRATION_CONFIG_PATH]
   if (options.workers !== null) {
     args.push('--workers', String(options.workers))
   }
