@@ -789,6 +789,13 @@ export const removeMfaMethodSchema = z.object({
 
 All endpoints use the existing `makeCrudRoute` factory and OpenAPI specification pattern. Feature-based access control gates every endpoint. Public endpoints (MFA verify during login, recovery codes during login) require a valid `challenge_id` instead of JWT auth.
 
+### 7.0 CRUD factory + command/undo policy
+
+- For standard CRUD-style endpoints in this module, use the existing CRUD factory (`makeCrudRoute`) and keep OpenAPI metadata in route definitions.
+- For security-critical mutations that have side effects across entities (e.g. MFA reset, policy updates with downstream notifications), implement explicit command handlers rather than inline route logic.
+- Where a mutation is logically reversible, command handlers must provide undo metadata/payload and follow the shared command/undo conventions from `@open-mercato/shared/lib/commands`.
+- For irreversible security actions (e.g. one-time recovery code consumption, challenge verification attempts), mark them as non-undoable and document that explicitly in command metadata/audit logs.
+
 ### 7.1 Profile and password
 
 | Method | Endpoint | Feature | Description |
@@ -1609,6 +1616,70 @@ Tests use Jest 30 (existing infrastructure). Coverage targets are higher than st
 | API routes | > 85% |
 | Lib utilities (crypto, TOTP, WebAuthn) | > 95% |
 | React components | > 75% |
+
+## 21.1 Integration test specification (required)
+
+Integration tests for this module must be implemented under the existing QA harness, using Playwright TypeScript tests and API-level fixture setup.
+
+### Test placement
+
+- Primary suite folder:
+  - `/.ai/qa/tests/integration/security/`
+- Suggested file split:
+  - `/.ai/qa/tests/integration/security/security-mfa-flows.spec.ts`
+  - `/.ai/qa/tests/integration/security/security-enforcement.spec.ts`
+  - `/.ai/qa/tests/integration/security/security-sudo.spec.ts`
+  - `/.ai/qa/tests/integration/security/security-admin.spec.ts`
+  - `/.ai/qa/tests/integration/security/security-provider-registry.spec.ts`
+
+### Mandatory test scenarios
+
+1. MFA core:
+   - enroll/verify TOTP
+   - enroll/verify passkey (feature-detected; skip with explicit reason when unsupported in CI runtime)
+   - enroll/verify OTP email
+   - challenge verification success/failure attempt counters
+   - recovery code usage and regeneration
+2. Enforcement:
+   - policy cascade resolution (organisation > tenant > platform)
+   - grace-period redirect to MFA enrollment
+   - hard lockout after deadline
+   - `allowed_methods` filtering affects setup options and verify paths
+3. Sudo:
+   - protected endpoint returns sudo-required response without valid token
+   - challenge + verify returns short-lived token
+   - token accepted within TTL, rejected after expiry
+   - admin override disables/enables developer default target
+4. Admin/security operations:
+   - superadmin MFA reset path with reason
+   - user status/compliance reporting endpoints
+   - cross-tenant isolation checks (cannot read/manage another tenant's users)
+5. Provider registry:
+   - built-in providers listed
+   - custom provider registration appears in `/api/security/mfa/providers`
+   - generic fallback UI path works when custom `SetupComponent`/`VerifyComponent` missing
+
+### Fixture and cleanup rules
+
+- Tests must be fully self-contained:
+  - create tenants/users/policies/method records via API fixtures per test or per describe block
+  - never rely on seeded/demo data
+- Cleanup must run in `finally`/teardown:
+  - remove created users, methods, policies, sudo configs/sessions, and challenge records
+- Each test must assert tenant scoping boundaries where relevant.
+
+### Execution and CI
+
+- Local run:
+  - `yarn test:integration --grep security`
+- Full suite:
+  - `yarn test:integration`
+- Report:
+  - `yarn test:integration:report`
+
+### Coverage gate for this module
+
+- No phase in this ADR is considered complete without corresponding integration coverage for new API paths and key UI paths introduced in that phase.
 
 ---
 
