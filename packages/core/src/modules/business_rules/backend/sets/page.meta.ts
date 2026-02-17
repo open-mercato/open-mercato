@@ -15,10 +15,10 @@ export const metadata = {
   requireAuth: true,
   pageGroup: 'Business Rules',
   pageTitle: 'Rule Sets',
-  pageTitleKey: 'rules.nav.sets',
-  pageGroupKey: 'rules.nav.group',
+  pageTitleKey: 'business_rules.nav.rule_sets',
+  pageGroupKey: 'business_rules.nav.group',
   requireFeatures: ['business_rules.view'],
   pageOrder: 120,
   icon: setsIcon,
-  breadcrumb: [{label: 'Rule Sets', labelKey: 'rules.nav.sets'}],
+  breadcrumb: [{label: 'Rule Sets', labelKey: 'business_rules.nav.rule_sets'}],
 }

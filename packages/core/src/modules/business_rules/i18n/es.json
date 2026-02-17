@@ -137,6 +137,9 @@
   "business_rules.sets.form.descriptions.setId": "Identificador único para el conjunto de reglas",
   "business_rules.sets.form.descriptions.enabled": "Solo los conjuntos de reglas habilitados serán usados",
 
+  "business_rules.sets.form.validation.setIdRequired": "El ID del conjunto es obligatorio",
+  "business_rules.sets.form.validation.setNameRequired": "El nombre del conjunto es obligatorio",
+
   "business_rules.sets.filters.searchPlaceholder": "Buscar por nombre o ID...",
 
   "business_rules.sets.actions.create": "Crear Conjunto de Reglas",

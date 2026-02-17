@@ -3,6 +3,6 @@ export const metadata = {
   requireFeatures: ['business_rules.manage_sets'],
   pageTitle: 'Create Rule Set',
   pageGroup: 'Business Rules',
-  pageGroupKey: 'rules.nav.group',
-  breadcrumb: [{ label: 'Rule Sets', labelKey: 'rules.nav.sets' }, { label: 'Create Rule Set' }],
+  pageGroupKey: 'business_rules.nav.group',
+  breadcrumb: [{ label: 'Rule Sets', labelKey: 'business_rules.nav.rule_sets' }, { label: 'Create Rule Set' }],
 }

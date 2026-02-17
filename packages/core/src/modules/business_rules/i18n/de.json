@@ -137,6 +137,9 @@
   "business_rules.sets.form.descriptions.setId": "Eindeutiger Bezeichner für den Regelsatz",
   "business_rules.sets.form.descriptions.enabled": "Nur aktivierte Regelsätze werden verwendet",
 
+  "business_rules.sets.form.validation.setIdRequired": "Satz-ID ist erforderlich",
+  "business_rules.sets.form.validation.setNameRequired": "Satzname ist erforderlich",
+
   "business_rules.sets.filters.searchPlaceholder": "Nach Name oder ID suchen...",
 
   "business_rules.sets.actions.create": "Regelsatz erstellen",

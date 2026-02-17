@@ -13,10 +13,10 @@ export const metadata = {
     requireAuth: true,
     requireFeatures: ['business_rules.view'],
     pageTitle: 'Logs',
-    pageTitleKey: 'rules.nav.logs',
+    pageTitleKey: 'business_rules.nav.execution_logs',
     pageGroup: 'Business Rules',
-    pageGroupKey: 'rules.nav.group',
+    pageGroupKey: 'business_rules.nav.group',
     pageOrder: 130,
     icon: logsIcon,
-    breadcrumb: [{ label: 'Business Rules Logs', labelKey: 'rules.nav.rules_logs' }],
+    breadcrumb: [{ label: 'Execution Logs', labelKey: 'business_rules.nav.execution_logs' }],
 }
