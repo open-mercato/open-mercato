@@ -16,13 +16,18 @@ The `.ai/specs/` folder is the central repository for:
 ## Naming Convention
 
 ### Specification Files
-Specification files follow the pattern `SPEC-{number}-{date}-{title}.md`:
+Specification files follow scope-specific patterns:
+
+- OSS specs: `SPEC-{number}-{date}-{title}.md`
+- Enterprise specs: `SPEC-ENT-{number}-{date}-{title}.md`
 
 - **Number**: Sequential identifier (e.g., `001`, `002`, `003`)
 - **Date**: Creation date in ISO format (`YYYY-MM-DD`)
 - **Title**: Descriptive kebab-case title (e.g., `sidebar-reorganization`, `messages-module`)
 
-**Example**: `SPEC-007-2026-01-26-sidebar-reorganization.md`
+**Examples**:
+- `SPEC-007-2026-01-26-sidebar-reorganization.md`
+- `SPEC-ENT-001-2026-02-17-security-module-enterprise-mfa.md`
 
 ### Meta-Documentation Files
 Files like `AGENTS.md` and `CLAUDE.md` use UPPERCASE names and are not numbered—they provide guidelines for working with the specs themselves.
