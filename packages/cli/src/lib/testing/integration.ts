@@ -2415,7 +2415,7 @@ export async function startEphemeralEnvironment(options: EphemeralRuntimeOptions
           }))
 
         console.log(`[${options.logPrefix}] Building application...`)
-        await runTimedStep(options.logPrefix, 'Building application', { expectedSeconds: 35 }, async () =>
+        await runTimedStep(options.logPrefix, 'Building application', { expectedSeconds: 76 }, async () =>
           runYarnWorkspaceCommand(appWorkspace, 'build', [], commandEnvironment, {
             silent: !options.verbose,
           }))
