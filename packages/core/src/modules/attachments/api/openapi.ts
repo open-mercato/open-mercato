@@ -2,41 +2,29 @@ import { z } from 'zod'
 
 export const attachmentsTag = 'Attachments'
 
-// ============================================================================
-// Common Schemas
-// ============================================================================
-
 export const attachmentErrorSchema = z
   .object({
     error: z.string(),
-    details: z.any().optional(),
+    details: z.unknown().optional(),
   })
   .passthrough()
 
-// ============================================================================
-// Attachment Schemas
-// ============================================================================
-
-export const attachmentSchema = z.object({
+export const attachmentListItemSchema = z.object({
   id: z.string().uuid(),
-  entityId: z.string(),
-  recordId: z.string(),
-  organizationId: z.string().uuid().nullable().optional(),
-  tenantId: z.string().uuid().nullable().optional(),
-  partitionCode: z.string(),
   fileName: z.string(),
-  mimeType: z.string(),
   fileSize: z.number().int(),
-  storageDriver: z.string(),
-  storagePath: z.string(),
-  tags: z.array(z.string()).nullable().optional(),
-  metadata: z.record(z.string(), z.any()).nullable().optional(),
-  thumbnailUrl: z.string().nullable().optional(),
-  imageUrl: z.string().nullable().optional(),
-  downloadUrl: z.string().nullable().optional(),
-  assignmentDetails: z.any().nullable().optional(),
+  mimeType: z.string(),
+  partitionCode: z.string(),
+  partitionTitle: z.string().nullable(),
+  url: z.string().nullable().optional(),
   createdAt: z.string(),
+  tags: z.array(z.string()),
+  assignments: z.array(z.unknown()),
+  thumbnailUrl: z.string().optional(),
+  content: z.unknown().nullable().optional(),
 })
+
+export const attachmentSchema = attachmentListItemSchema
 
 export const attachmentListQuerySchema = z.object({
   page: z.coerce.number().min(1).default(1).describe('Page number for pagination'),
@@ -48,58 +36,56 @@ export const attachmentListQuerySchema = z.object({
   sortDir: z.enum(['asc', 'desc']).optional().describe('Sort direction'),
 })
 
+export const attachmentLibraryPartitionSchema = z.object({
+  code: z.string(),
+  title: z.string(),
+  description: z.string().nullable(),
+  isPublic: z.boolean(),
+})
+
 export const attachmentListResponseSchema = z.object({
-  items: z.array(attachmentSchema),
+  items: z.array(attachmentListItemSchema),
   total: z.number().int().nonnegative(),
   page: z.number().int().positive(),
   pageSize: z.number().int().positive(),
   totalPages: z.number().int().positive(),
+  availableTags: z.array(z.string()),
+  partitions: z.array(attachmentLibraryPartitionSchema),
+})
+
+export const attachmentDetailItemSchema = z.object({
+  id: z.string().uuid(),
+  fileName: z.string(),
+  fileSize: z.number().int(),
+  mimeType: z.string(),
+  partitionCode: z.string(),
+  partitionTitle: z.string().nullable(),
+  tags: z.array(z.string()),
+  assignments: z.array(z.unknown()),
+  content: z.unknown().nullable().optional(),
+  customFields: z.unknown().nullable().optional(),
 })
 
 export const attachmentDetailResponseSchema = z.object({
-  data: attachmentSchema,
+  item: attachmentDetailItemSchema,
 })
-
-// ============================================================================
-// Partition Schemas
-// ============================================================================
 
 export const partitionSchema = z.object({
   id: z.string().uuid(),
   code: z.string(),
   title: z.string(),
-  description: z.string().nullable().optional(),
-  storageDriver: z.string(),
-  configJson: z.record(z.string(), z.unknown()).nullable().optional(),
+  description: z.string().nullable(),
   isPublic: z.boolean(),
   requiresOcr: z.boolean(),
-  ocrModel: z.string().nullable().optional(),
-  createdAt: z.string(),
-  updatedAt: z.string(),
+  ocrModel: z.string().nullable(),
+  createdAt: z.string().nullable(),
+  updatedAt: z.string().nullable(),
+  envKey: z.string(),
 })
 
 export const partitionListResponseSchema = z.object({
   items: z.array(partitionSchema),
 })
-
-// ============================================================================
-// Transfer Schemas
-// ============================================================================
-
-export const transferRequestSchema = z.object({
-  attachmentId: z.string().uuid().describe('Attachment ID to transfer'),
-  targetPartitionCode: z.string().describe('Target partition code'),
-})
-
-export const transferResponseSchema = z.object({
-  success: z.boolean(),
-  message: z.string(),
-  attachment: attachmentSchema.optional(),
-})
-
-// ============================================================================
-// Partition Management Schemas
-// ============================================================================
 
 export const partitionCreateSchema = z.object({
   code: z
@@ -123,10 +109,6 @@ export const partitionResponseSchema = z.object({
   item: partitionSchema,
 })
 
-// ============================================================================
-// Transfer Schemas (Extended)
-// ============================================================================
-
 export const transferAttachmentsRequestSchema = z.object({
   entityId: z.string().min(1).describe('Entity type identifier'),
   attachmentIds: z.array(z.string().uuid()).min(1).describe('Array of attachment IDs to transfer'),
@@ -138,10 +120,6 @@ export const transferAttachmentsResponseSchema = z.object({
   ok: z.literal(true),
   updated: z.number().int().describe('Number of attachments transferred'),
 })
-
-// ============================================================================
-// Image Serving Schemas
-// ============================================================================
 
 export const imageQuerySchema = z.object({
   width: z.coerce.number().int().min(1).max(4000).optional().describe('Target width in pixels (max 4000)'),

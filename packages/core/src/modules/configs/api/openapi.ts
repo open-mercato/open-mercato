@@ -2,44 +2,68 @@ import { z } from 'zod'
 
 export const configsTag = 'Configs'
 
-// ============================================================================
-// Common Schemas
-// ============================================================================
-
 export const configErrorSchema = z
   .object({
     error: z.string(),
-    details: z.any().optional(),
+    details: z.unknown().optional(),
   })
   .passthrough()
 
-// ============================================================================
-// System Status Schemas
-// ============================================================================
+const systemStatusCategoryKeySchema = z.enum([
+  'profiling',
+  'logging',
+  'security',
+  'caching',
+  'query_index',
+  'entities',
+])
+
+const systemStatusVariableKindSchema = z.enum(['boolean', 'string'])
+
+const systemStatusStateSchema = z.enum([
+  'enabled',
+  'disabled',
+  'set',
+  'unset',
+  'unknown',
+])
+
+const systemStatusRuntimeModeSchema = z.enum([
+  'development',
+  'production',
+  'test',
+  'unknown',
+])
+
+const systemStatusItemSchema = z.object({
+  key: z.string(),
+  category: systemStatusCategoryKeySchema,
+  kind: systemStatusVariableKindSchema,
+  labelKey: z.string(),
+  descriptionKey: z.string(),
+  docUrl: z.string().nullable(),
+  defaultValue: z.string().nullable(),
+  state: systemStatusStateSchema,
+  value: z.string().nullable(),
+  normalizedValue: z.string().nullable(),
+})
+
+const systemStatusCategorySchema = z.object({
+  key: systemStatusCategoryKeySchema,
+  labelKey: z.string(),
+  descriptionKey: z.string().nullable(),
+  items: z.array(systemStatusItemSchema),
+})
 
 export const systemStatusResponseSchema = z.object({
-  env: z.string().describe('Current environment (development, production, etc.)'),
-  version: z.string().describe('Application version'),
-  nodeVersion: z.string().describe('Node.js version'),
-  platform: z.string().describe('Operating system platform'),
-  uptime: z.number().describe('Process uptime in seconds'),
-  memoryUsage: z.object({
-    rss: z.number().describe('Resident Set Size in bytes'),
-    heapTotal: z.number().describe('Total heap size in bytes'),
-    heapUsed: z.number().describe('Used heap size in bytes'),
-    external: z.number().describe('External memory usage in bytes'),
-  }),
-  databaseConnected: z.boolean().describe('Database connection status'),
-  cacheConnected: z.boolean().describe('Cache service connection status'),
+  generatedAt: z.string().describe('Snapshot generation timestamp (ISO-8601)'),
+  runtimeMode: systemStatusRuntimeModeSchema.describe('Current runtime mode'),
+  categories: z.array(systemStatusCategorySchema).describe('Grouped system status variables by category'),
 })
 
 export const purgeCacheResponseSchema = z.object({
   cleared: z.boolean().describe('Whether cache was successfully cleared'),
 })
-
-// ============================================================================
-// Cache Management Schemas
-// ============================================================================
 
 export const cacheStatsResponseSchema = z.object({
   total: z.number().int().describe('Total cache entries'),
@@ -62,10 +86,6 @@ export const cachePurgeSegmentResponseSchema = z.object({
   deleted: z.number().int().describe('Number of entries deleted'),
   stats: cacheStatsResponseSchema,
 })
-
-// ============================================================================
-// Upgrade Actions Schemas
-// ============================================================================
 
 export const upgradeActionSchema = z.object({
   id: z.string().describe('Upgrade action unique identifier'),

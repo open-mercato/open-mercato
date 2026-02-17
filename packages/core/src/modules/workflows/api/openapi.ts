@@ -2,20 +2,12 @@ import { z } from 'zod'
 
 export const workflowsTag = 'Workflows'
 
-// ============================================================================
-// Common Schemas
-// ============================================================================
-
 export const workflowErrorSchema = z
   .object({
     error: z.string(),
-    details: z.any().optional(),
+    details: z.unknown().optional(),
   })
   .passthrough()
-
-// ============================================================================
-// User Task Schemas
-// ============================================================================
 
 export const userTaskStatusSchema = z.enum([
   'PENDING',
@@ -32,8 +24,8 @@ export const userTaskSchema = z.object({
   taskName: z.string(),
   description: z.string().nullable().optional(),
   status: userTaskStatusSchema,
-  formSchema: z.any().nullable().optional(),
-  formData: z.any().nullable().optional(),
+  formSchema: z.unknown().nullable().optional(),
+  formData: z.unknown().nullable().optional(),
   assignedTo: z.string().nullable().optional(),
   assignedToRoles: z.array(z.string()).nullable().optional(),
   claimedBy: z.string().nullable().optional(),
@@ -81,7 +73,7 @@ export const userTaskClaimResponseSchema = z.object({
 })
 
 export const completeTaskRequestSchema = z.object({
-  formData: z.record(z.string(), z.any()).describe('Form field values'),
+  formData: z.record(z.string(), z.unknown()).describe('Form field values'),
   comments: z.string().optional().describe('Optional comments'),
 })
 
@@ -90,22 +82,30 @@ export const userTaskCompleteResponseSchema = z.object({
   message: z.string(),
 })
 
-// ============================================================================
-// Workflow Instance Schemas
-// ============================================================================
-
 export const advanceWorkflowRequestSchema = z.object({
-  signal: z.string().optional().describe('Optional signal name to advance'),
+  toStepId: z.string().optional().describe('Optional target step ID; first valid transition is used when omitted'),
+  triggerData: z.record(z.string(), z.unknown()).optional().describe('Optional trigger data used during transition evaluation'),
+  contextUpdates: z.record(z.string(), z.unknown()).optional().describe('Optional workflow context updates applied before transition'),
 })
 
 export const advanceWorkflowResponseSchema = z.object({
-  success: z.boolean(),
+  data: z.object({
+    instance: z.object({
+      id: z.string().uuid(),
+      status: z.string(),
+      currentStepId: z.string().nullable(),
+      previousStepId: z.string().nullable(),
+      transitionFired: z.string().nullable(),
+      context: z.unknown(),
+    }),
+    execution: z.unknown(),
+  }),
   message: z.string(),
 })
 
 export const sendSignalRequestSchema = z.object({
   signalName: z.string().describe('Name of the signal to send'),
-  signalData: z.any().optional().describe('Optional data payload for the signal'),
+  payload: z.record(z.string(), z.unknown()).optional().describe('Optional data payload for the signal'),
 })
 
 export const sendSignalResponseSchema = z.object({
@@ -114,21 +114,39 @@ export const sendSignalResponseSchema = z.object({
 })
 
 export const validateStartRequestSchema = z.object({
-  workflowId: z.string().uuid().describe('Workflow definition ID'),
-  initialContext: z.record(z.string(), z.any()).optional().describe('Initial workflow context variables'),
+  workflowId: z.string().min(1).describe('Workflow definition ID'),
+  version: z.number().int().positive().optional().describe('Optional workflow definition version'),
+  context: z.record(z.string(), z.unknown()).optional().describe('Initial workflow context variables'),
+  locale: z.string().optional().describe('Locale for validation messages'),
+})
+
+export const validateStartErrorSchema = z.object({
+  ruleId: z.string(),
+  message: z.string(),
+  code: z.string(),
+})
+
+export const validateStartRuleSchema = z.object({
+  ruleId: z.string(),
+  passed: z.boolean(),
+  executionTime: z.number().optional(),
 })
 
 export const validateStartResponseSchema = z.object({
-  valid: z.boolean(),
-  errors: z.array(z.string()).optional(),
+  canStart: z.boolean(),
+  workflowId: z.string(),
+  errors: z.array(validateStartErrorSchema).optional(),
+  validatedRules: z.array(validateStartRuleSchema).optional(),
 })
 
-export const registerSignalRequestSchema = z.object({
-  signalName: z.string().describe('Unique signal name'),
-  description: z.string().optional().describe('Signal description'),
+export const sendSignalByCorrelationRequestSchema = z.object({
+  correlationKey: z.string().min(1).describe('Correlation key used to target waiting workflow instances'),
+  signalName: z.string().min(1).describe('Signal name to deliver'),
+  payload: z.record(z.string(), z.unknown()).optional().describe('Optional data payload for the signal'),
 })
 
-export const registerSignalResponseSchema = z.object({
+export const sendSignalByCorrelationResponseSchema = z.object({
   success: z.boolean(),
   message: z.string(),
+  count: z.number().int().nonnegative(),
 })

@@ -7,8 +7,8 @@ import { z } from 'zod'
 import { sendSignalByCorrelationKey } from '../../lib/signal-handler'
 import {
   workflowsTag,
-  registerSignalRequestSchema,
-  registerSignalResponseSchema,
+  sendSignalByCorrelationRequestSchema,
+  sendSignalByCorrelationResponseSchema,
   workflowErrorSchema,
 } from '../openapi'
 
@@ -96,10 +96,10 @@ export const openApi: OpenApiRouteDoc = {
       description: 'Sends a signal to all workflow instances waiting for the specified signal that match the correlation key. Returns the count of workflows that received the signal.',
       requestBody: {
         contentType: 'application/json',
-        schema: registerSignalRequestSchema,
+        schema: sendSignalByCorrelationRequestSchema,
       },
       responses: [
-        { status: 200, description: 'Signal sent to matching workflows', schema: registerSignalResponseSchema },
+        { status: 200, description: 'Signal sent to matching workflows', schema: sendSignalByCorrelationResponseSchema },
       ],
       errors: [
         { status: 400, description: 'Missing tenant or organization context', schema: workflowErrorSchema },
