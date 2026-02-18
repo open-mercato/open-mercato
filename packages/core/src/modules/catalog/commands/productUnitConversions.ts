@@ -110,11 +110,14 @@ async function resolveUnitDictionary(em: EntityManager, organizationId: string, 
   )
 }
 
-async function assertUnitExists(em: EntityManager, params: {
+async function resolveCanonicalUnitCode(
+  em: EntityManager,
+  params: {
   organizationId: string
   tenantId: string
   unitCode: string
-}) {
+}
+): Promise<string> {
   const dictionary = await resolveUnitDictionary(em, params.organizationId, params.tenantId)
   if (!dictionary) {
     throw new CrudHttpError(400, { error: 'uom.unit_not_found' })
@@ -133,6 +136,8 @@ async function assertUnitExists(em: EntityManager, params: {
   if (!entry) {
     throw new CrudHttpError(400, { error: 'uom.unit_not_found' })
   }
+  const canonical = typeof entry.value === 'string' ? entry.value.trim() : ''
+  return canonical.length ? canonical : unitCode
 }
 
 async function loadConversionSnapshot(
@@ -231,7 +236,7 @@ const createProductUnitConversionCommand: CommandHandler<
     const em = (ctx.container.resolve('em') as EntityManager).fork()
     const product = await requireProduct(em, parsed.productId, 'Catalog product not found')
     ensureSameScope(product, parsed.organizationId, parsed.tenantId)
-    await assertUnitExists(em, {
+    const canonicalUnitCode = await resolveCanonicalUnitCode(em, {
       organizationId: parsed.organizationId,
       tenantId: parsed.tenantId,
       unitCode: parsed.unitCode,
@@ -241,7 +246,7 @@ const createProductUnitConversionCommand: CommandHandler<
       product,
       organizationId: parsed.organizationId,
       tenantId: parsed.tenantId,
-      unitCode: parsed.unitCode.trim(),
+      unitCode: canonicalUnitCode,
       toBaseFactor: toNumericString(parsed.toBaseFactor) ?? '1',
       sortOrder: parsed.sortOrder ?? 0,
       isActive: parsed.isActive !== false,
@@ -339,12 +344,12 @@ const updateProductUnitConversionCommand: CommandHandler<
     ensureSameScope(product, record.organizationId, record.tenantId)
 
     if (parsed.unitCode !== undefined) {
-      await assertUnitExists(em, {
+      const canonicalUnitCode = await resolveCanonicalUnitCode(em, {
         organizationId: record.organizationId,
         tenantId: record.tenantId,
         unitCode: parsed.unitCode,
       })
-      record.unitCode = parsed.unitCode.trim()
+      record.unitCode = canonicalUnitCode
     }
     if (parsed.toBaseFactor !== undefined) {
       record.toBaseFactor = toNumericString(parsed.toBaseFactor) ?? record.toBaseFactor
