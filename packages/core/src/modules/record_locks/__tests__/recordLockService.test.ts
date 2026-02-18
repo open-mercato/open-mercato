@@ -98,7 +98,7 @@ describe('RecordLockService.validateMutation', () => {
             organizationId: '70000000-0000-4000-8000-000000000001',
             resourceKind: 'sales.quote',
             resourceId: '20000000-0000-4000-8000-000000000001',
-            snapshotAfter: { displayName: 'Acme Before' },
+            snapshotAfter: { entity: { displayName: 'Acme Before' } },
             snapshotBefore: null,
             changesJson: null,
             deletedAt: null,
@@ -112,10 +112,10 @@ describe('RecordLockService.validateMutation', () => {
             organizationId: '70000000-0000-4000-8000-000000000001',
             resourceKind: 'sales.quote',
             resourceId: '20000000-0000-4000-8000-000000000001',
-            snapshotAfter: { displayName: 'Acme Incoming' },
-            snapshotBefore: { displayName: 'Acme Before' },
+            snapshotAfter: { entity: { displayName: 'Acme Incoming' } },
+            snapshotBefore: { entity: { displayName: 'Acme Before' } },
             changesJson: {
-              displayName: { from: 'Acme Before', to: 'Acme Incoming' },
+              'entity.displayName': { from: 'Acme Before', to: 'Acme Incoming' },
             },
             deletedAt: null,
           }
@@ -172,7 +172,8 @@ describe('RecordLockService.validateMutation', () => {
     expect(result.conflict?.resolutionOptions).toEqual(['accept_incoming', 'accept_mine'])
     expect(result.conflict?.changes).toEqual([
       {
-        field: 'displayName',
+        field: 'entity.displayName',
+        displayValue: 'Acme Before',
         baseValue: 'Acme Before',
         incomingValue: 'Acme Incoming',
         mineValue: 'Acme Mine',

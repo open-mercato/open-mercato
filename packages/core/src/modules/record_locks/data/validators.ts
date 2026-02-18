@@ -95,7 +95,8 @@ export const recordLockErrorSchema = z.object({
     changes: z.array(
       z.object({
         field: z.string().min(1),
-        baseValue: z.unknown().nullable(),
+        displayValue: z.unknown().nullable(),
+        baseValue: z.unknown().nullable().optional(),
         incomingValue: z.unknown().nullable(),
         mineValue: z.unknown().nullable(),
       }),

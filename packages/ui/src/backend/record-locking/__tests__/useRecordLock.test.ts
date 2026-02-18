@@ -15,6 +15,7 @@ describe('readRecordLockError', () => {
         changes: [
           {
             field: 'displayName',
+            displayValue: 'Acme',
             baseValue: 'Acme',
             incomingValue: 'Acme Updated',
             mineValue: 'Acme Admin',
@@ -28,6 +29,7 @@ describe('readRecordLockError', () => {
     expect(parsed.message).toBe('Conflict detected')
     expect(parsed.conflict?.id).toBe('10000000-0000-4000-8000-000000000001')
     expect(parsed.conflict?.changes[0]?.field).toBe('displayName')
+    expect(parsed.conflict?.changes[0]?.displayValue).toBe('Acme')
   })
 
   test('falls back to generic message for unknown input', () => {

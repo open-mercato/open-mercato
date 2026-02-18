@@ -34,6 +34,7 @@
       "accept_incoming": "Eingehende Version übernehmen",
       "accept_mine": "Meine Änderungen behalten",
       "field": "Feld",
+      "display_value": "Angezeigter Wert",
       "incoming_value": "Eingehender Wert",
       "mine_value": "Ihr Wert",
       "empty_value": "(leer)",

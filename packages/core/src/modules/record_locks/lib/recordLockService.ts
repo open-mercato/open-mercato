@@ -64,6 +64,7 @@ export type RecordLockMutationValidationInput = RecordLockScope & RecordLockReso
 
 export type RecordLockConflictChange = {
   field: string
+  displayValue: unknown
   baseValue: unknown
   incomingValue: unknown
   mineValue: unknown
@@ -248,6 +249,29 @@ function readPathValue(source: unknown, path: string): unknown | typeof MISSING_
     current = current[segment]
   }
   return current
+}
+
+function buildPathVariants(path: string): string[] {
+  const trimmed = path.trim()
+  if (!trimmed.length) return []
+
+  const segments = trimmed.split('.').filter((segment) => segment.length > 0)
+  if (segments.length <= 1) return [trimmed]
+
+  const variants = new Set<string>([trimmed])
+  for (let index = 1; index < segments.length; index += 1) {
+    variants.add(segments.slice(index).join('.'))
+  }
+  return Array.from(variants)
+}
+
+function readPathValueLoose(source: unknown, path: string): unknown | typeof MISSING_CONFLICT_VALUE {
+  const variants = buildPathVariants(path)
+  for (const variant of variants) {
+    const value = readPathValue(source, variant)
+    if (value !== MISSING_CONFLICT_VALUE) return value
+  }
+  return MISSING_CONFLICT_VALUE
 }
 
 function normalizeConflictValue(value: unknown): unknown {
@@ -938,10 +962,10 @@ export class RecordLockService {
         const changeRecord = isRecordValue(rawChange) ? rawChange : null
         const fromValue = changeRecord && Object.prototype.hasOwnProperty.call(changeRecord, 'from')
           ? changeRecord.from
-          : readPathValue(fallbackBaseSnapshot, fieldPath)
+          : readPathValueLoose(fallbackBaseSnapshot, fieldPath)
         const toValue = changeRecord && Object.prototype.hasOwnProperty.call(changeRecord, 'to')
           ? changeRecord.to
-          : readPathValue(incomingAfterSnapshot, fieldPath)
+          : readPathValueLoose(incomingAfterSnapshot, fieldPath)
 
         changeMap.set(fieldPath, {
           baseValue: fromValue === MISSING_CONFLICT_VALUE ? null : normalizeConflictValue(fromValue),
@@ -962,8 +986,8 @@ export class RecordLockService {
 
       for (const fieldPath of diffPaths) {
         if (shouldSkipConflictField(fieldPath)) continue
-        const fromValue = readPathValue(fallbackBaseSnapshot, fieldPath)
-        const toValue = readPathValue(incomingAfterSnapshot, fieldPath)
+        const fromValue = readPathValueLoose(fallbackBaseSnapshot, fieldPath)
+        const toValue = readPathValueLoose(incomingAfterSnapshot, fieldPath)
         changeMap.set(fieldPath, {
           baseValue: fromValue === MISSING_CONFLICT_VALUE ? null : normalizeConflictValue(fromValue),
           incomingValue: toValue === MISSING_CONFLICT_VALUE ? null : normalizeConflictValue(toValue),
@@ -974,11 +998,11 @@ export class RecordLockService {
     if (!changeMap.size && mutationPayload && incomingAfterSnapshot) {
       for (const fieldPath of Object.keys(mutationPayload)) {
         if (shouldSkipConflictField(fieldPath)) continue
-        const mineValue = readPathValue(mutationPayload, fieldPath)
-        const incomingValue = readPathValue(incomingAfterSnapshot, fieldPath)
+        const mineValue = readPathValueLoose(mutationPayload, fieldPath)
+        const incomingValue = readPathValueLoose(incomingAfterSnapshot, fieldPath)
         if (mineValue === MISSING_CONFLICT_VALUE || incomingValue === MISSING_CONFLICT_VALUE) continue
         if (valuesEqual(mineValue, incomingValue)) continue
-        const baseValue = readPathValue(fallbackBaseSnapshot, fieldPath)
+        const baseValue = readPathValueLoose(fallbackBaseSnapshot, fieldPath)
         changeMap.set(fieldPath, {
           baseValue: baseValue === MISSING_CONFLICT_VALUE ? null : normalizeConflictValue(baseValue),
           incomingValue: normalizeConflictValue(incomingValue),
@@ -991,7 +1015,7 @@ export class RecordLockService {
     const allFields = Array.from(changeMap.keys())
     const preferredFields = mutationPayload
       ? allFields.filter((fieldPath) => {
-          const mineValue = readPathValue(mutationPayload, fieldPath)
+          const mineValue = readPathValueLoose(mutationPayload, fieldPath)
           if (mineValue === MISSING_CONFLICT_VALUE) return false
           const incomingValue = changeMap.get(fieldPath)?.incomingValue
           return !valuesEqual(mineValue, incomingValue)
@@ -1004,13 +1028,14 @@ export class RecordLockService {
 
     return selectedFields.map((fieldPath) => {
       const entry = changeMap.get(fieldPath) ?? { baseValue: null, incomingValue: null }
-      const mineValueRaw = mutationPayload ? readPathValue(mutationPayload, fieldPath) : MISSING_CONFLICT_VALUE
+      const mineValueRaw = mutationPayload ? readPathValueLoose(mutationPayload, fieldPath) : MISSING_CONFLICT_VALUE
       const mineValue = mineValueRaw === MISSING_CONFLICT_VALUE
         ? entry.baseValue
         : normalizeConflictValue(mineValueRaw)
 
       return {
         field: fieldPath,
+        displayValue: normalizeConflictValue(entry.baseValue),
         baseValue: normalizeConflictValue(entry.baseValue),
         incomingValue: normalizeConflictValue(entry.incomingValue),
         mineValue: normalizeConflictValue(mineValue),

@@ -23,7 +23,8 @@ export type RecordLockApiLock = {
 
 export type RecordLockConflictChange = {
   field: string
-  baseValue: unknown
+  displayValue: unknown
+  baseValue?: unknown
   incomingValue: unknown
   mineValue: unknown
 }
@@ -476,6 +477,9 @@ export function readRecordLockError(error: unknown): { code?: string; message: s
           .filter((entry): entry is Record<string, unknown> => Boolean(entry && typeof entry === 'object'))
           .map((entry) => ({
             field: typeof entry.field === 'string' && entry.field.trim().length ? entry.field : 'unknown',
+            displayValue: Object.prototype.hasOwnProperty.call(entry, 'displayValue')
+              ? entry.displayValue
+              : (Object.prototype.hasOwnProperty.call(entry, 'baseValue') ? entry.baseValue : null),
             baseValue: Object.prototype.hasOwnProperty.call(entry, 'baseValue') ? entry.baseValue : null,
             incomingValue: Object.prototype.hasOwnProperty.call(entry, 'incomingValue') ? entry.incomingValue : null,
             mineValue: Object.prototype.hasOwnProperty.call(entry, 'mineValue') ? entry.mineValue : null,

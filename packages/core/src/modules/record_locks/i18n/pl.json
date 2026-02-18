@@ -34,6 +34,7 @@
       "accept_incoming": "Akceptuj wersję przychodzącą",
       "accept_mine": "Zachowaj moje zmiany",
       "field": "Pole",
+      "display_value": "Wartość wyświetlana",
       "incoming_value": "Wartość przychodząca",
       "mine_value": "Twoja wartość",
       "empty_value": "(puste)",

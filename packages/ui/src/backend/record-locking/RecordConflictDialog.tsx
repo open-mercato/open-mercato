@@ -57,15 +57,17 @@ export function RecordConflictDialog({
 
         {conflictChanges.length ? (
           <div className="mt-4 rounded-md border border-border/70">
-            <div className="grid grid-cols-3 gap-2 border-b border-border/70 bg-muted/30 px-3 py-2 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+            <div className="grid grid-cols-4 gap-2 border-b border-border/70 bg-muted/30 px-3 py-2 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
               <span>{t('record_locks.conflict.field', 'Field')}</span>
+              <span>{t('record_locks.conflict.display_value', 'Display value')}</span>
               <span>{t('record_locks.conflict.incoming_value', 'Incoming value')}</span>
               <span>{t('record_locks.conflict.mine_value', 'Your value')}</span>
             </div>
             <div className="max-h-56 overflow-y-auto">
               {conflictChanges.map((entry) => (
-                <div key={entry.field} className="grid grid-cols-3 gap-2 border-b border-border/50 px-3 py-2 text-xs last:border-b-0">
+                <div key={entry.field} className="grid grid-cols-4 gap-2 border-b border-border/50 px-3 py-2 text-xs last:border-b-0">
                   <div className="break-all font-medium text-foreground">{entry.field}</div>
+                  <div className="break-all text-muted-foreground">{formatValue(entry.displayValue)}</div>
                   <div className="break-all text-muted-foreground">{formatValue(entry.incomingValue)}</div>
                   <div className="break-all text-foreground">{formatValue(entry.mineValue)}</div>
                 </div>

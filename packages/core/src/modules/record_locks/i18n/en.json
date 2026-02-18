@@ -34,6 +34,7 @@
       "accept_incoming": "Accept incoming",
       "accept_mine": "Keep my changes",
       "field": "Field",
+      "display_value": "Display value",
       "incoming_value": "Incoming value",
       "mine_value": "Your value",
       "empty_value": "(empty)",
