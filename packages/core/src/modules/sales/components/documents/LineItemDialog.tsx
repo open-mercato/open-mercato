@@ -1558,7 +1558,7 @@ export function LineItemDialog({
     variantOption,
     t,
     taxRateMap,
-    taxRates.length,
+    taxRates,
     resolveTaxSelection,
     hasTaxMetadata,
   ])
