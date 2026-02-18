@@ -43,7 +43,8 @@
       "incoming_value": "Eingehender Wert",
       "mine_value": "Ihr Wert",
       "empty_value": "(leer)",
-      "cancel": "Abbrechen"
+      "cancel": "Abbrechen",
+      "accept_incoming_failed": "Eingehende Änderungen konnten nicht übernommen werden. Aktualisieren Sie und versuchen Sie es erneut."
     },
     "notifications": {
       "lock_force_released": {

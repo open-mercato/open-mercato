@@ -43,7 +43,8 @@
       "incoming_value": "Incoming value",
       "mine_value": "Your value",
       "empty_value": "(empty)",
-      "cancel": "Cancel"
+      "cancel": "Cancel",
+      "accept_incoming_failed": "Could not accept incoming changes. Refresh and try again."
     },
     "notifications": {
       "lock_force_released": {

@@ -1322,7 +1322,15 @@ export function CrudForm<TValues extends Record<string, unknown>>({
     setPending(true)
     try {
       const resolved = await recordLock.acceptIncoming(recordConflict)
-      if (!resolved) return
+      if (!resolved) {
+        const message = t(
+          'record_locks.conflict.accept_incoming_failed',
+          'Could not accept incoming changes. Refresh and try again.',
+        )
+        setFormError(message)
+        flash(message, 'error')
+        return
+      }
       setRecordConflict(null)
       setRecordConflictValues(null)
       router.refresh()
@@ -1333,6 +1341,7 @@ export function CrudForm<TValues extends Record<string, unknown>>({
     recordConflict,
     recordLock,
     router,
+    t,
   ])
 
   // Load dynamic options for fields that require it

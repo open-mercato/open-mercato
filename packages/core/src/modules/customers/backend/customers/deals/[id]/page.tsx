@@ -685,7 +685,12 @@ export default function DealDetailPage({ params }: { params?: { id?: string } })
           const resolved = await lockGuard.acceptIncoming()
           if (resolved) {
             setReloadToken((token) => token + 1)
+            return
           }
+          flash(
+            t('record_locks.conflict.accept_incoming_failed', 'Could not accept incoming changes. Refresh and try again.'),
+            'error',
+          )
         }}
       />
       {ConfirmDialogElement}

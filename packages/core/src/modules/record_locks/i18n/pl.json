@@ -43,7 +43,8 @@
       "incoming_value": "Wartość przychodząca",
       "mine_value": "Twoja wartość",
       "empty_value": "(puste)",
-      "cancel": "Anuluj"
+      "cancel": "Anuluj",
+      "accept_incoming_failed": "Nie udało się zaakceptować wersji przychodzącej. Odśwież i spróbuj ponownie."
     },
     "notifications": {
       "lock_force_released": {

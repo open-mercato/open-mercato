@@ -53,7 +53,7 @@ export type RecordLockHeartbeatInput = RecordLockScope & RecordLockResource & {
 }
 
 export type RecordLockReleaseInput = RecordLockScope & RecordLockResource & {
-  token: string
+  token?: string
   reason?: Exclude<RecordLockReleaseReason, 'expired' | 'force'>
 } & Pick<RecordLockReleasePayloadInput, 'conflictId' | 'resolution'>
 
@@ -547,9 +547,6 @@ export class RecordLockService {
     const resourceEnabled = isRecordLockingEnabledForResource(settings, input.resourceKind)
     if (!resourceEnabled) return { ok: true, released: false, conflictResolved: false }
 
-    const lock = await this.findOwnedLockByToken(input)
-    if (!lock) return { ok: true, released: false, conflictResolved: false }
-
     let conflictResolved = false
     if (input.reason === 'conflict_resolved' && input.conflictId && input.resolution === 'accept_incoming') {
       const conflict = await this.findConflictById(input.conflictId, input)
@@ -558,6 +555,13 @@ export class RecordLockService {
         conflictResolved = true
       }
     }
+
+    if (!input.token) {
+      return { ok: true, released: false, conflictResolved }
+    }
+
+    const lock = await this.findOwnedLockByToken(input)
+    if (!lock) return { ok: true, released: false, conflictResolved }
 
     const now = new Date()
     this.markLockReleased(lock, {
@@ -681,7 +685,20 @@ export class RecordLockService {
       : null
 
     if (existingConflict) {
+      const canResolveExistingConflict = existingConflict.status === 'pending'
+        && existingConflict.conflictActorUserId === input.userId
+
       if (parsedHeaders.resolution === 'accept_mine' || parsedHeaders.resolution === 'merged') {
+        if (!canResolveExistingConflict) {
+          return {
+            ok: false,
+            status: 409,
+            error: 'Record conflict requires resolution before saving',
+            code: 'record_lock_conflict',
+            lock: active ? this.toLockView(active, false) : null,
+            conflict: await this.toConflictPayload(existingConflict, input.mutationPayload ?? null),
+          }
+        }
         await this.resolveConflict(existingConflict, parsedHeaders.resolution, input.userId)
       } else {
         return {
@@ -812,8 +829,10 @@ export class RecordLockService {
   }
 
   private async findOwnedLockByToken(
-    input: Pick<RecordLockScope, 'tenantId' | 'organizationId' | 'userId'> & RecordLockResource & { token: string },
+    input: Pick<RecordLockScope, 'tenantId' | 'organizationId' | 'userId'> & RecordLockResource & { token?: string },
   ): Promise<RecordLock | null> {
+    if (!input.token) return null
+
     const where: FilterQuery<RecordLock> = {
       ...this.buildScopeWhere(input),
       resourceKind: input.resourceKind,

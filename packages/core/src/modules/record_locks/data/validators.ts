@@ -16,12 +16,23 @@ export const recordLockReleaseReasonSchema = z.enum(['saved', 'cancelled', 'unmo
 export const recordLockReleaseResolutionSchema = z.enum(['accept_incoming'])
 
 export const recordLockReleaseSchema = recordLockResourceSchema.extend({
-  token: z.string().trim().min(1),
+  token: z.string().trim().min(1).optional(),
   reason: recordLockReleaseReasonSchema.optional(),
   conflictId: z.string().uuid().optional(),
   resolution: recordLockReleaseResolutionSchema.optional(),
 }).superRefine((value, ctx) => {
-  if (value.reason !== 'conflict_resolved') return
+  const reason = value.reason ?? 'cancelled'
+  const isConflictResolved = reason === 'conflict_resolved'
+
+  if (!isConflictResolved && !value.token) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['token'],
+      message: 'token is required unless reason is conflict_resolved',
+    })
+  }
+
+  if (!isConflictResolved) return
 
   if (!value.conflictId) {
     ctx.addIssue({

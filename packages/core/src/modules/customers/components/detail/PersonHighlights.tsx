@@ -7,6 +7,7 @@ import { Button } from '@open-mercato/ui/primitives/button'
 import { FormHeader } from '@open-mercato/ui/backend/forms'
 import { RecordConflictDialog, RecordLockBanner, useRecordLockGuard } from '@open-mercato/ui/backend/record-locking'
 import { VersionHistoryAction } from '@open-mercato/ui/backend/version-history'
+import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 import { cn } from '@open-mercato/shared/lib/utils'
@@ -480,7 +481,12 @@ export function PersonHighlights({
           const resolved = await lockGuard.acceptIncoming()
           if (resolved) {
             router.refresh()
+            return
           }
+          flash(
+            t('record_locks.conflict.accept_incoming_failed', 'Could not accept incoming changes. Refresh and try again.'),
+            'error',
+          )
         }}
       />
     </div>

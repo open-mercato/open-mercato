@@ -6,6 +6,7 @@ import { FormHeader } from '@open-mercato/ui/backend/forms'
 import { RecordConflictDialog, RecordLockBanner, useRecordLockGuard } from '@open-mercato/ui/backend/record-locking'
 import type { UseRecordLockGuardResult } from '@open-mercato/ui/backend/record-locking'
 import { VersionHistoryAction } from '@open-mercato/ui/backend/version-history'
+import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import {
   InlineTextEditor,
@@ -223,7 +224,12 @@ export function CompanyHighlights({
           const resolved = await resolvedLockGuard.acceptIncoming()
           if (resolved) {
             router.refresh()
+            return
           }
+          flash(
+            t('record_locks.conflict.accept_incoming_failed', 'Could not accept incoming changes. Refresh and try again.'),
+            'error',
+          )
         }}
       />
     </div>

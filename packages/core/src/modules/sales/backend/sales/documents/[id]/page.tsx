@@ -4771,7 +4771,12 @@ export default function SalesDocumentDetailPage({
             } catch {
               return
             }
+            return
           }
+          flash(
+            t('record_locks.conflict.accept_incoming_failed', 'Could not accept incoming changes. Refresh and try again.'),
+            'error',
+          )
         }}
       />
       <Dialog open={sendOpen} onOpenChange={setSendOpen}>

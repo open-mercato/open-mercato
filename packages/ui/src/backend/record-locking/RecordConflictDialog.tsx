@@ -13,7 +13,7 @@ export type RecordConflictDialogProps = {
   pending?: boolean
   t: TranslateFn
   onResolve: (resolution: 'accept_mine') => Promise<void> | void
-  onAcceptIncoming: () => Promise<void> | void
+  onAcceptIncoming?: () => Promise<void> | void
 }
 
 export function RecordConflictDialog({
@@ -32,6 +32,7 @@ export function RecordConflictDialog({
   }, [onResolve])
 
   const handleAcceptIncoming = React.useCallback(async () => {
+    if (!onAcceptIncoming) return
     await onAcceptIncoming()
   }, [onAcceptIncoming])
 
@@ -83,14 +84,16 @@ export function RecordConflictDialog({
         ) : null}
 
         <div className="mt-4 flex flex-wrap gap-2">
-          <Button
-            type="button"
-            variant="outline"
-            disabled={pending}
-            onClick={handleAcceptIncoming}
-          >
-            {t('record_locks.conflict.accept_incoming', 'Accept incoming')}
-          </Button>
+          {onAcceptIncoming ? (
+            <Button
+              type="button"
+              variant="outline"
+              disabled={pending}
+              onClick={handleAcceptIncoming}
+            >
+              {t('record_locks.conflict.accept_incoming', 'Accept incoming')}
+            </Button>
+          ) : null}
           <Button
             type="button"
             disabled={pending}

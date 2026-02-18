@@ -44,7 +44,8 @@ export async function withScopedApiHeaders<T>(headers: Record<string, string>, r
   try {
     return await run()
   } finally {
-    scopedHeaderStack.pop()
+    const idx = scopedHeaderStack.lastIndexOf(normalized)
+    if (idx >= 0) scopedHeaderStack.splice(idx, 1)
   }
 }
 

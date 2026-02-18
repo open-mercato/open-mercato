@@ -321,7 +321,8 @@ export function useRecordLock(config: UseRecordLockConfig): UseRecordLockResult 
     },
   ): Promise<ReleaseResponse> => {
     const token = tokenRef.current
-    if (!canUseLockApi || !token) {
+    const allowsMissingToken = reason === 'conflict_resolved'
+    if (!canUseLockApi || (!token && !allowsMissingToken)) {
       return {
         ok: true,
         released: false,
@@ -332,7 +333,7 @@ export function useRecordLock(config: UseRecordLockConfig): UseRecordLockResult 
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({
-        token,
+        token: token ?? undefined,
         resourceKind: config.resourceKind,
         resourceId: config.resourceId,
         reason,
