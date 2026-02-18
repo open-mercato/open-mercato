@@ -285,6 +285,86 @@ export default function EditCatalogProductPage({ params }: { params?: { id?: str
     tags: ProductCategorizePickerOption[]
   }>({ categories: [], channels: [], tags: [] })
 
+  const loadVariants = React.useCallback(async (id: string) => {
+    try {
+      const [variantsRes, pricesRes] = await Promise.all([
+        apiCall<VariantListResponse>(`/api/catalog/variants?productId=${encodeURIComponent(id)}&page=1&pageSize=100`),
+        apiCall<VariantPriceListResponse>(`/api/catalog/prices?productId=${encodeURIComponent(id)}&page=1&pageSize=100`),
+      ])
+      if (!variantsRes.ok) {
+        setVariants([])
+        return
+      }
+      const priceMap: Record<string, VariantPriceSummary[]> = {}
+      if (pricesRes.ok) {
+        const priceItems = Array.isArray(pricesRes.result?.items) ? pricesRes.result?.items : []
+        for (const item of priceItems) {
+          const summary = mapVariantPriceSummary(item)
+          if (!summary) continue
+          if (!priceMap[summary.variantId]) {
+            priceMap[summary.variantId] = []
+          }
+          priceMap[summary.variantId].push(summary)
+        }
+        Object.keys(priceMap).forEach((key) => {
+          priceMap[key].sort((left, right) => {
+            const leftKey = (left.priceKindId ?? '') + (left.currencyCode ?? '')
+            const rightKey = (right.priceKindId ?? '') + (right.currencyCode ?? '')
+            return leftKey.localeCompare(rightKey)
+          })
+        })
+      }
+      const items = Array.isArray(variantsRes.result?.items) ? variantsRes.result?.items : []
+      setVariants(
+        items
+          .map((variant) => {
+            const variantId = typeof variant.id === 'string' ? variant.id : null
+            if (!variantId) return null
+            const variantRecord = variant as Record<string, unknown>
+            const optionValues =
+              normalizeVariantOptionValues(variantRecord?.['option_values']) ??
+              normalizeVariantOptionValues(variantRecord?.optionValues)
+            return {
+              id: variantId,
+              name: typeof variant.name === 'string' && variant.name.trim().length ? variant.name : variant.sku ?? variantId,
+              sku: typeof variant.sku === 'string' ? variant.sku : '',
+              isDefault: Boolean(variant.is_default ?? variant.isDefault),
+              prices: priceMap[variantId] ?? [],
+              optionValues,
+            }
+          })
+          .filter((entry): entry is VariantSummary => Boolean(entry)),
+      )
+    } catch (err) {
+      console.error('catalog.variants.fetch failed', err)
+      setVariants([])
+    }
+  }, [])
+
+  const refreshVariants = React.useCallback(async () => {
+    if (!productId) return
+    await loadVariants(productId)
+  }, [loadVariants, productId])
+
+  const fetchAttachments = React.useCallback(async (id: string): Promise<ProductMediaItem[]> => {
+    try {
+      const res = await apiCall<AttachmentListResponse>(
+        `/api/attachments?entityId=${encodeURIComponent(E.catalog.catalog_product)}&recordId=${encodeURIComponent(id)}`,
+      )
+      if (!res.ok) return []
+      return (res.result?.items ?? []).map((item) => ({
+        id: item.id,
+        url: item.url,
+        fileName: item.fileName,
+        fileSize: item.fileSize,
+        thumbnailUrl: item.thumbnailUrl ?? undefined,
+      }))
+    } catch (err) {
+      console.error('attachments.fetch failed', err)
+      return []
+    }
+  }, [])
+
   React.useEffect(() => {
     const loadTaxRates = async () => {
       try {
@@ -491,7 +571,7 @@ export default function EditCatalogProductPage({ params }: { params?: { id?: str
     }
     loadProduct()
     return () => { cancelled = true }
-  }, [productId, t])
+  }, [fetchAttachments, loadVariants, productId, t])
 
   React.useEffect(() => {
     let cancelled = false
@@ -519,86 +599,6 @@ export default function EditCatalogProductPage({ params }: { params?: { id?: str
     loadPriceKinds().catch(() => {})
     return () => {
       cancelled = true
-    }
-  }, [])
-
-  const loadVariants = React.useCallback(async (id: string) => {
-    try {
-      const [variantsRes, pricesRes] = await Promise.all([
-        apiCall<VariantListResponse>(`/api/catalog/variants?productId=${encodeURIComponent(id)}&page=1&pageSize=100`),
-        apiCall<VariantPriceListResponse>(`/api/catalog/prices?productId=${encodeURIComponent(id)}&page=1&pageSize=100`),
-      ])
-      if (!variantsRes.ok) {
-        setVariants([])
-        return
-      }
-      const priceMap: Record<string, VariantPriceSummary[]> = {}
-      if (pricesRes.ok) {
-        const priceItems = Array.isArray(pricesRes.result?.items) ? pricesRes.result?.items : []
-        for (const item of priceItems) {
-          const summary = mapVariantPriceSummary(item)
-          if (!summary) continue
-          if (!priceMap[summary.variantId]) {
-            priceMap[summary.variantId] = []
-          }
-          priceMap[summary.variantId].push(summary)
-        }
-        Object.keys(priceMap).forEach((key) => {
-          priceMap[key].sort((a, b) => {
-            const left = (a.priceKindId ?? '') + (a.currencyCode ?? '')
-            const right = (b.priceKindId ?? '') + (b.currencyCode ?? '')
-            return left.localeCompare(right)
-          })
-        })
-      }
-      const items = Array.isArray(variantsRes.result?.items) ? variantsRes.result?.items : []
-      setVariants(
-        items
-          .map((variant) => {
-            const variantId = typeof variant.id === 'string' ? variant.id : null
-            if (!variantId) return null
-            const variantRecord = variant as Record<string, unknown>
-            const optionValues =
-              normalizeVariantOptionValues(variantRecord?.['option_values']) ??
-              normalizeVariantOptionValues(variantRecord?.optionValues)
-            return {
-              id: variantId,
-              name: typeof variant.name === 'string' && variant.name.trim().length ? variant.name : variant.sku ?? variantId,
-              sku: typeof variant.sku === 'string' ? variant.sku : '',
-              isDefault: Boolean(variant.is_default ?? variant.isDefault),
-              prices: priceMap[variantId] ?? [],
-              optionValues,
-            }
-          })
-          .filter((entry): entry is VariantSummary => !!entry),
-      )
-    } catch (err) {
-      console.error('catalog.variants.fetch failed', err)
-      setVariants([])
-    }
-  }, [])
-
-  const refreshVariants = React.useCallback(async () => {
-    if (!productId) return
-    await loadVariants(productId)
-  }, [loadVariants, productId])
-
-  const fetchAttachments = React.useCallback(async (id: string): Promise<ProductMediaItem[]> => {
-    try {
-      const res = await apiCall<AttachmentListResponse>(
-        `/api/attachments?entityId=${encodeURIComponent(E.catalog.catalog_product)}&recordId=${encodeURIComponent(id)}`,
-      )
-      if (!res.ok) return []
-      return (res.result?.items ?? []).map((item) => ({
-        id: item.id,
-        url: item.url,
-        fileName: item.fileName,
-        fileSize: item.fileSize,
-        thumbnailUrl: item.thumbnailUrl ?? undefined,
-      }))
-    } catch (err) {
-      console.error('attachments.fetch failed', err)
-      return []
     }
   }, [])
 
