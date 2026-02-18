@@ -41,6 +41,10 @@ jobs:
       - name: Check i18n sync
         run: yarn i18n:check-sync
 
+      - name: Check i18n usage
+        run: yarn i18n:check-usage
+        continue-on-error: true
+
       - name: Checking types
         run: yarn typecheck
 
