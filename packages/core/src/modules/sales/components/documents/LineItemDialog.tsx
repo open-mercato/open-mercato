@@ -36,6 +36,11 @@ type ProductOption = {
   thumbnailUrl: string | null
   taxRateId?: string | null
   taxRate?: number | null
+  defaultUnit?: string | null
+  defaultSalesUnit?: string | null
+  defaultSalesUnitQuantity?: number | null
+  uomRoundingScale?: number | null
+  uomRoundingMode?: 'half_up' | 'down' | 'up' | null
 }
 
 type VariantOption = {
@@ -78,11 +83,18 @@ type StatusOption = {
   icon: string | null
 }
 
+type UnitOption = {
+  code: string
+  toBaseFactor: number | null
+  isBase: boolean
+}
+
 type LineFormState = {
   lineMode: 'catalog' | 'custom'
   productId: string | null
   variantId: string | null
   quantity: string
+  quantityUnit: string | null
   priceId: string | null
   priceMode: 'net' | 'gross'
   unitPrice: string
@@ -114,6 +126,7 @@ const defaultForm = (currencyCode?: string | null): LineFormState => ({
   productId: null,
   variantId: null,
   quantity: '1',
+  quantityUnit: null,
   priceId: null,
   priceMode: 'gross',
   unitPrice: '',
@@ -164,6 +177,25 @@ function buildPlaceholder(label?: string | null) {
   )
 }
 
+function normalizeUnitCode(value: unknown): string | null {
+  if (typeof value !== 'string') return null
+  const normalized = value.trim()
+  return normalized.length ? normalized : null
+}
+
+function roundByMode(
+  value: number,
+  scale: number,
+  mode: 'half_up' | 'down' | 'up'
+): number {
+  const safeScale = Number.isInteger(scale) && scale >= 0 && scale <= 6 ? scale : 4
+  const factor = 10 ** safeScale
+  if (!Number.isFinite(value)) return 0
+  if (mode === 'down') return Math.floor(value * factor) / factor
+  if (mode === 'up') return Math.ceil(value * factor) / factor
+  return Math.round(value * factor) / factor
+}
+
 export function LineItemDialog({
   open,
   kind,
@@ -189,6 +221,7 @@ export function LineItemDialog({
   const [editingId, setEditingId] = React.useState<string | null>(null)
   const [taxRates, setTaxRates] = React.useState<TaxRateOption[]>([])
   const [lineStatuses, setLineStatuses] = React.useState<StatusOption[]>([])
+  const [unitOptions, setUnitOptions] = React.useState<UnitOption[]>([])
   const [, setLineStatusLoading] = React.useState(false)
   const productOptionsRef = React.useRef<Map<string, ProductOption>>(new Map())
   const variantOptionsRef = React.useRef<Map<string, VariantOption>>(new Map())
@@ -269,6 +302,7 @@ export function LineItemDialog({
       setProductOption(null)
       setVariantOption(null)
       setPriceOptions([])
+      setUnitOptions([])
       setEditingId(null)
       setFormResetKey((prev) => prev + 1)
     },
@@ -366,6 +400,25 @@ export function LineItemDialog({
             (pricing as any)?.tax_rate ?? (pricing as any)?.taxRate ?? (item as any).tax_rate ?? (item as any).taxRate,
             Number.NaN
           )
+          const defaultUnit = normalizeUnitCode((item as any).default_unit ?? (item as any).defaultUnit)
+          const defaultSalesUnit = normalizeUnitCode(
+            (item as any).default_sales_unit ?? (item as any).defaultSalesUnit,
+          )
+          const defaultSalesUnitQuantity = normalizeNumber(
+            (item as any).default_sales_unit_quantity ?? (item as any).defaultSalesUnitQuantity,
+            Number.NaN,
+          )
+          const uomRoundingScale = normalizeNumber(
+            (item as any).uom_rounding_scale ?? (item as any).uomRoundingScale,
+            Number.NaN,
+          )
+          const uomRoundingModeRaw = normalizeUnitCode(
+            (item as any).uom_rounding_mode ?? (item as any).uomRoundingMode,
+          )
+          const uomRoundingMode: ProductOption['uomRoundingMode'] =
+            uomRoundingModeRaw === 'down' || uomRoundingModeRaw === 'up' || uomRoundingModeRaw === 'half_up'
+              ? uomRoundingModeRaw
+              : null
           const matches =
             !needle ||
             title.toLowerCase().includes(needle) ||
@@ -385,6 +438,11 @@ export function LineItemDialog({
               thumbnailUrl: thumbnail,
               taxRateId: pricingTaxRateId ?? metaTaxRateId ?? null,
               taxRate: Number.isFinite(taxRateValue) ? taxRateValue : null,
+              defaultUnit,
+              defaultSalesUnit,
+              defaultSalesUnitQuantity: Number.isFinite(defaultSalesUnitQuantity) ? defaultSalesUnitQuantity : null,
+              uomRoundingScale: Number.isFinite(uomRoundingScale) ? uomRoundingScale : null,
+              uomRoundingMode,
             } satisfies ProductOption,
           } as LookupSelectItem & { option: ProductOption }
         })
@@ -455,8 +513,66 @@ export function LineItemDialog({
     [],
   )
 
+  const loadProductUnits = React.useCallback(
+    async (productId: string | null, option: ProductOption | null): Promise<UnitOption[]> => {
+      if (!productId) {
+        setUnitOptions([])
+        return []
+      }
+      const map = new Map<string, UnitOption>()
+      const baseUnit = normalizeUnitCode(option?.defaultUnit)
+      if (baseUnit) {
+        map.set(baseUnit, { code: baseUnit, toBaseFactor: 1, isBase: true })
+      }
+      try {
+        const response = await apiCall<{ items?: Array<Record<string, unknown>> }>(
+          `/api/catalog/product-unit-conversions?productId=${encodeURIComponent(productId)}&pageSize=100`,
+          undefined,
+          { fallback: { items: [] } },
+        )
+        const rows = Array.isArray(response.result?.items) ? response.result.items : []
+        for (const row of rows) {
+          const unitCode = normalizeUnitCode((row as any).unit_code ?? (row as any).unitCode)
+          if (!unitCode) continue
+          const isActive =
+            typeof (row as any).is_active === 'boolean'
+              ? (row as any).is_active
+              : typeof (row as any).isActive === 'boolean'
+                ? (row as any).isActive
+                : true
+          if (!isActive) continue
+          const factor = normalizeNumber((row as any).to_base_factor ?? (row as any).toBaseFactor, Number.NaN)
+          map.set(unitCode, {
+            code: unitCode,
+            toBaseFactor: Number.isFinite(factor) && factor > 0 ? factor : null,
+            isBase: baseUnit ? unitCode === baseUnit : false,
+          })
+        }
+      } catch (err) {
+        console.error('sales.document.items.loadUnits', err)
+      }
+      const defaultSalesUnit = normalizeUnitCode(option?.defaultSalesUnit)
+      if (defaultSalesUnit && !map.has(defaultSalesUnit)) {
+        map.set(defaultSalesUnit, {
+          code: defaultSalesUnit,
+          toBaseFactor: baseUnit && defaultSalesUnit === baseUnit ? 1 : null,
+          isBase: baseUnit ? defaultSalesUnit === baseUnit : false,
+        })
+      }
+      const nextOptions = Array.from(map.values()).sort((left, right) => left.code.localeCompare(right.code))
+      setUnitOptions(nextOptions)
+      return nextOptions
+    },
+    [],
+  )
+
   const loadPrices = React.useCallback(
-    async (productId: string | null, variantId: string | null) => {
+    async (
+      productId: string | null,
+      variantId: string | null,
+      quantity?: string | number | null,
+      quantityUnit?: string | null,
+    ) => {
       if (!productId) {
         setPriceOptions([])
         return []
@@ -465,6 +581,14 @@ export function LineItemDialog({
       try {
         const params = new URLSearchParams({ productId, pageSize: '20' })
         if (variantId) params.set('variantId', variantId)
+        const quantityValue = normalizeNumber(quantity, Number.NaN)
+        if (Number.isFinite(quantityValue) && quantityValue > 0) {
+          params.set('quantity', String(quantityValue))
+        }
+        const quantityUnitCode = normalizeUnitCode(quantityUnit)
+        if (quantityUnitCode) {
+          params.set('quantityUnit', quantityUnitCode)
+        }
         const response = await apiCall<{ items?: Array<Record<string, unknown>> }>(
           `/api/catalog/prices?${params.toString()}`,
           undefined,
@@ -689,6 +813,11 @@ export function LineItemDialog({
           { quantity: t('sales.documents.items.errorQuantity', 'Quantity must be greater than 0.') },
         )
       }
+      const resolvedQuantityUnit = (() => {
+        const entered = normalizeUnitCode(values.quantityUnit)
+        if (isCustomLine) return entered
+        return entered ?? normalizeUnitCode(productOption?.defaultSalesUnit) ?? normalizeUnitCode(productOption?.defaultUnit)
+      })()
 
       const unitPriceNumber = Number(values.unitPrice ?? values.unitPrice ?? 0)
       console.log('unit price raw -> parsed', { raw: values.unitPrice, parsed: unitPriceNumber })
@@ -765,6 +894,7 @@ export function LineItemDialog({
           : {}),
         ...(isCustomLine ? { customLine: true } : {}),
         lineMode,
+        ...(resolvedQuantityUnit ? { quantityUnit: resolvedQuantityUnit } : {}),
       }
 
       const payload: Record<string, unknown> = {
@@ -774,6 +904,7 @@ export function LineItemDialog({
         productId: isCustomLine ? undefined : values.productId ? String(values.productId) : undefined,
         productVariantId: isCustomLine ? undefined : values.variantId ? String(values.variantId) : undefined,
         quantity: qtyNumber,
+        quantityUnit: resolvedQuantityUnit ?? undefined,
         currencyCode: String(resolvedCurrency),
         priceId: !isCustomLine && values.priceId ? String(values.priceId) : undefined,
         priceMode: resolvedPriceMode,
@@ -857,10 +988,12 @@ export function LineItemDialog({
               setProductOption(null)
               setVariantOption(null)
               setPriceOptions([])
+              setUnitOptions([])
               setFormValue?.('productId', null)
               setFormValue?.('variantId', null)
               setFormValue?.('priceId', null)
               setFormValue?.('catalogSnapshot', null)
+              setFormValue?.('quantityUnit', null)
             } else {
               setFormValue?.('unitPrice', '')
               setFormValue?.('priceMode', 'gross')
@@ -912,11 +1045,21 @@ export function LineItemDialog({
                     setProductOption(selectedOption)
                     setVariantOption(null)
                     setPriceOptions([])
+                    setUnitOptions([])
                     setValue(next ?? null)
                     setFormValue?.('variantId', null)
                     setFormValue?.('priceId', null)
                     setFormValue?.('unitPrice', '')
                     setFormValue?.('priceMode', 'gross')
+                    const defaultQuantityUnit = selectedOption?.defaultSalesUnit ?? selectedOption?.defaultUnit ?? null
+                    setFormValue?.('quantityUnit', defaultQuantityUnit)
+                    if (
+                      typeof selectedOption?.defaultSalesUnitQuantity === 'number' &&
+                      Number.isFinite(selectedOption.defaultSalesUnitQuantity) &&
+                      selectedOption.defaultSalesUnitQuantity > 0
+                    ) {
+                      setFormValue?.('quantity', String(selectedOption.defaultSalesUnitQuantity))
+                    }
                     const taxSelection = selectedOption
                       ? resolveTaxSelection(selectedOption)
                       : { taxRate: null, taxRateId: null }
@@ -935,12 +1078,20 @@ export function LineItemDialog({
                               title: selectedOption?.title ?? null,
                               sku: selectedOption?.sku ?? null,
                               thumbnailUrl: selectedOption?.thumbnailUrl ?? null,
+                              defaultUnit: selectedOption?.defaultUnit ?? null,
+                              defaultSalesUnit: selectedOption?.defaultSalesUnit ?? null,
                             },
                           }
                         : null,
                     )
                     if (next) {
-                      void loadPrices(next, null)
+                      void loadProductUnits(next, selectedOption)
+                      void loadPrices(
+                        next,
+                        null,
+                        typeof values?.quantity === 'string' ? values.quantity : 1,
+                        defaultQuantityUnit,
+                      )
                     }
                   }}
                   fetchItems={loadProductOptions}
@@ -1026,7 +1177,10 @@ export function LineItemDialog({
                         setFormValue?.('catalogSnapshot', null)
                       }
                       if (productId) {
-                        void loadPrices(productId, next)
+                        const currentQuantity = typeof values?.quantity === 'string' ? values.quantity : 1
+                        const currentQuantityUnit =
+                          typeof values?.quantityUnit === 'string' ? values.quantityUnit : null
+                        void loadPrices(productId, next, currentQuantity, currentQuantityUnit)
                       }
                     }}
                     fetchItems={async (query) => {
@@ -1113,7 +1267,12 @@ export function LineItemDialog({
                       }
                     }}
                     fetchItems={async (query) => {
-                      const prices = await loadPrices(productId, variantId)
+                      const prices = await loadPrices(
+                        productId,
+                        variantId,
+                        typeof values?.quantity === 'string' ? values.quantity : 1,
+                        typeof values?.quantityUnit === 'string' ? values.quantityUnit : null,
+                      )
                       const needle = query?.trim().toLowerCase() ?? ''
                       return prices
                         .filter((price) => {
@@ -1240,17 +1399,118 @@ export function LineItemDialog({
         },
       } satisfies CrudField,
       {
+        id: 'quantityUnit',
+        label: t('sales.documents.items.quantityUnit', 'Unit'),
+        type: 'custom',
+        layout: 'half',
+        component: ({ value, setValue, values }: FieldRenderProps) => {
+          const productId = typeof values?.productId === 'string' ? values.productId : null
+          const variantId = typeof values?.variantId === 'string' ? values.variantId : null
+          if (isCustomLine) {
+            return (
+              <Input
+                value={typeof value === 'string' ? value : ''}
+                onChange={(event) => setValue(event.target.value || null)}
+                placeholder={t('sales.documents.items.quantityUnitPlaceholder', 'e.g. pc')}
+              />
+            )
+          }
+          return (
+            <select
+              className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+              value={typeof value === 'string' ? value : ''}
+              onChange={(event) => {
+                const nextValue = event.target.value || null
+                setValue(nextValue)
+                if (productId) {
+                  void loadPrices(
+                    productId,
+                    variantId,
+                    typeof values?.quantity === 'string' ? values.quantity : 1,
+                    nextValue,
+                  )
+                }
+              }}
+              disabled={!productId}
+            >
+              <option value="">{t('sales.documents.items.quantityUnitSelect', 'Select unit')}</option>
+              {unitOptions.map((option) => (
+                <option key={option.code} value={option.code}>
+                  {option.code}
+                </option>
+              ))}
+            </select>
+          )
+        },
+      } satisfies CrudField,
+      {
         id: 'quantity',
         label: t('sales.documents.items.quantity', 'Quantity'),
         type: 'custom',
         layout: 'half',
-        component: ({ value, setValue }: FieldRenderProps) => (
+        component: ({ value, setValue, values }: FieldRenderProps) => (
           <Input
             value={typeof value === 'string' ? value : value == null ? '' : String(value)}
-            onChange={(event) => setValue(event.target.value)}
+            onChange={(event) => {
+              const nextQuantity = event.target.value
+              setValue(nextQuantity)
+              const productId = typeof values?.productId === 'string' ? values.productId : null
+              const variantId = typeof values?.variantId === 'string' ? values.variantId : null
+              const quantityUnit = typeof values?.quantityUnit === 'string' ? values.quantityUnit : null
+              if (productId) {
+                void loadPrices(productId, variantId, nextQuantity, quantityUnit)
+              }
+            }}
             placeholder="1"
           />
         ),
+      } satisfies CrudField,
+      {
+        id: 'uomPreview',
+        label: t('sales.documents.items.uomPreview', 'Normalized quantity'),
+        type: 'custom',
+        layout: 'full',
+        component: ({ values }: FieldRenderProps) => {
+          if (isCustomLine) return null
+          const quantity = normalizeNumber(values?.quantity, Number.NaN)
+          const enteredUnit = normalizeUnitCode(values?.quantityUnit)
+          if (!Number.isFinite(quantity) || quantity <= 0 || !enteredUnit) {
+            return (
+              <p className="text-xs text-muted-foreground">
+                {t('sales.documents.items.uomPreviewEmpty', 'Select unit and quantity to preview normalization.')}
+              </p>
+            )
+          }
+          const selectedOption = unitOptions.find((option) => option.code === enteredUnit) ?? null
+          const baseOption = unitOptions.find((option) => option.isBase) ?? null
+          const factor = selectedOption?.toBaseFactor
+          if (!Number.isFinite(factor) || !factor || !baseOption) {
+            return (
+              <p className="text-xs text-muted-foreground">
+                {t('sales.documents.items.uomPreviewUnavailable', 'Missing conversion to base unit.')}
+              </p>
+            )
+          }
+          const roundingScale =
+            typeof productOption?.uomRoundingScale === 'number' && Number.isInteger(productOption.uomRoundingScale)
+              ? productOption.uomRoundingScale
+              : 4
+          const roundingMode: 'half_up' | 'down' | 'up' =
+            productOption?.uomRoundingMode === 'down' || productOption?.uomRoundingMode === 'up'
+              ? productOption.uomRoundingMode
+              : 'half_up'
+          const normalized = roundByMode(quantity * factor, roundingScale, roundingMode)
+          return (
+            <p className="text-xs text-muted-foreground">
+              {t('sales.documents.items.uomPreviewTemplate', '{{quantity}} {{unit}} → {{normalized}} {{baseUnit}}', {
+                quantity,
+                unit: enteredUnit,
+                normalized,
+                baseUnit: baseOption.code,
+              })}
+            </p>
+          )
+        },
       } satisfies CrudField,
       {
         id: 'statusEntryId',
@@ -1286,12 +1546,14 @@ export function LineItemDialog({
     currencyCode,
     findTaxRateIdByValue,
     loadPrices,
+    loadProductUnits,
     loadProductOptions,
     loadVariantOptions,
     fetchLineStatusItems,
     priceLoading,
     priceOptions,
     productOption,
+    unitOptions,
     lineMode,
     variantOption,
     t,
@@ -1340,6 +1602,7 @@ export function LineItemDialog({
     nextForm.productId = initialLine.productId
     nextForm.variantId = initialLine.productVariantId
     nextForm.quantity = initialLine.quantity.toString()
+    nextForm.quantityUnit = initialLine.quantityUnit ?? null
     const metaMode = (meta as any)?.priceMode
     const resolvedPriceMode =
       metaMode === 'net' || metaMode === 'gross' ? metaMode : initialLine.priceMode ?? 'gross'
@@ -1465,11 +1728,26 @@ export function LineItemDialog({
     setLineMode(merged.lineMode)
     setFormResetKey((prev) => prev + 1)
     if (initialLine.productId) {
-      void loadPrices(initialLine.productId, initialLine.productVariantId)
+      void loadProductUnits(initialLine.productId, resolvedProductOption).then((options) => {
+        const requestedUnit = normalizeUnitCode(nextForm.quantityUnit)
+        if (requestedUnit && !options.some((entry) => entry.code === requestedUnit)) {
+          setUnitOptions((prev) => [
+            ...prev,
+            { code: requestedUnit, toBaseFactor: null, isBase: false },
+          ])
+        }
+      })
+      void loadPrices(
+        initialLine.productId,
+        initialLine.productVariantId,
+        nextForm.quantity,
+        nextForm.quantityUnit,
+      )
     } else {
       setPriceOptions([])
+      setUnitOptions([])
     }
-  }, [currencyCode, findTaxRateIdByValue, initialLine, loadPrices, open, resetForm])
+  }, [currencyCode, findTaxRateIdByValue, initialLine, loadPrices, loadProductUnits, open, resetForm])
 
   return (
     <Dialog open={open} onOpenChange={(next) => (next ? onOpenChange(true) : closeDialog())}>

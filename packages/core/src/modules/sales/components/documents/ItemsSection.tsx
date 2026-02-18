@@ -105,6 +105,28 @@ export function SalesDocumentItemsSection({
                 ? (item.catalog_snapshot as any).name
                 : null
           const quantity = normalizeNumber(item.quantity, 0)
+          const quantityUnit =
+            typeof (item as any).quantity_unit === 'string'
+              ? (item as any).quantity_unit
+              : typeof (item as any).quantityUnit === 'string'
+                ? (item as any).quantityUnit
+                : null
+          const normalizedQuantity = normalizeNumber(
+            (item as any).normalized_quantity ?? (item as any).normalizedQuantity,
+            quantity,
+          )
+          const normalizedUnit =
+            typeof (item as any).normalized_unit === 'string'
+              ? (item as any).normalized_unit
+              : typeof (item as any).normalizedUnit === 'string'
+                ? (item as any).normalizedUnit
+                : quantityUnit
+          const uomSnapshot =
+            typeof (item as any).uom_snapshot === 'object' && (item as any).uom_snapshot
+              ? ((item as any).uom_snapshot as Record<string, unknown>)
+              : typeof (item as any).uomSnapshot === 'object' && (item as any).uomSnapshot
+                ? ((item as any).uomSnapshot as Record<string, unknown>)
+                : null
           const unitPriceNetRaw = normalizeNumber((item as any).unit_price_net ?? (item as any).unitPriceNet, Number.NaN)
           const unitPriceGrossRaw = normalizeNumber(
             (item as any).unit_price_gross ?? (item as any).unitPriceGross,
@@ -154,6 +176,9 @@ export function SalesDocumentItemsSection({
             productId: typeof item.product_id === 'string' ? item.product_id : null,
             productVariantId: typeof item.product_variant_id === 'string' ? item.product_variant_id : null,
             quantity,
+            quantityUnit,
+            normalizedQuantity,
+            normalizedUnit,
             currencyCode:
               typeof item.currency_code === 'string'
                 ? item.currency_code
@@ -166,6 +191,7 @@ export function SalesDocumentItemsSection({
             totalNet,
             totalGross,
             priceMode,
+            uomSnapshot,
             metadata: (item.metadata as Record<string, unknown> | null | undefined) ?? null,
             catalogSnapshot: (item.catalog_snapshot as Record<string, unknown> | null | undefined) ?? null,
             customFieldSetId,
@@ -424,6 +450,32 @@ export function SalesDocumentItemsSection({
                 const variantSuffix = variantSku && variantLabel && variantSku !== variantLabel ? ` • ${variantSku}` : ''
                 const showProductSku = productSku && productSku !== variantSku ? productSku : null
                 const shippedQuantity = Math.max(0, shippedTotals.get(item.id) ?? 0)
+                const quantityLabel = item.quantityUnit ? `${item.quantity} ${item.quantityUnit}` : String(item.quantity)
+                const showNormalized =
+                  Number.isFinite(item.normalizedQuantity) &&
+                  item.normalizedQuantity > 0 &&
+                  (item.normalizedUnit ?? null) &&
+                  (Math.abs(item.normalizedQuantity - item.quantity) > 0.000001 ||
+                    (item.normalizedUnit ?? null) !== (item.quantityUnit ?? null))
+                const unitPriceReference =
+                  item.uomSnapshot &&
+                  typeof item.uomSnapshot === 'object' &&
+                  typeof (item.uomSnapshot as Record<string, unknown>).unitPriceReference === 'object' &&
+                  (item.uomSnapshot as Record<string, unknown>).unitPriceReference
+                    ? ((item.uomSnapshot as Record<string, unknown>).unitPriceReference as Record<string, unknown>)
+                    : null
+                const referenceGross = normalizeNumber(
+                  unitPriceReference?.grossPerReference ?? unitPriceReference?.gross_per_reference,
+                  Number.NaN,
+                )
+                const referenceUnit =
+                  typeof unitPriceReference?.referenceUnitCode === 'string'
+                    ? unitPriceReference.referenceUnitCode
+                    : typeof unitPriceReference?.reference_unit_code === 'string'
+                      ? unitPriceReference.reference_unit_code
+                      : typeof unitPriceReference?.referenceUnit === 'string'
+                        ? unitPriceReference.referenceUnit
+                        : null
 
                 return (
                   <tr
@@ -453,7 +505,12 @@ export function SalesDocumentItemsSection({
                     </td>
                     <td className="px-3 py-3">
                       <div className="flex flex-col gap-0.5">
-                        <span className="font-medium">{item.quantity}</span>
+                        <span className="font-medium">{quantityLabel}</span>
+                        {showNormalized ? (
+                          <span className="text-xs text-muted-foreground">
+                            {item.normalizedQuantity} {item.normalizedUnit}
+                          </span>
+                        ) : null}
                         {shippedQuantity > 0 ? (
                           <span className="text-xs text-muted-foreground">
                             {t('sales.documents.items.table.shipped', '{{shipped}} / {{total}} shipped', {
@@ -476,6 +533,14 @@ export function SalesDocumentItemsSection({
                           {formatMoney(item.unitPriceNet, item.currencyCode ?? currencyCode ?? undefined)}{' '}
                           {t('sales.documents.items.table.net', 'net')}
                         </span>
+                        {Number.isFinite(referenceGross) && referenceUnit ? (
+                          <span className="text-xs text-muted-foreground">
+                            {t('sales.documents.items.table.unitPriceReference', '{{value}} per 1 {{unit}}', {
+                              value: formatMoney(referenceGross, item.currencyCode ?? currencyCode ?? undefined),
+                              unit: referenceUnit,
+                            })}
+                          </span>
+                        ) : null}
                       </div>
                     </td>
                     <td className="px-3 py-3 font-semibold">

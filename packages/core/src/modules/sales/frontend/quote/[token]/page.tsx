@@ -27,6 +27,14 @@ type PublicQuoteResponse = {
     description: string | null
     quantity: string
     quantityUnit: string | null
+    normalizedQuantity: string
+    normalizedUnit: string | null
+    unitPriceReference?: {
+      referenceUnitCode?: string | null
+      referenceUnit?: string | null
+      grossPerReference?: string | null
+      netPerReference?: string | null
+    } | null
     currencyCode: string
     totalGrossAmount: string
   }>
@@ -144,6 +152,23 @@ export default function QuotePublicPage({ params }: { params: { token: string } 
                   {t('sales.quotes.public.qty', { quantity: line.quantity })}
                   {line.quantityUnit ? ` ${line.quantityUnit}` : ''}
                 </p>
+                {line.normalizedUnit && (line.normalizedUnit !== line.quantityUnit || line.normalizedQuantity !== line.quantity) ? (
+                  <p className="text-xs text-muted-foreground">
+                    {line.normalizedQuantity} {line.normalizedUnit}
+                  </p>
+                ) : null}
+                {(line.unitPriceReference?.grossPerReference || line.unitPriceReference?.netPerReference) ? (
+                  <p className="text-xs text-muted-foreground">
+                    {(line.unitPriceReference?.grossPerReference ?? line.unitPriceReference?.netPerReference) ?? ''}{' '}
+                    {line.currencyCode}{' '}
+                    {t('sales.quotes.public.perReferenceUnit', 'per 1 {{unit}}', {
+                      unit:
+                        line.unitPriceReference?.referenceUnitCode ??
+                        line.unitPriceReference?.referenceUnit ??
+                        'unit',
+                    })}
+                  </p>
+                ) : null}
               </div>
               <div className="text-right text-sm">
                 <p>
@@ -195,5 +220,4 @@ export default function QuotePublicPage({ params }: { params: { token: string } 
     </main>
   )
 }
-
 
