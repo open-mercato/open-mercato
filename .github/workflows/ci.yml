@@ -38,6 +38,9 @@ jobs:
       - name: Rebuild packages with generated files
         run: yarn build:packages
 
+      - name: Check i18n sync
+        run: yarn i18n:check-sync
+
       - name: Checking types
         run: yarn typecheck
 
