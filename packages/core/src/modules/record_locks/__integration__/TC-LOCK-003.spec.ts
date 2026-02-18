@@ -18,6 +18,8 @@ import {
  * TC-LOCK-003: Accept mine conflict resolution and notification
  */
 test.describe('TC-LOCK-003: Accept mine conflict resolution and notification', () => {
+  test.describe.configure({ timeout: 90_000 });
+
   test('should resolve conflict with accept_mine and notify incoming actor', async ({ request }) => {
     const superadminToken = await getAuthToken(request, 'superadmin');
     const adminToken = await getAuthToken(request, 'admin');

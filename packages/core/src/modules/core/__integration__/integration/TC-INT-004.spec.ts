@@ -1,4 +1,4 @@
-import { expect, test } from '@playwright/test';
+import { expect, test, type BrowserContext } from '@playwright/test';
 import { login } from '@open-mercato/core/modules/core/__integration__/helpers/auth';
 import { apiRequest, getAuthToken } from '@open-mercato/core/modules/core/__integration__/helpers/api';
 import { createUserViaUi } from '@open-mercato/core/modules/core/__integration__/helpers/authUi';
@@ -16,7 +16,7 @@ test.describe('TC-INT-004: User to Role to Permission to Access Verification', (
     let token: string | null = null;
     let roleId: string | null = null;
     let userId: string | null = null;
-    let limitedContext: { close: () => Promise<void> } | null = null;
+    let limitedContext: BrowserContext | null = null;
 
     try {
       token = await getAuthToken(request);
@@ -37,7 +37,10 @@ test.describe('TC-INT-004: User to Role to Permission to Access Verification', (
       userId = page.url().match(/\/backend\/users\/([0-9a-f-]{36})\/edit$/i)?.[1] ?? null;
 
       const browser = page.context().browser();
-      if (!browser) test.skip(true, 'No browser instance available for secondary session validation.');
+      if (!browser) {
+        test.skip(true, 'No browser instance available for secondary session validation.');
+        return;
+      }
 
       limitedContext = await browser.newContext({ baseURL: process.env.BASE_URL || 'http://localhost:3000' });
       const limitedPage = await limitedContext.newPage();

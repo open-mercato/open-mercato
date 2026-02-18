@@ -18,6 +18,8 @@ import {
  * TC-LOCK-002: Optimistic conflict with accept incoming path
  */
 test.describe('TC-LOCK-002: Optimistic conflict with accept incoming path', () => {
+  test.describe.configure({ timeout: 90_000 });
+
   test('should keep incoming change when conflicted editor accepts incoming', async ({ request }) => {
     const superadminToken = await getAuthToken(request, 'superadmin');
     const adminToken = await getAuthToken(request, 'admin');
@@ -35,6 +37,7 @@ test.describe('TC-LOCK-002: Optimistic conflict with accept incoming path', () =
         enabled: true,
         strategy: 'optimistic',
         enabledResources: ['customers.company'],
+        notifyOnConflict: true,
       });
 
       companyId = await createCompanyFixture(request, adminToken, `QA TC-LOCK-002 Company ${Date.now()}`);

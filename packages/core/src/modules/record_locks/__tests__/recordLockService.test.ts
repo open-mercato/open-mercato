@@ -226,6 +226,64 @@ describe('RecordLockService.validateMutation', () => {
       '40000000-0000-4000-8000-000000000001',
     )
   })
+
+  test('returns 409 when conflict resolution is attempted by a different user', async () => {
+    const { service } = createService()
+    const serviceAny = service as any
+
+    serviceAny.findActiveLock = jest.fn().mockResolvedValue(null)
+    serviceAny.findLatestActionLog = jest.fn().mockResolvedValue({
+      id: '80000000-0000-4000-8000-000000000001',
+      actorUserId: '90000000-0000-4000-8000-000000000001',
+    })
+    serviceAny.findConflictById = jest.fn().mockResolvedValue({
+      id: 'a0000000-0000-4000-8000-000000000002',
+      resourceKind: 'sales.quote',
+      resourceId: '20000000-0000-4000-8000-000000000001',
+      status: 'pending',
+      resolution: null,
+      baseActionLogId: '50000000-0000-4000-8000-000000000001',
+      incomingActionLogId: '80000000-0000-4000-8000-000000000001',
+      conflictActorUserId: '40000000-0000-4000-8000-000000000099',
+      incomingActorUserId: '90000000-0000-4000-8000-000000000001',
+      tenantId: '60000000-0000-4000-8000-000000000001',
+      organizationId: '70000000-0000-4000-8000-000000000001',
+    })
+    serviceAny.toConflictPayload = jest.fn().mockResolvedValue({
+      id: 'a0000000-0000-4000-8000-000000000002',
+      resourceKind: 'sales.quote',
+      resourceId: '20000000-0000-4000-8000-000000000001',
+      baseActionLogId: '50000000-0000-4000-8000-000000000001',
+      incomingActionLogId: '80000000-0000-4000-8000-000000000001',
+      resolutionOptions: ['accept_mine'],
+      changes: [],
+    })
+    serviceAny.resolveConflict = jest.fn().mockResolvedValue(undefined)
+
+    const result = await service.validateMutation({
+      tenantId: '60000000-0000-4000-8000-000000000001',
+      organizationId: '70000000-0000-4000-8000-000000000001',
+      userId: '40000000-0000-4000-8000-000000000001',
+      resourceKind: 'sales.quote',
+      resourceId: '20000000-0000-4000-8000-000000000001',
+      method: 'PUT',
+      headers: {
+        conflictId: 'a0000000-0000-4000-8000-000000000002',
+        resolution: 'accept_mine',
+      },
+      mutationPayload: {
+        id: '20000000-0000-4000-8000-000000000001',
+        displayName: 'Acme Mine',
+      },
+    })
+
+    expect(result.ok).toBe(false)
+    if (result.ok) throw new Error('Expected conflict failure')
+    expect(result.status).toBe(409)
+    expect(result.code).toBe('record_lock_conflict')
+    expect(serviceAny.resolveConflict).not.toHaveBeenCalled()
+    expect(serviceAny.toConflictPayload).toHaveBeenCalledTimes(1)
+  })
 })
 
 describe('RecordLockService.acquire', () => {
@@ -333,5 +391,51 @@ describe('RecordLockService.release', () => {
       'accept_incoming',
       '40000000-0000-4000-8000-000000000001',
     )
+  })
+
+  test('resolves pending conflict as accept_incoming without lock token', async () => {
+    const { service } = createService(DEFAULT_SETTINGS)
+    const serviceAny = service as any
+
+    const conflict = {
+      id: 'a0000000-0000-4000-8000-000000000002',
+      resourceKind: 'sales.quote',
+      resourceId: '20000000-0000-4000-8000-000000000001',
+      status: 'pending',
+      resolution: null,
+      baseActionLogId: '50000000-0000-4000-8000-000000000001',
+      incomingActionLogId: '80000000-0000-4000-8000-000000000001',
+      conflictActorUserId: '40000000-0000-4000-8000-000000000001',
+      incomingActorUserId: '90000000-0000-4000-8000-000000000001',
+      tenantId: '60000000-0000-4000-8000-000000000001',
+      organizationId: '70000000-0000-4000-8000-000000000001',
+    }
+
+    serviceAny.findConflictById = jest.fn().mockResolvedValue(conflict)
+    serviceAny.resolveConflict = jest.fn().mockResolvedValue(undefined)
+    serviceAny.findOwnedLockByToken = jest.fn()
+
+    const result = await service.release({
+      reason: 'conflict_resolved',
+      conflictId: 'a0000000-0000-4000-8000-000000000002',
+      resolution: 'accept_incoming',
+      resourceKind: 'sales.quote',
+      resourceId: '20000000-0000-4000-8000-000000000001',
+      tenantId: '60000000-0000-4000-8000-000000000001',
+      organizationId: '70000000-0000-4000-8000-000000000001',
+      userId: '40000000-0000-4000-8000-000000000001',
+    })
+
+    expect(result).toEqual({
+      ok: true,
+      released: false,
+      conflictResolved: true,
+    })
+    expect(serviceAny.resolveConflict).toHaveBeenCalledWith(
+      expect.objectContaining({ id: 'a0000000-0000-4000-8000-000000000002' }),
+      'accept_incoming',
+      '40000000-0000-4000-8000-000000000001',
+    )
+    expect(serviceAny.findOwnedLockByToken).not.toHaveBeenCalled()
   })
 })

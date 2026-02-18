@@ -86,4 +86,50 @@ describe('record_locks release route', () => {
       userId: '10000000-0000-4000-8000-000000000001',
     })
   })
+
+  test('accepts conflict_resolved payload without token and passes it to service', async () => {
+    const release = jest.fn().mockResolvedValue({
+      ok: true,
+      released: false,
+      conflictResolved: true,
+    })
+
+    ;(resolveRecordLocksApiContext as jest.Mock).mockResolvedValue({
+      auth: {
+        sub: '10000000-0000-4000-8000-000000000001',
+        tenantId: '20000000-0000-4000-8000-000000000001',
+      },
+      organizationId: '30000000-0000-4000-8000-000000000001',
+      recordLockService: { release },
+    })
+
+    const response = await POST(
+      makeRequest({
+        resourceKind: 'sales.quote',
+        resourceId: '40000000-0000-4000-8000-000000000001',
+        reason: 'conflict_resolved',
+        conflictId: '60000000-0000-4000-8000-000000000001',
+        resolution: 'accept_incoming',
+      }),
+    )
+
+    expect(response.status).toBe(200)
+    const body = await response.json()
+    expect(body).toEqual({
+      ok: true,
+      released: false,
+      conflictResolved: true,
+    })
+    expect(release).toHaveBeenCalledWith({
+      token: undefined,
+      resourceKind: 'sales.quote',
+      resourceId: '40000000-0000-4000-8000-000000000001',
+      reason: 'conflict_resolved',
+      conflictId: '60000000-0000-4000-8000-000000000001',
+      resolution: 'accept_incoming',
+      tenantId: '20000000-0000-4000-8000-000000000001',
+      organizationId: '30000000-0000-4000-8000-000000000001',
+      userId: '10000000-0000-4000-8000-000000000001',
+    })
+  })
 })

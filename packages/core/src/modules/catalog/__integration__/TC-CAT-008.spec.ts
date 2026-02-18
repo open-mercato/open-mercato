@@ -22,11 +22,12 @@ test.describe('TC-CAT-008: Create Nested Category Hierarchy', () => {
     const selectParent = async (): Promise<void> => {
       const parentSelect = page.getByRole('combobox').filter({ hasText: /Root level/i }).first();
       await expect(parentSelect).toBeEnabled();
-      await parentSelect.selectOption(parentCategoryId ?? undefined).catch(async () => {
-        if (parentCategoryId) {
-          await parentSelect.selectOption({ value: parentCategoryId }).catch(() => {});
-        }
-      });
+      if (parentCategoryId) {
+        const parentId = parentCategoryId;
+        await parentSelect.selectOption(parentId).catch(async () => {
+          await parentSelect.selectOption({ value: parentId }).catch(() => {});
+        });
+      }
       const selectedValue = await parentSelect.inputValue().catch(() => '');
       if (parentCategoryId && selectedValue === parentCategoryId) {
         return;

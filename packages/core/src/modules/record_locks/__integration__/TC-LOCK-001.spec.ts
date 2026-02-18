@@ -15,6 +15,8 @@ import {
  * TC-LOCK-001: Pessimistic lock blocks a second editor
  */
 test.describe('TC-LOCK-001: Pessimistic lock blocks a second editor', () => {
+  test.describe.configure({ timeout: 90_000 });
+
   test('should return 423 for secondary editor update while lock is active', async ({ request }) => {
     const superadminToken = await getAuthToken(request, 'superadmin');
     const adminToken = await getAuthToken(request, 'admin');

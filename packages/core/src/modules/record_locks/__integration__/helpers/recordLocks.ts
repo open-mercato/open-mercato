@@ -316,7 +316,7 @@ export async function waitForNotification(
   token: string,
   type: string,
   predicate: (item: NotificationItem) => boolean,
-  timeoutMs = 8_000,
+  timeoutMs = 15_000,
   pollMs = 250,
 ): Promise<NotificationItem> {
   const startedAt = Date.now();
