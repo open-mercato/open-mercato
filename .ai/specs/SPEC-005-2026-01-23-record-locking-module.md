@@ -2,14 +2,14 @@
 
 ## Overview
 
-The Record Locking module provides optimistic and pessimistic locking mechanisms for records being edited, with conflict detection, resolution UI, and merge capabilities. It prevents data loss when multiple users edit the same record simultaneously.
+The Record Locking module provides optimistic and pessimistic locking mechanisms for records being edited, with conflict detection and resolution UI. It prevents data loss when multiple users edit the same record simultaneously.
 
 **Key Features:**
 - **Pessimistic Locking** - Completely blocks other users from editing a locked record
 - **Optimistic Locking** - Allows concurrent edits but detects conflicts on save
 - **Auto-release** - Locks automatically expire after configurable timeout
 - **Force Unlock** - Admins can forcibly release locks
-- **Conflict Resolution UI** - Side-by-side diff view with merge options
+- **Conflict Resolution UI** - Side-by-side diff view with accept incoming / keep my changes actions
 - **Notifications** - Both users notified of conflicts and merge results
 
 **Package Location:** `packages/core/src/modules/record_locks/`
@@ -36,13 +36,13 @@ Minimal correction aligned with version-history changes from #479:
 | RL7 | User | Detect conflict | In optimistic mode, conflict detected on save | High |
 | RL8 | User | Accept incoming | User discards their changes, accepts other's version | High |
 | RL9 | User | Accept mine | User overwrites with their changes (creates new version) | High |
-| RL10 | User | Combine changes | User opens merge UI to manually combine changes | High |
+| RL10 | User | Combine changes | API-level merge resolution (`merged`) for guarded clients; no dedicated merge UI in current CRUD form | Medium |
 | RL11 | User | View diff | User sees side-by-side comparison of versions | High |
 | RL12 | User | Receive notification | User notified when their edit conflicts or is merged | High |
 | RL13 | Admin | Configure mode | Admin sets optimistic/pessimistic mode globally | Medium |
 | RL14 | Admin | Configure timeout | Admin sets lock timeout duration | Medium |
 | RL15 | User | Extend lock | User activity extends the lock timeout | Medium |
-| RL16 | User | Request lock release | User requests current editor to release lock | Low |
+| RL16 | User | Request lock release | Deferred (not implemented in this PR scope) | Low |
 
 ---
 
@@ -68,66 +68,70 @@ RECORD_LOCK_STRATEGY=optimistic
 import { z } from 'zod'
 
 export const recordLockConfigSchema = z.object({
+  enabled: z.boolean().default(false),
+
   // Locking strategy
   strategy: z.enum(['optimistic', 'pessimistic']).default('optimistic'),
-  
+
   // Lock timeout in seconds
-  timeoutSeconds: z.number().min(60).max(3600).default(300),
-  
+  timeoutSeconds: z.number().int().min(30).max(3600).default(300),
+
   // Heartbeat interval in seconds
-  heartbeatSeconds: z.number().min(10).max(120).default(30),
-  
-  // Allow users to request lock release
-  allowLockRequests: z.boolean().default(true),
-  
-  // Auto-merge trivial conflicts (non-overlapping field changes)
-  autoMergeTrivial: z.boolean().default(false),
-  
-  // Entities excluded from locking (by entity ID)
-  excludedEntities: z.array(z.string()).default([]),
-  
-  // Features requiring lock (if empty, all CRUD forms use locking)
-  enabledEntities: z.array(z.string()).optional(),
+  heartbeatSeconds: z.number().int().min(5).max(300).default(30),
+
+  // Resources guarded by lock module (empty array means no guarded resources)
+  enabledResources: z.array(z.string().trim().min(1)).default([]),
+
+  // Whether users with force_release feature can takeover active locks
+  allowForceUnlock: z.boolean().default(true),
+
+  // Whether lock conflict events should create notifications
+  notifyOnConflict: z.boolean().default(true),
 })
 
 export type RecordLockConfig = z.infer<typeof recordLockConfigSchema>
 
 export const DEFAULT_CONFIG: RecordLockConfig = {
+  enabled: false,
   strategy: 'optimistic',
   timeoutSeconds: 300,
   heartbeatSeconds: 30,
-  allowLockRequests: true,
-  autoMergeTrivial: false,
-  excludedEntities: [],
+  enabledResources: [],
+  allowForceUnlock: true,
+  notifyOnConflict: true,
 }
 ```
 
 ### Config Registration
 
 ```typescript
-// packages/core/src/modules/record_locks/config-section.ts
-import type { ConfigSection } from '@open-mercato/shared/lib/config/types'
-import { recordLockConfigSchema } from './lib/config'
-
-export const configSection: ConfigSection = {
-  id: 'record_locks',
-  labelKey: 'recordLocks.config.title',
-  icon: 'lock',
-  schema: recordLockConfigSchema,
-  defaultValue: {
-    strategy: 'optimistic',
-    timeoutSeconds: 300,
-    heartbeatSeconds: 30,
-    allowLockRequests: true,
-    autoMergeTrivial: false,
-    excludedEntities: [],
-  },
-}
+// Current implementation stores settings in module configs:
+// moduleId: 'record_locks', name: 'settings'
+//
+// Runtime write/read:
+// - packages/core/src/modules/record_locks/lib/config.ts
+// - packages/core/src/modules/record_locks/lib/recordLockService.ts
+//
+// Admin UI:
+// - packages/core/src/modules/record_locks/backend/settings/record-locks/page.tsx
 ```
 
 ---
 
 ## Database Schema
+
+### Implementation Contract (2026-02-18)
+
+Canonical data model used by this PR:
+- `record_locks` table stores active lock state (`resource_kind`, `resource_id`, `token`, strategy/status, owner, heartbeat, release metadata, tenant/org scope).
+- `record_lock_conflicts` table stores conflict lifecycle with `base_action_log_id` and `incoming_action_log_id` references.
+- Conflict payloads for UI are computed from `action_logs` snapshots and `changes_json`; lock tables do not persist duplicated full snapshots.
+
+Current implementation files:
+- `packages/core/src/modules/record_locks/data/entities.ts`
+- `packages/core/src/modules/record_locks/migrations/Migration20260218002838.ts`
+
+The legacy draft snippets below are retained for history and are superseded by the contract above.
 
 ### Entity: `RecordLock`
 
@@ -1067,7 +1071,33 @@ function setValueAtPath(obj: Record<string, unknown>, path: string, value: unkno
 
 ## API Endpoints
 
-### Route: `/api/record-locks/acquire`
+### Implementation Contract (2026-02-18)
+
+Canonical HTTP contract implemented in this PR:
+
+| Method | Path | Status |
+|--------|------|--------|
+| `GET` | `/api/record_locks/settings` | Implemented |
+| `POST` | `/api/record_locks/settings` | Implemented |
+| `POST` | `/api/record_locks/acquire` | Implemented |
+| `POST` | `/api/record_locks/heartbeat` | Implemented |
+| `POST` | `/api/record_locks/release` | Implemented |
+| `POST` | `/api/record_locks/force-release` | Implemented |
+
+Mutation enforcement contract:
+- `PUT`/`DELETE` handled by `makeCrudRoute` validate lock state via `recordLockService.validateMutation(...)`.
+- Headers used by guarded mutations:
+  - `x-om-record-lock-kind`
+  - `x-om-record-lock-resource-id`
+  - `x-om-record-lock-token`
+  - `x-om-record-lock-base-log-id`
+  - `x-om-record-lock-resolution` (`normal | accept_mine | merged`)
+  - `x-om-record-lock-conflict-id`
+- `409` is returned for optimistic conflict (`record_lock_conflict`), `423` for active pessimistic lock (`record_locked`).
+
+Routes shown below use an older draft shape and are kept as historical context only.
+
+### Route: `/api/record_locks/acquire`
 
 ```typescript
 // packages/core/src/modules/record_locks/api/acquire/route.ts
@@ -1139,7 +1169,7 @@ export const metadata = {
 }
 ```
 
-### Route: `/api/record-locks/release`
+### Route: `/api/record_locks/release`
 
 ```typescript
 // packages/core/src/modules/record_locks/api/release/route.ts
@@ -1178,7 +1208,7 @@ export const metadata = {
 }
 ```
 
-### Route: `/api/record-locks/force-release`
+### Route: `/api/record_locks/force-release`
 
 ```typescript
 // packages/core/src/modules/record_locks/api/force-release/route.ts
@@ -1215,7 +1245,7 @@ export const metadata = {
 }
 ```
 
-### Route: `/api/record-locks/heartbeat`
+### Route: `/api/record_locks/heartbeat`
 
 ```typescript
 // packages/core/src/modules/record_locks/api/heartbeat/route.ts
@@ -1252,7 +1282,7 @@ export const metadata = {
 }
 ```
 
-### Route: `/api/record-locks/status`
+### Route: `/api/record_locks/status` (Legacy draft, deferred)
 
 ```typescript
 // packages/core/src/modules/record_locks/api/status/route.ts
@@ -1303,7 +1333,7 @@ export const metadata = {
 }
 ```
 
-### Route: `/api/record-locks/validate-save`
+### Route: `/api/record_locks/validate-save` (Legacy draft, deferred)
 
 ```typescript
 // packages/core/src/modules/record_locks/api/validate-save/route.ts
@@ -1369,7 +1399,7 @@ export const metadata = {
 }
 ```
 
-### Route: `/api/record-locks/conflicts`
+### Route: `/api/record_locks/conflicts` (Legacy draft, deferred)
 
 ```typescript
 // packages/core/src/modules/record_locks/api/conflicts/route.ts
@@ -1395,7 +1425,7 @@ export const metadata = {
 }
 ```
 
-### Route: `/api/record-locks/conflicts/[id]/resolve`
+### Route: `/api/record_locks/conflicts/[id]/resolve` (Legacy draft, deferred)
 
 ```typescript
 // packages/core/src/modules/record_locks/api/conflicts/[id]/resolve/route.ts
@@ -2416,7 +2446,12 @@ export default async function handle(
 
 ## Workers
 
-### Worker: Cleanup Expired Locks
+### Implementation Contract (2026-02-18)
+
+Current implementation does not ship a dedicated `record_locks` cleanup worker.
+Expired lock handling is performed lazily in `recordLockService` during lock acquire/heartbeat/validation flows.
+
+### Worker: Cleanup Expired Locks (Legacy draft, deferred)
 
 ```typescript
 // packages/core/src/modules/record_locks/workers/cleanup.worker.ts
@@ -2453,14 +2488,18 @@ export default async function handle(
 ```typescript
 // packages/core/src/modules/record_locks/acl.ts
 export const features = [
-  'record_locks.view',    // View lock status
-  'record_locks.manage',  // Force release locks, configure settings
+  { id: 'record_locks.view', title: 'View and use record locking', module: 'record_locks' },
+  { id: 'record_locks.manage', title: 'Manage record locking settings', module: 'record_locks' },
+  { id: 'record_locks.force_release', title: 'Force release locks owned by other users', module: 'record_locks' },
 ]
 ```
 
 ---
 
 ## i18n Keys
+
+Current implementation uses `record_locks.*` namespace in locale files.
+Snippet below is kept as historical draft style (`recordLocks`).
 
 ```json
 // packages/core/src/modules/record_locks/i18n/en.json
@@ -2534,6 +2573,15 @@ export function register(container: AwilixContainer): void {
 ## Integration with CrudForm
 
 ### CrudForm Enhancement
+
+Current implementation lives in:
+- `packages/ui/src/backend/CrudForm.tsx`
+- `packages/ui/src/backend/record-locking/useRecordLock.ts`
+- `packages/ui/src/backend/record-locking/RecordLockBanner.tsx`
+- `packages/ui/src/backend/record-locking/RecordConflictDialog.tsx`
+- `packages/ui/src/backend/record-locking/useRecordLockGuard.ts`
+
+The code sample below is a historical draft and does not reflect the exact current imports/types.
 
 ```typescript
 // Example integration in CrudForm
@@ -2609,18 +2657,23 @@ async function handleSubmit(data) {
 
 ## Test Scenarios
 
-| Scenario | Given | When | Then |
-|----------|-------|------|------|
-| Acquire lock | User opens edit form | Form loads | Lock acquired, banner shows "editing" |
-| Lock denied (pessimistic) | Another user has lock, pessimistic mode | User opens same record | Form disabled, shows who is editing |
-| Lock denied (optimistic) | Another user has lock, optimistic mode | User opens same record | Warning shown but form enabled |
-| Heartbeat extends | User is editing | 30 seconds pass | Heartbeat sent, lock extended |
-| Lock expires | User stops interacting | Timeout passes | Lock status changes to expired |
-| Force release | Admin clicks force release | POST /api/record-locks/force-release | Lock released, original user notified |
-| No conflict | User A saves, User B saves different fields | User B submits | Both changes saved (auto-merge if enabled) |
-| Conflict detected | User A and B change same field | User B submits after A | Conflict dialog shown to B |
-| Accept incoming | User in conflict dialog | Clicks "Accept Incoming" | A's version kept, B notified |
-| Accept mine | User in conflict dialog | Clicks "Accept Mine" | B's version kept, A notified |
-| Merge changes | User in conflict dialog | Selects per-field, clicks Merge | Combined version saved, both notified |
-| Cleanup job | Expired locks exist | Cleanup worker runs | Expired locks marked as expired |
-| Config change | Admin changes strategy | Saves config | New strategy applies to new locks |
+### Coverage Matrix (2026-02-18)
+
+| Scenario | Expected Result | Coverage | Evidence |
+|----------|-----------------|----------|----------|
+| Acquire lock | Owner receives active lock token and base action log id | Covered | `packages/core/src/modules/record_locks/__integration__/TC-LOCK-001.spec.ts` |
+| Pessimistic block | Second editor receives `423 record_locked` | Covered | `packages/core/src/modules/record_locks/__integration__/TC-LOCK-001.spec.ts` |
+| Release lock | Owner release unlocks record for another editor | Covered | `packages/core/src/modules/record_locks/__integration__/TC-LOCK-001.spec.ts` |
+| Optimistic conflict detection | Stale save returns `409 record_lock_conflict` with conflict payload | Covered | `packages/core/src/modules/record_locks/__integration__/TC-LOCK-002.spec.ts`, `packages/core/src/modules/record_locks/__tests__/recordLockService.test.ts` |
+| Accept incoming | Incoming version remains final after conflict (conflicted editor drops local change) | Covered (current UX scope) | `packages/core/src/modules/record_locks/__integration__/TC-LOCK-002.spec.ts` |
+| Accept mine | Conflicted editor can persist own change with `accept_mine` | Covered | `packages/core/src/modules/record_locks/__integration__/TC-LOCK-003.spec.ts` |
+| Merged resolution | Guarded mutation supports `merged` header mode | Covered (API-level) | `packages/core/src/modules/record_locks/__integration__/TC-LOCK-004.spec.ts` |
+| Conflict notifications | `conflict.detected` and `conflict.resolved` notifications created when enabled | Covered | `packages/core/src/modules/record_locks/__integration__/TC-LOCK-003.spec.ts`, `packages/core/src/modules/record_locks/__integration__/TC-LOCK-004.spec.ts` |
+| CRUD enforcement | `makeCrudRoute` validates lock headers before `PUT/DELETE` and auto-releases owner lock on success | Covered | `packages/shared/src/lib/crud/__tests__/crud-factory.record-lock.test.ts`, `packages/shared/src/lib/crud/factory.ts` |
+| Force release path | Authorized user can force-release active lock in pessimistic mode and continue mutation flow | Covered (API-level) | `packages/core/src/modules/record_locks/__integration__/TC-LOCK-005.spec.ts` |
+| Dedicated cleanup worker | Periodic queue job marks locks as expired | Deferred | Not part of current PR implementation |
+
+## Changelog
+
+- 2026-02-18: Minimal alignment with current `feat/005_record_locking` implementation (API contract, ACL, worker status, scenario coverage matrix) without rewriting the legacy draft body.
+- 2026-02-18: Added deterministic integration coverage for pessimistic force-release takeover path (`TC-LOCK-005`, API-level).
