@@ -54,6 +54,7 @@ Options for `yarn test:integration:coverage`:
 - `--workers <n>` and `--retries <n>` passed to Playwright
 - `--verbose`
 - `--screenshots` / `--no-screenshots`
+- `--no-reuse-env` always starts a fresh ephemeral runtime (never attaches to existing `.ai/qa/ephemeral-env.json`)
 - `--json` outputs machine-readable totals
 - `--keep-raw-v8` keeps raw process coverage files in `.ai/qa/test-results/coverage/raw-v8/`
 
@@ -73,6 +74,7 @@ yarn test:integration:spec-coverage
 | `--verbose` | Shows detailed bootstrap/build logs. |
 | `--screenshots` | Forces screenshot capture during test runs. |
 | `--no-screenshots` | Disables screenshot capture during test runs. |
+| `--no-reuse-env` | Forces a new ephemeral app+DB instance instead of reusing an existing one. |
 
 ## Examples
 
@@ -85,6 +87,9 @@ yarn mercato test:integration --filter auth/
 
 # Keep environment alive for debugging after tests
 yarn mercato test:integration --keep --verbose
+
+# Always start a new ephemeral runtime (no attach/reuse)
+yarn mercato test:integration --no-reuse-env
 ```
 
 ## Speed up local runs
@@ -107,8 +112,8 @@ yarn test:integration:ephemeral -- --filter sales/TC-SALES-007.spec.ts --no-scre
 
 Notes:
 
-- Ephemeral state is written to `.ai/qa/ephemeral-env.md`; read `base_url` from this file before running manual Playwright commands.
-- Default ephemeral port is `5001` when available; fallback ports are recorded in `.ai/qa/ephemeral-env.md`.
+- Ephemeral state is written to `.ai/qa/ephemeral-env.json`; read `baseUrl` from this file before running manual Playwright commands.
+- Default ephemeral port is `5001` when available; fallback ports are recorded in `.ai/qa/ephemeral-env.json`.
 - Use `--workers` only if tests do not share mutable state.
 - Keep full `yarn test:integration:ephemeral` for pre-merge confidence and CI parity.
 
@@ -130,7 +135,7 @@ Use interactive mode when you want to keep one ephemeral app/database running an
 yarn test:integration:ephemeral:interactive
 ```
 
-The command writes active environment details to `.ai/qa/ephemeral-env.md` and clears the file when the environment is closed.
+The command writes active environment details to `.ai/qa/ephemeral-env.json` and clears the file when the environment is closed.
 
 Menu actions:
 
@@ -155,3 +160,4 @@ Supported options:
 - `--no-screenshots`
 - `--workers <n>`
 - `--retries <n>`
+- `--no-reuse-env`

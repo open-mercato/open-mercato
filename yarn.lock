@@ -5547,6 +5547,19 @@ __metadata:
   languageName: unknown
   linkType: soft
 
+"@open-mercato/enterprise@workspace:packages/enterprise":
+  version: 0.0.0-use.local
+  resolution: "@open-mercato/enterprise@workspace:packages/enterprise"
+  dependencies:
+    "@open-mercato/core": "workspace:*"
+    "@open-mercato/shared": "workspace:*"
+    "@open-mercato/ui": "workspace:*"
+    "@types/jest": "npm:^30.0.0"
+    jest: "npm:^30.2.0"
+    ts-jest: "npm:^29.4.6"
+  languageName: unknown
+  linkType: soft
+
 "@open-mercato/events@workspace:*, @open-mercato/events@workspace:packages/events":
   version: 0.0.0-use.local
   resolution: "@open-mercato/events@workspace:packages/events"

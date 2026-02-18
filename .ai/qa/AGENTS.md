@@ -6,8 +6,8 @@
 # Run all integration tests headlessly (zero token cost, CI-ready)
 yarn test:integration
 
-# Run a specific category
-npx playwright test --config .ai/qa/tests/playwright.config.ts auth/
+# Run tests matching a module/category path fragment
+npx playwright test --config .ai/qa/tests/playwright.config.ts sales
 
 # Run all tests in ephemeral containers (no dev server needed, Docker required)
 yarn test:integration:ephemeral
@@ -38,19 +38,41 @@ Preferred local workflow for short iterations:
 │   ├── TC-AUTH-001-*.md         #   Human-readable, used as input for test generation
 │   ├── TC-CAT-001-*.md         #   NOT required — tests can be generated directly
 │   └── ...
-├── tests/                       # Executable Playwright tests
+├── tests/                       # Playwright config/helpers + legacy test location
 │   ├── playwright.config.ts
 │   ├── .gitignore               # Ignores test-results/
 │   ├── helpers/
 │   │   ├── auth.ts              # Login helper
 │   │   └── api.ts               # API call helper
-│   ├── auth/                    # AUTH category tests
-│   ├── catalog/                 # CAT category tests
-│   ├── crm/                     # CRM category tests
-│   ├── sales/                   # SALES category tests
-│   ├── admin/                   # ADMIN category tests
-│   ├── api/                     # API-* category tests
-│   └── integration/             # INT category tests
+└── ...
+
+packages/<package>/src/modules/<module>/__integration__/   # Preferred test location
+apps/mercato/src/modules/<module>/__integration__/         # App-specific modules
+packages/enterprise/modules/<module>/__integration__/      # Optional enterprise overlay tests
+```
+
+---
+
+## Reusable Helpers
+
+Use shared helpers directly from `@open-mercato/core/modules/core/__integration__/helpers/*` instead of creating module-local re-export wrappers.
+
+| Helper Import | Main Exports | Typical Use |
+|------|-------|--------|
+| `@open-mercato/core/modules/core/__integration__/helpers/auth` | `login`, `DEFAULT_CREDENTIALS` | UI authentication and role-based login (`admin`, `employee`, `superadmin`) |
+| `@open-mercato/core/modules/core/__integration__/helpers/api` | `getAuthToken`, `apiRequest` | Authenticated API setup and raw API calls in integration tests |
+| `@open-mercato/core/modules/core/__integration__/helpers/authUi` | `createUserViaUi` | Auth module UI flows for user creation/edit smoke coverage |
+| `@open-mercato/core/modules/core/__integration__/helpers/catalogFixtures` | `createProductFixture`, `deleteCatalogProductIfExists` | Catalog fixture lifecycle for setup/cleanup |
+| `@open-mercato/core/modules/core/__integration__/helpers/crmFixtures` | `createCompanyFixture`, `createPersonFixture`, `createDealFixture`, `deleteEntityIfExists` | Customers/CRM fixture creation and cleanup |
+| `@open-mercato/core/modules/core/__integration__/helpers/salesFixtures` | `createSalesQuoteFixture`, `createSalesOrderFixture`, `createOrderLineFixture`, `deleteSalesEntityIfExists` | Sales API fixture lifecycle |
+| `@open-mercato/core/modules/core/__integration__/helpers/salesUi` | `createSalesDocument`, `addCustomLine`, `updateLineQuantity`, `deleteLine`, `addAdjustment`, `addPayment`, `addShipment`, `readGrandTotalGross` | Sales document UI interactions and totals assertions |
+| `packages/create-app/template/src/modules/auth/__integration__/helpers/auth.ts` | `login` | Template-local helper for generated apps (kept local to template) |
+
+Import pattern from module tests:
+
+```ts
+import { login } from '@open-mercato/core/modules/core/__integration__/helpers/auth';
+import { apiRequest, getAuthToken } from '@open-mercato/core/modules/core/__integration__/helpers/api';
 ```
 
 ---
@@ -72,7 +94,7 @@ Markdown test scenarios (`.ai/qa/scenarios/TC-*.md`) are **optional reference ma
 
 ### 1. Executable Tests (Playwright TypeScript) — Preferred
 
-Pre-written tests in `.ai/qa/tests/` that run headlessly via `yarn test:integration`. Zero token cost, CI-ready.
+Pre-written tests discovered from module `__integration__` folders (with legacy `.ai/qa/tests/` support) run headlessly via `yarn test:integration`. Zero token cost, CI-ready.
 
 ```bash
 yarn test:integration
@@ -170,25 +192,19 @@ For each test step:
 
 #### Step 3 — Write the TypeScript Test
 
-Create `.ai/qa/tests/<category>/TC-{CATEGORY}-{XXX}.spec.ts`
+Create the test in the module where behavior lives:
 
-**Category-to-folder mapping:**
-
-| Category Code | Folder |
-|---------------|--------|
-| AUTH | `auth/` |
-| CAT | `catalog/` |
-| CRM | `crm/` |
-| SALES | `sales/` |
-| ADMIN | `admin/` |
-| INT | `integration/` |
-| API-* (all) | `api/` |
+- `packages/<package>/src/modules/<module>/__integration__/TC-{CATEGORY}-{XXX}.spec.ts`
+- `apps/mercato/src/modules/<module>/__integration__/TC-{CATEGORY}-{XXX}.spec.ts`
+- `packages/create-app/template/src/modules/<module>/__integration__/TC-{CATEGORY}-{XXX}.spec.ts`
+- `packages/enterprise/modules/<module>/__integration__/TC-{CATEGORY}-{XXX}.spec.ts` for overlay tests only
+- Nested subfolders inside `__integration__` are supported
 
 **UI test template:**
 
 ```typescript
 import { test, expect } from '@playwright/test';
-import { login } from '../helpers/auth';
+import { login } from './helpers/auth';
 
 /**
  * TC-{CATEGORY}-{XXX}: {Title}
@@ -211,7 +227,7 @@ test.describe('TC-{CATEGORY}-{XXX}: {Title}', () => {
 
 ```typescript
 import { test, expect } from '@playwright/test';
-import { getAuthToken, apiRequest } from '../helpers/api';
+import { getAuthToken, apiRequest } from './helpers/api';
 
 /**
  * TC-{CATEGORY}-{XXX}: {Title}
@@ -238,7 +254,30 @@ test.describe('TC-{CATEGORY}-{XXX}: {Title}', () => {
 Run the test to confirm it passes:
 
 ```bash
-npx playwright test --config .ai/qa/tests/playwright.config.ts <category>/TC-{CATEGORY}-{XXX}.spec.ts
+npx playwright test --config .ai/qa/tests/playwright.config.ts <path-to-test-file>
+```
+
+### Conditional Metadata (Folder + Test)
+
+Use optional metadata to skip tests when required modules are not enabled.
+
+- Folder-level metadata:
+  - Add `meta.ts` or `index.ts` under any `__integration__/` subfolder
+  - Supported keys: `dependsOnModules`, `requiredModules`, `requiresModules`
+- Per-test metadata:
+  - Add the same keys inside the `.spec.ts` file, or create sibling `TC-*.meta.ts`
+- Inheritance:
+  - Metadata is inherited from `__integration__/` root through nested subfolders, then test-level metadata is applied
+- Behavior:
+  - If any declared dependency module is not enabled, that folder/test is excluded from discovery and run
+
+Example folder metadata:
+
+```ts
+export const integrationMeta = {
+  description: 'Sales flows requiring currencies module',
+  dependsOnModules: ['sales', 'currencies'],
+}
 ```
 
 ### MUST Rules for Executable Tests
@@ -249,7 +288,7 @@ npx playwright test --config .ai/qa/tests/playwright.config.ts <category>/TC-{CA
 - Keep tests data-independent — do not rely on seeded/demo records being present
 - Create required fixtures per test (prefer API setup), and always clean up created data in `finally`/teardown
 - Ensure tests are deterministic/stable across retries and run order (no cross-test state coupling)
-- Use helpers from `../helpers/auth` and `../helpers/api`
+- Keep reusable helpers centralized (recommended: `packages/core/src/modules/core/__integration__/helpers/`), and re-export from module-local helper files when needed
 - One `.spec.ts` file per test case
 - MUST NOT leave broken tests — fix or skip with `test.skip()` and a reason
 

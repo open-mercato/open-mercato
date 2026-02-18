@@ -1,9 +1,18 @@
 import { NextResponse } from 'next/server'
+import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { runWithCacheTenant, type CacheStrategy } from '@open-mercato/cache'
 import { collectCrudCacheStats, purgeCrudCacheSegment } from '@open-mercato/shared/lib/crud/cache-stats'
+import {
+  configsTag,
+  cacheStatsResponseSchema,
+  cachePurgeRequestSchema,
+  cachePurgeAllResponseSchema,
+  cachePurgeSegmentResponseSchema,
+  configErrorSchema,
+} from '../openapi'
 
 export const metadata = {
   GET: { requireAuth: true, requireFeatures: ['configs.cache.view'] },
@@ -93,4 +102,41 @@ export async function POST(req: Request) {
       { status: 500 },
     )
   }
+}
+
+export const openApi: OpenApiRouteDoc = {
+  tag: configsTag,
+  summary: 'Cache management',
+  methods: {
+    GET: {
+      summary: 'Get cache statistics',
+      description: 'Returns detailed cache statistics including total entries and breakdown by cache segments. Requires cache service to be available.',
+      responses: [
+        { status: 200, description: 'Cache statistics', schema: cacheStatsResponseSchema },
+      ],
+      errors: [
+        { status: 401, description: 'Unauthorized', schema: configErrorSchema },
+        { status: 500, description: 'Failed to resolve cache stats', schema: configErrorSchema },
+        { status: 503, description: 'Cache service unavailable', schema: configErrorSchema },
+      ],
+    },
+    POST: {
+      summary: 'Purge cache',
+      description: 'Purges cache entries. Supports two actions: purgeAll (clears entire cache) or purgeSegment (clears specific segment). Returns updated cache statistics after purge.',
+      requestBody: {
+        contentType: 'application/json',
+        schema: cachePurgeRequestSchema,
+      },
+      responses: [
+        { status: 200, description: 'All cache cleared successfully', schema: cachePurgeAllResponseSchema },
+        { status: 200, description: 'Cache segment cleared successfully', schema: cachePurgeSegmentResponseSchema },
+      ],
+      errors: [
+        { status: 400, description: 'Invalid request - missing segment identifier for purgeSegment action', schema: configErrorSchema },
+        { status: 401, description: 'Unauthorized', schema: configErrorSchema },
+        { status: 500, description: 'Failed to purge cache', schema: configErrorSchema },
+        { status: 503, description: 'Cache service unavailable', schema: configErrorSchema },
+      ],
+    },
+  },
 }

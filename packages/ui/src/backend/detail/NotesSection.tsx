@@ -7,6 +7,7 @@ import type { AppearanceSelectorLabels } from '@open-mercato/core/modules/dictio
 import { AppearanceDialog } from '@open-mercato/core/modules/customers/components/detail/AppearanceDialog'
 import type { IconOption } from '@open-mercato/core/modules/dictionaries/components/dictionaryAppearance'
 import { ArrowUpRightSquare, FileCode, Loader2, Palette, Pencil, Plus, Trash2 } from 'lucide-react'
+import { formatRelativeTime } from '@open-mercato/shared/lib/time'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { flash } from '../FlashMessages'
 import { SwitchableMarkdownInput } from '../inputs/SwitchableMarkdownInput'
@@ -14,7 +15,7 @@ import { ErrorMessage } from './ErrorMessage'
 import { LoadingMessage } from './LoadingMessage'
 import { TabEmptyState } from './TabEmptyState'
 import { useConfirmDialog } from '../confirm-dialog'
-
+import { formatDateTime } from '@open-mercato/shared/lib/time'
 type Translator = (key: string, fallback?: string, params?: Record<string, string | number>) => string
 
 export type SectionAction = {
@@ -95,39 +96,7 @@ function generateTempId() {
   return `tmp_${Math.random().toString(36).slice(2)}`
 }
 
-function formatDateTime(value?: string | null): string | null {
-  if (!value) return null
-  const date = new Date(value)
-  if (Number.isNaN(date.getTime())) return null
-  return date.toLocaleString()
-}
 
-function formatRelativeTime(value?: string | null): string | null {
-  if (!value) return null
-  const date = new Date(value)
-  if (Number.isNaN(date.getTime())) return null
-  const now = Date.now()
-  const diffSeconds = (date.getTime() - now) / 1000
-  const absSeconds = Math.abs(diffSeconds)
-  const rtf =
-    typeof Intl !== 'undefined' && typeof Intl.RelativeTimeFormat === 'function'
-      ? new Intl.RelativeTimeFormat(undefined, { numeric: 'auto' })
-      : null
-  const format = (unit: Intl.RelativeTimeFormatUnit, divisor: number) => {
-    const valueToFormat = Math.round(diffSeconds / divisor)
-    if (rtf) return rtf.format(valueToFormat, unit)
-    const suffix = valueToFormat <= 0 ? 'ago' : 'from now'
-    const magnitude = Math.abs(valueToFormat)
-    return `${magnitude} ${unit}${magnitude === 1 ? '' : 's'} ${suffix}`
-  }
-  if (absSeconds < 45) return format('second', 1)
-  if (absSeconds < 45 * 60) return format('minute', 60)
-  if (absSeconds < 24 * 60 * 60) return format('hour', 60 * 60)
-  if (absSeconds < 7 * 24 * 60 * 60) return format('day', 24 * 60 * 60)
-  if (absSeconds < 30 * 24 * 60 * 60) return format('week', 7 * 24 * 60 * 60)
-  if (absSeconds < 365 * 24 * 60 * 60) return format('month', 30 * 24 * 60 * 60)
-  return format('year', 365 * 24 * 60 * 60)
-}
 
 type TimelineItemHeaderProps = {
   title: React.ReactNode

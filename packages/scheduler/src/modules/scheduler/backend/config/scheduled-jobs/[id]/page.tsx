@@ -78,7 +78,7 @@ export default function ScheduleDetailPage() {
 
   const fetchScheduleAndRuns = React.useCallback(async () => {
     if (!scheduleId) return
-    
+
     try {
       // Fetch schedule details via list API with ID filter
       const { result: listData } = await apiCallOrThrow(
@@ -90,17 +90,23 @@ export default function ScheduleDetailPage() {
       }
       setSchedule(schedules[0] as ScheduleDetail)
 
-      // Fetch recent runs from BullMQ
-      const { result: runsData } = await apiCallOrThrow(
-        `/api/scheduler/jobs/${scheduleId}/executions?pageSize=10`
-      )
-      setRuns((runsData as { items?: ExecutionRun[] }).items || [])
+      // Fetch recent runs — only available with async strategy
+      if (isAsyncStrategy) {
+        try {
+          const { result: runsData } = await apiCallOrThrow(
+            `/api/scheduler/jobs/${scheduleId}/executions?pageSize=10`
+          )
+          setRuns((runsData as { items?: ExecutionRun[] }).items || [])
+        } catch {
+          setRuns([])
+        }
+      }
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : t('scheduler.error.load_failed', 'Failed to load schedule'))
     } finally {
       setLoading(false)
     }
-  }, [scheduleId])
+  }, [scheduleId, isAsyncStrategy])
 
   React.useEffect(() => {
     if (scheduleId) {
@@ -386,7 +392,11 @@ export default function ScheduleDetailPage() {
               </div>
             </CardHeader>
             <CardContent>
-              {runs.length > 0 ? (
+              {!isAsyncStrategy ? (
+                <p className="text-sm text-muted-foreground">
+                  {t('scheduler.details.executions_async_only', 'Execution history and manual triggers require async queue strategy (QUEUE_STRATEGY=async).')}
+                </p>
+              ) : runs.length > 0 ? (
                 <DataTable
                   columns={runsColumns}
                   data={runs}
