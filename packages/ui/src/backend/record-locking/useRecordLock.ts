@@ -5,7 +5,7 @@ import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { withScopedApiHeaders } from '@open-mercato/ui/backend/utils/api'
 
 export type RecordLockStrategy = 'optimistic' | 'pessimistic'
-export type RecordLockResolution = 'normal' | 'accept_mine' | 'merged'
+export type RecordLockResolution = 'normal' | 'accept_mine'
 
 export type RecordLockApiLock = {
   id: string
@@ -21,13 +21,21 @@ export type RecordLockApiLock = {
   expiresAt: string
 }
 
+export type RecordLockConflictChange = {
+  field: string
+  baseValue: unknown
+  incomingValue: unknown
+  mineValue: unknown
+}
+
 export type RecordLockConflict = {
   id: string
   resourceKind: string
   resourceId: string
   baseActionLogId: string | null
   incomingActionLogId: string | null
-  resolutionOptions: Array<'accept_incoming' | 'accept_mine' | 'merged'>
+  resolutionOptions: Array<'accept_incoming' | 'accept_mine'>
+  changes: RecordLockConflictChange[]
 }
 
 type AcquireResponse = {
@@ -449,5 +457,42 @@ export function readRecordLockError(error: unknown): { code?: string; message: s
 
   const code = typeof payload.code === 'string' ? payload.code : undefined
   const message = toMessage(payload.message ?? payload.error)
-  return { code, message, conflict: payload.conflict }
+
+  let conflict: RecordLockConflict | undefined
+  if (payload.conflict && typeof payload.conflict === 'object') {
+    const raw = payload.conflict as Record<string, unknown>
+    const id = typeof raw.id === 'string' ? raw.id : null
+    const resourceKind = typeof raw.resourceKind === 'string' ? raw.resourceKind : null
+    const resourceId = typeof raw.resourceId === 'string' ? raw.resourceId : null
+
+    if (id && resourceKind && resourceId) {
+      const options = Array.isArray(raw.resolutionOptions)
+        ? raw.resolutionOptions
+          .filter((option): option is 'accept_incoming' | 'accept_mine' => option === 'accept_incoming' || option === 'accept_mine')
+        : []
+
+      const changes = Array.isArray(raw.changes)
+        ? raw.changes
+          .filter((entry): entry is Record<string, unknown> => Boolean(entry && typeof entry === 'object'))
+          .map((entry) => ({
+            field: typeof entry.field === 'string' && entry.field.trim().length ? entry.field : 'unknown',
+            baseValue: Object.prototype.hasOwnProperty.call(entry, 'baseValue') ? entry.baseValue : null,
+            incomingValue: Object.prototype.hasOwnProperty.call(entry, 'incomingValue') ? entry.incomingValue : null,
+            mineValue: Object.prototype.hasOwnProperty.call(entry, 'mineValue') ? entry.mineValue : null,
+          }))
+        : []
+
+      conflict = {
+        id,
+        resourceKind,
+        resourceId,
+        baseActionLogId: typeof raw.baseActionLogId === 'string' ? raw.baseActionLogId : null,
+        incomingActionLogId: typeof raw.incomingActionLogId === 'string' ? raw.incomingActionLogId : null,
+        resolutionOptions: options.length ? options : ['accept_incoming', 'accept_mine'],
+        changes,
+      }
+    }
+  }
+
+  return { code, message, conflict }
 }

@@ -33,7 +33,10 @@
       "description": "Der Datensatz wurde geändert, nachdem Sie mit der Bearbeitung begonnen haben.",
       "accept_incoming": "Eingehende Version übernehmen",
       "accept_mine": "Meine Änderungen behalten",
-      "merged": "Änderungen zusammenführen",
+      "field": "Feld",
+      "incoming_value": "Eingehender Wert",
+      "mine_value": "Ihr Wert",
+      "empty_value": "(leer)",
       "cancel": "Abbrechen"
     },
     "notifications": {

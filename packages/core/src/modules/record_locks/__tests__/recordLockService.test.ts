@@ -11,7 +11,10 @@ const DEFAULT_SETTINGS: RecordLockSettings = {
   notifyOnConflict: true,
 }
 
-function createService(settings: RecordLockSettings = DEFAULT_SETTINGS) {
+function createService(
+  settings: RecordLockSettings = DEFAULT_SETTINGS,
+  actionLogService?: { findById: (id: string) => Promise<unknown> } | null,
+) {
   const em = {
     findOne: jest.fn(),
     find: jest.fn(),
@@ -26,9 +29,14 @@ function createService(settings: RecordLockSettings = DEFAULT_SETTINGS) {
   } as any
 
   return {
-    service: new RecordLockService({ em, moduleConfigService }),
+    service: new RecordLockService({
+      em,
+      moduleConfigService,
+      actionLogService: (actionLogService as any) ?? null,
+    }),
     em,
     moduleConfigService,
+    actionLogService,
   }
 }
 
@@ -81,7 +89,43 @@ describe('RecordLockService.validateMutation', () => {
   })
 
   test('returns 409 conflict when optimistic base log is stale', async () => {
-    const { service } = createService()
+    const actionLogService = {
+      findById: jest.fn(async (id: string) => {
+        if (id === '50000000-0000-4000-8000-000000000001') {
+          return {
+            id,
+            tenantId: '60000000-0000-4000-8000-000000000001',
+            organizationId: '70000000-0000-4000-8000-000000000001',
+            resourceKind: 'sales.quote',
+            resourceId: '20000000-0000-4000-8000-000000000001',
+            snapshotAfter: { displayName: 'Acme Before' },
+            snapshotBefore: null,
+            changesJson: null,
+            deletedAt: null,
+          }
+        }
+
+        if (id === '80000000-0000-4000-8000-000000000001') {
+          return {
+            id,
+            tenantId: '60000000-0000-4000-8000-000000000001',
+            organizationId: '70000000-0000-4000-8000-000000000001',
+            resourceKind: 'sales.quote',
+            resourceId: '20000000-0000-4000-8000-000000000001',
+            snapshotAfter: { displayName: 'Acme Incoming' },
+            snapshotBefore: { displayName: 'Acme Before' },
+            changesJson: {
+              displayName: { from: 'Acme Before', to: 'Acme Incoming' },
+            },
+            deletedAt: null,
+          }
+        }
+
+        return null
+      }),
+    }
+
+    const { service } = createService(DEFAULT_SETTINGS, actionLogService)
     const serviceAny = service as any
 
     serviceAny.findActiveLock = jest.fn().mockResolvedValue(
@@ -99,6 +143,8 @@ describe('RecordLockService.validateMutation', () => {
       incomingActionLogId: '80000000-0000-4000-8000-000000000001',
       conflictActorUserId: '40000000-0000-4000-8000-000000000001',
       incomingActorUserId: '90000000-0000-4000-8000-000000000001',
+      tenantId: '60000000-0000-4000-8000-000000000001',
+      organizationId: '70000000-0000-4000-8000-000000000001',
     })
 
     const result = await service.validateMutation({
@@ -113,12 +159,25 @@ describe('RecordLockService.validateMutation', () => {
         baseLogId: '50000000-0000-4000-8000-000000000001',
         resolution: 'normal',
       },
+      mutationPayload: {
+        id: '20000000-0000-4000-8000-000000000001',
+        displayName: 'Acme Mine',
+      },
     })
 
     expect(result.ok).toBe(false)
     if (result.ok) throw new Error('Expected conflict result')
     expect(result.status).toBe(409)
     expect(result.code).toBe('record_lock_conflict')
+    expect(result.conflict?.resolutionOptions).toEqual(['accept_incoming', 'accept_mine'])
+    expect(result.conflict?.changes).toEqual([
+      {
+        field: 'displayName',
+        baseValue: 'Acme Before',
+        incomingValue: 'Acme Incoming',
+        mineValue: 'Acme Mine',
+      },
+    ])
     expect(serviceAny.createConflict).toHaveBeenCalledTimes(1)
   })
 

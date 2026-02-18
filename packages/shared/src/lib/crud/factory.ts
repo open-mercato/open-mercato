@@ -1396,6 +1396,9 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
             resourceId: lockHeaders.resourceId ?? candidateId,
             method: 'PUT',
             headers: lockHeaders,
+            mutationPayload: input && typeof input === 'object'
+              ? (input as Record<string, unknown>)
+              : null,
           })
           if (lockValidation) {
             const response = buildRecordLockErrorResponse(lockValidation)
@@ -1458,6 +1461,9 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
             resourceId: lockHeaders.resourceId ?? id,
             method: 'PUT',
             headers: lockHeaders,
+            mutationPayload: input && typeof input === 'object'
+              ? (input as Record<string, unknown>)
+              : null,
           })
         : null
       if (lockValidation) {

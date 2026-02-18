@@ -3,6 +3,7 @@ import type { FilterQuery } from '@mikro-orm/core'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { ModuleConfigService } from '@open-mercato/core/modules/configs/lib/module-config-service'
 import { ActionLog } from '@open-mercato/core/modules/audit_logs/data/entities'
+import type { ActionLogService } from '@open-mercato/core/modules/audit_logs/services/actionLogService'
 import { emitRecordLocksEvent } from '../events'
 import {
   RecordLock,
@@ -58,6 +59,14 @@ export type RecordLockForceReleaseInput = RecordLockScope & RecordLockResource &
 export type RecordLockMutationValidationInput = RecordLockScope & RecordLockResource & {
   method: 'PUT' | 'DELETE'
   headers: Partial<RecordLockMutationHeaders>
+  mutationPayload?: Record<string, unknown> | null
+}
+
+export type RecordLockConflictChange = {
+  field: string
+  baseValue: unknown
+  incomingValue: unknown
+  mineValue: unknown
 }
 
 export type RecordLockConflictPayload = {
@@ -66,7 +75,8 @@ export type RecordLockConflictPayload = {
   resourceId: string
   baseActionLogId: string | null
   incomingActionLogId: string | null
-  resolutionOptions: Array<'accept_incoming' | 'accept_mine' | 'merged'>
+  resolutionOptions: Array<'accept_incoming' | 'accept_mine'>
+  changes: RecordLockConflictChange[]
 }
 
 export type RecordLockView = {
@@ -134,6 +144,7 @@ export type RecordLockValidationResult = RecordLockValidationSuccess | RecordLoc
 export type RecordLockServiceDeps = {
   em: EntityManager
   moduleConfigService?: ModuleConfigService | null
+  actionLogService?: ActionLogService | null
 }
 
 export type ParsedRecordLockHeaders = Partial<RecordLockMutationHeaders>
@@ -151,6 +162,96 @@ function trimToNull(value: string | null | undefined): string | null {
 function normalizeScopeOrganization(value: string | null | undefined): string | null {
   const trimmed = trimToNull(value)
   return trimmed ?? null
+}
+
+const SKIPPED_CONFLICT_FIELDS = new Set([
+  'updatedAt',
+  'updated_at',
+  'createdAt',
+  'created_at',
+  'deletedAt',
+  'deleted_at',
+])
+
+function shouldSkipConflictField(path: string): boolean {
+  if (!path.trim().length) return true
+  if (SKIPPED_CONFLICT_FIELDS.has(path)) return true
+  const segments = path.split('.').filter((segment) => segment.length > 0)
+  if (!segments.length) return true
+  return SKIPPED_CONFLICT_FIELDS.has(segments[segments.length - 1] ?? '')
+}
+
+const MISSING_CONFLICT_VALUE = Symbol('record_lock_conflict_missing_value')
+
+function isRecordValue(value: unknown): value is Record<string, unknown> {
+  return Boolean(value && typeof value === 'object' && !Array.isArray(value))
+}
+
+function toIsoDate(value: unknown): string | null {
+  if (value instanceof Date) {
+    const iso = value.toISOString()
+    return Number.isNaN(value.getTime()) ? null : iso
+  }
+  if (typeof value === 'string') {
+    const parsed = new Date(value)
+    return Number.isNaN(parsed.getTime()) ? null : parsed.toISOString()
+  }
+  return null
+}
+
+function valuesEqual(a: unknown, b: unknown, seen?: Set<unknown>): boolean {
+  if (Object.is(a, b)) return true
+
+  if (a instanceof Date || b instanceof Date) {
+    const left = toIsoDate(a)
+    const right = toIsoDate(b)
+    return left !== null && right !== null && left === right
+  }
+
+  if (Array.isArray(a) && Array.isArray(b)) {
+    if (a.length !== b.length) return false
+    for (let index = 0; index < a.length; index += 1) {
+      if (!valuesEqual(a[index], b[index], seen)) return false
+    }
+    return true
+  }
+
+  if (isRecordValue(a) && isRecordValue(b)) {
+    if (!seen) seen = new Set()
+    if (seen.has(a) || seen.has(b)) return false
+    seen.add(a)
+    seen.add(b)
+    const aKeys = Object.keys(a)
+    const bKeys = Object.keys(b)
+    if (aKeys.length !== bKeys.length) return false
+    for (const key of aKeys) {
+      if (!Object.prototype.hasOwnProperty.call(b, key)) return false
+      if (!valuesEqual(a[key], b[key], seen)) return false
+    }
+    return true
+  }
+
+  return false
+}
+
+function readPathValue(source: unknown, path: string): unknown | typeof MISSING_CONFLICT_VALUE {
+  if (!path.trim().length || !isRecordValue(source)) return MISSING_CONFLICT_VALUE
+  if (Object.prototype.hasOwnProperty.call(source, path)) return source[path]
+
+  const segments = path.split('.').filter((segment) => segment.length > 0)
+  if (!segments.length) return MISSING_CONFLICT_VALUE
+
+  let current: unknown = source
+  for (const segment of segments) {
+    if (!isRecordValue(current)) return MISSING_CONFLICT_VALUE
+    if (!Object.prototype.hasOwnProperty.call(current, segment)) return MISSING_CONFLICT_VALUE
+    current = current[segment]
+  }
+  return current
+}
+
+function normalizeConflictValue(value: unknown): unknown {
+  return value === undefined ? null : value
 }
 
 export function readRecordLockHeaders(headers: Headers): ParsedRecordLockHeaders {
@@ -173,9 +274,12 @@ export class RecordLockService {
 
   private readonly moduleConfigService: ModuleConfigService | null
 
+  private readonly actionLogService: ActionLogService | null
+
   constructor(deps: RecordLockServiceDeps) {
     this.em = deps.em
     this.moduleConfigService = deps.moduleConfigService ?? null
+    this.actionLogService = deps.actionLogService ?? null
   }
 
   async getSettings(): Promise<RecordLockSettings> {
@@ -468,7 +572,7 @@ export class RecordLockService {
           error: 'Record conflict requires resolution before saving',
           code: 'record_lock_conflict',
           lock: active ? this.toLockView(active, false) : null,
-          conflict: this.toConflictPayload(existingConflict),
+          conflict: await this.toConflictPayload(existingConflict, input.mutationPayload ?? null),
         }
       }
     }
@@ -500,7 +604,7 @@ export class RecordLockService {
           error: 'Record conflict detected',
           code: 'record_lock_conflict',
           lock: active ? this.toLockView(active, false) : null,
-          conflict: this.toConflictPayload(conflict),
+          conflict: await this.toConflictPayload(conflict, input.mutationPayload ?? null),
         }
       }
     }
@@ -746,14 +850,187 @@ export class RecordLockService {
     return this.em.findOne(RecordLockConflict, where)
   }
 
-  private toConflictPayload(conflict: RecordLockConflict): RecordLockConflictPayload {
+  private async findActionLogById(
+    logId: string | null,
+    scope: Pick<RecordLockScope, 'tenantId' | 'organizationId'> & RecordLockResource,
+  ): Promise<ActionLog | null> {
+    if (!logId) return null
+
+    const resolved = this.actionLogService
+      ? await this.actionLogService.findById(logId)
+      : await this.em.findOne(ActionLog, { id: logId, deletedAt: null })
+    if (!resolved || resolved.deletedAt) return null
+
+    if (resolved.tenantId !== scope.tenantId) return null
+
+    if (scope.organizationId !== undefined) {
+      const expectedOrganizationId = normalizeScopeOrganization(scope.organizationId)
+      if (normalizeScopeOrganization(resolved.organizationId) !== expectedOrganizationId) return null
+    }
+
+    if (resolved.resourceKind !== scope.resourceKind || resolved.resourceId !== scope.resourceId) {
+      return null
+    }
+
+    return resolved
+  }
+
+  private collectSnapshotDiffPaths(
+    before: unknown,
+    after: unknown,
+    pathPrefix: string | null,
+    output: Set<string>,
+    seen: Set<unknown>,
+  ): void {
+    if (valuesEqual(before, after)) return
+
+    const beforeRecord = isRecordValue(before) ? before : null
+    const afterRecord = isRecordValue(after) ? after : null
+
+    if (!beforeRecord || !afterRecord) {
+      if (pathPrefix) output.add(pathPrefix)
+      return
+    }
+
+    if (seen.has(beforeRecord) || seen.has(afterRecord)) {
+      if (pathPrefix) output.add(pathPrefix)
+      return
+    }
+
+    seen.add(beforeRecord)
+    seen.add(afterRecord)
+
+    const keys = new Set([...Object.keys(beforeRecord), ...Object.keys(afterRecord)])
+    for (const key of keys) {
+      if (SKIPPED_CONFLICT_FIELDS.has(key)) continue
+      const nextPath = pathPrefix ? `${pathPrefix}.${key}` : key
+      this.collectSnapshotDiffPaths(beforeRecord[key], afterRecord[key], nextPath, output, seen)
+    }
+  }
+
+  private async buildConflictChanges(
+    conflict: RecordLockConflict,
+    mutationPayload: Record<string, unknown> | null,
+  ): Promise<RecordLockConflictChange[]> {
+    const scope = {
+      tenantId: conflict.tenantId,
+      organizationId: conflict.organizationId,
+      resourceKind: conflict.resourceKind,
+      resourceId: conflict.resourceId,
+    }
+
+    const baseLog = await this.findActionLogById(conflict.baseActionLogId, scope)
+    const incomingLog = await this.findActionLogById(conflict.incomingActionLogId, scope)
+
+    const baseSnapshot = isRecordValue(baseLog?.snapshotAfter) ? baseLog.snapshotAfter : null
+    const incomingBeforeSnapshot = isRecordValue(incomingLog?.snapshotBefore) ? incomingLog.snapshotBefore : null
+    const incomingAfterSnapshot = isRecordValue(incomingLog?.snapshotAfter) ? incomingLog.snapshotAfter : null
+    const fallbackBaseSnapshot = baseSnapshot ?? incomingBeforeSnapshot
+
+    const changeMap = new Map<string, { baseValue: unknown; incomingValue: unknown }>()
+
+    const incomingChanges = isRecordValue(incomingLog?.changesJson) ? incomingLog.changesJson : null
+    if (incomingChanges) {
+      for (const [fieldPathRaw, rawChange] of Object.entries(incomingChanges)) {
+        const fieldPath = fieldPathRaw.trim()
+        if (shouldSkipConflictField(fieldPath)) continue
+
+        const changeRecord = isRecordValue(rawChange) ? rawChange : null
+        const fromValue = changeRecord && Object.prototype.hasOwnProperty.call(changeRecord, 'from')
+          ? changeRecord.from
+          : readPathValue(fallbackBaseSnapshot, fieldPath)
+        const toValue = changeRecord && Object.prototype.hasOwnProperty.call(changeRecord, 'to')
+          ? changeRecord.to
+          : readPathValue(incomingAfterSnapshot, fieldPath)
+
+        changeMap.set(fieldPath, {
+          baseValue: fromValue === MISSING_CONFLICT_VALUE ? null : normalizeConflictValue(fromValue),
+          incomingValue: toValue === MISSING_CONFLICT_VALUE ? null : normalizeConflictValue(toValue),
+        })
+      }
+    }
+
+    if (!changeMap.size && fallbackBaseSnapshot && incomingAfterSnapshot) {
+      const diffPaths = new Set<string>()
+      this.collectSnapshotDiffPaths(
+        fallbackBaseSnapshot,
+        incomingAfterSnapshot,
+        null,
+        diffPaths,
+        new Set<unknown>(),
+      )
+
+      for (const fieldPath of diffPaths) {
+        if (shouldSkipConflictField(fieldPath)) continue
+        const fromValue = readPathValue(fallbackBaseSnapshot, fieldPath)
+        const toValue = readPathValue(incomingAfterSnapshot, fieldPath)
+        changeMap.set(fieldPath, {
+          baseValue: fromValue === MISSING_CONFLICT_VALUE ? null : normalizeConflictValue(fromValue),
+          incomingValue: toValue === MISSING_CONFLICT_VALUE ? null : normalizeConflictValue(toValue),
+        })
+      }
+    }
+
+    if (!changeMap.size && mutationPayload && incomingAfterSnapshot) {
+      for (const fieldPath of Object.keys(mutationPayload)) {
+        if (shouldSkipConflictField(fieldPath)) continue
+        const mineValue = readPathValue(mutationPayload, fieldPath)
+        const incomingValue = readPathValue(incomingAfterSnapshot, fieldPath)
+        if (mineValue === MISSING_CONFLICT_VALUE || incomingValue === MISSING_CONFLICT_VALUE) continue
+        if (valuesEqual(mineValue, incomingValue)) continue
+        const baseValue = readPathValue(fallbackBaseSnapshot, fieldPath)
+        changeMap.set(fieldPath, {
+          baseValue: baseValue === MISSING_CONFLICT_VALUE ? null : normalizeConflictValue(baseValue),
+          incomingValue: normalizeConflictValue(incomingValue),
+        })
+      }
+    }
+
+    if (!changeMap.size) return []
+
+    const allFields = Array.from(changeMap.keys())
+    const preferredFields = mutationPayload
+      ? allFields.filter((fieldPath) => {
+          const mineValue = readPathValue(mutationPayload, fieldPath)
+          if (mineValue === MISSING_CONFLICT_VALUE) return false
+          const incomingValue = changeMap.get(fieldPath)?.incomingValue
+          return !valuesEqual(mineValue, incomingValue)
+        })
+      : []
+    const selectedFields = (preferredFields.length ? preferredFields : allFields)
+      .filter((fieldPath) => !shouldSkipConflictField(fieldPath))
+      .sort((left, right) => left.localeCompare(right))
+      .slice(0, 25)
+
+    return selectedFields.map((fieldPath) => {
+      const entry = changeMap.get(fieldPath) ?? { baseValue: null, incomingValue: null }
+      const mineValueRaw = mutationPayload ? readPathValue(mutationPayload, fieldPath) : MISSING_CONFLICT_VALUE
+      const mineValue = mineValueRaw === MISSING_CONFLICT_VALUE
+        ? entry.baseValue
+        : normalizeConflictValue(mineValueRaw)
+
+      return {
+        field: fieldPath,
+        baseValue: normalizeConflictValue(entry.baseValue),
+        incomingValue: normalizeConflictValue(entry.incomingValue),
+        mineValue: normalizeConflictValue(mineValue),
+      }
+    })
+  }
+
+  private async toConflictPayload(
+    conflict: RecordLockConflict,
+    mutationPayload: Record<string, unknown> | null,
+  ): Promise<RecordLockConflictPayload> {
+    const changes = await this.buildConflictChanges(conflict, mutationPayload)
     return {
       id: conflict.id,
       resourceKind: conflict.resourceKind,
       resourceId: conflict.resourceId,
       baseActionLogId: conflict.baseActionLogId,
       incomingActionLogId: conflict.incomingActionLogId,
-      resolutionOptions: ['accept_incoming', 'accept_mine', 'merged'],
+      resolutionOptions: ['accept_incoming', 'accept_mine'],
+      changes,
     }
   }
 }

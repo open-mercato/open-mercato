@@ -1255,7 +1255,7 @@ export function CrudForm<TValues extends Record<string, unknown>>({
     }
   }
 
-  const handleResolveRecordConflict = React.useCallback(async (resolution: 'accept_mine' | 'merged') => {
+  const handleResolveRecordConflict = React.useCallback(async (resolution: 'accept_mine') => {
     if (!recordConflict || !recordConflictValues) return
     setFormError(null)
     setPending(true)

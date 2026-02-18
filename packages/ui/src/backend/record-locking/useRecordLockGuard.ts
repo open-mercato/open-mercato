@@ -15,7 +15,7 @@ export type UseRecordLockGuardResult = {
   pending: boolean
   clearConflict: () => void
   runMutation: <T>(run: () => Promise<T>) => Promise<T | null>
-  resolveConflict: <T>(resolution: Extract<RecordLockResolution, 'accept_mine' | 'merged'>, run?: () => Promise<T>) => Promise<T | null>
+  resolveConflict: <T>(resolution: Extract<RecordLockResolution, 'accept_mine'>, run?: () => Promise<T>) => Promise<T | null>
 }
 
 export function useRecordLockGuard(config: UseRecordLockConfig): UseRecordLockGuardResult {
@@ -49,7 +49,7 @@ export function useRecordLockGuard(config: UseRecordLockConfig): UseRecordLockGu
   }, [lock])
 
   const resolveConflict = React.useCallback(async <T,>(
-    resolution: Extract<RecordLockResolution, 'accept_mine' | 'merged'>,
+    resolution: Extract<RecordLockResolution, 'accept_mine'>,
     run?: () => Promise<T>,
   ): Promise<T | null> => {
     if (!conflict) return null

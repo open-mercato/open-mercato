@@ -33,7 +33,10 @@
       "description": "The record was changed by another user after you started editing.",
       "accept_incoming": "Accept incoming",
       "accept_mine": "Keep my changes",
-      "merged": "Merge changes",
+      "field": "Field",
+      "incoming_value": "Incoming value",
+      "mine_value": "Your value",
+      "empty_value": "(empty)",
       "cancel": "Cancel"
     },
     "notifications": {

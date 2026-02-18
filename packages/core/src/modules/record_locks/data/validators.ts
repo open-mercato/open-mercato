@@ -91,7 +91,15 @@ export const recordLockErrorSchema = z.object({
     resourceId: z.string(),
     baseActionLogId: z.string().uuid().nullable(),
     incomingActionLogId: z.string().uuid().nullable(),
-    resolutionOptions: z.array(z.enum(['accept_incoming', 'accept_mine', 'merged'])).default(['accept_incoming', 'accept_mine', 'merged']),
+    resolutionOptions: z.array(z.enum(['accept_incoming', 'accept_mine'])).default(['accept_incoming', 'accept_mine']),
+    changes: z.array(
+      z.object({
+        field: z.string().min(1),
+        baseValue: z.unknown().nullable(),
+        incomingValue: z.unknown().nullable(),
+        mineValue: z.unknown().nullable(),
+      }),
+    ).default([]),
   }).optional(),
 })
 

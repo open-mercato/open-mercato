@@ -33,7 +33,10 @@
       "description": "El registro cambió después de que empezaste a editar.",
       "accept_incoming": "Aceptar versión entrante",
       "accept_mine": "Conservar mis cambios",
-      "merged": "Combinar cambios",
+      "field": "Campo",
+      "incoming_value": "Valor entrante",
+      "mine_value": "Tu valor",
+      "empty_value": "(vacio)",
       "cancel": "Cancelar"
     },
     "notifications": {

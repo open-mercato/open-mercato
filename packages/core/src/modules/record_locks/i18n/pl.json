@@ -33,7 +33,10 @@
       "description": "Rekord został zmieniony przez innego użytkownika po rozpoczęciu Twojej edycji.",
       "accept_incoming": "Akceptuj wersję przychodzącą",
       "accept_mine": "Zachowaj moje zmiany",
-      "merged": "Scal zmiany",
+      "field": "Pole",
+      "incoming_value": "Wartość przychodząca",
+      "mine_value": "Twoja wartość",
+      "empty_value": "(puste)",
       "cancel": "Anuluj"
     },
     "notifications": {

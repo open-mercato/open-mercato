@@ -19,6 +19,7 @@ export type CrudRecordLockValidationInput = {
   resourceId: string
   method: 'PUT' | 'DELETE'
   headers: CrudRecordLockHeaders
+  mutationPayload?: Record<string, unknown> | null
 }
 
 export type CrudRecordLockValidationSuccess = {
