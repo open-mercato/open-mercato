@@ -60,7 +60,7 @@
   "entities.userEntities.flash.created": "Entität erstellt",
   "entities.userEntities.form.defaultEditor.label": "Standardeditor (mehrzeilig)",
   "entities.userEntities.form.defaultEditor.options.default": "Standard (Markdown)",
-  "entities.userEntities.form.defaultEditor.options.htmlRichText": "HTML Rich Text",
+  "entities.userEntities.form.defaultEditor.options.htmlRichText": "HTML-Rich-Text",
   "entities.userEntities.form.defaultEditor.options.markdown": "Markdown (UIW)",
   "entities.userEntities.form.defaultEditor.options.simpleMarkdown": "Einfaches Markdown",
   "entities.userEntities.form.description.label": "Beschreibung",

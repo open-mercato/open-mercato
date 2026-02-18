@@ -575,7 +575,7 @@
   "workflows.form.placeholders.parentKey": "parentKey",
   "workflows.form.placeholders.parentPath": "parent.field.path",
   "workflows.form.placeholders.placeholder": "Platzhaltertext eingeben…",
-  "workflows.form.placeholders.roles": "Manager, Reviewer",
+  "workflows.form.placeholders.roles": "Manager, Prüfer",
   "workflows.form.placeholders.signalName": "payment_confirmed",
   "workflows.form.placeholders.signalTimeout": "PT5M",
   "workflows.form.placeholders.stepName": "Schrittnamen eingeben",

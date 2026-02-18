@@ -166,7 +166,7 @@
   "example.widgets.welcome.settings.headlineLabel": "Nagłówek",
   "example.widgets.welcome.settings.headlinePlaceholder": "Witaj ponownie, {{user}}!",
   "example.widgets.welcome.settings.messageLabel": "Wiadomość",
-  "notices.cookies.accept": "Accept cookies",
+  "notices.cookies.accept": "Zaakceptuj pliki cookie",
   "notices.cookies.description": "Używamy niezbędnych plików cookie, aby zapamiętać Twoje preferencje. Dowiedz się, jak obsługujemy dane w naszej",
   "notices.cookies.dismiss": "Odrzuć",
   "notices.demo.and": "i",

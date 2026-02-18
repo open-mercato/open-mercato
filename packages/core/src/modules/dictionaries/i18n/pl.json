@@ -56,7 +56,7 @@
   "dictionaries.config.entries.success.delete": "Wpis słownika został usunięty.",
   "dictionaries.config.entries.success.update": "Wpis słownika został zaktualizowany.",
   "dictionaries.config.error.delete": "Nie udało się usunąć słownika.",
-  "dictionaries.config.error.inheritedManage": "Inherited dictionaries must be managed at the parent organization.",
+  "dictionaries.config.error.inheritedManage": "Dziedziczone słowniki muszą być zarządzane w organizacji nadrzędnej.",
   "dictionaries.config.error.load": "Nie udało się wczytać słowników.",
   "dictionaries.config.error.required": "Wymagane są klucz i nazwa.",
   "dictionaries.config.error.save": "Nie udało się zapisać słownika.",

@@ -510,7 +510,7 @@
   "resources.teamMembers.availability.form.fields.exdates.help": "Wyklucz te daty z dostępności.",
   "resources.teamMembers.availability.form.fields.exdates.remove": "Usuń",
   "resources.teamMembers.availability.form.fields.repeat": "Powtarzaj",
-  "resources.teamMembers.availability.form.fields.start": "Start",
+  "resources.teamMembers.availability.form.fields.start": "Początek",
   "resources.teamMembers.availability.form.fields.timezone": "Strefa czasowa",
   "resources.teamMembers.availability.form.flash.created": "Dostępność utworzona.",
   "resources.teamMembers.availability.form.flash.deleted": "Dostępność usunięta.",

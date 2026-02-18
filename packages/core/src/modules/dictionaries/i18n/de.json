@@ -56,7 +56,7 @@
   "dictionaries.config.entries.success.delete": "Wörterbucheintrag gelöscht.",
   "dictionaries.config.entries.success.update": "Wörterbucheintrag aktualisiert.",
   "dictionaries.config.error.delete": "Das Wörterbuch konnte nicht gelöscht werden.",
-  "dictionaries.config.error.inheritedManage": "Inherited dictionaries must be managed at the parent organization.",
+  "dictionaries.config.error.inheritedManage": "Geerbte Wörterbücher müssen in der übergeordneten Organisation verwaltet werden.",
   "dictionaries.config.error.load": "Wörterbücher konnten nicht geladen werden.",
   "dictionaries.config.error.required": "Schlüssel und Name sind erforderlich.",
   "dictionaries.config.error.save": "Das Wörterbuch konnte nicht gespeichert werden.",

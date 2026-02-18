@@ -65,7 +65,7 @@
   "entities.userEntities.form.defaultEditor.options.simpleMarkdown": "Markdown simple",
   "entities.userEntities.form.description.label": "Descripción",
   "entities.userEntities.form.entityId.label": "ID de la entidad",
-  "entities.userEntities.form.entityId.placeholder": "module_name:entity_id",
+  "entities.userEntities.form.entityId.placeholder": "nombre_modulo:id_entidad",
   "entities.userEntities.form.label.label": "Etiqueta",
   "entities.userEntities.form.showInSidebar.label": "Mostrar en la barra lateral",
   "entities.userEntities.form.submit": "Crear",

@@ -510,7 +510,7 @@
   "resources.teamMembers.availability.form.fields.exdates.help": "Diese Daten von der Verfügbarkeit ausschließen.",
   "resources.teamMembers.availability.form.fields.exdates.remove": "Entfernen",
   "resources.teamMembers.availability.form.fields.repeat": "Wiederholen",
-  "resources.teamMembers.availability.form.fields.start": "Start",
+  "resources.teamMembers.availability.form.fields.start": "Beginn",
   "resources.teamMembers.availability.form.fields.timezone": "Zeitzone",
   "resources.teamMembers.availability.form.flash.created": "Verfügbarkeit erstellt.",
   "resources.teamMembers.availability.form.flash.deleted": "Verfügbarkeit gelöscht.",
