@@ -1,10 +1,4 @@
 "use client"
-export function formatDateTime(value?: string | null): string | null {
-  if (!value) return null
-  const date = new Date(value)
-  if (Number.isNaN(date.getTime())) return null
-  return date.toLocaleString()
-}
 
 import * as React from 'react'
 import Link from 'next/link'
@@ -16,7 +10,7 @@ import { CrudForm, type CrudField, type CrudFormGroup } from '@open-mercato/ui/b
 import { collectCustomFieldValues } from '@open-mercato/ui/backend/utils/customFieldValues'
 import { DictionaryEntrySelect, type DictionarySelectLabels } from '@open-mercato/core/modules/dictionaries/components/DictionaryEntrySelect'
 import type { AppearanceSelectorLabels } from '@open-mercato/core/modules/dictionaries/components/AppearanceSelector'
-import { formatRelativeTime } from '@open-mercato/shared/lib/time'
+import { formatRelativeTime, formatDateTime } from '@open-mercato/shared/lib/time'
 import { LoadingMessage, TabEmptyState } from './'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { createTranslatorWithFallback } from '@open-mercato/shared/lib/i18n/translate'
@@ -127,7 +121,6 @@ function toLocalDateTimeInput(value?: string | null): string {
   )}`
 }
 
-// ...existing code...
 
 type TimelineItemHeaderProps = {
   title: React.ReactNode

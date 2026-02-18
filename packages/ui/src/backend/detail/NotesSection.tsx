@@ -15,7 +15,7 @@ import { ErrorMessage } from './ErrorMessage'
 import { LoadingMessage } from './LoadingMessage'
 import { TabEmptyState } from './TabEmptyState'
 import { useConfirmDialog } from '../confirm-dialog'
-import { formatDateTime } from './ActivitiesSection'
+import { formatDateTime } from '@open-mercato/shared/lib/time'
 type Translator = (key: string, fallback?: string, params?: Record<string, string | number>) => string
 
 export type SectionAction = {
