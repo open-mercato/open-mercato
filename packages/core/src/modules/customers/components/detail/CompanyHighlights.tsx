@@ -3,6 +3,7 @@
 import * as React from 'react'
 import { FormHeader } from '@open-mercato/ui/backend/forms'
 import { RecordConflictDialog, RecordLockBanner, useRecordLockGuard } from '@open-mercato/ui/backend/record-locking'
+import type { UseRecordLockGuardResult } from '@open-mercato/ui/backend/record-locking'
 import { VersionHistoryAction } from '@open-mercato/ui/backend/version-history'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import {
@@ -46,6 +47,7 @@ export type CompanyHighlightsProps = {
   company: CompanyHighlightsCompany
   profile?: CompanyHighlightsProfile
   validators: CompanyHighlightsValidators
+  lockGuard?: UseRecordLockGuardResult
   onDisplayNameSave: (value: string | null) => Promise<void>
   onPrimaryEmailSave: (value: string | null) => Promise<void>
   onPrimaryPhoneSave: (value: string | null) => Promise<void>
@@ -59,6 +61,7 @@ export function CompanyHighlights({
   company,
   profile,
   validators,
+  lockGuard,
   onDisplayNameSave,
   onPrimaryEmailSave,
   onPrimaryPhoneSave,
@@ -69,17 +72,18 @@ export function CompanyHighlights({
 }: CompanyHighlightsProps) {
   const t = useT()
   const recordLockConflictMessage = t('record_locks.conflict.title', 'Conflict detected')
-  const lockGuard = useRecordLockGuard({
+  const localLockGuard = useRecordLockGuard({
     resourceKind: 'customers.company',
     resourceId: company.id,
     enabled: Boolean(company.id),
   })
+  const resolvedLockGuard = lockGuard ?? localLockGuard
   const runLockedMutation = React.useCallback(async (operation: () => Promise<void>) => {
-    const result = await lockGuard.runMutation(operation)
+    const result = await resolvedLockGuard.runMutation(operation)
     if (result === null) {
       throw new Error(recordLockConflictMessage)
     }
-  }, [lockGuard, recordLockConflictMessage])
+  }, [recordLockConflictMessage, resolvedLockGuard])
   const historyFallbackId =
     profile?.id && profile.id !== company.id ? profile.id : undefined
 
@@ -87,11 +91,16 @@ export function CompanyHighlights({
     <div className="space-y-6">
       <RecordLockBanner
         t={t}
-        strategy={lockGuard.lock.strategy}
-        resourceEnabled={lockGuard.lock.resourceEnabled}
-        isOwner={lockGuard.lock.isOwner}
-        isBlocked={lockGuard.lock.isBlocked}
-        error={lockGuard.lock.error}
+        strategy={resolvedLockGuard.lock.strategy}
+        resourceEnabled={resolvedLockGuard.lock.resourceEnabled}
+        isOwner={resolvedLockGuard.lock.isOwner}
+        isBlocked={resolvedLockGuard.lock.isBlocked}
+        canForceRelease={resolvedLockGuard.lock.canForceRelease}
+        forceReleasePending={resolvedLockGuard.lock.isLoading}
+        onForceRelease={async () => {
+          await resolvedLockGuard.lock.forceRelease('manual_takeover')
+        }}
+        error={resolvedLockGuard.lock.error}
       />
       <FormHeader
         mode="detail"
@@ -196,17 +205,17 @@ export function CompanyHighlights({
         />
       </div>
       <RecordConflictDialog
-        open={Boolean(lockGuard.conflict)}
+        open={Boolean(resolvedLockGuard.conflict)}
         onOpenChange={(open) => {
           if (!open) {
-            lockGuard.clearConflict()
+            resolvedLockGuard.clearConflict()
           }
         }}
-        conflict={lockGuard.conflict}
-        pending={lockGuard.pending}
+        conflict={resolvedLockGuard.conflict}
+        pending={resolvedLockGuard.pending}
         t={t}
         onResolve={async (resolution) => {
-          await lockGuard.resolveConflict(resolution)
+          await resolvedLockGuard.resolveConflict(resolution)
         }}
       />
     </div>
