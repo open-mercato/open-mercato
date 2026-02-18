@@ -313,7 +313,11 @@ export function useRecordLock(config: UseRecordLockConfig): UseRecordLockResult 
       if (!enabled || !lockApiAllowed) {
         return run()
       }
-      if (!tokenRef.current) {
+      const shouldAcquireBeforeMutation = !tokenRef.current && (
+        !lock
+        || lock.status !== 'active'
+      )
+      if (shouldAcquireBeforeMutation) {
         await acquire()
       }
       const headers: Record<string, string> = {
@@ -340,7 +344,7 @@ export function useRecordLock(config: UseRecordLockConfig): UseRecordLockResult 
         throw err
       }
     },
-    [acquire, config.resourceId, config.resourceKind, enabled, ensureAcl, latestActionLogId],
+    [acquire, config.resourceId, config.resourceKind, enabled, ensureAcl, latestActionLogId, lock],
   )
 
   React.useEffect(() => {
