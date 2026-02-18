@@ -40,7 +40,7 @@ Files like `AGENTS.md` and `CLAUDE.md` use UPPERCASE names and are not numberedâ
 | [SPEC-002](SPEC-002-2026-01-23-messages-module.md) | 2026-01-23 | Messages Module | Internal messaging and communication system |
 | [SPEC-003](SPEC-003-2026-01-23-notifications-module.md) | 2026-01-23 | Notifications Module | User notification system with multiple channels |
 | [SPEC-004](SPEC-004-2026-01-23-progress-module.md) | 2026-01-23 | Progress Module | Long-running task progress tracking |
-| [SPEC-005](SPEC-005-2026-01-23-record-locking-module.md) | 2026-01-23 | Record Locking Module | Pessimistic locking for concurrent editing |
+| [SPEC-005](SPEC-005-2026-01-23-record-locking-module.md) | 2026-01-23 | Record Locking Module | Optimistic/pessimistic record locking with conflict resolution and `action_logs` snapshot reuse |
 | [SPEC-006](SPEC-006-2026-01-23-order-status-history.md) | 2026-01-23 | Order Status History | Sales order status tracking and history |
 | [SPEC-007](SPEC-007-2026-01-26-sidebar-reorganization.md) | 2026-01-26 | Sidebar Reorganization | Backend admin panel navigation improvements |
 | [SPEC-008](SPEC-008-2026-01-27-product-quality-widget.md) | 2026-01-27 | Product Quality Widget | Dashboard widget for tracking products with missing images/descriptions |
