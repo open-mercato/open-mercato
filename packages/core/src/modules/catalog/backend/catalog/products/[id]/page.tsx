@@ -33,6 +33,9 @@ import {
   type ProductOptionInput,
   type PriceKindSummary,
   type PriceKindApiPayload,
+  type ProductUnitConversionDraft,
+  type ProductUnitPriceReferenceUnit,
+  type ProductUnitRoundingMode,
   productFormSchema,
   BASE_INITIAL_VALUES,
   createLocalId,
@@ -57,6 +60,7 @@ import {
   ProductCategorizeSection,
   type ProductCategorizePickerOption,
 } from '@open-mercato/core/modules/catalog/components/products/ProductCategorizeSection'
+import { ProductUomSection } from '@open-mercato/core/modules/catalog/components/products/ProductUomSection'
 import { AlignLeft, BookMarked, ExternalLink, FileText, Layers, Plus, Save, Trash2 } from 'lucide-react'
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '@open-mercato/ui/primitives/dialog'
 
@@ -146,6 +150,16 @@ type OfferSnapshot = {
   channelCode: string | null
 }
 
+type ProductUnitConversionInput = {
+  id: string | null
+  unitCode: string
+  toBaseFactor: number
+  sortOrder: number
+  isActive: boolean
+}
+
+const UNIT_PRICE_REFERENCE_UNITS = new Set<ProductUnitPriceReferenceUnit>(['kg', 'l', 'm2', 'm3', 'pc'])
+
 export default function EditCatalogProductPage({ params }: { params?: { id?: string } }) {
   const productId = params?.id ? String(params.id) : null
   const t = useT()
@@ -157,6 +171,7 @@ export default function EditCatalogProductPage({ params }: { params?: { id?: str
   const [loading, setLoading] = React.useState(true)
   const [error, setError] = React.useState<string | null>(null)
   const offerSnapshotsRef = React.useRef<OfferSnapshot[]>([])
+  const initialConversionsRef = React.useRef<ProductUnitConversionDraft[]>([])
   const [categorizeOptions, setCategorizeOptions] = React.useState<{
     categories: ProductCategorizePickerOption[]
     channels: ProductCategorizePickerOption[]
@@ -255,7 +270,16 @@ export default function EditCatalogProductPage({ params }: { params?: { id?: str
         if (!optionInputs.length) {
           optionInputs = readOptionSchema(metadata)
         }
-        const attachments = await fetchAttachments(productId!)
+        const [attachments, conversionsRes] = await Promise.all([
+          fetchAttachments(productId!),
+          apiCall<{ items?: Array<Record<string, unknown>> }>(
+            `/api/catalog/product-unit-conversions?productId=${encodeURIComponent(productId!)}&page=1&pageSize=100`,
+            undefined,
+            { fallback: { items: [] } },
+          ),
+        ])
+        const conversionRows = conversionsRes.ok ? readProductConversionRows(conversionsRes.result?.items) : []
+        initialConversionsRef.current = conversionRows
         const { customValues } = extractCustomFields(record)
         const offers = readOfferSnapshots(record)
         offerSnapshotsRef.current = offers
@@ -265,6 +289,38 @@ export default function EditCatalogProductPage({ params }: { params?: { id?: str
         const { values: tagValues, options: tagOptions } = readTagSelections(record)
         const defaultMediaId = typeof record.default_media_id === 'string' ? record.default_media_id : (record as any).defaultMediaId ?? null
         const defaultMediaUrl = typeof record.default_media_url === 'string' ? record.default_media_url : (record as any).defaultMediaUrl ?? ''
+        const unitPriceObject = isRecord((record as any).unit_price) ? ((record as any).unit_price as Record<string, unknown>) : null
+        const defaultUnit = toTrimmedOrNull((record as any).default_unit ?? (record as any).defaultUnit)
+        const defaultSalesUnit = toTrimmedOrNull((record as any).default_sales_unit ?? (record as any).defaultSalesUnit)
+        const defaultSalesUnitQuantity = toPositiveNumberOrNull(
+          (record as any).default_sales_unit_quantity ?? (record as any).defaultSalesUnitQuantity,
+        )
+        const roundingScale = toIntegerInRangeOrDefault(
+          (record as any).uom_rounding_scale ?? (record as any).uomRoundingScale,
+          0,
+          6,
+          4,
+        )
+        const roundingModeRaw = toTrimmedOrNull((record as any).uom_rounding_mode ?? (record as any).uomRoundingMode)
+        const roundingMode: ProductUnitRoundingMode =
+          roundingModeRaw === 'down' || roundingModeRaw === 'up' ? roundingModeRaw : 'half_up'
+        const unitPriceEnabled = Boolean(
+          unitPriceObject?.enabled ??
+            (record as any).unit_price_enabled ??
+            (record as any).unitPriceEnabled,
+        )
+        const unitPriceReferenceUnit = toTrimmedOrNull(
+          unitPriceObject?.reference_unit ??
+            unitPriceObject?.referenceUnit ??
+            (record as any).unit_price_reference_unit ??
+            (record as any).unitPriceReferenceUnit,
+        )
+        const unitPriceBaseQuantity = toPositiveNumberOrNull(
+          unitPriceObject?.base_quantity ??
+            unitPriceObject?.baseQuantity ??
+            (record as any).unit_price_base_quantity ??
+            (record as any).unitPriceBaseQuantity,
+        )
         const initial: ProductFormValues = {
           title: typeof record.title === 'string' ? record.title : '',
           subtitle: typeof record.subtitle === 'string' ? record.subtitle : '',
@@ -283,6 +339,18 @@ export default function EditCatalogProductPage({ params }: { params?: { id?: str
           metadata,
           dimensions: sanitizeProductDimensions(dimensions),
           weight: sanitizeProductWeight(weight),
+          defaultUnit: defaultUnit ?? null,
+          defaultSalesUnit: defaultSalesUnit ?? defaultUnit ?? null,
+          defaultSalesUnitQuantity: String(defaultSalesUnitQuantity ?? 1),
+          uomRoundingScale: String(roundingScale),
+          uomRoundingMode: roundingMode,
+          unitPriceEnabled,
+          unitPriceReferenceUnit:
+            unitPriceReferenceUnit && UNIT_PRICE_REFERENCE_UNITS.has(unitPriceReferenceUnit as ProductUnitPriceReferenceUnit)
+              ? (unitPriceReferenceUnit as ProductUnitPriceReferenceUnit)
+              : null,
+          unitPriceBaseQuantity: unitPriceBaseQuantity === null ? '' : String(unitPriceBaseQuantity),
+          unitConversions: conversionRows,
           customFieldsetCode:
             typeof record.custom_fieldset_code === 'string'
               ? record.custom_fieldset_code
@@ -463,6 +531,78 @@ function normalizeVariantOptionValues(input: unknown): Record<string, string> | 
   return Object.keys(result).length ? result : null
 }
 
+function toTrimmedOrNull(value: unknown): string | null {
+  if (typeof value !== 'string') return null
+  const trimmed = value.trim()
+  return trimmed.length ? trimmed : null
+}
+
+function toPositiveNumberOrNull(value: unknown): number | null {
+  const numeric = typeof value === 'number' ? value : Number(value)
+  if (!Number.isFinite(numeric) || numeric <= 0) return null
+  return numeric
+}
+
+function toIntegerInRangeOrDefault(value: unknown, min: number, max: number, fallback: number): number {
+  const numeric = typeof value === 'number' ? value : Number(value)
+  if (!Number.isInteger(numeric) || numeric < min || numeric > max) return fallback
+  return numeric
+}
+
+function normalizeProductConversionInputs(
+  rows: ProductUnitConversionDraft[] | undefined,
+): ProductUnitConversionInput[] {
+  const list = Array.isArray(rows) ? rows : []
+  const normalized: ProductUnitConversionInput[] = []
+  const seen = new Set<string>()
+  for (const row of list) {
+    const unitCode = toTrimmedOrNull(row?.unitCode)
+    const toBaseFactor = toPositiveNumberOrNull(row?.toBaseFactor)
+    if (!unitCode || toBaseFactor === null) continue
+    const unitKey = unitCode.toLowerCase()
+    if (seen.has(unitKey)) {
+      throw createCrudFormError('Duplicate conversion unit is not allowed.', {
+        unitConversions: 'Duplicate conversion unit is not allowed.',
+      })
+    }
+    seen.add(unitKey)
+    normalized.push({
+      id: toTrimmedOrNull(row?.id),
+      unitCode,
+      toBaseFactor,
+      sortOrder: toIntegerInRangeOrDefault(row?.sortOrder, 0, 100000, normalized.length * 10),
+      isActive: row?.isActive !== false,
+    })
+  }
+  return normalized
+}
+
+function readProductConversionRows(items: Array<Record<string, unknown>> | undefined): ProductUnitConversionDraft[] {
+  const rows = Array.isArray(items) ? items : []
+  return rows
+    .map((item) => {
+      const id = toTrimmedOrNull(item.id)
+      const unitCode = toTrimmedOrNull(item.unit_code ?? item.unitCode)
+      const factor = toPositiveNumberOrNull(item.to_base_factor ?? item.toBaseFactor)
+      if (!unitCode || factor === null) return null
+      const sortOrderRaw = toIntegerInRangeOrDefault(item.sort_order ?? item.sortOrder, 0, 100000, 0)
+      const isActive =
+        typeof item.is_active === 'boolean'
+          ? item.is_active
+          : typeof item.isActive === 'boolean'
+            ? item.isActive
+            : true
+      return {
+        id: id ?? null,
+        unitCode,
+        toBaseFactor: String(factor),
+        sortOrder: String(sortOrderRaw),
+        isActive,
+      } satisfies ProductUnitConversionDraft
+    })
+    .filter((entry): entry is ProductUnitConversionDraft => Boolean(entry))
+}
+
   const handleVariantDeleted = React.useCallback((variantId: string) => {
     setVariants((prev) => prev.filter((variant) => variant.id !== variantId))
   }, [])
@@ -527,6 +667,17 @@ function normalizeVariantOptionValues(input: unknown): Record<string, string> | 
       ),
     },
     {
+      id: 'product-uom',
+      column: 2,
+      component: ({ values, setValue, errors }) => (
+        <ProductUomSection
+          values={values as ProductFormValues}
+          setValue={setValue}
+          errors={errors}
+        />
+      ),
+    },
+    {
       id: 'categorize',
       column: 2,
       title: t('catalog.products.create.organize.title', 'Categorize'),
@@ -584,6 +735,29 @@ function normalizeVariantOptionValues(input: unknown): Record<string, string> | 
       metadata: parsed.data.metadata ?? {},
       dimensions: parsed.data.dimensions ?? null,
       weight: parsed.data.weight ?? null,
+      defaultUnit: parsed.data.defaultUnit ?? null,
+      defaultSalesUnit: parsed.data.defaultSalesUnit ?? null,
+      defaultSalesUnitQuantity: parsed.data.defaultSalesUnitQuantity?.toString() ?? '1',
+      uomRoundingScale: parsed.data.uomRoundingScale?.toString() ?? '4',
+      uomRoundingMode: parsed.data.uomRoundingMode ?? 'half_up',
+      unitPriceEnabled: Boolean(parsed.data.unitPriceEnabled),
+      unitPriceReferenceUnit: parsed.data.unitPriceReferenceUnit ?? null,
+      unitPriceBaseQuantity: parsed.data.unitPriceBaseQuantity?.toString() ?? '',
+      unitConversions: Array.isArray(parsed.data.unitConversions)
+        ? parsed.data.unitConversions.map((entry) => ({
+            id: toTrimmedOrNull(entry.id) ?? null,
+            unitCode: toTrimmedOrNull(entry.unitCode) ?? '',
+            toBaseFactor:
+              toPositiveNumberOrNull(entry.toBaseFactor) === null
+                ? ''
+                : String(toPositiveNumberOrNull(entry.toBaseFactor)),
+            sortOrder:
+              typeof entry.sortOrder === 'number' && Number.isFinite(entry.sortOrder)
+                ? String(entry.sortOrder)
+                : '',
+            isActive: entry.isActive !== false,
+          }))
+        : [],
       customFieldsetCode: parsed.data.customFieldsetCode ?? null,
       categoryIds: parsed.data.categoryIds ?? [],
       channelIds: parsed.data.channelIds ?? [],
@@ -615,6 +789,36 @@ function normalizeVariantOptionValues(input: unknown): Record<string, string> | 
           slug: slugifyAttachmentFileName(defaultMediaEntry.fileName),
         })
       : null
+    const defaultUnit = toTrimmedOrNull(values.defaultUnit)
+    const defaultSalesUnit = toTrimmedOrNull(values.defaultSalesUnit)
+    const defaultSalesUnitQuantity = toPositiveNumberOrNull(values.defaultSalesUnitQuantity) ?? 1
+    const uomRoundingScale = toIntegerInRangeOrDefault(values.uomRoundingScale, 0, 6, 4)
+    const uomRoundingMode: ProductUnitRoundingMode =
+      values.uomRoundingMode === 'down' || values.uomRoundingMode === 'up'
+        ? values.uomRoundingMode
+        : 'half_up'
+    const unitPriceEnabled = Boolean(values.unitPriceEnabled)
+    const unitPriceReferenceUnit = toTrimmedOrNull(values.unitPriceReferenceUnit)
+    const unitPriceBaseQuantity = toPositiveNumberOrNull(values.unitPriceBaseQuantity)
+    if (defaultSalesUnit && !defaultUnit) {
+      const message = t('catalog.products.uom.errors.baseRequired', 'Base unit is required when default sales unit is set.')
+      throw createCrudFormError(message, { defaultSalesUnit: message })
+    }
+    const conversionInputs = normalizeProductConversionInputs(values.unitConversions)
+    if (conversionInputs.length && !defaultUnit) {
+      const message = t('catalog.products.uom.errors.baseRequiredForConversions', 'Base unit is required when conversions are configured.')
+      throw createCrudFormError(message, { defaultUnit: message })
+    }
+    if (unitPriceEnabled) {
+      if (!unitPriceReferenceUnit || !UNIT_PRICE_REFERENCE_UNITS.has(unitPriceReferenceUnit as ProductUnitPriceReferenceUnit)) {
+        const message = t('catalog.products.unitPrice.errors.referenceUnit', 'Reference unit is required when unit price display is enabled.')
+        throw createCrudFormError(message, { unitPriceReferenceUnit: message })
+      }
+      if (unitPriceBaseQuantity === null) {
+        const message = t('catalog.products.unitPrice.errors.baseQuantity', 'Base quantity is required when unit price display is enabled.')
+        throw createCrudFormError(message, { unitPriceBaseQuantity: message })
+      }
+    }
     const payload: Record<string, unknown> = {
       id: productId,
       title,
@@ -630,6 +834,14 @@ function normalizeVariantOptionValues(input: unknown): Record<string, string> | 
       weightUnit: weight?.unit ?? null,
       defaultMediaId: defaultMediaId ?? undefined,
       defaultMediaUrl: defaultMediaUrl ?? undefined,
+      defaultUnit: defaultUnit ?? null,
+      defaultSalesUnit: defaultSalesUnit ?? defaultUnit ?? null,
+      defaultSalesUnitQuantity,
+      uomRoundingScale,
+      uomRoundingMode,
+      unitPriceEnabled,
+      unitPriceReferenceUnit: unitPriceEnabled ? unitPriceReferenceUnit : null,
+      unitPriceBaseQuantity: unitPriceEnabled ? unitPriceBaseQuantity : null,
       customFieldsetCode: values.customFieldsetCode?.trim().length ? values.customFieldsetCode : undefined,
     }
     const categoryIds = normalizeIdList(values.categoryIds)
@@ -678,6 +890,61 @@ function normalizeVariantOptionValues(input: unknown): Record<string, string> | 
       }
     }
     await updateCrud('catalog/products', payload)
+    const previousConversionIds = new Set(
+      initialConversionsRef.current
+        .map((entry) => toTrimmedOrNull(entry.id))
+        .filter((id): id is string => Boolean(id)),
+    )
+    const nextConversionIds = new Set(
+      conversionInputs
+        .map((entry) => (entry.id && entry.id.trim().length ? entry.id : null))
+        .filter((id): id is string => Boolean(id)),
+    )
+    const removedConversionIds = Array.from(previousConversionIds).filter((id) => !nextConversionIds.has(id))
+    for (const conversionId of removedConversionIds) {
+      await deleteCrud('catalog/product-unit-conversions', conversionId, {
+        errorMessage: t('catalog.products.uom.errors.sync', 'Failed to synchronize product conversions.'),
+      })
+    }
+    const persistedConversions: ProductUnitConversionDraft[] = []
+    for (const conversion of conversionInputs) {
+      if (conversion.id) {
+        await updateCrud('catalog/product-unit-conversions', {
+          id: conversion.id,
+          unitCode: conversion.unitCode,
+          toBaseFactor: conversion.toBaseFactor,
+          sortOrder: conversion.sortOrder,
+          isActive: conversion.isActive,
+        })
+        persistedConversions.push({
+          id: conversion.id,
+          unitCode: conversion.unitCode,
+          toBaseFactor: String(conversion.toBaseFactor),
+          sortOrder: String(conversion.sortOrder),
+          isActive: conversion.isActive,
+        })
+        continue
+      }
+      const created = await createCrud<{ id?: string }>('catalog/product-unit-conversions', {
+        productId,
+        unitCode: conversion.unitCode,
+        toBaseFactor: conversion.toBaseFactor,
+        sortOrder: conversion.sortOrder,
+        isActive: conversion.isActive,
+      })
+      const createdId =
+        created.result && typeof created.result === 'object' && typeof (created.result as { id?: unknown }).id === 'string'
+          ? ((created.result as { id: string }).id)
+          : null
+      persistedConversions.push({
+        id: createdId,
+        unitCode: conversion.unitCode,
+        toBaseFactor: String(conversion.toBaseFactor),
+        sortOrder: String(conversion.sortOrder),
+        isActive: conversion.isActive,
+      })
+    }
+    initialConversionsRef.current = persistedConversions
     offerSnapshotsRef.current = mergeOfferSnapshots(previousSnapshots, offersPayload)
     flash(t('catalog.products.edit.success', 'Product updated.'), 'success')
     router.push('/backend/catalog/products')

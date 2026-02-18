@@ -53,6 +53,17 @@ export type VariantPriceValue = {
   amount: string
 }
 
+export type ProductUnitRoundingMode = 'half_up' | 'down' | 'up'
+export type ProductUnitPriceReferenceUnit = 'kg' | 'l' | 'm2' | 'm3' | 'pc'
+
+export type ProductUnitConversionDraft = {
+  id: string | null
+  unitCode: string
+  toBaseFactor: string
+  sortOrder: string
+  isActive: boolean
+}
+
 export type VariantDraft = {
   id: string
   title: string
@@ -83,6 +94,15 @@ export type ProductFormValues = {
   metadata?: Record<string, unknown> | null
   dimensions?: ProductDimensions
   weight?: ProductWeight
+  defaultUnit: string | null
+  defaultSalesUnit: string | null
+  defaultSalesUnitQuantity: string
+  uomRoundingScale: string
+  uomRoundingMode: ProductUnitRoundingMode
+  unitPriceEnabled: boolean
+  unitPriceReferenceUnit: ProductUnitPriceReferenceUnit | null
+  unitPriceBaseQuantity: string
+  unitConversions: ProductUnitConversionDraft[]
   customFieldsetCode?: string | null
   categoryIds: string[]
   channelIds: string[]
@@ -127,6 +147,25 @@ export const productFormSchema = z.object({
     })
     .nullable()
     .optional(),
+  defaultUnit: z.string().trim().max(50).nullable().optional(),
+  defaultSalesUnit: z.string().trim().max(50).nullable().optional(),
+  defaultSalesUnitQuantity: z.coerce.number().positive().optional(),
+  uomRoundingScale: z.coerce.number().int().min(0).max(6).optional(),
+  uomRoundingMode: z.enum(['half_up', 'down', 'up']).optional(),
+  unitPriceEnabled: z.boolean().optional(),
+  unitPriceReferenceUnit: z.enum(['kg', 'l', 'm2', 'm3', 'pc']).nullable().optional(),
+  unitPriceBaseQuantity: z.coerce.number().positive().optional(),
+  unitConversions: z
+    .array(
+      z.object({
+        id: z.string().nullable().optional(),
+        unitCode: z.string().trim().max(50),
+        toBaseFactor: z.coerce.number().positive(),
+        sortOrder: z.coerce.number().int().min(0).max(100000).optional(),
+        isActive: z.boolean().optional(),
+      }),
+    )
+    .optional(),
   customFieldsetCode: z.string().optional().nullable(),
   categoryIds: z.array(z.string().uuid()).optional(),
   channelIds: z.array(z.string().uuid()).optional(),
@@ -153,6 +192,15 @@ export const BASE_INITIAL_VALUES: ProductFormValues = {
   metadata: {},
   dimensions: null,
   weight: null,
+  defaultUnit: null,
+  defaultSalesUnit: null,
+  defaultSalesUnitQuantity: '1',
+  uomRoundingScale: '4',
+  uomRoundingMode: 'half_up',
+  unitPriceEnabled: false,
+  unitPriceReferenceUnit: null,
+  unitPriceBaseQuantity: '',
+  unitConversions: [],
   customFieldsetCode: null,
   categoryIds: [],
   channelIds: [],
@@ -180,6 +228,17 @@ export const createVariantDraft = (
   hasInventoryKit: false,
   optionValues: {},
   prices: {},
+  ...overrides,
+})
+
+export const createProductUnitConversionDraft = (
+  overrides: Partial<ProductUnitConversionDraft> = {},
+): ProductUnitConversionDraft => ({
+  id: null,
+  unitCode: '',
+  toBaseFactor: '',
+  sortOrder: '',
+  isActive: true,
   ...overrides,
 })
 

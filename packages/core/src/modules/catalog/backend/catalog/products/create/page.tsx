@@ -29,6 +29,9 @@ import {
   type VariantPriceValue,
   type VariantDraft,
   type ProductFormValues,
+  type ProductUnitConversionDraft,
+  type ProductUnitPriceReferenceUnit,
+  type ProductUnitRoundingMode,
   productFormSchema,
   createInitialProductFormValues,
   createVariantDraft,
@@ -48,6 +51,7 @@ import {
   updateWeightValue,
 } from '@open-mercato/core/modules/catalog/components/products/productForm'
 import { buildAttachmentImageUrl, slugifyAttachmentFileName } from '@open-mercato/core/modules/attachments/lib/imageUrls'
+import { ProductUomSection } from '@open-mercato/core/modules/catalog/components/products/ProductUomSection'
 
 const productFormTypedSchema = productFormSchema as unknown as ZodType<ProductFormValues>
 
@@ -77,6 +81,13 @@ type ProductFormStep = (typeof PRODUCT_FORM_STEPS)[number]
 
 const TRUE_BOOLEAN_VALUES = new Set(['true', '1', 'yes', 'y', 't'])
 
+type ProductUnitConversionInput = {
+  unitCode: string
+  toBaseFactor: number
+  sortOrder: number
+  isActive: boolean
+}
+
 const matchField = (fieldId: string) => (value: string) =>
   value === fieldId || value.startsWith(`${fieldId}.`) || value.startsWith(`${fieldId}[`)
 const matchPrefix = (prefix: string) => (value: string) => value.startsWith(prefix)
@@ -93,6 +104,54 @@ const STEP_FIELD_MATCHERS: Record<ProductFormStep, ((value: string) => boolean)[
   ],
   organize: [matchField('categoryIds'), matchField('channelIds'), matchField('tags')],
   variants: [matchField('hasVariants'), matchPrefix('options'), matchPrefix('variants')],
+}
+
+const UNIT_PRICE_REFERENCE_UNITS = new Set<ProductUnitPriceReferenceUnit>(['kg', 'l', 'm2', 'm3', 'pc'])
+
+function toTrimmedOrNull(value: unknown): string | null {
+  if (typeof value !== 'string') return null
+  const trimmed = value.trim()
+  return trimmed.length ? trimmed : null
+}
+
+function toPositiveNumberOrNull(value: unknown): number | null {
+  const numeric = typeof value === 'number' ? value : Number(value)
+  if (!Number.isFinite(numeric) || numeric <= 0) return null
+  return numeric
+}
+
+function toIntegerInRangeOrDefault(value: unknown, min: number, max: number, fallback: number): number {
+  const numeric = typeof value === 'number' ? value : Number(value)
+  if (!Number.isInteger(numeric) || numeric < min || numeric > max) return fallback
+  return numeric
+}
+
+function normalizeProductConversionInputs(
+  rows: ProductUnitConversionDraft[] | undefined,
+): ProductUnitConversionInput[] {
+  const list = Array.isArray(rows) ? rows : []
+  const normalized: ProductUnitConversionInput[] = []
+  const seen = new Set<string>()
+  for (const row of list) {
+    const unitCode = toTrimmedOrNull(row?.unitCode)
+    const toBaseFactor = toPositiveNumberOrNull(row?.toBaseFactor)
+    if (!unitCode || toBaseFactor === null) continue
+    const unitKey = unitCode.toLowerCase()
+    if (seen.has(unitKey)) {
+      throw createCrudFormError(
+        'Duplicate conversion unit is not allowed.',
+        { unitConversions: 'Duplicate conversion unit is not allowed.' },
+      )
+    }
+    seen.add(unitKey)
+    normalized.push({
+      unitCode,
+      toBaseFactor,
+      sortOrder: toIntegerInRangeOrDefault(row?.sortOrder, 0, 100000, normalized.length * 10),
+      isActive: row?.isActive !== false,
+    })
+  }
+  return normalized
 }
 
 function resolveStepForField(fieldId: string): ProductFormStep | null {
@@ -211,6 +270,17 @@ export default function CreateCatalogProductPage() {
         />
       ),
     },
+    {
+      id: 'product-uom',
+      column: 2,
+      component: ({ values, setValue, errors }: CrudFormGroupComponentProps) => (
+        <ProductUomSection
+          values={values as ProductFormValues}
+          setValue={setValue}
+          errors={errors}
+        />
+      ),
+    },
   ], [priceKinds, taxRates, t])
 
   return (
@@ -267,6 +337,36 @@ export default function CreateCatalogProductPage() {
                 (resolvedVariantTaxRateId ? null : productTaxRate ?? null)
               return { resolvedVariantTaxRateId, resolvedVariantTaxRate }
             }
+            const defaultUnit = toTrimmedOrNull(formValues.defaultUnit)
+            const defaultSalesUnit = toTrimmedOrNull(formValues.defaultSalesUnit)
+            const defaultSalesUnitQuantity = toPositiveNumberOrNull(formValues.defaultSalesUnitQuantity) ?? 1
+            const uomRoundingScale = toIntegerInRangeOrDefault(formValues.uomRoundingScale, 0, 6, 4)
+            const uomRoundingMode: ProductUnitRoundingMode =
+              formValues.uomRoundingMode === 'down' || formValues.uomRoundingMode === 'up'
+                ? formValues.uomRoundingMode
+                : 'half_up'
+            const unitPriceEnabled = Boolean(formValues.unitPriceEnabled)
+            const unitPriceReferenceUnit = toTrimmedOrNull(formValues.unitPriceReferenceUnit)
+            const unitPriceBaseQuantity = toPositiveNumberOrNull(formValues.unitPriceBaseQuantity)
+            if (defaultSalesUnit && !defaultUnit) {
+              const message = t('catalog.products.uom.errors.baseRequired', 'Base unit is required when default sales unit is set.')
+              throw createCrudFormError(message, { defaultSalesUnit: message })
+            }
+            const conversionInputs = normalizeProductConversionInputs(formValues.unitConversions)
+            if (conversionInputs.length && !defaultUnit) {
+              const message = t('catalog.products.uom.errors.baseRequiredForConversions', 'Base unit is required when conversions are configured.')
+              throw createCrudFormError(message, { defaultUnit: message })
+            }
+            if (unitPriceEnabled) {
+              if (!unitPriceReferenceUnit || !UNIT_PRICE_REFERENCE_UNITS.has(unitPriceReferenceUnit as ProductUnitPriceReferenceUnit)) {
+                const message = t('catalog.products.unitPrice.errors.referenceUnit', 'Reference unit is required when unit price display is enabled.')
+                throw createCrudFormError(message, { unitPriceReferenceUnit: message })
+              }
+              if (unitPriceBaseQuantity === null) {
+                const message = t('catalog.products.unitPrice.errors.baseQuantity', 'Base quantity is required when unit price display is enabled.')
+                throw createCrudFormError(message, { unitPriceBaseQuantity: message })
+              }
+            }
             const productPayload: Record<string, unknown> = {
               title,
               subtitle: formValues.subtitle?.trim() || undefined,
@@ -280,6 +380,14 @@ export default function CreateCatalogProductPage() {
               dimensions,
               weightValue: weight?.value ?? null,
               weightUnit: weight?.unit ?? null,
+              defaultUnit: defaultUnit ?? null,
+              defaultSalesUnit: defaultSalesUnit ?? defaultUnit ?? null,
+              defaultSalesUnitQuantity,
+              uomRoundingScale,
+              uomRoundingMode,
+              unitPriceEnabled,
+              unitPriceReferenceUnit: unitPriceEnabled ? unitPriceReferenceUnit : null,
+              unitPriceBaseQuantity: unitPriceEnabled ? unitPriceBaseQuantity : null,
             }
             if (optionSchemaDefinition) {
               productPayload.optionSchema = optionSchemaDefinition
@@ -365,6 +473,16 @@ export default function CreateCatalogProductPage() {
                 throw createCrudFormError(t('catalog.products.create.errors.id', 'Product id missing after create.'))
               }
               cleanupState.productId = productId
+
+              for (const conversion of conversionInputs) {
+                await createCrud('catalog/product-unit-conversions', {
+                  productId,
+                  unitCode: conversion.unitCode,
+                  toBaseFactor: conversion.toBaseFactor,
+                  sortOrder: conversion.sortOrder,
+                  isActive: conversion.isActive,
+                })
+              }
 
               const variantIdMap: Record<string, string> = {}
               for (const variant of variantDrafts) {
