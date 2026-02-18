@@ -144,8 +144,13 @@ export function useRecordLock(config: UseRecordLockConfig): UseRecordLockResult 
   const aclCheckPromiseRef = React.useRef<Promise<boolean> | null>(null)
   const aclStatusRef = React.useRef<'unknown' | 'granted' | 'denied'>(aclStatus)
 
-  const isOwner = Boolean(lock?.token)
-  const isBlocked = Boolean(resourceEnabled && strategy === 'pessimistic' && lock && !isOwner)
+  const isOwner = Boolean(lock?.status === 'active' && lock?.token)
+  const isBlocked = Boolean(
+    resourceEnabled
+    && strategy === 'pessimistic'
+    && lock?.status === 'active'
+    && !isOwner,
+  )
   const canUseLockApi = enabled && (!autoCheckAcl || aclStatus === 'granted')
 
   React.useEffect(() => {
@@ -344,11 +349,18 @@ export function useRecordLock(config: UseRecordLockConfig): UseRecordLockResult 
           resourceKind: config.resourceKind,
           resourceId: config.resourceId,
         }),
-      })
+      }).then((response) => {
+        const stillCurrentToken = tokenRef.current === token
+        if (!stillCurrentToken || !response.ok) return
+        if (response.result?.expiresAt) return
+        tokenRef.current = null
+        setLock((prev) => (prev ? { ...prev, token: null, status: 'released' } : prev))
+        void acquire()
+      }).catch(() => {})
     }, interval)
 
     return () => window.clearInterval(handle)
-  }, [canUseLockApi, config.resourceId, config.resourceKind, heartbeatSeconds, resourceEnabled])
+  }, [acquire, canUseLockApi, config.resourceId, config.resourceKind, heartbeatSeconds, resourceEnabled])
 
   React.useEffect(() => {
     if (!canUseLockApi) return

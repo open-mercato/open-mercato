@@ -45,6 +45,7 @@ export function RecordLockBanner({
               type="button"
               size="sm"
               variant="outline"
+              className="shrink-0 border-blue-300 bg-white text-blue-900 hover:bg-blue-100 hover:text-blue-950"
               onClick={() => void onForceRelease()}
               disabled={forceReleasePending}
             >
