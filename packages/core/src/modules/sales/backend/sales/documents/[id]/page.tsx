@@ -23,6 +23,7 @@ import { Input } from '@open-mercato/ui/primitives/input'
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@open-mercato/ui/primitives/dialog'
 import { ArrowRightLeft, Building2, CreditCard, Mail, Pencil, Plus, Send, Store, Truck, UserRound, Wand2, X } from 'lucide-react'
 import { FormHeader, type ActionItem } from '@open-mercato/ui/backend/forms'
+import { RecordConflictDialog, RecordLockBanner, useRecordLockGuard } from '@open-mercato/ui/backend/record-locking'
 import { VersionHistoryAction } from '@open-mercato/ui/backend/version-history'
 import Link from 'next/link'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
@@ -1891,6 +1892,20 @@ export default function SalesDocumentDetailPage({
   const [statusLoading, setStatusLoading] = React.useState(false)
   const statusOptionsRef = React.useRef<Map<string, StatusOption>>(new Map())
   const [adjustmentRows, setAdjustmentRows] = React.useState<AdjustmentRowData[]>([])
+  const recordLockConflictMessage = t('record_locks.conflict.title', 'Conflict detected')
+  const recordLockResourceKind = kind === 'order' ? 'sales.order' : 'sales.quote'
+  const lockGuard = useRecordLockGuard({
+    resourceKind: recordLockResourceKind,
+    resourceId: record?.id ?? '',
+    enabled: Boolean(record?.id),
+  })
+  const runLockedMutation = React.useCallback(async <T,>(operation: () => Promise<T>): Promise<T> => {
+    const result = await lockGuard.runMutation(operation)
+    if (result === null) {
+      throw new Error(recordLockConflictMessage)
+    }
+    return result
+  }, [lockGuard, recordLockConflictMessage])
   const clearCustomerError = React.useCallback(() => setCustomerError(null), [])
   const { data: currencyDictionary } = useCurrencyDictionary()
   const scopeVersion = useOrganizationScopeVersion()
@@ -2924,17 +2939,19 @@ export default function SalesDocumentDetailPage({
         throw new Error(t('sales.documents.detail.updateError', 'Failed to update document.'))
       }
       const endpoint = kind === 'order' ? '/api/sales/orders' : '/api/sales/quotes'
-      return apiCallOrThrow<DocumentUpdateResult>(
-        endpoint,
-        {
-          method: 'PUT',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ id: record.id, ...patch }),
-        },
-        { errorMessage: t('sales.documents.detail.updateError', 'Failed to update document.') }
+      return runLockedMutation(() =>
+        apiCallOrThrow<DocumentUpdateResult>(
+          endpoint,
+          {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ id: record.id, ...patch }),
+          },
+          { errorMessage: t('sales.documents.detail.updateError', 'Failed to update document.') }
+        ),
       )
     },
-    [kind, record, t]
+    [kind, record, runLockedMutation, t]
   )
 
   const handleUpdateCurrency = React.useCallback(
@@ -3561,47 +3578,50 @@ export default function SalesDocumentDetailPage({
     if (!record || kind !== 'quote') return
     setConverting(true)
     try {
-      const call = await apiCallOrThrow<{ orderId?: string }>(
-        '/api/sales/quotes/convert',
-        {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ quoteId: record.id }),
-        },
-        { errorMessage: t('sales.documents.detail.convertError', 'Failed to convert quote.') },
-      )
-      const orderId = call.result?.orderId ?? record.id
-      flash(t('sales.documents.detail.convertSuccess', 'Quote converted to order.'), 'success')
-      router.replace(`/backend/sales/orders/${orderId}`)
+      await runLockedMutation(async () => {
+        const call = await apiCallOrThrow<{ orderId?: string }>(
+          '/api/sales/quotes/convert',
+          {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ quoteId: record.id }),
+          },
+          { errorMessage: t('sales.documents.detail.convertError', 'Failed to convert quote.') },
+        )
+        const orderId = call.result?.orderId ?? record.id
+        flash(t('sales.documents.detail.convertSuccess', 'Quote converted to order.'), 'success')
+        router.replace(`/backend/sales/orders/${orderId}`)
+      })
     } catch (err) {
       console.error('sales.documents.convert', err)
       flash(t('sales.documents.detail.convertError', 'Failed to convert quote.'), 'error')
     } finally {
       setConverting(false)
     }
-  }, [kind, record, router, t])
+  }, [kind, record, router, runLockedMutation, t])
 
   const handleSendQuote = React.useCallback(async () => {
     if (!record || kind !== 'quote') return
     setSending(true)
     try {
-      await apiCallOrThrow('/api/sales/quotes/send', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ quoteId: record.id, validForDays }),
+      await runLockedMutation(async () => {
+        await apiCallOrThrow('/api/sales/quotes/send', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ quoteId: record.id, validForDays }),
+        })
+        flash(t('sales.quotes.send.success', 'Quote sent.'), 'success')
+        setSendOpen(false)
+        const updated = await fetchDocumentByKind(record.id, 'quote')
+        if (updated) setRecord(updated)
       })
-      flash(t('sales.quotes.send.success', 'Quote sent.'), 'success')
-      setSendOpen(false)
-      // Reload the document to reflect status changes.
-      const updated = await fetchDocumentByKind(record.id, 'quote')
-      if (updated) setRecord(updated)
     } catch (err) {
       console.error('sales.quotes.send', err)
       flash(t('sales.quotes.send.failed', 'Failed to send quote.'), 'error')
     } finally {
       setSending(false)
     }
-  }, [fetchDocumentByKind, flash, kind, record, t, validForDays])
+  }, [fetchDocumentByKind, kind, record, runLockedMutation, t, validForDays])
 
   const handleDelete = React.useCallback(async () => {
     if (!record) return
@@ -3612,20 +3632,25 @@ export default function SalesDocumentDetailPage({
     if (!ok) return
     setDeleting(true)
     const endpoint = kind === 'order' ? '/api/sales/orders' : '/api/sales/quotes'
-    const call = await apiCall(endpoint, {
-      method: 'DELETE',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ id: record.id }),
-    })
-    if (call.ok) {
+    try {
+      await runLockedMutation(async () => {
+        await apiCallOrThrow(endpoint, {
+          method: 'DELETE',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ id: record.id }),
+        }, {
+          errorMessage: t('sales.documents.detail.deleteFailed', 'Could not delete document.'),
+        })
+      })
       flash(t('sales.documents.detail.deleted', 'Document deleted.'), 'success')
       const listPath = kind === 'order' ? '/backend/sales/orders' : '/backend/sales/quotes'
       router.push(listPath)
-    } else {
+    } catch (err) {
+      console.error('sales.documents.delete', err)
       flash(t('sales.documents.detail.deleteFailed', 'Could not delete document.'), 'error')
     }
     setDeleting(false)
-  }, [kind, record, router, t])
+  }, [kind, record, router, runLockedMutation, t])
 
   const detailFields = React.useMemo(() => {
     const fields: DetailFieldConfig[] = [
@@ -4196,15 +4221,17 @@ export default function SalesDocumentDetailPage({
       }
       const endpoint = kind === 'order' ? '/api/sales/orders' : '/api/sales/quotes'
       try {
-        await apiCallOrThrow(
-          endpoint,
-          {
-            method: 'PUT',
-            headers: { 'content-type': 'application/json' },
-            body: JSON.stringify({ id: record.id, customFields: customPayload }),
-          },
-          { errorMessage: t('sales.documents.detail.inlineError', 'Unable to update document.') },
-        )
+        await runLockedMutation(async () => {
+          await apiCallOrThrow(
+            endpoint,
+            {
+              method: 'PUT',
+              headers: { 'content-type': 'application/json' },
+              body: JSON.stringify({ id: record.id, customFields: customPayload }),
+            },
+            { errorMessage: t('sales.documents.detail.inlineError', 'Unable to update document.') },
+          )
+        })
       } catch (err) {
         const { message: helperMessage, fieldErrors } = mapCrudServerErrorToFormErrors(err)
         const mappedErrors = fieldErrors
@@ -4231,7 +4258,7 @@ export default function SalesDocumentDetailPage({
       )
       flash(t('ui.forms.flash.saveSuccess', 'Saved successfully.'), 'success')
     },
-    [kind, record, t],
+    [kind, record, runLockedMutation, t],
   )
 
   const loadTagOptions = React.useCallback(
@@ -4303,20 +4330,22 @@ export default function SalesDocumentDetailPage({
       if (!record) return
       const endpoint = kind === 'order' ? '/api/sales/orders' : '/api/sales/quotes'
       const tagIds = Array.from(new Set(next.map((tag) => tag.id)))
-      await apiCallOrThrow(
-        endpoint,
-        {
-          method: 'PUT',
-          headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({ id: record.id, tags: tagIds }),
-        },
-        { errorMessage: t('sales.documents.detail.tags.updateError', 'Failed to update tags.') },
-      )
+      await runLockedMutation(async () => {
+        await apiCallOrThrow(
+          endpoint,
+          {
+            method: 'PUT',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ id: record.id, tags: tagIds }),
+          },
+          { errorMessage: t('sales.documents.detail.tags.updateError', 'Failed to update tags.') },
+        )
+      })
       setRecord((prev) => (prev ? { ...prev, tags: next } : prev))
       setTags(next)
       flash(t('sales.documents.detail.tags.success', 'Tags updated.'), 'success')
     },
-    [kind, record, t],
+    [kind, record, runLockedMutation, t],
   )
 
   if (loading) {
@@ -4448,6 +4477,14 @@ export default function SalesDocumentDetailPage({
           onDelete={() => void handleDelete()}
           isDeleting={deleting}
           deleteLabel={t('sales.documents.detail.delete', 'Delete')}
+        />
+        <RecordLockBanner
+          t={t}
+          strategy={lockGuard.lock.strategy}
+          resourceEnabled={lockGuard.lock.resourceEnabled}
+          isOwner={lockGuard.lock.isOwner}
+          isBlocked={lockGuard.lock.isBlocked}
+          error={lockGuard.lock.error}
         />
 
         <div className="grid gap-4 md:grid-cols-4">
@@ -4694,6 +4731,33 @@ export default function SalesDocumentDetailPage({
         </div>
       </PageBody>
 
+      <RecordConflictDialog
+        open={Boolean(lockGuard.conflict)}
+        onOpenChange={(open) => {
+          if (!open) {
+            lockGuard.clearConflict()
+            if (record) {
+              void fetchDocumentByKind(record.id, kind).then((next) => {
+                if (next) setRecord(next)
+              }).catch(() => {})
+            }
+          }
+        }}
+        conflict={lockGuard.conflict}
+        pending={lockGuard.pending}
+        t={t}
+        onResolve={async (resolution) => {
+          const resolved = await lockGuard.resolveConflict(resolution)
+          if (resolved !== null && record) {
+            try {
+              const next = await fetchDocumentByKind(record.id, kind)
+              if (next) setRecord(next)
+            } catch {
+              return
+            }
+          }
+        }}
+      />
       <Dialog open={sendOpen} onOpenChange={setSendOpen}>
         <DialogContent
           onKeyDown={(event) => {

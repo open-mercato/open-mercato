@@ -8,6 +8,12 @@ import type { CommandBus, CommandRuntimeContext } from '@open-mercato/shared/lib
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
+import {
+  readCrudRecordLockHeaders,
+  releaseCrudRecordLockAfterSuccess,
+  validateCrudRecordLock,
+  type CrudRecordLockValidationResult,
+} from '@open-mercato/shared/lib/crud/record-locking'
 import { withScopedPayload } from '../../utils'
 
 const convertSchema = z.object({
@@ -22,6 +28,19 @@ export const metadata = {
 
 type RequestContext = {
   ctx: CommandRuntimeContext
+}
+
+function buildRecordLockErrorResponse(validation: CrudRecordLockValidationResult): NextResponse | null {
+  if (validation.ok) return null
+  return NextResponse.json(
+    {
+      error: validation.error,
+      code: validation.code,
+      lock: validation.lock ?? null,
+      conflict: validation.conflict,
+    },
+    { status: validation.status },
+  )
 }
 
 async function resolveRequestContext(req: Request): Promise<RequestContext> {
@@ -60,6 +79,20 @@ export async function POST(req: Request) {
     const payload = await req.json().catch(() => ({}))
     const scoped = withScopedPayload(payload ?? {}, ctx, translate)
     const input = convertSchema.parse(scoped)
+    const lockHeaders = readCrudRecordLockHeaders(req.headers)
+    const lockValidation = await validateCrudRecordLock(ctx.container, {
+      tenantId: ctx.auth?.tenantId ?? '',
+      organizationId: ctx.selectedOrganizationId ?? ctx.auth?.orgId ?? null,
+      userId: ctx.auth?.sub ?? '',
+      resourceKind: lockHeaders.resourceKind ?? 'sales.quote',
+      resourceId: lockHeaders.resourceId ?? input.quoteId,
+      method: 'PUT',
+      headers: lockHeaders,
+    })
+    if (lockValidation) {
+      const lockErrorResponse = buildRecordLockErrorResponse(lockValidation)
+      if (lockErrorResponse) return lockErrorResponse
+    }
     const commandBus = ctx.container.resolve('commandBus') as CommandBus
     const { result, logEntry } = await commandBus.execute<
       { quoteId: string; orderId?: string; orderNumber?: string },
@@ -86,6 +119,18 @@ export async function POST(req: Request) {
               : new Date().toISOString(),
         })
       )
+    }
+
+    if (lockValidation?.ok && lockValidation.shouldReleaseOnSuccess && lockHeaders.token) {
+      await releaseCrudRecordLockAfterSuccess(ctx.container, {
+        tenantId: ctx.auth?.tenantId ?? '',
+        organizationId: ctx.selectedOrganizationId ?? ctx.auth?.orgId ?? null,
+        userId: ctx.auth?.sub ?? '',
+        resourceKind: lockHeaders.resourceKind ?? 'sales.quote',
+        resourceId: lockHeaders.resourceId ?? input.quoteId,
+        token: lockHeaders.token,
+        reason: 'saved',
+      })
     }
 
     return jsonResponse
@@ -122,6 +167,8 @@ export const openApi: OpenApiRouteDoc = {
         { status: 400, description: 'Invalid payload', schema: z.object({ error: z.string() }) },
         { status: 401, description: 'Unauthorized', schema: z.object({ error: z.string() }) },
         { status: 403, description: 'Forbidden', schema: z.object({ error: z.string() }) },
+        { status: 409, description: 'Conflict detected', schema: z.object({ error: z.string(), code: z.string().optional() }) },
+        { status: 423, description: 'Record locked', schema: z.object({ error: z.string(), code: z.string().optional() }) },
       ],
     },
   },

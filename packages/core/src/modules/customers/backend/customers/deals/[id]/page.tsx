@@ -7,6 +7,7 @@ import { Pencil, MousePointerClick } from 'lucide-react'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { FormHeader } from '@open-mercato/ui/backend/forms'
+import { RecordConflictDialog, RecordLockBanner, useRecordLockGuard } from '@open-mercato/ui/backend/record-locking'
 import { VersionHistoryAction } from '@open-mercato/ui/backend/version-history'
 import { Spinner } from '@open-mercato/ui/primitives/spinner'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
@@ -112,6 +113,18 @@ export default function DealDetailPage({ params }: { params?: { id?: string } })
   const [reloadToken, setReloadToken] = React.useState(0)
   const [activeTab, setActiveTab] = React.useState<'notes' | 'activities'>('notes')
   const [sectionAction, setSectionAction] = React.useState<SectionAction | null>(null)
+  const recordLockConflictMessage = t('record_locks.conflict.title', 'Conflict detected')
+  const lockGuard = useRecordLockGuard({
+    resourceKind: 'customers.deal',
+    resourceId: data?.deal.id ?? '',
+    enabled: Boolean(data?.deal.id),
+  })
+  const runLockedMutation = React.useCallback(async (operation: () => Promise<void>) => {
+    const result = await lockGuard.runMutation(operation)
+    if (result === null) {
+      throw new Error(recordLockConflictMessage)
+    }
+  }, [lockGuard, recordLockConflictMessage])
   const handleNotesLoadingChange = React.useCallback(() => {}, [])
   const handleActivitiesLoadingChange = React.useCallback(() => {}, [])
   const focusDealField = React.useCallback(
@@ -256,15 +269,17 @@ export default function DealDetailPage({ params }: { params?: { id?: string } })
 
     setIsDeleting(true)
     try {
-      await apiCallOrThrow(
-        '/api/customers/deals',
-        {
-          method: 'DELETE',
-          headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({ id: data.deal.id }),
-        },
-        { errorMessage: t('customers.deals.detail.deleteError', 'Failed to delete deal.') },
-      )
+      await runLockedMutation(async () => {
+        await apiCallOrThrow(
+          '/api/customers/deals',
+          {
+            method: 'DELETE',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ id: data.deal.id }),
+          },
+          { errorMessage: t('customers.deals.detail.deleteError', 'Failed to delete deal.') },
+        )
+      })
       flash(t('customers.deals.detail.deleteSuccess', 'Deal deleted.'), 'success')
       router.push('/backend/customers/deals')
     } catch (err) {
@@ -276,7 +291,7 @@ export default function DealDetailPage({ params }: { params?: { id?: string } })
     } finally {
       setIsDeleting(false)
     }
-  }, [confirm, data, isDeleting, router, t])
+  }, [confirm, data, isDeleting, router, runLockedMutation, t])
 
   React.useEffect(() => {
     setSectionAction(null)
@@ -422,6 +437,14 @@ export default function DealDetailPage({ params }: { params?: { id?: string } })
             onDelete={handleDelete}
             isDeleting={isDeleting}
             deleteLabel={t('ui.actions.delete', 'Delete')}
+          />
+          <RecordLockBanner
+            t={t}
+            strategy={lockGuard.lock.strategy}
+            resourceEnabled={lockGuard.lock.resourceEnabled}
+            isOwner={lockGuard.lock.isOwner}
+            isBlocked={lockGuard.lock.isBlocked}
+            error={lockGuard.lock.error}
           />
 
           <div className="grid gap-6 lg:grid-cols-[minmax(0,2fr),minmax(0,1.1fr)]">
@@ -636,6 +659,24 @@ export default function DealDetailPage({ params }: { params?: { id?: string } })
           </div>
         </div>
       </PageBody>
+      <RecordConflictDialog
+        open={Boolean(lockGuard.conflict)}
+        onOpenChange={(open) => {
+          if (!open) {
+            lockGuard.clearConflict()
+            setReloadToken((token) => token + 1)
+          }
+        }}
+        conflict={lockGuard.conflict}
+        pending={lockGuard.pending}
+        t={t}
+        onResolve={async (resolution) => {
+          const resolved = await lockGuard.resolveConflict(resolution)
+          if (resolved !== null) {
+            setReloadToken((token) => token + 1)
+          }
+        }}
+      />
       {ConfirmDialogElement}
     </Page>
   )

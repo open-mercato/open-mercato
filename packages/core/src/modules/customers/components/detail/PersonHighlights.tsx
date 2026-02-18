@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation'
 import { Building2, Loader2, Pencil, X } from 'lucide-react'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { FormHeader } from '@open-mercato/ui/backend/forms'
+import { RecordConflictDialog, RecordLockBanner, useRecordLockGuard } from '@open-mercato/ui/backend/record-locking'
 import { VersionHistoryAction } from '@open-mercato/ui/backend/version-history'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
@@ -74,6 +75,18 @@ export function PersonHighlights({
 }: PersonHighlightsProps) {
   const t = useT()
   const router = useRouter()
+  const recordLockConflictMessage = t('record_locks.conflict.title', 'Conflict detected')
+  const lockGuard = useRecordLockGuard({
+    resourceKind: 'customers.person',
+    resourceId: person.id,
+    enabled: Boolean(person.id),
+  })
+  const runLockedMutation = React.useCallback(async (operation: () => Promise<void>) => {
+    const result = await lockGuard.runMutation(operation)
+    if (result === null) {
+      throw new Error(recordLockConflictMessage)
+    }
+  }, [lockGuard, recordLockConflictMessage])
   const [editingCompany, setEditingCompany] = React.useState(false)
   const [companyDraftId, setCompanyDraftId] = React.useState<string>('')
   const [company, setCompany] = React.useState<CompanyInfo | null>(null)
@@ -172,7 +185,9 @@ export function PersonHighlights({
     setCompanyError(null)
     const nextId = companyDraftId.trim()
     try {
-      await onCompanySave(nextId.length ? nextId : null)
+      await runLockedMutation(async () => {
+        await onCompanySave(nextId.length ? nextId : null)
+      })
       await loadCompany(nextId.length ? nextId : null)
       setEditingCompany(false)
     } catch (err) {
@@ -184,14 +199,16 @@ export function PersonHighlights({
     } finally {
       setCompanySaving(false)
     }
-  }, [companyDraftId, companySaving, loadCompany, onCompanySave, t])
+  }, [companyDraftId, companySaving, loadCompany, onCompanySave, runLockedMutation, t])
 
   const handleCompanyClear = React.useCallback(async () => {
     if (companySaving) return
     setCompanySaving(true)
     setCompanyError(null)
     try {
-      await onCompanySave(null)
+      await runLockedMutation(async () => {
+        await onCompanySave(null)
+      })
       await loadCompany(null)
       setCompanyDraftId('')
       setEditingCompany(false)
@@ -204,7 +221,7 @@ export function PersonHighlights({
     } finally {
       setCompanySaving(false)
     }
-  }, [companySaving, loadCompany, onCompanySave, t])
+  }, [companySaving, loadCompany, onCompanySave, runLockedMutation, t])
 
   const companyPanel = (
     <div
@@ -329,6 +346,14 @@ export function PersonHighlights({
 
   return (
     <div className="space-y-6">
+      <RecordLockBanner
+        t={t}
+        strategy={lockGuard.lock.strategy}
+        resourceEnabled={lockGuard.lock.resourceEnabled}
+        isOwner={lockGuard.lock.isOwner}
+        isBlocked={lockGuard.lock.isBlocked}
+        error={lockGuard.lock.error}
+      />
       <FormHeader
         mode="detail"
         backHref="/backend/customers/people"
@@ -351,7 +376,11 @@ export function PersonHighlights({
             placeholder={t('customers.people.form.displayName.placeholder')}
             emptyLabel={t('customers.people.detail.noValue')}
             validator={validators.displayName}
-            onSave={onDisplayNameSave}
+            onSave={async (next) => {
+              await runLockedMutation(async () => {
+                await onDisplayNameSave(next)
+              })
+            }}
             hideLabel
             variant="plain"
             activateOnClick
@@ -359,7 +388,11 @@ export function PersonHighlights({
             containerClassName="max-w-full"
           />
         }
-        onDelete={onDelete}
+        onDelete={() => {
+          void runLockedMutation(async () => {
+            await Promise.resolve(onDelete())
+          }).catch(() => {})
+        }}
         isDeleting={isDeleting}
         deleteLabel={t('customers.people.list.actions.delete')}
       />
@@ -376,7 +409,11 @@ export function PersonHighlights({
           validator={validators.email}
           recordId={person.id}
           activateOnClick
-          onSave={onPrimaryEmailSave}
+          onSave={async (next) => {
+            await runLockedMutation(async () => {
+              await onPrimaryEmailSave(next)
+            })
+          }}
         />
         <InlineTextEditor
           label={t('customers.people.detail.highlights.primaryPhone')}
@@ -387,14 +424,22 @@ export function PersonHighlights({
           validator={validators.phone}
           recordId={person.id}
           activateOnClick
-          onSave={onPrimaryPhoneSave}
+          onSave={async (next) => {
+            await runLockedMutation(async () => {
+              await onPrimaryPhoneSave(next)
+            })
+          }}
         />
         <InlineDictionaryEditor
           label={t('customers.people.detail.highlights.status')}
           value={person.status ?? null}
           emptyLabel={t('customers.people.detail.noValue')}
           activateOnClick
-          onSave={onStatusSave}
+          onSave={async (next) => {
+            await runLockedMutation(async () => {
+              await onStatusSave(next)
+            })
+          }}
           kind="statuses"
         />
         <InlineNextInteractionEditor
@@ -405,10 +450,28 @@ export function PersonHighlights({
           valueIcon={person.nextInteractionIcon || null}
           valueColor={person.nextInteractionColor || null}
           emptyLabel={t('customers.people.detail.noValue')}
-          onSave={onNextInteractionSave}
+          onSave={async (next) => {
+            await runLockedMutation(async () => {
+              await onNextInteractionSave(next)
+            })
+          }}
           activateOnClick
         />
       </div>
+      <RecordConflictDialog
+        open={Boolean(lockGuard.conflict)}
+        onOpenChange={(open) => {
+          if (!open) {
+            lockGuard.clearConflict()
+          }
+        }}
+        conflict={lockGuard.conflict}
+        pending={lockGuard.pending}
+        t={t}
+        onResolve={async (resolution) => {
+          await lockGuard.resolveConflict(resolution)
+        }}
+      />
     </div>
   )
 }

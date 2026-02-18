@@ -2,6 +2,7 @@
 
 import * as React from 'react'
 import { FormHeader } from '@open-mercato/ui/backend/forms'
+import { RecordConflictDialog, RecordLockBanner, useRecordLockGuard } from '@open-mercato/ui/backend/record-locking'
 import { VersionHistoryAction } from '@open-mercato/ui/backend/version-history'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import {
@@ -67,11 +68,31 @@ export function CompanyHighlights({
   isDeleting,
 }: CompanyHighlightsProps) {
   const t = useT()
+  const recordLockConflictMessage = t('record_locks.conflict.title', 'Conflict detected')
+  const lockGuard = useRecordLockGuard({
+    resourceKind: 'customers.company',
+    resourceId: company.id,
+    enabled: Boolean(company.id),
+  })
+  const runLockedMutation = React.useCallback(async (operation: () => Promise<void>) => {
+    const result = await lockGuard.runMutation(operation)
+    if (result === null) {
+      throw new Error(recordLockConflictMessage)
+    }
+  }, [lockGuard, recordLockConflictMessage])
   const historyFallbackId =
     profile?.id && profile.id !== company.id ? profile.id : undefined
 
   return (
     <div className="space-y-6">
+      <RecordLockBanner
+        t={t}
+        strategy={lockGuard.lock.strategy}
+        resourceEnabled={lockGuard.lock.resourceEnabled}
+        isOwner={lockGuard.lock.isOwner}
+        isBlocked={lockGuard.lock.isBlocked}
+        error={lockGuard.lock.error}
+      />
       <FormHeader
         mode="detail"
         backHref="/backend/customers/companies"
@@ -94,7 +115,11 @@ export function CompanyHighlights({
             placeholder={t('customers.companies.form.displayName.placeholder', 'Enter company name')}
             emptyLabel={t('customers.companies.detail.noValue', 'Not provided')}
             validator={validators.displayName}
-            onSave={onDisplayNameSave}
+            onSave={async (next) => {
+              await runLockedMutation(async () => {
+                await onDisplayNameSave(next)
+              })
+            }}
             hideLabel
             variant="plain"
             activateOnClick
@@ -102,7 +127,11 @@ export function CompanyHighlights({
             containerClassName="max-w-full"
           />
         }
-        onDelete={onDelete}
+        onDelete={() => {
+          void runLockedMutation(async () => {
+            await Promise.resolve(onDelete())
+          }).catch(() => {})
+        }}
         isDeleting={isDeleting}
         deleteLabel={t('customers.companies.detail.actions.delete', 'Delete company')}
       />
@@ -117,7 +146,11 @@ export function CompanyHighlights({
           validator={validators.email}
           recordId={company.id}
           activateOnClick
-          onSave={onPrimaryEmailSave}
+          onSave={async (next) => {
+            await runLockedMutation(async () => {
+              await onPrimaryEmailSave(next)
+            })
+          }}
         />
         <InlineTextEditor
           label={t('customers.companies.detail.highlights.primaryPhone', 'Primary phone')}
@@ -128,14 +161,22 @@ export function CompanyHighlights({
           validator={validators.phone}
           recordId={company.id}
           activateOnClick
-          onSave={onPrimaryPhoneSave}
+          onSave={async (next) => {
+            await runLockedMutation(async () => {
+              await onPrimaryPhoneSave(next)
+            })
+          }}
         />
         <InlineDictionaryEditor
           label={t('customers.companies.detail.highlights.status', 'Status')}
           value={company.status ?? null}
           emptyLabel={t('customers.companies.detail.noValue', 'Not provided')}
           activateOnClick
-          onSave={onStatusSave}
+          onSave={async (next) => {
+            await runLockedMutation(async () => {
+              await onStatusSave(next)
+            })
+          }}
           kind="statuses"
         />
         <InlineNextInteractionEditor
@@ -146,10 +187,28 @@ export function CompanyHighlights({
           valueIcon={company.nextInteractionIcon || null}
           valueColor={company.nextInteractionColor || null}
           emptyLabel={t('customers.companies.detail.noValue', 'Not provided')}
-          onSave={onNextInteractionSave}
+          onSave={async (next) => {
+            await runLockedMutation(async () => {
+              await onNextInteractionSave(next)
+            })
+          }}
           activateOnClick
         />
       </div>
+      <RecordConflictDialog
+        open={Boolean(lockGuard.conflict)}
+        onOpenChange={(open) => {
+          if (!open) {
+            lockGuard.clearConflict()
+          }
+        }}
+        conflict={lockGuard.conflict}
+        pending={lockGuard.pending}
+        t={t}
+        onResolve={async (resolution) => {
+          await lockGuard.resolveConflict(resolution)
+        }}
+      />
     </div>
   )
 }
