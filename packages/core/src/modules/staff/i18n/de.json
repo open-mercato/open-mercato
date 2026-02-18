@@ -669,6 +669,7 @@
   "staff.teamMembers.form.actions.defineRole": "Neue Rolle definieren",
   "staff.teamMembers.form.createTitle": "Teammitglied hinzuf\u00fcgen",
   "staff.teamMembers.form.editTitle": "Teammitglied bearbeiten",
+  "staff.teamMembers.detail.formTitle": "Mitgliedseinstellungen",
   "staff.teamMembers.form.errors.create": "Teammitglied konnte nicht erstellt werden.",
   "staff.teamMembers.form.errors.delete": "Teammitglied konnte nicht gel\u00f6scht werden.",
   "staff.teamMembers.form.errors.load": "Teammitglied konnte nicht geladen werden.",

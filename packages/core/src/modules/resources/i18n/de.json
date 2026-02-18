@@ -41,6 +41,7 @@
   "resources.resourceTypes.errors.deleteAssigned": "Dem Ressourcentyp sind Ressourcen zugewiesen.",
   "resources.resources.form.createTitle": "Ressource hinzuf\u00fcgen",
   "resources.resources.form.editTitle": "Ressource bearbeiten",
+  "resources.resources.detail.formTitle": "Ressourceneinstellungen",
   "resources.resources.form.fields.name": "Name",
   "resources.resources.form.fields.description": "Beschreibung",
   "resources.resources.form.fields.type": "Ressourcentyp",

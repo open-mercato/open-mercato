@@ -41,6 +41,7 @@
   "resources.resourceTypes.errors.deleteAssigned": "Ten typ zasobu ma przypisane zasoby.",
   "resources.resources.form.createTitle": "Dodaj zas\u00f3b",
   "resources.resources.form.editTitle": "Edytuj zas\u00f3b",
+  "resources.resources.detail.formTitle": "Ustawienia zasobu",
   "resources.resources.form.fields.name": "Nazwa",
   "resources.resources.form.fields.description": "Opis",
   "resources.resources.form.fields.type": "Typ zasobu",

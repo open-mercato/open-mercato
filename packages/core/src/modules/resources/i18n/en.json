@@ -40,6 +40,7 @@
   "resources.resourceTypes.errors.delete": "Failed to delete resource type.",
   "resources.resourceTypes.errors.deleteAssigned": "Resource type has assigned resources.",
   "resources.resources.form.fields.capacity.help": "Depends on the resource and can mean spots, units, quantity, or another type of capacity.",
+  "resources.resources.detail.formTitle": "Resource settings",
   "resources.resources.form.fields.type.add": "Add resource type",
   "resources.resources.form.fields.type.manage": "Manage resource types",
   "resources.resources.form.fields.capacityUnit": "Capacity unit",
