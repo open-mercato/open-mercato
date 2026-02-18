@@ -6,6 +6,8 @@ export class Migration20260218002838 extends Migration {
     this.addSql(`create index "record_locks_expiry_status_idx" on "record_locks" ("tenant_id", "expires_at", "status");`)
     this.addSql(`create index "record_locks_owner_status_idx" on "record_locks" ("tenant_id", "locked_by_user_id", "status");`)
     this.addSql(`create index "record_locks_resource_status_idx" on "record_locks" ("tenant_id", "resource_kind", "resource_id", "status");`)
+    this.addSql(`create unique index "record_locks_active_scope_org_unique" on "record_locks" ("tenant_id", "organization_id", "resource_kind", "resource_id") where deleted_at is null and status = 'active' and organization_id is not null;`)
+    this.addSql(`create unique index "record_locks_active_scope_tenant_unique" on "record_locks" ("tenant_id", "resource_kind", "resource_id") where deleted_at is null and status = 'active' and organization_id is null;`)
     this.addSql(`alter table "record_locks" add constraint "record_locks_token_unique" unique ("token");`)
 
     this.addSql(`create table "record_lock_conflicts" ("id" uuid not null default gen_random_uuid(), "resource_kind" text not null, "resource_id" text not null, "status" text not null default 'pending', "resolution" text null, "base_action_log_id" uuid null, "incoming_action_log_id" uuid null, "conflict_actor_user_id" uuid not null, "incoming_actor_user_id" uuid null, "resolved_by_user_id" uuid null, "resolved_at" timestamptz null, "tenant_id" uuid not null, "organization_id" uuid null, "created_at" timestamptz not null, "updated_at" timestamptz not null, "deleted_at" timestamptz null, constraint "record_lock_conflicts_pkey" primary key ("id"));`)

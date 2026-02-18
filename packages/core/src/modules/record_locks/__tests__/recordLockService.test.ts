@@ -227,3 +227,53 @@ describe('RecordLockService.validateMutation', () => {
     )
   })
 })
+
+describe('RecordLockService.acquire', () => {
+  beforeEach(() => {
+    jest.clearAllMocks()
+  })
+
+  test('returns competing lock when create races on active-scope unique index', async () => {
+    const { service, em } = createService({
+      ...DEFAULT_SETTINGS,
+      strategy: 'pessimistic',
+    })
+    const serviceAny = service as any
+
+    serviceAny.findLatestActionLog = jest.fn().mockResolvedValue(null)
+    serviceAny.findActiveLock = jest.fn()
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce(buildLock({
+        strategy: 'pessimistic',
+        lockedByUserId: '40000000-0000-4000-8000-000000000099',
+        token: '30000000-0000-4000-8000-000000000099',
+      }))
+
+    em.create.mockReturnValue(buildLock({
+      strategy: 'pessimistic',
+      lockedByUserId: '40000000-0000-4000-8000-000000000001',
+    }))
+    em.flush.mockRejectedValueOnce(Object.assign(
+      new Error('duplicate key value violates unique constraint "record_locks_active_scope_org_unique"'),
+      {
+        code: '23505',
+        constraint: 'record_locks_active_scope_org_unique',
+      },
+    ))
+
+    const result = await service.acquire({
+      tenantId: '60000000-0000-4000-8000-000000000001',
+      organizationId: '70000000-0000-4000-8000-000000000001',
+      userId: '40000000-0000-4000-8000-000000000001',
+      resourceKind: 'sales.quote',
+      resourceId: '20000000-0000-4000-8000-000000000001',
+    })
+
+    expect(result.ok).toBe(false)
+    if (result.ok) throw new Error('Expected lock collision result')
+    expect(result.status).toBe(423)
+    expect(result.code).toBe('record_locked')
+    expect(result.lock?.lockedByUserId).toBe('40000000-0000-4000-8000-000000000099')
+    expect(serviceAny.findActiveLock).toHaveBeenCalledTimes(2)
+  })
+})

@@ -1,5 +1,5 @@
 import { randomUUID } from 'crypto'
-import type { FilterQuery } from '@mikro-orm/core'
+import { UniqueConstraintViolationException, type FilterQuery } from '@mikro-orm/core'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { ModuleConfigService } from '@open-mercato/core/modules/configs/lib/module-config-service'
 import { ActionLog } from '@open-mercato/core/modules/audit_logs/data/entities'
@@ -29,6 +29,10 @@ import {
 } from './config'
 
 const ACTIVE_LOCK_STATUS: RecordLockStatus = 'active'
+const ACTIVE_SCOPE_UNIQUE_CONSTRAINTS = new Set([
+  'record_locks_active_scope_org_unique',
+  'record_locks_active_scope_tenant_unique',
+])
 
 export type RecordLockScope = {
   tenantId: string
@@ -163,6 +167,25 @@ function trimToNull(value: string | null | undefined): string | null {
 function normalizeScopeOrganization(value: string | null | undefined): string | null {
   const trimmed = trimToNull(value)
   return trimmed ?? null
+}
+
+function isActiveLockScopeUniqueViolation(error: unknown): boolean {
+  if (error instanceof UniqueConstraintViolationException) {
+    const constraint = typeof (error as { constraint?: unknown }).constraint === 'string'
+      ? (error as { constraint: string }).constraint
+      : null
+    if (constraint && ACTIVE_SCOPE_UNIQUE_CONSTRAINTS.has(constraint)) return true
+  }
+  if (!error || typeof error !== 'object') return false
+  const code = (error as { code?: unknown }).code
+  if (code !== '23505') return false
+  const message = typeof (error as { message?: unknown }).message === 'string'
+    ? (error as { message: string }).message.toLowerCase()
+    : ''
+  for (const constraint of ACTIVE_SCOPE_UNIQUE_CONSTRAINTS) {
+    if (message.includes(constraint)) return true
+  }
+  return false
 }
 
 const SKIPPED_CONFLICT_FIELDS = new Set([
@@ -406,7 +429,53 @@ export class RecordLockService {
     })
 
     this.em.persist(lock)
-    await this.em.flush()
+    try {
+      await this.em.flush()
+    } catch (error) {
+      if (!isActiveLockScopeUniqueViolation(error)) throw error
+      const competing = await this.findActiveLock(input, now)
+      if (!competing) throw error
+      if (competing.lockedByUserId !== input.userId) {
+        const lockView = this.toLockView(competing, false)
+        if (settings.strategy === 'pessimistic') {
+          return {
+            ok: false,
+            status: 423,
+            error: 'Record is currently locked by another user',
+            code: 'record_locked',
+            lock: lockView,
+          }
+        }
+
+        return {
+          ok: true,
+          enabled: settings.enabled,
+          resourceEnabled: true,
+          strategy: settings.strategy,
+          heartbeatSeconds: settings.heartbeatSeconds,
+          acquired: false,
+          latestActionLogId: latest?.id ?? null,
+          lock: lockView,
+        }
+      }
+
+      competing.strategy = settings.strategy
+      competing.lastHeartbeatAt = now
+      competing.expiresAt = new Date(now.getTime() + settings.timeoutSeconds * 1000)
+      competing.baseActionLogId = latest?.id ?? competing.baseActionLogId ?? null
+      await this.em.flush()
+
+      return {
+        ok: true,
+        enabled: settings.enabled,
+        resourceEnabled: true,
+        strategy: settings.strategy,
+        heartbeatSeconds: settings.heartbeatSeconds,
+        acquired: false,
+        latestActionLogId: latest?.id ?? null,
+        lock: this.toLockView(competing, true),
+      }
+    }
 
     await emitRecordLocksEvent('record_locks.lock.acquired', {
       lockId: lock.id,
