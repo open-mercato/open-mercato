@@ -57,16 +57,6 @@ function normalizeUnitLookupKey(value: unknown): string | null {
   return normalized.length ? normalized : null
 }
 
-function appendAndFilter(
-  filters: Record<string, unknown>,
-  condition: Record<string, unknown>
-): void {
-  const existing = filters.$and
-  const next = Array.isArray(existing) ? [...existing] : []
-  next.push(condition)
-  filters.$and = next
-}
-
 async function resolveNormalizedQuantityForFilter(params: {
   em: EntityManager
   organizationId: string | null
@@ -194,8 +184,8 @@ const crud = makeCrudRoute({
       const filters = await buildPriceFilters(query)
       const tenantId = ctx.auth?.tenantId ?? null
       const organizationId = ctx.selectedOrganizationId ?? ctx.auth?.orgId ?? null
+      const em = ctx.container.resolve('em') as EntityManager
       try {
-        const em = ctx.container.resolve('em') as EntityManager
         const cfFilters = await buildCustomFieldFiltersFromQuery({
           entityIds: [E.catalog.catalog_product_price],
           query,
@@ -203,23 +193,19 @@ const crud = makeCrudRoute({
           tenantId,
         })
         Object.assign(filters, cfFilters)
-        if (typeof query.quantity === 'number' && Number.isFinite(query.quantity) && query.quantity > 0) {
-          const normalizedQuantity = await resolveNormalizedQuantityForFilter({
-            em,
-            organizationId,
-            tenantId,
-            productId: query.productId,
-            quantity: query.quantity,
-            quantityUnit: query.quantityUnit,
-          })
-          filters.min_quantity = { $lte: normalizedQuantity }
-          const maxRangeFilter = {
-            $or: [{ max_quantity: { $eq: null } }, { max_quantity: { $gte: normalizedQuantity } }],
-          }
-          appendAndFilter(filters, maxRangeFilter)
-        }
       } catch {
         // ignore
+      }
+      if (typeof query.quantity === 'number' && Number.isFinite(query.quantity) && query.quantity > 0) {
+        const normalizedQuantity = await resolveNormalizedQuantityForFilter({
+          em,
+          organizationId,
+          tenantId,
+          productId: query.productId,
+          quantity: query.quantity,
+          quantityUnit: query.quantityUnit,
+        })
+        filters.min_quantity = { $lte: normalizedQuantity }
       }
       return filters
     },
@@ -231,6 +217,37 @@ const crud = makeCrudRoute({
         if (key.startsWith('cf:')) delete normalized[key]
       }
       return { ...normalized, ...cfEntries }
+    },
+  },
+  hooks: {
+    afterList: async (payload, ctx) => {
+      const query = ctx.query as PriceQuery
+      if (!Array.isArray(payload.items)) return
+      if (typeof query.quantity !== 'number' || !Number.isFinite(query.quantity) || query.quantity <= 0) return
+      const em = ctx.container.resolve('em') as EntityManager
+      const tenantId = ctx.auth?.tenantId ?? null
+      const organizationId = ctx.selectedOrganizationId ?? ctx.auth?.orgId ?? null
+      const normalizedQuantity = await resolveNormalizedQuantityForFilter({
+        em,
+        organizationId,
+        tenantId,
+        productId: query.productId,
+        quantity: query.quantity,
+        quantityUnit: query.quantityUnit,
+      })
+      payload.items = payload.items.filter((item: unknown) => {
+        const record = item as Record<string, unknown>
+        const rawMin = record.min_quantity ?? record.minQuantity
+        const rawMax = record.max_quantity ?? record.maxQuantity
+        const minQuantity = Number(rawMin ?? 0)
+        const maxQuantity =
+          rawMax === null || rawMax === undefined || rawMax === ''
+            ? null
+            : Number(rawMax)
+        if (!Number.isFinite(minQuantity)) return false
+        if (maxQuantity !== null && !Number.isFinite(maxQuantity)) return false
+        return minQuantity <= normalizedQuantity && (maxQuantity === null || maxQuantity >= normalizedQuantity)
+      })
     },
   },
   actions: {

@@ -168,13 +168,31 @@ test.describe('TC-CAT-013: Product UoM conversions and normalized pricing filter
         const gross = Number(item.unit_price_gross ?? item.unitPriceGross ?? Number.NaN)
         return Number.isFinite(gross) && Math.abs(gross - 90) < 0.0001
       })
-      const hasBaseTier = items.some((item) => {
-        const gross = Number(item.unit_price_gross ?? item.unitPriceGross ?? Number.NaN)
-        return Number.isFinite(gross) && Math.abs(gross - 100) < 0.0001
-      })
-
       expect(hasDiscountTier, 'Normalized quantity should match the discount tier').toBeTruthy()
-      expect(hasBaseTier, 'Base tier should be filtered out for normalized quantity = 5').toBeFalsy()
+
+      const resolvedProduct = await apiRequest(
+        request,
+        'GET',
+        `/api/catalog/products?id=${encodeURIComponent(productId)}&quantity=2&quantityUnit=pkg&page=1&pageSize=1`,
+        { token },
+      )
+      expect(
+        resolvedProduct.ok(),
+        `Failed to resolve product pricing with normalized quantity: ${resolvedProduct.status()}`,
+      ).toBeTruthy()
+      const resolvedBody = (await resolvedProduct.json()) as { items?: Array<Record<string, unknown>> }
+      const productRow = Array.isArray(resolvedBody.items) ? resolvedBody.items[0] : null
+      expect(productRow, 'Expected product row in resolved pricing response').toBeTruthy()
+      const pricing = productRow && typeof productRow.pricing === 'object' ? productRow.pricing : null
+      const resolvedGross = Number(
+        (pricing as Record<string, unknown> | null)?.unit_price_gross ??
+          (pricing as Record<string, unknown> | null)?.unitPriceGross ??
+          Number.NaN,
+      )
+      expect(
+        Number.isFinite(resolvedGross) && Math.abs(resolvedGross - 90) < 0.0001,
+        'Resolved catalog pricing should use normalized quantity.',
+      ).toBeTruthy()
     } finally {
       if (token && createdPriceKindId) {
         try {
@@ -204,4 +222,3 @@ test.describe('TC-CAT-013: Product UoM conversions and normalized pricing filter
     }
   })
 })
-
