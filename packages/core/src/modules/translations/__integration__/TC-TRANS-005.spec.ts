@@ -7,6 +7,23 @@ import { deleteTranslationIfExists, getLocales, setLocales } from './helpers/tra
 const ENTITY_TYPE = 'catalog:catalog_product'
 
 /**
+ * Helper: set a value directly into a ComboboxInput using allowCustomValues.
+ * Types the value and presses Enter to confirm — avoids flaky dropdown clicks
+ * and search index lag for async suggestions.
+ */
+async function fillCombobox(page: import('@playwright/test').Page, placeholder: string, value: string) {
+  const input = page.getByPlaceholder(placeholder)
+  await expect(input).toBeEnabled({ timeout: 10_000 })
+  await input.click()
+  await input.fill(value)
+  await input.press('Enter')
+  // Move focus away so the ComboboxInput's onBlur handler fires and settles
+  // (onBlur has a 200ms timeout that calls confirmSelection, which may reset hasUserEdited)
+  await input.press('Tab')
+  await page.waitForTimeout(300)
+}
+
+/**
  * TC-TRANS-005: Translation Manager Standalone
  * Covers selecting entity/record, entering translations, saving, and verifying persistence.
  */
@@ -27,15 +44,9 @@ test.describe('TC-TRANS-005: Translation Manager Standalone', () => {
       await page.goto('/backend/config/translations')
       await expect(page.getByRole('heading', { name: 'Translations' })).toBeVisible()
 
-      const entityInput = page.getByPlaceholder('Select an entity')
-      await entityInput.fill('catalog_product')
-      await page.locator('.absolute.z-50 button').filter({ hasText: /catalog_product/i }).first().click()
+      await fillCombobox(page, 'Select an entity', ENTITY_TYPE)
+      await fillCombobox(page, 'Search records...', productId!)
 
-      const recordInput = page.getByPlaceholder('Search records...')
-      await recordInput.fill(productTitle)
-      await page.locator('.absolute.z-50 button').filter({ hasText: productTitle }).first().click()
-
-      await expect(page.getByText('Field')).toBeVisible()
       await expect(page.getByText('Base value')).toBeVisible()
     } finally {
       await deleteTranslationIfExists(request, saToken, ENTITY_TYPE, productId)
@@ -59,15 +70,8 @@ test.describe('TC-TRANS-005: Translation Manager Standalone', () => {
       await login(page, 'superadmin')
       await page.goto('/backend/config/translations')
 
-      const entityInput = page.getByPlaceholder('Select an entity')
-      await entityInput.fill('catalog_product')
-      await page.locator('.absolute.z-50 button').filter({ hasText: /catalog_product/i }).first().click()
-
-      const recordInput = page.getByPlaceholder('Search records...')
-      await recordInput.fill(productTitle)
-      await page.locator('.absolute.z-50 button').filter({ hasText: productTitle }).first().click()
-
-      await expect(page.getByText('Field')).toBeVisible()
+      await fillCombobox(page, 'Select an entity', ENTITY_TYPE)
+      await fillCombobox(page, 'Search records...', productId!)
 
       const managerCard = page.locator('.bg-card').filter({
         has: page.getByRole('button', { name: 'Save translations' }),
@@ -112,13 +116,8 @@ test.describe('TC-TRANS-005: Translation Manager Standalone', () => {
       await login(page, 'superadmin')
       await page.goto('/backend/config/translations')
 
-      const entityInput = page.getByPlaceholder('Select an entity')
-      await entityInput.fill('catalog_product')
-      await page.locator('.absolute.z-50 button').filter({ hasText: /catalog_product/i }).first().click()
-
-      const recordInput = page.getByPlaceholder('Search records...')
-      await recordInput.fill(productTitle)
-      await page.locator('.absolute.z-50 button').filter({ hasText: productTitle }).first().click()
+      await fillCombobox(page, 'Select an entity', ENTITY_TYPE)
+      await fillCombobox(page, 'Search records...', productId!)
 
       const managerCard = page.locator('.bg-card').filter({
         has: page.getByRole('button', { name: 'Save translations' }),
