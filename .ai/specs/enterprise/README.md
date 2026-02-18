@@ -15,3 +15,4 @@ Enterprise specifications are numbered independently from OSS specs and use the 
 | SPEC | Date | Title | Description |
 | --- | --- | --- | --- |
 | [SPEC-ENT-001](SPEC-ENT-001-2026-02-17-security-module-enterprise-mfa.md) | 2026-02-17 | Security Module (Enterprise MFA, Sudo, Enforcement) | Enterprise security module with pluggable MFA providers, enforcement policies, and sudo challenge flows |
+| [SPEC-ENT-002](SPEC-ENT-002-2026-02-17-mercato-health-endpoints.md) | 2026-02-17 | Mercato Health Endpoints (`live`, `ready`) | Enterprise-only liveness/readiness probe endpoints with required and optional dependency checks |
