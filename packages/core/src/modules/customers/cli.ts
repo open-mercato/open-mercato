@@ -22,6 +22,8 @@ import {
   CustomerActivity,
   CustomerAddress,
   CustomerComment,
+  CustomerPipeline,
+  CustomerPipelineStage,
 } from './data/entities'
 import { ensureDictionaryEntry } from './commands/shared'
 
@@ -2793,7 +2795,33 @@ const seedStressTest: ModuleCli = {
   },
 }
 
-export { seedCustomerDictionaries, seedCustomerExamples, seedCustomerStressTest, seedCurrencyDictionary }
+async function seedDefaultPipeline(em: EntityManager, { tenantId, organizationId }: SeedArgs): Promise<void> {
+  const existing = await em.findOne(CustomerPipeline, { tenantId, organizationId, isDefault: true })
+  if (existing) return
+
+  const pipeline = em.create(CustomerPipeline, {
+    tenantId,
+    organizationId,
+    name: 'Default Pipeline',
+    isDefault: true,
+  })
+  em.persist(pipeline)
+  await em.flush()
+
+  for (let i = 0; i < PIPELINE_STAGE_DEFAULTS.length; i++) {
+    const entry = PIPELINE_STAGE_DEFAULTS[i]
+    em.persist(em.create(CustomerPipelineStage, {
+      tenantId,
+      organizationId,
+      pipelineId: pipeline.id,
+      name: entry.label,
+      position: i,
+    }))
+  }
+  await em.flush()
+}
+
+export { seedCustomerDictionaries, seedCustomerExamples, seedCustomerStressTest, seedCurrencyDictionary, seedDefaultPipeline }
 export type { SeedArgs as CustomerSeedArgs }
 
 const customersCliCommands = [seedDictionaries, seedExamples, seedStressTest]
