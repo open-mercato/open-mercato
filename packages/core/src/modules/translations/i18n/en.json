@@ -1,67 +1,43 @@
 {
-  "translations": {
-    "module": {
-      "title": "Translations",
-      "description": "Manage translations for entity records across multiple locales."
-    },
-    "config": {
-      "nav": {
-        "title": "Translations"
-      }
-    },
-    "widgets": {
-      "translationManager": {
-        "groupLabel": "Translations",
-        "groupDescription": "Manage translations for this record across supported locales."
-      }
-    },
-    "manager": {
-      "title": "Translations",
-      "description": "Manage translations for entity records across supported locales.",
-      "selectEntity": "Choose entity",
-      "selectRecord": "Select record",
-      "searchRecords": "Search records...",
-      "pickRecord": "Pick a record",
-      "pasteId": "Or paste record ID directly...",
-      "placeholder": "Select an entity",
-      "selectFirst": "Select an entity and record to manage translations.",
-      "loading": "Loading...",
-      "loadingTranslations": "Loading translations...",
-      "noRecords": "No records found. Try a different search term.",
-      "noFields": "No translatable fields found for this entity type.",
-      "fields": {
-        "field": "Field",
-        "baseValue": "Base value",
-        "translation": "Translation"
-      },
-      "actions": {
-        "save": "Save translations",
-        "saving": "Saving...",
-        "retry": "Retry"
-      },
-      "flash": {
-        "saved": "Translations saved"
-      },
-      "errors": {
-        "loadEntities": "Failed to load entities",
-        "loadTranslation": "Failed to load translations",
-        "selectRecord": "Select an entity and record before saving",
-        "save": "Failed to save translations"
-      },
-      "translateField": "Translate field: {{key}}",
-      "translateEntry": "Translate: {{label}}",
-      "translateEntryDescription": "Manage translations for this dictionary entry."
-    },
-    "locales": {
-      "title": "Supported locales",
-      "description": "Configure which locales are available for translations. Add ISO language codes (e.g. fr, it, ja, zh).",
-      "loading": "Loading locales...",
-      "addPlaceholder": "e.g. fr, it, ja...",
-      "add": "Add",
-      "flash": {
-        "saved": "Locales updated",
-        "error": "Failed to update locales"
-      }
-    }
-  }
+  "translations.config.nav.title": "Translations",
+  "translations.locales.add": "Add",
+  "translations.locales.addPlaceholder": "e.g. fr, it, ja...",
+  "translations.locales.description": "Configure which locales are available for translations. Add ISO language codes (e.g. fr, it, ja, zh).",
+  "translations.locales.flash.error": "Failed to update locales",
+  "translations.locales.flash.saved": "Locales updated",
+  "translations.locales.loading": "Loading locales...",
+  "translations.locales.title": "Supported locales",
+  "translations.manager.actions.retry": "Retry",
+  "translations.manager.actions.save": "Save translations",
+  "translations.manager.actions.saving": "Saving...",
+  "translations.manager.description": "Manage translations for entity records across supported locales.",
+  "translations.manager.errors.loadEntities": "Failed to load entities",
+  "translations.manager.errors.loadTranslation": "Failed to load translations",
+  "translations.manager.errors.save": "Failed to save translations",
+  "translations.manager.errors.selectRecord": "Select an entity and record before saving",
+  "translations.manager.fields.baseValue": "Base value",
+  "translations.manager.fields.field": "Field",
+  "translations.manager.fields.translation": "Translation",
+  "translations.manager.flash.saved": "Translations saved",
+  "translations.manager.loading": "Loading...",
+  "translations.manager.loadingTranslations": "Loading translations...",
+  "translations.manager.noFields": "No translatable fields found for this entity type.",
+  "translations.manager.noRecords": "No records found. Try a different search term.",
+  "translations.manager.pasteId": "Or paste record ID directly...",
+  "translations.manager.pickRecord": "Pick a record",
+  "translations.manager.placeholder": "Select an entity",
+  "translations.manager.searchRecords": "Search records...",
+  "translations.manager.selectEntity": "Choose entity",
+  "translations.manager.selectFirst": "Select an entity and record to manage translations.",
+  "translations.manager.selectRecord": "Select record",
+  "translations.manager.title": "Translations",
+  "translations.manager.translateEntry": "Translate: {{label}}",
+  "translations.manager.translateEntryDescription": "Manage translations for this dictionary entry.",
+  "translations.manager.translateField": "Translate field: {{key}}",
+  "translations.module.description": "Manage translations for entity records across multiple locales.",
+  "translations.module.title": "Translations",
+  "translations.widgets.translationManager.customFieldLabels": "Custom fields translations",
+  "translations.widgets.translationManager.fullManager": "Translation manager",
+  "translations.widgets.translationManager.groupDescription": "Manage translations for this record across supported locales.",
+  "translations.widgets.translationManager.groupLabel": "Translations"
 }

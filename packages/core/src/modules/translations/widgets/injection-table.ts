@@ -14,7 +14,7 @@ const allFields: Record<string, string[]> = {
 const ENTRY_TEMPLATE = {
   widgetId: WIDGET_ID,
   kind: 'group' as const,
-  column: 2,
+  column: 2 as const,
   groupLabel: 'translations.widgets.translationManager.groupLabel',
   groupDescription: 'translations.widgets.translationManager.groupDescription',
   priority: 40,
