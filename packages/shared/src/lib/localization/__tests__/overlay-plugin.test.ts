@@ -6,7 +6,7 @@ import {
 describe('translation overlay plugin', () => {
   it('returns null functions when no plugin registered', () => {
     // Reset by registering nulls
-    registerTranslationOverlayPlugin(null as any, null as any)
+    registerTranslationOverlayPlugin(null, null)
     const plugin = getTranslationOverlayPlugin()
     expect(plugin.overlay).toBeNull()
     expect(plugin.resolveLocale).toBeNull()

@@ -1048,7 +1048,9 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
                 })
               }
             }
-          } catch {}
+          } catch (err) {
+            console.warn('[CRUD] Translation overlay failed:', err)
+          }
           profiler.mark('translation_overlays_complete', { itemCount: transformedItems.length })
         }
 
@@ -1215,7 +1217,9 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
               })
             }
           }
-        } catch {}
+        } catch (err) {
+          console.warn('[CRUD] Translation overlay (fallback) failed:', err)
+        }
         profiler.mark('fallback_translation_overlays_complete', { itemCount: Array.isArray(list) ? list.length : 0 })
       }
 

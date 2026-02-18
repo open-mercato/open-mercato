@@ -1,15 +1,25 @@
 type TranslatableFieldsRegistry = Record<string, string[]>
 
-let _registry: TranslatableFieldsRegistry = {}
+// Use globalThis to survive Turbopack/esbuild module duplication where the same
+// file can be loaded as multiple module instances when mixing dynamic and static imports
+const GLOBAL_KEY = '__openMercatoTranslatableFields__'
+
+function getGlobal(): TranslatableFieldsRegistry {
+  return (globalThis as any)[GLOBAL_KEY] ?? {}
+}
+
+function setGlobal(registry: TranslatableFieldsRegistry): void {
+  (globalThis as any)[GLOBAL_KEY] = registry
+}
 
 export function registerTranslatableFields(fields: TranslatableFieldsRegistry): void {
-  _registry = { ..._registry, ...fields }
+  setGlobal({ ...getGlobal(), ...fields })
 }
 
 export function getTranslatableFields(entityType: string): string[] | undefined {
-  return _registry[entityType]
+  return getGlobal()[entityType]
 }
 
 export function getTranslatableFieldsRegistry(): TranslatableFieldsRegistry {
-  return { ..._registry }
+  return { ...getGlobal() }
 }

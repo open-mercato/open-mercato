@@ -13,20 +13,34 @@ export type TranslationOverlayFn = (
 
 export type ResolveLocaleFromRequestFn = (request: Request) => string | null
 
-let _overlayFn: TranslationOverlayFn | null = null
-let _resolveLocaleFn: ResolveLocaleFromRequestFn | null = null
+type OverlayPluginState = {
+  overlay: TranslationOverlayFn | null
+  resolveLocale: ResolveLocaleFromRequestFn | null
+}
+
+// Use globalThis to survive Turbopack/esbuild module duplication where the same
+// file can be loaded as multiple module instances when mixing dynamic and static imports
+const GLOBAL_KEY = '__openMercatoTranslationOverlay__'
+
+function getGlobal(): OverlayPluginState | null {
+  return (globalThis as any)[GLOBAL_KEY] ?? null
+}
+
+function setGlobal(state: OverlayPluginState): void {
+  (globalThis as any)[GLOBAL_KEY] = state
+}
 
 export function registerTranslationOverlayPlugin(
-  overlay: TranslationOverlayFn,
-  resolveLocale: ResolveLocaleFromRequestFn,
+  overlay: TranslationOverlayFn | null,
+  resolveLocale: ResolveLocaleFromRequestFn | null,
 ): void {
-  _overlayFn = overlay
-  _resolveLocaleFn = resolveLocale
+  setGlobal({ overlay, resolveLocale })
 }
 
 export function getTranslationOverlayPlugin(): {
   overlay: TranslationOverlayFn | null
   resolveLocale: ResolveLocaleFromRequestFn | null
 } {
-  return { overlay: _overlayFn, resolveLocale: _resolveLocaleFn }
+  const state = getGlobal()
+  return state ?? { overlay: null, resolveLocale: null }
 }

@@ -1,13 +1,14 @@
 import { registerTranslatableFields } from '@open-mercato/shared/lib/localization/translatable-fields'
 import { registerTranslationOverlayPlugin } from '@open-mercato/shared/lib/localization/overlay-plugin'
-import { catalogTranslatableFields } from '../catalog/lib/translatable-fields'
-import { dictionaryTranslatableFields } from '../dictionaries/lib/translatable-fields'
+import { translatableFields as catalogFields } from '../catalog/translations'
+import { translatableFields as dictionaryFields } from '../dictionaries/translations'
+import { translatableFields as entitiesFields } from '../entities/translations'
 import { applyTranslationOverlays } from './lib/apply'
 import { resolveLocaleFromRequest } from './lib/locale'
 
 export function register() {
-  registerTranslatableFields(catalogTranslatableFields)
-  registerTranslatableFields(dictionaryTranslatableFields)
-  registerTranslatableFields({ 'entities:custom_field_def': ['label', 'description'] })
+  registerTranslatableFields(catalogFields)
+  registerTranslatableFields(dictionaryFields)
+  registerTranslatableFields(entitiesFields)
   registerTranslationOverlayPlugin(applyTranslationOverlays, resolveLocaleFromRequest)
 }

@@ -60,7 +60,7 @@ describe('applyLocalizedContent', () => {
 
     it('does not overlay null translation values', () => {
       const translations = { de: { title: null, description: 'Welt' } }
-      const result = applyLocalizedContent(baseRecord, translations as any, 'de')
+      const result = applyLocalizedContent(baseRecord, translations, 'de')
       expect(result.title).toBe('Hello')
       expect(result.description).toBe('Welt')
       expect(result._translated).toEqual(['description'])
@@ -68,7 +68,7 @@ describe('applyLocalizedContent', () => {
 
     it('does not overlay undefined translation values', () => {
       const translations = { de: { title: undefined, description: 'Welt' } }
-      const result = applyLocalizedContent(baseRecord, translations as any, 'de')
+      const result = applyLocalizedContent(baseRecord, translations, 'de')
       expect(result.title).toBe('Hello')
       expect(result.description).toBe('Welt')
     })
@@ -94,7 +94,7 @@ describe('applyLocalizedContent', () => {
 
     it('omits _locale and _translated when all overlay values are null', () => {
       const translations = { de: { title: null } }
-      const result = applyLocalizedContent(baseRecord, translations as any, 'de')
+      const result = applyLocalizedContent(baseRecord, translations, 'de')
       expect(result._locale).toBeUndefined()
       expect(result._translated).toBeUndefined()
     })

@@ -110,6 +110,18 @@ describe('translation helpers', () => {
     it('correctly pluralizes entity ending in y after consonant', () => {
       expect(buildEntityListUrl('catalog:catalog_company')).toBe('/api/catalog/companies')
     })
+
+    it('correctly pluralizes entity ending in x', () => {
+      expect(buildEntityListUrl('catalog:catalog_box')).toBe('/api/catalog/boxes')
+    })
+
+    it('correctly pluralizes entity ending in sh', () => {
+      expect(buildEntityListUrl('catalog:catalog_dish')).toBe('/api/catalog/dishes')
+    })
+
+    it('correctly pluralizes entity ending in ch', () => {
+      expect(buildEntityListUrl('catalog:catalog_match')).toBe('/api/catalog/matches')
+    })
   })
 
   describe('getRecordLabel', () => {

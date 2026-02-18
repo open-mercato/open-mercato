@@ -14,16 +14,9 @@ import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/u
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { locales as defaultLocales } from '@open-mercato/shared/lib/i18n/config'
 import { ISO_639_1, isValidIso639, getIso639Label } from '@open-mercato/shared/lib/i18n/iso639'
-import { registerTranslatableFields } from '@open-mercato/shared/lib/localization/translatable-fields'
-import { catalogTranslatableFields } from '@open-mercato/core/modules/catalog/lib/translatable-fields'
-import { dictionaryTranslatableFields } from '@open-mercato/core/modules/dictionaries/lib/translatable-fields'
 import { formatEntityLabel, buildEntityListUrl, getRecordLabel } from '../lib/helpers'
 import { resolveFieldList } from '../lib/resolve-field-list'
 import type { ResolvedField } from '../lib/resolve-field-list'
-
-registerTranslatableFields(catalogTranslatableFields)
-registerTranslatableFields(dictionaryTranslatableFields)
-registerTranslatableFields({ 'entities:custom_field_def': ['label', 'description'] })
 
 type TranslationManagerProps = {
   entityType?: string
