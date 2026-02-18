@@ -669,6 +669,7 @@
   "staff.teamMembers.form.actions.defineRole": "Zdefiniuj now\u0105 rol\u0119",
   "staff.teamMembers.form.createTitle": "Dodaj cz\u0142onka",
   "staff.teamMembers.form.editTitle": "Edytuj cz\u0142onka",
+  "staff.teamMembers.detail.formTitle": "Ustawienia cz\u0142onka",
   "staff.teamMembers.form.errors.create": "Nie uda\u0142o si\u0119 utworzy\u0107 cz\u0142onka.",
   "staff.teamMembers.form.errors.delete": "Nie uda\u0142o si\u0119 usun\u0105\u0107 cz\u0142onka.",
   "staff.teamMembers.form.errors.load": "Nie uda\u0142o si\u0119 wczyta\u0107 cz\u0142onka.",

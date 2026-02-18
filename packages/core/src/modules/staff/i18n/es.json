@@ -669,6 +669,7 @@
   "staff.teamMembers.form.actions.defineRole": "Definir nuevo rol",
   "staff.teamMembers.form.createTitle": "Agregar miembro",
   "staff.teamMembers.form.editTitle": "Editar miembro",
+  "staff.teamMembers.detail.formTitle": "Configuraci\u00f3n del miembro",
   "staff.teamMembers.form.errors.create": "No se pudo crear el miembro.",
   "staff.teamMembers.form.errors.delete": "No se pudo eliminar el miembro.",
   "staff.teamMembers.form.errors.load": "No se pudo cargar el miembro.",

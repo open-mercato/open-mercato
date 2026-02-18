@@ -41,6 +41,7 @@
   "resources.resourceTypes.errors.deleteAssigned": "El tipo de recurso tiene recursos asignados.",
   "resources.resources.form.createTitle": "Agregar recurso",
   "resources.resources.form.editTitle": "Editar recurso",
+  "resources.resources.detail.formTitle": "Configuraci\u00f3n del recurso",
   "resources.resources.form.fields.name": "Nombre",
   "resources.resources.form.fields.description": "Descripci\u00f3n",
   "resources.resources.form.fields.type": "Tipo de recurso",

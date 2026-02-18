@@ -669,6 +669,7 @@
   "staff.teamMembers.form.actions.defineRole": "Define new role",
   "staff.teamMembers.form.createTitle": "Add team member",
   "staff.teamMembers.form.editTitle": "Edit team member",
+  "staff.teamMembers.detail.formTitle": "Member settings",
   "staff.teamMembers.form.errors.create": "Failed to create team member.",
   "staff.teamMembers.form.errors.delete": "Failed to delete team member.",
   "staff.teamMembers.form.errors.load": "Failed to load team member.",
