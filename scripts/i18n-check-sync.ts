@@ -2,11 +2,16 @@
  * i18n Sync Checker
  *
  * Compares all locale translation files against the reference locale (en)
- * and reports missing keys, extra keys, and missing locale files.
+ * and reports missing keys, extra keys, missing locale files, and format violations.
+ *
+ * Enforces:
+ *  - Flat dot-notation format (no nested objects)
+ *  - Alphabetically sorted keys
+ *  - Key parity across all locales
  *
  * Usage:
  *   tsx scripts/i18n-check-sync.ts          # Report only
- *   tsx scripts/i18n-check-sync.ts --fix    # Auto-fix: add missing keys (EN value), remove extra keys
+ *   tsx scripts/i18n-check-sync.ts --fix    # Auto-fix: normalize format, add missing keys, remove extras
  *
  * Exit code: 1 if any discrepancies found (report mode), 0 if all in sync or after fix.
  */
@@ -49,37 +54,20 @@ function loadJsonFlat(filePath: string): Record<string, string> {
   return flattenDictionary(raw)
 }
 
-/**
- * Build a locale JSON structure using en.json as the structural template.
- * Walks the template recursively; for each string leaf, substitutes the locale
- * value from the flat map (falling back to the EN value).
- * This preserves the exact nesting/flat-key structure of the reference file,
- * including mixed formats where dot-notation keys coexist with nested objects.
- */
-function buildFromTemplate(
-  template: unknown,
-  localeFlat: Record<string, string>,
-  prefix = '',
-): unknown {
-  if (!template || typeof template !== 'object' || Array.isArray(template)) return template
-  const result: Record<string, unknown> = {}
-  for (const key of Object.keys(template as Record<string, unknown>).sort()) {
-    const value = (template as Record<string, unknown>)[key]
-    const flatKey = prefix ? `${prefix}.${key}` : key
-    if (typeof value === 'string') {
-      result[key] = localeFlat[flatKey] ?? value
-    } else if (value && typeof value === 'object' && !Array.isArray(value)) {
-      result[key] = buildFromTemplate(value, localeFlat, flatKey)
-    }
-  }
-  return result
+/** Check if a file uses flat format with sorted keys. Returns issues found. */
+function checkFormat(filePath: string): { hasNested: boolean; unsorted: boolean } {
+  const raw = JSON.parse(fs.readFileSync(filePath, 'utf-8')) as Record<string, unknown>
+  const keys = Object.keys(raw)
+  const hasNested = keys.some(k => typeof raw[k] === 'object' && raw[k] !== null)
+  const unsorted = keys.join(',') !== [...keys].sort().join(',')
+  return { hasNested, unsorted }
 }
 
-/** Write a locale file using the en.json raw structure as template. */
-function writeLocaleFile(enPath: string, filePath: string, localeFlat: Record<string, string>): void {
-  const enRaw = JSON.parse(fs.readFileSync(enPath, 'utf-8'))
-  const output = buildFromTemplate(enRaw, localeFlat)
-  fs.writeFileSync(filePath, JSON.stringify(output, null, 2) + '\n')
+/** Write a flat, alphabetically sorted JSON file. */
+function writeFlatSorted(filePath: string, flat: Record<string, string>): void {
+  const sorted: Record<string, string> = {}
+  for (const k of Object.keys(flat).sort()) sorted[k] = flat[k]
+  fs.writeFileSync(filePath, JSON.stringify(sorted, null, 2) + '\n')
 }
 
 function deriveModuleName(enJsonPath: string): string {
@@ -115,6 +103,7 @@ function main() {
   let keysAdded = 0
   let keysRemoved = 0
   let filesCreated = 0
+  let filesReformatted = 0
 
   for (const enPath of enFiles) {
     const i18nDir = path.dirname(enPath)
@@ -122,6 +111,22 @@ function main() {
     const enFlat = loadJsonFlat(enPath)
     const enKeys = new Set(Object.keys(enFlat))
     let moduleHasIssues = false
+
+    // Check en.json format
+    const enFormat = checkFormat(enPath)
+    if (enFormat.hasNested || enFormat.unsorted) {
+      moduleHasIssues = true
+      if (fixMode) {
+        writeFlatSorted(enPath, enFlat)
+        filesReformatted++
+        const reasons = [enFormat.hasNested && 'flattened', enFormat.unsorted && 'sorted'].filter(Boolean).join(' + ')
+        console.log(`[${moduleName}] en.json: ${green(reasons)}`)
+      } else {
+        const reasons = [enFormat.hasNested && 'nested objects', enFormat.unsorted && 'unsorted keys'].filter(Boolean).join(', ')
+        console.log(yellow(`[${moduleName}] en.json: format issue (${reasons})`))
+        totalIssues++
+      }
+    }
 
     const missingFiles: string[] = []
 
@@ -134,7 +139,7 @@ function main() {
         moduleHasIssues = true
 
         if (fixMode) {
-          writeLocaleFile(enPath, localePath, enFlat)
+          writeFlatSorted(localePath, enFlat)
           filesCreated++
           keysAdded += enKeys.size
           console.log(green(`[${moduleName}] ${locale}.json: CREATED with ${enKeys.size} keys (EN values as placeholders)`))
@@ -147,19 +152,20 @@ function main() {
 
       const missing = [...enKeys].filter(k => !localeKeys.has(k))
       const extra = [...localeKeys].filter(k => !enKeys.has(k))
+      const localeFormat = checkFormat(localePath)
+      const hasFormatIssue = localeFormat.hasNested || localeFormat.unsorted
 
-      if (missing.length === 0 && extra.length === 0) continue
+      if (missing.length === 0 && extra.length === 0 && !hasFormatIssue) continue
 
       moduleHasIssues = true
 
       if (fixMode) {
-        // Build fixed flat dict: keep existing translations, add missing with EN values, remove extras
         const fixedFlat: Record<string, string> = {}
         for (const key of enKeys) {
           fixedFlat[key] = localeFlat[key] ?? enFlat[key]
         }
 
-        writeLocaleFile(enPath, localePath, fixedFlat)
+        writeFlatSorted(localePath, fixedFlat)
         filesFixed++
 
         const parts: string[] = []
@@ -171,8 +177,19 @@ function main() {
           keysRemoved += extra.length
           parts.push(yellow(`-${extra.length} removed`))
         }
+        if (hasFormatIssue && missing.length === 0 && extra.length === 0) {
+          filesReformatted++
+          const reasons = [localeFormat.hasNested && 'flattened', localeFormat.unsorted && 'sorted'].filter(Boolean).join(' + ')
+          parts.push(green(reasons))
+        }
         console.log(`[${moduleName}] ${locale}.json: ${parts.join(', ')}`)
       } else {
+        if (hasFormatIssue) {
+          const reasons = [localeFormat.hasNested && 'nested objects', localeFormat.unsorted && 'unsorted keys'].filter(Boolean).join(', ')
+          console.log(yellow(`[${moduleName}] ${locale}.json: format issue (${reasons})`))
+          totalIssues++
+        }
+
         if (missing.length > 0) {
           const shown = missing.slice(0, MAX_KEYS_TO_SHOW)
           const suffix = missing.length > MAX_KEYS_TO_SHOW ? ` ${dim(`(showing ${MAX_KEYS_TO_SHOW} of ${missing.length})`)}` : ''
@@ -200,7 +217,7 @@ function main() {
 
   console.log('')
   if (fixMode) {
-    const total = filesFixed + filesCreated
+    const total = filesFixed + filesCreated + filesReformatted
     if (total === 0) {
       console.log(green('All translation files are already in sync.'))
     } else {
@@ -208,6 +225,7 @@ function main() {
       if (keysAdded > 0) console.log(green(`  +${keysAdded} keys added (EN values as placeholders — translate these)`))
       if (keysRemoved > 0) console.log(yellow(`  -${keysRemoved} stale keys removed`))
       if (filesCreated > 0) console.log(green(`  ${filesCreated} new locale files created`))
+      if (filesReformatted > 0) console.log(green(`  ${filesReformatted} files reformatted (flattened/sorted)`))
     }
     process.exit(0)
   } else {
