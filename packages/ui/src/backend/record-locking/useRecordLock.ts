@@ -6,6 +6,8 @@ import { withScopedApiHeaders } from '@open-mercato/ui/backend/utils/api'
 
 export type RecordLockStrategy = 'optimistic' | 'pessimistic'
 export type RecordLockResolution = 'normal' | 'accept_mine'
+export type RecordLockReleaseReason = 'saved' | 'cancelled' | 'unmount' | 'conflict_resolved'
+export type RecordLockReleaseResolution = 'accept_incoming'
 
 export type RecordLockApiLock = {
   id: string
@@ -35,7 +37,7 @@ export type RecordLockConflict = {
   resourceId: string
   baseActionLogId: string | null
   incomingActionLogId: string | null
-  resolutionOptions: Array<'accept_incoming' | 'accept_mine'>
+  resolutionOptions: Array<'accept_mine'>
   changes: RecordLockConflictChange[]
 }
 
@@ -59,6 +61,7 @@ type HeartbeatResponse = {
 type ReleaseResponse = {
   ok: true
   released: boolean
+  conflictResolved: boolean
 }
 
 type ForceReleaseResponse = {
@@ -101,7 +104,14 @@ export type UseRecordLockResult = {
   error: string | null
   errorCode: string | null
   acquire: () => Promise<void>
-  release: (reason?: 'saved' | 'cancelled' | 'unmount' | 'conflict_resolved') => Promise<void>
+  release: (
+    reason?: RecordLockReleaseReason,
+    options?: {
+      conflictId?: string | null
+      resolution?: RecordLockReleaseResolution
+    },
+  ) => Promise<ReleaseResponse>
+  acceptIncoming: (conflict: RecordLockConflict | null) => Promise<boolean>
   forceRelease: (reason?: string) => Promise<boolean>
   runGuardedMutation: <T>(
     run: () => Promise<T>,
@@ -126,6 +136,27 @@ function toMessage(value: unknown): string {
     if (typeof candidate === 'string' && candidate.trim().length) return candidate.trim()
   }
   return 'Request failed'
+}
+
+function toReleaseResponse(value: unknown): ReleaseResponse {
+  if (!value || typeof value !== 'object') {
+    return {
+      ok: true,
+      released: false,
+      conflictResolved: false,
+    }
+  }
+
+  const payload = value as {
+    released?: unknown
+    conflictResolved?: unknown
+  }
+
+  return {
+    ok: true,
+    released: payload.released === true,
+    conflictResolved: payload.conflictResolved === true,
+  }
 }
 
 export function useRecordLock(config: UseRecordLockConfig): UseRecordLockResult {
@@ -282,10 +313,22 @@ export function useRecordLock(config: UseRecordLockConfig): UseRecordLockResult 
     }
   }, [config.resourceId, config.resourceKind, enabled, ensureAcl])
 
-  const release = React.useCallback(async (reason: 'saved' | 'cancelled' | 'unmount' | 'conflict_resolved' = 'cancelled') => {
+  const release = React.useCallback(async (
+    reason: RecordLockReleaseReason = 'cancelled',
+    options?: {
+      conflictId?: string | null
+      resolution?: RecordLockReleaseResolution
+    },
+  ): Promise<ReleaseResponse> => {
     const token = tokenRef.current
-    if (!canUseLockApi || !token) return
-    await apiCall<ReleaseResponse>('/api/record_locks/release', {
+    if (!canUseLockApi || !token) {
+      return {
+        ok: true,
+        released: false,
+        conflictResolved: false,
+      }
+    }
+    const call = await apiCall<ReleaseResponse | LockErrorResponse>('/api/record_locks/release', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({
@@ -293,11 +336,40 @@ export function useRecordLock(config: UseRecordLockConfig): UseRecordLockResult 
         resourceKind: config.resourceKind,
         resourceId: config.resourceId,
         reason,
+        conflictId: options?.conflictId ?? undefined,
+        resolution: options?.resolution ?? undefined,
       }),
     })
-    tokenRef.current = null
-    setLock((prev) => (prev ? { ...prev, token: null, status: 'released' } : prev))
+    if (!call.ok) {
+      const payload = (call.result ?? {}) as LockErrorResponse
+      setError(payload.error ?? `Failed to release lock (${call.status})`)
+      setErrorCode(payload.code ?? 'record_locks_release_failed')
+      return {
+        ok: true,
+        released: false,
+        conflictResolved: false,
+      }
+    }
+
+    const result = toReleaseResponse(call.result)
+    if (result.released) {
+      tokenRef.current = null
+      setLock((prev) => (prev ? { ...prev, token: null, status: 'released' } : prev))
+    }
+    return result
   }, [canUseLockApi, config.resourceId, config.resourceKind])
+
+  const acceptIncoming = React.useCallback(async (conflict: RecordLockConflict | null): Promise<boolean> => {
+    if (!conflict) return false
+    const result = await release('conflict_resolved', {
+      conflictId: conflict.id,
+      resolution: 'accept_incoming',
+    })
+    if (result.conflictResolved && conflict.incomingActionLogId) {
+      setLatestActionLogId(conflict.incomingActionLogId)
+    }
+    return result.conflictResolved
+  }, [release])
 
   const forceRelease = React.useCallback(async (reason = 'manual_takeover'): Promise<boolean> => {
     if (!canUseLockApi || !resourceEnabled || !lock || !isBlocked) return false
@@ -485,6 +557,7 @@ export function useRecordLock(config: UseRecordLockConfig): UseRecordLockResult 
     errorCode,
     acquire,
     release,
+    acceptIncoming,
     forceRelease,
     runGuardedMutation,
     setLatestActionLogId,
@@ -516,7 +589,7 @@ export function readRecordLockError(error: unknown): { code?: string; message: s
     if (id && resourceKind && resourceId) {
       const options = Array.isArray(raw.resolutionOptions)
         ? raw.resolutionOptions
-          .filter((option): option is 'accept_incoming' | 'accept_mine' => option === 'accept_incoming' || option === 'accept_mine')
+          .filter((option): option is 'accept_mine' => option === 'accept_mine')
         : []
 
       const changes = Array.isArray(raw.changes)
@@ -539,7 +612,7 @@ export function readRecordLockError(error: unknown): { code?: string; message: s
         resourceId,
         baseActionLogId: typeof raw.baseActionLogId === 'string' ? raw.baseActionLogId : null,
         incomingActionLogId: typeof raw.incomingActionLogId === 'string' ? raw.incomingActionLogId : null,
-        resolutionOptions: options.length ? options : ['accept_incoming', 'accept_mine'],
+        resolutionOptions: options.length ? options : ['accept_mine'],
         changes,
       }
     }

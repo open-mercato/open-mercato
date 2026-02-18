@@ -1,6 +1,7 @@
 "use client"
 
 import * as React from 'react'
+import { useRouter } from 'next/navigation'
 import { FormHeader } from '@open-mercato/ui/backend/forms'
 import { RecordConflictDialog, RecordLockBanner, useRecordLockGuard } from '@open-mercato/ui/backend/record-locking'
 import type { UseRecordLockGuardResult } from '@open-mercato/ui/backend/record-locking'
@@ -71,6 +72,7 @@ export function CompanyHighlights({
   isDeleting,
 }: CompanyHighlightsProps) {
   const t = useT()
+  const router = useRouter()
   const recordLockConflictMessage = t('record_locks.conflict.title', 'Conflict detected')
   const localLockGuard = useRecordLockGuard({
     resourceKind: 'customers.company',
@@ -216,6 +218,12 @@ export function CompanyHighlights({
         t={t}
         onResolve={async (resolution) => {
           await resolvedLockGuard.resolveConflict(resolution)
+        }}
+        onAcceptIncoming={async () => {
+          const resolved = await resolvedLockGuard.acceptIncoming()
+          if (resolved) {
+            router.refresh()
+          }
         }}
       />
     </div>

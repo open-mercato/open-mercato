@@ -681,6 +681,12 @@ export default function DealDetailPage({ params }: { params?: { id?: string } })
             setReloadToken((token) => token + 1)
           }
         }}
+        onAcceptIncoming={async () => {
+          const resolved = await lockGuard.acceptIncoming()
+          if (resolved) {
+            setReloadToken((token) => token + 1)
+          }
+        }}
       />
       {ConfirmDialogElement}
     </Page>

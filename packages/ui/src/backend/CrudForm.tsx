@@ -1316,6 +1316,25 @@ export function CrudForm<TValues extends Record<string, unknown>>({
     triggerInjectionEvent,
   ])
 
+  const handleAcceptIncomingRecordConflict = React.useCallback(async () => {
+    if (!recordConflict) return
+    setFormError(null)
+    setPending(true)
+    try {
+      const resolved = await recordLock.acceptIncoming(recordConflict)
+      if (!resolved) return
+      setRecordConflict(null)
+      setRecordConflictValues(null)
+      router.refresh()
+    } finally {
+      setPending(false)
+    }
+  }, [
+    recordConflict,
+    recordLock,
+    router,
+  ])
+
   // Load dynamic options for fields that require it
   React.useEffect(() => {
     let cancelled = false
@@ -1786,6 +1805,9 @@ export function CrudForm<TValues extends Record<string, unknown>>({
           onResolve={async (resolution) => {
             await handleResolveRecordConflict(resolution)
           }}
+          onAcceptIncoming={async () => {
+            await handleAcceptIncomingRecordConflict()
+          }}
         />
         {ConfirmDialogElement}
       </div>
@@ -1893,6 +1915,9 @@ export function CrudForm<TValues extends Record<string, unknown>>({
         t={t}
         onResolve={async (resolution) => {
           await handleResolveRecordConflict(resolution)
+        }}
+        onAcceptIncoming={async () => {
+          await handleAcceptIncomingRecordConflict()
         }}
       />
       {ConfirmDialogElement}

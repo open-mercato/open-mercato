@@ -476,6 +476,12 @@ export function PersonHighlights({
         onResolve={async (resolution) => {
           await lockGuard.resolveConflict(resolution)
         }}
+        onAcceptIncoming={async () => {
+          const resolved = await lockGuard.acceptIncoming()
+          if (resolved) {
+            router.refresh()
+          }
+        }}
       />
     </div>
   )

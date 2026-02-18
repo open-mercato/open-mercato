@@ -2,7 +2,7 @@
 
 import * as React from 'react'
 import type { TranslateFn } from '@open-mercato/shared/lib/i18n/context'
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@open-mercato/ui/primitives/dialog'
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@open-mercato/ui/primitives/dialog'
 import { Button } from '@open-mercato/ui/primitives/button'
 import type { RecordLockConflict } from './useRecordLock'
 
@@ -13,6 +13,7 @@ export type RecordConflictDialogProps = {
   pending?: boolean
   t: TranslateFn
   onResolve: (resolution: 'accept_mine') => Promise<void> | void
+  onAcceptIncoming: () => Promise<void> | void
 }
 
 export function RecordConflictDialog({
@@ -22,6 +23,7 @@ export function RecordConflictDialog({
   pending = false,
   t,
   onResolve,
+  onAcceptIncoming,
 }: RecordConflictDialogProps) {
   const conflictChanges = conflict?.changes ?? []
 
@@ -29,12 +31,9 @@ export function RecordConflictDialog({
     await onResolve(resolution)
   }, [onResolve])
 
-  const handleAcceptIncoming = React.useCallback(() => {
-    onOpenChange(false)
-    if (typeof window !== 'undefined') {
-      window.location.reload()
-    }
-  }, [onOpenChange])
+  const handleAcceptIncoming = React.useCallback(async () => {
+    await onAcceptIncoming()
+  }, [onAcceptIncoming])
 
   const formatValue = React.useCallback((value: unknown): string => {
     if (value === null || value === undefined || value === '') {
@@ -58,9 +57,9 @@ export function RecordConflictDialog({
           <DialogTitle>{t('record_locks.conflict.title', 'Conflict detected')}</DialogTitle>
         </DialogHeader>
 
-        <p className="text-sm text-muted-foreground">
+        <DialogDescription className="text-sm text-muted-foreground">
           {t('record_locks.conflict.description', 'The record was changed by another user after you started editing.')}
-        </p>
+        </DialogDescription>
 
         {conflictChanges.length ? (
           <div className="mt-4 rounded-md border border-border/70">

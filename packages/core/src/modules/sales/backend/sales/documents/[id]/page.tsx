@@ -4762,6 +4762,17 @@ export default function SalesDocumentDetailPage({
             }
           }
         }}
+        onAcceptIncoming={async () => {
+          const resolved = await lockGuard.acceptIncoming()
+          if (resolved && record) {
+            try {
+              const next = await fetchDocumentByKind(record.id, kind)
+              if (next) setRecord(next)
+            } catch {
+              return
+            }
+          }
+        }}
       />
       <Dialog open={sendOpen} onOpenChange={setSendOpen}>
         <DialogContent
