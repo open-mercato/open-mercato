@@ -20,7 +20,7 @@ type Payload = {
   organizationId?: string | null
   conflictActorUserId: string
   incomingActorUserId?: string | null
-  resolution?: 'accept_mine' | 'merged' | null
+  resolution?: 'accept_incoming' | 'accept_mine' | 'merged' | null
   resolvedByUserId: string
 }
 

@@ -16,6 +16,7 @@ import {
 import {
   recordLockMutationHeaderSchema,
   type RecordLockMutationHeaders,
+  type RecordLockReleaseInput as RecordLockReleasePayloadInput,
   type RecordLockSettingsInput,
 } from '../data/validators'
 import {
@@ -54,7 +55,7 @@ export type RecordLockHeartbeatInput = RecordLockScope & RecordLockResource & {
 export type RecordLockReleaseInput = RecordLockScope & RecordLockResource & {
   token: string
   reason?: Exclude<RecordLockReleaseReason, 'expired' | 'force'>
-}
+} & Pick<RecordLockReleasePayloadInput, 'conflictId' | 'resolution'>
 
 export type RecordLockForceReleaseInput = RecordLockScope & RecordLockResource & {
   reason?: string | null
@@ -80,7 +81,7 @@ export type RecordLockConflictPayload = {
   resourceId: string
   baseActionLogId: string | null
   incomingActionLogId: string | null
-  resolutionOptions: Array<'accept_incoming' | 'accept_mine'>
+  resolutionOptions: Array<'accept_mine'>
   changes: RecordLockConflictChange[]
 }
 
@@ -122,6 +123,7 @@ export type RecordLockHeartbeatResult = {
 export type RecordLockReleaseResult = {
   ok: true
   released: boolean
+  conflictResolved: boolean
 }
 
 export type RecordLockForceReleaseResult = {
@@ -176,8 +178,9 @@ function normalizeScopeOrganization(value: string | null | undefined): string | 
 
 function isActiveLockScopeUniqueViolation(error: unknown): boolean {
   if (error instanceof UniqueConstraintViolationException) {
-    const constraint = typeof (error as { constraint?: unknown }).constraint === 'string'
-      ? (error as { constraint: string }).constraint
+    const errorWithConstraint = error as unknown as { constraint?: unknown }
+    const constraint = typeof errorWithConstraint.constraint === 'string'
+      ? errorWithConstraint.constraint
       : null
     if (constraint && ACTIVE_SCOPE_UNIQUE_CONSTRAINTS.has(constraint)) return true
   }
@@ -542,10 +545,19 @@ export class RecordLockService {
   async release(input: RecordLockReleaseInput): Promise<RecordLockReleaseResult> {
     const settings = await this.getSettings()
     const resourceEnabled = isRecordLockingEnabledForResource(settings, input.resourceKind)
-    if (!resourceEnabled) return { ok: true, released: false }
+    if (!resourceEnabled) return { ok: true, released: false, conflictResolved: false }
 
     const lock = await this.findOwnedLockByToken(input)
-    if (!lock) return { ok: true, released: false }
+    if (!lock) return { ok: true, released: false, conflictResolved: false }
+
+    let conflictResolved = false
+    if (input.reason === 'conflict_resolved' && input.conflictId && input.resolution === 'accept_incoming') {
+      const conflict = await this.findConflictById(input.conflictId, input)
+      if (conflict && conflict.status === 'pending' && conflict.conflictActorUserId === input.userId) {
+        await this.resolveConflict(conflict, input.resolution, input.userId)
+        conflictResolved = true
+      }
+    }
 
     const now = new Date()
     this.markLockReleased(lock, {
@@ -567,7 +579,7 @@ export class RecordLockService {
       reason: lock.releaseReason,
     })
 
-    return { ok: true, released: true }
+    return { ok: true, released: true, conflictResolved }
   }
 
   async forceRelease(input: RecordLockForceReleaseInput): Promise<RecordLockForceReleaseResult> {
@@ -903,15 +915,16 @@ export class RecordLockService {
 
   private async resolveConflict(
     conflict: RecordLockConflict,
-    resolution: Extract<RecordLockMutationHeaders['resolution'], 'accept_mine' | 'merged'>,
+    resolution: 'accept_incoming' | Extract<RecordLockMutationHeaders['resolution'], 'accept_mine' | 'merged'>,
     resolvedByUserId: string,
   ): Promise<void> {
     const now = new Date()
 
-    const resolutionMap: Record<Extract<RecordLockMutationHeaders['resolution'], 'accept_mine' | 'merged'>, {
+    const resolutionMap: Record<'accept_incoming' | Extract<RecordLockMutationHeaders['resolution'], 'accept_mine' | 'merged'>, {
       status: RecordLockConflictStatus
       resolution: RecordLockConflictResolution
     }> = {
+      accept_incoming: { status: 'resolved_accept_incoming', resolution: 'accept_incoming' },
       accept_mine: { status: 'resolved_accept_mine', resolution: 'accept_mine' },
       merged: { status: 'resolved_merged', resolution: 'merged' },
     }
@@ -1136,7 +1149,7 @@ export class RecordLockService {
       resourceId: conflict.resourceId,
       baseActionLogId: conflict.baseActionLogId,
       incomingActionLogId: conflict.incomingActionLogId,
-      resolutionOptions: ['accept_incoming', 'accept_mine'],
+      resolutionOptions: ['accept_mine'],
       changes,
     }
   }

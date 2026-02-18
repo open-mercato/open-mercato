@@ -26,6 +26,8 @@ export async function POST(req: Request) {
     resourceKind: parsed.data.resourceKind,
     resourceId: parsed.data.resourceId,
     reason: parsed.data.reason,
+    conflictId: parsed.data.conflictId,
+    resolution: parsed.data.resolution,
     tenantId: ctxOrResponse.auth.tenantId,
     organizationId: ctxOrResponse.organizationId,
     userId: ctxOrResponse.auth.sub,

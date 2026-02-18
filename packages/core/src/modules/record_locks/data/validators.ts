@@ -13,10 +13,31 @@ export const recordLockHeartbeatSchema = recordLockResourceSchema.extend({
 })
 
 export const recordLockReleaseReasonSchema = z.enum(['saved', 'cancelled', 'unmount', 'conflict_resolved'])
+export const recordLockReleaseResolutionSchema = z.enum(['accept_incoming'])
 
 export const recordLockReleaseSchema = recordLockResourceSchema.extend({
   token: z.string().trim().min(1),
   reason: recordLockReleaseReasonSchema.optional(),
+  conflictId: z.string().uuid().optional(),
+  resolution: recordLockReleaseResolutionSchema.optional(),
+}).superRefine((value, ctx) => {
+  if (value.reason !== 'conflict_resolved') return
+
+  if (!value.conflictId) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['conflictId'],
+      message: 'conflictId is required when reason is conflict_resolved',
+    })
+  }
+
+  if (!value.resolution) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['resolution'],
+      message: 'resolution is required when reason is conflict_resolved',
+    })
+  }
 })
 
 export const recordLockForceReleaseSchema = recordLockResourceSchema.extend({
@@ -74,6 +95,7 @@ export const recordLockHeartbeatResponseSchema = z.object({
 export const recordLockReleaseResponseSchema = z.object({
   ok: z.literal(true),
   released: z.boolean(),
+  conflictResolved: z.boolean(),
 })
 
 export const recordLockForceReleaseResponseSchema = z.object({
@@ -93,7 +115,7 @@ export const recordLockErrorSchema = z.object({
     resourceId: z.string(),
     baseActionLogId: z.string().uuid().nullable(),
     incomingActionLogId: z.string().uuid().nullable(),
-    resolutionOptions: z.array(z.enum(['accept_incoming', 'accept_mine'])).default(['accept_incoming', 'accept_mine']),
+    resolutionOptions: z.array(z.enum(['accept_mine'])).default(['accept_mine']),
     changes: z.array(
       z.object({
         field: z.string().min(1),
