@@ -75,16 +75,15 @@ describe('formatRelativeTime', () => {
   })
 
   it('uses fallback if Intl.RelativeTimeFormat is not available', () => {
-    const orig = Intl.RelativeTimeFormat
-    // @ts-ignore: test override
-    Intl.RelativeTimeFormat = undefined
-    try {
-      expect(formatRelativeTime(sub(10))).toMatch(/ago/)
-      expect(formatRelativeTime(add(10))).toMatch(/from now/)
-    } finally {
-      Intl.RelativeTimeFormat = orig
-    }
-  })
+  const descriptor = Object.getOwnPropertyDescriptor(Intl, 'RelativeTimeFormat')
+  Object.defineProperty(Intl, 'RelativeTimeFormat', { value: undefined, configurable: true })
+  try {
+    expect(formatRelativeTime(sub(10))).toMatch(/ago/)
+    expect(formatRelativeTime(add(10))).toMatch(/from now/)
+  } finally {
+    Object.defineProperty(Intl, 'RelativeTimeFormat', descriptor!)
+  }
+})
 
   it('uses custom translate if provided', () => {
     const translate = (key: string, fallback?: string) => `T(${key})` || fallback || ''
