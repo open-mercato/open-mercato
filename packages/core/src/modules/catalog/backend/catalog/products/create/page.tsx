@@ -361,6 +361,27 @@ export default function CreateCatalogProductPage() {
               const message = t('catalog.products.uom.errors.baseRequiredForConversions', 'Base unit is required when conversions are configured.')
               throw createCrudFormError(message, { defaultUnit: message })
             }
+            const defaultUnitKey = defaultUnit?.toLowerCase() ?? null
+            const defaultSalesUnitKey = defaultSalesUnit?.toLowerCase() ?? null
+            if (
+              defaultUnitKey &&
+              defaultSalesUnitKey &&
+              defaultSalesUnitKey !== defaultUnitKey
+            ) {
+              const hasDefaultSalesConversion = conversionInputs.some(
+                (entry) => entry.isActive && entry.unitCode.toLowerCase() === defaultSalesUnitKey,
+              )
+              if (!hasDefaultSalesConversion) {
+                const message = t(
+                  'catalog.products.uom.errors.defaultSalesConversionRequired',
+                  'Active conversion for default sales unit is required when it differs from base unit.',
+                )
+                throw createCrudFormError(message, {
+                  defaultSalesUnit: message,
+                  unitConversions: message,
+                })
+              }
+            }
             if (unitPriceEnabled) {
               if (!unitPriceReferenceUnit || !UNIT_PRICE_REFERENCE_UNITS.has(unitPriceReferenceUnit as ProductUnitPriceReferenceUnit)) {
                 const message = t('catalog.products.unitPrice.errors.referenceUnit', 'Reference unit is required when unit price display is enabled.')

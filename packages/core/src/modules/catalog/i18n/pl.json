@@ -518,6 +518,7 @@
   "catalog.products.uom.errors.duplicateConversion": "Duplikat jednostki konwersji nie jest dozwolony.",
   "catalog.products.uom.errors.baseRequired": "Jednostka bazowa jest wymagana, gdy ustawiono domyślną jednostkę sprzedaży.",
   "catalog.products.uom.errors.baseRequiredForConversions": "Jednostka bazowa jest wymagana, gdy skonfigurowano konwersje.",
+  "catalog.products.uom.errors.defaultSalesConversionRequired": "Aktywna konwersja dla domyślnej jednostki sprzedaży jest wymagana, gdy różni się od jednostki bazowej.",
   "catalog.products.uom.errors.sync": "Nie udało się zsynchronizować konwersji produktu.",
   "catalog.products.unitPrice.enable": "Włącz prezentację ceny jednostkowej UE",
   "catalog.products.unitPrice.referenceUnit": "Jednostka referencyjna",

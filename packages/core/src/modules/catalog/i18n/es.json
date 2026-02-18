@@ -518,6 +518,7 @@
   "catalog.products.uom.errors.duplicateConversion": "Duplicate conversion unit is not allowed.",
   "catalog.products.uom.errors.baseRequired": "Base unit is required when default sales unit is set.",
   "catalog.products.uom.errors.baseRequiredForConversions": "Base unit is required when conversions are configured.",
+  "catalog.products.uom.errors.defaultSalesConversionRequired": "Active conversion for default sales unit is required when it differs from base unit.",
   "catalog.products.uom.errors.sync": "Failed to synchronize product conversions.",
   "catalog.products.unitPrice.enable": "Enable EU unit price display",
   "catalog.products.unitPrice.referenceUnit": "Reference unit",

@@ -160,6 +160,113 @@ type ProductUnitConversionInput = {
 
 const UNIT_PRICE_REFERENCE_UNITS = new Set<ProductUnitPriceReferenceUnit>(['kg', 'l', 'm2', 'm3', 'pc'])
 
+function mapVariantPriceSummary(item: VariantPriceSummaryApi | undefined): VariantPriceSummary | null {
+  if (!item) return null
+  const getString = (value: unknown): string | null => {
+    if (typeof value === 'string' && value.trim().length) return value.trim()
+    if (typeof value === 'number' || typeof value === 'bigint') return String(value)
+    return null
+  }
+  const variantId = getString(item.variant_id ?? item.variantId)
+  const id = getString(item.id)
+  if (!variantId || !id) return null
+  const priceKindId = getString(item.price_kind_id ?? item.priceKindId)
+  const currencyCode = getString(item.currency_code ?? item.currencyCode)
+  const unitGross = getString(item.unit_price_gross ?? item.unitPriceGross)
+  const unitNet = getString(item.unit_price_net ?? item.unitPriceNet)
+  const amount = unitGross ?? unitNet ?? null
+  return {
+    id,
+    variantId,
+    priceKindId,
+    currencyCode,
+    amount,
+    displayMode: unitGross ? 'including-tax' : 'excluding-tax',
+  }
+}
+
+function normalizeVariantOptionValues(input: unknown): Record<string, string> | null {
+  if (!input || typeof input !== 'object') return null
+  const result: Record<string, string> = {}
+  Object.entries(input as Record<string, unknown>).forEach(([key, value]) => {
+    if (typeof key === 'string' && typeof value === 'string' && key.trim().length) {
+      result[key] = value
+    }
+  })
+  return Object.keys(result).length ? result : null
+}
+
+function toTrimmedOrNull(value: unknown): string | null {
+  if (typeof value !== 'string') return null
+  const trimmed = value.trim()
+  return trimmed.length ? trimmed : null
+}
+
+function toPositiveNumberOrNull(value: unknown): number | null {
+  const numeric = typeof value === 'number' ? value : Number(value)
+  if (!Number.isFinite(numeric) || numeric <= 0) return null
+  return numeric
+}
+
+function toIntegerInRangeOrDefault(value: unknown, min: number, max: number, fallback: number): number {
+  const numeric = typeof value === 'number' ? value : Number(value)
+  if (!Number.isInteger(numeric) || numeric < min || numeric > max) return fallback
+  return numeric
+}
+
+function normalizeProductConversionInputs(
+  rows: ProductUnitConversionDraft[] | undefined,
+  duplicateMessage: string,
+): ProductUnitConversionInput[] {
+  const list = Array.isArray(rows) ? rows : []
+  const normalized: ProductUnitConversionInput[] = []
+  const seen = new Set<string>()
+  for (const row of list) {
+    const unitCode = toTrimmedOrNull(row?.unitCode)
+    const toBaseFactor = toPositiveNumberOrNull(row?.toBaseFactor)
+    if (!unitCode || toBaseFactor === null) continue
+    const unitKey = unitCode.toLowerCase()
+    if (seen.has(unitKey)) {
+      throw createCrudFormError(duplicateMessage, { unitConversions: duplicateMessage })
+    }
+    seen.add(unitKey)
+    normalized.push({
+      id: toTrimmedOrNull(row?.id),
+      unitCode,
+      toBaseFactor,
+      sortOrder: toIntegerInRangeOrDefault(row?.sortOrder, 0, 100000, normalized.length * 10),
+      isActive: row?.isActive !== false,
+    })
+  }
+  return normalized
+}
+
+function readProductConversionRows(items: Array<Record<string, unknown>> | undefined): ProductUnitConversionDraft[] {
+  const rows = Array.isArray(items) ? items : []
+  return rows
+    .map((item) => {
+      const id = toTrimmedOrNull(item.id)
+      const unitCode = toTrimmedOrNull(item.unit_code ?? item.unitCode)
+      const factor = toPositiveNumberOrNull(item.to_base_factor ?? item.toBaseFactor)
+      if (!unitCode || factor === null) return null
+      const sortOrderRaw = toIntegerInRangeOrDefault(item.sort_order ?? item.sortOrder, 0, 100000, 0)
+      const isActive =
+        typeof item.is_active === 'boolean'
+          ? item.is_active
+          : typeof item.isActive === 'boolean'
+            ? item.isActive
+            : true
+      return {
+        id: id ?? null,
+        unitCode,
+        toBaseFactor: String(factor),
+        sortOrder: String(sortOrderRaw),
+        isActive,
+      } satisfies ProductUnitConversionDraft
+    })
+    .filter((entry): entry is ProductUnitConversionDraft => Boolean(entry))
+}
+
 export default function EditCatalogProductPage({ params }: { params?: { id?: string } }) {
   const productId = params?.id ? String(params.id) : null
   const t = useT()
@@ -495,113 +602,6 @@ export default function EditCatalogProductPage({ params }: { params?: { id?: str
     }
   }, [])
 
-function mapVariantPriceSummary(item: VariantPriceSummaryApi | undefined): VariantPriceSummary | null {
-  if (!item) return null
-  const getString = (value: unknown): string | null => {
-    if (typeof value === 'string' && value.trim().length) return value.trim()
-    if (typeof value === 'number' || typeof value === 'bigint') return String(value)
-    return null
-  }
-  const variantId = getString(item.variant_id ?? item.variantId)
-  const id = getString(item.id)
-  if (!variantId || !id) return null
-  const priceKindId = getString(item.price_kind_id ?? item.priceKindId)
-  const currencyCode = getString(item.currency_code ?? item.currencyCode)
-  const unitGross = getString(item.unit_price_gross ?? item.unitPriceGross)
-  const unitNet = getString(item.unit_price_net ?? item.unitPriceNet)
-  const amount = unitGross ?? unitNet ?? null
-  return {
-    id,
-    variantId,
-    priceKindId,
-    currencyCode,
-    amount,
-    displayMode: unitGross ? 'including-tax' : 'excluding-tax',
-  }
-}
-
-function normalizeVariantOptionValues(input: unknown): Record<string, string> | null {
-  if (!input || typeof input !== 'object') return null
-  const result: Record<string, string> = {}
-  Object.entries(input as Record<string, unknown>).forEach(([key, value]) => {
-    if (typeof key === 'string' && typeof value === 'string' && key.trim().length) {
-      result[key] = value
-    }
-  })
-  return Object.keys(result).length ? result : null
-}
-
-function toTrimmedOrNull(value: unknown): string | null {
-  if (typeof value !== 'string') return null
-  const trimmed = value.trim()
-  return trimmed.length ? trimmed : null
-}
-
-function toPositiveNumberOrNull(value: unknown): number | null {
-  const numeric = typeof value === 'number' ? value : Number(value)
-  if (!Number.isFinite(numeric) || numeric <= 0) return null
-  return numeric
-}
-
-function toIntegerInRangeOrDefault(value: unknown, min: number, max: number, fallback: number): number {
-  const numeric = typeof value === 'number' ? value : Number(value)
-  if (!Number.isInteger(numeric) || numeric < min || numeric > max) return fallback
-  return numeric
-}
-
-function normalizeProductConversionInputs(
-  rows: ProductUnitConversionDraft[] | undefined,
-  duplicateMessage: string,
-): ProductUnitConversionInput[] {
-  const list = Array.isArray(rows) ? rows : []
-  const normalized: ProductUnitConversionInput[] = []
-  const seen = new Set<string>()
-  for (const row of list) {
-    const unitCode = toTrimmedOrNull(row?.unitCode)
-    const toBaseFactor = toPositiveNumberOrNull(row?.toBaseFactor)
-    if (!unitCode || toBaseFactor === null) continue
-    const unitKey = unitCode.toLowerCase()
-    if (seen.has(unitKey)) {
-      throw createCrudFormError(duplicateMessage, { unitConversions: duplicateMessage })
-    }
-    seen.add(unitKey)
-    normalized.push({
-      id: toTrimmedOrNull(row?.id),
-      unitCode,
-      toBaseFactor,
-      sortOrder: toIntegerInRangeOrDefault(row?.sortOrder, 0, 100000, normalized.length * 10),
-      isActive: row?.isActive !== false,
-    })
-  }
-  return normalized
-}
-
-function readProductConversionRows(items: Array<Record<string, unknown>> | undefined): ProductUnitConversionDraft[] {
-  const rows = Array.isArray(items) ? items : []
-  return rows
-    .map((item) => {
-      const id = toTrimmedOrNull(item.id)
-      const unitCode = toTrimmedOrNull(item.unit_code ?? item.unitCode)
-      const factor = toPositiveNumberOrNull(item.to_base_factor ?? item.toBaseFactor)
-      if (!unitCode || factor === null) return null
-      const sortOrderRaw = toIntegerInRangeOrDefault(item.sort_order ?? item.sortOrder, 0, 100000, 0)
-      const isActive =
-        typeof item.is_active === 'boolean'
-          ? item.is_active
-          : typeof item.isActive === 'boolean'
-            ? item.isActive
-            : true
-      return {
-        id: id ?? null,
-        unitCode,
-        toBaseFactor: String(factor),
-        sortOrder: String(sortOrderRaw),
-        isActive,
-      } satisfies ProductUnitConversionDraft
-    })
-    .filter((entry): entry is ProductUnitConversionDraft => Boolean(entry))
-}
-
   const handleVariantDeleted = React.useCallback((variantId: string) => {
     setVariants((prev) => prev.filter((variant) => variant.id !== variantId))
   }, [])
@@ -698,7 +698,7 @@ function readProductConversionRows(items: Array<Record<string, unknown>> | undef
       title: t('catalog.products.edit.custom.title', 'Custom attributes'),
       kind: 'customFields',
     },
-  ], [categorizeOptions, handleVariantDeleted, priceKinds, productId, t, taxRates, variants])
+  ], [categorizeOptions, handleVariantDeleted, priceKinds, productId, refreshVariants, t, taxRates, variants])
 
   const handleSubmit = React.useCallback(async (formValues: ProductFormValues) => {
     if (!productId) {
@@ -813,6 +813,27 @@ function readProductConversionRows(items: Array<Record<string, unknown>> | undef
     if (conversionInputs.length && !defaultUnit) {
       const message = t('catalog.products.uom.errors.baseRequiredForConversions', 'Base unit is required when conversions are configured.')
       throw createCrudFormError(message, { defaultUnit: message })
+    }
+    const defaultUnitKey = defaultUnit?.toLowerCase() ?? null
+    const defaultSalesUnitKey = defaultSalesUnit?.toLowerCase() ?? null
+    if (
+      defaultUnitKey &&
+      defaultSalesUnitKey &&
+      defaultSalesUnitKey !== defaultUnitKey
+    ) {
+      const hasDefaultSalesConversion = conversionInputs.some(
+        (entry) => entry.isActive && entry.unitCode.toLowerCase() === defaultSalesUnitKey,
+      )
+      if (!hasDefaultSalesConversion) {
+        const message = t(
+          'catalog.products.uom.errors.defaultSalesConversionRequired',
+          'Active conversion for default sales unit is required when it differs from base unit.',
+        )
+        throw createCrudFormError(message, {
+          defaultSalesUnit: message,
+          unitConversions: message,
+        })
+      }
     }
     if (unitPriceEnabled) {
       if (!unitPriceReferenceUnit || !UNIT_PRICE_REFERENCE_UNITS.has(unitPriceReferenceUnit as ProductUnitPriceReferenceUnit)) {
