@@ -1,0 +1,27 @@
+import type { ModuleSetupConfig } from '@open-mercato/shared/modules/setup'
+import { ModuleConfig } from '@open-mercato/core/modules/configs/data/entities'
+import { DEFAULT_RECORD_LOCK_SETTINGS, RECORD_LOCKS_MODULE_ID, RECORD_LOCKS_SETTINGS_NAME } from './lib/config'
+
+export const setup: ModuleSetupConfig = {
+  async onTenantCreated({ em }) {
+    const existing = await em.findOne(ModuleConfig, {
+      moduleId: RECORD_LOCKS_MODULE_ID,
+      name: RECORD_LOCKS_SETTINGS_NAME,
+    })
+    if (existing) return
+
+    const row = em.create(ModuleConfig, {
+      moduleId: RECORD_LOCKS_MODULE_ID,
+      name: RECORD_LOCKS_SETTINGS_NAME,
+      valueJson: DEFAULT_RECORD_LOCK_SETTINGS,
+    })
+    em.persist(row)
+    await em.flush()
+  },
+  defaultRoleFeatures: {
+    admin: ['record_locks.*'],
+    employee: ['record_locks.view'],
+  },
+}
+
+export default setup

@@ -1,0 +1,48 @@
+{
+  "record_locks": {
+    "title": "Record locking",
+    "settings": {
+      "title": "Record locking",
+      "description": "Configure optimistic/pessimistic locking and conflict handling.",
+      "enabled": "Enable record locking",
+      "strategy": "Strategy",
+      "strategy_optimistic": "Optimistic",
+      "strategy_pessimistic": "Pessimistic",
+      "timeout_seconds": "Lock timeout (seconds)",
+      "heartbeat_seconds": "Heartbeat interval (seconds)",
+      "enabled_resources": "Enabled resources",
+      "allow_force_unlock": "Allow force unlock",
+      "notify_on_conflict": "Notify on conflict",
+      "save": "Save settings",
+      "saved": "Settings saved",
+      "save_error": "Failed to save settings"
+    },
+    "banner": {
+      "locked_by_other": "This record is currently locked by another user.",
+      "optimistic_notice": "Another user is editing this record. Conflicts may occur on save.",
+      "mine": "You are currently editing this record."
+    },
+    "conflict": {
+      "title": "Conflict detected",
+      "description": "The record was changed by another user after you started editing.",
+      "accept_incoming": "Accept incoming",
+      "accept_mine": "Keep my changes",
+      "merged": "Merge changes",
+      "cancel": "Cancel"
+    },
+    "notifications": {
+      "lock_force_released": {
+        "title": "Your lock was force released",
+        "body": "Another user force released your lock on a record."
+      },
+      "conflict_detected": {
+        "title": "Edit conflict detected",
+        "body": "Your save conflicted with a more recent change."
+      },
+      "conflict_resolved": {
+        "title": "Conflict resolved",
+        "body": "A record conflict has been resolved."
+      }
+    }
+  }
+}

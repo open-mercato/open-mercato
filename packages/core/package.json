@@ -113,6 +113,10 @@
       "types": "./src/modules/api_keys/index.ts",
       "default": "./dist/modules/api_keys/index.js"
     },
+    "./modules/record_locks": {
+      "types": "./src/modules/record_locks/index.ts",
+      "default": "./dist/modules/record_locks/index.js"
+    },
     "./modules/widgets/lib/injection": {
       "types": "./src/modules/widgets/lib/injection.ts",
       "default": "./dist/modules/widgets/lib/injection.js"

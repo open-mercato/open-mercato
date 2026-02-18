@@ -1,0 +1,48 @@
+{
+  "record_locks": {
+    "title": "Bloqueo de registros",
+    "settings": {
+      "title": "Bloqueo de registros",
+      "description": "Configura estrategias optimistic/pessimistic y resolución de conflictos.",
+      "enabled": "Habilitar bloqueo de registros",
+      "strategy": "Estrategia",
+      "strategy_optimistic": "Optimistic",
+      "strategy_pessimistic": "Pessimistic",
+      "timeout_seconds": "Tiempo de bloqueo (segundos)",
+      "heartbeat_seconds": "Intervalo de heartbeat (segundos)",
+      "enabled_resources": "Recursos habilitados",
+      "allow_force_unlock": "Permitir desbloqueo forzado",
+      "notify_on_conflict": "Notificar en conflictos",
+      "save": "Guardar configuración",
+      "saved": "Configuración guardada",
+      "save_error": "No se pudo guardar la configuración"
+    },
+    "banner": {
+      "locked_by_other": "Este registro está bloqueado por otro usuario.",
+      "optimistic_notice": "Otro usuario está editando este registro. Puede haber conflictos al guardar.",
+      "mine": "Actualmente estás editando este registro."
+    },
+    "conflict": {
+      "title": "Conflicto detectado",
+      "description": "El registro cambió después de que empezaste a editar.",
+      "accept_incoming": "Aceptar versión entrante",
+      "accept_mine": "Conservar mis cambios",
+      "merged": "Combinar cambios",
+      "cancel": "Cancelar"
+    },
+    "notifications": {
+      "lock_force_released": {
+        "title": "Tu bloqueo fue liberado por la fuerza",
+        "body": "Otro usuario liberó por la fuerza tu bloqueo de registro."
+      },
+      "conflict_detected": {
+        "title": "Conflicto de edición detectado",
+        "body": "Tu guardado entró en conflicto con un cambio más reciente."
+      },
+      "conflict_resolved": {
+        "title": "Conflicto resuelto",
+        "body": "Se resolvió un conflicto de registro."
+      }
+    }
+  }
+}

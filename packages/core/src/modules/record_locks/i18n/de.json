@@ -1,0 +1,48 @@
+{
+  "record_locks": {
+    "title": "Datensatzsperren",
+    "settings": {
+      "title": "Datensatzsperren",
+      "description": "Konfiguration von optimistic/pessimistic Sperrstrategien und Konfliktbehandlung.",
+      "enabled": "Datensatzsperren aktivieren",
+      "strategy": "Strategie",
+      "strategy_optimistic": "Optimistic",
+      "strategy_pessimistic": "Pessimistic",
+      "timeout_seconds": "Sperr-Timeout (Sekunden)",
+      "heartbeat_seconds": "Heartbeat-Intervall (Sekunden)",
+      "enabled_resources": "Aktivierte Ressourcen",
+      "allow_force_unlock": "Erzwungenes Entsperren erlauben",
+      "notify_on_conflict": "Bei Konflikt benachrichtigen",
+      "save": "Einstellungen speichern",
+      "saved": "Einstellungen gespeichert",
+      "save_error": "Einstellungen konnten nicht gespeichert werden"
+    },
+    "banner": {
+      "locked_by_other": "Dieser Datensatz ist derzeit von einem anderen Benutzer gesperrt.",
+      "optimistic_notice": "Ein anderer Benutzer bearbeitet diesen Datensatz. Beim Speichern können Konflikte auftreten.",
+      "mine": "Sie bearbeiten diesen Datensatz gerade."
+    },
+    "conflict": {
+      "title": "Konflikt erkannt",
+      "description": "Der Datensatz wurde geändert, nachdem Sie mit der Bearbeitung begonnen haben.",
+      "accept_incoming": "Eingehende Version übernehmen",
+      "accept_mine": "Meine Änderungen behalten",
+      "merged": "Änderungen zusammenführen",
+      "cancel": "Abbrechen"
+    },
+    "notifications": {
+      "lock_force_released": {
+        "title": "Ihre Sperre wurde erzwungen aufgehoben",
+        "body": "Ein anderer Benutzer hat Ihre Datensatzsperre erzwungen aufgehoben."
+      },
+      "conflict_detected": {
+        "title": "Bearbeitungskonflikt erkannt",
+        "body": "Ihre Speicherung stand im Konflikt mit einer neueren Änderung."
+      },
+      "conflict_resolved": {
+        "title": "Konflikt gelöst",
+        "body": "Ein Datensatzkonflikt wurde gelöst."
+      }
+    }
+  }
+}

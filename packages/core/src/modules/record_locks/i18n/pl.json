@@ -1,0 +1,48 @@
+{
+  "record_locks": {
+    "title": "Blokowanie rekordów",
+    "settings": {
+      "title": "Blokowanie rekordów",
+      "description": "Konfiguracja strategii optimistic/pessimistic i obsługi konfliktów.",
+      "enabled": "Włącz blokowanie rekordów",
+      "strategy": "Strategia",
+      "strategy_optimistic": "Optimistic",
+      "strategy_pessimistic": "Pessimistic",
+      "timeout_seconds": "Timeout blokady (sekundy)",
+      "heartbeat_seconds": "Interwał heartbeat (sekundy)",
+      "enabled_resources": "Włączone zasoby",
+      "allow_force_unlock": "Zezwalaj na wymuszone odblokowanie",
+      "notify_on_conflict": "Powiadamiaj o konfliktach",
+      "save": "Zapisz ustawienia",
+      "saved": "Ustawienia zapisane",
+      "save_error": "Nie udało się zapisać ustawień"
+    },
+    "banner": {
+      "locked_by_other": "Ten rekord jest obecnie zablokowany przez innego użytkownika.",
+      "optimistic_notice": "Inny użytkownik edytuje ten rekord. Podczas zapisu może wystąpić konflikt.",
+      "mine": "Aktualnie edytujesz ten rekord."
+    },
+    "conflict": {
+      "title": "Wykryto konflikt",
+      "description": "Rekord został zmieniony przez innego użytkownika po rozpoczęciu Twojej edycji.",
+      "accept_incoming": "Akceptuj wersję przychodzącą",
+      "accept_mine": "Zachowaj moje zmiany",
+      "merged": "Scal zmiany",
+      "cancel": "Anuluj"
+    },
+    "notifications": {
+      "lock_force_released": {
+        "title": "Twoja blokada została wymuszenie zwolniona",
+        "body": "Inny użytkownik wymuszenie zwolnił Twoją blokadę rekordu."
+      },
+      "conflict_detected": {
+        "title": "Wykryto konflikt edycji",
+        "body": "Twój zapis wszedł w konflikt z nowszą zmianą."
+      },
+      "conflict_resolved": {
+        "title": "Konflikt rozwiązany",
+        "body": "Konflikt rekordu został rozwiązany."
+      }
+    }
+  }
+}
