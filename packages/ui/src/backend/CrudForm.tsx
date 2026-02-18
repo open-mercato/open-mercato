@@ -60,6 +60,9 @@ import { FieldDefinitionsManager, type FieldDefinitionsManagerHandle } from './c
 import { useConfirmDialog } from './confirm-dialog'
 import { useInjectionSpotEvents, InjectionSpot, useInjectionWidgets } from './injection/InjectionSpot'
 import { VersionHistoryAction } from './version-history/VersionHistoryAction'
+import { RecordConflictDialog } from './record-locking/RecordConflictDialog'
+import { RecordLockBanner } from './record-locking/RecordLockBanner'
+import { readRecordLockError, useRecordLock, type RecordLockConflict } from './record-locking/useRecordLock'
 
 // Stable empty options array to avoid creating a new [] every render
 const EMPTY_OPTIONS: CrudFieldOption[] = []
@@ -155,6 +158,11 @@ export type CrudFormProps<TValues extends Record<string, unknown>> = {
     resourceKind: string
     resourceId: string
     canUndoRedo?: boolean
+    autoCheckAcl?: boolean
+  }
+  recordLocking?: {
+    resourceKind: string
+    resourceId: string
     autoCheckAcl?: boolean
   }
   // When provided, CrudForm will fetch custom field definitions and append
@@ -290,6 +298,7 @@ export function CrudForm<TValues extends Record<string, unknown>>({
   hideFooterActions = false,
   extraActions,
   versionHistory,
+  recordLocking,
   contentHeader,
   customFieldsetBindings,
   injectionSpotId,
@@ -325,6 +334,8 @@ export function CrudForm<TValues extends Record<string, unknown>>({
   const [errors, setErrors] = React.useState<Record<string, string>>({})
   const [pending, setPending] = React.useState(false)
   const [formError, setFormError] = React.useState<string | null>(null)
+  const [recordConflict, setRecordConflict] = React.useState<RecordLockConflict | null>(null)
+  const [recordConflictValues, setRecordConflictValues] = React.useState<TValues | null>(null)
   const [dynamicOptions, setDynamicOptions] = React.useState<Record<string, CrudFieldOption[]>>({})
   const [cfDefinitions, setCfDefinitions] = React.useState<CustomFieldDefDto[]>([])
   const [cfMetadata, setCfMetadata] = React.useState<CustomFieldDefinitionsPayload | null>(null)
@@ -438,6 +449,36 @@ export function CrudForm<TValues extends Record<string, unknown>>({
     if (rawId === undefined || rawId === null) return true
     return typeof rawId === 'string' ? rawId.trim().length === 0 : false
   }, [values])
+  const resolvedRecordLocking = React.useMemo(() => {
+    if (
+      recordLocking
+      && recordLocking.resourceKind
+      && recordLocking.resourceId
+      && String(recordLocking.resourceId).trim().length > 0
+    ) {
+      return {
+        resourceKind: recordLocking.resourceKind,
+        resourceId: recordLocking.resourceId,
+      }
+    }
+    if (
+      versionHistory
+      && versionHistory.resourceKind
+      && versionHistory.resourceId
+      && String(versionHistory.resourceId).trim().length > 0
+    ) {
+      return {
+        resourceKind: versionHistory.resourceKind,
+        resourceId: versionHistory.resourceId,
+      }
+    }
+    return null
+  }, [recordLocking, versionHistory])
+  const recordLock = useRecordLock({
+    resourceKind: resolvedRecordLocking?.resourceKind ?? '',
+    resourceId: resolvedRecordLocking?.resourceId ?? '',
+    enabled: Boolean(resolvedRecordLocking && !isNewRecord),
+  })
   const showDelete = Boolean(onDelete) && (typeof deleteVisible === 'boolean' ? deleteVisible : !isNewRecord)
   const versionHistoryEnabled = Boolean(versionHistory?.resourceId && String(versionHistory.resourceId).trim().length > 0)
   const versionHistoryAction = (
@@ -454,6 +495,17 @@ export function CrudForm<TValues extends Record<string, unknown>>({
       {extraActions}
     </>
   ) : extraActions
+  const submitDisabledByLock = recordLock.isBlocked
+  const recordLockBanner = resolvedRecordLocking ? (
+    <RecordLockBanner
+      t={t}
+      strategy={recordLock.strategy}
+      resourceEnabled={recordLock.resourceEnabled}
+      isOwner={recordLock.isOwner}
+      isBlocked={recordLock.isBlocked}
+      error={recordLock.error}
+    />
+  ) : null
 
   // Auto-append custom fields for this entityId
   React.useEffect(() => {
@@ -972,6 +1024,15 @@ export function CrudForm<TValues extends Record<string, unknown>>({
     e.preventDefault()
     setFormError(null)
     setErrors({})
+    setRecordConflict(null)
+    setRecordConflictValues(null)
+
+    if (submitDisabledByLock) {
+      const message = t('record_locks.banner.locked_by_other', 'This record is currently locked by another user.')
+      flash(message, 'error')
+      setFormError(message)
+      return
+    }
 
     const requiredMessage = t('ui.forms.errors.required')
     const highlightedMessage = t('ui.forms.errors.highlighted')
@@ -1107,7 +1168,18 @@ export function CrudForm<TValues extends Record<string, unknown>>({
     }
     
     try {
-      await onSubmit?.(parsedValues)
+      if (recordLock.enabled) {
+        await recordLock.runGuardedMutation(
+          async () => {
+            await onSubmit?.(parsedValues)
+          },
+          { resolution: 'normal' },
+        )
+      } else {
+        await onSubmit?.(parsedValues)
+      }
+
+      await recordLock.release('saved')
       
       // Trigger onAfterSave event for injection widgets
       if (resolvedInjectionSpotId) {
@@ -1120,6 +1192,21 @@ export function CrudForm<TValues extends Record<string, unknown>>({
       
       if (successRedirect) router.push(successRedirect)
     } catch (err: unknown) {
+      const lockError = readRecordLockError(err)
+      if (lockError.code === 'record_lock_conflict' && lockError.conflict) {
+        const conflictMessage = lockError.message || t('record_locks.conflict.title', 'Conflict detected')
+        setRecordConflict(lockError.conflict)
+        setRecordConflictValues(parsedValues)
+        setFormError(conflictMessage)
+        flash(conflictMessage, 'error')
+        return
+      }
+      if (lockError.code === 'record_locked') {
+        const lockMessage = lockError.message || t('record_locks.banner.locked_by_other', 'This record is currently locked by another user.')
+        flash(lockMessage, 'error')
+        setFormError(lockMessage)
+        return
+      }
       const { message: helperMessage, fieldErrors: serverFieldErrors } = mapCrudServerErrorToFormErrors(err, { customEntity })
       const combinedFieldErrors = serverFieldErrors ?? {}
       const hasFieldErrors = Object.keys(combinedFieldErrors).length > 0
@@ -1159,6 +1246,67 @@ export function CrudForm<TValues extends Record<string, unknown>>({
       setPending(false)
     }
   }
+
+  const handleResolveRecordConflict = React.useCallback(async (resolution: 'accept_mine' | 'merged') => {
+    if (!recordConflict || !recordConflictValues) return
+    setFormError(null)
+    setPending(true)
+    try {
+      await recordLock.runGuardedMutation(
+        async () => {
+          await onSubmit?.(recordConflictValues)
+        },
+        {
+          resolution,
+          conflictId: recordConflict.id,
+          baseLogId: recordConflict.baseActionLogId,
+        },
+      )
+
+      await recordLock.release('saved')
+
+      if (resolvedInjectionSpotId) {
+        try {
+          await triggerInjectionEvent('onAfterSave', recordConflictValues, injectionContext)
+        } catch (err) {
+          console.error('[CrudForm] Error in onAfterSave:', err)
+        }
+      }
+
+      setRecordConflict(null)
+      setRecordConflictValues(null)
+      if (successRedirect) router.push(successRedirect)
+    } catch (err: unknown) {
+      const lockError = readRecordLockError(err)
+      if (lockError.code === 'record_lock_conflict' && lockError.conflict) {
+        const message = lockError.message || t('record_locks.conflict.title', 'Conflict detected')
+        setRecordConflict(lockError.conflict)
+        setFormError(message)
+        flash(message, 'error')
+        return
+      }
+      const { message: helperMessage } = mapCrudServerErrorToFormErrors(err, { customEntity })
+      const displayMessage = helperMessage || saveErrorMessage
+      flash(displayMessage, 'error')
+      setFormError(displayMessage)
+    } finally {
+      setPending(false)
+    }
+  }, [
+    customEntity,
+    injectionContext,
+    onSubmit,
+    recordConflict,
+    recordConflictValues,
+    recordLock,
+    resolvedInjectionSpotId,
+    router,
+    saveErrorMessage,
+    successRedirect,
+    t,
+    triggerInjectionEvent,
+  ])
+
   // Load dynamic options for fields that require it
   React.useEffect(() => {
     let cancelled = false
@@ -1269,10 +1417,11 @@ export function CrudForm<TValues extends Record<string, unknown>>({
         {fieldList.map((f) => {
           const layout = f.layout ?? 'full'
           const wrapperClassName = usesResponsive ? resolveLayoutClass(layout) : undefined
+          const effectiveField = submitDisabledByLock ? ({ ...f, disabled: true } as CrudField) : f
           return (
             <FieldControl
               key={f.id}
-              field={f}
+              field={effectiveField}
               value={values[f.id]}
               error={errors[f.id]}
               options={fieldOptionsById.get(f.id) || EMPTY_OPTIONS}
@@ -1564,11 +1713,12 @@ export function CrudForm<TValues extends Record<string, unknown>>({
               deleteLabel,
               cancelHref,
               cancelLabel,
-              submit: { formId, pending, label: resolvedSubmitLabel, pendingLabel: savingLabel },
+              submit: { formId, pending: pending || submitDisabledByLock, label: resolvedSubmitLabel, pendingLabel: savingLabel },
             }}
           />
         ) : null}
         {contentHeader}
+        {recordLockBanner}
         <DataLoader
           isLoading={isLoading}
           loadingMessage={resolvedLoadingMessage}
@@ -1606,13 +1756,28 @@ export function CrudForm<TValues extends Record<string, unknown>>({
                   deleteLabel,
                   cancelHref: !embedded ? cancelHref : undefined,
                   cancelLabel,
-                  submit: { pending, label: resolvedSubmitLabel, pendingLabel: savingLabel },
+                  submit: { pending: pending || submitDisabledByLock, label: resolvedSubmitLabel, pendingLabel: savingLabel },
                 }}
               />
             )}
           </form>
         </DataLoader>
         {fieldsetManagerDialog}
+        <RecordConflictDialog
+          open={Boolean(recordConflict)}
+          onOpenChange={(open) => {
+            if (!open) {
+              setRecordConflict(null)
+              setRecordConflictValues(null)
+            }
+          }}
+          conflict={recordConflict}
+          pending={pending}
+          t={t}
+          onResolve={async (resolution) => {
+            await handleResolveRecordConflict(resolution)
+          }}
+        />
         {ConfirmDialogElement}
       </div>
     )
@@ -1634,11 +1799,12 @@ export function CrudForm<TValues extends Record<string, unknown>>({
             deleteLabel,
             cancelHref,
             cancelLabel,
-            submit: { formId, pending, label: resolvedSubmitLabel, pendingLabel: savingLabel },
+            submit: { formId, pending: pending || submitDisabledByLock, label: resolvedSubmitLabel, pendingLabel: savingLabel },
           }}
         />
       ) : null}
       {contentHeader}
+      {recordLockBanner}
       <DataLoader
         isLoading={isLoading}
         loadingMessage={resolvedLoadingMessage}
@@ -1665,10 +1831,11 @@ export function CrudForm<TValues extends Record<string, unknown>>({
               {allFields.map((f) => {
                 const layout = f.layout ?? 'full'
                 const wrapperClassName = usesResponsiveLayout ? resolveLayoutClass(layout) : undefined
+                const effectiveField = submitDisabledByLock ? ({ ...f, disabled: true } as CrudField) : f
                 return (
                   <FieldControl
                     key={f.id}
-                    field={f}
+                    field={effectiveField}
                     value={values[f.id]}
                     error={errors[f.id]}
                     options={fieldOptionsById.get(f.id) || EMPTY_OPTIONS}
@@ -1696,7 +1863,7 @@ export function CrudForm<TValues extends Record<string, unknown>>({
                   deleteLabel,
                   cancelHref: !embedded ? cancelHref : undefined,
                   cancelLabel,
-                  submit: { pending, label: resolvedSubmitLabel, pendingLabel: savingLabel },
+                  submit: { pending: pending || submitDisabledByLock, label: resolvedSubmitLabel, pendingLabel: savingLabel },
                 }}
               />
             )}
@@ -1704,6 +1871,21 @@ export function CrudForm<TValues extends Record<string, unknown>>({
         </div>
       </DataLoader>
       {fieldsetManagerDialog}
+      <RecordConflictDialog
+        open={Boolean(recordConflict)}
+        onOpenChange={(open) => {
+          if (!open) {
+            setRecordConflict(null)
+            setRecordConflictValues(null)
+          }
+        }}
+        conflict={recordConflict}
+        pending={pending}
+        t={t}
+        onResolve={async (resolution) => {
+          await handleResolveRecordConflict(resolution)
+        }}
+      />
       {ConfirmDialogElement}
     </div>
   )
