@@ -41,6 +41,7 @@ Open Mercato is a new‑era, AI‑supportive platform for shipping enterprise‑
 - 🧠 **AI-supportive foundation** – structured for assistive workflows, automation, and conversational interfaces.
 - ⚙️ **Modern stack** – Next.js App Router, TypeScript, zod, Awilix DI, MikroORM, and bcryptjs out of the box.
 
+
 ## Screenshots
 
 <table>
@@ -166,7 +167,7 @@ We have migrated Open Mercato to a monorepo structure. If you're upgrading from 
 ### File Structure
 
 The codebase is now organized into:
-- `packages/` - Shared libraries and modules (`@open-mercato/core`, `@open-mercato/ui`, `@open-mercato/shared`, `@open-mercato/cli`, `@open-mercato/cache`, `@open-mercato/events`, `@open-mercato/queue`, `@open-mercato/content`, `@open-mercato/onboarding`, `@open-mercato/search`)
+- `packages/` - Shared libraries and modules (`@open-mercato/core`, `@open-mercato/ui`, `@open-mercato/shared`, `@open-mercato/cli`, `@open-mercato/cache`, `@open-mercato/events`, `@open-mercato/queue`, `@open-mercato/content`, `@open-mercato/onboarding`, `@open-mercato/search`, `@open-mercato/enterprise`)
 - `apps/` - Applications (main app in `apps/mercato`, docs in `apps/docs`)
 
 **Important note on storage:** The storage folder has been moved to the `apps/mercato` folder as well. If you instance has got any attachments uploaded, please make sure you run:
@@ -431,4 +432,17 @@ Open Mercato let the module developers to expose the custom CLI commands for var
 
 ## License
 
-- MIT — see `LICENSE` for details.
+- MIT — see `LICENSE` for details. Enterprise licensing details are documented in [`packages/enterprise/README.md`](packages/enterprise/README.md).
+
+## Enterprise Edition
+
+Open Mercato Core is and always will be MIT Licensed, fully Open Source.
+
+Open Mercato Enterprise Edition is available for teams that need production scaling support, SLA options, hosting/configuration support, trainings, and advanced enterprise features.
+
+Enterprise features are delivered under the `@open-mercato/enterprise` package (`/packages/enterprise`) and are not part of the open source license scope.
+
+Summary:
+- Enterprise Edition includes production readiness standards, architecture/security review workflow, and production approval support.
+- Certified partner agencies deliver projects while Open Mercato provides platform standards and certification path.
+- Full commercial and partnership details: [`packages/enterprise/README.md`](packages/enterprise/README.md).

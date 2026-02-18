@@ -10,7 +10,9 @@ Design and review specifications (SPECs) against Open Mercato's architecture, na
 ## Workflow
 
 1.  **Load Context**: Load initial context, take user provided context prompt, and load related files using the Task-Routing table from root `AGENTS.md`.
-2.  **Initialize**: Create an empty file with the naming convention `SPEC-{number}-{date}-{title}.md`.
+2.  **Initialize**: Create an empty file with the correct naming convention for scope:
+    - OSS scope: `SPEC-{number}-{date}-{title}.md` in `.ai/specs/`
+    - Enterprise scope: `SPEC-ENT-{number}-{date}-{title}.md` in `.ai/specs/enterprise/`
 3.  **Start Minimal**: Write a **Skeleton Spec** first (TLDR + 2-3 key sections). Do NOT write the full spec in one pass.
 4.  **Iterate**: Iterate with the user to refine the scope and requirements.
 5.  **Research**: Challenge requirements against open-source market leaders in the domain.

@@ -29,6 +29,44 @@
         "pendingReview": "Oczekuje na przegląd"
       }
     },
+    "errors": {
+      "unauthorized": "Brak autoryzacji",
+      "tenant_required": "Wymagany jest kontekst najemcy",
+      "organization_required": "Wymagany jest kontekst organizacji",
+      "invalid_query": "Nieprawidłowe parametry zapytania"
+    },
+    "widgets": {
+      "newOrders": {
+        "error": "Nie udało się wczytać zamówień",
+        "empty": "Brak zamówień w tym okresie",
+        "noCustomer": "Brak klienta",
+        "settings": {
+          "pageSize": "Liczba zamówień",
+          "datePeriod": "Okres",
+          "last24h": "Ostatnie 24 godziny",
+          "last7d": "Ostatnie 7 dni",
+          "last30d": "Ostatnie 30 dni",
+          "custom": "Własny zakres",
+          "customFrom": "Od",
+          "customTo": "Do"
+        }
+      },
+      "newQuotes": {
+        "error": "Nie udało się wczytać ofert",
+        "empty": "Brak ofert w tym okresie",
+        "noCustomer": "Brak klienta",
+        "settings": {
+          "pageSize": "Liczba ofert",
+          "datePeriod": "Okres",
+          "last24h": "Ostatnie 24 godziny",
+          "last7d": "Ostatnie 7 dni",
+          "last30d": "Ostatnie 30 dni",
+          "custom": "Własny zakres",
+          "customFrom": "Od",
+          "customTo": "Do"
+        }
+      }
+    },
     "quotes": {
       "send": {
         "action": "Wyślij do klienta",

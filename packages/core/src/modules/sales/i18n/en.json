@@ -29,6 +29,44 @@
         "pendingReview": "Pending review"
       }
     },
+    "errors": {
+      "unauthorized": "Unauthorized",
+      "tenant_required": "Tenant context is required",
+      "organization_required": "Organization context is required",
+      "invalid_query": "Invalid query parameters"
+    },
+    "widgets": {
+      "newOrders": {
+        "error": "Failed to load orders",
+        "empty": "No orders found in this period",
+        "noCustomer": "No customer",
+        "settings": {
+          "pageSize": "Number of Orders",
+          "datePeriod": "Date Period",
+          "last24h": "Last 24 hours",
+          "last7d": "Last 7 days",
+          "last30d": "Last 30 days",
+          "custom": "Custom range",
+          "customFrom": "From",
+          "customTo": "To"
+        }
+      },
+      "newQuotes": {
+        "error": "Failed to load quotes",
+        "empty": "No quotes found in this period",
+        "noCustomer": "No customer",
+        "settings": {
+          "pageSize": "Number of Quotes",
+          "datePeriod": "Date Period",
+          "last24h": "Last 24 hours",
+          "last7d": "Last 7 days",
+          "last30d": "Last 30 days",
+          "custom": "Custom range",
+          "customFrom": "From",
+          "customTo": "To"
+        }
+      }
+    },
     "quotes": {
       "send": {
         "action": "Send to customer",

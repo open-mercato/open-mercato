@@ -18,6 +18,7 @@ import { normalizeCrudServerError } from '@open-mercato/ui/backend/utils/serverE
 import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
+import { formatDateTime } from '@open-mercato/shared/lib/time'
 
 const PAGE_SIZE = 50
 const MARKDOWN_PLUGINS: PluggableList = [remarkGfm]
@@ -241,8 +242,4 @@ function mapRuleSet(item: Record<string, unknown>): RuleSetRow {
   }
 }
 
-function formatDateTime(value: string): string {
-  const parsed = new Date(value)
-  if (Number.isNaN(parsed.getTime())) return value
-  return parsed.toLocaleString()
-}
+
