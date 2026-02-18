@@ -1035,7 +1035,10 @@ type ProductDimensionsSectionProps = ProductFormGroupProps
 
 function ProductDetailsSection({ values, setValue, errors, productId }: ProductDetailsSectionProps) {
   const t = useT()
-  const mediaItems = Array.isArray(values.mediaItems) ? values.mediaItems : []
+  const mediaItems = React.useMemo(
+    () => (Array.isArray(values.mediaItems) ? values.mediaItems : []),
+    [values.mediaItems],
+  )
 
   const handleMediaItemsChange = React.useCallback(
     (nextItems: ProductMediaItem[]) => {
