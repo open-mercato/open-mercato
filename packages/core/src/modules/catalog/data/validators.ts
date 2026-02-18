@@ -113,42 +113,90 @@ export const offerUpdateSchema = z
   )
 
 const productTypeSchema = z.enum(CATALOG_PRODUCT_TYPES)
-
-export const productCreateSchema = scoped.extend({
-  title: z.string().trim().min(1).max(255),
-  subtitle: z.string().trim().max(255).optional(),
-  description: z.string().trim().max(4000).optional(),
-  sku: skuSchema.optional(),
-  handle: handleSchema.optional(),
-  taxRateId: uuid().nullable().optional(),
-  taxRate: z.coerce.number().min(0).max(100).optional().nullable(),
-  productType: productTypeSchema.default('simple'),
-  statusEntryId: uuid().optional(),
-  primaryCurrencyCode: currencyCodeSchema.optional(),
-  defaultUnit: z.string().trim().max(50).optional(),
-  defaultMediaId: uuid().optional().nullable(),
-  defaultMediaUrl: z.string().trim().max(500).optional().nullable(),
-  weightValue: z.coerce.number().min(0).optional().nullable(),
-  weightUnit: z.string().trim().max(25).optional().nullable(),
-  dimensions: z
-    .object({
-      width: z.coerce.number().min(0).optional(),
-      height: z.coerce.number().min(0).optional(),
-      depth: z.coerce.number().min(0).optional(),
-      unit: z.string().trim().max(25).optional(),
-    })
-    .optional()
-    .nullable(),
-  optionSchemaId: uuid().nullable().optional(),
-  optionSchema: optionSchema.optional(),
-  customFieldsetCode: slugSchema.nullable().optional(),
-  isConfigurable: z.boolean().optional(),
-  isActive: z.boolean().optional(),
-  metadata: metadataSchema,
-  offers: z.array(offerInputSchema.omit({ id: true })).optional(),
-  categoryIds: z.array(uuid()).max(100).optional(),
-  tags: z.array(tagLabelSchema).max(100).optional(),
+const uomRoundingModeSchema = z.enum(['half_up', 'down', 'up'])
+const unitPriceReferenceUnitSchema = z.enum(['kg', 'l', 'm2', 'm3', 'pc'])
+const unitPriceConfigSchema = z.object({
+  enabled: z.boolean().optional(),
+  referenceUnit: unitPriceReferenceUnitSchema.nullable().optional(),
+  baseQuantity: z.coerce.number().positive().optional(),
 })
+
+export const productCreateSchema = scoped
+  .extend({
+    title: z.string().trim().min(1).max(255),
+    subtitle: z.string().trim().max(255).optional(),
+    description: z.string().trim().max(4000).optional(),
+    sku: skuSchema.optional(),
+    handle: handleSchema.optional(),
+    taxRateId: uuid().nullable().optional(),
+    taxRate: z.coerce.number().min(0).max(100).optional().nullable(),
+    productType: productTypeSchema.default('simple'),
+    statusEntryId: uuid().optional(),
+    primaryCurrencyCode: currencyCodeSchema.optional(),
+    defaultUnit: z.string().trim().max(50).optional().nullable(),
+    defaultSalesUnit: z.string().trim().max(50).optional().nullable(),
+    defaultSalesUnitQuantity: z.coerce.number().positive().optional(),
+    uomRoundingScale: z.coerce.number().int().min(0).max(6).optional(),
+    uomRoundingMode: uomRoundingModeSchema.optional(),
+    unitPriceEnabled: z.boolean().optional(),
+    unitPriceReferenceUnit: unitPriceReferenceUnitSchema.nullable().optional(),
+    unitPriceBaseQuantity: z.coerce.number().positive().optional(),
+    unitPrice: unitPriceConfigSchema.optional(),
+    defaultMediaId: uuid().optional().nullable(),
+    defaultMediaUrl: z.string().trim().max(500).optional().nullable(),
+    weightValue: z.coerce.number().min(0).optional().nullable(),
+    weightUnit: z.string().trim().max(25).optional().nullable(),
+    dimensions: z
+      .object({
+        width: z.coerce.number().min(0).optional(),
+        height: z.coerce.number().min(0).optional(),
+        depth: z.coerce.number().min(0).optional(),
+        unit: z.string().trim().max(25).optional(),
+      })
+      .optional()
+      .nullable(),
+    optionSchemaId: uuid().nullable().optional(),
+    optionSchema: optionSchema.optional(),
+    customFieldsetCode: slugSchema.nullable().optional(),
+    isConfigurable: z.boolean().optional(),
+    isActive: z.boolean().optional(),
+    metadata: metadataSchema,
+    offers: z.array(offerInputSchema.omit({ id: true })).optional(),
+    categoryIds: z.array(uuid()).max(100).optional(),
+    tags: z.array(tagLabelSchema).max(100).optional(),
+  })
+  .superRefine((input, ctx) => {
+    const defaultUnit = typeof input.defaultUnit === 'string' ? input.defaultUnit.trim() : ''
+    const defaultSalesUnit =
+      typeof input.defaultSalesUnit === 'string' ? input.defaultSalesUnit.trim() : ''
+    if (defaultSalesUnit && !defaultUnit) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['defaultSalesUnit'],
+        message: 'Base unit is required when default sales unit is set.',
+      })
+    }
+    const unitPriceEnabled = input.unitPrice?.enabled ?? input.unitPriceEnabled ?? false
+    if (!unitPriceEnabled) return
+    const referenceUnit =
+      input.unitPrice?.referenceUnit ?? input.unitPriceReferenceUnit ?? null
+    const baseQuantity =
+      input.unitPrice?.baseQuantity ?? input.unitPriceBaseQuantity ?? null
+    if (!referenceUnit) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['unitPrice'],
+        message: 'Reference unit is required when unit price is enabled.',
+      })
+    }
+    if (baseQuantity === null || baseQuantity === undefined || Number(baseQuantity) <= 0) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['unitPrice'],
+        message: 'Base quantity is required when unit price is enabled.',
+      })
+    }
+  })
 
 export const productUpdateSchema = z
   .object({
@@ -271,6 +319,25 @@ export const categoryUpdateSchema = z
   })
   .merge(categoryCreateSchema.partial())
 
+export const productUnitConversionCreateSchema = scoped.extend({
+  productId: uuid(),
+  unitCode: z.string().trim().min(1).max(50),
+  toBaseFactor: z.coerce.number().positive(),
+  sortOrder: z.coerce.number().int().optional(),
+  isActive: z.boolean().optional(),
+  metadata: metadataSchema,
+})
+
+export const productUnitConversionUpdateSchema = z
+  .object({
+    id: uuid(),
+  })
+  .merge(productUnitConversionCreateSchema.omit({ productId: true }).partial())
+
+export const productUnitConversionDeleteSchema = scoped.extend({
+  id: uuid(),
+})
+
 export type ProductCreateInput = z.infer<typeof productCreateSchema>
 export type ProductUpdateInput = z.infer<typeof productUpdateSchema>
 export type VariantCreateInput = z.infer<typeof variantCreateSchema>
@@ -286,3 +353,6 @@ export type CategoryUpdateInput = z.infer<typeof categoryUpdateSchema>
 export type OfferInput = z.infer<typeof offerInputSchema>
 export type OfferCreateInput = z.infer<typeof offerCreateSchema>
 export type OfferUpdateInput = z.infer<typeof offerUpdateSchema>
+export type ProductUnitConversionCreateInput = z.infer<typeof productUnitConversionCreateSchema>
+export type ProductUnitConversionUpdateInput = z.infer<typeof productUnitConversionUpdateSchema>
+export type ProductUnitConversionDeleteInput = z.infer<typeof productUnitConversionDeleteSchema>

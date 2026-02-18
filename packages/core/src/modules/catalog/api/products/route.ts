@@ -268,6 +268,13 @@ type ProductListItem = Record<string, unknown> & {
   product_type?: CatalogProductType | null
   primary_currency_code?: string | null
   default_unit?: string | null
+  default_sales_unit?: string | null
+  default_sales_unit_quantity?: number | null
+  uom_rounding_scale?: number | null
+  uom_rounding_mode?: 'half_up' | 'down' | 'up' | null
+  unit_price_enabled?: boolean | null
+  unit_price_reference_unit?: 'kg' | 'l' | 'm2' | 'm3' | 'pc' | null
+  unit_price_base_quantity?: number | null
   default_media_id?: string | null
   default_media_url?: string | null
   weight_value?: string | null
@@ -547,6 +554,13 @@ const crud = makeCrudRoute({
       F.status_entry_id,
       F.primary_currency_code,
       F.default_unit,
+      'default_sales_unit',
+      'default_sales_unit_quantity',
+      'uom_rounding_scale',
+      'uom_rounding_mode',
+      'unit_price_enabled',
+      'unit_price_reference_unit',
+      'unit_price_base_quantity',
       F.default_media_id,
       F.default_media_url,
       F.weight_value,
@@ -637,6 +651,13 @@ const productListItemSchema = z.object({
   status_entry_id: z.string().uuid().nullable().optional(),
   primary_currency_code: z.string().nullable().optional(),
   default_unit: z.string().nullable().optional(),
+  default_sales_unit: z.string().nullable().optional(),
+  default_sales_unit_quantity: z.number().nullable().optional(),
+  uom_rounding_scale: z.number().nullable().optional(),
+  uom_rounding_mode: z.enum(['half_up', 'down', 'up']).nullable().optional(),
+  unit_price_enabled: z.boolean().nullable().optional(),
+  unit_price_reference_unit: z.enum(['kg', 'l', 'm2', 'm3', 'pc']).nullable().optional(),
+  unit_price_base_quantity: z.number().nullable().optional(),
   default_media_id: z.string().uuid().nullable().optional(),
   default_media_url: z.string().nullable().optional(),
   weight_value: z.number().nullable().optional(),

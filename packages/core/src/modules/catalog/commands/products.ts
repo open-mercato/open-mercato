@@ -70,6 +70,13 @@ type ProductSnapshot = {
   statusEntryId: string | null
   primaryCurrencyCode: string | null
   defaultUnit: string | null
+  defaultSalesUnit: string | null
+  defaultSalesUnitQuantity: string
+  uomRoundingScale: number
+  uomRoundingMode: 'half_up' | 'down' | 'up'
+  unitPriceEnabled: boolean
+  unitPriceReferenceUnit: 'kg' | 'l' | 'm2' | 'm3' | 'pc' | null
+  unitPriceBaseQuantity: string | null
   defaultMediaId: string | null
   defaultMediaUrl: string | null
   weightValue: string | null
@@ -86,6 +93,45 @@ type ProductSnapshot = {
   tags: string[]
   categoryIds: string[]
   custom: Record<string, unknown> | null
+}
+
+function resolveUnitPriceInput(parsed: ProductCreateInput | ProductUpdateInput): {
+  enabled?: boolean
+  referenceUnit?: 'kg' | 'l' | 'm2' | 'm3' | 'pc' | null
+  baseQuantity?: string | null
+  enabledProvided: boolean
+  referenceProvided: boolean
+  baseProvided: boolean
+} {
+  const enabledFromNested = parsed.unitPrice?.enabled
+  const enabledFromFlat = parsed.unitPriceEnabled
+  const referenceFromNested = parsed.unitPrice?.referenceUnit
+  const referenceFromFlat = parsed.unitPriceReferenceUnit
+  const baseFromNested = parsed.unitPrice?.baseQuantity
+  const baseFromFlat = parsed.unitPriceBaseQuantity
+  const enabledProvided = enabledFromNested !== undefined || enabledFromFlat !== undefined
+  const referenceProvided = referenceFromNested !== undefined || referenceFromFlat !== undefined
+  const baseProvided = baseFromNested !== undefined || baseFromFlat !== undefined
+  const enabled = enabledFromNested ?? enabledFromFlat
+  const referenceUnit = (referenceFromNested ?? referenceFromFlat ?? null) as
+    | 'kg'
+    | 'l'
+    | 'm2'
+    | 'm3'
+    | 'pc'
+    | null
+    | undefined
+  const baseQuantitySource = baseFromNested ?? baseFromFlat
+  const baseQuantity =
+    baseQuantitySource === undefined ? undefined : toNumericString(baseQuantitySource) ?? null
+  return {
+    enabled,
+    referenceUnit,
+    baseQuantity,
+    enabledProvided,
+    referenceProvided,
+    baseProvided,
+  }
 }
 
 type ProductUndoPayload = {
@@ -914,6 +960,13 @@ async function loadProductSnapshot(
     statusEntryId: record.statusEntryId ?? null,
     primaryCurrencyCode: record.primaryCurrencyCode ?? null,
     defaultUnit: record.defaultUnit ?? null,
+    defaultSalesUnit: record.defaultSalesUnit ?? null,
+    defaultSalesUnitQuantity: record.defaultSalesUnitQuantity ?? '1',
+    uomRoundingScale: record.uomRoundingScale ?? 4,
+    uomRoundingMode: record.uomRoundingMode ?? 'half_up',
+    unitPriceEnabled: record.unitPriceEnabled ?? false,
+    unitPriceReferenceUnit: record.unitPriceReferenceUnit ?? null,
+    unitPriceBaseQuantity: record.unitPriceBaseQuantity ?? null,
     defaultMediaId: record.defaultMediaId ?? null,
     defaultMediaUrl: record.defaultMediaUrl ?? null,
     weightValue,
@@ -951,6 +1004,13 @@ function applyProductSnapshot(
   record.statusEntryId = snapshot.statusEntryId ?? null
   record.primaryCurrencyCode = snapshot.primaryCurrencyCode ?? null
   record.defaultUnit = snapshot.defaultUnit ?? null
+  record.defaultSalesUnit = snapshot.defaultSalesUnit ?? null
+  record.defaultSalesUnitQuantity = snapshot.defaultSalesUnitQuantity ?? '1'
+  record.uomRoundingScale = snapshot.uomRoundingScale
+  record.uomRoundingMode = snapshot.uomRoundingMode
+  record.unitPriceEnabled = snapshot.unitPriceEnabled
+  record.unitPriceReferenceUnit = snapshot.unitPriceReferenceUnit ?? null
+  record.unitPriceBaseQuantity = snapshot.unitPriceBaseQuantity ?? null
   record.defaultMediaId = snapshot.defaultMediaId ?? null
   record.defaultMediaUrl = snapshot.defaultMediaUrl ?? null
   record.weightValue = snapshot.weightValue ?? null
@@ -994,6 +1054,8 @@ const createProductCommand: CommandHandler<ProductCreateInput, { productId: stri
     const weightUnit =
       parsed.weightUnit !== undefined ? parsed.weightUnit ?? null : measurements.weightUnit ?? null
     const metadata = measurements.metadata ? cloneJson(measurements.metadata) : null
+    const unitPriceInput = resolveUnitPriceInput(parsed)
+    const unitPriceEnabled = unitPriceInput.enabled ?? false
     const productId = randomUUID()
     const record = em.create(CatalogProduct, {
       id: productId,
@@ -1010,6 +1072,13 @@ const createProductCommand: CommandHandler<ProductCreateInput, { productId: stri
       statusEntryId: parsed.statusEntryId ?? null,
       primaryCurrencyCode: parsed.primaryCurrencyCode ?? null,
       defaultUnit: parsed.defaultUnit ?? null,
+      defaultSalesUnit: parsed.defaultSalesUnit ?? parsed.defaultUnit ?? null,
+      defaultSalesUnitQuantity: toNumericString(parsed.defaultSalesUnitQuantity ?? 1) ?? '1',
+      uomRoundingScale: parsed.uomRoundingScale ?? 4,
+      uomRoundingMode: parsed.uomRoundingMode ?? 'half_up',
+      unitPriceEnabled,
+      unitPriceReferenceUnit: unitPriceEnabled ? unitPriceInput.referenceUnit ?? null : null,
+      unitPriceBaseQuantity: unitPriceEnabled ? unitPriceInput.baseQuantity ?? null : null,
       defaultMediaId: parsed.defaultMediaId ?? null,
       defaultMediaUrl: parsed.defaultMediaUrl ?? null,
       weightValue,
@@ -1167,6 +1236,32 @@ const updateProductCommand: CommandHandler<ProductUpdateInput, { productId: stri
       record.primaryCurrencyCode = parsed.primaryCurrencyCode ?? null
     }
     if (parsed.defaultUnit !== undefined) record.defaultUnit = parsed.defaultUnit ?? null
+    if (parsed.defaultSalesUnit !== undefined) {
+      record.defaultSalesUnit = parsed.defaultSalesUnit ?? null
+    }
+    if (parsed.defaultSalesUnitQuantity !== undefined) {
+      record.defaultSalesUnitQuantity = toNumericString(parsed.defaultSalesUnitQuantity) ?? '1'
+    }
+    if (parsed.uomRoundingScale !== undefined) {
+      record.uomRoundingScale = parsed.uomRoundingScale
+    }
+    if (parsed.uomRoundingMode !== undefined) {
+      record.uomRoundingMode = parsed.uomRoundingMode
+    }
+    const unitPriceInput = resolveUnitPriceInput(parsed)
+    if (unitPriceInput.enabledProvided) {
+      record.unitPriceEnabled = unitPriceInput.enabled ?? false
+      if (!record.unitPriceEnabled) {
+        record.unitPriceReferenceUnit = null
+        record.unitPriceBaseQuantity = null
+      }
+    }
+    if (unitPriceInput.referenceProvided && record.unitPriceEnabled) {
+      record.unitPriceReferenceUnit = unitPriceInput.referenceUnit ?? null
+    }
+    if (unitPriceInput.baseProvided && record.unitPriceEnabled) {
+      record.unitPriceBaseQuantity = unitPriceInput.baseQuantity ?? null
+    }
     if (parsed.defaultMediaId !== undefined) {
       record.defaultMediaId = parsed.defaultMediaId ?? null
     }
@@ -1306,6 +1401,13 @@ const updateProductCommand: CommandHandler<ProductUpdateInput, { productId: stri
         statusEntryId: before.statusEntryId ?? null,
         primaryCurrencyCode: before.primaryCurrencyCode ?? null,
         defaultUnit: before.defaultUnit ?? null,
+        defaultSalesUnit: before.defaultSalesUnit ?? null,
+        defaultSalesUnitQuantity: before.defaultSalesUnitQuantity ?? '1',
+        uomRoundingScale: before.uomRoundingScale,
+        uomRoundingMode: before.uomRoundingMode,
+        unitPriceEnabled: before.unitPriceEnabled,
+        unitPriceReferenceUnit: before.unitPriceReferenceUnit ?? null,
+        unitPriceBaseQuantity: before.unitPriceBaseQuantity ?? null,
         weightValue: before.weightValue ?? null,
         weightUnit: before.weightUnit ?? null,
         dimensions: before.dimensions ? cloneJson(before.dimensions) : null,
@@ -1449,6 +1551,13 @@ const deleteProductCommand: CommandHandler<
         statusEntryId: before.statusEntryId ?? null,
         primaryCurrencyCode: before.primaryCurrencyCode ?? null,
         defaultUnit: before.defaultUnit ?? null,
+        defaultSalesUnit: before.defaultSalesUnit ?? null,
+        defaultSalesUnitQuantity: before.defaultSalesUnitQuantity ?? '1',
+        uomRoundingScale: before.uomRoundingScale,
+        uomRoundingMode: before.uomRoundingMode,
+        unitPriceEnabled: before.unitPriceEnabled,
+        unitPriceReferenceUnit: before.unitPriceReferenceUnit ?? null,
+        unitPriceBaseQuantity: before.unitPriceBaseQuantity ?? null,
         weightValue: before.weightValue ?? null,
         weightUnit: before.weightUnit ?? null,
         dimensions: before.dimensions ? cloneJson(before.dimensions) : null,
