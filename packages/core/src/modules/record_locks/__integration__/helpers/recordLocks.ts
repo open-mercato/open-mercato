@@ -158,6 +158,28 @@ export async function releaseRecordLock(
   );
 }
 
+export async function forceReleaseRecordLock(
+  request: APIRequestContext,
+  token: string,
+  resourceKind: string,
+  resourceId: string,
+  reason?: string,
+  extraHeaders?: Record<string, string>,
+): Promise<ApiCallResult<Record<string, unknown>>> {
+  return requestJson<Record<string, unknown>>(
+    request,
+    'POST',
+    '/api/record_locks/force-release',
+    token,
+    {
+      resourceKind,
+      resourceId,
+      ...(reason ? { reason } : {}),
+    },
+    extraHeaders,
+  );
+}
+
 export async function updateCompany(
   request: APIRequestContext,
   token: string,
