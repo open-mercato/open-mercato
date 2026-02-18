@@ -58,10 +58,16 @@ type LockErrorResponse = {
   conflict?: RecordLockConflict
 }
 
+type FeatureCheckResponse = {
+  ok?: boolean
+  granted?: string[]
+}
+
 export type UseRecordLockConfig = {
   resourceKind: string
   resourceId: string
   enabled: boolean
+  autoCheckAcl?: boolean
 }
 
 export type UseRecordLockResult = {
@@ -89,6 +95,7 @@ export type UseRecordLockResult = {
 }
 
 const DEFAULT_HEARTBEAT_SECONDS = 30
+const RECORD_LOCK_VIEW_FEATURE = 'record_locks.view'
 
 function toMessage(value: unknown): string {
   if (typeof value === 'string' && value.trim().length) return value.trim()
@@ -102,6 +109,7 @@ function toMessage(value: unknown): string {
 
 export function useRecordLock(config: UseRecordLockConfig): UseRecordLockResult {
   const enabled = config.enabled && config.resourceKind.trim().length > 0 && config.resourceId.trim().length > 0
+  const autoCheckAcl = config.autoCheckAcl !== false
   const [resourceEnabled, setResourceEnabled] = React.useState(false)
   const [strategy, setStrategy] = React.useState<RecordLockStrategy>('optimistic')
   const [heartbeatSeconds, setHeartbeatSeconds] = React.useState(DEFAULT_HEARTBEAT_SECONDS)
@@ -109,60 +117,125 @@ export function useRecordLock(config: UseRecordLockConfig): UseRecordLockResult 
   const [latestActionLogId, setLatestActionLogId] = React.useState<string | null>(null)
   const [isLoading, setIsLoading] = React.useState(false)
   const [error, setError] = React.useState<string | null>(null)
+  const [aclStatus, setAclStatus] = React.useState<'unknown' | 'granted' | 'denied'>(() => (
+    autoCheckAcl ? 'unknown' : 'granted'
+  ))
 
   const tokenRef = React.useRef<string | null>(null)
+  const aclCheckPromiseRef = React.useRef<Promise<boolean> | null>(null)
+  const aclStatusRef = React.useRef<'unknown' | 'granted' | 'denied'>(aclStatus)
 
   const isOwner = Boolean(lock?.token)
   const isBlocked = Boolean(resourceEnabled && strategy === 'pessimistic' && lock && !isOwner)
+  const canUseLockApi = enabled && (!autoCheckAcl || aclStatus === 'granted')
+
+  React.useEffect(() => {
+    aclStatusRef.current = aclStatus
+  }, [aclStatus])
+
+  const ensureAcl = React.useCallback(async (): Promise<boolean> => {
+    if (!enabled) return false
+    if (!autoCheckAcl) {
+      if (aclStatusRef.current !== 'granted') setAclStatus('granted')
+      return true
+    }
+    if (aclStatusRef.current === 'granted') return true
+    if (aclStatusRef.current === 'denied') return false
+    if (!aclCheckPromiseRef.current) {
+      aclCheckPromiseRef.current = (async () => {
+        try {
+          const checkCall = await apiCall<FeatureCheckResponse>('/api/auth/feature-check', {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ features: [RECORD_LOCK_VIEW_FEATURE] }),
+          })
+          const granted = checkCall.ok
+            && new Set(checkCall.result?.granted ?? []).has(RECORD_LOCK_VIEW_FEATURE)
+          setAclStatus(granted ? 'granted' : 'denied')
+          return granted
+        } catch {
+          setAclStatus('denied')
+          return false
+        } finally {
+          aclCheckPromiseRef.current = null
+        }
+      })()
+    }
+    return aclCheckPromiseRef.current
+  }, [autoCheckAcl, enabled])
+
+  React.useEffect(() => {
+    aclCheckPromiseRef.current = null
+    if (!enabled) {
+      setAclStatus(autoCheckAcl ? 'unknown' : 'granted')
+      return
+    }
+    if (!autoCheckAcl) {
+      setAclStatus('granted')
+      return
+    }
+    setAclStatus('unknown')
+  }, [autoCheckAcl, config.resourceId, config.resourceKind, enabled])
 
   const acquire = React.useCallback(async () => {
     if (!enabled) return
+    const hasAccess = await ensureAcl()
+    if (!hasAccess) {
+      setResourceEnabled(false)
+      setLock(null)
+      setLatestActionLogId(null)
+      tokenRef.current = null
+      setError(null)
+      return
+    }
+
     setIsLoading(true)
     setError(null)
 
-    const call = await apiCall<AcquireResponse | LockErrorResponse>(
-      '/api/record_locks/acquire',
-      {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({
-          resourceKind: config.resourceKind,
-          resourceId: config.resourceId,
-        }),
-      },
-    )
+    try {
+      const call = await apiCall<AcquireResponse | LockErrorResponse>(
+        '/api/record_locks/acquire',
+        {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({
+            resourceKind: config.resourceKind,
+            resourceId: config.resourceId,
+          }),
+        },
+      )
 
-    if (!call.ok) {
-      const payload = (call.result ?? {}) as LockErrorResponse
-      const fallbackStrategy = payload.lock?.strategy ?? 'pessimistic'
-      setStrategy(fallbackStrategy)
-      setResourceEnabled(true)
-      setLock(payload.lock ?? null)
-      setError(payload.error ?? `Failed to acquire lock (${call.status})`)
-      tokenRef.current = payload.lock?.token ?? null
+      if (!call.ok) {
+        const payload = (call.result ?? {}) as LockErrorResponse
+        const fallbackStrategy = payload.lock?.strategy ?? 'pessimistic'
+        setStrategy(fallbackStrategy)
+        setResourceEnabled(true)
+        setLock(payload.lock ?? null)
+        setError(payload.error ?? `Failed to acquire lock (${call.status})`)
+        tokenRef.current = payload.lock?.token ?? null
+        return
+      }
+
+      const result = call.result as AcquireResponse | null
+      if (!result) {
+        setError('Failed to acquire lock')
+        return
+      }
+
+      setStrategy(result.strategy)
+      setHeartbeatSeconds(result.heartbeatSeconds || DEFAULT_HEARTBEAT_SECONDS)
+      setResourceEnabled(Boolean(result.enabled && result.resourceEnabled))
+      setLock(result.lock)
+      setLatestActionLogId(result.latestActionLogId ?? null)
+      tokenRef.current = result.lock?.token ?? null
+    } finally {
       setIsLoading(false)
-      return
     }
-
-    const result = call.result as AcquireResponse | null
-    if (!result) {
-      setError('Failed to acquire lock')
-      setIsLoading(false)
-      return
-    }
-
-    setStrategy(result.strategy)
-    setHeartbeatSeconds(result.heartbeatSeconds || DEFAULT_HEARTBEAT_SECONDS)
-    setResourceEnabled(Boolean(result.enabled && result.resourceEnabled))
-    setLock(result.lock)
-    setLatestActionLogId(result.latestActionLogId ?? null)
-    tokenRef.current = result.lock?.token ?? null
-    setIsLoading(false)
-  }, [config.resourceId, config.resourceKind, enabled])
+  }, [config.resourceId, config.resourceKind, enabled, ensureAcl])
 
   const release = React.useCallback(async (reason: 'saved' | 'cancelled' | 'unmount' | 'conflict_resolved' = 'cancelled') => {
     const token = tokenRef.current
-    if (!enabled || !token) return
+    if (!canUseLockApi || !token) return
     await apiCall<ReleaseResponse>('/api/record_locks/release', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
@@ -175,7 +248,7 @@ export function useRecordLock(config: UseRecordLockConfig): UseRecordLockResult 
     })
     tokenRef.current = null
     setLock((prev) => (prev ? { ...prev, token: null, status: 'released' } : prev))
-  }, [config.resourceId, config.resourceKind, enabled])
+  }, [canUseLockApi, config.resourceId, config.resourceKind])
 
   React.useEffect(() => {
     if (!enabled) {
@@ -189,7 +262,7 @@ export function useRecordLock(config: UseRecordLockConfig): UseRecordLockResult 
   }, [acquire, enabled])
 
   React.useEffect(() => {
-    if (!enabled || !tokenRef.current || !resourceEnabled) return
+    if (!canUseLockApi || !tokenRef.current || !resourceEnabled) return
     const interval = Math.max(5, heartbeatSeconds || DEFAULT_HEARTBEAT_SECONDS) * 1000
     const handle = window.setInterval(() => {
       const token = tokenRef.current
@@ -206,10 +279,10 @@ export function useRecordLock(config: UseRecordLockConfig): UseRecordLockResult 
     }, interval)
 
     return () => window.clearInterval(handle)
-  }, [config.resourceId, config.resourceKind, enabled, heartbeatSeconds, resourceEnabled])
+  }, [canUseLockApi, config.resourceId, config.resourceKind, heartbeatSeconds, resourceEnabled])
 
   React.useEffect(() => {
-    if (!enabled) return
+    if (!canUseLockApi) return
     return () => {
       const token = tokenRef.current
       if (!token) return
@@ -225,7 +298,7 @@ export function useRecordLock(config: UseRecordLockConfig): UseRecordLockResult 
       })
       tokenRef.current = null
     }
-  }, [config.resourceId, config.resourceKind, enabled])
+  }, [canUseLockApi, config.resourceId, config.resourceKind])
 
   const runGuardedMutation = React.useCallback(
     async <T,>(
@@ -236,7 +309,11 @@ export function useRecordLock(config: UseRecordLockConfig): UseRecordLockResult 
         baseLogId?: string | null
       },
     ): Promise<T> => {
-      if (enabled && resourceEnabled && !tokenRef.current) {
+      const lockApiAllowed = await ensureAcl()
+      if (!enabled || !lockApiAllowed) {
+        return run()
+      }
+      if (!tokenRef.current) {
         await acquire()
       }
       const headers: Record<string, string> = {
@@ -263,7 +340,7 @@ export function useRecordLock(config: UseRecordLockConfig): UseRecordLockResult 
         throw err
       }
     },
-    [acquire, config.resourceId, config.resourceKind, enabled, latestActionLogId, resourceEnabled],
+    [acquire, config.resourceId, config.resourceKind, enabled, ensureAcl, latestActionLogId],
   )
 
   React.useEffect(() => {

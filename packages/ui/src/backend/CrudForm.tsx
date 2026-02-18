@@ -459,6 +459,7 @@ export function CrudForm<TValues extends Record<string, unknown>>({
       return {
         resourceKind: recordLocking.resourceKind,
         resourceId: recordLocking.resourceId,
+        autoCheckAcl: recordLocking.autoCheckAcl ?? true,
       }
     }
     if (
@@ -470,6 +471,7 @@ export function CrudForm<TValues extends Record<string, unknown>>({
       return {
         resourceKind: versionHistory.resourceKind,
         resourceId: versionHistory.resourceId,
+        autoCheckAcl: versionHistory.autoCheckAcl ?? true,
       }
     }
     return null
@@ -478,6 +480,7 @@ export function CrudForm<TValues extends Record<string, unknown>>({
     resourceKind: resolvedRecordLocking?.resourceKind ?? '',
     resourceId: resolvedRecordLocking?.resourceId ?? '',
     enabled: Boolean(resolvedRecordLocking && !isNewRecord),
+    autoCheckAcl: resolvedRecordLocking?.autoCheckAcl ?? true,
   })
   const showDelete = Boolean(onDelete) && (typeof deleteVisible === 'boolean' ? deleteVisible : !isNewRecord)
   const versionHistoryEnabled = Boolean(versionHistory?.resourceId && String(versionHistory.resourceId).trim().length > 0)

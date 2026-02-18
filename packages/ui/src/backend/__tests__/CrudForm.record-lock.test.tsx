@@ -68,9 +68,40 @@ describe('CrudForm record locking', () => {
       resourceKind: 'sales.quote',
       resourceId: '10000000-0000-4000-8000-000000000001',
       enabled: true,
+      autoCheckAcl: true,
     })
 
     expect(screen.getByText('This record is currently locked by another user.')).toBeInTheDocument()
     expect(screen.getByDisplayValue('Example')).toBeDisabled()
+  })
+
+  test('passes explicit autoCheckAcl from recordLocking config', () => {
+    const fields: CrudField[] = [{ id: 'name', label: 'Name', type: 'text' }]
+
+    render(
+      <I18nProvider locale="en" dict={{}}>
+        <CrudForm
+          title="Edit"
+          fields={fields}
+          initialValues={{
+            id: '10000000-0000-4000-8000-000000000002',
+            name: 'Acme',
+          }}
+          recordLocking={{
+            resourceKind: 'customers.company',
+            resourceId: '10000000-0000-4000-8000-000000000002',
+            autoCheckAcl: false,
+          }}
+          onSubmit={async () => {}}
+        />
+      </I18nProvider>,
+    )
+
+    expect(mockUseRecordLock).toHaveBeenCalledWith({
+      resourceKind: 'customers.company',
+      resourceId: '10000000-0000-4000-8000-000000000002',
+      enabled: true,
+      autoCheckAcl: false,
+    })
   })
 })
