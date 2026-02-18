@@ -74,24 +74,23 @@ describe('formatRelativeTime', () => {
     expect(/[year|month]/.test(future || "")).toBeTruthy()
   })
 
-  it('uses fallback if Intl.RelativeTimeFormat is not available', () => {
+it('uses fallback if Intl.RelativeTimeFormat is not available', () => {
   const descriptor = Object.getOwnPropertyDescriptor(Intl, 'RelativeTimeFormat')
   Object.defineProperty(Intl, 'RelativeTimeFormat', { value: undefined, configurable: true })
   try {
-    expect(formatRelativeTime(sub(10))).toMatch(/ago/)
-    expect(formatRelativeTime(add(10))).toMatch(/from now/)
+    expect(formatRelativeTime(sub(60 * 60))).toMatch(/ago/)      // 1h temu - bezpieczny margines
+    expect(formatRelativeTime(add(60 * 60))).toMatch(/from now/) // 1h wprzód
   } finally {
     Object.defineProperty(Intl, 'RelativeTimeFormat', descriptor!)
   }
 })
 
-  it('uses custom translate if provided', () => {
-    const translate = (key: string, fallback?: string) => `T(${key})` || fallback || ''
-    expect(formatRelativeTime(sub(10), { translate })).toMatch(/T\(time\.relative\.ago\)/)
-    expect(formatRelativeTime(add(10), { translate })).toMatch(/T\(time\.relative\.fromNow\)/)
-  })
+it('uses custom translate if provided', () => {
+  const translate = (key: string, fallback?: string) => `T(${key})`
+  expect(formatRelativeTime(sub(60 * 60), { translate })).toMatch(/T\(time\.relative\.ago\)/)
+  expect(formatRelativeTime(add(60 * 60), { translate })).toMatch(/T\(time\.relative\.fromNow\)/)
 })
-
+})
 describe('formatDateTime', () => {
   it('returns null for invalid or missing values', () => {
     expect(formatDateTime(undefined)).toBeNull()
