@@ -128,6 +128,7 @@ function toIntegerInRangeOrDefault(value: unknown, min: number, max: number, fal
 
 function normalizeProductConversionInputs(
   rows: ProductUnitConversionDraft[] | undefined,
+  duplicateMessage: string,
 ): ProductUnitConversionInput[] {
   const list = Array.isArray(rows) ? rows : []
   const normalized: ProductUnitConversionInput[] = []
@@ -138,10 +139,7 @@ function normalizeProductConversionInputs(
     if (!unitCode || toBaseFactor === null) continue
     const unitKey = unitCode.toLowerCase()
     if (seen.has(unitKey)) {
-      throw createCrudFormError(
-        'Duplicate conversion unit is not allowed.',
-        { unitConversions: 'Duplicate conversion unit is not allowed.' },
-      )
+      throw createCrudFormError(duplicateMessage, { unitConversions: duplicateMessage })
     }
     seen.add(unitKey)
     normalized.push({
@@ -352,7 +350,13 @@ export default function CreateCatalogProductPage() {
               const message = t('catalog.products.uom.errors.baseRequired', 'Base unit is required when default sales unit is set.')
               throw createCrudFormError(message, { defaultSalesUnit: message })
             }
-            const conversionInputs = normalizeProductConversionInputs(formValues.unitConversions)
+            const conversionInputs = normalizeProductConversionInputs(
+              formValues.unitConversions,
+              t(
+                'catalog.products.uom.errors.duplicateConversion',
+                'Duplicate conversion unit is not allowed.',
+              ),
+            )
             if (conversionInputs.length && !defaultUnit) {
               const message = t('catalog.products.uom.errors.baseRequiredForConversions', 'Base unit is required when conversions are configured.')
               throw createCrudFormError(message, { defaultUnit: message })

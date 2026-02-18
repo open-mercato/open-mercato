@@ -1595,18 +1595,17 @@ async function resolveUnitDictionaryScoped(
   organizationId: string,
   tenantId: string
 ): Promise<Dictionary | null> {
-  const dictionaries = await em.find(
+  return em.findOne(
     Dictionary,
     {
+      organizationId,
       tenantId,
       key: { $in: [...UNIT_DICTIONARY_KEYS] },
       deletedAt: null,
       isActive: true,
     },
-    { orderBy: { organizationId: 'asc', createdAt: 'asc' } }
+    { orderBy: { createdAt: 'asc' } }
   )
-  const organizationDictionary = dictionaries.find((entry) => entry.organizationId === organizationId)
-  return organizationDictionary ?? dictionaries[0] ?? null
 }
 
 async function assertUnitExists(
@@ -1618,6 +1617,7 @@ async function assertUnitExists(
 ): Promise<void> {
   const normalizedCode = unitLookupKey(unitCode)
   if (!normalizedCode) return
+  const rawUnitCode = unitCode.trim()
   if (!resolver.dictionaryPromise) {
     resolver.dictionaryPromise = resolveUnitDictionaryScoped(em, organizationId, tenantId)
   }
@@ -1636,7 +1636,7 @@ async function assertUnitExists(
     dictionary,
     organizationId: dictionary.organizationId,
     tenantId: dictionary.tenantId,
-    $or: [{ normalizedValue: normalizedCode }, { value: unitCode }],
+    $or: [{ normalizedValue: normalizedCode }, { value: rawUnitCode }],
   })
   const exists = !!entry
   resolver.unitExistsCache.set(cacheKey, exists)

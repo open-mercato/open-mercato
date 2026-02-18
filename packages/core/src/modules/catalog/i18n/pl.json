@@ -515,6 +515,7 @@
   "catalog.products.uom.sortOrder": "Kolejność",
   "catalog.products.uom.active": "Aktywna",
   "catalog.products.uom.removeConversion": "Usuń konwersję",
+  "catalog.products.uom.errors.duplicateConversion": "Duplikat jednostki konwersji nie jest dozwolony.",
   "catalog.products.uom.errors.baseRequired": "Jednostka bazowa jest wymagana, gdy ustawiono domyślną jednostkę sprzedaży.",
   "catalog.products.uom.errors.baseRequiredForConversions": "Jednostka bazowa jest wymagana, gdy skonfigurowano konwersje.",
   "catalog.products.uom.errors.sync": "Nie udało się zsynchronizować konwersji produktu.",

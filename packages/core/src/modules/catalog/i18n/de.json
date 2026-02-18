@@ -515,6 +515,7 @@
   "catalog.products.uom.sortOrder": "Sort",
   "catalog.products.uom.active": "Active",
   "catalog.products.uom.removeConversion": "Remove conversion",
+  "catalog.products.uom.errors.duplicateConversion": "Duplicate conversion unit is not allowed.",
   "catalog.products.uom.errors.baseRequired": "Base unit is required when default sales unit is set.",
   "catalog.products.uom.errors.baseRequiredForConversions": "Base unit is required when conversions are configured.",
   "catalog.products.uom.errors.sync": "Failed to synchronize product conversions.",

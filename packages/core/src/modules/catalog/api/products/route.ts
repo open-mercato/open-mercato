@@ -479,11 +479,20 @@ async function decorateProductsAfterList(
 
   const requestQuantityUnitKey = normalizeUnitLookupKey(ctx.query.quantityUnit)
   const conversionsByProduct = new Map<string, Map<string, number>>()
-  if (requestQuantityUnitKey && productIds.length) {
+  const conversionOrganizationId = ctx.selectedOrganizationId ?? ctx.auth?.orgId ?? null
+  const conversionTenantId = ctx.auth?.tenantId ?? null
+  if (
+    requestQuantityUnitKey &&
+    productIds.length &&
+    conversionOrganizationId &&
+    conversionTenantId
+  ) {
     const conversionRows = await em.find(
       CatalogProductUnitConversion,
       {
         product: { $in: productIds },
+        organizationId: conversionOrganizationId,
+        tenantId: conversionTenantId,
         deletedAt: null,
         isActive: true,
       },

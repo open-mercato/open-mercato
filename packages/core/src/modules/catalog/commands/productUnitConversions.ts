@@ -97,18 +97,17 @@ async function emitConversionCrudUndoChange(opts: {
 }
 
 async function resolveUnitDictionary(em: EntityManager, organizationId: string, tenantId: string) {
-  const dictionaries = await em.find(
+  return em.findOne(
     Dictionary,
     {
+      organizationId,
       tenantId,
       key: { $in: ['unit', 'units', 'measurement_units'] },
       deletedAt: null,
       isActive: true,
     },
-    { orderBy: { organizationId: 'asc', createdAt: 'asc' } }
+    { orderBy: { createdAt: 'asc' } }
   )
-  const organizationDictionary = dictionaries.find((entry) => entry.organizationId === organizationId)
-  return organizationDictionary ?? dictionaries[0] ?? null
 }
 
 async function assertUnitExists(em: EntityManager, params: {
@@ -120,14 +119,15 @@ async function assertUnitExists(em: EntityManager, params: {
   if (!dictionary) {
     throw new CrudHttpError(400, { error: 'uom.unit_not_found' })
   }
-  const normalized = params.unitCode.trim().toLowerCase()
+  const unitCode = params.unitCode.trim()
+  const normalized = unitCode.toLowerCase()
   const entry = await em.findOne(DictionaryEntry, {
     dictionary,
     organizationId: dictionary.organizationId,
     tenantId: dictionary.tenantId,
     $or: [
       { normalizedValue: normalized },
-      { value: params.unitCode.trim() },
+      { value: unitCode },
     ],
   })
   if (!entry) {
