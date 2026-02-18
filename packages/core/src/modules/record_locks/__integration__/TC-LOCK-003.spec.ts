@@ -121,6 +121,7 @@ test.describe('TC-LOCK-003: Accept mine conflict resolution and notification', (
           companyId,
           ownerLockToken,
           'cancelled',
+          undefined,
           superadminScopeHeaders,
         ).catch(() => {});
       }

@@ -11,7 +11,7 @@ describe('readRecordLockError', () => {
         resourceId: '20000000-0000-4000-8000-000000000001',
         baseActionLogId: '30000000-0000-4000-8000-000000000001',
         incomingActionLogId: '40000000-0000-4000-8000-000000000001',
-        resolutionOptions: ['accept_incoming', 'accept_mine'] as const,
+        resolutionOptions: ['accept_mine'] as const,
         changes: [
           {
             field: 'displayName',

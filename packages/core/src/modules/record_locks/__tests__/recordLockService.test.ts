@@ -169,7 +169,7 @@ describe('RecordLockService.validateMutation', () => {
     if (result.ok) throw new Error('Expected conflict result')
     expect(result.status).toBe(409)
     expect(result.code).toBe('record_lock_conflict')
-    expect(result.conflict?.resolutionOptions).toEqual(['accept_incoming', 'accept_mine'])
+    expect(result.conflict?.resolutionOptions).toEqual(['accept_mine'])
     expect(result.conflict?.changes).toEqual([
       {
         field: 'entity.displayName',
@@ -275,5 +275,63 @@ describe('RecordLockService.acquire', () => {
     expect(result.code).toBe('record_locked')
     expect(result.lock?.lockedByUserId).toBe('40000000-0000-4000-8000-000000000099')
     expect(serviceAny.findActiveLock).toHaveBeenCalledTimes(2)
+  })
+})
+
+describe('RecordLockService.release', () => {
+  beforeEach(() => {
+    jest.clearAllMocks()
+  })
+
+  test('resolves pending conflict as accept_incoming and returns conflictResolved=true', async () => {
+    const { service } = createService(DEFAULT_SETTINGS)
+    const serviceAny = service as any
+
+    const lock = buildLock({
+      lockedByUserId: '40000000-0000-4000-8000-000000000001',
+      token: '30000000-0000-4000-8000-000000000001',
+      status: 'active',
+    })
+
+    const conflict = {
+      id: 'a0000000-0000-4000-8000-000000000001',
+      resourceKind: 'sales.quote',
+      resourceId: '20000000-0000-4000-8000-000000000001',
+      status: 'pending',
+      resolution: null,
+      baseActionLogId: '50000000-0000-4000-8000-000000000001',
+      incomingActionLogId: '80000000-0000-4000-8000-000000000001',
+      conflictActorUserId: '40000000-0000-4000-8000-000000000001',
+      incomingActorUserId: '90000000-0000-4000-8000-000000000001',
+      tenantId: '60000000-0000-4000-8000-000000000001',
+      organizationId: '70000000-0000-4000-8000-000000000001',
+    }
+
+    serviceAny.findOwnedLockByToken = jest.fn().mockResolvedValue(lock)
+    serviceAny.findConflictById = jest.fn().mockResolvedValue(conflict)
+    serviceAny.resolveConflict = jest.fn().mockResolvedValue(undefined)
+
+    const result = await service.release({
+      token: '30000000-0000-4000-8000-000000000001',
+      reason: 'conflict_resolved',
+      conflictId: 'a0000000-0000-4000-8000-000000000001',
+      resolution: 'accept_incoming',
+      resourceKind: 'sales.quote',
+      resourceId: '20000000-0000-4000-8000-000000000001',
+      tenantId: '60000000-0000-4000-8000-000000000001',
+      organizationId: '70000000-0000-4000-8000-000000000001',
+      userId: '40000000-0000-4000-8000-000000000001',
+    })
+
+    expect(result).toEqual({
+      ok: true,
+      released: true,
+      conflictResolved: true,
+    })
+    expect(serviceAny.resolveConflict).toHaveBeenCalledWith(
+      expect.objectContaining({ id: 'a0000000-0000-4000-8000-000000000001' }),
+      'accept_incoming',
+      '40000000-0000-4000-8000-000000000001',
+    )
   })
 })

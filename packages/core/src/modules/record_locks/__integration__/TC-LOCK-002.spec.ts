@@ -10,6 +10,7 @@ import {
   releaseRecordLock,
   saveRecordLockSettings,
   updateCompany,
+  waitForNotification,
   type RecordLockSettings,
 } from './helpers/recordLocks';
 
@@ -82,14 +83,27 @@ test.describe('TC-LOCK-002: Optimistic conflict with accept incoming path', () =
         companyId,
         ownerLockToken as string,
         'conflict_resolved',
+        {
+          conflictId,
+          resolution: 'accept_incoming',
+        },
         superadminScopeHeaders,
       );
       expect(releaseResult.status).toBe(200);
       expect(releaseResult.body?.released).toBe(true);
+      expect(releaseResult.body?.conflictResolved).toBe(true);
       ownerLockToken = null;
 
       const finalName = await getCompanyDisplayName(request, adminToken, companyId);
       expect(finalName).toBe(incomingName);
+
+      const resolvedNotification = await waitForNotification(
+        request,
+        adminToken,
+        'record_locks.conflict.resolved',
+        (item) => item.sourceEntityId === conflictId,
+      );
+      expect(resolvedNotification.bodyVariables?.resolution).toBe('accept_incoming');
     } finally {
       if (ownerLockToken && companyId) {
         await releaseRecordLock(
@@ -99,6 +113,7 @@ test.describe('TC-LOCK-002: Optimistic conflict with accept incoming path', () =
           companyId,
           ownerLockToken,
           'cancelled',
+          undefined,
           superadminScopeHeaders,
         ).catch(() => {});
       }

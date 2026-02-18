@@ -141,6 +141,10 @@ export async function releaseRecordLock(
   resourceId: string,
   lockToken: string,
   reason: 'saved' | 'cancelled' | 'unmount' | 'conflict_resolved' = 'cancelled',
+  options?: {
+    conflictId?: string | null;
+    resolution?: 'accept_incoming';
+  },
   extraHeaders?: Record<string, string>,
 ): Promise<ApiCallResult<Record<string, unknown>>> {
   return requestJson<Record<string, unknown>>(
@@ -153,6 +157,8 @@ export async function releaseRecordLock(
       resourceId,
       token: lockToken,
       reason,
+      ...(options?.conflictId ? { conflictId: options.conflictId } : {}),
+      ...(options?.resolution ? { resolution: options.resolution } : {}),
     },
     extraHeaders,
   );

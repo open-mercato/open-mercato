@@ -121,6 +121,7 @@ test.describe('TC-LOCK-004: Merged conflict resolution and notification', () => 
           companyId,
           ownerLockToken,
           'cancelled',
+          undefined,
           superadminScopeHeaders,
         ).catch(() => {});
       }
