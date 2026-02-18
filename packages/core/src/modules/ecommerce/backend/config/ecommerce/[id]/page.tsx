@@ -1,7 +1,6 @@
 'use client'
 
 import * as React from 'react'
-import { useParams } from 'next/navigation'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { CrudForm, type CrudField, type CrudFormGroup } from '@open-mercato/ui/backend/CrudForm'
 import { updateCrud } from '@open-mercato/ui/backend/utils/crud'
@@ -282,10 +281,9 @@ function AddBindingForm({
 
 // ─── Main Page ────────────────────────────────────────────────────────────────
 
-export default function EcommerceStoreDetailPage() {
+export default function EcommerceStoreDetailPage({ params }: { params?: { id?: string } }) {
   const t = useT()
-  const params = useParams()
-  const storeId = typeof params?.id === 'string' ? params.id : ''
+  const storeId = params?.id ?? ''
   const { confirm, ConfirmDialogElement } = useConfirmDialog()
   const scopeVersion = useOrganizationScopeVersion()
 

@@ -707,7 +707,6 @@
             "id"
           ],
           "referencedTableName": "public.customer_deals",
-          "createForeignKeyConstraint": true,
           "updateRule": "cascade"
         },
         "customer_deal_people_person_entity_id_foreign": {
@@ -720,7 +719,6 @@
             "id"
           ],
           "referencedTableName": "public.customer_entities",
-          "createForeignKeyConstraint": true,
           "updateRule": "cascade"
         }
       },
@@ -824,7 +822,6 @@
             "id"
           ],
           "referencedTableName": "public.customer_deals",
-          "createForeignKeyConstraint": true,
           "updateRule": "cascade"
         },
         "customer_deal_companies_company_entity_id_foreign": {
@@ -837,7 +834,6 @@
             "id"
           ],
           "referencedTableName": "public.customer_entities",
-          "createForeignKeyConstraint": true,
           "updateRule": "cascade"
         }
       },
@@ -1024,7 +1020,6 @@
             "id"
           ],
           "referencedTableName": "public.customer_entities",
-          "createForeignKeyConstraint": true,
           "updateRule": "cascade"
         }
       },
@@ -1192,7 +1187,6 @@
             "id"
           ],
           "referencedTableName": "public.customer_entities",
-          "createForeignKeyConstraint": true,
           "updateRule": "cascade"
         },
         "customer_comments_deal_id_foreign": {
@@ -1205,7 +1199,6 @@
             "id"
           ],
           "referencedTableName": "public.customer_deals",
-          "createForeignKeyConstraint": true,
           "deleteRule": "set null",
           "updateRule": "cascade"
         }
@@ -1435,7 +1428,6 @@
             "id"
           ],
           "referencedTableName": "public.customer_entities",
-          "createForeignKeyConstraint": true,
           "updateRule": "cascade"
         }
       },
@@ -1633,7 +1625,6 @@
             "id"
           ],
           "referencedTableName": "public.customer_entities",
-          "createForeignKeyConstraint": true,
           "updateRule": "cascade"
         },
         "customer_activities_deal_id_foreign": {
@@ -1646,7 +1637,6 @@
             "id"
           ],
           "referencedTableName": "public.customer_deals",
-          "createForeignKeyConstraint": true,
           "deleteRule": "set null",
           "updateRule": "cascade"
         }
@@ -1859,7 +1849,6 @@
             "id"
           ],
           "referencedTableName": "public.customer_entities",
-          "createForeignKeyConstraint": true,
           "updateRule": "cascade"
         },
         "customer_people_company_entity_id_foreign": {
@@ -1872,7 +1861,6 @@
             "id"
           ],
           "referencedTableName": "public.customer_entities",
-          "createForeignKeyConstraint": true,
           "deleteRule": "set null",
           "updateRule": "cascade"
         }
@@ -2203,7 +2191,6 @@
             "id"
           ],
           "referencedTableName": "public.customer_tags",
-          "createForeignKeyConstraint": true,
           "updateRule": "cascade"
         },
         "customer_tag_assignments_entity_id_foreign": {
@@ -2216,7 +2203,6 @@
             "id"
           ],
           "referencedTableName": "public.customer_entities",
-          "createForeignKeyConstraint": true,
           "updateRule": "cascade"
         }
       },
@@ -2359,7 +2345,6 @@
             "id"
           ],
           "referencedTableName": "public.customer_entities",
-          "createForeignKeyConstraint": true,
           "updateRule": "cascade"
         }
       },

@@ -21,6 +21,7 @@ const listSchema = z
     page: z.coerce.number().min(1).default(1),
     pageSize: z.coerce.number().min(1).max(100).default(50),
     search: z.string().optional(),
+    id: z.string().uuid().optional(),
     status: z.enum(['draft', 'active', 'archived']).optional(),
     sortField: z.string().optional(),
     sortDir: z.enum(['asc', 'desc']).optional(),
@@ -71,6 +72,9 @@ const crud = makeCrudRoute({
     },
     buildFilters: async (query) => {
       const filters: Record<string, unknown> = {}
+      if (query.id) {
+        filters.id = { $eq: query.id }
+      }
       if (query.search) {
         filters['$or'] = [
           { name: { $ilike: `%${escapeLikePattern(query.search)}%` } },
