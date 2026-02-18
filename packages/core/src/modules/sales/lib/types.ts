@@ -5,6 +5,32 @@ export type { SalesAdjustmentKind, SalesDocumentKind, SalesLineKind }
 
 export type NumericLike = number | string
 
+export type SalesLineUomSnapshot = {
+  version: 1
+  productId: string | null
+  productVariantId: string | null
+  baseUnitCode: string | null
+  enteredUnitCode: string | null
+  enteredQuantity: string
+  toBaseFactor: string
+  normalizedQuantity: string
+  rounding: {
+    mode: 'half_up' | 'down' | 'up'
+    scale: number
+  }
+  source: {
+    conversionId: string | null
+    resolvedAt: string
+  }
+  unitPriceReference?: {
+    enabled: boolean
+    referenceUnitCode: 'kg' | 'l' | 'm2' | 'm3' | 'pc' | null
+    baseQuantity: string | null
+    grossPerReference?: string | null
+    netPerReference?: string | null
+  }
+}
+
 export type SalesLineSnapshot = {
   id?: string
   lineNumber?: number
@@ -16,6 +42,9 @@ export type SalesLineSnapshot = {
   comment?: string | null
   quantity: number
   quantityUnit?: string | null
+  normalizedQuantity?: number | null
+  normalizedUnit?: string | null
+  uomSnapshot?: SalesLineUomSnapshot | Record<string, unknown> | null
   currencyCode: string
   unitPriceNet?: number | null
   unitPriceGross?: number | null

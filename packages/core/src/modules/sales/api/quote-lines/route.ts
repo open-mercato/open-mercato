@@ -16,7 +16,7 @@ const resolveRawBody = (raw: unknown) => (raw && typeof raw === 'object' && 'bod
 const listSchema = z
   .object({
     page: z.coerce.number().min(1).default(1),
-    pageSize: z.coerce.number().min(1).max(200).default(50),
+    pageSize: z.coerce.number().min(1).max(100).default(50),
     id: z.string().uuid().optional(),
     quoteId: z.string().uuid().optional(),
     sortField: z.string().optional(),
@@ -64,6 +64,9 @@ const crud = makeCrudRoute({
       F.comment,
       F.quantity,
       F.quantity_unit,
+      'normalized_quantity',
+      'normalized_unit',
+      'uom_snapshot',
       F.currency_code,
       F.unit_price_net,
       F.unit_price_gross,
@@ -171,6 +174,9 @@ const quoteLineSchema = z.object({
   comment: z.string().nullable().optional(),
   quantity: z.number(),
   quantity_unit: z.string().nullable().optional(),
+  normalized_quantity: z.number(),
+  normalized_unit: z.string().nullable().optional(),
+  uom_snapshot: z.record(z.string(), z.unknown()).nullable().optional(),
   currency_code: z.string(),
   unit_price_net: z.number(),
   unit_price_gross: z.number(),

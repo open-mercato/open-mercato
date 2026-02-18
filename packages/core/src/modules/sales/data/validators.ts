@@ -292,6 +292,8 @@ const adjustmentKindSchema = z.string().trim().min(1).max(150)
 const linePricingSchema = z.object({
   quantity: decimal({ min: 0 }),
   quantityUnit: z.string().trim().max(25).optional(),
+  normalizedQuantity: decimal({ min: 0 }).optional(),
+  normalizedUnit: z.string().trim().max(25).nullable().optional(),
   unitPriceNet: decimal({ min: 0 }).optional(),
   unitPriceGross: decimal({ min: 0 }).optional(),
   priceId: uuid().optional(),
@@ -317,6 +319,7 @@ const lineSharedSchema = z.object({
   configuration: z.record(z.string(), z.unknown()).optional(),
   promotionCode: z.string().trim().max(120).optional(),
   promotionSnapshot: z.record(z.string(), z.unknown()).optional(),
+  uomSnapshot: z.record(z.string(), z.unknown()).nullable().optional(),
   metadata,
   customFieldSetId: uuid().optional(),
   customFields: z.record(z.string(), z.unknown()).optional(),

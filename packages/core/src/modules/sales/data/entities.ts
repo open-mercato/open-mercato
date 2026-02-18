@@ -556,6 +556,10 @@ export class SalesOrder {
 @Entity({ tableName: 'sales_order_lines' })
 @Index({ name: 'sales_order_lines_scope_idx', properties: ['order', 'organizationId', 'tenantId'] })
 @Index({ name: 'sales_order_lines_status_idx', properties: ['organizationId', 'tenantId', 'status'] })
+@Index({
+  name: 'sales_order_lines_normalized_idx',
+  properties: ['organizationId', 'tenantId', 'normalizedUnit', 'normalizedQuantity'],
+})
 export class SalesOrderLine {
   @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
   id!: string
@@ -604,6 +608,15 @@ export class SalesOrderLine {
 
   @Property({ name: 'quantity_unit', type: 'text', nullable: true })
   quantityUnit?: string | null
+
+  @Property({ name: 'normalized_quantity', type: 'numeric', precision: 18, scale: 6, default: '0' })
+  normalizedQuantity: string = '0'
+
+  @Property({ name: 'normalized_unit', type: 'text', nullable: true })
+  normalizedUnit?: string | null
+
+  @Property({ name: 'uom_snapshot', type: 'jsonb', nullable: true })
+  uomSnapshot?: Record<string, unknown> | null
 
   @Property({ name: 'reserved_quantity', type: 'numeric', precision: 18, scale: 4, default: '0' })
   reservedQuantity: string = '0'
@@ -992,6 +1005,10 @@ export class SalesQuote {
 @Entity({ tableName: 'sales_quote_lines' })
 @Index({ name: 'sales_quote_lines_scope_idx', properties: ['quote', 'organizationId', 'tenantId'] })
 @Index({ name: 'sales_quote_lines_status_idx', properties: ['organizationId', 'tenantId', 'status'] })
+@Index({
+  name: 'sales_quote_lines_normalized_idx',
+  properties: ['organizationId', 'tenantId', 'normalizedUnit', 'normalizedQuantity'],
+})
 export class SalesQuoteLine {
   @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
   id!: string
@@ -1040,6 +1057,15 @@ export class SalesQuoteLine {
 
   @Property({ name: 'quantity_unit', type: 'text', nullable: true })
   quantityUnit?: string | null
+
+  @Property({ name: 'normalized_quantity', type: 'numeric', precision: 18, scale: 6, default: '0' })
+  normalizedQuantity: string = '0'
+
+  @Property({ name: 'normalized_unit', type: 'text', nullable: true })
+  normalizedUnit?: string | null
+
+  @Property({ name: 'uom_snapshot', type: 'jsonb', nullable: true })
+  uomSnapshot?: Record<string, unknown> | null
 
   @Property({ name: 'currency_code', type: 'text' })
   currencyCode!: string
@@ -1345,6 +1371,10 @@ export class SalesInvoice {
 
 @Entity({ tableName: 'sales_invoice_lines' })
 @Index({ name: 'sales_invoice_lines_scope_idx', properties: ['invoice', 'organizationId', 'tenantId'] })
+@Index({
+  name: 'sales_invoice_lines_normalized_idx',
+  properties: ['organizationId', 'tenantId', 'normalizedUnit', 'normalizedQuantity'],
+})
 export class SalesInvoiceLine {
   @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
   id!: string
@@ -1375,6 +1405,15 @@ export class SalesInvoiceLine {
 
   @Property({ name: 'quantity_unit', type: 'text', nullable: true })
   quantityUnit?: string | null
+
+  @Property({ name: 'normalized_quantity', type: 'numeric', precision: 18, scale: 6, default: '0' })
+  normalizedQuantity: string = '0'
+
+  @Property({ name: 'normalized_unit', type: 'text', nullable: true })
+  normalizedUnit?: string | null
+
+  @Property({ name: 'uom_snapshot', type: 'jsonb', nullable: true })
+  uomSnapshot?: Record<string, unknown> | null
 
   @Property({ name: 'currency_code', type: 'text' })
   currencyCode!: string
@@ -1484,6 +1523,10 @@ export class SalesCreditMemo {
   name: 'sales_credit_memo_lines_scope_idx',
   properties: ['creditMemo', 'organizationId', 'tenantId'],
 })
+@Index({
+  name: 'sales_credit_memo_lines_normalized_idx',
+  properties: ['organizationId', 'tenantId', 'normalizedUnit', 'normalizedQuantity'],
+})
 export class SalesCreditMemoLine {
   @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
   id!: string
@@ -1511,6 +1554,15 @@ export class SalesCreditMemoLine {
 
   @Property({ name: 'quantity_unit', type: 'text', nullable: true })
   quantityUnit?: string | null
+
+  @Property({ name: 'normalized_quantity', type: 'numeric', precision: 18, scale: 6, default: '0' })
+  normalizedQuantity: string = '0'
+
+  @Property({ name: 'normalized_unit', type: 'text', nullable: true })
+  normalizedUnit?: string | null
+
+  @Property({ name: 'uom_snapshot', type: 'jsonb', nullable: true })
+  uomSnapshot?: Record<string, unknown> | null
 
   @Property({ name: 'currency_code', type: 'text' })
   currencyCode!: string

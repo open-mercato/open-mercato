@@ -41,6 +41,8 @@ import {
   type SalesAdjustmentKind,
   type SalesSettings,
 } from '../data/entities'
+import { CatalogProduct, CatalogProductUnitConversion } from '../../catalog/data/entities'
+import { Dictionary, DictionaryEntry } from '../../dictionaries/data/entities'
 import { CustomFieldValue } from '@open-mercato/core/modules/entities/data/entities'
 import {
   CustomerAddress,
@@ -82,6 +84,7 @@ import type { TaxCalculationService } from '../services/taxCalculationService'
 import type { PaymentMethodContext, ShippingMethodContext } from '../lib/providers'
 import {
   type SalesLineSnapshot,
+  type SalesLineUomSnapshot,
   type SalesAdjustmentDraft,
   type SalesLineCalculationResult,
   type SalesDocumentCalculationResult,
@@ -223,6 +226,9 @@ type QuoteLineSnapshot = {
   comment: string | null
   quantity: string
   quantityUnit: string | null
+  normalizedQuantity: string
+  normalizedUnit: string | null
+  uomSnapshot: Record<string, unknown> | null
   currencyCode: string
   unitPriceNet: string
   unitPriceGross: string
@@ -338,6 +344,9 @@ type OrderLineSnapshot = {
   comment: string | null
   quantity: string
   quantityUnit: string | null
+  normalizedQuantity: string
+  normalizedUnit: string | null
+  uomSnapshot: Record<string, unknown> | null
   reservedQuantity: string
   fulfilledQuantity: string
   invoicedQuantity: string
@@ -1173,6 +1182,9 @@ async function loadQuoteSnapshot(em: EntityManager, id: string): Promise<QuoteGr
       comment: line.comment ?? null,
       quantity: line.quantity,
       quantityUnit: line.quantityUnit ?? null,
+      normalizedQuantity: line.normalizedQuantity ?? line.quantity,
+      normalizedUnit: line.normalizedUnit ?? line.quantityUnit ?? null,
+      uomSnapshot: line.uomSnapshot ? cloneJson(line.uomSnapshot) : null,
       currencyCode: line.currencyCode,
       unitPriceNet: line.unitPriceNet,
       unitPriceGross: line.unitPriceGross,
@@ -1384,6 +1396,9 @@ async function loadOrderSnapshot(em: EntityManager, id: string): Promise<OrderGr
       comment: line.comment ?? null,
       quantity: line.quantity,
       quantityUnit: line.quantityUnit ?? null,
+      normalizedQuantity: line.normalizedQuantity ?? line.quantity,
+      normalizedUnit: line.normalizedUnit ?? line.quantityUnit ?? null,
+      uomSnapshot: line.uomSnapshot ? cloneJson(line.uomSnapshot) : null,
       reservedQuantity: line.reservedQuantity,
       fulfilledQuantity: line.fulfilledQuantity,
       invoicedQuantity: line.invoicedQuantity,
@@ -1467,6 +1482,424 @@ function toNumeric(value: string | number | null | undefined): number {
     if (!Number.isNaN(parsed)) return parsed
   }
   return 0
+}
+
+const UNIT_DICTIONARY_KEYS = ['unit', 'units', 'measurement_units'] as const
+const UOM_REFERENCE_UNITS = new Set(['kg', 'l', 'm2', 'm3', 'pc'])
+const UOM_SCALE_MIN = 0
+const UOM_SCALE_MAX = 6
+const UOM_NORMALIZED_MAX = 1_000_000_000_000
+
+type UomRoundingMode = 'half_up' | 'down' | 'up'
+
+type ProductUomState = {
+  productId: string
+  baseUnitCode: string | null
+  defaultSalesUnit: string | null
+  roundingScale: number
+  roundingMode: UomRoundingMode
+  unitPriceEnabled: boolean
+  unitPriceReferenceUnit: 'kg' | 'l' | 'm2' | 'm3' | 'pc' | null
+  unitPriceBaseQuantity: string | null
+  conversionsByUnitKey: Map<string, CatalogProductUnitConversion>
+}
+
+type UomResolver = {
+  dictionaryPromise: Promise<Dictionary | null> | null
+  unitExistsCache: Map<string, boolean>
+  productCache: Map<string, ProductUomState | null>
+}
+
+type NormalizeLineUomInput = {
+  em: EntityManager
+  resolver: UomResolver
+  organizationId: string
+  tenantId: string
+  line: {
+    productId?: string | null
+    productVariantId?: string | null
+    quantity?: number | string | null
+    quantityUnit?: string | null
+    unitPriceNet?: number | null
+    unitPriceGross?: number | null
+    normalizedQuantity?: number | string | null
+    normalizedUnit?: string | null
+    uomSnapshot?: Record<string, unknown> | null
+  }
+}
+
+function createUomResolver(): UomResolver {
+  return {
+    dictionaryPromise: null,
+    unitExistsCache: new Map<string, boolean>(),
+    productCache: new Map<string, ProductUomState | null>(),
+  }
+}
+
+function normalizeUnitCode(value: unknown): string | null {
+  if (typeof value !== 'string') return null
+  const normalized = value.trim()
+  return normalized.length ? normalized : null
+}
+
+function unitLookupKey(value: string | null | undefined): string | null {
+  if (!value) return null
+  const normalized = value.trim().toLowerCase()
+  return normalized.length ? normalized : null
+}
+
+function clampScale(value: unknown): number {
+  const parsed = Number(value)
+  if (!Number.isInteger(parsed)) return 4
+  return Math.min(Math.max(parsed, UOM_SCALE_MIN), UOM_SCALE_MAX)
+}
+
+function normalizeRoundingMode(value: unknown): UomRoundingMode {
+  return value === 'down' || value === 'up' ? value : 'half_up'
+}
+
+function roundByMode(value: number, scale: number, mode: UomRoundingMode): number {
+  const safeScale = clampScale(scale)
+  const factor = 10 ** safeScale
+  if (!Number.isFinite(value)) return 0
+  if (mode === 'down') return Math.floor(value * factor) / factor
+  if (mode === 'up') return Math.ceil(value * factor) / factor
+  return Math.round(value * factor) / factor
+}
+
+function assertNormalizedPrecision(value: number) {
+  if (!Number.isFinite(value) || Math.abs(value) >= UOM_NORMALIZED_MAX) {
+    throw new CrudHttpError(422, { error: 'uom.precision_overflow' })
+  }
+}
+
+function toOptionalNumber(value: unknown): number | null {
+  if (value === null || value === undefined) return null
+  if (typeof value === 'number') return Number.isFinite(value) ? value : null
+  if (typeof value === 'string' && value.trim().length) {
+    const parsed = Number(value)
+    return Number.isFinite(parsed) ? parsed : null
+  }
+  return null
+}
+
+function resolveReferenceUnit(value: unknown): 'kg' | 'l' | 'm2' | 'm3' | 'pc' | null {
+  if (typeof value !== 'string') return null
+  const normalized = value.trim().toLowerCase()
+  if (!UOM_REFERENCE_UNITS.has(normalized)) return null
+  return normalized as 'kg' | 'l' | 'm2' | 'm3' | 'pc'
+}
+
+async function resolveUnitDictionaryScoped(
+  em: EntityManager,
+  organizationId: string,
+  tenantId: string
+): Promise<Dictionary | null> {
+  const dictionaries = await em.find(
+    Dictionary,
+    {
+      tenantId,
+      key: { $in: [...UNIT_DICTIONARY_KEYS] },
+      deletedAt: null,
+      isActive: true,
+    },
+    { orderBy: { organizationId: 'asc', createdAt: 'asc' } }
+  )
+  const organizationDictionary = dictionaries.find((entry) => entry.organizationId === organizationId)
+  return organizationDictionary ?? dictionaries[0] ?? null
+}
+
+async function assertUnitExists(
+  em: EntityManager,
+  resolver: UomResolver,
+  organizationId: string,
+  tenantId: string,
+  unitCode: string
+): Promise<void> {
+  const normalizedCode = unitLookupKey(unitCode)
+  if (!normalizedCode) return
+  if (!resolver.dictionaryPromise) {
+    resolver.dictionaryPromise = resolveUnitDictionaryScoped(em, organizationId, tenantId)
+  }
+  const dictionary = await resolver.dictionaryPromise
+  if (!dictionary) {
+    throw new CrudHttpError(400, { error: 'uom.unit_not_found' })
+  }
+  const cacheKey = `${dictionary.id}:${normalizedCode}`
+  if (resolver.unitExistsCache.has(cacheKey)) {
+    if (!resolver.unitExistsCache.get(cacheKey)) {
+      throw new CrudHttpError(400, { error: 'uom.unit_not_found' })
+    }
+    return
+  }
+  const entry = await em.findOne(DictionaryEntry, {
+    dictionary,
+    organizationId: dictionary.organizationId,
+    tenantId: dictionary.tenantId,
+    $or: [{ normalizedValue: normalizedCode }, { value: unitCode }],
+  })
+  const exists = !!entry
+  resolver.unitExistsCache.set(cacheKey, exists)
+  if (!exists) {
+    throw new CrudHttpError(400, { error: 'uom.unit_not_found' })
+  }
+}
+
+async function resolveProductUomState(
+  em: EntityManager,
+  resolver: UomResolver,
+  organizationId: string,
+  tenantId: string,
+  productId: string
+): Promise<ProductUomState | null> {
+  if (resolver.productCache.has(productId)) {
+    return resolver.productCache.get(productId) ?? null
+  }
+  const product = await em.findOne(CatalogProduct, {
+    id: productId,
+    organizationId,
+    tenantId,
+    deletedAt: null,
+  })
+  if (!product) {
+    resolver.productCache.set(productId, null)
+    return null
+  }
+  const conversions = await em.find(CatalogProductUnitConversion, {
+    product: product.id,
+    organizationId,
+    tenantId,
+    deletedAt: null,
+    isActive: true,
+  })
+  const conversionsByUnitKey = new Map<string, CatalogProductUnitConversion>()
+  for (const conversion of conversions) {
+    const key = unitLookupKey(conversion.unitCode)
+    if (!key) continue
+    conversionsByUnitKey.set(key, conversion)
+  }
+  const state: ProductUomState = {
+    productId: product.id,
+    baseUnitCode: normalizeUnitCode(product.defaultUnit ?? null),
+    defaultSalesUnit: normalizeUnitCode(product.defaultSalesUnit ?? null),
+    roundingScale: clampScale(product.uomRoundingScale ?? 4),
+    roundingMode: normalizeRoundingMode(product.uomRoundingMode),
+    unitPriceEnabled: Boolean(product.unitPriceEnabled),
+    unitPriceReferenceUnit: resolveReferenceUnit(product.unitPriceReferenceUnit),
+    unitPriceBaseQuantity: product.unitPriceBaseQuantity ?? null,
+    conversionsByUnitKey,
+  }
+  resolver.productCache.set(productId, state)
+  return state
+}
+
+function buildUnitPriceReferenceSnapshot(params: {
+  product: ProductUomState
+  toBaseFactor: number
+  unitPriceNet: number | null
+  unitPriceGross: number | null
+}) {
+  if (!params.product.unitPriceEnabled) return undefined
+  const baseQuantityNumber = toNumeric(params.product.unitPriceBaseQuantity)
+  const output: NonNullable<SalesLineUomSnapshot['unitPriceReference']> = {
+    enabled: true,
+    referenceUnitCode: params.product.unitPriceReferenceUnit ?? null,
+    baseQuantity: params.product.unitPriceBaseQuantity ?? null,
+  }
+  if (!params.product.unitPriceReferenceUnit || params.toBaseFactor <= 0 || baseQuantityNumber <= 0) {
+    return output
+  }
+  if (typeof params.unitPriceGross === 'number' && Number.isFinite(params.unitPriceGross)) {
+    output.grossPerReference = toNumericString(
+      (params.unitPriceGross / params.toBaseFactor) * baseQuantityNumber
+    )
+  }
+  if (typeof params.unitPriceNet === 'number' && Number.isFinite(params.unitPriceNet)) {
+    output.netPerReference = toNumericString(
+      (params.unitPriceNet / params.toBaseFactor) * baseQuantityNumber
+    )
+  }
+  return output
+}
+
+async function normalizeLineUom(
+  input: NormalizeLineUomInput
+): Promise<{
+  quantity: number
+  quantityUnit: string | null
+  normalizedQuantity: number
+  normalizedUnit: string | null
+  uomSnapshot: SalesLineUomSnapshot | null
+}> {
+  const quantity = toNumeric(input.line.quantity)
+  const existingSnapshot =
+    input.line.uomSnapshot && typeof input.line.uomSnapshot === 'object'
+      ? (cloneJson(input.line.uomSnapshot) as SalesLineUomSnapshot)
+      : null
+  const productId = typeof input.line.productId === 'string' ? input.line.productId : null
+  const variantId = typeof input.line.productVariantId === 'string' ? input.line.productVariantId : null
+  const enteredUnitInput = normalizeUnitCode(input.line.quantityUnit)
+  if (!productId) {
+    if (enteredUnitInput) {
+      await assertUnitExists(
+        input.em,
+        input.resolver,
+        input.organizationId,
+        input.tenantId,
+        enteredUnitInput
+      )
+    }
+    const normalizedQuantity = toNumeric(input.line.normalizedQuantity ?? quantity)
+    assertNormalizedPrecision(normalizedQuantity)
+    return {
+      quantity,
+      quantityUnit: enteredUnitInput ?? null,
+      normalizedQuantity,
+      normalizedUnit: normalizeUnitCode(input.line.normalizedUnit) ?? enteredUnitInput ?? null,
+      uomSnapshot:
+        existingSnapshot ??
+        {
+          version: 1,
+          productId: null,
+          productVariantId: variantId,
+          baseUnitCode: normalizeUnitCode(input.line.normalizedUnit) ?? enteredUnitInput ?? null,
+          enteredUnitCode: enteredUnitInput,
+          enteredQuantity: toNumericString(quantity) ?? '0',
+          toBaseFactor: '1',
+          normalizedQuantity: toNumericString(normalizedQuantity) ?? '0',
+          rounding: { mode: 'half_up', scale: 6 },
+          source: { conversionId: null, resolvedAt: new Date().toISOString() },
+        },
+    }
+  }
+
+  const productState = await resolveProductUomState(
+    input.em,
+    input.resolver,
+    input.organizationId,
+    input.tenantId,
+    productId
+  )
+  if (!productState) {
+    if (enteredUnitInput) {
+      await assertUnitExists(
+        input.em,
+        input.resolver,
+        input.organizationId,
+        input.tenantId,
+        enteredUnitInput
+      )
+    }
+    const normalizedQuantity = toNumeric(input.line.normalizedQuantity ?? quantity)
+    assertNormalizedPrecision(normalizedQuantity)
+    return {
+      quantity,
+      quantityUnit: enteredUnitInput ?? null,
+      normalizedQuantity,
+      normalizedUnit: normalizeUnitCode(input.line.normalizedUnit) ?? enteredUnitInput ?? null,
+      uomSnapshot: existingSnapshot,
+    }
+  }
+
+  const baseUnitCode = productState.baseUnitCode
+  const enteredUnitCode =
+    enteredUnitInput ??
+    productState.defaultSalesUnit ??
+    baseUnitCode ??
+    normalizeUnitCode(input.line.normalizedUnit)
+  if (enteredUnitCode) {
+    await assertUnitExists(
+      input.em,
+      input.resolver,
+      input.organizationId,
+      input.tenantId,
+      enteredUnitCode
+    )
+  }
+  if (baseUnitCode) {
+    await assertUnitExists(
+      input.em,
+      input.resolver,
+      input.organizationId,
+      input.tenantId,
+      baseUnitCode
+    )
+  }
+
+  if (!baseUnitCode) {
+    const requiresBase =
+      Boolean(enteredUnitCode) ||
+      productState.conversionsByUnitKey.size > 0 ||
+      Boolean(productState.defaultSalesUnit)
+    if (requiresBase) {
+      throw new CrudHttpError(400, { error: 'uom.default_unit_missing' })
+    }
+    const normalizedQuantity = toNumeric(input.line.normalizedQuantity ?? quantity)
+    assertNormalizedPrecision(normalizedQuantity)
+    return {
+      quantity,
+      quantityUnit: enteredUnitCode ?? null,
+      normalizedQuantity,
+      normalizedUnit: normalizeUnitCode(input.line.normalizedUnit) ?? enteredUnitCode ?? null,
+      uomSnapshot: existingSnapshot,
+    }
+  }
+
+  const resolvedEnteredUnit = enteredUnitCode ?? baseUnitCode
+  const enteredKey = unitLookupKey(resolvedEnteredUnit)
+  const baseKey = unitLookupKey(baseUnitCode)
+  let toBaseFactor = 1
+  let conversionId: string | null = null
+  if (enteredKey && baseKey && enteredKey !== baseKey) {
+    const conversion = productState.conversionsByUnitKey.get(enteredKey)
+    if (!conversion) {
+      throw new CrudHttpError(400, { error: 'uom.conversion_not_found' })
+    }
+    toBaseFactor = toNumeric(conversion.toBaseFactor)
+    conversionId = conversion.id
+  }
+  if (!Number.isFinite(toBaseFactor) || toBaseFactor <= 0) {
+    throw new CrudHttpError(400, { error: 'uom.invalid_factor' })
+  }
+  const normalizedQuantity = roundByMode(
+    quantity * toBaseFactor,
+    productState.roundingScale,
+    productState.roundingMode
+  )
+  assertNormalizedPrecision(normalizedQuantity)
+  const unitPriceReference = buildUnitPriceReferenceSnapshot({
+    product: productState,
+    toBaseFactor,
+    unitPriceNet: toOptionalNumber(input.line.unitPriceNet),
+    unitPriceGross: toOptionalNumber(input.line.unitPriceGross),
+  })
+  const snapshot: SalesLineUomSnapshot = {
+    version: 1,
+    productId,
+    productVariantId: variantId,
+    baseUnitCode,
+    enteredUnitCode: resolvedEnteredUnit,
+    enteredQuantity: toNumericString(quantity) ?? '0',
+    toBaseFactor: toNumericString(toBaseFactor) ?? '1',
+    normalizedQuantity: toNumericString(normalizedQuantity) ?? '0',
+    rounding: {
+      mode: productState.roundingMode,
+      scale: productState.roundingScale,
+    },
+    source: {
+      conversionId,
+      resolvedAt: new Date().toISOString(),
+    },
+    ...(unitPriceReference ? { unitPriceReference } : {}),
+  }
+
+  return {
+    quantity,
+    quantityUnit: resolvedEnteredUnit,
+    normalizedQuantity,
+    normalizedUnit: baseUnitCode,
+    uomSnapshot: snapshot,
+  }
 }
 
 function normalizeShippingMethodContext(
@@ -1620,6 +2053,9 @@ function mapOrderLineEntityToSnapshot(line: SalesOrderLine): SalesLineSnapshot {
     comment: line.comment ?? null,
     quantity: toNumeric(line.quantity),
     quantityUnit: line.quantityUnit ?? null,
+    normalizedQuantity: toNumeric(line.normalizedQuantity ?? line.quantity),
+    normalizedUnit: line.normalizedUnit ?? line.quantityUnit ?? null,
+    uomSnapshot: line.uomSnapshot ? cloneJson(line.uomSnapshot) : null,
     currencyCode: line.currencyCode,
     unitPriceNet: toNumeric(line.unitPriceNet),
     unitPriceGross: toNumeric(line.unitPriceGross),
@@ -1648,6 +2084,9 @@ function mapQuoteLineEntityToSnapshot(line: SalesQuoteLine): SalesLineSnapshot {
     comment: line.comment ?? null,
     quantity: toNumeric(line.quantity),
     quantityUnit: line.quantityUnit ?? null,
+    normalizedQuantity: toNumeric(line.normalizedQuantity ?? line.quantity),
+    normalizedUnit: line.normalizedUnit ?? line.quantityUnit ?? null,
+    uomSnapshot: line.uomSnapshot ? cloneJson(line.uomSnapshot) : null,
     currencyCode: line.currencyCode,
     unitPriceNet: toNumeric(line.unitPriceNet),
     unitPriceGross: toNumeric(line.unitPriceGross),
@@ -1720,6 +2159,8 @@ function createLineSnapshotFromInput(
   line: DocumentLineCreateInput,
   lineNumber: number
 ): SalesLineSnapshot {
+  const quantity = Number(line.quantity ?? 0)
+  const normalizedQuantity = toNumeric((line as any).normalizedQuantity ?? quantity)
   return {
     lineNumber,
     kind: line.kind ?? 'product',
@@ -1728,8 +2169,17 @@ function createLineSnapshotFromInput(
     name: line.name ?? null,
     description: line.description ?? null,
     comment: line.comment ?? null,
-    quantity: Number(line.quantity ?? 0),
+    quantity,
     quantityUnit: line.quantityUnit ?? null,
+    normalizedQuantity,
+    normalizedUnit:
+      typeof (line as any).normalizedUnit === 'string'
+        ? ((line as any).normalizedUnit as string)
+        : line.quantityUnit ?? null,
+    uomSnapshot:
+      (line as any).uomSnapshot && typeof (line as any).uomSnapshot === 'object'
+        ? cloneJson((line as any).uomSnapshot as Record<string, unknown>)
+        : null,
     currencyCode: line.currencyCode,
     unitPriceNet: line.unitPriceNet ?? null,
     unitPriceGross: line.unitPriceGross ?? null,
@@ -1796,6 +2246,12 @@ function convertLineCalculationToEntityInput(
     comment: line.comment ?? null,
     quantity: toNumericString(line.quantity) ?? '0',
     quantityUnit: line.quantityUnit ?? null,
+    normalizedQuantity: toNumericString(line.normalizedQuantity ?? line.quantity) ?? '0',
+    normalizedUnit: line.normalizedUnit ?? line.quantityUnit ?? null,
+    uomSnapshot:
+      line.uomSnapshot && typeof line.uomSnapshot === 'object'
+        ? cloneJson(line.uomSnapshot as Record<string, unknown>)
+        : null,
     currencyCode: line.currencyCode,
     unitPriceNet:
       toNumericString(line.unitPriceNet ?? (lineResult.netAmount / Math.max(line.quantity || 1, 1))) ??
@@ -2654,6 +3110,9 @@ async function restoreQuoteGraph(
       comment: line.comment ?? null,
       quantity: line.quantity,
       quantityUnit: line.quantityUnit ?? null,
+      normalizedQuantity: line.normalizedQuantity ?? line.quantity,
+      normalizedUnit: line.normalizedUnit ?? line.quantityUnit ?? null,
+      uomSnapshot: line.uomSnapshot ? cloneJson(line.uomSnapshot) : null,
       currencyCode: line.currencyCode,
       unitPriceNet: line.unitPriceNet,
       unitPriceGross: line.unitPriceGross,
@@ -2927,6 +3386,9 @@ async function restoreOrderGraph(
       comment: line.comment ?? null,
       quantity: line.quantity,
       quantityUnit: line.quantityUnit ?? null,
+      normalizedQuantity: line.normalizedQuantity ?? line.quantity,
+      normalizedUnit: line.normalizedUnit ?? line.quantityUnit ?? null,
+      uomSnapshot: line.uomSnapshot ? cloneJson(line.uomSnapshot) : null,
       reservedQuantity: line.reservedQuantity,
       fulfilledQuantity: line.fulfilledQuantity,
       invoicedQuantity: line.invoicedQuantity,
@@ -3218,6 +3680,26 @@ const createQuoteCommand: CommandHandler<QuoteCreateInput, { quoteId: string }> 
         lineNumber: line.lineNumber ?? index + 1,
       })
     )
+    const uomResolver = createUomResolver()
+    const normalizedLineInputs = await Promise.all(
+      lineInputs.map(async (line) => {
+        const normalized = await normalizeLineUom({
+          em,
+          resolver: uomResolver,
+          organizationId: parsed.organizationId,
+          tenantId: parsed.tenantId,
+          line,
+        })
+        return {
+          ...line,
+          quantity: normalized.quantity,
+          quantityUnit: normalized.quantityUnit,
+          normalizedQuantity: normalized.normalizedQuantity,
+          normalizedUnit: normalized.normalizedUnit,
+          uomSnapshot: normalized.uomSnapshot,
+        }
+      })
+    )
     const adjustmentInputs = parsed.adjustments
       ? parsed.adjustments.map((adj) =>
           quoteAdjustmentCreateSchema.parse({
@@ -3229,7 +3711,7 @@ const createQuoteCommand: CommandHandler<QuoteCreateInput, { quoteId: string }> 
         )
       : null
 
-    const lineSnapshots: SalesLineSnapshot[] = lineInputs.map((line, index) =>
+    const lineSnapshots: SalesLineSnapshot[] = normalizedLineInputs.map((line, index) =>
       createLineSnapshotFromInput(line, line.lineNumber ?? index + 1)
     )
     const adjustmentDrafts: SalesAdjustmentDraft[] = adjustmentInputs
@@ -3255,7 +3737,7 @@ const createQuoteCommand: CommandHandler<QuoteCreateInput, { quoteId: string }> 
       context: calculationContext,
     })
 
-    await replaceQuoteLines(em, quote, calculation, lineInputs)
+    await replaceQuoteLines(em, quote, calculation, normalizedLineInputs)
     await replaceQuoteAdjustments(em, quote, calculation, adjustmentInputs)
     applyQuoteTotals(quote, calculation.totals, calculation.lines.length)
     let eventBus: EventBus | null = null
@@ -3973,6 +4455,26 @@ const createOrderCommand: CommandHandler<OrderCreateInput, { orderId: string }> 
         lineNumber: line.lineNumber ?? index + 1,
       })
     )
+    const uomResolver = createUomResolver()
+    const normalizedLineInputs = await Promise.all(
+      lineInputs.map(async (line) => {
+        const normalized = await normalizeLineUom({
+          em,
+          resolver: uomResolver,
+          organizationId: parsed.organizationId,
+          tenantId: parsed.tenantId,
+          line,
+        })
+        return {
+          ...line,
+          quantity: normalized.quantity,
+          quantityUnit: normalized.quantityUnit,
+          normalizedQuantity: normalized.normalizedQuantity,
+          normalizedUnit: normalized.normalizedUnit,
+          uomSnapshot: normalized.uomSnapshot,
+        }
+      })
+    )
     const adjustmentInputs = parsed.adjustments
       ? parsed.adjustments.map((adj) =>
           orderAdjustmentCreateSchema.parse({
@@ -3984,7 +4486,7 @@ const createOrderCommand: CommandHandler<OrderCreateInput, { orderId: string }> 
         )
       : null
 
-    const lineSnapshots: SalesLineSnapshot[] = lineInputs.map((line, index) =>
+    const lineSnapshots: SalesLineSnapshot[] = normalizedLineInputs.map((line, index) =>
       createLineSnapshotFromInput(line, line.lineNumber ?? index + 1)
     )
     const adjustmentDrafts: SalesAdjustmentDraft[] = adjustmentInputs
@@ -4011,7 +4513,7 @@ const createOrderCommand: CommandHandler<OrderCreateInput, { orderId: string }> 
       existingTotals: resolveExistingPaymentTotals(order),
     })
 
-    await replaceOrderLines(em, order, calculation, lineInputs)
+    await replaceOrderLines(em, order, calculation, normalizedLineInputs)
     await replaceOrderAdjustments(em, order, calculation, adjustmentInputs)
     applyOrderTotals(order, calculation.totals, calculation.lines.length)
     let eventBus: EventBus | null = null
@@ -4370,6 +4872,9 @@ const convertQuoteToOrderCommand: CommandHandler<
         comment: line.comment ?? null,
         quantity: line.quantity,
         quantityUnit: line.quantityUnit ?? null,
+        normalizedQuantity: line.normalizedQuantity ?? line.quantity,
+        normalizedUnit: line.normalizedUnit ?? line.quantityUnit ?? null,
+        uomSnapshot: line.uomSnapshot ? cloneJson(line.uomSnapshot) : null,
         reservedQuantity: '0',
         fulfilledQuantity: '0',
         invoicedQuantity: '0',
@@ -4638,6 +5143,23 @@ const orderLineUpsertCommand: CommandHandler<
 
     const statusEntryId = parsed.statusEntryId ?? (existingSnapshot as any)?.statusEntryId ?? null
     const lineId = parsed.id ?? existingSnapshot?.id ?? randomUUID()
+    const normalizedUom = await normalizeLineUom({
+      em,
+      resolver: createUomResolver(),
+      organizationId: order.organizationId,
+      tenantId: order.tenantId,
+      line: {
+        productId: parsed.productId ?? existingSnapshot?.productId ?? null,
+        productVariantId: parsed.productVariantId ?? existingSnapshot?.productVariantId ?? null,
+        quantity: parsed.quantity ?? existingSnapshot?.quantity ?? 0,
+        quantityUnit: parsed.quantityUnit ?? existingSnapshot?.quantityUnit ?? null,
+        unitPriceNet: unitPriceNet ?? 0,
+        unitPriceGross: unitPriceGross ?? unitPriceNet ?? 0,
+        normalizedQuantity: (existingSnapshot as any)?.normalizedQuantity ?? null,
+        normalizedUnit: (existingSnapshot as any)?.normalizedUnit ?? null,
+        uomSnapshot: (existingSnapshot as any)?.uomSnapshot ?? null,
+      },
+    })
     const updatedSnapshot: SalesLineSnapshot & { statusEntryId?: string | null; catalogSnapshot?: Record<string, unknown> | null; promotionSnapshot?: Record<string, unknown> | null } = {
       id: lineId,
       lineNumber: parsed.lineNumber ?? existingSnapshot?.lineNumber ?? lineSnapshots.length + 1,
@@ -4647,8 +5169,11 @@ const orderLineUpsertCommand: CommandHandler<
       name: parsed.name ?? existingSnapshot?.name ?? null,
       description: parsed.description ?? existingSnapshot?.description ?? null,
       comment: parsed.comment ?? existingSnapshot?.comment ?? null,
-      quantity: Number(parsed.quantity ?? existingSnapshot?.quantity ?? 0),
-      quantityUnit: parsed.quantityUnit ?? existingSnapshot?.quantityUnit ?? null,
+      quantity: normalizedUom.quantity,
+      quantityUnit: normalizedUom.quantityUnit,
+      normalizedQuantity: normalizedUom.normalizedQuantity,
+      normalizedUnit: normalizedUom.normalizedUnit,
+      uomSnapshot: normalizedUom.uomSnapshot ? cloneJson(normalizedUom.uomSnapshot) : null,
       currencyCode: parsed.currencyCode ?? existingSnapshot?.currencyCode ?? order.currencyCode,
       unitPriceNet: unitPriceNet ?? 0,
       unitPriceGross: unitPriceGross ?? unitPriceNet ?? 0,
@@ -4968,6 +5493,23 @@ const quoteLineUpsertCommand: CommandHandler<
 
     const statusEntryId = parsed.statusEntryId ?? (existingSnapshot as any)?.statusEntryId ?? null
     const lineId = parsed.id ?? existingSnapshot?.id ?? randomUUID()
+    const normalizedUom = await normalizeLineUom({
+      em,
+      resolver: createUomResolver(),
+      organizationId: quote.organizationId,
+      tenantId: quote.tenantId,
+      line: {
+        productId: parsed.productId ?? existingSnapshot?.productId ?? null,
+        productVariantId: parsed.productVariantId ?? existingSnapshot?.productVariantId ?? null,
+        quantity: parsed.quantity ?? existingSnapshot?.quantity ?? 0,
+        quantityUnit: parsed.quantityUnit ?? existingSnapshot?.quantityUnit ?? null,
+        unitPriceNet: unitPriceNet ?? 0,
+        unitPriceGross: unitPriceGross ?? unitPriceNet ?? 0,
+        normalizedQuantity: (existingSnapshot as any)?.normalizedQuantity ?? null,
+        normalizedUnit: (existingSnapshot as any)?.normalizedUnit ?? null,
+        uomSnapshot: (existingSnapshot as any)?.uomSnapshot ?? null,
+      },
+    })
     const updatedSnapshot: SalesLineSnapshot & { statusEntryId?: string | null; catalogSnapshot?: Record<string, unknown> | null; promotionSnapshot?: Record<string, unknown> | null } = {
       id: lineId,
       lineNumber: parsed.lineNumber ?? existingSnapshot?.lineNumber ?? lineSnapshots.length + 1,
@@ -4977,8 +5519,11 @@ const quoteLineUpsertCommand: CommandHandler<
       name: parsed.name ?? existingSnapshot?.name ?? null,
       description: parsed.description ?? existingSnapshot?.description ?? null,
       comment: parsed.comment ?? existingSnapshot?.comment ?? null,
-      quantity: Number(parsed.quantity ?? existingSnapshot?.quantity ?? 0),
-      quantityUnit: parsed.quantityUnit ?? existingSnapshot?.quantityUnit ?? null,
+      quantity: normalizedUom.quantity,
+      quantityUnit: normalizedUom.quantityUnit,
+      normalizedQuantity: normalizedUom.normalizedQuantity,
+      normalizedUnit: normalizedUom.normalizedUnit,
+      uomSnapshot: normalizedUom.uomSnapshot ? cloneJson(normalizedUom.uomSnapshot) : null,
       currencyCode: parsed.currencyCode ?? existingSnapshot?.currencyCode ?? quote.currencyCode,
       unitPriceNet: unitPriceNet ?? 0,
       unitPriceGross: unitPriceGross ?? unitPriceNet ?? 0,

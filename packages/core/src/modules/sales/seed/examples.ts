@@ -1398,6 +1398,12 @@ export async function seedSalesExamples(
         comment: source.comment,
         quantity: toAmount(source.quantity),
         quantityUnit: source.quantityUnit ?? null,
+        normalizedQuantity: toAmount((source as any).normalizedQuantity ?? source.quantity),
+        normalizedUnit: (source as any).normalizedUnit ?? source.quantityUnit ?? null,
+        uomSnapshot:
+          (source as any).uomSnapshot && typeof (source as any).uomSnapshot === 'object'
+            ? toSnapshot((source as any).uomSnapshot as Record<string, unknown>)
+            : null,
         currencyCode: source.currencyCode,
         unitPriceNet: toAmount(source.unitPriceNet ?? 0),
         unitPriceGross: toAmount(source.unitPriceGross ?? source.unitPriceNet ?? 0),
@@ -1617,6 +1623,12 @@ export async function seedSalesExamples(
         comment: source.comment,
         quantity: toAmount(source.quantity),
         quantityUnit: source.quantityUnit ?? null,
+        normalizedQuantity: toAmount((source as any).normalizedQuantity ?? source.quantity),
+        normalizedUnit: (source as any).normalizedUnit ?? source.quantityUnit ?? null,
+        uomSnapshot:
+          (source as any).uomSnapshot && typeof (source as any).uomSnapshot === 'object'
+            ? toSnapshot((source as any).uomSnapshot as Record<string, unknown>)
+            : null,
         reservedQuantity: '0',
         fulfilledQuantity: '0',
         invoicedQuantity: '0',

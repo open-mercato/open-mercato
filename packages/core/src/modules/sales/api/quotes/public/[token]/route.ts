@@ -55,6 +55,9 @@ export async function GET(_req: Request, ctx: { params: { token: string } }) {
         description: line.description ?? null,
         quantity: line.quantity,
         quantityUnit: line.quantityUnit ?? null,
+        normalizedQuantity: line.normalizedQuantity ?? line.quantity,
+        normalizedUnit: line.normalizedUnit ?? line.quantityUnit ?? null,
+        uomSnapshot: line.uomSnapshot ?? null,
         currencyCode: line.currencyCode,
         unitPriceNet: line.unitPriceNet,
         unitPriceGross: line.unitPriceGross,
@@ -64,6 +67,13 @@ export async function GET(_req: Request, ctx: { params: { token: string } }) {
         taxAmount: line.taxAmount,
         totalNetAmount: line.totalNetAmount,
         totalGrossAmount: line.totalGrossAmount,
+        unitPriceReference:
+          line.uomSnapshot &&
+          typeof line.uomSnapshot === 'object' &&
+          (line.uomSnapshot as Record<string, unknown>).unitPriceReference &&
+          typeof (line.uomSnapshot as Record<string, unknown>).unitPriceReference === 'object'
+            ? ((line.uomSnapshot as Record<string, unknown>).unitPriceReference as Record<string, unknown>)
+            : null,
       })),
       adjustments: adjustments.map((adj) => ({
         scope: adj.scope,
@@ -110,7 +120,11 @@ const publicQuoteResponseSchema = z.object({
       description: z.string().nullable(),
       quantity: z.string(),
       quantityUnit: z.string().nullable(),
+      normalizedQuantity: z.string(),
+      normalizedUnit: z.string().nullable(),
+      uomSnapshot: z.record(z.string(), z.unknown()).nullable().optional(),
       currencyCode: z.string(),
+      unitPriceReference: z.record(z.string(), z.unknown()).nullable().optional(),
       totalGrossAmount: z.string(),
     })
   ),
