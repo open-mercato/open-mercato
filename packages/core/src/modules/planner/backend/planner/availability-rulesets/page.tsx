@@ -18,7 +18,7 @@ import { normalizeCrudServerError } from '@open-mercato/ui/backend/utils/serverE
 import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
-import { formatDateTime } from '@open-mercato/ui/backend/detail/ActivitiesSection'
+import { formatDateTime } from '@open-mercato/shared/lib/time'
 
 const PAGE_SIZE = 50
 const MARKDOWN_PLUGINS: PluggableList = [remarkGfm]

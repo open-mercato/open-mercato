@@ -33,7 +33,7 @@ import {
 import { DictionarySelectField } from '../formConfig'
 import { AppearanceSelector } from '@open-mercato/core/modules/dictionaries/components/AppearanceSelector'
 import { createDictionarySelectLabels } from './utils'
-import { formatDateTime } from '@open-mercato/ui/backend/detail/ActivitiesSection'
+import { formatDateTime } from '@open-mercato/shared/lib/time'
 import {
   invalidateCustomerDictionary,
   useCustomerDictionary,

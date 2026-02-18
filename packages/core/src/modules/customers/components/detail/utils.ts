@@ -3,7 +3,6 @@
 import type { DictionarySelectLabels } from '@open-mercato/core/modules/dictionaries/components/DictionaryEntrySelect'
 import type { CustomerDictionaryKind } from '../../lib/dictionaries'
 
-// ...existing code...
 
 export function formatDate(value?: string | null): string | null {
   if (!value) return null

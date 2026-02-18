@@ -15,7 +15,7 @@ import { raiseCrudError } from '@open-mercato/ui/backend/utils/serverErrors'
 import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
-import { formatDateTime } from '@open-mercato/ui/backend/detail/ActivitiesSection'
+import { formatDateTime } from '@open-mercato/shared/lib/time'
 
 type TaxRateRow = {
   id: string

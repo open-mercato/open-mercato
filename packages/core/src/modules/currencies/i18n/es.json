@@ -1,209 +1,150 @@
 {
-  "currencies": {
-    "currencies": {
-      "update": "Actualizar moneda"
-    },
-    "exchange_rates": {
-      "update": "Actualizar tipo de cambio"
-    },
-    "module": {
-      "title": "Monedas y Tipos de Cambio",
-      "description": "Gestionar monedas y tipos de cambio para transacciones multidivisa."
-    },
-    "nav": {
-      "group": "Monedas"
-    },
-    "page": {
-      "title": "Monedas"
-    },
-    "list": {
-      "title": "Monedas",
-      "searchPlaceholder": "Buscar monedas por código o nombre",
-      "columns": {
-        "code": "Código",
-        "name": "Nombre",
-        "symbol": "Símbolo",
-        "decimalPlaces": "Decimales",
-        "active": "Activa",
-        "createdAt": "Fecha de creación",
-        "updatedAt": "Fecha de actualización"
-      },
-      "filters": {
-        "baseOnly": "Mostrar solo moneda base",
-        "status": "Estado",
-        "all": "Todas",
-        "active": "Activa",
-        "inactive": "Inactiva"
-      },
-      "actions": {
-        "create": "Añadir Moneda",
-        "setBase": "Establecer como Base"
-      },
-      "base": "Base",
-      "confirmDelete": "¿Eliminar moneda {{code}}? Esto también eliminará todos los tipos de cambio para esta moneda.",
-      "error": {
-        "load": "Error al cargar monedas"
-      }
-    },
-    "create": {
-      "title": "Crear Moneda"
-    },
-    "edit": {
-      "title": "Editar Moneda"
-    },
-    "form": {
-      "group": {
-        "details": "Detalles de Moneda",
-        "formatting": "Formato y Configuración"
-      },
-      "field": {
-        "code": "Código de Moneda",
-        "codePlaceholder": "USD",
-        "codeHelp": "Código ISO 4217 de 3 letras (ej. USD, EUR, GBP)",
-        "name": "Nombre de Moneda",
-        "namePlaceholder": "Dólar estadounidense",
-        "symbol": "Símbolo",
-        "symbolPlaceholder": "$",
-        "decimalPlaces": "Lugares Decimales",
-        "thousandsSeparator": "Separador de Miles",
-        "decimalSeparator": "Separador Decimal",
-        "isBase": "Moneda Base",
-        "isActive": "Activa"
-      },
-      "action": {
-        "create": "Crear Moneda",
-        "save": "Guardar Cambios"
-      },
-      "loading": "Cargando moneda...",
-      "errors": {
-        "codeFormat": "El código de moneda debe ser exactamente 3 letras mayúsculas (ej. USD)",
-        "load": "Error al cargar moneda",
-        "notFound": "Moneda no encontrada",
-        "delete": "Error al eliminar moneda"
-      }
-    },
-    "flash": {
-      "created": "Moneda creada correctamente",
-      "updated": "Moneda actualizada correctamente",
-      "deleted": "Moneda eliminada correctamente",
-      "deleteError": "Error al eliminar moneda",
-      "baseSet": "Moneda base actualizada correctamente",
-      "baseSetError": "Error al establecer moneda base"
-    },
-    "fetch": {
-      "title": "Obtención de Tipos de Cambio",
-      "description": "Gestionar la obtención automática de tipos de cambio desde proveedores externos",
-      "enabled": "Habilitado",
-      "disabled": "Deshabilitado",
-      "sync_time": "Hora de Sincronización Diaria",
-      "last_sync": "Última Sincronización",
-      "last_sync_status": "Estado",
-      "last_sync_count": "Tipos Obtenidos",
-      "fetch_now": "Obtener Ahora",
-      "fetching": "Obteniendo...",
-      "sync_success": "Tipos obtenidos correctamente",
-      "sync_no_rates": "No se obtuvo ningún tipo. No tiene monedas definidas, por favor cree los pares que desea obtener",
-      "sync_error": "Error al obtener tipos",
-      "provider_nbp": "NBP (Banco Nacional de Polonia)",
-      "provider_nbp_description": "~13 monedas con tipos de compra/venta del Banco Nacional de Polonia",
-      "provider_raiffeisen": "Raiffeisen Bank Polonia",
-      "provider_raiffeisen_description": "4 monedas principales (EUR, USD, CHF, GBP) con tipos de compra/venta",
-      "provider_enabled": "Proveedor habilitado",
-      "provider_disabled": "Proveedor deshabilitado",
-      "loading": "Cargando...",
-      "initializing_providers": "Inicializando proveedores...",
-      "no_providers": "Aún no hay proveedores de monedas configurados.",
-      "initialize_providers": "Inicializar Proveedores",
-      "error_load_configs": "Error al cargar configuraciones",
-      "error_update_config": "Error al actualizar configuración",
-      "error_update_sync_time": "Error al actualizar hora de sincronización"
-    }
-  },
-  "exchangeRates": {
-    "page": {
-      "title": "Tipos de Cambio"
-    },
-    "list": {
-      "title": "Tipos de Cambio",
-      "searchPlaceholder": "Buscar tipos de cambio",
-      "columns": {
-        "currencyPair": "Par de Monedas",
-        "rate": "Tipo",
-        "date": "Fecha y Hora",
-        "source": "Fuente",
-        "type": "Tipo",
-        "active": "Activa",
-        "createdAt": "Fecha de creación",
-        "updatedAt": "Fecha de actualización"
-      },
-      "filters": {
-        "fromCurrency": "Desde Moneda",
-        "toCurrency": "A Moneda",
-        "source": "Fuente",
-        "status": "Estado",
-        "all": "Todas",
-        "active": "Activa",
-        "inactive": "Inactiva"
-      },
-      "actions": {
-        "create": "Añadir Tipo de Cambio"
-      },
-      "confirmDelete": "¿Eliminar tipo de cambio {{pair}}?",
-      "error": {
-        "load": "Error al cargar tipos de cambio"
-      }
-    },
-    "create": {
-      "title": "Crear Tipo de Cambio"
-    },
-    "edit": {
-      "title": "Editar Tipo de Cambio"
-    },
-    "form": {
-      "group": {
-        "metadata": "Metadatos"
-      },
-      "field": {
-        "fromCurrency": "Desde Moneda",
-        "fromCurrencyPlaceholder": "Seleccionar moneda",
-        "fromCurrencyHelp": "Moneda de origen para conversión",
-        "toCurrency": "A Moneda",
-        "toCurrencyPlaceholder": "Seleccionar moneda",
-        "toCurrencyHelp": "Moneda de destino para conversión",
-        "rate": "Tipo de Cambio",
-        "rateHelp": "Cuántas unidades de moneda de destino por 1 unidad de moneda de origen (hasta 8 decimales)",
-        "date": "Fecha y Hora",
-        "dateHelp": "Fecha y hora cuando esta tasa es aplicable (en tu zona horaria local)",
-        "source": "Fuente",
-        "sourcePlaceholder": "ej. BCE, Manual",
-        "sourceHelp": "De dónde proviene este tipo (requerido, 2-50 caracteres)",
-        "isActive": "Activa"
-      },
-      "action": {
-        "create": "Crear Tipo de Cambio",
-        "save": "Guardar Cambios"
-      },
-      "loading": "Cargando tipo de cambio...",
-      "errors": {
-        "currencyCodeFormat": "Debe ser exactamente 3 letras mayúsculas",
-        "fromCurrencyFormat": "Código de moneda de origen inválido",
-        "toCurrencyFormat": "Código de moneda de destino inválido",
-        "sameCurrency": "Las monedas de origen y destino deben ser diferentes",
-        "invalidRate": "El tipo debe ser un número positivo",
-        "invalidDate": "La fecha y hora son requeridas",
-        "sourceTooShort": "La fuente debe tener al menos 2 caracteres",
-        "sourceTooLong": "La fuente no debe exceder 50 caracteres",
-        "sourceInvalidFormat": "La fuente solo puede contener letras, números, espacios, guiones y guiones bajos",
-        "load": "Error al cargar tipo de cambio",
-        "notFound": "Tipo de cambio no encontrado"
-      }
-    },
-    "flash": {
-      "created": "Tipo de cambio creado correctamente",
-      "updated": "Tipo de cambio actualizado correctamente",
-      "deleted": "Tipo de cambio eliminado correctamente",
-      "deleteError": "Error al eliminar tipo de cambio"
-    }
-  },
-  "audit_logs.resource_kind.currencies.exchange_rate": "Tipo de cambio"
+  "audit_logs.resource_kind.currencies.exchange_rate": "Tipo de cambio",
+  "currencies.create.title": "Crear Moneda",
+  "currencies.currencies.update": "Actualizar moneda",
+  "currencies.edit.title": "Editar Moneda",
+  "currencies.exchange_rates.update": "Actualizar tipo de cambio",
+  "currencies.fetch.description": "Gestionar la obtención automática de tipos de cambio desde proveedores externos",
+  "currencies.fetch.disabled": "Deshabilitado",
+  "currencies.fetch.enabled": "Habilitado",
+  "currencies.fetch.error_load_configs": "Error al cargar configuraciones",
+  "currencies.fetch.error_update_config": "Error al actualizar configuración",
+  "currencies.fetch.error_update_sync_time": "Error al actualizar hora de sincronización",
+  "currencies.fetch.fetch_now": "Obtener Ahora",
+  "currencies.fetch.fetching": "Obteniendo...",
+  "currencies.fetch.initialize_providers": "Inicializar Proveedores",
+  "currencies.fetch.initializing_providers": "Inicializando proveedores...",
+  "currencies.fetch.last_sync": "Última Sincronización",
+  "currencies.fetch.last_sync_count": "Tipos Obtenidos",
+  "currencies.fetch.last_sync_status": "Estado",
+  "currencies.fetch.loading": "Cargando...",
+  "currencies.fetch.no_providers": "Aún no hay proveedores de monedas configurados.",
+  "currencies.fetch.provider_disabled": "Proveedor deshabilitado",
+  "currencies.fetch.provider_enabled": "Proveedor habilitado",
+  "currencies.fetch.provider_nbp": "NBP (Banco Nacional de Polonia)",
+  "currencies.fetch.provider_nbp_description": "~13 monedas con tipos de compra/venta del Banco Nacional de Polonia",
+  "currencies.fetch.provider_raiffeisen": "Raiffeisen Bank Polonia",
+  "currencies.fetch.provider_raiffeisen_description": "4 monedas principales (EUR, USD, CHF, GBP) con tipos de compra/venta",
+  "currencies.fetch.sync_error": "Error al obtener tipos",
+  "currencies.fetch.sync_no_rates": "No se obtuvo ningún tipo. No tiene monedas definidas, por favor cree los pares que desea obtener",
+  "currencies.fetch.sync_success": "Tipos obtenidos correctamente",
+  "currencies.fetch.sync_time": "Hora de Sincronización Diaria",
+  "currencies.fetch.title": "Obtención de Tipos de Cambio",
+  "currencies.flash.baseSet": "Moneda base actualizada correctamente",
+  "currencies.flash.baseSetError": "Error al establecer moneda base",
+  "currencies.flash.created": "Moneda creada correctamente",
+  "currencies.flash.deleteError": "Error al eliminar moneda",
+  "currencies.flash.deleted": "Moneda eliminada correctamente",
+  "currencies.flash.updated": "Moneda actualizada correctamente",
+  "currencies.form.action.create": "Crear Moneda",
+  "currencies.form.action.save": "Guardar Cambios",
+  "currencies.form.errors.codeFormat": "El código de moneda debe ser exactamente 3 letras mayúsculas (ej. USD)",
+  "currencies.form.errors.delete": "Error al eliminar moneda",
+  "currencies.form.errors.load": "Error al cargar moneda",
+  "currencies.form.errors.notFound": "Moneda no encontrada",
+  "currencies.form.field.code": "Código de Moneda",
+  "currencies.form.field.codeHelp": "Código ISO 4217 de 3 letras (ej. USD, EUR, GBP)",
+  "currencies.form.field.codePlaceholder": "USD",
+  "currencies.form.field.decimalPlaces": "Lugares Decimales",
+  "currencies.form.field.decimalSeparator": "Separador Decimal",
+  "currencies.form.field.isActive": "Activa",
+  "currencies.form.field.isBase": "Moneda Base",
+  "currencies.form.field.name": "Nombre de Moneda",
+  "currencies.form.field.namePlaceholder": "Dólar estadounidense",
+  "currencies.form.field.symbol": "Símbolo",
+  "currencies.form.field.symbolPlaceholder": "$",
+  "currencies.form.field.thousandsSeparator": "Separador de Miles",
+  "currencies.form.group.details": "Detalles de Moneda",
+  "currencies.form.group.formatting": "Formato y Configuración",
+  "currencies.form.loading": "Cargando moneda...",
+  "currencies.list.actions.create": "Añadir Moneda",
+  "currencies.list.actions.setBase": "Establecer como Base",
+  "currencies.list.base": "Base",
+  "currencies.list.columns.active": "Activa",
+  "currencies.list.columns.code": "Código",
+  "currencies.list.columns.createdAt": "Fecha de creación",
+  "currencies.list.columns.decimalPlaces": "Decimales",
+  "currencies.list.columns.name": "Nombre",
+  "currencies.list.columns.symbol": "Símbolo",
+  "currencies.list.columns.updatedAt": "Fecha de actualización",
+  "currencies.list.confirmDelete": "¿Eliminar moneda {{code}}? Esto también eliminará todos los tipos de cambio para esta moneda.",
+  "currencies.list.error.load": "Error al cargar monedas",
+  "currencies.list.filters.active": "Activa",
+  "currencies.list.filters.all": "Todas",
+  "currencies.list.filters.baseOnly": "Mostrar solo moneda base",
+  "currencies.list.filters.inactive": "Inactiva",
+  "currencies.list.filters.status": "Estado",
+  "currencies.list.searchPlaceholder": "Buscar monedas por código o nombre",
+  "currencies.list.title": "Monedas",
+  "currencies.module.description": "Gestionar monedas y tipos de cambio para transacciones multidivisa.",
+  "currencies.module.title": "Monedas y Tipos de Cambio",
+  "currencies.nav.group": "Monedas",
+  "currencies.page.title": "Monedas",
+  "exchangeRates.create.title": "Crear Tipo de Cambio",
+  "exchangeRates.edit.title": "Editar Tipo de Cambio",
+  "exchangeRates.flash.created": "Tipo de cambio creado correctamente",
+  "exchangeRates.flash.deleteError": "Error al eliminar tipo de cambio",
+  "exchangeRates.flash.deleted": "Tipo de cambio eliminado correctamente",
+  "exchangeRates.flash.updated": "Tipo de cambio actualizado correctamente",
+  "exchangeRates.form.action.create": "Crear Tipo de Cambio",
+  "exchangeRates.form.action.save": "Guardar Cambios",
+  "exchangeRates.form.errors.currencyCodeFormat": "Debe ser exactamente 3 letras mayúsculas",
+  "exchangeRates.form.errors.fromCurrencyFormat": "Código de moneda de origen inválido",
+  "exchangeRates.form.errors.invalidDate": "La fecha y hora son requeridas",
+  "exchangeRates.form.errors.invalidRate": "El tipo debe ser un número positivo",
+  "exchangeRates.form.errors.load": "Error al cargar tipo de cambio",
+  "exchangeRates.form.errors.notFound": "Tipo de cambio no encontrado",
+  "exchangeRates.form.errors.sameCurrency": "Las monedas de origen y destino deben ser diferentes",
+  "exchangeRates.form.errors.sourceInvalidFormat": "La fuente solo puede contener letras, números, espacios, guiones y guiones bajos",
+  "exchangeRates.form.errors.sourceTooLong": "La fuente no debe exceder 50 caracteres",
+  "exchangeRates.form.errors.sourceTooShort": "La fuente debe tener al menos 2 caracteres",
+  "exchangeRates.form.errors.toCurrencyFormat": "Código de moneda de destino inválido",
+  "exchangeRates.form.field.date": "Fecha y Hora",
+  "exchangeRates.form.field.dateHelp": "Fecha y hora cuando esta tasa es aplicable (en tu zona horaria local)",
+  "exchangeRates.form.field.fromCurrency": "Desde Moneda",
+  "exchangeRates.form.field.fromCurrencyHelp": "Moneda de origen para conversión",
+  "exchangeRates.form.field.fromCurrencyPlaceholder": "Seleccionar moneda",
+  "exchangeRates.form.field.isActive": "Activa",
+  "exchangeRates.form.field.rate": "Tipo de Cambio",
+  "exchangeRates.form.field.rateHelp": "Cuántas unidades de moneda de destino por 1 unidad de moneda de origen (hasta 8 decimales)",
+  "exchangeRates.form.field.source": "Fuente",
+  "exchangeRates.form.field.sourceHelp": "De dónde proviene este tipo (requerido, 2-50 caracteres)",
+  "exchangeRates.form.field.sourcePlaceholder": "ej. BCE, Manual",
+  "exchangeRates.form.field.toCurrency": "A Moneda",
+  "exchangeRates.form.field.toCurrencyHelp": "Moneda de destino para conversión",
+  "exchangeRates.form.field.toCurrencyPlaceholder": "Seleccionar moneda",
+  "exchangeRates.form.field.type": "Tipo de tasa",
+  "exchangeRates.form.field.typeBuy": "Compra",
+  "exchangeRates.form.field.typeBuyDescription": "El banco COMPRA moneda extranjera de usted",
+  "exchangeRates.form.field.typeHelp": "Perspectiva del banco: tasa de compra o venta (deje vacío si no aplica)",
+  "exchangeRates.form.field.typeNone": "Ninguno (sin especificar)",
+  "exchangeRates.form.field.typePlaceholder": "Seleccionar tipo de tasa (opcional)",
+  "exchangeRates.form.field.typeSell": "Venta",
+  "exchangeRates.form.field.typeSellDescription": "El banco VENDE moneda extranjera a usted",
+  "exchangeRates.form.group.metadata": "Metadatos",
+  "exchangeRates.form.loading": "Cargando tipo de cambio...",
+  "exchangeRates.list.actions.create": "Añadir Tipo de Cambio",
+  "exchangeRates.list.columns.active": "Activa",
+  "exchangeRates.list.columns.createdAt": "Fecha de creación",
+  "exchangeRates.list.columns.currencyPair": "Par de Monedas",
+  "exchangeRates.list.columns.date": "Fecha y Hora",
+  "exchangeRates.list.columns.rate": "Tipo",
+  "exchangeRates.list.columns.source": "Fuente",
+  "exchangeRates.list.columns.type": "Tipo",
+  "exchangeRates.list.columns.updatedAt": "Fecha de actualización",
+  "exchangeRates.list.confirmDelete": "¿Eliminar tipo de cambio {{pair}}?",
+  "exchangeRates.list.error.load": "Error al cargar tipos de cambio",
+  "exchangeRates.list.filters.active": "Activa",
+  "exchangeRates.list.filters.all": "Todas",
+  "exchangeRates.list.filters.fromCurrency": "Desde Moneda",
+  "exchangeRates.list.filters.inactive": "Inactiva",
+  "exchangeRates.list.filters.source": "Fuente",
+  "exchangeRates.list.filters.status": "Estado",
+  "exchangeRates.list.filters.toCurrency": "A Moneda",
+  "exchangeRates.list.filters.type": "Tipo de tasa",
+  "exchangeRates.list.searchPlaceholder": "Buscar tipos de cambio",
+  "exchangeRates.list.title": "Tipos de Cambio",
+  "exchangeRates.list.type.buy": "Compra",
+  "exchangeRates.list.type.sell": "Venta",
+  "exchangeRates.page.title": "Tipos de Cambio"
 }

@@ -18,7 +18,7 @@ import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
 import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { Users } from 'lucide-react'
-import { formatDateTime } from '@open-mercato/ui/backend/detail/ActivitiesSection'
+import { formatDateTime } from '@open-mercato/shared/lib/time'
 
 const PAGE_SIZE = 50
 const isTestEnv = typeof process !== 'undefined' && process.env.NODE_ENV === 'test'
