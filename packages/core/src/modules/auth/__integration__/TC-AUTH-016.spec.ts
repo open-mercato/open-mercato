@@ -1,28 +1,14 @@
-import { test, expect, type APIRequestContext } from '@playwright/test';
-
-const BASE_URL = process.env.BASE_URL || 'http://localhost:3000';
-
-async function postForm(
-  request: APIRequestContext,
-  path: string,
-  data: Record<string, string>,
-) {
-  const form = new URLSearchParams();
-  for (const [key, value] of Object.entries(data)) form.set(key, value);
-  return request.post(`${BASE_URL}${path}`, {
-    headers: { 'content-type': 'application/x-www-form-urlencoded' },
-    data: form.toString(),
-  });
-}
+import { test, expect } from '@playwright/test';
+import { postForm } from '@open-mercato/core/modules/core/__integration__/helpers/api';
+import { DEFAULT_CREDENTIALS } from '@open-mercato/core/modules/core/__integration__/helpers/auth';
 
 /**
  * TC-AUTH-016: Rate Limiting on Authentication Endpoints
- * Source: .ai/qa/scenarios/TC-AUTH-016-rate-limiting-auth-endpoints.md
  *
- * These tests verify that auth endpoints enforce rate limits and return
+ * API tests verifying that auth endpoints enforce rate limits and return
  * proper 429 responses with rate-limit headers when limits are exceeded.
  *
- * Default compound limits: login=5 pts/60s, reset=3 pts/60s.
+ * Default compound limits: login = 5 pts/60s, reset = 3 pts/60s.
  * Each test uses a unique email to avoid cross-test compound key pollution.
  */
 test.describe('TC-AUTH-016: Rate Limiting on Authentication Endpoints', () => {
@@ -94,8 +80,7 @@ test.describe('TC-AUTH-016: Rate Limiting on Authentication Endpoints', () => {
   });
 
   test('login — successful login resets compound counter', async ({ request }) => {
-    const email = 'admin@acme.com';
-    const password = 'secret';
+    const { email, password } = DEFAULT_CREDENTIALS.admin;
 
     // Send 4 failed attempts (under the compound limit of 5)
     for (let i = 0; i < 4; i++) {
