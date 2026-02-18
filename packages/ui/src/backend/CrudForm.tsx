@@ -512,6 +512,7 @@ export function CrudForm<TValues extends Record<string, unknown>>({
         await recordLock.forceRelease('manual_takeover')
       }}
       error={recordLock.error}
+      errorCode={recordLock.errorCode}
     />
   ) : null
 
@@ -1202,7 +1203,7 @@ export function CrudForm<TValues extends Record<string, unknown>>({
     } catch (err: unknown) {
       const lockError = readRecordLockError(err)
       if (lockError.code === 'record_lock_conflict' && lockError.conflict) {
-        const conflictMessage = lockError.message || t('record_locks.conflict.title', 'Conflict detected')
+        const conflictMessage = t('record_locks.conflict.title', 'Conflict detected')
         setRecordConflict(lockError.conflict)
         setRecordConflictValues(parsedValues)
         setFormError(conflictMessage)
@@ -1210,7 +1211,7 @@ export function CrudForm<TValues extends Record<string, unknown>>({
         return
       }
       if (lockError.code === 'record_locked') {
-        const lockMessage = lockError.message || t('record_locks.banner.locked_by_other', 'This record is currently locked by another user.')
+        const lockMessage = t('record_locks.banner.locked_by_other', 'This record is currently locked by another user.')
         flash(lockMessage, 'error')
         setFormError(lockMessage)
         return
@@ -1287,7 +1288,7 @@ export function CrudForm<TValues extends Record<string, unknown>>({
     } catch (err: unknown) {
       const lockError = readRecordLockError(err)
       if (lockError.code === 'record_lock_conflict' && lockError.conflict) {
-        const message = lockError.message || t('record_locks.conflict.title', 'Conflict detected')
+        const message = t('record_locks.conflict.title', 'Conflict detected')
         setRecordConflict(lockError.conflict)
         setFormError(message)
         flash(message, 'error')

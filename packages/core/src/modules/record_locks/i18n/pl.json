@@ -6,8 +6,8 @@
       "description": "Konfiguracja strategii optimistic/pessimistic i obsługi konfliktów.",
       "enabled": "Włącz blokowanie rekordów",
       "strategy": "Strategia",
-      "strategy_optimistic": "Optimistic",
-      "strategy_pessimistic": "Pessimistic",
+      "strategy_optimistic": "Optymistyczna",
+      "strategy_pessimistic": "Pesymistyczna",
       "strategy_help_optimistic": "Wielu użytkowników może edytować jednocześnie; konflikt sprawdzany jest przy zapisie.",
       "strategy_help_pessimistic": "Pierwszy edytujący zakłada blokadę i blokuje równoległą edycję do czasu jej zwolnienia.",
       "timeout_seconds": "Timeout blokady (sekundy)",
@@ -28,6 +28,11 @@
       "take_over": "Przejmij edycję",
       "take_over_pending": "Przejmowanie..."
     },
+    "errors": {
+      "acquire_failed": "Nie udało się pobrać statusu blokady rekordu.",
+      "force_release_failed": "Nie udało się przejąć edycji rekordu.",
+      "force_release_unavailable": "Nie można przejąć edycji, bo wymuszone odblokowanie jest wyłączone albo blokada nie jest już aktywna."
+    },
     "conflict": {
       "title": "Wykryto konflikt",
       "description": "Rekord został zmieniony przez innego użytkownika po rozpoczęciu Twojej edycji.",
@@ -42,8 +47,8 @@
     },
     "notifications": {
       "lock_force_released": {
-        "title": "Twoja blokada została wymuszenie zwolniona",
-        "body": "Inny użytkownik wymuszenie zwolnił Twoją blokadę rekordu."
+        "title": "Twoja blokada została przymusowo zwolniona",
+        "body": "Inny użytkownik przymusowo zwolnił Twoją blokadę rekordu."
       },
       "conflict_detected": {
         "title": "Wykryto konflikt edycji",

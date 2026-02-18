@@ -28,6 +28,11 @@
       "take_over": "Take over editing",
       "take_over_pending": "Taking over..."
     },
+    "errors": {
+      "acquire_failed": "Failed to load record lock status.",
+      "force_release_failed": "Failed to take over editing.",
+      "force_release_unavailable": "Force release is unavailable because takeover is disabled or the lock is no longer active."
+    },
     "conflict": {
       "title": "Conflict detected",
       "description": "The record was changed by another user after you started editing.",

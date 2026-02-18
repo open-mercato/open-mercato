@@ -31,7 +31,13 @@ export async function POST(req: Request) {
   })
 
   if (!result.released) {
-    return NextResponse.json({ error: 'Force release is disabled or no active lock found' }, { status: 409 })
+    return NextResponse.json(
+      {
+        error: 'Force release unavailable',
+        code: 'record_force_release_unavailable',
+      },
+      { status: 409 },
+    )
   }
 
   return NextResponse.json(result)

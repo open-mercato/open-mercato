@@ -6,8 +6,8 @@
       "description": "Konfiguration von optimistic/pessimistic Sperrstrategien und Konfliktbehandlung.",
       "enabled": "Datensatzsperren aktivieren",
       "strategy": "Strategie",
-      "strategy_optimistic": "Optimistic",
-      "strategy_pessimistic": "Pessimistic",
+      "strategy_optimistic": "Optimistisch",
+      "strategy_pessimistic": "Pessimistisch",
       "strategy_help_optimistic": "Mehrere Benutzer konnen gleichzeitig bearbeiten; Konflikte werden beim Speichern gepruft.",
       "strategy_help_pessimistic": "Der erste Bearbeiter sperrt den Datensatz und blockiert parallele Bearbeitungen bis zur Freigabe.",
       "timeout_seconds": "Sperr-Timeout (Sekunden)",
@@ -27,6 +27,11 @@
       "mine": "Sie bearbeiten diesen Datensatz gerade.",
       "take_over": "Bearbeitung ubernehmen",
       "take_over_pending": "Wird ubernommen..."
+    },
+    "errors": {
+      "acquire_failed": "Der Sperrstatus des Datensatzes konnte nicht geladen werden.",
+      "force_release_failed": "Die Bearbeitung konnte nicht ubernommen werden.",
+      "force_release_unavailable": "Die Ubernahme ist nicht verfugbar, weil erzwungenes Entsperren deaktiviert ist oder die Sperre nicht mehr aktiv ist."
     },
     "conflict": {
       "title": "Konflikt erkannt",

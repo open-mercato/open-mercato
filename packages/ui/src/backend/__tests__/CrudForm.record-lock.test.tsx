@@ -34,10 +34,13 @@ describe('CrudForm record locking', () => {
       latestActionLogId: null,
       isOwner: false,
       isBlocked: true,
+      canForceRelease: false,
       isLoading: false,
       error: null,
+      errorCode: null,
       acquire: jest.fn(),
       release: jest.fn(),
+      forceRelease: jest.fn(async () => false),
       runGuardedMutation: jest.fn(async (run: () => Promise<unknown>) => run()),
       setLatestActionLogId: jest.fn(),
     })
@@ -72,6 +75,7 @@ describe('CrudForm record locking', () => {
     })
 
     expect(screen.getByText('This record is currently locked by another user.')).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Take over editing' })).not.toBeInTheDocument()
     expect(screen.getByDisplayValue('Example')).toBeDisabled()
   })
 
@@ -103,5 +107,49 @@ describe('CrudForm record locking', () => {
       enabled: true,
       autoCheckAcl: false,
     })
+  })
+
+  test('maps force release unavailable error to translated message', () => {
+    mockUseRecordLock.mockReturnValue({
+      enabled: true,
+      resourceEnabled: true,
+      strategy: 'pessimistic',
+      heartbeatSeconds: 30,
+      lock: null,
+      latestActionLogId: null,
+      isOwner: false,
+      isBlocked: true,
+      canForceRelease: false,
+      isLoading: false,
+      error: 'Force release unavailable',
+      errorCode: 'record_force_release_unavailable',
+      acquire: jest.fn(),
+      release: jest.fn(),
+      forceRelease: jest.fn(async () => false),
+      runGuardedMutation: jest.fn(async (run: () => Promise<unknown>) => run()),
+      setLatestActionLogId: jest.fn(),
+    })
+
+    render(
+      <I18nProvider locale="en" dict={{}}>
+        <CrudForm
+          title="Edit"
+          fields={[{ id: 'name', label: 'Name', type: 'text' }]}
+          initialValues={{
+            id: '10000000-0000-4000-8000-000000000003',
+            name: 'Acme',
+          }}
+          recordLocking={{
+            resourceKind: 'customers.company',
+            resourceId: '10000000-0000-4000-8000-000000000003',
+          }}
+          onSubmit={async () => {}}
+        />
+      </I18nProvider>,
+    )
+
+    expect(
+      screen.getByText('Force release is unavailable because takeover is disabled or the lock is no longer active.'),
+    ).toBeInTheDocument()
   })
 })

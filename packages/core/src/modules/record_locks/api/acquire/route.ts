@@ -34,6 +34,7 @@ export async function POST(req: Request) {
       {
         error: result.error,
         code: result.code,
+        allowForceUnlock: result.allowForceUnlock,
         lock: result.lock,
       },
       { status: result.status },

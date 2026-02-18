@@ -44,6 +44,7 @@ type AcquireResponse = {
   enabled: boolean
   resourceEnabled: boolean
   strategy: RecordLockStrategy
+  allowForceUnlock: boolean
   heartbeatSeconds: number
   acquired: boolean
   latestActionLogId: string | null
@@ -69,6 +70,7 @@ type ForceReleaseResponse = {
 type LockErrorResponse = {
   error?: string
   code?: string
+  allowForceUnlock?: boolean
   lock?: RecordLockApiLock | null
   conflict?: RecordLockConflict
 }
@@ -97,6 +99,7 @@ export type UseRecordLockResult = {
   canForceRelease: boolean
   isLoading: boolean
   error: string | null
+  errorCode: string | null
   acquire: () => Promise<void>
   release: (reason?: 'saved' | 'cancelled' | 'unmount' | 'conflict_resolved') => Promise<void>
   forceRelease: (reason?: string) => Promise<boolean>
@@ -133,8 +136,10 @@ export function useRecordLock(config: UseRecordLockConfig): UseRecordLockResult 
   const [heartbeatSeconds, setHeartbeatSeconds] = React.useState(DEFAULT_HEARTBEAT_SECONDS)
   const [lock, setLock] = React.useState<RecordLockApiLock | null>(null)
   const [latestActionLogId, setLatestActionLogId] = React.useState<string | null>(null)
+  const [forceUnlockEnabled, setForceUnlockEnabled] = React.useState(true)
   const [isLoading, setIsLoading] = React.useState(false)
   const [error, setError] = React.useState<string | null>(null)
+  const [errorCode, setErrorCode] = React.useState<string | null>(null)
   const [aclStatus, setAclStatus] = React.useState<'unknown' | 'granted' | 'denied'>(() => (
     autoCheckAcl ? 'unknown' : 'granted'
   ))
@@ -151,6 +156,7 @@ export function useRecordLock(config: UseRecordLockConfig): UseRecordLockResult 
     && lock?.status === 'active'
     && !isOwner,
   )
+  const canTakeOver = canForceRelease && forceUnlockEnabled
   const canUseLockApi = enabled && (!autoCheckAcl || aclStatus === 'granted')
 
   React.useEffect(() => {
@@ -197,14 +203,17 @@ export function useRecordLock(config: UseRecordLockConfig): UseRecordLockResult 
     if (!enabled) {
       setAclStatus(autoCheckAcl ? 'unknown' : 'granted')
       setCanForceRelease(!autoCheckAcl)
+      setForceUnlockEnabled(true)
       return
     }
     if (!autoCheckAcl) {
       setAclStatus('granted')
       setCanForceRelease(true)
+      setForceUnlockEnabled(true)
       return
     }
     setCanForceRelease(false)
+    setForceUnlockEnabled(true)
     setAclStatus('unknown')
   }, [autoCheckAcl, config.resourceId, config.resourceKind, enabled])
 
@@ -215,13 +224,16 @@ export function useRecordLock(config: UseRecordLockConfig): UseRecordLockResult 
       setResourceEnabled(false)
       setLock(null)
       setLatestActionLogId(null)
+      setForceUnlockEnabled(false)
       tokenRef.current = null
       setError(null)
+      setErrorCode(null)
       return
     }
 
     setIsLoading(true)
     setError(null)
+    setErrorCode(null)
 
     try {
       const call = await apiCall<AcquireResponse | LockErrorResponse>(
@@ -243,8 +255,10 @@ export function useRecordLock(config: UseRecordLockConfig): UseRecordLockResult 
         const fallbackStrategy = payload.lock?.strategy ?? 'pessimistic'
         setStrategy(fallbackStrategy)
         setResourceEnabled(true)
+        setForceUnlockEnabled(payload.allowForceUnlock ?? true)
         setLock(lockPayload)
         setError(isLockedByOtherUser ? null : (payload.error ?? `Failed to acquire lock (${call.status})`))
+        setErrorCode(isLockedByOtherUser ? null : (payload.code ?? 'record_locks_acquire_failed'))
         tokenRef.current = lockPayload?.token ?? null
         return
       }
@@ -252,12 +266,14 @@ export function useRecordLock(config: UseRecordLockConfig): UseRecordLockResult 
       const result = call.result as AcquireResponse | null
       if (!result) {
         setError('Failed to acquire lock')
+        setErrorCode('record_locks_acquire_failed')
         return
       }
 
       setStrategy(result.strategy)
       setHeartbeatSeconds(result.heartbeatSeconds || DEFAULT_HEARTBEAT_SECONDS)
       setResourceEnabled(Boolean(result.enabled && result.resourceEnabled))
+      setForceUnlockEnabled(result.allowForceUnlock ?? true)
       setLock(result.lock)
       setLatestActionLogId(result.latestActionLogId ?? null)
       tokenRef.current = result.lock?.token ?? null
@@ -285,9 +301,10 @@ export function useRecordLock(config: UseRecordLockConfig): UseRecordLockResult 
 
   const forceRelease = React.useCallback(async (reason = 'manual_takeover'): Promise<boolean> => {
     if (!canUseLockApi || !resourceEnabled || !lock || !isBlocked) return false
-    if (autoCheckAcl && !canForceRelease) return false
+    if (autoCheckAcl && !canTakeOver) return false
     setIsLoading(true)
     setError(null)
+    setErrorCode(null)
     try {
       const call = await apiCall<ForceReleaseResponse | LockErrorResponse>(
         '/api/record_locks/force-release',
@@ -303,7 +320,11 @@ export function useRecordLock(config: UseRecordLockConfig): UseRecordLockResult 
       )
       if (!call.ok) {
         const payload = (call.result ?? {}) as LockErrorResponse
+        if (typeof payload.allowForceUnlock === 'boolean') {
+          setForceUnlockEnabled(payload.allowForceUnlock)
+        }
         setError(payload.error ?? `Failed to force release lock (${call.status})`)
+        setErrorCode(payload.code ?? 'record_locks_force_release_failed')
         return false
       }
 
@@ -315,7 +336,7 @@ export function useRecordLock(config: UseRecordLockConfig): UseRecordLockResult 
   }, [
     acquire,
     autoCheckAcl,
-    canForceRelease,
+    canTakeOver,
     canUseLockApi,
     config.resourceId,
     config.resourceKind,
@@ -329,6 +350,7 @@ export function useRecordLock(config: UseRecordLockConfig): UseRecordLockResult 
       setResourceEnabled(false)
       setLock(null)
       setLatestActionLogId(null)
+      setForceUnlockEnabled(true)
       tokenRef.current = null
       return
     }
@@ -439,7 +461,11 @@ export function useRecordLock(config: UseRecordLockConfig): UseRecordLockResult 
   React.useEffect(() => {
     if (!error) return
     const timer = window.setTimeout(() => {
-      setError((current) => (current === error ? null : current))
+      setError((current) => {
+        if (current !== error) return current
+        setErrorCode(null)
+        return null
+      })
     }, 8_000)
     return () => window.clearTimeout(timer)
   }, [error])
@@ -453,9 +479,10 @@ export function useRecordLock(config: UseRecordLockConfig): UseRecordLockResult 
     latestActionLogId,
     isOwner,
     isBlocked,
-    canForceRelease,
+    canForceRelease: canTakeOver,
     isLoading,
     error,
+    errorCode,
     acquire,
     release,
     forceRelease,

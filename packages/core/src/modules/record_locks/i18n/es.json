@@ -6,8 +6,8 @@
       "description": "Configura estrategias optimistic/pessimistic y resolución de conflictos.",
       "enabled": "Habilitar bloqueo de registros",
       "strategy": "Estrategia",
-      "strategy_optimistic": "Optimistic",
-      "strategy_pessimistic": "Pessimistic",
+      "strategy_optimistic": "Optimista",
+      "strategy_pessimistic": "Pesimista",
       "strategy_help_optimistic": "Varios usuarios pueden editar al mismo tiempo; los conflictos se validan al guardar.",
       "strategy_help_pessimistic": "El primer editor adquiere el bloqueo y bloquea ediciones concurrentes hasta liberarlo.",
       "timeout_seconds": "Tiempo de bloqueo (segundos)",
@@ -27,6 +27,11 @@
       "mine": "Actualmente estás editando este registro.",
       "take_over": "Tomar control de la edicion",
       "take_over_pending": "Tomando control..."
+    },
+    "errors": {
+      "acquire_failed": "No se pudo cargar el estado del bloqueo del registro.",
+      "force_release_failed": "No se pudo tomar el control de la edición.",
+      "force_release_unavailable": "La toma de control no está disponible porque el desbloqueo forzado está deshabilitado o el bloqueo ya no está activo."
     },
     "conflict": {
       "title": "Conflicto detectado",

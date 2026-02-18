@@ -59,6 +59,7 @@ export const recordLockAcquireResponseSchema = z.object({
   enabled: z.boolean(),
   resourceEnabled: z.boolean(),
   strategy: z.enum(['optimistic', 'pessimistic']),
+  allowForceUnlock: z.boolean(),
   heartbeatSeconds: z.number().int().positive(),
   acquired: z.boolean(),
   latestActionLogId: z.string().uuid().nullable(),
@@ -84,6 +85,7 @@ export const recordLockForceReleaseResponseSchema = z.object({
 export const recordLockErrorSchema = z.object({
   error: z.string(),
   code: z.string().optional(),
+  allowForceUnlock: z.boolean().optional(),
   lock: recordLockApiLockSchema.nullable().optional(),
   conflict: z.object({
     id: z.string().uuid(),

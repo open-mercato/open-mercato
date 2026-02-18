@@ -38,6 +38,7 @@ describe('record_locks acquire route', () => {
       status: 423,
       error: 'Record is currently locked by another user',
       code: 'record_locked',
+      allowForceUnlock: false,
       lock: null,
     })
 
@@ -62,6 +63,7 @@ describe('record_locks acquire route', () => {
     expect(body).toMatchObject({
       code: 'record_locked',
       error: 'Record is currently locked by another user',
+      allowForceUnlock: false,
     })
   })
 
@@ -71,6 +73,7 @@ describe('record_locks acquire route', () => {
       enabled: true,
       resourceEnabled: true,
       strategy: 'optimistic',
+      allowForceUnlock: true,
       heartbeatSeconds: 30,
       acquired: true,
       latestActionLogId: null,
@@ -99,6 +102,7 @@ describe('record_locks acquire route', () => {
       ok: true,
       resourceEnabled: true,
       strategy: 'optimistic',
+      allowForceUnlock: true,
     })
   })
 })

@@ -103,10 +103,15 @@ export type RecordLockAcquireResult = {
   enabled: boolean
   resourceEnabled: boolean
   strategy: RecordLockStrategy
+  allowForceUnlock: boolean
   heartbeatSeconds: number
   acquired: boolean
   latestActionLogId: string | null
   lock: RecordLockView | null
+}
+
+export type RecordLockAcquireFailure = RecordLockValidationFailure & {
+  allowForceUnlock: boolean
 }
 
 export type RecordLockHeartbeatResult = {
@@ -349,7 +354,7 @@ export class RecordLockService {
     return settings
   }
 
-  async acquire(input: RecordLockAcquireInput): Promise<RecordLockAcquireResult | RecordLockValidationFailure> {
+  async acquire(input: RecordLockAcquireInput): Promise<RecordLockAcquireResult | RecordLockAcquireFailure> {
     const settings = await this.getSettings()
     const latest = await this.findLatestActionLog(input)
     const resourceEnabled = isRecordLockingEnabledForResource(settings, input.resourceKind)
@@ -360,6 +365,7 @@ export class RecordLockService {
         enabled: settings.enabled,
         resourceEnabled: false,
         strategy: settings.strategy,
+        allowForceUnlock: settings.allowForceUnlock,
         heartbeatSeconds: settings.heartbeatSeconds,
         acquired: false,
         latestActionLogId: latest?.id ?? null,
@@ -378,6 +384,7 @@ export class RecordLockService {
           status: 423,
           error: 'Record is currently locked by another user',
           code: 'record_locked',
+          allowForceUnlock: settings.allowForceUnlock,
           lock,
         }
       }
@@ -387,6 +394,7 @@ export class RecordLockService {
         enabled: settings.enabled,
         resourceEnabled: true,
         strategy: settings.strategy,
+        allowForceUnlock: settings.allowForceUnlock,
         heartbeatSeconds: settings.heartbeatSeconds,
         acquired: false,
         latestActionLogId: latest?.id ?? null,
@@ -406,6 +414,7 @@ export class RecordLockService {
         enabled: settings.enabled,
         resourceEnabled: true,
         strategy: settings.strategy,
+        allowForceUnlock: settings.allowForceUnlock,
         heartbeatSeconds: settings.heartbeatSeconds,
         acquired: false,
         latestActionLogId: latest?.id ?? null,
@@ -443,6 +452,7 @@ export class RecordLockService {
             status: 423,
             error: 'Record is currently locked by another user',
             code: 'record_locked',
+            allowForceUnlock: settings.allowForceUnlock,
             lock: lockView,
           }
         }
@@ -452,6 +462,7 @@ export class RecordLockService {
           enabled: settings.enabled,
           resourceEnabled: true,
           strategy: settings.strategy,
+          allowForceUnlock: settings.allowForceUnlock,
           heartbeatSeconds: settings.heartbeatSeconds,
           acquired: false,
           latestActionLogId: latest?.id ?? null,
@@ -470,6 +481,7 @@ export class RecordLockService {
         enabled: settings.enabled,
         resourceEnabled: true,
         strategy: settings.strategy,
+        allowForceUnlock: settings.allowForceUnlock,
         heartbeatSeconds: settings.heartbeatSeconds,
         acquired: false,
         latestActionLogId: latest?.id ?? null,
@@ -493,6 +505,7 @@ export class RecordLockService {
       enabled: settings.enabled,
       resourceEnabled: true,
       strategy: settings.strategy,
+      allowForceUnlock: settings.allowForceUnlock,
       heartbeatSeconds: settings.heartbeatSeconds,
       acquired: true,
       latestActionLogId: latest?.id ?? null,

@@ -16,6 +16,7 @@ export type RecordLockBannerProps = {
   forceReleasePending?: boolean
   onForceRelease?: () => Promise<void> | void
   error?: string | null
+  errorCode?: string | null
 }
 
 export function RecordLockBanner({
@@ -28,9 +29,29 @@ export function RecordLockBanner({
   forceReleasePending,
   onForceRelease,
   error,
+  errorCode,
 }: RecordLockBannerProps) {
-  if (error) {
-    return <Notice compact>{error}</Notice>
+  const resolvedError = React.useMemo(() => {
+    if (errorCode === 'record_force_release_unavailable') {
+      return t(
+        'record_locks.errors.force_release_unavailable',
+        'Force release is unavailable because takeover is disabled or the lock is no longer active.',
+      )
+    }
+    if (errorCode === 'record_locks_force_release_failed') {
+      return t('record_locks.errors.force_release_failed', 'Failed to take over editing.')
+    }
+    if (errorCode === 'record_locks_acquire_failed') {
+      return t('record_locks.errors.acquire_failed', 'Failed to load record lock status.')
+    }
+    if (errorCode === 'record_locked') {
+      return t('record_locks.banner.locked_by_other', 'This record is currently locked by another user.')
+    }
+    return error
+  }, [error, errorCode, t])
+
+  if (resolvedError) {
+    return <Notice compact>{resolvedError}</Notice>
   }
 
   if (!resourceEnabled) return null
