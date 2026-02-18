@@ -17,6 +17,7 @@ import type { FilterDef, FilterValues } from '@open-mercato/ui/backend/FilterBar
 import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { Pencil } from 'lucide-react'
+import { formatDateTime } from '@open-mercato/shared/lib/time'
 
 const PAGE_SIZE = 50
 
@@ -611,11 +612,7 @@ function buildTeamMemberRows(
   return rows
 }
 
-function formatDateTime(value: string): string {
-  const parsed = new Date(value)
-  if (Number.isNaN(parsed.getTime())) return value
-  return parsed.toLocaleString()
-}
+
 
 function renderLabelPills(values: string[]): React.ReactNode {
   if (!values.length) return <span className="text-xs text-muted-foreground">-</span>
