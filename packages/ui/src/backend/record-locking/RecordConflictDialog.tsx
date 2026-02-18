@@ -29,6 +29,13 @@ export function RecordConflictDialog({
     await onResolve(resolution)
   }, [onResolve])
 
+  const handleAcceptIncoming = React.useCallback(() => {
+    onOpenChange(false)
+    if (typeof window !== 'undefined') {
+      window.location.reload()
+    }
+  }, [onOpenChange])
+
   const formatValue = React.useCallback((value: unknown): string => {
     if (value === null || value === undefined || value === '') {
       return t('record_locks.conflict.empty_value', '(empty)')
@@ -81,9 +88,7 @@ export function RecordConflictDialog({
             type="button"
             variant="outline"
             disabled={pending}
-            onClick={() => {
-              onOpenChange(false)
-            }}
+            onClick={handleAcceptIncoming}
           >
             {t('record_locks.conflict.accept_incoming', 'Accept incoming')}
           </Button>
