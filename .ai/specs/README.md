@@ -79,6 +79,7 @@ Files like `AGENTS.md` and `CLAUDE.md` use UPPERCASE names and are not numberedâ
 | [SPEC-026a](SPEC-026a-2026-02-15-entity-translations-phase2.md) | 2026-02-15 | Entity Translations Phase 2 | TranslationManager UI (standalone + widget injection), search indexer `l10n:*` fields, per-entity translatable field definitions |
 | [SPEC-028](SPEC-028-2026-02-16-multiple-sales-pipelines.md) | 2026-02-16 | Multiple Sales Pipelines | Multiple CRM pipelines with configurable stages + deal assignment |
 | [SPEC-029](SPEC-029-2026-02-17-ecommerce-storefront-module.md) | 2026-02-17 | Ecommerce Storefront Module | Dedicated `ecommerce` core module + `apps/storefront` starter: org-scoped stores, per-store configurable branding (CSS variables), localized catalog APIs, server-side faceted filters with cross-facet exclusion, multi-variant selection algorithm, WCAG 2.2 AA compliance, RWD-first component spec, and workflow-driven checkout (Phase 3) |
+| [SPEC-030](SPEC-030-2026-02-18-units-of-measure-conversions.md) | 2026-02-18 | Units of Measure and Product Conversions | Hybrid UoM model for catalog + sales core: base/sales units on products, per-product conversion factors, normalized sales line quantities with immutable UoM snapshots, conversion-aware pricing tiers, optional EU unit-price display, and full API/UI/ACL/search/integration coverage plan. |
 
 ## Specification Structure
 
