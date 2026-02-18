@@ -437,6 +437,7 @@ export function TranslationManager({
         {renderFieldTable()}
         <div className="flex justify-end">
           <Button
+            type="button"
             size="sm"
             onClick={() => mutation.mutate()}
             disabled={mutation.isPending || !entityType || !recordId}
@@ -502,6 +503,7 @@ export function TranslationManager({
 
         <div className="flex justify-end">
           <Button
+            type="button"
             onClick={() => mutation.mutate()}
             disabled={mutation.isPending || loadingEntities || !!entitiesError || !entityType || !recordId}
           >
