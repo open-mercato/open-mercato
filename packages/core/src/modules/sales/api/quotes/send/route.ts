@@ -99,8 +99,8 @@ export async function POST(req: Request) {
       tenantId: ctx.auth?.tenantId ?? '',
       organizationId: ctx.selectedOrganizationId ?? ctx.auth?.orgId ?? null,
       userId: ctx.auth?.sub ?? '',
-      resourceKind: lockHeaders.resourceKind ?? 'sales.quote',
-      resourceId: lockHeaders.resourceId ?? input.quoteId,
+      resourceKind: 'sales.quote',
+      resourceId: input.quoteId,
       method: 'PUT',
       headers: lockHeaders,
     })
@@ -177,8 +177,8 @@ export async function POST(req: Request) {
         tenantId: ctx.auth?.tenantId ?? '',
         organizationId: ctx.selectedOrganizationId ?? ctx.auth?.orgId ?? null,
         userId: ctx.auth?.sub ?? '',
-        resourceKind: lockHeaders.resourceKind ?? 'sales.quote',
-        resourceId: lockHeaders.resourceId ?? input.quoteId,
+        resourceKind: 'sales.quote',
+        resourceId: input.quoteId,
         token: lockHeaders.token,
         reason: 'saved',
       })
@@ -220,4 +220,3 @@ export const openApi: OpenApiRouteDoc = {
     },
   },
 }
-
