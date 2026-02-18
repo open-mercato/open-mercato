@@ -336,31 +336,39 @@ export function useRecordLock(config: UseRecordLockConfig): UseRecordLockResult 
   }, [acquire, enabled])
 
   React.useEffect(() => {
-    if (!canUseLockApi || !tokenRef.current || !resourceEnabled) return
+    if (!canUseLockApi || !resourceEnabled) return
     const interval = Math.max(5, heartbeatSeconds || DEFAULT_HEARTBEAT_SECONDS) * 1000
-    const handle = window.setInterval(() => {
-      const token = tokenRef.current
-      if (!token) return
-      void apiCall<HeartbeatResponse>('/api/record_locks/heartbeat', {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({
-          token,
-          resourceKind: config.resourceKind,
-          resourceId: config.resourceId,
-        }),
-      }).then((response) => {
-        const stillCurrentToken = tokenRef.current === token
-        if (!stillCurrentToken || !response.ok) return
-        if (response.result?.expiresAt) return
-        tokenRef.current = null
-        setLock((prev) => (prev ? { ...prev, token: null, status: 'released' } : prev))
-        void acquire()
-      }).catch(() => {})
-    }, interval)
+    if (tokenRef.current) {
+      const handle = window.setInterval(() => {
+        const token = tokenRef.current
+        if (!token) return
+        void apiCall<HeartbeatResponse>('/api/record_locks/heartbeat', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({
+            token,
+            resourceKind: config.resourceKind,
+            resourceId: config.resourceId,
+          }),
+        }).then((response) => {
+          const stillCurrentToken = tokenRef.current === token
+          if (!stillCurrentToken || !response.ok) return
+          if (response.result?.expiresAt) return
+          tokenRef.current = null
+          setLock((prev) => (prev ? { ...prev, token: null, status: 'released' } : prev))
+          void acquire()
+        }).catch(() => {})
+      }, interval)
 
-    return () => window.clearInterval(handle)
-  }, [acquire, canUseLockApi, config.resourceId, config.resourceKind, heartbeatSeconds, resourceEnabled])
+      return () => window.clearInterval(handle)
+    }
+
+    if (!isBlocked) return
+    const blockedPoll = window.setInterval(() => {
+      void acquire()
+    }, interval)
+    return () => window.clearInterval(blockedPoll)
+  }, [acquire, canUseLockApi, config.resourceId, config.resourceKind, heartbeatSeconds, isBlocked, resourceEnabled])
 
   React.useEffect(() => {
     if (!canUseLockApi) return
