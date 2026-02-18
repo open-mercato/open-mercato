@@ -105,15 +105,12 @@ export async function resolveStoreByHost(
 export async function resolveStoreBySlug(
   em: EntityManager,
   slug: string,
-  tenantId: string,
+  tenantId: string | null,
   requestedLocale: string | null = null,
 ): Promise<StoreContext | null> {
-  const store = await em.findOne(EcommerceStore, {
-    slug,
-    tenantId,
-    status: 'active',
-    deletedAt: null,
-  })
+  const filter: Record<string, unknown> = { slug, deletedAt: null }
+  if (tenantId) filter.tenantId = tenantId
+  const store = await em.findOne(EcommerceStore, filter as Parameters<typeof em.findOne>[1])
   if (!store) return null
 
   const channelBinding = await resolveChannelBinding(em, store.id)

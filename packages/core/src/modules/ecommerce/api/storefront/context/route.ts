@@ -14,7 +14,7 @@ export async function GET(req: Request) {
     const container = await createRequestContainer()
     const em = container.resolve('em') as EntityManager
     const url = new URL(req.url)
-    const tenantId = url.searchParams.get('tenantId') ?? ''
+    const tenantId = url.searchParams.get('tenantId') ?? null
 
     const storeCtx = await resolveStoreFromRequest(req, em, tenantId)
     if (!storeCtx) {
