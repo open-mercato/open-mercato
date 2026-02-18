@@ -352,6 +352,11 @@ export function PersonHighlights({
         resourceEnabled={lockGuard.lock.resourceEnabled}
         isOwner={lockGuard.lock.isOwner}
         isBlocked={lockGuard.lock.isBlocked}
+        canForceRelease={lockGuard.lock.canForceRelease}
+        forceReleasePending={lockGuard.lock.isLoading}
+        onForceRelease={async () => {
+          await lockGuard.lock.forceRelease('manual_takeover')
+        }}
         error={lockGuard.lock.error}
       />
       <FormHeader

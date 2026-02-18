@@ -24,7 +24,9 @@
     "banner": {
       "locked_by_other": "This record is currently locked by another user.",
       "optimistic_notice": "Another user is editing this record. Conflicts may occur on save.",
-      "mine": "You are currently editing this record."
+      "mine": "You are currently editing this record.",
+      "take_over": "Take over editing",
+      "take_over_pending": "Taking over..."
     },
     "conflict": {
       "title": "Conflict detected",

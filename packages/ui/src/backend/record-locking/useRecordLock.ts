@@ -51,6 +51,12 @@ type ReleaseResponse = {
   released: boolean
 }
 
+type ForceReleaseResponse = {
+  ok: true
+  released: boolean
+  lock?: RecordLockApiLock | null
+}
+
 type LockErrorResponse = {
   error?: string
   code?: string
@@ -79,10 +85,12 @@ export type UseRecordLockResult = {
   latestActionLogId: string | null
   isOwner: boolean
   isBlocked: boolean
+  canForceRelease: boolean
   isLoading: boolean
   error: string | null
   acquire: () => Promise<void>
   release: (reason?: 'saved' | 'cancelled' | 'unmount' | 'conflict_resolved') => Promise<void>
+  forceRelease: (reason?: string) => Promise<boolean>
   runGuardedMutation: <T>(
     run: () => Promise<T>,
     options?: {
@@ -96,6 +104,7 @@ export type UseRecordLockResult = {
 
 const DEFAULT_HEARTBEAT_SECONDS = 30
 const RECORD_LOCK_VIEW_FEATURE = 'record_locks.view'
+const RECORD_LOCK_FORCE_RELEASE_FEATURE = 'record_locks.force_release'
 
 function toMessage(value: unknown): string {
   if (typeof value === 'string' && value.trim().length) return value.trim()
@@ -120,6 +129,7 @@ export function useRecordLock(config: UseRecordLockConfig): UseRecordLockResult 
   const [aclStatus, setAclStatus] = React.useState<'unknown' | 'granted' | 'denied'>(() => (
     autoCheckAcl ? 'unknown' : 'granted'
   ))
+  const [canForceRelease, setCanForceRelease] = React.useState<boolean>(() => !autoCheckAcl)
 
   const tokenRef = React.useRef<string | null>(null)
   const aclCheckPromiseRef = React.useRef<Promise<boolean> | null>(null)
@@ -137,6 +147,7 @@ export function useRecordLock(config: UseRecordLockConfig): UseRecordLockResult 
     if (!enabled) return false
     if (!autoCheckAcl) {
       if (aclStatusRef.current !== 'granted') setAclStatus('granted')
+      setCanForceRelease(true)
       return true
     }
     if (aclStatusRef.current === 'granted') return true
@@ -147,13 +158,16 @@ export function useRecordLock(config: UseRecordLockConfig): UseRecordLockResult 
           const checkCall = await apiCall<FeatureCheckResponse>('/api/auth/feature-check', {
             method: 'POST',
             headers: { 'content-type': 'application/json' },
-            body: JSON.stringify({ features: [RECORD_LOCK_VIEW_FEATURE] }),
+            body: JSON.stringify({ features: [RECORD_LOCK_VIEW_FEATURE, RECORD_LOCK_FORCE_RELEASE_FEATURE] }),
           })
+          const grantedSet = new Set(checkCall.result?.granted ?? [])
           const granted = checkCall.ok
-            && new Set(checkCall.result?.granted ?? []).has(RECORD_LOCK_VIEW_FEATURE)
+            && grantedSet.has(RECORD_LOCK_VIEW_FEATURE)
+          setCanForceRelease(grantedSet.has(RECORD_LOCK_FORCE_RELEASE_FEATURE))
           setAclStatus(granted ? 'granted' : 'denied')
           return granted
         } catch {
+          setCanForceRelease(false)
           setAclStatus('denied')
           return false
         } finally {
@@ -168,12 +182,15 @@ export function useRecordLock(config: UseRecordLockConfig): UseRecordLockResult 
     aclCheckPromiseRef.current = null
     if (!enabled) {
       setAclStatus(autoCheckAcl ? 'unknown' : 'granted')
+      setCanForceRelease(!autoCheckAcl)
       return
     }
     if (!autoCheckAcl) {
       setAclStatus('granted')
+      setCanForceRelease(true)
       return
     }
+    setCanForceRelease(false)
     setAclStatus('unknown')
   }, [autoCheckAcl, config.resourceId, config.resourceKind, enabled])
 
@@ -207,12 +224,14 @@ export function useRecordLock(config: UseRecordLockConfig): UseRecordLockResult 
 
       if (!call.ok) {
         const payload = (call.result ?? {}) as LockErrorResponse
+        const lockPayload = payload.lock ?? null
+        const isLockedByOtherUser = payload.code === 'record_locked' && Boolean(lockPayload)
         const fallbackStrategy = payload.lock?.strategy ?? 'pessimistic'
         setStrategy(fallbackStrategy)
         setResourceEnabled(true)
-        setLock(payload.lock ?? null)
-        setError(payload.error ?? `Failed to acquire lock (${call.status})`)
-        tokenRef.current = payload.lock?.token ?? null
+        setLock(lockPayload)
+        setError(isLockedByOtherUser ? null : (payload.error ?? `Failed to acquire lock (${call.status})`))
+        tokenRef.current = lockPayload?.token ?? null
         return
       }
 
@@ -249,6 +268,47 @@ export function useRecordLock(config: UseRecordLockConfig): UseRecordLockResult 
     tokenRef.current = null
     setLock((prev) => (prev ? { ...prev, token: null, status: 'released' } : prev))
   }, [canUseLockApi, config.resourceId, config.resourceKind])
+
+  const forceRelease = React.useCallback(async (reason = 'manual_takeover'): Promise<boolean> => {
+    if (!canUseLockApi || !resourceEnabled || !lock || !isBlocked) return false
+    if (autoCheckAcl && !canForceRelease) return false
+    setIsLoading(true)
+    setError(null)
+    try {
+      const call = await apiCall<ForceReleaseResponse | LockErrorResponse>(
+        '/api/record_locks/force-release',
+        {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({
+            resourceKind: config.resourceKind,
+            resourceId: config.resourceId,
+            reason,
+          }),
+        },
+      )
+      if (!call.ok) {
+        const payload = (call.result ?? {}) as LockErrorResponse
+        setError(payload.error ?? `Failed to force release lock (${call.status})`)
+        return false
+      }
+
+      await acquire()
+      return true
+    } finally {
+      setIsLoading(false)
+    }
+  }, [
+    acquire,
+    autoCheckAcl,
+    canForceRelease,
+    canUseLockApi,
+    config.resourceId,
+    config.resourceKind,
+    isBlocked,
+    lock,
+    resourceEnabled,
+  ])
 
   React.useEffect(() => {
     if (!enabled) {
@@ -364,10 +424,12 @@ export function useRecordLock(config: UseRecordLockConfig): UseRecordLockResult 
     latestActionLogId,
     isOwner,
     isBlocked,
+    canForceRelease,
     isLoading,
     error,
     acquire,
     release,
+    forceRelease,
     runGuardedMutation,
     setLatestActionLogId,
   }

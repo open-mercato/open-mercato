@@ -506,6 +506,11 @@ export function CrudForm<TValues extends Record<string, unknown>>({
       resourceEnabled={recordLock.resourceEnabled}
       isOwner={recordLock.isOwner}
       isBlocked={recordLock.isBlocked}
+      canForceRelease={recordLock.canForceRelease}
+      forceReleasePending={recordLock.isLoading}
+      onForceRelease={async () => {
+        await recordLock.forceRelease('manual_takeover')
+      }}
       error={recordLock.error}
     />
   ) : null
