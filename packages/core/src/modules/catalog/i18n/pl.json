@@ -1,616 +1,79 @@
 {
-  "customers~catalog": {
-    "errors": {
-      "tenant_required": "Tenant context is required.",
-      "organization_required": "Organization context is required.",
-      "id_required": "Record identifier is required."
-    },
-    "nav": {
-      "group": "Katalog"
-    }
-  },
+  "audit_logs.resource_kind.catalog.price": "Cena",
+  "audit_logs.resource_kind.catalog.variant": "Wariant",
   "catalog": {
-    "module": {
-      "title": "Katalog produktów",
-      "description": "Zarządzaj produktami, wariantami i cennikami wykorzystywanymi w sprzedaży."
-    },
-    "search": {
-      "badge": {
-        "product": "Produkt",
-        "variant": "Wariant",
-        "category": "Kategoria",
-        "offer": "Oferta kanału",
-        "tag": "Tag",
-        "priceKind": "Rodzaj ceny",
-        "optionSchema": "Schemat opcji"
-      },
-      "status": {
-        "inactive": "Nieaktywny"
-      },
-      "variant": {
-        "default": "Domyślny"
-      },
-      "priceKind": {
-        "includingTax": "Z VAT",
-        "excludingTax": "Bez VAT",
-        "promotion": "Promocja"
-      }
-    },
     "categories": {
-      "page": {
-        "title": "Kategorie"
-      },
-      "list": {
-        "title": "Kategorie",
-        "actions": {
-          "create": "Utwórz",
-          "edit": "Edytuj",
-          "delete": "Usuń"
-        },
-        "searchPlaceholder": "Szukaj kategorii",
-        "filters": {
-          "status": "Status",
-          "all": "Wszystkie",
-          "active": "Aktywne",
-          "inactive": "Nieaktywne"
-        },
-        "columns": {
-          "category": "Kategoria",
-          "path": "Ścieżka",
-          "parent": "Rodzic",
-          "children": "Potomkowie",
-          "active": "Aktywna"
-        },
-        "error": {
-          "load": "Nie udało się załadować kategorii",
-          "delete": "Nie udało się usunąć kategorii"
-        },
-        "confirmDelete": "Zarchiwizować kategorię \"{{name}}\"?",
-        "none": "—"
-      },
-      "select": {
-        "error": "Nie udało się załadować kategorii",
-        "inactive": "nieaktywna",
-        "empty": "Poziom główny",
-        "loading": "Ładowanie kategorii…"
+      "flash": {
+        "created": "Kategoria utworzona",
+        "deleted": "Kategoria zarchiwizowana",
+        "updated": "Kategoria zaktualizowana"
       },
       "form": {
-        "createTitle": "Utwórz kategorię",
-        "editTitle": "Edytuj kategorię",
-        "loading": "Ładowanie kategorii...",
-        "field": {
-          "name": "Nazwa",
-          "namePlaceholder": "np. Obuwie",
-          "slug": "Slug",
-          "slugHelp": "Małymi literami do URL-i i importu.",
-          "description": "Opis",
-          "parent": "Rodzic",
-          "isActive": "Aktywna"
-        },
-        "group": {
-          "details": "Szczegóły",
-          "custom": "Dane niestandardowe"
-        },
         "action": {
           "create": "Utwórz",
           "save": "Zapisz"
         },
+        "createTitle": "Utwórz kategorię",
+        "editTitle": "Edytuj kategorię",
         "errors": {
-          "name": "Podaj nazwę kategorii.",
-          "load": "Nie udało się załadować kategorii",
-          "notFound": "Nie znaleziono kategorii",
+          "delete": "Nie udało się usunąć kategorii",
           "idRequired": "Wymagany jest identyfikator kategorii.",
-          "delete": "Nie udało się usunąć kategorii"
+          "load": "Nie udało się załadować kategorii",
+          "name": "Podaj nazwę kategorii.",
+          "notFound": "Nie znaleziono kategorii"
         },
+        "field": {
+          "description": "Opis",
+          "isActive": "Aktywna",
+          "name": "Nazwa",
+          "namePlaceholder": "np. Obuwie",
+          "parent": "Rodzic",
+          "slug": "Slug",
+          "slugHelp": "Małymi literami do URL-i i importu."
+        },
+        "group": {
+          "custom": "Dane niestandardowe",
+          "details": "Szczegóły"
+        },
+        "loading": "Ładowanie kategorii...",
         "pathLabel": "Ścieżka: {{path}}"
       },
-      "flash": {
-        "created": "Kategoria utworzona",
-        "updated": "Kategoria zaktualizowana",
-        "deleted": "Kategoria zarchiwizowana"
-      }
-    },
-    "products": {
-      "page": {
-        "title": "Produkty i usługi"
-      },
-      "actions": {
-        "refresh": "Odśwież",
-        "create": "Utwórz"
-      },
-      "filters": {
-        "status": "Status",
-        "active": "Aktywne",
-        "configurable": "Konfigurowalne",
-        "productType": "Typ produktu",
-        "channels": "Kanały sprzedaży",
-        "channelsLoadError": "Nie udało się załadować kanałów",
-        "categories": "Kategorie",
-        "categoriesLoadError": "Nie udało się załadować kategorii",
-        "tags": "Tagi",
-        "tagsLoadError": "Nie udało się załadować tagów"
-      },
-      "types": {
-        "simple": "Prosty",
-        "configurable": "Konfigurowalny",
-        "virtual": "Wirtualny",
-        "downloadable": "Do pobrania",
-        "bundle": "Zestaw",
-        "grouped": "Grupowy"
-      },
-      "table": {
-        "title": "Title",
-        "sku": "SKU",
-        "type": "Typ",
-        "configurable": "Konfigurowalne",
-        "active": "Aktywne",
-        "price": "Cena",
-        "channels": "Kanały",
-        "updatedAt": "Zaktualizowano",
-        "actions": {
-          "edit": "Edytuj",
-          "delete": "Usuń"
-        }
-      },
       "list": {
-        "title": "Produkty",
+        "actions": {
+          "create": "Utwórz",
+          "delete": "Usuń",
+          "edit": "Edytuj"
+        },
+        "columns": {
+          "active": "Aktywna",
+          "category": "Kategoria",
+          "children": "Potomkowie",
+          "parent": "Rodzic",
+          "path": "Ścieżka"
+        },
+        "confirmDelete": "Zarchiwizować kategorię \"{{name}}\"?",
         "error": {
-          "load": "Nie udało się załadować produktów",
-          "delete": "Nie udało się usunąć produktu"
+          "delete": "Nie udało się usunąć kategorii",
+          "load": "Nie udało się załadować kategorii"
         },
-        "deleteConfirm": "Usunąć ten produkt?",
-        "actions": {
-          "edit": "Edytuj",
-          "delete": "Usuń"
-        }
+        "filters": {
+          "active": "Aktywne",
+          "all": "Wszystkie",
+          "inactive": "Nieaktywne",
+          "status": "Status"
+        },
+        "none": "—",
+        "searchPlaceholder": "Szukaj kategorii",
+        "title": "Kategorie"
       },
-      "flash": {
-        "deleted": "Produkt został usunięty",
-        "created": "Produkt utworzony"
+      "page": {
+        "title": "Kategorie"
       },
-      "errors": {
-        "handleExists": "Handle jest już używany.",
-        "skuExists": "SKU jest już używany."
-      },
-      "media": {
-        "label": "Media",
-        "dropHint": "Przeciągnij i upuść obrazy tutaj lub kliknij, aby je przesłać.",
-        "choose": "Wybierz pliki",
-        "uploading": "Przesyłam…",
-        "empty": "Nie dodano jeszcze żadnych mediów.",
-        "default": "Domyślny podgląd",
-        "errors": {
-          "imagesOnly": "Obsługiwane są tylko pliki graficzne.",
-          "uploadFailed": "Nie udało się przesłać pliku.",
-          "deleteFailed": "Nie udało się usunąć medium."
-        }
-      },
-      "form": {
-        "general": "Ogólne",
-        "pricing": "Ceny",
-        "options": "Opcje",
-        "variants": "Warianty",
-        "title": "Tytuł",
-        "subtitle": "Podtytuł",
-        "description": "Opis",
-        "sku": "SKU",
-        "handle": "Identyfikator",
-        "handlePlaceholder": "np. letnie-trampki",
-        "handlePreview": "Identyfikator: ",
-        "handlePreviewPlaceholder": "twoj-identyfikator",
-        "productType": "Typ produktu",
-        "currency": "Główna waluta",
-        "unit": "Domyślna jednostka",
-        "isActive": "Aktywny"
-      },
-      "create": {
-        "title": "Utwórz produkt",
-        "submit": "Utwórz produkt",
-        "success": "Produkt utworzony.",
-        "placeholders": {
-          "title": "np. Letnie trampki",
-          "subtitle": "Opcjonalny podtytuł",
-          "handle": "np. letnie-trampki",
-          "description": "Opisz produkt..."
-        },
-        "fields": {
-          "currency": "Główna waluta"
-        },
-        "meta": {
-          "title": "Metadane produktu",
-          "description": "Zarządzaj podtytułem, identyfikatorem i walutą dla witryn.",
-          "handleLabel": "Identyfikator"
-        },
-        "actions": {
-          "generateHandle": "Generuj",
-          "usePlain": "Użyj zwykłego tekstu",
-          "useMarkdown": "Użyj markdown"
-        },
-        "steps": {
-          "general": "Dane ogólne",
-          "organize": "Organizacja",
-          "variants": "Warianty",
-          "previous": "Wstecz",
-          "continue": "Dalej",
-          "review": "Podsumowanie"
-        },
-        "handleHelp": "Identyfikator jest używany w adresach URL i musi być unikalny.",
-        "attachments": {
-          "title": "Media",
-          "help": "Przeciągnij i upuść obrazy tutaj lub kliknij, aby je przesłać.",
-          "remove": "Usuń"
-        },
-        "taxRates": {
-          "label": "Klasa podatkowa",
-          "noneSelected": "Nie wybrano klasy podatkowej",
-          "emptyOption": "Brak dostępnych klas podatkowych",
-          "help": "Stosowana do nowych cen, chyba że zostanie nadpisana na poziomie wariantu.",
-          "empty": "Zdefiniuj klasy podatkowe w Sprzedaż → Konfiguracja.",
-          "error": "Nie udało się wczytać stawek podatkowych.",
-          "unnamed": "Stawka bez nazwy",
-          "manage": "Zarządzaj klasami podatkowymi"
-        },
-        "organize": {
-          "title": "Kategoryzuj",
-          "description": "Przypisz kategorie, kanały sprzedaży i tagi.",
-          "categoriesLabel": "Kategorie",
-          "categoriesPlaceholder": "Szukaj kategorii",
-          "categoriesHelp": "Przypisz produkt do jednego lub wielu węzłów taksonomii.",
-          "channelsLabel": "Kanały sprzedaży",
-          "channelsPlaceholder": "Wybierz kanały",
-          "channelsHelp": "Wybrane kanały otrzymają domyślne oferty dla tego produktu.",
-          "tagsLabel": "Tagi",
-          "tagsPlaceholder": "Dodaj tag i naciśnij Enter",
-          "tagsHelp": "Opisuj produkty wspólnymi etykietami, aby tworzyć szybkie filtry."
-        },
-        "tabs": {
-          "label": "Sekcje produktu",
-          "attributes": "Atrybuty",
-          "subproducts": "Subprodukty",
-          "customOptions": "Opcje"
-        },
-        "errors": {
-          "scope": "Wybierz organizację zanim utworzysz produkt.",
-          "missingId": "Brakuje identyfikatora produktu po utworzeniu.",
-          "title": "Podaj tytuł produktu.",
-          "titleRequired": "Podaj tytuł produktu.",
-          "id": "Brakuje ID produktu po utworzeniu.",
-          "variant": "Nie udało się utworzyć wariantu.",
-          "currency": "Podaj walutę dla wszystkich typów cen.",
-          "priceNonNegative": "Ceny muszą być równe zero lub wyższe."
-        },
-        "currency": {
-          "placeholder": "Wybierz walutę…",
-          "add": "Dodaj walutę",
-          "addPrompt": "Podaj kod waluty.",
-          "dialogTitle": "Dodaj walutę",
-          "valueLabel": "Kod waluty",
-          "valuePlaceholder": "np. PLN",
-          "labelLabel": "Etykieta (opcjonalnie)",
-          "labelPlaceholder": "np. Złoty polski",
-          "required": "Kod waluty jest wymagany.",
-          "cancel": "Anuluj",
-          "save": "Zapisz",
-          "saveShortcut": "Naciśnij Enter, aby zapisać",
-          "success": "Waluta dodana.",
-          "loadError": "Nie udało się wczytać walut.",
-          "error": "Nie udało się dodać waluty.",
-          "loading": "Wczytywanie walut…",
-          "manage": "Zarządzaj walutami"
-        },
-        "pricing": {
-          "net": "Cena netto",
-          "gross": "Cena brutto",
-          "taxRate": "Stawka VAT",
-          "currencyRequired": "Podaj walutę, aby zapisać ceny.",
-          "entriesTitle": "Pozycje cenowe",
-          "addPrice": "Dodaj cenę",
-          "empty": "Brak cen.",
-          "currencyPlaceholder": "Wybierz walutę",
-          "unitPlaceholder": "Wybierz jednostkę",
-          "currencyLabel": "Waluta",
-          "usePrimaryCurrency": "Użyj głównej waluty",
-          "kindLabel": "Typ",
-          "kind": {
-            "list": "Katalogowa",
-            "sale": "Promocyjna",
-            "tier": "Progowa",
-            "custom": "Niestandardowa"
-          },
-          "minQty": "Min. ilość",
-          "maxQty": "Maks. ilość",
-          "startsAt": "Data rozpoczęcia",
-          "endsAt": "Data zakończenia",
-          "currencyLoadError": "Nie udało się wczytać walut.",
-          "unitLoadError": "Nie udało się wczytać jednostek."
-        },
-        "variants": {
-          "add": "Dodaj wariant",
-          "generate": "Generuj na podstawie atrybutów",
-          "noOptions": "Zdefiniuj opcje typu wyboru, aby automatycznie generować kombinacje.",
-          "disabled": "Warianty dostępne są tylko dla produktów konfigurowalnych.",
-          "empty": "Brak wariantów. Dodaj pierwszy, aby zacząć.",
-          "name": "Nazwa",
-          "namePlaceholder": "np. Niebieski / L",
-          "default": "Domyślny wariant"
-        },
-        "subproducts": {
-          "loadError": "Nie udało się załadować produktów",
-          "searchLabel": "Szukaj produktów",
-          "searchPlaceholder": "Wpisz, aby wyszukać w katalogu",
-          "loading": "Ładowanie…",
-          "results": "Wyniki wyszukiwania",
-          "noResults": "Nie znaleziono produktów",
-          "add": "Dodaj",
-          "selected": "Wybrane subprodukty",
-          "empty": "Brak powiązanych subproduktów.",
-          "relation": "Relacja",
-          "required": "Wymagane",
-          "requiredLabel": "Klient musi wybrać ten element",
-          "minQty": "Min. ilość",
-          "maxQty": "Maks. ilość"
-        },
-        "options": {
-          "add": "Dodaj opcję niestandardową",
-          "empty": "Brak niestandardowych opcji.",
-          "label": "Etykieta",
-          "type": "Typ",
-          "required": "Wymagane",
-          "multiple": "Zezwól na wiele",
-          "description": "Opis",
-          "choices": "Wybory",
-          "noChoices": "Brak wyborów.",
-          "choiceValue": "Wartość",
-          "choiceLabel": "Etykieta",
-          "removeChoice": "Usuń",
-          "addChoice": "Dodaj wybór",
-          "schemaLabel": "Option schema",
-          "schemaPlaceholder": "Select schema",
-          "schemaLoadError": "Unable to load option schemas.",
-          "schemaApplied": "Using {{name}}",
-          "schemaHint": "Start from a template or build your own option set.",
-          "saveTemplate": "Save as template",
-          "clearSchema": "Clear",
-          "schemaNameField": "Name",
-          "schemaCodeField": "Code",
-          "schemaCodePlaceholder": "Used internally, e.g. fashion-defaults",
-          "schemaNameRequired": "Provide a template name.",
-          "schemaCodeRequired": "Provide a valid template code.",
-          "schemaEmpty": "Add at least one option before saving.",
-          "scopeRequired": "Select an organization before saving schemas.",
-          "schemaSaved": "Option schema saved.",
-          "schemaSaveError": "Unable to save option schema.",
-          "schemaLoadPlaceholder": "Loading…",
-          "saveTemplateTitle": "Save option schema",
-          "saveTemplateDescription": "Reuse this option set across future products."
-        },
-        "optionsBuilder": {
-          "title": "Opcje produktu",
-          "add": "Dodaj opcję",
-          "placeholder": "np. Kolor",
-          "values": "Wartości",
-          "valuePlaceholder": "Wpisz wartość i naciśnij Enter",
-          "empty": "Brak opcji. Dodaj pierwszą opcję, aby generować warianty."
-        },
-        "variantsBuilder": {
-          "toggle": "Produkt z wariantami",
-          "defaultOption": "Domyślna opcja",
-          "sku": "SKU",
-          "vatColumn": "Klasa podatkowa",
-          "manageInventory": "Zarządzanie zapasami",
-          "allowBackorder": "Zamówienia wsteczne",
-          "inventoryKit": "Zestaw magazynowy",
-          "defaultLabel": "Domyślna wartość opcji",
-          "makeDefault": "Ustaw jako domyślny",
-          "titlePlaceholder": "Nazwa wariantu",
-          "skuPlaceholder": "np. SKU-001",
-          "priceColumn": "Cena {{title}}",
-          "vatOptionDefault": "Użyj klasy podatkowej produktu ({{label}})",
-          "vatOptionNone": "Brak klasy podatkowej",
-          "inventoryDisabled": "Sterowanie stanem magazynowym będzie wkrótce dostępne.",
-          "noPriceKinds": "Skonfiguruj typy cen w ustawieniach katalogu, aby dodać kolumny cen.",
-          "currencyMissing": "Brak waluty"
-        },
-        "seoWidget": {
-          "title": "Optymalizacja SEO",
-          "hint": "Tytuły powinny mieć 10–60 znaków, a opisy 50+ znaków.",
-          "ready": "Gotowe",
-          "needsAttention": "Wymaga uwagi",
-          "titleLabel": "Tytuł ({{count}} znaków)",
-          "descriptionLabel": "Opis ({{count}} znaków)",
-          "missing": "Brak",
-          "tooShort": "Za krótki",
-          "tooLong": "Za długi",
-          "good": "Dobrze",
-          "issues": {
-            "addTitle": "Dodaj tytuł produktu.",
-            "titleTooShort": "Tytuł jest za krótki (min. 10 znaków).",
-            "titleTooLong": "Tytuł jest za długi (zalecane maks. 60 znaków).",
-            "addDescription": "Dodaj opis produktu (50+ znaków).",
-            "descriptionTooShort": "Opis jest za krótki dla dobrego SEO (min. 50 znaków)."
-          },
-          "footer": "Przykładowy widget wykorzystujący system wstrzykiwania.",
-          "learnMore": "Dowiedz się, jak zbudować własny"
-        },
-        "remove": "Usuń",
-        "selectPlaceholder": "Wybierz wartość"
-      },
-      "edit": {
-        "title": "Edytuj produkt",
-        "loading": "Ładowanie produktu",
-        "save": "Zapisz zmiany",
-        "success": "Produkt zaktualizowany.",
-        "errors": {
-          "idMissing": "Brakuje identyfikatora produktu.",
-          "notFound": "Nie znaleziono produktu.",
-          "load": "Nie udało się załadować szczegółów produktu.",
-          "validation": "Popraw zaznaczone pola."
-        },
-        "dimensions": "Wymiary i waga",
-        "dimensions.width": "Szerokość",
-        "dimensions.height": "Wysokość",
-        "dimensions.depth": "Głębokość",
-        "dimensions.unit": "Jednostka rozmiaru",
-        "weight": {
-          "value": "Waga",
-          "unit": "Jednostka wagi"
-        },
-        "variants": "Warianty",
-        "variants.add": "Dodaj wariant",
-        "variants.default": "Domyślny",
-        "variants.empty": "Brak zdefiniowanych wariantów.",
-        "custom": {
-          "title": "Atrybuty niestandardowe"
-        },
-        "metadata": {
-          "title": "Metadane",
-          "hint": "Dołącz strukturalne pary klucz/wartość dla integracji.",
-          "add": "Dodaj wpis",
-          "remove": "Usuń wpis",
-          "empty": "Brak metadanych. Dodaj pierwszy wpis.",
-          "expand": "Pokaż metadane",
-          "collapse": "Ukryj metadane",
-          "keyPlaceholder": "Klucz",
-          "valuePlaceholder": "Wartość"
-        },
-        "schemas": {
-          "manage": "Otwórz bibliotekę schematów",
-          "save": "Zapisz jako schemat",
-          "saveTitle": "Zapisz schemat opcji",
-          "dialogTitle": "Schematy opcji",
-          "loading": "Ładowanie…",
-          "empty": "Brak zapisanych schematów.",
-          "apply": "Zastosuj",
-          "edit": "Edytuj schemat",
-          "delete": "Usuń schemat",
-          "deleteError": "Nie udało się usunąć schematu.",
-          "deleted": "Schemat usunięty.",
-          "nameLabel": "Nazwa schematu",
-          "namePlaceholder": "np. Kolor + Rozmiar",
-          "nameRequired": "Podaj nazwę schematu.",
-          "saved": "Schemat zapisany."
-        },
-        "offers": {
-          "deleteError": "Nie udało się usunąć oferty kanału sprzedaży."
-        },
-        "variantList": {
-          "pricesHeading": "Ceny",
-          "actions": "Akcje",
-          "pricesEmpty": "Brak cen.",
-          "deleteConfirm": "Usunąć wariant \"{{name}}\"?",
-          "deleting": "Usuwanie…",
-          "priceFallback": "Cena",
-          "generate": "Generuj warianty",
-          "generating": "Generowanie…",
-          "generateSuccess": "Brakujące warianty zostały utworzone.",
-          "generateError": "Nie udało się wygenerować wariantów.",
-          "generateEmpty": "Wszystkie kombinacje opcji już istnieją.",
-          "defaultTitle": "Wariant"
-        }
-      }
-    },
-    "options": {
-      "list": {
-        "title": "Opcje"
-      }
-    },
-    "pricing": {
-      "list": {
-        "title": "Cenniki"
-      }
-    },
-    "errors": {
-      "tenant_required": "Wymagany jest kontekst dzierżawy.",
-      "organization_required": "Wymagany jest kontekst organizacji.",
-      "id_required": "Wymagany jest identyfikator rekordu."
-    },
-    "nav": {
-      "group": "Katalog"
-    },
-    "priceKinds": {
-      "title": "Price kinds",
-      "description": "Configure reusable price kinds that control pricing columns and tax display.",
-      "actions": {
-        "add": "Add price kind",
-        "search": "Search",
-        "clear": "Clear",
-        "refresh": "Refresh",
-        "cancel": "Cancel",
-        "saveChanges": "Save changes",
-        "create": "Create",
-        "edit": "Edit",
-        "delete": "Delete"
-      },
-      "search": {
-        "placeholder": "Search by code or title…"
-      },
-      "table": {
-        "code": "Code",
-        "title": "Title",
-        "displayMode": "Display mode",
-        "currency": "Currency",
-        "promotion": "Promotion",
-        "promotionYes": "Yes",
-        "promotionNo": "No",
-        "active": "Active",
-        "activeYes": "Active",
-        "activeNo": "Inactive",
-        "actions": "Actions",
-        "empty": "No price kinds yet.",
-        "loading": "Loading…"
-      },
-      "dialog": {
-        "createTitle": "Create price kind",
-        "createDescription": "Define a reusable price kind for product pricing.",
-        "editTitle": "Edit price kind",
-        "editDescription": "Update labels or tax behavior for this price kind."
-      },
-      "form": {
-        "codeLabel": "Code",
-        "codePlaceholder": "e.g. regular",
-        "titleLabel": "Title",
-        "titlePlaceholder": "e.g. Regular price",
-        "displayModeLabel": "Display mode",
-        "displayMode": {
-          "include": "Including tax",
-          "exclude": "Excluding tax"
-        },
-        "currencyLabel": "Currency (optional)",
-        "currency": {
-          "placeholder": "Select currency…",
-          "add": "Add currency",
-          "addPrompt": "Provide a currency code.",
-          "dialogTitle": "Add currency",
-          "valueLabel": "Currency code",
-          "valuePlaceholder": "e.g. USD",
-          "labelLabel": "Display label (optional)",
-          "labelPlaceholder": "e.g. US Dollar",
-          "required": "Currency code is required.",
-          "cancel": "Cancel",
-          "save": "Save",
-          "saveShortcut": "Press Enter to save",
-          "success": "Currency added.",
-          "loadError": "Unable to load currencies.",
-          "createError": "Unable to add currency.",
-          "loading": "Loading currencies…",
-          "manage": "Manage currencies"
-        },
-        "promotionLabel": "Mark as promotion",
-        "activeLabel": "Active"
-      },
-      "errors": {
-        "load": "Failed to load price kinds.",
-        "required": "Code and title are required.",
-        "save": "Failed to save price kind.",
-        "delete": "Failed to delete price kind."
-      },
-      "messages": {
-        "created": "Price kind created.",
-        "updated": "Price kind updated.",
-        "deleted": "Price kind deleted."
-      },
-      "confirm": {
-        "delete": "Delete price kind \"{{code}}\"?"
+      "select": {
+        "empty": "Poziom główny",
+        "error": "Nie udało się załadować kategorii",
+        "inactive": "nieaktywna",
+        "loading": "Ładowanie kategorii…"
       }
     },
     "config": {
@@ -618,70 +81,609 @@
         "catalog": "Catalog"
       }
     },
-    "widgets": {
-      "productSeo": {
-        "groupLabel": "Pomocnik SEO",
-        "groupDescription": "Zoptymalizuj tytuły i opisy produktów przed publikacją."
+    "errors": {
+      "id_required": "Wymagany jest identyfikator rekordu.",
+      "organization_required": "Wymagany jest kontekst organizacji.",
+      "tenant_required": "Wymagany jest kontekst dzierżawy."
+    },
+    "module": {
+      "description": "Zarządzaj produktami, wariantami i cennikami wykorzystywanymi w sprzedaży.",
+      "title": "Katalog produktów"
+    },
+    "nav": {
+      "group": "Katalog"
+    },
+    "options": {
+      "list": {
+        "title": "Opcje"
+      }
+    },
+    "priceKinds": {
+      "actions": {
+        "add": "Add price kind",
+        "cancel": "Cancel",
+        "clear": "Clear",
+        "create": "Create",
+        "delete": "Delete",
+        "edit": "Edit",
+        "refresh": "Refresh",
+        "saveChanges": "Save changes",
+        "search": "Search"
+      },
+      "confirm": {
+        "delete": "Delete price kind \"{{code}}\"?"
+      },
+      "description": "Configure reusable price kinds that control pricing columns and tax display.",
+      "dialog": {
+        "createDescription": "Define a reusable price kind for product pricing.",
+        "createTitle": "Create price kind",
+        "editDescription": "Update labels or tax behavior for this price kind.",
+        "editTitle": "Edit price kind"
+      },
+      "errors": {
+        "delete": "Failed to delete price kind.",
+        "load": "Failed to load price kinds.",
+        "required": "Code and title are required.",
+        "save": "Failed to save price kind."
+      },
+      "form": {
+        "activeLabel": "Active",
+        "codeLabel": "Code",
+        "codePlaceholder": "e.g. regular",
+        "currency": {
+          "add": "Add currency",
+          "addPrompt": "Provide a currency code.",
+          "cancel": "Cancel",
+          "createError": "Unable to add currency.",
+          "dialogTitle": "Add currency",
+          "labelLabel": "Display label (optional)",
+          "labelPlaceholder": "e.g. US Dollar",
+          "loadError": "Unable to load currencies.",
+          "loading": "Loading currencies…",
+          "manage": "Manage currencies",
+          "placeholder": "Select currency…",
+          "required": "Currency code is required.",
+          "save": "Save",
+          "saveShortcut": "Press Enter to save",
+          "success": "Currency added.",
+          "valueLabel": "Currency code",
+          "valuePlaceholder": "e.g. USD"
+        },
+        "currencyLabel": "Currency (optional)",
+        "displayMode": {
+          "exclude": "Excluding tax",
+          "include": "Including tax"
+        },
+        "displayModeLabel": "Display mode",
+        "promotionLabel": "Mark as promotion",
+        "titleLabel": "Title",
+        "titlePlaceholder": "e.g. Regular price"
+      },
+      "messages": {
+        "created": "Price kind created.",
+        "deleted": "Price kind deleted.",
+        "updated": "Price kind updated."
+      },
+      "search": {
+        "placeholder": "Search by code or title…"
+      },
+      "table": {
+        "actions": "Actions",
+        "active": "Active",
+        "activeNo": "Inactive",
+        "activeYes": "Active",
+        "code": "Code",
+        "currency": "Currency",
+        "displayMode": "Display mode",
+        "empty": "No price kinds yet.",
+        "loading": "Loading…",
+        "promotion": "Promotion",
+        "promotionNo": "No",
+        "promotionYes": "Yes",
+        "title": "Title"
+      },
+      "title": "Price kinds"
+    },
+    "pricing": {
+      "list": {
+        "title": "Cenniki"
+      }
+    },
+    "products": {
+      "actions": {
+        "create": "Utwórz",
+        "refresh": "Odśwież"
+      },
+      "create": {
+        "actions": {
+          "generateHandle": "Generuj",
+          "useMarkdown": "Użyj markdown",
+          "usePlain": "Użyj zwykłego tekstu"
+        },
+        "attachments": {
+          "help": "Przeciągnij i upuść obrazy tutaj lub kliknij, aby je przesłać.",
+          "remove": "Usuń",
+          "title": "Media"
+        },
+        "currency": {
+          "add": "Dodaj walutę",
+          "addPrompt": "Podaj kod waluty.",
+          "cancel": "Anuluj",
+          "dialogTitle": "Dodaj walutę",
+          "error": "Nie udało się dodać waluty.",
+          "labelLabel": "Etykieta (opcjonalnie)",
+          "labelPlaceholder": "np. Złoty polski",
+          "loadError": "Nie udało się wczytać walut.",
+          "loading": "Wczytywanie walut…",
+          "manage": "Zarządzaj walutami",
+          "placeholder": "Wybierz walutę…",
+          "required": "Kod waluty jest wymagany.",
+          "save": "Zapisz",
+          "saveShortcut": "Naciśnij Enter, aby zapisać",
+          "success": "Waluta dodana.",
+          "valueLabel": "Kod waluty",
+          "valuePlaceholder": "np. PLN"
+        },
+        "errors": {
+          "currency": "Podaj walutę dla wszystkich typów cen.",
+          "id": "Brakuje ID produktu po utworzeniu.",
+          "missingId": "Brakuje identyfikatora produktu po utworzeniu.",
+          "priceNonNegative": "Ceny muszą być równe zero lub wyższe.",
+          "scope": "Wybierz organizację zanim utworzysz produkt.",
+          "title": "Podaj tytuł produktu.",
+          "titleRequired": "Podaj tytuł produktu.",
+          "variant": "Nie udało się utworzyć wariantu."
+        },
+        "fields": {
+          "currency": "Główna waluta"
+        },
+        "handleHelp": "Identyfikator jest używany w adresach URL i musi być unikalny.",
+        "meta": {
+          "description": "Zarządzaj podtytułem, identyfikatorem i walutą dla witryn.",
+          "handleLabel": "Identyfikator",
+          "title": "Metadane produktu"
+        },
+        "options": {
+          "add": "Dodaj opcję niestandardową",
+          "addChoice": "Dodaj wybór",
+          "choiceLabel": "Etykieta",
+          "choiceValue": "Wartość",
+          "choices": "Wybory",
+          "clearSchema": "Clear",
+          "description": "Opis",
+          "empty": "Brak niestandardowych opcji.",
+          "label": "Etykieta",
+          "multiple": "Zezwól na wiele",
+          "noChoices": "Brak wyborów.",
+          "removeChoice": "Usuń",
+          "required": "Wymagane",
+          "saveTemplate": "Save as template",
+          "saveTemplateDescription": "Reuse this option set across future products.",
+          "saveTemplateTitle": "Save option schema",
+          "schemaApplied": "Using {{name}}",
+          "schemaCodeField": "Code",
+          "schemaCodePlaceholder": "Used internally, e.g. fashion-defaults",
+          "schemaCodeRequired": "Provide a valid template code.",
+          "schemaEmpty": "Add at least one option before saving.",
+          "schemaHint": "Start from a template or build your own option set.",
+          "schemaLabel": "Option schema",
+          "schemaLoadError": "Unable to load option schemas.",
+          "schemaLoadPlaceholder": "Loading…",
+          "schemaNameField": "Name",
+          "schemaNameRequired": "Provide a template name.",
+          "schemaPlaceholder": "Select schema",
+          "schemaSaveError": "Unable to save option schema.",
+          "schemaSaved": "Option schema saved.",
+          "scopeRequired": "Select an organization before saving schemas.",
+          "type": "Typ"
+        },
+        "optionsBuilder": {
+          "add": "Dodaj opcję",
+          "empty": "Brak opcji. Dodaj pierwszą opcję, aby generować warianty.",
+          "placeholder": "np. Kolor",
+          "title": "Opcje produktu",
+          "valuePlaceholder": "Wpisz wartość i naciśnij Enter",
+          "values": "Wartości"
+        },
+        "organize": {
+          "categoriesHelp": "Przypisz produkt do jednego lub wielu węzłów taksonomii.",
+          "categoriesLabel": "Kategorie",
+          "categoriesPlaceholder": "Szukaj kategorii",
+          "channelsHelp": "Wybrane kanały otrzymają domyślne oferty dla tego produktu.",
+          "channelsLabel": "Kanały sprzedaży",
+          "channelsPlaceholder": "Wybierz kanały",
+          "description": "Przypisz kategorie, kanały sprzedaży i tagi.",
+          "tagsHelp": "Opisuj produkty wspólnymi etykietami, aby tworzyć szybkie filtry.",
+          "tagsLabel": "Tagi",
+          "tagsPlaceholder": "Dodaj tag i naciśnij Enter",
+          "title": "Kategoryzuj"
+        },
+        "placeholders": {
+          "description": "Opisz produkt...",
+          "handle": "np. letnie-trampki",
+          "subtitle": "Opcjonalny podtytuł",
+          "title": "np. Letnie trampki"
+        },
+        "pricing": {
+          "addPrice": "Dodaj cenę",
+          "currencyLabel": "Waluta",
+          "currencyLoadError": "Nie udało się wczytać walut.",
+          "currencyPlaceholder": "Wybierz walutę",
+          "currencyRequired": "Podaj walutę, aby zapisać ceny.",
+          "empty": "Brak cen.",
+          "endsAt": "Data zakończenia",
+          "entriesTitle": "Pozycje cenowe",
+          "gross": "Cena brutto",
+          "kind": {
+            "custom": "Niestandardowa",
+            "list": "Katalogowa",
+            "sale": "Promocyjna",
+            "tier": "Progowa"
+          },
+          "kindLabel": "Typ",
+          "maxQty": "Maks. ilość",
+          "minQty": "Min. ilość",
+          "net": "Cena netto",
+          "startsAt": "Data rozpoczęcia",
+          "taxRate": "Stawka VAT",
+          "unitLoadError": "Nie udało się wczytać jednostek.",
+          "unitPlaceholder": "Wybierz jednostkę",
+          "usePrimaryCurrency": "Użyj głównej waluty"
+        },
+        "remove": "Usuń",
+        "selectPlaceholder": "Wybierz wartość",
+        "seoWidget": {
+          "descriptionLabel": "Opis ({{count}} znaków)",
+          "footer": "Przykładowy widget wykorzystujący system wstrzykiwania.",
+          "good": "Dobrze",
+          "hint": "Tytuły powinny mieć 10–60 znaków, a opisy 50+ znaków.",
+          "issues": {
+            "addDescription": "Dodaj opis produktu (50+ znaków).",
+            "addTitle": "Dodaj tytuł produktu.",
+            "descriptionTooShort": "Opis jest za krótki dla dobrego SEO (min. 50 znaków).",
+            "titleTooLong": "Tytuł jest za długi (zalecane maks. 60 znaków).",
+            "titleTooShort": "Tytuł jest za krótki (min. 10 znaków)."
+          },
+          "learnMore": "Dowiedz się, jak zbudować własny",
+          "missing": "Brak",
+          "needsAttention": "Wymaga uwagi",
+          "ready": "Gotowe",
+          "title": "Optymalizacja SEO",
+          "titleLabel": "Tytuł ({{count}} znaków)",
+          "tooLong": "Za długi",
+          "tooShort": "Za krótki"
+        },
+        "steps": {
+          "continue": "Dalej",
+          "general": "Dane ogólne",
+          "organize": "Organizacja",
+          "previous": "Wstecz",
+          "review": "Podsumowanie",
+          "variants": "Warianty"
+        },
+        "submit": "Utwórz produkt",
+        "subproducts": {
+          "add": "Dodaj",
+          "empty": "Brak powiązanych subproduktów.",
+          "loadError": "Nie udało się załadować produktów",
+          "loading": "Ładowanie…",
+          "maxQty": "Maks. ilość",
+          "minQty": "Min. ilość",
+          "noResults": "Nie znaleziono produktów",
+          "relation": "Relacja",
+          "required": "Wymagane",
+          "requiredLabel": "Klient musi wybrać ten element",
+          "results": "Wyniki wyszukiwania",
+          "searchLabel": "Szukaj produktów",
+          "searchPlaceholder": "Wpisz, aby wyszukać w katalogu",
+          "selected": "Wybrane subprodukty"
+        },
+        "success": "Produkt utworzony.",
+        "tabs": {
+          "attributes": "Atrybuty",
+          "customOptions": "Opcje",
+          "label": "Sekcje produktu",
+          "subproducts": "Subprodukty"
+        },
+        "taxRates": {
+          "empty": "Zdefiniuj klasy podatkowe w Sprzedaż → Konfiguracja.",
+          "emptyOption": "Brak dostępnych klas podatkowych",
+          "error": "Nie udało się wczytać stawek podatkowych.",
+          "help": "Stosowana do nowych cen, chyba że zostanie nadpisana na poziomie wariantu.",
+          "label": "Klasa podatkowa",
+          "manage": "Zarządzaj klasami podatkowymi",
+          "noneSelected": "Nie wybrano klasy podatkowej",
+          "unnamed": "Stawka bez nazwy"
+        },
+        "title": "Utwórz produkt",
+        "variants": {
+          "add": "Dodaj wariant",
+          "default": "Domyślny wariant",
+          "disabled": "Warianty dostępne są tylko dla produktów konfigurowalnych.",
+          "empty": "Brak wariantów. Dodaj pierwszy, aby zacząć.",
+          "generate": "Generuj na podstawie atrybutów",
+          "name": "Nazwa",
+          "namePlaceholder": "np. Niebieski / L",
+          "noOptions": "Zdefiniuj opcje typu wyboru, aby automatycznie generować kombinacje."
+        },
+        "variantsBuilder": {
+          "allowBackorder": "Zamówienia wsteczne",
+          "currencyMissing": "Brak waluty",
+          "defaultLabel": "Domyślna wartość opcji",
+          "defaultOption": "Domyślna opcja",
+          "inventoryDisabled": "Sterowanie stanem magazynowym będzie wkrótce dostępne.",
+          "inventoryKit": "Zestaw magazynowy",
+          "makeDefault": "Ustaw jako domyślny",
+          "manageInventory": "Zarządzanie zapasami",
+          "noPriceKinds": "Skonfiguruj typy cen w ustawieniach katalogu, aby dodać kolumny cen.",
+          "priceColumn": "Cena {{title}}",
+          "sku": "SKU",
+          "skuPlaceholder": "np. SKU-001",
+          "titlePlaceholder": "Nazwa wariantu",
+          "toggle": "Produkt z wariantami",
+          "vatColumn": "Klasa podatkowa",
+          "vatOptionDefault": "Użyj klasy podatkowej produktu ({{label}})",
+          "vatOptionNone": "Brak klasy podatkowej"
+        }
+      },
+      "edit": {
+        "custom": {
+          "title": "Atrybuty niestandardowe"
+        },
+        "dimensions": "Wymiary i waga",
+        "dimensions.depth": "Głębokość",
+        "dimensions.height": "Wysokość",
+        "dimensions.unit": "Jednostka rozmiaru",
+        "dimensions.width": "Szerokość",
+        "errors": {
+          "idMissing": "Brakuje identyfikatora produktu.",
+          "load": "Nie udało się załadować szczegółów produktu.",
+          "notFound": "Nie znaleziono produktu.",
+          "validation": "Popraw zaznaczone pola."
+        },
+        "loading": "Ładowanie produktu",
+        "metadata": {
+          "add": "Dodaj wpis",
+          "collapse": "Ukryj metadane",
+          "empty": "Brak metadanych. Dodaj pierwszy wpis.",
+          "expand": "Pokaż metadane",
+          "hint": "Dołącz strukturalne pary klucz/wartość dla integracji.",
+          "keyPlaceholder": "Klucz",
+          "remove": "Usuń wpis",
+          "title": "Metadane",
+          "valuePlaceholder": "Wartość"
+        },
+        "offers": {
+          "deleteError": "Nie udało się usunąć oferty kanału sprzedaży."
+        },
+        "save": "Zapisz zmiany",
+        "schemas": {
+          "apply": "Zastosuj",
+          "delete": "Usuń schemat",
+          "deleteError": "Nie udało się usunąć schematu.",
+          "deleted": "Schemat usunięty.",
+          "dialogTitle": "Schematy opcji",
+          "edit": "Edytuj schemat",
+          "empty": "Brak zapisanych schematów.",
+          "loading": "Ładowanie…",
+          "manage": "Otwórz bibliotekę schematów",
+          "nameLabel": "Nazwa schematu",
+          "namePlaceholder": "np. Kolor + Rozmiar",
+          "nameRequired": "Podaj nazwę schematu.",
+          "save": "Zapisz jako schemat",
+          "saveTitle": "Zapisz schemat opcji",
+          "saved": "Schemat zapisany."
+        },
+        "success": "Produkt zaktualizowany.",
+        "title": "Edytuj produkt",
+        "variantList": {
+          "actions": "Akcje",
+          "defaultTitle": "Wariant",
+          "deleteConfirm": "Usunąć wariant \"{{name}}\"?",
+          "deleting": "Usuwanie…",
+          "generate": "Generuj warianty",
+          "generateEmpty": "Wszystkie kombinacje opcji już istnieją.",
+          "generateError": "Nie udało się wygenerować wariantów.",
+          "generateSuccess": "Brakujące warianty zostały utworzone.",
+          "generating": "Generowanie…",
+          "priceFallback": "Cena",
+          "pricesEmpty": "Brak cen.",
+          "pricesHeading": "Ceny"
+        },
+        "variants": "Warianty",
+        "variants.add": "Dodaj wariant",
+        "variants.default": "Domyślny",
+        "variants.empty": "Brak zdefiniowanych wariantów.",
+        "weight": {
+          "unit": "Jednostka wagi",
+          "value": "Waga"
+        }
+      },
+      "errors": {
+        "handleExists": "Handle jest już używany.",
+        "skuExists": "SKU jest już używany."
+      },
+      "filters": {
+        "active": "Aktywne",
+        "categories": "Kategorie",
+        "categoriesLoadError": "Nie udało się załadować kategorii",
+        "channels": "Kanały sprzedaży",
+        "channelsLoadError": "Nie udało się załadować kanałów",
+        "configurable": "Konfigurowalne",
+        "productType": "Typ produktu",
+        "status": "Status",
+        "tags": "Tagi",
+        "tagsLoadError": "Nie udało się załadować tagów"
+      },
+      "flash": {
+        "created": "Produkt utworzony",
+        "deleted": "Produkt został usunięty"
+      },
+      "form": {
+        "currency": "Główna waluta",
+        "description": "Opis",
+        "general": "Ogólne",
+        "handle": "Identyfikator",
+        "handlePlaceholder": "np. letnie-trampki",
+        "handlePreview": "Identyfikator: ",
+        "handlePreviewPlaceholder": "twoj-identyfikator",
+        "isActive": "Aktywny",
+        "options": "Opcje",
+        "pricing": "Ceny",
+        "productType": "Typ produktu",
+        "sku": "SKU",
+        "subtitle": "Podtytuł",
+        "title": "Tytuł",
+        "unit": "Domyślna jednostka",
+        "variants": "Warianty"
+      },
+      "list": {
+        "actions": {
+          "delete": "Usuń",
+          "edit": "Edytuj"
+        },
+        "deleteConfirm": "Usunąć ten produkt?",
+        "error": {
+          "delete": "Nie udało się usunąć produktu",
+          "load": "Nie udało się załadować produktów"
+        },
+        "title": "Produkty"
+      },
+      "media": {
+        "choose": "Wybierz pliki",
+        "default": "Domyślny podgląd",
+        "dropHint": "Przeciągnij i upuść obrazy tutaj lub kliknij, aby je przesłać.",
+        "empty": "Nie dodano jeszcze żadnych mediów.",
+        "errors": {
+          "deleteFailed": "Nie udało się usunąć medium.",
+          "imagesOnly": "Obsługiwane są tylko pliki graficzne.",
+          "uploadFailed": "Nie udało się przesłać pliku."
+        },
+        "label": "Media",
+        "uploading": "Przesyłam…"
+      },
+      "page": {
+        "title": "Produkty i usługi"
+      },
+      "table": {
+        "actions": {
+          "delete": "Usuń",
+          "edit": "Edytuj"
+        },
+        "active": "Aktywne",
+        "channels": "Kanały",
+        "configurable": "Konfigurowalne",
+        "price": "Cena",
+        "sku": "SKU",
+        "title": "Title",
+        "type": "Typ",
+        "updatedAt": "Zaktualizowano"
+      },
+      "types": {
+        "bundle": "Zestaw",
+        "configurable": "Konfigurowalny",
+        "downloadable": "Do pobrania",
+        "grouped": "Grupowy",
+        "simple": "Prosty",
+        "virtual": "Wirtualny"
+      }
+    },
+    "search": {
+      "badge": {
+        "category": "Kategoria",
+        "offer": "Oferta kanału",
+        "optionSchema": "Schemat opcji",
+        "priceKind": "Rodzaj ceny",
+        "product": "Produkt",
+        "tag": "Tag",
+        "variant": "Wariant"
+      },
+      "priceKind": {
+        "excludingTax": "Bez VAT",
+        "includingTax": "Z VAT",
+        "promotion": "Promocja"
+      },
+      "status": {
+        "inactive": "Nieaktywny"
+      },
+      "variant": {
+        "default": "Domyślny"
       }
     },
     "variants": {
       "form": {
-        "createTitle": "Create variant",
-        "createTitleFor": "Create variant for {{title}}",
-        "editTitle": "Edit variant",
-        "editTitleFor": "Edit variant • {{title}}",
-        "loading": "Loading form...",
-        "createAction": "Create variant",
-        "save": "Save changes",
-        "customFields": "Custom attributes",
-        "nameLabel": "Name",
-        "nameRequired": "Provide the variant name.",
-        "namePlaceholder": "e.g., Blue / Small",
-        "skuLabel": "SKU",
-        "skuPlaceholder": "Unique identifier",
         "barcodeLabel": "Barcode",
         "barcodePlaceholder": "EAN, UPC, etc.",
-        "options": "Option values",
-        "optionPlaceholder": "Select value",
-        "dimensions": "Dimensions & weight",
-        "width": "Width",
-        "height": "Height",
+        "createAction": "Create variant",
+        "createSuccess": "Variant created.",
+        "createTitle": "Create variant",
+        "createTitleFor": "Create variant for {{title}}",
+        "customFields": "Custom attributes",
+        "deleteError": "Nie udało się usunąć wariantu.",
+        "deleted": "Variant deleted.",
         "depth": "Depth",
         "dimensionUnit": "Size unit",
         "dimensionUnitPlaceholder": "cm",
-        "weight": "Weight",
-        "weightUnit": "Weight unit",
-        "weightUnitPlaceholder": "kg",
-        "pricesLabel": "Prices",
-        "pricesHint": "Populate list prices per price kind.",
-        "pricesTaxNone": "No tax override",
+        "dimensions": "Dimensions & weight",
+        "editTitle": "Edit variant",
+        "editTitleFor": "Edit variant • {{title}}",
+        "errors": {
+          "deleteError": "Failed to delete variant.",
+          "idMissing": "Variant id missing after create.",
+          "load": "Failed to load variant.",
+          "nameRequired": "Provide the variant name.",
+          "notFound": "Variant not found.",
+          "productMissing": "Product identifier is missing.",
+          "variantMissing": "Variant identifier is missing."
+        },
+        "height": "Height",
+        "isActiveHint": "Inactive variants stay hidden",
+        "isActiveLabel": "Active",
+        "isDefaultHint": "Used in storefronts",
+        "isDefaultLabel": "Default variant",
+        "loading": "Loading form...",
+        "media": "Media",
+        "nameLabel": "Name",
+        "namePlaceholder": "e.g., Blue / Small",
+        "nameRequired": "Provide the variant name.",
+        "optionPlaceholder": "Select value",
+        "options": "Option values",
         "priceMissingCurrency": "No currency configured",
         "pricesEmpty": "No price kinds configured yet.",
-        "media": "Media",
+        "pricesHint": "Populate list prices per price kind.",
+        "pricesLabel": "Prices",
+        "pricesTaxNone": "No tax override",
+        "save": "Save changes",
+        "skuLabel": "SKU",
+        "skuPlaceholder": "Unique identifier",
+        "updated": "Variant updated.",
         "variants": "Variants",
         "variantsAdd": "Add variant",
         "variantsDefault": "Default",
         "variantsEmpty": "No variants defined yet.",
-        "isDefaultLabel": "Default variant",
-        "isDefaultHint": "Used in storefronts",
-        "isActiveLabel": "Active",
-        "isActiveHint": "Inactive variants stay hidden",
-        "errors": {
-          "productMissing": "Product identifier is missing.",
-          "variantMissing": "Variant identifier is missing.",
-          "nameRequired": "Provide the variant name.",
-          "idMissing": "Variant id missing after create.",
-          "notFound": "Variant not found.",
-          "load": "Failed to load variant.",
-          "deleteError": "Failed to delete variant."
-        },
-        "createSuccess": "Variant created.",
-        "updated": "Variant updated.",
-        "deleted": "Variant deleted.",
-        "deleteError": "Nie udało się usunąć wariantu."
+        "weight": "Weight",
+        "weightUnit": "Weight unit",
+        "weightUnitPlaceholder": "kg",
+        "width": "Width"
+      }
+    },
+    "widgets": {
+      "productSeo": {
+        "groupDescription": "Zoptymalizuj tytuły i opisy produktów przed publikacją.",
+        "groupLabel": "Pomocnik SEO"
       }
     }
   },
-  "audit_logs.resource_kind.catalog.variant": "Wariant",
-  "audit_logs.resource_kind.catalog.price": "Cena"
+  "catalog.notifications.product.lowStock.body": "{productName}{sku, select, other { ({sku})}} is running low on stock ({currentStock} remaining, threshold: {threshold})",
+  "catalog.notifications.product.lowStock.title": "Low Stock Alert",
+  "customers~catalog": {
+    "errors": {
+      "id_required": "Record identifier is required.",
+      "organization_required": "Organization context is required.",
+      "tenant_required": "Tenant context is required."
+    },
+    "nav": {
+      "group": "Katalog"
+    }
+  }
 }

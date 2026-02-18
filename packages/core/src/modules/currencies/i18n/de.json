@@ -1,209 +1,222 @@
 {
+  "audit_logs.resource_kind.currencies.exchange_rate": "Wechselkurs",
   "currencies": {
+    "create": {
+      "title": "Währung erstellen"
+    },
     "currencies": {
       "update": "Währung aktualisieren"
+    },
+    "edit": {
+      "title": "Währung bearbeiten"
     },
     "exchange_rates": {
       "update": "Wechselkurs aktualisieren"
     },
+    "fetch": {
+      "description": "Verwalten Sie den automatischen Abruf von Währungskursen von externen Anbietern",
+      "disabled": "Deaktiviert",
+      "enabled": "Aktiviert",
+      "error_load_configs": "Konfigurationen konnten nicht geladen werden",
+      "error_update_config": "Konfiguration konnte nicht aktualisiert werden",
+      "error_update_sync_time": "Synchronisierungszeit konnte nicht aktualisiert werden",
+      "fetch_now": "Jetzt Abrufen",
+      "fetching": "Wird abgerufen...",
+      "initialize_providers": "Anbieter Initialisieren",
+      "initializing_providers": "Anbieter werden initialisiert...",
+      "last_sync": "Letzte Synchronisation",
+      "last_sync_count": "Abgerufene Kurse",
+      "last_sync_status": "Status",
+      "loading": "Wird geladen...",
+      "no_providers": "Noch keine Währungsanbieter konfiguriert.",
+      "provider_disabled": "Anbieter deaktiviert",
+      "provider_enabled": "Anbieter aktiviert",
+      "provider_nbp": "NBP (Polnische Nationalbank)",
+      "provider_nbp_description": "~13 Währungen mit Kauf-/Verkaufskursen von der Polnischen Nationalbank",
+      "provider_raiffeisen": "Raiffeisen Bank Polen",
+      "provider_raiffeisen_description": "4 Hauptwährungen (EUR, USD, CHF, GBP) mit Kauf-/Verkaufskursen",
+      "sync_error": "Fehler beim Abrufen der Kurse",
+      "sync_no_rates": "Kein Kurs abgerufen. Sie haben keine Währungen definiert, bitte erstellen Sie die Paare, die Sie abrufen möchten",
+      "sync_success": "Kurse erfolgreich abgerufen",
+      "sync_time": "Tägliche Synchronisierungszeit",
+      "title": "Währungskurs-Abruf"
+    },
+    "flash": {
+      "baseSet": "Basiswährung erfolgreich aktualisiert",
+      "baseSetError": "Basiswährung konnte nicht festgelegt werden",
+      "created": "Währung erfolgreich erstellt",
+      "deleteError": "Währung konnte nicht gelöscht werden",
+      "deleted": "Währung erfolgreich gelöscht",
+      "updated": "Währung erfolgreich aktualisiert"
+    },
+    "form": {
+      "action": {
+        "create": "Währung erstellen",
+        "save": "Änderungen speichern"
+      },
+      "errors": {
+        "codeFormat": "Währungscode muss genau 3 Großbuchstaben sein (z.B. USD)",
+        "delete": "Währung konnte nicht gelöscht werden",
+        "load": "Währung konnte nicht geladen werden",
+        "notFound": "Währung nicht gefunden"
+      },
+      "field": {
+        "code": "Währungscode",
+        "codeHelp": "ISO 4217 3-Buchstaben-Code (z.B. USD, EUR, GBP)",
+        "codePlaceholder": "USD",
+        "decimalPlaces": "Dezimalstellen",
+        "decimalSeparator": "Dezimaltrennzeichen",
+        "isActive": "Aktiv",
+        "isBase": "Basiswährung",
+        "name": "Währungsname",
+        "namePlaceholder": "US-Dollar",
+        "symbol": "Symbol",
+        "symbolPlaceholder": "$",
+        "thousandsSeparator": "Tausendertrennzeichen"
+      },
+      "group": {
+        "details": "Währungsdetails",
+        "formatting": "Formatierung & Einstellungen"
+      },
+      "loading": "Währung wird geladen..."
+    },
+    "list": {
+      "actions": {
+        "create": "Währung hinzufügen",
+        "setBase": "Als Basis festlegen"
+      },
+      "base": "Basis",
+      "columns": {
+        "active": "Aktiv",
+        "code": "Code",
+        "createdAt": "Erstellt am",
+        "decimalPlaces": "Dezimalstellen",
+        "name": "Name",
+        "symbol": "Symbol",
+        "updatedAt": "Aktualisiert am"
+      },
+      "confirmDelete": "Währung {{code}} löschen? Dadurch werden auch alle Wechselkurse für diese Währung entfernt.",
+      "error": {
+        "load": "Währungen konnten nicht geladen werden"
+      },
+      "filters": {
+        "active": "Aktiv",
+        "all": "Alle",
+        "baseOnly": "Nur Basiswährung anzeigen",
+        "inactive": "Inaktiv",
+        "status": "Status"
+      },
+      "searchPlaceholder": "Währungen nach Code oder Name durchsuchen",
+      "title": "Währungen"
+    },
     "module": {
-      "title": "Währungen & Wechselkurse",
-      "description": "Verwalten Sie Währungen und Wechselkurse für Transaktionen in mehreren Währungen."
+      "description": "Verwalten Sie Währungen und Wechselkurse für Transaktionen in mehreren Währungen.",
+      "title": "Währungen & Wechselkurse"
     },
     "nav": {
       "group": "Währungen"
     },
     "page": {
       "title": "Währungen"
-    },
-    "list": {
-      "title": "Währungen",
-      "searchPlaceholder": "Währungen nach Code oder Name durchsuchen",
-      "columns": {
-        "code": "Code",
-        "name": "Name",
-        "symbol": "Symbol",
-        "decimalPlaces": "Dezimalstellen",
-        "active": "Aktiv",
-        "createdAt": "Erstellt am",
-        "updatedAt": "Aktualisiert am"
-      },
-      "filters": {
-        "baseOnly": "Nur Basiswährung anzeigen",
-        "status": "Status",
-        "all": "Alle",
-        "active": "Aktiv",
-        "inactive": "Inaktiv"
-      },
-      "actions": {
-        "create": "Währung hinzufügen",
-        "setBase": "Als Basis festlegen"
-      },
-      "base": "Basis",
-      "confirmDelete": "Währung {{code}} löschen? Dadurch werden auch alle Wechselkurse für diese Währung entfernt.",
-      "error": {
-        "load": "Währungen konnten nicht geladen werden"
-      }
-    },
-    "create": {
-      "title": "Währung erstellen"
-    },
-    "edit": {
-      "title": "Währung bearbeiten"
-    },
-    "form": {
-      "group": {
-        "details": "Währungsdetails",
-        "formatting": "Formatierung & Einstellungen"
-      },
-      "field": {
-        "code": "Währungscode",
-        "codePlaceholder": "USD",
-        "codeHelp": "ISO 4217 3-Buchstaben-Code (z.B. USD, EUR, GBP)",
-        "name": "Währungsname",
-        "namePlaceholder": "US-Dollar",
-        "symbol": "Symbol",
-        "symbolPlaceholder": "$",
-        "decimalPlaces": "Dezimalstellen",
-        "thousandsSeparator": "Tausendertrennzeichen",
-        "decimalSeparator": "Dezimaltrennzeichen",
-        "isBase": "Basiswährung",
-        "isActive": "Aktiv"
-      },
-      "action": {
-        "create": "Währung erstellen",
-        "save": "Änderungen speichern"
-      },
-      "loading": "Währung wird geladen...",
-      "errors": {
-        "codeFormat": "Währungscode muss genau 3 Großbuchstaben sein (z.B. USD)",
-        "load": "Währung konnte nicht geladen werden",
-        "notFound": "Währung nicht gefunden",
-        "delete": "Währung konnte nicht gelöscht werden"
-      }
-    },
-    "flash": {
-      "created": "Währung erfolgreich erstellt",
-      "updated": "Währung erfolgreich aktualisiert",
-      "deleted": "Währung erfolgreich gelöscht",
-      "deleteError": "Währung konnte nicht gelöscht werden",
-      "baseSet": "Basiswährung erfolgreich aktualisiert",
-      "baseSetError": "Basiswährung konnte nicht festgelegt werden"
-    },
-    "fetch": {
-      "title": "Währungskurs-Abruf",
-      "description": "Verwalten Sie den automatischen Abruf von Währungskursen von externen Anbietern",
-      "enabled": "Aktiviert",
-      "disabled": "Deaktiviert",
-      "sync_time": "Tägliche Synchronisierungszeit",
-      "last_sync": "Letzte Synchronisation",
-      "last_sync_status": "Status",
-      "last_sync_count": "Abgerufene Kurse",
-      "fetch_now": "Jetzt Abrufen",
-      "fetching": "Wird abgerufen...",
-      "sync_success": "Kurse erfolgreich abgerufen",
-      "sync_no_rates": "Kein Kurs abgerufen. Sie haben keine Währungen definiert, bitte erstellen Sie die Paare, die Sie abrufen möchten",
-      "sync_error": "Fehler beim Abrufen der Kurse",
-      "provider_nbp": "NBP (Polnische Nationalbank)",
-      "provider_nbp_description": "~13 Währungen mit Kauf-/Verkaufskursen von der Polnischen Nationalbank",
-      "provider_raiffeisen": "Raiffeisen Bank Polen",
-      "provider_raiffeisen_description": "4 Hauptwährungen (EUR, USD, CHF, GBP) mit Kauf-/Verkaufskursen",
-      "provider_enabled": "Anbieter aktiviert",
-      "provider_disabled": "Anbieter deaktiviert",
-      "loading": "Wird geladen...",
-      "initializing_providers": "Anbieter werden initialisiert...",
-      "no_providers": "Noch keine Währungsanbieter konfiguriert.",
-      "initialize_providers": "Anbieter Initialisieren",
-      "error_load_configs": "Konfigurationen konnten nicht geladen werden",
-      "error_update_config": "Konfiguration konnte nicht aktualisiert werden",
-      "error_update_sync_time": "Synchronisierungszeit konnte nicht aktualisiert werden"
     }
   },
   "exchangeRates": {
-    "page": {
-      "title": "Wechselkurse"
-    },
-    "list": {
-      "title": "Wechselkurse",
-      "searchPlaceholder": "Wechselkurse durchsuchen",
-      "columns": {
-        "currencyPair": "Währungspaar",
-        "rate": "Kurs",
-        "date": "Datum & Uhrzeit",
-        "source": "Quelle",
-        "type": "Typ",
-        "active": "Aktiv",
-        "createdAt": "Erstellt am",
-        "updatedAt": "Aktualisiert am"
-      },
-      "filters": {
-        "fromCurrency": "Von Währung",
-        "toCurrency": "Zu Währung",
-        "source": "Quelle",
-        "status": "Status",
-        "all": "Alle",
-        "active": "Aktiv",
-        "inactive": "Inaktiv"
-      },
-      "actions": {
-        "create": "Wechselkurs hinzufügen"
-      },
-      "confirmDelete": "Wechselkurs {{pair}} löschen?",
-      "error": {
-        "load": "Wechselkurse konnten nicht geladen werden"
-      }
-    },
     "create": {
       "title": "Wechselkurs erstellen"
     },
     "edit": {
       "title": "Wechselkurs bearbeiten"
     },
+    "flash": {
+      "created": "Wechselkurs erfolgreich erstellt",
+      "deleteError": "Wechselkurs konnte nicht gelöscht werden",
+      "deleted": "Wechselkurs erfolgreich gelöscht",
+      "updated": "Wechselkurs erfolgreich aktualisiert"
+    },
     "form": {
-      "group": {
-        "metadata": "Metadaten"
-      },
-      "field": {
-        "fromCurrency": "Von Währung",
-        "fromCurrencyPlaceholder": "Währung auswählen",
-        "fromCurrencyHelp": "Quellwährung für die Umrechnung",
-        "toCurrency": "Zu Währung",
-        "toCurrencyPlaceholder": "Währung auswählen",
-        "toCurrencyHelp": "Zielwährung für die Umrechnung",
-        "rate": "Wechselkurs",
-        "rateHelp": "Wie viele Einheiten der Zielwährung pro 1 Einheit der Quellwährung (bis zu 8 Dezimalstellen)",
-        "date": "Datum & Uhrzeit",
-        "dateHelp": "Datum und Uhrzeit, ab wann dieser Kurs gilt (in Ihrer lokalen Zeitzone)",
-        "source": "Quelle",
-        "sourcePlaceholder": "z.B. EZB, Manuell",
-        "sourceHelp": "Woher stammt dieser Kurs (erforderlich, 2-50 Zeichen)",
-        "isActive": "Aktiv"
-      },
       "action": {
         "create": "Wechselkurs erstellen",
         "save": "Änderungen speichern"
       },
-      "loading": "Wechselkurs wird geladen...",
       "errors": {
         "currencyCodeFormat": "Muss genau 3 Großbuchstaben sein",
         "fromCurrencyFormat": "Ungültiger Von-Währungscode",
-        "toCurrencyFormat": "Ungültiger Zu-Währungscode",
-        "sameCurrency": "Von- und Zu-Währung müssen unterschiedlich sein",
-        "invalidRate": "Kurs muss eine positive Zahl sein",
         "invalidDate": "Datum und Uhrzeit sind erforderlich",
-        "sourceTooShort": "Quelle muss mindestens 2 Zeichen haben",
-        "sourceTooLong": "Quelle darf maximal 50 Zeichen haben",
-        "sourceInvalidFormat": "Quelle darf nur Buchstaben, Zahlen, Leerzeichen, Bindestriche und Unterstriche enthalten",
+        "invalidRate": "Kurs muss eine positive Zahl sein",
         "load": "Wechselkurs konnte nicht geladen werden",
-        "notFound": "Wechselkurs nicht gefunden"
+        "notFound": "Wechselkurs nicht gefunden",
+        "sameCurrency": "Von- und Zu-Währung müssen unterschiedlich sein",
+        "sourceInvalidFormat": "Quelle darf nur Buchstaben, Zahlen, Leerzeichen, Bindestriche und Unterstriche enthalten",
+        "sourceTooLong": "Quelle darf maximal 50 Zeichen haben",
+        "sourceTooShort": "Quelle muss mindestens 2 Zeichen haben",
+        "toCurrencyFormat": "Ungültiger Zu-Währungscode"
+      },
+      "field": {
+        "date": "Datum & Uhrzeit",
+        "dateHelp": "Datum und Uhrzeit, ab wann dieser Kurs gilt (in Ihrer lokalen Zeitzone)",
+        "fromCurrency": "Von Währung",
+        "fromCurrencyHelp": "Quellwährung für die Umrechnung",
+        "fromCurrencyPlaceholder": "Währung auswählen",
+        "isActive": "Aktiv",
+        "rate": "Wechselkurs",
+        "rateHelp": "Wie viele Einheiten der Zielwährung pro 1 Einheit der Quellwährung (bis zu 8 Dezimalstellen)",
+        "source": "Quelle",
+        "sourceHelp": "Woher stammt dieser Kurs (erforderlich, 2-50 Zeichen)",
+        "sourcePlaceholder": "z.B. EZB, Manuell",
+        "toCurrency": "Zu Währung",
+        "toCurrencyHelp": "Zielwährung für die Umrechnung",
+        "toCurrencyPlaceholder": "Währung auswählen",
+        "type": "Rate Type",
+        "typeBuy": "Buy",
+        "typeBuyDescription": "Bank BUYS foreign currency from you",
+        "typeHelp": "Bank's perspective: buying or selling rate (leave empty if not applicable)",
+        "typeNone": "None (unspecified)",
+        "typePlaceholder": "Select rate type (optional)",
+        "typeSell": "Sell",
+        "typeSellDescription": "Bank SELLS foreign currency to you"
+      },
+      "group": {
+        "metadata": "Metadaten"
+      },
+      "loading": "Wechselkurs wird geladen..."
+    },
+    "list": {
+      "actions": {
+        "create": "Wechselkurs hinzufügen"
+      },
+      "columns": {
+        "active": "Aktiv",
+        "createdAt": "Erstellt am",
+        "currencyPair": "Währungspaar",
+        "date": "Datum & Uhrzeit",
+        "rate": "Kurs",
+        "source": "Quelle",
+        "type": "Typ",
+        "updatedAt": "Aktualisiert am"
+      },
+      "confirmDelete": "Wechselkurs {{pair}} löschen?",
+      "error": {
+        "load": "Wechselkurse konnten nicht geladen werden"
+      },
+      "filters": {
+        "active": "Aktiv",
+        "all": "Alle",
+        "fromCurrency": "Von Währung",
+        "inactive": "Inaktiv",
+        "source": "Quelle",
+        "status": "Status",
+        "toCurrency": "Zu Währung",
+        "type": "Rate Type"
+      },
+      "searchPlaceholder": "Wechselkurse durchsuchen",
+      "title": "Wechselkurse",
+      "type": {
+        "buy": "Buy",
+        "sell": "Sell"
       }
     },
-    "flash": {
-      "created": "Wechselkurs erfolgreich erstellt",
-      "updated": "Wechselkurs erfolgreich aktualisiert",
-      "deleted": "Wechselkurs erfolgreich gelöscht",
-      "deleteError": "Wechselkurs konnte nicht gelöscht werden"
+    "page": {
+      "title": "Wechselkurse"
     }
-  },
-  "audit_logs.resource_kind.currencies.exchange_rate": "Wechselkurs"
+  }
 }

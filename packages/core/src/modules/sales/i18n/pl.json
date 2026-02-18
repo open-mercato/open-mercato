@@ -1,391 +1,521 @@
 {
+  "audit_logs.resource_kind.sales.documentAddress": "Adres",
+  "audit_logs.resource_kind.sales.note": "Notatka",
+  "audit_logs.resource_kind.sales.payment": "Płatność",
+  "audit_logs.resource_kind.sales.shipment": "Wysyłka",
   "customers~sales": {
     "nav": {
       "group": "Sprzedaż"
     }
   },
   "sales": {
-    "module": {
-      "title": "Sprzedaż",
-      "description": "Oferty, zamówienia, realizacja, fakturowanie i płatności powiązane z katalogiem produktów."
-    },
-    "notifications": {
-      "order": {
-        "created": {
-          "title": "Nowe zamówienie",
-          "body": "Zamówienie {orderNumber} zostało utworzone{total}"
-        }
-      },
-      "quote": {
-        "created": {
-          "title": "Nowa oferta",
-          "body": "Oferta {quoteNumber} została utworzona{total}"
-        }
-      },
-      "renderer": {
-        "viewOrder": "Zobacz zamówienie",
-        "viewQuote": "Zobacz ofertę",
-        "assignedToYou": "Przypisane do Ciebie",
-        "pendingReview": "Oczekuje na przegląd"
-      }
-    },
-    "errors": {
-      "unauthorized": "Brak autoryzacji",
-      "tenant_required": "Wymagany jest kontekst najemcy",
-      "organization_required": "Wymagany jest kontekst organizacji",
-      "invalid_query": "Nieprawidłowe parametry zapytania"
-    },
-    "widgets": {
-      "newOrders": {
-        "error": "Nie udało się wczytać zamówień",
-        "empty": "Brak zamówień w tym okresie",
-        "noCustomer": "Brak klienta",
-        "settings": {
-          "pageSize": "Liczba zamówień",
-          "datePeriod": "Okres",
-          "last24h": "Ostatnie 24 godziny",
-          "last7d": "Ostatnie 7 dni",
-          "last30d": "Ostatnie 30 dni",
-          "custom": "Własny zakres",
-          "customFrom": "Od",
-          "customTo": "Do"
-        }
-      },
-      "newQuotes": {
-        "error": "Nie udało się wczytać ofert",
-        "empty": "Brak ofert w tym okresie",
-        "noCustomer": "Brak klienta",
-        "settings": {
-          "pageSize": "Liczba ofert",
-          "datePeriod": "Okres",
-          "last24h": "Ostatnie 24 godziny",
-          "last7d": "Ostatnie 7 dni",
-          "last30d": "Ostatnie 30 dni",
-          "custom": "Własny zakres",
-          "customFrom": "Od",
-          "customTo": "Do"
-        }
-      }
-    },
-    "quotes": {
-      "send": {
-        "action": "Wyślij do klienta",
-        "title": "Wyślij ofertę do klienta",
-        "description": "E-mail zostanie wysłany na:",
-        "noEmail": "Brak e-maila",
-        "validForDays": "Ważne przez (dni)",
-        "cancel": "Anuluj",
-        "submit": "Wyślij ofertę",
-        "success": "Oferta wysłana.",
-        "failed": "Nie udało się wysłać oferty.",
-        "canceled": "Anulowanych ofert nie można wysłać.",
-        "missingEmail": "Do wysłania oferty wymagany jest e-mail klienta."
-      },
-      "email": {
-        "subject": "Oferta {quoteNumber}",
-        "preview": "Oferta {quoteNumber} jest gotowa do przeglądu",
-        "heading": "Oferta {quoteNumber}",
-        "total": "Suma: {amount} {currency}",
-        "validUntil": "Ważna do: {date}",
-        "cta": "Zobacz ofertę",
-        "footer": "Open Mercato"
-      },
-      "public": {
-        "pageTitle": "Oferta",
-        "notFound": "Nie znaleziono oferty.",
-        "failed": "Nie udało się wczytać oferty.",
-        "loading": "Wczytywanie oferty…",
-        "expired": "Ta oferta wygasła.",
-        "expiredMessage": "Skontaktuj się ze sprzedawcą, aby otrzymać zaktualizowaną ofertę.",
-        "validUntil": "Ważna do {date}",
-        "noValidityDate": "Brak daty ważności",
-        "items": "Pozycje",
-        "item": "Pozycja",
-        "qty": "Ilość: {quantity}",
-        "totals": "Sumy",
-        "subtotalGross": "Suma częściowa (brutto)",
-        "discount": "Rabat",
-        "tax": "Podatek",
-        "total": "Suma",
-        "acceptButton": "Zaakceptuj ofertę",
-        "acceptedTitle": "Oferta zaakceptowana",
-        "acceptedMessage": "Utworzono zamówienie: {orderNumber}",
-        "acceptFailed": "Nie udało się zaakceptować oferty."
-      },
-      "accept": {
-        "notFound": "Nie znaleziono oferty.",
-        "expired": "Ta oferta wygasła.",
-        "invalidStatus": "Nie można zaakceptować oferty w jej obecnym statusie.",
-        "failed": "Nie udało się zaakceptować oferty.",
-        "adminSubject": "Oferta {quoteNumber} zaakceptowana → Zamówienie {orderNumber}",
-        "adminEmail": {
-          "preview": "Oferta {quoteNumber} zaakceptowana",
-          "heading": "Oferta {quoteNumber} zaakceptowana",
-          "body": "Klient zaakceptował ofertę {quoteNumber}. Utworzono zamówienie: {orderNumber}.",
-          "cta": "Zobacz zamówienie",
-          "footer": "Open Mercato"
-        }
-      },
-      "list": {
-        "title": "Oferty"
-      },
-      "detail": {
-        "title": "Szczegóły oferty"
-      },
-      "form": {
-        "general": "Ogólne",
-        "lines": "Pozycje",
-        "notes": "Notatki"
-      }
-    },
-    "nav": {
-      "group": "Sprzedaż",
-      "channels": "Kanały sprzedaży"
-    },
     "channels": {
-      "nav": {
-        "title": "Kanały sprzedaży"
-      },
-      "table": {
-        "name": "Nazwa",
-        "code": "Kod",
-        "offers": "Oferty produktów",
-        "active": "Aktywny",
-        "updated": "Zaktualizowano",
-        "search": "Szukaj kanałów…",
-        "refresh": "Odśwież",
-        "empty": "Brak kanałów.",
-        "errors": {
-          "load": "Nie udało się wczytać kanałów.",
-          "delete": "Nie udało się usunąć kanału."
-        },
-        "messages": {
-          "deleted": "Kanał usunięty."
-        },
-        "actions": {
-          "edit": "Edytuj",
-          "delete": "Usuń"
-        },
-        "subtitle": "Organizuj oferty katalogowe według sklepu lub marketplace'u."
-      },
       "actions": {
         "create": "Dodaj kanał"
       },
       "form": {
-        "tabs": {
-          "settings": "Ustawienia",
-          "offers": "Oferty"
-        },
-        "groups": {
-          "general": "Ogólne",
-          "contact": "Kontakt",
-          "address": "Lokalizacja"
-        },
-        "name": "Nazwa kanału",
-        "code": "Kod",
-        "description": "Opis",
-        "websiteUrl": "Adres URL strony",
-        "contactEmail": "E-mail kontaktowy",
-        "contactPhone": "Telefon kontaktowy",
-        "status": "ID wpisu statusu",
         "address1": "Adres linia 1",
         "address2": "Adres linia 2",
         "city": "Miasto",
-        "region": "Województwo / region",
-        "postalCode": "Kod pocztowy",
+        "code": "Kod",
+        "contactEmail": "E-mail kontaktowy",
+        "contactPhone": "Telefon kontaktowy",
         "country": "Kraj",
-        "latitude": "Szerokość geograficzna",
-        "longitude": "Długość geograficzna",
-        "isActive": "Aktywny",
-        "createTitle": "Utwórz kanał sprzedaży",
         "createSubmit": "Utwórz kanał",
-        "editTitle": "Edytuj kanał",
-        "updateSubmit": "Zapisz zmiany",
         "createSuccess": "Kanał utworzony.",
-        "loading": "Wczytywanie kanału…",
+        "createTitle": "Utwórz kanał sprzedaży",
+        "description": "Opis",
+        "editTitle": "Edytuj kanał",
         "errors": {
           "create": "Nie udało się utworzyć kanału.",
-          "update": "Nie udało się zapisać kanału.",
           "delete": "Nie udało się usunąć kanału.",
-          "load": "Nie udało się wczytać kanału."
+          "load": "Nie udało się wczytać kanału.",
+          "update": "Nie udało się zapisać kanału."
         },
+        "groups": {
+          "address": "Lokalizacja",
+          "contact": "Kontakt",
+          "general": "Ogólne"
+        },
+        "isActive": "Aktywny",
+        "latitude": "Szerokość geograficzna",
+        "loading": "Wczytywanie kanału…",
+        "longitude": "Długość geograficzna",
         "messages": {
           "created": "Kanał utworzony.",
-          "updated": "Kanał zaktualizowany.",
-          "deleted": "Kanał usunięty."
-        }
+          "deleted": "Kanał usunięty.",
+          "updated": "Kanał zaktualizowany."
+        },
+        "name": "Nazwa kanału",
+        "postalCode": "Kod pocztowy",
+        "region": "Województwo / region",
+        "status": "ID wpisu statusu",
+        "tabs": {
+          "offers": "Oferty",
+          "settings": "Ustawienia"
+        },
+        "updateSubmit": "Zapisz zmiany",
+        "websiteUrl": "Adres URL strony"
+      },
+      "nav": {
+        "title": "Kanały sprzedaży"
       },
       "offers": {
-        "listTitle": "Oferty kanałów sprzedaży",
-        "listSubtitle": "Przeglądaj nadpisania produktów we wszystkich kanałach sprzedaży.",
-        "filters": {
-          "channels": "Kanały sprzedaży",
-          "channelsPlaceholder": "Filtruj według kanałów…",
-          "channelsLoadError": "Nie udało się wczytać kanałów"
-        },
-        "heading": "Oferty dla {{name}}",
-        "subtitle": "Nadpisuj prezentację i ceny produktu dla danego kanału.",
         "actions": {
           "create": "Dodaj ofertę",
-          "edit": "Edytuj",
-          "delete": "Usuń"
+          "delete": "Usuń",
+          "edit": "Edytuj"
         },
         "errors": {
-          "load": "Nie udało się wczytać ofert.",
           "delete": "Nie udało się usunąć oferty.",
-          "loadOffer": "Nie udało się wczytać oferty.",
-          "save": "Nie udało się zapisać oferty.",
           "duplicateProduct": "Ten produkt ma już ofertę w tym kanale.",
-          "requiredFields": "Wybierz kanał i produkt.",
-          "priceKindRequired": "Wybierz rodzaj ceny dla każdego nadpisania.",
+          "load": "Nie udało się wczytać ofert.",
+          "loadOffer": "Nie udało się wczytać oferty.",
           "priceKindDuplicate": "Każdy typ ceny można nadpisać tylko raz.",
-          "removePrice": "Nie udało się usunąć nadpisania ceny."
+          "priceKindRequired": "Wybierz rodzaj ceny dla każdego nadpisania.",
+          "removePrice": "Nie udało się usunąć nadpisania ceny.",
+          "requiredFields": "Wybierz kanał i produkt.",
+          "save": "Nie udało się zapisać oferty."
         },
-        "messages": {
-          "deleted": "Oferta usunięta.",
-          "saved": "Oferta zapisana."
-        },
-        "table": {
-          "offer": "Oferta",
-          "pricing": "Ceny",
-          "prices": "Nadpisania cen",
-          "active": "Aktywna",
-          "updated": "Zaktualizowano",
-          "search": "Szukaj ofert…",
-          "refresh": "Odśwież",
-          "empty": "Brak ofert dla tego kanału.",
-          "emptyAll": "Brak dostępnych ofert.",
-          "noOverrides": "Brak nadpisań",
-          "price": "Cena",
-          "channelPrice": "Oryginalna cena produktu {{price}}",
-          "emptyProduct": "Niepowiązany produkt",
-          "channel": "Kanał",
-          "channelUnassigned": "Nieprzypisany"
+        "filters": {
+          "channels": "Kanały sprzedaży",
+          "channelsLoadError": "Nie udało się wczytać kanałów",
+          "channelsPlaceholder": "Filtruj według kanałów…"
         },
         "form": {
-          "createTitle": "Utwórz ofertę",
-          "editTitle": "Edytuj ofertę",
-          "createSubmit": "Utwórz ofertę",
-          "updateSubmit": "Zapisz zmiany",
-          "loading": "Wczytywanie oferty…",
+          "active": "Aktywna",
           "channel": "Kanał",
           "channelDetails": "Szczegóły",
           "channelPlaceholder": "Wybierz kanał",
-          "product": "Produkt",
-          "productGroup": "Produkt",
-          "productGroupHelp": "Wyszukaj w katalogu i wybierz produkt, który chcesz dostosować dla tego kanału.",
-          "productSummaryTitle": "Podsumowanie produktu",
-          "productSummaryPlaceholder": "Wybierz produkt, aby zobaczyć jego media, ceny i warianty.",
-          "productSearchPlaceholder": "Szukaj po nazwie, SKU lub ID…",
-          "productSearchLoading": "Wyszukiwanie produktów…",
-          "productSearchEmpty": "Brak pasujących produktów.",
-          "productSearchHint": "Wpisz co najmniej 2 znaki lub wklej identyfikator produktu.",
-          "productSearchIntro": "Szukaj po nazwie lub wklej ID produktu, aby znaleźć pozycję.",
-          "productSelectedHint": "Wybrany identyfikator produktu: {{id}}",
-          "productClear": "Wyczyść wybór",
-          "productUntitled": "Produkt bez nazwy",
-          "productPriceMissing": "Brak ceny",
-          "productPriceLabel": "Cena bazowa",
-          "productHasOffer": "Ma już ofertę w tym kanale.",
-          "productHasOfferLink": "Zobacz ofertę",
-          "productUnavailable": "Niedostępny",
-          "productSelect": "Wybierz",
-          "productSelected": "Wybrano",
+          "createSubmit": "Utwórz ofertę",
+          "createTitle": "Utwórz ofertę",
           "defaultMedia": "Domyślne media",
-          "mediaGroupTitle": "Nadpisanie domyślnego media",
-          "mediaEmpty": "Najpierw wybierz produkt, aby wczytać media.",
-          "mediaHelp": "Wybierz miniaturę, która ma reprezentować ofertę w kanale.",
-          "mediaInherit": "Użyj domyślnego produktu",
-          "mediaSelected": "Aktywne",
-          "title": "Tytuł",
           "description": "Opis",
-          "active": "Aktywna",
-          "variantsTitle": "Warianty",
-          "variantsEmpty": "Brak wariantów dla tego produktu.",
-          "tabs": {
-            "offers": "Oferty"
-          },
+          "editTitle": "Edytuj ofertę",
           "groups": {
             "associations": "Powiązania",
             "content": "Treść",
             "pricing": "Nadpisania cen"
           },
-          "mediaSelectProduct": "Wybierz produkt, aby wczytać jego media."
+          "loading": "Wczytywanie oferty…",
+          "mediaEmpty": "Najpierw wybierz produkt, aby wczytać media.",
+          "mediaGroupTitle": "Nadpisanie domyślnego media",
+          "mediaHelp": "Wybierz miniaturę, która ma reprezentować ofertę w kanale.",
+          "mediaInherit": "Użyj domyślnego produktu",
+          "mediaSelectProduct": "Wybierz produkt, aby wczytać jego media.",
+          "mediaSelected": "Aktywne",
+          "product": "Produkt",
+          "productClear": "Wyczyść wybór",
+          "productGroup": "Produkt",
+          "productGroupHelp": "Wyszukaj w katalogu i wybierz produkt, który chcesz dostosować dla tego kanału.",
+          "productHasOffer": "Ma już ofertę w tym kanale.",
+          "productHasOfferLink": "Zobacz ofertę",
+          "productPriceLabel": "Cena bazowa",
+          "productPriceMissing": "Brak ceny",
+          "productSearchEmpty": "Brak pasujących produktów.",
+          "productSearchHint": "Wpisz co najmniej 2 znaki lub wklej identyfikator produktu.",
+          "productSearchIntro": "Szukaj po nazwie lub wklej ID produktu, aby znaleźć pozycję.",
+          "productSearchLoading": "Wyszukiwanie produktów…",
+          "productSearchPlaceholder": "Szukaj po nazwie, SKU lub ID…",
+          "productSelect": "Wybierz",
+          "productSelected": "Wybrano",
+          "productSelectedHint": "Wybrany identyfikator produktu: {{id}}",
+          "productSummaryPlaceholder": "Wybierz produkt, aby zobaczyć jego media, ceny i warianty.",
+          "productSummaryTitle": "Podsumowanie produktu",
+          "productUnavailable": "Niedostępny",
+          "productUntitled": "Produkt bez nazwy",
+          "tabs": {
+            "offers": "Oferty"
+          },
+          "title": "Tytuł",
+          "updateSubmit": "Zapisz zmiany",
+          "variantsEmpty": "Brak wariantów dla tego produktu.",
+          "variantsTitle": "Warianty"
+        },
+        "heading": "Oferty dla {{name}}",
+        "listSubtitle": "Przeglądaj nadpisania produktów we wszystkich kanałach sprzedaży.",
+        "listTitle": "Oferty kanałów sprzedaży",
+        "messages": {
+          "deleted": "Oferta usunięta.",
+          "saved": "Oferta zapisana."
         },
         "pricing": {
-          "help": "Podaj nadpisania dla typów cen, gdy ta oferta jest aktywna.",
           "add": "Dodaj cenę",
-          "selectKind": "Wybierz typ ceny",
+          "allKindsUsed": "Każdy typ ceny ma już nadpisanie.",
           "amount": "Kwota",
-          "remove": "Usuń",
-          "empty": "Brak nadpisań.",
-          "emptyFallback": "Do czasu dodania nadpisania użyta będzie cena {price} z produktu.",
+          "basePriceHelp": "Wyświetlana, gdy brak nadpisania.",
           "basePriceLabel": "Oryginalna cena produktu",
           "basePriceMissing": "Brak ceny",
-          "basePriceHelp": "Wyświetlana, gdy brak nadpisania.",
-          "overrideHint": "Nadpisania mają pierwszeństwo przed oryginalną ceną produktu.",
-          "allKindsUsed": "Każdy typ ceny ma już nadpisanie.",
-          "noKindsAvailable": "Zdefiniuj typ ceny przed dodaniem nadpisań.",
+          "empty": "Brak nadpisań.",
+          "emptyFallback": "Do czasu dodania nadpisania użyta będzie cena {price} z produktu.",
+          "excludingTax": "Bez podatku",
+          "help": "Podaj nadpisania dla typów cen, gdy ta oferta jest aktywna.",
           "includingTax": "Z podatkiem",
-          "excludingTax": "Bez podatku"
+          "noKindsAvailable": "Zdefiniuj typ ceny przed dodaniem nadpisań.",
+          "overrideHint": "Nadpisania mają pierwszeństwo przed oryginalną ceną produktu.",
+          "remove": "Usuń",
+          "selectKind": "Wybierz typ ceny"
+        },
+        "subtitle": "Nadpisuj prezentację i ceny produktu dla danego kanału.",
+        "table": {
+          "active": "Aktywna",
+          "channel": "Kanał",
+          "channelPrice": "Oryginalna cena produktu {{price}}",
+          "channelUnassigned": "Nieprzypisany",
+          "empty": "Brak ofert dla tego kanału.",
+          "emptyAll": "Brak dostępnych ofert.",
+          "emptyProduct": "Niepowiązany produkt",
+          "noOverrides": "Brak nadpisań",
+          "offer": "Oferta",
+          "price": "Cena",
+          "prices": "Nadpisania cen",
+          "pricing": "Ceny",
+          "refresh": "Odśwież",
+          "search": "Szukaj ofert…",
+          "updated": "Zaktualizowano"
         }
+      },
+      "table": {
+        "actions": {
+          "delete": "Usuń",
+          "edit": "Edytuj"
+        },
+        "active": "Aktywny",
+        "code": "Kod",
+        "empty": "Brak kanałów.",
+        "errors": {
+          "delete": "Nie udało się usunąć kanału.",
+          "load": "Nie udało się wczytać kanałów."
+        },
+        "messages": {
+          "deleted": "Kanał usunięty."
+        },
+        "name": "Nazwa",
+        "offers": "Oferty produktów",
+        "refresh": "Odśwież",
+        "search": "Szukaj kanałów…",
+        "subtitle": "Organizuj oferty katalogowe według sklepu lub marketplace'u.",
+        "updated": "Zaktualizowano"
       }
     },
-    "navigation": {
-      "quotes": "Oferty",
-      "orders": "Zamówienia",
-      "taxRates": "Stawki podatku",
-      "shippingMethods": "Metody wysyłki",
-      "paymentMethods": "Metody płatności",
-      "channels": "Kanały sprzedaży"
-    },
-    "orders": {
-      "list": {
-        "title": "Zamówienia"
+    "config": {
+      "adjustmentKinds": {
+        "actions": {
+          "add": "Dodaj typ korekty",
+          "create": "Utwórz",
+          "delete": "Usuń",
+          "edit": "Edytuj",
+          "refresh": "Odśwież",
+          "save": "Zapisz zmiany"
+        },
+        "confirm": {
+          "delete": "Usunąć typ korekty \"{{code}}\"?"
+        },
+        "description": "Zarządzaj typami korekt dla podatków, dopłat, dostawy i rabatów.",
+        "dialog": {
+          "createDescription": "Zdefiniuj typ korekty używany w formularzu dodawania korekt.",
+          "createTitle": "Utwórz typ korekty",
+          "editDescription": "Zaktualizuj kod, etykietę lub wygląd tego typu korekty.",
+          "editTitle": "Edytuj typ korekty"
+        },
+        "errors": {
+          "delete": "Nie udało się usunąć typu korekty.",
+          "load": "Nie udało się wczytać typów korekt.",
+          "required": "Kod jest wymagany.",
+          "save": "Nie udało się zapisać typu korekty."
+        },
+        "form": {
+          "appearanceLabel": "Wygląd",
+          "codeLabel": "Kod",
+          "codePlaceholder": "np. discount",
+          "labelLabel": "Etykieta",
+          "labelPlaceholder": "np. Rabat"
+        },
+        "loading": "Ładowanie typów korekt…",
+        "messages": {
+          "created": "Typ korekty utworzony.",
+          "deleted": "Typ korekty usunięty.",
+          "updated": "Typ korekty zaktualizowany."
+        },
+        "search": {
+          "placeholder": "Szukaj po kodzie lub etykiecie…"
+        },
+        "table": {
+          "appearance": "Wygląd",
+          "code": "Kod",
+          "empty": "Brak typów korekt.",
+          "label": "Etykieta"
+        },
+        "title": "Typy korekt"
       },
-      "detail": {
-        "title": "Szczegóły zamówienia"
+      "numbering": {
+        "actions": {
+          "refresh": "Odśwież",
+          "refreshing": "Odświeżanie…",
+          "reset": "Resetuj zmiany",
+          "save": "Zapisz ustawienia",
+          "saving": "Zapisywanie…"
+        },
+        "description": "Zarządzaj numeracją zamówień i ofert sprzedażowych.",
+        "errors": {
+          "load": "Nie udało się załadować ustawień numeracji.",
+          "save": "Nie udało się zapisać ustawień numeracji."
+        },
+        "messages": {
+          "saved": "Ustawienia numeracji zapisane."
+        },
+        "orderFormat": "Format numeru zamówienia",
+        "orderHint": "Przykład: ORDER/{yyyy}/{seq:5}",
+        "orderNext": "Następna wartość dla zamówień",
+        "quoteFormat": "Format numeru oferty",
+        "quoteHint": "Przykład: QUOTE/{yy}/{mm}/{seq:4}",
+        "quoteNext": "Następna wartość dla ofert",
+        "sequenceHint": "Zostanie użyte przy kolejnym generowaniu numeru.",
+        "sequenceHintQuote": "Resetuje licznik ofert dla następnego dokumentu.",
+        "title": "Numery dokumentów",
+        "tokensHint": "Łącz tokeny, np. ORDER/{yyyy}/{seq:5}.",
+        "tokensTitle": "Dostępne tokeny"
       },
-      "form": {
-        "general": "Ogólne",
-        "lines": "Pozycje",
-        "shipments": "Wysyłki",
-        "invoices": "Faktury",
-        "payments": "Płatności",
-        "notes": "Notatki"
-      }
-    },
-    "settings": {
-      "taxRates": {
-        "title": "Stawki podatkowe"
-      },
-      "shippingMethods": {
-        "title": "Metody wysyłki"
+      "orderEditing": {
+        "actions": {
+          "refresh": "Odśwież",
+          "refreshing": "Odświeżanie…",
+          "save": "Zapisz ustawienia"
+        },
+        "addressLabel": "Adresy mogą być zmienione przy statusie",
+        "allowAny": "Zezwól przy dowolnym statusie",
+        "anyStatus": "Dozwolone przy dowolnym statusie",
+        "customerLabel": "Klient może być zmieniony przy statusie",
+        "description": "Kontroluj, kiedy można zmieniać klienta i adresy w zamówieniu.",
+        "errors": {
+          "load": "Nie udało się wczytać ustawień edycji zamówień.",
+          "save": "Nie udało się zapisać ustawień edycji zamówień."
+        },
+        "note": "Zmiana klienta usuwa przypisane adresy, aby uniknąć mieszania danych kontaktowych.",
+        "pickStatuses": "Wybierz statusy, przy których zmiana jest dozwolona",
+        "success": {
+          "save": "Ustawienia edycji zamówień zapisane."
+        },
+        "title": "Zabezpieczenia edycji zamówień"
       },
       "paymentMethods": {
+        "actions": {
+          "add": "Dodaj metodę płatności",
+          "delete": "Usuń",
+          "deleteConfirm": "Usunąć \"{{name}}\"?",
+          "edit": "Edytuj",
+          "refresh": "Odśwież"
+        },
+        "description": "Konfiguruj dostawców płatności i ewentualne opłaty.",
+        "errors": {
+          "delete": "Nie udało się usunąć metody płatności.",
+          "load": "Nie udało się wczytać metod płatności.",
+          "save": "Nie udało się zapisać metody płatności."
+        },
+        "form": {
+          "cancel": "Anuluj",
+          "code": "Kod",
+          "createTitle": "Dodaj metodę płatności",
+          "description": "Opis",
+          "editTitle": "Edytuj metodę płatności",
+          "isActive": "Aktywna",
+          "name": "Nazwa",
+          "noSettings": "Brak dodatkowych ustawień.",
+          "provider": "Dostawca",
+          "providerSettings": "Ustawienia dostawcy",
+          "save": "Zapisz",
+          "selectProvider": "Wybierz dostawcę do konfiguracji.",
+          "terms": "Warunki"
+        },
+        "messages": {
+          "deleted": "Metoda płatności usunięta.",
+          "saved": "Metoda płatności zapisana."
+        },
+        "table": {
+          "active": "Aktywna",
+          "code": "Kod",
+          "empty": "Brak metod płatności.",
+          "name": "Nazwa",
+          "provider": "Dostawca",
+          "search": "Szukaj metod płatności…",
+          "statusActive": "Aktywna",
+          "statusInactive": "Nieaktywna",
+          "updatedAt": "Zaktualizowano"
+        },
         "title": "Metody płatności"
       },
-      "deliveryWindows": {
-        "title": "Terminy dostaw"
+      "shippingMethods": {
+        "actions": {
+          "add": "Dodaj metodę dostawy",
+          "delete": "Usuń",
+          "deleteConfirm": "Usunąć \"{{name}}\"?",
+          "edit": "Edytuj",
+          "refresh": "Odśwież"
+        },
+        "description": "Zarządzaj przewoźnikami, dostawcami i domyślnymi cenami dostawy.",
+        "errors": {
+          "delete": "Nie udało się usunąć metody dostawy.",
+          "load": "Nie udało się wczytać metod dostawy.",
+          "save": "Nie udało się zapisać metody dostawy."
+        },
+        "form": {
+          "addRate": "Dodaj stawkę",
+          "amountGross": "Kwota (brutto)",
+          "amountNet": "Kwota (netto)",
+          "applyBaseRate": "Zawsze doliczaj stawkę bazową",
+          "baseRateGross": "Stawka bazowa (brutto)",
+          "baseRateNet": "Stawka bazowa (netto)",
+          "cancel": "Anuluj",
+          "carrierCode": "Przewoźnik",
+          "code": "Kod",
+          "createTitle": "Dodaj metodę dostawy",
+          "currency": "Waluta",
+          "currencyCode": "Waluta",
+          "description": "Opis",
+          "editTitle": "Edytuj metodę dostawy",
+          "estimatedTransitDays": "Czas dostawy (dni)",
+          "isActive": "Aktywna",
+          "max": "Max",
+          "metric": "Metryka",
+          "min": "Min",
+          "name": "Nazwa",
+          "noSettings": "Brak dodatkowych ustawień.",
+          "provider": "Dostawca",
+          "providerSettings": "Ustawienia dostawcy",
+          "ratesTitle": "Stawki",
+          "removeRate": "Usuń",
+          "save": "Zapisz",
+          "selectProvider": "Wybierz dostawcę do konfiguracji.",
+          "serviceLevel": "Poziom usługi"
+        },
+        "messages": {
+          "deleted": "Metoda dostawy usunięta.",
+          "saved": "Metoda dostawy zapisana."
+        },
+        "table": {
+          "active": "Aktywna",
+          "code": "Kod",
+          "currency": "Waluta",
+          "empty": "Brak metod dostawy.",
+          "name": "Nazwa",
+          "provider": "Dostawca",
+          "rate": "Stawka bazowa",
+          "search": "Szukaj metod dostawy…",
+          "statusActive": "Aktywna",
+          "statusInactive": "Nieaktywna",
+          "updatedAt": "Zaktualizowano"
+        },
+        "title": "Metody dostawy"
       },
-      "channels": {
-        "title": "Kanały sprzedaży"
+      "statuses": {
+        "actions": {
+          "add": "Dodaj status",
+          "delete": "Usuń",
+          "edit": "Edytuj",
+          "refresh": "Odśwież"
+        },
+        "appearance": {
+          "empty": "Brak"
+        },
+        "columns": {
+          "appearance": "Wygląd",
+          "label": "Etykieta",
+          "value": "Wartość"
+        },
+        "deleteConfirm": "Usunąć status \"{{value}}\"?",
+        "dialog": {
+          "addTitle": "Dodaj status",
+          "cancel": "Anuluj",
+          "colorClear": "Usuń kolor",
+          "colorHelp": "Wybierz kolor wyróżnienia dla tego statusu.",
+          "colorLabel": "Kolor",
+          "editTitle": "Edytuj status",
+          "iconBrowse": "Przeglądaj ikony i emoji",
+          "iconClear": "Usuń ikonę",
+          "iconLabel": "Ikona",
+          "iconPlaceholder": "Wpisz emoji lub wybierz sugestię.",
+          "iconSearchEmpty": "Brak pasujących ikon.",
+          "iconSearchPlaceholder": "Szukaj ikon lub emoji…",
+          "iconSuggestions": "Sugestie",
+          "labelLabel": "Etykieta",
+          "save": "Zapisz",
+          "valueLabel": "Wartość"
+        },
+        "empty": "Brak statusów.",
+        "error": {
+          "delete": "Nie udało się usunąć statusu.",
+          "load": "Nie udało się wczytać statusów.",
+          "save": "Nie udało się zapisać statusu."
+        },
+        "lines": {
+          "description": "Skonfiguruj dostępne statusy dla pozycji zamówień.",
+          "title": "Statusy pozycji"
+        },
+        "orders": {
+          "description": "Skonfiguruj dostępne statusy dla zamówień sprzedaży.",
+          "title": "Statusy zamówień"
+        },
+        "search": "Szukaj statusów…",
+        "success": {
+          "delete": "Status usunięty.",
+          "save": "Status zapisany."
+        }
       },
-      "errors": {
-        "unauthorized": "Brak autoryzacji",
-        "organization_required": "Wymagany jest kontekst organizacji.",
-        "load_failed": "Nie udało się wczytać ustawień sprzedaży",
-        "save_failed": "Nie udało się zapisać ustawień sprzedaży"
+      "taxRates": {
+        "actions": {
+          "add": "Dodaj stawkę podatkową",
+          "delete": "Usuń",
+          "deleteConfirm": "Usunąć stawkę \"{{name}}\"?",
+          "edit": "Edytuj",
+          "refresh": "Odśwież"
+        },
+        "description": "Zarządzaj klasami VAT używanymi w cenniku katalogu.",
+        "errors": {
+          "delete": "Nie udało się usunąć stawki podatkowej.",
+          "load": "Nie udało się wczytać stawek podatkowych.",
+          "save": "Nie udało się zapisać stawki podatkowej."
+        },
+        "form": {
+          "cancel": "Anuluj",
+          "city": "Miasto",
+          "code": "Kod",
+          "codeHelp": "Małe litery, cyfry i myślniki.",
+          "countryCode": "Kod kraju",
+          "createTitle": "Dodaj stawkę podatkową",
+          "editTitle": "Edytuj stawkę podatkową",
+          "isDefault": "Domyślna klasa podatkowa",
+          "isDefaultHelp": "Zostanie automatycznie ustawiona dla nowych produktów katalogu.",
+          "name": "Nazwa",
+          "postalCode": "Kod pocztowy",
+          "rate": "Stawka (%)",
+          "regionCode": "Region",
+          "save": "Zapisz"
+        },
+        "messages": {
+          "deleted": "Stawka podatkowa usunięta.",
+          "saved": "Stawka podatkowa zapisana."
+        },
+        "table": {
+          "code": "Kod",
+          "defaultBadge": "Domyślna",
+          "empty": "Brak stawek podatkowych.",
+          "location": "Lokalizacja",
+          "name": "Nazwa",
+          "rate": "Stawka",
+          "search": "Szukaj stawek podatku…",
+          "updatedAt": "Zaktualizowano"
+        },
+        "title": "Stawki podatkowe"
       }
     },
     "configuration": {
       "errors": {
-        "tenant_required": "Wymagany jest kontekst tenant.",
-        "organization_required": "Wymagany jest kontekst organizacji.",
+        "delete_failed": "Nie udało się usunąć rekordu.",
         "id_required": "Wymagany jest identyfikator rekordu.",
         "load_failed": "Nie udało się wczytać rekordów.",
+        "organization_required": "Wymagany jest kontekst organizacji.",
         "save_failed": "Nie udało się zapisać rekordu.",
-        "delete_failed": "Nie udało się usunąć rekordu."
+        "tenant_required": "Wymagany jest kontekst tenant."
       },
       "form": {
         "createTitle": "Utwórz rekord",
@@ -394,1205 +524,1063 @@
         "submitUpdate": "Zapisz zmiany"
       },
       "table": {
-        "search": "Szukaj rekordów",
-        "refresh": "Odśwież"
-      }
-    },
-    "config": {
-      "statuses": {
-        "orders": {
-          "title": "Statusy zamówień",
-          "description": "Skonfiguruj dostępne statusy dla zamówień sprzedaży."
-        },
-        "lines": {
-          "title": "Statusy pozycji",
-          "description": "Skonfiguruj dostępne statusy dla pozycji zamówień."
-        },
-        "columns": {
-          "value": "Wartość",
-          "label": "Etykieta",
-          "appearance": "Wygląd"
-        },
-        "actions": {
-          "add": "Dodaj status",
-          "edit": "Edytuj",
-          "delete": "Usuń",
-          "refresh": "Odśwież"
-        },
-        "empty": "Brak statusów.",
-        "search": "Szukaj statusów…",
-        "dialog": {
-          "addTitle": "Dodaj status",
-          "editTitle": "Edytuj status",
-          "valueLabel": "Wartość",
-          "labelLabel": "Etykieta",
-          "colorLabel": "Kolor",
-          "colorHelp": "Wybierz kolor wyróżnienia dla tego statusu.",
-          "colorClear": "Usuń kolor",
-          "iconLabel": "Ikona",
-          "iconPlaceholder": "Wpisz emoji lub wybierz sugestię.",
-          "iconBrowse": "Przeglądaj ikony i emoji",
-          "iconSearchPlaceholder": "Szukaj ikon lub emoji…",
-          "iconSearchEmpty": "Brak pasujących ikon.",
-          "iconSuggestions": "Sugestie",
-          "iconClear": "Usuń ikonę",
-          "save": "Zapisz",
-          "cancel": "Anuluj"
-        },
-        "appearance": {
-          "empty": "Brak"
-        },
-        "deleteConfirm": "Usunąć status \"{{value}}\"?",
-        "error": {
-          "load": "Nie udało się wczytać statusów.",
-          "save": "Nie udało się zapisać statusu.",
-          "delete": "Nie udało się usunąć statusu."
-        },
-        "success": {
-          "save": "Status zapisany.",
-          "delete": "Status usunięty."
-        }
-      },
-      "adjustmentKinds": {
-        "title": "Typy korekt",
-        "description": "Zarządzaj typami korekt dla podatków, dopłat, dostawy i rabatów.",
-        "actions": {
-          "add": "Dodaj typ korekty",
-          "edit": "Edytuj",
-          "delete": "Usuń",
-          "refresh": "Odśwież",
-          "create": "Utwórz",
-          "save": "Zapisz zmiany"
-        },
-        "confirm": {
-          "delete": "Usunąć typ korekty \"{{code}}\"?"
-        },
-        "dialog": {
-          "createTitle": "Utwórz typ korekty",
-          "editTitle": "Edytuj typ korekty",
-          "createDescription": "Zdefiniuj typ korekty używany w formularzu dodawania korekt.",
-          "editDescription": "Zaktualizuj kod, etykietę lub wygląd tego typu korekty."
-        },
-        "form": {
-          "codeLabel": "Kod",
-          "codePlaceholder": "np. discount",
-          "labelLabel": "Etykieta",
-          "labelPlaceholder": "np. Rabat",
-          "appearanceLabel": "Wygląd"
-        },
-        "errors": {
-          "required": "Kod jest wymagany.",
-          "load": "Nie udało się wczytać typów korekt.",
-          "save": "Nie udało się zapisać typu korekty.",
-          "delete": "Nie udało się usunąć typu korekty."
-        },
-        "messages": {
-          "created": "Typ korekty utworzony.",
-          "updated": "Typ korekty zaktualizowany.",
-          "deleted": "Typ korekty usunięty."
-        },
-        "table": {
-          "code": "Kod",
-          "label": "Etykieta",
-          "appearance": "Wygląd",
-          "empty": "Brak typów korekt."
-        },
-        "search": {
-          "placeholder": "Szukaj po kodzie lub etykiecie…"
-        },
-        "loading": "Ładowanie typów korekt…"
-      },
-      "shippingMethods": {
-        "title": "Metody dostawy",
-        "description": "Zarządzaj przewoźnikami, dostawcami i domyślnymi cenami dostawy.",
-        "actions": {
-          "add": "Dodaj metodę dostawy",
-          "edit": "Edytuj",
-          "delete": "Usuń",
-          "deleteConfirm": "Usunąć \"{{name}}\"?",
-          "refresh": "Odśwież"
-        },
-        "table": {
-          "name": "Nazwa",
-          "code": "Kod",
-          "provider": "Dostawca",
-          "rate": "Stawka bazowa",
-          "currency": "Waluta",
-          "active": "Aktywna",
-          "statusActive": "Aktywna",
-          "statusInactive": "Nieaktywna",
-          "updatedAt": "Zaktualizowano",
-          "empty": "Brak metod dostawy.",
-          "search": "Szukaj metod dostawy…"
-        },
-        "form": {
-          "createTitle": "Dodaj metodę dostawy",
-          "editTitle": "Edytuj metodę dostawy",
-          "name": "Nazwa",
-          "code": "Kod",
-          "provider": "Dostawca",
-          "description": "Opis",
-          "carrierCode": "Przewoźnik",
-          "serviceLevel": "Poziom usługi",
-          "estimatedTransitDays": "Czas dostawy (dni)",
-          "baseRateNet": "Stawka bazowa (netto)",
-          "baseRateGross": "Stawka bazowa (brutto)",
-          "currencyCode": "Waluta",
-          "isActive": "Aktywna",
-          "providerSettings": "Ustawienia dostawcy",
-          "selectProvider": "Wybierz dostawcę do konfiguracji.",
-          "noSettings": "Brak dodatkowych ustawień.",
-          "ratesTitle": "Stawki",
-          "addRate": "Dodaj stawkę",
-          "metric": "Metryka",
-          "min": "Min",
-          "max": "Max",
-          "amountNet": "Kwota (netto)",
-          "amountGross": "Kwota (brutto)",
-          "currency": "Waluta",
-          "removeRate": "Usuń",
-          "applyBaseRate": "Zawsze doliczaj stawkę bazową",
-          "save": "Zapisz",
-          "cancel": "Anuluj"
-        },
-        "messages": {
-          "saved": "Metoda dostawy zapisana.",
-          "deleted": "Metoda dostawy usunięta."
-        },
-        "errors": {
-          "load": "Nie udało się wczytać metod dostawy.",
-          "save": "Nie udało się zapisać metody dostawy.",
-          "delete": "Nie udało się usunąć metody dostawy."
-        }
-      },
-      "paymentMethods": {
-        "title": "Metody płatności",
-        "description": "Konfiguruj dostawców płatności i ewentualne opłaty.",
-        "actions": {
-          "add": "Dodaj metodę płatności",
-          "edit": "Edytuj",
-          "delete": "Usuń",
-          "deleteConfirm": "Usunąć \"{{name}}\"?",
-          "refresh": "Odśwież"
-        },
-        "table": {
-          "name": "Nazwa",
-          "code": "Kod",
-          "provider": "Dostawca",
-          "active": "Aktywna",
-          "statusActive": "Aktywna",
-          "statusInactive": "Nieaktywna",
-          "updatedAt": "Zaktualizowano",
-          "empty": "Brak metod płatności.",
-          "search": "Szukaj metod płatności…"
-        },
-        "form": {
-          "createTitle": "Dodaj metodę płatności",
-          "editTitle": "Edytuj metodę płatności",
-          "name": "Nazwa",
-          "code": "Kod",
-          "provider": "Dostawca",
-          "description": "Opis",
-          "terms": "Warunki",
-          "isActive": "Aktywna",
-          "providerSettings": "Ustawienia dostawcy",
-          "selectProvider": "Wybierz dostawcę do konfiguracji.",
-          "noSettings": "Brak dodatkowych ustawień.",
-          "save": "Zapisz",
-          "cancel": "Anuluj"
-        },
-        "messages": {
-          "saved": "Metoda płatności zapisana.",
-          "deleted": "Metoda płatności usunięta."
-        },
-        "errors": {
-          "load": "Nie udało się wczytać metod płatności.",
-          "save": "Nie udało się zapisać metody płatności.",
-          "delete": "Nie udało się usunąć metody płatności."
-        }
-      },
-      "orderEditing": {
-        "title": "Zabezpieczenia edycji zamówień",
-        "description": "Kontroluj, kiedy można zmieniać klienta i adresy w zamówieniu.",
-        "customerLabel": "Klient może być zmieniony przy statusie",
-        "addressLabel": "Adresy mogą być zmienione przy statusie",
-        "allowAny": "Zezwól przy dowolnym statusie",
-        "anyStatus": "Dozwolone przy dowolnym statusie",
-        "pickStatuses": "Wybierz statusy, przy których zmiana jest dozwolona",
-        "note": "Zmiana klienta usuwa przypisane adresy, aby uniknąć mieszania danych kontaktowych.",
-        "actions": {
-          "refresh": "Odśwież",
-          "save": "Zapisz ustawienia",
-          "refreshing": "Odświeżanie…"
-        },
-        "errors": {
-          "load": "Nie udało się wczytać ustawień edycji zamówień.",
-          "save": "Nie udało się zapisać ustawień edycji zamówień."
-        },
-        "success": {
-          "save": "Ustawienia edycji zamówień zapisane."
-        }
-      },
-      "taxRates": {
-        "title": "Stawki podatkowe",
-        "description": "Zarządzaj klasami VAT używanymi w cenniku katalogu.",
-        "actions": {
-          "add": "Dodaj stawkę podatkową",
-          "edit": "Edytuj",
-          "delete": "Usuń",
-          "deleteConfirm": "Usunąć stawkę \"{{name}}\"?",
-          "refresh": "Odśwież"
-        },
-        "table": {
-          "name": "Nazwa",
-          "code": "Kod",
-          "rate": "Stawka",
-          "location": "Lokalizacja",
-          "updatedAt": "Zaktualizowano",
-          "empty": "Brak stawek podatkowych.",
-          "search": "Szukaj stawek podatku…",
-          "defaultBadge": "Domyślna"
-        },
-        "form": {
-          "createTitle": "Dodaj stawkę podatkową",
-          "editTitle": "Edytuj stawkę podatkową",
-          "name": "Nazwa",
-          "code": "Kod",
-          "codeHelp": "Małe litery, cyfry i myślniki.",
-          "rate": "Stawka (%)",
-          "countryCode": "Kod kraju",
-          "regionCode": "Region",
-          "postalCode": "Kod pocztowy",
-          "city": "Miasto",
-          "isDefault": "Domyślna klasa podatkowa",
-          "isDefaultHelp": "Zostanie automatycznie ustawiona dla nowych produktów katalogu.",
-          "save": "Zapisz",
-          "cancel": "Anuluj"
-        },
-        "messages": {
-          "saved": "Stawka podatkowa zapisana.",
-          "deleted": "Stawka podatkowa usunięta."
-        },
-        "errors": {
-          "load": "Nie udało się wczytać stawek podatkowych.",
-          "save": "Nie udało się zapisać stawki podatkowej.",
-          "delete": "Nie udało się usunąć stawki podatkowej."
-        }
-      },
-      "numbering": {
-        "title": "Numery dokumentów",
-        "description": "Zarządzaj numeracją zamówień i ofert sprzedażowych.",
-        "actions": {
-          "save": "Zapisz ustawienia",
-          "reset": "Resetuj zmiany",
-          "refresh": "Odśwież",
-          "refreshing": "Odświeżanie…",
-          "saving": "Zapisywanie…"
-        },
-        "orderFormat": "Format numeru zamówienia",
-        "quoteFormat": "Format numeru oferty",
-        "orderNext": "Następna wartość dla zamówień",
-        "quoteNext": "Następna wartość dla ofert",
-        "orderHint": "Przykład: ORDER/{yyyy}/{seq:5}",
-        "quoteHint": "Przykład: QUOTE/{yy}/{mm}/{seq:4}",
-        "sequenceHint": "Zostanie użyte przy kolejnym generowaniu numeru.",
-        "sequenceHintQuote": "Resetuje licznik ofert dla następnego dokumentu.",
-        "tokensTitle": "Dostępne tokeny",
-        "tokensHint": "Łącz tokeny, np. ORDER/{yyyy}/{seq:5}.",
-        "errors": {
-          "load": "Nie udało się załadować ustawień numeracji.",
-          "save": "Nie udało się zapisać ustawień numeracji."
-        },
-        "messages": {
-          "saved": "Ustawienia numeracji zapisane."
-        }
+        "refresh": "Odśwież",
+        "search": "Szukaj rekordów"
       }
     },
     "documents": {
-      "list": {
-        "ordersTitle": "Zamówienia sprzedaży",
-        "quotesTitle": "Oferty sprzedaży",
-        "subtitle": "Przeglądaj dokumenty z kontekstem klienta, sumami i kanałami.",
-        "search": {
-          "orders": "Szukaj zamówień…",
-          "quotes": "Szukaj ofert…"
+      "adjustments": {
+        "add": "Dodaj korektę",
+        "addTitle": "Dodaj korektę",
+        "amountGross": "Kwota brutto",
+        "amountMode": "Tryb obliczania",
+        "amountNet": "Kwota netto",
+        "calculatorKey": "Klucz kalkulatora",
+        "code": "Kod",
+        "codePlaceholder": "PROMO10",
+        "created": "Korekta dodana.",
+        "currency": "Waluta",
+        "currencyPlaceholder": "np. USD",
+        "deleted": "Korekta usunięta.",
+        "editTitle": "Edytuj korektę",
+        "empty": "Brak korekt.",
+        "errorAmount": "Podaj co najmniej jedną kwotę.",
+        "errorCurrency": "Waluta jest wymagana.",
+        "errorDelete": "Nie udało się usunąć korekty.",
+        "errorLoad": "Nie udało się wczytać korekt.",
+        "errorRate": "Wprowadź stawkę procentową.",
+        "errorSave": "Nie udało się zapisać korekty.",
+        "errorScope": "Wymagane są identyfikatory organizacji i dzierżawcy.",
+        "kind": "Typ",
+        "kindLabel": "Typ",
+        "kindLabels": {
+          "custom": "Niestandardowe",
+          "discount": "Rabat",
+          "shipping": "Wysyłka",
+          "surcharge": "Dopłata",
+          "tax": "Podatek"
         },
-        "filters": {
-          "channel": "Kanał",
-          "date": "Data",
-          "itemsMin": "Min pozycji",
-          "itemsMax": "Maks pozycji",
-          "totalNetMin": "Min suma (netto)",
-          "totalNetMax": "Maks suma (netto)",
-          "totalGrossMin": "Min suma (brutto)",
-          "totalGrossMax": "Maks suma (brutto)",
-          "customer": "ID klienta",
-          "customerPlaceholder": "ID klienta",
-          "tags": "Tagi"
+        "kindSelect": {
+          "placeholder": "Wybierz typ korekty…"
         },
-        "errors": {
-          "load": "Nie udało się wczytać dokumentów."
+        "label": "Etykieta",
+        "labelPlaceholder": "np. Koszt wysyłki",
+        "labelRequired": "Etykieta jest wymagana.",
+        "loading": "Ładowanie korekt…",
+        "mode": {
+          "amount": "Kwota stała",
+          "rate": "Procent"
         },
-        "table": {
-          "order": "Zamówienie",
-          "quote": "Oferta",
-          "customer": "Klient",
-          "noCustomer": "Brak klienta",
-          "noEmail": "Brak e-maila",
-          "channel": "Kanał",
-          "unassigned": "Nieprzypisany",
-          "items": "Pozycje",
-          "totalNet": "Suma (netto)",
-          "totalGross": "Suma (brutto)",
-          "date": "Data",
-          "refresh": "Odśwież",
-          "emptyOrders": "Brak zamówień.",
-          "emptyQuotes": "Brak ofert.",
-          "open": "Otwórz",
-          "deleteOrder": "Usuń zamówienie",
-          "deleteQuote": "Usuń ofertę",
-          "deleteOrderConfirm": "Usunąć to zamówienie? Zostaną usunięte wysyłki, płatności, adresy, komentarze i pozycje.",
-          "deleteQuoteConfirm": "Usunąć tę ofertę? Zostaną usunięte adresy, komentarze i pozycje.",
-          "deleteError": "Nie udało się usunąć dokumentu.",
-          "orderDeleted": "Zamówienie usunięte.",
-          "quoteDeleted": "Oferta usunięta."
-        }
-      },
-      "errors": {
-        "unauthorized": "Brak autoryzacji",
-        "organization_required": "Wymagany jest kontekst organizacji.",
-        "forbidden": "Brak uprawnień do generowania numerów.",
-        "number_generate_failed": "Nie udało się wygenerować numeru dokumentu."
+        "position": "Pozycja",
+        "rate": "Stawka",
+        "refresh": "Odśwież",
+        "search": "Szukaj korekt",
+        "submitCreate": "Dodaj korektę",
+        "submitUpdate": "Zapisz zmiany",
+        "subtitle": "Dodaj rabaty, dopłaty, podatki lub koszty wysyłki.",
+        "taxRate": "Klasa podatkowa",
+        "taxRate.empty": "Brak dostępnych klas podatkowych",
+        "taxRate.manage": "Zarządzaj",
+        "taxRate.placeholder": "Nie wybrano klasy podatkowej",
+        "title": "Korekty",
+        "untitled": "Bez tytułu",
+        "updated": "Korekta zaktualizowana."
       },
       "create": {
         "title": "Utwórz dokument sprzedaży"
       },
-      "form": {
-        "title": "Utwórz dokument sprzedaży",
-        "submit": "Utwórz",
-        "currency": "Waluta",
-        "channel": "Kanał sprzedaży",
-        "channel.skip": "Kanał dotyczy tylko zamówień.",
-        "channel.placeholder": "Wybierz kanał",
-        "channel.help": "Opcjonalnie. Tylko dla zamówień.",
-        "channel.loading": "Ładowanie kanałów…",
-        "channel.empty": "Brak kanałów.",
-        "channel.selected": "Wybrany kanał: {{id}}",
-        "kind": "Typ dokumentu",
-        "kind.quote": "Oferta",
-        "kind.order": "Zamówienie",
-        "number": "Numer dokumentu",
-        "numberLoading": "Generowanie…",
-        "numberRefresh": "Wygeneruj",
-        "numberHintOrder": "Format dla zamówień, wykorzystuje skonfigurowany licznik.",
-        "numberHintQuote": "Format dla ofert, wykorzystuje skonfigurowany licznik.",
-        "customer": {
-          "quick": {
-            "error": "Nie udało się utworzyć klienta.",
-            "personSuccess": "Klient utworzony.",
-            "companySuccess": "Klient utworzony.",
-            "dialogDescription": "Dodaj osobę bez opuszczania tego formularza."
-          }
-        },
-        "customer.placeholder": "Szukaj klientów…",
-        "customer.addPerson": "Nowa osoba",
-        "customer.addCompany": "Nowa firma",
-        "customer.create": "Utwórz klienta",
-        "customer.loading": "Ładowanie klientów…",
-        "customer.help": "Zacznij pisać aby filtrować.",
-        "customer.empty": "Nie znaleziono klientów.",
-        "customer.selected": "Wybrany klient: {{id}}",
-        "customer.quick.error": "Nie udało się utworzyć klienta.",
-        "customer.quick.personSuccess": "Klient utworzony.",
-        "customer.quick.companySuccess": "Firma utworzona.",
-        "customer.quick.dialogDescription": "Dodaj klienta bez opuszczania tego formularza.",
-        "email": "Email klienta",
-        "email.placeholder": "Email użyty dla dokumentu",
-        "email.selectCustomer": "Wybierz klienta",
-        "email.alreadySelected": "Wybrany klient",
-        "currency.placeholder": "Wybierz walutę",
-        "currency.add": "Dodaj walutę",
-        "currency.prompt": "Kod waluty",
-        "currency.dialogTitle": "Dodaj walutę",
-        "currency.valueLabel": "Kod waluty",
-        "currency.valuePlaceholder": "np. USD",
-        "currency.labelLabel": "Etykieta",
-        "currency.labelPlaceholder": "Nazwa wyświetlana",
-        "currency.emptyError": "Wymagany jest kod waluty",
-        "currency.cancel": "Anuluj",
-        "currency.save": "Zapisz",
-        "currency.created": "Waluta zapisana.",
-        "currency.errorLoad": "Nie udało się wczytać walut.",
-        "currency.errorSave": "Nie udało się zapisać waluty.",
-        "currency.loading": "Ładowanie walut…",
-        "currency.manage": "Zarządzaj słownikiem walut",
-        "shipping.title": "Adres dostawy",
-        "shipping.custom": "Zdefiniuj nowy adres",
-        "address.sameAsShipping": "Jak adres dostawy",
-        "address.sameAsShippingHint": "Adres rozliczeniowy będzie taki sam jak dostawy. Odznacz, aby edytować.",
-        "address.customerRequired": "Najpierw wybierz klienta",
-        "billing.title": "Adres rozliczeniowy",
-        "address.loading": "Ładowanie adresów…",
-        "address.saving": "Zapisywanie…",
-        "address.placeholder": "Wybierz adres",
-        "address.name": "Pełne imię i nazwisko",
-        "address.company": "Firma (opcjonalnie)",
-        "address.line1": "Adres linia 1",
-        "address.line2": "Adres linia 2",
-        "address.city": "Miasto",
-        "address.region": "Region/województwo",
-        "address.postal": "Kod pocztowy",
-        "address.country": "Kraj",
-        "address.saveToCustomer": "Zapisz ten adres do klienta",
-        "customer.group": "Klient",
-        "addresses": "Adresy",
-        "customFields": "Pola niestandardowe",
-        "comments": "Komentarze",
-        "details": "Szczegóły dokumentu",
-        "errors.submit": "Nie udało się utworzyć dokumentu.",
-        "errors.id": "Brakuje ID dokumentu po utworzeniu.",
-        "errors.customers": "Nie udało się wczytać klientów.",
-        "errors.numberGenerate": "Nie udało się wygenerować numeru dokumentu.",
-        "errors.numberRequired": "Numer dokumentu jest wymagany.",
-        "success": "Dokument sprzedaży utworzony.",
-        "nextStep": "Po utworzeniu dodasz pozycje, ceny i szczegóły dostawy.",
-        "shipping": {
-          "hint": "Wybierz adres lub zdefiniuj nowy."
-        },
-        "billing": {
-          "hint": "Wybierz adres lub zdefiniuj nowy."
-        },
-        "kind.hint": "Wybierz rodzaj dokumentu sprzedaży. Oferta to rodzaj koszyka lub zapytania ofertowego, który można później przekształcić w zamówienie."
-      },
-      "payments": {
-        "add": "Dodaj płatność",
-        "loading": "Ładowanie płatności…",
-        "errorLoad": "Nie udało się wczytać płatności.",
-        "errorSave": "Nie udało się zapisać płatności.",
-        "scopeMissing": "Wybierz organizację i najemcę przed usunięciem płatności.",
-        "created": "Płatność zarejestrowana.",
-        "edit": "Edytuj płatność",
-        "delete": "Usuń płatność",
-        "deleted": "Płatność usunięta.",
-        "errorDelete": "Nie udało się usunąć płatności.",
-        "retry": "Spróbuj ponownie",
-        "amountRequired": "Wprowadź dodatnią kwotę.",
-        "currencyRequired": "Waluta jest wymagana.",
-        "reference": "Referencja",
-        "method": "Metoda",
-        "status": "Status",
-        "statusPlaceholder": "Wybierz status",
-        "amount": "Kwota",
-        "receivedAt": "Data otrzymania",
-        "createdAt": "Utworzono",
-        "emptyTitle": "Brak płatności.",
-        "emptyDescription": "Śledź otrzymane płatności, aby mieć aktualne saldo do zapłaty.",
-        "loadingMethods": "Ładowanie metod płatności…",
-        "methodsEmpty": "Brak metod płatności",
-        "methodSelected": "Wybrana metoda: {{id}}",
-        "methodPlaceholder": "Szukaj metody płatności",
-        "currency": "Waluta",
-        "referencePlaceholder": "Referencja zewnętrzna lub notatka",
-        "saveShortcut": "Zapisz ⌘⏎ / Ctrl+Enter",
-        "form": {
-          "title": "Szczegóły płatności"
-        }
-      },
-      "items": {
-        "lineMode": {
-          "label": "Typ pozycji",
-          "catalog": "Produkt z katalogu",
-          "custom": "Pozycja niestandardowa",
-          "helper": "Użyj produktów z katalogu albo dodaj własną pozycję z ceną ręcznie."
-        },
-        "errorNameRequired": "Nazwa jest wymagana dla niestandardowych pozycji.",
-        "wip": "Edytor pozycji pojawi się w następnej iteracji.",
-        "deleteConfirm": "Usunąć tę pozycję?",
-        "errorProductRequired": "Wybierz produkt, aby kontynuować.",
-        "errorVariantRequired": "Wybierz wariant, aby kontynuować.",
-        "errorQuantity": "Ilość musi być większa niż 0.",
-        "errorUnitPrice": "Cena jednostkowa musi być większa niż 0.",
-        "taxRate": "Klasa podatkowa",
-        "taxRate.none": "Brak wybranej klasy podatkowej",
-        "taxRate.empty": "Brak dostępnych klas podatkowych",
-        "status": "Status",
-        "statusPlaceholder": "Wybierz status",
-        "statusLoading": "Ładowanie statusów…",
-        "statusEmpty": "Brak statusu",
-        "table": {
-          "product": "Produkt",
-          "status": "Status",
-          "quantity": "Ilość",
-          "shipped": "{{shipped}} / {{total}} wysłano",
-          "unit": "Cena jednostkowa",
-          "total": "Suma",
-          "actions": "Akcje",
-          "gross": "brutto",
-          "statusEmpty": "Brak statusu",
-          "net": "netto"
-        },
-        "priceScope": {
-          "channel": "Kanał",
-          "offer": "Oferta",
-          "variant": "Wariant",
-          "customerGroup": "Grupa klientów",
-          "customer": "Klient",
-          "userGroup": "Grupa użytkowników",
-          "user": "Użytkownik",
-          "quantity": "Ilość",
-          "schedule": "Zaplanowane"
-        },
-        "priceGross": "Brutto",
-        "priceNet": "Netto",
-        "errorScope": "Wymagane są organizacja i najemca.",
-        "errorCurrency": "Waluta jest wymagana.",
-        "errorSave": "Nie udało się zapisać pozycji.",
-        "product": "Produkt",
-        "productSearch": "Szukaj produktu",
-        "selectedProduct": "Wybrano {{id}}",
-        "variant": "Wariant",
-        "variantSearch": "Szukaj wariantu",
-        "selectedVariant": "Wybrano {{id}}",
-        "price": "Cena",
-        "priceSearch": "Wybierz cenę",
-        "unitPrice": "Cena jednostkowa",
-        "quantity": "Ilość",
-        "name": "Nazwa",
-        "namePlaceholder": "Opcjonalna nazwa pozycji",
-        "editTitle": "Edytuj pozycję",
-        "addTitle": "Dodaj pozycję",
-        "save": "Zapisz zmiany",
-        "addLine": "Dodaj pozycję",
-        "loading": "Ładowanie pozycji…",
-        "errorLoad": "Nie udało się załadować pozycji.",
-        "add": "Dodaj pozycję",
-        "errorDelete": "Nie udało się usunąć pozycji.",
-        "deleted": "Pozycja usunięta.",
-        "empty": "Brak pozycji.",
-        "subtitle": "Dodaj produkty i skonfiguruj ceny dla tego dokumentu.",
-        "untitled": "Bez nazwy",
-        "title": "Pozycje",
-        "errorDeleteShipped": "Nie można usunąć pozycji, która ma wysłane sztuki.",
-        "created": "Pozycja dodana.",
-        "updated": "Pozycja zaktualizowana.",
-        "cancel": "Anuluj"
-      },
       "detail": {
-        "title": "Dokument sprzedaży",
-        "error": "Dokument nie znaleziony lub brak dostępu.",
-        "loading": "Ładowanie dokumentu…",
-        "retry": "Spróbuj ponownie",
-        "backToCreate": "Utwórz nowy dokument",
-        "order": "Zamówienie",
-        "quote": "Oferta",
-        "edit": "Edytuj szczegóły",
-        "edit.stub": "Edycja pozycji będzie dostępna wkrótce.",
-        "back": "Wróć do sprzedaży",
-        "customer": "Klient",
-        "customer.empty": "Brak powiązania",
-        "customerSnapshot": {
-          "hint": "Edytuj zrzut zapisany w tym dokumencie.",
-          "kind": "Typ klienta",
-          "edit": "Edytuj dane klienta",
-          "select": "Wybierz klienta",
-          "noCustomer": "Brak przypisanego klienta"
+        "addresses": {
+          "add": "Dodaj adres",
+          "additional": "Dodatkowe adresy",
+          "additionalHint": "Przypisz dodatkowe adresy klienta do tego dokumentu.",
+          "blocked": "Adresy nie mogą być zmienione dla bieżącego statusu.",
+          "delete": "Usuń adres",
+          "deleteConfirm": "Spowoduje to trwałe usunięcie tego adresu z dokumentu. Tej operacji nie można cofnąć. Kontynuować?",
+          "deleteError": "Nie udało się usunąć adresu.",
+          "edit": "Edytuj adres",
+          "empty": "Brak dodatkowych adresów.",
+          "itemLabel": "Adres",
+          "line1Required": "Dodaj adres (linia 1), aby kontynuować.",
+          "loadError": "Nie udało się wczytać adresów.",
+          "loading": "Ładowanie adresów dokumentu…",
+          "new": "Dodaj nowy adres",
+          "removed": "Adres usunięty z dokumentu.",
+          "save": "Zapisz adres",
+          "saveError": "Nie udało się zaktualizować adresów.",
+          "select": "Wybierz adres do dodania.",
+          "update": "Zaktualizuj adresy"
         },
+        "adjustments": {
+          "add": "Dodaj korektę",
+          "addTitle": "Dodaj korektę",
+          "amountGross": "Kwota brutto",
+          "amountNet": "Kwota netto",
+          "calculatorKey": "Klucz kalkulatora",
+          "code": "Kod",
+          "codePlaceholder": "PROMO10",
+          "created": "Korekta dodana.",
+          "currency": "Waluta",
+          "currencyPlaceholder": "np. USD",
+          "deleted": "Korekta usunięta.",
+          "editTitle": "Edytuj korektę",
+          "empty": "Brak korekt.",
+          "errorAmount": "Podaj co najmniej jedną kwotę.",
+          "errorCurrency": "Waluta jest wymagana.",
+          "errorDelete": "Nie udało się usunąć korekty.",
+          "errorLoad": "Nie udało się wczytać korekt.",
+          "errorSave": "Nie udało się zapisać korekty.",
+          "errorScope": "Wymagane są identyfikatory organizacji i dzierżawcy.",
+          "kind": "Kind",
+          "kindLabel": "Typ",
+          "kindLabels": {
+            "custom": "Niestandardowe",
+            "discount": "Rabat",
+            "shipping": "Wysyłka",
+            "surcharge": "Dopłata",
+            "tax": "Podatek"
+          },
+          "kindSelect": {
+            "placeholder": "Wybierz typ korekty…"
+          },
+          "label": "Etykieta",
+          "labelPlaceholder": "np. Koszt wysyłki",
+          "loading": "Ładowanie korekt…",
+          "position": "Pozycja",
+          "rate": "Stawka",
+          "refresh": "Odśwież",
+          "search": "Szukaj korekt",
+          "subtitle": "Dodaj rabaty, dopłaty, podatki lub koszty wysyłki.",
+          "taxRate": "Klasa podatkowa",
+          "taxRate.empty": "Brak dostępnych klas podatkowych",
+          "taxRate.manage": "Zarządzaj",
+          "taxRate.placeholder": "Nie wybrano klasy podatkowej",
+          "title": "Korekty",
+          "untitled": "Bez tytułu",
+          "updated": "Korekta zaktualizowana."
+        },
+        "back": "Wróć do sprzedaży",
+        "backToCreate": "Utwórz nowy dokument",
+        "billing": "Adres rozliczeniowy",
+        "channel": "Kanał",
+        "channelInvalid": "Nie znaleziono wybranego kanału.",
+        "comment": "Komentarz",
+        "comment.placeholder": "Dodaj komentarz",
+        "comments": {
+          "add": "Dodaj komentarz"
+        },
+        "convertError": "Nie udało się przekształcić oferty.",
+        "convertExists": "Dla tej oferty istnieje już zamówienie.",
+        "convertSuccess": "Oferta została przekształcona w zamówienie.",
+        "convertToOrder": "Konwertuj na zamówienie",
+        "created": "Utworzono",
         "currency": "Waluta",
         "currencyInvalid": "Kod waluty musi mieć 3 litery.",
         "currencyLocked": "Waluty nie można zmienić po dodaniu pozycji lub płatności.",
+        "customData": "Dane niestandardowe",
+        "customDataDefine": "Najpierw zdefiniuj pola niestandardowe.",
+        "customDataLoading": "Ładowanie danych niestandardowych…",
+        "customer": "Klient",
+        "customer.empty": "Brak powiązania",
+        "customerBlocked": "Klient nie może być zmieniony dla bieżącego statusu.",
+        "customerChangeConfirm": "Zmienić klienta? Istniejące adresy dostawy i rozliczeniowy zostaną odłączone.",
+        "customerRef": "Referencja klienta",
+        "customerRef.placeholder": "Numer PO klienta lub notatka",
+        "customerSnapshot": {
+          "edit": "Edytuj dane klienta",
+          "hint": "Edytuj zrzut zapisany w tym dokumencie.",
+          "kind": "Typ klienta",
+          "noCustomer": "Brak przypisanego klienta",
+          "select": "Wybierz klienta"
+        },
         "date": "Data",
         "dateInvalid": "Wprowadź poprawną datę w formacie RRRR-MM-DD.",
+        "delete": "Usuń",
+        "deleteConfirm": "Usunąć ten dokument? Tej operacji nie można cofnąć.",
+        "deleteFailed": "Nie udało się usunąć dokumentu.",
+        "deleted": "Dokument usunięty.",
+        "details": "Szczegóły",
+        "edit": "Edytuj szczegóły",
+        "edit.stub": "Edycja pozycji będzie dostępna wkrótce.",
+        "email": "Główny email",
+        "email.placeholder": "Dodaj email",
+        "empty": "Nie ustawiono",
+        "empty.adjustments.description": "Dodaj rabaty, opłaty lub podatki do tego dokumentu.",
+        "empty.adjustments.title": "Brak korekt.",
+        "empty.comments.action": "Dodaj komentarz",
+        "empty.comments.description": "Notatki od zespołu pojawią się tutaj.",
+        "empty.comments.title": "Brak komentarzy.",
+        "empty.generic": "Nie ma tu jeszcze nic do pokazania.",
+        "empty.items.description": "Edytor pozycji pojawi się w następnej iteracji.",
+        "empty.items.title": "Brak pozycji.",
+        "empty.payments.description": "Śledź otrzymane płatności, aby mieć aktualne saldo do zapłaty.",
+        "empty.payments.title": "Brak płatności.",
+        "empty.shipments.description": "Dodaj wysyłki do tego dokumentu, aby użytkownik mógł śledzić zamówienie.",
+        "empty.shipments.title": "Brak wysyłek.",
+        "error": "Dokument nie znaleziony lub brak dostępu.",
         "expectedDeliveryAt": {
           "label": "Przewidywana dostawa",
           "placeholder": "Dodaj przewidywaną datę dostawy"
         },
-        "comment": "Komentarz",
-        "comment.placeholder": "Dodaj komentarz",
-        "shippingMethodInvalid": "Nie znaleziono wybranej metody dostawy.",
-        "paymentMethodInvalid": "Nie znaleziono wybranej metody płatności.",
-        "shippingMethodLoadError": "Nie udało się załadować metod dostawy.",
-        "paymentMethodLoadError": "Nie udało się załadować metod płatności.",
-        "shippingMethod": {
-          "label": "Metoda dostawy",
-          "placeholder": "Wybierz metodę dostawy",
-          "loading": "Ładowanie metod dostawy…",
-          "empty": "Brak metod dostawy.",
-          "selected": "Wybrana metoda dostawy: {{id}}"
-        },
-        "paymentMethod": {
-          "label": "Metoda płatności",
-          "placeholder": "Wybierz metodę płatności",
-          "loading": "Ładowanie metod płatności…",
-          "empty": "Brak metod płatności.",
-          "selected": "Wybrana metoda płatności: {{id}}"
-        },
-        "empty": "Nie ustawiono",
-        "items": {
-          "wip": "Edytor pozycji pojawi się w następnej iteracji.",
-          "deleteConfirm": "Usunąć tę pozycję?",
-          "errorProductRequired": "Wybierz produkt, aby kontynuować.",
-          "errorVariantRequired": "Wybierz wariant, aby kontynuować.",
-          "errorQuantity": "Ilość musi być większa niż 0.",
-          "errorUnitPrice": "Cena jednostkowa musi być większa niż 0.",
-          "taxRate": "Klasa podatkowa",
-          "taxRate.none": "Brak wybranej klasy podatkowej",
-          "taxRate.empty": "Brak dostępnych klas podatkowych",
-          "status": "Status",
-          "statusPlaceholder": "Wybierz status",
-          "statusLoading": "Ładowanie statusów…",
-          "statusEmpty": "Brak statusu",
-          "table": {
-            "product": "Produkt",
-            "status": "Status",
-            "quantity": "Ilość",
-            "shipped": "{{shipped}} / {{total}} wysłano",
-            "unit": "Cena jednostkowa",
-            "total": "Suma",
-            "actions": "Akcje",
-            "gross": "brutto",
-            "statusEmpty": "Brak statusu",
-            "net": "netto"
-          },
-          "title": "Pozycje",
-          "subtitle": "Dodaj produkty i ceny do tego dokumentu.",
-          "add": "Dodaj pozycję",
-          "loading": "Ładowanie pozycji…",
-          "empty": "Brak pozycji.",
-          "errorLoad": "Nie udało się wczytać pozycji.",
-          "errorSave": "Nie udało się zapisać pozycji.",
-          "errorDelete": "Nie udało się usunąć pozycji.",
-          "errorDeleteShipped": "Nie można usunąć pozycji, która ma wysłane sztuki.",
-          "created": "Pozycja dodana.",
-          "updated": "Pozycja zaktualizowana.",
-          "deleted": "Pozycja usunięta.",
-          "addTitle": "Dodaj pozycję",
-          "editTitle": "Edytuj pozycję",
-          "product": "Produkt",
-          "productSearch": "Szukaj produktu",
-          "selectedProduct": "Wybrano {{id}}",
-          "variant": "Wariant",
-          "variantSearch": "Szukaj wariantu",
-          "price": "Cena",
-          "priceSearch": "Wybierz cenę",
-          "priceGross": "Brutto",
-          "priceNet": "Netto",
-          "priceScope": {
-            "channel": "Kanał",
-            "offer": "Oferta",
-            "variant": "Wariant",
-            "customerGroup": "Grupa klientów",
-            "customer": "Klient",
-            "userGroup": "Grupa użytkowników",
-            "user": "Użytkownik",
-            "quantity": "Ilość",
-            "schedule": "Zaplanowane"
-          },
-          "unitPrice": "Cena jednostkowa",
-          "quantity": "Ilość",
-          "name": "Nazwa",
-          "namePlaceholder": "Opcjonalna nazwa pozycji",
-          "cancel": "Anuluj",
-          "addLine": "Dodaj pozycję",
-          "save": "Zapisz zmiany",
-          "untitled": "Bez nazwy"
-        },
-        "status": "Status",
-        "shipments": {
-          "title": "Wysyłki",
-          "subtitle": "Śledź paczki i realizację dla tego zamówienia.",
-          "add": "Dodaj wysyłkę",
-          "addTitle": "Dodaj wysyłkę",
-          "editTitle": "Edytuj wysyłkę",
-          "created": "Wysyłka utworzona.",
-          "updated": "Wysyłka zaktualizowana.",
-          "deleted": "Wysyłka usunięta.",
-          "loading": "Ładowanie wysyłek…",
-          "errorLoad": "Nie udało się wczytać wysyłek.",
-          "errorSave": "Nie udało się zapisać wysyłki.",
-          "errorDelete": "Nie udało się usunąć wysyłki.",
-          "errorItems": "Dodaj przynajmniej jedną linię do wysyłki.",
-          "errorQuantity": "Ilość przekracza pozostałe dostępne sztuki.",
-          "number": "Numer wysyłki",
-          "numberLabel": "Wysyłka {{number}}",
-          "fallbackNumber": "Wysyłka {{id}}",
-          "carrier": "Przewoźnik",
-          "shippingMethod": "Metoda dostawy",
-          "shippingMethodPlaceholder": "Wybierz metodę",
-          "shippingMethodAvg": "Śr. {{price}}",
-          "shippingMethodMin": "Min {{price}}",
-          "address": "Wyślij na",
-          "addressPlaceholder": "Wybierz adres",
-          "addressSearch": "Szukaj adresu",
-          "addressMissing": "Dodaj adres do tego dokumentu, zanim utworzysz wysyłkę.",
-          "addressLoadError": "Nie udało się załadować adresów.",
-          "shippingAddressLabel": "Adres dostawy",
-          "shipmentAddressLabel": "Adres wysyłki",
-          "addressFallback": "Adres dokumentu",
-          "errorNumber": "Numer wysyłki jest wymagany.",
-          "errorShippingMethod": "Wybierz metodę dostawy.",
-          "errorAddress": "Wybierz adres wysyłki.",
-          "saveShortcut": "Zapisz (⌘/Ctrl+Enter)",
-          "tracking": "Śledzenie",
-          "trackingNumbers": "Numery śledzenia",
-          "trackingPlaceholder": "Po jednej na linię lub rozdzielone przecinkami",
-          "shippedAt": "Data wysyłki",
-          "deliveredAt": "Data dostarczenia",
-          "notes": "Notatki",
-          "items": "Pozycje do wysyłki",
-          "noLines": "Brak dostępnych linii zamówienia.",
-          "available": "{{count}} dostępne",
-          "shippedOn": "Wysłano {{date}}",
-          "deliveredOn": "Dostarczono {{date}}",
-          "statusMissing": "Status oczekujący",
-          "addressSnapshot": "Zapisano migawkę adresu.",
-          "attachAddress": "Dołącz migawkę adresu",
-          "addComment": "Dodaj notatkę w komentarzach",
-          "addShippingAdjustment": "Dodaj korektę kosztu wysyłki dla tej przesyłki",
-          "addShippingAdjustmentHelp": "Utwórz korektę wysyłki na podstawie kosztu obliczonego przez przewoźnika.",
-          "shippingAdjustmentLabel": "Koszt wysyłki",
-          "shippingAdjustmentError": "Nie udało się dodać korekty kosztu wysyłki.",
-          "shippingAdjustmentScope": "Aby dodać korektę wysyłki, wymagane są organizacja i najemca.",
-          "comment": "Wysyłka {{number}} zaktualizowana: {{summary}}",
-          "commentNotes": "Notatki: {{notes}}",
-          "confirmDelete": "Usunąć tę wysyłkę?",
-          "cancel": "Anuluj",
-          "save": "Zapisz zmiany",
-          "create": "Utwórz wysyłkę",
-          "empty": {
-            "title": "Brak wysyłek.",
-            "description": "Dodaj wysyłki do tego dokumentu, aby użytkownik mógł śledzić zamówienie."
-          }
-        },
-        "payments": {
-          "wip": "Płatności są w przygotowaniu."
-        },
-        "adjustments": {
-          "title": "Korekty",
-          "subtitle": "Dodaj rabaty, dopłaty, podatki lub koszty wysyłki.",
-          "add": "Dodaj korektę",
-          "addTitle": "Dodaj korektę",
-          "editTitle": "Edytuj korektę",
-          "loading": "Ładowanie korekt…",
-          "empty": "Brak korekt.",
-          "search": "Szukaj korekt",
-          "errorLoad": "Nie udało się wczytać korekt.",
-          "errorSave": "Nie udało się zapisać korekty.",
-          "errorDelete": "Nie udało się usunąć korekty.",
-          "errorAmount": "Podaj co najmniej jedną kwotę.",
-          "errorCurrency": "Waluta jest wymagana.",
-          "errorScope": "Wymagane są identyfikatory organizacji i dzierżawcy.",
-          "created": "Korekta dodana.",
-          "updated": "Korekta zaktualizowana.",
-          "deleted": "Korekta usunięta.",
-          "refresh": "Odśwież",
-          "label": "Etykieta",
-          "labelPlaceholder": "np. Koszt wysyłki",
-          "code": "Kod",
-          "codePlaceholder": "PROMO10",
-          "kindLabel": "Typ",
-          "kindSelect": {
-            "placeholder": "Wybierz typ korekty…"
-          },
-          "calculatorKey": "Klucz kalkulatora",
-          "rate": "Stawka",
-          "amountNet": "Kwota netto",
-          "amountGross": "Kwota brutto",
-          "taxRate": "Klasa podatkowa",
-          "taxRate.placeholder": "Nie wybrano klasy podatkowej",
-          "taxRate.empty": "Brak dostępnych klas podatkowych",
-          "taxRate.manage": "Zarządzaj",
-          "currency": "Waluta",
-          "currencyPlaceholder": "np. USD",
-          "position": "Pozycja",
-          "untitled": "Bez tytułu",
-          "kindLabels": {
-            "discount": "Rabat",
-            "tax": "Podatek",
-            "shipping": "Wysyłka",
-            "surcharge": "Dopłata",
-            "custom": "Niestandardowe"
-          },
-          "kind": "Kind"
-        },
-        "shipping": "Adres dostawy",
-        "billing": "Adres rozliczeniowy",
-        "addresses": {
-          "loadError": "Nie udało się wczytać adresów.",
-          "saveError": "Nie udało się zaktualizować adresów.",
-          "deleteError": "Nie udało się usunąć adresu.",
-          "loading": "Ładowanie adresów dokumentu…",
-          "add": "Dodaj adres",
-          "new": "Dodaj nowy adres",
-          "additional": "Dodatkowe adresy",
-          "additionalHint": "Przypisz dodatkowe adresy klienta do tego dokumentu.",
-          "empty": "Brak dodatkowych adresów.",
-          "select": "Wybierz adres do dodania.",
-          "removed": "Adres usunięty z dokumentu.",
-          "update": "Zaktualizuj adresy",
-          "delete": "Usuń adres",
-          "deleteConfirm": "Spowoduje to trwałe usunięcie tego adresu z dokumentu. Tej operacji nie można cofnąć. Kontynuować?",
-          "line1Required": "Dodaj adres (linia 1), aby kontynuować.",
-          "itemLabel": "Adres",
-          "edit": "Edytuj adres",
-          "save": "Zapisz adres",
-          "blocked": "Adresy nie mogą być zmienione dla bieżącego statusu."
-        },
-        "customerChangeConfirm": "Zmienić klienta? Istniejące adresy dostawy i rozliczeniowy zostaną odłączone.",
-        "customerBlocked": "Klient nie może być zmieniony dla bieżącego statusu.",
-        "timestamps": "Daty",
-        "created": "Utworzono",
-        "updated": "Zaktualizowano",
-        "updatedMessage": "Dokument zaktualizowany.",
-        "updateError": "Nie udało się zaktualizować dokumentu.",
-        "totals": {
-          "title": "Podsumowanie",
-          "subtotalNet": "Suma częściowa (netto)",
-          "subtotalGross": "Suma częściowa (brutto)",
-          "discountTotal": "Rabaty",
-          "taxTotal": "Suma podatku",
-          "shippingNet": "Wysyłka (netto)",
-          "shippingGross": "Wysyłka (brutto)",
-          "surchargeTotal": "Dopłaty",
-          "grandTotalNet": "Razem (netto)",
-          "grandTotalGross": "Razem (brutto)",
-          "paidTotal": "Zapłacono",
-          "refundedTotal": "Zwrócono",
-          "outstandingTotal": "Do zapłaty",
-          "showingAll": "Pokazywanie wszystkich sum",
-          "showingKey": "Pokazywanie kluczowych sum · {count} więcej",
-          "hideDetails": "Ukryj szczegóły",
-          "showDetails": "Pokaż szczegóły"
-        },
+        "externalRef": "Referencja zewnętrzna",
+        "externalRef.placeholder": "Dodaj referencję zewnętrzną",
+        "generateNumber": "Wygeneruj numer",
         "inline": {
           "save": "Zapisz ⌘⏎ / Ctrl+Enter"
         },
         "inlineError": "Nie można zaktualizować dokumentu.",
-        "customData": "Dane niestandardowe",
-        "customDataLoading": "Ładowanie danych niestandardowych…",
-        "customDataDefine": "Najpierw zdefiniuj pola niestandardowe.",
-        "tags": "Tagi",
-        "statusInvalid": "Wybrany status nie został znaleziony.",
-        "channelInvalid": "Nie znaleziono wybranego kanału.",
-        "empty.comments.title": "Brak komentarzy.",
-        "empty.comments.description": "Notatki od zespołu pojawią się tutaj.",
-        "empty.comments.action": "Dodaj komentarz",
-        "empty.items.title": "Brak pozycji.",
-        "empty.items.description": "Edytor pozycji pojawi się w następnej iteracji.",
-        "empty.shipments.title": "Brak wysyłek.",
-        "empty.shipments.description": "Dodaj wysyłki do tego dokumentu, aby użytkownik mógł śledzić zamówienie.",
-        "empty.payments.title": "Brak płatności.",
-        "empty.payments.description": "Śledź otrzymane płatności, aby mieć aktualne saldo do zapłaty.",
-        "empty.adjustments.title": "Brak korekt.",
-        "empty.adjustments.description": "Dodaj rabaty, opłaty lub podatki do tego dokumentu.",
-        "empty.generic": "Nie ma tu jeszcze nic do pokazania.",
-        "status.placeholder": "Wybierz status",
-        "status.dialogTitle": "Dodaj status",
-        "status.valueLabel": "Wartość",
-        "status.valuePlaceholder": "np. potwierdzony",
-        "status.labelLabel": "Etykieta",
-        "status.labelPlaceholder": "Etykieta wyświetlana",
-        "status.emptyError": "Wartość statusu jest wymagana.",
-        "status.cancel": "Anuluj",
-        "status.save": "Zapisz",
-        "status.created": "Status zapisany.",
-        "status.errorLoad": "Nie udało się wczytać statusów.",
-        "status.errorSave": "Nie udało się zapisać statusu.",
-        "status.loading": "Ładowanie statusów…",
-        "status.manage": "Zarządzaj statusami",
-        "tags.loading": "Ładowanie tagów…",
-        "tags.loadError": "Nie udało się wczytać tagów.",
-        "tags.createError": "Nie udało się utworzyć tagu.",
-        "tags.updateError": "Nie udało się zaktualizować tagów.",
-        "tags.labelRequired": "Nazwa tagu jest wymagana.",
-        "tags.saveShortcut": "Zapisz ⌘⏎ / Ctrl+Enter",
-        "tags.cancelShortcut": "Anuluj (Esc)",
-        "tags.success": "Tagi zaktualizowane.",
-        "tags.placeholder": "Brak tagów. Dodaj etykiety, aby uporządkować dokumenty.",
-        "numberGenerated": "Wygenerowano nowy numer.",
-        "numberGenerateError": "Nie udało się wygenerować numeru.",
-        "convertToOrder": "Konwertuj na zamówienie",
-        "convertSuccess": "Oferta została przekształcona w zamówienie.",
-        "convertError": "Nie udało się przekształcić oferty.",
-        "convertExists": "Dla tej oferty istnieje już zamówienie.",
-        "deleteConfirm": "Usunąć ten dokument? Tej operacji nie można cofnąć.",
-        "deleted": "Dokument usunięty.",
-        "deleteFailed": "Nie udało się usunąć dokumentu.",
-        "externalRef": "Referencja zewnętrzna",
-        "customerRef": "Referencja klienta",
-        "email": "Główny email",
-        "channel": "Kanał",
-        "tabs": {
-          "comments": "Komentarze",
-          "addresses": "Adresy",
-          "items": "Pozycje",
-          "shipments": "Wysyłki",
-          "payments": "Płatności",
-          "adjustments": "Korekty"
+        "items": {
+          "add": "Dodaj pozycję",
+          "addLine": "Dodaj pozycję",
+          "addTitle": "Dodaj pozycję",
+          "cancel": "Anuluj",
+          "created": "Pozycja dodana.",
+          "deleteConfirm": "Usunąć tę pozycję?",
+          "deleted": "Pozycja usunięta.",
+          "editTitle": "Edytuj pozycję",
+          "empty": "Brak pozycji.",
+          "errorDelete": "Nie udało się usunąć pozycji.",
+          "errorDeleteShipped": "Nie można usunąć pozycji, która ma wysłane sztuki.",
+          "errorLoad": "Nie udało się wczytać pozycji.",
+          "errorProductRequired": "Wybierz produkt, aby kontynuować.",
+          "errorQuantity": "Ilość musi być większa niż 0.",
+          "errorSave": "Nie udało się zapisać pozycji.",
+          "errorUnitPrice": "Cena jednostkowa musi być większa niż 0.",
+          "errorVariantRequired": "Wybierz wariant, aby kontynuować.",
+          "loading": "Ładowanie pozycji…",
+          "name": "Nazwa",
+          "namePlaceholder": "Opcjonalna nazwa pozycji",
+          "price": "Cena",
+          "priceGross": "Brutto",
+          "priceNet": "Netto",
+          "priceScope": {
+            "channel": "Kanał",
+            "customer": "Klient",
+            "customerGroup": "Grupa klientów",
+            "offer": "Oferta",
+            "quantity": "Ilość",
+            "schedule": "Zaplanowane",
+            "user": "Użytkownik",
+            "userGroup": "Grupa użytkowników",
+            "variant": "Wariant"
+          },
+          "priceSearch": "Wybierz cenę",
+          "product": "Produkt",
+          "productSearch": "Szukaj produktu",
+          "quantity": "Ilość",
+          "save": "Zapisz zmiany",
+          "selectedProduct": "Wybrano {{id}}",
+          "status": "Status",
+          "statusEmpty": "Brak statusu",
+          "statusLoading": "Ładowanie statusów…",
+          "statusPlaceholder": "Wybierz status",
+          "subtitle": "Dodaj produkty i ceny do tego dokumentu.",
+          "table": {
+            "actions": "Akcje",
+            "gross": "brutto",
+            "net": "netto",
+            "product": "Produkt",
+            "quantity": "Ilość",
+            "shipped": "{{shipped}} / {{total}} wysłano",
+            "status": "Status",
+            "statusEmpty": "Brak statusu",
+            "total": "Suma",
+            "unit": "Cena jednostkowa"
+          },
+          "taxRate": "Klasa podatkowa",
+          "taxRate.empty": "Brak dostępnych klas podatkowych",
+          "taxRate.none": "Brak wybranej klasy podatkowej",
+          "title": "Pozycje",
+          "unitPrice": "Cena jednostkowa",
+          "untitled": "Bez nazwy",
+          "updated": "Pozycja zaktualizowana.",
+          "variant": "Wariant",
+          "variantSearch": "Szukaj wariantu"
         },
-        "comments": {
-          "add": "Dodaj komentarz"
-        },
+        "loading": "Ładowanie dokumentu…",
         "number": "Numer dokumentu",
         "numberEmpty": "Brak numeru",
+        "numberGenerateError": "Nie udało się wygenerować numeru.",
+        "numberGenerated": "Wygenerowano nowy numer.",
+        "order": "Zamówienie",
+        "paymentMethod": {
+          "empty": "Brak metod płatności.",
+          "label": "Metoda płatności",
+          "loading": "Ładowanie metod płatności…",
+          "placeholder": "Wybierz metodę płatności",
+          "selected": "Wybrana metoda płatności: {{id}}"
+        },
+        "paymentMethodInvalid": "Nie znaleziono wybranej metody płatności.",
+        "paymentMethodLoadError": "Nie udało się załadować metod płatności.",
+        "payments": {
+          "wip": "Płatności są w przygotowaniu."
+        },
+        "quote": "Oferta",
+        "retry": "Spróbuj ponownie",
         "saveStub": "Zapisywanie numeru będzie dostępne wkrótce.",
-        "generateNumber": "Wygeneruj numer",
-        "delete": "Usuń",
-        "details": "Szczegóły",
-        "customerRef.placeholder": "Numer PO klienta lub notatka",
-        "email.placeholder": "Dodaj email",
-        "externalRef.placeholder": "Dodaj referencję zewnętrzną"
-      },
-      "adjustments": {
-        "title": "Korekty",
-        "subtitle": "Dodaj rabaty, dopłaty, podatki lub koszty wysyłki.",
-        "add": "Dodaj korektę",
-        "addTitle": "Dodaj korektę",
-        "editTitle": "Edytuj korektę",
-        "loading": "Ładowanie korekt…",
-        "empty": "Brak korekt.",
-        "search": "Szukaj korekt",
-        "errorLoad": "Nie udało się wczytać korekt.",
-        "errorSave": "Nie udało się zapisać korekty.",
-        "errorDelete": "Nie udało się usunąć korekty.",
-        "errorAmount": "Podaj co najmniej jedną kwotę.",
-        "errorCurrency": "Waluta jest wymagana.",
-        "errorScope": "Wymagane są identyfikatory organizacji i dzierżawcy.",
-        "created": "Korekta dodana.",
-        "updated": "Korekta zaktualizowana.",
-        "deleted": "Korekta usunięta.",
-        "refresh": "Odśwież",
-        "label": "Etykieta",
-        "labelPlaceholder": "np. Koszt wysyłki",
-        "code": "Kod",
-        "codePlaceholder": "PROMO10",
-        "kindLabel": "Typ",
-        "kindSelect": {
-          "placeholder": "Wybierz typ korekty…"
+        "shipments": {
+          "add": "Dodaj wysyłkę",
+          "addComment": "Dodaj notatkę w komentarzach",
+          "addShippingAdjustment": "Dodaj korektę kosztu wysyłki dla tej przesyłki",
+          "addShippingAdjustmentHelp": "Utwórz korektę wysyłki na podstawie kosztu obliczonego przez przewoźnika.",
+          "addTitle": "Dodaj wysyłkę",
+          "address": "Wyślij na",
+          "addressFallback": "Adres dokumentu",
+          "addressLoadError": "Nie udało się załadować adresów.",
+          "addressMissing": "Dodaj adres do tego dokumentu, zanim utworzysz wysyłkę.",
+          "addressPlaceholder": "Wybierz adres",
+          "addressSearch": "Szukaj adresu",
+          "addressSnapshot": "Zapisano migawkę adresu.",
+          "attachAddress": "Dołącz migawkę adresu",
+          "available": "{{count}} dostępne",
+          "cancel": "Anuluj",
+          "carrier": "Przewoźnik",
+          "comment": "Wysyłka {{number}} zaktualizowana: {{summary}}",
+          "commentNotes": "Notatki: {{notes}}",
+          "confirmDelete": "Usunąć tę wysyłkę?",
+          "create": "Utwórz wysyłkę",
+          "created": "Wysyłka utworzona.",
+          "deleted": "Wysyłka usunięta.",
+          "deliveredAt": "Data dostarczenia",
+          "deliveredOn": "Dostarczono {{date}}",
+          "editTitle": "Edytuj wysyłkę",
+          "empty": {
+            "description": "Dodaj wysyłki do tego dokumentu, aby użytkownik mógł śledzić zamówienie.",
+            "title": "Brak wysyłek."
+          },
+          "errorAddress": "Wybierz adres wysyłki.",
+          "errorDelete": "Nie udało się usunąć wysyłki.",
+          "errorItems": "Dodaj przynajmniej jedną linię do wysyłki.",
+          "errorLoad": "Nie udało się wczytać wysyłek.",
+          "errorNumber": "Numer wysyłki jest wymagany.",
+          "errorQuantity": "Ilość przekracza pozostałe dostępne sztuki.",
+          "errorSave": "Nie udało się zapisać wysyłki.",
+          "errorShippingMethod": "Wybierz metodę dostawy.",
+          "fallbackNumber": "Wysyłka {{id}}",
+          "items": "Pozycje do wysyłki",
+          "loading": "Ładowanie wysyłek…",
+          "noLines": "Brak dostępnych linii zamówienia.",
+          "notes": "Notatki",
+          "number": "Numer wysyłki",
+          "numberLabel": "Wysyłka {{number}}",
+          "save": "Zapisz zmiany",
+          "saveShortcut": "Zapisz (⌘/Ctrl+Enter)",
+          "shipmentAddressLabel": "Adres wysyłki",
+          "shippedAt": "Data wysyłki",
+          "shippedOn": "Wysłano {{date}}",
+          "shippingAddressLabel": "Adres dostawy",
+          "shippingAdjustmentError": "Nie udało się dodać korekty kosztu wysyłki.",
+          "shippingAdjustmentLabel": "Koszt wysyłki",
+          "shippingAdjustmentScope": "Aby dodać korektę wysyłki, wymagane są organizacja i najemca.",
+          "shippingMethod": "Metoda dostawy",
+          "shippingMethodAvg": "Śr. {{price}}",
+          "shippingMethodMin": "Min {{price}}",
+          "shippingMethodPlaceholder": "Wybierz metodę",
+          "statusMissing": "Status oczekujący",
+          "subtitle": "Śledź paczki i realizację dla tego zamówienia.",
+          "title": "Wysyłki",
+          "tracking": "Śledzenie",
+          "trackingNumbers": "Numery śledzenia",
+          "trackingPlaceholder": "Po jednej na linię lub rozdzielone przecinkami",
+          "updated": "Wysyłka zaktualizowana."
         },
-        "calculatorKey": "Klucz kalkulatora",
-        "rate": "Stawka",
-        "amountNet": "Kwota netto",
-        "amountGross": "Kwota brutto",
-        "taxRate": "Klasa podatkowa",
-        "taxRate.placeholder": "Nie wybrano klasy podatkowej",
-        "taxRate.empty": "Brak dostępnych klas podatkowych",
-        "taxRate.manage": "Zarządzaj",
-        "currency": "Waluta",
-        "currencyPlaceholder": "np. USD",
-        "position": "Pozycja",
-        "untitled": "Bez tytułu",
-        "kindLabels": {
-          "discount": "Rabat",
-          "tax": "Podatek",
-          "shipping": "Wysyłka",
-          "surcharge": "Dopłata",
-          "custom": "Niestandardowe"
+        "shipping": "Adres dostawy",
+        "shippingMethod": {
+          "empty": "Brak metod dostawy.",
+          "label": "Metoda dostawy",
+          "loading": "Ładowanie metod dostawy…",
+          "placeholder": "Wybierz metodę dostawy",
+          "selected": "Wybrana metoda dostawy: {{id}}"
         },
-        "submitCreate": "Dodaj korektę",
-        "submitUpdate": "Zapisz zmiany",
-        "amountMode": "Tryb obliczania",
-        "mode": {
-          "rate": "Procent",
-          "amount": "Kwota stała"
+        "shippingMethodInvalid": "Nie znaleziono wybranej metody dostawy.",
+        "shippingMethodLoadError": "Nie udało się załadować metod dostawy.",
+        "status": "Status",
+        "status.cancel": "Anuluj",
+        "status.created": "Status zapisany.",
+        "status.dialogTitle": "Dodaj status",
+        "status.emptyError": "Wartość statusu jest wymagana.",
+        "status.errorLoad": "Nie udało się wczytać statusów.",
+        "status.errorSave": "Nie udało się zapisać statusu.",
+        "status.labelLabel": "Etykieta",
+        "status.labelPlaceholder": "Etykieta wyświetlana",
+        "status.loading": "Ładowanie statusów…",
+        "status.manage": "Zarządzaj statusami",
+        "status.placeholder": "Wybierz status",
+        "status.save": "Zapisz",
+        "status.valueLabel": "Wartość",
+        "status.valuePlaceholder": "np. potwierdzony",
+        "statusInvalid": "Wybrany status nie został znaleziony.",
+        "tabs": {
+          "addresses": "Adresy",
+          "adjustments": "Korekty",
+          "comments": "Komentarze",
+          "items": "Pozycje",
+          "payments": "Płatności",
+          "shipments": "Wysyłki"
         },
-        "labelRequired": "Etykieta jest wymagana.",
-        "errorRate": "Wprowadź stawkę procentową.",
-        "kind": "Typ"
-      },
-      "shipments": {
-        "title": "Wysyłki",
-        "subtitle": "Śledź paczki i realizację dla tego zamówienia.",
-        "add": "Dodaj wysyłkę",
-        "addTitle": "Dodaj wysyłkę",
-        "editTitle": "Edytuj wysyłkę",
-        "created": "Wysyłka utworzona.",
-        "updated": "Wysyłka zaktualizowana.",
-        "deleted": "Wysyłka usunięta.",
-        "loading": "Ładowanie wysyłek…",
-        "errorLoad": "Nie udało się wczytać wysyłek.",
-        "errorSave": "Nie udało się zapisać wysyłki.",
-        "errorDelete": "Nie udało się usunąć wysyłki.",
-        "errorItems": "Dodaj przynajmniej jedną linię do wysyłki.",
-        "errorQuantity": "Ilość przekracza pozostałe dostępne sztuki.",
-        "number": "Numer wysyłki",
-        "numberLabel": "Wysyłka {{number}}",
-        "fallbackNumber": "Wysyłka {{id}}",
-        "carrier": "Przewoźnik",
-        "shippingMethod": "Metoda dostawy",
-        "shippingMethodPlaceholder": "Wybierz metodę",
-        "shippingMethodAvg": "Śr. {{price}}",
-        "shippingMethodMin": "Min {{price}}",
-        "address": "Wyślij na",
-        "addressPlaceholder": "Wybierz adres",
-        "addressSearch": "Szukaj adresu",
-        "addressMissing": "Dodaj adres do tego dokumentu, zanim utworzysz wysyłkę.",
-        "addressLoadError": "Nie udało się załadować adresów.",
-        "shippingAddressLabel": "Adres dostawy",
-        "shipmentAddressLabel": "Adres wysyłki",
-        "addressFallback": "Adres dokumentu",
-        "errorNumber": "Numer wysyłki jest wymagany.",
-        "errorShippingMethod": "Wybierz metodę dostawy.",
-        "errorAddress": "Wybierz adres wysyłki.",
-        "saveShortcut": "Zapisz (⌘/Ctrl+Enter)",
-        "tracking": "Śledzenie",
-        "trackingNumbers": "Numery śledzenia",
-        "trackingPlaceholder": "Po jednej na linię lub rozdzielone przecinkami",
-        "shippedAt": "Data wysyłki",
-        "deliveredAt": "Data dostarczenia",
-        "notes": "Notatki",
-        "items": "Pozycje do wysyłki",
-        "noLines": "Brak dostępnych linii zamówienia.",
-        "available": "{{count}} dostępne",
-        "shippedOn": "Wysłano {{date}}",
-        "deliveredOn": "Dostarczono {{date}}",
-        "status": "Status wysyłki",
-        "statusPlaceholder": "Wybierz status wysyłki",
-        "statusMissing": "Status oczekujący",
-        "addressSnapshot": "Zapisano migawkę adresu.",
-        "attachAddress": "Dołącz migawkę adresu",
-        "addComment": "Dodaj notatkę w komentarzach",
-        "addShippingAdjustment": "Dodaj korektę kosztu wysyłki dla tej przesyłki",
-        "addShippingAdjustmentHelp": "Utwórz korektę wysyłki na podstawie kosztu obliczonego przez przewoźnika.",
-        "shippingAdjustmentLabel": "Koszt wysyłki",
-        "shippingAdjustmentError": "Nie udało się dodać korekty kosztu wysyłki.",
-        "shippingAdjustmentScope": "Aby dodać korektę wysyłki, wymagane są organizacja i najemca.",
-        "comment": "Wysyłka {{number}} zaktualizowana: {{summary}}",
-        "commentNotes": "Notatki: {{notes}}",
-        "confirmDelete": "Usunąć tę wysyłkę?",
-        "cancel": "Anuluj",
-        "save": "Zapisz zmiany",
-        "create": "Utwórz wysyłkę",
-        "empty": {
-          "title": "Brak wysyłek.",
-          "description": "Dodaj wysyłki do tego dokumentu, aby użytkownik mógł śledzić zamówienie."
+        "tags": "Tagi",
+        "tags.cancelShortcut": "Anuluj (Esc)",
+        "tags.createError": "Nie udało się utworzyć tagu.",
+        "tags.labelRequired": "Nazwa tagu jest wymagana.",
+        "tags.loadError": "Nie udało się wczytać tagów.",
+        "tags.loading": "Ładowanie tagów…",
+        "tags.placeholder": "Brak tagów. Dodaj etykiety, aby uporządkować dokumenty.",
+        "tags.saveShortcut": "Zapisz ⌘⏎ / Ctrl+Enter",
+        "tags.success": "Tagi zaktualizowane.",
+        "tags.updateError": "Nie udało się zaktualizować tagów.",
+        "timestamps": "Daty",
+        "title": "Dokument sprzedaży",
+        "totals": {
+          "discountTotal": "Rabaty",
+          "grandTotalGross": "Razem (brutto)",
+          "grandTotalNet": "Razem (netto)",
+          "hideDetails": "Ukryj szczegóły",
+          "outstandingTotal": "Do zapłaty",
+          "paidTotal": "Zapłacono",
+          "refundedTotal": "Zwrócono",
+          "shippingGross": "Wysyłka (brutto)",
+          "shippingNet": "Wysyłka (netto)",
+          "showDetails": "Pokaż szczegóły",
+          "showingAll": "Pokazywanie wszystkich sum",
+          "showingKey": "Pokazywanie kluczowych sum · {count} więcej",
+          "subtotalGross": "Suma częściowa (brutto)",
+          "subtotalNet": "Suma częściowa (netto)",
+          "surchargeTotal": "Dopłaty",
+          "taxTotal": "Suma podatku",
+          "title": "Podsumowanie"
         },
-        "trackingGroup": "Informacje o śledzeniu"
-      },
-      "status": {
-        "changeDocument": "Zmień status zamówienia/oferty",
-        "documentPlaceholder": "Wybierz nowy status zamówienia/oferty",
-        "changeLine": "Zmień status pozycji zamówienia/oferty",
-        "linePlaceholder": "Wybierz status pozycji",
-        "sectionTitle": "Zmiany statusu"
+        "updateError": "Nie udało się zaktualizować dokumentu.",
+        "updated": "Zaktualizowano",
+        "updatedMessage": "Dokument zaktualizowany."
       },
       "empty": {
         "adjustments": {
-          "title": "Brak korekt.",
-          "description": "Dodaj rabaty, opłaty lub podatki, aby doprecyzować sumy."
+          "description": "Dodaj rabaty, opłaty lub podatki, aby doprecyzować sumy.",
+          "title": "Brak korekt."
         }
+      },
+      "errors": {
+        "forbidden": "Brak uprawnień do generowania numerów.",
+        "number_generate_failed": "Nie udało się wygenerować numeru dokumentu.",
+        "organization_required": "Wymagany jest kontekst organizacji.",
+        "unauthorized": "Brak autoryzacji"
+      },
+      "form": {
+        "address.city": "Miasto",
+        "address.company": "Firma (opcjonalnie)",
+        "address.country": "Kraj",
+        "address.customerRequired": "Najpierw wybierz klienta",
+        "address.line1": "Adres linia 1",
+        "address.line2": "Adres linia 2",
+        "address.loading": "Ładowanie adresów…",
+        "address.name": "Pełne imię i nazwisko",
+        "address.placeholder": "Wybierz adres",
+        "address.postal": "Kod pocztowy",
+        "address.region": "Region/województwo",
+        "address.sameAsShipping": "Jak adres dostawy",
+        "address.sameAsShippingHint": "Adres rozliczeniowy będzie taki sam jak dostawy. Odznacz, aby edytować.",
+        "address.saveToCustomer": "Zapisz ten adres do klienta",
+        "address.saving": "Zapisywanie…",
+        "addresses": "Adresy",
+        "billing": {
+          "hint": "Wybierz adres lub zdefiniuj nowy."
+        },
+        "billing.title": "Adres rozliczeniowy",
+        "channel": "Kanał sprzedaży",
+        "channel.empty": "Brak kanałów.",
+        "channel.help": "Opcjonalnie. Tylko dla zamówień.",
+        "channel.loading": "Ładowanie kanałów…",
+        "channel.placeholder": "Wybierz kanał",
+        "channel.selected": "Wybrany kanał: {{id}}",
+        "channel.skip": "Kanał dotyczy tylko zamówień.",
+        "comments": "Komentarze",
+        "currency": "Waluta",
+        "currency.add": "Dodaj walutę",
+        "currency.cancel": "Anuluj",
+        "currency.created": "Waluta zapisana.",
+        "currency.dialogTitle": "Dodaj walutę",
+        "currency.emptyError": "Wymagany jest kod waluty",
+        "currency.errorLoad": "Nie udało się wczytać walut.",
+        "currency.errorSave": "Nie udało się zapisać waluty.",
+        "currency.labelLabel": "Etykieta",
+        "currency.labelPlaceholder": "Nazwa wyświetlana",
+        "currency.loading": "Ładowanie walut…",
+        "currency.manage": "Zarządzaj słownikiem walut",
+        "currency.placeholder": "Wybierz walutę",
+        "currency.prompt": "Kod waluty",
+        "currency.save": "Zapisz",
+        "currency.valueLabel": "Kod waluty",
+        "currency.valuePlaceholder": "np. USD",
+        "customFields": "Pola niestandardowe",
+        "customer": {
+          "quick": {
+            "companySuccess": "Firma utworzona.",
+            "dialogDescription": "Dodaj klienta bez opuszczania tego formularza.",
+            "error": "Nie udało się utworzyć klienta.",
+            "personSuccess": "Klient utworzony."
+          }
+        },
+        "customer.addCompany": "Nowa firma",
+        "customer.addPerson": "Nowa osoba",
+        "customer.create": "Utwórz klienta",
+        "customer.empty": "Nie znaleziono klientów.",
+        "customer.group": "Klient",
+        "customer.help": "Zacznij pisać aby filtrować.",
+        "customer.loading": "Ładowanie klientów…",
+        "customer.placeholder": "Szukaj klientów…",
+        "customer.quick.companySuccess": "Firma utworzona.",
+        "customer.quick.dialogDescription": "Dodaj klienta bez opuszczania tego formularza.",
+        "customer.quick.error": "Nie udało się utworzyć klienta.",
+        "customer.quick.personSuccess": "Klient utworzony.",
+        "customer.selected": "Wybrany klient: {{id}}",
+        "details": "Szczegóły dokumentu",
+        "email": "Email klienta",
+        "email.alreadySelected": "Wybrany klient",
+        "email.placeholder": "Email użyty dla dokumentu",
+        "email.selectCustomer": "Wybierz klienta",
+        "errors.customers": "Nie udało się wczytać klientów.",
+        "errors.id": "Brakuje ID dokumentu po utworzeniu.",
+        "errors.numberGenerate": "Nie udało się wygenerować numeru dokumentu.",
+        "errors.numberRequired": "Numer dokumentu jest wymagany.",
+        "errors.submit": "Nie udało się utworzyć dokumentu.",
+        "kind": "Typ dokumentu",
+        "kind.hint": "Wybierz rodzaj dokumentu sprzedaży. Oferta to rodzaj koszyka lub zapytania ofertowego, który można później przekształcić w zamówienie.",
+        "kind.order": "Zamówienie",
+        "kind.quote": "Oferta",
+        "nextStep": "Po utworzeniu dodasz pozycje, ceny i szczegóły dostawy.",
+        "number": "Numer dokumentu",
+        "numberHintOrder": "Format dla zamówień, wykorzystuje skonfigurowany licznik.",
+        "numberHintQuote": "Format dla ofert, wykorzystuje skonfigurowany licznik.",
+        "numberLoading": "Generowanie…",
+        "numberRefresh": "Wygeneruj",
+        "shipping": {
+          "hint": "Wybierz adres lub zdefiniuj nowy."
+        },
+        "shipping.custom": "Zdefiniuj nowy adres",
+        "shipping.title": "Adres dostawy",
+        "submit": "Utwórz",
+        "success": "Dokument sprzedaży utworzony.",
+        "title": "Utwórz dokument sprzedaży"
+      },
+      "items": {
+        "add": "Dodaj pozycję",
+        "addLine": "Dodaj pozycję",
+        "addTitle": "Dodaj pozycję",
+        "cancel": "Anuluj",
+        "created": "Pozycja dodana.",
+        "deleteConfirm": "Usunąć tę pozycję?",
+        "deleted": "Pozycja usunięta.",
+        "editTitle": "Edytuj pozycję",
+        "empty": "Brak pozycji.",
+        "errorCurrency": "Waluta jest wymagana.",
+        "errorDelete": "Nie udało się usunąć pozycji.",
+        "errorDeleteShipped": "Nie można usunąć pozycji, która ma wysłane sztuki.",
+        "errorLoad": "Nie udało się załadować pozycji.",
+        "errorNameRequired": "Nazwa jest wymagana dla niestandardowych pozycji.",
+        "errorProductRequired": "Wybierz produkt, aby kontynuować.",
+        "errorQuantity": "Ilość musi być większa niż 0.",
+        "errorSave": "Nie udało się zapisać pozycji.",
+        "errorScope": "Wymagane są organizacja i najemca.",
+        "errorUnitPrice": "Cena jednostkowa musi być większa niż 0.",
+        "errorVariantRequired": "Wybierz wariant, aby kontynuować.",
+        "lineMode": {
+          "catalog": "Produkt z katalogu",
+          "custom": "Pozycja niestandardowa",
+          "helper": "Użyj produktów z katalogu albo dodaj własną pozycję z ceną ręcznie.",
+          "label": "Typ pozycji"
+        },
+        "loading": "Ładowanie pozycji…",
+        "name": "Nazwa",
+        "namePlaceholder": "Opcjonalna nazwa pozycji",
+        "price": "Cena",
+        "priceGross": "Brutto",
+        "priceNet": "Netto",
+        "priceScope": {
+          "channel": "Kanał",
+          "customer": "Klient",
+          "customerGroup": "Grupa klientów",
+          "offer": "Oferta",
+          "quantity": "Ilość",
+          "schedule": "Zaplanowane",
+          "user": "Użytkownik",
+          "userGroup": "Grupa użytkowników",
+          "variant": "Wariant"
+        },
+        "priceSearch": "Wybierz cenę",
+        "product": "Produkt",
+        "productSearch": "Szukaj produktu",
+        "quantity": "Ilość",
+        "save": "Zapisz zmiany",
+        "selectedProduct": "Wybrano {{id}}",
+        "selectedVariant": "Wybrano {{id}}",
+        "status": "Status",
+        "statusEmpty": "Brak statusu",
+        "statusLoading": "Ładowanie statusów…",
+        "statusPlaceholder": "Wybierz status",
+        "subtitle": "Dodaj produkty i skonfiguruj ceny dla tego dokumentu.",
+        "table": {
+          "actions": "Akcje",
+          "gross": "brutto",
+          "net": "netto",
+          "product": "Produkt",
+          "quantity": "Ilość",
+          "shipped": "{{shipped}} / {{total}} wysłano",
+          "status": "Status",
+          "statusEmpty": "Brak statusu",
+          "total": "Suma",
+          "unit": "Cena jednostkowa"
+        },
+        "taxRate": "Klasa podatkowa",
+        "taxRate.empty": "Brak dostępnych klas podatkowych",
+        "taxRate.none": "Brak wybranej klasy podatkowej",
+        "title": "Pozycje",
+        "unitPrice": "Cena jednostkowa",
+        "untitled": "Bez nazwy",
+        "updated": "Pozycja zaktualizowana.",
+        "variant": "Wariant",
+        "variantSearch": "Szukaj wariantu"
+      },
+      "list": {
+        "errors": {
+          "load": "Nie udało się wczytać dokumentów."
+        },
+        "filters": {
+          "channel": "Kanał",
+          "customer": "ID klienta",
+          "customerPlaceholder": "ID klienta",
+          "date": "Data",
+          "itemsMax": "Maks pozycji",
+          "itemsMin": "Min pozycji",
+          "tags": "Tagi",
+          "totalGrossMax": "Maks suma (brutto)",
+          "totalGrossMin": "Min suma (brutto)",
+          "totalNetMax": "Maks suma (netto)",
+          "totalNetMin": "Min suma (netto)"
+        },
+        "ordersTitle": "Zamówienia sprzedaży",
+        "quotesTitle": "Oferty sprzedaży",
+        "search": {
+          "orders": "Szukaj zamówień…",
+          "quotes": "Szukaj ofert…"
+        },
+        "subtitle": "Przeglądaj dokumenty z kontekstem klienta, sumami i kanałami.",
+        "table": {
+          "channel": "Kanał",
+          "customer": "Klient",
+          "date": "Data",
+          "deleteError": "Nie udało się usunąć dokumentu.",
+          "deleteOrder": "Usuń zamówienie",
+          "deleteOrderConfirm": "Usunąć to zamówienie? Zostaną usunięte wysyłki, płatności, adresy, komentarze i pozycje.",
+          "deleteQuote": "Usuń ofertę",
+          "deleteQuoteConfirm": "Usunąć tę ofertę? Zostaną usunięte adresy, komentarze i pozycje.",
+          "emptyOrders": "Brak zamówień.",
+          "emptyQuotes": "Brak ofert.",
+          "items": "Pozycje",
+          "noCustomer": "Brak klienta",
+          "noEmail": "Brak e-maila",
+          "open": "Otwórz",
+          "order": "Zamówienie",
+          "orderDeleted": "Zamówienie usunięte.",
+          "quote": "Oferta",
+          "quoteDeleted": "Oferta usunięta.",
+          "refresh": "Odśwież",
+          "totalGross": "Suma (brutto)",
+          "totalNet": "Suma (netto)",
+          "unassigned": "Nieprzypisany"
+        }
+      },
+      "payments": {
+        "add": "Dodaj płatność",
+        "amount": "Kwota",
+        "amountRequired": "Wprowadź dodatnią kwotę.",
+        "created": "Płatność zarejestrowana.",
+        "createdAt": "Utworzono",
+        "currency": "Waluta",
+        "currencyRequired": "Waluta jest wymagana.",
+        "delete": "Usuń płatność",
+        "deleted": "Płatność usunięta.",
+        "edit": "Edytuj płatność",
+        "emptyDescription": "Śledź otrzymane płatności, aby mieć aktualne saldo do zapłaty.",
+        "emptyTitle": "Brak płatności.",
+        "errorDelete": "Nie udało się usunąć płatności.",
+        "errorLoad": "Nie udało się wczytać płatności.",
+        "errorSave": "Nie udało się zapisać płatności.",
+        "form": {
+          "title": "Szczegóły płatności"
+        },
+        "loading": "Ładowanie płatności…",
+        "loadingMethods": "Ładowanie metod płatności…",
+        "method": "Metoda",
+        "methodPlaceholder": "Szukaj metody płatności",
+        "methodSelected": "Wybrana metoda: {{id}}",
+        "methodsEmpty": "Brak metod płatności",
+        "receivedAt": "Data otrzymania",
+        "reference": "Referencja",
+        "referencePlaceholder": "Referencja zewnętrzna lub notatka",
+        "retry": "Spróbuj ponownie",
+        "saveShortcut": "Zapisz ⌘⏎ / Ctrl+Enter",
+        "scopeMissing": "Wybierz organizację i najemcę przed usunięciem płatności.",
+        "status": "Status",
+        "statusPlaceholder": "Wybierz status"
+      },
+      "shipments": {
+        "add": "Dodaj wysyłkę",
+        "addComment": "Dodaj notatkę w komentarzach",
+        "addShippingAdjustment": "Dodaj korektę kosztu wysyłki dla tej przesyłki",
+        "addShippingAdjustmentHelp": "Utwórz korektę wysyłki na podstawie kosztu obliczonego przez przewoźnika.",
+        "addTitle": "Dodaj wysyłkę",
+        "address": "Wyślij na",
+        "addressFallback": "Adres dokumentu",
+        "addressLoadError": "Nie udało się załadować adresów.",
+        "addressMissing": "Dodaj adres do tego dokumentu, zanim utworzysz wysyłkę.",
+        "addressPlaceholder": "Wybierz adres",
+        "addressSearch": "Szukaj adresu",
+        "addressSnapshot": "Zapisano migawkę adresu.",
+        "attachAddress": "Dołącz migawkę adresu",
+        "available": "{{count}} dostępne",
+        "cancel": "Anuluj",
+        "carrier": "Przewoźnik",
+        "comment": "Wysyłka {{number}} zaktualizowana: {{summary}}",
+        "commentNotes": "Notatki: {{notes}}",
+        "confirmDelete": "Usunąć tę wysyłkę?",
+        "create": "Utwórz wysyłkę",
+        "created": "Wysyłka utworzona.",
+        "deleted": "Wysyłka usunięta.",
+        "deliveredAt": "Data dostarczenia",
+        "deliveredOn": "Dostarczono {{date}}",
+        "editTitle": "Edytuj wysyłkę",
+        "empty": {
+          "description": "Dodaj wysyłki do tego dokumentu, aby użytkownik mógł śledzić zamówienie.",
+          "title": "Brak wysyłek."
+        },
+        "errorAddress": "Wybierz adres wysyłki.",
+        "errorDelete": "Nie udało się usunąć wysyłki.",
+        "errorItems": "Dodaj przynajmniej jedną linię do wysyłki.",
+        "errorLoad": "Nie udało się wczytać wysyłek.",
+        "errorNumber": "Numer wysyłki jest wymagany.",
+        "errorQuantity": "Ilość przekracza pozostałe dostępne sztuki.",
+        "errorSave": "Nie udało się zapisać wysyłki.",
+        "errorShippingMethod": "Wybierz metodę dostawy.",
+        "fallbackNumber": "Wysyłka {{id}}",
+        "items": "Pozycje do wysyłki",
+        "loading": "Ładowanie wysyłek…",
+        "noLines": "Brak dostępnych linii zamówienia.",
+        "notes": "Notatki",
+        "number": "Numer wysyłki",
+        "numberLabel": "Wysyłka {{number}}",
+        "save": "Zapisz zmiany",
+        "saveShortcut": "Zapisz (⌘/Ctrl+Enter)",
+        "shipmentAddressLabel": "Adres wysyłki",
+        "shippedAt": "Data wysyłki",
+        "shippedOn": "Wysłano {{date}}",
+        "shippingAddressLabel": "Adres dostawy",
+        "shippingAdjustmentError": "Nie udało się dodać korekty kosztu wysyłki.",
+        "shippingAdjustmentLabel": "Koszt wysyłki",
+        "shippingAdjustmentScope": "Aby dodać korektę wysyłki, wymagane są organizacja i najemca.",
+        "shippingMethod": "Metoda dostawy",
+        "shippingMethodAvg": "Śr. {{price}}",
+        "shippingMethodMin": "Min {{price}}",
+        "shippingMethodPlaceholder": "Wybierz metodę",
+        "status": "Status wysyłki",
+        "statusMissing": "Status oczekujący",
+        "statusPlaceholder": "Wybierz status wysyłki",
+        "subtitle": "Śledź paczki i realizację dla tego zamówienia.",
+        "title": "Wysyłki",
+        "tracking": "Śledzenie",
+        "trackingGroup": "Informacje o śledzeniu",
+        "trackingNumbers": "Numery śledzenia",
+        "trackingPlaceholder": "Po jednej na linię lub rozdzielone przecinkami",
+        "updated": "Wysyłka zaktualizowana."
+      },
+      "status": {
+        "changeDocument": "Zmień status zamówienia/oferty",
+        "changeLine": "Zmień status pozycji zamówienia/oferty",
+        "documentPlaceholder": "Wybierz nowy status zamówienia/oferty",
+        "linePlaceholder": "Wybierz status pozycji",
+        "sectionTitle": "Zmiany statusu"
       }
     },
-    "order-statuses": {
-      "audit": {
-        "create": "Dodaj status zamówienia",
-        "update": "Zaktualizuj status zamówienia",
-        "delete": "Usuń status zamówienia"
+    "errors": {
+      "invalid_query": "Nieprawidłowe parametry zapytania",
+      "organization_required": "Wymagany jest kontekst organizacji",
+      "tenant_required": "Wymagany jest kontekst najemcy",
+      "unauthorized": "Brak autoryzacji"
+    },
+    "module": {
+      "description": "Oferty, zamówienia, realizacja, fakturowanie i płatności powiązane z katalogiem produktów.",
+      "title": "Sprzedaż"
+    },
+    "nav": {
+      "channels": "Kanały sprzedaży",
+      "group": "Sprzedaż"
+    },
+    "navigation": {
+      "channels": "Kanały sprzedaży",
+      "orders": "Zamówienia",
+      "paymentMethods": "Metody płatności",
+      "quotes": "Oferty",
+      "shippingMethods": "Metody wysyłki",
+      "taxRates": "Stawki podatku"
+    },
+    "notifications": {
+      "order": {
+        "created": {
+          "body": "Zamówienie {orderNumber} zostało utworzone{total}",
+          "title": "Nowe zamówienie"
+        }
+      },
+      "quote": {
+        "created": {
+          "body": "Oferta {quoteNumber} została utworzona{total}",
+          "title": "Nowa oferta"
+        }
+      },
+      "renderer": {
+        "assignedToYou": "Przypisane do Ciebie",
+        "pendingReview": "Oczekuje na przegląd",
+        "viewOrder": "Zobacz zamówienie",
+        "viewQuote": "Zobacz ofertę"
       }
     },
     "order-line-statuses": {
       "audit": {
         "create": "Dodaj status pozycji zamówienia",
-        "update": "Zaktualizuj status pozycji zamówienia",
-        "delete": "Usuń status pozycji zamówienia"
+        "delete": "Usuń status pozycji zamówienia",
+        "update": "Zaktualizuj status pozycji zamówienia"
+      },
+      "create": "Dodaj status pozycji zamówienia",
+      "delete": "Usuń status pozycji zamówienia",
+      "update": "Zaktualizuj status pozycji zamówienia"
+    },
+    "order-statuses": {
+      "audit": {
+        "create": "Dodaj status zamówienia",
+        "delete": "Usuń status zamówienia",
+        "update": "Zaktualizuj status zamówienia"
+      },
+      "create": "Dodaj status zamówienia",
+      "delete": "Usuń status zamówienia",
+      "update": "Zaktualizuj status zamówienia"
+    },
+    "orders": {
+      "detail": {
+        "title": "Szczegóły zamówienia"
+      },
+      "form": {
+        "general": "Ogólne",
+        "invoices": "Faktury",
+        "lines": "Pozycje",
+        "notes": "Notatki",
+        "payments": "Płatności",
+        "shipments": "Wysyłki"
+      },
+      "list": {
+        "title": "Zamówienia"
       }
     },
-    "audit": {
-      "orders": {
-        "lines": {
-          "upsert": "Zaktualizuj pozycję zamówienia",
-          "delete": "Usuń pozycję zamówienia"
+    "quotes": {
+      "accept": {
+        "adminEmail": {
+          "body": "Klient zaakceptował ofertę {quoteNumber}. Utworzono zamówienie: {orderNumber}.",
+          "cta": "Zobacz zamówienie",
+          "footer": "Open Mercato",
+          "heading": "Oferta {quoteNumber} zaakceptowana",
+          "preview": "Oferta {quoteNumber} zaakceptowana"
+        },
+        "adminSubject": "Oferta {quoteNumber} zaakceptowana → Zamówienie {orderNumber}",
+        "expired": "Ta oferta wygasła.",
+        "failed": "Nie udało się zaakceptować oferty.",
+        "invalidStatus": "Nie można zaakceptować oferty w jej obecnym statusie.",
+        "notFound": "Nie znaleziono oferty."
+      },
+      "detail": {
+        "title": "Szczegóły oferty"
+      },
+      "email": {
+        "cta": "Zobacz ofertę",
+        "footer": "Open Mercato",
+        "heading": "Oferta {quoteNumber}",
+        "preview": "Oferta {quoteNumber} jest gotowa do przeglądu",
+        "subject": "Oferta {quoteNumber}",
+        "total": "Suma: {amount} {currency}",
+        "validUntil": "Ważna do: {date}"
+      },
+      "form": {
+        "general": "Ogólne",
+        "lines": "Pozycje",
+        "notes": "Notatki"
+      },
+      "list": {
+        "title": "Oferty"
+      },
+      "public": {
+        "acceptButton": "Zaakceptuj ofertę",
+        "acceptFailed": "Nie udało się zaakceptować oferty.",
+        "acceptedMessage": "Utworzono zamówienie: {orderNumber}",
+        "acceptedTitle": "Oferta zaakceptowana",
+        "discount": "Rabat",
+        "expired": "Ta oferta wygasła.",
+        "expiredMessage": "Skontaktuj się ze sprzedawcą, aby otrzymać zaktualizowaną ofertę.",
+        "failed": "Nie udało się wczytać oferty.",
+        "item": "Pozycja",
+        "items": "Pozycje",
+        "loading": "Wczytywanie oferty…",
+        "noValidityDate": "Brak daty ważności",
+        "notFound": "Nie znaleziono oferty.",
+        "pageTitle": "Oferta",
+        "qty": "Ilość: {quantity}",
+        "subtotalGross": "Suma częściowa (brutto)",
+        "tax": "Podatek",
+        "total": "Suma",
+        "totals": "Sumy",
+        "validUntil": "Ważna do {date}"
+      },
+      "send": {
+        "action": "Wyślij do klienta",
+        "cancel": "Anuluj",
+        "canceled": "Anulowanych ofert nie można wysłać.",
+        "description": "E-mail zostanie wysłany na:",
+        "failed": "Nie udało się wysłać oferty.",
+        "missingEmail": "Do wysłania oferty wymagany jest e-mail klienta.",
+        "noEmail": "Brak e-maila",
+        "submit": "Wyślij ofertę",
+        "success": "Oferta wysłana.",
+        "title": "Wyślij ofertę do klienta",
+        "validForDays": "Ważne przez (dni)"
+      }
+    },
+    "settings": {
+      "channels": {
+        "title": "Kanały sprzedaży"
+      },
+      "deliveryWindows": {
+        "title": "Terminy dostaw"
+      },
+      "errors": {
+        "load_failed": "Nie udało się wczytać ustawień sprzedaży",
+        "organization_required": "Wymagany jest kontekst organizacji.",
+        "save_failed": "Nie udało się zapisać ustawień sprzedaży",
+        "unauthorized": "Brak autoryzacji"
+      },
+      "paymentMethods": {
+        "title": "Metody płatności"
+      },
+      "shippingMethods": {
+        "title": "Metody wysyłki"
+      },
+      "taxRates": {
+        "title": "Stawki podatkowe"
+      }
+    },
+    "widgets": {
+      "newOrders": {
+        "empty": "Brak zamówień w tym okresie",
+        "error": "Nie udało się wczytać zamówień",
+        "noCustomer": "Brak klienta",
+        "settings": {
+          "custom": "Własny zakres",
+          "customFrom": "Od",
+          "customTo": "Do",
+          "datePeriod": "Okres",
+          "last24h": "Ostatnie 24 godziny",
+          "last30d": "Ostatnie 30 dni",
+          "last7d": "Ostatnie 7 dni",
+          "pageSize": "Liczba zamówień"
         }
       },
-      "quotes": {
-        "lines": {
-          "upsert": "Zaktualizuj pozycję oferty",
-          "delete": "Usuń pozycję oferty"
+      "newQuotes": {
+        "empty": "Brak ofert w tym okresie",
+        "error": "Nie udało się wczytać ofert",
+        "noCustomer": "Brak klienta",
+        "settings": {
+          "custom": "Własny zakres",
+          "customFrom": "Od",
+          "customTo": "Do",
+          "datePeriod": "Okres",
+          "last24h": "Ostatnie 24 godziny",
+          "last30d": "Ostatnie 30 dni",
+          "last7d": "Ostatnie 7 dni",
+          "pageSize": "Liczba ofert"
         }
       }
     }
   },
-  "sales.order-statuses": {},
-  "sales.order-line-statuses": {},
-  "sales.order-statuses.create": "Dodaj status zamówienia",
-  "sales.order-statuses.update": "Zaktualizuj status zamówienia",
-  "sales.order-statuses.delete": "Usuń status zamówienia",
-  "sales.order-line-statuses.create": "Dodaj status pozycji zamówienia",
-  "sales.order-line-statuses.update": "Zaktualizuj status pozycji zamówienia",
-  "sales.order-line-statuses.delete": "Usuń status pozycji zamówienia",
-  "sales.shipment-statuses.create": "Dodaj status wysyłki",
-  "sales.shipment-statuses.update": "Zaktualizuj status wysyłki",
-  "sales.shipment-statuses.delete": "Usuń status wysyłki",
-  "sales.channels.create": "Utwórz kanał sprzedaży",
-  "sales.channels.update": "Zaktualizuj kanał sprzedaży",
-  "sales.tax-rates.create": "Utwórz stawkę podatku",
-  "sales.tax-rates.update": "Aktualizuj stawkę podatku",
-  "sales.tax-rates.delete": "Usuń stawkę podatku",
-  "sales.quotes.create": "Utwórz ofertę",
-  "sales.quotes.update": "Aktualizuj ofertę",
-  "sales.quotes.delete": "Usuń ofertę",
-  "sales.quotes.lines.upsert": "Zaktualizuj pozycję oferty",
-  "sales.quotes.lines.delete": "Usuń pozycję oferty",
-  "sales.quotes.adjustments.upsert": "Zaktualizuj korektę oferty",
-  "sales.quotes.adjustments.delete": "Usuń korektę oferty",
-  "sales.orders.create": "Utwórz zamówienie sprzedaży",
-  "sales.orders.update": "Aktualizuj zamówienie sprzedaży",
-  "sales.orders.delete": "Usuń zamówienie sprzedaży",
-  "sales.orders.lines.upsert": "Zaktualizuj pozycję zamówienia",
-  "sales.orders.lines.delete": "Usuń pozycję zamówienia",
-  "sales.orders.adjustments.upsert": "Zaktualizuj korektę zamówienia",
-  "sales.orders.adjustments.delete": "Usuń korektę zamówienia",
+  "sales.audit.orders.adjustments.delete": "Usuń korektę zamówienia",
+  "sales.audit.orders.adjustments.upsert": "Zaktualizuj korektę zamówienia",
   "sales.audit.orders.create": "Utwórz zamówienie sprzedaży",
   "sales.audit.orders.delete": "Usuń zamówienie sprzedaży",
-  "sales.audit.orders.update": "Aktualizuj zamówienie sprzedaży",
-  "sales.audit.orders.lines.upsert": "Zaktualizuj pozycję zamówienia",
   "sales.audit.orders.lines.delete": "Usuń pozycję zamówienia",
-  "sales.audit.orders.adjustments.upsert": "Zaktualizuj korektę zamówienia",
-  "sales.audit.orders.adjustments.delete": "Usuń korektę zamówienia",
+  "sales.audit.orders.lines.upsert": "Zaktualizuj pozycję zamówienia",
+  "sales.audit.orders.update": "Aktualizuj zamówienie sprzedaży",
+  "sales.audit.quotes.adjustments.delete": "Usuń korektę oferty",
+  "sales.audit.quotes.adjustments.upsert": "Zaktualizuj korektę oferty",
   "sales.audit.quotes.create": "Utwórz ofertę",
   "sales.audit.quotes.delete": "Usuń ofertę",
-  "sales.audit.quotes.update": "Aktualizuj ofertę",
-  "sales.audit.quotes.lines.upsert": "Zaktualizuj pozycję oferty",
   "sales.audit.quotes.lines.delete": "Usuń pozycję oferty",
-  "sales.audit.quotes.adjustments.upsert": "Zaktualizuj korektę oferty",
-  "sales.audit.quotes.adjustments.delete": "Usuń korektę oferty",
+  "sales.audit.quotes.lines.upsert": "Zaktualizuj pozycję oferty",
+  "sales.audit.quotes.update": "Aktualizuj ofertę",
   "sales.audit.shipments.create": "Utwórz wysyłkę",
-  "sales.audit.shipments.update": "Aktualizuj wysyłkę",
   "sales.audit.shipments.delete": "Usuń wysyłkę",
-  "sales.shipments.not_found": "Nie znaleziono wysyłki",
-  "sales.shipments.items_required": "Dodaj co najmniej jedną linię do wysyłki.",
-  "sales.shipments.line_missing": "Nie znaleziono linii zamówienia.",
-  "sales.shipments.quantity_exceeded": "Nie można wysłać więcej niż pozostała ilość.",
-  "sales.shipments.invalid_order": "Wysyłka nie należy do tego zamówienia.",
-  "sales.orders.edit_customer_blocked": "Klient nie może być zmieniony dla bieżącego statusu.",
+  "sales.audit.shipments.update": "Aktualizuj wysyłkę",
+  "sales.channels.create": "Utwórz kanał sprzedaży",
+  "sales.channels.update": "Zaktualizuj kanał sprzedaży",
+  "sales.notifications.payment.received.body": "Payment of {amount} received for order #{orderNumber}",
+  "sales.notifications.payment.received.title": "Payment Received",
+  "sales.notifications.quote.expiring.body": "Quote #{quoteNumber} expires in {daysUntilExpiry} days ({expiresAt})",
+  "sales.notifications.quote.expiring.title": "Quote Expiring Soon",
+  "sales.order-line-statuses": {},
+  "sales.order-statuses": {},
+  "sales.orders.adjustments.delete": "Usuń korektę zamówienia",
+  "sales.orders.adjustments.upsert": "Zaktualizuj korektę zamówienia",
+  "sales.orders.create": "Utwórz zamówienie sprzedaży",
+  "sales.orders.delete": "Usuń zamówienie sprzedaży",
   "sales.orders.edit_addresses_blocked": "Adresy nie mogą być zmienione dla bieżącego statusu.",
-  "sales.orders.status_change.note": "Status zmieniony z {from} na {to} przez {actor}.",
-  "sales.orders.status_change.actor_unknown": "Nieznany użytkownik",
+  "sales.orders.edit_customer_blocked": "Klient nie może być zmieniony dla bieżącego statusu.",
+  "sales.orders.lines.delete": "Usuń pozycję zamówienia",
+  "sales.orders.lines.upsert": "Zaktualizuj pozycję zamówienia",
   "sales.orders.status_change.actor_api_key": "Klucz API {name}",
+  "sales.orders.status_change.actor_unknown": "Nieznany użytkownik",
   "sales.orders.status_change.empty": "brak",
+  "sales.orders.status_change.note": "Status zmieniony z {from} na {to} przez {actor}.",
+  "sales.orders.update": "Aktualizuj zamówienie sprzedaży",
+  "sales.quotes.adjustments.delete": "Usuń korektę oferty",
+  "sales.quotes.adjustments.upsert": "Zaktualizuj korektę oferty",
+  "sales.quotes.create": "Utwórz ofertę",
+  "sales.quotes.delete": "Usuń ofertę",
+  "sales.quotes.lines.delete": "Usuń pozycję oferty",
+  "sales.quotes.lines.upsert": "Zaktualizuj pozycję oferty",
+  "sales.quotes.update": "Aktualizuj ofertę",
+  "sales.search.badge.address": "Adres",
   "sales.search.badge.channel": "Kanał",
-  "sales.search.badge.order": "Zamówienie",
-  "sales.search.badge.quote": "Oferta",
-  "sales.search.badge.orderLine": "Pozycja zamówienia",
-  "sales.search.badge.quoteLine": "Pozycja oferty",
-  "sales.search.badge.orderAdjustment": "Korekta zamówienia",
-  "sales.search.badge.quoteAdjustment": "Korekta oferty",
-  "sales.search.badge.shipment": "Wysyłka",
-  "sales.search.badge.shipmentItem": "Pozycja wysyłki",
-  "sales.search.badge.invoice": "Faktura",
-  "sales.search.badge.invoiceLine": "Pozycja faktury",
   "sales.search.badge.creditMemo": "Nota kredytowa",
   "sales.search.badge.creditMemoLine": "Pozycja noty kredytowej",
+  "sales.search.badge.deliveryWindow": "Okno dostawy",
+  "sales.search.badge.documentTag": "Tag dokumentu",
+  "sales.search.badge.invoice": "Faktura",
+  "sales.search.badge.invoiceLine": "Pozycja faktury",
+  "sales.search.badge.note": "Notatka",
+  "sales.search.badge.order": "Zamówienie",
+  "sales.search.badge.orderAdjustment": "Korekta zamówienia",
+  "sales.search.badge.orderLine": "Pozycja zamówienia",
   "sales.search.badge.payment": "Płatność",
   "sales.search.badge.paymentAllocation": "Alokacja płatności",
-  "sales.search.badge.note": "Notatka",
-  "sales.search.badge.address": "Adres",
-  "sales.search.badge.shippingMethod": "Metoda wysyłki",
-  "sales.search.badge.deliveryWindow": "Okno dostawy",
   "sales.search.badge.paymentMethod": "Metoda płatności",
+  "sales.search.badge.quote": "Oferta",
+  "sales.search.badge.quoteAdjustment": "Korekta oferty",
+  "sales.search.badge.quoteLine": "Pozycja oferty",
+  "sales.search.badge.shipment": "Wysyłka",
+  "sales.search.badge.shipmentItem": "Pozycja wysyłki",
+  "sales.search.badge.shippingMethod": "Metoda wysyłki",
   "sales.search.badge.taxRate": "Stawka podatku",
-  "sales.search.badge.documentTag": "Tag dokumentu",
-  "audit_logs.resource_kind.sales.documentAddress": "Adres",
-  "audit_logs.resource_kind.sales.payment": "Płatność",
-  "audit_logs.resource_kind.sales.shipment": "Wysyłka",
-  "audit_logs.resource_kind.sales.note": "Notatka"
+  "sales.shipment-statuses.create": "Dodaj status wysyłki",
+  "sales.shipment-statuses.delete": "Usuń status wysyłki",
+  "sales.shipment-statuses.update": "Zaktualizuj status wysyłki",
+  "sales.shipments.invalid_order": "Wysyłka nie należy do tego zamówienia.",
+  "sales.shipments.items_required": "Dodaj co najmniej jedną linię do wysyłki.",
+  "sales.shipments.line_missing": "Nie znaleziono linii zamówienia.",
+  "sales.shipments.not_found": "Nie znaleziono wysyłki",
+  "sales.shipments.quantity_exceeded": "Nie można wysłać więcej niż pozostała ilość.",
+  "sales.tax-rates.create": "Utwórz stawkę podatku",
+  "sales.tax-rates.delete": "Usuń stawkę podatku",
+  "sales.tax-rates.update": "Aktualizuj stawkę podatku"
 }
