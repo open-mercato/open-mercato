@@ -1,0 +1,169 @@
+import { RecordLockService } from '../lib/recordLockService'
+import type { RecordLockSettings } from '../lib/config'
+
+const DEFAULT_SETTINGS: RecordLockSettings = {
+  enabled: true,
+  strategy: 'optimistic',
+  timeoutSeconds: 300,
+  heartbeatSeconds: 30,
+  enabledResources: ['sales.quote'],
+  allowForceUnlock: true,
+  notifyOnConflict: true,
+}
+
+function createService(settings: RecordLockSettings = DEFAULT_SETTINGS) {
+  const em = {
+    findOne: jest.fn(),
+    find: jest.fn(),
+    create: jest.fn(),
+    persist: jest.fn(),
+    flush: jest.fn(),
+  } as any
+
+  const moduleConfigService = {
+    getValue: jest.fn().mockResolvedValue(settings),
+    setValue: jest.fn(),
+  } as any
+
+  return {
+    service: new RecordLockService({ em, moduleConfigService }),
+    em,
+    moduleConfigService,
+  }
+}
+
+function buildLock(overrides: Partial<Record<string, unknown>> = {}) {
+  const now = new Date('2026-02-17T10:00:00.000Z')
+  return {
+    id: '10000000-0000-4000-8000-000000000001',
+    resourceKind: 'sales.quote',
+    resourceId: '20000000-0000-4000-8000-000000000001',
+    token: '30000000-0000-4000-8000-000000000001',
+    strategy: 'optimistic',
+    status: 'active',
+    lockedByUserId: '40000000-0000-4000-8000-000000000001',
+    baseActionLogId: '50000000-0000-4000-8000-000000000001',
+    lockedAt: now,
+    lastHeartbeatAt: now,
+    expiresAt: new Date(now.getTime() + 300000),
+    tenantId: '60000000-0000-4000-8000-000000000001',
+    organizationId: '70000000-0000-4000-8000-000000000001',
+    ...overrides,
+  }
+}
+
+describe('RecordLockService.validateMutation', () => {
+  beforeEach(() => {
+    jest.clearAllMocks()
+  })
+
+  test('returns resourceEnabled=false when locking is disabled for resource', async () => {
+    const { service } = createService({
+      ...DEFAULT_SETTINGS,
+      enabled: false,
+      enabledResources: [],
+    })
+
+    const result = await service.validateMutation({
+      tenantId: '60000000-0000-4000-8000-000000000001',
+      organizationId: '70000000-0000-4000-8000-000000000001',
+      userId: '40000000-0000-4000-8000-000000000001',
+      resourceKind: 'sales.quote',
+      resourceId: '20000000-0000-4000-8000-000000000001',
+      method: 'PUT',
+      headers: {},
+    })
+
+    expect(result.ok).toBe(true)
+    if (!result.ok) throw new Error('Expected successful validation')
+    expect(result.resourceEnabled).toBe(false)
+    expect(result.lock).toBeNull()
+  })
+
+  test('returns 409 conflict when optimistic base log is stale', async () => {
+    const { service } = createService()
+    const serviceAny = service as any
+
+    serviceAny.findActiveLock = jest.fn().mockResolvedValue(
+      buildLock({ lockedByUserId: '40000000-0000-4000-8000-000000000001' }),
+    )
+    serviceAny.findLatestActionLog = jest.fn().mockResolvedValue({
+      id: '80000000-0000-4000-8000-000000000001',
+      actorUserId: '90000000-0000-4000-8000-000000000001',
+    })
+    serviceAny.createConflict = jest.fn().mockResolvedValue({
+      id: 'a0000000-0000-4000-8000-000000000001',
+      resourceKind: 'sales.quote',
+      resourceId: '20000000-0000-4000-8000-000000000001',
+      baseActionLogId: '50000000-0000-4000-8000-000000000001',
+      incomingActionLogId: '80000000-0000-4000-8000-000000000001',
+      conflictActorUserId: '40000000-0000-4000-8000-000000000001',
+      incomingActorUserId: '90000000-0000-4000-8000-000000000001',
+    })
+
+    const result = await service.validateMutation({
+      tenantId: '60000000-0000-4000-8000-000000000001',
+      organizationId: '70000000-0000-4000-8000-000000000001',
+      userId: '40000000-0000-4000-8000-000000000001',
+      resourceKind: 'sales.quote',
+      resourceId: '20000000-0000-4000-8000-000000000001',
+      method: 'PUT',
+      headers: {
+        token: '30000000-0000-4000-8000-000000000001',
+        baseLogId: '50000000-0000-4000-8000-000000000001',
+        resolution: 'normal',
+      },
+    })
+
+    expect(result.ok).toBe(false)
+    if (result.ok) throw new Error('Expected conflict result')
+    expect(result.status).toBe(409)
+    expect(result.code).toBe('record_lock_conflict')
+    expect(serviceAny.createConflict).toHaveBeenCalledTimes(1)
+  })
+
+  test('resolves existing conflict when resolution header is accept_mine', async () => {
+    const { service } = createService()
+    const serviceAny = service as any
+
+    serviceAny.findActiveLock = jest.fn().mockResolvedValue(null)
+    serviceAny.findLatestActionLog = jest.fn().mockResolvedValue({
+      id: '80000000-0000-4000-8000-000000000001',
+      actorUserId: '90000000-0000-4000-8000-000000000001',
+    })
+    serviceAny.findConflictById = jest.fn().mockResolvedValue({
+      id: 'a0000000-0000-4000-8000-000000000001',
+      resourceKind: 'sales.quote',
+      resourceId: '20000000-0000-4000-8000-000000000001',
+      status: 'pending',
+      resolution: null,
+      baseActionLogId: '50000000-0000-4000-8000-000000000001',
+      incomingActionLogId: '80000000-0000-4000-8000-000000000001',
+      conflictActorUserId: '40000000-0000-4000-8000-000000000001',
+      incomingActorUserId: '90000000-0000-4000-8000-000000000001',
+      tenantId: '60000000-0000-4000-8000-000000000001',
+      organizationId: '70000000-0000-4000-8000-000000000001',
+    })
+    serviceAny.resolveConflict = jest.fn().mockResolvedValue(undefined)
+
+    const result = await service.validateMutation({
+      tenantId: '60000000-0000-4000-8000-000000000001',
+      organizationId: '70000000-0000-4000-8000-000000000001',
+      userId: '40000000-0000-4000-8000-000000000001',
+      resourceKind: 'sales.quote',
+      resourceId: '20000000-0000-4000-8000-000000000001',
+      method: 'PUT',
+      headers: {
+        conflictId: 'a0000000-0000-4000-8000-000000000001',
+        resolution: 'accept_mine',
+      },
+    })
+
+    expect(result.ok).toBe(true)
+    expect(serviceAny.resolveConflict).toHaveBeenCalledWith(
+      expect.objectContaining({ id: 'a0000000-0000-4000-8000-000000000001' }),
+      'accept_mine',
+      '40000000-0000-4000-8000-000000000001',
+    )
+  })
+})
