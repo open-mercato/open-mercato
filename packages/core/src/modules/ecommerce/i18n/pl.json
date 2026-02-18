@@ -1,0 +1,74 @@
+{
+  "ecommerce": {
+    "nav": {
+      "stores": "Sklepy",
+      "storefront": "Witryna"
+    },
+    "stores": {
+      "title": "Sklepy",
+      "create": "Utwórz sklep",
+      "edit": "Edytuj sklep",
+      "empty": "Nie znaleziono sklepów",
+      "fields": {
+        "code": "Kod",
+        "name": "Nazwa",
+        "slug": "Slug",
+        "status": "Status",
+        "defaultLocale": "Domyślny język",
+        "supportedLocales": "Obsługiwane języki",
+        "defaultCurrencyCode": "Domyślna waluta",
+        "isPrimary": "Sklep główny",
+        "settings": "Ustawienia"
+      },
+      "status": {
+        "draft": "Wersja robocza",
+        "active": "Aktywny",
+        "archived": "Zarchiwizowany"
+      }
+    },
+    "store_domains": {
+      "title": "Domeny",
+      "create": "Dodaj domenę",
+      "edit": "Edytuj domenę",
+      "empty": "Brak skonfigurowanych domen",
+      "fields": {
+        "host": "Nazwa hosta",
+        "isPrimary": "Domena główna",
+        "tlsMode": "Tryb TLS",
+        "verificationStatus": "Status weryfikacji"
+      },
+      "tls_mode": {
+        "platform": "Platforma",
+        "external": "Zewnętrzny"
+      },
+      "verification_status": {
+        "pending": "Oczekuje",
+        "verified": "Zweryfikowana",
+        "failed": "Błąd"
+      }
+    },
+    "store_channel_bindings": {
+      "title": "Powiązania kanałów",
+      "create": "Dodaj powiązanie",
+      "edit": "Edytuj powiązanie",
+      "empty": "Brak powiązań kanałów",
+      "fields": {
+        "salesChannelId": "Kanał sprzedaży",
+        "priceKindId": "Rodzaj ceny",
+        "catalogScope": "Zakres katalogu",
+        "isDefault": "Domyślne powiązanie"
+      }
+    },
+    "errors": {
+      "tenant_required": "Wymagany kontekst tenanta",
+      "organization_required": "Wymagany kontekst organizacji",
+      "store_required": "Wymagane ID sklepu",
+      "store_not_found": "Nie znaleziono sklepu",
+      "domain_required": "Wymagane ID domeny",
+      "domain_not_found": "Nie znaleziono domeny",
+      "binding_required": "Wymagane ID powiązania",
+      "binding_not_found": "Nie znaleziono powiązania kanału",
+      "host_already_exists": "Ta nazwa hosta jest już zarejestrowana"
+    }
+  }
+}

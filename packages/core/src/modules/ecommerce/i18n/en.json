@@ -1,0 +1,74 @@
+{
+  "ecommerce": {
+    "nav": {
+      "stores": "Stores",
+      "storefront": "Storefront"
+    },
+    "stores": {
+      "title": "Stores",
+      "create": "Create Store",
+      "edit": "Edit Store",
+      "empty": "No stores found",
+      "fields": {
+        "code": "Code",
+        "name": "Name",
+        "slug": "Slug",
+        "status": "Status",
+        "defaultLocale": "Default Locale",
+        "supportedLocales": "Supported Locales",
+        "defaultCurrencyCode": "Default Currency",
+        "isPrimary": "Primary Store",
+        "settings": "Settings"
+      },
+      "status": {
+        "draft": "Draft",
+        "active": "Active",
+        "archived": "Archived"
+      }
+    },
+    "store_domains": {
+      "title": "Domains",
+      "create": "Add Domain",
+      "edit": "Edit Domain",
+      "empty": "No domains configured",
+      "fields": {
+        "host": "Hostname",
+        "isPrimary": "Primary Domain",
+        "tlsMode": "TLS Mode",
+        "verificationStatus": "Verification Status"
+      },
+      "tls_mode": {
+        "platform": "Platform",
+        "external": "External"
+      },
+      "verification_status": {
+        "pending": "Pending",
+        "verified": "Verified",
+        "failed": "Failed"
+      }
+    },
+    "store_channel_bindings": {
+      "title": "Channel Bindings",
+      "create": "Add Binding",
+      "edit": "Edit Binding",
+      "empty": "No channel bindings configured",
+      "fields": {
+        "salesChannelId": "Sales Channel",
+        "priceKindId": "Price Kind",
+        "catalogScope": "Catalog Scope",
+        "isDefault": "Default Binding"
+      }
+    },
+    "errors": {
+      "tenant_required": "Tenant context is required",
+      "organization_required": "Organization context is required",
+      "store_required": "Store ID is required",
+      "store_not_found": "Store not found",
+      "domain_required": "Domain ID is required",
+      "domain_not_found": "Domain not found",
+      "binding_required": "Binding ID is required",
+      "binding_not_found": "Channel binding not found",
+      "host_already_exists": "This hostname is already registered"
+    }
+  }
+}
