@@ -1,209 +1,222 @@
 {
+  "audit_logs.resource_kind.currencies.exchange_rate": "Kurs wymiany",
   "currencies": {
+    "create": {
+      "title": "Utwórz Walutę"
+    },
     "currencies": {
       "update": "Aktualizuj walutę"
+    },
+    "edit": {
+      "title": "Edytuj Walutę"
     },
     "exchange_rates": {
       "update": "Aktualizuj kurs wymiany"
     },
+    "fetch": {
+      "description": "Zarządzaj automatycznym pobieraniem kursów walut od zewnętrznych dostawców",
+      "disabled": "Wyłączony",
+      "enabled": "Włączony",
+      "error_load_configs": "Nie udało się załadować konfiguracji",
+      "error_update_config": "Nie udało się zaktualizować konfiguracji",
+      "error_update_sync_time": "Nie udało się zaktualizować godziny synchronizacji",
+      "fetch_now": "Pobierz Teraz",
+      "fetching": "Pobieranie...",
+      "initialize_providers": "Zainicjuj Dostawców",
+      "initializing_providers": "Inicjalizacja dostawców...",
+      "last_sync": "Ostatnia Synchronizacja",
+      "last_sync_count": "Pobrane Kursy",
+      "last_sync_status": "Status",
+      "loading": "Ładowanie...",
+      "no_providers": "Nie skonfigurowano jeszcze żadnych dostawców walut.",
+      "provider_disabled": "Dostawca wyłączony",
+      "provider_enabled": "Dostawca włączony",
+      "provider_nbp": "NBP (Narodowy Bank Polski)",
+      "provider_nbp_description": "~13 walut z kursami kupna/sprzedaży z Narodowego Banku Polskiego",
+      "provider_raiffeisen": "Raiffeisen Bank Polska",
+      "provider_raiffeisen_description": "4 główne waluty (EUR, USD, CHF, GBP) z kursami kupna/sprzedaży",
+      "sync_error": "Nie udało się pobrać kursów",
+      "sync_no_rates": "Nie pobrano żadnego kursu. Nie masz zdefiniowanych walut, proszę utworzyć pary które chcesz pobrać",
+      "sync_success": "Kursy pobrane pomyślnie",
+      "sync_time": "Dzienna Godzina Synchronizacji",
+      "title": "Pobieranie Kursów Walut"
+    },
+    "flash": {
+      "baseSet": "Waluta bazowa zaktualizowana pomyślnie",
+      "baseSetError": "Nie udało się ustawić waluty bazowej",
+      "created": "Waluta utworzona pomyślnie",
+      "deleteError": "Nie udało się usunąć waluty",
+      "deleted": "Waluta usunięta pomyślnie",
+      "updated": "Waluta zaktualizowana pomyślnie"
+    },
+    "form": {
+      "action": {
+        "create": "Utwórz Walutę",
+        "save": "Zapisz Zmiany"
+      },
+      "errors": {
+        "codeFormat": "Kod waluty musi składać się z dokładnie 3 wielkich liter (np. USD)",
+        "delete": "Nie udało się usunąć waluty",
+        "load": "Nie udało się załadować waluty",
+        "notFound": "Waluta nie znaleziona"
+      },
+      "field": {
+        "code": "Kod Waluty",
+        "codeHelp": "3-literowy kod ISO 4217 (np. USD, EUR, GBP)",
+        "codePlaceholder": "USD",
+        "decimalPlaces": "Miejsca Dziesiętne",
+        "decimalSeparator": "Separator Dziesiętny",
+        "isActive": "Aktywna",
+        "isBase": "Waluta Bazowa",
+        "name": "Nazwa Waluty",
+        "namePlaceholder": "Dolar amerykański",
+        "symbol": "Symbol",
+        "symbolPlaceholder": "$",
+        "thousandsSeparator": "Separator Tysięcy"
+      },
+      "group": {
+        "details": "Szczegóły Waluty",
+        "formatting": "Formatowanie i Ustawienia"
+      },
+      "loading": "Ładowanie waluty..."
+    },
+    "list": {
+      "actions": {
+        "create": "Dodaj Walutę",
+        "setBase": "Ustaw jako Bazową"
+      },
+      "base": "Bazowa",
+      "columns": {
+        "active": "Aktywna",
+        "code": "Kod",
+        "createdAt": "Data utworzenia",
+        "decimalPlaces": "Miejsca dziesiętne",
+        "name": "Nazwa",
+        "symbol": "Symbol",
+        "updatedAt": "Data aktualizacji"
+      },
+      "confirmDelete": "Usunąć walutę {{code}}? Spowoduje to również usunięcie wszystkich kursów wymiany dla tej waluty.",
+      "error": {
+        "load": "Nie udało się załadować walut"
+      },
+      "filters": {
+        "active": "Aktywne",
+        "all": "Wszystkie",
+        "baseOnly": "Pokaż tylko walutę bazową",
+        "inactive": "Nieaktywne",
+        "status": "Status"
+      },
+      "searchPlaceholder": "Szukaj walut po kodzie lub nazwie",
+      "title": "Waluty"
+    },
     "module": {
-      "title": "Waluty i Kursy Wymiany",
-      "description": "Zarządzaj walutami i kursami wymiany dla transakcji wielowalutowych."
+      "description": "Zarządzaj walutami i kursami wymiany dla transakcji wielowalutowych.",
+      "title": "Waluty i Kursy Wymiany"
     },
     "nav": {
       "group": "Waluty"
     },
     "page": {
       "title": "Waluty"
-    },
-    "list": {
-      "title": "Waluty",
-      "searchPlaceholder": "Szukaj walut po kodzie lub nazwie",
-      "columns": {
-        "code": "Kod",
-        "name": "Nazwa",
-        "symbol": "Symbol",
-        "decimalPlaces": "Miejsca dziesiętne",
-        "active": "Aktywna",
-        "createdAt": "Data utworzenia",
-        "updatedAt": "Data aktualizacji"
-      },
-      "filters": {
-        "baseOnly": "Pokaż tylko walutę bazową",
-        "status": "Status",
-        "all": "Wszystkie",
-        "active": "Aktywne",
-        "inactive": "Nieaktywne"
-      },
-      "actions": {
-        "create": "Dodaj Walutę",
-        "setBase": "Ustaw jako Bazową"
-      },
-      "base": "Bazowa",
-      "confirmDelete": "Usunąć walutę {{code}}? Spowoduje to również usunięcie wszystkich kursów wymiany dla tej waluty.",
-      "error": {
-        "load": "Nie udało się załadować walut"
-      }
-    },
-    "create": {
-      "title": "Utwórz Walutę"
-    },
-    "edit": {
-      "title": "Edytuj Walutę"
-    },
-    "form": {
-      "group": {
-        "details": "Szczegóły Waluty",
-        "formatting": "Formatowanie i Ustawienia"
-      },
-      "field": {
-        "code": "Kod Waluty",
-        "codePlaceholder": "USD",
-        "codeHelp": "3-literowy kod ISO 4217 (np. USD, EUR, GBP)",
-        "name": "Nazwa Waluty",
-        "namePlaceholder": "Dolar amerykański",
-        "symbol": "Symbol",
-        "symbolPlaceholder": "$",
-        "decimalPlaces": "Miejsca Dziesiętne",
-        "thousandsSeparator": "Separator Tysięcy",
-        "decimalSeparator": "Separator Dziesiętny",
-        "isBase": "Waluta Bazowa",
-        "isActive": "Aktywna"
-      },
-      "action": {
-        "create": "Utwórz Walutę",
-        "save": "Zapisz Zmiany"
-      },
-      "loading": "Ładowanie waluty...",
-      "errors": {
-        "codeFormat": "Kod waluty musi składać się z dokładnie 3 wielkich liter (np. USD)",
-        "load": "Nie udało się załadować waluty",
-        "notFound": "Waluta nie znaleziona",
-        "delete": "Nie udało się usunąć waluty"
-      }
-    },
-    "flash": {
-      "created": "Waluta utworzona pomyślnie",
-      "updated": "Waluta zaktualizowana pomyślnie",
-      "deleted": "Waluta usunięta pomyślnie",
-      "deleteError": "Nie udało się usunąć waluty",
-      "baseSet": "Waluta bazowa zaktualizowana pomyślnie",
-      "baseSetError": "Nie udało się ustawić waluty bazowej"
-    },
-    "fetch": {
-      "title": "Pobieranie Kursów Walut",
-      "description": "Zarządzaj automatycznym pobieraniem kursów walut od zewnętrznych dostawców",
-      "enabled": "Włączony",
-      "disabled": "Wyłączony",
-      "sync_time": "Dzienna Godzina Synchronizacji",
-      "last_sync": "Ostatnia Synchronizacja",
-      "last_sync_status": "Status",
-      "last_sync_count": "Pobrane Kursy",
-      "fetch_now": "Pobierz Teraz",
-      "fetching": "Pobieranie...",
-      "sync_success": "Kursy pobrane pomyślnie",
-      "sync_no_rates": "Nie pobrano żadnego kursu. Nie masz zdefiniowanych walut, proszę utworzyć pary które chcesz pobrać",
-      "sync_error": "Nie udało się pobrać kursów",
-      "provider_nbp": "NBP (Narodowy Bank Polski)",
-      "provider_nbp_description": "~13 walut z kursami kupna/sprzedaży z Narodowego Banku Polskiego",
-      "provider_raiffeisen": "Raiffeisen Bank Polska",
-      "provider_raiffeisen_description": "4 główne waluty (EUR, USD, CHF, GBP) z kursami kupna/sprzedaży",
-      "provider_enabled": "Dostawca włączony",
-      "provider_disabled": "Dostawca wyłączony",
-      "loading": "Ładowanie...",
-      "initializing_providers": "Inicjalizacja dostawców...",
-      "no_providers": "Nie skonfigurowano jeszcze żadnych dostawców walut.",
-      "initialize_providers": "Zainicjuj Dostawców",
-      "error_load_configs": "Nie udało się załadować konfiguracji",
-      "error_update_config": "Nie udało się zaktualizować konfiguracji",
-      "error_update_sync_time": "Nie udało się zaktualizować godziny synchronizacji"
     }
   },
   "exchangeRates": {
-    "page": {
-      "title": "Kursy Wymiany"
-    },
-    "list": {
-      "title": "Kursy Wymiany",
-      "searchPlaceholder": "Szukaj kursów wymiany",
-      "columns": {
-        "currencyPair": "Para Walut",
-        "rate": "Kurs",
-        "date": "Data i Czas",
-        "source": "Źródło",
-        "type": "Typ",
-        "active": "Aktywna",
-        "createdAt": "Data utworzenia",
-        "updatedAt": "Data aktualizacji"
-      },
-      "filters": {
-        "fromCurrency": "Z Waluty",
-        "toCurrency": "Do Waluty",
-        "source": "Źródło",
-        "status": "Status",
-        "all": "Wszystkie",
-        "active": "Aktywne",
-        "inactive": "Nieaktywne"
-      },
-      "actions": {
-        "create": "Dodaj Kurs Wymiany"
-      },
-      "confirmDelete": "Usunąć kurs wymiany {{pair}}?",
-      "error": {
-        "load": "Nie udało się załadować kursów wymiany"
-      }
-    },
     "create": {
       "title": "Utwórz Kurs Wymiany"
     },
     "edit": {
       "title": "Edytuj Kurs Wymiany"
     },
+    "flash": {
+      "created": "Kurs wymiany utworzony pomyślnie",
+      "deleteError": "Nie udało się usunąć kursu wymiany",
+      "deleted": "Kurs wymiany usunięty pomyślnie",
+      "updated": "Kurs wymiany zaktualizowany pomyślnie"
+    },
     "form": {
-      "group": {
-        "metadata": "Metadane"
-      },
-      "field": {
-        "fromCurrency": "Z Waluty",
-        "fromCurrencyPlaceholder": "Wybierz walutę",
-        "fromCurrencyHelp": "Waluta źródłowa do konwersji",
-        "toCurrency": "Do Waluty",
-        "toCurrencyPlaceholder": "Wybierz walutę",
-        "toCurrencyHelp": "Waluta docelowa do konwersji",
-        "rate": "Kurs Wymiany",
-        "rateHelp": "Ile jednostek waluty docelowej za 1 jednostkę waluty źródłowej (do 8 miejsc dziesiętnych)",
-        "date": "Data i Czas",
-        "dateHelp": "Data i godzina, od której kurs obowiązuje (w twojej lokalnej strefie czasowej)",
-        "source": "Źródło",
-        "sourcePlaceholder": "np. NBP, Raiffeisen",
-        "sourceHelp": "Skąd pochodzi ten kurs (wymagane, 2-50 znaków)",
-        "isActive": "Aktywny"
-      },
       "action": {
         "create": "Utwórz Kurs Wymiany",
         "save": "Zapisz Zmiany"
       },
-      "loading": "Ładowanie kursu wymiany...",
       "errors": {
         "currencyCodeFormat": "Musi składać się z dokładnie 3 wielkich liter",
         "fromCurrencyFormat": "Nieprawidłowy kod waluty źródłowej",
-        "toCurrencyFormat": "Nieprawidłowy kod waluty docelowej",
-        "sameCurrency": "Waluta źródłowa i docelowa muszą się różnić",
-        "invalidRate": "Kurs musi być liczbą dodatnią",
         "invalidDate": "Data i czas są wymagane",
-        "sourceTooShort": "Źródło musi mieć co najmniej 2 znaki",
-        "sourceTooLong": "Źródło nie może przekraczać 50 znaków",
-        "sourceInvalidFormat": "Źródło może zawierać tylko litery, cyfry, spacje, myślniki i podkreślenia",
+        "invalidRate": "Kurs musi być liczbą dodatnią",
         "load": "Nie udało się załadować kursu wymiany",
-        "notFound": "Kurs wymiany nie znaleziony"
+        "notFound": "Kurs wymiany nie znaleziony",
+        "sameCurrency": "Waluta źródłowa i docelowa muszą się różnić",
+        "sourceInvalidFormat": "Źródło może zawierać tylko litery, cyfry, spacje, myślniki i podkreślenia",
+        "sourceTooLong": "Źródło nie może przekraczać 50 znaków",
+        "sourceTooShort": "Źródło musi mieć co najmniej 2 znaki",
+        "toCurrencyFormat": "Nieprawidłowy kod waluty docelowej"
+      },
+      "field": {
+        "date": "Data i Czas",
+        "dateHelp": "Data i godzina, od której kurs obowiązuje (w twojej lokalnej strefie czasowej)",
+        "fromCurrency": "Z Waluty",
+        "fromCurrencyHelp": "Waluta źródłowa do konwersji",
+        "fromCurrencyPlaceholder": "Wybierz walutę",
+        "isActive": "Aktywny",
+        "rate": "Kurs Wymiany",
+        "rateHelp": "Ile jednostek waluty docelowej za 1 jednostkę waluty źródłowej (do 8 miejsc dziesiętnych)",
+        "source": "Źródło",
+        "sourceHelp": "Skąd pochodzi ten kurs (wymagane, 2-50 znaków)",
+        "sourcePlaceholder": "np. NBP, Raiffeisen",
+        "toCurrency": "Do Waluty",
+        "toCurrencyHelp": "Waluta docelowa do konwersji",
+        "toCurrencyPlaceholder": "Wybierz walutę",
+        "type": "Rate Type",
+        "typeBuy": "Buy",
+        "typeBuyDescription": "Bank BUYS foreign currency from you",
+        "typeHelp": "Bank's perspective: buying or selling rate (leave empty if not applicable)",
+        "typeNone": "None (unspecified)",
+        "typePlaceholder": "Select rate type (optional)",
+        "typeSell": "Sell",
+        "typeSellDescription": "Bank SELLS foreign currency to you"
+      },
+      "group": {
+        "metadata": "Metadane"
+      },
+      "loading": "Ładowanie kursu wymiany..."
+    },
+    "list": {
+      "actions": {
+        "create": "Dodaj Kurs Wymiany"
+      },
+      "columns": {
+        "active": "Aktywna",
+        "createdAt": "Data utworzenia",
+        "currencyPair": "Para Walut",
+        "date": "Data i Czas",
+        "rate": "Kurs",
+        "source": "Źródło",
+        "type": "Typ",
+        "updatedAt": "Data aktualizacji"
+      },
+      "confirmDelete": "Usunąć kurs wymiany {{pair}}?",
+      "error": {
+        "load": "Nie udało się załadować kursów wymiany"
+      },
+      "filters": {
+        "active": "Aktywne",
+        "all": "Wszystkie",
+        "fromCurrency": "Z Waluty",
+        "inactive": "Nieaktywne",
+        "source": "Źródło",
+        "status": "Status",
+        "toCurrency": "Do Waluty",
+        "type": "Rate Type"
+      },
+      "searchPlaceholder": "Szukaj kursów wymiany",
+      "title": "Kursy Wymiany",
+      "type": {
+        "buy": "Buy",
+        "sell": "Sell"
       }
     },
-    "flash": {
-      "created": "Kurs wymiany utworzony pomyślnie",
-      "updated": "Kurs wymiany zaktualizowany pomyślnie",
-      "deleted": "Kurs wymiany usunięty pomyślnie",
-      "deleteError": "Nie udało się usunąć kursu wymiany"
+    "page": {
+      "title": "Kursy Wymiany"
     }
-  },
-  "audit_logs.resource_kind.currencies.exchange_rate": "Kurs wymiany"
+  }
 }

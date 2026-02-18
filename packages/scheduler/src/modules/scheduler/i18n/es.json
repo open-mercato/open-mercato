@@ -1,172 +1,196 @@
 {
   "scheduler": {
-    "module": {
-      "title": "Tareas programadas",
-      "description": "Administre tareas programadas automáticas con expresiones cron o intervalos simples."
-    },
-    "title": "Tareas programadas",
-    "loading": "Cargando programación...",
-    "search": {
-      "placeholder": "Buscar programaciones..."
-    },
-    "field": {
-      "name": "Nombre",
-      "description": "Descripción",
-      "schedule_type": "Tipo",
-      "schedule": "Programación",
-      "schedule_value": "Valor de programación",
-      "target": "Objetivo",
-      "next_run": "Próxima ejecución",
-      "status": "Estado",
-      "active": "Activo",
-      "source": "Fuente",
-      "timezone": "Zona horaria"
-    },
-    "scope": {
-      "system": "Sistema",
-      "organization": "Organización",
-      "tenant": "Inquilino"
-    },
-    "type": {
-      "cron": "Expresión Cron",
-      "interval": "Intervalo simple"
-    },
-    "target": {
-      "queue": "Cola",
-      "command": "Comando"
-    },
-    "status": {
-      "enabled": "Habilitado",
-      "disabled": "Deshabilitado"
-    },
     "action": {
       "create": "Nueva programación",
-      "view": "Ver",
-      "edit": "Editar",
       "delete": "Eliminar",
+      "edit": "Editar",
+      "refresh": "Actualizar",
       "trigger": "Ejecutar ahora",
-      "refresh": "Actualizar"
+      "view": "Ver"
     },
-    "create": {
-      "title": "Crear programación"
-    },
-    "edit": {
-      "title": "Editar programación"
-    },
-    "form": {
-      "name": "Nombre",
-      "name.required": "El nombre es obligatorio",
-      "description": "Descripción",
-      "scope_type": "Ámbito",
-      "schedule_type": "Tipo de programación",
-      "schedule": "Programación",
-      "schedule.required": "La programación es obligatoria",
-      "schedule_value": "Valor de programación",
-      "schedule_value.placeholder": "ej. 0 */6 * * * o 15m",
-      "schedule_value.description": "Para cron: use expresión cron (ej. \"0 0 * * *\"). Para intervalo: use formato como \"15m\", \"2h\", \"1d\" (s=segundos, m=minutos, h=horas, d=días)",
-      "timezone": "Zona horaria",
-      "timezone.placeholder": "Buscar zona horaria...",
-      "target_type": "Tipo de objetivo",
-      "target_queue": "Cola de destino",
-      "target_queue.placeholder": "Buscar colas...",
-      "target_command": "Comando de destino",
-      "target_command.placeholder": "Buscar comandos...",
-      "target_payload": "Argumentos del trabajo (JSON)",
-      "target_payload.placeholder": "{\n  \"message\": \"Hello\",\n  \"value\": 42\n}",
-      "target_payload.description": "Objeto JSON opcional con argumentos para pasar al comando o trabajo de cola. Debe ser formato JSON válido.",
-      "target_payload.invalid_json": "Debe ser JSON válido",
-      "is_enabled": "Habilitado",
-      "enabled": "Habilitado",
-      "disabled": "Deshabilitado",
-      "submit": "Crear programación",
-      "save": "Guardar cambios",
-      "group": {
-        "basic": "Información básica",
-        "schedule": "Configuración de programación",
-        "target": "Configuración de objetivo"
-      }
+    "audit": {
+      "create": "Crear programación",
+      "delete": "Eliminar programación",
+      "update": "Actualizar programación"
     },
     "confirm": {
       "delete": "¿Está seguro de que desea eliminar esta programación?",
       "trigger": "¿Está seguro de que desea ejecutar \"{name}\" ahora?\n\nEsto ejecutará {targetType} inmediatamente."
     },
-    "success": {
-      "created": "Programación creada con éxito",
-      "updated": "Programación actualizada con éxito",
-      "deleted": "Programación eliminada con éxito",
-      "triggered": "Programación ejecutada con éxito",
-      "enabled": "Programación habilitada",
-      "disabled": "Programación deshabilitada"
-    },
-    "error": {
-      "fetch_failed": "Error al cargar las programaciones",
-      "load_failed": "Error al cargar la programación",
-      "not_found": "Programación no encontrada",
-      "delete_failed": "Error al eliminar la programación",
-      "trigger_failed": "Error al ejecutar la programación",
-      "update_failed": "Error al actualizar la programación",
-      "invalidPayload": "Carga JSON no válida"
+    "create": {
+      "title": "Crear programación"
     },
     "details": {
       "configuration": "Configuración",
+      "error": "Error",
+      "executions_async_only": "El historial de ejecuciones y las ejecuciones manuales requieren la estrategia de cola asíncrona (QUEUE_STRATEGY=async).",
+      "last_run": "Última ejecución",
+      "no_executions": "Sin ejecuciones aún",
+      "not_found": "No encontrado",
+      "payload": "Carga útil",
+      "recent_executions": "Ejecuciones recientes",
+      "required_feature": "Función requerida",
       "scope": "Ámbito",
       "source_module": "módulo",
       "source_user": "Creado por el usuario",
-      "last_run": "Última ejecución",
-      "required_feature": "Función requerida",
-      "payload": "Carga útil",
-      "recent_executions": "Ejecuciones recientes",
-      "no_executions": "Sin ejecuciones aún",
-      "triggering": "Ejecutando...",
-      "executions_async_only": "El historial de ejecuciones y las ejecuciones manuales requieren la estrategia de cola asíncrona (QUEUE_STRATEGY=async).",
-      "error": "Error",
-      "not_found": "No encontrado"
+      "triggering": "Ejecutando..."
+    },
+    "edit": {
+      "title": "Editar programación"
+    },
+    "error": {
+      "access_denied": "Access denied",
+      "async_strategy_hint": "Please set QUEUE_STRATEGY=async to view execution history",
+      "async_strategy_required": "Execution history requires QUEUE_STRATEGY=async",
+      "bullmq_required": "BullMQ job logs are only available with QUEUE_STRATEGY=async",
+      "delete_failed": "Error al eliminar la programación",
+      "fetch_executions_failed": "Failed to fetch execution history",
+      "fetch_failed": "Error al cargar las programaciones",
+      "fetch_job_failed": "Failed to fetch job details",
+      "forbidden": "Forbidden",
+      "invalidPayload": "Carga JSON no válida",
+      "invalid_queue_name": "Invalid queue name",
+      "job_not_found": "Job not found in BullMQ (may have been removed)",
+      "load_failed": "Error al cargar la programación",
+      "not_found": "Programación no encontrada",
+      "queue_param_required": "queue parameter required",
+      "trigger_async_hint": "Execution history and manual triggers are only available with BullMQ (async strategy)",
+      "trigger_async_required": "Manual trigger requires QUEUE_STRATEGY=async",
+      "trigger_failed": "Error al ejecutar la programación",
+      "unauthorized": "Unauthorized",
+      "update_failed": "Error al actualizar la programación"
     },
     "execution": {
+      "actions": "Acciones",
+      "completed_message": "Esta ejecución se completó con éxito sin errores.",
       "details_title": "Detalles de ejecución",
-      "run_id": "ID de ejecución",
-      "status": "Estado",
-      "trigger_type": "Tipo de disparador",
-      "started_at": "Iniciado en",
-      "finished_at": "Finalizado en",
       "duration": "Duración",
+      "error_message": "Mensaje de error",
+      "finished_at": "Finalizado en",
+      "na": "N/D",
       "queue_job_id": "ID de trabajo de cola",
       "queue_name": "Nombre de cola",
-      "error_message": "Mensaje de error",
-      "stack_trace": "Traza de pila",
-      "completed_message": "Esta ejecución se completó con éxito sin errores.",
+      "run_id": "ID de ejecución",
       "running_message": "Esta ejecución está actualmente en progreso.",
       "skipped_message": "Esta ejecución fue omitida.",
-      "na": "N/D",
+      "stack_trace": "Traza de pila",
       "started": "Iniciado",
+      "started_at": "Iniciado en",
+      "status": "Estado",
       "trigger": "Disparador",
-      "actions": "Acciones",
+      "trigger_type": "Tipo de disparador",
       "view_details": "Ver detalles",
       "view_logs": "Ver registros"
     },
+    "execution_status": {
+      "completed": "Completed",
+      "failed": "Failed",
+      "running": "Running",
+      "skipped": "Skipped",
+      "waiting": "Waiting"
+    },
+    "field": {
+      "active": "Activo",
+      "description": "Descripción",
+      "name": "Nombre",
+      "next_run": "Próxima ejecución",
+      "schedule": "Programación",
+      "schedule_type": "Tipo",
+      "schedule_value": "Valor de programación",
+      "source": "Fuente",
+      "status": "Estado",
+      "target": "Objetivo",
+      "timezone": "Zona horaria"
+    },
+    "form": {
+      "description": "Descripción",
+      "disabled": "Deshabilitado",
+      "enabled": "Habilitado",
+      "group": {
+        "basic": "Información básica",
+        "schedule": "Configuración de programación",
+        "target": "Configuración de objetivo"
+      },
+      "is_enabled": "Habilitado",
+      "name": "Nombre",
+      "name.required": "El nombre es obligatorio",
+      "save": "Guardar cambios",
+      "schedule": "Programación",
+      "schedule.required": "La programación es obligatoria",
+      "schedule_type": "Tipo de programación",
+      "schedule_value": "Valor de programación",
+      "schedule_value.description": "Para cron: use expresión cron (ej. \"0 0 * * *\"). Para intervalo: use formato como \"15m\", \"2h\", \"1d\" (s=segundos, m=minutos, h=horas, d=días)",
+      "schedule_value.placeholder": "ej. 0 */6 * * * o 15m",
+      "scope_type": "Ámbito",
+      "submit": "Crear programación",
+      "target_command": "Comando de destino",
+      "target_command.placeholder": "Buscar comandos...",
+      "target_payload": "Argumentos del trabajo (JSON)",
+      "target_payload.description": "Objeto JSON opcional con argumentos para pasar al comando o trabajo de cola. Debe ser formato JSON válido.",
+      "target_payload.invalid_json": "Debe ser JSON válido",
+      "target_payload.placeholder": "{\n  \"message\": \"Hello\",\n  \"value\": 42\n}",
+      "target_queue": "Cola de destino",
+      "target_queue.placeholder": "Buscar colas...",
+      "target_type": "Tipo de objetivo",
+      "timezone": "Zona horaria",
+      "timezone.placeholder": "Buscar zona horaria..."
+    },
     "job_logs": {
-      "title": "Trabajo de cola",
+      "attempts": "Intentos",
+      "duration": "Duración",
+      "error_message": "Mensaje de error",
+      "finished": "Finalizado",
       "job_id": "ID de trabajo",
       "load_failed": "Error al cargar los detalles del trabajo",
-      "tab_overview": "Resumen",
-      "tab_logs": "Registros",
-      "tab_payload": "Carga útil",
-      "tab_error": "Detalles del error",
-      "state": "Estado",
-      "attempts": "Intentos",
+      "no_logs": "No hay registros disponibles",
       "processed": "Procesado",
-      "finished": "Finalizado",
-      "duration": "Duración",
       "progress": "Progreso",
       "return_value": "Valor de retorno",
-      "no_logs": "No hay registros disponibles",
-      "error_message": "Mensaje de error",
-      "stack_trace": "Traza de pila"
+      "stack_trace": "Traza de pila",
+      "state": "Estado",
+      "tab_error": "Detalles del error",
+      "tab_logs": "Registros",
+      "tab_overview": "Resumen",
+      "tab_payload": "Carga útil",
+      "title": "Trabajo de cola"
     },
-    "audit": {
-      "create": "Crear programación",
-      "update": "Actualizar programación",
-      "delete": "Eliminar programación"
+    "loading": "Cargando programación...",
+    "module": {
+      "description": "Administre tareas programadas automáticas con expresiones cron o intervalos simples.",
+      "title": "Tareas programadas"
+    },
+    "scope": {
+      "organization": "Organización",
+      "system": "Sistema",
+      "tenant": "Inquilino"
+    },
+    "search": {
+      "placeholder": "Buscar programaciones..."
+    },
+    "status": {
+      "disabled": "Deshabilitado",
+      "enabled": "Habilitado"
+    },
+    "success": {
+      "created": "Programación creada con éxito",
+      "deleted": "Programación eliminada con éxito",
+      "disabled": "Programación deshabilitada",
+      "enabled": "Programación habilitada",
+      "triggered": "Programación ejecutada con éxito",
+      "updated": "Programación actualizada con éxito"
+    },
+    "target": {
+      "command": "Comando",
+      "queue": "Cola"
+    },
+    "title": "Tareas programadas",
+    "trigger_type": {
+      "manual": "Manual",
+      "scheduled": "Scheduled"
+    },
+    "type": {
+      "cron": "Expresión Cron",
+      "interval": "Intervalo simple"
     }
   }
 }
