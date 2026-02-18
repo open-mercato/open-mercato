@@ -29,11 +29,11 @@ test.describe('TC-TRANS-005: Translation Manager Standalone', () => {
 
       const entityInput = page.getByPlaceholder('Select an entity')
       await entityInput.fill('catalog_product')
-      await page.getByText(/catalog_product/i).first().click()
+      await page.locator('.absolute.z-50 button').filter({ hasText: /catalog_product/i }).first().click()
 
       const recordInput = page.getByPlaceholder('Search records...')
       await recordInput.fill(productTitle)
-      await page.getByText(productTitle).first().click()
+      await page.locator('.absolute.z-50 button').filter({ hasText: productTitle }).first().click()
 
       await expect(page.getByText('Field')).toBeVisible()
       await expect(page.getByText('Base value')).toBeVisible()
@@ -61,11 +61,11 @@ test.describe('TC-TRANS-005: Translation Manager Standalone', () => {
 
       const entityInput = page.getByPlaceholder('Select an entity')
       await entityInput.fill('catalog_product')
-      await page.getByText(/catalog_product/i).first().click()
+      await page.locator('.absolute.z-50 button').filter({ hasText: /catalog_product/i }).first().click()
 
       const recordInput = page.getByPlaceholder('Search records...')
       await recordInput.fill(productTitle)
-      await page.getByText(productTitle).first().click()
+      await page.locator('.absolute.z-50 button').filter({ hasText: productTitle }).first().click()
 
       await expect(page.getByText('Field')).toBeVisible()
 
@@ -114,11 +114,11 @@ test.describe('TC-TRANS-005: Translation Manager Standalone', () => {
 
       const entityInput = page.getByPlaceholder('Select an entity')
       await entityInput.fill('catalog_product')
-      await page.getByText(/catalog_product/i).first().click()
+      await page.locator('.absolute.z-50 button').filter({ hasText: /catalog_product/i }).first().click()
 
       const recordInput = page.getByPlaceholder('Search records...')
       await recordInput.fill(productTitle)
-      await page.getByText(productTitle).first().click()
+      await page.locator('.absolute.z-50 button').filter({ hasText: productTitle }).first().click()
 
       const managerCard = page.locator('.bg-card').filter({
         has: page.getByRole('button', { name: 'Save translations' }),
