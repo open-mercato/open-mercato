@@ -127,7 +127,6 @@ const crud = makeCrudRoute({
       commandId: 'sales.orders.lines.upsert',
       schema: rawBodySchema,
       mapInput: async ({ raw, ctx }) => {
-        console.log('CREATE order line raw input:', raw)
         const { translate } = await resolveTranslations()
         const payload = upsertSchema.parse(withScopedPayload(resolveRawBody(raw) ?? {}, ctx, translate))
         return { body: payload }

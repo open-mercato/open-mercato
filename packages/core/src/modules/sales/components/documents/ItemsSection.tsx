@@ -84,7 +84,7 @@ export function SalesDocumentItemsSection({
     setLoading(true)
     setError(null)
     try {
-      const params = new URLSearchParams({ page: '1', pageSize: '200', [documentKey]: documentId })
+      const params = new URLSearchParams({ page: '1', pageSize: '100', [documentKey]: documentId })
       const response = await apiCall<{ items?: Array<Record<string, unknown>> }>(
         `/api/${resourcePath}?${params.toString()}`,
         undefined,
@@ -222,7 +222,7 @@ export function SalesDocumentItemsSection({
       return
     }
     try {
-      const params = new URLSearchParams({ page: '1', pageSize: '200', orderId: documentId })
+      const params = new URLSearchParams({ page: '1', pageSize: '100', orderId: documentId })
       const response = await apiCall<{ items?: Array<Record<string, unknown>> }>(
         `/api/sales/shipments?${params.toString()}`,
         undefined,

@@ -317,7 +317,7 @@ export function LineItemDialog({
   const loadTaxRates = React.useCallback(async () => {
     try {
       const response = await apiCall<{ items?: Array<Record<string, unknown>> }>(
-        '/api/sales/tax-rates?pageSize=200',
+        '/api/sales/tax-rates?pageSize=100',
         undefined,
         { fallback: { items: [] } },
       )
