@@ -10,6 +10,7 @@ import {
   CatalogProductCategory,
   CatalogProductCategoryAssignment,
   CatalogProductPrice,
+  CatalogProductUnitConversion,
   CatalogProductVariant,
   CatalogProductTagAssignment,
 } from '../../data/entities'
@@ -65,6 +66,7 @@ const listSchema = z
     customerId: z.string().uuid().optional(),
     customerGroupId: z.string().uuid().optional(),
     quantity: z.coerce.number().min(1).max(100000).optional(),
+    quantityUnit: z.string().trim().max(50).optional(),
     priceDate: z.string().optional(),
     sortField: z.string().optional(),
     sortDir: z.enum(['asc', 'desc']).optional(),
@@ -255,6 +257,12 @@ export function buildPricingContext(query: ProductsQuery, channelFallback: strin
     quantity: Number.isFinite(quantity) && quantity > 0 ? quantity : 1,
     date: Number.isNaN(parsedDate.getTime()) ? new Date() : parsedDate,
   }
+}
+
+function normalizeUnitLookupKey(value: unknown): string | null {
+  if (typeof value !== 'string') return null
+  const normalized = value.trim().toLowerCase()
+  return normalized.length ? normalized : null
 }
 
 
@@ -469,6 +477,30 @@ async function decorateProductsAfterList(
     pricesByProduct.set(productId, entry)
   }
 
+  const requestQuantityUnitKey = normalizeUnitLookupKey(ctx.query.quantityUnit)
+  const conversionsByProduct = new Map<string, Map<string, number>>()
+  if (requestQuantityUnitKey && productIds.length) {
+    const conversionRows = await em.find(
+      CatalogProductUnitConversion,
+      {
+        product: { $in: productIds },
+        deletedAt: null,
+        isActive: true,
+      },
+      { fields: ['id', 'product', 'unitCode', 'toBaseFactor'] }
+    )
+    for (const row of conversionRows) {
+      const productId =
+        typeof row.product === 'string' ? row.product : row.product?.id ?? null
+      const unitKey = normalizeUnitLookupKey(row.unitCode)
+      const factor = Number(row.toBaseFactor)
+      if (!productId || !unitKey || !Number.isFinite(factor) || factor <= 0) continue
+      const bucket = conversionsByProduct.get(productId) ?? new Map<string, number>()
+      bucket.set(unitKey, factor)
+      conversionsByProduct.set(productId, bucket)
+    }
+  }
+
   const channelFilterIds = parseIdList(ctx.query.channelIds)
   const channelContext =
     ctx.query.channelId ?? (channelFilterIds.length === 1 ? channelFilterIds[0] : null)
@@ -493,11 +525,24 @@ async function decorateProductsAfterList(
     item.categoryIds = categories.map((category) => category.id)
     item.tags = tagsByProduct.get(id) ?? []
     const priceCandidates = pricesByProduct.get(id) ?? []
+    const normalizedQuantityForPricing = (() => {
+      if (!requestQuantityUnitKey) return pricingContext.quantity
+      const baseUnit = normalizeUnitLookupKey(item.default_unit)
+      if (!baseUnit || requestQuantityUnitKey === baseUnit) return pricingContext.quantity
+      const productConversions = conversionsByProduct.get(id)
+      const factor = productConversions?.get(requestQuantityUnitKey) ?? null
+      if (!factor || !Number.isFinite(factor) || factor <= 0) return pricingContext.quantity
+      const normalized = pricingContext.quantity * factor
+      return Number.isFinite(normalized) && normalized > 0 ? normalized : pricingContext.quantity
+    })()
     const channelScopedContext =
       pricingContext.channelId || channelIds.length !== 1
         ? pricingContext
         : { ...pricingContext, channelId: channelIds[0] }
-    const best = await pricingService.resolvePrice(priceCandidates, channelScopedContext)
+    const best = await pricingService.resolvePrice(priceCandidates, {
+      ...channelScopedContext,
+      quantity: normalizedQuantityForPricing,
+    })
     if (best) {
       item.pricing = {
         kind: resolvePriceKindCode(best),
@@ -591,7 +636,15 @@ const crud = makeCrudRoute({
           delete normalized[key]
         }
       }
-      return { ...normalized, ...cfEntries }
+      return {
+        ...normalized,
+        ...cfEntries,
+        unit_price: {
+          enabled: Boolean(normalized.unit_price_enabled),
+          reference_unit: normalized.unit_price_reference_unit ?? null,
+          base_quantity: normalized.unit_price_base_quantity ?? null,
+        },
+      }
     },
   },
   hooks: {
@@ -658,6 +711,13 @@ const productListItemSchema = z.object({
   unit_price_enabled: z.boolean().nullable().optional(),
   unit_price_reference_unit: z.enum(['kg', 'l', 'm2', 'm3', 'pc']).nullable().optional(),
   unit_price_base_quantity: z.number().nullable().optional(),
+  unit_price: z
+    .object({
+      enabled: z.boolean(),
+      reference_unit: z.enum(['kg', 'l', 'm2', 'm3', 'pc']).nullable(),
+      base_quantity: z.number().nullable(),
+    })
+    .optional(),
   default_media_id: z.string().uuid().nullable().optional(),
   default_media_url: z.string().nullable().optional(),
   weight_value: z.number().nullable().optional(),

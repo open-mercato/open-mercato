@@ -4,7 +4,7 @@ import { makeCrudRoute } from '@open-mercato/shared/lib/crud/factory'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { buildCustomFieldFiltersFromQuery, extractAllCustomFieldEntries } from '@open-mercato/shared/lib/crud/custom-fields'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
-import { CatalogProductPrice } from '../../data/entities'
+import { CatalogProduct, CatalogProductPrice, CatalogProductUnitConversion } from '../../data/entities'
 import { priceCreateSchema, priceUpdateSchema } from '../../data/validators'
 import { parseScopedCommandInput, resolveCrudRecordId } from '../utils'
 import { E } from '#generated/entities.ids.generated'
@@ -32,6 +32,8 @@ const listSchema = z
     userGroupId: z.string().uuid().optional(),
     customerId: z.string().uuid().optional(),
     customerGroupId: z.string().uuid().optional(),
+    quantity: z.coerce.number().min(1).max(100000).optional(),
+    quantityUnit: z.string().trim().max(50).optional(),
     withDeleted: z.coerce.boolean().optional(),
     sortField: z.string().optional(),
     sortDir: z.enum(['asc', 'desc']).optional(),
@@ -48,6 +50,68 @@ const routeMetadata = {
 }
 
 export const metadata = routeMetadata
+
+function normalizeUnitLookupKey(value: unknown): string | null {
+  if (typeof value !== 'string') return null
+  const normalized = value.trim().toLowerCase()
+  return normalized.length ? normalized : null
+}
+
+function appendAndFilter(
+  filters: Record<string, unknown>,
+  condition: Record<string, unknown>
+): void {
+  const existing = filters.$and
+  const next = Array.isArray(existing) ? [...existing] : []
+  next.push(condition)
+  filters.$and = next
+}
+
+async function resolveNormalizedQuantityForFilter(params: {
+  em: EntityManager
+  organizationId: string | null
+  tenantId: string | null
+  productId?: string
+  quantity: number
+  quantityUnit?: string
+}): Promise<number> {
+  const quantity = params.quantity
+  const quantityUnitKey = normalizeUnitLookupKey(params.quantityUnit)
+  if (!params.productId || !quantityUnitKey) return quantity
+  if (!params.organizationId || !params.tenantId) return quantity
+  const product = await params.em.findOne(
+    CatalogProduct,
+    {
+      id: params.productId,
+      organizationId: params.organizationId,
+      tenantId: params.tenantId,
+      deletedAt: null,
+    },
+    { fields: ['id', 'defaultUnit'] },
+  )
+  if (!product) return quantity
+  const baseUnitKey = normalizeUnitLookupKey(product.defaultUnit)
+  if (!baseUnitKey || baseUnitKey === quantityUnitKey) return quantity
+  const conversions = await params.em.find(
+    CatalogProductUnitConversion,
+    {
+      product: product.id,
+      organizationId: params.organizationId,
+      tenantId: params.tenantId,
+      isActive: true,
+      deletedAt: null,
+    },
+    { fields: ['id', 'unitCode', 'toBaseFactor'] },
+  )
+  const conversion = conversions.find(
+    (entry) => normalizeUnitLookupKey(entry.unitCode) === quantityUnitKey,
+  )
+  if (!conversion) return quantity
+  const factor = Number(conversion.toBaseFactor)
+  if (!Number.isFinite(factor) || factor <= 0) return quantity
+  const normalized = quantity * factor
+  return Number.isFinite(normalized) && normalized > 0 ? normalized : quantity
+}
 
 export async function buildPriceFilters(
   query: PriceQuery
@@ -129,6 +193,7 @@ const crud = makeCrudRoute({
     buildFilters: async (query, ctx) => {
       const filters = await buildPriceFilters(query)
       const tenantId = ctx.auth?.tenantId ?? null
+      const organizationId = ctx.selectedOrganizationId ?? ctx.auth?.orgId ?? null
       try {
         const em = ctx.container.resolve('em') as EntityManager
         const cfFilters = await buildCustomFieldFiltersFromQuery({
@@ -138,6 +203,21 @@ const crud = makeCrudRoute({
           tenantId,
         })
         Object.assign(filters, cfFilters)
+        if (typeof query.quantity === 'number' && Number.isFinite(query.quantity) && query.quantity > 0) {
+          const normalizedQuantity = await resolveNormalizedQuantityForFilter({
+            em,
+            organizationId,
+            tenantId,
+            productId: query.productId,
+            quantity: query.quantity,
+            quantityUnit: query.quantityUnit,
+          })
+          filters.min_quantity = { $lte: normalizedQuantity }
+          const maxRangeFilter = {
+            $or: [{ max_quantity: { $eq: null } }, { max_quantity: { $gte: normalizedQuantity } }],
+          }
+          appendAndFilter(filters, maxRangeFilter)
+        }
       } catch {
         // ignore
       }
