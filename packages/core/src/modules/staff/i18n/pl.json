@@ -629,6 +629,7 @@
   "staff.teamMembers.detail.fields.team": "Zespół",
   "staff.teamMembers.detail.fields.user": "Użytkownik",
   "staff.teamMembers.detail.fields.userEmpty": "Żaden użytkownik nie jest powiązany",
+  "staff.teamMembers.detail.formTitle": "Ustawienia członka",
   "staff.teamMembers.detail.highlights": "Przegląd najważniejszych wydarzeń",
   "staff.teamMembers.detail.inline.cancel": "Anulować",
   "staff.teamMembers.detail.inline.clear": "Jasne",
