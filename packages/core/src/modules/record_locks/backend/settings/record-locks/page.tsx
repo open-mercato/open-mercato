@@ -4,9 +4,11 @@ import * as React from 'react'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { apiCall, apiCallOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
+import { TagsInput } from '@open-mercato/ui/backend/inputs'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Input } from '@open-mercato/ui/primitives/input'
 import { Label } from '@open-mercato/ui/primitives/label'
+import { Notice } from '@open-mercato/ui/primitives/Notice'
 import { Switch } from '@open-mercato/ui/primitives/switch'
 import { Spinner } from '@open-mercato/ui/primitives/spinner'
 
@@ -30,25 +32,29 @@ const DEFAULT_SETTINGS: RecordLockSettings = {
   notifyOnConflict: true,
 }
 
+const RECORD_LOCK_RESOURCE_SUGGESTIONS = [
+  'customers.person',
+  'customers.company',
+  'customers.deal',
+  'sales.quote',
+  'sales.order',
+]
+
 export default function RecordLockingSettingsPage() {
   const t = useT()
   const [settings, setSettings] = React.useState<RecordLockSettings>(DEFAULT_SETTINGS)
-  const [resourcesText, setResourcesText] = React.useState('')
   const [loading, setLoading] = React.useState(true)
   const [saving, setSaving] = React.useState(false)
 
-  const parseResources = React.useCallback((value: string): string[] => {
+  const normalizeResources = React.useCallback((input: string[]): string[] => {
     const seen = new Set<string>()
     const out: string[] = []
-    value
-      .split(/[\n,]/)
-      .map((token) => token.trim())
-      .filter(Boolean)
-      .forEach((resource) => {
-        if (seen.has(resource)) return
-        seen.add(resource)
-        out.push(resource)
-      })
+    for (const raw of input) {
+      const resource = typeof raw === 'string' ? raw.trim() : ''
+      if (!resource || seen.has(resource)) continue
+      seen.add(resource)
+      out.push(resource)
+    }
     return out
   }, [])
 
@@ -57,14 +63,16 @@ export default function RecordLockingSettingsPage() {
     try {
       const call = await apiCall<{ settings?: RecordLockSettings }>('/api/record_locks/settings')
       const next = call.result?.settings ?? DEFAULT_SETTINGS
-      setSettings(next)
-      setResourcesText((next.enabledResources ?? []).join('\n'))
+      setSettings({
+        ...next,
+        enabledResources: normalizeResources(next.enabledResources ?? []),
+      })
     } catch {
       flash(t('record_locks.settings.save_error', 'Failed to load settings'), 'error')
     } finally {
       setLoading(false)
     }
-  }, [t])
+  }, [normalizeResources, t])
 
   React.useEffect(() => {
     void load()
@@ -75,7 +83,7 @@ export default function RecordLockingSettingsPage() {
     try {
       const payload: RecordLockSettings = {
         ...settings,
-        enabledResources: parseResources(resourcesText),
+        enabledResources: normalizeResources(settings.enabledResources ?? []),
       }
       const call = await apiCallOrThrow<{ settings?: RecordLockSettings }>(
         '/api/record_locks/settings',
@@ -88,15 +96,17 @@ export default function RecordLockingSettingsPage() {
       )
 
       const next = call.result?.settings ?? payload
-      setSettings(next)
-      setResourcesText((next.enabledResources ?? []).join('\n'))
+      setSettings({
+        ...next,
+        enabledResources: normalizeResources(next.enabledResources ?? []),
+      })
       flash(t('record_locks.settings.saved', 'Settings saved'), 'success')
     } catch {
       flash(t('record_locks.settings.save_error', 'Failed to save settings'), 'error')
     } finally {
       setSaving(false)
     }
-  }, [parseResources, resourcesText, settings, t])
+  }, [normalizeResources, settings, t])
 
   if (loading) {
     return (
@@ -139,6 +149,22 @@ export default function RecordLockingSettingsPage() {
             <option value="optimistic">{t('record_locks.settings.strategy_optimistic', 'Optimistic')}</option>
             <option value="pessimistic">{t('record_locks.settings.strategy_pessimistic', 'Pessimistic')}</option>
           </select>
+          <Notice compact variant="info">
+            <p>
+              <strong>{t('record_locks.settings.strategy_optimistic', 'Optimistic')}:</strong>{' '}
+              {t(
+                'record_locks.settings.strategy_help_optimistic',
+                'Multiple users can edit at the same time; conflicts are checked on save.',
+              )}
+            </p>
+            <p className="mt-1">
+              <strong>{t('record_locks.settings.strategy_pessimistic', 'Pessimistic')}:</strong>{' '}
+              {t(
+                'record_locks.settings.strategy_help_pessimistic',
+                'First editor acquires the lock and blocks concurrent edits until release.',
+              )}
+            </p>
+          </Notice>
         </div>
 
         <div className="grid gap-4 sm:grid-cols-2">
@@ -173,14 +199,24 @@ export default function RecordLockingSettingsPage() {
         </div>
 
         <div className="space-y-2">
-          <Label htmlFor="record-lock-resources">{t('record_locks.settings.enabled_resources', 'Enabled resources')}</Label>
-          <textarea
-            id="record-lock-resources"
-            className="min-h-[120px] w-full rounded-md border bg-background px-3 py-2 text-sm"
-            value={resourcesText}
-            onChange={(event) => setResourcesText(event.target.value)}
-            placeholder="customers.person\ncustomers.company\nsales.order"
+          <Label>{t('record_locks.settings.enabled_resources', 'Enabled resources')}</Label>
+          <TagsInput
+            value={settings.enabledResources}
+            onChange={(next) => setSettings((prev) => ({ ...prev, enabledResources: normalizeResources(next) }))}
+            suggestions={RECORD_LOCK_RESOURCE_SUGGESTIONS}
+            allowCustomValues
+            disabled={saving}
+            placeholder={t(
+              'record_locks.settings.enabled_resources_placeholder',
+              'Add resource kind and press Enter',
+            )}
           />
+          <p className="text-xs text-muted-foreground">
+            {t(
+              'record_locks.settings.enabled_resources_hint',
+              'Pick from suggestions or type a custom resource kind.',
+            )}
+          </p>
         </div>
 
         <div className="flex items-center justify-between gap-4">
