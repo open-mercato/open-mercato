@@ -740,7 +740,10 @@ function ProductBuilder({ values, setValue, errors, priceKinds, taxRates }: Prod
 
   const currentStepKey = steps[currentStep] ?? steps[0]
 
-  const mediaItems = Array.isArray(values.mediaItems) ? values.mediaItems : []
+  const mediaItems = React.useMemo(
+    () => (Array.isArray(values.mediaItems) ? values.mediaItems : []),
+    [values.mediaItems],
+  )
 
 
   const handleMediaItemsChange = React.useCallback(
@@ -824,7 +827,7 @@ function ProductBuilder({ values, setValue, errors, priceKinds, taxRates }: Prod
     if (changed) {
       setValue('variants', nextVariants)
     }
-  }, [values.options, values.variants, values.hasVariants, setValue])
+  }, [values.options, values.variants, values.hasVariants, values.taxRateId, setValue])
 
   React.useEffect(() => {
     ensureVariants()
