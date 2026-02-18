@@ -9,6 +9,12 @@ import type { DataEngine } from '@open-mercato/shared/lib/data/engine'
 import { resolveOrganizationScopeForRequest, type OrganizationScope } from '@open-mercato/core/modules/directory/utils/organizationScope'
 import { serializeOperationMetadata } from '@open-mercato/shared/lib/commands/operationMetadata'
 import { parseBooleanToken } from '@open-mercato/shared/lib/boolean'
+import {
+  readCrudRecordLockHeaders,
+  releaseCrudRecordLockAfterSuccess,
+  validateCrudRecordLock,
+  type CrudRecordLockValidationResult,
+} from './record-locking'
 import type {
   CrudEventAction,
   CrudEventsConfig,
@@ -405,6 +411,19 @@ function attachOperationHeader(res: Response, logEntry: any) {
     // no-op if headers already sent
   }
   return res
+}
+
+function buildRecordLockErrorResponse(validation: CrudRecordLockValidationResult): Response | null {
+  if (validation.ok) return null
+  return json(
+    {
+      error: validation.error,
+      code: validation.code,
+      lock: validation.lock ?? null,
+      conflict: validation.conflict,
+    },
+    { status: validation.status },
+  )
 }
 
 function handleError(err: unknown): Response {
@@ -1357,6 +1376,8 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
         return json({ error: 'Forbidden' }, { status: 403 })
       }
       const body = await request.json().catch(() => ({}))
+      const lockHeaders = readCrudRecordLockHeaders(request.headers)
+      const scopeOrganizationId = ctx.selectedOrganizationId ?? ctx.auth.orgId ?? null
 
       if (useCommand) {
         const commandBus = (ctx.container.resolve('commandBus') as CommandBus)
@@ -1365,6 +1386,22 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
         const input = action.mapInput ? await action.mapInput({ parsed, raw: body, ctx }) : parsed
         const userMetadata = action.metadata ? await action.metadata({ input, parsed, raw: body, ctx }) : null
         const candidateId = normalizeIdentifierValue((input as Record<string, unknown> | null | undefined)?.id)
+        let lockValidation: CrudRecordLockValidationResult | null = null
+        if (ctx.auth.tenantId && candidateId) {
+          lockValidation = await validateCrudRecordLock(ctx.container, {
+            tenantId: ctx.auth.tenantId,
+            organizationId: scopeOrganizationId,
+            userId: ctx.auth.sub,
+            resourceKind: lockHeaders.resourceKind ?? resourceKind,
+            resourceId: lockHeaders.resourceId ?? candidateId,
+            method: 'PUT',
+            headers: lockHeaders,
+          })
+          if (lockValidation) {
+            const response = buildRecordLockErrorResponse(lockValidation)
+            if (response) return response
+          }
+        }
         const baseMetadata: CommandLogMetadata = {
           tenantId: ctx.auth?.tenantId ?? null,
           organizationId: ctx.selectedOrganizationId ?? ctx.auth.orgId ?? null,
@@ -1379,6 +1416,23 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
         const status = action.status ?? 200
         const response = json(resolvedPayload, { status })
         attachOperationHeader(response, logEntry)
+        if (
+          lockValidation?.ok
+          && lockValidation.shouldReleaseOnSuccess
+          && ctx.auth.tenantId
+          && candidateId
+          && lockHeaders.token
+        ) {
+          await releaseCrudRecordLockAfterSuccess(ctx.container, {
+            tenantId: ctx.auth.tenantId,
+            organizationId: scopeOrganizationId,
+            userId: ctx.auth.sub,
+            resourceKind: lockHeaders.resourceKind ?? resourceKind,
+            resourceId: lockHeaders.resourceId ?? candidateId,
+            token: lockHeaders.token,
+            reason: 'saved',
+          })
+        }
         // Note: side effects (events + indexing) are already flushed by CommandBus.execute()
         // via flushCrudSideEffects(). Calling markCommandResultForIndexing here would cause
         // duplicate event emissions.
@@ -1394,6 +1448,22 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
 
       const id = updateConfig.getId ? updateConfig.getId(input as any) : (input as any).id
       if (!isUuid(id)) return json({ error: 'Invalid id' }, { status: 400 })
+
+      const lockValidation = ctx.auth.tenantId
+        ? await validateCrudRecordLock(ctx.container, {
+            tenantId: ctx.auth.tenantId,
+            organizationId: scopeOrganizationId,
+            userId: ctx.auth.sub,
+            resourceKind: lockHeaders.resourceKind ?? resourceKind,
+            resourceId: lockHeaders.resourceId ?? id,
+            method: 'PUT',
+            headers: lockHeaders,
+          })
+        : null
+      if (lockValidation) {
+        const response = buildRecordLockErrorResponse(lockValidation)
+        if (response) return response
+      }
 
       const targetOrgId = ctx.selectedOrganizationId ?? ctx.auth.orgId ?? null
       if (ormCfg.orgField && !targetOrgId) return json({ error: 'Organization context is required' }, { status: 400 })
@@ -1446,6 +1516,22 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
       })
       await de.flushOrmEntityChanges()
       await invalidateCrudCache(ctx.container, resourceKind, identifiers, ctx.auth.tenantId ?? null, 'updated', resourceTargets)
+      if (
+        lockValidation?.ok
+        && lockValidation.shouldReleaseOnSuccess
+        && ctx.auth.tenantId
+        && lockHeaders.token
+      ) {
+        await releaseCrudRecordLockAfterSuccess(ctx.container, {
+          tenantId: ctx.auth.tenantId,
+          organizationId: scopeOrganizationId,
+          userId: ctx.auth.sub,
+          resourceKind: lockHeaders.resourceKind ?? resourceKind,
+          resourceId: lockHeaders.resourceId ?? id,
+          token: lockHeaders.token,
+          reason: 'saved',
+        })
+      }
       const payload = updateConfig.response ? updateConfig.response(entity) : { success: true }
       return json(payload)
     } catch (e) {
@@ -1470,6 +1556,8 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
       }
       const useCommand = !!opts.actions?.delete
       const url = new URL(request.url)
+      const lockHeaders = readCrudRecordLockHeaders(request.headers)
+      const scopeOrganizationId = ctx.selectedOrganizationId ?? ctx.auth.orgId ?? null
 
       if (useCommand) {
         const action = opts.actions!.delete!
@@ -1484,6 +1572,22 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
             ?? (raw.query as Record<string, unknown> | null | undefined)?.id
             ?? (raw.body as Record<string, unknown> | null | undefined)?.id
         )
+        let lockValidation: CrudRecordLockValidationResult | null = null
+        if (ctx.auth.tenantId && candidateId) {
+          lockValidation = await validateCrudRecordLock(ctx.container, {
+            tenantId: ctx.auth.tenantId,
+            organizationId: scopeOrganizationId,
+            userId: ctx.auth.sub,
+            resourceKind: lockHeaders.resourceKind ?? resourceKind,
+            resourceId: lockHeaders.resourceId ?? candidateId,
+            method: 'DELETE',
+            headers: lockHeaders,
+          })
+          if (lockValidation) {
+            const response = buildRecordLockErrorResponse(lockValidation)
+            if (response) return response
+          }
+        }
         const baseMetadata: CommandLogMetadata = {
           tenantId: ctx.auth?.tenantId ?? null,
           organizationId: ctx.selectedOrganizationId ?? ctx.auth.orgId ?? null,
@@ -1498,6 +1602,23 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
         const status = action.status ?? 200
         const response = json(resolvedPayload, { status })
         attachOperationHeader(response, logEntry)
+        if (
+          lockValidation?.ok
+          && lockValidation.shouldReleaseOnSuccess
+          && ctx.auth.tenantId
+          && candidateId
+          && lockHeaders.token
+        ) {
+          await releaseCrudRecordLockAfterSuccess(ctx.container, {
+            tenantId: ctx.auth.tenantId,
+            organizationId: scopeOrganizationId,
+            userId: ctx.auth.sub,
+            resourceKind: lockHeaders.resourceKind ?? resourceKind,
+            resourceId: lockHeaders.resourceId ?? candidateId,
+            token: lockHeaders.token,
+            reason: 'saved',
+          })
+        }
         // Note: side effects (events + indexing) are already flushed by CommandBus.execute()
         // via flushCrudSideEffects(). Calling markCommandResultForIndexing here would cause
         // duplicate event emissions.
@@ -1509,6 +1630,22 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
         ? url.searchParams.get('id')
         : (await request.json().catch(() => ({}))).id
       if (!isUuid(id)) return json({ error: 'ID is required' }, { status: 400 })
+
+      const lockValidation = ctx.auth.tenantId
+        ? await validateCrudRecordLock(ctx.container, {
+            tenantId: ctx.auth.tenantId,
+            organizationId: scopeOrganizationId,
+            userId: ctx.auth.sub,
+            resourceKind: lockHeaders.resourceKind ?? resourceKind,
+            resourceId: lockHeaders.resourceId ?? id,
+            method: 'DELETE',
+            headers: lockHeaders,
+          })
+        : null
+      if (lockValidation) {
+        const response = buildRecordLockErrorResponse(lockValidation)
+        if (response) return response
+      }
 
       const targetOrgId = ctx.selectedOrganizationId ?? ctx.auth.orgId ?? null
       if (ormCfg.orgField && !targetOrgId) return json({ error: 'Organization context is required' }, { status: 400 })
@@ -1545,6 +1682,22 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
         })
         await de.flushOrmEntityChanges()
         await invalidateCrudCache(ctx.container, resourceKind, identifiers, ctx.auth.tenantId ?? null, 'deleted', resourceTargets)
+      }
+      if (
+        lockValidation?.ok
+        && lockValidation.shouldReleaseOnSuccess
+        && ctx.auth.tenantId
+        && lockHeaders.token
+      ) {
+        await releaseCrudRecordLockAfterSuccess(ctx.container, {
+          tenantId: ctx.auth.tenantId,
+          organizationId: scopeOrganizationId,
+          userId: ctx.auth.sub,
+          resourceKind: lockHeaders.resourceKind ?? resourceKind,
+          resourceId: lockHeaders.resourceId ?? id,
+          token: lockHeaders.token,
+          reason: 'saved',
+        })
       }
       const payload = opts.del?.response ? opts.del.response(id) : { success: true }
       return json(payload)
