@@ -213,15 +213,6 @@ export const messageObjectTypesQuerySchema = z.object({
   messageType: z.string().min(1),
 })
 
-export const messageObjectOptionsQuerySchema = z.object({
-  messageType: z.string().min(1),
-  entityModule: z.string().min(1),
-  entityType: z.string().min(1),
-  search: z.string().max(200).optional(),
-  page: z.coerce.number().int().min(1).optional().default(1),
-  pageSize: z.coerce.number().int().min(1).max(100).optional().default(20),
-})
-
 export const attachmentIdsPayloadSchema = z.object({
   attachmentIds: z.array(z.string().uuid()).min(1).max(100),
 })
@@ -242,6 +233,5 @@ export type ReplyMessageInput = z.infer<typeof replyMessageSchema>
 export type ExecuteActionInput = z.infer<typeof executeActionSchema>
 export type ConfirmMessageInput = z.infer<typeof confirmMessageSchema>
 export type MessageObjectTypesQueryInput = z.infer<typeof messageObjectTypesQuerySchema>
-export type MessageObjectOptionsQueryInput = z.infer<typeof messageObjectOptionsQuerySchema>
 export type AttachmentIdsPayload = z.infer<typeof attachmentIdsPayloadSchema>
 export type UnlinkAttachmentPayload = z.infer<typeof unlinkAttachmentPayloadSchema>

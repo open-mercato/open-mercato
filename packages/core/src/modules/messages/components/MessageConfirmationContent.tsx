@@ -4,6 +4,7 @@ import { useQuery } from '@tanstack/react-query'
 import type { MessageContentProps } from '@open-mercato/shared/modules/messages/types'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
+import { PriorityBadge } from './PriorityBadge'
 
 type MessageConfirmationResult = {
   messageId: string
@@ -63,6 +64,9 @@ export function MessageConfirmationContent({ message }: MessageContentProps) {
 
   return (
     <div className="space-y-3">
+      <div className="flex items-center justify-between">
+        <PriorityBadge priority={message.priority} />
+      </div>
       <div className="text-sm whitespace-pre-wrap">{message.body}</div>
       <div className="rounded border p-3 text-sm">
         <p className="font-medium">

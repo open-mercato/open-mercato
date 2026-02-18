@@ -5,12 +5,6 @@ export const setup: ModuleSetupConfig = {
     superadmin: ['messages.*'],
     admin: [
       'messages.*',
-      'messages.view',
-      'messages.compose',
-      'messages.attach',
-      'messages.attach_files',
-      'messages.email',
-      'messages.actions',
     ],
     employee: [
       'messages.view',

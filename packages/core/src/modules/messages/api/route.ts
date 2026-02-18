@@ -4,15 +4,11 @@ import type { Knex } from 'knex'
 import type { CommandBus } from '@open-mercato/shared/lib/commands/command-bus'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi/types'
 import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
-import { buildBatchNotificationFromType } from '../../notifications/lib/notificationBuilder'
-import { resolveNotificationService } from '../../notifications/lib/notificationService'
 import { User } from '../../auth/data/entities'
-import { Message, MessageObject, MessageRecipient } from '../data/entities'
+import { MessageObject } from '../data/entities'
 import { composeMessageSchema, listMessagesSchema } from '../data/validators'
-import { linkAttachmentsToMessage, linkLibraryAttachmentsToMessage } from '../lib/attachments'
 import { MESSAGE_ATTACHMENT_ENTITY_ID } from '../lib/constants'
 import { getMessageType, isMessageTypeCreateableByUser } from '../lib/message-types-registry'
-import { notificationTypes } from '../notifications'
 import { validateMessageObjectsForType } from '../lib/object-validation'
 import { attachOperationMetadataHeader } from '../lib/operationMetadata'
 import { canUseMessageEmailFeature, resolveMessageContext } from '../lib/routeHelpers'
@@ -55,6 +51,11 @@ type MessageListRow = {
 
 type AttachmentCountRow = {
   record_id: string
+  count: string | number
+}
+
+type RecipientCountRow = {
+  message_id: string
   count: string | number
 }
 
@@ -116,12 +117,15 @@ export async function GET(req: Request) {
       joinRecipient()
       break
     case 'all':
-    default:
       joinRecipient()
       query = query.where(function () {
         this.where('m.sender_user_id', scope.userId).orWhereNotNull('r.message_id')
       })
       break
+    default: {
+      const unsupportedFolder: never = input.folder
+      throw new Error(`Unsupported folder: ${String(unsupportedFolder)}`)
+    }
   }
 
   if (input.status) {
@@ -215,6 +219,20 @@ export async function GET(req: Request) {
     return acc
   }, {})
 
+  const recipientCounts: RecipientCountRow[] = messageIds.length > 0
+    ? await getKnex(em)('message_recipients')
+        .select('message_id')
+        .count('* as count')
+        .whereIn('message_id', messageIds)
+        .whereNull('deleted_at')
+        .groupBy('message_id')
+    : []
+
+  const recipientCountByMessage = recipientCounts.reduce((acc: Record<string, number>, row) => {
+    acc[row.message_id] = Number(row.count)
+    return acc
+  }, {})
+
   const senderUserIds = Array.from(new Set(typedMessages.map((message) => message.sender_user_id).filter(Boolean)))
   const senderUsers = senderUserIds.length > 0
     ? await findWithDecryption(
@@ -256,6 +274,7 @@ export async function GET(req: Request) {
       objectCount: (objectsByMessage[message.id] || []).length,
       hasAttachments: (attachmentCountByMessage[message.id] || 0) > 0,
       attachmentCount: attachmentCountByMessage[message.id] || 0,
+      recipientCount: recipientCountByMessage[message.id] || 0,
       hasActions:
         Boolean(message.action_data?.actions?.length)
         || Boolean(getMessageType(message.type)?.defaultActions?.length)
@@ -310,41 +329,7 @@ export async function POST(req: Request) {
       request: req,
     },
   })
-  const { id: messageId, externalEmail: responseExternalEmail, threadId: responseThreadId } = result as unknown as MessageCommandExecuteResultWithThreadId
-  if (!input.isDraft) {
-    const uniqueRecipientUserIds = Array.from(new Set(input.recipients.map((recipient) => recipient.userId)))
-    const typeDef = notificationTypes.find((type) => type.type === 'messages.new')
-    if (typeDef && uniqueRecipientUserIds.length > 0) {
-      const notificationService = resolveNotificationService(ctx.container)
-      const notificationInput = buildBatchNotificationFromType(typeDef, {
-        recipientUserIds: uniqueRecipientUserIds,
-        sourceEntityType: 'message',
-        sourceEntityId: messageId,
-        linkHref: `/backend/messages/${messageId}`,
-      })
-      await notificationService.createBatch(notificationInput, {
-        tenantId: scope.tenantId,
-        organizationId: scope.organizationId,
-      })
-    }
-
-    const eventBus = ctx.container.resolve('eventBus') as {
-      emit: (event: string, payload: unknown, options?: unknown) => Promise<void>
-    }
-    await eventBus.emit(
-      'messages.sent',
-      {
-        messageId,
-        senderUserId: scope.userId,
-        recipientUserIds: input.recipients.map((recipient) => recipient.userId),
-        sendViaEmail,
-        externalEmail: responseExternalEmail,
-        tenantId: scope.tenantId,
-        organizationId: scope.organizationId,
-      },
-      { persistent: true }
-    )
-  }
+  const { id: messageId, threadId: responseThreadId } = result as unknown as MessageCommandExecuteResultWithThreadId
 
   const response = Response.json({ id: messageId, threadId: responseThreadId }, { status: 201 })
   attachOperationMetadataHeader(response, logEntry, {

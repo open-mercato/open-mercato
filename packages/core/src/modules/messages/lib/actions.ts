@@ -198,7 +198,7 @@ export function resolveActionCommandInput(
 ): Record<string, unknown> {
   return {
     ...requestInput,
-    _messageId: message.id,
-    _actionId: action.id,
+    messageId: message.id,
+    actionId: action.id,
   }
 }

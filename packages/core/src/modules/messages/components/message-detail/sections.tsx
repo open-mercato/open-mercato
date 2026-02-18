@@ -26,6 +26,7 @@ import type {
   MessageAction,
   MessageAttachment,
   MessageDetail,
+  MessageDetailObject,
   PendingActionConfirmation,
 } from './types'
 import { formatDateTime, toObjectAction } from './utils'
@@ -125,14 +126,6 @@ export function MessageDetailMetaSection({ detail }: { detail: MessageDetail }) 
 
   return (
     <div className="grid gap-3 sm:grid-cols-2">
-      <div className="space-y-1 rounded border p-3 text-sm">
-        <p className="font-medium">{t('messages.detail.type', 'Type')}</p>
-        <p>{t(detail.typeDefinition.labelKey, detail.type)}</p>
-      </div>
-      <div className="space-y-1 rounded border p-3 text-sm">
-        <p className="font-medium">{t('messages.detail.priority', 'Priority')}</p>
-        <p>{detail.priority}</p>
-      </div>
       {detail.externalEmail ? (
         <div className="space-y-1 rounded border p-3 text-sm">
           <p className="font-medium">{t('messages.externalEmail', 'External email')}</p>
@@ -217,65 +210,49 @@ type ObjectsSectionProps = {
 export function MessageDetailObjectsSection(props: ObjectsSectionProps) {
   const t = useT()
 
+  if ((props.detail.objects ?? []).length === 0) return null
+
   return (
     <section className="space-y-3 rounded-xl border bg-card p-4">
       <h2 className="text-base font-semibold">{t('messages.attachedObjects', 'Attached objects')}</h2>
-      {(props.detail.objects ?? []).length === 0 ? (
-        <p className="text-sm text-muted-foreground">{t('messages.detail.noObjects', 'No objects attached.')}</p>
-      ) : (
-        <div className="space-y-2">
-          {(props.detail.objects ?? []).map((item) => {
-            const DetailComponent = resolveMessageObjectDetailComponent(item.entityModule, item.entityType)
-            const PreviewComponent = resolveMessageObjectPreviewComponent(item.entityModule, item.entityType)
-            const objectActions = props.objectActionsByObjectId.get(item.id)
+      <div className="space-y-2">
+        {(props.detail.objects ?? []).map((item) => {
+          const DetailComponent = resolveMessageObjectDetailComponent(item.entityModule, item.entityType)
+          const PreviewComponent = resolveMessageObjectPreviewComponent(item.entityModule, item.entityType)
+          const objectActions = props.objectActionsByObjectId.get(item.id)
 
-            if (DetailComponent) {
-              const actions: MessageObjectAction[] = objectActions
-                ? Array.from(objectActions.entries()).map(([actionId, action]) => toObjectAction(actionId, action))
-                : []
-
-              return (
-                <DetailComponent
-                  key={item.id}
-                  entityId={item.entityId}
-                  entityModule={item.entityModule}
-                  entityType={item.entityType}
-                  snapshot={item.snapshot ?? undefined}
-                  previewData={item.preview ?? undefined}
-                  actionRequired={item.actionRequired}
-                  actionType={item.actionType ?? undefined}
-                  actionLabel={item.actionLabel ?? undefined}
-                  actionTaken={props.detail.actionTaken ?? null}
-                  actionTakenAt={props.detail.actionTakenAt ? new Date(props.detail.actionTakenAt) : null}
-                  actionTakenByUserId={props.detail.actionTakenByUserId ?? null}
-                  actions={actions}
-                  onAction={async (actionId, payload) => {
-                    const action = objectActions?.get(actionId)
-                    if (!action) return
-                    await props.onExecuteAction(action, payload)
-                  }}
-                />
-              )
-            }
-
-            if (PreviewComponent) {
-              return (
-                <PreviewComponent
-                  key={item.id}
-                  entityId={item.entityId}
-                  entityModule={item.entityModule}
-                  entityType={item.entityType}
-                  snapshot={item.snapshot ?? undefined}
-                  previewData={item.preview ?? undefined}
-                  actionRequired={item.actionRequired}
-                  actionType={item.actionType ?? undefined}
-                  actionLabel={item.actionLabel ?? undefined}
-                />
-              )
-            }
+          if (DetailComponent) {
+            const actions: MessageObjectAction[] = objectActions
+              ? Array.from(objectActions.entries()).map(([actionId, action]) => toObjectAction(actionId, action))
+              : []
 
             return (
-              <MessageRecordObjectPreview
+              <DetailComponent
+                key={item.id}
+                entityId={item.entityId}
+                entityModule={item.entityModule}
+                entityType={item.entityType}
+                snapshot={item.snapshot ?? undefined}
+                previewData={item.preview ?? undefined}
+                actionRequired={item.actionRequired}
+                actionType={item.actionType ?? undefined}
+                actionLabel={item.actionLabel ?? undefined}
+                actionTaken={props.detail.actionTaken ?? null}
+                actionTakenAt={props.detail.actionTakenAt ? new Date(props.detail.actionTakenAt) : null}
+                actionTakenByUserId={props.detail.actionTakenByUserId ?? null}
+                actions={actions}
+                onAction={async (actionId, payload) => {
+                  const action = objectActions?.get(actionId)
+                  if (!action) return
+                  await props.onExecuteAction(action, payload)
+                }}
+              />
+            )
+          }
+
+          if (PreviewComponent) {
+            return (
+              <PreviewComponent
                 key={item.id}
                 entityId={item.entityId}
                 entityModule={item.entityModule}
@@ -287,9 +264,23 @@ export function MessageDetailObjectsSection(props: ObjectsSectionProps) {
                 actionLabel={item.actionLabel ?? undefined}
               />
             )
-          })}
-        </div>
-      )}
+          }
+
+          return (
+            <MessageRecordObjectPreview
+              key={item.id}
+              entityId={item.entityId}
+              entityModule={item.entityModule}
+              entityType={item.entityType}
+              snapshot={item.snapshot ?? undefined}
+              previewData={item.preview ?? undefined}
+              actionRequired={item.actionRequired}
+              actionType={item.actionType ?? undefined}
+              actionLabel={item.actionLabel ?? undefined}
+            />
+          )
+        })}
+      </div>
     </section>
   )
 }
@@ -302,35 +293,47 @@ type AttachmentsSectionProps = {
 export function MessageDetailAttachmentsSection(props: AttachmentsSectionProps) {
   const t = useT()
 
-  return (
-    <section className="space-y-3 rounded-xl border bg-card p-4">
-      <h2 className="text-base font-semibold">{t('messages.attachedFiles', 'Attachments')}</h2>
-      {props.attachmentsQuery.isLoading ? (
+  if (props.attachmentsQuery.isLoading) {
+    return (
+      <section className="space-y-3 rounded-xl border bg-card p-4">
+        <h2 className="text-base font-semibold">{t('messages.attachedFiles', 'Attachments')}</h2>
         <p className="text-sm text-muted-foreground">{t('messages.loading.attachments', 'Loading attachments...')}</p>
-      ) : props.attachmentsQuery.error ? (
+      </section>
+    )
+  }
+
+  if (props.attachmentsQuery.error) {
+    return (
+      <section className="space-y-3 rounded-xl border bg-card p-4">
+        <h2 className="text-base font-semibold">{t('messages.attachedFiles', 'Attachments')}</h2>
         <p className="text-sm text-destructive">
           {props.attachmentsQuery.error instanceof Error
             ? props.attachmentsQuery.error.message
             : t('messages.errors.loadAttachmentsFailed', 'Failed to load attachments.')}
         </p>
-      ) : (props.attachments ?? []).length === 0 ? (
-        <p className="text-sm text-muted-foreground">{t('messages.detail.noAttachments', 'No attachments linked.')}</p>
-      ) : (
-        <div className="space-y-2">
-          {(props.attachments ?? []).map((attachment) => (
-            <a
-              key={attachment.id}
-              href={attachment.url}
-              target="_blank"
-              rel="noreferrer"
-              className="flex items-center justify-between rounded border px-3 py-2 text-sm hover:bg-muted"
-            >
-              <span className="truncate">{attachment.fileName}</span>
-              <span className="text-xs text-muted-foreground">{Math.round(attachment.fileSize / 1024)} KB</span>
-            </a>
-          ))}
-        </div>
-      )}
+      </section>
+    )
+  }
+
+  if ((props.attachments ?? []).length === 0) return null
+
+  return (
+    <section className="space-y-3 rounded-xl border bg-card p-4">
+      <h2 className="text-base font-semibold">{t('messages.attachedFiles', 'Attachments')}</h2>
+      <div className="space-y-2">
+        {(props.attachments ?? []).map((attachment) => (
+          <a
+            key={attachment.id}
+            href={attachment.url}
+            target="_blank"
+            rel="noreferrer"
+            className="flex items-center justify-between rounded border px-3 py-2 text-sm hover:bg-muted"
+          >
+            <span className="truncate">{attachment.fileName}</span>
+            <span className="text-xs text-muted-foreground">{Math.round(attachment.fileSize / 1024)} KB</span>
+          </a>
+        ))}
+      </div>
     </section>
   )
 }
@@ -338,23 +341,49 @@ export function MessageDetailAttachmentsSection(props: AttachmentsSectionProps) 
 export function MessageDetailThreadSection({ detail }: { detail: MessageDetail }) {
   const t = useT()
 
+  if ((detail.thread ?? []).length === 0) return null
+
   return (
     <section className="space-y-3 rounded-xl border bg-card p-4">
       <h2 className="text-base font-semibold">{t('messages.detail.thread', 'Thread')}</h2>
-      {(detail.thread ?? []).length === 0 ? (
-        <p className="text-sm text-muted-foreground">{t('messages.detail.noThread', 'No thread messages yet.')}</p>
-      ) : (
-        <div className="space-y-3">
-          {(detail.thread ?? []).map((threadItem) => (
-            <article key={threadItem.id} className="rounded border p-3">
-              <p className="text-xs text-muted-foreground">
-                {(threadItem.senderName || threadItem.senderEmail || threadItem.senderUserId)} • {formatDateTime(threadItem.sentAt)}
-              </p>
-              <p className="mt-2 whitespace-pre-wrap text-sm">{threadItem.body}</p>
-            </article>
-          ))}
-        </div>
-      )}
+      <div className="space-y-3">
+        {(detail.thread ?? []).map((threadItem) => (
+          <article key={threadItem.id} className="rounded border p-3">
+            <p className="text-xs text-muted-foreground">
+              {(threadItem.senderName || threadItem.senderEmail || threadItem.senderUserId)} • {formatDateTime(threadItem.sentAt)}
+            </p>
+            <p className="mt-2 whitespace-pre-wrap text-sm">{threadItem.body}</p>
+
+            {/* Show attached objects in thread messages */}
+            {(threadItem.objects ?? []).length > 0 && (
+              <div className="mt-3 space-y-2">
+                <p className="text-xs text-muted-foreground font-medium">
+                  {t('messages.attachedObjects', 'Attached objects')}
+                </p>
+                {(threadItem.objects ?? []).map((obj: MessageDetailObject) => {
+                  const PreviewComponent = resolveMessageObjectPreviewComponent(obj.entityModule, obj.entityType)
+                  if (!PreviewComponent) return null
+
+                  return (
+                    <div key={obj.id} className="scale-95 origin-left">
+                      <PreviewComponent
+                        entityId={obj.entityId}
+                        entityModule={obj.entityModule}
+                        entityType={obj.entityType}
+                        snapshot={obj.snapshot ?? undefined}
+                        previewData={obj.preview ?? undefined}
+                        actionRequired={obj.actionRequired}
+                        actionType={obj.actionType ?? undefined}
+                        actionLabel={obj.actionLabel ?? undefined}
+                      />
+                    </div>
+                  )
+                })}
+              </div>
+            )}
+          </article>
+        ))}
+      </div>
     </section>
   )
 }

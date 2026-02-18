@@ -5,11 +5,15 @@ import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { Button } from '../../primitives/button'
 import { Input } from '../../primitives/input'
 import { Label } from '../../primitives/label'
+import { resolveMessageObjectPreviewComponent } from '@open-mercato/core/modules/messages/components/typeUiRegistry'
 
 export type MessageObjectOptionItem = {
   id: string
   label: string
   subtitle?: string
+  entityModule?: string
+  entityType?: string
+  snapshot?: Record<string, unknown>
 }
 
 export type MessageObjectRecordPickerProps = {
@@ -21,6 +25,8 @@ export type MessageObjectRecordPickerProps = {
   isLoading: boolean
   error: string | null
   onRetry: () => void
+  entityModule?: string
+  entityType?: string
 }
 
 export function MessageObjectRecordPicker({
@@ -32,6 +38,8 @@ export function MessageObjectRecordPicker({
   isLoading,
   error,
   onRetry,
+  entityModule,
+  entityType,
 }: MessageObjectRecordPickerProps) {
   const t = useT()
 
@@ -63,24 +71,54 @@ export function MessageObjectRecordPicker({
       ) : null}
 
       <div className="space-y-2">
-        <Label htmlFor="messages-object-record-select">
+        <Label>
           {t('messages.composer.objectPicker.recordLabel', 'Record')}
         </Label>
-        <select
-          id="messages-object-record-select"
-          value={selectedId}
-          onChange={(event) => onSelectedIdChange(event.target.value)}
-          className="h-9 w-full rounded-md border bg-background px-3 text-sm"
-        >
-          <option value="">
+        {!selectedId && (
+          <p className="text-sm text-muted-foreground">
             {t('messages.composer.objectPicker.recordPlaceholder', 'Select record')}
-          </option>
-          {items.map((item) => (
-            <option key={item.id} value={item.id}>
-              {item.subtitle ? `${item.label} (${item.subtitle})` : item.label}
-            </option>
-          ))}
-        </select>
+          </p>
+        )}
+        <div className="space-y-2 max-h-64 overflow-y-auto">
+          {items.map((item) => {
+            const PreviewComponent = resolveMessageObjectPreviewComponent(
+              item.entityModule || entityModule,
+              item.entityType || entityType
+            )
+
+            return (
+              <div
+                key={item.id}
+                className={`cursor-pointer rounded-md border p-2 transition-colors ${
+                  selectedId === item.id
+                    ? 'border-primary bg-primary/5'
+                    : 'border-border hover:bg-muted/50'
+                }`}
+                onClick={() => onSelectedIdChange(item.id)}
+              >
+                {PreviewComponent ? (
+                  <PreviewComponent
+                    entityId={item.id}
+                    entityModule={item.entityModule || entityModule || ''}
+                    entityType={item.entityType || entityType || ''}
+                    snapshot={item.snapshot}
+                    previewData={{
+                      title: item.label,
+                      subtitle: item.subtitle || undefined,
+                    }}
+                  />
+                ) : (
+                  <div className="text-sm">
+                    <p className="font-medium">{item.label}</p>
+                    {item.subtitle && (
+                      <p className="text-muted-foreground text-xs">{item.subtitle}</p>
+                    )}
+                  </div>
+                )}
+              </div>
+            )
+          })}
+        </div>
       </div>
 
       {!isLoading && !error && items.length === 0 ? (

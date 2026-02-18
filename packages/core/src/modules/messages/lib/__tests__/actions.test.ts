@@ -73,12 +73,12 @@ describe('resolveActionCommandInput', () => {
 
     expect(input).toMatchObject({
       amount: 123.45,
-      _messageId: 'message-1',
-      _actionId: 'object:obj-1:update_payment',
+      messageId: 'message-1',
+      actionId: 'object:obj-1:update_payment',
     })
   })
 
-  it('keeps user-provided values and enforces metadata keys', () => {
+  it('keeps user-provided values and sets command metadata keys', () => {
     const message = createMessage()
     const action = createAction()
 
@@ -99,8 +99,9 @@ describe('resolveActionCommandInput', () => {
 
     expect(input.organizationId).toBe('cccccccc-cccc-cccc-8ccc-cccccccccccc')
     expect(input.amount).toBe(11)
-    expect(input._messageId).toBe('message-1')
-    expect(input._actionId).toBe('object:obj-1:update_payment')
+    expect(input._messageId).toBe('override-attempt')
+    expect(input.messageId).toBe('message-1')
+    expect(input.actionId).toBe('object:obj-1:update_payment')
   })
 })
 

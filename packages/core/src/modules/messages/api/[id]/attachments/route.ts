@@ -5,7 +5,6 @@ import { parseUnlinkAttachmentIds } from '../../../commands/attachments'
 import { Message, MessageRecipient } from '../../../data/entities'
 import { attachmentIdsPayloadSchema, unlinkAttachmentPayloadSchema } from '../../../data/validators'
 import { getMessageAttachments, linkAttachmentsToMessage } from '../../../lib/attachments'
-import { MESSAGE_ATTACHMENT_ENTITY_ID } from '../../../lib/constants'
 import { attachOperationMetadataHeader } from '../../../lib/operationMetadata'
 import { resolveMessageContext } from '../../../lib/routeHelpers'
 import {

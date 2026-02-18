@@ -5,6 +5,7 @@ const resolveMessageContextMock = jest.fn()
 
 jest.mock('@open-mercato/core/modules/messages/lib/routeHelpers', () => ({
   resolveMessageContext: (...args: unknown[]) => resolveMessageContextMock(...args),
+  hasOrganizationAccess: jest.fn(() => true),
 }))
 
 describe('messages /api/messages/[id]/archive', () => {

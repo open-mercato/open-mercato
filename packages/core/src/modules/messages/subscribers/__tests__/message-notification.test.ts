@@ -2,13 +2,26 @@ import handle from '../message-notification'
 
 const enqueueMock = jest.fn(async () => 'job-1')
 const createQueueMock = jest.fn(() => ({ enqueue: enqueueMock }))
+const createBatchMock = jest.fn(async () => [])
+const resolveNotificationServiceMock = jest.fn(() => ({ createBatch: createBatchMock }))
+const buildBatchNotificationFromTypeMock = jest.fn(() => ({ type: 'messages.new' }))
 
 jest.mock('@open-mercato/queue', () => ({
   createQueue: (...args: unknown[]) => createQueueMock(...args),
 }))
+jest.mock('@open-mercato/core/modules/notifications/lib/notificationService', () => ({
+  resolveNotificationService: (...args: unknown[]) => resolveNotificationServiceMock(...args),
+}))
+jest.mock('@open-mercato/core/modules/notifications/lib/notificationBuilder', () => ({
+  buildBatchNotificationFromType: (...args: unknown[]) => buildBatchNotificationFromTypeMock(...args),
+}))
+jest.mock('@open-mercato/core/modules/messages/notifications', () => ({
+  notificationTypes: [{ type: 'messages.new', module: 'messages', titleKey: 'messages.notifications.new.title' }],
+}))
 
 describe('messages sent subscriber', () => {
   const queueStrategy = process.env.QUEUE_STRATEGY
+  const ctx = { resolve: jest.fn() }
 
   beforeEach(() => {
     jest.clearAllMocks()
@@ -27,10 +40,12 @@ describe('messages sent subscriber', () => {
       sendViaEmail: false,
       tenantId: 'tenant-1',
       organizationId: 'org-1',
-    })
+    }, ctx)
 
     expect(createQueueMock).not.toHaveBeenCalled()
     expect(enqueueMock).not.toHaveBeenCalled()
+    expect(resolveNotificationServiceMock).toHaveBeenCalledTimes(1)
+    expect(createBatchMock).toHaveBeenCalledTimes(1)
   })
 
   it('queues deduplicated recipient jobs and one external job', async () => {
@@ -44,10 +59,22 @@ describe('messages sent subscriber', () => {
       externalEmail: ' ext@example.com ',
       tenantId: 'tenant-1',
       organizationId: 'org-1',
-    })
+    }, ctx)
 
     expect(createQueueMock).toHaveBeenCalledWith('messages-email', 'async')
     expect(enqueueMock).toHaveBeenCalledTimes(3)
+    expect(resolveNotificationServiceMock).toHaveBeenCalledTimes(1)
+    expect(buildBatchNotificationFromTypeMock).toHaveBeenCalledWith(
+      expect.objectContaining({ type: 'messages.new' }),
+      expect.objectContaining({
+        recipientUserIds: ['u1', 'u2'],
+        sourceEntityId: 'message-1',
+      }),
+    )
+    expect(createBatchMock).toHaveBeenCalledWith(
+      expect.objectContaining({ type: 'messages.new' }),
+      expect.objectContaining({ tenantId: 'tenant-1', organizationId: 'org-1' }),
+    )
 
     expect(enqueueMock).toHaveBeenNthCalledWith(
       1,
@@ -71,7 +98,7 @@ describe('messages sent subscriber', () => {
       sendViaEmail: true,
       tenantId: 'tenant-1',
       organizationId: null,
-    })
+    }, ctx)
 
     expect(createQueueMock).toHaveBeenCalledWith('messages-email', 'local')
   })

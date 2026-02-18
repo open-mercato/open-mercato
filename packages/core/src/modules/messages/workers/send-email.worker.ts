@@ -3,6 +3,7 @@ import type { JobContext, QueuedJob, WorkerMeta } from '@open-mercato/queue'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { User } from '../../auth/data/entities'
 import { Message, MessageObject, MessageRecipient } from '../data/entities'
+import { emitMessagesEvent } from '../events'
 import { getMessageAttachments } from '../lib/attachments'
 import {
   sendMessageEmailToExternal,
@@ -37,6 +38,26 @@ export const metadata: WorkerMeta = {
 
 type HandlerContext = {
   resolve: <T = unknown>(name: string) => T
+}
+
+async function emitEmailDeliveryEvent(
+  ctx: HandlerContext,
+  eventId: 'messages.email.sent' | 'messages.email.failed',
+  payload: {
+    messageId: string
+    target: 'recipient' | 'external'
+    recipientUserId?: string
+    email?: string
+    error?: string
+    tenantId: string
+    organizationId?: string | null
+  }
+) {
+  const eventBus = ctx.resolve<{ emit?: unknown } | null>('eventBus')
+  if (!eventBus || typeof eventBus !== 'object' || typeof (eventBus as { emit?: unknown }).emit !== 'function') {
+    return
+  }
+  await emitMessagesEvent(eventId, payload, { persistent: true })
 }
 
 async function resolveSender(em: EntityManager, message: Message) {
@@ -191,13 +212,29 @@ export default async function handle(
         objects,
         attachments,
       })
+      await emitEmailDeliveryEvent(ctx, 'messages.email.sent', {
+        messageId: message.id,
+        target: 'external',
+        email: payload.email,
+        tenantId: message.tenantId,
+        organizationId: message.organizationId ?? null,
+      })
     } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error'
       await releaseExternalClaim(
         em,
         payload,
         externalClaimTimestamp,
-        error instanceof Error ? error.message : 'Unknown error',
+        errorMessage,
       )
+      await emitEmailDeliveryEvent(ctx, 'messages.email.failed', {
+        messageId: message.id,
+        target: 'external',
+        email: payload.email,
+        error: errorMessage,
+        tenantId: message.tenantId,
+        organizationId: message.organizationId ?? null,
+      })
       console.error('[messages:send-email] External email send failed', error)
     }
     return
@@ -254,13 +291,31 @@ export default async function handle(
       objects,
       attachments,
     })
+    await emitEmailDeliveryEvent(ctx, 'messages.email.sent', {
+      messageId: message.id,
+      target: 'recipient',
+      recipientUserId: payload.recipientUserId,
+      email: recipientEmail,
+      tenantId: message.tenantId,
+      organizationId: message.organizationId ?? null,
+    })
   } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : 'Unknown error'
     await releaseRecipientClaim(
       em,
       payload,
       recipientClaimTimestamp,
-      error instanceof Error ? error.message : 'Unknown error',
+      errorMessage,
     )
+    await emitEmailDeliveryEvent(ctx, 'messages.email.failed', {
+      messageId: message.id,
+      target: 'recipient',
+      recipientUserId: payload.recipientUserId,
+      email: recipientEmail,
+      error: errorMessage,
+      tenantId: message.tenantId,
+      organizationId: message.organizationId ?? null,
+    })
     console.error('[messages:send-email] Recipient email send failed', error)
   }
 }

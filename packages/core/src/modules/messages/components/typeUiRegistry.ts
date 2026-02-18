@@ -5,33 +5,50 @@ import type {
   MessageActionsProps,
   MessageContentProps,
   MessageListItemProps,
-  MessageObjectTypeDefinition,
-  MessageTypeDefinition,
   ObjectPreviewProps,
   ObjectDetailProps,
+  ObjectPickerComponentProps,
 } from '@open-mercato/shared/modules/messages/types'
-import { DefaultMessageActions } from './DefaultMessageActions'
-import { DefaultMessageContent } from './DefaultMessageContent'
-import { DefaultMessageListItem } from './DefaultMessageListItem'
-import { MessageConfirmationActions } from './MessageConfirmationActions'
-import { MessageConfirmationContent } from './MessageConfirmationContent'
+import { getAllMessageTypes } from '../lib/message-types-registry'
+import { getAllMessageObjectTypes } from '../lib/message-objects-registry'
 
-const listItemComponents = new Map<string, ComponentType<MessageListItemProps>>([
-  ['messages.default.listItem', DefaultMessageListItem],
-])
-
-const contentComponents = new Map<string, ComponentType<MessageContentProps>>([
-  ['messages.default.content', DefaultMessageContent],
-  ['messages.confirmation.content', MessageConfirmationContent],
-])
-
-const actionsComponents = new Map<string, ComponentType<MessageActionsProps>>([
-  ['messages.default.actions', DefaultMessageActions],
-  ['messages.confirmation.actions', MessageConfirmationActions],
-])
-
+// Build complete registries from auto-discovered components
+const listItemComponents = new Map<string, ComponentType<MessageListItemProps>>()
+const contentComponents = new Map<string, ComponentType<MessageContentProps>>()
+const actionsComponents = new Map<string, ComponentType<MessageActionsProps>>()
 const objectDetailComponents = new Map<string, ComponentType<ObjectDetailProps>>()
 const objectPreviewComponents = new Map<string, ComponentType<ObjectPreviewProps>>()
+const objectPickerComponents = new Map<string, ComponentType<ObjectPickerComponentProps>>()
+
+// Register auto-discovered message types from registry
+const registeredMessageTypes = getAllMessageTypes()
+for (const messageType of registeredMessageTypes) {
+  if (messageType.ui?.listItemComponent && messageType.ListItemComponent) {
+    listItemComponents.set(messageType.ui.listItemComponent, messageType.ListItemComponent)
+  }
+  if (messageType.ui?.contentComponent && messageType.ContentComponent) {
+    contentComponents.set(messageType.ui.contentComponent, messageType.ContentComponent)
+  }
+  if (messageType.ui?.actionsComponent && messageType.ActionsComponent) {
+    actionsComponents.set(messageType.ui.actionsComponent, messageType.ActionsComponent)
+  }
+}
+
+// Register auto-discovered message object types from registry
+const registeredMessageObjectTypes = getAllMessageObjectTypes()
+for (const objectType of registeredMessageObjectTypes) {
+  const key = `${objectType.module}:${objectType.entityType}`
+  if (objectType.PreviewComponent) {
+    objectPreviewComponents.set(key, objectType.PreviewComponent)
+  }
+  if (objectType.DetailComponent) {
+    objectDetailComponents.set(key, objectType.DetailComponent)
+  }
+  if (objectType.ObjectPickerComponent) {
+    objectPickerComponents.set(key, objectType.ObjectPickerComponent)
+  }
+}
+
 
 function getObjectDetailComponentKey(entityModule: string, entityType: string): string {
   return `${entityModule}:${entityType}`
@@ -74,8 +91,16 @@ export function registerMessageObjectPreviewComponent(
   objectPreviewComponents.set(getObjectDetailComponentKey(entityModule, entityType), component)
 }
 
+export function registerMessageObjectPickerComponent(
+  entityModule: string,
+  entityType: string,
+  component: ComponentType<ObjectPickerComponentProps>,
+): void {
+  objectPickerComponents.set(getObjectDetailComponentKey(entityModule, entityType), component)
+}
+
 export function registerMessageTypeUiComponents(
-  types: MessageTypeDefinition[],
+  types: import('@open-mercato/shared/modules/messages/types').MessageTypeDefinition[],
 ): void {
   for (const type of types) {
     const listItemKey = type.ui?.listItemComponent
@@ -96,14 +121,18 @@ export function registerMessageTypeUiComponents(
 }
 
 export function registerMessageObjectTypeUiComponents(
-  types: MessageObjectTypeDefinition[],
+  types: import('@open-mercato/shared/modules/messages/types').MessageObjectTypeDefinition[],
 ): void {
   for (const type of types) {
     if (type.PreviewComponent) {
       registerMessageObjectPreviewComponent(type.module, type.entityType, type.PreviewComponent)
     }
-    if (!type.DetailComponent) continue
-    registerMessageObjectDetailComponent(type.module, type.entityType, type.DetailComponent)
+    if (type.DetailComponent) {
+      registerMessageObjectDetailComponent(type.module, type.entityType, type.DetailComponent)
+    }
+    if (type.ObjectPickerComponent) {
+      registerMessageObjectPickerComponent(type.module, type.entityType, type.ObjectPickerComponent)
+    }
   }
 }
 
@@ -134,6 +163,17 @@ export function resolveMessageObjectPreviewComponent(
   entityModule: string | null | undefined,
   entityType: string | null | undefined,
 ): ComponentType<ObjectPreviewProps> | null {
+  if (!entityModule || !entityType) {
+    return objectPreviewComponents.get('messages:default') ?? null
+  }
+  const component = objectPreviewComponents.get(getObjectDetailComponentKey(entityModule, entityType))
+  return component ?? objectPreviewComponents.get('messages:default') ?? null
+}
+
+export function resolveMessageObjectPickerComponent(
+  entityModule: string | null | undefined,
+  entityType: string | null | undefined,
+): ComponentType<ObjectPickerComponentProps> | null {
   if (!entityModule || !entityType) return null
-  return objectPreviewComponents.get(getObjectDetailComponentKey(entityModule, entityType)) ?? null
+  return objectPickerComponents.get(getObjectDetailComponentKey(entityModule, entityType)) ?? null
 }

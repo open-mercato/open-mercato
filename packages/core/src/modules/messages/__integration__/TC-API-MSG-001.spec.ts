@@ -1,5 +1,6 @@
 import { expect, test } from '@playwright/test';
-import { apiRequest, getAuthToken } from '../helpers/api';
+import { apiRequest, getAuthToken } from '@open-mercato/core/modules/core/__integration__/helpers/api';
+
 
 function decodeJwtSubject(token: string): string {
   const payloadPart = token.split('.')[1] ?? '';

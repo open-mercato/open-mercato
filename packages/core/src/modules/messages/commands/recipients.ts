@@ -3,6 +3,7 @@ import { z } from 'zod'
 import { registerCommand, type CommandHandler } from '@open-mercato/shared/lib/commands'
 import { extractUndoPayload, type UndoPayload } from '@open-mercato/shared/lib/commands/undo'
 import { Message, MessageRecipient } from '../data/entities'
+import { emitMessagesEvent, type MessagesEventId } from '../events'
 import { assertOrganizationAccess, type MessageRecipientSnapshot, type MessageScopeInput } from './shared'
 
 const recipientMutationSchema = z.object({
@@ -77,6 +78,23 @@ function applyRecipientSnapshot(recipient: MessageRecipient, snapshot: MessageRe
   recipient.deletedAt = toDate(snapshot.deletedAt)
 }
 
+async function emitRecipientMutationEvent(
+  eventId: MessagesEventId,
+  input: RecipientMutationInput,
+): Promise<void> {
+  await emitMessagesEvent(
+    eventId,
+    {
+      messageId: input.messageId,
+      recipientUserId: input.userId,
+      userId: input.userId,
+      tenantId: input.tenantId,
+      organizationId: input.organizationId,
+    },
+    { persistent: true },
+  )
+}
+
 const markReadCommand: CommandHandler<unknown, { ok: true }> = {
   id: 'messages.recipients.mark_read',
   async prepare(rawInput, ctx) {
@@ -93,6 +111,7 @@ const markReadCommand: CommandHandler<unknown, { ok: true }> = {
       recipient.status = 'read'
       recipient.readAt = new Date()
       await em.flush()
+      await emitRecipientMutationEvent('messages.read', input)
     }
     return { ok: true }
   },
@@ -133,9 +152,12 @@ const markUnreadCommand: CommandHandler<unknown, { ok: true }> = {
     const input = recipientMutationSchema.parse(rawInput)
     const em = (ctx.container.resolve('em') as EntityManager).fork()
     const { recipient } = await loadRecipientForMutation(em, input)
-    recipient.status = 'unread'
-    recipient.readAt = null
-    await em.flush()
+    if (recipient.status !== 'unread' || recipient.readAt !== null) {
+      recipient.status = 'unread'
+      recipient.readAt = null
+      await em.flush()
+      await emitRecipientMutationEvent('messages.unread', input)
+    }
     return { ok: true }
   },
   async captureAfter(rawInput, _result, ctx) {
@@ -175,9 +197,12 @@ const archiveRecipientCommand: CommandHandler<unknown, { ok: true }> = {
     const input = recipientMutationSchema.parse(rawInput)
     const em = (ctx.container.resolve('em') as EntityManager).fork()
     const { recipient } = await loadRecipientForMutation(em, input)
-    recipient.archivedAt = new Date()
-    recipient.status = 'archived'
-    await em.flush()
+    if (recipient.status !== 'archived' || recipient.archivedAt === null) {
+      recipient.archivedAt = new Date()
+      recipient.status = 'archived'
+      await em.flush()
+      await emitRecipientMutationEvent('messages.archived', input)
+    }
     return { ok: true }
   },
   async captureAfter(rawInput, _result, ctx) {
@@ -217,9 +242,12 @@ const unarchiveRecipientCommand: CommandHandler<unknown, { ok: true }> = {
     const input = recipientMutationSchema.parse(rawInput)
     const em = (ctx.container.resolve('em') as EntityManager).fork()
     const { recipient } = await loadRecipientForMutation(em, input)
-    recipient.archivedAt = null
-    recipient.status = recipient.readAt ? 'read' : 'unread'
-    await em.flush()
+    if (recipient.archivedAt !== null || recipient.status === 'archived') {
+      recipient.archivedAt = null
+      recipient.status = recipient.readAt ? 'read' : 'unread'
+      await em.flush()
+      await emitRecipientMutationEvent('messages.unarchived', input)
+    }
     return { ok: true }
   },
   async captureAfter(rawInput, _result, ctx) {

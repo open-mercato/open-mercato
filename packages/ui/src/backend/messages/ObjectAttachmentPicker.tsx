@@ -1,17 +1,14 @@
 "use client"
 
 import * as React from 'react'
-import { useQuery } from '@tanstack/react-query'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
+import type { ObjectPickerQueryState, ObjectPickerRecord } from '@open-mercato/shared/modules/messages/types'
+import { resolveMessageObjectPickerComponent } from '@open-mercato/core/modules/messages/components/typeUiRegistry'
 import { Button } from '../../primitives/button'
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '../../primitives/dialog'
 import { Input } from '../../primitives/input'
 import { Label } from '../../primitives/label'
 import { Switch } from '../../primitives/switch'
-import { apiCall } from '../utils/apiCall'
-import { MessageObjectRecordPicker, type MessageObjectOptionItem } from './MessageObjectRecordPicker'
-
-export type { MessageObjectOptionItem } from './MessageObjectRecordPicker'
 
 export type MessageObjectTypeAction = {
   id: string
@@ -54,31 +51,15 @@ export type ObjectAttachmentPickerProps = {
   preferredActionIds?: string[]
 }
 
-function toErrorMessage(payload: unknown): string | null {
-  if (!payload) return null
-  if (typeof payload === 'string') return payload
-  if (Array.isArray(payload)) {
-    for (const item of payload) {
-      const nested = toErrorMessage(item)
-      if (nested) return nested
-    }
-    return null
-  }
-  if (typeof payload === 'object') {
-    const record = payload as Record<string, unknown>
-    return (
-      toErrorMessage(record.error)
-      ?? toErrorMessage(record.message)
-      ?? toErrorMessage(record.detail)
-      ?? toErrorMessage(record.details)
-      ?? null
-    )
-  }
-  return null
-}
-
 function normalizeObjectKey(item: Pick<MessageObjectInput, 'entityModule' | 'entityType' | 'entityId'>): string {
   return `${item.entityModule}:${item.entityType}:${item.entityId}`.toLowerCase()
+}
+
+const defaultQueryState: ObjectPickerQueryState = {
+  search: '',
+  page: 1,
+  pageSize: 20,
+  filters: {},
 }
 
 export function ObjectAttachmentPicker({
@@ -95,8 +76,11 @@ export function ObjectAttachmentPicker({
   const t = useT()
   const [search, setSearch] = React.useState('')
   const [selectedTypeKey, setSelectedTypeKey] = React.useState('')
-  const [recordSearch, setRecordSearch] = React.useState('')
-  const [selectedRecordId, setSelectedRecordId] = React.useState('')
+  const [selectedRecord, setSelectedRecord] = React.useState<ObjectPickerRecord | null>(null)
+  const [pickerQueryState, setPickerQueryState] = React.useState<ObjectPickerQueryState>(defaultQueryState)
+  const [manualEntityModule, setManualEntityModule] = React.useState('')
+  const [manualEntityType, setManualEntityType] = React.useState('')
+  const [manualEntityId, setManualEntityId] = React.useState('')
   const [actionRequired, setActionRequired] = React.useState(false)
   const [actionType, setActionType] = React.useState('')
   const [typeError, setTypeError] = React.useState<string | null>(null)
@@ -120,8 +104,11 @@ export function ObjectAttachmentPicker({
     wasOpenRef.current = true
     setSearch('')
     setSelectedTypeKey('')
-    setRecordSearch('')
-    setSelectedRecordId('')
+    setSelectedRecord(null)
+    setPickerQueryState(defaultQueryState)
+    setManualEntityModule('')
+    setManualEntityType('')
+    setManualEntityId('')
     setActionRequired(false)
     setActionType('')
     setTypeError(null)
@@ -143,44 +130,8 @@ export function ObjectAttachmentPicker({
   const selectedType = React.useMemo(() => {
     return objectTypes.find((item) => `${item.module}:${item.entityType}` === selectedTypeKey) ?? null
   }, [objectTypes, selectedTypeKey])
-
-  const objectOptionsQuery = useQuery({
-    queryKey: ['messages', 'object-options', messageType, selectedTypeKey, recordSearch],
-    enabled: open && Boolean(messageType.trim()) && Boolean(selectedType),
-    staleTime: 30 * 1000,
-    queryFn: async () => {
-      const selected = selectedType
-      if (!selected) return [] as MessageObjectOptionItem[]
-
-      const params = new URLSearchParams()
-      params.set('messageType', messageType)
-      params.set('entityModule', selected.module)
-      params.set('entityType', selected.entityType)
-      params.set('page', '1')
-      params.set('pageSize', '50')
-      if (recordSearch.trim().length) {
-        params.set('search', recordSearch.trim())
-      }
-
-      const call = await apiCall<{ items?: MessageObjectOptionItem[] }>(
-        `/api/messages/object-options?${params.toString()}`,
-      )
-      if (!call.ok) {
-        throw new Error(
-          toErrorMessage(call.result)
-          ?? t('messages.errors.loadObjectOptionsFailed', 'Failed to load object options.'),
-        )
-      }
-
-      return Array.isArray(call.result?.items) ? call.result?.items ?? [] : []
-    },
-  })
-
-  const objectOptions = objectOptionsQuery.data ?? []
-  const selectedRecord = React.useMemo(
-    () => objectOptions.find((item) => item.id === selectedRecordId) ?? null,
-    [objectOptions, selectedRecordId],
-  )
+  const PickerComponent = resolveMessageObjectPickerComponent(selectedType?.module, selectedType?.entityType)
+  const hasDedicatedPicker = Boolean(PickerComponent)
 
   const sortedActions = React.useMemo(() => {
     if (!selectedType) return []
@@ -222,8 +173,22 @@ export function ObjectAttachmentPicker({
       return
     }
 
-    if (!selectedRecord) {
-      setRecordError(t('messages.composer.objectPicker.errors.recordRequired', 'Select a record.'))
+    const resolvedEntityModule = hasDedicatedPicker
+      ? selectedType.module
+      : (manualEntityModule.trim() || selectedType.module)
+    const resolvedEntityType = hasDedicatedPicker
+      ? selectedType.entityType
+      : (manualEntityType.trim() || selectedType.entityType)
+    const resolvedEntityId = hasDedicatedPicker
+      ? (selectedRecord?.id ?? '')
+      : manualEntityId.trim()
+
+    if (!resolvedEntityId) {
+      setRecordError(
+        hasDedicatedPicker
+          ? t('messages.composer.objectPicker.errors.recordRequired', 'Select a record.')
+          : t('messages.composer.objectPicker.errors.entityIdRequired', 'Provide an entity id.'),
+      )
       return
     }
 
@@ -241,9 +206,9 @@ export function ObjectAttachmentPicker({
     const duplicate = existingObjects.some((item) =>
       normalizeObjectKey(item) ===
       normalizeObjectKey({
-        entityModule: selectedType.module,
-        entityType: selectedType.entityType,
-        entityId: selectedRecord.id,
+        entityModule: resolvedEntityModule,
+        entityType: resolvedEntityType,
+        entityId: resolvedEntityId,
       }),
     )
 
@@ -259,9 +224,9 @@ export function ObjectAttachmentPicker({
     }
 
     onConfirm({
-      entityModule: selectedType.module,
-      entityType: selectedType.entityType,
-      entityId: selectedRecord.id,
+      entityModule: resolvedEntityModule,
+      entityType: resolvedEntityType,
+      entityId: resolvedEntityId,
       actionRequired,
       actionType: selectedAction?.id,
       actionLabel: selectedAction ? t(selectedAction.labelKey, selectedAction.id) : undefined,
@@ -272,6 +237,10 @@ export function ObjectAttachmentPicker({
     actionRequired,
     actionType,
     existingObjects,
+    hasDedicatedPicker,
+    manualEntityId,
+    manualEntityModule,
+    manualEntityType,
     maxObjects,
     messageType,
     onConfirm,
@@ -330,9 +299,14 @@ export function ObjectAttachmentPicker({
               id="messages-object-type-select"
               value={selectedTypeKey}
               onChange={(event) => {
+                const nextTypeKey = event.target.value
+                const nextType = objectTypes.find((item) => `${item.module}:${item.entityType}` === nextTypeKey) ?? null
                 setSelectedTypeKey(event.target.value)
-                setRecordSearch('')
-                setSelectedRecordId('')
+                setSelectedRecord(null)
+                setPickerQueryState(defaultQueryState)
+                setManualEntityModule(nextType?.module ?? '')
+                setManualEntityType(nextType?.entityType ?? '')
+                setManualEntityId('')
                 setActionType('')
                 setTypeError(null)
                 setRecordError(null)
@@ -356,24 +330,84 @@ export function ObjectAttachmentPicker({
           </div>
 
           {selectedType ? (
-            <MessageObjectRecordPicker
-              search={recordSearch}
-              onSearchChange={(value) => {
-                setRecordSearch(value)
-                setRecordError(null)
-                setGlobalError(null)
-              }}
-              selectedId={selectedRecordId}
-              onSelectedIdChange={(value) => {
-                setSelectedRecordId(value)
-                setRecordError(null)
-                setGlobalError(null)
-              }}
-              items={objectOptions}
-              isLoading={objectOptionsQuery.isLoading}
-              error={objectOptionsQuery.error instanceof Error ? objectOptionsQuery.error.message : null}
-              onRetry={() => void objectOptionsQuery.refetch()}
-            />
+            hasDedicatedPicker && PickerComponent ? (
+              <PickerComponent
+                messageType={messageType}
+                objectType={{
+                  module: selectedType.module,
+                  entityType: selectedType.entityType,
+                  labelKey: selectedType.labelKey,
+                  icon: selectedType.icon,
+                }}
+                selectedObjects={existingObjects.map((item) => ({
+                  entityModule: item.entityModule,
+                  entityType: item.entityType,
+                  entityId: item.entityId,
+                }))}
+                selectedRecord={selectedRecord}
+                onSelectRecord={(record) => {
+                  setSelectedRecord(record)
+                  setRecordError(null)
+                  setGlobalError(null)
+                }}
+                queryState={pickerQueryState}
+                onQueryStateChange={(next) => setPickerQueryState(next)}
+              />
+            ) : (
+              <div className="space-y-3 rounded-md border border-dashed p-3">
+                <p className="text-xs text-muted-foreground">
+                  {t(
+                    'messages.composer.objectPicker.manualFallbackHint',
+                    'No domain picker is registered for this object type. Provide entity reference manually.',
+                  )}
+                </p>
+                <div className="space-y-2">
+                  <Label htmlFor="messages-object-manual-module">
+                    {t('messages.composer.objectPicker.entityModuleLabel', 'Entity module')}
+                  </Label>
+                  <Input
+                    id="messages-object-manual-module"
+                    value={manualEntityModule}
+                    onChange={(event) => {
+                      setManualEntityModule(event.target.value)
+                      setRecordError(null)
+                      setGlobalError(null)
+                    }}
+                    placeholder={t('messages.composer.objectPicker.entityModulePlaceholder', 'e.g. staff')}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="messages-object-manual-type">
+                    {t('messages.composer.objectPicker.entityTypeLabel', 'Entity type')}
+                  </Label>
+                  <Input
+                    id="messages-object-manual-type"
+                    value={manualEntityType}
+                    onChange={(event) => {
+                      setManualEntityType(event.target.value)
+                      setRecordError(null)
+                      setGlobalError(null)
+                    }}
+                    placeholder={t('messages.composer.objectPicker.entityTypePlaceholder', 'e.g. leave_request')}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="messages-object-manual-id">
+                    {t('messages.composer.objectPicker.entityIdLabel', 'Entity id')}
+                  </Label>
+                  <Input
+                    id="messages-object-manual-id"
+                    value={manualEntityId}
+                    onChange={(event) => {
+                      setManualEntityId(event.target.value)
+                      setRecordError(null)
+                      setGlobalError(null)
+                    }}
+                    placeholder={t('messages.composer.objectPicker.entityIdPlaceholder', 'Enter entity id')}
+                  />
+                </div>
+              </div>
+            )
           ) : null}
 
           {recordError ? <p className="text-xs text-destructive">{recordError}</p> : null}
