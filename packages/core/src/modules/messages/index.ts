@@ -4,6 +4,7 @@ import './commands/attachments'
 import './commands/confirmations'
 import './commands/messages'
 import './commands/recipients'
+import './commands/tokens'
 
 export const metadata: ModuleInfo = {
   name: 'messages',
@@ -11,7 +12,7 @@ export const metadata: ModuleInfo = {
   version: '0.1.0',
   description: 'Internal messaging system with attachments, actions, and email forwarding.',
   author: 'Open Mercato Team',
-  license: 'Proprietary',
+  license: 'MIT',
 }
 
 export { features } from './acl'

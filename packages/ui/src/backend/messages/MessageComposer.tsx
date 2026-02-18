@@ -22,6 +22,7 @@ import {
   type MessageObjectInput,
   type MessageObjectTypeItem,
 } from './ObjectAttachmentPicker'
+import { MessageObjectsList } from '@open-mercato/core/modules/messages/components/MessageObjectsList'
 
 export type MessageTypeItem = {
   type: string
@@ -55,6 +56,7 @@ export type MessageComposerProps = {
     recipients?: string[]
     subject?: string
     body?: string
+    priority?: 'low' | 'normal' | 'high' | 'urgent'
     visibility?: 'public' | 'internal'
     sourceEntityType?: string | null
     sourceEntityId?: string | null
@@ -124,6 +126,7 @@ export function MessageComposer({
   const [messageType, setMessageType] = React.useState(lockedType ?? 'default')
   const [subject, setSubject] = React.useState('')
   const [body, setBody] = React.useState('')
+  const [priority, setPriority] = React.useState<'low' | 'normal' | 'high' | 'urgent'>('normal')
   const [visibility, setVisibility] = React.useState<'public' | 'internal'>('internal')
   const [externalEmail, setExternalEmail] = React.useState('')
   const [objects, setObjects] = React.useState<MessageObjectInput[]>([])
@@ -210,6 +213,7 @@ export function MessageComposer({
     setMessageType(lockedType ?? defaultValues?.type ?? 'default')
     setSubject(defaultValues?.subject ?? '')
     setBody(defaultValues?.body ?? '')
+    setPriority(defaultValues?.priority ?? 'normal')
     setVisibility(defaultValues?.visibility ?? 'internal')
     setExternalEmail(defaultValues?.externalEmail ?? '')
     setObjects(Array.isArray(defaultValues?.objects) ? defaultValues?.objects ?? [] : [])
@@ -450,6 +454,7 @@ export function MessageComposer({
         endpoint = '/api/messages'
         payload = {
           type: messageType,
+          priority,
           visibility,
           externalEmail: publicMessage ? externalEmail.trim() : undefined,
           externalName: undefined,
@@ -529,6 +534,7 @@ export function MessageComposer({
     objects,
     onOpenChange,
     onSuccess,
+    priority,
     recipientIds,
     replyAll,
     sendViaEmail,
@@ -668,14 +674,30 @@ export function MessageComposer({
       ) : null}
 
       {variant === 'compose' ? (
-        <div className="space-y-2">
-          <Label htmlFor="messages-compose-subject">{t('messages.subject', 'Subject')}</Label>
-          <Input
-            id="messages-compose-subject"
-            value={subject}
-            onChange={(event) => setSubject(event.target.value)}
-            placeholder={t('messages.placeholders.subject', 'Enter subject...')}
-          />
+        <div className="grid gap-3 sm:grid-cols-2">
+          <div className="space-y-2">
+            <Label htmlFor="messages-compose-subject">{t('messages.subject', 'Subject')}</Label>
+            <Input
+              id="messages-compose-subject"
+              value={subject}
+              onChange={(event) => setSubject(event.target.value)}
+              placeholder={t('messages.placeholders.subject', 'Enter subject...')}
+            />
+          </div>
+          <div className="space-y-2">
+            <Label htmlFor="messages-compose-priority">{t('messages.priority', 'Priority')}</Label>
+            <select
+              id="messages-compose-priority"
+              value={priority}
+              onChange={(event) => setPriority(event.target.value as 'low' | 'normal' | 'high' | 'urgent')}
+              className="h-9 w-full rounded-md border bg-background px-3 text-sm"
+            >
+              <option value="low">{t('messages.priority.low', 'Low')}</option>
+              <option value="normal">{t('messages.priority.normal', 'Normal')}</option>
+              <option value="high">{t('messages.priority.high', 'High')}</option>
+              <option value="urgent">{t('messages.priority.urgent', 'Urgent')}</option>
+            </select>
+          </div>
         </div>
       ) : null}
 
@@ -759,34 +781,32 @@ export function MessageComposer({
           ) : (
             <div className="space-y-2">
               {objects.map((item, index) => {
-                const key = `${item.entityModule}:${item.entityType}`
-                const objectType = objectTypeMap.get(key)
-                const label = objectType ? t(objectType.labelKey, key) : item.entityType
+                // Convert MessageObjectInput to MessageObject format for the preview system
+                const messageObject = {
+                  id: `temp-${index}`, // Temporary ID for composer context
+                  entityModule: item.entityModule,
+                  entityType: item.entityType,
+                  entityId: item.entityId,
+                  actionRequired: item.actionRequired,
+                  actionType: item.actionType || null,
+                  actionLabel: item.actionLabel || null,
+                  snapshot: null, // No snapshot available in composer
+                }
+
                 return (
-                  <div key={`${key}:${item.entityId}:${index}`} className="flex items-center gap-2 rounded border px-3 py-2 text-sm">
-                    <div className="min-w-0 flex-1">
-                      <p className="truncate font-medium">{label}</p>
-                      <p className="truncate text-xs text-muted-foreground" title={item.entityId}>
-                        {item.entityId}
-                      </p>
-                      {item.actionRequired ? (
-                        <p className="text-xs text-amber-700">
-                          {item.actionLabel
-                            ? t('messages.composer.objectAction', 'Action: {action}', { action: item.actionLabel })
-                            : t('messages.composer.objectActionRequired', 'Action required')}
-                        </p>
-                      ) : null}
-                    </div>
+                  <div key={`${item.entityModule}:${item.entityType}:${item.entityId}:${index}`} className="relative">
+                    <MessageObjectsList objects={[messageObject]} compact />
                     <Button
                       type="button"
                       size="icon"
                       variant="ghost"
+                      className="absolute top-2 right-2 h-6 w-6 opacity-60 hover:opacity-100"
                       onClick={() => {
                         setObjects((prev) => prev.filter((_, currentIndex) => currentIndex !== index))
                       }}
                       aria-label={t('messages.composer.removeObject', 'Remove attached object')}
                     >
-                      <X className="h-4 w-4" />
+                      <X className="h-3 w-3" />
                     </Button>
                   </div>
                 )

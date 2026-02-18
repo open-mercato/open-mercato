@@ -5,7 +5,6 @@ import {
   executeActionSchema,
   forwardMessageSchema,
   listMessagesSchema,
-  messageObjectOptionsQuerySchema,
   messageObjectTypesQuerySchema,
   messageActionDataSchema,
   messageActionSchema,
@@ -43,6 +42,7 @@ export const messageListItemSchema = z.object({
   objectCount: z.number(),
   hasAttachments: z.boolean(),
   attachmentCount: z.number(),
+  recipientCount: z.number(),
   hasActions: z.boolean(),
   actionTaken: z.string().nullable().optional(),
   sentAt: z.string().nullable().optional(),
@@ -225,20 +225,6 @@ export const messageObjectTypeListResponseSchema = z.object({
   items: z.array(messageObjectTypeResponseItemSchema),
 })
 
-export const messageObjectOptionResponseItemSchema = z.object({
-  id: z.string().uuid(),
-  label: z.string(),
-  subtitle: z.string().optional(),
-})
-
-export const messageObjectOptionListResponseSchema = z.object({
-  items: z.array(messageObjectOptionResponseItemSchema),
-  page: z.number(),
-  pageSize: z.number(),
-  total: z.number(),
-  totalPages: z.number(),
-})
-
 export {
   messageActionDataSchema,
   messageActionSchema,
@@ -251,7 +237,6 @@ export {
   updateDraftSchema,
   executeActionSchema,
   messageObjectTypesQuerySchema,
-  messageObjectOptionsQuerySchema,
   attachmentIdsPayloadSchema,
   unlinkAttachmentPayloadSchema,
 }

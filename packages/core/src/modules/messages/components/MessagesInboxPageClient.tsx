@@ -14,6 +14,7 @@ import { Button } from '@open-mercato/ui/primitives/button'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { resolveMessageListItemComponent } from './typeUiRegistry'
+import { DefaultMessageListItem } from './DefaultMessageListItem'
 
 type MessageFolder = 'inbox' | 'sent' | 'drafts' | 'archived' | 'all'
 
@@ -319,81 +320,41 @@ export function MessagesInboxPageClient() {
 
   const columns = React.useMemo<ColumnDef<MessageListItem>[]>(() => [
     {
-      accessorKey: 'subject',
-      header: t('messages.table.subject', 'Subject'),
-      meta: { truncate: true, maxWidth: '360px' },
+      accessorKey: 'message',
+      header: t('messages.title', 'Messages'),
+      meta: {
+        truncate: false,
+        maxWidth: '100%',
+      },
       cell: ({ row }) => {
         const item = row.original
         const ListItemComponent = resolveMessageListItemComponent(listItemComponentKeyByType[item.type])
-        if (ListItemComponent) {
-          return (
-            <ListItemComponent
-              message={{
-                id: item.id,
-                type: item.type,
-                subject: item.subject,
-                body: item.bodyPreview,
-                bodyFormat: 'text',
-                priority: (item.priority as 'low' | 'normal' | 'high' | 'urgent') ?? 'normal',
-                sentAt: item.sentAt ? new Date(item.sentAt) : null,
-                senderName: item.senderName || item.senderEmail || item.senderUserId,
-                hasObjects: item.hasObjects,
-                hasAttachments: item.hasAttachments,
-                hasActions: item.hasActions,
-                actionTaken: item.actionTaken ?? null,
-                unread: item.status === 'unread',
-              }}
-              onClick={() => router.push(`/backend/messages/${item.id}`)}
-            />
-          )
-        }
+        const ComponentToUse = ListItemComponent || DefaultMessageListItem
 
-        const senderLabel = item.senderName || item.senderEmail || item.senderUserId
         return (
-          <div className="min-w-0 space-y-0.5">
-            <p className="truncate text-sm font-medium">{item.subject}</p>
-            <p className="truncate text-xs text-muted-foreground">{item.bodyPreview}</p>
-            <p className="truncate text-xs text-muted-foreground">
-              {t('messages.table.from', 'From')}: {senderLabel}
-            </p>
-          </div>
+          <ComponentToUse
+            message={{
+              id: item.id,
+              type: item.type,
+              typeLabel: messageTypeLabelMap[item.type] ?? item.type,
+              subject: item.subject,
+              body: item.bodyPreview,
+              bodyFormat: 'text' as const,
+              priority: (item.priority as 'low' | 'normal' | 'high' | 'urgent') ?? 'normal',
+              sentAt: item.sentAt ? new Date(item.sentAt) : null,
+              senderName: item.senderName || item.senderEmail || item.senderUserId,
+              hasObjects: item.hasObjects,
+              hasAttachments: item.hasAttachments,
+              hasActions: item.hasActions,
+              actionTaken: item.actionTaken ?? null,
+              unread: item.status === 'unread',
+            }}
+            onClick={() => router.push(`/backend/messages/${item.id}`)}
+          />
         )
       },
     },
-    {
-      accessorKey: 'type',
-      header: t('messages.table.type', 'Type'),
-      cell: ({ row }) => messageTypeLabelMap[row.original.type] ?? row.original.type,
-    },
-    {
-      accessorKey: 'status',
-      header: t('messages.table.status', 'Status'),
-      cell: ({ row }) => statusToLabel(row.original.status, t),
-    },
-    {
-      accessorKey: 'meta',
-      header: t('messages.table.meta', 'Meta'),
-      cell: ({ row }) => {
-        const item = row.original
-        return (
-          <div className="text-xs text-muted-foreground">
-            {item.hasAttachments
-              ? t('messages.table.attachmentsCount', '{count} attachments', { count: item.attachmentCount })
-              : t('messages.table.noAttachments', 'No attachments')}
-            <br />
-            {item.hasObjects
-              ? t('messages.table.objectsCount', '{count} objects', { count: item.objectCount })
-              : t('messages.table.noObjects', 'No objects')}
-          </div>
-        )
-      },
-    },
-    {
-      accessorKey: 'sentAt',
-      header: t('messages.table.sentAt', 'Sent'),
-      cell: ({ row }) => formatDateTime(row.original.sentAt),
-    },
-  ], [listItemComponentKeyByType, messageTypeLabelMap, router, t])
+  ], [listItemComponentKeyByType, messageTypeLabelMap, router])
 
   const folderTabs: Array<{ id: MessageFolder; label: string }> = [
     { id: 'inbox', label: t('messages.folder.inbox', 'Inbox') },
@@ -462,18 +423,8 @@ export function MessagesInboxPageClient() {
         onRowClick={(row) => {
           router.push(`/backend/messages/${row.id}`)
         }}
-        rowActions={(row) => (
-          <RowActions
-            items={[
-              {
-                id: 'open',
-                label: t('messages.actions.open', 'Open'),
-                href: `/backend/messages/${row.id}`,
-              },
-            ]}
-          />
-        )}
         perspective={{ tableId: 'messages.inbox' }}
+        embedded
       />
     </div>
   )

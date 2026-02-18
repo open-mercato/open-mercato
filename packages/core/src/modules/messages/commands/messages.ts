@@ -3,6 +3,7 @@ import { z } from 'zod'
 import { registerCommand, type CommandHandler } from '@open-mercato/shared/lib/commands'
 import { extractUndoPayload, type UndoPayload } from '@open-mercato/shared/lib/commands/undo'
 import { Message, MessageObject, MessageRecipient, type MessageActionData } from '../data/entities'
+import { emitMessagesEvent } from '../events'
 import {
   composeMessageSchema,
   forwardMessageSchema,
@@ -20,6 +21,36 @@ import {
   type MessageAggregateSnapshot,
   type MessageScopeInput,
 } from './shared'
+
+type MessageSentEventPayload = {
+  messageId: string
+  senderUserId: string
+  recipientUserIds: string[]
+  sendViaEmail: boolean
+  externalEmail?: string | null
+  forwardedFrom?: string
+  replyTo?: string
+  tenantId: string
+  organizationId?: string | null
+}
+
+type ContainerWithResolve = {
+  resolve: (name: string) => unknown
+}
+
+async function emitMessageSentEvent(_container: ContainerWithResolve, payload: MessageSentEventPayload) {
+  await emitMessagesEvent('messages.sent', payload, { persistent: true })
+}
+
+async function emitMessageDeletedEvent(_container: ContainerWithResolve, payload: {
+  messageId: string
+  actorUserId: string
+  target: 'sender' | 'recipient'
+  tenantId: string
+  organizationId: string | null
+}) {
+  await emitMessagesEvent('messages.deleted', payload, { persistent: true })
+}
 
 const scopeSchema = z.object({
   tenantId: z.string().uuid(),
@@ -213,6 +244,18 @@ const composeMessageCommand: CommandHandler<unknown, { id: string; threadId: str
       responseThreadId = message.threadId ?? null
       responseExternalEmail = message.externalEmail ?? null
     })
+
+    if (!input.isDraft) {
+      await emitMessageSentEvent(ctx.container, {
+        messageId,
+        senderUserId: input.userId,
+        recipientUserIds: input.recipients.map((recipient) => recipient.userId),
+        sendViaEmail: input.visibility === 'public' ? true : input.sendViaEmail,
+        externalEmail: responseExternalEmail,
+        tenantId: input.tenantId,
+        organizationId: input.organizationId,
+      })
+    }
 
     return {
       id: messageId,
@@ -491,6 +534,17 @@ const replyMessageCommand: CommandHandler<unknown, { id: string; externalEmail: 
       responseExternalEmail = message.externalEmail ?? null
     })
 
+    await emitMessageSentEvent(ctx.container, {
+      messageId,
+      senderUserId: input.userId,
+      recipientUserIds: Array.from(recipientIds),
+      sendViaEmail: input.sendViaEmail,
+      externalEmail: responseExternalEmail,
+      replyTo: original.id,
+      tenantId: input.tenantId,
+      organizationId: input.organizationId,
+    })
+
     return {
       id: messageId,
       externalEmail: responseExternalEmail,
@@ -609,6 +663,17 @@ const forwardMessageCommand: CommandHandler<unknown, { id: string; externalEmail
       responseExternalEmail = newMessage.externalEmail ?? null
     })
 
+    await emitMessageSentEvent(ctx.container, {
+      messageId: newMessageId,
+      senderUserId: input.userId,
+      recipientUserIds: input.recipients.map((item) => item.userId),
+      sendViaEmail: input.sendViaEmail,
+      externalEmail: responseExternalEmail,
+      forwardedFrom: original.id,
+      tenantId: input.tenantId,
+      organizationId: input.organizationId,
+    })
+
     return {
       id: newMessageId,
       externalEmail: responseExternalEmail,
@@ -683,11 +748,25 @@ const deleteForActorCommand: CommandHandler<unknown, { ok: true }> = {
       recipient.status = 'deleted'
       recipient.deletedAt = new Date()
       await em.flush()
+      await emitMessageDeletedEvent(ctx.container, {
+        messageId: input.messageId,
+        actorUserId: input.userId,
+        target: 'recipient',
+        tenantId: input.tenantId,
+        organizationId: input.organizationId,
+      })
       return { ok: true }
     }
     if (message.senderUserId === input.userId) {
       message.deletedAt = new Date()
       await em.flush()
+      await emitMessageDeletedEvent(ctx.container, {
+        messageId: input.messageId,
+        actorUserId: input.userId,
+        target: 'sender',
+        tenantId: input.tenantId,
+        organizationId: input.organizationId,
+      })
       return { ok: true }
     }
     throw new Error('Access denied')
