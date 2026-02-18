@@ -2,7 +2,15 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import { z } from 'zod'
 import { registerCommand, type CommandHandler } from '@open-mercato/shared/lib/commands'
 import { extractUndoPayload, type UndoPayload } from '@open-mercato/shared/lib/commands/undo'
-import { Message, MessageRecipient } from '../data/entities'
+import { Message, MessageObject, MessageRecipient } from '../data/entities'
+import { emitMessagesEvent } from '../events'
+import {
+  findResolvedMessageActionById,
+  isTerminalMessageAction,
+  resolveActionCommandInput,
+  resolveActionHref,
+} from '../lib/actions'
+import { getMessageType } from '../lib/message-types-registry'
 import { assertOrganizationAccess, type MessageScopeInput } from './shared'
 
 const recordTerminalActionSchema = z.object({
@@ -15,6 +23,17 @@ const recordTerminalActionSchema = z.object({
 })
 
 type RecordTerminalActionInput = z.infer<typeof recordTerminalActionSchema>
+
+const executeActionSchema = z.object({
+  messageId: z.string().uuid(),
+  actionId: z.string().min(1),
+  payload: z.record(z.string(), z.unknown()).optional(),
+  tenantId: z.string().uuid(),
+  organizationId: z.string().uuid().nullable(),
+  userId: z.string().uuid(),
+})
+
+type ExecuteActionInput = z.infer<typeof executeActionSchema>
 
 type ActionStateSnapshot = {
   actionTaken: string | null
@@ -41,6 +60,23 @@ async function requireActionTarget(em: EntityManager, input: RecordTerminalActio
   if (!message) throw new Error('Message not found')
   assertOrganizationAccess(input as MessageScopeInput, message)
 
+  const recipient = await em.findOne(MessageRecipient, {
+    messageId: input.messageId,
+    recipientUserId: input.userId,
+    deletedAt: null,
+  })
+  if (!recipient) throw new Error('Access denied')
+  return message
+}
+
+async function requireActionMessage(em: EntityManager, input: ExecuteActionInput) {
+  const message = await em.findOne(Message, {
+    id: input.messageId,
+    tenantId: input.tenantId,
+    deletedAt: null,
+  })
+  if (!message) throw new Error('Message not found')
+  assertOrganizationAccess(input as MessageScopeInput, message)
   const recipient = await em.findOne(MessageRecipient, {
     messageId: input.messageId,
     recipientUserId: input.userId,
@@ -122,4 +158,150 @@ const recordTerminalActionCommand: CommandHandler<unknown, { ok: true }> = {
   },
 }
 
+const executeActionCommand: CommandHandler<
+  unknown,
+  { ok: true; actionId: string; result: Record<string, unknown>; operationLogEntry: unknown | null }
+> = {
+  id: 'messages.actions.execute',
+  async execute(rawInput, ctx) {
+    const input = executeActionSchema.parse(rawInput)
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
+    const message = await requireActionMessage(em, input)
+    const objects = await em.find(MessageObject, { messageId: message.id })
+    const action = findResolvedMessageActionById(message, objects, input.actionId)
+
+    if (!action) {
+      throw new Error('Action not found')
+    }
+
+    if (message.actionTaken) {
+      throw Object.assign(new Error('Action already taken'), { actionTaken: message.actionTaken })
+    }
+
+    const shouldRecordActionTaken = isTerminalMessageAction(action)
+
+    if (message.actionData?.expiresAt) {
+      if (new Date(message.actionData.expiresAt) < new Date()) {
+        throw new Error('Actions have expired')
+      }
+    } else {
+      const messageType = getMessageType(message.type)
+      if (messageType?.actionsExpireAfterHours && message.sentAt) {
+        const expiry = new Date(message.sentAt.getTime() + messageType.actionsExpireAfterHours * 60 * 60 * 1000)
+        if (expiry < new Date()) {
+          throw new Error('Actions have expired')
+        }
+      }
+    }
+
+    const commandBus = ctx.container.resolve('commandBus') as {
+      execute: (
+        commandId: string,
+        options: { input: unknown; ctx: unknown; metadata?: unknown }
+      ) => Promise<{ result: unknown; logEntry?: unknown }>
+    }
+
+    let result: Record<string, unknown> = {}
+    let operationLogEntry: unknown | null = null
+
+    if (action.commandId) {
+      try {
+        const actionInput = resolveActionCommandInput(
+          action,
+          message,
+          {
+            tenantId: input.tenantId,
+            organizationId: input.organizationId,
+            userId: input.userId,
+          },
+          input.payload ?? {},
+        )
+
+        if (actionInput.id == null) {
+          const fallbackId = action.objectRef?.entityId ?? message.sourceEntityId ?? null
+          if (typeof fallbackId === 'string' && fallbackId.trim().length > 0) {
+            actionInput.id = fallbackId
+          }
+        }
+
+        const commandResult = await commandBus.execute(action.commandId, {
+          input: actionInput,
+          ctx: {
+            container: ctx.container,
+            auth: {
+              sub: input.userId,
+              tenantId: input.tenantId,
+              orgId: input.organizationId,
+            },
+            organizationScope: null,
+            selectedOrganizationId: input.organizationId,
+            organizationIds: input.organizationId ? [input.organizationId] : null,
+          },
+          metadata: {
+            tenantId: input.tenantId,
+            organizationId: input.organizationId,
+            resourceKind: 'messages',
+          },
+        })
+
+        result = (commandResult.result as Record<string, unknown>) ?? {}
+        operationLogEntry = commandResult.logEntry ?? null
+      } catch (err) {
+        console.error('[messages] executeActionCommand sub-command failed', err)
+        throw new Error('Action failed')
+      }
+    } else if (action.href) {
+      result = {
+        redirect: resolveActionHref(action, message, {
+          tenantId: input.tenantId,
+          organizationId: input.organizationId,
+          userId: input.userId,
+        }) ?? action.href,
+      }
+    } else {
+      throw new Error('Action has no executable target')
+    }
+
+    if (shouldRecordActionTaken) {
+      await commandBus.execute('messages.actions.record_terminal', {
+        input: {
+          messageId: message.id,
+          actionId: action.id,
+          result,
+          tenantId: input.tenantId,
+          organizationId: input.organizationId,
+          userId: input.userId,
+        },
+        ctx: {
+          container: ctx.container,
+          auth: ctx.auth ?? null,
+          organizationScope: null,
+          selectedOrganizationId: input.organizationId,
+          organizationIds: input.organizationId ? [input.organizationId] : null,
+        },
+      })
+      await emitMessagesEvent(
+        'messages.action.taken',
+        {
+          messageId: message.id,
+          actionId: action.id,
+          userId: input.userId,
+          result,
+          tenantId: input.tenantId,
+          organizationId: input.organizationId,
+        },
+        { persistent: true }
+      )
+    }
+
+    return {
+      ok: true,
+      actionId: action.id,
+      result,
+      operationLogEntry,
+    }
+  },
+}
+
 registerCommand(recordTerminalActionCommand)
+registerCommand(executeActionCommand)

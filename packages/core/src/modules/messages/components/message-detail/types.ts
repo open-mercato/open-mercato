@@ -91,6 +91,7 @@ export type MessageDetail = {
     senderEmail?: string | null
     body: string
     sentAt?: string | null
+    objects?: MessageDetailObject[]
   }>
   isRead: boolean
 }

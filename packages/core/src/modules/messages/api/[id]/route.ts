@@ -6,13 +6,10 @@ import { User } from '../../../auth/data/entities'
 import { Message, MessageObject, MessageRecipient } from '../../data/entities'
 import { updateDraftSchema } from '../../data/validators'
 import { buildResolvedMessageActions } from '../../lib/actions'
-import { linkAttachmentsToMessage } from '../../lib/attachments'
-import { MESSAGE_ATTACHMENT_ENTITY_ID } from '../../lib/constants'
 import { getMessageObjectType } from '../../lib/message-objects-registry'
-import { getMessageTypeOrDefault, isMessageTypeCreateableByUser } from '../../lib/message-types-registry'
-import { validateMessageObjectsForType } from '../../lib/object-validation'
+import { getMessageTypeOrDefault } from '../../lib/message-types-registry'
 import { attachOperationMetadataHeader } from '../../lib/operationMetadata'
-import { resolveMessageContext } from '../../lib/routeHelpers'
+import { hasOrganizationAccess, resolveMessageContext } from '../../lib/routeHelpers'
 import {
   errorResponseSchema,
   messageDetailResponseSchema,
@@ -24,13 +21,6 @@ export const metadata = {
   GET: { requireAuth: true, requireFeatures: ['messages.view'] },
   PATCH: { requireAuth: true, requireFeatures: ['messages.compose'] },
   DELETE: { requireAuth: true, requireFeatures: ['messages.view'] },
-}
-
-function hasOrganizationAccess(scopeOrganizationId: string | null, messageOrganizationId: string | null | undefined): boolean {
-  if (scopeOrganizationId) {
-    return messageOrganizationId === scopeOrganizationId
-  }
-  return messageOrganizationId == null
 }
 
 type MessageObjectPreviewPayload = {
@@ -288,9 +278,6 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
       }
       if (error.message === 'Only draft messages can be edited') {
         return Response.json({ error: error.message }, { status: 409 })
-      }
-      if (error.message.includes('must') || error.message.includes('required')) {
-        return Response.json({ error: error.message }, { status: 400 })
       }
       if (error.message === 'Access denied') {
         return Response.json({ error: error.message }, { status: 403 })

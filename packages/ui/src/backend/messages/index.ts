@@ -7,7 +7,6 @@ export type { MessageAttachmentPickerItem } from './MessageAttachmentPicker'
 export { ObjectAttachmentPicker } from './ObjectAttachmentPicker'
 export type {
   MessageObjectInput,
-  MessageObjectOptionItem,
   MessageObjectTypeAction,
   MessageObjectTypeItem,
   ObjectAttachmentPickerProps,

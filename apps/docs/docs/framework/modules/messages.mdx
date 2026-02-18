@@ -17,11 +17,29 @@ The Messages module provides internal, tenant-scoped messaging with inbox/sent/d
 - **Actionable**: Message-level action buttons with command/link support
 - **Module-extensible**: Add message types and object types in module files and let generated bootstrap register them
 
+## End-user flow
+
+### 1) List of messages
+
+![ Messages list](/screenshots/open-mercato-messages-list.png)
+
+### 2) Compose messages
+
+![Composing a message](/screenshots/open-mercato-messages-compose.png)
+
+### 3) Attaching objects while composing a message
+
+![Attaching object to message](/screenshots/open-mercato-messages-compose-object-attachment.png)
+
+### 4) Message details
+
+![Attaching object to message](/screenshots/open-mercato-messages-details.png)
+
 ## Key Features
 
 - Inbox, sent, drafts, archived, and all folders with filters/pagination
 - Rich compose flow with recipients (`to`/`cc`/`bcc`), priority, and body format
-- Object attachments scoped by selected message type (`/api/messages/object-types` + `/api/messages/object-options`)
+- Object attachments scoped by selected message type (`/api/messages/object-types`) with optional module-specific pickers
 - File attachment picker integrated with the attachments module
 - Message actions with confirmation and execution state tracking
 - Built-in confirmation message type (`messages.confirmation`) with status endpoint
@@ -38,12 +56,19 @@ import { apiCallOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 await apiCallOrThrow('/api/messages', {
   method: 'POST',
   body: JSON.stringify({
-    type: 'default',
+    type: 'staff.leave_request_approval',
     recipients: [{ userId: 'recipient-user-uuid', type: 'to' }],
-    subject: 'Weekly status update',
-    body: 'Please review the attached update and confirm.',
+    subject: 'Leave request needs review',
+    body: 'Please review and approve or reject this leave request.',
     bodyFormat: 'text',
-    priority: 'normal',
+    priority: 'high',
+    objects: [
+      {
+        entityModule: 'staff',
+        entityType: 'leave_request',
+        entityId: 'leave-request-uuid',
+      },
+    ],
     sendViaEmail: false,
     isDraft: false,
   }),
@@ -174,7 +199,6 @@ All routes live under `packages/core/src/modules/messages/api/` and export `open
 | `/api/messages/unread-count` | `GET` | Inbox unread badge count |
 | `/api/messages/types` | `GET` | Registered message types |
 | `/api/messages/object-types` | `GET` | Allowed object types for selected message type |
-| `/api/messages/object-options` | `GET` | Picker options for specific object type |
 | `/api/messages/token/[token]` | `GET` | Resolve email token to message payload |
 
 ## UI Pages
@@ -225,21 +249,6 @@ export const messageTypes: MessageTypeDefinition[] = [
     allowForward: true,
     actionsExpireAfterHours: 168,
   },
-  {
-    type: 'staff.leave_request_status',
-    module: 'staff',
-    labelKey: 'staff.messages.leaveRequestStatus',
-    icon: 'calendar-check',
-    color: 'green',
-    isCreateableByUser: true,
-    ui: {
-      listItemComponent: 'messages.default.listItem',
-      contentComponent: 'messages.default.content',
-      actionsComponent: 'messages.default.actions',
-    },
-    allowReply: true,
-    allowForward: true,
-  },
 ]
 ```
 
@@ -259,6 +268,7 @@ Object type definitions are declared in each module's `message-objects.ts` and a
 import type { MessageObjectTypeDefinition } from '@open-mercato/shared/modules/messages/types'
 import { LeaveRequestDetail } from './components/LeaveRequestDetail'
 import { LeaveRequestPreview } from './components/LeaveRequestPreview'
+import { LeaveRequestObjectPicker } from './components/LeaveRequestObjectPicker'
 
 export const messageObjectTypes: MessageObjectTypeDefinition[] = [
   {
@@ -272,6 +282,7 @@ export const messageObjectTypes: MessageObjectTypeDefinition[] = [
     icon: 'calendar-clock',
     PreviewComponent: LeaveRequestPreview,
     DetailComponent: LeaveRequestDetail,
+    ObjectPickerComponent: LeaveRequestObjectPicker,
     actions: [
       {
         id: 'approve',
@@ -311,7 +322,7 @@ The compose UI then uses:
 
 1. `/api/messages/types`
 2. `/api/messages/object-types?messageType=<type>`
-3. `/api/messages/object-options?...`
+3. Module-provided `ObjectPickerComponent` (for rich, domain-specific selection) or the default picker fallback
 
 to keep object selection deterministic and scoped.
 

@@ -3,7 +3,8 @@ import type { CommandBus } from '@open-mercato/shared/lib/commands/command-bus'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi/types'
 import { Message, MessageRecipient } from '../../../data/entities'
 import { attachOperationMetadataHeader } from '../../../lib/operationMetadata'
-import { resolveMessageContext } from '../../../lib/routeHelpers'
+import { hasOrganizationAccess, resolveMessageContext } from '../../../lib/routeHelpers'
+import type { MessageScope } from '../../../lib/routeHelpers'
 import { errorResponseSchema, okResponseSchema } from '../../openapi'
 
 export const metadata = {
@@ -11,18 +12,13 @@ export const metadata = {
   DELETE: { requireAuth: true, requireFeatures: ['messages.view'] },
 }
 
-function hasOrganizationAccess(scopeOrganizationId: string | null, messageOrganizationId: string | null | undefined): boolean {
-  if (scopeOrganizationId) {
-    return messageOrganizationId === scopeOrganizationId
-  }
-  return messageOrganizationId == null
-}
+type ResolvedCtx = Awaited<ReturnType<typeof resolveMessageContext>>['ctx']
 
 async function resolveRecipientContext(
   req: Request,
-  id: string
+  id: string,
 ): Promise<
-  | { em: EntityManager; recipient: MessageRecipient }
+  | { ctx: ResolvedCtx; scope: MessageScope; em: EntityManager; recipient: MessageRecipient }
   | { response: Response }
 > {
   const { ctx, scope } = await resolveMessageContext(req)
@@ -52,13 +48,13 @@ async function resolveRecipientContext(
     return { response: Response.json({ error: 'Access denied' }, { status: 403 }) }
   }
 
-  return { em, recipient }
+  return { ctx, scope, em, recipient }
 }
 
 export async function PUT(req: Request, { params }: { params: { id: string } }) {
   const context = await resolveRecipientContext(req, params.id)
   if ('response' in context) return context.response
-  const { ctx, scope } = await resolveMessageContext(req)
+  const { ctx, scope } = context
   const commandBus = ctx.container.resolve('commandBus') as CommandBus
   const { logEntry } = await commandBus.execute('messages.recipients.archive', {
     input: {
@@ -88,7 +84,7 @@ export async function PUT(req: Request, { params }: { params: { id: string } }) 
 export async function DELETE(req: Request, { params }: { params: { id: string } }) {
   const context = await resolveRecipientContext(req, params.id)
   if ('response' in context) return context.response
-  const { ctx, scope } = await resolveMessageContext(req)
+  const { ctx, scope } = context
   const commandBus = ctx.container.resolve('commandBus') as CommandBus
   const { logEntry } = await commandBus.execute('messages.recipients.unarchive', {
     input: {

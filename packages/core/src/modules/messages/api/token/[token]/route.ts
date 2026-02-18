@@ -1,60 +1,57 @@
-import { getOrm } from '@open-mercato/shared/lib/db/mikro'
+import type { CommandBus } from '@open-mercato/shared/lib/commands/command-bus'
+import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi/types'
-import { Message, MessageAccessToken, MessageObject, MessageRecipient } from '../../../data/entities'
+import type { EntityManager } from '@mikro-orm/postgresql'
+import { Message, MessageObject } from '../../../data/entities'
 import { messageTokenResponseSchema } from '../../openapi'
-
-const MAX_TOKEN_USE_COUNT = 25
 
 export const metadata = {
   GET: { requireAuth: false },
 }
 
 export async function GET(_req: Request, { params }: { params: { token: string } }) {
-  const orm = await getOrm()
-  const em = orm.em.fork()
+  const container = await createRequestContainer()
+  const commandBus = container.resolve('commandBus') as CommandBus
+  const em = container.resolve('em') as EntityManager
 
-  const accessToken = await em.findOne(MessageAccessToken, { token: params.token })
-
-  if (!accessToken) {
-    return Response.json({ error: 'Invalid or expired link' }, { status: 404 })
-  }
-
-  if (accessToken.expiresAt < new Date()) {
-    return Response.json({ error: 'This link has expired' }, { status: 410 })
-  }
-
-  if (accessToken.useCount >= MAX_TOKEN_USE_COUNT) {
-    return Response.json({ error: 'This link can no longer be used' }, { status: 409 })
+  let commandResult: { messageId: string; recipientUserId: string }
+  try {
+    const executed = await commandBus.execute<unknown, { messageId: string; recipientUserId: string }>('messages.tokens.consume', {
+      input: { token: params.token },
+      ctx: {
+        container,
+        auth: null,
+        organizationScope: null,
+        selectedOrganizationId: null,
+        organizationIds: null,
+      },
+    })
+    commandResult = executed.result
+  } catch (error) {
+    if (error instanceof Error) {
+      if (error.message === 'Invalid or expired link') {
+        return Response.json({ error: 'Invalid or expired link' }, { status: 404 })
+      }
+      if (error.message === 'This link has expired') {
+        return Response.json({ error: 'This link has expired' }, { status: 410 })
+      }
+      if (error.message === 'This link can no longer be used') {
+        return Response.json({ error: 'This link can no longer be used' }, { status: 409 })
+      }
+      if (error.message === 'Message not found') {
+        return Response.json({ error: 'Message not found' }, { status: 404 })
+      }
+    }
+    throw error
   }
 
   const message = await em.findOne(Message, {
-    id: accessToken.messageId,
+    id: commandResult.messageId,
     deletedAt: null,
   })
-
   if (!message) {
     return Response.json({ error: 'Message not found' }, { status: 404 })
   }
-
-  const recipient = await em.findOne(MessageRecipient, {
-    messageId: accessToken.messageId,
-    recipientUserId: accessToken.recipientUserId,
-    deletedAt: null,
-  })
-
-  if (!recipient) {
-    return Response.json({ error: 'Invalid or expired link' }, { status: 404 })
-  }
-
-  accessToken.usedAt = new Date()
-  accessToken.useCount++
-
-  if (recipient.status === 'unread') {
-    recipient.status = 'read'
-    recipient.readAt = new Date()
-  }
-
-  await em.flush()
 
   const objects = await em.find(MessageObject, { messageId: message.id })
 
@@ -75,7 +72,7 @@ export async function GET(_req: Request, { params }: { params: { token: string }
       actionLabel: item.actionLabel,
     })),
     requiresAuth: objects.some((item) => item.actionRequired),
-    recipientUserId: accessToken.recipientUserId,
+    recipientUserId: commandResult.recipientUserId,
   })
 }
 

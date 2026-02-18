@@ -30,7 +30,11 @@ describe('messages command registration', () => {
     },
     {
       path: '../actions',
-      expected: ['messages.actions.record_terminal'],
+      expected: ['messages.actions.record_terminal', 'messages.actions.execute'],
+    },
+    {
+      path: '../tokens',
+      expected: ['messages.tokens.consume'],
     },
     {
       path: '../messages',

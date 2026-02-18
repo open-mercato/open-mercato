@@ -1,48 +1,47 @@
 import { GET } from '@open-mercato/core/modules/messages/api/token/[token]/route'
 import {
   Message,
-  MessageAccessToken,
   MessageObject,
-  MessageRecipient,
 } from '@open-mercato/core/modules/messages/data/entities'
 
-const getOrmMock = jest.fn()
+const createRequestContainerMock = jest.fn()
 
-jest.mock('@open-mercato/shared/lib/db/mikro', () => ({
-  getOrm: (...args: unknown[]) => getOrmMock(...args),
+jest.mock('@open-mercato/shared/lib/di/container', () => ({
+  createRequestContainer: (...args: unknown[]) => createRequestContainerMock(...args),
 }))
 
 describe('messages /api/messages/token/[token]', () => {
-  const now = new Date('2026-02-15T12:00:00.000Z')
-
   beforeEach(() => {
     jest.clearAllMocks()
-    jest.useFakeTimers()
-    jest.setSystemTime(now)
   })
 
-  afterEach(() => {
-    jest.useRealTimers()
-  })
-
-  function setupFindOne(findOneImpl: (entity: unknown, where: Record<string, unknown>) => Promise<unknown>) {
+  function setupContainer(findOneImpl: (entity: unknown, where: Record<string, unknown>) => Promise<unknown>) {
     const em = {
       findOne: jest.fn(findOneImpl),
       find: jest.fn(async () => []),
-      flush: jest.fn(async () => {}),
     }
-
-    getOrmMock.mockResolvedValue({
-      em: {
-        fork: () => em,
+    const commandBus = {
+      execute: jest.fn(async () => ({
+        result: {
+          messageId: 'message-1',
+          recipientUserId: 'user-1',
+        },
+      })),
+    }
+    createRequestContainerMock.mockResolvedValue({
+      resolve: (name: string) => {
+        if (name === 'commandBus') return commandBus
+        if (name === 'em') return em
+        return null
       },
     })
 
-    return em
+    return { em, commandBus }
   }
 
   it('returns 404 when access token is not found', async () => {
-    setupFindOne(async () => null)
+    const { commandBus } = setupContainer(async () => null)
+    commandBus.execute.mockRejectedValueOnce(new Error('Invalid or expired link'))
 
     const response = await GET(new Request('http://localhost'), { params: { token: 'missing' } })
 
@@ -51,18 +50,8 @@ describe('messages /api/messages/token/[token]', () => {
   })
 
   it('returns 410 when token is expired', async () => {
-    setupFindOne(async (entity) => {
-      if (entity === MessageAccessToken) {
-        return {
-          token: 'abc',
-          messageId: 'message-1',
-          recipientUserId: 'user-1',
-          expiresAt: new Date('2026-02-14T12:00:00.000Z'),
-          useCount: 0,
-        }
-      }
-      return null
-    })
+    const { commandBus } = setupContainer(async () => null)
+    commandBus.execute.mockRejectedValueOnce(new Error('This link has expired'))
 
     const response = await GET(new Request('http://localhost'), { params: { token: 'expired' } })
 
@@ -71,18 +60,8 @@ describe('messages /api/messages/token/[token]', () => {
   })
 
   it('returns 409 when token usage exceeds max count', async () => {
-    setupFindOne(async (entity) => {
-      if (entity === MessageAccessToken) {
-        return {
-          token: 'abc',
-          messageId: 'message-1',
-          recipientUserId: 'user-1',
-          expiresAt: new Date('2026-02-16T12:00:00.000Z'),
-          useCount: 25,
-        }
-      }
-      return null
-    })
+    const { commandBus } = setupContainer(async () => null)
+    commandBus.execute.mockRejectedValueOnce(new Error('This link can no longer be used'))
 
     const response = await GET(new Request('http://localhost'), { params: { token: 'limit' } })
 
@@ -90,24 +69,7 @@ describe('messages /api/messages/token/[token]', () => {
     await expect(response.json()).resolves.toEqual({ error: 'This link can no longer be used' })
   })
 
-  it('returns message payload and marks token/recipient as used/read', async () => {
-    const accessToken = {
-      token: 'abc',
-      messageId: 'message-1',
-      recipientUserId: 'user-1',
-      expiresAt: new Date('2026-02-16T12:00:00.000Z'),
-      useCount: 0,
-      usedAt: null,
-    }
-
-    const recipient = {
-      messageId: 'message-1',
-      recipientUserId: 'user-1',
-      deletedAt: null,
-      status: 'unread',
-      readAt: null,
-    }
-
+  it('returns message payload after successful token consume command', async () => {
     const message = {
       id: 'message-1',
       subject: 'Subject',
@@ -118,10 +80,8 @@ describe('messages /api/messages/token/[token]', () => {
       deletedAt: null,
     }
 
-    const em = setupFindOne(async (entity, where) => {
-      if (entity === MessageAccessToken) return accessToken
+    const { em, commandBus } = setupContainer(async (entity, where) => {
       if (entity === Message && where.id === 'message-1') return message
-      if (entity === MessageRecipient) return recipient
       return null
     })
 
@@ -150,11 +110,6 @@ describe('messages /api/messages/token/[token]', () => {
         recipientUserId: 'user-1',
       }),
     )
-
-    expect(accessToken.useCount).toBe(1)
-    expect(accessToken.usedAt).toBeInstanceOf(Date)
-    expect(recipient.status).toBe('read')
-    expect(recipient.readAt).toBeInstanceOf(Date)
-    expect(em.flush).toHaveBeenCalledTimes(1)
+    expect(commandBus.execute).toHaveBeenCalledWith('messages.tokens.consume', expect.any(Object))
   })
 })

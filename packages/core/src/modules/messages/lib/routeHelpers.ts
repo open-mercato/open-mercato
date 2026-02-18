@@ -1,6 +1,16 @@
 import { resolveRequestContext } from '@open-mercato/shared/lib/api/context'
 import { hasFeature } from '@open-mercato/shared/security/features'
 
+export function hasOrganizationAccess(
+  scopeOrganizationId: string | null,
+  messageOrganizationId: string | null | undefined,
+): boolean {
+  if (scopeOrganizationId) {
+    return messageOrganizationId === scopeOrganizationId
+  }
+  return messageOrganizationId == null
+}
+
 export type MessageScope = {
   tenantId: string
   organizationId: string | null
