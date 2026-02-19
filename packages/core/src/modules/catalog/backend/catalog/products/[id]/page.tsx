@@ -259,8 +259,18 @@ function toTrimmedOrNull(value: unknown): string | null {
   return trimmed.length ? trimmed : null;
 }
 
+function parseNumericInput(value: unknown): number {
+  if (typeof value === "number") return value;
+  if (typeof value === "string") {
+    const normalized = value.trim().replace(/\s+/g, "").replace(",", ".");
+    if (!normalized.length) return Number.NaN;
+    return Number(normalized);
+  }
+  return Number(value);
+}
+
 function toPositiveNumberOrNull(value: unknown): number | null {
-  const numeric = typeof value === "number" ? value : Number(value);
+  const numeric = parseNumericInput(value);
   if (!Number.isFinite(numeric) || numeric <= 0) return null;
   return numeric;
 }
@@ -271,10 +281,19 @@ function toIntegerInRangeOrDefault(
   max: number,
   fallback: number,
 ): number {
-  const numeric = typeof value === "number" ? value : Number(value);
+  const numeric = parseNumericInput(value);
   if (!Number.isInteger(numeric) || numeric < min || numeric > max)
     return fallback;
   return numeric;
+}
+
+function normalizeExistingTaxRateId(
+  value: unknown,
+  allowedIds: ReadonlySet<string>,
+): string | null {
+  const id = toTrimmedOrNull(value);
+  if (!id) return null;
+  return allowedIds.has(id) ? id : null;
 }
 
 function normalizeProductConversionInputs(
@@ -1007,7 +1026,12 @@ export default function EditCatalogProductPage({
           ? match.rate
           : null;
       };
-      const productTaxRateValue = resolveTaxRateValue(values.taxRateId ?? null);
+      const availableTaxRateIds = new Set(taxRates.map((rate) => rate.id));
+      const productTaxRateId = normalizeExistingTaxRateId(
+        values.taxRateId,
+        availableTaxRateIds,
+      );
+      const productTaxRateValue = resolveTaxRateValue(productTaxRateId);
       const defaultMediaId =
         typeof values.defaultMediaId === "string" &&
         values.defaultMediaId.trim().length
@@ -1117,7 +1141,7 @@ export default function EditCatalogProductPage({
         subtitle: values.subtitle?.trim() || undefined,
         description,
         handle,
-        taxRateId: values.taxRateId ?? null,
+        taxRateId: productTaxRateId,
         taxRate: productTaxRateValue ?? null,
         isConfigurable: Boolean(values.hasVariants),
         metadata,

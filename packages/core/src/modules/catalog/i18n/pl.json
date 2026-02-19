@@ -499,7 +499,7 @@
   "catalog.widgets.productSeo.groupDescription": "Zoptymalizuj tytuły i opisy produktów przed publikacją.",
   "catalog.widgets.productSeo.groupLabel": "Pomocnik SEO",
   "catalog.products.uom.title": "Jednostki miary",
-  "catalog.products.uom.description": "Ustaw jednostkę bazową i sprzedażową, zasady zaokrągleń oraz konwersje opakowań.",
+  "catalog.products.uom.description": "Ustaw jednostkę bazową i sprzedażową oraz konwersje opakowań.",
   "catalog.products.uom.selectUnit": "Wybierz jednostkę",
   "catalog.products.uom.defaultSalesUnit": "Domyślna jednostka sprzedaży",
   "catalog.products.uom.defaultSalesQuantity": "Domyślna ilość sprzedaży",

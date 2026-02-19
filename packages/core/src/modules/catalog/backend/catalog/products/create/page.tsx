@@ -173,8 +173,18 @@ function toTrimmedOrNull(value: unknown): string | null {
   return trimmed.length ? trimmed : null;
 }
 
+function parseNumericInput(value: unknown): number {
+  if (typeof value === "number") return value;
+  if (typeof value === "string") {
+    const normalized = value.trim().replace(/\s+/g, "").replace(",", ".");
+    if (!normalized.length) return Number.NaN;
+    return Number(normalized);
+  }
+  return Number(value);
+}
+
 function toPositiveNumberOrNull(value: unknown): number | null {
-  const numeric = typeof value === "number" ? value : Number(value);
+  const numeric = parseNumericInput(value);
   if (!Number.isFinite(numeric) || numeric <= 0) return null;
   return numeric;
 }
@@ -185,10 +195,19 @@ function toIntegerInRangeOrDefault(
   max: number,
   fallback: number,
 ): number {
-  const numeric = typeof value === "number" ? value : Number(value);
+  const numeric = parseNumericInput(value);
   if (!Number.isInteger(numeric) || numeric < min || numeric > max)
     return fallback;
   return numeric;
+}
+
+function normalizeExistingTaxRateId(
+  value: unknown,
+  allowedIds: ReadonlySet<string>,
+): string | null {
+  const id = toTrimmedOrNull(value);
+  if (!id) return null;
+  return allowedIds.has(id) ? id : null;
 }
 
 function normalizeProductConversionInputs(
@@ -442,11 +461,19 @@ export default function CreateCatalogProductPage() {
               const match = taxRates.find((rate) => rate.id === taxRateId);
               return typeof match?.rate === "number" ? match.rate : null;
             };
-            const productLevelTaxRateId = formValues.taxRateId ?? null;
+            const availableTaxRateIds = new Set(taxRates.map((rate) => rate.id));
+            const productLevelTaxRateId = normalizeExistingTaxRateId(
+              formValues.taxRateId,
+              availableTaxRateIds,
+            );
             const productTaxRate = resolveTaxRateValue(productLevelTaxRateId);
             const resolveVariantTax = (variant: VariantDraft) => {
+              const variantTaxRateId = normalizeExistingTaxRateId(
+                variant.taxRateId,
+                availableTaxRateIds,
+              );
               const resolvedVariantTaxRateId =
-                variant.taxRateId ?? productLevelTaxRateId;
+                variantTaxRateId ?? productLevelTaxRateId;
               const resolvedVariantTaxRate =
                 resolveTaxRateValue(resolvedVariantTaxRateId) ??
                 (resolvedVariantTaxRateId ? null : (productTaxRate ?? null));
@@ -550,7 +577,7 @@ export default function CreateCatalogProductPage() {
               subtitle: formValues.subtitle?.trim() || undefined,
               description,
               handle,
-              taxRateId: formValues.taxRateId ?? null,
+              taxRateId: productLevelTaxRateId,
               taxRate: productTaxRate ?? null,
               isConfigurable: Boolean(formValues.hasVariants),
               defaultMediaId: defaultMediaId ?? undefined,
@@ -1423,6 +1450,7 @@ function ProductBuilder({
           values={values as ProductFormValues}
           setValue={setValue}
           errors={errors}
+          embedded
         />
       ) : null}
 

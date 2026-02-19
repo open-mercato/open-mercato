@@ -33,6 +33,7 @@ type ProductUomSectionProps = {
   values: ProductFormValues;
   errors: Record<string, string>;
   setValue: (id: string, value: unknown) => void;
+  embedded?: boolean;
 };
 
 function normalizeText(value: unknown): string | null {
@@ -79,6 +80,7 @@ export function ProductUomSection({
   values,
   errors,
   setValue,
+  embedded = false,
 }: ProductUomSectionProps) {
   const t = useT();
   const [unitOptions, setUnitOptions] = React.useState<UnitOption[]>([]);
@@ -182,7 +184,11 @@ export function ProductUomSection({
     .join(" • ");
 
   return (
-    <div className="space-y-5 rounded-lg border p-4">
+    <div
+      className={
+        embedded ? "space-y-5" : "space-y-5 rounded-lg border bg-card p-4"
+      }
+    >
       <div className="space-y-1">
         <h3 className="text-sm font-semibold">
           {t("catalog.products.uom.title", "Units of measure")}

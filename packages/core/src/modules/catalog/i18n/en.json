@@ -499,7 +499,7 @@
   "catalog.widgets.productSeo.groupDescription": "Optimize product titles and descriptions before publishing.",
   "catalog.widgets.productSeo.groupLabel": "Product SEO Helper",
   "catalog.products.uom.title": "Units of measure",
-  "catalog.products.uom.description": "Set base/sales units, rounding policy, and packaging conversions.",
+  "catalog.products.uom.description": "Set base/sales units and packaging conversions.",
   "catalog.products.uom.selectUnit": "Select unit",
   "catalog.products.uom.defaultSalesUnit": "Default sales unit",
   "catalog.products.uom.defaultSalesQuantity": "Default sales quantity",
