@@ -21,7 +21,7 @@ function formatPrice(amount: string | null, currencyCode: string, locale?: strin
 
 export default function CheckoutPage() {
   const router = useRouter()
-  const { cart, cartToken } = useCart()
+  const { cart, cartToken, clearCart } = useCart()
 
   const [name, setName] = React.useState('')
   const [email, setEmail] = React.useState('')
@@ -44,6 +44,7 @@ export default function CheckoutPage() {
         phone: phone.trim() || undefined,
         address: address.trim() || undefined,
       })
+      clearCart()
       router.push(`/order-confirmation?orderId=${result.orderId}`)
     } catch {
       setError('Failed to place order. Please try again.')

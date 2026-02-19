@@ -37,12 +37,12 @@ function buildUrl(path: string, params?: Record<string, string | number | boolea
 async function storefrontFetch<T>(
   path: string,
   params?: Record<string, string | number | boolean | undefined>,
+  relative = false,
 ): Promise<T> {
-  const url = buildUrl(path, params)
-  const res = await fetch(url, {
-    headers: { Accept: 'application/json' },
-    next: { revalidate: 60 },
-  })
+  const url = buildUrl(path, params, relative)
+  const fetchOptions: RequestInit = { headers: { Accept: 'application/json' } }
+  if (!relative) Object.assign(fetchOptions, { next: { revalidate: 60 } })
+  const res = await fetch(url, fetchOptions)
   if (!res.ok) {
     const text = await res.text().catch(() => `HTTP ${res.status}`)
     throw new StorefrontApiError(res.status, text)
@@ -106,7 +106,7 @@ async function storefrontDelete<T>(path: string, cartToken?: string | null): Pro
 export async function getCart(cartToken: string | null): Promise<CartDto | null> {
   if (!cartToken) return null
   try {
-    const data = await storefrontFetch<{ cart: CartDto | null }>('/cart', { cartToken })
+    const data = await storefrontFetch<{ cart: CartDto | null }>('/cart', { cartToken }, true)
     return data.cart
   } catch {
     return null

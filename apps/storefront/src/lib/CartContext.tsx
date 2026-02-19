@@ -21,6 +21,7 @@ type CartContextValue = {
   addLine: (productId: string, variantId: string | null, quantity: number) => Promise<void>
   updateLine: (lineId: string, quantity: number) => Promise<void>
   removeLine: (lineId: string) => Promise<void>
+  clearCart: () => void
   openCart: () => void
   closeCart: () => void
 }
@@ -34,6 +35,7 @@ const CartContext = React.createContext<CartContextValue>({
   addLine: async () => {},
   updateLine: async () => {},
   removeLine: async () => {},
+  clearCart: () => {},
   openCart: () => {},
   closeCart: () => {},
 })
@@ -49,10 +51,22 @@ export function CartProvider({ children }: { children: React.ReactNode }) {
     if (token) {
       setCartToken(token)
       getCart(token).then((c) => {
-        if (c) setCart(c)
+        if (c && c.status === 'active') {
+          setCart(c)
+        } else {
+          localStorage.removeItem(CART_TOKEN_KEY)
+          setCartToken(null)
+        }
       })
     }
   }, [])
+
+  function clearCart() {
+    localStorage.removeItem(CART_TOKEN_KEY)
+    setCartToken(null)
+    setCart(null)
+    setIsOpen(false)
+  }
 
   async function ensureToken(): Promise<string> {
     if (cartToken) return cartToken
@@ -110,6 +124,7 @@ export function CartProvider({ children }: { children: React.ReactNode }) {
         addLine,
         updateLine,
         removeLine,
+        clearCart,
         openCart: () => setIsOpen(true),
         closeCart: () => setIsOpen(false),
       }}
