@@ -51,6 +51,15 @@ async function ensureEnvLoaded() {
   } catch {}
 }
 
+function getSslConfig() {
+  const clientUrl = process.env.DATABASE_URL || ''
+  const requireSsl = clientUrl.includes('sslmode=require') ||
+                     clientUrl.includes('ssl=true') ||
+                     process.env.DB_SSL === 'true'
+  if (!requireSsl) return undefined
+  return { rejectUnauthorized: process.env.DB_SSL_REJECT_UNAUTHORIZED !== 'false' }
+}
+
 // Helper to run a CLI command directly (without spawning a process)
 async function runModuleCommand(
   allModules: Module[],
@@ -183,7 +192,7 @@ export async function run(argv = process.argv) {
           console.error('DATABASE_URL is not set. Aborting reinstall.')
           return 1
         }
-        const client = new Client({ connectionString: dbUrl })
+        const client = new Client({ connectionString: dbUrl, ssl: getSslConfig() })
         try {
           await client.connect()
           // Collect all user tables in public schema
@@ -239,7 +248,7 @@ export async function run(argv = process.argv) {
         }
 
         const { Client } = await import('pg')
-        const client = new Client({ connectionString: dbUrl })
+        const client = new Client({ connectionString: dbUrl, ssl: getSslConfig() })
         try {
           await client.connect()
           const tableCheck = await client.query<{ regclass: string | null }>(
@@ -361,7 +370,7 @@ export async function run(argv = process.argv) {
       // Query DB to get tenant/org IDs using pg directly
       const { Client } = await import('pg')
       const dbUrl = process.env.DATABASE_URL
-      const pgClient = new Client({ connectionString: dbUrl })
+      const pgClient = new Client({ connectionString: dbUrl, ssl: getSslConfig() })
       await pgClient.connect()
       const orgResult = await pgClient.query(
         `SELECT o.id as org_id, o.tenant_id FROM organizations o

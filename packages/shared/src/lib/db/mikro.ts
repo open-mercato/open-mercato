@@ -51,7 +51,15 @@ export async function getOrm() {
     idleSessionTimeoutMs && idleSessionTimeoutMs > 0
       ? `-c idle_session_timeout=${idleSessionTimeoutMs}`
       : undefined
-  
+
+  const requireSsl = clientUrl.includes('sslmode=require') ||
+                     clientUrl.includes('ssl=true') ||
+                     process.env.DB_SSL === 'true'
+
+  const sslConfig = requireSsl ? {
+    rejectUnauthorized: process.env.DB_SSL_REJECT_UNAUTHORIZED !== 'false',
+  } : undefined
+
   ormInstance = await MikroORM.init<PostgreSqlDriver>({
     driver: PostgreSqlDriver,
     clientUrl,
@@ -80,6 +88,7 @@ export async function getOrm() {
         acquireTimeoutMillis: poolAcquireTimeout,
         idle_in_transaction_session_timeout: idleInTransactionTimeoutMs,
         options: connectionOptions,
+        ssl: sslConfig,
       },
     },
   })
