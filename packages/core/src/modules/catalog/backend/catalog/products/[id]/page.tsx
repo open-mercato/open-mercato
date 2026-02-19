@@ -824,6 +824,17 @@ export default function EditCatalogProductPage({
         ),
       },
       {
+        id: "product-uom",
+        column: 1,
+        component: ({ values, setValue, errors }) => (
+          <ProductUomSection
+            values={values as ProductFormValues}
+            setValue={setValue}
+            errors={errors}
+          />
+        ),
+      },
+      {
         id: "variants",
         column: 1,
         component: ({ values, setValue, errors }) => (
@@ -853,17 +864,6 @@ export default function EditCatalogProductPage({
             setValue={setValue}
             errors={errors}
             taxRates={taxRates}
-          />
-        ),
-      },
-      {
-        id: "product-uom",
-        column: 2,
-        component: ({ values, setValue, errors }) => (
-          <ProductUomSection
-            values={values as ProductFormValues}
-            setValue={setValue}
-            errors={errors}
           />
         ),
       },
