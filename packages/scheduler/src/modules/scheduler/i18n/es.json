@@ -45,7 +45,7 @@
   "scheduler.error.trigger_failed": "Error al ejecutar la programación",
   "scheduler.error.unauthorized": "No autorizado",
   "scheduler.error.update_failed": "Error al actualizar la programación",
-  "scheduler.errors.id_required": "Schedule identifier is required.",
+  "scheduler.errors.id_required": "El identificador de programación es obligatorio.",
   "scheduler.execution.actions": "Acciones",
   "scheduler.execution.completed_message": "Esta ejecución se completó con éxito sin errores.",
   "scheduler.execution.details_title": "Detalles de ejecución",
