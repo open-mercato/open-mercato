@@ -149,6 +149,8 @@ const defaultForm = (currencyCode?: string | null): LineFormState => ({
   statusEntryId: null,
 });
 
+const UNIT_PRICE_INPUT_SCALE = 4;
+
 function buildPriceScopeReason(
   item: Record<string, unknown>,
   t: (k: string, f: string) => string,
@@ -199,6 +201,14 @@ function normalizeUnitCode(value: unknown): string | null {
 function normalizeQuantityPreview(value: number): number {
   if (!Number.isFinite(value)) return 0;
   return Math.round(value * 1_000_000) / 1_000_000;
+}
+
+function normalizeUnitPriceInputValue(value: number): string {
+  if (!Number.isFinite(value)) return "";
+  const factor = 10 ** UNIT_PRICE_INPUT_SCALE;
+  const rounded = Math.round((value + Number.EPSILON) * factor) / factor;
+  if (!Number.isFinite(rounded)) return "";
+  return rounded.toString();
 }
 
 export function LineItemDialog({
@@ -910,7 +920,7 @@ export function LineItemDialog({
       const baseAmount = amount / fromFactor;
       const convertedAmount = baseAmount * toFactor;
       if (!Number.isFinite(convertedAmount) || convertedAmount <= 0) return null;
-      return convertedAmount.toString();
+      return normalizeUnitPriceInputValue(convertedAmount);
     },
     [resolveUnitPriceFactor],
   );
@@ -938,7 +948,7 @@ export function LineItemDialog({
           : amountPerBaseUnit;
         setFormValue("priceId", selected.id);
         setFormValue("priceMode", mode);
-        setFormValue("unitPrice", amount.toString());
+        setFormValue("unitPrice", normalizeUnitPriceInputValue(amount));
         setFormValue("taxRate", selected.taxRate ?? null);
         setFormValue("taxRateId", findTaxRateIdByValue(selected.taxRate));
         setFormValue(
