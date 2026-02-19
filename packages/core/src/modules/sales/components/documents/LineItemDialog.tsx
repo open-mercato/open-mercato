@@ -777,8 +777,6 @@ export function LineItemDialog({
 
   const handleFormSubmit = React.useCallback(
     async (values: LineFormState & Record<string, unknown>) => {
-      console.groupCollapsed('sales.line.submit.start')
-      console.log('raw values', values)
       // Resolve required scope and ids
       const resolvedDocumentId = typeof documentId === 'string' && documentId.trim().length ? documentId : null
       const resolvedOrg = resolvedOrganizationId
@@ -805,8 +803,7 @@ export function LineItemDialog({
         )
       }
 
-      const qtyNumber = Number(values.quantity ?? values.quantity ?? 0)
-      console.log('quantity raw -> parsed', { raw: values.quantity, parsed: qtyNumber })
+      const qtyNumber = Number(values.quantity ?? 0)
       if (!Number.isFinite(qtyNumber) || qtyNumber <= 0) {
         throw createCrudFormError(
           t('sales.documents.items.errorQuantity', 'Quantity must be greater than 0.'),
@@ -819,8 +816,7 @@ export function LineItemDialog({
         return entered ?? normalizeUnitCode(productOption?.defaultSalesUnit) ?? normalizeUnitCode(productOption?.defaultUnit)
       })()
 
-      const unitPriceNumber = Number(values.unitPrice ?? values.unitPrice ?? 0)
-      console.log('unit price raw -> parsed', { raw: values.unitPrice, parsed: unitPriceNumber })
+      const unitPriceNumber = Number(values.unitPrice ?? 0)
       if (!Number.isFinite(unitPriceNumber) || unitPriceNumber <= 0) {
         throw createCrudFormError(
           t('sales.documents.items.errorUnitPrice', 'Unit price must be greater than 0.'),
@@ -929,12 +925,6 @@ export function LineItemDialog({
       }
       if (resolvedName) payload.name = resolvedName
 
-      console.debug('resolved scope', { resolvedDocumentId, resolvedOrg, resolvedTenant, resolvedCurrency })
-      console.debug('parsed numbers', { qtyNumber, unitPriceNumber })
-      console.log('sales.line.submit.payload', payload)
-      console.log('sales.line.submit.payload.json', JSON.stringify(payload))
-      console.groupEnd()
-
       try {
         const action = editingId ? updateCrud : createCrud
         const result = await action(
@@ -949,7 +939,6 @@ export function LineItemDialog({
           closeDialog()
         }
       } catch (err) {
-        console.error('sales.line.submit.error', err)
         throw err
       }
     },
