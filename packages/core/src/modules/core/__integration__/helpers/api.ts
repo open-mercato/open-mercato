@@ -1,26 +1,8 @@
-import fs from 'node:fs';
-import path from 'node:path';
 import { type APIRequestContext } from '@playwright/test';
 import { DEFAULT_CREDENTIALS, type Role } from './auth';
 
-function resolveEphemeralBaseUrl(): string | null {
-  try {
-    const filePath = path.resolve(process.cwd(), '.ai/qa/ephemeral-env.json');
-    if (!fs.existsSync(filePath)) return null;
-    const raw = fs.readFileSync(filePath, 'utf8');
-    const parsed = JSON.parse(raw) as { status?: string; baseUrl?: unknown };
-    if (parsed.status !== 'running') return null;
-    return typeof parsed.baseUrl === 'string' && parsed.baseUrl.trim().length
-      ? parsed.baseUrl.trim()
-      : null;
-  } catch {
-    return null;
-  }
-}
-
 const BASE_URL =
   process.env.BASE_URL?.trim() ||
-  resolveEphemeralBaseUrl() ||
   'http://localhost:3000';
 
 export async function getAuthToken(
