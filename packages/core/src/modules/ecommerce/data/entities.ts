@@ -134,3 +134,105 @@ export class EcommerceStoreChannelBinding {
   @Property({ name: 'deleted_at', type: Date, nullable: true })
   deletedAt?: Date | null
 }
+
+export type EcommerceCartStatus = 'active' | 'converted' | 'abandoned'
+
+@Entity({ tableName: 'ecommerce_carts' })
+@Index({ name: 'ecommerce_carts_org_tenant_store_idx', properties: ['tenantId', 'storeId'] })
+@Unique({ name: 'ecommerce_carts_token_unique', properties: ['token'] })
+export class EcommerceCart {
+  [OptionalProps]?: 'createdAt' | 'updatedAt' | 'status'
+
+  @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
+  id!: string
+
+  @Property({ name: 'organization_id', type: 'uuid' })
+  organizationId!: string
+
+  @Property({ name: 'tenant_id', type: 'uuid' })
+  tenantId!: string
+
+  @Property({ name: 'store_id', type: 'uuid' })
+  storeId!: string
+
+  @Property({ type: 'uuid' })
+  token!: string
+
+  @Property({ type: 'text', default: 'active' })
+  status!: EcommerceCartStatus
+
+  @Property({ name: 'currency_code', type: 'text' })
+  currencyCode!: string
+
+  @Property({ type: 'text', nullable: true })
+  locale?: string | null
+
+  @Property({ name: 'converted_order_id', type: 'uuid', nullable: true })
+  convertedOrderId?: string | null
+
+  @Property({ type: 'jsonb', nullable: true })
+  metadata?: Record<string, unknown> | null
+
+  @Property({ name: 'expires_at', type: Date, nullable: true })
+  expiresAt?: Date | null
+
+  @Property({ name: 'created_at', type: Date, defaultRaw: 'now()' })
+  createdAt!: Date
+
+  @Property({ name: 'updated_at', type: Date, defaultRaw: 'now()', onUpdate: () => new Date() })
+  updatedAt!: Date
+}
+
+@Entity({ tableName: 'ecommerce_cart_lines' })
+@Index({ name: 'ecommerce_cart_lines_cart_idx', properties: ['cartId'] })
+export class EcommerceCartLine {
+  [OptionalProps]?: 'createdAt' | 'updatedAt' | 'quantity'
+
+  @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
+  id!: string
+
+  @Property({ name: 'organization_id', type: 'uuid' })
+  organizationId!: string
+
+  @Property({ name: 'tenant_id', type: 'uuid' })
+  tenantId!: string
+
+  @Property({ name: 'cart_id', type: 'uuid' })
+  cartId!: string
+
+  @Property({ name: 'product_id', type: 'uuid' })
+  productId!: string
+
+  @Property({ name: 'variant_id', type: 'uuid', nullable: true })
+  variantId?: string | null
+
+  @Property({ type: 'integer', default: 1 })
+  quantity!: number
+
+  @Property({ name: 'unit_price_net', type: 'numeric', precision: 19, scale: 4, nullable: true })
+  unitPriceNet?: string | null
+
+  @Property({ name: 'unit_price_gross', type: 'numeric', precision: 19, scale: 4, nullable: true })
+  unitPriceGross?: string | null
+
+  @Property({ name: 'currency_code', type: 'text', nullable: true })
+  currencyCode?: string | null
+
+  @Property({ name: 'title_snapshot', type: 'text', nullable: true })
+  titleSnapshot?: string | null
+
+  @Property({ name: 'sku_snapshot', type: 'text', nullable: true })
+  skuSnapshot?: string | null
+
+  @Property({ name: 'image_url_snapshot', type: 'text', nullable: true })
+  imageUrlSnapshot?: string | null
+
+  @Property({ type: 'jsonb', nullable: true })
+  metadata?: Record<string, unknown> | null
+
+  @Property({ name: 'created_at', type: Date, defaultRaw: 'now()' })
+  createdAt!: Date
+
+  @Property({ name: 'updated_at', type: Date, defaultRaw: 'now()', onUpdate: () => new Date() })
+  updatedAt!: Date
+}

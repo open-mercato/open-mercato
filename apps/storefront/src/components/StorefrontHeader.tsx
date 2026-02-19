@@ -6,6 +6,8 @@ import { useRouter } from 'next/navigation'
 import { Search, Menu, X } from 'lucide-react'
 import { useStoreName } from '@/lib/storeContext'
 import type { CategoryNode } from '@/lib/types'
+import { CartIcon } from './CartIcon'
+import { CartSidebar } from './CartSidebar'
 
 type StorefrontHeaderProps = {
   categories?: CategoryNode[]
@@ -65,6 +67,8 @@ export function StorefrontHeader({ categories = [] }: StorefrontHeaderProps) {
               </button>
             </form>
 
+            <CartIcon />
+
             <button
               onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
               className="flex md:hidden items-center justify-center rounded-lg p-2 text-gray-600 hover:bg-gray-50"
@@ -92,6 +96,8 @@ export function StorefrontHeader({ categories = [] }: StorefrontHeaderProps) {
           </div>
         </div>
       )}
+
+      <CartSidebar />
     </header>
   )
 }

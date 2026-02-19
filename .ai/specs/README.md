@@ -79,6 +79,7 @@ Files like `AGENTS.md` and `CLAUDE.md` use UPPERCASE names and are not numberedâ
 | [SPEC-026a](SPEC-026a-2026-02-15-entity-translations-phase2.md) | 2026-02-15 | Entity Translations Phase 2 | TranslationManager UI (standalone + widget injection), search indexer `l10n:*` fields, per-entity translatable field definitions |
 | [SPEC-028](SPEC-028-2026-02-16-multiple-sales-pipelines.md) | 2026-02-16 | Multiple Sales Pipelines | Multiple CRM pipelines with configurable stages + deal assignment |
 | [SPEC-029](SPEC-029-2026-02-17-ecommerce-storefront-module.md) | 2026-02-17 | Ecommerce Storefront Module | Dedicated `ecommerce` core module + `apps/storefront` starter: org-scoped stores, per-store configurable branding (CSS variables), localized catalog APIs, server-side faceted filters with cross-facet exclusion, multi-variant selection algorithm, WCAG 2.2 AA compliance, RWD-first component spec, and workflow-driven checkout (Phase 3) |
+| [SPEC-030](SPEC-030-2026-02-18-ecommerce-cart-checkout.md) | 2026-02-18 | Ecommerce Cart & Checkout | Per-channel catalog filtering via `catalogScope` + `priceKindId`, token-based shopping cart (`EcommerceCart` + `EcommerceCartLine`), cart API (add/update/remove lines), checkout creating `SalesOrder` in the sales module, and cart UI for `apps/storefront/` |
 
 ## Specification Structure
 

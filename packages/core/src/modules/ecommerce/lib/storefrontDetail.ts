@@ -12,6 +12,7 @@ import type { CatalogPricingService } from '@open-mercato/core/modules/catalog/s
 import type { PriceRow } from '@open-mercato/core/modules/catalog/lib/pricing'
 import { resolvePriceKindCode } from '@open-mercato/core/modules/catalog/lib/pricing'
 import type { StoreContext } from './storeContext'
+import { filterByPriceKind } from './storefrontProducts'
 
 export type StorefrontVariantPricing = {
   currencyCode: string
@@ -234,12 +235,13 @@ export async function fetchStorefrontProductDetail(
 
   const pricingCtx = buildPricingContext(storeCtx)
 
-  const productLevelPrices = variantPrices.filter((p) => !p.variant)
+  const filteredVariantPrices = filterByPriceKind(variantPrices, storeCtx.channelBinding?.priceKindId)
+  const productLevelPrices = filteredVariantPrices.filter((p) => !p.variant)
   const bestProductPrice = await pricingService.resolvePrice(productLevelPrices, pricingCtx)
 
   const resolvedVariants: StorefrontVariant[] = []
   for (const variant of variants) {
-    const variantCandidates = variantPrices.filter(
+    const variantCandidates = filteredVariantPrices.filter(
       (p) => {
         const vid = typeof p.variant === 'string' ? p.variant : p.variant?.id
         return vid === variant.id || (!p.variant && !!p.product)
@@ -277,11 +279,12 @@ export async function fetchStorefrontProductDetail(
     for (const assignment of relatedAssignments) {
       const related = typeof assignment.product === 'string' ? null : assignment.product ?? null
       if (!related || !related.isActive || related.deletedAt) continue
-      const relatedPrices = await em.find(
+      const rawRelatedPrices = await em.find(
         CatalogProductPrice,
         { product: related.id, organizationId, tenantId },
         { populate: ['priceKind'] },
       )
+      const relatedPrices = filterByPriceKind(rawRelatedPrices, storeCtx.channelBinding?.priceKindId)
       const bestRelated = await pricingService.resolvePrice(relatedPrices, pricingCtx)
       const relatedVal = bestRelated
         ? { min: bestRelated.unitPriceGross ?? bestRelated.unitPriceNet ?? '0', max: bestRelated.unitPriceGross ?? bestRelated.unitPriceNet ?? '0', currencyCode: bestRelated.currencyCode }

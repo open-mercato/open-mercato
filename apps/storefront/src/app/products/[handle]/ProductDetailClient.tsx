@@ -3,6 +3,7 @@
 import * as React from 'react'
 import { VariantSelector } from '@/components/VariantSelector'
 import { PriceDisplay } from '@/components/PriceDisplay'
+import { AddToCartButton } from '@/components/AddToCartButton'
 import type { ProductDetail, ProductVariant } from '@/lib/types'
 
 type ProductDetailClientProps = {
@@ -46,6 +47,12 @@ export function ProductDetailClient({ product, locale }: ProductDetailClientProp
           onVariantChange={setSelectedVariant}
         />
       )}
+
+      <AddToCartButton
+        productId={product.id}
+        variantId={selectedVariant?.id ?? null}
+        disabled={product.isConfigurable && !selectedVariant?.isActive}
+      />
 
       {product.tags.length > 0 && (
         <div className="flex flex-wrap gap-1.5">

@@ -1,6 +1,7 @@
 import type { Metadata } from 'next'
 import { fetchStoreContext, fetchCategories } from '@/lib/api'
 import { StoreContextProvider } from '@/lib/storeContext'
+import { CartProvider } from '@/lib/CartContext'
 import { StorefrontLayout } from '@/components/StorefrontLayout'
 import './globals.css'
 
@@ -25,9 +26,11 @@ export default async function RootLayout({ children }: { children: React.ReactNo
     <html lang={storeContext?.effectiveLocale ?? 'en'}>
       <body>
         <StoreContextProvider initialContext={storeContext}>
-          <StorefrontLayout categories={categories}>
-            {children}
-          </StorefrontLayout>
+          <CartProvider>
+            <StorefrontLayout categories={categories}>
+              {children}
+            </StorefrontLayout>
+          </CartProvider>
         </StoreContextProvider>
       </body>
     </html>

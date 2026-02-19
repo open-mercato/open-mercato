@@ -110,7 +110,7 @@ export async function resolveStoreBySlug(
 ): Promise<StoreContext | null> {
   const filter: Record<string, unknown> = { slug, deletedAt: null }
   if (tenantId) filter.tenantId = tenantId
-  const store = await em.findOne(EcommerceStore, filter as Parameters<typeof em.findOne>[1])
+  const store = await em.findOne(EcommerceStore, filter as object)
   if (!store) return null
 
   const channelBinding = await resolveChannelBinding(em, store.id)
@@ -120,7 +120,7 @@ export async function resolveStoreBySlug(
 export async function resolveStoreFromRequest(
   request: { headers: { get: (key: string) => string | null }; url: string },
   em: EntityManager,
-  tenantId: string,
+  tenantId: string | null,
 ): Promise<StoreContext | null> {
   const url = new URL(request.url)
   const requestedLocale = request.headers.get('x-locale') ?? url.searchParams.get('locale')

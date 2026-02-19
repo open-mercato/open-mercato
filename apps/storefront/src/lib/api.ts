@@ -4,6 +4,7 @@ import type {
   ProductDetailResponse,
   CategoryNode,
   CategoryDetail,
+  CartDto,
 } from './types'
 
 const API_BASE = process.env.NEXT_PUBLIC_STOREFRONT_API_URL ?? ''
@@ -46,6 +47,115 @@ async function storefrontFetch<T>(
     throw new StorefrontApiError(res.status, text)
   }
   return res.json() as Promise<T>
+}
+
+async function storefrontPost<T>(
+  path: string,
+  body: unknown,
+  cartToken?: string | null,
+): Promise<T> {
+  const url = buildUrl(path)
+  const headers: Record<string, string> = { 'Content-Type': 'application/json', Accept: 'application/json' }
+  if (cartToken) headers['X-Cart-Token'] = cartToken
+  const res = await fetch(url, {
+    method: 'POST',
+    headers,
+    body: JSON.stringify(body),
+  })
+  if (!res.ok) {
+    const text = await res.text().catch(() => `HTTP ${res.status}`)
+    throw new StorefrontApiError(res.status, text)
+  }
+  return res.json() as Promise<T>
+}
+
+async function storefrontPut<T>(
+  path: string,
+  body: unknown,
+  cartToken?: string | null,
+): Promise<T> {
+  const url = buildUrl(path)
+  const headers: Record<string, string> = { 'Content-Type': 'application/json', Accept: 'application/json' }
+  if (cartToken) headers['X-Cart-Token'] = cartToken
+  const res = await fetch(url, {
+    method: 'PUT',
+    headers,
+    body: JSON.stringify(body),
+  })
+  if (!res.ok) {
+    const text = await res.text().catch(() => `HTTP ${res.status}`)
+    throw new StorefrontApiError(res.status, text)
+  }
+  return res.json() as Promise<T>
+}
+
+async function storefrontDelete<T>(path: string, cartToken?: string | null): Promise<T> {
+  const url = buildUrl(path)
+  const headers: Record<string, string> = { Accept: 'application/json' }
+  if (cartToken) headers['X-Cart-Token'] = cartToken
+  const res = await fetch(url, { method: 'DELETE', headers })
+  if (!res.ok) {
+    const text = await res.text().catch(() => `HTTP ${res.status}`)
+    throw new StorefrontApiError(res.status, text)
+  }
+  return res.json() as Promise<T>
+}
+
+export async function getCart(cartToken: string | null): Promise<CartDto | null> {
+  if (!cartToken) return null
+  try {
+    const data = await storefrontFetch<{ cart: CartDto | null }>('/cart', { cartToken })
+    return data.cart
+  } catch {
+    return null
+  }
+}
+
+export async function createCart(): Promise<{ token: string; cart: CartDto }> {
+  return storefrontPost<{ token: string; cart: CartDto }>('/cart', {})
+}
+
+export async function addToCart(
+  cartToken: string,
+  productId: string,
+  variantId: string | null,
+  quantity: number,
+): Promise<CartDto> {
+  const data = await storefrontPost<{ cart: CartDto }>(
+    '/cart/lines',
+    { cartToken, productId, variantId, quantity },
+    cartToken,
+  )
+  return data.cart
+}
+
+export async function updateCartLine(
+  cartToken: string,
+  lineId: string,
+  quantity: number,
+): Promise<CartDto> {
+  const data = await storefrontPut<{ cart: CartDto }>(
+    `/cart/lines/${lineId}`,
+    { quantity },
+    cartToken,
+  )
+  return data.cart
+}
+
+export async function removeCartLine(cartToken: string, lineId: string): Promise<CartDto> {
+  const data = await storefrontDelete<{ cart: CartDto }>(`/cart/lines/${lineId}`, cartToken)
+  return data.cart
+}
+
+export async function checkout(
+  cartToken: string,
+  customerInfo: { name: string; email: string; phone?: string; address?: string },
+): Promise<{ orderId: string }> {
+  return storefrontPost<{ orderId: string }>(
+    '/cart/checkout',
+    { cartToken, customerInfo },
+    cartToken,
+  )
 }
 
 export async function fetchStoreContext(): Promise<StorefrontContext | null> {

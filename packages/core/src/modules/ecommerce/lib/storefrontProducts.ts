@@ -15,6 +15,15 @@ import { resolvePriceKindCode } from '@open-mercato/core/modules/catalog/lib/pri
 import { escapeLikePattern } from '@open-mercato/shared/lib/db/escapeLikePattern'
 import type { StoreContext } from './storeContext'
 
+export function filterByPriceKind(prices: PriceRow[], priceKindId: string | null | undefined): PriceRow[] {
+  if (!priceKindId) return prices
+  const filtered = prices.filter((p) => {
+    const kindId = typeof p.priceKind === 'object' && p.priceKind ? (p.priceKind as { id?: string }).id : null
+    return kindId === priceKindId
+  })
+  return filtered.length > 0 ? filtered : prices
+}
+
 export type StorefrontProductsQuery = {
   page: number
   pageSize: number
@@ -100,6 +109,71 @@ function resolveLocalizedSubtitle(
     if (locContent?.description) return locContent.description
   }
   return product.subtitle ?? null
+}
+
+type ChannelScope = {
+  includedIds: string[] | null
+  excludedIds: string[]
+}
+
+async function resolveChannelScope(
+  em: EntityManager,
+  organizationId: string,
+  tenantId: string,
+  scope: Record<string, unknown> | null,
+): Promise<ChannelScope | null> {
+  if (!scope) return null
+
+  const categoryIds = Array.isArray(scope.categoryIds)
+    ? (scope.categoryIds as unknown[]).filter((id): id is string => typeof id === 'string')
+    : []
+  const tagIds = Array.isArray(scope.tagIds)
+    ? (scope.tagIds as unknown[]).filter((id): id is string => typeof id === 'string')
+    : []
+  const excludedIds = Array.isArray(scope.excludeProductIds)
+    ? (scope.excludeProductIds as unknown[]).filter((id): id is string => typeof id === 'string')
+    : []
+
+  if (categoryIds.length === 0 && tagIds.length === 0 && excludedIds.length === 0) {
+    return null
+  }
+
+  const sets: Set<string>[] = []
+
+  if (categoryIds.length > 0) {
+    const assignments = await em.find(
+      CatalogProductCategoryAssignment,
+      { category: { $in: categoryIds }, organizationId, tenantId },
+      { fields: ['product'] },
+    )
+    const ids = assignments
+      .map((a) => (typeof a.product === 'string' ? a.product : a.product?.id ?? null))
+      .filter((id): id is string => !!id)
+    sets.push(new Set(ids))
+  }
+
+  if (tagIds.length > 0) {
+    const assignments = await em.find(
+      CatalogProductTagAssignment,
+      { tag: { $in: tagIds }, organizationId, tenantId },
+      { fields: ['product'] },
+    )
+    const ids = assignments
+      .map((a) => (typeof a.product === 'string' ? a.product : a.product?.id ?? null))
+      .filter((id): id is string => !!id)
+    sets.push(new Set(ids))
+  }
+
+  let includedIds: string[] | null = null
+  if (sets.length > 0) {
+    let result = sets[0]
+    for (let i = 1; i < sets.length; i++) {
+      result = new Set(Array.from(result).filter((id) => sets[i].has(id)))
+    }
+    includedIds = Array.from(result)
+  }
+
+  return { includedIds, excludedIds }
 }
 
 async function resolveProductIds(
@@ -199,7 +273,21 @@ export async function fetchStorefrontProducts(
   const pageSize = Math.min(100, Math.max(1, query.pageSize))
   const offset = (page - 1) * pageSize
 
-  const restrictedIds = await resolveProductIds(em, organizationId, tenantId, query)
+  const [queryRestrictedIds, channelScope] = await Promise.all([
+    resolveProductIds(em, organizationId, tenantId, query),
+    resolveChannelScope(em, organizationId, tenantId, storeCtx.channelBinding?.catalogScope ?? null),
+  ])
+
+  // Intersect user query restriction with channel scope inclusion
+  let restrictedIds: string[] | null = queryRestrictedIds
+  if (channelScope?.includedIds !== null && channelScope?.includedIds !== undefined) {
+    const channelSet = new Set(channelScope.includedIds)
+    if (restrictedIds !== null) {
+      restrictedIds = restrictedIds.filter((id) => channelSet.has(id))
+    } else {
+      restrictedIds = channelScope.includedIds
+    }
+  }
 
   if (restrictedIds !== null && restrictedIds.length === 0) {
     return {
@@ -222,6 +310,18 @@ export async function fetchStorefrontProducts(
 
   if (restrictedIds !== null) {
     baseWhere.id = { $in: restrictedIds }
+  }
+
+  // Apply channel scope exclusion
+  if (channelScope && channelScope.excludedIds.length > 0) {
+    const existingIdFilter = baseWhere.id as Record<string, unknown> | undefined
+    if (existingIdFilter && '$in' in existingIdFilter) {
+      baseWhere.id = {
+        $in: (existingIdFilter.$in as string[]).filter((id) => !channelScope.excludedIds.includes(id)),
+      }
+    } else {
+      baseWhere.id = { ...(existingIdFilter ?? {}), $nin: channelScope.excludedIds }
+    }
   }
 
   if (query.search?.trim()) {
@@ -390,7 +490,8 @@ export async function fetchStorefrontProducts(
     const subtitle = resolveLocalizedSubtitle(product, offer, effectiveLocale)
 
     const productVariants = variantsByProduct.get(product.id) ?? []
-    const priceCandidates = pricesByProduct.get(product.id) ?? []
+    const rawPriceCandidates = pricesByProduct.get(product.id) ?? []
+    const priceCandidates = filterByPriceKind(rawPriceCandidates, storeCtx.channelBinding?.priceKindId)
 
     let priceRange: StorefrontProductItem['priceRange'] = null
 

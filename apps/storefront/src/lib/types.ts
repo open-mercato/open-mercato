@@ -180,3 +180,27 @@ export type StorefrontFilters = {
   sort: string
   page: number
 }
+
+export type CartLine = {
+  id: string
+  productId: string
+  variantId: string | null
+  quantity: number
+  unitPriceNet: string | null
+  unitPriceGross: string | null
+  currencyCode: string | null
+  titleSnapshot: string | null
+  skuSnapshot: string | null
+  imageUrlSnapshot: string | null
+}
+
+export type CartDto = {
+  id: string
+  token: string
+  status: string
+  currencyCode: string
+  locale: string | null
+  lines: CartLine[]
+  itemCount: number
+  subtotalGross: string | null
+}
