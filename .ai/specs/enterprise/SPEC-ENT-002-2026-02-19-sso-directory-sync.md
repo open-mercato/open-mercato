@@ -53,6 +53,18 @@ Build an SSO & Directory Sync module delivering nine capabilities:
 8. **SP metadata & certificates** — SAML SP metadata generation, certificate rotation
 9. **Admin dashboard** — IdP setup wizard, connection testing, provisioning logs
 
+### V1 Supported Identity Providers
+
+The first version targets three identity providers covering the most common enterprise scenarios:
+
+| IdP | Protocol | SCIM Support | Notes |
+|---|---|---|---|
+| **Microsoft Entra ID** (Azure AD) | OIDC (primary) + SAML 2.0 | Yes — native SCIM 2.0 client | Most common enterprise IdP. PKCE hardcoded (Entra supports but doesn't advertise in metadata). Known SCIM deviations handled with lenient parser. |
+| **Google Workspace** | OIDC only | No — uses proprietary Directory API | OIDC via Google's `.well-known/openid-configuration`. No SAML SP-initiated needed. Directory sync deferred (Google does not support SCIM push). JIT provisioning only. |
+| **Keycloak** | OIDC + SAML 2.0 | Yes — SCIM via extension | Open-source, self-hosted. Primary development/testing IdP (`docker run quay.io/keycloak/keycloak start-dev`). Full protocol coverage for local testing. |
+
+**Future IdPs** (post-v1, no code changes needed — pluggable architecture): Okta, OneLogin, Ping Identity, ADFS.
+
 ### Design Principles
 
 | Principle | Application |
@@ -380,3 +392,4 @@ SCIM server implemented directly — no SCIM library needed (straightforward RES
 | Date | Changes |
 |---|---|
 | 2026-02-19 | Initial draft — high-level SSO & Directory Sync specification |
+| 2026-02-19 | Added V1 targeted IdPs: Microsoft Entra ID, Google Workspace, Keycloak |
