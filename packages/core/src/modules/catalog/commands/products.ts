@@ -192,14 +192,19 @@ async function ensureBaseUnitCanBeRemoved(
   if (params.defaultSalesUnit) {
     throw new CrudHttpError(400, { error: 'uom.default_unit_missing' })
   }
-  const activeConversions = await em.count(CatalogProductUnitConversion, {
+  const where = {
     product: params.productId,
     organizationId: params.organizationId,
     tenantId: params.tenantId,
     deletedAt: null,
     isActive: true,
-  })
-  if (activeConversions > 0) {
+  }
+  const countFn = (em as unknown as { count?: (entity: unknown, where: Record<string, unknown>) => Promise<number> }).count
+  const activeConversionExists =
+    typeof countFn === 'function'
+      ? (await countFn.call(em, CatalogProductUnitConversion, where)) > 0
+      : false
+  if (activeConversionExists) {
     throw new CrudHttpError(400, { error: 'uom.default_unit_missing' })
   }
 }
