@@ -370,10 +370,10 @@ export function ProductUomSection({
             {conversions.map((entry, index) => (
               <div
                 key={entry.id ?? `uom-conversion-${index}`}
-                className="grid gap-2 rounded border p-2 md:grid-cols-[1.3fr_1fr_1fr_auto_auto]"
+                className="grid gap-2 rounded border p-2 md:grid-cols-12 md:items-center"
               >
                 <select
-                  className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+                  className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 md:col-span-4"
                   value={entry.unitCode}
                   onChange={(event) =>
                     updateConversion(index, { unitCode: event.target.value })
@@ -394,6 +394,7 @@ export function ProductUomSection({
                   type="number"
                   min="0.000001"
                   step="0.000001"
+                  className="md:col-span-3"
                   value={entry.toBaseFactor}
                   onChange={(event) =>
                     updateConversion(index, {
@@ -410,6 +411,7 @@ export function ProductUomSection({
                   type="number"
                   min="0"
                   step="1"
+                  className="md:col-span-2"
                   value={entry.sortOrder}
                   onChange={(event) =>
                     updateConversion(index, { sortOrder: event.target.value })
@@ -417,7 +419,7 @@ export function ProductUomSection({
                   placeholder={t("catalog.products.uom.sortOrder", "Sort")}
                 />
 
-                <label className="flex items-center gap-2 px-2 text-xs text-muted-foreground">
+                <label className="flex items-center gap-2 px-2 text-xs text-muted-foreground md:col-span-2 md:justify-center">
                   <Checkbox
                     checked={entry.isActive}
                     onCheckedChange={(checked) =>
@@ -431,7 +433,7 @@ export function ProductUomSection({
                   type="button"
                   variant="ghost"
                   size="icon"
-                  className="text-destructive"
+                  className="text-destructive md:col-span-1 md:justify-self-end"
                   onClick={() => removeConversion(index)}
                   aria-label={t(
                     "catalog.products.uom.removeConversion",

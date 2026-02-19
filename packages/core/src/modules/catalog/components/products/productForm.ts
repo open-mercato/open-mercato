@@ -195,7 +195,12 @@ export const productFormSchema = z
   })
   .passthrough();
 
-export const PRODUCT_FORM_STEPS = ["general", "organize", "variants"] as const;
+export const PRODUCT_FORM_STEPS = [
+  "general",
+  "organize",
+  "uom",
+  "variants",
+] as const;
 
 export const BASE_INITIAL_VALUES: ProductFormValues = {
   title: "",

@@ -141,6 +141,17 @@ const STEP_FIELD_MATCHERS: Record<
     matchField("channelIds"),
     matchField("tags"),
   ],
+  uom: [
+    matchField("defaultUnit"),
+    matchField("defaultSalesUnit"),
+    matchField("defaultSalesUnitQuantity"),
+    matchField("uomRoundingScale"),
+    matchField("uomRoundingMode"),
+    matchField("unitPriceEnabled"),
+    matchField("unitPriceReferenceUnit"),
+    matchField("unitPriceBaseQuantity"),
+    matchPrefix("unitConversions"),
+  ],
   variants: [
     matchField("hasVariants"),
     matchPrefix("options"),
@@ -355,21 +366,6 @@ export default function CreateCatalogProductPage() {
             setValue={setValue}
             errors={errors}
             taxRates={taxRates}
-          />
-        ),
-      },
-      {
-        id: "product-uom",
-        column: 2,
-        component: ({
-          values,
-          setValue,
-          errors,
-        }: CrudFormGroupComponentProps) => (
-          <ProductUomSection
-            values={values as ProductFormValues}
-            setValue={setValue}
-            errors={errors}
           />
         ),
       },
@@ -1306,6 +1302,8 @@ function ProductBuilder({
               t("catalog.products.create.steps.general", "General data")}
             {step === "organize" &&
               t("catalog.products.create.steps.organize", "Organize")}
+            {step === "uom" &&
+              t("catalog.products.uom.title", "Units of measure")}
             {step === "variants" &&
               t("catalog.products.create.steps.variants", "Variants")}
             {(stepErrors[step]?.length ?? 0) > 0 ? (
@@ -1414,6 +1412,14 @@ function ProductBuilder({
 
       {currentStepKey === "organize" ? (
         <ProductCategorizeSection
+          values={values as ProductFormValues}
+          setValue={setValue}
+          errors={errors}
+        />
+      ) : null}
+
+      {currentStepKey === "uom" ? (
+        <ProductUomSection
           values={values as ProductFormValues}
           setValue={setValue}
           errors={errors}
