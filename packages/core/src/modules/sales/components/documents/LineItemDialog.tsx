@@ -886,6 +886,35 @@ export function LineItemDialog({
     [unitOptions],
   );
 
+  const convertUnitPriceForUnitChange = React.useCallback(
+    (
+      rawUnitPrice: unknown,
+      fromUnit: string | null | undefined,
+      toUnit: string | null | undefined,
+    ): string | null => {
+      const amount = normalizeNumber(rawUnitPrice, Number.NaN);
+      if (!Number.isFinite(amount) || amount <= 0) return null;
+      const fromCode = normalizeUnitCode(fromUnit);
+      const toCode = normalizeUnitCode(toUnit);
+      if (!fromCode || !toCode || fromCode === toCode) return null;
+      const fromFactor = resolveUnitPriceFactor(fromCode);
+      const toFactor = resolveUnitPriceFactor(toCode);
+      if (
+        !Number.isFinite(fromFactor) ||
+        !Number.isFinite(toFactor) ||
+        fromFactor <= 0 ||
+        toFactor <= 0
+      ) {
+        return null;
+      }
+      const baseAmount = amount / fromFactor;
+      const convertedAmount = baseAmount * toFactor;
+      if (!Number.isFinite(convertedAmount) || convertedAmount <= 0) return null;
+      return convertedAmount.toString();
+    },
+    [resolveUnitPriceFactor],
+  );
+
   const applyPriceSelection = React.useCallback(
     (
       selected: PriceOption | null,
@@ -1773,35 +1802,101 @@ export function LineItemDialog({
           values,
         }: FieldRenderProps) => {
           const mode = values?.priceMode === "net" ? "net" : "gross";
+          const selectedPriceId =
+            typeof values?.priceId === "string" ? values.priceId : null;
+          const selectedPrice = selectedPriceId
+            ? (priceOptions.find((entry) => entry.id === selectedPriceId) ?? null)
+            : null;
+          const selectedCurrency =
+            selectedPrice?.currencyCode ??
+            (typeof values?.currencyCode === "string" ? values.currencyCode : null);
+          const quantityUnitCode = normalizeUnitCode(values?.quantityUnit);
+          const baseUnitCode =
+            unitOptions.find((option) => option.isBase)?.code ?? null;
+          const selectedUnitOption = quantityUnitCode
+            ? (unitOptions.find((option) => option.code === quantityUnitCode) ?? null)
+            : null;
+          const unitFactor = (() => {
+            if (!quantityUnitCode) return null;
+            if (baseUnitCode && quantityUnitCode === baseUnitCode) return 1;
+            const value = normalizeNumber(selectedUnitOption?.toBaseFactor, Number.NaN);
+            return Number.isFinite(value) && value > 0 ? value : null;
+          })();
+          const selectedBaseAmount = selectedPrice
+            ? mode === "net"
+              ? (selectedPrice.amountNet ?? selectedPrice.amountGross ?? null)
+              : (selectedPrice.amountGross ?? selectedPrice.amountNet ?? null)
+            : null;
+          const convertedAmount =
+            selectedBaseAmount !== null &&
+            unitFactor !== null &&
+            Number.isFinite(selectedBaseAmount * unitFactor)
+              ? selectedBaseAmount * unitFactor
+              : null;
+          const isCatalogLine = lineMode !== "custom";
           return (
-            <div className="flex gap-2">
-              <Input
-                value={
-                  typeof value === "string"
-                    ? value
-                    : value == null
-                      ? ""
-                      : String(value)
-                }
-                onChange={(event) => setValue(event.target.value)}
-                placeholder="0.00"
-              />
-              <select
-                className="w-32 rounded border px-2 text-sm"
-                value={mode}
-                onChange={(event) => {
-                  const nextMode =
-                    event.target.value === "net" ? "net" : "gross";
-                  setFormValue?.("priceMode", nextMode);
-                }}
-              >
-                <option value="gross">
-                  {t("sales.documents.items.priceGross", "Gross")}
-                </option>
-                <option value="net">
-                  {t("sales.documents.items.priceNet", "Net")}
-                </option>
-              </select>
+            <div className="space-y-2">
+              <div className="flex gap-2">
+                <Input
+                  value={
+                    typeof value === "string"
+                      ? value
+                      : value == null
+                        ? ""
+                        : String(value)
+                  }
+                  onChange={(event) => setValue(event.target.value)}
+                  placeholder="0.00"
+                />
+                <select
+                  className="w-32 rounded border px-2 text-sm"
+                  value={mode}
+                  onChange={(event) => {
+                    const nextMode =
+                      event.target.value === "net" ? "net" : "gross";
+                    setFormValue?.("priceMode", nextMode);
+                  }}
+                >
+                  <option value="gross">
+                    {t("sales.documents.items.priceGross", "Gross")}
+                  </option>
+                  <option value="net">
+                    {t("sales.documents.items.priceNet", "Net")}
+                  </option>
+                </select>
+              </div>
+              {isCatalogLine && selectedPrice && quantityUnitCode && baseUnitCode ? (
+                unitFactor !== null && convertedAmount !== null ? (
+                  <p className="text-xs text-muted-foreground">
+                    {t(
+                      "sales.documents.items.priceBasisTemplate",
+                      "Catalog price basis: {{baseAmount}} / {{baseUnit}}. Converted for {{unit}}: {{baseAmount}} × {{factor}} = {{convertedAmount}}.",
+                      {
+                        baseAmount: formatMoney(selectedBaseAmount as number, selectedCurrency),
+                        baseUnit: baseUnitCode,
+                        unit: quantityUnitCode,
+                        factor: unitFactor,
+                        convertedAmount: formatMoney(convertedAmount, selectedCurrency),
+                      },
+                    )}
+                  </p>
+                ) : (
+                  <p className="text-xs text-muted-foreground">
+                    {t(
+                      "sales.documents.items.priceBasisMissingConversion",
+                      "Catalog price basis is base unit, but conversion for selected unit is missing.",
+                    )}
+                  </p>
+                )
+              ) : null}
+              {isCatalogLine && !selectedPrice ? (
+                <p className="text-xs text-muted-foreground">
+                  {t(
+                    "sales.documents.items.priceBasisManual",
+                    "Manual unit price mode. Price will not auto-convert until you select a catalog price.",
+                  )}
+                </p>
+              ) : null}
             </div>
           );
         },
@@ -1909,7 +2004,15 @@ export function LineItemDialog({
               value={typeof value === "string" ? value : ""}
               onChange={(event) => {
                 const nextValue = event.target.value || null;
+                const nextUnitPrice = convertUnitPriceForUnitChange(
+                  values?.unitPrice,
+                  typeof value === "string" ? value : null,
+                  nextValue,
+                );
                 setValue(nextValue);
+                if (nextUnitPrice) {
+                  setFormValue?.("unitPrice", nextUnitPrice);
+                }
                 if (productId) {
                   const selectedPriceId =
                     typeof values?.priceId === "string" ? values.priceId : null;
@@ -2121,6 +2224,7 @@ export function LineItemDialog({
     ];
   }, [
     applyPriceSelection,
+    convertUnitPriceForUnitChange,
     currencyCode,
     findTaxRateIdByValue,
     loadPrices,
