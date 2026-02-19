@@ -9,8 +9,8 @@ import {
   deleteSalesEntityIfExists,
 } from "@open-mercato/core/modules/core/__integration__/helpers/salesFixtures";
 
-test.describe("TC-SALES-022: Quote line unit switch keeps manual price amounts", () => {
-  test("should keep existing unit prices when API update changes line unit without a new price payload", async ({
+test.describe("TC-SALES-022: Quote line unit switch recalculates manual price amounts", () => {
+  test("should recalculate manual unit prices when API update changes line unit without a new price payload", async ({
     request,
   }) => {
     const stamp = Date.now();
@@ -23,6 +23,8 @@ test.describe("TC-SALES-022: Quote line unit switch keeps manual price amounts",
     let conversionBoxId: string | null = null;
     let initialUnitPriceNet = Number.NaN;
     let initialUnitPriceGross = Number.NaN;
+    const pkgToBaseFactor = 10;
+    const boxToBaseFactor = 120;
 
     try {
       token = await getAuthToken(request);
@@ -61,7 +63,7 @@ test.describe("TC-SALES-022: Quote line unit switch keeps manual price amounts",
           data: {
             productId,
             unitCode: "pkg",
-            toBaseFactor: 10,
+            toBaseFactor: pkgToBaseFactor,
             sortOrder: 10,
             isActive: true,
           },
@@ -87,7 +89,7 @@ test.describe("TC-SALES-022: Quote line unit switch keeps manual price amounts",
           data: {
             productId,
             unitCode: "box",
-            toBaseFactor: 120,
+            toBaseFactor: boxToBaseFactor,
             sortOrder: 20,
             isActive: true,
           },
@@ -218,18 +220,22 @@ test.describe("TC-SALES-022: Quote line unit switch keeps manual price amounts",
       expect(quantityUnit).toBe("box");
       expect(
         Number.isFinite(normalizedQuantity) &&
-          Math.abs(normalizedQuantity - 120) < 0.0001,
-        "Normalized quantity should match 1 box = 120 pc",
+          Math.abs(normalizedQuantity - boxToBaseFactor) < 0.0001,
+        "Normalized quantity should match 1 box in base unit quantity",
       ).toBeTruthy();
+      const expectedPriceMultiplier = boxToBaseFactor / pkgToBaseFactor;
+      const expectedUnitPriceNet = initialUnitPriceNet * expectedPriceMultiplier;
+      const expectedUnitPriceGross =
+        initialUnitPriceGross * expectedPriceMultiplier;
       expect(
         Number.isFinite(unitPriceNet) &&
-          Math.abs(unitPriceNet - initialUnitPriceNet) < 0.0001,
-        `Net unit price should remain unchanged after API unit update (initial=${initialUnitPriceNet}, actual=${unitPriceNet})`,
+          Math.abs(unitPriceNet - expectedUnitPriceNet) < 0.0001,
+        `Net unit price should be recalculated after API unit update (expected=${expectedUnitPriceNet}, actual=${unitPriceNet})`,
       ).toBeTruthy();
       expect(
         Number.isFinite(unitPriceGross) &&
-          Math.abs(unitPriceGross - initialUnitPriceGross) < 0.0001,
-        `Gross unit price should remain unchanged after API unit update (initial=${initialUnitPriceGross}, actual=${unitPriceGross})`,
+          Math.abs(unitPriceGross - expectedUnitPriceGross) < 0.0001,
+        `Gross unit price should be recalculated after API unit update (expected=${expectedUnitPriceGross}, actual=${unitPriceGross})`,
       ).toBeTruthy();
     } finally {
       if (token && conversionPkgId) {
