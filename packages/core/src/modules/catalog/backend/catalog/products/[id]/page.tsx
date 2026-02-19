@@ -826,6 +826,7 @@ export default function EditCatalogProductPage({
       {
         id: "product-uom",
         column: 1,
+        bare: true,
         component: ({ values, setValue, errors }) => (
           <ProductUomSection
             values={values as ProductFormValues}
