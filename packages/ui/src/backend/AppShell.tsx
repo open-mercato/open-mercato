@@ -2,6 +2,8 @@
 import * as React from 'react'
 import Link from 'next/link'
 import Image from 'next/image'
+import { ChevronUp, ChevronDown } from 'lucide-react'
+import { Button } from '../primitives/button'
 import { IconButton } from '../primitives/icon-button'
 import { Separator } from '../primitives/separator'
 import { FlashMessages } from './FlashMessages'
@@ -794,30 +796,30 @@ export function AppShell({ productName, email, groups, rightHeaderSlot, children
           <div className="flex flex-wrap items-center justify-between gap-2">
             <div className="text-sm font-semibold">{t('appShell.sidebarCustomizationHeading')}</div>
             <div className="flex items-center gap-2">
-              <button
-                type="button"
-                className="h-8 rounded border px-3 text-sm"
+              <Button
+                variant="outline"
+                size="sm"
                 onClick={resetCustomization}
                 disabled={savingPreferences}
               >
                 {t('appShell.sidebarCustomizationReset')}
-              </button>
-              <button
-                type="button"
-                className="h-8 rounded border px-3 text-sm"
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
                 onClick={cancelCustomization}
                 disabled={savingPreferences}
               >
                 {t('appShell.sidebarCustomizationCancel')}
-              </button>
-              <button
-                type="button"
-                className="h-8 rounded bg-foreground px-3 text-sm font-medium text-background disabled:opacity-60"
+              </Button>
+              <Button
+                size="sm"
+                className="bg-foreground text-background hover:bg-foreground/90"
                 onClick={saveCustomization}
                 disabled={savingPreferences}
               >
                 {savingPreferences ? t('appShell.sidebarCustomizationSaving') : t('appShell.sidebarCustomizationSave')}
-              </button>
+              </Button>
             </div>
           </div>
           <p className="text-xs text-muted-foreground">{t('appShell.sidebarCustomizationHint', { locale: localeLabel })}</p>
@@ -878,24 +880,26 @@ export function AppShell({ productName, email, groups, rightHeaderSlot, children
                       />
                     </div>
                     <div className="flex items-center gap-1 self-start">
-                      <button
-                        type="button"
-                        className="h-8 w-8 rounded border text-muted-foreground hover:text-foreground disabled:opacity-40"
+                      <IconButton
+                        variant="outline"
+                        size="sm"
+                        className="text-muted-foreground hover:text-foreground"
                         onClick={() => moveGroup(groupId, -1)}
                         disabled={index === 0 || savingPreferences}
                         aria-label={t('appShell.sidebarCustomizationMoveUp')}
                       >
-                        ▲
-                      </button>
-                      <button
-                        type="button"
-                        className="h-8 w-8 rounded border text-muted-foreground hover:text-foreground disabled:opacity-40"
+                        <ChevronUp className="size-4" />
+                      </IconButton>
+                      <IconButton
+                        variant="outline"
+                        size="sm"
+                        className="text-muted-foreground hover:text-foreground"
                         onClick={() => moveGroup(groupId, 1)}
                         disabled={index === orderedGroupIds.length - 1 || savingPreferences}
                         aria-label={t('appShell.sidebarCustomizationMoveDown')}
                       >
-                        ▼
-                      </button>
+                        <ChevronDown className="size-4" />
+                      </IconButton>
                     </div>
                   </div>
                   <div className="flex flex-col gap-2">
@@ -1066,20 +1070,32 @@ export function AppShell({ productName, email, groups, rightHeaderSlot, children
           )}
         </div>
         {!customizing && (
-          <button
-            type="button"
-            onClick={startCustomization}
-            className={`mt-auto inline-flex items-center justify-center gap-2 rounded border hover:bg-accent hover:text-accent-foreground disabled:opacity-60 ${
-              compact || isMobileVariant ? 'h-10 w-10 p-0' : 'h-9 px-3 text-sm font-medium'
-            }`}
-            disabled={loadingPreferences}
-            aria-label={t('appShell.customizeSidebar')}
-          >
-            <span className="flex items-center justify-center">{CustomizeIcon}</span>
-            {!(compact || isMobileVariant) && (
-              <span>{loadingPreferences ? t('appShell.sidebarCustomizationLoading') : t('appShell.customizeSidebar')}</span>
-            )}
-          </button>
+          <>
+          {compact || isMobileVariant ? (
+            <IconButton
+              variant="outline"
+              size="lg"
+              className="mt-auto"
+              onClick={startCustomization}
+              disabled={loadingPreferences}
+              aria-label={t('appShell.customizeSidebar')}
+            >
+              {CustomizeIcon}
+            </IconButton>
+          ) : (
+            <Button
+              variant="outline"
+              size="default"
+              className="mt-auto"
+              onClick={startCustomization}
+              disabled={loadingPreferences}
+              aria-label={t('appShell.customizeSidebar')}
+            >
+              {CustomizeIcon}
+              {loadingPreferences ? t('appShell.sidebarCustomizationLoading') : t('appShell.customizeSidebar')}
+            </Button>
+          )}
+          </>
         )}
       </div>
     )
