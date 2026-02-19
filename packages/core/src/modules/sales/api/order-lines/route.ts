@@ -11,7 +11,16 @@ import { E } from '#generated/entities.ids.generated'
 import * as F from '#generated/entities/sales_order_line'
 
 const rawBodySchema = z.object({}).passthrough()
-const resolveRawBody = (raw: unknown) => (raw && typeof raw === 'object' && 'body' in raw ? (raw as any).body : raw)
+const resolveRawBody = (raw: unknown): Record<string, unknown> => {
+  if (!raw || typeof raw !== 'object') return {}
+  if ('body' in raw) {
+    const payload = raw as { body?: unknown }
+    if (payload.body && typeof payload.body === 'object') {
+      return payload.body as Record<string, unknown>
+    }
+  }
+  return raw as Record<string, unknown>
+}
 
 const listSchema = z
   .object({
@@ -112,7 +121,7 @@ const crud = makeCrudRoute({
       }
       return filters
     },
-    transformItem: (item: any) => {
+    transformItem: (item: Record<string, unknown> | null | undefined) => {
       if (!item) return item
       const normalized = { ...item }
       const cfEntries = extractAllCustomFieldEntries(item)

@@ -234,7 +234,7 @@ const crud = makeCrudRoute({
       }
       return filters
     },
-    transformItem: (item: any) => {
+    transformItem: (item: Record<string, unknown> | null | undefined) => {
       if (!item) return item
       const normalized = { ...item }
       const cfEntries = extractAllCustomFieldEntries(item)
