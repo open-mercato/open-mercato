@@ -1325,6 +1325,11 @@ const updateProductCommand: CommandHandler<ProductUpdateInput, { productId: stri
   },
   async execute(rawInput, ctx) {
     const { parsed, custom } = parseWithCustomFields(productUpdateSchema, rawInput)
+    const rawPayload = rawInput && typeof rawInput === 'object' ? (rawInput as Record<string, unknown>) : null
+    const hasDefaultUnit = Boolean(rawPayload && Object.prototype.hasOwnProperty.call(rawPayload, 'defaultUnit'))
+    const hasDefaultSalesUnit = Boolean(rawPayload && Object.prototype.hasOwnProperty.call(rawPayload, 'defaultSalesUnit'))
+    const requestedDefaultUnit = hasDefaultUnit ? rawPayload?.defaultUnit : parsed.defaultUnit
+    const requestedDefaultSalesUnit = hasDefaultSalesUnit ? rawPayload?.defaultSalesUnit : parsed.defaultSalesUnit
     const em = (ctx.container.resolve('em') as EntityManager).fork()
     const record = await em.findOne(CatalogProduct, { id: parsed.id, deletedAt: null })
     if (!record) throw new CrudHttpError(404, { error: 'Catalog product not found' })
@@ -1356,6 +1361,8 @@ const updateProductCommand: CommandHandler<ProductUpdateInput, { productId: stri
       record.primaryCurrencyCode = parsed.primaryCurrencyCode ?? null
     }
     const uomDefaultsTouched =
+      hasDefaultUnit ||
+      hasDefaultSalesUnit ||
       parsed.defaultUnit !== undefined ||
       parsed.defaultSalesUnit !== undefined ||
       parsed.organizationId !== undefined ||
@@ -1364,8 +1371,18 @@ const updateProductCommand: CommandHandler<ProductUpdateInput, { productId: stri
       const resolvedUnits = await resolveProductUnitDefaults(em, {
         organizationId,
         tenantId,
-        defaultUnit: parsed.defaultUnit !== undefined ? parsed.defaultUnit : record.defaultUnit,
-        defaultSalesUnit: parsed.defaultSalesUnit !== undefined ? parsed.defaultSalesUnit : record.defaultSalesUnit,
+        defaultUnit:
+          hasDefaultUnit
+            ? (requestedDefaultUnit as string | null | undefined)
+            : parsed.defaultUnit !== undefined
+              ? parsed.defaultUnit
+              : record.defaultUnit,
+        defaultSalesUnit:
+          hasDefaultSalesUnit
+            ? (requestedDefaultSalesUnit as string | null | undefined)
+            : parsed.defaultSalesUnit !== undefined
+              ? parsed.defaultSalesUnit
+              : record.defaultSalesUnit,
       })
       await ensureBaseUnitCanBeRemoved(em, {
         productId: record.id,
