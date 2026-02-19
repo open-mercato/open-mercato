@@ -411,8 +411,8 @@ export default function CreateCatalogProductPage() {
               uomRoundingScale,
               uomRoundingMode,
               unitPriceEnabled,
-              unitPriceReferenceUnit: unitPriceEnabled ? unitPriceReferenceUnit : null,
-              unitPriceBaseQuantity: unitPriceEnabled ? unitPriceBaseQuantity : null,
+              unitPriceReferenceUnit: unitPriceEnabled ? unitPriceReferenceUnit : undefined,
+              unitPriceBaseQuantity: unitPriceEnabled ? unitPriceBaseQuantity : undefined,
             }
             if (optionSchemaDefinition) {
               productPayload.optionSchema = optionSchemaDefinition

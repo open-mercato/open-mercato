@@ -866,8 +866,8 @@ export default function EditCatalogProductPage({ params }: { params?: { id?: str
       uomRoundingScale,
       uomRoundingMode,
       unitPriceEnabled,
-      unitPriceReferenceUnit: unitPriceEnabled ? unitPriceReferenceUnit : null,
-      unitPriceBaseQuantity: unitPriceEnabled ? unitPriceBaseQuantity : null,
+      unitPriceReferenceUnit: unitPriceEnabled ? unitPriceReferenceUnit : undefined,
+      unitPriceBaseQuantity: unitPriceEnabled ? unitPriceBaseQuantity : undefined,
       customFieldsetCode: values.customFieldsetCode?.trim().length ? values.customFieldsetCode : undefined,
     }
     const categoryIds = normalizeIdList(values.categoryIds)

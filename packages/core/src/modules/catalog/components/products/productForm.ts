@@ -110,6 +110,19 @@ export type ProductFormValues = {
   optionSchemaId?: string | null
 }
 
+const optionalPositiveNumberInput = z.preprocess((value) => {
+  if (value === null || value === undefined) return undefined
+  if (typeof value === 'string' && value.trim().length === 0) return undefined
+  return value
+}, z.coerce.number().positive().optional())
+
+const optionalBoundedIntegerInput = (min: number, max: number) =>
+  z.preprocess((value) => {
+    if (value === null || value === undefined) return undefined
+    if (typeof value === 'string' && value.trim().length === 0) return undefined
+    return value
+  }, z.coerce.number().int().min(min).max(max).optional())
+
 export const productFormSchema = z.object({
   title: z.string().trim().min(1, 'Title is required'),
   subtitle: z.string().optional(),
@@ -149,12 +162,12 @@ export const productFormSchema = z.object({
     .optional(),
   defaultUnit: z.string().trim().max(50).nullable().optional(),
   defaultSalesUnit: z.string().trim().max(50).nullable().optional(),
-  defaultSalesUnitQuantity: z.coerce.number().positive().optional(),
-  uomRoundingScale: z.coerce.number().int().min(0).max(6).optional(),
+  defaultSalesUnitQuantity: optionalPositiveNumberInput,
+  uomRoundingScale: optionalBoundedIntegerInput(0, 6),
   uomRoundingMode: z.enum(['half_up', 'down', 'up']).optional(),
   unitPriceEnabled: z.boolean().optional(),
   unitPriceReferenceUnit: z.enum(['kg', 'l', 'm2', 'm3', 'pc']).nullable().optional(),
-  unitPriceBaseQuantity: z.coerce.number().positive().optional(),
+  unitPriceBaseQuantity: optionalPositiveNumberInput,
   unitConversions: z
     .array(
       z.object({
