@@ -149,7 +149,7 @@ export function ActionsDropdown({ items, label, size = 'sm' }: ActionsDropdownPr
                 type="button"
                 role="menuitem"
                 disabled={item.disabled}
-                className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-sm hover:bg-accent disabled:opacity-50 disabled:pointer-events-none"
+                className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-sm cursor-pointer hover:bg-accent disabled:opacity-50 disabled:pointer-events-none"
                 onClick={() => {
                   setOpen(false)
                   item.onSelect()

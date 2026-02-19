@@ -2,6 +2,7 @@
 import * as React from 'react'
 import Link from 'next/link'
 import Image from 'next/image'
+import { IconButton } from '../primitives/icon-button'
 import { Separator } from '../primitives/separator'
 import { FlashMessages } from './FlashMessages'
 import { usePathname } from 'next/navigation'
@@ -1105,20 +1106,20 @@ export function AppShell({ productName, email, groups, rightHeaderSlot, children
             <button type="button" className="lg:hidden rounded border px-2 py-1" aria-label={t('appShell.openMenu')} onClick={() => setMobileOpen(true)}>
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M3 6h18M3 12h18M3 18h18"/></svg>
             </button>
-            {/* Desktop collapse toggle */}
-            <button
-              type="button"
-              className="hidden lg:inline-flex rounded border px-2 py-1 disabled:opacity-60"
+            {/* Desktop collapse toggle — NEW */}
+            <IconButton
+              variant="outline"
+              size="sm"
+              className="hidden lg:inline-flex"
               aria-label={t('appShell.toggleSidebar')}
               onClick={() => setCollapsed((c) => !c)}
               disabled={customizing}
             >
-              {/* Sidebar toggle icon */}
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                 <rect x="3" y="4" width="18" height="16" rx="2"/>
                 <path d="M9 4v16"/>
               </svg>
-            </button>
+            </IconButton>
             {/* Header breadcrumb: always starts with Dashboard */}
             {(() => {
               const dashboardLabel = t('dashboard.title')

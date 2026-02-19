@@ -5,6 +5,7 @@ import { User, LogOut, Bell, Moon, Sun, Globe, Key, Check } from 'lucide-react'
 import { useT, useLocale } from '@open-mercato/shared/lib/i18n/context'
 import { locales, type Locale } from '@open-mercato/shared/lib/i18n/config'
 import { useTheme } from '@open-mercato/ui/theme'
+import { IconButton } from '../primitives/icon-button'
 
 export type ProfileDropdownProps = {
   email?: string
@@ -92,21 +93,21 @@ export function ProfileDropdown({
   }
 
   const menuItemClass =
-    'w-full text-left text-sm px-3 py-2 rounded hover:bg-accent inline-flex items-center gap-2.5 outline-none focus-visible:ring-1 focus-visible:ring-ring'
+    'w-full text-left text-sm cursor-pointer px-3 py-2 rounded hover:bg-accent inline-flex items-center gap-2.5 outline-none focus-visible:ring-1 focus-visible:ring-ring'
 
   return (
     <div className="relative">
-      <button
+      <IconButton
         ref={buttonRef}
-        className="text-sm px-2 py-1 rounded hover:bg-accent inline-flex items-center gap-2"
+        variant="ghost"
+        size="sm"
         onClick={() => setOpen(!open)}
         aria-expanded={open}
         aria-haspopup="menu"
-        type="button"
         title={email || t('ui.userMenu.userFallback', 'User')}
       >
         <User className="size-4" />
-      </button>
+      </IconButton>
 
       {open && (
         <div
