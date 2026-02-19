@@ -686,6 +686,12 @@ const blocksSchema: BlockDefinition[] = [
 2. Add additional channel services without changes to the resolver core.
 3. In `notifications:deliver`, replace legacy render with a call to `notifications-templates.resolveAndRender`.
 
+### Planned Channel Template Services
+| Channel | Rendering technology | Notes |
+|---------|---------------------|-------|
+| **Email** | [React Email](https://react.email) components | Block tree → React Email components → HTML. Each block type maps to a React Email primitive (e.g. `heading` → `<Heading>`, `button` → `<Button>`, `row` → `<Row><Column>`) |
+| **Slack** | [Block Kit API](https://api.slack.com/block-kit) | Block tree → Slack Block Kit JSON payload. Each block type maps to a Kit element (e.g. `heading` → `header`, `text` → `section.mrkdwn`, `button` → `actions.button`) |
+
 ### File Manifest
 | File | Action | Purpose |
 |------|--------|---------|
@@ -800,6 +806,7 @@ const blocksSchema: BlockDefinition[] = [
 - Scope changed to explicit DB model in a separate `notifications-templates` module.
 - Added channel-agnostic block system and publish guardrails.
 - Updated model to explicit tables: `notification_templates` and `notification_templates_blocks`.
+- Added planned channel template services: Email (React Email) and Slack (Block Kit API).
 
 ### Review — 2026-02-19
 - **Reviewer**: Agent
