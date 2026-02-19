@@ -1,0 +1,93 @@
+jest.mock('../../FlashMessages', () => ({
+  flash: jest.fn(),
+}))
+
+import { flash } from '../../FlashMessages'
+import {
+  ForbiddenError,
+  apiFetch,
+} from '../../utils/api'
+
+function createMockResponse(
+  status: number,
+  body: unknown,
+  headers?: Record<string, string>,
+): Response {
+  const serializedBody =
+    typeof body === 'string' ? body : JSON.stringify(body ?? {})
+  const headerMap = new Map<string, string>(
+    Object.entries(headers ?? {}).map(([key, value]) => [
+      key.toLowerCase(),
+      value,
+    ]),
+  )
+  const build = () =>
+    ({
+      ok: status >= 200 && status < 300,
+      status,
+      headers: {
+        get: (key: string) => headerMap.get(key.toLowerCase()) ?? null,
+      },
+      json: async () => JSON.parse(serializedBody),
+      text: async () => serializedBody,
+      clone: () => build(),
+    }) as Response
+  return build()
+}
+
+describe('apiFetch', () => {
+  beforeEach(() => {
+    jest.resetAllMocks()
+    jest.spyOn(console, 'warn').mockImplementation(() => undefined)
+    jest.useFakeTimers()
+    window.history.pushState({}, '', '/backend/sales/documents')
+    ;(window as any).__omOriginalFetch = undefined
+  })
+
+  afterEach(() => {
+    ;(window as any).__omOriginalFetch = undefined
+    jest.clearAllTimers()
+    jest.useRealTimers()
+    jest.restoreAllMocks()
+  })
+
+  it('throws ForbiddenError when backend returns ACL hints', async () => {
+    ;(window as any).__omOriginalFetch = jest.fn(async () =>
+      createMockResponse(403, {
+        error: 'Forbidden',
+        requiredRoles: ['Admin'],
+      }),
+    )
+
+    await expect(apiFetch('/api/private')).rejects.toBeInstanceOf(ForbiddenError)
+    expect(flash).toHaveBeenCalledWith(
+      'Insufficient permissions. Redirecting to login…',
+      'warning',
+    )
+  })
+
+  it('returns 403 response when ACL hints are missing', async () => {
+    const response = createMockResponse(403, {
+      error: 'Forbidden',
+      message: 'Access denied without ACL hints',
+    })
+    ;(window as any).__omOriginalFetch = jest.fn(async () => response)
+
+    const result = await apiFetch('/api/private')
+    expect(result).toBe(response)
+    expect(flash).not.toHaveBeenCalled()
+  })
+
+  it('does not redirect on login page and returns 403 payload', async () => {
+    window.history.pushState({}, '', '/login')
+    const response = createMockResponse(403, {
+      error: 'Forbidden',
+      requiredRoles: ['Admin'],
+    })
+    ;(window as any).__omOriginalFetch = jest.fn(async () => response)
+
+    const result = await apiFetch('/api/private')
+    expect(result).toBe(response)
+    expect(flash).not.toHaveBeenCalled()
+  })
+})
