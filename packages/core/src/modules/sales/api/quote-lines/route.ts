@@ -1,26 +1,34 @@
-import { z } from 'zod'
-import { makeCrudRoute } from '@open-mercato/shared/lib/crud/factory'
-import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
-import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
-import { buildCustomFieldFiltersFromQuery, extractAllCustomFieldEntries } from '@open-mercato/shared/lib/crud/custom-fields'
-import { SalesQuoteLine } from '../../data/entities'
-import { quoteLineCreateSchema } from '../../data/validators'
-import { createPagedListResponseSchema, createSalesCrudOpenApi, defaultOkResponseSchema } from '../openapi'
-import { withScopedPayload } from '../utils'
-import { E } from '#generated/entities.ids.generated'
-import * as F from '#generated/entities/sales_quote_line'
+import { z } from "zod";
+import { makeCrudRoute } from "@open-mercato/shared/lib/crud/factory";
+import { resolveTranslations } from "@open-mercato/shared/lib/i18n/server";
+import { CrudHttpError } from "@open-mercato/shared/lib/crud/errors";
+import {
+  buildCustomFieldFiltersFromQuery,
+  extractAllCustomFieldEntries,
+} from "@open-mercato/shared/lib/crud/custom-fields";
+import { SalesQuoteLine } from "../../data/entities";
+import { quoteLineCreateSchema } from "../../data/validators";
+import {
+  createPagedListResponseSchema,
+  createSalesCrudOpenApi,
+  defaultOkResponseSchema,
+} from "../openapi";
+import { withScopedPayload } from "../utils";
+import { E } from "#generated/entities.ids.generated";
+import * as F from "#generated/entities/sales_quote_line";
+import { canonicalizeUnitCode } from "@open-mercato/core/modules/catalog/lib/unitCodes";
 
-const rawBodySchema = z.object({}).passthrough()
+const rawBodySchema = z.object({}).passthrough();
 const resolveRawBody = (raw: unknown): Record<string, unknown> => {
-  if (!raw || typeof raw !== 'object') return {}
-  if ('body' in raw) {
-    const payload = raw as { body?: unknown }
-    if (payload.body && typeof payload.body === 'object') {
-      return payload.body as Record<string, unknown>
+  if (!raw || typeof raw !== "object") return {};
+  if ("body" in raw) {
+    const payload = raw as { body?: unknown };
+    if (payload.body && typeof payload.body === "object") {
+      return payload.body as Record<string, unknown>;
     }
   }
-  return raw as Record<string, unknown>
-}
+  return raw as Record<string, unknown>;
+};
 
 const listSchema = z
   .object({
@@ -29,38 +37,40 @@ const listSchema = z
     id: z.string().uuid().optional(),
     quoteId: z.string().uuid().optional(),
     sortField: z.string().optional(),
-    sortDir: z.enum(['asc', 'desc']).optional(),
+    sortDir: z.enum(["asc", "desc"]).optional(),
   })
-  .passthrough()
+  .passthrough();
 
 const routeMetadata = {
-  GET: { requireAuth: true, requireFeatures: ['sales.quotes.view'] },
-  POST: { requireAuth: true, requireFeatures: ['sales.quotes.manage'] },
-  PUT: { requireAuth: true, requireFeatures: ['sales.quotes.manage'] },
-  DELETE: { requireAuth: true, requireFeatures: ['sales.quotes.manage'] },
-}
+  GET: { requireAuth: true, requireFeatures: ["sales.quotes.view"] },
+  POST: { requireAuth: true, requireFeatures: ["sales.quotes.manage"] },
+  PUT: { requireAuth: true, requireFeatures: ["sales.quotes.manage"] },
+  DELETE: { requireAuth: true, requireFeatures: ["sales.quotes.manage"] },
+};
 
-const upsertSchema = quoteLineCreateSchema.extend({ id: z.string().uuid().optional() })
+const upsertSchema = quoteLineCreateSchema.extend({
+  id: z.string().uuid().optional(),
+});
 const deleteSchema = z.object({
   id: z.string().uuid(),
   quoteId: z.string().uuid(),
-})
+});
 
 const crud = makeCrudRoute({
   metadata: routeMetadata,
   orm: {
     entity: SalesQuoteLine,
-    idField: 'id',
-    orgField: 'organizationId',
-    tenantField: 'tenantId',
-    softDeleteField: 'deletedAt',
+    idField: "id",
+    orgField: "organizationId",
+    tenantField: "tenantId",
+    softDeleteField: "deletedAt",
   },
   list: {
     schema: listSchema,
     entityId: E.sales.sales_quote_line,
     fields: [
       F.id,
-      'quote_id',
+      "quote_id",
       F.line_number,
       F.kind,
       F.status_entry_id,
@@ -73,9 +83,9 @@ const crud = makeCrudRoute({
       F.comment,
       F.quantity,
       F.quantity_unit,
-      'normalized_quantity',
-      'normalized_unit',
-      'uom_snapshot',
+      "normalized_quantity",
+      "normalized_unit",
+      "uom_snapshot",
       F.currency_code,
       F.unit_price_net,
       F.unit_price_gross,
@@ -99,74 +109,104 @@ const crud = makeCrudRoute({
       lineNumber: F.line_number,
     },
     buildFilters: async (query, ctx) => {
-      const filters: Record<string, unknown> = {}
-      if (query.id) filters.id = { $eq: query.id }
-      if (query.quoteId) filters.quote_id = { $eq: query.quoteId }
+      const filters: Record<string, unknown> = {};
+      if (query.id) filters.id = { $eq: query.id };
+      if (query.quoteId) filters.quote_id = { $eq: query.quoteId };
       try {
-        const em = ctx.container.resolve('em')
+        const em = ctx.container.resolve("em");
         const cfFilters = await buildCustomFieldFiltersFromQuery({
           entityId: E.sales.sales_quote_line,
           query,
           em,
           tenantId: ctx.auth?.tenantId ?? null,
-        })
-        Object.assign(filters, cfFilters)
+        });
+        Object.assign(filters, cfFilters);
       } catch {
         // ignore
       }
-      return filters
+      return filters;
     },
     transformItem: (item: Record<string, unknown> | null | undefined) => {
-      if (!item) return item
-      const normalized = { ...item }
-      const cfEntries = extractAllCustomFieldEntries(item)
+      if (!item) return item;
+      const normalized = { ...item };
+      const cfEntries = extractAllCustomFieldEntries(item);
       for (const key of Object.keys(normalized)) {
-        if (key.startsWith('cf:')) delete normalized[key]
+        if (key.startsWith("cf:")) delete normalized[key];
       }
-      return { ...normalized, ...cfEntries }
+      const quantityUnit = canonicalizeUnitCode(
+        (normalized as any).quantity_unit ?? (normalized as any).quantityUnit,
+      );
+      const normalizedUnit =
+        canonicalizeUnitCode(
+          (normalized as any).normalized_unit ??
+            (normalized as any).normalizedUnit,
+        ) ?? quantityUnit;
+      return {
+        ...normalized,
+        quantity_unit: quantityUnit,
+        normalized_unit: normalizedUnit,
+        ...cfEntries,
+      };
     },
   },
   actions: {
     create: {
-      commandId: 'sales.quotes.lines.upsert',
+      commandId: "sales.quotes.lines.upsert",
       schema: rawBodySchema,
       mapInput: async ({ raw, ctx }) => {
-        const { translate } = await resolveTranslations()
-        const payload = upsertSchema.parse(withScopedPayload(resolveRawBody(raw) ?? {}, ctx, translate))
-        return { body: payload }
+        const { translate } = await resolveTranslations();
+        const payload = upsertSchema.parse(
+          withScopedPayload(resolveRawBody(raw) ?? {}, ctx, translate),
+        );
+        return { body: payload };
       },
-      response: ({ result }) => ({ id: result?.lineId ?? null, quoteId: result?.quoteId ?? null }),
+      response: ({ result }) => ({
+        id: result?.lineId ?? null,
+        quoteId: result?.quoteId ?? null,
+      }),
       status: 201,
     },
     update: {
-      commandId: 'sales.quotes.lines.upsert',
+      commandId: "sales.quotes.lines.upsert",
       schema: rawBodySchema,
       mapInput: async ({ raw, ctx }) => {
-        const { translate } = await resolveTranslations()
-        const payload = upsertSchema.parse(withScopedPayload(resolveRawBody(raw) ?? {}, ctx, translate))
-        return { body: payload }
+        const { translate } = await resolveTranslations();
+        const payload = upsertSchema.parse(
+          withScopedPayload(resolveRawBody(raw) ?? {}, ctx, translate),
+        );
+        return { body: payload };
       },
-      response: ({ result }) => ({ id: result?.lineId ?? null, quoteId: result?.quoteId ?? null }),
+      response: ({ result }) => ({
+        id: result?.lineId ?? null,
+        quoteId: result?.quoteId ?? null,
+      }),
     },
     delete: {
-      commandId: 'sales.quotes.lines.delete',
+      commandId: "sales.quotes.lines.delete",
       schema: rawBodySchema,
       mapInput: async ({ raw, ctx }) => {
-        const { translate } = await resolveTranslations()
-        const payload = deleteSchema.parse(withScopedPayload(resolveRawBody(raw) ?? {}, ctx, translate))
+        const { translate } = await resolveTranslations();
+        const payload = deleteSchema.parse(
+          withScopedPayload(resolveRawBody(raw) ?? {}, ctx, translate),
+        );
         if (!payload.id || !payload.quoteId) {
-          throw new CrudHttpError(400, { error: translate('sales.documents.detail.error', 'Document not found or inaccessible.') })
+          throw new CrudHttpError(400, {
+            error: translate(
+              "sales.documents.detail.error",
+              "Document not found or inaccessible.",
+            ),
+          });
         }
-        return { body: payload }
+        return { body: payload };
       },
       response: () => ({ ok: true }),
     },
   },
-})
+});
 
-const { GET, POST, PUT, DELETE } = crud
+const { GET, POST, PUT, DELETE } = crud;
 
-export { GET, POST, PUT, DELETE }
+export { GET, POST, PUT, DELETE };
 
 const quoteLineSchema = z.object({
   id: z.string().uuid(),
@@ -202,25 +242,31 @@ const quoteLineSchema = z.object({
   custom_field_set_id: z.string().uuid().nullable().optional(),
   created_at: z.string(),
   updated_at: z.string(),
-})
+});
 
 export const openApi = createSalesCrudOpenApi({
-  resourceName: 'Quote line',
+  resourceName: "Quote line",
   querySchema: listSchema,
   listResponseSchema: createPagedListResponseSchema(quoteLineSchema),
   create: {
     schema: upsertSchema,
-    responseSchema: z.object({ id: z.string().uuid().nullable(), quoteId: z.string().uuid().nullable() }),
-    description: 'Creates a quote line and recalculates totals.',
+    responseSchema: z.object({
+      id: z.string().uuid().nullable(),
+      quoteId: z.string().uuid().nullable(),
+    }),
+    description: "Creates a quote line and recalculates totals.",
   },
   update: {
     schema: upsertSchema,
-    responseSchema: z.object({ id: z.string().uuid().nullable(), quoteId: z.string().uuid().nullable() }),
-    description: 'Updates a quote line and recalculates totals.',
+    responseSchema: z.object({
+      id: z.string().uuid().nullable(),
+      quoteId: z.string().uuid().nullable(),
+    }),
+    description: "Updates a quote line and recalculates totals.",
   },
   del: {
     schema: deleteSchema,
     responseSchema: defaultOkResponseSchema,
-    description: 'Deletes a quote line and recalculates totals.',
+    description: "Deletes a quote line and recalculates totals.",
   },
-})
+});

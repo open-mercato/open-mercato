@@ -1,254 +1,273 @@
-"use client"
+"use client";
 
-import * as React from 'react'
-import { useT } from '@open-mercato/shared/lib/i18n/context'
-import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
-import { Button } from '@open-mercato/ui/primitives/button'
-import { Checkbox } from '@open-mercato/ui/primitives/checkbox'
-import { Input } from '@open-mercato/ui/primitives/input'
-import { Label } from '@open-mercato/ui/primitives/label'
-import { Plus, Trash2 } from 'lucide-react'
-import type { ProductFormValues, ProductUnitConversionDraft } from './productForm'
-import { createProductUnitConversionDraft } from './productForm'
+import * as React from "react";
+import { useT } from "@open-mercato/shared/lib/i18n/context";
+import { apiCall } from "@open-mercato/ui/backend/utils/apiCall";
+import { Button } from "@open-mercato/ui/primitives/button";
+import { Checkbox } from "@open-mercato/ui/primitives/checkbox";
+import { Input } from "@open-mercato/ui/primitives/input";
+import { Label } from "@open-mercato/ui/primitives/label";
+import { Plus, Trash2 } from "lucide-react";
+import type {
+  ProductFormValues,
+  ProductUnitConversionDraft,
+} from "./productForm";
+import { createProductUnitConversionDraft } from "./productForm";
 
 type UnitDictionaryEntry = {
-  id?: string
-  value?: string
-  label?: string
-}
+  id?: string;
+  value?: string;
+  label?: string;
+};
 
 type UnitDictionaryResponse = {
-  entries?: UnitDictionaryEntry[]
-}
+  entries?: UnitDictionaryEntry[];
+};
 
 type UnitOption = {
-  value: string
-  label: string
-}
+  value: string;
+  label: string;
+};
 
 type ProductUomSectionProps = {
-  values: ProductFormValues
-  errors: Record<string, string>
-  setValue: (id: string, value: unknown) => void
-}
+  values: ProductFormValues;
+  errors: Record<string, string>;
+  setValue: (id: string, value: unknown) => void;
+};
 
 function normalizeText(value: unknown): string | null {
-  if (typeof value !== 'string') return null
-  const trimmed = value.trim()
-  return trimmed.length ? trimmed : null
+  if (typeof value !== "string") return null;
+  const trimmed = value.trim();
+  return trimmed.length ? trimmed : null;
 }
 
 function normalizeConversions(value: unknown): ProductUnitConversionDraft[] {
-  if (!Array.isArray(value)) return []
+  if (!Array.isArray(value)) return [];
   return value
     .map((entry) => {
-      if (!entry || typeof entry !== 'object') return null
-      const row = entry as ProductUnitConversionDraft
+      if (!entry || typeof entry !== "object") return null;
+      const row = entry as ProductUnitConversionDraft;
       return {
         id: normalizeText(row.id) ?? null,
-        unitCode: normalizeText(row.unitCode) ?? '',
-        toBaseFactor: normalizeText(row.toBaseFactor) ?? '',
-        sortOrder: normalizeText(row.sortOrder) ?? '',
+        unitCode: normalizeText(row.unitCode) ?? "",
+        toBaseFactor: normalizeText(row.toBaseFactor) ?? "",
+        sortOrder: normalizeText(row.sortOrder) ?? "",
         isActive: row.isActive !== false,
-      } satisfies ProductUnitConversionDraft
+      } satisfies ProductUnitConversionDraft;
     })
-    .filter((entry): entry is ProductUnitConversionDraft => Boolean(entry))
+    .filter((entry): entry is ProductUnitConversionDraft => Boolean(entry));
 }
 
-function buildUnitOptions(entries: UnitDictionaryEntry[] | undefined): UnitOption[] {
-  const list = Array.isArray(entries) ? entries : []
+function buildUnitOptions(
+  entries: UnitDictionaryEntry[] | undefined,
+): UnitOption[] {
+  const list = Array.isArray(entries) ? entries : [];
   const options = list
     .map((entry) => {
-      const value = normalizeText(entry.value)
-      if (!value) return null
+      const value = normalizeText(entry.value);
+      if (!value) return null;
       return {
         value,
         label: normalizeText(entry.label) ?? value,
-      } satisfies UnitOption
+      } satisfies UnitOption;
     })
-    .filter((entry): entry is UnitOption => Boolean(entry))
-  return options.sort((left, right) => left.label.localeCompare(right.label))
+    .filter((entry): entry is UnitOption => Boolean(entry));
+  return options.sort((left, right) => left.label.localeCompare(right.label));
 }
 
-export function ProductUomSection({ values, errors, setValue }: ProductUomSectionProps) {
-  const t = useT()
-  const [unitOptions, setUnitOptions] = React.useState<UnitOption[]>([])
-  const [loadingUnits, setLoadingUnits] = React.useState(false)
+export function ProductUomSection({
+  values,
+  errors,
+  setValue,
+}: ProductUomSectionProps) {
+  const t = useT();
+  const [unitOptions, setUnitOptions] = React.useState<UnitOption[]>([]);
+  const [loadingUnits, setLoadingUnits] = React.useState(false);
   const conversions = React.useMemo(
     () => normalizeConversions(values.unitConversions),
     [values.unitConversions],
-  )
+  );
 
   React.useEffect(() => {
-    let cancelled = false
+    let cancelled = false;
     async function loadUnits() {
-      setLoadingUnits(true)
+      setLoadingUnits(true);
       try {
         const response = await apiCall<UnitDictionaryResponse>(
-          '/api/catalog/dictionaries/unit',
+          "/api/catalog/dictionaries/unit",
           undefined,
           { fallback: { entries: [] } },
-        )
-        if (cancelled) return
-        setUnitOptions(buildUnitOptions(response.result?.entries))
+        );
+        if (cancelled) return;
+        setUnitOptions(buildUnitOptions(response.result?.entries));
       } catch {
-        if (!cancelled) setUnitOptions([])
+        if (!cancelled) setUnitOptions([]);
       } finally {
-        if (!cancelled) setLoadingUnits(false)
+        if (!cancelled) setLoadingUnits(false);
       }
     }
-    void loadUnits()
+    void loadUnits();
     return () => {
-      cancelled = true
-    }
-  }, [])
+      cancelled = true;
+    };
+  }, []);
 
   const findUnitLabel = React.useCallback(
     (value: string | null | undefined) => {
-      const code = normalizeText(value)
-      if (!code) return null
-      const option = unitOptions.find((entry) => entry.value === code)
-      return option?.label ?? code
+      const code = normalizeText(value);
+      if (!code) return null;
+      const option = unitOptions.find((entry) => entry.value === code);
+      return option?.label ?? code;
     },
     [unitOptions],
-  )
+  );
 
   const setConversions = React.useCallback(
     (next: ProductUnitConversionDraft[]) => {
-      setValue('unitConversions', next)
+      setValue("unitConversions", next);
     },
     [setValue],
-  )
+  );
 
   const addConversion = React.useCallback(() => {
-    const next = [...conversions, createProductUnitConversionDraft({ sortOrder: String((conversions.length + 1) * 10) })]
-    setConversions(next)
-  }, [conversions, setConversions])
+    const next = [
+      ...conversions,
+      createProductUnitConversionDraft({
+        sortOrder: String((conversions.length + 1) * 10),
+      }),
+    ];
+    setConversions(next);
+  }, [conversions, setConversions]);
 
   const updateConversion = React.useCallback(
     (index: number, patch: Partial<ProductUnitConversionDraft>) => {
-      const next = conversions.map((entry, rowIndex) => (rowIndex === index ? { ...entry, ...patch } : entry))
-      setConversions(next)
+      const next = conversions.map((entry, rowIndex) =>
+        rowIndex === index ? { ...entry, ...patch } : entry,
+      );
+      setConversions(next);
     },
     [conversions, setConversions],
-  )
+  );
 
   const removeConversion = React.useCallback(
     (index: number) => {
-      const next = conversions.filter((_entry, rowIndex) => rowIndex !== index)
-      setConversions(next)
+      const next = conversions.filter((_entry, rowIndex) => rowIndex !== index);
+      setConversions(next);
     },
     [conversions, setConversions],
-  )
+  );
 
-  const defaultUnit = normalizeText(values.defaultUnit) ?? ''
-  const defaultSalesUnit = normalizeText(values.defaultSalesUnit) ?? ''
-  const defaultSalesQuantity = normalizeText(values.defaultSalesUnitQuantity) ?? '1'
-  const roundingScale = normalizeText(values.uomRoundingScale) ?? '4'
-  const roundingMode = values.uomRoundingMode ?? 'half_up'
-  const unitPriceEnabled = Boolean(values.unitPriceEnabled)
-  const unitPriceReferenceUnit = normalizeText(values.unitPriceReferenceUnit) ?? ''
-  const unitPriceBaseQuantity = normalizeText(values.unitPriceBaseQuantity) ?? ''
+  const defaultUnit = normalizeText(values.defaultUnit) ?? "";
+  const defaultSalesUnit = normalizeText(values.defaultSalesUnit) ?? "";
+  const defaultSalesQuantity =
+    normalizeText(values.defaultSalesUnitQuantity) ?? "1";
+  const unitPriceEnabled = Boolean(values.unitPriceEnabled);
+  const unitPriceReferenceUnit =
+    normalizeText(values.unitPriceReferenceUnit) ?? "";
+  const unitPriceBaseQuantity =
+    normalizeText(values.unitPriceBaseQuantity) ?? "";
 
   const conversionPreview = conversions
-    .filter((entry) => normalizeText(entry.unitCode) && normalizeText(entry.toBaseFactor))
+    .filter(
+      (entry) =>
+        normalizeText(entry.unitCode) && normalizeText(entry.toBaseFactor),
+    )
     .slice(0, 3)
     .map((entry) => {
-      const label = findUnitLabel(entry.unitCode) ?? entry.unitCode
-      const baseLabel = findUnitLabel(defaultUnit) ?? defaultUnit
-      const factor = normalizeText(entry.toBaseFactor) ?? '1'
-      return `1 ${label} = ${factor} ${baseLabel || t('catalog.products.uom.baseUnit', 'base unit')}`
+      const label = findUnitLabel(entry.unitCode) ?? entry.unitCode;
+      const baseLabel = findUnitLabel(defaultUnit) ?? defaultUnit;
+      const factor = normalizeText(entry.toBaseFactor) ?? "1";
+      return `1 ${label} = ${factor} ${baseLabel || t("catalog.products.uom.baseUnit", "base unit")}`;
     })
-    .join(' • ')
+    .join(" • ");
 
   return (
     <div className="space-y-5 rounded-lg border p-4">
       <div className="space-y-1">
-        <h3 className="text-sm font-semibold">{t('catalog.products.uom.title', 'Units of measure')}</h3>
+        <h3 className="text-sm font-semibold">
+          {t("catalog.products.uom.title", "Units of measure")}
+        </h3>
         <p className="text-xs text-muted-foreground">
-          {t('catalog.products.uom.description', 'Set base/sales units, rounding policy, and packaging conversions.')}
+          {t(
+            "catalog.products.uom.description",
+            "Set base/sales units and packaging conversions.",
+          )}
         </p>
       </div>
 
       <div className="grid gap-4 md:grid-cols-2">
         <div className="space-y-2">
-          <Label>{t('catalog.products.uom.baseUnit', 'Base unit')}</Label>
+          <Label>{t("catalog.products.uom.baseUnit", "Base unit")}</Label>
           <select
             className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
             value={defaultUnit}
-            onChange={(event) => setValue('defaultUnit', event.target.value || null)}
+            onChange={(event) =>
+              setValue("defaultUnit", event.target.value || null)
+            }
             disabled={loadingUnits}
           >
-            <option value="">{t('catalog.products.uom.selectUnit', 'Select unit')}</option>
+            <option value="">
+              {t("catalog.products.uom.selectUnit", "Select unit")}
+            </option>
             {unitOptions.map((option) => (
               <option key={option.value} value={option.value}>
                 {option.label}
               </option>
             ))}
           </select>
-          {errors.defaultUnit ? <p className="text-xs text-red-600">{errors.defaultUnit}</p> : null}
+          {errors.defaultUnit ? (
+            <p className="text-xs text-red-600">{errors.defaultUnit}</p>
+          ) : null}
         </div>
 
         <div className="space-y-2">
-          <Label>{t('catalog.products.uom.defaultSalesUnit', 'Default sales unit')}</Label>
+          <Label>
+            {t("catalog.products.uom.defaultSalesUnit", "Default sales unit")}
+          </Label>
           <select
             className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
             value={defaultSalesUnit}
-            onChange={(event) => setValue('defaultSalesUnit', event.target.value || null)}
+            onChange={(event) =>
+              setValue("defaultSalesUnit", event.target.value || null)
+            }
             disabled={loadingUnits}
           >
-            <option value="">{t('catalog.products.uom.selectUnit', 'Select unit')}</option>
+            <option value="">
+              {t("catalog.products.uom.selectUnit", "Select unit")}
+            </option>
             {unitOptions.map((option) => (
               <option key={option.value} value={option.value}>
                 {option.label}
               </option>
             ))}
           </select>
-          {errors.defaultSalesUnit ? <p className="text-xs text-red-600">{errors.defaultSalesUnit}</p> : null}
+          {errors.defaultSalesUnit ? (
+            <p className="text-xs text-red-600">{errors.defaultSalesUnit}</p>
+          ) : null}
         </div>
 
         <div className="space-y-2">
-          <Label>{t('catalog.products.uom.defaultSalesQuantity', 'Default sales quantity')}</Label>
+          <Label>
+            {t(
+              "catalog.products.uom.defaultSalesQuantity",
+              "Default sales quantity",
+            )}
+          </Label>
           <Input
             type="number"
             min="0.000001"
             step="0.000001"
             value={defaultSalesQuantity}
-            onChange={(event) => setValue('defaultSalesUnitQuantity', event.target.value)}
+            onChange={(event) =>
+              setValue("defaultSalesUnitQuantity", event.target.value)
+            }
             placeholder="1"
           />
           {errors.defaultSalesUnitQuantity ? (
-            <p className="text-xs text-red-600">{errors.defaultSalesUnitQuantity}</p>
+            <p className="text-xs text-red-600">
+              {errors.defaultSalesUnitQuantity}
+            </p>
           ) : null}
-        </div>
-
-        <div className="grid grid-cols-2 gap-3">
-          <div className="space-y-2">
-            <Label>{t('catalog.products.uom.roundingScale', 'Rounding scale')}</Label>
-            <Input
-              type="number"
-              min="0"
-              max="6"
-              step="1"
-              value={roundingScale}
-              onChange={(event) => setValue('uomRoundingScale', event.target.value)}
-              placeholder="4"
-            />
-            {errors.uomRoundingScale ? <p className="text-xs text-red-600">{errors.uomRoundingScale}</p> : null}
-          </div>
-          <div className="space-y-2">
-            <Label>{t('catalog.products.uom.roundingMode', 'Rounding mode')}</Label>
-            <select
-              className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
-              value={roundingMode}
-              onChange={(event) => setValue('uomRoundingMode', event.target.value)}
-            >
-              <option value="half_up">{t('catalog.products.uom.roundingModeHalfUp', 'Half up')}</option>
-              <option value="down">{t('catalog.products.uom.roundingModeDown', 'Down')}</option>
-              <option value="up">{t('catalog.products.uom.roundingModeUp', 'Up')}</option>
-            </select>
-            {errors.uomRoundingMode ? <p className="text-xs text-red-600">{errors.uomRoundingMode}</p> : null}
-          </div>
         </div>
       </div>
 
@@ -257,23 +276,43 @@ export function ProductUomSection({ values, errors, setValue }: ProductUomSectio
           <Checkbox
             id="catalog-product-unit-price-enabled"
             checked={unitPriceEnabled}
-            onCheckedChange={(checked) => setValue('unitPriceEnabled', checked === true)}
+            onCheckedChange={(checked) =>
+              setValue("unitPriceEnabled", checked === true)
+            }
           />
-          <Label htmlFor="catalog-product-unit-price-enabled" className="text-sm">
-            {t('catalog.products.unitPrice.enable', 'Enable EU unit price display')}
+          <Label
+            htmlFor="catalog-product-unit-price-enabled"
+            className="text-sm"
+          >
+            {t(
+              "catalog.products.unitPrice.enable",
+              "Enable EU unit price display",
+            )}
           </Label>
         </div>
 
         {unitPriceEnabled ? (
           <div className="grid gap-3 md:grid-cols-2">
             <div className="space-y-2">
-              <Label>{t('catalog.products.unitPrice.referenceUnit', 'Reference unit')}</Label>
+              <Label>
+                {t(
+                  "catalog.products.unitPrice.referenceUnit",
+                  "Reference unit",
+                )}
+              </Label>
               <select
                 className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
                 value={unitPriceReferenceUnit}
-                onChange={(event) => setValue('unitPriceReferenceUnit', event.target.value || null)}
+                onChange={(event) =>
+                  setValue("unitPriceReferenceUnit", event.target.value || null)
+                }
               >
-                <option value="">{t('catalog.products.unitPrice.selectReferenceUnit', 'Select reference unit')}</option>
+                <option value="">
+                  {t(
+                    "catalog.products.unitPrice.selectReferenceUnit",
+                    "Select reference unit",
+                  )}
+                </option>
                 <option value="kg">1 kg</option>
                 <option value="l">1 l</option>
                 <option value="m2">1 m²</option>
@@ -282,13 +321,20 @@ export function ProductUomSection({ values, errors, setValue }: ProductUomSectio
               </select>
             </div>
             <div className="space-y-2">
-              <Label>{t('catalog.products.unitPrice.baseQuantity', 'Base quantity for reference')}</Label>
+              <Label>
+                {t(
+                  "catalog.products.unitPrice.baseQuantity",
+                  "Base quantity for reference",
+                )}
+              </Label>
               <Input
                 type="number"
                 min="0.000001"
                 step="0.000001"
                 value={unitPriceBaseQuantity}
-                onChange={(event) => setValue('unitPriceBaseQuantity', event.target.value)}
+                onChange={(event) =>
+                  setValue("unitPriceBaseQuantity", event.target.value)
+                }
                 placeholder="1"
               />
             </div>
@@ -298,28 +344,45 @@ export function ProductUomSection({ values, errors, setValue }: ProductUomSectio
 
       <div className="space-y-3 rounded-md border p-3">
         <div className="flex items-center justify-between gap-2">
-          <Label className="text-sm">{t('catalog.products.uom.conversions', 'Product conversions')}</Label>
-          <Button type="button" variant="outline" size="sm" onClick={addConversion}>
+          <Label className="text-sm">
+            {t("catalog.products.uom.conversions", "Product conversions")}
+          </Label>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={addConversion}
+          >
             <Plus className="mr-1.5 h-4 w-4" />
-            {t('catalog.products.uom.addConversion', 'Add conversion')}
+            {t("catalog.products.uom.addConversion", "Add conversion")}
           </Button>
         </div>
 
         {conversions.length === 0 ? (
           <p className="text-xs text-muted-foreground">
-            {t('catalog.products.uom.emptyConversions', 'No conversions configured yet.')}
+            {t(
+              "catalog.products.uom.emptyConversions",
+              "No conversions configured yet.",
+            )}
           </p>
         ) : (
           <div className="space-y-2">
             {conversions.map((entry, index) => (
-              <div key={entry.id ?? `uom-conversion-${index}`} className="grid gap-2 rounded border p-2 md:grid-cols-[1.3fr_1fr_1fr_auto_auto]">
+              <div
+                key={entry.id ?? `uom-conversion-${index}`}
+                className="grid gap-2 rounded border p-2 md:grid-cols-[1.3fr_1fr_1fr_auto_auto]"
+              >
                 <select
                   className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
                   value={entry.unitCode}
-                  onChange={(event) => updateConversion(index, { unitCode: event.target.value })}
+                  onChange={(event) =>
+                    updateConversion(index, { unitCode: event.target.value })
+                  }
                   disabled={loadingUnits}
                 >
-                  <option value="">{t('catalog.products.uom.selectUnit', 'Select unit')}</option>
+                  <option value="">
+                    {t("catalog.products.uom.selectUnit", "Select unit")}
+                  </option>
                   {unitOptions.map((option) => (
                     <option key={option.value} value={option.value}>
                       {option.label}
@@ -332,8 +395,15 @@ export function ProductUomSection({ values, errors, setValue }: ProductUomSectio
                   min="0.000001"
                   step="0.000001"
                   value={entry.toBaseFactor}
-                  onChange={(event) => updateConversion(index, { toBaseFactor: event.target.value })}
-                  placeholder={t('catalog.products.uom.toBaseFactor', 'To base factor')}
+                  onChange={(event) =>
+                    updateConversion(index, {
+                      toBaseFactor: event.target.value,
+                    })
+                  }
+                  placeholder={t(
+                    "catalog.products.uom.toBaseFactor",
+                    "To base factor",
+                  )}
                 />
 
                 <Input
@@ -341,16 +411,20 @@ export function ProductUomSection({ values, errors, setValue }: ProductUomSectio
                   min="0"
                   step="1"
                   value={entry.sortOrder}
-                  onChange={(event) => updateConversion(index, { sortOrder: event.target.value })}
-                  placeholder={t('catalog.products.uom.sortOrder', 'Sort')}
+                  onChange={(event) =>
+                    updateConversion(index, { sortOrder: event.target.value })
+                  }
+                  placeholder={t("catalog.products.uom.sortOrder", "Sort")}
                 />
 
                 <label className="flex items-center gap-2 px-2 text-xs text-muted-foreground">
                   <Checkbox
                     checked={entry.isActive}
-                    onCheckedChange={(checked) => updateConversion(index, { isActive: checked === true })}
+                    onCheckedChange={(checked) =>
+                      updateConversion(index, { isActive: checked === true })
+                    }
                   />
-                  {t('catalog.products.uom.active', 'Active')}
+                  {t("catalog.products.uom.active", "Active")}
                 </label>
 
                 <Button
@@ -359,7 +433,10 @@ export function ProductUomSection({ values, errors, setValue }: ProductUomSectio
                   size="icon"
                   className="text-destructive"
                   onClick={() => removeConversion(index)}
-                  aria-label={t('catalog.products.uom.removeConversion', 'Remove conversion')}
+                  aria-label={t(
+                    "catalog.products.uom.removeConversion",
+                    "Remove conversion",
+                  )}
                 >
                   <Trash2 className="h-4 w-4" />
                 </Button>
@@ -373,6 +450,5 @@ export function ProductUomSection({ values, errors, setValue }: ProductUomSectio
         ) : null}
       </div>
     </div>
-  )
+  );
 }
-

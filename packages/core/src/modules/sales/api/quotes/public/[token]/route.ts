@@ -1,38 +1,57 @@
-import { NextResponse } from 'next/server'
-import { z } from 'zod'
-import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
-import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
-import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
-import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
-import type { EntityManager } from '@mikro-orm/postgresql'
-import { SalesQuote, SalesQuoteLine, SalesQuoteAdjustment } from '../../../../data/entities'
+import { NextResponse } from "next/server";
+import { z } from "zod";
+import { createRequestContainer } from "@open-mercato/shared/lib/di/container";
+import { resolveTranslations } from "@open-mercato/shared/lib/i18n/server";
+import { CrudHttpError } from "@open-mercato/shared/lib/crud/errors";
+import type { OpenApiRouteDoc } from "@open-mercato/shared/lib/openapi";
+import type { EntityManager } from "@mikro-orm/postgresql";
+import {
+  SalesQuote,
+  SalesQuoteLine,
+  SalesQuoteAdjustment,
+} from "../../../../data/entities";
+import { canonicalizeUnitCode } from "@open-mercato/core/modules/catalog/lib/unitCodes";
 
 const paramsSchema = z.object({
   token: z.string().uuid(),
-})
+});
 
 export const metadata = {
   GET: { requireAuth: false },
-}
+};
 
 export async function GET(_req: Request, ctx: { params: { token: string } }) {
   try {
-    const { token } = paramsSchema.parse(ctx.params ?? {})
-    const container = await createRequestContainer()
-    const em = container.resolve('em') as EntityManager
-    const quote = await em.findOne(SalesQuote, { acceptanceToken: token, deletedAt: null })
-    const { translate } = await resolveTranslations()
+    const { token } = paramsSchema.parse(ctx.params ?? {});
+    const container = await createRequestContainer();
+    const em = container.resolve("em") as EntityManager;
+    const quote = await em.findOne(SalesQuote, {
+      acceptanceToken: token,
+      deletedAt: null,
+    });
+    const { translate } = await resolveTranslations();
     if (!quote) {
-      throw new CrudHttpError(404, { error: translate('sales.quotes.public.notFound', 'Quote not found.') })
+      throw new CrudHttpError(404, {
+        error: translate("sales.quotes.public.notFound", "Quote not found."),
+      });
     }
 
-    const now = new Date()
-    const isExpired = !!quote.validUntil && quote.validUntil.getTime() < now.getTime()
+    const now = new Date();
+    const isExpired =
+      !!quote.validUntil && quote.validUntil.getTime() < now.getTime();
 
     const [lines, adjustments] = await Promise.all([
-      em.find(SalesQuoteLine, { quote: quote.id, deletedAt: null }, { orderBy: { lineNumber: 'asc' } }),
-      em.find(SalesQuoteAdjustment, { quote: quote.id }, { orderBy: { position: 'asc' } }),
-    ])
+      em.find(
+        SalesQuoteLine,
+        { quote: quote.id, deletedAt: null },
+        { orderBy: { lineNumber: "asc" } },
+      ),
+      em.find(
+        SalesQuoteAdjustment,
+        { quote: quote.id },
+        { orderBy: { position: "asc" } },
+      ),
+    ]);
 
     return NextResponse.json({
       quote: {
@@ -49,14 +68,16 @@ export async function GET(_req: Request, ctx: { params: { token: string } }) {
         grandTotalGrossAmount: quote.grandTotalGrossAmount,
       },
       lines: lines.map((line) => ({
+        quantityUnit: canonicalizeUnitCode(line.quantityUnit) ?? null,
+        normalizedUnit:
+          canonicalizeUnitCode(line.normalizedUnit ?? line.quantityUnit) ??
+          null,
         lineNumber: line.lineNumber ?? null,
         kind: line.kind,
         name: line.name ?? null,
         description: line.description ?? null,
         quantity: line.quantity,
-        quantityUnit: line.quantityUnit ?? null,
         normalizedQuantity: line.normalizedQuantity ?? line.quantity,
-        normalizedUnit: line.normalizedUnit ?? line.quantityUnit ?? null,
         uomSnapshot: line.uomSnapshot ?? null,
         currencyCode: line.currencyCode,
         unitPriceNet: line.unitPriceNet,
@@ -69,10 +90,12 @@ export async function GET(_req: Request, ctx: { params: { token: string } }) {
         totalGrossAmount: line.totalGrossAmount,
         unitPriceReference:
           line.uomSnapshot &&
-          typeof line.uomSnapshot === 'object' &&
+          typeof line.uomSnapshot === "object" &&
           (line.uomSnapshot as Record<string, unknown>).unitPriceReference &&
-          typeof (line.uomSnapshot as Record<string, unknown>).unitPriceReference === 'object'
-            ? ((line.uomSnapshot as Record<string, unknown>).unitPriceReference as Record<string, unknown>)
+          typeof (line.uomSnapshot as Record<string, unknown>)
+            .unitPriceReference === "object"
+            ? ((line.uomSnapshot as Record<string, unknown>)
+                .unitPriceReference as Record<string, unknown>)
             : null,
       })),
       adjustments: adjustments.map((adj) => ({
@@ -87,14 +110,19 @@ export async function GET(_req: Request, ctx: { params: { token: string } }) {
         quoteLineId: adj.quoteLine?.id ?? null,
       })),
       isExpired,
-    })
+    });
   } catch (err) {
     if (err instanceof CrudHttpError) {
-      return NextResponse.json(err.body, { status: err.status })
+      return NextResponse.json(err.body, { status: err.status });
     }
-    const { translate } = await resolveTranslations()
-    console.error('sales.quotes.public failed', err)
-    return NextResponse.json({ error: translate('sales.quotes.public.failed', 'Failed to load quote.') }, { status: 400 })
+    const { translate } = await resolveTranslations();
+    console.error("sales.quotes.public failed", err);
+    return NextResponse.json(
+      {
+        error: translate("sales.quotes.public.failed", "Failed to load quote."),
+      },
+      { status: 400 },
+    );
   }
 }
 
@@ -124,9 +152,12 @@ const publicQuoteResponseSchema = z.object({
       normalizedUnit: z.string().nullable(),
       uomSnapshot: z.record(z.string(), z.unknown()).nullable().optional(),
       currencyCode: z.string(),
-      unitPriceReference: z.record(z.string(), z.unknown()).nullable().optional(),
+      unitPriceReference: z
+        .record(z.string(), z.unknown())
+        .nullable()
+        .optional(),
       totalGrossAmount: z.string(),
-    })
+    }),
   ),
   adjustments: z.array(
     z.object({
@@ -136,22 +167,30 @@ const publicQuoteResponseSchema = z.object({
       rate: z.string().nullable(),
       amountNet: z.string().nullable(),
       amountGross: z.string().nullable(),
-    })
+    }),
   ),
   isExpired: z.boolean(),
-})
+});
 
 export const openApi: OpenApiRouteDoc = {
-  tag: 'Sales',
-  summary: 'View a quote (public)',
+  tag: "Sales",
+  summary: "View a quote (public)",
   pathParams: z.object({ token: z.string().uuid() }),
   methods: {
     GET: {
-      summary: 'Get quote details by acceptance token',
+      summary: "Get quote details by acceptance token",
       responses: [
-        { status: 200, description: 'Quote details', schema: publicQuoteResponseSchema },
-        { status: 404, description: 'Quote not found', schema: z.object({ error: z.string() }) },
+        {
+          status: 200,
+          description: "Quote details",
+          schema: publicQuoteResponseSchema,
+        },
+        {
+          status: 404,
+          description: "Quote not found",
+          schema: z.object({ error: z.string() }),
+        },
       ],
     },
   },
-}
+};
