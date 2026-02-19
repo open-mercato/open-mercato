@@ -2,6 +2,7 @@ import 'dotenv/config'
 import 'reflect-metadata'
 import { MikroORM } from '@mikro-orm/core'
 import { PostgreSqlDriver } from '@mikro-orm/postgresql'
+import { getSslConfig } from './ssl'
 
 let ormInstance: MikroORM<PostgreSqlDriver> | null = null
 
@@ -52,13 +53,7 @@ export async function getOrm() {
       ? `-c idle_session_timeout=${idleSessionTimeoutMs}`
       : undefined
 
-  const requireSsl = clientUrl.includes('sslmode=require') ||
-                     clientUrl.includes('ssl=true') ||
-                     process.env.DB_SSL === 'true'
-
-  const sslConfig = requireSsl ? {
-    rejectUnauthorized: process.env.DB_SSL_REJECT_UNAUTHORIZED !== 'false',
-  } : undefined
+  const sslConfig = getSslConfig()
 
   ormInstance = await MikroORM.init<PostgreSqlDriver>({
     driver: PostgreSqlDriver,

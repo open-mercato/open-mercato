@@ -8,6 +8,7 @@ import type { Module } from '@open-mercato/shared/modules/registry'
 import { getCliModules, hasCliModules, registerCliModules } from './registry'
 export { getCliModules, hasCliModules, registerCliModules }
 import { parseBooleanToken } from '@open-mercato/shared/lib/boolean'
+import { getSslConfig } from '@open-mercato/shared/lib/db/ssl'
 import { getRedisUrl } from '@open-mercato/shared/lib/redis/connection'
 import { resolveInitDerivedSecrets } from './lib/init-secrets'
 import {
@@ -49,15 +50,6 @@ async function ensureEnvLoaded() {
   try {
     await import('dotenv/config')
   } catch {}
-}
-
-function getSslConfig() {
-  const clientUrl = process.env.DATABASE_URL || ''
-  const requireSsl = clientUrl.includes('sslmode=require') ||
-                     clientUrl.includes('ssl=true') ||
-                     process.env.DB_SSL === 'true'
-  if (!requireSsl) return undefined
-  return { rejectUnauthorized: process.env.DB_SSL_REJECT_UNAUTHORIZED !== 'false' }
 }
 
 // Helper to run a CLI command directly (without spawning a process)

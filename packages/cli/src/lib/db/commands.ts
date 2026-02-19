@@ -4,6 +4,7 @@ import { pathToFileURL } from 'node:url'
 import { MikroORM, type Logger } from '@mikro-orm/core'
 import { Migrator } from '@mikro-orm/migrations'
 import { PostgreSqlDriver } from '@mikro-orm/postgresql'
+import { getSslConfig } from '@open-mercato/shared/lib/db/ssl'
 import type { PackageResolver, ModuleEntry } from '../resolver'
 
 const QUIET_MODE = process.env.OM_CLI_QUIET === '1' || process.env.MERCATO_QUIET === '1'
@@ -41,21 +42,6 @@ function getClientUrl(): string {
   const url = process.env.DATABASE_URL
   if (!url) throw new Error('DATABASE_URL is not set')
   return url
-}
-
-function getSslConfig() {
-  const clientUrl = process.env.DATABASE_URL || ''
-  const requireSsl = clientUrl.includes('sslmode=require') ||
-                     clientUrl.includes('ssl=true') ||
-                     process.env.DB_SSL === 'true'
-
-  if (!requireSsl) {
-    return undefined
-  }
-
-  return {
-    rejectUnauthorized: process.env.DB_SSL_REJECT_UNAUTHORIZED !== 'false',
-  }
 }
 
 function sortModules(mods: ModuleEntry[]): ModuleEntry[] {
