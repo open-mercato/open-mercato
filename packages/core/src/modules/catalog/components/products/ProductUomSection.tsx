@@ -7,7 +7,7 @@ import { Button } from "@open-mercato/ui/primitives/button";
 import { Checkbox } from "@open-mercato/ui/primitives/checkbox";
 import { Input } from "@open-mercato/ui/primitives/input";
 import { Label } from "@open-mercato/ui/primitives/label";
-import { Plus, Trash2 } from "lucide-react";
+import { ArrowDown, ArrowUp, Plus, Trash2 } from "lucide-react";
 import type {
   ProductFormValues,
   ProductUnitConversionDraft,
@@ -42,21 +42,59 @@ function normalizeText(value: unknown): string | null {
   return trimmed.length ? trimmed : null;
 }
 
+function normalizeDecimalInput(value: string): string {
+  return value.replace(",", ".");
+}
+
+function toPositiveNumber(value: unknown): number | null {
+  if (typeof value === "number") {
+    return Number.isFinite(value) && value > 0 ? value : null;
+  }
+  if (typeof value !== "string") return null;
+  const normalized = normalizeText(value);
+  if (!normalized) return null;
+  const numeric = Number(normalized.replace(",", "."));
+  return Number.isFinite(numeric) && numeric > 0 ? numeric : null;
+}
+
+function toSortValue(value: string): number {
+  const numeric = Number(value);
+  return Number.isFinite(numeric) ? numeric : Number.MAX_SAFE_INTEGER;
+}
+
+function formatPreviewNumber(value: number): string {
+  if (!Number.isFinite(value)) return "0";
+  const rounded = Math.round(value * 1_000_000) / 1_000_000;
+  return Number.isInteger(rounded) ? String(rounded) : rounded.toString();
+}
+
 function normalizeConversions(value: unknown): ProductUnitConversionDraft[] {
   if (!Array.isArray(value)) return [];
-  return value
+  const normalized = value
     .map((entry) => {
       if (!entry || typeof entry !== "object") return null;
       const row = entry as ProductUnitConversionDraft;
       return {
         id: normalizeText(row.id) ?? null,
         unitCode: normalizeText(row.unitCode) ?? "",
-        toBaseFactor: normalizeText(row.toBaseFactor) ?? "",
+        toBaseFactor: normalizeText(row.toBaseFactor)
+          ? normalizeDecimalInput(normalizeText(row.toBaseFactor) as string)
+          : "",
         sortOrder: normalizeText(row.sortOrder) ?? "",
         isActive: row.isActive !== false,
       } satisfies ProductUnitConversionDraft;
     })
     .filter((entry): entry is ProductUnitConversionDraft => Boolean(entry));
+  normalized.sort((left, right) => {
+    const leftOrder = toSortValue(left.sortOrder);
+    const rightOrder = toSortValue(right.sortOrder);
+    if (leftOrder === rightOrder) return left.unitCode.localeCompare(right.unitCode);
+    return leftOrder - rightOrder;
+  });
+  return normalized.map((entry, index) => ({
+    ...entry,
+    sortOrder: String((index + 1) * 10),
+  }));
 }
 
 function buildUnitOptions(
@@ -126,7 +164,11 @@ export function ProductUomSection({
 
   const setConversions = React.useCallback(
     (next: ProductUnitConversionDraft[]) => {
-      setValue("unitConversions", next);
+      const normalized = next.map((entry, index) => ({
+        ...entry,
+        sortOrder: String((index + 1) * 10),
+      }));
+      setValue("unitConversions", normalized);
     },
     [setValue],
   );
@@ -159,15 +201,57 @@ export function ProductUomSection({
     [conversions, setConversions],
   );
 
+  const moveConversion = React.useCallback(
+    (index: number, direction: "up" | "down") => {
+      const targetIndex = direction === "up" ? index - 1 : index + 1;
+      if (targetIndex < 0 || targetIndex >= conversions.length) return;
+      const next = [...conversions];
+      const source = next[index];
+      next[index] = next[targetIndex];
+      next[targetIndex] = source;
+      setConversions(next);
+    },
+    [conversions, setConversions],
+  );
+
   const defaultUnit = normalizeText(values.defaultUnit) ?? "";
   const defaultSalesUnit = normalizeText(values.defaultSalesUnit) ?? "";
-  const defaultSalesQuantity =
+  const defaultSalesQuantityRaw =
     normalizeText(values.defaultSalesUnitQuantity) ?? "1";
+  const defaultSalesQuantity = normalizeDecimalInput(defaultSalesQuantityRaw);
   const unitPriceEnabled = Boolean(values.unitPriceEnabled);
   const unitPriceReferenceUnit =
     normalizeText(values.unitPriceReferenceUnit) ?? "";
-  const unitPriceBaseQuantity =
+  const unitPriceBaseQuantityRaw =
     normalizeText(values.unitPriceBaseQuantity) ?? "";
+  const unitPriceBaseQuantity = normalizeDecimalInput(unitPriceBaseQuantityRaw);
+
+  const baseUnitLabel = findUnitLabel(defaultUnit) ?? defaultUnit;
+  const salesUnitLabel =
+    findUnitLabel(defaultSalesUnit || defaultUnit) ??
+    defaultSalesUnit ??
+    defaultUnit;
+
+  const defaultSalesFactor = React.useMemo(() => {
+    const defaultUnitKey = defaultUnit.toLowerCase();
+    const defaultSalesKey = (defaultSalesUnit || defaultUnit).toLowerCase();
+    if (!defaultUnitKey || !defaultSalesKey) return null;
+    if (defaultSalesKey === defaultUnitKey) return 1;
+    const row = conversions.find(
+      (entry) =>
+        entry.isActive &&
+        entry.unitCode.toLowerCase() === defaultSalesKey &&
+        toPositiveNumber(entry.toBaseFactor) !== null,
+    );
+    return row ? toPositiveNumber(row.toBaseFactor) : null;
+  }, [conversions, defaultSalesUnit, defaultUnit]);
+
+  const defaultSalesQuantityNumber = toPositiveNumber(defaultSalesQuantity);
+  const defaultSalesQuantityNormalized =
+    defaultSalesQuantityNumber && defaultSalesFactor
+      ? defaultSalesQuantityNumber * defaultSalesFactor
+      : null;
+  const unitPriceBaseQuantityNumber = toPositiveNumber(unitPriceBaseQuantity);
 
   const conversionPreview = conversions
     .filter(
@@ -196,7 +280,7 @@ export function ProductUomSection({
         <p className="text-xs text-muted-foreground">
           {t(
             "catalog.products.uom.description",
-            "Set base/sales units and packaging conversions.",
+            "Set base unit, sales unit, and packaging conversions.",
           )}
         </p>
       </div>
@@ -252,23 +336,56 @@ export function ProductUomSection({
           ) : null}
         </div>
 
-        <div className="space-y-2">
+        <div className="space-y-2 md:col-span-2">
           <Label>
             {t(
-              "catalog.products.uom.defaultSalesQuantity",
-              "Default sales quantity",
+              "catalog.products.uom.defaultSalesQuantityLabel",
+              "Default line quantity (in sales unit)",
             )}
           </Label>
           <Input
-            type="number"
-            min="0.000001"
-            step="0.000001"
+            type="text"
+            inputMode="decimal"
             value={defaultSalesQuantity}
             onChange={(event) =>
-              setValue("defaultSalesUnitQuantity", event.target.value)
+              setValue(
+                "defaultSalesUnitQuantity",
+                normalizeDecimalInput(event.target.value),
+              )
             }
             placeholder="1"
           />
+          <p className="text-xs text-muted-foreground">
+            {t(
+              "catalog.products.uom.defaultSalesQuantityHint",
+              "Used to prefill quantity in quote/order lines. Value is interpreted in Default sales unit.",
+            )}
+          </p>
+          {defaultSalesQuantityNumber && salesUnitLabel ? (
+            <p className="text-xs text-muted-foreground">
+              {defaultSalesQuantityNormalized && baseUnitLabel
+                ? t(
+                    "catalog.products.uom.defaultSalesQuantityPreviewWithNormalization",
+                    "Default line: {{quantity}} {{salesUnit}} (= {{normalized}} {{baseUnit}}).",
+                    {
+                      quantity: formatPreviewNumber(defaultSalesQuantityNumber),
+                      salesUnit: salesUnitLabel,
+                      normalized: formatPreviewNumber(
+                        defaultSalesQuantityNormalized,
+                      ),
+                      baseUnit: baseUnitLabel,
+                    },
+                  )
+                : t(
+                    "catalog.products.uom.defaultSalesQuantityPreview",
+                    "Default line: {{quantity}} {{salesUnit}}.",
+                    {
+                      quantity: formatPreviewNumber(defaultSalesQuantityNumber),
+                      salesUnit: salesUnitLabel,
+                    },
+                  )}
+            </p>
+          ) : null}
           {errors.defaultSalesUnitQuantity ? (
             <p className="text-xs text-red-600">
               {errors.defaultSalesUnitQuantity}
@@ -277,7 +394,7 @@ export function ProductUomSection({
         </div>
       </div>
 
-      <div className="space-y-3 rounded-md border p-3">
+      <div className="space-y-3">
         <div className="flex items-center gap-2">
           <Checkbox
             id="catalog-product-unit-price-enabled"
@@ -330,25 +447,44 @@ export function ProductUomSection({
               <Label>
                 {t(
                   "catalog.products.unitPrice.baseQuantity",
-                  "Base quantity for reference",
+                  "Reference quantity (in base unit)",
                 )}
               </Label>
               <Input
-                type="number"
-                min="0.000001"
-                step="0.000001"
+                type="text"
+                inputMode="decimal"
                 value={unitPriceBaseQuantity}
                 onChange={(event) =>
-                  setValue("unitPriceBaseQuantity", event.target.value)
+                  setValue(
+                    "unitPriceBaseQuantity",
+                    normalizeDecimalInput(event.target.value),
+                  )
                 }
                 placeholder="1"
               />
             </div>
           </div>
         ) : null}
+        {unitPriceEnabled ? (
+          <p className="text-xs text-muted-foreground">
+            {unitPriceReferenceUnit && unitPriceBaseQuantityNumber
+              ? t(
+                  "catalog.products.unitPrice.hintWithPreview",
+                  "Show calculated price per {{quantity}} {{unit}}. For most products use 1 (for example: 1 kg, 1 l, 1 m²).",
+                  {
+                    quantity: formatPreviewNumber(unitPriceBaseQuantityNumber),
+                    unit: unitPriceReferenceUnit,
+                  },
+                )
+              : t(
+                  "catalog.products.unitPrice.hint",
+                  "Show calculated price per selected reference unit. In most cases set quantity to 1.",
+                )}
+          </p>
+        ) : null}
       </div>
 
-      <div className="space-y-3 rounded-md border p-3">
+      <div className="space-y-3">
         <div className="flex items-center justify-between gap-2">
           <Label className="text-sm">
             {t("catalog.products.uom.conversions", "Product conversions")}
@@ -376,82 +512,140 @@ export function ProductUomSection({
             {conversions.map((entry, index) => (
               <div
                 key={entry.id ?? `uom-conversion-${index}`}
-                className="grid gap-2 rounded border p-2 md:grid-cols-12 md:items-center"
+                className="grid gap-3 rounded-md border p-3 md:grid-cols-12"
               >
-                <select
-                  className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 md:col-span-4"
-                  value={entry.unitCode}
-                  onChange={(event) =>
-                    updateConversion(index, { unitCode: event.target.value })
-                  }
-                  disabled={loadingUnits}
-                >
-                  <option value="">
-                    {t("catalog.products.uom.selectUnit", "Select unit")}
-                  </option>
-                  {unitOptions.map((option) => (
-                    <option key={option.value} value={option.value}>
-                      {option.label}
-                    </option>
-                  ))}
-                </select>
-
-                <Input
-                  type="number"
-                  min="0.000001"
-                  step="0.000001"
-                  className="md:col-span-3"
-                  value={entry.toBaseFactor}
-                  onChange={(event) =>
-                    updateConversion(index, {
-                      toBaseFactor: event.target.value,
-                    })
-                  }
-                  placeholder={t(
-                    "catalog.products.uom.toBaseFactor",
-                    "To base factor",
-                  )}
-                />
-
-                <Input
-                  type="number"
-                  min="0"
-                  step="1"
-                  className="md:col-span-2"
-                  value={entry.sortOrder}
-                  onChange={(event) =>
-                    updateConversion(index, { sortOrder: event.target.value })
-                  }
-                  placeholder={t("catalog.products.uom.sortOrder", "Sort")}
-                />
-
-                <label className="flex items-center gap-2 px-2 text-xs text-muted-foreground md:col-span-2 md:justify-center">
-                  <Checkbox
-                    checked={entry.isActive}
-                    onCheckedChange={(checked) =>
-                      updateConversion(index, { isActive: checked === true })
+                <div className="space-y-1 md:col-span-4">
+                  <Label className="text-xs text-muted-foreground">
+                    {t("catalog.products.uom.conversionUnit", "Sales unit")}
+                  </Label>
+                  <select
+                    className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+                    value={entry.unitCode}
+                    onChange={(event) =>
+                      updateConversion(index, { unitCode: event.target.value })
                     }
-                  />
-                  {t("catalog.products.uom.active", "Active")}
-                </label>
+                    disabled={loadingUnits}
+                  >
+                    <option value="">
+                      {t("catalog.products.uom.selectUnit", "Select unit")}
+                    </option>
+                    {unitOptions.map((option) => (
+                      <option key={option.value} value={option.value}>
+                        {option.label}
+                      </option>
+                    ))}
+                  </select>
+                </div>
 
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="icon"
-                  className="text-destructive md:col-span-1 md:justify-self-end"
-                  onClick={() => removeConversion(index)}
-                  aria-label={t(
-                    "catalog.products.uom.removeConversion",
-                    "Remove conversion",
-                  )}
-                >
-                  <Trash2 className="h-4 w-4" />
-                </Button>
+                <div className="space-y-1 md:col-span-3">
+                  <Label className="text-xs text-muted-foreground">
+                    {t(
+                      "catalog.products.uom.toBaseFactor",
+                      "Base units per 1 sales unit",
+                    )}
+                  </Label>
+                  <Input
+                    type="text"
+                    inputMode="decimal"
+                    value={entry.toBaseFactor}
+                    onChange={(event) =>
+                      updateConversion(index, {
+                        toBaseFactor: normalizeDecimalInput(event.target.value),
+                      })
+                    }
+                    placeholder="1"
+                  />
+                </div>
+
+                <div className="flex items-end gap-2 md:col-span-3">
+                  <div className="inline-flex h-9 rounded-md border">
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon"
+                      className="h-9 w-9 rounded-none border-r"
+                      onClick={() => moveConversion(index, "up")}
+                      disabled={index === 0}
+                      aria-label={t(
+                        "catalog.products.uom.moveUp",
+                        "Move conversion up",
+                      )}
+                    >
+                      <ArrowUp className="h-4 w-4" />
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon"
+                      className="h-9 w-9 rounded-none"
+                      onClick={() => moveConversion(index, "down")}
+                      disabled={index === conversions.length - 1}
+                      aria-label={t(
+                        "catalog.products.uom.moveDown",
+                        "Move conversion down",
+                      )}
+                    >
+                      <ArrowDown className="h-4 w-4" />
+                    </Button>
+                  </div>
+                  <label className="flex items-center gap-2 px-1 text-xs text-muted-foreground">
+                    <Checkbox
+                      checked={entry.isActive}
+                      onCheckedChange={(checked) =>
+                        updateConversion(index, { isActive: checked === true })
+                      }
+                    />
+                    {t("catalog.products.uom.active", "Active")}
+                  </label>
+                </div>
+
+                <div className="flex items-end justify-end md:col-span-2">
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon"
+                    className="text-destructive"
+                    onClick={() => removeConversion(index)}
+                    aria-label={t(
+                      "catalog.products.uom.removeConversion",
+                      "Remove conversion",
+                    )}
+                  >
+                    <Trash2 className="h-4 w-4" />
+                  </Button>
+                </div>
+
+                {entry.unitCode && toPositiveNumber(entry.toBaseFactor) ? (
+                  <p className="text-xs text-muted-foreground md:col-span-12">
+                    {t(
+                      "catalog.products.uom.conversionPreview",
+                      "1 {{fromUnit}} = {{factor}} {{baseUnit}}",
+                      {
+                        fromUnit: findUnitLabel(entry.unitCode) ?? entry.unitCode,
+                        factor: formatPreviewNumber(
+                          toPositiveNumber(entry.toBaseFactor) as number,
+                        ),
+                        baseUnit:
+                          findUnitLabel(defaultUnit) ??
+                          defaultUnit ??
+                          t("catalog.products.uom.baseUnit", "base unit"),
+                      },
+                    )}
+                  </p>
+                ) : null}
               </div>
             ))}
           </div>
         )}
+
+        {conversions.length > 1 ? (
+          <p className="text-xs text-muted-foreground">
+            {t(
+              "catalog.products.uom.conversionOrderHint",
+              "Use arrows to reorder conversion priority.",
+            )}
+          </p>
+        ) : null}
 
         {conversionPreview ? (
           <p className="text-xs text-muted-foreground">{conversionPreview}</p>
