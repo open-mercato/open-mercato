@@ -195,7 +195,9 @@ async function ensureDefaultSalesUnitIsNotRemoved(
       ? await em.findOne(CatalogProduct, { id: record.product, deletedAt: null })
       : record.product
   if (!product) return
-  if (product.defaultSalesUnit && product.defaultSalesUnit === record.unitCode) {
+  const defaultSalesUnitKey = typeof product.defaultSalesUnit === 'string' ? product.defaultSalesUnit.trim().toLowerCase() : ''
+  const conversionUnitKey = typeof record.unitCode === 'string' ? record.unitCode.trim().toLowerCase() : ''
+  if (defaultSalesUnitKey && conversionUnitKey && defaultSalesUnitKey === conversionUnitKey) {
     throw new CrudHttpError(409, {
       error: 'uom.default_sales_unit_conversion_required',
     })
