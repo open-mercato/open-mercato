@@ -22,12 +22,14 @@ import {
   CatalogProduct,
   CatalogProductVariant,
   CatalogProductPrice,
+  CatalogProductUnitConversion,
   CatalogOptionSchemaTemplate,
   CatalogProductCategory,
   CatalogProductCategoryAssignment,
   CatalogProductTag,
   CatalogProductTagAssignment,
 } from '../data/entities'
+import { Dictionary, DictionaryEntry } from '@open-mercato/core/modules/dictionaries/data/entities'
 import { SalesTaxRate } from '@open-mercato/core/modules/sales/data/entities'
 import {
   productCreateSchema,
@@ -93,6 +95,113 @@ type ProductSnapshot = {
   tags: string[]
   categoryIds: string[]
   custom: Record<string, unknown> | null
+}
+
+function normalizeUnitCodeInput(value: unknown): string | null {
+  if (typeof value !== 'string') return null
+  const normalized = value.trim()
+  return normalized.length ? normalized : null
+}
+
+async function resolveUnitDictionary(em: EntityManager, organizationId: string, tenantId: string) {
+  return em.findOne(
+    Dictionary,
+    {
+      organizationId,
+      tenantId,
+      key: { $in: ['unit', 'units', 'measurement_units'] },
+      deletedAt: null,
+      isActive: true,
+    },
+    { orderBy: { createdAt: 'asc' } }
+  )
+}
+
+async function resolveCanonicalUnitCode(
+  em: EntityManager,
+  params: {
+    organizationId: string
+    tenantId: string
+    unitCode: string
+  }
+): Promise<string> {
+  const dictionary = await resolveUnitDictionary(em, params.organizationId, params.tenantId)
+  if (!dictionary) {
+    throw new CrudHttpError(400, { error: 'uom.unit_not_found' })
+  }
+  const unitCode = params.unitCode.trim()
+  const normalized = unitCode.toLowerCase()
+  const entry = await em.findOne(DictionaryEntry, {
+    dictionary,
+    organizationId: dictionary.organizationId,
+    tenantId: dictionary.tenantId,
+    $or: [
+      { normalizedValue: normalized },
+      { value: unitCode },
+    ],
+  })
+  if (!entry) {
+    throw new CrudHttpError(400, { error: 'uom.unit_not_found' })
+  }
+  const canonical = typeof entry.value === 'string' ? entry.value.trim() : ''
+  return canonical.length ? canonical : unitCode
+}
+
+async function resolveProductUnitDefaults(
+  em: EntityManager,
+  params: {
+    organizationId: string
+    tenantId: string
+    defaultUnit: string | null | undefined
+    defaultSalesUnit: string | null | undefined
+  }
+): Promise<{ defaultUnit: string | null; defaultSalesUnit: string | null }> {
+  const defaultUnitInput = normalizeUnitCodeInput(params.defaultUnit)
+  const defaultSalesUnitInput = normalizeUnitCodeInput(params.defaultSalesUnit)
+  if (!defaultUnitInput && defaultSalesUnitInput) {
+    throw new CrudHttpError(400, { error: 'uom.default_unit_missing' })
+  }
+  const defaultUnit = defaultUnitInput
+    ? await resolveCanonicalUnitCode(em, {
+        organizationId: params.organizationId,
+        tenantId: params.tenantId,
+        unitCode: defaultUnitInput,
+      })
+    : null
+  const defaultSalesUnit = defaultSalesUnitInput
+    ? await resolveCanonicalUnitCode(em, {
+        organizationId: params.organizationId,
+        tenantId: params.tenantId,
+        unitCode: defaultSalesUnitInput,
+      })
+    : null
+  return { defaultUnit, defaultSalesUnit }
+}
+
+async function ensureBaseUnitCanBeRemoved(
+  em: EntityManager,
+  params: {
+    productId: string
+    organizationId: string
+    tenantId: string
+    defaultUnit: string | null
+    defaultSalesUnit: string | null
+  }
+): Promise<void> {
+  if (params.defaultUnit) return
+  if (params.defaultSalesUnit) {
+    throw new CrudHttpError(400, { error: 'uom.default_unit_missing' })
+  }
+  const activeConversions = await em.count(CatalogProductUnitConversion, {
+    product: params.productId,
+    organizationId: params.organizationId,
+    tenantId: params.tenantId,
+    deletedAt: null,
+    isActive: true,
+  })
+  if (activeConversions > 0) {
+    throw new CrudHttpError(400, { error: 'uom.default_unit_missing' })
+  }
 }
 
 function resolveUnitPriceInput(parsed: ProductCreateInput | ProductUpdateInput): {
@@ -1056,6 +1165,12 @@ const createProductCommand: CommandHandler<ProductCreateInput, { productId: stri
     const metadata = measurements.metadata ? cloneJson(measurements.metadata) : null
     const unitPriceInput = resolveUnitPriceInput(parsed)
     const unitPriceEnabled = unitPriceInput.enabled ?? false
+    const resolvedUnits = await resolveProductUnitDefaults(em, {
+      organizationId: parsed.organizationId,
+      tenantId: parsed.tenantId,
+      defaultUnit: parsed.defaultUnit ?? null,
+      defaultSalesUnit: parsed.defaultSalesUnit ?? parsed.defaultUnit ?? null,
+    })
     const productId = randomUUID()
     const record = em.create(CatalogProduct, {
       id: productId,
@@ -1071,8 +1186,8 @@ const createProductCommand: CommandHandler<ProductCreateInput, { productId: stri
       productType: parsed.productType ?? 'simple',
       statusEntryId: parsed.statusEntryId ?? null,
       primaryCurrencyCode: parsed.primaryCurrencyCode ?? null,
-      defaultUnit: parsed.defaultUnit ?? null,
-      defaultSalesUnit: parsed.defaultSalesUnit ?? parsed.defaultUnit ?? null,
+      defaultUnit: resolvedUnits.defaultUnit,
+      defaultSalesUnit: resolvedUnits.defaultSalesUnit ?? resolvedUnits.defaultUnit,
       defaultSalesUnitQuantity: toNumericString(parsed.defaultSalesUnitQuantity ?? 1) ?? '1',
       uomRoundingScale: parsed.uomRoundingScale ?? 4,
       uomRoundingMode: parsed.uomRoundingMode ?? 'half_up',
@@ -1235,9 +1350,27 @@ const updateProductCommand: CommandHandler<ProductUpdateInput, { productId: stri
     if (parsed.primaryCurrencyCode !== undefined) {
       record.primaryCurrencyCode = parsed.primaryCurrencyCode ?? null
     }
-    if (parsed.defaultUnit !== undefined) record.defaultUnit = parsed.defaultUnit ?? null
-    if (parsed.defaultSalesUnit !== undefined) {
-      record.defaultSalesUnit = parsed.defaultSalesUnit ?? null
+    const uomDefaultsTouched =
+      parsed.defaultUnit !== undefined ||
+      parsed.defaultSalesUnit !== undefined ||
+      parsed.organizationId !== undefined ||
+      parsed.tenantId !== undefined
+    if (uomDefaultsTouched) {
+      const resolvedUnits = await resolveProductUnitDefaults(em, {
+        organizationId,
+        tenantId,
+        defaultUnit: parsed.defaultUnit !== undefined ? parsed.defaultUnit : record.defaultUnit,
+        defaultSalesUnit: parsed.defaultSalesUnit !== undefined ? parsed.defaultSalesUnit : record.defaultSalesUnit,
+      })
+      await ensureBaseUnitCanBeRemoved(em, {
+        productId: record.id,
+        organizationId,
+        tenantId,
+        defaultUnit: resolvedUnits.defaultUnit,
+        defaultSalesUnit: resolvedUnits.defaultSalesUnit,
+      })
+      record.defaultUnit = resolvedUnits.defaultUnit
+      record.defaultSalesUnit = resolvedUnits.defaultSalesUnit
     }
     if (parsed.defaultSalesUnitQuantity !== undefined) {
       record.defaultSalesUnitQuantity = toNumericString(parsed.defaultSalesUnitQuantity) ?? '1'
