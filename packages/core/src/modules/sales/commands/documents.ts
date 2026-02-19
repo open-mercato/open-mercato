@@ -1742,6 +1742,7 @@ const UNIT_DICTIONARY_KEYS = ["unit", "units", "measurement_units"] as const;
 const UOM_REFERENCE_UNITS = new Set(["kg", "l", "m2", "m3", "pc"]);
 const UOM_NORMALIZED_SCALE = 6;
 const UOM_NORMALIZED_MAX = 1_000_000_000_000;
+const UNIT_PRICE_AUTOCONVERT_SCALE = 4;
 
 type ProductUomState = {
   productId: string;
@@ -1813,6 +1814,115 @@ function toOptionalNumber(value: unknown): number | null {
     return Number.isFinite(parsed) ? parsed : null;
   }
   return null;
+}
+
+function resolveSnapshotToBaseFactor(snapshot: unknown): number {
+  if (!snapshot || typeof snapshot !== "object") return 1;
+  const payload = snapshot as Record<string, unknown>;
+  const factor = toOptionalNumber(payload.toBaseFactor ?? payload.to_base_factor);
+  if (!Number.isFinite(factor) || !factor || factor <= 0) return 1;
+  return factor;
+}
+
+function roundAutoConvertedUnitPrice(value: number): number | null {
+  if (!Number.isFinite(value) || value < 0) return null;
+  const factor = 10 ** UNIT_PRICE_AUTOCONVERT_SCALE;
+  const rounded = Math.round((value + Number.EPSILON) * factor) / factor;
+  return Number.isFinite(rounded) ? rounded : null;
+}
+
+function convertLineUnitPricesOnUnitChange(params: {
+  existingSnapshot: SalesLineSnapshot | null;
+  nextQuantityUnit: string | null;
+  nextUomSnapshot: SalesLineUomSnapshot | Record<string, unknown> | null;
+  unitPriceNet: number | null;
+  unitPriceGross: number | null;
+}): {
+  unitPriceNet: number | null;
+  unitPriceGross: number | null;
+  didConvert: boolean;
+} {
+  if (!params.existingSnapshot) {
+    return {
+      unitPriceNet: params.unitPriceNet,
+      unitPriceGross: params.unitPriceGross,
+      didConvert: false,
+    };
+  }
+  const existingUnitPriceNet =
+    typeof params.existingSnapshot.unitPriceNet === "number" &&
+    Number.isFinite(params.existingSnapshot.unitPriceNet)
+      ? params.existingSnapshot.unitPriceNet
+      : null;
+  const existingUnitPriceGross =
+    typeof params.existingSnapshot.unitPriceGross === "number" &&
+    Number.isFinite(params.existingSnapshot.unitPriceGross)
+      ? params.existingSnapshot.unitPriceGross
+      : null;
+  const sameNumber = (left: number | null, right: number | null): boolean => {
+    if (left === null || right === null) return left === right;
+    return Math.abs(left - right) < 0.000001;
+  };
+  const shouldConvertNet =
+    params.unitPriceNet === null ||
+    sameNumber(params.unitPriceNet, existingUnitPriceNet);
+  const shouldConvertGross =
+    params.unitPriceGross === null ||
+    sameNumber(params.unitPriceGross, existingUnitPriceGross);
+  if (!shouldConvertNet && !shouldConvertGross) {
+    return {
+      unitPriceNet: params.unitPriceNet,
+      unitPriceGross: params.unitPriceGross,
+      didConvert: false,
+    };
+  }
+  const previousUnit = normalizeUnitCode(params.existingSnapshot?.quantityUnit ?? null);
+  const nextUnit = normalizeUnitCode(params.nextQuantityUnit);
+  if (!previousUnit || !nextUnit || previousUnit === nextUnit) {
+    return {
+      unitPriceNet: params.unitPriceNet,
+      unitPriceGross: params.unitPriceGross,
+      didConvert: false,
+    };
+  }
+  const previousFactor = resolveSnapshotToBaseFactor(
+    params.existingSnapshot?.uomSnapshot ?? null,
+  );
+  const nextFactor = resolveSnapshotToBaseFactor(params.nextUomSnapshot);
+  if (
+    !Number.isFinite(previousFactor) ||
+    previousFactor <= 0 ||
+    !Number.isFinite(nextFactor) ||
+    nextFactor <= 0
+  ) {
+    return {
+      unitPriceNet: params.unitPriceNet,
+      unitPriceGross: params.unitPriceGross,
+      didConvert: false,
+    };
+  }
+  const convertAmount = (
+    value: number | null,
+    shouldConvert: boolean,
+  ): number | null => {
+    if (!shouldConvert) return value;
+    if (value === null || !Number.isFinite(value)) return value;
+    const converted = roundAutoConvertedUnitPrice((value / previousFactor) * nextFactor);
+    return converted ?? value;
+  };
+  const nextUnitPriceNet = convertAmount(params.unitPriceNet, shouldConvertNet);
+  const nextUnitPriceGross = convertAmount(
+    params.unitPriceGross,
+    shouldConvertGross,
+  );
+  const didConvert =
+    nextUnitPriceNet !== params.unitPriceNet ||
+    nextUnitPriceGross !== params.unitPriceGross;
+  return {
+    unitPriceNet: nextUnitPriceNet,
+    unitPriceGross: nextUnitPriceGross,
+    didConvert,
+  };
 }
 
 function resolveReferenceUnit(
@@ -5945,9 +6055,8 @@ const orderLineUpsertCommand: CommandHandler<
     return snapshot ? { before: snapshot } : {};
   },
   async execute(input, ctx) {
-    const parsed = orderLineUpsertSchema.parse(
-      (input?.body as Record<string, unknown> | undefined) ?? {},
-    );
+    const rawBody = (input?.body as Record<string, unknown> | undefined) ?? {};
+    const parsed = orderLineUpsertSchema.parse(rawBody);
     const em = (ctx.container.resolve("em") as EntityManager).fork();
     const order = await em.findOne(SalesOrder, {
       id: parsed.orderId,
@@ -6019,26 +6128,50 @@ const orderLineUpsertCommand: CommandHandler<
     const statusEntryId =
       parsed.statusEntryId ?? (existingSnapshot as any)?.statusEntryId ?? null;
     const lineId = parsed.id ?? existingSnapshot?.id ?? randomUUID();
-    const normalizedUom = await normalizeLineUom({
+    const lineUomInput = {
+      productId: parsed.productId ?? existingSnapshot?.productId ?? null,
+      productVariantId:
+        parsed.productVariantId ?? existingSnapshot?.productVariantId ?? null,
+      quantity: parsed.quantity ?? existingSnapshot?.quantity ?? 0,
+      quantityUnit: parsed.quantityUnit ?? existingSnapshot?.quantityUnit ?? null,
+      normalizedQuantity: (existingSnapshot as any)?.normalizedQuantity ?? null,
+      normalizedUnit: (existingSnapshot as any)?.normalizedUnit ?? null,
+      uomSnapshot: (existingSnapshot as any)?.uomSnapshot ?? null,
+    };
+    const uomResolver = createUomResolver();
+    let normalizedUom = await normalizeLineUom({
       em,
-      resolver: createUomResolver(),
+      resolver: uomResolver,
       organizationId: order.organizationId,
       tenantId: order.tenantId,
       line: {
-        productId: parsed.productId ?? existingSnapshot?.productId ?? null,
-        productVariantId:
-          parsed.productVariantId ?? existingSnapshot?.productVariantId ?? null,
-        quantity: parsed.quantity ?? existingSnapshot?.quantity ?? 0,
-        quantityUnit:
-          parsed.quantityUnit ?? existingSnapshot?.quantityUnit ?? null,
+        ...lineUomInput,
         unitPriceNet: unitPriceNet ?? 0,
         unitPriceGross: unitPriceGross ?? unitPriceNet ?? 0,
-        normalizedQuantity:
-          (existingSnapshot as any)?.normalizedQuantity ?? null,
-        normalizedUnit: (existingSnapshot as any)?.normalizedUnit ?? null,
-        uomSnapshot: (existingSnapshot as any)?.uomSnapshot ?? null,
       },
     });
+    const convertedPrices = convertLineUnitPricesOnUnitChange({
+      existingSnapshot,
+      nextQuantityUnit: normalizedUom.quantityUnit,
+      nextUomSnapshot: normalizedUom.uomSnapshot,
+      unitPriceNet,
+      unitPriceGross,
+    });
+    if (convertedPrices.didConvert) {
+      unitPriceNet = convertedPrices.unitPriceNet;
+      unitPriceGross = convertedPrices.unitPriceGross;
+      normalizedUom = await normalizeLineUom({
+        em,
+        resolver: uomResolver,
+        organizationId: order.organizationId,
+        tenantId: order.tenantId,
+        line: {
+          ...lineUomInput,
+          unitPriceNet: unitPriceNet ?? 0,
+          unitPriceGross: unitPriceGross ?? unitPriceNet ?? 0,
+        },
+      });
+    }
     const updatedSnapshot: SalesLineSnapshot & {
       statusEntryId?: string | null;
       catalogSnapshot?: Record<string, unknown> | null;
@@ -6394,9 +6527,8 @@ const quoteLineUpsertCommand: CommandHandler<
     return snapshot ? { before: snapshot } : {};
   },
   async execute(input, ctx) {
-    const parsed = quoteLineUpsertSchema.parse(
-      (input?.body as Record<string, unknown> | undefined) ?? {},
-    );
+    const rawBody = (input?.body as Record<string, unknown> | undefined) ?? {};
+    const parsed = quoteLineUpsertSchema.parse(rawBody);
     const em = (ctx.container.resolve("em") as EntityManager).fork();
     const quote = await em.findOne(SalesQuote, {
       id: parsed.quoteId,
@@ -6466,26 +6598,50 @@ const quoteLineUpsertCommand: CommandHandler<
     const statusEntryId =
       parsed.statusEntryId ?? (existingSnapshot as any)?.statusEntryId ?? null;
     const lineId = parsed.id ?? existingSnapshot?.id ?? randomUUID();
-    const normalizedUom = await normalizeLineUom({
+    const lineUomInput = {
+      productId: parsed.productId ?? existingSnapshot?.productId ?? null,
+      productVariantId:
+        parsed.productVariantId ?? existingSnapshot?.productVariantId ?? null,
+      quantity: parsed.quantity ?? existingSnapshot?.quantity ?? 0,
+      quantityUnit: parsed.quantityUnit ?? existingSnapshot?.quantityUnit ?? null,
+      normalizedQuantity: (existingSnapshot as any)?.normalizedQuantity ?? null,
+      normalizedUnit: (existingSnapshot as any)?.normalizedUnit ?? null,
+      uomSnapshot: (existingSnapshot as any)?.uomSnapshot ?? null,
+    };
+    const uomResolver = createUomResolver();
+    let normalizedUom = await normalizeLineUom({
       em,
-      resolver: createUomResolver(),
+      resolver: uomResolver,
       organizationId: quote.organizationId,
       tenantId: quote.tenantId,
       line: {
-        productId: parsed.productId ?? existingSnapshot?.productId ?? null,
-        productVariantId:
-          parsed.productVariantId ?? existingSnapshot?.productVariantId ?? null,
-        quantity: parsed.quantity ?? existingSnapshot?.quantity ?? 0,
-        quantityUnit:
-          parsed.quantityUnit ?? existingSnapshot?.quantityUnit ?? null,
+        ...lineUomInput,
         unitPriceNet: unitPriceNet ?? 0,
         unitPriceGross: unitPriceGross ?? unitPriceNet ?? 0,
-        normalizedQuantity:
-          (existingSnapshot as any)?.normalizedQuantity ?? null,
-        normalizedUnit: (existingSnapshot as any)?.normalizedUnit ?? null,
-        uomSnapshot: (existingSnapshot as any)?.uomSnapshot ?? null,
       },
     });
+    const convertedPrices = convertLineUnitPricesOnUnitChange({
+      existingSnapshot,
+      nextQuantityUnit: normalizedUom.quantityUnit,
+      nextUomSnapshot: normalizedUom.uomSnapshot,
+      unitPriceNet,
+      unitPriceGross,
+    });
+    if (convertedPrices.didConvert) {
+      unitPriceNet = convertedPrices.unitPriceNet;
+      unitPriceGross = convertedPrices.unitPriceGross;
+      normalizedUom = await normalizeLineUom({
+        em,
+        resolver: uomResolver,
+        organizationId: quote.organizationId,
+        tenantId: quote.tenantId,
+        line: {
+          ...lineUomInput,
+          unitPriceNet: unitPriceNet ?? 0,
+          unitPriceGross: unitPriceGross ?? unitPriceNet ?? 0,
+        },
+      });
+    }
     const updatedSnapshot: SalesLineSnapshot & {
       statusEntryId?: string | null;
       catalogSnapshot?: Record<string, unknown> | null;
