@@ -70,7 +70,7 @@
     "@uiw/react-markdown-preview": "^5.1.5",
     "@uiw/react-md-editor": "^4.0.11",
     "@xyflow/react": "^12.10.0",
-    "ai": "^5.0.108",
+    "ai": "^6.0.0",
     "awilix": "^12.0.5",
     "bcryptjs": "^3.0.3",
     "class-variance-authority": "^0.7.1",
@@ -119,6 +119,7 @@
   "resolutions": {
     "pg": "8.16.3",
     "zod": "4.1.13",
-    "lodash-es": "4.17.23"
+    "lodash-es": "4.17.23",
+    "ai": "6.0.44"
   }
 }
