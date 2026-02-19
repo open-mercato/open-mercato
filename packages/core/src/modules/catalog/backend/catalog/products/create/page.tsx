@@ -201,15 +201,6 @@ function toIntegerInRangeOrDefault(
   return numeric;
 }
 
-function normalizeExistingTaxRateId(
-  value: unknown,
-  allowedIds: ReadonlySet<string>,
-): string | null {
-  const id = toTrimmedOrNull(value);
-  if (!id) return null;
-  return allowedIds.has(id) ? id : null;
-}
-
 function normalizeProductConversionInputs(
   rows: ProductUnitConversionDraft[] | undefined,
   duplicateMessage: string,
@@ -461,19 +452,11 @@ export default function CreateCatalogProductPage() {
               const match = taxRates.find((rate) => rate.id === taxRateId);
               return typeof match?.rate === "number" ? match.rate : null;
             };
-            const availableTaxRateIds = new Set(taxRates.map((rate) => rate.id));
-            const productLevelTaxRateId = normalizeExistingTaxRateId(
-              formValues.taxRateId,
-              availableTaxRateIds,
-            );
+            const productLevelTaxRateId = formValues.taxRateId ?? null;
             const productTaxRate = resolveTaxRateValue(productLevelTaxRateId);
             const resolveVariantTax = (variant: VariantDraft) => {
-              const variantTaxRateId = normalizeExistingTaxRateId(
-                variant.taxRateId,
-                availableTaxRateIds,
-              );
               const resolvedVariantTaxRateId =
-                variantTaxRateId ?? productLevelTaxRateId;
+                variant.taxRateId ?? productLevelTaxRateId;
               const resolvedVariantTaxRate =
                 resolveTaxRateValue(resolvedVariantTaxRateId) ??
                 (resolvedVariantTaxRateId ? null : (productTaxRate ?? null));
@@ -577,7 +560,7 @@ export default function CreateCatalogProductPage() {
               subtitle: formValues.subtitle?.trim() || undefined,
               description,
               handle,
-              taxRateId: productLevelTaxRateId,
+              taxRateId: formValues.taxRateId ?? null,
               taxRate: productTaxRate ?? null,
               isConfigurable: Boolean(formValues.hasVariants),
               defaultMediaId: defaultMediaId ?? undefined,

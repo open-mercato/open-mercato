@@ -287,15 +287,6 @@ function toIntegerInRangeOrDefault(
   return numeric;
 }
 
-function normalizeExistingTaxRateId(
-  value: unknown,
-  allowedIds: ReadonlySet<string>,
-): string | null {
-  const id = toTrimmedOrNull(value);
-  if (!id) return null;
-  return allowedIds.has(id) ? id : null;
-}
-
 function normalizeProductConversionInputs(
   rows: ProductUnitConversionDraft[] | undefined,
   duplicateMessage: string,
@@ -1026,12 +1017,7 @@ export default function EditCatalogProductPage({
           ? match.rate
           : null;
       };
-      const availableTaxRateIds = new Set(taxRates.map((rate) => rate.id));
-      const productTaxRateId = normalizeExistingTaxRateId(
-        values.taxRateId,
-        availableTaxRateIds,
-      );
-      const productTaxRateValue = resolveTaxRateValue(productTaxRateId);
+      const productTaxRateValue = resolveTaxRateValue(values.taxRateId ?? null);
       const defaultMediaId =
         typeof values.defaultMediaId === "string" &&
         values.defaultMediaId.trim().length
@@ -1141,7 +1127,7 @@ export default function EditCatalogProductPage({
         subtitle: values.subtitle?.trim() || undefined,
         description,
         handle,
-        taxRateId: productTaxRateId,
+        taxRateId: values.taxRateId ?? null,
         taxRate: productTaxRateValue ?? null,
         isConfigurable: Boolean(values.hasVariants),
         metadata,
