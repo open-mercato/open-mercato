@@ -599,8 +599,10 @@ export function LineItemDialog({
           .map((item) => {
             const id = typeof item.id === 'string' ? item.id : null
             if (!id) return null
-            const amountNet = normalizeNumber((item as any).unit_price_net, null as any)
-            const amountGross = normalizeNumber((item as any).unit_price_gross, null as any)
+            const amountNetRaw = normalizeNumber((item as any).unit_price_net, Number.NaN)
+            const amountGrossRaw = normalizeNumber((item as any).unit_price_gross, Number.NaN)
+            const amountNet = Number.isFinite(amountNetRaw) ? amountNetRaw : null
+            const amountGross = Number.isFinite(amountGrossRaw) ? amountGrossRaw : null
             const currency =
               typeof (item as any).currency_code === 'string'
                 ? (item as any).currency_code
@@ -613,7 +615,8 @@ export function LineItemDialog({
                 : (item as any).displayMode === 'including-tax' || (item as any).displayMode === 'excluding-tax'
                   ? (item as any).displayMode
                   : null
-            const taxRate = normalizeNumber((item as any).tax_rate, null as any)
+            const taxRateRaw = normalizeNumber((item as any).tax_rate, Number.NaN)
+            const taxRate = Number.isFinite(taxRateRaw) ? taxRateRaw : null
             const priceKindId =
               typeof (item as any).price_kind_id === 'string'
                 ? (item as any).price_kind_id
