@@ -4,7 +4,12 @@ import { makeCrudRoute } from '@open-mercato/shared/lib/crud/factory'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { buildCustomFieldFiltersFromQuery, extractAllCustomFieldEntries } from '@open-mercato/shared/lib/crud/custom-fields'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
-import { CatalogProduct, CatalogProductPrice, CatalogProductUnitConversion } from '../../data/entities'
+import {
+  CatalogProduct,
+  CatalogProductPrice,
+  CatalogProductUnitConversion,
+  CatalogProductVariant,
+} from '../../data/entities'
 import { priceCreateSchema, priceUpdateSchema } from '../../data/validators'
 import { parseScopedCommandInput, resolveCrudRecordId } from '../utils'
 import { E } from '#generated/entities.ids.generated'
@@ -62,17 +67,36 @@ async function resolveNormalizedQuantityForFilter(params: {
   organizationId: string | null
   tenantId: string | null
   productId?: string
+  variantId?: string
   quantity: number
   quantityUnit?: string
 }): Promise<number> {
   const quantity = params.quantity
   const quantityUnitKey = normalizeUnitLookupKey(params.quantityUnit)
-  if (!params.productId || !quantityUnitKey) return quantity
+  if ((!params.productId && !params.variantId) || !quantityUnitKey) return quantity
   if (!params.organizationId || !params.tenantId) return quantity
+  let targetProductId = params.productId
+  if (!targetProductId && params.variantId) {
+    const variant = await params.em.findOne(
+      CatalogProductVariant,
+      {
+        id: params.variantId,
+        organizationId: params.organizationId,
+        tenantId: params.tenantId,
+        deletedAt: null,
+      },
+      { fields: ['id', 'product'] },
+    )
+    if (variant) {
+      targetProductId =
+        typeof variant.product === 'string' ? variant.product : variant.product?.id ?? null
+    }
+  }
+  if (!targetProductId) return quantity
   const product = await params.em.findOne(
     CatalogProduct,
     {
-      id: params.productId,
+      id: targetProductId,
       organizationId: params.organizationId,
       tenantId: params.tenantId,
       deletedAt: null,
@@ -202,6 +226,7 @@ const crud = makeCrudRoute({
           organizationId,
           tenantId,
           productId: query.productId,
+          variantId: query.variantId,
           quantity: query.quantity,
           quantityUnit: query.quantityUnit,
         })
@@ -232,6 +257,7 @@ const crud = makeCrudRoute({
         organizationId,
         tenantId,
         productId: query.productId,
+        variantId: query.variantId,
         quantity: query.quantity,
         quantityUnit: query.quantityUnit,
       })
