@@ -13,6 +13,7 @@ import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
+import { formatDateTime } from '@open-mercato/shared/lib/time'
 
 type ScheduleRow = {
   id: string
@@ -70,12 +71,6 @@ function mapApiItem(item: Record<string, unknown>): ScheduleRow | null {
   }
 }
 
-function formatDateTime(value: string | null | undefined, fallback: string): string {
-  if (!value) return fallback
-  const date = new Date(value)
-  if (Number.isNaN(date.getTime())) return fallback
-  return date.toLocaleString()
-}
 
 export default function SchedulerPage() {
   const t = useT()
@@ -213,7 +208,7 @@ export default function SchedulerPage() {
         header: t('scheduler.field.next_run', 'Next Run'),
         cell: ({ row }) => (
           <span className="text-sm">
-            {formatDateTime(row.original.nextRunAt, '-')}
+            {formatDateTime(row.original.nextRunAt) || '-'}
           </span>
         ),
       },
