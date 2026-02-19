@@ -1,5 +1,8 @@
 {
   "audit_logs.resource_kind.currencies.exchange_rate": "Tipo de cambio",
+  "currencies.audit.create": "Create currency",
+  "currencies.audit.delete": "Delete currency",
+  "currencies.audit.update": "Update currency",
   "currencies.create.title": "Crear Moneda",
   "currencies.currencies.update": "Actualizar moneda",
   "currencies.edit.title": "Editar Moneda",
@@ -80,6 +83,9 @@
   "currencies.module.title": "Monedas y Tipos de Cambio",
   "currencies.nav.group": "Monedas",
   "currencies.page.title": "Monedas",
+  "currencies.rates.audit.create": "Create exchange rate",
+  "currencies.rates.audit.delete": "Delete exchange rate",
+  "currencies.rates.audit.update": "Update exchange rate",
   "exchangeRates.create.title": "Crear Tipo de Cambio",
   "exchangeRates.edit.title": "Editar Tipo de Cambio",
   "exchangeRates.flash.created": "Tipo de cambio creado correctamente",

@@ -1,5 +1,8 @@
 {
   "audit_logs.resource_kind.currencies.exchange_rate": "Kurs wymiany",
+  "currencies.audit.create": "Create currency",
+  "currencies.audit.delete": "Delete currency",
+  "currencies.audit.update": "Update currency",
   "currencies.create.title": "Utwórz Walutę",
   "currencies.currencies.update": "Aktualizuj walutę",
   "currencies.edit.title": "Edytuj Walutę",
@@ -80,6 +83,9 @@
   "currencies.module.title": "Waluty i Kursy Wymiany",
   "currencies.nav.group": "Waluty",
   "currencies.page.title": "Waluty",
+  "currencies.rates.audit.create": "Create exchange rate",
+  "currencies.rates.audit.delete": "Delete exchange rate",
+  "currencies.rates.audit.update": "Update exchange rate",
   "exchangeRates.create.title": "Utwórz Kurs Wymiany",
   "exchangeRates.edit.title": "Edytuj Kurs Wymiany",
   "exchangeRates.flash.created": "Kurs wymiany utworzony pomyślnie",
