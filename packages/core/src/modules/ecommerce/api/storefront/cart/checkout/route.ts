@@ -86,10 +86,12 @@ export async function POST(req: Request) {
       currencyCode: cart.currencyCode,
       channelId: storeCtx.channelBinding?.salesChannelId ?? null,
       customerSnapshot: {
-        name: customerInfo.name,
-        email: customerInfo.email,
-        phone: customerInfo.phone ?? null,
-        address: customerInfo.address ?? null,
+        customer: {
+          displayName: customerInfo.name,
+          primaryEmail: customerInfo.email,
+          primaryPhone: customerInfo.phone ?? null,
+        },
+        shippingAddress: customerInfo.address ?? null,
       },
       metadata: {
         sourceCartId: cart.id,
