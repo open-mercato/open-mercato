@@ -1,21 +1,18 @@
 import { randomUUID } from 'node:crypto'
 import type { EntityManager } from '@mikro-orm/postgresql'
-import type { EventBus } from '@open-mercato/events/types'
-import { generateObject } from 'ai'
-import {
-  resolveFirstConfiguredOpenCodeProvider,
-  resolveOpenCodeModel,
-  resolveOpenCodeProviderApiKey,
-  resolveOpenCodeProviderId,
-  type OpenCodeProviderId,
-} from '@open-mercato/shared/lib/ai/opencode-provider'
+import type { EntityClass } from '@mikro-orm/core'
+import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { InboxEmail, InboxProposal, InboxProposalAction, InboxDiscrepancy } from '../data/entities'
-import type { ExtractedParticipant } from '../data/entities'
+import type { ExtractedParticipant, InboxDiscrepancyType } from '../data/entities'
 import { extractionOutputSchema } from '../data/validators'
 import { matchContacts } from '../lib/contactMatcher'
-import { buildExtractionSystemPrompt, buildExtractionUserPrompt, REQUIRED_FEATURES_MAP } from '../lib/extractionPrompt'
+import { buildExtractionSystemPrompt, buildExtractionUserPrompt } from '../lib/extractionPrompt'
+import { REQUIRED_FEATURES_MAP } from '../lib/constants'
 import { fetchCatalogProductsForExtraction } from '../lib/catalogLookup'
 import { validatePrices } from '../lib/priceValidator'
+import { extractParticipantsFromThread } from '../lib/emailParser'
+import { runExtractionWithConfiguredProvider } from '../lib/llmProvider'
+import { emitInboxOpsEvent } from '../events'
 
 export const metadata = {
   event: 'inbox_ops.email.received',
@@ -35,21 +32,78 @@ interface ResolverContext {
   resolve: <T = unknown>(name: string) => T
 }
 
+interface ExtractionEntityClasses {
+  customerEntity?: EntityClass<{ id: string; kind: string; displayName: string; primaryEmail?: string | null }>
+  catalogProduct?: EntityClass<{ id: string; name: string; sku?: string | null; tenantId?: string; organizationId?: string; deletedAt?: Date | null }>
+  catalogProductPrice?: EntityClass<{ product?: unknown; unitPriceNet?: string | null; unitPriceGross?: string | null; currencyCode?: string | null; tenantId?: string; organizationId?: string; deletedAt?: Date | null; createdAt?: Date }>
+  salesOrder?: EntityClass<{ id: string; orderNumber: string; customerReference?: string | null; tenantId?: string; organizationId?: string; deletedAt?: Date | null }>
+}
+
+interface DiscrepancyInput {
+  actionIndex?: number
+  type: InboxDiscrepancyType
+  severity: 'warning' | 'error'
+  description: string
+  expectedValue?: string | null
+  foundValue?: string | null
+}
+
+function resolveEntityClasses(ctx: ResolverContext): ExtractionEntityClasses {
+  const classes: ExtractionEntityClasses = {}
+  try { classes.customerEntity = ctx.resolve('CustomerEntity') } catch { /* module not available */ }
+  try { classes.catalogProduct = ctx.resolve('CatalogProduct') } catch { /* module not available */ }
+  try { classes.catalogProductPrice = ctx.resolve('CatalogProductPrice') } catch { /* module not available */ }
+  try { classes.salesOrder = ctx.resolve('SalesOrder') } catch { /* module not available */ }
+  return classes
+}
+
+function createDiscrepancy(
+  em: EntityManager,
+  proposalId: string,
+  allActions: { id: string }[],
+  input: DiscrepancyInput,
+  scope: { organizationId: string; tenantId: string },
+) {
+  return em.create(InboxDiscrepancy, {
+    proposalId,
+    actionId: input.actionIndex !== undefined && allActions[input.actionIndex]
+      ? allActions[input.actionIndex].id
+      : null,
+    type: input.type,
+    severity: input.severity,
+    description: input.description,
+    expectedValue: input.expectedValue || null,
+    foundValue: input.foundValue || null,
+    resolved: false,
+    organizationId: scope.organizationId,
+    tenantId: scope.tenantId,
+  })
+}
+
 export default async function handle(payload: EmailReceivedPayload, ctx: ResolverContext) {
   const em = (ctx.resolve('em') as EntityManager).fork()
+  const entityClasses = resolveEntityClasses(ctx)
 
-  const email = await em.findOne(InboxEmail, { id: payload.emailId })
+  // Optimistic lock: atomically claim the email for processing.
+  // If another worker already claimed it, nativeUpdate returns 0 rows.
+  const claimed = await em.nativeUpdate(
+    InboxEmail,
+    { id: payload.emailId, status: 'received' },
+    { status: 'processing' },
+  )
+  if (claimed === 0) return
+
+  const email = await findOneWithDecryption(
+    em,
+    InboxEmail,
+    { id: payload.emailId },
+    undefined,
+    { tenantId: payload.tenantId, organizationId: payload.organizationId ?? '' },
+  )
   if (!email) {
     console.error(`[inbox_ops:extraction-worker] Email not found: ${payload.emailId}`)
     return
   }
-
-  if (email.status !== 'received') {
-    return
-  }
-
-  email.status = 'processing'
-  await em.flush()
 
   try {
     const scope = {
@@ -68,10 +122,16 @@ export default async function handle(payload: EmailReceivedPayload, ctx: Resolve
 
     // Step 2: Match contacts from thread participants
     const threadParticipants = extractParticipantsFromThread(email)
-    const contactMatches = await matchContacts(em, threadParticipants, scope)
+    const contactMatches = await matchContacts(em, threadParticipants, scope,
+      entityClasses.customerEntity ? { customerEntityClass: entityClasses.customerEntity } : undefined,
+    )
 
     // Step 2b: Fetch catalog products for LLM context
-    const catalogProducts = await fetchCatalogProductsForExtraction(em, scope)
+    const catalogProducts = await fetchCatalogProductsForExtraction(em, scope,
+      entityClasses.catalogProduct && entityClasses.catalogProductPrice
+        ? { catalogProductClass: entityClasses.catalogProduct, catalogProductPriceClass: entityClasses.catalogProductPrice }
+        : undefined,
+    )
 
     // Step 3: Call LLM for extraction
     const maxTextSize = parseInt(process.env.INBOX_OPS_MAX_TEXT_SIZE || '204800', 10)
@@ -102,15 +162,12 @@ export default async function handle(payload: EmailReceivedPayload, ctx: Resolve
       await em.flush()
 
       try {
-        const eventBus = ctx.resolve('eventBus') as EventBus | null
-        if (eventBus) {
-          await eventBus.emit('inbox_ops.email.failed', {
-            emailId: email.id,
-            tenantId: email.tenantId,
-            organizationId: email.organizationId,
-            error: email.processingError,
-          })
-        }
+        await emitInboxOpsEvent('inbox_ops.email.failed', {
+          emailId: email.id,
+          tenantId: email.tenantId,
+          organizationId: email.organizationId,
+          error: email.processingError,
+        })
       } catch (eventError) {
         console.error('[inbox_ops:extraction-worker] Failed to emit email.failed event:', eventError)
       }
@@ -127,13 +184,18 @@ export default async function handle(payload: EmailReceivedPayload, ctx: Resolve
     // Step 4: Validate prices for order/quote actions
     const orderActions = extractionResult.proposedActions
       .map((action, index) => {
-        let payload: Record<string, unknown> = {}
-        try { payload = typeof action.payloadJson === 'string' ? JSON.parse(action.payloadJson) : {} } catch { /* ignore */ }
-        return { ...action, payload, index }
+        let actionPayload: Record<string, unknown> = {}
+        try { actionPayload = typeof action.payloadJson === 'string' ? JSON.parse(action.payloadJson) : {} } catch { /* ignore */ }
+        return { ...action, payload: actionPayload, index }
       })
       .filter((a) => a.actionType === 'create_order' || a.actionType === 'create_quote')
 
-    const priceDiscrepancies = await validatePrices(em, orderActions, scope)
+    const priceDiscrepancies = await validatePrices(em, orderActions, scope,
+      entityClasses.catalogProductPrice ? { catalogProductPriceClass: entityClasses.catalogProductPrice } : undefined,
+    )
+
+    // Step 4b: Check for duplicate orders by customerReference
+    const duplicateOrderDiscrepancies = await detectDuplicateOrders(em, orderActions, scope, entityClasses.salesOrder)
 
     // Step 5: Merge contact match data into participants
     const enrichedParticipants: ExtractedParticipant[] = extractionResult.participants.map((p) => {
@@ -219,56 +281,30 @@ export default async function handle(payload: EmailReceivedPayload, ctx: Resolve
     ]
     allActions.forEach((a) => em.persist(a))
 
-    // Create discrepancies from LLM extraction
+    // Create discrepancies using factory
     const allDiscrepancies = [
       ...extractionResult.discrepancies.map((d) =>
-        em.create(InboxDiscrepancy, {
-          proposalId: proposalId,
-          actionId: d.actionIndex !== undefined && allActions[d.actionIndex]
-            ? allActions[d.actionIndex].id
-            : null,
-          type: d.type,
-          severity: d.severity,
-          description: d.description,
-          expectedValue: d.expectedValue || null,
-          foundValue: d.foundValue || null,
-          resolved: false,
-          organizationId: email.organizationId,
-          tenantId: email.tenantId,
-        }),
+        createDiscrepancy(em, proposalId, allActions, d, scope),
       ),
       ...priceDiscrepancies.map((d) =>
-        em.create(InboxDiscrepancy, {
-          proposalId: proposalId,
-          actionId: d.actionIndex !== undefined && allActions[d.actionIndex]
-            ? allActions[d.actionIndex].id
-            : null,
-          type: d.type,
-          severity: d.severity,
-          description: d.description,
-          expectedValue: d.expectedValue || null,
-          foundValue: d.foundValue || null,
-          resolved: false,
-          organizationId: email.organizationId,
-          tenantId: email.tenantId,
-        }),
+        createDiscrepancy(em, proposalId, allActions, d, scope),
+      ),
+      ...duplicateOrderDiscrepancies.map((d) =>
+        createDiscrepancy(em, proposalId, allActions, d, scope),
       ),
     ]
 
     // Flag unmatched contacts as discrepancies
     for (const match of contactMatches) {
       if (!match.match && match.participant.email) {
-        const disc = em.create(InboxDiscrepancy, {
-          proposalId: proposalId,
-          type: 'unknown_contact',
-          severity: 'warning',
-          description: `No matching contact found for ${match.participant.name} (${match.participant.email})`,
-          foundValue: match.participant.email,
-          resolved: false,
-          organizationId: email.organizationId,
-          tenantId: email.tenantId,
-        })
-        allDiscrepancies.push(disc)
+        allDiscrepancies.push(
+          createDiscrepancy(em, proposalId, allActions, {
+            type: 'unknown_contact',
+            severity: 'warning',
+            description: `No matching contact found for ${match.participant.name} (${match.participant.email})`,
+            foundValue: match.participant.email,
+          }, scope),
+        )
       }
     }
 
@@ -282,25 +318,22 @@ export default async function handle(payload: EmailReceivedPayload, ctx: Resolve
 
     // Step 9: Emit events
     try {
-      const eventBus = ctx.resolve('eventBus') as EventBus | null
-      if (eventBus) {
-        await eventBus.emit('inbox_ops.email.processed', {
-          emailId: email.id,
-          tenantId: email.tenantId,
-          organizationId: email.organizationId,
-        })
+      await emitInboxOpsEvent('inbox_ops.email.processed', {
+        emailId: email.id,
+        tenantId: email.tenantId,
+        organizationId: email.organizationId,
+      })
 
-        await eventBus.emit('inbox_ops.proposal.created', {
-          proposalId: proposal.id,
-          emailId: email.id,
-          tenantId: email.tenantId,
-          organizationId: email.organizationId,
-          actionCount: allActions.length,
-          discrepancyCount: allDiscrepancies.length,
-          confidence: proposal.confidence,
-          summary: proposal.summary,
-        })
-      }
+      await emitInboxOpsEvent('inbox_ops.proposal.created', {
+        proposalId: proposal.id,
+        emailId: email.id,
+        tenantId: email.tenantId,
+        organizationId: email.organizationId,
+        actionCount: allActions.length,
+        discrepancyCount: allDiscrepancies.length,
+        confidence: proposal.confidence,
+        summary: proposal.summary,
+      })
     } catch (eventError) {
       console.error('[inbox_ops:extraction-worker] Failed to emit events:', eventError)
     }
@@ -310,15 +343,12 @@ export default async function handle(payload: EmailReceivedPayload, ctx: Resolve
     await em.flush()
 
     try {
-      const eventBus = ctx.resolve('eventBus') as EventBus | null
-      if (eventBus) {
-        await eventBus.emit('inbox_ops.email.failed', {
-          emailId: email.id,
-          tenantId: email.tenantId,
-          organizationId: email.organizationId,
-          error: email.processingError,
-        })
-      }
+      await emitInboxOpsEvent('inbox_ops.email.failed', {
+        emailId: email.id,
+        tenantId: email.tenantId,
+        organizationId: email.organizationId,
+        error: email.processingError,
+      })
     } catch (eventError) {
       console.error('[inbox_ops:extraction-worker] Failed to emit email.failed event:', eventError)
     }
@@ -327,42 +357,54 @@ export default async function handle(payload: EmailReceivedPayload, ctx: Resolve
   }
 }
 
-function extractParticipantsFromThread(
-  email: InboxEmail,
-): { name: string; email: string; role: string }[] {
-  const seen = new Set<string>()
-  const participants: { name: string; email: string; role: string }[] = []
+async function detectDuplicateOrders(
+  em: EntityManager,
+  orderActions: { actionType: string; payload: Record<string, unknown>; index: number }[],
+  scope: { tenantId: string; organizationId: string },
+  salesOrderClass?: EntityClass<{ id: string; orderNumber: string; customerReference?: string | null; tenantId?: string; organizationId?: string; deletedAt?: Date | null }>,
+): Promise<{ type: 'duplicate_order'; severity: 'error'; description: string; expectedValue: string | null; foundValue: string | null; actionIndex: number }[]> {
+  if (!salesOrderClass) return []
+  const discrepancies: { type: 'duplicate_order'; severity: 'error'; description: string; expectedValue: string | null; foundValue: string | null; actionIndex: number }[] = []
 
-  const addParticipant = (name: string, email: string, role: string) => {
-    const key = email.toLowerCase()
-    if (!key || seen.has(key)) return
-    seen.add(key)
-    participants.push({ name, email: key, role })
-  }
+  for (const action of orderActions) {
+    if (action.actionType !== 'create_order') continue
 
-  if (email.threadMessages) {
-    for (const msg of email.threadMessages) {
-      if (msg.from?.email) {
-        addParticipant(msg.from.name || '', msg.from.email, 'other')
+    const customerReference = typeof action.payload.customerReference === 'string'
+      ? action.payload.customerReference.trim()
+      : null
+
+    if (!customerReference) continue
+
+    try {
+      const existing = await findOneWithDecryption(
+        em,
+        salesOrderClass,
+        {
+          customerReference,
+          tenantId: scope.tenantId,
+          organizationId: scope.organizationId,
+          deletedAt: null,
+        },
+        undefined,
+        scope,
+      )
+
+      if (existing) {
+        discrepancies.push({
+          type: 'duplicate_order',
+          severity: 'error',
+          description: `An order with customer reference "${customerReference}" already exists (${existing.orderNumber || existing.id})`,
+          expectedValue: null,
+          foundValue: customerReference,
+          actionIndex: action.index,
+        })
       }
-      if (msg.to) {
-        for (const to of msg.to) {
-          addParticipant(to.name || '', to.email, 'other')
-        }
-      }
-      if (msg.cc) {
-        for (const cc of msg.cc) {
-          addParticipant(cc.name || '', cc.email, 'other')
-        }
-      }
+    } catch {
+      // Skip duplicate detection if lookup fails
     }
   }
 
-  if (email.forwardedByAddress) {
-    addParticipant(email.forwardedByName || '', email.forwardedByAddress, 'seller')
-  }
-
-  return participants
+  return discrepancies
 }
 
 function detectPartialForward(email: InboxEmail): boolean {
@@ -370,101 +412,4 @@ function detectPartialForward(email: InboxEmail): boolean {
   const hasReOrFw = /^(RE|FW|Fwd):/i.test(subject)
   const messageCount = email.threadMessages?.length || 0
   return hasReOrFw && messageCount < 2
-}
-
-async function runExtractionWithConfiguredProvider(input: {
-  systemPrompt: string
-  userPrompt: string
-  modelOverride?: string | null
-  timeoutMs: number
-}): Promise<{
-  object: ReturnType<typeof extractionOutputSchema.parse>
-  totalTokens: number
-  modelWithProvider: string
-}> {
-  const providerId = resolveExtractionProviderId()
-  const apiKey = resolveOpenCodeProviderApiKey(providerId)
-  if (!apiKey) {
-    throw new Error(`Missing API key for provider "${providerId}"`)
-  }
-
-  const modelConfig = resolveOpenCodeModel(providerId, {
-    overrideModel: input.modelOverride,
-  })
-  const model = await createStructuredModel(providerId, apiKey, modelConfig.modelId)
-
-  const result = await withTimeout(
-    generateObject({
-      model,
-      schema: extractionOutputSchema,
-      system: input.systemPrompt,
-      prompt: input.userPrompt,
-      temperature: 0,
-    }),
-    input.timeoutMs,
-    `LLM extraction timed out after ${input.timeoutMs}ms`,
-  )
-
-  return {
-    object: result.object,
-    totalTokens: Number(result.usage?.totalTokens ?? 0) || 0,
-    modelWithProvider: modelConfig.modelWithProvider,
-  }
-}
-
-function resolveExtractionProviderId(): OpenCodeProviderId {
-  const configuredProvider = process.env.OPENCODE_PROVIDER
-  if (configuredProvider && configuredProvider.trim().length > 0) {
-    return resolveOpenCodeProviderId(configuredProvider)
-  }
-
-  const firstConfiguredProvider = resolveFirstConfiguredOpenCodeProvider()
-  if (firstConfiguredProvider) {
-    return firstConfiguredProvider
-  }
-
-  return resolveOpenCodeProviderId(undefined)
-}
-
-async function createStructuredModel(
-  providerId: OpenCodeProviderId,
-  apiKey: string,
-  modelId: string,
-): Promise<Parameters<typeof generateObject>[0]['model']> {
-  switch (providerId) {
-    case 'anthropic': {
-      const { createAnthropic } = await import('@ai-sdk/anthropic')
-      return createAnthropic({ apiKey })(modelId) as unknown as Parameters<typeof generateObject>[0]['model']
-    }
-    case 'openai': {
-      const { createOpenAI } = await import('@ai-sdk/openai')
-      return createOpenAI({ apiKey })(modelId) as unknown as Parameters<typeof generateObject>[0]['model']
-    }
-    case 'google': {
-      const { createGoogleGenerativeAI } = await import('@ai-sdk/google')
-      return createGoogleGenerativeAI({ apiKey })(modelId) as unknown as Parameters<typeof generateObject>[0]['model']
-    }
-    default:
-      throw new Error(`Unsupported provider: ${providerId}`)
-  }
-}
-
-async function withTimeout<T>(
-  operation: Promise<T>,
-  timeoutMs: number,
-  timeoutMessage: string,
-): Promise<T> {
-  let timeoutHandle: ReturnType<typeof setTimeout> | undefined
-
-  const timeoutPromise = new Promise<never>((_, reject) => {
-    timeoutHandle = setTimeout(() => reject(new Error(timeoutMessage)), timeoutMs)
-  })
-
-  try {
-    return await Promise.race([operation, timeoutPromise])
-  } finally {
-    if (timeoutHandle) {
-      clearTimeout(timeoutHandle)
-    }
-  }
 }

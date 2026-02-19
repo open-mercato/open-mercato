@@ -1,11 +1,9 @@
 import { NextResponse } from 'next/server'
-import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
-import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
-import type { EntityManager } from '@mikro-orm/postgresql'
 import { findAndCountWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { InboxEmail } from '../../data/entities'
 import { emailListQuerySchema } from '../../data/validators'
+import { resolveRequestContext, UnauthorizedError } from '../routeHelpers'
 
 export const metadata = {
   GET: { requireAuth: true, requireFeatures: ['inbox_ops.log.view'] },
@@ -20,16 +18,11 @@ export async function GET(req: Request) {
       pageSize: url.searchParams.get('pageSize') || undefined,
     })
 
-    const auth = await getAuthFromRequest(req)
-    if (!auth?.tenantId || !auth?.orgId) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-    }
-    const container = await createRequestContainer()
-    const em = (container.resolve('em') as EntityManager).fork()
+    const ctx = await resolveRequestContext(req)
 
     const where: Record<string, unknown> = {
-      organizationId: auth.orgId,
-      tenantId: auth.tenantId,
+      organizationId: ctx.organizationId,
+      tenantId: ctx.tenantId,
       deletedAt: null,
     }
 
@@ -40,15 +33,15 @@ export async function GET(req: Request) {
     const offset = (query.page - 1) * query.pageSize
 
     const [items, total] = await findAndCountWithDecryption(
-      em,
-      InboxEmail as any,
-      where as any,
+      ctx.em,
+      InboxEmail,
+      where,
       {
         limit: query.pageSize,
         offset,
-        orderBy: { receivedAt: 'DESC' } as any,
+        orderBy: { receivedAt: 'DESC' },
       },
-      { tenantId: auth.tenantId, organizationId: auth.orgId },
+      ctx.scope,
     )
 
     return NextResponse.json({
@@ -59,6 +52,9 @@ export async function GET(req: Request) {
       totalPages: Math.ceil(total / query.pageSize),
     })
   } catch (err) {
+    if (err instanceof UnauthorizedError) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    }
     console.error('[inbox_ops:emails] Error:', err)
     return NextResponse.json({ error: 'Failed to list emails' }, { status: 500 })
   }

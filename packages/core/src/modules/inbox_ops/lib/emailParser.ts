@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto'
-import type { ThreadMessage } from '../data/entities'
+import type { InboxEmail, ThreadMessage } from '../data/entities'
 
 export interface ParsedEmail {
   messageId?: string | null
@@ -38,6 +38,8 @@ const QUOTE_PATTERNS = [
   /^-{3,}\s*Forwarded message\s*-{3,}/m,
   /^Begin forwarded message:/m,
 ]
+
+const DATE_HEADER_PATTERN = /^Date:\s*(.+)$/m
 
 function stripSignature(text: string): string {
   const lines = text.split('\n')
@@ -130,6 +132,17 @@ function parseAddressListField(value: string | string[] | undefined | null): { n
   return list.map((v) => parseAddressField(v.trim())).filter((a) => a.email)
 }
 
+function parseDateFromBlock(block: string): string {
+  const match = block.match(DATE_HEADER_PATTERN)
+  if (match) {
+    const parsed = new Date(match[1].trim())
+    if (!Number.isNaN(parsed.getTime())) {
+      return parsed.toISOString()
+    }
+  }
+  return new Date().toISOString()
+}
+
 function splitThread(text: string): ThreadMessage[] {
   const separator = /(?:^|\n)(?:-{3,}\s*(?:Original Message|Forwarded message)\s*-{3,}|(?:On .+ wrote:))\s*\n/gm
   const parts = text.split(separator).filter((p) => p.trim())
@@ -148,18 +161,11 @@ function splitThread(text: string): ThreadMessage[] {
   return parts.map((part, index) => ({
     from: { email: '' },
     to: [],
-    date: new Date().toISOString(),
+    date: parseDateFromBlock(part),
     body: normalizeText(part),
     contentType: 'text' as const,
     isForwarded: index > 0,
   }))
-}
-
-function detectForwardingOperator(
-  fromAddress: string,
-  toAddress: string,
-): string {
-  return fromAddress
 }
 
 export function parseInboundEmail(payload: {
@@ -218,7 +224,46 @@ export function parseInboundEmail(payload: {
     rawHtml,
     cleanedText,
     threadMessages,
+    // TODO: Phase 2 — detect language via LLM or `franc` library
     detectedLanguage: null,
     contentHash,
   }
+}
+
+export function extractParticipantsFromThread(
+  email: InboxEmail,
+): { name: string; email: string; role: string }[] {
+  const seen = new Set<string>()
+  const participants: { name: string; email: string; role: string }[] = []
+
+  const addParticipant = (name: string, addr: string, role: string) => {
+    const key = addr.toLowerCase()
+    if (!key || seen.has(key)) return
+    seen.add(key)
+    participants.push({ name, email: key, role })
+  }
+
+  if (email.threadMessages) {
+    for (const msg of email.threadMessages) {
+      if (msg.from?.email) {
+        addParticipant(msg.from.name || '', msg.from.email, 'other')
+      }
+      if (msg.to) {
+        for (const to of msg.to) {
+          addParticipant(to.name || '', to.email, 'other')
+        }
+      }
+      if (msg.cc) {
+        for (const cc of msg.cc) {
+          addParticipant(cc.name || '', cc.email, 'other')
+        }
+      }
+    }
+  }
+
+  if (email.forwardedByAddress) {
+    addParticipant(email.forwardedByName || '', email.forwardedByAddress, 'seller')
+  }
+
+  return participants
 }

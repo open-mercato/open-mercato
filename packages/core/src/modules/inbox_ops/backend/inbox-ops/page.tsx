@@ -21,6 +21,12 @@ type ProposalRow = {
   inboxEmailId: string
   createdAt: string
   participants?: { name: string; email: string }[]
+  actionCount?: number
+  pendingActionCount?: number
+  discrepancyCount?: number
+  emailSubject?: string | null
+  emailFrom?: string | null
+  receivedAt?: string | null
 }
 
 type ProposalListResponse = {
@@ -53,8 +59,16 @@ function ConfidenceBadge({ value }: { value: string }) {
 }
 
 function StatusBadge({ status }: { status: string }) {
+  const t = useT()
+  const statusLabels: Record<string, string> = {
+    pending: t('inbox_ops.status.pending', 'Pending'),
+    partial: t('inbox_ops.status.partial', 'Partial'),
+    accepted: t('inbox_ops.status.accepted', 'Accepted'),
+    rejected: t('inbox_ops.status.rejected', 'Rejected'),
+    processing: t('inbox_ops.status.processing', 'Processing'),
+  }
   const color = STATUS_COLORS[status] || 'bg-gray-100 text-gray-800'
-  return <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium capitalize ${color}`}>{status}</span>
+  return <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${color}`}>{statusLabels[status] || status}</span>
 }
 
 export default function InboxOpsProposalsPage() {
@@ -118,18 +132,39 @@ export default function InboxOpsProposalsPage() {
       accessorKey: 'summary',
       header: t('inbox_ops.summary', 'Summary'),
       cell: ({ row }) => (
-        <Link
-          href={`/backend/inbox-ops/proposals/${row.original.id}`}
-          className="text-sm font-medium text-primary hover:underline truncate max-w-[300px] block"
-        >
-          {row.original.summary?.slice(0, 80) || 'Untitled proposal'}
-        </Link>
+        <div className="min-w-0">
+          <Link
+            href={`/backend/inbox-ops/proposals/${row.original.id}`}
+            className="text-sm font-medium text-primary hover:underline truncate max-w-[300px] block"
+          >
+            {row.original.emailSubject || row.original.summary?.slice(0, 80) || t('inbox_ops.untitled_proposal', 'Untitled proposal')}
+          </Link>
+          {row.original.emailFrom && (
+            <span className="text-xs text-muted-foreground truncate block">{row.original.emailFrom}</span>
+          )}
+        </div>
       ),
     },
     {
       accessorKey: 'status',
-      header: t('inbox_ops.status.pending', 'Status'),
+      header: t('inbox_ops.list.status', 'Status'),
       cell: ({ row }) => <StatusBadge status={row.original.status} />,
+    },
+    {
+      id: 'actions_count',
+      header: t('inbox_ops.actions_count', 'Actions'),
+      cell: ({ row }) => {
+        const pending = row.original.pendingActionCount ?? 0
+        const total = row.original.actionCount ?? 0
+        if (total === 0) return <span className="text-sm text-muted-foreground">—</span>
+        return (
+          <span className="text-sm text-muted-foreground">
+            {t('inbox_ops.list.action_summary', '{pending}/{total} actions')
+              .replace('{pending}', String(pending))
+              .replace('{total}', String(total))}
+          </span>
+        )
+      },
     },
     {
       accessorKey: 'confidence',
@@ -137,10 +172,11 @@ export default function InboxOpsProposalsPage() {
       cell: ({ row }) => <ConfidenceBadge value={row.original.confidence} />,
     },
     {
-      accessorKey: 'createdAt',
+      accessorKey: 'receivedAt',
       header: t('inbox_ops.received_at', 'Received'),
       cell: ({ row }) => {
-        const d = new Date(row.original.createdAt)
+        const dateStr = row.original.receivedAt || row.original.createdAt
+        const d = new Date(dateStr)
         return <span className="text-sm text-muted-foreground">{d.toLocaleDateString()} {d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
       },
     },
@@ -179,7 +215,7 @@ export default function InboxOpsProposalsPage() {
                 <code className="text-sm font-mono">{settings.inboxAddress}</code>
                 <Button variant="outline" size="sm" onClick={handleCopyAddress}>
                   <Copy className="h-4 w-4" />
-                  {copied ? 'Copied!' : 'Copy'}
+                  {copied ? t('inbox_ops.settings.copied', 'Copied') : t('inbox_ops.settings.copy', 'Copy')}
                 </Button>
               </div>
             )}

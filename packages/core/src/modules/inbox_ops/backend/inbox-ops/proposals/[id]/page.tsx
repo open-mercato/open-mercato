@@ -29,6 +29,17 @@ import {
   Link2,
   Activity,
 } from 'lucide-react'
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogFooter,
+  DialogDescription,
+} from '@open-mercato/ui/primitives/dialog'
+import { Input } from '@open-mercato/ui/primitives/input'
+import { Textarea } from '@open-mercato/ui/primitives/textarea'
+import { Label } from '@open-mercato/ui/primitives/label'
 import type { ThreadMessage, ExtractedParticipant, InboxActionType, InboxDiscrepancyType } from '../../../../data/entities'
 
 type ProposalDetail = {
@@ -92,15 +103,18 @@ const ACTION_TYPE_ICONS: Record<string, React.ElementType> = {
   draft_reply: MessageSquare,
 }
 
-const ACTION_TYPE_LABELS: Record<string, string> = {
-  create_order: 'Create Sales Order',
-  create_quote: 'Create Quote',
-  update_order: 'Update Order',
-  update_shipment: 'Update Shipment',
-  create_contact: 'Create Contact',
-  link_contact: 'Link Contact',
-  log_activity: 'Log Activity',
-  draft_reply: 'Draft Reply',
+function useActionTypeLabels(): Record<string, string> {
+  const t = useT()
+  return {
+    create_order: t('inbox_ops.action_type.create_order', 'Create Sales Order'),
+    create_quote: t('inbox_ops.action_type.create_quote', 'Create Quote'),
+    update_order: t('inbox_ops.action_type.update_order', 'Update Order'),
+    update_shipment: t('inbox_ops.action_type.update_shipment', 'Update Shipment'),
+    create_contact: t('inbox_ops.action_type.create_contact', 'Create Contact'),
+    link_contact: t('inbox_ops.action_type.link_contact', 'Link Contact'),
+    log_activity: t('inbox_ops.action_type.log_activity', 'Log Activity'),
+    draft_reply: t('inbox_ops.action_type.draft_reply', 'Draft Reply'),
+  }
 }
 
 function ConfidenceBadge({ value }: { value: string }) {
@@ -120,13 +134,14 @@ function ConfidenceBadge({ value }: { value: string }) {
 }
 
 function EmailThreadViewer({ email }: { email: EmailDetail | null }) {
+  const t = useT()
   if (!email) return null
 
   const messages = email.threadMessages || []
 
   return (
     <div className="space-y-3">
-      <h3 className="font-semibold text-sm">Email Thread</h3>
+      <h3 className="font-semibold text-sm">{t('inbox_ops.email_thread', 'Email Thread')}</h3>
       {messages.length > 0 ? (
         messages.map((msg, index) => (
           <div key={index} className="border rounded-lg p-3 md:p-4 bg-card">
@@ -149,7 +164,7 @@ function EmailThreadViewer({ email }: { email: EmailDetail | null }) {
           <div className="text-sm whitespace-pre-wrap text-foreground/80">{email.cleanedText}</div>
         </div>
       ) : (
-        <p className="text-sm text-muted-foreground">No email content available</p>
+        <p className="text-sm text-muted-foreground">{t('inbox_ops.no_email_content', 'No email content available')}</p>
       )}
     </div>
   )
@@ -158,19 +173,23 @@ function EmailThreadViewer({ email }: { email: EmailDetail | null }) {
 function ActionCard({
   action,
   discrepancies,
+  actionTypeLabels,
   onAccept,
   onReject,
   onRetry,
+  onEdit,
 }: {
   action: ActionDetail
   discrepancies: DiscrepancyDetail[]
+  actionTypeLabels: Record<string, string>
   onAccept: (id: string) => void
   onReject: (id: string) => void
   onRetry: (id: string) => void
+  onEdit: (action: ActionDetail) => void
 }) {
   const t = useT()
   const Icon = ACTION_TYPE_ICONS[action.actionType] || Package
-  const label = ACTION_TYPE_LABELS[action.actionType] || action.actionType
+  const label = actionTypeLabels[action.actionType] || action.actionType
 
   const actionDiscrepancies = discrepancies.filter((d) => d.actionId === action.id && !d.resolved)
 
@@ -199,7 +218,7 @@ function ActionCard({
         <div className="flex items-center gap-2 mb-2">
           <XCircle className="h-5 w-5 text-muted-foreground flex-shrink-0" />
           <span className="text-sm font-medium line-through">{label}</span>
-          <span className="text-xs text-muted-foreground">Rejected</span>
+          <span className="text-xs text-muted-foreground">{t('inbox_ops.status.rejected', 'Rejected')}</span>
         </div>
         <p className="text-sm text-muted-foreground">{action.description}</p>
       </div>
@@ -226,6 +245,15 @@ function ActionCard({
           >
             <RefreshCw className="h-4 w-4 mr-1" />
             {t('inbox_ops.action.retry', 'Retry')}
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            className="h-11 md:h-9"
+            onClick={() => onEdit(action)}
+          >
+            <Pencil className="h-4 w-4 mr-1" />
+            {t('inbox_ops.action.edit', 'Edit')}
           </Button>
           <Button
             variant="outline"
@@ -285,11 +313,595 @@ function ActionCard({
           variant="outline"
           size="sm"
           className="h-11 md:h-9"
+          onClick={() => onEdit(action)}
+        >
+          <Pencil className="h-4 w-4 mr-1" />
+          {t('inbox_ops.action.edit', 'Edit')}
+        </Button>
+        <Button
+          variant="outline"
+          size="sm"
+          className="h-11 md:h-9"
           onClick={() => onReject(action.id)}
         >
           <XCircle className="h-4 w-4 mr-1" />
           {t('inbox_ops.action.reject', 'Reject')}
         </Button>
+      </div>
+    </div>
+  )
+}
+
+function EditActionDialog({
+  action,
+  actionTypeLabels,
+  onClose,
+  onSaved,
+}: {
+  action: ActionDetail
+  actionTypeLabels: Record<string, string>
+  onClose: () => void
+  onSaved: () => void
+}) {
+  const t = useT()
+  const [payload, setPayload] = React.useState<Record<string, unknown>>(
+    () => structuredClone(action.payload),
+  )
+  const [isSaving, setIsSaving] = React.useState(false)
+  const [jsonMode, setJsonMode] = React.useState(false)
+  const [jsonText, setJsonText] = React.useState(() => JSON.stringify(action.payload, null, 2))
+  const [jsonError, setJsonError] = React.useState<string | null>(null)
+
+  const handleSave = React.useCallback(async () => {
+    let finalPayload = payload
+    if (jsonMode) {
+      try {
+        finalPayload = JSON.parse(jsonText)
+        setJsonError(null)
+      } catch {
+        setJsonError('Invalid JSON')
+        return
+      }
+    }
+
+    setIsSaving(true)
+    const result = await apiCall<{ ok: boolean; error?: string }>(
+      `/api/inbox_ops/proposals/${action.proposalId}/actions/${action.id}`,
+      { method: 'PATCH', body: JSON.stringify({ payload: finalPayload }) },
+    )
+    if (result?.ok && result.result?.ok) {
+      flash(t('inbox_ops.edit_dialog.saved', 'Action updated successfully'), 'success')
+      onSaved()
+      onClose()
+    } else {
+      flash(result?.result?.error || t('inbox_ops.flash.save_failed', 'Failed to save'), 'error')
+    }
+    setIsSaving(false)
+  }, [action, payload, jsonMode, jsonText, t, onSaved, onClose])
+
+  React.useEffect(() => {
+    function handleKeyDown(event: KeyboardEvent) {
+      if ((event.metaKey || event.ctrlKey) && event.key === 'Enter') {
+        event.preventDefault()
+        handleSave()
+      }
+    }
+    window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [handleSave])
+
+  const updateField = (key: string, value: unknown) => {
+    setPayload((prev) => ({ ...prev, [key]: value }))
+  }
+
+  const updateNestedField = (parentKey: string, index: number, field: string, value: unknown) => {
+    setPayload((prev) => {
+      const arr = [...((prev[parentKey] as unknown[]) || [])]
+      arr[index] = { ...(arr[index] as Record<string, unknown>), [field]: value }
+      return { ...prev, [parentKey]: arr }
+    })
+  }
+
+  const label = actionTypeLabels[action.actionType] || action.actionType
+  const hasTypedEditor = [
+    'create_order', 'create_quote', 'update_order', 'update_shipment', 'create_contact', 'link_contact', 'log_activity', 'draft_reply',
+  ].includes(action.actionType)
+
+  return (
+    <Dialog open onOpenChange={(open) => { if (!open) onClose() }}>
+      <DialogContent className="sm:max-w-2xl sm:max-h-[85vh]">
+        <DialogHeader>
+          <DialogTitle>{t('inbox_ops.edit_dialog.title', 'Edit Action')}: {label}</DialogTitle>
+          <DialogDescription>{action.description}</DialogDescription>
+        </DialogHeader>
+
+        <div className="space-y-4 overflow-y-auto max-h-[60vh] py-2">
+          {hasTypedEditor && !jsonMode && (
+            <>
+              {(action.actionType === 'create_order' || action.actionType === 'create_quote') && (
+                <OrderPayloadEditor payload={payload} updateField={updateField} updateNestedField={updateNestedField} />
+              )}
+              {action.actionType === 'update_order' && (
+                <UpdateOrderPayloadEditor payload={payload} updateField={updateField} />
+              )}
+              {action.actionType === 'update_shipment' && (
+                <ShipmentPayloadEditor payload={payload} updateField={updateField} />
+              )}
+              {action.actionType === 'create_contact' && (
+                <ContactPayloadEditor payload={payload} updateField={updateField} />
+              )}
+              {action.actionType === 'link_contact' && (
+                <LinkContactPayloadEditor payload={payload} updateField={updateField} />
+              )}
+              {action.actionType === 'log_activity' && (
+                <LogActivityPayloadEditor payload={payload} updateField={updateField} />
+              )}
+              {action.actionType === 'draft_reply' && (
+                <DraftReplyPayloadEditor payload={payload} updateField={updateField} />
+              )}
+            </>
+          )}
+
+          {(!hasTypedEditor || jsonMode) && (
+            <div className="space-y-2">
+              <Label>{t('inbox_ops.edit_dialog.payload_json', 'Payload (JSON)')}</Label>
+              <Textarea
+                className="font-mono text-xs min-h-[200px]"
+                value={jsonText}
+                onChange={(event) => {
+                  setJsonText(event.target.value)
+                  setJsonError(null)
+                }}
+              />
+              {jsonError && <p className="text-xs text-red-600">{t('inbox_ops.edit_dialog.invalid_json', 'Invalid JSON')}</p>}
+            </div>
+          )}
+
+          {hasTypedEditor && (
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => {
+                if (!jsonMode) {
+                  setJsonText(JSON.stringify(payload, null, 2))
+                } else {
+                  try {
+                    setPayload(JSON.parse(jsonText))
+                    setJsonError(null)
+                  } catch {
+                    setJsonError('Invalid JSON')
+                    return
+                  }
+                }
+                setJsonMode(!jsonMode)
+              }}
+            >
+              {jsonMode ? t('inbox_ops.edit_dialog.form_view', 'Form view') : t('inbox_ops.edit_dialog.json_view', 'JSON view')}
+            </Button>
+          )}
+        </div>
+
+        <DialogFooter>
+          <Button variant="outline" onClick={onClose} disabled={isSaving}>
+            {t('inbox_ops.edit_dialog.cancel', 'Cancel')}
+          </Button>
+          <Button onClick={handleSave} disabled={isSaving}>
+            {isSaving && <Loader2 className="h-4 w-4 animate-spin mr-1" />}
+            {t('inbox_ops.edit_dialog.save', 'Save Changes')}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  )
+}
+
+function OrderPayloadEditor({
+  payload,
+  updateField,
+  updateNestedField,
+}: {
+  payload: Record<string, unknown>
+  updateField: (key: string, value: unknown) => void
+  updateNestedField: (parentKey: string, index: number, field: string, value: unknown) => void
+}) {
+  const t = useT()
+  const lineItems = (payload.lineItems as Record<string, unknown>[]) || []
+
+  return (
+    <div className="space-y-3">
+      <div className="grid grid-cols-2 gap-3">
+        <div>
+          <Label>{t('inbox_ops.edit_dialog.customer_name', 'Customer Name')}</Label>
+          <Input value={(payload.customerName as string) || ''} onChange={(event) => updateField('customerName', event.target.value)} />
+        </div>
+        <div>
+          <Label>{t('inbox_ops.edit_dialog.customer_email', 'Customer Email')}</Label>
+          <Input value={(payload.customerEmail as string) || ''} onChange={(event) => updateField('customerEmail', event.target.value)} />
+        </div>
+      </div>
+      <div className="grid grid-cols-2 gap-3">
+        <div>
+          <Label>{t('inbox_ops.edit_dialog.channel_id', 'Channel ID')}</Label>
+          <Input value={(payload.channelId as string) || ''} onChange={(event) => updateField('channelId', event.target.value)} />
+        </div>
+        <div>
+          <Label>{t('inbox_ops.edit_dialog.currency', 'Currency')}</Label>
+          <Input value={(payload.currencyCode as string) || ''} maxLength={3} onChange={(event) => updateField('currencyCode', event.target.value)} />
+        </div>
+      </div>
+      <div className="grid grid-cols-2 gap-3">
+        <div>
+          <Label>{t('inbox_ops.edit_dialog.delivery_date', 'Delivery Date')}</Label>
+          <Input value={(payload.requestedDeliveryDate as string) || ''} onChange={(event) => updateField('requestedDeliveryDate', event.target.value)} placeholder="YYYY-MM-DD" />
+        </div>
+        <div>
+          <Label>{t('inbox_ops.edit_dialog.customer_reference', 'Customer Reference')}</Label>
+          <Input value={(payload.customerReference as string) || ''} onChange={(event) => updateField('customerReference', event.target.value)} />
+        </div>
+      </div>
+      <div>
+        <Label>{t('inbox_ops.edit_dialog.notes', 'Notes')}</Label>
+        <Textarea value={(payload.notes as string) || ''} onChange={(event) => updateField('notes', event.target.value)} rows={2} />
+      </div>
+
+      <div>
+        <Label className="mb-1 block">{t('inbox_ops.edit_dialog.line_items', 'Line Items')}</Label>
+        <div className="space-y-2">
+          {lineItems.map((item, index) => (
+            <div key={index} className="border rounded p-2 space-y-2">
+              <div className="grid grid-cols-3 gap-2">
+                <div>
+                  <Label className="text-xs">{t('inbox_ops.edit_dialog.product', 'Product')}</Label>
+                  <Input className="h-8 text-sm" value={(item.productName as string) || ''} onChange={(event) => updateNestedField('lineItems', index, 'productName', event.target.value)} />
+                </div>
+                <div>
+                  <Label className="text-xs">{t('inbox_ops.edit_dialog.quantity', 'Quantity')}</Label>
+                  <Input className="h-8 text-sm" value={(item.quantity as string) || ''} onChange={(event) => updateNestedField('lineItems', index, 'quantity', event.target.value)} />
+                </div>
+                <div>
+                  <Label className="text-xs">{t('inbox_ops.edit_dialog.unit_price', 'Unit Price')}</Label>
+                  <Input className="h-8 text-sm" value={(item.unitPrice as string) || ''} onChange={(event) => updateNestedField('lineItems', index, 'unitPrice', event.target.value)} />
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function ShipmentPayloadEditor({
+  payload,
+  updateField,
+}: {
+  payload: Record<string, unknown>
+  updateField: (key: string, value: unknown) => void
+}) {
+  const t = useT()
+  const trackingNumbers = ((payload.trackingNumbers as string[]) || []).join(', ')
+
+  return (
+    <div className="space-y-3">
+      <div className="grid grid-cols-2 gap-3">
+        <div>
+          <Label>{t('inbox_ops.edit_dialog.carrier', 'Carrier')}</Label>
+          <Input value={(payload.carrierName as string) || ''} onChange={(event) => updateField('carrierName', event.target.value)} />
+        </div>
+        <div>
+          <Label>{t('inbox_ops.edit_dialog.status', 'Status')}</Label>
+          <Input value={(payload.statusLabel as string) || ''} onChange={(event) => updateField('statusLabel', event.target.value)} />
+        </div>
+      </div>
+      <div>
+        <Label>{t('inbox_ops.edit_dialog.tracking_numbers', 'Tracking Numbers')}</Label>
+        <Input
+          value={trackingNumbers}
+          onChange={(event) => updateField('trackingNumbers', event.target.value.split(',').map((s) => s.trim()).filter(Boolean))}
+          placeholder={t('inbox_ops.placeholder.comma_separated', 'Comma-separated')}
+        />
+      </div>
+      <div className="grid grid-cols-2 gap-3">
+        <div>
+          <Label>{t('inbox_ops.edit_dialog.shipped_at', 'Shipped At')}</Label>
+          <Input value={(payload.shippedAt as string) || ''} onChange={(event) => updateField('shippedAt', event.target.value)} placeholder="YYYY-MM-DD" />
+        </div>
+        <div>
+          <Label>{t('inbox_ops.edit_dialog.estimated_delivery', 'Estimated Delivery')}</Label>
+          <Input value={(payload.estimatedDelivery as string) || ''} onChange={(event) => updateField('estimatedDelivery', event.target.value)} placeholder="YYYY-MM-DD" />
+        </div>
+      </div>
+      <div>
+        <Label>{t('inbox_ops.edit_dialog.notes', 'Notes')}</Label>
+        <Textarea value={(payload.notes as string) || ''} onChange={(event) => updateField('notes', event.target.value)} rows={2} />
+      </div>
+    </div>
+  )
+}
+
+function ContactPayloadEditor({
+  payload,
+  updateField,
+}: {
+  payload: Record<string, unknown>
+  updateField: (key: string, value: unknown) => void
+}) {
+  const t = useT()
+  return (
+    <div className="space-y-3">
+      <div className="grid grid-cols-2 gap-3">
+        <div>
+          <Label>{t('inbox_ops.edit_dialog.name', 'Name')}</Label>
+          <Input value={(payload.name as string) || ''} onChange={(event) => updateField('name', event.target.value)} />
+        </div>
+        <div>
+          <Label>{t('inbox_ops.edit_dialog.type', 'Type')}</Label>
+          <select
+            className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm"
+            value={(payload.type as string) || 'person'}
+            onChange={(event) => updateField('type', event.target.value)}
+          >
+            <option value="person">{t('inbox_ops.contact_type.person', 'Person')}</option>
+            <option value="company">{t('inbox_ops.contact_type.company', 'Company')}</option>
+          </select>
+        </div>
+      </div>
+      <div className="grid grid-cols-2 gap-3">
+        <div>
+          <Label>{t('inbox_ops.edit_dialog.email', 'Email')}</Label>
+          <Input value={(payload.email as string) || ''} onChange={(event) => updateField('email', event.target.value)} />
+        </div>
+        <div>
+          <Label>{t('inbox_ops.edit_dialog.phone', 'Phone')}</Label>
+          <Input value={(payload.phone as string) || ''} onChange={(event) => updateField('phone', event.target.value)} />
+        </div>
+      </div>
+      <div className="grid grid-cols-2 gap-3">
+        <div>
+          <Label>{t('inbox_ops.edit_dialog.company_name', 'Company Name')}</Label>
+          <Input value={(payload.companyName as string) || ''} onChange={(event) => updateField('companyName', event.target.value)} />
+        </div>
+        <div>
+          <Label>{t('inbox_ops.edit_dialog.role', 'Role')}</Label>
+          <Input value={(payload.role as string) || ''} onChange={(event) => updateField('role', event.target.value)} />
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function LinkContactPayloadEditor({
+  payload,
+  updateField,
+}: {
+  payload: Record<string, unknown>
+  updateField: (key: string, value: unknown) => void
+}) {
+  const t = useT()
+  return (
+    <div className="space-y-3">
+      <div className="grid grid-cols-2 gap-3">
+        <div>
+          <Label>{t('inbox_ops.edit_dialog.email', 'Email')}</Label>
+          <Input value={(payload.emailAddress as string) || ''} onChange={(event) => updateField('emailAddress', event.target.value)} />
+        </div>
+        <div>
+          <Label>{t('inbox_ops.edit_dialog.contact_id', 'Contact ID')}</Label>
+          <Input value={(payload.contactId as string) || ''} onChange={(event) => updateField('contactId', event.target.value)} />
+        </div>
+      </div>
+      <div className="grid grid-cols-2 gap-3">
+        <div>
+          <Label>{t('inbox_ops.edit_dialog.contact_type', 'Contact Type')}</Label>
+          <select
+            className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm"
+            value={(payload.contactType as string) || 'person'}
+            onChange={(event) => updateField('contactType', event.target.value)}
+          >
+            <option value="person">{t('inbox_ops.contact_type.person', 'Person')}</option>
+            <option value="company">{t('inbox_ops.contact_type.company', 'Company')}</option>
+          </select>
+        </div>
+        <div>
+          <Label>{t('inbox_ops.edit_dialog.contact_name', 'Contact Name')}</Label>
+          <Input value={(payload.contactName as string) || ''} onChange={(event) => updateField('contactName', event.target.value)} />
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function DraftReplyPayloadEditor({
+  payload,
+  updateField,
+}: {
+  payload: Record<string, unknown>
+  updateField: (key: string, value: unknown) => void
+}) {
+  const t = useT()
+  return (
+    <div className="space-y-3">
+      <div className="grid grid-cols-2 gap-3">
+        <div>
+          <Label>{t('inbox_ops.edit_dialog.to', 'To')}</Label>
+          <Input value={(payload.to as string) || ''} onChange={(event) => updateField('to', event.target.value)} />
+        </div>
+        <div>
+          <Label>{t('inbox_ops.edit_dialog.to_name', 'To Name')}</Label>
+          <Input value={(payload.toName as string) || ''} onChange={(event) => updateField('toName', event.target.value)} />
+        </div>
+      </div>
+      <div>
+        <Label>{t('inbox_ops.edit_dialog.subject', 'Subject')}</Label>
+        <Input value={(payload.subject as string) || ''} onChange={(event) => updateField('subject', event.target.value)} />
+      </div>
+      <div>
+        <Label>{t('inbox_ops.edit_dialog.body', 'Body')}</Label>
+        <Textarea value={(payload.body as string) || ''} onChange={(event) => updateField('body', event.target.value)} rows={6} />
+      </div>
+    </div>
+  )
+}
+
+function UpdateOrderPayloadEditor({
+  payload,
+  updateField,
+}: {
+  payload: Record<string, unknown>
+  updateField: (key: string, value: unknown) => void
+}) {
+  const t = useT()
+  const quantityChanges = (payload.quantityChanges as Record<string, unknown>[]) || []
+  const deliveryDateChange = (payload.deliveryDateChange as Record<string, unknown>) || {}
+  const noteAdditions = Array.isArray(payload.noteAdditions) ? (payload.noteAdditions as string[]).join('\n') : ''
+
+  return (
+    <div className="space-y-3">
+      <div className="grid grid-cols-2 gap-3">
+        <div>
+          <Label>{t('inbox_ops.edit_dialog.order_id', 'Order ID')}</Label>
+          <Input value={(payload.orderId as string) || ''} onChange={(event) => updateField('orderId', event.target.value)} />
+        </div>
+        <div>
+          <Label>{t('inbox_ops.edit_dialog.order_number', 'Order Number')}</Label>
+          <Input value={(payload.orderNumber as string) || ''} onChange={(event) => updateField('orderNumber', event.target.value)} />
+        </div>
+      </div>
+
+      {quantityChanges.length > 0 && (
+        <div>
+          <Label className="mb-1 block">{t('inbox_ops.edit_dialog.quantity_changes', 'Quantity Changes')}</Label>
+          <div className="space-y-2">
+            {quantityChanges.map((change, index) => (
+              <div key={index} className="border rounded p-2 space-y-2">
+                <div className="grid grid-cols-3 gap-2">
+                  <div>
+                    <Label className="text-xs">{t('inbox_ops.edit_dialog.line_item', 'Line Item')}</Label>
+                    <Input
+                      className="h-8 text-sm"
+                      value={(change.lineItemName as string) || ''}
+                      onChange={(event) => {
+                        const arr = [...quantityChanges]
+                        arr[index] = { ...arr[index], lineItemName: event.target.value }
+                        updateField('quantityChanges', arr)
+                      }}
+                    />
+                  </div>
+                  <div>
+                    <Label className="text-xs">{t('inbox_ops.edit_dialog.old_qty', 'Old Qty')}</Label>
+                    <Input
+                      className="h-8 text-sm"
+                      value={(change.oldQuantity as string) || ''}
+                      onChange={(event) => {
+                        const arr = [...quantityChanges]
+                        arr[index] = { ...arr[index], oldQuantity: event.target.value }
+                        updateField('quantityChanges', arr)
+                      }}
+                    />
+                  </div>
+                  <div>
+                    <Label className="text-xs">{t('inbox_ops.edit_dialog.new_qty', 'New Qty')}</Label>
+                    <Input
+                      className="h-8 text-sm"
+                      value={(change.newQuantity as string) || ''}
+                      onChange={(event) => {
+                        const arr = [...quantityChanges]
+                        arr[index] = { ...arr[index], newQuantity: event.target.value }
+                        updateField('quantityChanges', arr)
+                      }}
+                    />
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {Boolean(deliveryDateChange.oldDate || deliveryDateChange.newDate) && (
+        <div className="grid grid-cols-2 gap-3">
+          <div>
+            <Label>{t('inbox_ops.edit_dialog.old_delivery_date', 'Old Delivery Date')}</Label>
+            <Input
+              value={(deliveryDateChange.oldDate as string) || ''}
+              onChange={(event) => updateField('deliveryDateChange', { ...deliveryDateChange, oldDate: event.target.value })}
+              placeholder="YYYY-MM-DD"
+            />
+          </div>
+          <div>
+            <Label>{t('inbox_ops.edit_dialog.new_delivery_date', 'New Delivery Date')}</Label>
+            <Input
+              value={(deliveryDateChange.newDate as string) || ''}
+              onChange={(event) => updateField('deliveryDateChange', { ...deliveryDateChange, newDate: event.target.value })}
+              placeholder="YYYY-MM-DD"
+            />
+          </div>
+        </div>
+      )}
+
+      <div>
+        <Label>{t('inbox_ops.edit_dialog.note_additions', 'Notes')}</Label>
+        <Textarea
+          value={noteAdditions}
+          onChange={(event) => {
+            const lines = event.target.value.split('\n').filter(Boolean)
+            updateField('noteAdditions', lines.length > 0 ? lines : undefined)
+          }}
+          rows={2}
+          placeholder={t('inbox_ops.placeholder.one_note_per_line', 'One note per line')}
+        />
+      </div>
+    </div>
+  )
+}
+
+function LogActivityPayloadEditor({
+  payload,
+  updateField,
+}: {
+  payload: Record<string, unknown>
+  updateField: (key: string, value: unknown) => void
+}) {
+  const t = useT()
+  return (
+    <div className="space-y-3">
+      <div className="grid grid-cols-2 gap-3">
+        <div>
+          <Label>{t('inbox_ops.edit_dialog.contact_name', 'Contact Name')}</Label>
+          <Input value={(payload.contactName as string) || ''} onChange={(event) => updateField('contactName', event.target.value)} />
+        </div>
+        <div>
+          <Label>{t('inbox_ops.edit_dialog.contact_type', 'Contact Type')}</Label>
+          <select
+            className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm"
+            value={(payload.contactType as string) || 'person'}
+            onChange={(event) => updateField('contactType', event.target.value)}
+          >
+            <option value="person">{t('inbox_ops.contact_type.person', 'Person')}</option>
+            <option value="company">{t('inbox_ops.contact_type.company', 'Company')}</option>
+          </select>
+        </div>
+      </div>
+      <div>
+        <Label>{t('inbox_ops.edit_dialog.activity_type', 'Activity Type')}</Label>
+        <select
+          className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm"
+          value={(payload.activityType as string) || 'email'}
+          onChange={(event) => updateField('activityType', event.target.value)}
+        >
+          <option value="email">{t('inbox_ops.activity_type.email', 'Email')}</option>
+          <option value="call">{t('inbox_ops.activity_type.call', 'Call')}</option>
+          <option value="meeting">{t('inbox_ops.activity_type.meeting', 'Meeting')}</option>
+          <option value="note">{t('inbox_ops.activity_type.note', 'Note')}</option>
+        </select>
+      </div>
+      <div>
+        <Label>{t('inbox_ops.edit_dialog.subject', 'Subject')}</Label>
+        <Input value={(payload.subject as string) || ''} onChange={(event) => updateField('subject', event.target.value)} />
+      </div>
+      <div>
+        <Label>{t('inbox_ops.edit_dialog.body', 'Body')}</Label>
+        <Textarea value={(payload.body as string) || ''} onChange={(event) => updateField('body', event.target.value)} rows={6} />
       </div>
     </div>
   )
@@ -308,6 +920,9 @@ export default function ProposalDetailPage({ params }: { params?: { id?: string 
   const [isProcessing, setIsProcessing] = React.useState(false)
 
   const { confirm, ConfirmDialogElement } = useConfirmDialog()
+  const actionTypeLabels = useActionTypeLabels()
+  const [editingAction, setEditingAction] = React.useState<ActionDetail | null>(null)
+  const [sendingReplyId, setSendingReplyId] = React.useState<string | null>(null)
 
   const loadData = React.useCallback(async () => {
     if (!proposalId) return
@@ -336,10 +951,10 @@ export default function ProposalDetailPage({ params }: { params?: { id?: string 
       { method: 'POST' },
     )
     if (result?.ok && result.result?.ok) {
-      flash('Action executed', 'success')
+      flash(t('inbox_ops.flash.action_executed', 'Action executed'), 'success')
       await loadData()
     } else {
-      flash(result?.result?.error || 'Failed to execute action', 'error')
+      flash(result?.result?.error || t('inbox_ops.flash.action_execute_failed', 'Failed to execute action'), 'error')
     }
     setIsProcessing(false)
   }, [proposalId, loadData])
@@ -351,10 +966,10 @@ export default function ProposalDetailPage({ params }: { params?: { id?: string 
       { method: 'POST' },
     )
     if (result?.ok && result.result?.ok) {
-      flash('Action rejected', 'success')
+      flash(t('inbox_ops.flash.action_rejected', 'Action rejected'), 'success')
       await loadData()
     } else {
-      flash('Failed to reject action', 'error')
+      flash(t('inbox_ops.flash.action_reject_failed', 'Failed to reject action'), 'error')
     }
     setIsProcessing(false)
   }, [proposalId, loadData])
@@ -373,18 +988,20 @@ export default function ProposalDetailPage({ params }: { params?: { id?: string 
       { method: 'POST' },
     )
     if (result?.ok && result.result?.ok) {
-      flash(`${result.result.succeeded} actions executed${result.result.failed > 0 ? `, ${result.result.failed} failed` : ''}`, 'success')
+      flash(t('inbox_ops.flash.accept_all_success', '{succeeded} actions executed')
+        .replace('{succeeded}', String(result.result.succeeded))
+        + (result.result.failed > 0 ? `, ${result.result.failed} failed` : ''), 'success')
       await loadData()
     } else {
-      flash('Failed to accept all actions', 'error')
+      flash(t('inbox_ops.flash.accept_all_failed', 'Failed to accept all actions'), 'error')
     }
     setIsProcessing(false)
   }, [proposalId, actions, confirm, t, loadData])
 
   const handleRejectAll = React.useCallback(async () => {
     const confirmed = await confirm({
-      title: 'Reject Proposal',
-      text: 'Reject all pending actions in this proposal?',
+      title: t('inbox_ops.action.reject_all', 'Reject Proposal'),
+      text: t('inbox_ops.action.reject_all_confirm', 'Reject all pending actions in this proposal?'),
     })
     if (!confirmed) return
 
@@ -394,11 +1011,11 @@ export default function ProposalDetailPage({ params }: { params?: { id?: string 
       { method: 'POST' },
     )
     if (result?.ok && result.result?.ok) {
-      flash('Proposal rejected', 'success')
+      flash(t('inbox_ops.action.proposal_rejected', 'Proposal rejected'), 'success')
       await loadData()
     }
     setIsProcessing(false)
-  }, [proposalId, confirm, loadData])
+  }, [proposalId, confirm, t, loadData])
 
   const handleRetryExtraction = React.useCallback(async () => {
     if (!email) return
@@ -408,13 +1025,28 @@ export default function ProposalDetailPage({ params }: { params?: { id?: string 
       { method: 'POST' },
     )
     if (result?.ok && result.result?.ok) {
-      flash('Reprocessing started', 'success')
+      flash(t('inbox_ops.flash.reprocessing_started', 'Reprocessing started'), 'success')
       await loadData()
     }
     setIsProcessing(false)
   }, [email, loadData])
 
-  if (isLoading) return <LoadingMessage label="Loading proposal..." />
+  const handleSendReply = React.useCallback(async (actionId: string) => {
+    setSendingReplyId(actionId)
+    const result = await apiCall<{ ok: boolean; error?: string }>(
+      `/api/inbox_ops/proposals/${proposalId}/replies/${actionId}/send`,
+      { method: 'POST' },
+    )
+    if (result?.ok && result.result?.ok) {
+      flash(t('inbox_ops.reply.sent_success', 'Reply sent successfully'), 'success')
+      await loadData()
+    } else {
+      flash(result?.result?.error || t('inbox_ops.flash.send_reply_failed', 'Failed to send reply'), 'error')
+    }
+    setSendingReplyId(null)
+  }, [proposalId, t, loadData])
+
+  if (isLoading) return <LoadingMessage label={t('inbox_ops.loading_proposal', 'Loading proposal...')} />
 
   const pendingActions = actions.filter((a) => a.status === 'pending')
   const emailIsProcessing = email?.status === 'processing'
@@ -423,6 +1055,14 @@ export default function ProposalDetailPage({ params }: { params?: { id?: string 
   return (
     <Page>
       {ConfirmDialogElement}
+      {editingAction && (
+        <EditActionDialog
+          action={editingAction}
+          actionTypeLabels={actionTypeLabels}
+          onClose={() => setEditingAction(null)}
+          onSaved={loadData}
+        />
+      )}
 
       <div className="flex items-center justify-between px-3 py-3 md:px-6 md:py-4 border-b">
         <div className="flex items-center gap-3">
@@ -439,6 +1079,18 @@ export default function ProposalDetailPage({ params }: { params?: { id?: string 
           </div>
         </div>
         <div className="flex items-center gap-2">
+          {pendingActions.length > 0 && (
+            <Button
+              variant="outline"
+              size="sm"
+              className="h-11 md:h-9 text-destructive border-destructive/30 hover:bg-destructive/10"
+              onClick={handleRejectAll}
+              disabled={isProcessing}
+            >
+              <XCircle className="h-4 w-4 mr-1" />
+              <span className="hidden md:inline">{t('inbox_ops.action.reject_all', 'Reject Proposal')}</span>
+            </Button>
+          )}
           {pendingActions.length > 1 && (
             <Button size="sm" className="h-11 md:h-9" onClick={handleAcceptAll} disabled={isProcessing}>
               {isProcessing ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : <CheckCheck className="h-4 w-4 mr-1" />}
@@ -557,14 +1209,37 @@ export default function ProposalDetailPage({ params }: { params?: { id?: string 
                   ) : (
                     <div className="space-y-3">
                       {actions.map((action) => (
-                        <ActionCard
-                          key={action.id}
-                          action={action}
-                          discrepancies={discrepancies}
-                          onAccept={handleAcceptAction}
-                          onReject={handleRejectAction}
-                          onRetry={handleAcceptAction}
-                        />
+                        <div key={action.id}>
+                          <ActionCard
+                            action={action}
+                            discrepancies={discrepancies}
+                            actionTypeLabels={actionTypeLabels}
+                            onAccept={handleAcceptAction}
+                            onReject={handleRejectAction}
+                            onRetry={handleAcceptAction}
+                            onEdit={setEditingAction}
+                          />
+                          {action.actionType === 'draft_reply' && (action.status === 'executed' || action.status === 'accepted') && (
+                            <div className="mt-2 pl-7">
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                className="h-11 md:h-9"
+                                disabled={sendingReplyId === action.id}
+                                onClick={() => handleSendReply(action.id)}
+                              >
+                                {sendingReplyId === action.id ? (
+                                  <Loader2 className="h-4 w-4 animate-spin mr-1" />
+                                ) : (
+                                  <ExternalLink className="h-4 w-4 mr-1" />
+                                )}
+                                {sendingReplyId === action.id
+                                  ? t('inbox_ops.reply.sending', 'Sending...')
+                                  : t('inbox_ops.reply.send', 'Send Reply')}
+                              </Button>
+                            </div>
+                          )}
+                        </div>
                       ))}
                     </div>
                   )}

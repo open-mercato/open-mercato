@@ -3,53 +3,43 @@
 import { POST } from '@open-mercato/core/modules/inbox_ops/api/emails/[id]/reprocess/route'
 import { InboxDiscrepancy, InboxEmail, InboxProposal, InboxProposalAction } from '@open-mercato/core/modules/inbox_ops/data/entities'
 
-interface MockEntityManager {
-  fork: jest.Mock<MockEntityManager, []>
-  findOne: jest.Mock<Promise<unknown>, [unknown, Record<string, unknown>?]>
-  find: jest.Mock<Promise<unknown[]>, [unknown, Record<string, unknown>?]>
-  flush: jest.Mock<Promise<void>, []>
-}
+const mockFindOneWithDecryption = jest.fn()
+const mockFindWithDecryption = jest.fn()
 
-type AuthFixture = {
-  userId?: string | null
-  sub?: string | null
-  tenantId?: string | null
-  organizationId?: string | null
-}
+jest.mock('@open-mercato/shared/lib/encryption/find', () => ({
+  findOneWithDecryption: (...args: unknown[]) => mockFindOneWithDecryption(...args),
+  findWithDecryption: (...args: unknown[]) => mockFindWithDecryption(...args),
+}))
 
-const mockEm: MockEntityManager = {
-  fork: jest.fn<MockEntityManager, []>(),
-  findOne: jest.fn<Promise<unknown>, [unknown, Record<string, unknown>?]>(),
-  find: jest.fn<Promise<unknown[]>, [unknown, Record<string, unknown>?]>(),
-  flush: jest.fn<Promise<void>, []>(),
-}
+const mockGetAuth = jest.fn()
 
-const mockEventBus = {
-  emit: jest.fn<Promise<void>, [string, Record<string, unknown>]>(),
-}
+jest.mock('@open-mercato/shared/lib/auth/server', () => ({
+  getAuthFromRequest: (...args: unknown[]) => mockGetAuth(...args),
+}))
 
-const authFixture: AuthFixture = {
-  userId: 'user-1',
-  tenantId: 'tenant-1',
-  organizationId: 'org-1',
+const mockEm = {
+  fork: jest.fn(),
+  flush: jest.fn(),
 }
 
 const mockContainer = {
   resolve: jest.fn((token: string) => {
     if (token === 'em') return mockEm
-    if (token === 'auth') return authFixture
     return null
   }),
 }
-
-const mockResolveOptionalEventBus = jest.fn(() => mockEventBus)
 
 jest.mock('@open-mercato/shared/lib/di/container', () => ({
   createRequestContainer: jest.fn(async () => mockContainer),
 }))
 
 jest.mock('@open-mercato/core/modules/inbox_ops/lib/eventBus', () => ({
-  resolveOptionalEventBus: jest.fn((...args: unknown[]) => mockResolveOptionalEventBus(...args)),
+  resolveOptionalEventBus: jest.fn(() => null),
+}))
+
+const mockEmitInboxOpsEvent = jest.fn()
+jest.mock('@open-mercato/core/modules/inbox_ops/events', () => ({
+  emitInboxOpsEvent: (...args: unknown[]) => mockEmitInboxOpsEvent(...args),
 }))
 
 function makeRequest() {
@@ -63,12 +53,16 @@ describe('POST /api/inbox_ops/emails/[id]/reprocess', () => {
     jest.clearAllMocks()
     mockEm.fork.mockReturnValue(mockEm)
     mockEm.flush.mockResolvedValue(undefined)
-    mockResolveOptionalEventBus.mockReturnValue(mockEventBus)
-    mockEventBus.emit.mockResolvedValue(undefined)
-    authFixture.userId = 'user-1'
-    authFixture.sub = null
-    authFixture.tenantId = 'tenant-1'
-    authFixture.organizationId = 'org-1'
+    mockEmitInboxOpsEvent.mockResolvedValue(undefined)
+    mockGetAuth.mockResolvedValue({
+      sub: 'user-1',
+      tenantId: 'tenant-1',
+      orgId: 'org-1',
+    })
+    mockContainer.resolve.mockImplementation((token: string) => {
+      if (token === 'em') return mockEm
+      return null
+    })
   })
 
   it('returns 409 when an active proposal already has execution started', async () => {
@@ -96,8 +90,8 @@ describe('POST /api/inbox_ops/emails/[id]/reprocess', () => {
       status: 'executed',
     } as unknown as InboxProposalAction
 
-    mockEm.findOne.mockResolvedValue(email)
-    mockEm.find
+    mockFindOneWithDecryption.mockResolvedValueOnce(email)
+    mockFindWithDecryption
       .mockResolvedValueOnce([proposal])
       .mockResolvedValueOnce([startedAction])
 
@@ -108,7 +102,7 @@ describe('POST /api/inbox_ops/emails/[id]/reprocess', () => {
     expect(payload.error).toContain('Cannot reprocess')
     expect(email.status).toBe('failed')
     expect(email.processingError).toBe('previous error')
-    expect(mockEventBus.emit).not.toHaveBeenCalled()
+    expect(mockEmitInboxOpsEvent).not.toHaveBeenCalled()
   })
 
   it('supersedes active proposals and requeues email for processing', async () => {
@@ -156,8 +150,8 @@ describe('POST /api/inbox_ops/emails/[id]/reprocess', () => {
       resolved: false,
     } as unknown as InboxDiscrepancy
 
-    mockEm.findOne.mockResolvedValue(email)
-    mockEm.find
+    mockFindOneWithDecryption.mockResolvedValueOnce(email)
+    mockFindWithDecryption
       .mockResolvedValueOnce([proposal])
       .mockResolvedValueOnce([pendingAction, failedAction])
       .mockResolvedValueOnce([discrepancy])
@@ -186,12 +180,12 @@ describe('POST /api/inbox_ops/emails/[id]/reprocess', () => {
     expect(email.status).toBe('received')
     expect(email.processingError).toBeNull()
 
-    expect(mockEventBus.emit).toHaveBeenNthCalledWith(
+    expect(mockEmitInboxOpsEvent).toHaveBeenNthCalledWith(
       1,
       'inbox_ops.email.reprocessed',
       expect.objectContaining({ emailId: 'email-1' }),
     )
-    expect(mockEventBus.emit).toHaveBeenNthCalledWith(
+    expect(mockEmitInboxOpsEvent).toHaveBeenNthCalledWith(
       2,
       'inbox_ops.email.received',
       expect.objectContaining({ emailId: 'email-1' }),

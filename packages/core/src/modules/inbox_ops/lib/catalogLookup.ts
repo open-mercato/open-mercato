@@ -1,7 +1,6 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
+import type { EntityClass } from '@mikro-orm/core'
 import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
-import { CatalogProduct } from '../../catalog/data/entities'
-import { CatalogProductPrice } from '../../catalog/data/entities'
 
 interface CatalogProductForExtraction {
   id: string
@@ -10,16 +9,43 @@ interface CatalogProductForExtraction {
   price?: string
 }
 
+interface CatalogProductLike {
+  id: string
+  title: string
+  sku?: string | null
+  tenantId?: string
+  organizationId?: string
+  deletedAt?: Date | null
+  updatedAt?: Date
+}
+
+interface CatalogProductPriceLike {
+  product?: unknown
+  unitPriceNet?: string | null
+  unitPriceGross?: string | null
+  tenantId?: string
+  organizationId?: string
+  createdAt?: Date
+}
+
+interface CatalogLookupDeps {
+  catalogProductClass: EntityClass<CatalogProductLike>
+  catalogProductPriceClass: EntityClass<CatalogProductPriceLike>
+}
+
 const MAX_CATALOG_PRODUCTS = 50
 
 export async function fetchCatalogProductsForExtraction(
   em: EntityManager,
   scope: { tenantId: string; organizationId: string },
+  deps?: CatalogLookupDeps,
 ): Promise<CatalogProductForExtraction[]> {
+  if (!deps?.catalogProductClass || !deps?.catalogProductPriceClass) return []
+
   try {
     const products = await findWithDecryption(
       em,
-      CatalogProduct,
+      deps.catalogProductClass,
       {
         organizationId: scope.organizationId,
         tenantId: scope.tenantId,
@@ -35,7 +61,7 @@ export async function fetchCatalogProductsForExtraction(
 
     const prices = await findWithDecryption(
       em,
-      CatalogProductPrice,
+      deps.catalogProductPriceClass,
       {
         product: { $in: productIds },
         organizationId: scope.organizationId,
@@ -47,7 +73,12 @@ export async function fetchCatalogProductsForExtraction(
 
     const priceByProduct = new Map<string, string>()
     for (const price of prices) {
-      const productId = typeof price.product === 'string' ? price.product : price.product?.id
+      const rawProduct = price.product
+      const productId = typeof rawProduct === 'string'
+        ? rawProduct
+        : rawProduct && typeof rawProduct === 'object' && 'id' in rawProduct
+          ? String((rawProduct as Record<string, unknown>).id)
+          : undefined
       if (productId && !priceByProduct.has(productId)) {
         const amount = price.unitPriceNet ?? price.unitPriceGross ?? null
         if (amount) priceByProduct.set(productId, amount)

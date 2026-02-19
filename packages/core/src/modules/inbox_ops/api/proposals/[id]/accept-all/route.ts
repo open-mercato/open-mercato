@@ -1,11 +1,14 @@
 import { NextResponse } from 'next/server'
-import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
-import type { EntityManager } from '@mikro-orm/postgresql'
-import { getAuthFromRequest, type AuthContext } from '@open-mercato/shared/lib/auth/server'
-import { InboxProposal } from '../../../../data/entities'
-import { resolveOptionalEventBus } from '../../../../lib/eventBus'
 import { acceptAllActions } from '../../../../lib/executionEngine'
+import {
+  resolveRequestContext,
+  resolveProposal,
+  resolveCrossModuleEntities,
+  toExecutionContext,
+  handleRouteError,
+  isErrorResponse,
+} from '../../../routeHelpers'
 
 export const metadata = {
   POST: { requireAuth: true, requireFeatures: ['inbox_ops.proposals.manage'] },
@@ -13,52 +16,22 @@ export const metadata = {
 
 export async function POST(req: Request) {
   try {
-    const url = new URL(req.url)
-    const segments = url.pathname.split('/')
-    const proposalId = segments[segments.indexOf('proposals') + 1]
+    const ctx = await resolveRequestContext(req)
+    const proposal = await resolveProposal(new URL(req.url), ctx)
+    if (isErrorResponse(proposal)) return proposal
 
-    if (!proposalId) {
-      return NextResponse.json({ error: 'Missing proposal ID' }, { status: 400 })
-    }
-
-    const auth = await getAuthFromRequest(req)
-    if (!auth?.sub || !auth?.tenantId || !auth?.orgId) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-    }
-    const userId = auth.sub
-    const container = await createRequestContainer()
-    const em = (container.resolve('em') as EntityManager).fork()
-
-    const proposal = await em.findOne(InboxProposal, {
-      id: proposalId,
-      organizationId: auth.orgId,
-      tenantId: auth.tenantId,
-      deletedAt: null,
-    })
-
-    if (!proposal) {
-      return NextResponse.json({ error: 'Proposal not found' }, { status: 404 })
-    }
-
-    const eventBus = resolveOptionalEventBus(container)
-
-    const { results, stoppedOnFailure } = await acceptAllActions(proposalId, {
-      em,
-      userId,
-      tenantId: auth.tenantId,
-      organizationId: auth.orgId,
-      eventBus,
-      container,
-      auth,
-    })
+    const entities = resolveCrossModuleEntities(ctx.container)
+    const { results, stoppedOnFailure } = await acceptAllActions(
+      proposal.id,
+      toExecutionContext(ctx, entities),
+    )
 
     const succeeded = results.filter((r) => r.success).length
     const failed = results.filter((r) => !r.success).length
 
     return NextResponse.json({ ok: !stoppedOnFailure, succeeded, failed, stoppedOnFailure, results })
   } catch (err) {
-    console.error('[inbox_ops:proposal:accept-all] Error:', err)
-    return NextResponse.json({ error: 'Failed to accept all actions' }, { status: 500 })
+    return handleRouteError(err, 'accept all actions')
   }
 }
 

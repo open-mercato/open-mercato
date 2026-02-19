@@ -1,9 +1,7 @@
 import { NextResponse } from 'next/server'
-import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
-import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
-import type { EntityManager } from '@mikro-orm/postgresql'
 import { InboxProposal } from '../../../data/entities'
+import { resolveRequestContext, UnauthorizedError } from '../../routeHelpers'
 
 export const metadata = {
   GET: { requireAuth: true, requireFeatures: ['inbox_ops.proposals.view'] },
@@ -11,29 +9,27 @@ export const metadata = {
 
 export async function GET(req: Request) {
   try {
-    const auth = await getAuthFromRequest(req)
-    if (!auth?.tenantId || !auth?.orgId) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-    }
-    const container = await createRequestContainer()
-    const em = (container.resolve('em') as EntityManager).fork()
+    const ctx = await resolveRequestContext(req)
 
     const scope = {
-      organizationId: auth.orgId,
-      tenantId: auth.tenantId,
+      organizationId: ctx.organizationId,
+      tenantId: ctx.tenantId,
       deletedAt: null,
       isActive: true,
     }
 
     const [pending, partial, accepted, rejected] = await Promise.all([
-      em.count(InboxProposal, { ...scope, status: 'pending' }),
-      em.count(InboxProposal, { ...scope, status: 'partial' }),
-      em.count(InboxProposal, { ...scope, status: 'accepted' }),
-      em.count(InboxProposal, { ...scope, status: 'rejected' }),
+      ctx.em.count(InboxProposal, { ...scope, status: 'pending' }),
+      ctx.em.count(InboxProposal, { ...scope, status: 'partial' }),
+      ctx.em.count(InboxProposal, { ...scope, status: 'accepted' }),
+      ctx.em.count(InboxProposal, { ...scope, status: 'rejected' }),
     ])
 
     return NextResponse.json({ pending, partial, accepted, rejected })
   } catch (err) {
+    if (err instanceof UnauthorizedError) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    }
     console.error('[inbox_ops:proposals:counts] Error:', err)
     return NextResponse.json({ error: 'Failed to get counts' }, { status: 500 })
   }

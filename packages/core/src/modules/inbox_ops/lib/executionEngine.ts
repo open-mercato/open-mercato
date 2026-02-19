@@ -1,12 +1,10 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
+import type { EntityClass } from '@mikro-orm/core'
 import type { AwilixContainer } from 'awilix'
 import type { EventBus } from '@open-mercato/events/types'
 import type { AuthContext } from '@open-mercato/shared/lib/auth/server'
 import type { CommandBus, CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
-import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
-import { Dictionary, DictionaryEntry } from '../../dictionaries/data/entities'
-import { CustomerEntity } from '../../customers/data/entities'
-import { SalesOrder, SalesShipment } from '../../sales/data/entities'
+import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { InboxProposal, InboxProposalAction, InboxDiscrepancy } from '../data/entities'
 import type { InboxActionStatus, InboxActionType, InboxProposalStatus } from '../data/entities'
 import {
@@ -25,7 +23,23 @@ import {
   type UpdateOrderPayload,
   type UpdateShipmentPayload,
 } from '../data/validators'
-import { REQUIRED_FEATURES_MAP } from './extractionPrompt'
+import { REQUIRED_FEATURES_MAP } from './constants'
+
+interface CommonEntityFields {
+  tenantId?: string
+  organizationId?: string
+  deletedAt?: Date | null
+  createdAt?: Date
+}
+
+export interface CrossModuleEntities {
+  CustomerEntity: EntityClass<CommonEntityFields & { id: string; kind: string; displayName: string; primaryEmail?: string | null }>
+  SalesOrder: EntityClass<CommonEntityFields & { id: string; orderNumber: string; currencyCode: string; comments?: string | null; customerReference?: string | null }>
+  SalesShipment: EntityClass<CommonEntityFields & { id: string; order: unknown }>
+  SalesChannel: EntityClass<CommonEntityFields & { id: string; name: string; metadata?: Record<string, unknown> | null }>
+  Dictionary: EntityClass<CommonEntityFields & { id: string; key: string }>
+  DictionaryEntry: EntityClass<CommonEntityFields & { id: string; label: string; value: string; normalizedValue?: string | null; dictionary: unknown }>
+}
 
 interface ExecutionContext {
   em: EntityManager
@@ -35,6 +49,7 @@ interface ExecutionContext {
   eventBus?: EventBus | null
   container: AwilixContainer
   auth?: AuthContext
+  entities?: CrossModuleEntities
 }
 
 interface ExecutionResult {
@@ -71,7 +86,7 @@ export async function executeAction(
   const em = ctx.em.fork()
 
   try {
-    await ensureUserCanExecuteAction(action.actionType, ctx)
+    await ensureUserCanExecuteAction(action, ctx)
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Unable to verify permissions'
     const statusCode = err instanceof ExecutionError ? err.statusCode : 503
@@ -98,7 +113,13 @@ export async function executeAction(
     return { success: false, error: 'Action already processed', statusCode: 409 }
   }
 
-  const freshAction = await em.findOne(InboxProposalAction, { id: action.id, deletedAt: null })
+  const freshAction = await findOneWithDecryption(
+    em,
+    InboxProposalAction,
+    { id: action.id, deletedAt: null },
+    undefined,
+    { tenantId: ctx.tenantId, organizationId: ctx.organizationId },
+  )
   if (!freshAction) {
     return { success: false, error: 'Action not found', statusCode: 404 }
   }
@@ -120,8 +141,9 @@ export async function executeAction(
     freshAction.executionError = null
 
     await em.flush()
-    await resolveActionDiscrepancies(em, freshAction.id)
-    await recalculateProposalStatus(em, freshAction.proposalId)
+    const encScope = { tenantId: ctx.tenantId, organizationId: ctx.organizationId }
+    await resolveActionDiscrepancies(em, freshAction.id, encScope)
+    await recalculateProposalStatus(em, freshAction.proposalId, encScope)
 
     if (ctx.eventBus) {
       await ctx.eventBus.emit('inbox_ops.action.executed', {
@@ -147,7 +169,7 @@ export async function executeAction(
     freshAction.executedByUserId = ctx.userId
     await em.flush()
 
-    await recalculateProposalStatus(em, freshAction.proposalId)
+    await recalculateProposalStatus(em, freshAction.proposalId, { tenantId: ctx.tenantId, organizationId: ctx.organizationId })
 
     if (ctx.eventBus) {
       await ctx.eventBus.emit('inbox_ops.action.failed', {
@@ -188,11 +210,18 @@ export async function rejectAction(
   )
   if (claimed === 0) return
 
-  const freshAction = await em.findOne(InboxProposalAction, { id: action.id, deletedAt: null })
+  const freshAction = await findOneWithDecryption(
+    em,
+    InboxProposalAction,
+    { id: action.id, deletedAt: null },
+    undefined,
+    { tenantId: ctx.tenantId, organizationId: ctx.organizationId },
+  )
   if (!freshAction) return
 
-  await resolveActionDiscrepancies(em, freshAction.id)
-  await recalculateProposalStatus(em, freshAction.proposalId)
+  const encScope = { tenantId: ctx.tenantId, organizationId: ctx.organizationId }
+  await resolveActionDiscrepancies(em, freshAction.id, encScope)
+  await recalculateProposalStatus(em, freshAction.proposalId, encScope)
 
   if (ctx.eventBus) {
     await ctx.eventBus.emit('inbox_ops.action.rejected', {
@@ -239,7 +268,7 @@ export async function rejectProposal(
     { resolved: true },
   )
 
-  await recalculateProposalStatus(em, proposalId)
+  await recalculateProposalStatus(em, proposalId, { tenantId: ctx.tenantId, organizationId: ctx.organizationId })
 
   if (ctx.eventBus) {
     await ctx.eventBus.emit('inbox_ops.proposal.rejected', {
@@ -255,7 +284,8 @@ export async function acceptAllActions(
   ctx: ExecutionContext,
 ): Promise<{ results: ExecutionResult[]; stoppedOnFailure: boolean }> {
   const em = ctx.em.fork()
-  const actions = await em.find(
+  const actions = await findWithDecryption(
+    em,
     InboxProposalAction,
     {
       proposalId,
@@ -263,6 +293,7 @@ export async function acceptAllActions(
       deletedAt: null,
     },
     { orderBy: { sortOrder: 'ASC' } },
+    { tenantId: ctx.tenantId, organizationId: ctx.organizationId },
   )
 
   const results: ExecutionResult[] = []
@@ -409,7 +440,11 @@ async function executeCreateDocumentAction(
     createInput.expectedDeliveryAt = requestedDeliveryAt
   }
 
-  if (kind === 'order') {
+  const effectiveKind = kind === 'order'
+    ? await resolveEffectiveDocumentKind(ctx, payload.channelId)
+    : kind
+
+  if (effectiveKind === 'order') {
     const result = await executeCommand<Record<string, unknown>, { orderId?: string }>(
       ctx,
       'sales.orders.create',
@@ -443,9 +478,7 @@ async function executeUpdateOrderAction(
   ctx: ExecutionContext,
 ): Promise<TypeExecutionResult> {
   const order = await resolveOrderByReference(
-    ctx.em,
-    ctx.tenantId,
-    ctx.organizationId,
+    ctx,
     payload.orderId,
     payload.orderNumber,
   )
@@ -508,16 +541,19 @@ async function executeUpdateShipmentAction(
   ctx: ExecutionContext,
 ): Promise<TypeExecutionResult> {
   const order = await resolveOrderByReference(
-    ctx.em,
-    ctx.tenantId,
-    ctx.organizationId,
+    ctx,
     payload.orderId,
     payload.orderNumber,
   )
 
+  const SalesShipmentClass = ctx.entities?.SalesShipment
+  if (!SalesShipmentClass) {
+    throw new ExecutionError('Sales module entities not available', 503)
+  }
+
   const shipment = await findOneWithDecryption(
     ctx.em,
-    SalesShipment,
+    SalesShipmentClass,
     {
       order: order.id,
       tenantId: ctx.tenantId,
@@ -533,9 +569,7 @@ async function executeUpdateShipmentAction(
   }
 
   const statusEntryId = await resolveShipmentStatusEntryId(
-    ctx.em,
-    ctx.tenantId,
-    ctx.organizationId,
+    ctx,
     payload.statusLabel,
   )
   if (!statusEntryId) {
@@ -575,6 +609,31 @@ async function executeCreateContactAction(
   payload: CreateContactPayload,
   ctx: ExecutionContext,
 ): Promise<TypeExecutionResult> {
+  const CustomerEntityClass = ctx.entities?.CustomerEntity
+  if (payload.email && CustomerEntityClass) {
+    const existingContact = await findOneWithDecryption(
+      ctx.em,
+      CustomerEntityClass,
+      {
+        primaryEmail: payload.email.trim().toLowerCase(),
+        tenantId: ctx.tenantId,
+        organizationId: ctx.organizationId,
+        deletedAt: null,
+      },
+      undefined,
+      { tenantId: ctx.tenantId, organizationId: ctx.organizationId },
+    )
+    if (existingContact) {
+      const isCompany = existingContact.kind === 'company'
+      return {
+        createdEntityId: existingContact.id,
+        createdEntityType: isCompany ? 'customer_company' : 'customer_person',
+        matchedEntityId: existingContact.id,
+        matchedEntityType: isCompany ? 'company' : 'person',
+      }
+    }
+  }
+
   if (payload.type === 'company') {
     const result = await executeCommand<Record<string, unknown>, { entityId?: string }>(
       ctx,
@@ -676,10 +735,10 @@ async function executeDraftReplyAction(
   const contactId = explicitContactId ?? (await resolveCustomerEntityIdByEmail(ctx, payload.to))
 
   if (!contactId) {
-    return {
-      createdEntityId: null,
-      createdEntityType: 'inbox_ops_draft_reply',
-    }
+    throw new ExecutionError(
+      `No matching contact found for "${payload.to}". Create the contact first or link an existing one.`,
+      400,
+    )
   }
 
   const details = [
@@ -719,8 +778,8 @@ async function executeDraftReplyAction(
   }
 }
 
-async function ensureUserCanExecuteAction(actionType: InboxActionType, ctx: ExecutionContext): Promise<void> {
-  const requiredFeature = getRequiredFeature(actionType)
+async function ensureUserCanExecuteAction(action: InboxProposalAction, ctx: ExecutionContext): Promise<void> {
+  const requiredFeature = getRequiredFeatureForAction(action)
   if (!requiredFeature) return
 
   const rbacService = ctx.container.resolve('rbacService') as {
@@ -791,15 +850,18 @@ function buildSourceMetadata(actionId: string, proposalId: string): Record<strin
 }
 
 async function resolveOrderByReference(
-  em: EntityManager,
-  tenantId: string,
-  organizationId: string,
+  ctx: ExecutionContext,
   orderId?: string,
   orderNumber?: string,
-): Promise<SalesOrder> {
+): Promise<{ id: string; orderNumber: string; currencyCode: string; comments?: string | null }> {
+  const SalesOrderClass = ctx.entities?.SalesOrder
+  if (!SalesOrderClass) {
+    throw new ExecutionError('Sales module entities not available', 503)
+  }
+
   const where: Record<string, unknown> = {
-    tenantId,
-    organizationId,
+    tenantId: ctx.tenantId,
+    organizationId: ctx.organizationId,
     deletedAt: null,
   }
   if (orderId) {
@@ -811,11 +873,11 @@ async function resolveOrderByReference(
   }
 
   const order = await findOneWithDecryption(
-    em,
-    SalesOrder,
+    ctx.em,
+    SalesOrderClass,
     where,
     undefined,
-    { tenantId, organizationId },
+    { tenantId: ctx.tenantId, organizationId: ctx.organizationId },
   )
   if (!order) {
     throw new ExecutionError('Referenced order not found', 404)
@@ -824,24 +886,40 @@ async function resolveOrderByReference(
 }
 
 async function resolveShipmentStatusEntryId(
-  em: EntityManager,
-  tenantId: string,
-  organizationId: string,
+  ctx: ExecutionContext,
   statusLabel: string,
 ): Promise<string | null> {
-  const dictionary = await em.findOne(Dictionary, {
-    key: SALES_SHIPMENT_STATUS_DICTIONARY_KEY,
-    tenantId,
-    organizationId,
-    deletedAt: null,
-  })
+  const DictionaryClass = ctx.entities?.Dictionary
+  const DictionaryEntryClass = ctx.entities?.DictionaryEntry
+  if (!DictionaryClass || !DictionaryEntryClass) return null
+
+  const encryptionScope = { tenantId: ctx.tenantId, organizationId: ctx.organizationId }
+
+  const dictionary = await findOneWithDecryption(
+    ctx.em,
+    DictionaryClass,
+    {
+      key: SALES_SHIPMENT_STATUS_DICTIONARY_KEY,
+      tenantId: ctx.tenantId,
+      organizationId: ctx.organizationId,
+      deletedAt: null,
+    },
+    undefined,
+    encryptionScope,
+  )
   if (!dictionary) return null
 
-  const entries = await em.find(DictionaryEntry, {
-    dictionary: dictionary.id,
-    tenantId,
-    organizationId,
-  })
+  const entries = await findWithDecryption(
+    ctx.em,
+    DictionaryEntryClass,
+    {
+      dictionary: dictionary.id,
+      tenantId: ctx.tenantId,
+      organizationId: ctx.organizationId,
+    },
+    undefined,
+    encryptionScope,
+  )
   if (!entries.length) return null
 
   const normalizedTarget = normalizeDictionaryToken(statusLabel)
@@ -867,9 +945,12 @@ async function resolveCustomerEntityIdByEmail(
   const normalized = email.trim().toLowerCase()
   if (!normalized) return null
 
+  const CustomerEntityClass = ctx.entities?.CustomerEntity
+  if (!CustomerEntityClass) return null
+
   const entity = await findOneWithDecryption(
     ctx.em,
-    CustomerEntity,
+    CustomerEntityClass,
     {
       primaryEmail: normalized,
       tenantId: ctx.tenantId,
@@ -883,6 +964,34 @@ async function resolveCustomerEntityIdByEmail(
   return entity?.id ?? null
 }
 
+async function resolveEffectiveDocumentKind(
+  ctx: ExecutionContext,
+  channelId: string,
+): Promise<'order' | 'quote'> {
+  const SalesChannelClass = ctx.entities?.SalesChannel
+  if (!SalesChannelClass) return 'order'
+
+  const channel = await findOneWithDecryption(
+    ctx.em,
+    SalesChannelClass,
+    {
+      id: channelId,
+      tenantId: ctx.tenantId,
+      organizationId: ctx.organizationId,
+      deletedAt: null,
+    },
+    undefined,
+    { tenantId: ctx.tenantId, organizationId: ctx.organizationId },
+  )
+  if (!channel) return 'order'
+
+  const metadata = channel.metadata as Record<string, unknown> | null
+  if (metadata?.quotesRequired === true) {
+    return 'quote'
+  }
+  return 'order'
+}
+
 function normalizeDictionaryToken(value: string): string {
   return value.trim().toLowerCase().replace(/[\s-]+/g, '_')
 }
@@ -892,8 +1001,8 @@ function splitPersonName(name: string): { firstName: string; lastName: string } 
   const parts = trimmed.split(/\s+/).filter((item) => item.length > 0)
   if (parts.length <= 1) {
     return {
-      firstName: parts[0] || 'Unknown',
-      lastName: 'Unknown',
+      firstName: parts[0] || trimmed,
+      lastName: '',
     }
   }
   return {
@@ -917,11 +1026,18 @@ function parseDateToken(value?: string | null): Date | undefined {
   return parsed
 }
 
-async function resolveActionDiscrepancies(em: EntityManager, actionId: string): Promise<void> {
-  const discrepancies = await em.find(InboxDiscrepancy, {
-    actionId,
-    resolved: false,
-  })
+async function resolveActionDiscrepancies(
+  em: EntityManager,
+  actionId: string,
+  scope?: { tenantId: string; organizationId: string },
+): Promise<void> {
+  const discrepancies = await findWithDecryption(
+    em,
+    InboxDiscrepancy,
+    { actionId, resolved: false },
+    undefined,
+    scope,
+  )
   for (const discrepancy of discrepancies) {
     discrepancy.resolved = true
   }
@@ -933,14 +1049,24 @@ async function resolveActionDiscrepancies(em: EntityManager, actionId: string): 
 export async function recalculateProposalStatus(
   em: EntityManager,
   proposalId: string,
+  scope?: { tenantId: string; organizationId: string },
 ): Promise<void> {
-  const proposal = await em.findOne(InboxProposal, { id: proposalId })
+  const proposal = await findOneWithDecryption(
+    em,
+    InboxProposal,
+    { id: proposalId, deletedAt: null },
+    undefined,
+    scope,
+  )
   if (!proposal) return
 
-  const actions = await em.find(InboxProposalAction, {
-    proposalId,
-    deletedAt: null,
-  })
+  const actions = await findWithDecryption(
+    em,
+    InboxProposalAction,
+    { proposalId, deletedAt: null },
+    undefined,
+    scope,
+  )
 
   if (actions.length === 0) {
     proposal.status = 'pending'
@@ -972,4 +1098,14 @@ export async function recalculateProposalStatus(
 
 export function getRequiredFeature(actionType: InboxActionType): string {
   return REQUIRED_FEATURES_MAP[actionType]
+}
+
+function getRequiredFeatureForAction(action: InboxProposalAction): string {
+  if (action.actionType === 'create_contact') {
+    const payload = action.payload as Record<string, unknown> | null
+    if (payload?.type === 'company') {
+      return 'customers.companies.manage'
+    }
+  }
+  return REQUIRED_FEATURES_MAP[action.actionType]
 }

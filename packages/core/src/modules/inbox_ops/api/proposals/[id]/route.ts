@@ -1,10 +1,13 @@
 import { NextResponse } from 'next/server'
-import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
-import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
-import type { EntityManager } from '@mikro-orm/postgresql'
 import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
-import { InboxProposal, InboxProposalAction, InboxDiscrepancy, InboxEmail } from '../../../data/entities'
+import { InboxProposalAction, InboxDiscrepancy, InboxEmail } from '../../../data/entities'
+import {
+  resolveRequestContext,
+  resolveProposal,
+  handleRouteError,
+  isErrorResponse,
+} from '../../routeHelpers'
 
 export const metadata = {
   GET: { requireAuth: true, requireFeatures: ['inbox_ops.proposals.view'] },
@@ -12,67 +15,36 @@ export const metadata = {
 
 export async function GET(req: Request) {
   try {
-    const url = new URL(req.url)
-    const segments = url.pathname.split('/')
-    const id = segments[segments.indexOf('proposals') + 1]
-
-    if (!id) {
-      return NextResponse.json({ error: 'Missing proposal ID' }, { status: 400 })
-    }
-
-    const auth = await getAuthFromRequest(req)
-    if (!auth?.tenantId || !auth?.orgId) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-    }
-    const container = await createRequestContainer()
-    const em = (container.resolve('em') as EntityManager).fork()
-
-    const scope = {
-      tenantId: auth.tenantId,
-      organizationId: auth.orgId,
-    }
-
-    const proposal = await findOneWithDecryption(
-      em,
-      InboxProposal as any,
-      {
-        id,
-        organizationId: auth.orgId,
-        tenantId: auth.tenantId,
-        deletedAt: null,
-      } as any,
-      undefined,
-      scope,
-    )
-
-    if (!proposal) {
-      return NextResponse.json({ error: 'Proposal not found' }, { status: 404 })
-    }
+    const ctx = await resolveRequestContext(req)
+    const proposal = await resolveProposal(new URL(req.url), ctx)
+    if (isErrorResponse(proposal)) return proposal
 
     const [actions, discrepancies, email] = await Promise.all([
       findWithDecryption(
-        em,
-        InboxProposalAction as any,
-        { proposalId: id, deletedAt: null } as any,
-        { orderBy: { sortOrder: 'ASC' } as any },
-        scope,
+        ctx.em,
+        InboxProposalAction,
+        { proposalId: proposal.id, organizationId: ctx.organizationId, tenantId: ctx.tenantId, deletedAt: null },
+        { orderBy: { sortOrder: 'ASC' } },
+        ctx.scope,
       ),
       findWithDecryption(
-        em,
-        InboxDiscrepancy as any,
-        { proposalId: id, deletedAt: null } as any,
-        { orderBy: { createdAt: 'ASC' } as any },
-        scope,
+        ctx.em,
+        InboxDiscrepancy,
+        { proposalId: proposal.id, organizationId: ctx.organizationId, tenantId: ctx.tenantId, deletedAt: null },
+        { orderBy: { createdAt: 'ASC' } },
+        ctx.scope,
       ),
       findOneWithDecryption(
-        em,
-        InboxEmail as any,
+        ctx.em,
+        InboxEmail,
         {
-          id: (proposal as any).inboxEmailId,
+          id: proposal.inboxEmailId,
+          organizationId: ctx.organizationId,
+          tenantId: ctx.tenantId,
           deletedAt: null,
-        } as any,
+        },
         undefined,
-        scope,
+        ctx.scope,
       ),
     ])
 
@@ -83,8 +55,7 @@ export async function GET(req: Request) {
       email,
     })
   } catch (err) {
-    console.error('[inbox_ops:proposals:detail] Error:', err)
-    return NextResponse.json({ error: 'Failed to load proposal' }, { status: 500 })
+    return handleRouteError(err, 'load proposal')
   }
 }
 

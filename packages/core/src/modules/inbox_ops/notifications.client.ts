@@ -1,6 +1,7 @@
 'use client'
 
 import type { NotificationTypeDefinition } from '@open-mercato/shared/modules/notifications/types'
+import { ProposalCreatedRenderer } from './widgets/notifications/ProposalCreatedRenderer'
 
 export const inboxOpsNotificationTypes: NotificationTypeDefinition[] = [
   {
@@ -20,6 +21,7 @@ export const inboxOpsNotificationTypes: NotificationTypeDefinition[] = [
       },
     ],
     linkHref: '/backend/inbox-ops/proposals/{sourceEntityId}',
+    Renderer: ProposalCreatedRenderer,
     expiresAfterHours: 168,
   },
 ]

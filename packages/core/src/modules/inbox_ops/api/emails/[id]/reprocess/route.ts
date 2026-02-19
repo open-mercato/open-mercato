@@ -1,10 +1,14 @@
 import { NextResponse } from 'next/server'
-import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
-import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
+import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { InboxDiscrepancy, InboxEmail, InboxProposal, InboxProposalAction } from '../../../../data/entities'
-import { resolveOptionalEventBus } from '../../../../lib/eventBus'
+import { emitInboxOpsEvent } from '../../../../events'
+import {
+  resolveRequestContext,
+  extractPathSegment,
+  UnauthorizedError,
+} from '../../../routeHelpers'
 
 export const metadata = {
   POST: { requireAuth: true, requireFeatures: ['inbox_ops.proposals.manage'] },
@@ -15,27 +19,26 @@ class ReprocessConflictError extends Error {}
 export async function POST(req: Request) {
   try {
     const url = new URL(req.url)
-    const segments = url.pathname.split('/')
-    const id = segments[segments.indexOf('emails') + 1]
+    const id = extractPathSegment(url, 'emails')
 
     if (!id) {
       return NextResponse.json({ error: 'Missing email ID' }, { status: 400 })
     }
 
-    const auth = await getAuthFromRequest(req)
-    if (!auth?.sub || !auth?.tenantId || !auth?.orgId) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-    }
-    const userId = auth.sub
-    const container = await createRequestContainer()
-    const em = (container.resolve('em') as EntityManager).fork()
+    const ctx = await resolveRequestContext(req)
 
-    const email = await em.findOne(InboxEmail, {
-      id,
-      organizationId: auth.orgId,
-      tenantId: auth.tenantId,
-      deletedAt: null,
-    })
+    const email = await findOneWithDecryption(
+      ctx.em,
+      InboxEmail,
+      {
+        id,
+        organizationId: ctx.organizationId,
+        tenantId: ctx.tenantId,
+        deletedAt: null,
+      },
+      undefined,
+      ctx.scope,
+    )
 
     if (!email) {
       return NextResponse.json({ error: 'Email not found' }, { status: 404 })
@@ -45,30 +48,34 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: 'Email is already queued for processing' }, { status: 409 })
     }
 
-    const retiredCounts = await retireActiveProposalsForEmail(em, email.id, userId)
+    const retiredCounts = await retireActiveProposalsForEmail(ctx.em, email.id, ctx.userId, ctx.scope)
 
     email.status = 'received'
     email.processingError = null
-    await em.flush()
+    await ctx.em.flush()
 
-    const eventBus = resolveOptionalEventBus(container)
-    if (eventBus) {
-      await eventBus.emit('inbox_ops.email.reprocessed', {
+    try {
+      await emitInboxOpsEvent('inbox_ops.email.reprocessed', {
         emailId: email.id,
         tenantId: email.tenantId,
         organizationId: email.organizationId,
       })
-      await eventBus.emit('inbox_ops.email.received', {
+      await emitInboxOpsEvent('inbox_ops.email.received', {
         emailId: email.id,
         tenantId: email.tenantId,
         organizationId: email.organizationId,
         forwardedByAddress: email.forwardedByAddress,
         subject: email.subject,
       })
+    } catch (eventError) {
+      console.error('[inbox_ops:email:reprocess] Failed to emit events:', eventError)
     }
 
     return NextResponse.json({ ok: true, ...retiredCounts })
   } catch (err) {
+    if (err instanceof UnauthorizedError) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    }
     if (err instanceof ReprocessConflictError) {
       return NextResponse.json({ error: err.message }, { status: 409 })
     }
@@ -82,22 +89,35 @@ async function retireActiveProposalsForEmail(
   em: EntityManager,
   emailId: string,
   userId: string,
+  scope: { tenantId: string; organizationId: string },
 ): Promise<{ retiredProposalCount: number; retiredActionCount: number }> {
-  const proposals = await em.find(InboxProposal, {
-    inboxEmailId: emailId,
-    isActive: true,
-    deletedAt: null,
-  })
+  const proposals = await findWithDecryption(
+    em,
+    InboxProposal,
+    {
+      inboxEmailId: emailId,
+      isActive: true,
+      deletedAt: null,
+    },
+    undefined,
+    scope,
+  )
 
   if (proposals.length === 0) {
     return { retiredProposalCount: 0, retiredActionCount: 0 }
   }
 
   const proposalIds = proposals.map((proposal) => proposal.id)
-  const actions = await em.find(InboxProposalAction, {
-    proposalId: { $in: proposalIds },
-    deletedAt: null,
-  })
+  const actions = await findWithDecryption(
+    em,
+    InboxProposalAction,
+    {
+      proposalId: { $in: proposalIds },
+      deletedAt: null,
+    },
+    undefined,
+    scope,
+  )
 
   if (actions.some((action) => action.status === 'accepted' || action.status === 'executed' || action.status === 'processing')) {
     throw new ReprocessConflictError('Cannot reprocess after actions were already executed. Open the latest proposal instead.')
@@ -133,11 +153,17 @@ async function retireActiveProposalsForEmail(
     retiredActionCount += 1
   }
 
-  const discrepancies = await em.find(InboxDiscrepancy, {
-    proposalId: { $in: proposalIds },
-    resolved: false,
-    deletedAt: null,
-  })
+  const discrepancies = await findWithDecryption(
+    em,
+    InboxDiscrepancy,
+    {
+      proposalId: { $in: proposalIds },
+      resolved: false,
+      deletedAt: null,
+    },
+    undefined,
+    scope,
+  )
   for (const discrepancy of discrepancies) {
     discrepancy.resolved = true
   }

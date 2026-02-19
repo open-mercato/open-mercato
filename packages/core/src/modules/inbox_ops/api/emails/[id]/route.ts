@@ -1,10 +1,12 @@
 import { NextResponse } from 'next/server'
-import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
-import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
-import type { EntityManager } from '@mikro-orm/postgresql'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { InboxEmail } from '../../../data/entities'
+import {
+  resolveRequestContext,
+  extractPathSegment,
+  UnauthorizedError,
+} from '../../routeHelpers'
 
 export const metadata = {
   GET: { requireAuth: true, requireFeatures: ['inbox_ops.log.view'] },
@@ -13,31 +15,25 @@ export const metadata = {
 export async function GET(req: Request) {
   try {
     const url = new URL(req.url)
-    const segments = url.pathname.split('/')
-    const id = segments[segments.indexOf('emails') + 1]
+    const id = extractPathSegment(url, 'emails')
 
     if (!id) {
       return NextResponse.json({ error: 'Missing email ID' }, { status: 400 })
     }
 
-    const auth = await getAuthFromRequest(req)
-    if (!auth?.tenantId || !auth?.orgId) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-    }
-    const container = await createRequestContainer()
-    const em = (container.resolve('em') as EntityManager).fork()
+    const ctx = await resolveRequestContext(req)
 
     const email = await findOneWithDecryption(
-      em,
-      InboxEmail as any,
+      ctx.em,
+      InboxEmail,
       {
         id,
-        organizationId: auth.orgId,
-        tenantId: auth.tenantId,
+        organizationId: ctx.organizationId,
+        tenantId: ctx.tenantId,
         deletedAt: null,
-      } as any,
+      },
       undefined,
-      { tenantId: auth.tenantId, organizationId: auth.orgId },
+      ctx.scope,
     )
 
     if (!email) {
@@ -46,6 +42,9 @@ export async function GET(req: Request) {
 
     return NextResponse.json({ email })
   } catch (err) {
+    if (err instanceof UnauthorizedError) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    }
     console.error('[inbox_ops:emails:detail] Error:', err)
     return NextResponse.json({ error: 'Failed to load email' }, { status: 500 })
   }

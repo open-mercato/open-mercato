@@ -4,10 +4,12 @@ import { z } from 'zod'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import type { EntityManager } from '@mikro-orm/postgresql'
+import type { CacheStrategy } from '@open-mercato/cache'
+import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { InboxSettings, InboxEmail } from '../../data/entities'
 import { parseInboundEmail } from '../../lib/emailParser'
-import { resolveOptionalEventBus } from '../../lib/eventBus'
 import { checkRateLimit } from '../../lib/rateLimiter'
+import { emitInboxOpsEvent } from '../../events'
 
 export const metadata = {
   POST: { requireAuth: false },
@@ -88,7 +90,16 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: 'Missing recipient address' }, { status: 400 })
   }
 
-  const rateCheck = checkRateLimit(`webhook:${toAddress}`)
+  const container = await createRequestContainer()
+
+  let cache: CacheStrategy | null = null
+  try {
+    cache = container.resolve('cache') as CacheStrategy
+  } catch {
+    // Cache not available — proceed without rate limiting
+  }
+
+  const rateCheck = await checkRateLimit(cache, `webhook:${toAddress}`)
   if (!rateCheck.allowed) {
     return NextResponse.json(
       { error: 'Rate limit exceeded' },
@@ -100,15 +111,17 @@ export async function POST(req: Request) {
       },
     )
   }
-
-  const container = await createRequestContainer()
   const em = (container.resolve('em') as EntityManager).fork()
 
-  const settings = await em.findOne(InboxSettings, {
-    inboxAddress: toAddress.toLowerCase(),
-    isActive: true,
-    deletedAt: null,
-  })
+  const settings = await findOneWithDecryption(
+    em,
+    InboxSettings,
+    {
+      inboxAddress: toAddress.toLowerCase(),
+      isActive: true,
+      deletedAt: null,
+    },
+  )
 
   if (!settings) {
     return NextResponse.json({ ok: true })
@@ -128,13 +141,14 @@ export async function POST(req: Request) {
 
   const isDuplicate = await checkDuplicate(em, settings, parsed.messageId, parsed.contentHash)
   if (isDuplicate) {
-    const eventBus = resolveOptionalEventBus(container)
-    if (eventBus) {
-      await eventBus.emit('inbox_ops.email.deduplicated', {
+    try {
+      await emitInboxOpsEvent('inbox_ops.email.deduplicated', {
         tenantId: settings.tenantId,
         organizationId: settings.organizationId,
         toAddress,
       })
+    } catch (eventError) {
+      console.error('[inbox_ops:webhook] Failed to emit deduplicated event:', eventError)
     }
     return NextResponse.json({ ok: true })
   }
@@ -167,15 +181,16 @@ export async function POST(req: Request) {
   em.persist(email)
   await em.flush()
 
-  const eventBus = resolveOptionalEventBus(container)
-  if (eventBus) {
-    await eventBus.emit('inbox_ops.email.received', {
+  try {
+    await emitInboxOpsEvent('inbox_ops.email.received', {
       emailId: email.id,
       tenantId: settings.tenantId,
       organizationId: settings.organizationId,
       forwardedByAddress: parsed.from.email,
       subject: parsed.subject,
     })
+  } catch (eventError) {
+    console.error('[inbox_ops:webhook] Failed to emit email.received event:', eventError)
   }
 
   return NextResponse.json({ ok: true })
@@ -203,19 +218,23 @@ async function checkDuplicate(
   messageId: string | null | undefined,
   contentHash: string | null | undefined,
 ): Promise<boolean> {
-  const scope = {
+  const encScope = {
+    tenantId: settings.tenantId,
+    organizationId: settings.organizationId,
+  }
+  const whereBase = {
     organizationId: settings.organizationId,
     tenantId: settings.tenantId,
     deletedAt: null,
   }
 
   if (messageId) {
-    const byMessageId = await em.findOne(InboxEmail, { ...scope, messageId })
+    const byMessageId = await findOneWithDecryption(em, InboxEmail, { ...whereBase, messageId }, undefined, encScope)
     if (byMessageId) return true
   }
 
   if (contentHash) {
-    const byHash = await em.findOne(InboxEmail, { ...scope, contentHash })
+    const byHash = await findOneWithDecryption(em, InboxEmail, { ...whereBase, contentHash }, undefined, encScope)
     if (byHash) return true
   }
 

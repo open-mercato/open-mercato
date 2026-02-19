@@ -1,8 +1,10 @@
 import type { ModuleSetupConfig } from '@open-mercato/shared/modules/setup'
+import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { InboxSettings } from './data/entities'
 
 export const setup: ModuleSetupConfig = {
   defaultRoleFeatures: {
+    superadmin: ['inbox_ops.*'],
     admin: [
       'inbox_ops.proposals.view',
       'inbox_ops.proposals.manage',
@@ -18,11 +20,17 @@ export const setup: ModuleSetupConfig = {
   },
 
   async onTenantCreated({ em, tenantId, organizationId }) {
-    const exists = await em.findOne(InboxSettings, { tenantId, organizationId })
+    const exists = await findOneWithDecryption(
+      em,
+      InboxSettings,
+      { tenantId, organizationId, deletedAt: null },
+      undefined,
+      { tenantId, organizationId },
+    )
     if (!exists) {
       const domain = process.env.INBOX_OPS_DOMAIN || 'inbox.mercato.local'
-      const code = organizationId.slice(0, 8)
-      const inboxAddress = `ops-${code}@${domain}`
+      const slug = organizationId.slice(0, 8)
+      const inboxAddress = `ops-${slug}@${domain}`
       em.persist(em.create(InboxSettings, {
         tenantId,
         organizationId,

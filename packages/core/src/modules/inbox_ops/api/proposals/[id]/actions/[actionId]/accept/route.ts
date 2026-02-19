@@ -1,11 +1,16 @@
 import { NextResponse } from 'next/server'
-import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
-import type { EntityManager } from '@mikro-orm/postgresql'
-import { getAuthFromRequest, type AuthContext } from '@open-mercato/shared/lib/auth/server'
+import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { InboxProposal, InboxProposalAction } from '../../../../../../data/entities'
-import { resolveOptionalEventBus } from '../../../../../../lib/eventBus'
 import { executeAction } from '../../../../../../lib/executionEngine'
+import {
+  resolveRequestContext,
+  resolveActionAndProposal,
+  resolveCrossModuleEntities,
+  toExecutionContext,
+  handleRouteError,
+  isErrorResponse,
+} from '../../../../../routeHelpers'
 
 export const metadata = {
   POST: { requireAuth: true, requireFeatures: ['inbox_ops.proposals.manage'] },
@@ -13,57 +18,12 @@ export const metadata = {
 
 export async function POST(req: Request) {
   try {
-    const url = new URL(req.url)
-    const segments = url.pathname.split('/')
-    const proposalId = segments[segments.indexOf('proposals') + 1]
-    const actionId = segments[segments.indexOf('actions') + 1]
+    const ctx = await resolveRequestContext(req)
+    const resolved = await resolveActionAndProposal(new URL(req.url), ctx)
+    if (isErrorResponse(resolved)) return resolved
 
-    if (!proposalId || !actionId) {
-      return NextResponse.json({ error: 'Missing IDs' }, { status: 400 })
-    }
-
-    const auth = await getAuthFromRequest(req)
-    if (!auth?.sub || !auth?.tenantId || !auth?.orgId) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-    }
-    const userId = auth.sub
-    const container = await createRequestContainer()
-    const em = (container.resolve('em') as EntityManager).fork()
-
-    const action = await em.findOne(InboxProposalAction, {
-      id: actionId,
-      proposalId,
-      organizationId: auth.orgId,
-      tenantId: auth.tenantId,
-      deletedAt: null,
-    })
-
-    if (!action) {
-      return NextResponse.json({ error: 'Action not found' }, { status: 404 })
-    }
-
-    const proposal = await em.findOne(InboxProposal, {
-      id: proposalId,
-      organizationId: auth.orgId,
-      tenantId: auth.tenantId,
-      isActive: true,
-      deletedAt: null,
-    })
-    if (!proposal) {
-      return NextResponse.json({ error: 'Proposal has been superseded by a newer extraction' }, { status: 409 })
-    }
-
-    const eventBus = resolveOptionalEventBus(container)
-
-    const result = await executeAction(action, {
-      em,
-      userId,
-      tenantId: auth.tenantId,
-      organizationId: auth.orgId,
-      eventBus,
-      container,
-      auth,
-    })
+    const entities = resolveCrossModuleEntities(ctx.container)
+    const result = await executeAction(resolved.action, toExecutionContext(ctx, entities))
 
     if (!result.success) {
       return NextResponse.json(
@@ -72,14 +32,39 @@ export async function POST(req: Request) {
       )
     }
 
+    const freshAction = await findOneWithDecryption(
+      ctx.em,
+      InboxProposalAction,
+      { id: resolved.action.id, deletedAt: null },
+      undefined,
+      ctx.scope,
+    )
+
+    const freshProposal = await findOneWithDecryption(
+      ctx.em,
+      InboxProposal,
+      { id: resolved.proposal.id, deletedAt: null },
+      undefined,
+      ctx.scope,
+    )
+
     return NextResponse.json({
       ok: true,
-      createdEntityId: result.createdEntityId,
-      createdEntityType: result.createdEntityType,
+      action: freshAction ? {
+        id: freshAction.id,
+        status: freshAction.status,
+        createdEntityId: freshAction.createdEntityId,
+        createdEntityType: freshAction.createdEntityType,
+        executedAt: freshAction.executedAt,
+        executedByUserId: freshAction.executedByUserId,
+      } : null,
+      proposal: freshProposal ? {
+        id: freshProposal.id,
+        status: freshProposal.status,
+      } : null,
     })
   } catch (err) {
-    console.error('[inbox_ops:action:accept] Error:', err)
-    return NextResponse.json({ error: 'Failed to execute action' }, { status: 500 })
+    return handleRouteError(err, 'execute action')
   }
 }
 

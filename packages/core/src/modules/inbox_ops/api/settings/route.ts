@@ -1,9 +1,8 @@
 import { NextResponse } from 'next/server'
-import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
-import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
-import type { EntityManager } from '@mikro-orm/postgresql'
+import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { InboxSettings } from '../../data/entities'
+import { resolveRequestContext, UnauthorizedError } from '../routeHelpers'
 
 export const metadata = {
   GET: { requireAuth: true, requireFeatures: ['inbox_ops.settings.manage'] },
@@ -11,18 +10,19 @@ export const metadata = {
 
 export async function GET(req: Request) {
   try {
-    const auth = await getAuthFromRequest(req)
-    if (!auth?.tenantId || !auth?.orgId) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-    }
-    const container = await createRequestContainer()
-    const em = (container.resolve('em') as EntityManager).fork()
+    const ctx = await resolveRequestContext(req)
 
-    const settings = await em.findOne(InboxSettings, {
-      organizationId: auth.orgId,
-      tenantId: auth.tenantId,
-      deletedAt: null,
-    })
+    const settings = await findOneWithDecryption(
+      ctx.em,
+      InboxSettings,
+      {
+        organizationId: ctx.organizationId,
+        tenantId: ctx.tenantId,
+        deletedAt: null,
+      },
+      undefined,
+      ctx.scope,
+    )
 
     return NextResponse.json({
       settings: settings ? {
@@ -32,6 +32,9 @@ export async function GET(req: Request) {
       } : null,
     })
   } catch (err) {
+    if (err instanceof UnauthorizedError) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    }
     console.error('[inbox_ops:settings] Error:', err)
     return NextResponse.json({ error: 'Failed to load settings' }, { status: 500 })
   }

@@ -1,15 +1,5 @@
 import type { ContactMatchResult } from './contactMatcher'
-
-const REQUIRED_FEATURES_MAP = {
-  create_order: 'sales.orders.manage',
-  create_quote: 'sales.quotes.manage',
-  update_order: 'sales.orders.manage',
-  update_shipment: 'sales.shipments.manage',
-  create_contact: 'customers.people.manage',
-  link_contact: 'customers.people.manage',
-  log_activity: 'customers.activities.manage',
-  draft_reply: 'inbox_ops.replies.send',
-} as const
+import { REQUIRED_FEATURES_MAP } from './constants'
 
 export function buildExtractionSystemPrompt(
   matchedContacts: ContactMatchResult[],
@@ -88,4 +78,4 @@ ${cleanedText}
 </output_requirements>`
 }
 
-export { REQUIRED_FEATURES_MAP }
+export { REQUIRED_FEATURES_MAP } from './constants'

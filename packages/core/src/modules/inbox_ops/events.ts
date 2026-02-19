@@ -9,7 +9,6 @@ const events = [
   { id: 'inbox_ops.proposal.created', label: 'Proposal Created', entity: 'proposal', category: 'crud' },
   { id: 'inbox_ops.proposal.accepted', label: 'Proposal Accepted', entity: 'proposal', category: 'custom' },
   { id: 'inbox_ops.proposal.rejected', label: 'Proposal Rejected', entity: 'proposal', category: 'custom' },
-  { id: 'inbox_ops.action.accepted', label: 'Action Accepted', entity: 'action', category: 'custom' },
   { id: 'inbox_ops.action.rejected', label: 'Action Rejected', entity: 'action', category: 'custom' },
   { id: 'inbox_ops.action.edited', label: 'Action Edited', entity: 'action', category: 'custom' },
   { id: 'inbox_ops.action.executed', label: 'Action Executed', entity: 'action', category: 'custom' },

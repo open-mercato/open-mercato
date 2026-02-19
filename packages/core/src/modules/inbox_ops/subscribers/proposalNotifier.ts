@@ -25,7 +25,7 @@ interface ResolverContext {
 
 export default async function handle(payload: ProposalCreatedPayload, ctx: ResolverContext) {
   try {
-    const notificationService = resolveNotificationService(ctx as any)
+    const notificationService = resolveNotificationService(ctx)
     const typeDef = notificationTypes.find((t) => t.type === 'inbox_ops.proposal.created')
     if (!typeDef) return
 
@@ -45,5 +45,6 @@ export default async function handle(payload: ProposalCreatedPayload, ctx: Resol
     })
   } catch (err) {
     console.error('[inbox_ops:proposal-notifier] Failed to create notification:', err)
+    throw err
   }
 }

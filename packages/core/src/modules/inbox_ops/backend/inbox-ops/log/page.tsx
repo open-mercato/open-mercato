@@ -83,14 +83,14 @@ export default function ProcessingLogPage() {
   const columns: ColumnDef<EmailRow>[] = React.useMemo(() => [
     {
       accessorKey: 'subject',
-      header: 'Subject',
+      header: t('inbox_ops.log.subject', 'Subject'),
       cell: ({ row }) => (
         <span className="text-sm font-medium truncate max-w-[300px] block">{row.original.subject}</span>
       ),
     },
     {
       accessorKey: 'forwardedByAddress',
-      header: 'From',
+      header: t('inbox_ops.log.from', 'From'),
       cell: ({ row }) => (
         <span className="text-sm text-muted-foreground truncate max-w-[200px] block">
           {row.original.forwardedByName || row.original.forwardedByAddress}
@@ -99,7 +99,7 @@ export default function ProcessingLogPage() {
     },
     {
       accessorKey: 'status',
-      header: 'Status',
+      header: t('inbox_ops.log.status', 'Status'),
       cell: ({ row }) => {
         const color = STATUS_COLORS[row.original.status] || 'bg-gray-100 text-gray-800'
         return <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium capitalize ${color}`}>{row.original.status}</span>
@@ -149,12 +149,12 @@ export default function ProcessingLogPage() {
   ], [handleRetryEmail, retryingEmailId, t])
 
   const tabs = [
-    { label: 'All', value: undefined },
-    { label: 'Received', value: 'received' },
-    { label: 'Processing', value: 'processing' },
-    { label: 'Processed', value: 'processed' },
-    { label: 'Needs Review', value: 'needs_review' },
-    { label: 'Failed', value: 'failed' },
+    { label: t('inbox_ops.log.tab_all', 'All'), value: undefined },
+    { label: t('inbox_ops.log.tab_received', 'Received'), value: 'received' },
+    { label: t('inbox_ops.log.tab_processing', 'Processing'), value: 'processing' },
+    { label: t('inbox_ops.log.tab_processed', 'Processed'), value: 'processed' },
+    { label: t('inbox_ops.log.tab_needs_review', 'Needs Review'), value: 'needs_review' },
+    { label: t('inbox_ops.log.tab_failed', 'Failed'), value: 'failed' },
   ]
 
   return (

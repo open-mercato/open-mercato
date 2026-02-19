@@ -15,13 +15,25 @@ interface ActionExecutedPayload {
   organizationId: string | null
 }
 
+interface DataEngineWithAudit {
+  audit?: (entry: {
+    action: string
+    resourceKind: string
+    resourceId: string
+    userId: string
+    tenantId: string
+    organizationId: string | null
+    payload: Record<string, unknown>
+  }) => Promise<void>
+}
+
 interface ResolverContext {
   resolve: <T = unknown>(name: string) => T
 }
 
 export default async function handle(payload: ActionExecutedPayload, ctx: ResolverContext) {
   try {
-    const dataEngine = ctx.resolve('dataEngine') as any
+    const dataEngine = ctx.resolve<DataEngineWithAudit>('dataEngine')
     if (!dataEngine?.audit) return
 
     await dataEngine.audit({
@@ -40,5 +52,6 @@ export default async function handle(payload: ActionExecutedPayload, ctx: Resolv
     })
   } catch (err) {
     console.error('[inbox_ops:execution-auditor] Failed to write audit log:', err)
+    throw err
   }
 }
