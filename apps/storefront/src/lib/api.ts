@@ -20,8 +20,9 @@ class StorefrontApiError extends Error {
   }
 }
 
-function buildUrl(path: string, params?: Record<string, string | number | boolean | undefined>): string {
-  const url = new URL(`${API_BASE}/api/ecommerce/storefront${path}`)
+function buildUrl(path: string, params?: Record<string, string | number | boolean | undefined>, relative = false): string {
+  const base = relative ? 'http://localhost' : API_BASE
+  const url = new URL(`${base}/api/ecommerce/storefront${path}`)
   if (STORE_SLUG) url.searchParams.set('storeSlug', STORE_SLUG)
   if (params) {
     for (const [key, value] of Object.entries(params)) {
@@ -30,7 +31,7 @@ function buildUrl(path: string, params?: Record<string, string | number | boolea
       }
     }
   }
-  return url.toString()
+  return relative ? url.pathname + url.search : url.toString()
 }
 
 async function storefrontFetch<T>(
@@ -54,7 +55,8 @@ async function storefrontPost<T>(
   body: unknown,
   cartToken?: string | null,
 ): Promise<T> {
-  const url = buildUrl(path)
+  // Use relative URL so the rewrite proxy handles CORS (browser → same-origin → mercato backend)
+  const url = buildUrl(path, undefined, true)
   const headers: Record<string, string> = { 'Content-Type': 'application/json', Accept: 'application/json' }
   if (cartToken) headers['X-Cart-Token'] = cartToken
   const res = await fetch(url, {
@@ -74,7 +76,7 @@ async function storefrontPut<T>(
   body: unknown,
   cartToken?: string | null,
 ): Promise<T> {
-  const url = buildUrl(path)
+  const url = buildUrl(path, undefined, true)
   const headers: Record<string, string> = { 'Content-Type': 'application/json', Accept: 'application/json' }
   if (cartToken) headers['X-Cart-Token'] = cartToken
   const res = await fetch(url, {
@@ -90,7 +92,7 @@ async function storefrontPut<T>(
 }
 
 async function storefrontDelete<T>(path: string, cartToken?: string | null): Promise<T> {
-  const url = buildUrl(path)
+  const url = buildUrl(path, undefined, true)
   const headers: Record<string, string> = { Accept: 'application/json' }
   if (cartToken) headers['X-Cart-Token'] = cartToken
   const res = await fetch(url, { method: 'DELETE', headers })
