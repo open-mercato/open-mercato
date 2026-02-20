@@ -280,7 +280,7 @@ export default function LoginPage() {
                   {tenantLoading
                     ? translate('auth.login.tenantLoading', 'Loading tenant details...')
                     : translate('auth.login.tenantBanner', "You're logging in to {tenant} tenant.", {
-                        tenant: tenantName || tenzantId,
+                        tenant: tenantName || tenantId,
                       })}
                 </div>
                 <Button type="button" variant="outline" size="sm" className="mt-2 border-emerald-300 text-emerald-900" onClick={handleClearTenant}>
