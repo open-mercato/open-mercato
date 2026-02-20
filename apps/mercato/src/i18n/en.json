@@ -9,6 +9,7 @@
   "api.errors.invalidPayload": "Invalid payload.",
   "api.errors.notFound": "Not Found",
   "api.errors.unauthorized": "Unauthorized",
+  "api.errors.rateLimit": "Too many requests. Please try again later.",
   "api_docs.nav.title": "API documentation",
   "app.exampleAdmin": "Example admin",
   "app.exampleBlogPost": "Example blog post",
