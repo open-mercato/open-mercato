@@ -5,6 +5,7 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import type { CatalogPricingService } from '@open-mercato/core/modules/catalog/services/catalogPricingService'
 import { resolveStoreFromRequest } from '../../../../lib/storeContext'
 import { fetchStorefrontProductDetail } from '../../../../lib/storefrontDetail'
+import { isStorefrontReady, STOREFRONT_NOT_READY_ERROR } from '../../../../lib/storefrontReadiness'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 
 export const metadata = {
@@ -29,6 +30,9 @@ export async function GET(
     const storeCtx = await resolveStoreFromRequest(req, em, tenantId)
     if (!storeCtx) {
       return NextResponse.json({ error: 'Store not found' }, { status: 404 })
+    }
+    if (!isStorefrontReady(storeCtx)) {
+      return NextResponse.json({ error: STOREFRONT_NOT_READY_ERROR }, { status: 404 })
     }
 
     const pricingService = container.resolve<CatalogPricingService>('catalogPricingService')

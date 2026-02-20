@@ -5,7 +5,9 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import { CommandBus } from '@open-mercato/shared/lib/commands'
 import type { CommandRuntimeContext } from '@open-mercato/shared/lib/commands/types'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
+import { CatalogOffer } from '@open-mercato/core/modules/catalog/data/entities'
 import { resolveStoreFromRequest } from '../../../../lib/storeContext'
+import { isStorefrontReady, STOREFRONT_NOT_READY_ERROR } from '../../../../lib/storefrontReadiness'
 import {
   resolveCartByToken,
   loadCartLines,
@@ -71,14 +73,11 @@ export async function POST(req: Request) {
     if (!storeCtx) {
       return NextResponse.json({ error: 'Store not found' }, { status: 404 })
     }
-
-    const salesChannelId = storeCtx.channelBinding?.salesChannelId ?? null
-    if (!salesChannelId) {
-      return NextResponse.json(
-        { error: 'Store has no sales channel configured' },
-        { status: 400 },
-      )
+    if (!isStorefrontReady(storeCtx)) {
+      return NextResponse.json({ error: STOREFRONT_NOT_READY_ERROR }, { status: 404 })
     }
+
+    const salesChannelId = storeCtx.channelBinding!.salesChannelId
 
     const rawBody = await req.json().catch(() => null)
     const parsed = checkoutBodySchema.safeParse(rawBody)
@@ -104,6 +103,39 @@ export async function POST(req: Request) {
     const cartLines = await loadCartLines(em, cart.id, organizationId, tid)
     if (cartLines.length === 0) {
       return NextResponse.json({ error: 'Cart is empty' }, { status: 400 })
+    }
+    const productIds = Array.from(
+      new Set(cartLines.map((line) => line.productId).filter((id): id is string => !!id)),
+    )
+    const offeredProductIds = new Set(
+      (
+        await em.find(
+          CatalogOffer,
+          {
+            organizationId,
+            tenantId: tid,
+            channelId: salesChannelId,
+            product: { $in: productIds },
+            isActive: true,
+            deletedAt: null,
+          },
+          { fields: ['product'] },
+        )
+      )
+        .map((offer) =>
+          typeof offer.product === 'string' ? offer.product : offer.product?.id ?? null,
+        )
+        .filter((id): id is string => !!id),
+    )
+    const unavailableProducts = productIds.filter((id) => !offeredProductIds.has(id))
+    if (unavailableProducts.length > 0) {
+      return NextResponse.json(
+        {
+          error: 'Cart contains products unavailable in this storefront',
+          details: unavailableProducts,
+        },
+        { status: 400 },
+      )
     }
 
     const orderCurrencyCode = normalizeCurrencyCode(cart.currencyCode)

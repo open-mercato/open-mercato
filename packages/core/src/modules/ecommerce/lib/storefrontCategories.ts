@@ -2,6 +2,7 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import {
   CatalogProductCategory,
   CatalogProductCategoryAssignment,
+  CatalogOffer,
 } from '@open-mercato/core/modules/catalog/data/entities'
 import type { StoreContext } from './storeContext'
 
@@ -48,9 +49,32 @@ export async function fetchStorefrontCategories(
     { category: { $in: categoryIds }, organizationId, tenantId },
     { fields: ['category', 'product'] },
   )
+  const offeredProductsSet = storeCtx.channelBinding?.salesChannelId
+    ? new Set(
+        (
+          await em.find(
+            CatalogOffer,
+            {
+              organizationId,
+              tenantId,
+              channelId: storeCtx.channelBinding.salesChannelId,
+              isActive: true,
+              deletedAt: null,
+            },
+            { fields: ['product'] },
+          )
+        )
+          .map((offer) =>
+            typeof offer.product === 'string' ? offer.product : offer.product?.id ?? null,
+          )
+          .filter((id): id is string => !!id),
+      )
+    : null
 
   const countByCategory = new Map<string, number>()
   for (const assignment of assignments) {
+    const pid = typeof assignment.product === 'string' ? assignment.product : assignment.product?.id ?? null
+    if (offeredProductsSet && (!pid || !offeredProductsSet.has(pid))) continue
     const cid = typeof assignment.category === 'string' ? assignment.category : assignment.category?.id ?? null
     if (!cid) continue
     countByCategory.set(cid, (countByCategory.get(cid) ?? 0) + 1)
@@ -106,9 +130,32 @@ export async function fetchStorefrontCategoryBySlug(
     { category: { $in: categoryIds }, organizationId, tenantId },
     { fields: ['category', 'product'] },
   )
+  const offeredProductsSet = storeCtx.channelBinding?.salesChannelId
+    ? new Set(
+        (
+          await em.find(
+            CatalogOffer,
+            {
+              organizationId,
+              tenantId,
+              channelId: storeCtx.channelBinding.salesChannelId,
+              isActive: true,
+              deletedAt: null,
+            },
+            { fields: ['product'] },
+          )
+        )
+          .map((offer) =>
+            typeof offer.product === 'string' ? offer.product : offer.product?.id ?? null,
+          )
+          .filter((id): id is string => !!id),
+      )
+    : null
 
   const countByCategory = new Map<string, number>()
   for (const assignment of assignments) {
+    const pid = typeof assignment.product === 'string' ? assignment.product : assignment.product?.id ?? null
+    if (offeredProductsSet && (!pid || !offeredProductsSet.has(pid))) continue
     const cid = typeof assignment.category === 'string' ? assignment.category : assignment.category?.id ?? null
     if (!cid) continue
     countByCategory.set(cid, (countByCategory.get(cid) ?? 0) + 1)

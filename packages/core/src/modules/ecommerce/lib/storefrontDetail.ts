@@ -197,6 +197,11 @@ export async function fetchStorefrontProductDetail(
       : Promise.resolve(null),
   ])
 
+  // Storefront channel is the funnel: product must have an active offer in the resolved sales channel.
+  if (storeCtx.channelBinding?.salesChannelId && !channelOffer) {
+    return null
+  }
+
   const variantIds = variants.map((v) => v.id)
   let variantPrices: typeof allPrices = allPrices
   if (variantIds.length > 0) {
@@ -276,9 +281,34 @@ export async function fetchStorefrontProductDetail(
       },
       { populate: ['product'], limit: 8 },
     )
+    const relatedCandidates = relatedAssignments
+      .map((assignment) => (typeof assignment.product === 'string' ? null : assignment.product ?? null))
+      .filter((related): related is CatalogProduct => !!related && related.isActive && !related.deletedAt)
+    const relatedCandidateIds = relatedCandidates.map((related) => related.id)
+    const relatedAllowedSet = storeCtx.channelBinding?.salesChannelId
+      ? new Set(
+          (
+            await em.find(
+              CatalogOffer,
+              {
+                product: { $in: relatedCandidateIds },
+                channelId: storeCtx.channelBinding.salesChannelId,
+                isActive: true,
+                deletedAt: null,
+              },
+              { fields: ['product'] },
+            )
+          )
+            .map((offer) =>
+              typeof offer.product === 'string' ? offer.product : offer.product?.id ?? null,
+            )
+            .filter((id): id is string => !!id),
+        )
+      : null
     for (const assignment of relatedAssignments) {
       const related = typeof assignment.product === 'string' ? null : assignment.product ?? null
       if (!related || !related.isActive || related.deletedAt) continue
+      if (relatedAllowedSet && !relatedAllowedSet.has(related.id)) continue
       const rawRelatedPrices = await em.find(
         CatalogProductPrice,
         { product: related.id, organizationId, tenantId },

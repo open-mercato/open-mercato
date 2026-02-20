@@ -6,9 +6,11 @@ import {
   CatalogProduct,
   CatalogProductVariant,
   CatalogProductPrice,
+  CatalogOffer,
 } from '@open-mercato/core/modules/catalog/data/entities'
 import type { CatalogPricingService } from '@open-mercato/core/modules/catalog/services/catalogPricingService'
 import { resolveStoreFromRequest } from '../../../../lib/storeContext'
+import { isStorefrontReady, STOREFRONT_NOT_READY_ERROR } from '../../../../lib/storefrontReadiness'
 import {
   resolveCartByToken,
   formatCartDto,
@@ -40,6 +42,9 @@ export async function POST(req: Request) {
     const storeCtx = await resolveStoreFromRequest(req, em, tenantId)
     if (!storeCtx) {
       return NextResponse.json({ error: 'Store not found' }, { status: 404 })
+    }
+    if (!isStorefrontReady(storeCtx)) {
+      return NextResponse.json({ error: STOREFRONT_NOT_READY_ERROR }, { status: 404 })
     }
 
     const rawBody = await req.json().catch(() => null)
@@ -73,6 +78,20 @@ export async function POST(req: Request) {
 
     if (!product) {
       return NextResponse.json({ error: 'Product not found' }, { status: 404 })
+    }
+    const offer = await em.findOne(CatalogOffer, {
+      product: productId,
+      channelId: storeCtx.channelBinding!.salesChannelId,
+      organizationId,
+      tenantId: tid,
+      isActive: true,
+      deletedAt: null,
+    })
+    if (!offer) {
+      return NextResponse.json(
+        { error: 'Product is not available in this storefront' },
+        { status: 404 },
+      )
     }
 
     // Resolve price snapshot

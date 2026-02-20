@@ -3,6 +3,7 @@ import { z } from 'zod'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { resolveStoreFromRequest } from '../../../lib/storeContext'
+import { isStorefrontReady, STOREFRONT_NOT_READY_ERROR } from '../../../lib/storefrontReadiness'
 import {
   formatCartDto,
   loadCartLines,
@@ -100,6 +101,9 @@ export async function GET(req: Request) {
     if (!storeCtx) {
       return NextResponse.json({ error: 'Store not found' }, { status: 404 })
     }
+    if (!isStorefrontReady(storeCtx)) {
+      return NextResponse.json({ error: STOREFRONT_NOT_READY_ERROR }, { status: 404 })
+    }
 
     const token = resolveCartToken(req)
     const cart = token
@@ -116,7 +120,7 @@ export async function GET(req: Request) {
       channelBinding: storeCtx.channelBinding,
       effectiveLocale: storeCtx.effectiveLocale,
       features: {
-        checkoutEnabled: Boolean(storeCtx.channelBinding?.salesChannelId),
+        checkoutEnabled: true,
       },
       auth: {
         isAuthenticated: false,

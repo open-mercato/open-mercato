@@ -4,6 +4,7 @@ import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { resolveStoreFromRequest } from '../../../lib/storeContext'
 import { fetchStorefrontCategories } from '../../../lib/storefrontCategories'
+import { isStorefrontReady, STOREFRONT_NOT_READY_ERROR } from '../../../lib/storefrontReadiness'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 
 export const metadata = {
@@ -20,6 +21,9 @@ export async function GET(req: Request) {
     const storeCtx = await resolveStoreFromRequest(req, em, tenantId)
     if (!storeCtx) {
       return NextResponse.json({ error: 'Store not found' }, { status: 404 })
+    }
+    if (!isStorefrontReady(storeCtx)) {
+      return NextResponse.json({ error: STOREFRONT_NOT_READY_ERROR }, { status: 404 })
     }
 
     const categories = await fetchStorefrontCategories(em, storeCtx)

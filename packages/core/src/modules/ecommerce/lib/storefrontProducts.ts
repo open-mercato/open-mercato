@@ -116,6 +116,31 @@ type ChannelScope = {
   excludedIds: string[]
 }
 
+async function resolveChannelOfferProductIds(
+  em: EntityManager,
+  organizationId: string,
+  tenantId: string,
+  channelId: string,
+): Promise<Set<string>> {
+  const offers = await em.find(
+    CatalogOffer,
+    {
+      organizationId,
+      tenantId,
+      channelId,
+      isActive: true,
+      deletedAt: null,
+    },
+    { fields: ['product'] },
+  )
+  const productIds = offers
+    .map((offer) =>
+      typeof offer.product === 'string' ? offer.product : offer.product?.id ?? null,
+    )
+    .filter((id): id is string => !!id)
+  return new Set(productIds)
+}
+
 async function resolveChannelScope(
   em: EntityManager,
   organizationId: string,
@@ -272,14 +297,38 @@ export async function fetchStorefrontProducts(
   const page = Math.max(1, query.page)
   const pageSize = Math.min(100, Math.max(1, query.pageSize))
   const offset = (page - 1) * pageSize
+  const channelId = storeCtx.channelBinding?.salesChannelId ?? null
 
-  const [queryRestrictedIds, channelScope] = await Promise.all([
+  const [queryRestrictedIds, channelScope, offeredProductsSet] = await Promise.all([
     resolveProductIds(em, organizationId, tenantId, query),
     resolveChannelScope(em, organizationId, tenantId, storeCtx.channelBinding?.catalogScope ?? null),
+    channelId
+      ? resolveChannelOfferProductIds(em, organizationId, tenantId, channelId)
+      : Promise.resolve(null),
   ])
 
-  // Intersect user query restriction with channel scope inclusion
+  // Restrict to products that have an active offer in the resolved sales channel.
   let restrictedIds: string[] | null = queryRestrictedIds
+  if (offeredProductsSet) {
+    if (offeredProductsSet.size === 0) {
+      return {
+        items: [],
+        total: 0,
+        page,
+        pageSize,
+        totalPages: 0,
+        effectiveLocale,
+        filters: { categories: [], tags: [], priceRange: null, options: [] },
+      }
+    }
+    if (restrictedIds !== null) {
+      restrictedIds = restrictedIds.filter((id) => offeredProductsSet.has(id))
+    } else {
+      restrictedIds = Array.from(offeredProductsSet)
+    }
+  }
+
+  // Intersect user query restriction with channel scope inclusion.
   if (channelScope?.includedIds !== null && channelScope?.includedIds !== undefined) {
     const channelSet = new Set(channelScope.includedIds)
     if (restrictedIds !== null) {

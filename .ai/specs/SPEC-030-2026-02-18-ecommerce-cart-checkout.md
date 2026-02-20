@@ -411,7 +411,7 @@ Run `yarn db:generate` after entity changes to generate:
 | Remove line | `DELETE /api/ecommerce/storefront/cart/lines/:id` |
 | Checkout → SalesOrder created | `POST /api/ecommerce/storefront/cart/checkout` |
 | Checkout on empty cart → 400 | `POST /api/ecommerce/storefront/cart/checkout` |
-| Checkout without channel → 422 | `POST /api/ecommerce/storefront/cart/checkout` |
+| Checkout without channel binding → 404 | `POST /api/ecommerce/storefront/cart/checkout` |
 
 ---
 
@@ -443,3 +443,4 @@ Run `yarn db:generate` after entity changes to generate:
 | Date | Author | Change |
 |------|--------|--------|
 | 2026-02-18 | Claude | Initial draft: per-channel filtering + cart/checkout spec |
+| 2026-02-20 | Codex | Enforced storefront readiness policy (`404` when no channel binding), strict active-offer funnel in listing/PDP/categories/related, and cart/checkout validation against channel offers |
