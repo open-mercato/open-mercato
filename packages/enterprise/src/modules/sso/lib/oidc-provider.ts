@@ -57,26 +57,34 @@ export class OidcProvider implements SsoProtocolProvider {
       expectedState: params.expectedState,
       expectedNonce: params.expectedNonce,
     })
-
+    console.log("[SSO] ", tokens)
     const claims = tokens.claims()
     if (!claims) {
       throw new Error('No ID token claims received from IdP')
     }
 
-    const subject = claims.sub
-    const email = claims.email as string | undefined
+    const mergedClaims = await mergeWithUserInfoClaims(oidcConfig, tokens, claims)
+
+    const subject = String(mergedClaims.sub ?? claims.sub ?? '')
+    const email = mergedClaims.email as string | undefined
     if (!email) {
       throw new Error('IdP did not return an email claim')
     }
 
-    const emailVerified = claims.email_verified === true
+    const emailVerified = mergedClaims.email_verified === true
+    const groups = extractIdentityGroups(mergedClaims)
+
+    if (process.env.SSO_DEBUG_CLAIMS === 'true') {
+      console.log('[SSO] OIDC claim keys:', Object.keys(mergedClaims).sort())
+      console.log('[SSO] OIDC mapped groups/roles:', groups ?? [])
+    }
 
     return {
       subject,
       email,
       emailVerified,
-      name: (claims.name as string) ?? undefined,
-      groups: Array.isArray(claims.groups) ? (claims.groups as string[]) : undefined,
+      name: (mergedClaims.name as string) ?? undefined,
+      groups,
     }
   }
 
@@ -112,4 +120,77 @@ export class OidcProvider implements SsoProtocolProvider {
       clientSecret ?? undefined,
     )
   }
+}
+
+async function mergeWithUserInfoClaims(
+  oidcConfig: client.Configuration,
+  tokens: client.TokenEndpointResponse,
+  claims: Record<string, unknown>,
+): Promise<Record<string, unknown>> {
+  const accessToken = tokens.access_token
+  if (!accessToken) return claims
+
+  try {
+    const userInfo = await client.fetchUserInfo(
+      oidcConfig,
+      accessToken,
+      client.skipSubjectCheck,
+    )
+    return { ...(userInfo as Record<string, unknown>), ...claims }
+  } catch {
+    return claims
+  }
+}
+
+function extractIdentityGroups(claims: Record<string, unknown>): string[] | undefined {
+  const groups = new Set<string>()
+
+  const add = (value: unknown) => {
+    for (const group of coerceClaimValues(value)) {
+      groups.add(group)
+    }
+  }
+
+  add(claims.groups)
+  add(claims.roles)
+  add(claims.role)
+
+  for (const [key, value] of Object.entries(claims)) {
+    if (!key.endsWith(':roles')) continue
+    add(value)
+  }
+
+  return groups.size > 0 ? Array.from(groups) : undefined
+}
+
+function coerceClaimValues(value: unknown): string[] {
+  if (typeof value === 'string') {
+    const normalized = value.trim()
+    return normalized ? [normalized] : []
+  }
+
+  if (Array.isArray(value)) {
+    return value.flatMap((entry) => coerceClaimValues(entry))
+  }
+
+  if (value && typeof value === 'object') {
+    const entries = Object.entries(value as Record<string, unknown>)
+    const out = new Set<string>()
+    for (const [key, nested] of entries) {
+      const normalizedKey = key.trim()
+      if (normalizedKey) out.add(normalizedKey)
+      if (typeof nested === 'string') {
+        const normalizedNested = nested.trim()
+        if (normalizedNested) out.add(normalizedNested)
+      } else if (nested && typeof nested === 'object') {
+        const nestedName = (nested as Record<string, unknown>).name
+        if (typeof nestedName === 'string' && nestedName.trim()) {
+          out.add(nestedName.trim())
+        }
+      }
+    }
+    return Array.from(out)
+  }
+
+  return []
 }

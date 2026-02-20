@@ -27,6 +27,7 @@
     "@open-mercato/cli": "workspace:*",
     "@open-mercato/content": "workspace:*",
     "@open-mercato/core": "workspace:*",
+    "@open-mercato/enterprise": "workspace:*",
     "@open-mercato/events": "workspace:*",
     "@open-mercato/onboarding": "workspace:*",
     "@open-mercato/queue": "workspace:*",

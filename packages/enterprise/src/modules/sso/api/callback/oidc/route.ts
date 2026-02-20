@@ -73,10 +73,13 @@ async function handleCallback(req: Request): Promise<NextResponse> {
 
     return res
   } catch (err) {
+    console.error('[SSO Callback] Error:', err)
     void emitSsoEvent('sso.login.failed', {
       reason: err instanceof Error ? err.message : 'callback_failed',
     }).catch(() => undefined)
-    return NextResponse.redirect(toAbsoluteUrl(req, '/login?error=sso_failed'))
+    const message = err instanceof Error ? err.message : ''
+    const errorCode = message.includes('email is not verified') ? 'sso_email_not_verified' : 'sso_failed'
+    return NextResponse.redirect(toAbsoluteUrl(req, `/login?error=${errorCode}`))
   }
 }
 

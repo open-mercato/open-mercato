@@ -15,7 +15,10 @@ export class AccountLinkingService {
     tenantId: string,
   ): Promise<{ user: User; identity: SsoIdentity }> {
     const existing = await this.findExistingLink(config.id, idpPayload.subject, tenantId, config.organizationId)
-    if (existing) return existing
+    if (existing) {
+      await this.assignRolesFromSso(this.em, existing.user, config.defaultRoleId ?? null, tenantId, idpPayload.groups)
+      return existing
+    }
 
     if (!idpPayload.emailVerified) {
       throw new Error('IdP email is not verified — cannot link or provision account')
@@ -29,7 +32,10 @@ export class AccountLinkingService {
     const emailLinked = config.autoLinkByEmail
       ? await this.linkByEmail(config, idpPayload, tenantId)
       : null
-    if (emailLinked) return emailLinked
+    if (emailLinked) {
+      await this.assignRolesFromSso(this.em, emailLinked.user, config.defaultRoleId ?? null, tenantId, idpPayload.groups)
+      return emailLinked
+    }
 
     if (config.jitEnabled) {
       return this.jitProvision(config, idpPayload, tenantId)
@@ -132,13 +138,7 @@ export class AccountLinkingService {
       } as any)
       await txEm.persistAndFlush(user)
 
-      if (config.defaultRoleId) {
-        const role = await txEm.findOne(Role, { id: config.defaultRoleId })
-        if (role) {
-          const userRole = txEm.create(UserRole, { user, role } as any)
-          await txEm.persistAndFlush(userRole)
-        }
-      }
+      await this.assignRolesFromSso(txEm, user as User, config.defaultRoleId ?? null, tenantId, idpPayload.groups)
 
       const now = new Date()
       const identity = txEm.create(SsoIdentity, {
@@ -165,4 +165,141 @@ export class AccountLinkingService {
       return { user: user as User, identity: identity as SsoIdentity }
     })
   }
+
+  private async assignDefaultRole(em: EntityManager, user: User, defaultRoleId: string | null): Promise<void> {
+    if (!defaultRoleId) return
+    const role = await em.findOne(Role, { id: defaultRoleId, deletedAt: null })
+    if (!role) return
+    await this.ensureUserRole(em, user, role)
+  }
+
+  private async assignRolesFromSso(
+    em: EntityManager,
+    user: User,
+    defaultRoleId: string | null,
+    tenantId: string,
+    idpGroups?: string[],
+  ): Promise<void> {
+    await this.assignForcedRoleFromEnv(em, user, tenantId)
+    await this.assignDefaultRole(em, user, defaultRoleId)
+    await this.assignMappedRoles(em, user, tenantId, idpGroups)
+  }
+
+  private async assignForcedRoleFromEnv(em: EntityManager, user: User, tenantId: string): Promise<void> {
+    const forcedRoleName = normalizeToken(process.env.SSO_FORCE_ROLE_ON_LOGIN)
+    if (!forcedRoleName) return
+
+    const resolvedTenantId = tenantId || user.tenantId || ''
+    if (!resolvedTenantId) return
+
+    const roles = await em.find(Role, { tenantId: resolvedTenantId, deletedAt: null } as any)
+    const matchedRole = roles.find((role) => normalizeToken(role.name) === forcedRoleName)
+    if (!matchedRole) return
+
+    await this.ensureUserRole(em, user, matchedRole)
+  }
+
+  private async assignMappedRoles(
+    em: EntityManager,
+    user: User,
+    tenantId: string,
+    idpGroups?: string[],
+  ): Promise<void> {
+    const resolvedTenantId = tenantId || user.tenantId || ''
+    if (!resolvedTenantId) return
+
+    const roleNames = resolveRoleNamesFromIdpGroups(idpGroups)
+    if (roleNames.length === 0) return
+
+    const roles = await em.find(Role, { tenantId: resolvedTenantId, deletedAt: null } as any)
+    const roleNameSet = new Set(roleNames)
+
+    for (const role of roles) {
+      if (!roleNameSet.has(normalizeToken(role.name) ?? '')) continue
+      await this.ensureUserRole(em, user, role)
+    }
+  }
+
+  private async ensureUserRole(em: EntityManager, user: User, role: Role): Promise<void> {
+    const existingLink = await em.findOne(UserRole, {
+      user: user.id,
+      role: role.id,
+      deletedAt: null,
+    } as any)
+    if (existingLink) return
+
+    const userRole = em.create(UserRole, { user, role } as any)
+    await em.persistAndFlush(userRole)
+  }
+}
+
+function resolveRoleNamesFromIdpGroups(idpGroups?: string[]): string[] {
+  if (!Array.isArray(idpGroups) || idpGroups.length === 0) return []
+
+  const normalizedGroups = idpGroups
+    .map((group) => normalizeToken(group))
+    .filter((group): group is string => group !== null)
+  if (normalizedGroups.length === 0) return []
+
+  const explicitMappings = loadGroupRoleMappings()
+  const roleNames = new Set<string>()
+
+  for (const group of normalizedGroups) {
+    const mapped = explicitMappings.get(group)
+    if (mapped?.length) {
+      for (const role of mapped) roleNames.add(role)
+      continue
+    }
+
+    roleNames.add(group)
+    const segmented = group.split(/[\\/:]/).map((part) => normalizeToken(part)).filter((part): part is string => part !== null)
+    for (const candidate of segmented) {
+      roleNames.add(candidate)
+    }
+  }
+
+  return Array.from(roleNames)
+}
+
+function loadGroupRoleMappings(): Map<string, string[]> {
+  const raw = process.env.SSO_GROUP_ROLE_MAP
+  if (!raw) return new Map()
+
+  try {
+    const parsed = JSON.parse(raw) as Record<string, unknown>
+    const out = new Map<string, string[]>()
+    for (const [group, roleValue] of Object.entries(parsed)) {
+      const normalizedGroup = normalizeToken(group)
+      if (!normalizedGroup) continue
+      const roles = normalizeRoleList(roleValue)
+      if (roles.length > 0) out.set(normalizedGroup, roles)
+    }
+    return out
+  } catch {
+    return new Map()
+  }
+}
+
+function normalizeRoleList(value: unknown): string[] {
+  if (typeof value === 'string') {
+    const token = normalizeToken(value)
+    return token ? [token] : []
+  }
+
+  if (Array.isArray(value)) {
+    const out = new Set<string>()
+    for (const entry of value) {
+      const token = normalizeToken(entry)
+      if (token) out.add(token)
+    }
+    return Array.from(out)
+  }
+
+  return []
+}
+
+function normalizeToken(value: unknown): string | null {
+  if (typeof value !== 'string') return null
+  const normalized = value.trim().toLowerCase()
+  return normalized.length > 0 ? normalized : null
 }

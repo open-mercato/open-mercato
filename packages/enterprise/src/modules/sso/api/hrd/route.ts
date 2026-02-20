@@ -26,7 +26,8 @@ export async function POST(req: Request) {
       configId: config.id,
       protocol: config.protocol,
     })
-  } catch {
+  } catch (err) {
+    console.error('[SSO HRD] Error:', err)
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
   }
 }
