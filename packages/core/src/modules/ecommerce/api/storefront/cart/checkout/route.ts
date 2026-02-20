@@ -28,6 +28,10 @@ const checkoutBodySchema = z.object({
   }),
 })
 
+const createOrderResultSchema = z.object({
+  orderId: z.string().uuid(),
+})
+
 const currencyCodeSchema = z
   .string()
   .trim()
@@ -158,19 +162,39 @@ export async function POST(req: Request) {
       ctx,
     })
 
-    const orderId = result.orderId
+    const normalizedResult = createOrderResultSchema.safeParse(result)
+    if (!normalizedResult.success) {
+      console.error('[ecommerce:checkout] Invalid sales.orders.create result', {
+        issues: normalizedResult.error.issues,
+        result,
+      })
+      return NextResponse.json(
+        { error: 'Invalid order creation response from sales module' },
+        { status: 500 },
+      )
+    }
+    const orderId = normalizedResult.data.orderId
 
     cart.status = 'converted'
     cart.convertedOrderId = orderId
     await em.flush()
 
-    await emitEcommerceEvent('ecommerce.cart.converted', {
-      id: cart.id,
-      organizationId,
-      tenantId: tid,
-      orderId,
-      storeId: storeCtx.store.id,
-    })
+    try {
+      await emitEcommerceEvent('ecommerce.cart.converted', {
+        id: cart.id,
+        organizationId,
+        tenantId: tid,
+        orderId,
+        storeId: storeCtx.store.id,
+      })
+    } catch (eventErr) {
+      // Checkout should succeed even if notification/event side effects fail.
+      console.error('[ecommerce:checkout] Failed to emit ecommerce.cart.converted', {
+        error: eventErr,
+        orderId,
+        cartId: cart.id,
+      })
+    }
 
     return NextResponse.json({ orderId })
   } catch (err: unknown) {
@@ -178,12 +202,6 @@ export async function POST(req: Request) {
       return NextResponse.json(
         err.body ?? { error: err.message || 'Request failed' },
         { status: err.status },
-      )
-    }
-    if (err instanceof z.ZodError) {
-      return NextResponse.json(
-        { error: 'Invalid checkout payload', details: err.issues },
-        { status: 400 },
       )
     }
     console.error('[ecommerce:checkout] Checkout failed', {
