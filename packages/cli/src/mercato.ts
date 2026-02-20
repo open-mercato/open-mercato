@@ -8,6 +8,7 @@ import type { Module } from '@open-mercato/shared/modules/registry'
 import { getCliModules, hasCliModules, registerCliModules } from './registry'
 export { getCliModules, hasCliModules, registerCliModules }
 import { parseBooleanToken } from '@open-mercato/shared/lib/boolean'
+import { getSslConfig } from '@open-mercato/shared/lib/db/ssl'
 import { getRedisUrl } from '@open-mercato/shared/lib/redis/connection'
 import { resolveInitDerivedSecrets } from './lib/init-secrets'
 // Lazy-imported to avoid pulling in `testcontainers` (devDependency) at startup
@@ -178,7 +179,7 @@ export async function run(argv = process.argv) {
           console.error('DATABASE_URL is not set. Aborting reinstall.')
           return 1
         }
-        const client = new Client({ connectionString: dbUrl })
+        const client = new Client({ connectionString: dbUrl, ssl: getSslConfig() })
         try {
           await client.connect()
           // Collect all user tables in public schema
@@ -234,7 +235,7 @@ export async function run(argv = process.argv) {
         }
 
         const { Client } = await import('pg')
-        const client = new Client({ connectionString: dbUrl })
+        const client = new Client({ connectionString: dbUrl, ssl: getSslConfig() })
         try {
           await client.connect()
           const tableCheck = await client.query<{ regclass: string | null }>(
@@ -356,7 +357,7 @@ export async function run(argv = process.argv) {
       // Query DB to get tenant/org IDs using pg directly
       const { Client } = await import('pg')
       const dbUrl = process.env.DATABASE_URL
-      const pgClient = new Client({ connectionString: dbUrl })
+      const pgClient = new Client({ connectionString: dbUrl, ssl: getSslConfig() })
       await pgClient.connect()
       const orgResult = await pgClient.query(
         `SELECT o.id as org_id, o.tenant_id FROM organizations o
