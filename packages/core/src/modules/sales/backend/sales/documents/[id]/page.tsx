@@ -3845,7 +3845,9 @@ export default function SalesDocumentDetailPage({
         .filter((widget) => (widget.placement?.kind ?? 'tab') === 'tab')
         .map((widget) => {
           const id = widget.placement?.groupId ?? widget.widgetId
-          const label = widget.placement?.groupLabel ?? widget.module.metadata.title
+          const label = widget.placement?.groupLabel
+            ? t(widget.placement.groupLabel, widget.module.metadata.title)
+            : widget.module.metadata.title
           const priority = typeof widget.placement?.priority === 'number' ? widget.placement.priority : 0
           const render = () => (
             <widget.module.Widget
@@ -3857,7 +3859,7 @@ export default function SalesDocumentDetailPage({
           return { id, label, priority, render }
         })
         .sort((a, b) => b.priority - a.priority),
-    [injectedTabWidgets, injectionContext, record, setRecord],
+    [injectedTabWidgets, injectionContext, record, setRecord, t],
   )
   const injectedTabMap = React.useMemo(() => new Map(injectedTabs.map((tab) => [tab.id, tab.render])), [injectedTabs])
 
