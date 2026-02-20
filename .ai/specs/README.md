@@ -80,7 +80,7 @@ Files like `AGENTS.md` and `CLAUDE.md` use UPPERCASE names and are not numberedâ
 | [SPEC-028](SPEC-028-2026-02-16-multiple-sales-pipelines.md) | 2026-02-16 | Multiple Sales Pipelines | Multiple CRM pipelines with configurable stages + deal assignment |
 | [SPEC-029](SPEC-029-2026-02-17-ecommerce-storefront-module.md) | 2026-02-17 | Ecommerce Storefront Module | Dedicated `ecommerce` core module + `apps/storefront` starter: org-scoped stores, per-store configurable branding (CSS variables), localized catalog APIs, server-side faceted filters with cross-facet exclusion, multi-variant selection algorithm, WCAG 2.2 AA compliance, RWD-first component spec, and workflow-driven checkout (Phase 3) |
 | [SPEC-030](SPEC-030-2026-02-09-rate-limiting.md) | 2026-02-09 | Rate Limiting Utility | Strategy-based rate limiting for auth endpoints using rate-limiter-flexible |
-| [SPEC-032](SPEC-030-2026-02-19-notification-templates-db-only.md) | 2026-02-19 | Notification Templates (DB-Only) | DB-only architecture for versioned email/slack notification templates with publish flow, mapping resolver, and tenant-safe runtime fallback policy |
+| [SPEC-032](SPEC-032-2026-02-19-notification-templates-db-only.md) | 2026-02-19 | Notification Templates (DB-Only) | DB-only architecture for versioned email/slack notification templates with publish flow, mapping resolver, and tenant-safe runtime fallback policy |
 
 ## Specification Structure
 
