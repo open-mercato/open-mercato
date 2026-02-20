@@ -8,6 +8,7 @@
   "api.errors.invalidLocale": "Invalid locale",
   "api.errors.invalidPayload": "Invalid payload.",
   "api.errors.notFound": "Not Found",
+  "api.errors.rateLimit": "Too many requests. Please try again later.",
   "api.errors.unauthorized": "Unauthorized",
   "api_docs.nav.title": "API documentation",
   "app.exampleAdmin": "Example admin",

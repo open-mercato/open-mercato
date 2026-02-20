@@ -344,7 +344,6 @@ async function decorateProductsAfterList(
       title: offer.title,
       description: offer.description ?? null,
       isActive: offer.isActive,
-      localizedContent: offer.localizedContent ?? null,
       defaultMediaId: offer.defaultMediaId ?? null,
       defaultMediaUrl: offer.defaultMediaUrl ?? null,
       metadata: offer.metadata ?? null,

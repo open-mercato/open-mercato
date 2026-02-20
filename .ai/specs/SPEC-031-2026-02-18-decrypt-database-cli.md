@@ -1,4 +1,4 @@
-# SPEC-030: Decrypt Database CLI Command
+# SPEC-031: Decrypt Database CLI Command
 
 ## TLDR
 
