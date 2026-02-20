@@ -7,6 +7,7 @@ import { FlashMessages } from './FlashMessages'
 import { usePathname } from 'next/navigation'
 import { apiCall } from './utils/apiCall'
 import { LastOperationBanner } from './operations/LastOperationBanner'
+import { ProgressTopBar } from './progress/ProgressTopBar'
 import { UpgradeActionBanner } from './upgrades/UpgradeActionBanner'
 import { PartialIndexBanner } from './indexes/PartialIndexBanner'
 import { useLocale, useT } from '@open-mercato/shared/lib/i18n/context'
@@ -1168,6 +1169,7 @@ export function AppShell({ productName, email, groups, rightHeaderSlot, children
           <PartialIndexBanner />
           <UpgradeActionBanner />
           <LastOperationBanner />
+          <ProgressTopBar t={t} />
           {children}
         </main>
         <footer className="border-t bg-background/80 backdrop-blur supports-[backdrop-filter]:bg-background/50 px-4 py-3 flex flex-wrap items-center justify-end gap-4">
