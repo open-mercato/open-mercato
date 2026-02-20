@@ -7,7 +7,6 @@ import { Pencil, MousePointerClick } from 'lucide-react'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { FormHeader } from '@open-mercato/ui/backend/forms'
-import { RecordConflictDialog, RecordLockBanner, useRecordLockGuard } from '@open-mercato/ui/backend/record-locking'
 import { VersionHistoryAction } from '@open-mercato/ui/backend/version-history'
 import { Spinner } from '@open-mercato/ui/primitives/spinner'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
@@ -113,18 +112,6 @@ export default function DealDetailPage({ params }: { params?: { id?: string } })
   const [reloadToken, setReloadToken] = React.useState(0)
   const [activeTab, setActiveTab] = React.useState<'notes' | 'activities'>('notes')
   const [sectionAction, setSectionAction] = React.useState<SectionAction | null>(null)
-  const recordLockConflictMessage = t('record_locks.conflict.title', 'Conflict detected')
-  const lockGuard = useRecordLockGuard({
-    resourceKind: 'customers.deal',
-    resourceId: data?.deal.id ?? '',
-    enabled: Boolean(data?.deal.id),
-  })
-  const runLockedMutation = React.useCallback(async (operation: () => Promise<void>) => {
-    const result = await lockGuard.runMutation(operation)
-    if (result === null) {
-      throw new Error(recordLockConflictMessage)
-    }
-  }, [lockGuard, recordLockConflictMessage])
   const handleNotesLoadingChange = React.useCallback(() => {}, [])
   const handleActivitiesLoadingChange = React.useCallback(() => {}, [])
   const focusDealField = React.useCallback(
@@ -231,17 +218,15 @@ export default function DealDetailPage({ params }: { params?: { id?: string } })
         }
         if (Object.keys(custom).length) payload.customFields = custom
 
-        await runLockedMutation(async () => {
-          await apiCallOrThrow(
-            '/api/customers/deals',
-            {
-              method: 'PUT',
-              headers: { 'content-type': 'application/json' },
-              body: JSON.stringify(payload),
-            },
-            { errorMessage: t('customers.deals.detail.saveError', 'Failed to update deal.') },
-          )
-        })
+        await apiCallOrThrow(
+          '/api/customers/deals',
+          {
+            method: 'PUT',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify(payload),
+          },
+          { errorMessage: t('customers.deals.detail.saveError', 'Failed to update deal.') },
+        )
         flash(t('customers.deals.detail.saveSuccess', 'Deal updated.'), 'success')
         setReloadToken((token) => token + 1)
       } catch (err) {
@@ -255,7 +240,7 @@ export default function DealDetailPage({ params }: { params?: { id?: string } })
         setIsSaving(false)
       }
     },
-    [data, isSaving, runLockedMutation, t],
+    [data, isSaving, t],
   )
 
   const handleDelete = React.useCallback(async () => {
@@ -271,17 +256,15 @@ export default function DealDetailPage({ params }: { params?: { id?: string } })
 
     setIsDeleting(true)
     try {
-      await runLockedMutation(async () => {
-        await apiCallOrThrow(
-          '/api/customers/deals',
-          {
-            method: 'DELETE',
-            headers: { 'content-type': 'application/json' },
-            body: JSON.stringify({ id: data.deal.id }),
-          },
-          { errorMessage: t('customers.deals.detail.deleteError', 'Failed to delete deal.') },
-        )
-      })
+      await apiCallOrThrow(
+        '/api/customers/deals',
+        {
+          method: 'DELETE',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ id: data.deal.id }),
+        },
+        { errorMessage: t('customers.deals.detail.deleteError', 'Failed to delete deal.') },
+      )
       flash(t('customers.deals.detail.deleteSuccess', 'Deal deleted.'), 'success')
       router.push('/backend/customers/deals')
     } catch (err) {
@@ -293,7 +276,7 @@ export default function DealDetailPage({ params }: { params?: { id?: string } })
     } finally {
       setIsDeleting(false)
     }
-  }, [confirm, data, isDeleting, router, runLockedMutation, t])
+  }, [confirm, data, isDeleting, router, t])
 
   React.useEffect(() => {
     setSectionAction(null)

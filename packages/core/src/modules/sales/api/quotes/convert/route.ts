@@ -9,11 +9,10 @@ import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import {
-  readCrudRecordLockHeaders,
-  releaseCrudRecordLockAfterSuccess,
-  validateCrudRecordLock,
-  type CrudRecordLockValidationResult,
-} from '@open-mercato/shared/lib/crud/record-locking'
+  runCrudMutationGuardAfterSuccess,
+  validateCrudMutationGuard,
+  type CrudMutationGuardValidationResult,
+} from '@open-mercato/shared/lib/crud/mutation-guard'
 import { withScopedPayload } from '../../utils'
 
 const convertSchema = z.object({
@@ -30,17 +29,9 @@ type RequestContext = {
   ctx: CommandRuntimeContext
 }
 
-function buildRecordLockErrorResponse(validation: CrudRecordLockValidationResult): NextResponse | null {
+function buildMutationGuardErrorResponse(validation: CrudMutationGuardValidationResult): NextResponse | null {
   if (validation.ok) return null
-  return NextResponse.json(
-    {
-      error: validation.error,
-      code: validation.code,
-      lock: validation.lock ?? null,
-      conflict: validation.conflict,
-    },
-    { status: validation.status },
-  )
+  return NextResponse.json(validation.body, { status: validation.status })
 }
 
 async function resolveRequestContext(req: Request): Promise<RequestContext> {
@@ -79,18 +70,17 @@ export async function POST(req: Request) {
     const payload = await req.json().catch(() => ({}))
     const scoped = withScopedPayload(payload ?? {}, ctx, translate)
     const input = convertSchema.parse(scoped)
-    const lockHeaders = readCrudRecordLockHeaders(req.headers)
-    const lockValidation = await validateCrudRecordLock(ctx.container, {
+    const mutationGuardValidation = await validateCrudMutationGuard(ctx.container, {
       tenantId: ctx.auth?.tenantId ?? '',
       organizationId: ctx.selectedOrganizationId ?? ctx.auth?.orgId ?? null,
       userId: ctx.auth?.sub ?? '',
       resourceKind: 'sales.quote',
       resourceId: input.quoteId,
       method: 'PUT',
-      headers: lockHeaders,
+      requestHeaders: req.headers,
     })
-    if (lockValidation) {
-      const lockErrorResponse = buildRecordLockErrorResponse(lockValidation)
+    if (mutationGuardValidation) {
+      const lockErrorResponse = buildMutationGuardErrorResponse(mutationGuardValidation)
       if (lockErrorResponse) return lockErrorResponse
     }
     const commandBus = ctx.container.resolve('commandBus') as CommandBus
@@ -121,15 +111,16 @@ export async function POST(req: Request) {
       )
     }
 
-    if (lockValidation?.ok && lockValidation.shouldReleaseOnSuccess && lockHeaders.token) {
-      await releaseCrudRecordLockAfterSuccess(ctx.container, {
+    if (mutationGuardValidation?.ok && mutationGuardValidation.shouldRunAfterSuccess) {
+      await runCrudMutationGuardAfterSuccess(ctx.container, {
         tenantId: ctx.auth?.tenantId ?? '',
         organizationId: ctx.selectedOrganizationId ?? ctx.auth?.orgId ?? null,
         userId: ctx.auth?.sub ?? '',
         resourceKind: 'sales.quote',
         resourceId: input.quoteId,
-        token: lockHeaders.token,
-        reason: 'saved',
+        method: 'PUT',
+        requestHeaders: req.headers,
+        metadata: mutationGuardValidation.metadata ?? null,
       })
     }
 
