@@ -13,7 +13,7 @@ This release delivers **System-Wide Entity Translations** (SPEC-026) — a compl
 - 🌐 i18n sync checker — usage scanner that detects missing, unused, and out-of-sync translation keys across all locales. (#593) *(@cielecki)*
 - 📅 `formatDateTime` and `formatRelativeTime` — extracted to shared `lib/time.ts` with full test coverage. (#586, #589) *(@MYMaj)*
 - 🔗 Exposed `TruncatedCell` component for reuse across data table modules. (#560) *(@matgren)*
-- 👥 Resource and staff detail form heading alignment — consistent heading layout matching the deals pattern. (#578, #591) *(@sebapaszynski, @pkarw)*
+- 👥 Resource and staff detail form heading alignment — consistent heading layout matching the deals pattern. (#578, #591) *(@sebapaszynski)*
 - 🔒 Rate limiting on authentication endpoints — configurable rate limits to protect login, registration, and password reset flows. (#521) *(@sapcik)*
 
 ## 🐛 Fixes
