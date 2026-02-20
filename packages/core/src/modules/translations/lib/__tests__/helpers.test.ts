@@ -122,6 +122,18 @@ describe('translation helpers', () => {
     it('correctly pluralizes entity ending in ch', () => {
       expect(buildEntityListUrl('catalog:catalog_match')).toBe('/api/catalog/matches')
     })
+
+    it('replaces underscores with hyphens in multi-word resource names', () => {
+      expect(buildEntityListUrl('resources:resource_type')).toBe('/api/resources/resource-types')
+    })
+
+    it('replaces underscores with hyphens after prefix stripping', () => {
+      expect(buildEntityListUrl('catalog:catalog_product_category')).toBe('/api/catalog/product-categories')
+    })
+
+    it('handles entity with underscores and plural exception', () => {
+      expect(buildEntityListUrl('dictionaries:dictionary_entry')).toBe('/api/dictionaries/dictionary-entries')
+    })
   })
 
   describe('getRecordLabel', () => {

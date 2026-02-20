@@ -47,7 +47,7 @@ export function buildEntityListUrl(entityType: string): string | null {
   if (!module || !entity) return null
   const prefix = `${module}_`
   const base = entity.startsWith(prefix) ? entity.slice(prefix.length) : entity
-  const resource = pluralize(base)
+  const resource = pluralize(base).replace(/_/g, '-')
   return `/api/${module}/${resource}`
 }
 
