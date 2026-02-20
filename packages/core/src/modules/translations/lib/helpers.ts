@@ -54,3 +54,10 @@ export function buildEntityListUrl(entityType: string): string | null {
 export function getRecordLabel(item: Record<string, unknown>): string {
   return String(item.title ?? item.name ?? item.label ?? item.display_name ?? item.id ?? '')
 }
+
+export function resolveBaseValue(baseValues: Record<string, unknown> | null | undefined, fieldKey: string): string {
+  if (!baseValues) return ''
+  const candidate = fieldKey in baseValues ? baseValues[fieldKey] : baseValues[`cf_${fieldKey}`]
+  if (candidate === undefined || candidate === null) return ''
+  return typeof candidate === 'string' ? candidate : String(candidate)
+}
