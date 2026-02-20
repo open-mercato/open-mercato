@@ -221,7 +221,24 @@ export async function loadInjectionWidgetById(widgetId: string): Promise<LoadedI
 
 export async function loadInjectionWidgetsForSpot(spotId: InjectionSpotId): Promise<LoadedInjectionWidget[]> {
   const table = await loadInjectionTable()
-  const entries = table.get(spotId) ?? []
+  const exactEntries = table.get(spotId) ?? []
+  const wildcardEntries: TableEntry[] = []
+  for (const [candidateSpotId, candidateEntries] of table.entries()) {
+    if (candidateSpotId === spotId) continue
+    if (!candidateSpotId.includes('*')) continue
+    const pattern = new RegExp(`^${candidateSpotId.replace(/[.+?^${}()|[\]\\]/g, '\\$&').replace(/\*/g, '.*')}$`)
+    if (!pattern.test(spotId)) continue
+    wildcardEntries.push(...candidateEntries)
+  }
+  const dedupedEntries = new Map<string, TableEntry>()
+  for (const entry of [...exactEntries, ...wildcardEntries]) {
+    const key = `${entry.moduleId}:${entry.widgetId}`
+    const previous = dedupedEntries.get(key)
+    if (!previous || (entry.priority ?? 0) > (previous.priority ?? 0)) {
+      dedupedEntries.set(key, entry)
+    }
+  }
+  const entries = Array.from(dedupedEntries.values()).sort((a, b) => (b.priority ?? 0) - (a.priority ?? 0))
   const widgets = await Promise.all(
     entries.map(async ({ widgetId, placement, priority }) => {
       const widget = await loadInjectionWidgetById(widgetId)

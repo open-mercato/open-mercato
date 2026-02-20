@@ -364,12 +364,22 @@ export function CrudForm<TValues extends Record<string, unknown>>({
     return undefined
   }, [injectionSpotId, resolvedEntityIds])
   
+  const recordId = React.useMemo(() => {
+    const raw = values.id
+    if (typeof raw === 'string') return raw
+    if (typeof raw === 'number') return String(raw)
+    return undefined
+  }, [values])
+
   const injectionContext = React.useMemo(() => ({
     formId,
     entityId: primaryEntityId,
+    resourceKind: versionHistory?.resourceKind,
+    resourceId: recordId ?? versionHistory?.resourceId,
+    recordId,
     isLoading,
     pending,
-  }), [formId, primaryEntityId, isLoading, pending])
+  }), [formId, primaryEntityId, versionHistory?.resourceKind, versionHistory?.resourceId, recordId, isLoading, pending])
   
   const { widgets: injectionWidgets } = useInjectionWidgets(resolvedInjectionSpotId, {
     context: injectionContext,
@@ -405,12 +415,6 @@ export function CrudForm<TValues extends Record<string, unknown>>({
     setCustomFieldDefsVersion((prev) => prev + 1)
   }, [])
 
-  const recordId = React.useMemo(() => {
-    const raw = values.id
-    if (typeof raw === 'string') return raw
-    if (typeof raw === 'number') return String(raw)
-    return undefined
-  }, [values])
   // Unified delete handler with confirmation
   const handleDelete = React.useCallback(async () => {
     if (!onDelete) return
