@@ -20,30 +20,12 @@ test.describe('TC-CAT-008: Create Nested Category Hierarchy', () => {
     };
 
     const selectParent = async (): Promise<void> => {
-      const parentSelect = page.getByRole('combobox').filter({ hasText: /Root level/i }).first();
-      await expect(parentSelect).toBeEnabled();
-      if (parentCategoryId) {
-        const parentId = parentCategoryId;
-        await parentSelect.selectOption(parentId).catch(async () => {
-          await parentSelect.selectOption({ value: parentId }).catch(() => {});
-        });
-      }
-      const selectedValue = await parentSelect.inputValue().catch(() => '');
-      if (parentCategoryId && selectedValue === parentCategoryId) {
-        return;
-      }
-      await parentSelect.selectOption({ label: parentName }).catch(async () => {
-        const selectedValue = await parentSelect.evaluate((element, label) => {
-          const select = element as HTMLSelectElement;
-          const option = Array.from(select.options).find((entry) => entry.text.trim() === label);
-          return option?.value ?? null;
-        }, parentName);
-        if (selectedValue) {
-          await parentSelect.selectOption(selectedValue);
-          return;
-        }
-        throw new Error(`Parent category option not available: ${parentName}`);
-      });
+      const select = page.locator('select#parentId');
+      await expect(select).toBeVisible({ timeout: 10_000 });
+      // Wait for CategorySelect to finish loading options from API
+      await expect(select.locator(`option[value="${parentCategoryId}"]`))
+        .toBeAttached({ timeout: 10_000 });
+      await select.selectOption(parentCategoryId!);
     };
 
     try {
@@ -77,19 +59,10 @@ test.describe('TC-CAT-008: Create Nested Category Hierarchy', () => {
       await expect(page).toHaveURL(/\/backend\/catalog\/categories\/[0-9a-f-]{36}\/edit$/i);
       childCategoryId = page.url().match(/\/backend\/catalog\/categories\/([0-9a-f-]{36})\/edit$/i)?.[1] ?? null;
       if (parentCategoryId) {
-        const parentSelect = page.getByRole('combobox').filter({ hasText: /Root level/i }).first();
-        await expect(parentSelect).toBeVisible();
-        const selectedValue = await parentSelect.inputValue().catch(() => '');
-        if (selectedValue) {
-          expect(selectedValue).toBe(parentCategoryId);
-        } else {
-          const selectedLabel = await parentSelect
-            .locator('option:checked')
-            .first()
-            .innerText()
-            .catch(() => '');
-          expect(selectedLabel).toContain(parentName);
-        }
+        const select = page.locator('select#parentId');
+        await expect(select).toBeVisible({ timeout: 10_000 });
+        // Wait for CategorySelect to load and reflect the saved parent value
+        await expect(select).toHaveValue(parentCategoryId, { timeout: 10_000 });
       }
     } finally {
       if (token && childCategoryId) {
