@@ -1,5 +1,5 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
-import { ModuleConfig } from '../../configs/data/entities'
+import { ModuleConfig } from '@open-mercato/core/modules/configs/data/entities'
 import {
   DEFAULT_RECORD_LOCK_SETTINGS,
   RECORD_LOCKS_MODULE_ID,
