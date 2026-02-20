@@ -10,8 +10,10 @@ import { Button } from '@open-mercato/ui/primitives/button'
 import { RowActions, type RowActionItem } from '@open-mercato/ui/backend/RowActions'
 import { apiCallOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
+import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
+import { formatDateTime } from '@open-mercato/shared/lib/time'
 
 type ScheduleRow = {
   id: string
@@ -69,15 +71,10 @@ function mapApiItem(item: Record<string, unknown>): ScheduleRow | null {
   }
 }
 
-function formatDateTime(value: string | null | undefined, fallback: string): string {
-  if (!value) return fallback
-  const date = new Date(value)
-  if (Number.isNaN(date.getTime())) return fallback
-  return date.toLocaleString()
-}
 
 export default function SchedulerPage() {
   const t = useT()
+  const { confirm, ConfirmDialogElement } = useConfirmDialog()
   const router = useRouter()
   const [rows, setRows] = React.useState<ScheduleRow[]>([])
   const [page, setPage] = React.useState(1)
@@ -123,7 +120,11 @@ export default function SchedulerPage() {
 
   const handleDelete = React.useCallback(
     async (row: ScheduleRow) => {
-      if (!confirm(t('scheduler.confirm.delete', 'Are you sure you want to delete this schedule?'))) {
+      const confirmed = await confirm({
+        title: t('scheduler.confirm.delete', 'Are you sure you want to delete this schedule?'),
+        variant: 'destructive',
+      })
+      if (!confirmed) {
         return
       }
 
@@ -138,7 +139,7 @@ export default function SchedulerPage() {
         flash(t('scheduler.error.delete_failed', 'Failed to delete schedule'), 'error')
       }
     },
-    [t, fetchSchedules]
+    [confirm, t, fetchSchedules]
   )
 
   const handleTrigger = React.useCallback(
@@ -150,7 +151,8 @@ export default function SchedulerPage() {
         })
         flash(t('scheduler.success.triggered', 'Schedule triggered successfully'), 'success')
       } catch (error) {
-        flash(t('scheduler.error.trigger_failed', 'Failed to trigger schedule'), 'error')
+        const message = error instanceof Error ? error.message : t('scheduler.error.trigger_failed', 'Failed to trigger schedule')
+        flash(message, 'error')
       }
     },
     [t]
@@ -206,7 +208,7 @@ export default function SchedulerPage() {
         header: t('scheduler.field.next_run', 'Next Run'),
         cell: ({ row }) => (
           <span className="text-sm">
-            {formatDateTime(row.original.nextRunAt, '-')}
+            {formatDateTime(row.original.nextRunAt) || '-'}
           </span>
         ),
       },
@@ -282,6 +284,7 @@ export default function SchedulerPage() {
             onRefresh: fetchSchedules,
           }}
         />
+        {ConfirmDialogElement}
       </PageBody>
     </Page>
   )

@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { z } from 'zod'
+import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { EntityManager } from '@mikro-orm/postgresql'
@@ -19,6 +20,11 @@ import type { QueryEngine } from '@open-mercato/shared/lib/query/types'
 import type { DataEngine } from '@open-mercato/shared/lib/data/engine'
 import { attachmentCrudEvents, attachmentCrudIndexer } from '../../../lib/crud'
 import { applyAssignmentEnrichments, resolveAssignmentEnrichments } from '../../../lib/assignmentDetails'
+import {
+  attachmentsTag,
+  attachmentDetailResponseSchema,
+  attachmentErrorSchema,
+} from '../../openapi'
 
 const updateSchema = z.object({
   tags: z.array(z.string()).optional(),
@@ -248,4 +254,52 @@ export async function DELETE(req: NextRequest, ctx: RouteContext) {
   }
 
   return NextResponse.json({ ok: true })
+}
+
+export const openApi: OpenApiRouteDoc = {
+  tag: attachmentsTag,
+  summary: 'Attachment detail management',
+  methods: {
+    GET: {
+      summary: 'Get attachment details',
+      description: 'Returns complete details of an attachment including metadata, tags, assignments, and custom fields.',
+      responses: [
+        { status: 200, description: 'Attachment details', schema: attachmentDetailResponseSchema },
+      ],
+      errors: [
+        { status: 400, description: 'Invalid attachment ID', schema: attachmentErrorSchema },
+        { status: 401, description: 'Unauthorized', schema: attachmentErrorSchema },
+        { status: 404, description: 'Attachment not found', schema: attachmentErrorSchema },
+      ],
+    },
+    PATCH: {
+      summary: 'Update attachment metadata',
+      description: 'Updates attachment tags, assignments, and custom fields. Emits CRUD side effects for indexing and events.',
+      requestBody: {
+        contentType: 'application/json',
+        schema: updateSchema,
+      },
+      responses: [
+        { status: 200, description: 'Attachment updated successfully', schema: z.object({ ok: z.literal(true), item: z.any() }) },
+      ],
+      errors: [
+        { status: 400, description: 'Invalid payload or attachment ID', schema: attachmentErrorSchema },
+        { status: 401, description: 'Unauthorized', schema: attachmentErrorSchema },
+        { status: 404, description: 'Attachment not found', schema: attachmentErrorSchema },
+        { status: 500, description: 'Failed to save attributes', schema: attachmentErrorSchema },
+      ],
+    },
+    DELETE: {
+      summary: 'Delete attachment',
+      description: 'Permanently deletes an attachment file from storage and database. Emits CRUD side effects.',
+      responses: [
+        { status: 200, description: 'Attachment deleted successfully', schema: z.object({ ok: z.literal(true) }) },
+      ],
+      errors: [
+        { status: 400, description: 'Invalid attachment ID', schema: attachmentErrorSchema },
+        { status: 401, description: 'Unauthorized', schema: attachmentErrorSchema },
+        { status: 404, description: 'Attachment not found', schema: attachmentErrorSchema },
+      ],
+    },
+  },
 }

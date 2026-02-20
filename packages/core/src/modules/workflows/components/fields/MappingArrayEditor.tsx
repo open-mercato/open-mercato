@@ -2,6 +2,7 @@
 
 import { useState } from 'react'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Input } from '@open-mercato/ui/primitives/input'
 import { Label } from '@open-mercato/ui/primitives/label'
@@ -40,6 +41,7 @@ export function MappingArrayEditor({
   description: descriptionProp,
 }: MappingArrayEditorProps) {
   const t = useT()
+  const { confirm, ConfirmDialogElement } = useConfirmDialog()
   const label = labelProp ?? t('workflows.fieldEditors.mappings.label')
   const description = descriptionProp ?? t('workflows.fieldEditors.mappings.description')
   const [expandedIndices, setExpandedIndices] = useState<Set<number>>(new Set())
@@ -70,10 +72,14 @@ export function MappingArrayEditor({
     setExpandedIndices(newExpanded)
   }
 
-  const removeMapping = (index: number) => {
-    if (typeof window !== 'undefined' && !window.confirm(t('workflows.fieldEditors.mappings.confirmRemove'))) {
-      return
-    }
+  const removeMapping = async (index: number) => {
+    const confirmed = await confirm({
+      title: t('workflows.fieldEditors.mappings.removeMapping'),
+      text: t('workflows.fieldEditors.mappings.confirmRemove'),
+      variant: 'destructive',
+    })
+    if (!confirmed) return
+
     const newMappings = mappings.filter((_, i) => i !== index)
     setValue(newMappings)
 
@@ -210,6 +216,7 @@ export function MappingArrayEditor({
           })}
         </div>
       )}
+      {ConfirmDialogElement}
     </div>
   )
 }

@@ -38,3 +38,33 @@ DB_POOL_ACQUIRE_TIMEOUT=30000
 ```
 
 If you continue to hit connection limits, verify that background workers and migrations use the same pool settings, and confirm that your database `max_connections` value comfortably exceeds the aggregate pool size across all applications connecting to it.
+
+## PostgreSQL auth errors on local setup
+
+If local commands such as `yarn generate`, `yarn db:generate`, or app startup fail with errors like:
+
+- `password authentication failed for user "postgres"`
+- `role "postgres" does not exist`
+- `could not connect to server`
+
+you may be connecting to a different PostgreSQL instance already bound to `localhost:5432` (for example, a host-installed Postgres), not the Docker one started for Open Mercato.
+
+### Fix
+
+Start Docker PostgreSQL on a different host port and use the same port in `DATABASE_URL`:
+
+```bash
+POSTGRES_PORT=55432 docker compose up -d postgres
+```
+
+```env
+DATABASE_URL=postgresql://postgres:postgres@localhost:55432/open-mercato
+```
+
+### Verify
+
+```bash
+psql "postgresql://postgres:postgres@localhost:55432/open-mercato" -c "select 1;"
+```
+
+If this succeeds but `:5432` still fails, keep using the alternate port (or stop the other local PostgreSQL service that occupies `5432`).

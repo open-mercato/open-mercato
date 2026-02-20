@@ -17,6 +17,7 @@ import type { TagOption } from '@open-mercato/ui/backend/detail'
 import { renderDictionaryColor, renderDictionaryIcon } from '@open-mercato/core/modules/dictionaries/components/dictionaryAppearance'
 import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
 import { Pencil } from 'lucide-react'
 
 const PAGE_SIZE = 20
@@ -75,6 +76,7 @@ export default function ResourcesResourcesPage() {
   const [tagOptions, setTagOptions] = React.useState<FilterOption[]>([])
   const scopeVersion = useOrganizationScopeVersion()
   const t = useT()
+  const { confirm, ConfirmDialogElement } = useConfirmDialog()
   const router = useRouter()
   const pathname = usePathname()
   const searchParams = useSearchParams()
@@ -340,7 +342,11 @@ export default function ResourcesResourcesPage() {
   const handleDelete = React.useCallback(async (row: ResourceTableRow) => {
     if (row.rowKind !== 'resource') return
     const confirmLabel = t('resources.resources.list.confirmDelete', 'Delete resource "{name}"?', { name: row.name })
-    if (!window.confirm(confirmLabel)) return
+    const confirmed = await confirm({
+      title: confirmLabel,
+      variant: 'destructive',
+    })
+    if (!confirmed) return
     try {
       await deleteCrud('resources/resources', row.id, {
         errorMessage: t('resources.resources.list.error.delete', 'Failed to delete resource.'),
@@ -352,7 +358,7 @@ export default function ResourcesResourcesPage() {
       const message = error instanceof Error ? error.message : t('resources.resources.list.error.delete', 'Failed to delete resource.')
       flash(message, 'error')
     }
-  }, [router, t])
+  }, [confirm, router, t])
 
   const columns = React.useMemo<ColumnDef<ResourceTableRow>[]>(() => [
     {
@@ -494,6 +500,7 @@ export default function ResourcesResourcesPage() {
           isLoading={isLoading}
         />
       </PageBody>
+      {ConfirmDialogElement}
     </Page>
   )
 }

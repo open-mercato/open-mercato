@@ -578,18 +578,24 @@ export default function ResourcesResourceDetailPage({ params }: { params?: { id?
                 ) : null}
               </div>
 
-              <ResourcesResourceForm
-                title={t('resources.resources.form.editTitle', 'Edit resource')}
-                backHref="/backend/resources/resources"
-                cancelHref="/backend/resources/resources"
-                successRedirect="/backend/resources/resources"
-                formConfig={formConfig}
-                initialValues={initialValues ?? undefined}
-                onSubmit={handleSubmit}
-                onDelete={handleDelete}
-                isLoading={!initialValues}
-                loadingMessage={t('resources.resources.form.loading', 'Loading resource...')}
-              />
+              <div className="rounded-lg border bg-card p-4">
+                <h2 className="mb-4 text-sm font-semibold uppercase text-muted-foreground">
+                  {t('resources.resources.detail.formTitle', 'Resource settings')}
+                </h2>
+                <ResourcesResourceForm
+                  embedded
+                  title={t('resources.resources.form.editTitle', 'Edit resource')}
+                  backHref="/backend/resources/resources"
+                  cancelHref="/backend/resources/resources"
+                  successRedirect="/backend/resources/resources"
+                  formConfig={formConfig}
+                  initialValues={initialValues ?? undefined}
+                  onSubmit={handleSubmit}
+                  onDelete={handleDelete}
+                  isLoading={!initialValues}
+                  loadingMessage={t('resources.resources.form.loading', 'Loading resource...')}
+                />
+              </div>
             </>
           ) : (
             <AvailabilityRulesEditor

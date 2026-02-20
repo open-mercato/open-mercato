@@ -14,9 +14,11 @@ import { BooleanIcon } from '@open-mercato/ui/backend/ValueIcons'
 import { readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 import { deleteCrud } from '@open-mercato/ui/backend/utils/crud'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
+import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
 import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { Users } from 'lucide-react'
+import { formatDateTime } from '@open-mercato/shared/lib/time'
 
 const PAGE_SIZE = 50
 const isTestEnv = typeof process !== 'undefined' && process.env.NODE_ENV === 'test'
@@ -63,6 +65,7 @@ export default function StaffTeamsPage() {
   const t = useT()
   const router = useRouter()
   const scopeVersion = useOrganizationScopeVersion()
+  const { confirm, ConfirmDialogElement } = useConfirmDialog()
   const [rows, setRows] = React.useState<TeamRow[]>([])
   const [page, setPage] = React.useState(1)
   const [total, setTotal] = React.useState(0)
@@ -227,7 +230,12 @@ export default function StaffTeamsPage() {
       return
     }
     const message = labels.actions.deleteConfirm.replace('{{name}}', entry.name)
-    if (typeof window !== 'undefined' && !window.confirm(message)) return
+    const confirmed = await confirm({
+      title: labels.actions.delete,
+      text: message,
+      variant: 'destructive',
+    })
+    if (!confirmed) return
     try {
       await deleteCrud('staff/teams', entry.id, { errorMessage: labels.errors.delete })
       flash(labels.messages.deleted, 'success')
@@ -236,7 +244,7 @@ export default function StaffTeamsPage() {
       console.error('staff.teams.delete', error)
       flash(labels.errors.delete, 'error')
     }
-  }, [handleRefresh, labels.actions.deleteConfirm, labels.errors.delete, labels.errors.deleteAssigned, labels.messages.deleted])
+  }, [confirm, handleRefresh, labels.actions.deleteConfirm, labels.actions.delete, labels.errors.delete, labels.errors.deleteAssigned, labels.messages.deleted])
 
   return (
     <Page>
@@ -285,6 +293,7 @@ export default function StaffTeamsPage() {
           onRowClick={(row) => router.push(`/backend/staff/teams/${row.id}/edit`)}
         />
       </PageBody>
+      {ConfirmDialogElement}
     </Page>
   )
 }
@@ -311,8 +320,4 @@ function mapApiTeam(item: Record<string, unknown>): TeamRow {
   return { id, name, description, isActive, updatedAt, memberCount }
 }
 
-function formatDateTime(value: string): string {
-  const parsed = new Date(value)
-  if (Number.isNaN(parsed.getTime())) return value
-  return parsed.toLocaleString()
-}
+

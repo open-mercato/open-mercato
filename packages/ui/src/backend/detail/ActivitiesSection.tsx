@@ -10,10 +10,12 @@ import { CrudForm, type CrudField, type CrudFormGroup } from '@open-mercato/ui/b
 import { collectCustomFieldValues } from '@open-mercato/ui/backend/utils/customFieldValues'
 import { DictionaryEntrySelect, type DictionarySelectLabels } from '@open-mercato/core/modules/dictionaries/components/DictionaryEntrySelect'
 import type { AppearanceSelectorLabels } from '@open-mercato/core/modules/dictionaries/components/AppearanceSelector'
+import { formatRelativeTime, formatDateTime } from '@open-mercato/shared/lib/time'
 import { LoadingMessage, TabEmptyState } from './'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { createTranslatorWithFallback } from '@open-mercato/shared/lib/i18n/translate'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@open-mercato/ui/primitives/dialog'
+import { useConfirmDialog } from '../confirm-dialog'
 
 type Translator = (key: string, fallback?: string, params?: Record<string, string | number>) => string
 
@@ -119,39 +121,6 @@ function toLocalDateTimeInput(value?: string | null): string {
   )}`
 }
 
-function formatDateTime(value?: string | null): string | null {
-  if (!value) return null
-  const date = new Date(value)
-  if (Number.isNaN(date.getTime())) return null
-  return date.toLocaleString()
-}
-
-function formatRelativeTime(value?: string | null): string | null {
-  if (!value) return null
-  const date = new Date(value)
-  if (Number.isNaN(date.getTime())) return null
-  const now = Date.now()
-  const diffSeconds = (date.getTime() - now) / 1000
-  const absSeconds = Math.abs(diffSeconds)
-  const rtf =
-    typeof Intl !== 'undefined' && typeof Intl.RelativeTimeFormat === 'function'
-      ? new Intl.RelativeTimeFormat(undefined, { numeric: 'auto' })
-      : null
-  const format = (unit: Intl.RelativeTimeFormatUnit, divisor: number) => {
-    const valueToFormat = Math.round(diffSeconds / divisor)
-    if (rtf) return rtf.format(valueToFormat, unit)
-    const suffix = valueToFormat <= 0 ? 'ago' : 'from now'
-    const magnitude = Math.abs(valueToFormat)
-    return `${magnitude} ${unit}${magnitude === 1 ? '' : 's'} ${suffix}`
-  }
-  if (absSeconds < 45) return format('second', 1)
-  if (absSeconds < 45 * 60) return format('minute', 60)
-  if (absSeconds < 24 * 60 * 60) return format('hour', 60 * 60)
-  if (absSeconds < 7 * 24 * 60 * 60) return format('day', 24 * 60 * 60)
-  if (absSeconds < 30 * 24 * 60 * 60) return format('week', 7 * 24 * 60 * 60)
-  if (absSeconds < 365 * 24 * 60 * 60) return format('month', 30 * 24 * 60 * 60)
-  return format('year', 365 * 24 * 60 * 60)
-}
 
 type TimelineItemHeaderProps = {
   title: React.ReactNode
@@ -748,6 +717,7 @@ export function ActivitiesSection<C = unknown>({
   dealLinkHref,
   manageHref,
 }: ActivitiesSectionProps<C>) {
+  const { confirm, ConfirmDialogElement } = useConfirmDialog()
   const tHook = useT()
   const baseTranslator = React.useMemo<Translator>(() => createTranslatorWithFallback(tHook), [tHook])
   const translate = React.useCallback(
@@ -997,15 +967,11 @@ export function ActivitiesSection<C = unknown>({
   const handleDelete = React.useCallback(
     async (activity: ActivitySummary) => {
       if (!activity.id) return
-      const confirmed =
-        typeof window === 'undefined'
-          ? true
-          : window.confirm(
-            t(
-              'deleteConfirm',
-              'Delete this activity? This action cannot be undone.',
-            ),
-          )
+      const confirmed = await confirm({
+        title: t('deleteConfirm', 'Delete this activity?'),
+        text: 'This action cannot be undone.',
+        variant: 'destructive',
+      })
       if (!confirmed) return
       setPendingAction({ kind: 'delete', id: activity.id })
       try {
@@ -1023,7 +989,7 @@ export function ActivitiesSection<C = unknown>({
         setPendingAction(null)
       }
     },
-    [dataAdapter, dataContext, t],
+    [confirm, dataAdapter, dataContext, t],
   )
 
   const handleDialogSubmit = React.useCallback(
@@ -1277,6 +1243,7 @@ export function ActivitiesSection<C = unknown>({
         labelPrefix={labelPrefix}
         appearanceLabels={appearanceLabels}
       />
+      {ConfirmDialogElement}
     </div>
   )
 }

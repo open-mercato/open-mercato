@@ -15,6 +15,7 @@ import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { buildOrganizationTreeOptions, formatOrganizationTreeLabel, type OrganizationTreeNode, type OrganizationTreeOption } from '@open-mercato/core/modules/directory/lib/tree'
 import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
 
 type Row = {
   id: string
@@ -120,6 +121,7 @@ function arraysEqual(a: string[], b: string[]): boolean {
 }
 
 export default function UsersListPage() {
+  const { confirm, ConfirmDialogElement } = useConfirmDialog()
   const searchParams = useSearchParams()
   const scopeVersion = useOrganizationScopeVersion()
   const queryClient = useQueryClient()
@@ -344,7 +346,11 @@ export default function UsersListPage() {
   }, [showTenantColumn])
 
   const handleDelete = React.useCallback(async (row: Row) => {
-    if (!window.confirm(t('auth.users.list.confirmDelete', 'Delete user "{email}"?', { email: row.email }))) return
+    const confirmed = await confirm({
+      title: t('auth.users.list.confirmDelete', 'Delete user "{email}"?', { email: row.email }),
+      variant: 'destructive',
+    })
+    if (!confirmed) return
     const deleteErrorMessage = t('auth.users.list.error.delete', 'Failed to delete user')
     try {
       const call = await apiCall(`/api/auth/users?id=${encodeURIComponent(row.id)}`, { method: 'DELETE' })
@@ -357,7 +363,7 @@ export default function UsersListPage() {
       const message = error instanceof Error ? error.message : deleteErrorMessage
       flash(message, 'error')
     }
-  }, [queryClient, t])
+  }, [confirm, queryClient, t])
 
   return (
     <Page>
@@ -392,6 +398,7 @@ export default function UsersListPage() {
           isLoading={isLoading}
         />
       </PageBody>
+      {ConfirmDialogElement}
     </Page>
   )
 }

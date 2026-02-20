@@ -1,6 +1,6 @@
 {
   "name": "open-mercato",
-  "version": "0.4.3",
+  "version": "0.4.4",
   "private": true,
   "packageManager": "yarn@4.12.0",
   "engines": {
@@ -35,12 +35,25 @@
     "install-skills": "./scripts/install-skills.sh",
     "mcp:serve": "turbo run mcp:serve --filter=@open-mercato/ai-assistant",
     "mcp:dev": "turbo run mcp:dev --filter=@open-mercato/ai-assistant",
+    "mercato": "node packages/cli/dist/bin.js",
     "registry:setup-user": "./scripts/registry/setup-user.sh",
     "registry:publish": "./scripts/registry/publish.sh",
     "release:canary": "./scripts/release-canary.sh",
     "release:patch": "./scripts/release-patch.sh",
     "release:minor": "./scripts/release-minor.sh",
-    "release:major": "./scripts/release-major.sh"
+    "release:major": "./scripts/release-major.sh",
+    "i18n:check-sync": "tsx scripts/i18n-check-sync.ts",
+    "i18n:check-usage": "tsx scripts/i18n-check-usage.ts",
+    "i18n:check": "tsx scripts/i18n-check-sync.ts && tsx scripts/i18n-check-usage.ts",
+    "i18n:fix": "tsx scripts/i18n-check-sync.ts --fix",
+    "test:integration": "cross-env ENABLE_CRUD_API_CACHE=true npx playwright test --config .ai/qa/tests/playwright.config.ts",
+    "test:integration:report": "npx playwright show-report .ai/qa/test-results/html",
+    "test:integration:coverage": "yarn mercato test:integration:coverage",
+    "test:integration:spec-coverage": "yarn mercato test:integration:spec-coverage",
+    "test:integration:ephemeral": "cross-env ENABLE_CRUD_API_CACHE=true yarn mercato test:integration",
+    "test:integration:ephemeral:interactive": "cross-env ENABLE_CRUD_API_CACHE=true yarn mercato test:integration:interactive",
+    "test:integration:ephemeral:start": "cross-env ENABLE_CRUD_API_CACHE=true yarn mercato test:ephemeral",
+    "test:integration:ephemeral:start:verbose": "cross-env ENABLE_CRUD_API_CACHE=true yarn mercato test:ephemeral --verbose"
   },
   "dependencies": {
     "@ai-sdk/openai": "^2.0.80",
@@ -81,6 +94,7 @@
   },
   "devDependencies": {
     "@eslint/eslintrc": "^3.3.3",
+    "@playwright/test": "^1.50.0",
     "@types/better-sqlite3": "^7.6.11",
     "@types/jest": "^30.0.0",
     "@types/node": "^20.0.0",
@@ -88,6 +102,7 @@
     "@types/react": "^19.0.0",
     "@types/react-big-calendar": "^1.16.3",
     "@types/semver": "^7.7.1",
+    "cross-env": "^7.0.3",
     "esbuild": "^0.25.0",
     "eslint": "^9.39.1",
     "glob": "^11.0.0",
@@ -104,6 +119,8 @@
   "resolutions": {
     "pg": "8.16.3",
     "zod": "4.1.13",
-    "lodash-es": "4.17.23"
+    "lodash-es": "4.17.23",
+    "qs": "6.14.2",
+    "tar": "7.5.9"
   }
 }

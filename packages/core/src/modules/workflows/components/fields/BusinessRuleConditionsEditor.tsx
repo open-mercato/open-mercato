@@ -12,7 +12,7 @@ import { apiFetch } from '@open-mercato/ui/backend/utils/api'
 import { EmptyState } from '@open-mercato/ui/backend/EmptyState'
 import { Spinner } from '@open-mercato/ui/primitives/spinner'
 import { Switch } from '@open-mercato/ui/primitives/switch'
-import { ConfirmDialog } from '@open-mercato/ui/backend/ConfirmDialog'
+import { ConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
 
 /**
  * Condition definition structure (supports legacy string format and new object format)
@@ -246,7 +246,8 @@ export function BusinessRuleConditionsEditor({
                       </Button>
                     }
                     title={t('workflows.fieldEditors.businessRuleConditions.removeCondition')}
-                    description={t('workflows.fieldEditors.businessRuleConditions.confirmRemove')}
+                    text={t('workflows.fieldEditors.businessRuleConditions.confirmRemove')}
+                    variant="destructive"
                     onConfirm={() => removeCondition(index)}
                   />
                 </div>

@@ -12,7 +12,7 @@ import { apiFetch } from '@open-mercato/ui/backend/utils/api'
 import { EmptyState } from '@open-mercato/ui/backend/EmptyState'
 import { Spinner } from '@open-mercato/ui/primitives/spinner'
 import { Switch } from '@open-mercato/ui/primitives/switch'
-import { ConfirmDialog } from '@open-mercato/ui/backend/ConfirmDialog'
+import { ConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
 
 /**
  * StartPreCondition interface matching the schema in validators.ts
@@ -333,7 +333,8 @@ export function StartPreConditionsEditor({
                       </Button>
                     }
                     title={t('workflows.fieldEditors.preConditions.removePreCondition')}
-                    description={t('workflows.fieldEditors.preConditions.confirmRemove')}
+                    text={t('workflows.fieldEditors.preConditions.confirmRemove')}
+                    variant="destructive"
                     onConfirm={() => removeCondition(index)}
                   />
                 </div>

@@ -11,6 +11,7 @@ import { JsonDisplay } from '@open-mercato/ui/backend/JsonDisplay'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { apiFetch } from '@open-mercato/ui/backend/utils/api'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
+import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
 import type { WorkflowInstance, WorkflowEvent, WorkflowDefinition } from '../../../data/entities'
 import { WorkflowGraphReadOnly } from '../../../components/WorkflowGraph'
 import { WorkflowLegend } from '../../../components/WorkflowLegend'
@@ -24,6 +25,7 @@ export default function WorkflowInstanceDetailPage({ params }: { params?: { id?:
   const t = useT()
   const isMobile = useIsMobile()
   const queryClient = useQueryClient()
+  const { confirm: confirmDialog, ConfirmDialogElement } = useConfirmDialog()
 
   const { data: instance, isLoading, error } = useQuery({
     queryKey: ['workflow-instance', id],
@@ -167,15 +169,25 @@ export default function WorkflowInstanceDetailPage({ params }: { params?: { id?:
     },
   })
 
-  const handleCancel = () => {
-    if (!instance || !confirm(t('workflows.instances.confirmCancel'))) {
+  const handleCancel = async () => {
+    if (!instance) return
+    const confirmed = await confirmDialog({
+      title: t('workflows.instances.confirmCancel'),
+      variant: 'destructive',
+    })
+    if (!confirmed) {
       return
     }
     cancelMutation.mutate()
   }
 
-  const handleRetry = () => {
-    if (!instance || !confirm(t('workflows.instances.confirmRetry'))) {
+  const handleRetry = async () => {
+    if (!instance) return
+    const confirmed = await confirmDialog({
+      title: t('workflows.instances.confirmRetry'),
+      variant: 'default',
+    })
+    if (!confirmed) {
       return
     }
     retryMutation.mutate()
@@ -351,6 +363,7 @@ export default function WorkflowInstanceDetailPage({ params }: { params?: { id?:
             <span>{t('workflows.instances.detail.loading') || 'Loading workflow instance...'}</span>
           </div>
         </PageBody>
+        {ConfirmDialogElement}
       </Page>
     )
   }
@@ -368,6 +381,7 @@ export default function WorkflowInstanceDetailPage({ params }: { params?: { id?:
             </Button>
           </div>
         </PageBody>
+        {ConfirmDialogElement}
       </Page>
     )
   }
@@ -420,6 +434,7 @@ export default function WorkflowInstanceDetailPage({ params }: { params?: { id?:
             />
           </div>
         </PageBody>
+        {ConfirmDialogElement}
       </Page>
     )
   }
@@ -798,6 +813,7 @@ export default function WorkflowInstanceDetailPage({ params }: { params?: { id?:
           </div>
         </div>
       </PageBody>
+      {ConfirmDialogElement}
     </Page>
   )
 }

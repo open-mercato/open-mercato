@@ -12,10 +12,12 @@ import { BooleanIcon } from '@open-mercato/ui/backend/ValueIcons'
 import { readApiResultOrThrow, apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { deleteCrud } from '@open-mercato/ui/backend/utils/crud'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
+import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
 import type { FilterDef, FilterValues } from '@open-mercato/ui/backend/FilterBar'
 import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { Pencil } from 'lucide-react'
+import { formatDateTime } from '@open-mercato/shared/lib/time'
 
 const PAGE_SIZE = 50
 
@@ -54,6 +56,7 @@ export default function StaffTeamMembersPage() {
   const pathname = usePathname()
   const scopeVersion = useOrganizationScopeVersion()
   const searchParams = useSearchParams()
+  const { confirm, ConfirmDialogElement } = useConfirmDialog()
   const [rows, setRows] = React.useState<TeamMemberRow[]>([])
   const [page, setPage] = React.useState(1)
   const [total, setTotal] = React.useState(0)
@@ -381,7 +384,12 @@ export default function StaffTeamMembersPage() {
   const handleDelete = React.useCallback(async (entry: TeamMemberRow) => {
     if (entry.kind !== 'member') return
     const message = labels.actions.deleteConfirm.replace('{{name}}', entry.displayName)
-    if (typeof window !== 'undefined' && !window.confirm(message)) return
+    const confirmed = await confirm({
+      title: labels.actions.delete,
+      text: message,
+      variant: 'destructive',
+    })
+    if (!confirmed) return
     try {
       await deleteCrud('staff/team-members', entry.id, { errorMessage: labels.errors.delete })
       flash(labels.messages.deleted, 'success')
@@ -390,7 +398,7 @@ export default function StaffTeamMembersPage() {
       console.error('staff.team-members.delete', error)
       flash(labels.errors.delete, 'error')
     }
-  }, [handleRefresh, labels.actions.deleteConfirm, labels.errors.delete, labels.messages.deleted])
+  }, [confirm, handleRefresh, labels.actions.deleteConfirm, labels.actions.delete, labels.errors.delete, labels.messages.deleted])
 
   return (
     <Page>
@@ -440,6 +448,7 @@ export default function StaffTeamMembersPage() {
           ) : null}
         />
       </PageBody>
+      {ConfirmDialogElement}
     </Page>
   )
 }
@@ -603,11 +612,7 @@ function buildTeamMemberRows(
   return rows
 }
 
-function formatDateTime(value: string): string {
-  const parsed = new Date(value)
-  if (Number.isNaN(parsed.getTime())) return value
-  return parsed.toLocaleString()
-}
+
 
 function renderLabelPills(values: string[]): React.ReactNode {
   if (!values.length) return <span className="text-xs text-muted-foreground">-</span>

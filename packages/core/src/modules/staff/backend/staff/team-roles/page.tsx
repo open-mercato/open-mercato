@@ -13,11 +13,13 @@ import { Button } from '@open-mercato/ui/primitives/button'
 import { readApiResultOrThrow, apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { deleteCrud } from '@open-mercato/ui/backend/utils/crud'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
+import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
 import { Pencil, Users } from 'lucide-react'
 import type { FilterDef, FilterValues } from '@open-mercato/ui/backend/FilterBar'
 import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { truncate } from 'fs'
+import { formatDateTime } from '@open-mercato/shared/lib/time'
 
 const PAGE_SIZE = 50
 const isTestEnv = typeof process !== 'undefined' && process.env.NODE_ENV === 'test'
@@ -69,6 +71,7 @@ export default function StaffTeamRolesPage() {
   const t = useT()
   const router = useRouter()
   const scopeVersion = useOrganizationScopeVersion()
+  const { confirm, ConfirmDialogElement } = useConfirmDialog()
   const [rows, setRows] = React.useState<TeamRoleRow[]>([])
   const [page, setPage] = React.useState(1)
   const [total, setTotal] = React.useState(0)
@@ -296,7 +299,12 @@ export default function StaffTeamRolesPage() {
   const handleDelete = React.useCallback(async (entry: TeamRoleRow) => {
     if (entry.kind !== 'role') return
     const message = labels.actions.deleteConfirm.replace('{{name}}', entry.name)
-    if (typeof window !== 'undefined' && !window.confirm(message)) return
+    const confirmed = await confirm({
+      title: labels.actions.delete,
+      text: message,
+      variant: 'destructive',
+    })
+    if (!confirmed) return
     try {
       await deleteCrud('staff/team-roles', entry.id, { errorMessage: labels.errors.delete })
       flash(labels.messages.deleted, 'success')
@@ -305,7 +313,7 @@ export default function StaffTeamRolesPage() {
       console.error('staff.team-roles.delete', error)
       flash(labels.errors.delete, 'error')
     }
-  }, [handleRefresh, labels.actions.deleteConfirm, labels.errors.delete, labels.messages.deleted])
+  }, [confirm, handleRefresh, labels.actions.deleteConfirm, labels.actions.delete, labels.errors.delete, labels.messages.deleted])
 
   return (
     <Page>
@@ -352,6 +360,7 @@ export default function StaffTeamRolesPage() {
           ) : null}
         />
       </PageBody>
+      {ConfirmDialogElement}
     </Page>
   )
 }
@@ -425,11 +434,7 @@ function buildTeamRoleRows(items: TeamRoleApiRow[], unassignedLabel: string): Te
   return rows
 }
 
-function formatDateTime(value: string): string {
-  const parsed = new Date(value)
-  if (Number.isNaN(parsed.getTime())) return value
-  return parsed.toLocaleString()
-}
+
 
 function TeamsIcon({ className }: { className?: string }) {
   return (

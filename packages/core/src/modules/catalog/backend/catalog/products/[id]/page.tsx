@@ -19,6 +19,7 @@ import { DataLoader } from '@open-mercato/ui/primitives/DataLoader'
 import { cn } from '@open-mercato/shared/lib/utils'
 import { apiCall, readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
 import { E } from '#generated/entities.ids.generated'
 import { ProductMediaManager, type ProductMediaItem } from '@open-mercato/core/modules/catalog/components/products/ProductMediaManager'
 import {
@@ -139,7 +140,6 @@ type OfferSnapshot = {
   defaultMediaId: string | null
   defaultMediaUrl: string | null
   metadata: Record<string, unknown> | null
-  localizedContent: Record<string, unknown> | null
   isActive: boolean
   channelName: string | null
   channelCode: string | null
@@ -1127,6 +1127,7 @@ function ProductVariantsSection({
   onVariantsReload,
 }: ProductVariantsSectionProps) {
   const t = useT()
+  const { confirm, ConfirmDialogElement } = useConfirmDialog()
   const [deletingId, setDeletingId] = React.useState<string | null>(null)
   const [generating, setGenerating] = React.useState(false)
   const [checkingVariantFeature, setCheckingVariantFeature] = React.useState(true)
@@ -1215,9 +1216,11 @@ function ProductVariantsSection({
         '{{name}}',
         label,
       )
-      if (typeof window !== 'undefined' && !window.confirm(confirmMessage)) {
-        return
-      }
+      const confirmed = await confirm({
+        title: confirmMessage,
+        variant: 'destructive',
+      })
+      if (!confirmed) return
       setDeletingId(variant.id)
       try {
         await deleteCrud('catalog/variants', variant.id, {
@@ -1232,7 +1235,7 @@ function ProductVariantsSection({
         setDeletingId(null)
       }
     },
-    [allowVariantActions, onVariantDeleted, t],
+    [allowVariantActions, confirm, onVariantDeleted, t],
   )
   const handleGenerateVariants = React.useCallback(async () => {
     if (!productId || !allowVariantActions) return
@@ -1272,108 +1275,111 @@ function ProductVariantsSection({
   const showGenerateButton = optionDefinitions.length > 0 && allowVariantActions
 
   return (
-    <div className="space-y-3">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <h3 id="variants" className="text-sm font-semibold">
-          {t('catalog.products.edit.variants', 'Variants')}
-        </h3>
-        <div className="flex flex-wrap items-center gap-2">
-          {showGenerateButton ? (
-            <Button type="button" size="sm" variant="outline" disabled={generating} onClick={() => { void handleGenerateVariants() }}>
-              {generating
-                ? t('catalog.products.edit.variantList.generating', 'Generating…')
-                : t('catalog.products.edit.variantList.generate', 'Generate variants')}
-            </Button>
-          ) : null}
-          {allowVariantActions ? (
-            <Button asChild size="sm">
-              <Link href={`/backend/catalog/products/${productId}/variants/create`}>
-                <Plus className="mr-2 h-4 w-4" />
-                {t('catalog.products.edit.variants.add', 'Add variant')}
-              </Link>
-            </Button>
-          ) : null}
+    <>
+      <div className="space-y-3">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <h3 id="variants" className="text-sm font-semibold">
+            {t('catalog.products.edit.variants', 'Variants')}
+          </h3>
+          <div className="flex flex-wrap items-center gap-2">
+            {showGenerateButton ? (
+              <Button type="button" size="sm" variant="outline" disabled={generating} onClick={() => { void handleGenerateVariants() }}>
+                {generating
+                  ? t('catalog.products.edit.variantList.generating', 'Generating…')
+                  : t('catalog.products.edit.variantList.generate', 'Generate variants')}
+              </Button>
+            ) : null}
+            {allowVariantActions ? (
+              <Button asChild size="sm">
+                <Link href={`/backend/catalog/products/${productId}/variants/create`}>
+                  <Plus className="mr-2 h-4 w-4" />
+                  {t('catalog.products.edit.variants.add', 'Add variant')}
+                </Link>
+              </Button>
+            ) : null}
+          </div>
         </div>
-      </div>
-      {variants.length ? (
-        <div className="overflow-x-auto rounded-md border">
-          <table className="w-full table-auto text-sm">
-            <thead className="bg-muted/40 text-left text-xs uppercase text-muted-foreground">
-              <tr>
-                <th className="px-3 py-2 font-normal">{t('catalog.products.form.variants', 'Variant')}</th>
-                <th className="px-3 py-2 font-normal">SKU</th>
-                <th className="px-3 py-2 font-normal">
-                  {t('catalog.products.edit.variantList.pricesHeading', 'Prices')}
-                </th>
-                <th className="px-3 py-2 font-normal">{t('catalog.products.edit.variants.default', 'Default')}</th>
-                <th className="px-3 py-2 font-normal text-right">
-                  {t('catalog.products.edit.variantList.actions', 'Actions')}
-                </th>
-              </tr>
-            </thead>
-            <tbody>
-              {variants.map((variant) => (
-                <tr key={variant.id} className="border-t hover:bg-muted/40">
-                  <td className="px-3 py-2">
-                    <Link
-                      href={`/backend/catalog/products/${productId}/variants/${variant.id}`}
-                      className="text-sm font-medium hover:underline"
-                    >
-                      {variant.name || variant.id}
-                    </Link>
-                  </td>
-                  <td className="px-3 py-2 text-muted-foreground">{variant.sku || '—'}</td>
-                  <td className="px-3 py-2">
-                    {variant.prices.length ? (
-                      <ul className="space-y-1">
-                        {variant.prices.map((price) => (
-                          <li key={price.id} className="text-xs text-muted-foreground">
-                            <span className="font-medium text-foreground">{formatPriceLabel(price)}</span>{' '}
-                            <span>{formatPriceAmount(price)}</span>
-                          </li>
-                        ))}
-                      </ul>
-                    ) : (
-                      <span className="text-xs text-muted-foreground">
-                        {t('catalog.products.edit.variantList.pricesEmpty', 'No prices yet.')}
-                      </span>
-                    )}
-                  </td>
-                  <td className="px-3 py-2 text-muted-foreground">{variant.isDefault ? t('common.yes', 'Yes') : '—'}</td>
-                  <td className="px-3 py-2">
-                    <div className="flex flex-wrap justify-end gap-2">
-                      <Button asChild size="sm" variant="outline">
-                        <Link href={`/backend/catalog/products/${productId}/variants/${variant.id}`}>
-                          {t('catalog.products.list.actions.edit', 'Edit')}
-                        </Link>
-                      </Button>
-                      {allowVariantActions ? (
-                        <Button
-                          type="button"
-                          size="sm"
-                          variant="ghost"
-                          className="text-destructive hover:text-destructive"
-                          disabled={deletingId === variant.id}
-                          onClick={() => { void handleDeleteVariant(variant) }}
-                        >
-                          {deletingId === variant.id
-                            ? t('catalog.products.edit.variantList.deleting', 'Deleting…')
-                            : t('catalog.products.list.actions.delete', 'Delete')}
-                        </Button>
-                      ) : null}
-                    </div>
-                  </td>
+        {variants.length ? (
+          <div className="overflow-x-auto rounded-md border">
+            <table className="w-full table-auto text-sm">
+              <thead className="bg-muted/40 text-left text-xs uppercase text-muted-foreground">
+                <tr>
+                  <th className="px-3 py-2 font-normal">{t('catalog.products.form.variants', 'Variant')}</th>
+                  <th className="px-3 py-2 font-normal">SKU</th>
+                  <th className="px-3 py-2 font-normal">
+                    {t('catalog.products.edit.variantList.pricesHeading', 'Prices')}
+                  </th>
+                  <th className="px-3 py-2 font-normal">{t('catalog.products.edit.variants.default', 'Default')}</th>
+                  <th className="px-3 py-2 font-normal text-right">
+                    {t('catalog.products.edit.variantList.actions', 'Actions')}
+                  </th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      ) : (
-        <p className="text-xs text-muted-foreground">
-          {t('catalog.products.edit.variants.empty', 'No variants defined yet.')}
-        </p>
-      )}
-    </div>
+              </thead>
+              <tbody>
+                {variants.map((variant) => (
+                  <tr key={variant.id} className="border-t hover:bg-muted/40">
+                    <td className="px-3 py-2">
+                      <Link
+                        href={`/backend/catalog/products/${productId}/variants/${variant.id}`}
+                        className="text-sm font-medium hover:underline"
+                      >
+                        {variant.name || variant.id}
+                      </Link>
+                    </td>
+                    <td className="px-3 py-2 text-muted-foreground">{variant.sku || '—'}</td>
+                    <td className="px-3 py-2">
+                      {variant.prices.length ? (
+                        <ul className="space-y-1">
+                          {variant.prices.map((price) => (
+                            <li key={price.id} className="text-xs text-muted-foreground">
+                              <span className="font-medium text-foreground">{formatPriceLabel(price)}</span>{' '}
+                              <span>{formatPriceAmount(price)}</span>
+                            </li>
+                          ))}
+                        </ul>
+                      ) : (
+                        <span className="text-xs text-muted-foreground">
+                          {t('catalog.products.edit.variantList.pricesEmpty', 'No prices yet.')}
+                        </span>
+                      )}
+                    </td>
+                    <td className="px-3 py-2 text-muted-foreground">{variant.isDefault ? t('common.yes', 'Yes') : '—'}</td>
+                    <td className="px-3 py-2">
+                      <div className="flex flex-wrap justify-end gap-2">
+                        <Button asChild size="sm" variant="outline">
+                          <Link href={`/backend/catalog/products/${productId}/variants/${variant.id}`}>
+                            {t('catalog.products.list.actions.edit', 'Edit')}
+                          </Link>
+                        </Button>
+                        {allowVariantActions ? (
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant="ghost"
+                            className="text-destructive hover:text-destructive"
+                            disabled={deletingId === variant.id}
+                            onClick={() => { void handleDeleteVariant(variant) }}
+                          >
+                            {deletingId === variant.id
+                              ? t('catalog.products.edit.variantList.deleting', 'Deleting…')
+                              : t('catalog.products.list.actions.delete', 'Delete')}
+                          </Button>
+                        ) : null}
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        ) : (
+          <p className="text-xs text-muted-foreground">
+            {t('catalog.products.edit.variants.empty', 'No variants defined yet.')}
+          </p>
+        )}
+      </div>
+      {ConfirmDialogElement}
+    </>
   )
 }
 
@@ -1623,7 +1629,6 @@ function readOfferSnapshots(record: Record<string, unknown>): OfferSnapshot[] {
       defaultMediaId: getString(offer.defaultMediaId) ?? getString(offer.default_media_id),
       defaultMediaUrl: getString(offer.defaultMediaUrl) ?? getString(offer.default_media_url),
       metadata: isRecord(offer.metadata) ? (offer.metadata as Record<string, unknown>) : null,
-      localizedContent: isRecord(offer.localizedContent) ? (offer.localizedContent as Record<string, unknown>) : null,
       isActive: offer.isActive !== false,
       channelName: getString(offer.channelName) ?? getString(offer.channel_name),
       channelCode: getString(offer.channelCode) ?? getString(offer.channel_code),
@@ -1664,7 +1669,6 @@ type OfferPayload = {
   defaultMediaId?: string | null
   defaultMediaUrl?: string | null
   metadata?: Record<string, unknown> | null
-  localizedContent?: Record<string, unknown> | null
   isActive?: boolean
 }
 
@@ -1694,7 +1698,6 @@ function buildOfferPayloads(params: {
       defaultMediaId: existing?.defaultMediaId ?? fallback.defaultMediaId ?? null,
       defaultMediaUrl: existing?.defaultMediaUrl ?? fallback.defaultMediaUrl ?? null,
       metadata: existing?.metadata ?? undefined,
-      localizedContent: existing?.localizedContent ?? undefined,
       isActive: existing?.isActive ?? true,
     })
   }
@@ -1713,7 +1716,6 @@ function mergeOfferSnapshots(current: OfferSnapshot[], payloads: OfferPayload[])
       defaultMediaId: entry.defaultMediaId ?? previous?.defaultMediaId ?? null,
       defaultMediaUrl: entry.defaultMediaUrl ?? previous?.defaultMediaUrl ?? null,
       metadata: entry.metadata ?? previous?.metadata ?? null,
-      localizedContent: entry.localizedContent ?? previous?.localizedContent ?? null,
       isActive: entry.isActive ?? previous?.isActive ?? true,
       channelName: previous?.channelName ?? null,
       channelCode: previous?.channelCode ?? null,

@@ -4,6 +4,7 @@ import * as React from 'react'
 import Link from 'next/link'
 import type { DashboardWidgetComponentProps } from '@open-mercato/shared/modules/dashboard/widgets'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
+import { formatRelativeTime } from '@open-mercato/shared/lib/time'
 import { Spinner } from '@open-mercato/ui/primitives/spinner'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import {
@@ -85,34 +86,6 @@ function formatAbsolute(value: string | null, locale?: string): string {
   })
 }
 
-function formatRelative(target: string | null, nowIso: string | undefined, locale: string | undefined): string {
-  if (!target) return ''
-  const targetDate = new Date(target)
-  const nowDate = nowIso ? new Date(nowIso) : new Date()
-  if (Number.isNaN(targetDate.getTime()) || Number.isNaN(nowDate.getTime())) return ''
-  const diffMs = targetDate.getTime() - nowDate.getTime()
-  const diffMinutes = Math.round(diffMs / (60 * 1000))
-  const absMinutes = Math.abs(diffMinutes)
-  const rtf = typeof Intl !== 'undefined' && typeof Intl.RelativeTimeFormat !== 'undefined'
-    ? new Intl.RelativeTimeFormat(locale ?? undefined, { numeric: 'auto' })
-    : null
-
-  if (!rtf) {
-    return formatAbsolute(target, locale)
-  }
-
-  if (absMinutes < 60) {
-    return rtf.format(diffMinutes, 'minute')
-  }
-  if (absMinutes < 60 * 24) {
-    return rtf.format(Math.round(diffMinutes / 60), 'hour')
-  }
-  if (absMinutes < 60 * 24 * 7) {
-    return rtf.format(Math.round(diffMinutes / (60 * 24)), 'day')
-  }
-  return rtf.format(Math.round(diffMinutes / (60 * 24 * 7)), 'week')
-}
-
 const CustomerNextInteractionsWidget: React.FC<DashboardWidgetComponentProps<CustomerNextInteractionsSettings>> = ({
   mode,
   settings = DEFAULT_SETTINGS,
@@ -125,7 +98,6 @@ const CustomerNextInteractionsWidget: React.FC<DashboardWidgetComponentProps<Cus
   const [data, setData] = React.useState<NextInteractionItem[]>([])
   const [loading, setLoading] = React.useState(true)
   const [error, setError] = React.useState<string | null>(null)
-  const [now, setNow] = React.useState<string | undefined>(undefined)
   const [locale, setLocale] = React.useState<string | undefined>(undefined)
 
   React.useEffect(() => {
@@ -141,7 +113,6 @@ const CustomerNextInteractionsWidget: React.FC<DashboardWidgetComponentProps<Cus
     try {
       const response = await loadNextInteractions(hydrated)
       setData(response.items)
-      setNow(response.now)
     } catch (err) {
       console.error('Failed to load next interactions widget data', err)
       setError(t('customers.widgets.nextInteractions.error'))
@@ -202,7 +173,7 @@ const CustomerNextInteractionsWidget: React.FC<DashboardWidgetComponentProps<Cus
           {data.map((item) => {
             const href = resolveDetailHref(item)
             const absolute = formatAbsolute(item.nextInteractionAt, locale)
-            const relative = formatRelative(item.nextInteractionAt, now, locale)
+            const relative = formatRelativeTime(item.nextInteractionAt, { locale }) ?? ''
             return (
               <li key={item.id} className="rounded-md border p-3">
                 <div className="flex items-start justify-between gap-3">

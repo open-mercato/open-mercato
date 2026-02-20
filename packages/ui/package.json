@@ -1,6 +1,6 @@
 {
   "name": "@open-mercato/ui",
-  "version": "0.4.3",
+  "version": "0.4.4",
   "type": "module",
   "main": "./dist/index.js",
   "scripts": {
@@ -37,6 +37,10 @@
     "./backend/inputs": {
       "types": "./src/backend/inputs/index.ts",
       "default": "./dist/backend/inputs/index.js"
+    },
+    "./backend/confirm-dialog": {
+      "types": "./src/backend/confirm-dialog/index.ts",
+      "default": "./dist/backend/confirm-dialog/index.js"
     },
     "./backend/charts": {
       "types": "./src/backend/charts/index.ts",

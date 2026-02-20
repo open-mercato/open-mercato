@@ -12,8 +12,9 @@ Review code changes against Open Mercato's architecture rules, security requirem
 1. **Scope**: Identify changed files. Classify each file by layer (API route, entity, validator, backend page, frontend page, subscriber, worker, command, search config, setup, ACL, events, DI, widget, test).
 2. **Gather context**: Read relevant AGENTS.md for each touched module/package. Check `.ai/specs/` for active specs on the module. Read `.ai/lessons.md` for known pitfalls.
 3. **Run checklist**: Apply all applicable rules from `references/review-checklist.md`. Flag violations with severity, file, line, and fix suggestion.
-4. **Cross-module impact**: If the change touches events, extensions, or widgets, verify the consuming side handles the contract correctly.
-5. **Output**: Produce the review report in the format below.
+4. **Test coverage**: Verify changed behavior is covered by unit tests and/or integration tests. If coverage is missing, flag it with severity, file references, and exact test cases to add.
+5. **Cross-module impact**: If the change touches events, extensions, or widgets, verify the consuming side handles the contract correctly.
+6. **Output**: Produce the review report in the format below.
 
 ## Output Format
 
@@ -55,6 +56,7 @@ Use this structure for every review:
 - [ ] Forms use `CrudForm`, tables use `DataTable`
 - [ ] `apiCall` used instead of raw `fetch`
 - [ ] ACL features mirrored in `setup.ts` `defaultRoleFeatures`
+- [ ] Behavior changes covered by unit and/or integration tests (or explicitly justified as not applicable)
 ```
 
 Omit empty severity sections. Mark passing checklist items with `[x]` and failing with `[ ]` plus explanation.
@@ -142,6 +144,13 @@ These are the highest-impact rules. For the full checklist, see `references/revi
 - **Prefer functional, data-first utilities** over classes
 - **Don't add docstrings/comments/annotations** to code you didn't change
 
+### Testing Coverage (High/Medium)
+
+- **Behavioral changes MUST include test coverage** through unit tests, integration tests, or both
+- **Risk-heavy paths MUST include integration coverage** (permissions, tenant isolation, workflows, billing, undo/redo, events)
+- **Missing tests are findings**: report exact files/areas lacking coverage and list the tests to add
+- **If tests are intentionally skipped**, reviewer MUST verify a documented rationale and residual risk
+
 ## Review Heuristics
 
 When reviewing, pay special attention to:
@@ -156,6 +165,7 @@ When reviewing, pay special attention to:
 8. **Commands**: Verify undoable, before/after snapshots, `withAtomicFlush` for multi-phase mutations.
 9. **Setup changes**: Verify `defaultRoleFeatures` matches `acl.ts` features. Hooks MUST be idempotent.
 10. **UI changes**: Verify `CrudForm`/`DataTable` usage, `flash()` for feedback, keyboard shortcuts, loading/error states.
+11. **Behavior changes**: Verify unit and/or integration tests cover new behavior, regressions, and edge cases.
 
 ## Lessons Learned
 

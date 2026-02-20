@@ -5,7 +5,7 @@ Leverage the module system and follow strict naming and coding conventions to ke
 ## Before Writing Code
 
 1. Check the Task Router below — a single task may match multiple rows; read **all** relevant guides.
-2. Check `.ai/specs/` for existing specs on the module you're modifying
+2. Check `.ai/specs/` and `.ai/specs/enterprise/` for existing specs on the module you're modifying
 3. Enter plan mode for non-trivial tasks (3+ steps or architectural decisions)
 4. Identify the reference module (customers) if building CRUD features
 
@@ -46,6 +46,8 @@ IMPORTANT: Before any research or coding, match the task to the root `AGENTS.md`
 | Adding onboarding wizard steps, tenant setup hooks (`onTenantCreated`/`seedDefaults`), welcome/invitation emails | `packages/onboarding/AGENTS.md` |
 | Adding static content pages (privacy policies, terms, legal pages) | `packages/content/AGENTS.md` |
 | Testing standalone apps with Verdaccio, publishing packages, canary releases, template scaffolding | `packages/create-app/AGENTS.md` |
+| **Testing** | |
+| Integration testing, creating/running Playwright tests, converting markdown test cases to TypeScript, CI test pipeline | `.ai/qa/AGENTS.md` + `.ai/skills/integration-tests/SKILL.md` |
 | **Other** | |
 | Writing new specs, updating existing specs after implementation, documenting architectural decisions, maintaining changelogs | `.ai/specs/AGENTS.md` |
 
@@ -57,7 +59,7 @@ IMPORTANT: Before any research or coding, match the task to the root `AGENTS.md`
 
 ## Workflow Orchestration
 
-1.  **Spec-first**: Enter plan mode for non-trivial tasks (3+ steps or architectural decisions). Check `.ai/specs/` before coding; create SPEC files (`SPEC-{number}-{date}-{title}.md`). Skip for small fixes.
+1.  **Spec-first**: Enter plan mode for non-trivial tasks (3+ steps or architectural decisions). Check `.ai/specs/` and `.ai/specs/enterprise/` before coding; create SPEC files using scope-appropriate naming (`SPEC-{number}-{date}-{title}.md` for OSS, `SPEC-ENT-{number}-{date}-{title}.md` for enterprise). Skip for small fixes.
     -   **Detailed Workflow**: Refer to the **`spec-writing` skill** for research, phasing, and architectural review standards (`.ai/skills/spec-writing/SKILL.md`).
 2.  **Subagent strategy**: Use subagents liberally to keep main context clean. Offload research and parallel analysis. One task per subagent.
 3.  **Self-improvement**: After corrections, update `.ai/lessons.md` or relevant AGENTS.md. Write rules that prevent the same mistake.
@@ -67,8 +69,11 @@ IMPORTANT: Before any research or coding, match the task to the root `AGENTS.md`
 
 ### Documentation and Specifications
 
-- Specs live in `.ai/specs/` — see `.ai/specs/AGENTS.md` for naming, structure, and changelog conventions.
+- OSS specs live in `.ai/specs/`; commercial/enterprise specs live in `.ai/specs/enterprise/` — see `.ai/specs/AGENTS.md` for naming, structure, and changelog conventions.
 - Always check for existing specs before modifying a module. Update specs when implementing significant changes.
+- For every new feature, the spec MUST list integration coverage for all affected API paths and key UI paths.
+- For every new feature, implement the integration tests defined in the spec as part of the same change — see `.ai/qa/AGENTS.md` for the workflow.
+- Integration tests MUST be self-contained: create required fixtures in test setup (prefer API fixtures), clean up created records in teardown/finally, and remain stable without relying on seeded/demo data.
 
 ## Monorepo Structure
 
@@ -94,6 +99,7 @@ All packages use the `@open-mercato/<package>` naming convention:
 | **ai-assistant** | `@open-mercato/ai-assistant` | When working on AI assistant or MCP server tools |
 | **content** | `@open-mercato/content` | When adding static content pages (privacy, terms, legal) |
 | **onboarding** | `@open-mercato/onboarding` | When modifying setup wizards or tenant provisioning flows |
+| **enterprise** | `@open-mercato/enterprise` | When working on commercial enterprise-only modules and overlays |
 
 ### Where to Put Code
 
@@ -151,6 +157,7 @@ All paths use `src/modules/<module>/` as shorthand. See `packages/core/AGENTS.md
 | `ce.ts` | `entities` | Custom entities / custom field sets |
 | `search.ts` | `searchConfig` | Search indexing configuration |
 | `events.ts` | `eventsConfig` | Typed event declarations |
+| `translations.ts` | `translatableFields` | Translatable field declarations per entity |
 | `notifications.ts` | `notificationTypes` | Notification type definitions |
 | `notifications.client.ts` | — | Client-side notification renderers |
 | `ai-tools.ts` | `aiTools` | MCP AI tool definitions |
@@ -168,6 +175,7 @@ All paths use `src/modules/<module>/` as shorthand. See `packages/core/AGENTS.md
 - setup.ts: always declare `defaultRoleFeatures` when adding features to `acl.ts`
 - Custom fields: use `collectCustomFieldValues()` from `@open-mercato/ui/backend/utils/customFieldValues`
 - Events: use `createModuleEvents()` with `as const` for typed emit
+- Translations: when adding entities with user-facing text fields (title, name, description, label), create `translations.ts` at module root declaring translatable fields. Run `yarn generate` after adding.
 - Widget injection: declare in `widgets/injection/`, map via `injection-table.ts`
 - Generated files: `apps/mercato/.mercato/generated/` — never edit manually
 - Run `npm run modules:prepare` after adding/modifying module files
@@ -227,4 +235,6 @@ yarn db:generate          # Generate database migrations
 yarn db:migrate           # Apply database migrations
 yarn initialize           # Full project initialization
 yarn dev:greenfield       # Fresh dev environment setup
+yarn test:integration     # Run integration tests (Playwright, headless)
+yarn test:integration:report  # View HTML test report
 ```

@@ -1,6 +1,6 @@
 {
   "name": "@open-mercato/shared",
-  "version": "0.4.3",
+  "version": "0.4.4",
   "type": "module",
   "main": "./dist/index.js",
   "scripts": {
@@ -75,6 +75,9 @@
       ],
       "default": "./dist/*/*/*/*.js"
     }
+  },
+  "dependencies": {
+    "rate-limiter-flexible": "^9.0.0"
   },
   "devDependencies": {
     "@types/jest": "^30.0.0",

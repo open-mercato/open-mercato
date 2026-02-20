@@ -14,6 +14,7 @@ import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { E } from '#generated/entities.ids.generated'
 import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
 import type { FilterDef, FilterValues } from '@open-mercato/ui/backend/FilterBar'
 import type { FilterOption } from '@open-mercato/ui/backend/FilterOverlay'
 import {
@@ -103,6 +104,7 @@ function mapApiItem(item: Record<string, unknown>): CompanyRow | null {
 }
 
 export default function CustomersCompaniesPage() {
+  const { confirm, ConfirmDialogElement } = useConfirmDialog()
   const [rows, setRows] = React.useState<CompanyRow[]>([])
   const [page, setPage] = React.useState(1)
   const [pageSize] = React.useState(20)
@@ -413,7 +415,10 @@ export default function CustomersCompaniesPage() {
   const handleDelete = React.useCallback(async (company: CompanyRow) => {
     if (!company?.id) return
     const name = company.name || t('customers.companies.list.deleteFallbackName')
-    const confirmed = window.confirm(t('customers.companies.list.deleteConfirm', undefined, { name }))
+    const confirmed = await confirm({
+      title: t('customers.companies.list.deleteConfirm', undefined, { name }),
+      variant: 'destructive',
+    })
     if (!confirmed) return
     try {
       await apiCallOrThrow(
@@ -432,7 +437,7 @@ export default function CustomersCompaniesPage() {
       const message = err instanceof Error ? err.message : t('customers.companies.list.deleteError')
       flash(message, 'error')
     }
-  }, [handleRefresh, t])
+  }, [confirm, handleRefresh, t])
 
   const handleFiltersApply = React.useCallback((values: FilterValues) => {
     const next: FilterValues = {}
@@ -619,6 +624,7 @@ export default function CustomersCompaniesPage() {
           isLoading={isLoading}
         />
       </PageBody>
+      {ConfirmDialogElement}
     </Page>
   )
 }

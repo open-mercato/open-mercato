@@ -17,6 +17,8 @@ import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { normalizeCrudServerError } from '@open-mercato/ui/backend/utils/serverErrors'
 import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
+import { formatDateTime } from '@open-mercato/shared/lib/time'
 
 const PAGE_SIZE = 50
 const MARKDOWN_PLUGINS: PluggableList = [remarkGfm]
@@ -39,6 +41,7 @@ type RuleSetResponse = {
 
 export default function PlannerAvailabilityRuleSetsPage() {
   const t = useT()
+  const { confirm, ConfirmDialogElement } = useConfirmDialog()
   const router = useRouter()
   const scopeVersion = useOrganizationScopeVersion()
   const [rows, setRows] = React.useState<RuleSetRow[]>([])
@@ -121,7 +124,11 @@ export default function PlannerAvailabilityRuleSetsPage() {
 
   const handleDelete = React.useCallback(async (entry: RuleSetRow) => {
     const message = labels.actions.deleteConfirm.replace('{{name}}', entry.name)
-    if (typeof window !== 'undefined' && !window.confirm(message)) return
+    const confirmed = await confirm({
+      title: message,
+      variant: 'default',
+    })
+    if (!confirmed) return
     try {
       await deleteCrud('planner/availability-rule-sets', entry.id, { errorMessage: labels.errors.delete })
       flash(labels.messages.deleted, 'success')
@@ -131,7 +138,7 @@ export default function PlannerAvailabilityRuleSetsPage() {
       const normalized = normalizeCrudServerError(error)
       flash(normalized.message ?? labels.errors.delete, 'error')
     }
-  }, [handleRefresh, labels.actions.deleteConfirm, labels.errors.delete, labels.messages.deleted])
+  }, [confirm, handleRefresh, labels.actions.deleteConfirm, labels.errors.delete, labels.messages.deleted])
 
   const columns = React.useMemo<ColumnDef<RuleSetRow>[]>(() => [
     {
@@ -210,6 +217,7 @@ export default function PlannerAvailabilityRuleSetsPage() {
           onRowClick={(row) => router.push(`/backend/planner/availability-rulesets/${row.id}`)}
         />
       </PageBody>
+      {ConfirmDialogElement}
     </Page>
   )
 }
@@ -234,8 +242,4 @@ function mapRuleSet(item: Record<string, unknown>): RuleSetRow {
   }
 }
 
-function formatDateTime(value: string): string {
-  const parsed = new Date(value)
-  if (Number.isNaN(parsed.getTime())) return value
-  return parsed.toLocaleString()
-}
+

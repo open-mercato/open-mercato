@@ -30,6 +30,7 @@ import { apiCall, apiCallOrThrow, readApiResultOrThrow } from '@open-mercato/ui/
 import { collectCustomFieldValues } from '@open-mercato/ui/backend/utils/customFieldValues'
 import { mapCrudServerErrorToFormErrors } from '@open-mercato/ui/backend/utils/serverErrors'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
 import { cn } from '@open-mercato/shared/lib/utils'
 import { DocumentCustomerCard } from '@open-mercato/core/modules/sales/components/DocumentCustomerCard'
 import { SalesDocumentAddressesSection } from '@open-mercato/core/modules/sales/components/documents/AddressesSection'
@@ -1848,6 +1849,7 @@ export default function SalesDocumentDetailPage({
   const t = useT()
   const router = useRouter()
   const searchParams = useSearchParams()
+  const { confirm, ConfirmDialogElement } = useConfirmDialog()
   const [loading, setLoading] = React.useState(true)
   const [record, setRecord] = React.useState<DocumentRecord | null>(null)
   const [tags, setTags] = React.useState<TagOption[]>([])
@@ -3352,12 +3354,13 @@ export default function SalesDocumentDetailPage({
           !!record.shippingAddressSnapshot ||
           !!record.billingAddressSnapshot
         if (hasAddresses) {
-          const confirmed = window.confirm(
-            t(
+          const confirmed = await confirm({
+            title: t(
               'sales.documents.detail.customerChangeConfirm',
               'Change the customer? Existing shipping and billing addresses will be unassigned.'
-            )
-          )
+            ),
+            variant: 'default',
+          })
           if (!confirmed) return
         }
       }
@@ -3602,10 +3605,11 @@ export default function SalesDocumentDetailPage({
 
   const handleDelete = React.useCallback(async () => {
     if (!record) return
-    const confirmed = window.confirm(
-      t('sales.documents.detail.deleteConfirm', 'Delete this document? This cannot be undone.')
-    )
-    if (!confirmed) return
+    const ok = await confirm({
+      title: t('sales.documents.detail.deleteConfirm', 'Delete this document? This cannot be undone.'),
+      variant: 'default',
+    })
+    if (!ok) return
     setDeleting(true)
     const endpoint = kind === 'order' ? '/api/sales/orders' : '/api/sales/quotes'
     const call = await apiCall(endpoint, {
@@ -4732,6 +4736,7 @@ export default function SalesDocumentDetailPage({
           </DialogFooter>
         </DialogContent>
       </Dialog>
+      {ConfirmDialogElement}
     </Page>
   )
 }

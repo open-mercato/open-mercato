@@ -2,6 +2,8 @@ export const features = [
   { id: 'sales.orders.view', title: 'View sales orders', module: 'sales' },
   { id: 'sales.orders.manage', title: 'Manage sales orders', module: 'sales' },
   { id: 'sales.orders.approve', title: 'Approve sales orders', module: 'sales' },
+  { id: 'sales.widgets.new-orders', title: 'View new orders widget', module: 'sales' },
+  { id: 'sales.widgets.new-quotes', title: 'View new quotes widget', module: 'sales' },
   { id: 'sales.quotes.view', title: 'View sales quotes', module: 'sales' },
   { id: 'sales.quotes.manage', title: 'Manage sales quotes', module: 'sales' },
   { id: 'sales.documents.number.edit', title: 'Edit sales document numbers', module: 'sales' },

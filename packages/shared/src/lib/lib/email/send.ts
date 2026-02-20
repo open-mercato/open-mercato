@@ -1,5 +1,6 @@
 import { Resend } from 'resend'
 import React from 'react'
+import { parseBooleanWithDefault } from '../../boolean'
 
 export type SendEmailOptions = {
   to: string
@@ -10,6 +11,11 @@ export type SendEmailOptions = {
 }
 
 export async function sendEmail({ to, subject, react, from, replyTo }: SendEmailOptions) {
+  const emailDisabled =
+    parseBooleanWithDefault(process.env.OM_DISABLE_EMAIL_DELIVERY, false) ||
+    parseBooleanWithDefault(process.env.OM_TEST_MODE, false)
+  if (emailDisabled) return
+
   const apiKey = process.env.RESEND_API_KEY
   if (!apiKey) throw new Error('RESEND_API_KEY is not set')
   const resend = new Resend(apiKey)

@@ -187,6 +187,11 @@ const sidebars: SidebarsConfig = {
           label: "Entities",
           items: ["cli/entities-install"],
         },
+        {
+          type: "category",
+          label: "Integration Testing",
+          items: ["cli/test-integration", "cli/test-ephemeral"],
+        },
         "cli/scheduler",
         "cli/eject",
       ],
@@ -274,6 +279,13 @@ const sidebars: SidebarsConfig = {
         "framework/pricing-tax-overrides",
         "framework/rbac/overview",
         "framework/feature-toggles/overview",
+        {
+          type: "category",
+          label: "Security",
+          items: [
+            "framework/security/rate-limiting",
+          ],
+        },
         {
           type: "category",
           label: "Runtime",

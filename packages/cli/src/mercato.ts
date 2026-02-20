@@ -8,8 +8,11 @@ import type { Module } from '@open-mercato/shared/modules/registry'
 import { getCliModules, hasCliModules, registerCliModules } from './registry'
 export { getCliModules, hasCliModules, registerCliModules }
 import { parseBooleanToken } from '@open-mercato/shared/lib/boolean'
+import { getSslConfig } from '@open-mercato/shared/lib/db/ssl'
 import { getRedisUrl } from '@open-mercato/shared/lib/redis/connection'
 import { resolveInitDerivedSecrets } from './lib/init-secrets'
+// Lazy-imported to avoid pulling in `testcontainers` (devDependency) at startup
+const lazyIntegration = () => import('./lib/testing/integration')
 import type { ChildProcess } from 'node:child_process'
 import path from 'node:path'
 import fs from 'node:fs'
@@ -176,7 +179,7 @@ export async function run(argv = process.argv) {
           console.error('DATABASE_URL is not set. Aborting reinstall.')
           return 1
         }
-        const client = new Client({ connectionString: dbUrl })
+        const client = new Client({ connectionString: dbUrl, ssl: getSslConfig() })
         try {
           await client.connect()
           // Collect all user tables in public schema
@@ -232,7 +235,7 @@ export async function run(argv = process.argv) {
         }
 
         const { Client } = await import('pg')
-        const client = new Client({ connectionString: dbUrl })
+        const client = new Client({ connectionString: dbUrl, ssl: getSslConfig() })
         try {
           await client.connect()
           const tableCheck = await client.query<{ regclass: string | null }>(
@@ -354,7 +357,7 @@ export async function run(argv = process.argv) {
       // Query DB to get tenant/org IDs using pg directly
       const { Client } = await import('pg')
       const dbUrl = process.env.DATABASE_URL
-      const pgClient = new Client({ connectionString: dbUrl })
+      const pgClient = new Client({ connectionString: dbUrl, ssl: getSslConfig() })
       await pgClient.connect()
       const orgResult = await pgClient.query(
         `SELECT o.id as org_id, o.tenant_id FROM organizations o
@@ -552,6 +555,66 @@ export async function run(argv = process.argv) {
   let modName = first
   let cmdName = second
   let rest = remaining
+
+  if (first === 'test:integration') {
+    modName = 'test'
+    cmdName = 'integration'
+    rest = second !== undefined ? [second, ...remaining] : []
+  }
+
+  if (first === 'test:ephemeral') {
+    modName = 'test'
+    cmdName = 'ephemeral'
+    rest = second !== undefined ? [second, ...remaining] : []
+  }
+
+  if (first === 'test:integration:interactive') {
+    modName = 'test'
+    cmdName = 'interactive'
+    rest = second !== undefined ? [second, ...remaining] : []
+  }
+
+  if (first === 'test:integration:coverage') {
+    modName = 'test'
+    cmdName = 'coverage'
+    rest = second !== undefined ? [second, ...remaining] : []
+  }
+
+  if (first === 'test:integration:spec-coverage') {
+    modName = 'test'
+    cmdName = 'spec-coverage'
+    rest = second !== undefined ? [second, ...remaining] : []
+  }
+
+  if (first === 'test' && second === 'integration') {
+    modName = 'test'
+    cmdName = 'integration'
+    rest = remaining
+  }
+
+  if (first === 'test' && second === 'ephemeral') {
+    modName = 'test'
+    cmdName = 'ephemeral'
+    rest = remaining
+  }
+
+  if (first === 'test' && second === 'interactive') {
+    modName = 'test'
+    cmdName = 'interactive'
+    rest = remaining
+  }
+
+  if (first === 'test' && second === 'coverage') {
+    modName = 'test'
+    cmdName = 'coverage'
+    rest = remaining
+  }
+
+  if (first === 'test' && second === 'spec-coverage') {
+    modName = 'test'
+    cmdName = 'spec-coverage'
+    rest = remaining
+  }
 
   if (first === 'reindex') {
     modName = 'query_index'
@@ -1141,6 +1204,42 @@ export async function run(argv = process.argv) {
           )
 
           cleanup()
+        },
+      },
+    ],
+  } as any)
+
+  all.push({
+    id: 'test',
+    cli: [
+      {
+        command: 'integration',
+        run: async (args: string[]) => {
+          await (await lazyIntegration()).runIntegrationTestsInEphemeralEnvironment(args)
+        },
+      },
+      {
+        command: 'ephemeral',
+        run: async (args: string[]) => {
+          await (await lazyIntegration()).runEphemeralAppForQa(args)
+        },
+      },
+      {
+        command: 'interactive',
+        run: async (args: string[]) => {
+          await (await lazyIntegration()).runInteractiveIntegrationInEphemeralEnvironment(args)
+        },
+      },
+      {
+        command: 'coverage',
+        run: async (args: string[]) => {
+          await (await lazyIntegration()).runIntegrationCoverageReport(args)
+        },
+      },
+      {
+        command: 'spec-coverage',
+        run: async (args: string[]) => {
+          await (await lazyIntegration()).runIntegrationSpecCoverageReport(args)
         },
       },
     ],

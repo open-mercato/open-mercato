@@ -1,0 +1,79 @@
+{
+  "name": "@open-mercato/enterprise",
+  "version": "0.4.4",
+  "type": "module",
+  "main": "./dist/index.js",
+  "scripts": {
+    "build": "node build.mjs",
+    "watch": "node watch.mjs",
+    "test": "jest --config jest.config.cjs",
+    "typecheck": "tsc --noEmit"
+  },
+  "exports": {
+    ".": {
+      "types": "./src/index.ts",
+      "default": "./dist/index.js"
+    },
+    "./*.ts": {
+      "types": "./src/*.ts",
+      "default": "./dist/*.js"
+    },
+    "./*.tsx": {
+      "types": "./src/*.tsx",
+      "default": "./dist/*.js"
+    },
+    "./*.json": "./src/*.json",
+    "./*": {
+      "types": [
+        "./src/*.ts",
+        "./src/*.tsx"
+      ],
+      "default": "./dist/*.js"
+    },
+    "./*/*.json": "./src/*/*.json",
+    "./*/*": {
+      "types": [
+        "./src/*/*.ts",
+        "./src/*/*.tsx"
+      ],
+      "default": "./dist/*/*.js"
+    },
+    "./*/*/*.json": "./src/*/*/*.json",
+    "./*/*/*": {
+      "types": [
+        "./src/*/*/*.ts",
+        "./src/*/*/*.tsx"
+      ],
+      "default": "./dist/*/*/*.js"
+    },
+    "./*/*/*/*.json": "./src/*/*/*/*.json",
+    "./*/*/*/*": {
+      "types": [
+        "./src/*/*/*/*.ts",
+        "./src/*/*/*/*.tsx"
+      ],
+      "default": "./dist/*/*/*/*.js"
+    },
+    "./*/*/*/*/*.json": "./src/*/*/*/*/*.json",
+    "./*/*/*/*/*": {
+      "types": [
+        "./src/*/*/*/*/*.ts",
+        "./src/*/*/*/*/*.tsx"
+      ],
+      "default": "./dist/*/*/*/*/*.js"
+    }
+  },
+  "dependencies": {
+    "@open-mercato/core": "workspace:*",
+    "@open-mercato/shared": "workspace:*",
+    "@open-mercato/ui": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/jest": "^30.0.0",
+    "jest": "^30.2.0",
+    "ts-jest": "^29.4.6"
+  },
+  "publishConfig": {
+    "access": "restricted"
+  }
+}

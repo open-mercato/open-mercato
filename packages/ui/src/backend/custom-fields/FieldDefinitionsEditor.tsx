@@ -1,10 +1,11 @@
 "use client"
 
 import * as React from 'react'
-import { Cog, GripVertical, Pencil, Plus, Trash2 } from 'lucide-react'
+import { Cog, GripVertical, Languages, Pencil, Plus, Trash2 } from 'lucide-react'
 import { CUSTOM_FIELD_KINDS } from '@open-mercato/shared/modules/entities/kinds'
 import { FieldRegistry } from '../fields/registry'
 import { slugify } from '@open-mercato/shared/lib/slugify'
+import { useConfirmDialog } from '../confirm-dialog'
 import {
   Dialog,
   DialogContent,
@@ -49,6 +50,7 @@ export type FieldDefinitionsEditorProps = {
   onDefinitionChange: (index: number, next: FieldDefinition) => void
   onRestoreField?: (key: string) => void
   onReorder?: (from: number, to: number) => void
+  onTranslate?: (definition: FieldDefinition, index: number) => void
   listRef?: React.Ref<HTMLDivElement>
   listProps?: React.HTMLAttributes<HTMLDivElement>
   singleFieldsetPerRecord?: boolean
@@ -154,10 +156,12 @@ export function FieldDefinitionsEditor({
   onDefinitionChange,
   onRestoreField,
   onReorder,
+  onTranslate,
   listRef,
   listProps,
   translate,
 }: FieldDefinitionsEditorProps) {
+  const { confirm, ConfirmDialogElement } = useConfirmDialog()
   const dragIndex = React.useRef<number | null>(null)
   const hasFieldsets = fieldsets.length > 0
   const t = React.useCallback((key: string, fallback: string) => (translate ? translate(key, fallback) : fallback), [translate])
@@ -215,10 +219,15 @@ export function FieldDefinitionsEditor({
     onActiveFieldsetChange?.(code)
   }
 
-  const handleRemoveFieldset = () => {
+  const handleRemoveFieldset = async () => {
     if (!onFieldsetsChange) return
     if (!resolvedActiveFieldset) return
-    if (!window.confirm(`Delete fieldset "${resolvedActiveFieldset}"? This will move its fields to Unassigned.`)) return
+    const confirmed = await confirm({
+      title: `Delete fieldset "${resolvedActiveFieldset}"?`,
+      text: 'This will move its fields to Unassigned.',
+      variant: 'destructive',
+    })
+    if (!confirmed) return
     const next = fieldsets.filter((fs) => fs.code !== resolvedActiveFieldset)
     onFieldsetsChange(next)
     onFieldsetRemoved?.(resolvedActiveFieldset)
@@ -434,6 +443,7 @@ export function FieldDefinitionsEditor({
             availableGroups={groupOptions}
             onRegisterGroup={registerGroup}
             onRemoveGroup={removeGroup}
+            onTranslate={onTranslate ? () => onTranslate(definition, index) : undefined}
             translate={t}
           />
         </div>
@@ -465,6 +475,7 @@ export function FieldDefinitionsEditor({
           </div>
         ) : null}
       </div>
+      {ConfirmDialogElement}
     </div>
   )
 }
@@ -481,6 +492,7 @@ type FieldDefinitionCardProps = {
   availableGroups?: FieldsetGroup[]
   onRegisterGroup?: (fieldsetCode: string, group: FieldsetGroup) => void
   onRemoveGroup?: (fieldsetCode: string, groupCode: string) => void
+  onTranslate?: () => void
   translate?: (key: string, fallback: string) => string
 }
 
@@ -496,6 +508,7 @@ const FieldDefinitionCard = React.memo(function FieldDefinitionCard({
   availableGroups = [],
   onRegisterGroup,
   onRemoveGroup,
+  onTranslate,
   translate,
 }: FieldDefinitionCardProps) {
   const [local, setLocal] = React.useState<FieldDefinition>(definition)
@@ -707,6 +720,11 @@ const FieldDefinitionCard = React.memo(function FieldDefinitionCard({
           <label className="inline-flex items-center gap-2 text-sm">
             <input type="checkbox" checked={local.isActive !== false} onChange={(event) => { apply({ isActive: event.target.checked }, true) }} /> Active
           </label>
+          {onTranslate && (
+            <button type="button" onClick={onTranslate} className="px-2 py-1 border rounded hover:bg-muted" aria-label="Translate field">
+              <Languages className="h-4 w-4" />
+            </button>
+          )}
           <button type="button" onClick={onRemove} className="px-2 py-1 border rounded hover:bg-muted" aria-label="Remove field">
             <Trash2 className="h-4 w-4" />
           </button>

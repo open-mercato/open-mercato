@@ -22,6 +22,7 @@ import { apiCall, readApiResultOrThrow } from '@open-mercato/ui/backend/utils/ap
 import { raiseCrudError } from '@open-mercato/ui/backend/utils/serverErrors'
 import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
 import {
   listShippingProviders,
   type ProviderSettingField,
@@ -410,6 +411,7 @@ function createShippingProviderSettingsRenderer(params: {
 export function ShippingMethodsSettings() {
   const t = useT()
   const scopeVersion = useOrganizationScopeVersion()
+  const { confirm, ConfirmDialogElement } = useConfirmDialog()
   const providers = React.useMemo(() => listShippingProviders(), [])
   const providerOptions = React.useMemo(
     () => providers.map((provider) => ({ value: provider.key, label: provider.label })),
@@ -616,7 +618,11 @@ export function ShippingMethodsSettings() {
 
   const deleteEntry = React.useCallback(async (entry: ShippingMethodRow) => {
     const message = translations.actions.deleteConfirm.replace('{{name}}', entry.name)
-    if (!window.confirm(message)) return
+    const confirmed = await confirm({
+      title: message,
+      variant: 'destructive',
+    })
+    if (!confirmed) return
     try {
       const call = await apiCall('/api/sales/shipping-methods', {
         method: 'DELETE',
@@ -633,7 +639,7 @@ export function ShippingMethodsSettings() {
       const message = err instanceof Error ? err.message : translations.errors.delete
       flash(message, 'error')
     }
-  }, [loadEntries, translations.actions.deleteConfirm, translations.errors.delete, translations.messages.deleted])
+  }, [confirm, loadEntries, translations.actions.deleteConfirm, translations.errors.delete, translations.messages.deleted])
 
   const columns = React.useMemo<ColumnDef<ShippingMethodRow>[]>(() => [
     {
@@ -853,6 +859,7 @@ export function ShippingMethodsSettings() {
           />
         </DialogContent>
       </Dialog>
+      {ConfirmDialogElement}
     </section>
   )
 }
