@@ -122,6 +122,10 @@ All packages use the `@open-mercato/<package>` naming convention:
 | API calls (backend pages) | `import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'` |
 | CRUD forms | `import { CrudForm } from '@open-mercato/ui/backend/crud'` |
 
+Import strategy:
+- Prefer package-level imports (`@open-mercato/<package>/...`) over deep relative imports (`../../../...`) when crossing module boundaries, referencing shared module internals, or importing from deeply nested files.
+- Keep short relative imports for same-folder/local siblings (`./x`, `../x`) where they are clearer than package paths.
+
 ## Conventions
 
 - Modules: plural, snake_case (folders and `id`). Special cases: `auth`, `example`.
