@@ -28,6 +28,13 @@ const checkoutBodySchema = z.object({
   }),
 })
 
+const checkoutQuerySchema = z.object({
+  storeSlug: z.string().optional(),
+  tenantId: z.string().uuid().optional(),
+  cartToken: z.string().uuid().optional(),
+  locale: z.string().optional(),
+})
+
 const createOrderResultSchema = z.object({
   orderId: z.string().uuid(),
 })
@@ -49,7 +56,16 @@ export async function POST(req: Request) {
     const container = await createRequestContainer()
     const em = container.resolve('em') as EntityManager
     const url = new URL(req.url)
-    const tenantId = url.searchParams.get('tenantId') ?? null
+    const parsedQuery = checkoutQuerySchema.safeParse(
+      Object.fromEntries(url.searchParams.entries()),
+    )
+    if (!parsedQuery.success) {
+      return NextResponse.json(
+        { error: 'Invalid query parameters', details: parsedQuery.error.issues },
+        { status: 400 },
+      )
+    }
+    const tenantId = parsedQuery.data.tenantId ?? null
 
     const storeCtx = await resolveStoreFromRequest(req, em, tenantId)
     if (!storeCtx) {
