@@ -1,3 +1,79 @@
+# 0.4.4 (2026-02-20)
+
+## Highlights
+This release delivers **System-Wide Entity Translations** (SPEC-026) — a complete localization infrastructure for all entity types, the **Enterprise package scaffold**, **Sales Dashboard Widgets**, expanded **OpenAPI coverage** across feature toggles, workflows, attachments, and configs, a new **Integration Test framework** with CRM, Sales, Catalog, Admin ... test coverage (57% overall coverage), and the **UI Confirm dialog migration**. It also ships the **i18n sync checker**, rate limiting on auth endpoints, and numerous bug fixes. This is our biggest community release yet — welcome to **10 first-time contributors**! 🎉
+
+## ✨ Features
+- 🌍 System-wide entity translations (SPEC-026) — full localization infrastructure including `entity_translations` table, REST API (`GET/PUT/DELETE /api/translations`), locale management, `TranslationManager` React component with standalone and embedded modes, and translation overlay pipeline. (#552, #566, #585) *(@idziakjakub)*
+- 🏗️ Enterprise package scaffold — initial structure for the `@open-mercato/enterprise` package for commercial/enterprise-only modules and overlays. (#580) *(@pkarw)*
+- 📊 Sales dashboard widgets — new orders and quotes dashboard widgets with date range filtering, payload caching, and time formatting. (#582) *(@MYMaj)*
+- 🔀 OpenAPI response specifications — added missing API response specs across feature toggles, workflows, workflow instances, attachments, library, and configs endpoints. (#581) *(@karolkozer)*
+- 🔲 UI confirm dialog migration — unified confirmation dialog pattern (`Cmd/Ctrl+Enter` submit, `Escape` cancel) rolled out across the UI. (#550, #554, #555) *(@AK-300codes)*
+- 🧪 Integration test framework — Playwright-based CRM integration tests with API fixtures, self-contained setup/teardown, and CI pipeline support. (#558, #562, #568) *(@pkarw)*
+- 🌐 i18n sync checker — usage scanner that detects missing, unused, and out-of-sync translation keys across all locales. (#593) *(@cielecki)*
+- 📅 `formatDateTime` and `formatRelativeTime` — extracted to shared `lib/time.ts` with full test coverage. (#586, #589) *(@MYMaj)*
+- 🔗 Exposed `TruncatedCell` component for reuse across data table modules. (#560) *(@matgren)*
+- 👥 Resource and staff detail form heading alignment — consistent heading layout matching the deals pattern. (#578, #591) *(@sebapaszynski, @pkarw)*
+- 🔒 Rate limiting on authentication endpoints — configurable rate limits to protect login, registration, and password reset flows. (#521) *(@sapcik)*
+
+## 🐛 Fixes
+- Fixed scheduler issues on local queue strategy (#543). (#575) *(@LukBro)*
+- Resolved broken links in notification emails. (#553) *(@LukBro)*
+- Fixed MikroORM config to support `sslmode=require` for cloud-hosted PostgreSQL. (#604) *(@maciejsimm)*
+- Fixed Docker Compose dev build issues. (#595) *(@MStaniaszek1998)*
+- Fixed specs sorting order. (#614) *(@pkarw)*
+
+## 📝 Specs & Documentation
+- SPEC-028: Multiple sales pipelines for CRM. (#571) *(@itrixjarek)*
+- SPEC-029: Inbox Ops Agent. (#579) *(@haxiorz)*
+- SPEC-029: E-commerce/storefront architecture. (#587) *(@kapIsWizard)*
+- SPEC-032: Notification template system. (#608) *(@kriss145)*
+- SPEC-033: Omnibus Directive price tracking. (#600) *(@strzesniewski)*
+- SPEC-031: Database decryption CLI. (#599) *(@strzesniewski)*
+- SPEC-ENT-002: SSO & directory sync (enterprise). (#603) *(@MStaniaszek1998)*
+- DevCloud infrastructure specification. (#621) *(@MStaniaszek1998)*
+- CRM pipeline QA test scenarios (TC-CRM-001..007). (#577) *(@itrixjarek)*
+- PostgreSQL port-conflict troubleshooting guide. (#594) *(@kriss145)*
+
+## 📦 Dependencies
+- Bump `tar` from 7.5.6 to 7.5.7 — security patch. (#551)
+
+## 👥 Contributors
+
+- @pkarw
+- @idziakjakub
+- @LukBro
+- @MYMaj
+- @itrixjarek
+- @matgren
+- @sebapaszynski
+- @haxiorz
+- @AK-300codes
+- @cielecki
+- @MStaniaszek1998
+- @strzesniewski
+- @kriss145
+- @kapIsWizard
+- @maciejsimm
+- @sapcik
+- @karolkozer
+- @pat-lewczuk
+
+### 🌟 First-time Contributors
+
+Welcome and thank you to our new contributors! 🙌
+
+- @idziakjakub
+- @LukBro
+- @MYMaj
+- @itrixjarek
+- @sebapaszynski
+- @cielecki
+- @strzesniewski
+- @kriss145
+- @kapIsWizard
+- @maciejsimm
+
 # 0.4.3 (2026-02-13)
 
 ## Highlights
