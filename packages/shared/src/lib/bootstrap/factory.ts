@@ -6,8 +6,10 @@ import { registerEntityIds } from '../encryption/entityIds'
 import { registerEntityFields } from '../encryption/entityFields'
 import { registerSearchModuleConfigs } from '../../modules/search'
 import { registerAnalyticsModuleConfigs } from '../../modules/analytics'
+import { parseBooleanWithDefault } from '../boolean'
 
 let _bootstrapped = false
+let _enterpriseLicenseWarningShown = false
 
 // Store the async registration promise so callers can await it if needed
 let _asyncRegistrationPromise: Promise<void> | null = null
@@ -35,6 +37,7 @@ export function createBootstrap(data: BootstrapData, options: BootstrapOptions =
 
     // === 2. Modules registry (required by i18n, query engine, dashboards, CLI) ===
     registerModules(data.modules)
+    maybeWarnEnterpriseLicense(data)
 
     // === 3. Entity IDs (required by encryption, indexing, entity links) ===
     registerEntityIds(data.entityIds)
@@ -61,6 +64,20 @@ export function createBootstrap(data: BootstrapData, options: BootstrapOptions =
 
     options.onRegistrationComplete?.()
   }
+}
+
+function maybeWarnEnterpriseLicense(data: BootstrapData): void {
+  if (_enterpriseLicenseWarningShown) return
+  const enterpriseModulesEnabled = parseBooleanWithDefault(process.env.OM_ENABLE_ENTERPRISE_MODULES, false)
+  if (!enterpriseModulesEnabled) return
+
+  const hasEnterpriseRecordLocks = data.modules.some((module) => module.id === 'record_locks')
+  if (!hasEnterpriseRecordLocks) return
+
+  _enterpriseLicenseWarningShown = true
+  console.warn(
+    '[enterprise] Enterprise modules are enabled. Developer preview is free, but production usage requires a commercial enterprise license. See: https://github.com/open-mercato/open-mercato/blob/main/packages/enterprise/README.md',
+  )
 }
 
 /**
@@ -111,4 +128,5 @@ export function isBootstrapped(): boolean {
  */
 export function resetBootstrapState(): void {
   _bootstrapped = false
+  _enterpriseLicenseWarningShown = false
 }

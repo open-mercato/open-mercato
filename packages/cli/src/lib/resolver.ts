@@ -1,5 +1,6 @@
 import path from 'node:path'
 import fs from 'node:fs'
+import { parseBooleanWithDefault } from '@open-mercato/shared/lib/boolean'
 
 export type ModuleEntry = {
   id: string
@@ -25,6 +26,11 @@ export interface PackageResolver {
   getPackageOutputDir(packageName: string): string
   getPackageRoot(from?: string): string
 }
+
+const ENTERPRISE_MODULE_TOGGLE_ENV = 'OM_ENABLE_ENTERPRISE_MODULES'
+const ENTERPRISE_OPTIONAL_MODULES: ModuleEntry[] = [
+  { id: 'record_locks', from: '@open-mercato/enterprise' },
+]
 
 function pkgDirFor(rootDir: string, from?: string, isMonorepo = true): string {
   if (!isMonorepo) {
@@ -83,13 +89,32 @@ function parseModulesFromSource(source: string): ModuleEntry[] {
   return modules
 }
 
+function isEnterpriseModulesEnabled(): boolean {
+  return parseBooleanWithDefault(process.env[ENTERPRISE_MODULE_TOGGLE_ENV], false)
+}
+
+function applyEnterpriseModuleOverrides(modules: ModuleEntry[]): ModuleEntry[] {
+  const withoutEnterpriseOptionalModules = modules.filter(
+    (entry) => !ENTERPRISE_OPTIONAL_MODULES.some((enterpriseModule) => enterpriseModule.id === entry.id),
+  )
+
+  if (!isEnterpriseModulesEnabled()) {
+    return withoutEnterpriseOptionalModules
+  }
+
+  return [
+    ...withoutEnterpriseOptionalModules,
+    ...ENTERPRISE_OPTIONAL_MODULES,
+  ]
+}
+
 function loadEnabledModulesFromConfig(appDir: string): ModuleEntry[] {
   const cfgPath = path.resolve(appDir, 'src/modules.ts')
   if (fs.existsSync(cfgPath)) {
     try {
       const source = fs.readFileSync(cfgPath, 'utf8')
       const list = parseModulesFromSource(source)
-      if (list.length) return list
+      if (list.length) return applyEnterpriseModuleOverrides(list)
     } catch {
       // Fall through to fallback
     }
@@ -97,10 +122,12 @@ function loadEnabledModulesFromConfig(appDir: string): ModuleEntry[] {
   // Fallback: scan src/modules/* to keep backward compatibility
   const modulesRoot = path.resolve(appDir, 'src/modules')
   if (!fs.existsSync(modulesRoot)) return []
-  return fs
+  const scannedModules = fs
     .readdirSync(modulesRoot, { withFileTypes: true })
     .filter((e) => e.isDirectory() && !e.name.startsWith('.'))
     .map((e) => ({ id: e.name, from: '@app' as const }))
+
+  return applyEnterpriseModuleOverrides(scannedModules)
 }
 
 function discoverPackagesInMonorepo(rootDir: string): PackageInfo[] {

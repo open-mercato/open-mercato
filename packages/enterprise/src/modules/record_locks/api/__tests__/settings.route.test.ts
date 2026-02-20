@@ -1,7 +1,7 @@
-import { GET, POST } from '@open-mercato/core/modules/record_locks/api/settings/route'
-import { resolveRecordLocksApiContext } from '@open-mercato/core/modules/record_locks/api/utils'
+import { GET, POST } from '@open-mercato/enterprise/modules/record_locks/api/settings/route'
+import { resolveRecordLocksApiContext } from '@open-mercato/enterprise/modules/record_locks/api/utils'
 
-jest.mock('@open-mercato/core/modules/record_locks/api/utils', () => ({
+jest.mock('@open-mercato/enterprise/modules/record_locks/api/utils', () => ({
   resolveRecordLocksApiContext: jest.fn(),
 }))
 

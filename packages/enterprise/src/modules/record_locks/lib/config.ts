@@ -3,7 +3,7 @@ import { z } from 'zod'
 export const recordLockStrategySchema = z.enum(['optimistic', 'pessimistic'])
 
 export const recordLockSettingsSchema = z.object({
-  enabled: z.boolean().default(false),
+  enabled: z.boolean().default(true),
   strategy: recordLockStrategySchema.default('optimistic'),
   timeoutSeconds: z.number().int().min(30).max(3600).default(300),
   heartbeatSeconds: z.number().int().min(5).max(300).default(30),
@@ -16,7 +16,7 @@ export type RecordLockStrategy = z.infer<typeof recordLockStrategySchema>
 export type RecordLockSettings = z.infer<typeof recordLockSettingsSchema>
 
 export const DEFAULT_RECORD_LOCK_SETTINGS: RecordLockSettings = {
-  enabled: false,
+  enabled: true,
   strategy: 'optimistic',
   timeoutSeconds: 300,
   heartbeatSeconds: 30,
@@ -52,6 +52,6 @@ export function isRecordLockingEnabledForResource(
 ): boolean {
   if (!settings.enabled) return false
   if (!resourceKind || resourceKind.trim().length === 0) return false
-  if (!settings.enabledResources.length) return false
+  if (!settings.enabledResources.length) return true
   return settings.enabledResources.includes(resourceKind)
 }
