@@ -8,7 +8,23 @@ export const setup: ModuleSetupConfig = {
       moduleId: RECORD_LOCKS_MODULE_ID,
       name: RECORD_LOCKS_SETTINGS_NAME,
     })
-    if (existing) return
+    if (existing) {
+      const current = existing.valueJson && typeof existing.valueJson === 'object'
+        ? (existing.valueJson as Record<string, unknown>)
+        : {}
+      const currentEnabledResources = Array.isArray(current.enabledResources)
+        ? current.enabledResources.filter((item): item is string => typeof item === 'string' && item.trim().length > 0)
+        : []
+      if (currentEnabledResources.length > 0) return
+
+      existing.valueJson = {
+        ...current,
+        enabledResources: DEFAULT_RECORD_LOCK_SETTINGS.enabledResources,
+      }
+      em.persist(existing)
+      await em.flush()
+      return
+    }
 
     const row = em.create(ModuleConfig, {
       moduleId: RECORD_LOCKS_MODULE_ID,

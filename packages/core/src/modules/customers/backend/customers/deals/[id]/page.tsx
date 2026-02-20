@@ -423,20 +423,6 @@ export default function DealDetailPage({ params }: { params?: { id?: string } })
             isDeleting={isDeleting}
             deleteLabel={t('ui.actions.delete', 'Delete')}
           />
-          <RecordLockBanner
-            t={t}
-            strategy={lockGuard.lock.strategy}
-            resourceEnabled={lockGuard.lock.resourceEnabled}
-            isOwner={lockGuard.lock.isOwner}
-            isBlocked={lockGuard.lock.isBlocked}
-            canForceRelease={lockGuard.lock.canForceRelease}
-            forceReleasePending={lockGuard.lock.isLoading}
-            onForceRelease={async () => {
-              await lockGuard.lock.forceRelease('manual_takeover')
-            }}
-            error={lockGuard.lock.error}
-          />
-
           <div className="grid gap-6 lg:grid-cols-[minmax(0,2fr),minmax(0,1.1fr)]">
             <div className="space-y-6">
               <div className="rounded-lg border bg-card p-4">
@@ -649,35 +635,6 @@ export default function DealDetailPage({ params }: { params?: { id?: string } })
           </div>
         </div>
       </PageBody>
-      <RecordConflictDialog
-        open={Boolean(lockGuard.conflict)}
-        onOpenChange={(open) => {
-          if (!open) {
-            lockGuard.clearConflict()
-            setReloadToken((token) => token + 1)
-          }
-        }}
-        conflict={lockGuard.conflict}
-        pending={lockGuard.pending}
-        t={t}
-        onResolve={async (resolution) => {
-          const resolved = await lockGuard.resolveConflict(resolution)
-          if (resolved !== null) {
-            setReloadToken((token) => token + 1)
-          }
-        }}
-        onAcceptIncoming={async () => {
-          const resolved = await lockGuard.acceptIncoming()
-          if (resolved) {
-            setReloadToken((token) => token + 1)
-            return
-          }
-          flash(
-            t('record_locks.conflict.accept_incoming_failed', 'Could not accept incoming changes. Refresh and try again.'),
-            'error',
-          )
-        }}
-      />
       {ConfirmDialogElement}
     </Page>
   )

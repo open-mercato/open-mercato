@@ -1,12 +1,8 @@
 "use client"
 
 import * as React from 'react'
-import { useRouter } from 'next/navigation'
 import { FormHeader } from '@open-mercato/ui/backend/forms'
-import { RecordConflictDialog, RecordLockBanner, useRecordLockGuard } from '@open-mercato/ui/backend/record-locking'
-import type { UseRecordLockGuardResult } from '@open-mercato/ui/backend/record-locking'
 import { VersionHistoryAction } from '@open-mercato/ui/backend/version-history'
-import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import {
   InlineTextEditor,
@@ -49,7 +45,6 @@ export type CompanyHighlightsProps = {
   company: CompanyHighlightsCompany
   profile?: CompanyHighlightsProfile
   validators: CompanyHighlightsValidators
-  lockGuard?: UseRecordLockGuardResult
   onDisplayNameSave: (value: string | null) => Promise<void>
   onPrimaryEmailSave: (value: string | null) => Promise<void>
   onPrimaryPhoneSave: (value: string | null) => Promise<void>
@@ -63,7 +58,6 @@ export function CompanyHighlights({
   company,
   profile,
   validators,
-  lockGuard,
   onDisplayNameSave,
   onPrimaryEmailSave,
   onPrimaryPhoneSave,
@@ -73,38 +67,11 @@ export function CompanyHighlights({
   isDeleting,
 }: CompanyHighlightsProps) {
   const t = useT()
-  const router = useRouter()
-  const recordLockConflictMessage = t('record_locks.conflict.title', 'Conflict detected')
-  const localLockGuard = useRecordLockGuard({
-    resourceKind: 'customers.company',
-    resourceId: company.id,
-    enabled: Boolean(company.id),
-  })
-  const resolvedLockGuard = lockGuard ?? localLockGuard
-  const runLockedMutation = React.useCallback(async (operation: () => Promise<void>) => {
-    const result = await resolvedLockGuard.runMutation(operation)
-    if (result === null) {
-      throw new Error(recordLockConflictMessage)
-    }
-  }, [recordLockConflictMessage, resolvedLockGuard])
   const historyFallbackId =
     profile?.id && profile.id !== company.id ? profile.id : undefined
 
   return (
     <div className="space-y-6">
-      <RecordLockBanner
-        t={t}
-        strategy={resolvedLockGuard.lock.strategy}
-        resourceEnabled={resolvedLockGuard.lock.resourceEnabled}
-        isOwner={resolvedLockGuard.lock.isOwner}
-        isBlocked={resolvedLockGuard.lock.isBlocked}
-        canForceRelease={resolvedLockGuard.lock.canForceRelease}
-        forceReleasePending={resolvedLockGuard.lock.isLoading}
-        onForceRelease={async () => {
-          await resolvedLockGuard.lock.forceRelease('manual_takeover')
-        }}
-        error={resolvedLockGuard.lock.error}
-      />
       <FormHeader
         mode="detail"
         backHref="/backend/customers/companies"
@@ -127,11 +94,7 @@ export function CompanyHighlights({
             placeholder={t('customers.companies.form.displayName.placeholder', 'Enter company name')}
             emptyLabel={t('customers.companies.detail.noValue', 'Not provided')}
             validator={validators.displayName}
-            onSave={async (next) => {
-              await runLockedMutation(async () => {
-                await onDisplayNameSave(next)
-              })
-            }}
+            onSave={onDisplayNameSave}
             hideLabel
             variant="plain"
             activateOnClick
@@ -140,9 +103,7 @@ export function CompanyHighlights({
           />
         }
         onDelete={() => {
-          void runLockedMutation(async () => {
-            await Promise.resolve(onDelete())
-          }).catch(() => {})
+          onDelete()
         }}
         isDeleting={isDeleting}
         deleteLabel={t('customers.companies.detail.actions.delete', 'Delete company')}
@@ -158,11 +119,7 @@ export function CompanyHighlights({
           validator={validators.email}
           recordId={company.id}
           activateOnClick
-          onSave={async (next) => {
-            await runLockedMutation(async () => {
-              await onPrimaryEmailSave(next)
-            })
-          }}
+          onSave={onPrimaryEmailSave}
         />
         <InlineTextEditor
           label={t('customers.companies.detail.highlights.primaryPhone', 'Primary phone')}
@@ -173,22 +130,14 @@ export function CompanyHighlights({
           validator={validators.phone}
           recordId={company.id}
           activateOnClick
-          onSave={async (next) => {
-            await runLockedMutation(async () => {
-              await onPrimaryPhoneSave(next)
-            })
-          }}
+          onSave={onPrimaryPhoneSave}
         />
         <InlineDictionaryEditor
           label={t('customers.companies.detail.highlights.status', 'Status')}
           value={company.status ?? null}
           emptyLabel={t('customers.companies.detail.noValue', 'Not provided')}
           activateOnClick
-          onSave={async (next) => {
-            await runLockedMutation(async () => {
-              await onStatusSave(next)
-            })
-          }}
+          onSave={onStatusSave}
           kind="statuses"
         />
         <InlineNextInteractionEditor
@@ -199,39 +148,10 @@ export function CompanyHighlights({
           valueIcon={company.nextInteractionIcon || null}
           valueColor={company.nextInteractionColor || null}
           emptyLabel={t('customers.companies.detail.noValue', 'Not provided')}
-          onSave={async (next) => {
-            await runLockedMutation(async () => {
-              await onNextInteractionSave(next)
-            })
-          }}
+          onSave={onNextInteractionSave}
           activateOnClick
         />
       </div>
-      <RecordConflictDialog
-        open={Boolean(resolvedLockGuard.conflict)}
-        onOpenChange={(open) => {
-          if (!open) {
-            resolvedLockGuard.clearConflict()
-          }
-        }}
-        conflict={resolvedLockGuard.conflict}
-        pending={resolvedLockGuard.pending}
-        t={t}
-        onResolve={async (resolution) => {
-          await resolvedLockGuard.resolveConflict(resolution)
-        }}
-        onAcceptIncoming={async () => {
-          const resolved = await resolvedLockGuard.acceptIncoming()
-          if (resolved) {
-            router.refresh()
-            return
-          }
-          flash(
-            t('record_locks.conflict.accept_incoming_failed', 'Could not accept incoming changes. Refresh and try again.'),
-            'error',
-          )
-        }}
-      />
     </div>
   )
 }

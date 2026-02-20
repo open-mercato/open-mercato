@@ -20,7 +20,7 @@ export const DEFAULT_RECORD_LOCK_SETTINGS: RecordLockSettings = {
   strategy: 'optimistic',
   timeoutSeconds: 300,
   heartbeatSeconds: 30,
-  enabledResources: [],
+  enabledResources: ['*'],
   allowForceUnlock: true,
   notifyOnConflict: true,
 }
@@ -52,6 +52,16 @@ export function isRecordLockingEnabledForResource(
 ): boolean {
   if (!settings.enabled) return false
   if (!resourceKind || resourceKind.trim().length === 0) return false
-  if (!settings.enabledResources.length) return true
-  return settings.enabledResources.includes(resourceKind)
+  const normalizedResourceKind = resourceKind.trim()
+  const enabledResources = settings.enabledResources.map((item) => item.trim()).filter((item) => item.length > 0)
+  if (!enabledResources.length) return true
+  if (enabledResources.includes('*')) return true
+  return enabledResources.some((entry) => {
+    if (entry === normalizedResourceKind) return true
+    if (entry.endsWith('.*')) {
+      const prefix = entry.slice(0, -1)
+      return normalizedResourceKind.startsWith(prefix)
+    }
+    return false
+  })
 }

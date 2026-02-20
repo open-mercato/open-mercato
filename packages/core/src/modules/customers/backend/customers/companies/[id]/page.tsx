@@ -11,7 +11,6 @@ import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { apiCallOrThrow, readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 import { collectCustomFieldValues } from '@open-mercato/ui/backend/utils/customFieldValues'
 import { mapCrudServerErrorToFormErrors } from '@open-mercato/ui/backend/utils/serverErrors'
-import { useRecordLockGuard } from '@open-mercato/ui/backend/record-locking'
 import { E } from '#generated/entities.ids.generated'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
@@ -150,19 +149,7 @@ export default function CustomerCompanyDetailPage({ params }: { params?: { id?: 
         : activeTab === 'people'
           ? t('customers.companies.detail.people.loading', 'Loading people…')
         : t('customers.companies.detail.sectionLoading', 'Loading…')
-  const recordLockConflictMessage = t('record_locks.conflict.title', 'Conflict detected')
-  const lockGuard = useRecordLockGuard({
-    resourceKind: 'customers.company',
-    resourceId: data?.company?.id ?? id ?? '',
-    enabled: Boolean(data?.company?.id ?? id),
-  })
-  const runLockedMutation = React.useCallback(async <T,>(operation: () => Promise<T>): Promise<T> => {
-    const result = await lockGuard.runMutation(operation)
-    if (result === null) {
-      throw new Error(recordLockConflictMessage)
-    }
-    return result
-  }, [lockGuard, recordLockConflictMessage])
+  const runMutation = React.useCallback(async <T,>(operation: () => Promise<T>): Promise<T> => operation(), [])
 
   const handleSectionActionChange = React.useCallback((action: SectionAction | null) => {
     setSectionAction(action)
@@ -481,9 +468,9 @@ export default function CustomerCompanyDetailPage({ params }: { params?: { id?: 
 
   const handleCustomFieldsSubmit = React.useCallback(
     async (values: Record<string, unknown>) => {
-      await runLockedMutation(() => submitCustomFields(values))
+      await runMutation(() => submitCustomFields(values))
     },
-    [runLockedMutation, submitCustomFields],
+    [runMutation, submitCustomFields],
   )
 
   const handleNotesLoadingChange = React.useCallback(() => {}, [])
@@ -550,7 +537,7 @@ export default function CustomerCompanyDetailPage({ params }: { params?: { id?: 
       placeholder: t('customers.companies.form.displayName.placeholder', 'Enter company name'),
       emptyLabel: t('customers.companies.detail.noValue', 'Not provided'),
       validator: validators.displayName,
-      onSave: (value) => runLockedMutation(() => updateDisplayName(value)),
+      onSave: (value) => runMutation(() => updateDisplayName(value)),
     },
     {
       key: 'legalName',
@@ -559,7 +546,7 @@ export default function CustomerCompanyDetailPage({ params }: { params?: { id?: 
       value: profile?.legalName ?? null,
       placeholder: t('customers.companies.detail.fields.legalNamePlaceholder', 'Add legal name'),
       emptyLabel: t('customers.companies.detail.noValue', 'Not provided'),
-      onSave: (value) => runLockedMutation(() => updateProfileField('legalName', value)),
+      onSave: (value) => runMutation(() => updateProfileField('legalName', value)),
     },
     {
       key: 'brandName',
@@ -568,7 +555,7 @@ export default function CustomerCompanyDetailPage({ params }: { params?: { id?: 
       value: profile?.brandName ?? null,
       placeholder: t('customers.companies.detail.fields.brandNamePlaceholder', 'Add brand name'),
       emptyLabel: t('customers.companies.detail.noValue', 'Not provided'),
-      onSave: (value) => runLockedMutation(() => updateProfileField('brandName', value)),
+      onSave: (value) => runMutation(() => updateProfileField('brandName', value)),
     },
     {
       key: 'description',
@@ -581,7 +568,7 @@ export default function CustomerCompanyDetailPage({ params }: { params?: { id?: 
       renderDisplay: renderMultilineMarkdownDisplay,
       onSave: async (next) => {
         const send = typeof next === 'string' ? next : ''
-        await runLockedMutation(() => saveCompany(
+        await runMutation(() => saveCompany(
           { description: send },
           (prev) => ({
             ...prev,
@@ -601,7 +588,7 @@ export default function CustomerCompanyDetailPage({ params }: { params?: { id?: 
           value={company.lifecycleStage ?? null}
           emptyLabel={t('customers.companies.detail.noValue', 'Not provided')}
           kind="lifecycle-stages"
-          onSave={(next) => runLockedMutation(() => updateCompanyField('lifecycleStage', next))}
+          onSave={(next) => runMutation(() => updateCompanyField('lifecycleStage', next))}
           selectClassName="h-9 w-full rounded border px-3 text-sm"
           variant="muted"
           activateOnClick
@@ -619,7 +606,7 @@ export default function CustomerCompanyDetailPage({ params }: { params?: { id?: 
           value={company.source ?? null}
           emptyLabel={t('customers.companies.detail.noValue', 'Not provided')}
           kind="sources"
-          onSave={(next) => runLockedMutation(() => updateCompanyField('source', next))}
+          onSave={(next) => runMutation(() => updateCompanyField('source', next))}
           selectClassName="h-9 w-full rounded border px-3 text-sm"
           variant="muted"
           activateOnClick
@@ -633,7 +620,7 @@ export default function CustomerCompanyDetailPage({ params }: { params?: { id?: 
       value: profile?.domain ?? null,
       placeholder: t('customers.companies.detail.fields.domainPlaceholder', 'example.com'),
       emptyLabel: t('customers.companies.detail.noValue', 'Not provided'),
-      onSave: (value) => runLockedMutation(() => updateProfileField('domain', value)),
+      onSave: (value) => runMutation(() => updateProfileField('domain', value)),
     },
     {
       key: 'industry',
@@ -646,7 +633,7 @@ export default function CustomerCompanyDetailPage({ params }: { params?: { id?: 
           value={profile?.industry ?? null}
           emptyLabel={t('customers.companies.detail.noValue', 'Not provided')}
           kind="industries"
-          onSave={(next) => runLockedMutation(() => updateProfileField('industry', next))}
+          onSave={(next) => runMutation(() => updateProfileField('industry', next))}
           selectClassName="h-9 w-full rounded border px-3 text-sm"
           variant="muted"
           activateOnClick
@@ -660,7 +647,7 @@ export default function CustomerCompanyDetailPage({ params }: { params?: { id?: 
       value: profile?.sizeBucket ?? null,
       placeholder: t('customers.companies.detail.fields.sizeBucketPlaceholder', 'Add size bucket'),
       emptyLabel: t('customers.companies.detail.noValue', 'Not provided'),
-      onSave: (value) => runLockedMutation(() => updateProfileField('sizeBucket', value)),
+      onSave: (value) => runMutation(() => updateProfileField('sizeBucket', value)),
     },
     {
       key: 'annualRevenue',
@@ -674,7 +661,7 @@ export default function CustomerCompanyDetailPage({ params }: { params?: { id?: 
           currency={annualRevenueCurrency}
           emptyLabel={t('customers.companies.detail.noValue', 'Not provided')}
           validator={validators.annualRevenue}
-          onSave={(next) => runLockedMutation(() => handleAnnualRevenueChange(next))}
+          onSave={(next) => runMutation(() => handleAnnualRevenueChange(next))}
         />
       ),
     },
@@ -687,7 +674,7 @@ export default function CustomerCompanyDetailPage({ params }: { params?: { id?: 
       emptyLabel: t('customers.companies.detail.noValue', 'Not provided'),
       inputType: 'url',
       validator: validators.website,
-      onSave: (value) => runLockedMutation(() => updateProfileField('websiteUrl', value)),
+      onSave: (value) => runMutation(() => updateProfileField('websiteUrl', value)),
     },
   ]
 
@@ -699,7 +686,6 @@ export default function CustomerCompanyDetailPage({ params }: { params?: { id?: 
             company={company}
             profile={profile ?? null}
             validators={validators}
-            lockGuard={lockGuard}
             onDisplayNameSave={updateDisplayName}
             onPrimaryEmailSave={(value) => updateCompanyField('primaryEmail', value)}
             onPrimaryPhoneSave={(value) => updateCompanyField('primaryPhone', value)}

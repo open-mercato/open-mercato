@@ -1,13 +1,10 @@
 "use client"
 
 import * as React from 'react'
-import { useRouter } from 'next/navigation'
 import { Building2, Loader2, Pencil, X } from 'lucide-react'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { FormHeader } from '@open-mercato/ui/backend/forms'
-import { RecordConflictDialog, RecordLockBanner, useRecordLockGuard } from '@open-mercato/ui/backend/record-locking'
 import { VersionHistoryAction } from '@open-mercato/ui/backend/version-history'
-import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 import { cn } from '@open-mercato/shared/lib/utils'
@@ -75,19 +72,7 @@ export function PersonHighlights({
   onCompanySave,
 }: PersonHighlightsProps) {
   const t = useT()
-  const router = useRouter()
-  const recordLockConflictMessage = t('record_locks.conflict.title', 'Conflict detected')
-  const lockGuard = useRecordLockGuard({
-    resourceKind: 'customers.person',
-    resourceId: person.id,
-    enabled: Boolean(person.id),
-  })
-  const runLockedMutation = React.useCallback(async (operation: () => Promise<void>) => {
-    const result = await lockGuard.runMutation(operation)
-    if (result === null) {
-      throw new Error(recordLockConflictMessage)
-    }
-  }, [lockGuard, recordLockConflictMessage])
+  const runMutation = React.useCallback(async (operation: () => Promise<void>) => operation(), [])
   const [editingCompany, setEditingCompany] = React.useState(false)
   const [companyDraftId, setCompanyDraftId] = React.useState<string>('')
   const [company, setCompany] = React.useState<CompanyInfo | null>(null)
@@ -103,7 +88,7 @@ export function PersonHighlights({
   const navigateToCompany = React.useCallback(() => {
     if (!companyHref) return
     router.push(companyHref)
-  }, [companyHref, router])
+  }, [companyHref])
 
   const handleCompanyClick = React.useCallback(
     (event: React.MouseEvent<HTMLDivElement>) => {
@@ -186,7 +171,7 @@ export function PersonHighlights({
     setCompanyError(null)
     const nextId = companyDraftId.trim()
     try {
-      await runLockedMutation(async () => {
+      await runMutation(async () => {
         await onCompanySave(nextId.length ? nextId : null)
       })
       await loadCompany(nextId.length ? nextId : null)
@@ -200,14 +185,14 @@ export function PersonHighlights({
     } finally {
       setCompanySaving(false)
     }
-  }, [companyDraftId, companySaving, loadCompany, onCompanySave, runLockedMutation, t])
+  }, [companyDraftId, companySaving, loadCompany, onCompanySave, runMutation, t])
 
   const handleCompanyClear = React.useCallback(async () => {
     if (companySaving) return
     setCompanySaving(true)
     setCompanyError(null)
     try {
-      await runLockedMutation(async () => {
+      await runMutation(async () => {
         await onCompanySave(null)
       })
       await loadCompany(null)
@@ -222,7 +207,7 @@ export function PersonHighlights({
     } finally {
       setCompanySaving(false)
     }
-  }, [companySaving, loadCompany, onCompanySave, runLockedMutation, t])
+  }, [companySaving, loadCompany, onCompanySave, runMutation, t])
 
   const companyPanel = (
     <div
@@ -347,19 +332,6 @@ export function PersonHighlights({
 
   return (
     <div className="space-y-6">
-      <RecordLockBanner
-        t={t}
-        strategy={lockGuard.lock.strategy}
-        resourceEnabled={lockGuard.lock.resourceEnabled}
-        isOwner={lockGuard.lock.isOwner}
-        isBlocked={lockGuard.lock.isBlocked}
-        canForceRelease={lockGuard.lock.canForceRelease}
-        forceReleasePending={lockGuard.lock.isLoading}
-        onForceRelease={async () => {
-          await lockGuard.lock.forceRelease('manual_takeover')
-        }}
-        error={lockGuard.lock.error}
-      />
       <FormHeader
         mode="detail"
         backHref="/backend/customers/people"
@@ -382,11 +354,7 @@ export function PersonHighlights({
             placeholder={t('customers.people.form.displayName.placeholder')}
             emptyLabel={t('customers.people.detail.noValue')}
             validator={validators.displayName}
-            onSave={async (next) => {
-              await runLockedMutation(async () => {
-                await onDisplayNameSave(next)
-              })
-            }}
+            onSave={onDisplayNameSave}
             hideLabel
             variant="plain"
             activateOnClick
@@ -395,9 +363,7 @@ export function PersonHighlights({
           />
         }
         onDelete={() => {
-          void runLockedMutation(async () => {
-            await Promise.resolve(onDelete())
-          }).catch(() => {})
+          onDelete()
         }}
         isDeleting={isDeleting}
         deleteLabel={t('customers.people.list.actions.delete')}
@@ -415,11 +381,7 @@ export function PersonHighlights({
           validator={validators.email}
           recordId={person.id}
           activateOnClick
-          onSave={async (next) => {
-            await runLockedMutation(async () => {
-              await onPrimaryEmailSave(next)
-            })
-          }}
+          onSave={onPrimaryEmailSave}
         />
         <InlineTextEditor
           label={t('customers.people.detail.highlights.primaryPhone')}
@@ -430,22 +392,14 @@ export function PersonHighlights({
           validator={validators.phone}
           recordId={person.id}
           activateOnClick
-          onSave={async (next) => {
-            await runLockedMutation(async () => {
-              await onPrimaryPhoneSave(next)
-            })
-          }}
+          onSave={onPrimaryPhoneSave}
         />
         <InlineDictionaryEditor
           label={t('customers.people.detail.highlights.status')}
           value={person.status ?? null}
           emptyLabel={t('customers.people.detail.noValue')}
           activateOnClick
-          onSave={async (next) => {
-            await runLockedMutation(async () => {
-              await onStatusSave(next)
-            })
-          }}
+          onSave={onStatusSave}
           kind="statuses"
         />
         <InlineNextInteractionEditor
@@ -456,39 +410,10 @@ export function PersonHighlights({
           valueIcon={person.nextInteractionIcon || null}
           valueColor={person.nextInteractionColor || null}
           emptyLabel={t('customers.people.detail.noValue')}
-          onSave={async (next) => {
-            await runLockedMutation(async () => {
-              await onNextInteractionSave(next)
-            })
-          }}
+          onSave={onNextInteractionSave}
           activateOnClick
         />
       </div>
-      <RecordConflictDialog
-        open={Boolean(lockGuard.conflict)}
-        onOpenChange={(open) => {
-          if (!open) {
-            lockGuard.clearConflict()
-          }
-        }}
-        conflict={lockGuard.conflict}
-        pending={lockGuard.pending}
-        t={t}
-        onResolve={async (resolution) => {
-          await lockGuard.resolveConflict(resolution)
-        }}
-        onAcceptIncoming={async () => {
-          const resolved = await lockGuard.acceptIncoming()
-          if (resolved) {
-            router.refresh()
-            return
-          }
-          flash(
-            t('record_locks.conflict.accept_incoming_failed', 'Could not accept incoming changes. Refresh and try again.'),
-            'error',
-          )
-        }}
-      />
     </div>
   )
 }
