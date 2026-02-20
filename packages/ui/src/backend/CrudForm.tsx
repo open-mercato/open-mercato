@@ -353,6 +353,16 @@ export function CrudForm<TValues extends Record<string, unknown>>({
     return []
   }, [entityId, entityIds])
   const primaryEntityId = resolvedEntityIds.length ? resolvedEntityIds[0] : null
+  const recordId = typeof values.id === 'string'
+    ? values.id
+    : typeof values.id === 'number'
+      ? String(values.id)
+      : undefined
+  const fallbackRecordId = recordId || (
+    versionHistory?.resourceId === undefined || versionHistory.resourceId === null
+      ? undefined
+      : String(versionHistory.resourceId).trim() || undefined
+  )
   
   // Injection spot events for widget lifecycle management
   const resolvedInjectionSpotId = React.useMemo(() => {
@@ -363,13 +373,15 @@ export function CrudForm<TValues extends Record<string, unknown>>({
     }
     return undefined
   }, [injectionSpotId, resolvedEntityIds])
+  const headerInjectionSpotId = resolvedInjectionSpotId ? `${resolvedInjectionSpotId}:header` : undefined
   
   const injectionContext = React.useMemo(() => ({
     formId,
     entityId: primaryEntityId,
+    recordId: fallbackRecordId,
     isLoading,
     pending,
-  }), [formId, primaryEntityId, isLoading, pending])
+  }), [formId, primaryEntityId, fallbackRecordId, isLoading, pending])
   
   const { widgets: injectionWidgets } = useInjectionWidgets(resolvedInjectionSpotId, {
     context: injectionContext,
@@ -404,13 +416,6 @@ export function CrudForm<TValues extends Record<string, unknown>>({
   const refreshCustomFieldDefinitions = React.useCallback(() => {
     setCustomFieldDefsVersion((prev) => prev + 1)
   }, [])
-
-  const recordId = React.useMemo(() => {
-    const raw = values.id
-    if (typeof raw === 'string') return raw
-    if (typeof raw === 'number') return String(raw)
-    return undefined
-  }, [values])
   // Unified delete handler with confirmation
   const handleDelete = React.useCallback(async () => {
     if (!onDelete) return
@@ -448,12 +453,22 @@ export function CrudForm<TValues extends Record<string, unknown>>({
       autoCheckAcl={versionHistory?.autoCheckAcl}
     />
   )
-  const headerExtraActions = versionHistoryEnabled ? (
+  const headerInjectionAction = headerInjectionSpotId ? (
+    <InjectionSpot
+      spotId={headerInjectionSpotId}
+      context={injectionContext}
+      data={values}
+      onDataChange={(newData) => setValues(newData as CrudFormValues<TValues>)}
+      disabled={pending}
+    />
+  ) : null
+  const headerExtraActions = versionHistoryEnabled || headerInjectionAction || extraActions ? (
     <>
-      {versionHistoryAction}
+      {versionHistoryEnabled ? versionHistoryAction : null}
+      {headerInjectionAction}
       {extraActions}
     </>
-  ) : extraActions
+  ) : undefined
 
   // Auto-append custom fields for this entityId
   React.useEffect(() => {
