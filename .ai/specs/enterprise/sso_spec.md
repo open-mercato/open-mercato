@@ -10,7 +10,7 @@
 
 ## TLDR
 
-Enterprise SSO module enabling federated authentication (OIDC + SAML 2.0) with any corporate identity provider, plus SCIM 2.0 directory synchronization for automated user lifecycle management. Per-organization IdP configuration, email-domain-based Home Realm Discovery, JIT provisioning, group-to-role mapping, and SSO enforcement policies. Zero modifications to the core auth module.
+Enterprise SSO module enabling federated authentication via **OIDC** (SAML 2.0 deferred) with any corporate identity provider, plus SCIM 2.0 directory synchronization for automated user lifecycle management. Per-organization IdP configuration, email-domain-based Home Realm Discovery, JIT provisioning, group-to-role mapping, and SSO enforcement policies. Zero modifications to the core auth module.
 
 ---
 
@@ -41,29 +41,29 @@ Enterprise customers need:
 
 ## 2. Decision
 
-Build an SSO & Directory Sync module delivering nine capabilities:
+Build an SSO & Directory Sync module delivering eight capabilities:
 
-1. **Multi-protocol SSO** — OIDC (Authorization Code + PKCE) and SAML 2.0 via pluggable provider registry
+1. **OIDC SSO** — Authorization Code + PKCE via pluggable provider registry (SAML 2.0 deferred)
 2. **Per-organization IdP configuration** — Independent SSO connection per organization
 3. **Home Realm Discovery (HRD)** — Email-domain routing to correct IdP
 4. **JIT provisioning** — Account creation on first SSO login
 5. **SCIM 2.0 endpoint** — Inbound SCIM server for user lifecycle + group sync
 6. **Account linking** — Email-verified linking of SSO identities to existing accounts
 7. **SSO enforcement** — Per-organization toggle to require SSO, disable password login
-8. **SP metadata & certificates** — SAML SP metadata generation, certificate rotation
-9. **Admin dashboard** — IdP setup wizard, connection testing, provisioning logs
+8. **Admin dashboard** — IdP setup wizard, connection testing, provisioning logs
 
 ### V1 Supported Identity Providers
 
-The first version targets three identity providers covering the most common enterprise scenarios:
+The first version targets three identity providers covering the most common enterprise scenarios. **All are supported via OIDC only** — SAML 2.0 is deferred until a customer demands it on a legacy IdP with no OIDC endpoint.
 
 | IdP | Protocol | SCIM Support | Notes |
 |---|---|---|---|
-| **Microsoft Entra ID** (Azure AD) | OIDC (primary) + SAML 2.0 | Yes — native SCIM 2.0 client | Most common enterprise IdP. PKCE hardcoded (Entra supports but doesn't advertise in metadata). Known SCIM deviations handled with lenient parser. |
-| **Google Workspace** | OIDC only | No — uses proprietary Directory API | OIDC via Google's `.well-known/openid-configuration`. No SAML SP-initiated needed. Directory sync deferred (Google does not support SCIM push). JIT provisioning only. |
-| **Keycloak** | OIDC + SAML 2.0 | Yes — SCIM via extension | Open-source, self-hosted. Primary development/testing IdP (`docker run quay.io/keycloak/keycloak start-dev`). Full protocol coverage for local testing. |
+| **Microsoft Entra ID** (Azure AD) | OIDC | Yes — native SCIM 2.0 client | Most common enterprise IdP. PKCE hardcoded (Entra supports but doesn't advertise in metadata). Known SCIM deviations handled with lenient parser. |
+| **Google Workspace** | OIDC | No — uses proprietary Directory API | OIDC via Google's `.well-known/openid-configuration`. Directory sync deferred (Google does not support SCIM push). JIT provisioning only. |
+| **Keycloak** | OIDC | Yes — SCIM via extension | Open-source, self-hosted. Primary development/testing IdP. Used for local dev and CI. |
 
 **Future IdPs** (post-v1, no code changes needed — pluggable architecture): Okta, OneLogin, Ping Identity, ADFS.
+**SAML 2.0:** Deferred. The `SsoProtocolProvider` interface accommodates a `SamlProvider` implementation without touching OIDC code.
 
 ### Design Principles
 
@@ -146,19 +146,21 @@ The first version targets three identity providers covering the most common ente
 ┌──────────────────────────────────────────────────────────┐
 │                 SsoProviderRegistry                      │
 │  register(provider)  │  resolve(protocol)                │
-└────────┬─────────────────────────────┬───────────────────┘
-         │                             │
-         ▼                             ▼
-┌─────────────────────┐    ┌─────────────────────┐
-│   OidcProvider      │    │   SamlProvider      │
-│ • buildAuthUrl()    │    │ • buildAuthUrl()    │
-│ • handleCallback()  │    │ • handleCallback()  │
-│ • handleLogout()    │    │ • handleLogout()    │
-│ • validateConfig()  │    │ • validateConfig()  │
-│                     │    │ • generateMetadata()│
-│ Uses: openid-client │    │ Uses: @node-saml/   │
-│       v6            │    │       node-saml v5  │
-└─────────────────────┘    └─────────────────────┘
+└────────┬─────────────────────────────────────────────────┘
+         │
+         ▼
+┌─────────────────────┐
+│   OidcProvider      │
+│ • buildAuthUrl()    │
+│ • handleCallback()  │
+│ • handleLogout()    │
+│ • validateConfig()  │
+│                     │
+│ Uses: openid-client │
+│       v6            │
+└─────────────────────┘
+
+(SamlProvider: deferred — interface is ready, no breaking changes to add later)
 ```
 
 ### 3.4 Integration Points
@@ -218,8 +220,6 @@ organizations ──1:1──> sso_configs ──1:N──> sso_identities ─�
 | POST | `/api/sso/hrd` | Home Realm Discovery — resolve config from email |
 | GET | `/api/sso/initiate` | Redirect user to IdP |
 | POST | `/api/sso/callback/oidc` | OIDC authorization code callback |
-| POST | `/api/sso/callback/saml` | SAML Response callback (ACS) |
-| GET | `/api/sso/metadata/:configId` | SAML SP metadata XML |
 | POST | `/api/sso/logout` | Initiate single logout |
 
 ### 5.2 SSO Admin (Auth Required)

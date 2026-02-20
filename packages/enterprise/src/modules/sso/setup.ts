@@ -12,24 +12,28 @@ export const setup: ModuleSetupConfig = {
     if (process.env.NODE_ENV !== 'development') return
     if (process.env.SSO_DEV_SEED !== 'true') return
 
-    const existing = await em.findOne(SsoConfig, { organizationId })
-    if (existing) return
-
     const clientSecret = process.env.SSO_DEV_CLIENT_SECRET
     if (!clientSecret) return
 
-    const encryptionService = container.resolve<TenantDataEncryptionService>('tenantDataEncryptionService')
+    const domains = (process.env.SSO_DEV_ALLOWED_DOMAINS || 'example.com')
+      .split(',')
+      .map((d) => d.trim())
+      .filter(Boolean)
+
+    const existing = await em.findOne(SsoConfig, { organizationId })
+    if (existing) {
+      existing.allowedDomains = domains
+      await em.flush()
+      return
+    }
+
+    const encryptionService = container.resolve<TenantDataEncryptionService>('tenantEncryptionService')
     const encrypted = await encryptionService.encryptEntityPayload(
       'SsoConfig',
       { clientSecretEnc: clientSecret },
       tenantId,
       organizationId,
     )
-
-    const domains = (process.env.SSO_DEV_ALLOWED_DOMAINS || 'example.com')
-      .split(',')
-      .map((d) => d.trim())
-      .filter(Boolean)
 
     const config = em.create(SsoConfig, {
       tenantId,

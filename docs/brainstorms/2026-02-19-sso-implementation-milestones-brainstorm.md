@@ -1,6 +1,7 @@
 # SSO Implementation Milestones
 
 **Date:** 2026-02-19
+**Updated:** 2026-02-20
 **Spec:** `.ai/specs/enterprise/SPEC-ENT-002-2026-02-19-sso-directory-sync.md`
 **Strategy:** One PR per milestone, merged to `develop` incrementally
 **Dev IdP:** Keycloak (local Docker) for all phases; cross-validate with Entra ID + Google Workspace in final milestones
@@ -9,7 +10,9 @@
 
 ## What We're Building
 
-A fully working enterprise SSO module supporting OIDC, SAML 2.0, and SCIM 2.0 with three identity providers: Keycloak, Microsoft Entra ID, and Google Workspace. Each milestone delivers a shippable increment.
+A fully working enterprise SSO module supporting **OIDC only** (SAML deferred) and SCIM 2.0, with three identity providers: Keycloak, Microsoft Entra ID, and Google Workspace. Each milestone delivers a shippable increment.
+
+**Protocol decision:** OIDC covers ~90% of real enterprise use cases. Entra ID, Google Workspace, Okta, and Keycloak all support OIDC natively. SAML is deferred — the pluggable provider architecture accommodates adding it later without touching OIDC code, when a specific customer demands it and their IdP has no OIDC endpoint.
 
 ---
 
@@ -73,33 +76,7 @@ A fully working enterprise SSO module supporting OIDC, SAML 2.0, and SCIM 2.0 wi
 
 ---
 
-### Milestone 3: SAML 2.0 Support + Keycloak SAML
-
-**PR:** `feat(sso): SAML 2.0 provider and SP metadata`
-**Goal:** SSO works via SAML 2.0 in addition to OIDC. Tested with Keycloak SAML.
-
-**Deliverables:**
-- [ ] `SamlProvider` implementation (using `@node-saml/node-saml` v5)
-- [ ] SAML callback route: `POST /api/sso/callback/saml`
-- [ ] SP metadata endpoint: `GET /api/sso/metadata/:configId`
-- [ ] Database entity + migration: `sso_sp_certificates`
-- [ ] SP certificate generation (self-signed X.509) and storage (private key encrypted via tenant DEK)
-- [ ] SAML setup wizard in admin UI (metadata upload OR manual config)
-- [ ] IdP detail page: certificates tab (view fingerprint, expiry, rotate)
-- [ ] Single Logout (SP-initiated) for both OIDC and SAML: `POST /api/sso/logout`
-- [ ] Pin `xml-crypto` >= 6.0.1 in package.json
-- [ ] Integration test: SAML login end-to-end with Keycloak
-
-**Acceptance criteria:**
-- Admin creates a SAML config via wizard (upload Keycloak IdP metadata XML)
-- SP metadata XML downloadable for configuring Keycloak
-- User logs in via SAML → assertion validated → session issued
-- SP-initiated logout clears local session + sends LogoutRequest to Keycloak
-- OIDC configs continue to work alongside SAML configs
-
----
-
-### Milestone 4: SSO Enforcement + Break-Glass
+### Milestone 3: SSO Enforcement + Break-Glass
 
 **PR:** `feat(sso): enforcement policies and break-glass access`
 **Goal:** Admins can require SSO for their organization, blocking password login. Super-admins retain break-glass access.
@@ -127,7 +104,7 @@ A fully working enterprise SSO module supporting OIDC, SAML 2.0, and SCIM 2.0 wi
 
 ---
 
-### Milestone 5: SCIM 2.0 Provisioning with Keycloak
+### Milestone 4: SCIM 2.0 Provisioning with Keycloak
 
 **PR:** `feat(sso): SCIM 2.0 provisioning endpoint`
 **Goal:** IdP can push user lifecycle changes (create, update, deactivate) and group membership via SCIM.
@@ -163,15 +140,14 @@ A fully working enterprise SSO module supporting OIDC, SAML 2.0, and SCIM 2.0 wi
 
 ---
 
-### Milestone 6: Microsoft Entra ID Validation
+### Milestone 5: Microsoft Entra ID Validation
 
 **PR:** `feat(sso): entra id validation and compatibility`
-**Goal:** SSO (OIDC + SAML) and SCIM fully working with Microsoft Entra ID.
+**Goal:** SSO (OIDC) and SCIM fully working with Microsoft Entra ID.
 
 **Deliverables:**
 - [ ] Entra ID OIDC testing (App Registration → OIDC flow → callback)
 - [ ] PKCE hardcoded verification (Entra doesn't advertise in metadata but supports it)
-- [ ] Entra ID SAML testing (Enterprise App → SAML config → ACS callback)
 - [ ] Entra ID SCIM testing (Enterprise App → provisioning → SCIM endpoint)
 - [ ] Lenient SCIM parser for Entra deviations (non-standard PATCH paths, mixed-case filter operators)
 - [ ] SCIM filter extensions if needed for Entra compatibility
@@ -181,27 +157,26 @@ A fully working enterprise SSO module supporting OIDC, SAML 2.0, and SCIM 2.0 wi
 
 **Acceptance criteria:**
 - OIDC login with Entra ID works end-to-end
-- SAML login with Entra ID works end-to-end
 - SCIM provisioning from Entra ID creates/updates/deactivates users
 - SCIM group sync from Entra ID maps to Open Mercato roles
 - Setup wizard provides clear guidance for Entra configuration
 
 ---
 
-### Milestone 7: Google Workspace Validation + Final Polish
+### Milestone 6: Google Workspace Validation + Final Polish
 
 **PR:** `feat(sso): google workspace support and production readiness`
 **Goal:** SSO with Google Workspace working. Module is production-ready.
 
 **Deliverables:**
 - [ ] Google Workspace OIDC testing (GCP Console → OAuth 2.0 credentials → callback)
-- [ ] Google-specific handling (no SAML needed, no SCIM push — JIT only)
+- [ ] Google-specific handling (no SCIM push — JIT only)
 - [ ] Admin UI: Google-specific setup hints in the wizard
 - [ ] Documentation: Google Workspace setup guide
 - [ ] Email notifications: account linked to SSO, SSO enforcement activated, SCIM user provisioned
 - [ ] i18n: English + Polish translations for all SSO UI strings
 - [ ] MFA integration: configurable `skipMfaForSso` flag (when security module installed)
-- [ ] Security audit: SAML signature validation, CSRF, replay protection, tenant isolation
+- [ ] Security audit: CSRF, replay protection, tenant isolation
 - [ ] Final integration test suite across all three IdPs
 - [ ] Admin documentation: complete setup guides for all three IdPs
 
@@ -210,22 +185,24 @@ A fully working enterprise SSO module supporting OIDC, SAML 2.0, and SCIM 2.0 wi
 - All three IdPs (Keycloak, Entra ID, Google) verified working
 - Notifications sent for key SSO events
 - All UI strings translated (en + pl)
-- Security audit passed — no XSW, CSRF, or replay vulnerabilities
+- Security audit passed — no CSRF or replay vulnerabilities
 - Module ready for production deployment
 
 ---
 
 ## Key Decisions
 
-1. **Spec phases as milestone axis** — follow SPEC-ENT-002 phases, one PR per milestone
-2. **Keycloak first** — all protocol work developed and tested locally against Keycloak Docker
-3. **Cross-IdP validation last** — Entra ID and Google Workspace are validation milestones, not development milestones
-4. **SCIM paths** — use `/api/sso/scim/v2/...` (module-prefixed) to comply with auto-discovery; IdP clients configured with this base URL
-5. **OIDC state in encrypted cookie** — no Redis/DB needed for flow state
-6. **PR per milestone** — incremental merges to `develop`, module behind enterprise overlay
+1. **OIDC-only for v1** — covers all targeted IdPs; SAML deferred until a specific customer demands it on a legacy IdP with no OIDC endpoint
+2. **Spec phases as milestone axis** — follow SPEC-ENT-002 phases, one PR per milestone
+3. **Keycloak first** — all protocol work developed and tested locally against Keycloak Docker
+4. **Cross-IdP validation last** — Entra ID and Google Workspace are validation milestones, not development milestones
+5. **SCIM paths** — use `/api/sso/scim/v2/...` (module-prefixed) to comply with auto-discovery; IdP clients configured with this base URL
+6. **OIDC state in encrypted cookie** — no Redis/DB needed for flow state
+7. **PR per milestone** — incremental merges to `develop`, module behind enterprise overlay
 
 ## Resolved Questions
 
-1. **Google Directory Sync:** JIT-only is acceptable for v1. Google Workspace users are created on first SSO login. No pull-based Directory API sync in scope — can be added as a future milestone if needed.
-2. **Entra ID test tenant:** Need to create a free Azure account + Entra ID tenant before Milestone 6. Document the setup steps in the Entra ID setup guide.
-3. **Keycloak SCIM:** Use the `keycloak-scim` extension in the Docker setup for SCIM development and testing. Document the extension installation as a prerequisite for the dev environment.
+1. **SAML support:** Deferred. All three target IdPs (Entra ID, Google Workspace, Keycloak) support OIDC. The pluggable `SsoProtocolProvider` interface means SAML can be added as a second implementation without touching OIDC code. Revisit when a customer demands it.
+2. **Google Directory Sync:** JIT-only is acceptable for v1. Google Workspace users are created on first SSO login. No pull-based Directory API sync in scope — can be added as a future milestone if needed.
+3. **Entra ID test tenant:** Need to create a free Azure account + Entra ID tenant before Milestone 5. Document the setup steps in the Entra ID setup guide.
+4. **Keycloak SCIM:** Use the `keycloak-scim` extension in the Docker setup for SCIM development and testing. Document the extension installation as a prerequisite for the dev environment.
