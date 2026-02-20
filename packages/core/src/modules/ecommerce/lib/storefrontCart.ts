@@ -3,6 +3,16 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import { EcommerceCart, EcommerceCartLine } from '../data/entities'
 import type { StoreContext } from './storeContext'
 
+const UUID_REGEX =
+  /^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$/
+
+function normalizeUuid(value: string | null | undefined): string | null {
+  if (typeof value !== 'string') return null
+  const normalized = value.trim()
+  if (!normalized) return null
+  return UUID_REGEX.test(normalized) ? normalized : null
+}
+
 export type CartLineDto = {
   id: string
   productId: string
@@ -33,7 +43,9 @@ export async function resolveCartByToken(
   organizationId: string,
   tenantId: string,
 ): Promise<EcommerceCart | null> {
-  return em.findOne(EcommerceCart, { token, organizationId, tenantId, status: 'active' })
+  const normalizedToken = normalizeUuid(token)
+  if (!normalizedToken) return null
+  return em.findOne(EcommerceCart, { token: normalizedToken, organizationId, tenantId, status: 'active' })
 }
 
 export async function getOrCreateCart(
@@ -110,8 +122,8 @@ export async function loadCartLines(
 }
 
 export function resolveCartToken(req: Request): string | null {
-  const headerToken = req.headers.get('x-cart-token')
+  const headerToken = normalizeUuid(req.headers.get('x-cart-token'))
   if (headerToken) return headerToken
   const url = new URL(req.url)
-  return url.searchParams.get('cartToken')
+  return normalizeUuid(url.searchParams.get('cartToken'))
 }

@@ -41,7 +41,8 @@ export async function GET(req: Request) {
 
     const lines = await loadCartLines(em, cart.id, storeCtx.organizationId, storeCtx.tenantId)
     return NextResponse.json({ cart: formatCartDto(cart, lines) })
-  } catch {
+  } catch (err) {
+    console.error('[ecommerce:cart] Failed to fetch cart', { error: err })
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
   }
 }
@@ -63,7 +64,8 @@ export async function POST(req: Request) {
     const lines = await loadCartLines(em, cart.id, storeCtx.organizationId, storeCtx.tenantId)
 
     return NextResponse.json({ token: cart.token, cart: formatCartDto(cart, lines) })
-  } catch {
+  } catch (err) {
+    console.error('[ecommerce:cart] Failed to create/get cart', { error: err })
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
   }
 }
