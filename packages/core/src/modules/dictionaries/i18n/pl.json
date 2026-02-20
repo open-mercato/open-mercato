@@ -17,6 +17,7 @@
   "dictionaries.config.dialog.save": "Zapisz",
   "dictionaries.config.entries.actions.add": "Dodaj wpis",
   "dictionaries.config.entries.actions.refresh": "Odśwież",
+  "dictionaries.config.entries.actions.translate": "Przetłumacz",
   "dictionaries.config.entries.appearance.none": "Brak",
   "dictionaries.config.entries.columns.actions": "Akcje",
   "dictionaries.config.entries.columns.appearance": "Wygląd",

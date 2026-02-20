@@ -74,18 +74,12 @@ const optionSchema = z.object({
 
 const tagLabelSchema = z.string().trim().min(1).max(100)
 
-const offerContentSchema = z.object({
-  title: z.string().trim().max(255).optional(),
-  description: z.string().trim().max(4000).optional(),
-})
-
 const offerBaseSchema = z.object({
   channelId: uuid(),
   title: z.string().trim().min(1).max(255),
   description: z.string().trim().max(4000).optional(),
   defaultMediaId: uuid().optional().nullable(),
   defaultMediaUrl: z.string().trim().max(500).optional().nullable(),
-  localizedContent: z.record(z.string().trim().min(2).max(10), offerContentSchema).optional(),
   metadata: metadataSchema,
   isActive: z.boolean().optional(),
 })

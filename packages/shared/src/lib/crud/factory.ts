@@ -14,6 +14,7 @@ import {
   validateCrudMutationGuard,
   type CrudMutationGuardValidationResult,
 } from './mutation-guard'
+import type { RateLimitConfig } from '@open-mercato/shared/lib/ratelimit/types'
 import type {
   CrudEventAction,
   CrudEventsConfig,
@@ -47,6 +48,7 @@ import {
 } from './cache'
 import { deriveCrudSegmentTag } from './cache-stats'
 import { createProfiler, shouldEnableProfiler, type Profiler } from '@open-mercato/shared/lib/profiler'
+import { getTranslationOverlayPlugin } from '@open-mercato/shared/lib/localization/overlay-plugin'
 
 export type CrudHooks<TCreate, TUpdate, TList> = {
   beforeList?: (q: TList, ctx: CrudCtx) => Promise<void> | void
@@ -59,11 +61,18 @@ export type CrudHooks<TCreate, TUpdate, TList> = {
   afterDelete?: (id: string, ctx: CrudCtx) => Promise<void> | void
 }
 
+export type CrudMethodMetadata = {
+  requireAuth?: boolean
+  requireRoles?: string[]
+  requireFeatures?: string[]
+  rateLimit?: RateLimitConfig
+}
+
 export type CrudMetadata = {
-  GET?: { requireAuth?: boolean; requireRoles?: string[]; requireFeatures?: string[] }
-  POST?: { requireAuth?: boolean; requireRoles?: string[]; requireFeatures?: string[] }
-  PUT?: { requireAuth?: boolean; requireRoles?: string[]; requireFeatures?: string[] }
-  DELETE?: { requireAuth?: boolean; requireRoles?: string[]; requireFeatures?: string[] }
+  GET?: CrudMethodMetadata
+  POST?: CrudMethodMetadata
+  PUT?: CrudMethodMetadata
+  DELETE?: CrudMethodMetadata
 }
 
 export type OrmEntityConfig = {
@@ -1042,6 +1051,27 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
         transformedItems = await decorateItemsWithCustomFields(transformedItems, ctx)
         profiler.mark('custom_fields_complete', { itemCount: transformedItems.length })
 
+        if (opts.list?.entityId && request) {
+          try {
+            const { overlay, resolveLocale } = getTranslationOverlayPlugin()
+            if (overlay && resolveLocale) {
+              const locale = resolveLocale(request)
+              if (locale) {
+                transformedItems = await overlay(transformedItems, {
+                  entityType: String(opts.list.entityId),
+                  locale,
+                  tenantId: ctx.auth?.tenantId ?? null,
+                  organizationId: ctx.selectedOrganizationId ?? null,
+                  container: ctx.container,
+                })
+              }
+            }
+          } catch (err) {
+            console.warn('[CRUD] Translation overlay failed:', err)
+          }
+          profiler.mark('translation_overlays_complete', { itemCount: transformedItems.length })
+        }
+
         await logCrudAccess({
           container: ctx.container,
           auth: ctx.auth,
@@ -1189,6 +1219,28 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
       profiler.mark('orm_query_complete', { itemCount: Array.isArray(list) ? list.length : 0 })
       list = await decorateItemsWithCustomFields(list, ctx)
       profiler.mark('fallback_custom_fields_complete', { itemCount: Array.isArray(list) ? list.length : 0 })
+
+      if (opts.list?.entityId && request) {
+        try {
+          const { overlay, resolveLocale } = getTranslationOverlayPlugin()
+          if (overlay && resolveLocale) {
+            const locale = resolveLocale(request)
+            if (locale) {
+              list = await overlay(list, {
+                entityType: String(opts.list.entityId),
+                locale,
+                tenantId: ctx.auth?.tenantId ?? null,
+                organizationId: ctx.selectedOrganizationId ?? null,
+                container: ctx.container,
+              })
+            }
+          }
+        } catch (err) {
+          console.warn('[CRUD] Translation overlay (fallback) failed:', err)
+        }
+        profiler.mark('fallback_translation_overlays_complete', { itemCount: Array.isArray(list) ? list.length : 0 })
+      }
+
       await logCrudAccess({
         container: ctx.container,
         auth: ctx.auth,

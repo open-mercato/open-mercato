@@ -14,11 +14,15 @@ import { resolveFeatureCheckContext } from '@open-mercato/core/modules/directory
 import { enforceTenantSelection, normalizeTenantId } from '@open-mercato/core/modules/auth/lib/tenantAccess'
 import { runWithCacheTenant } from '@open-mercato/cache'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
+import type { RateLimitConfig } from '@open-mercato/shared/lib/ratelimit/types'
+import { getCachedRateLimiterService } from '@open-mercato/core/bootstrap'
+import { checkRateLimit, getClientIp, RATE_LIMIT_ERROR_KEY, RATE_LIMIT_ERROR_FALLBACK } from '@open-mercato/shared/lib/ratelimit/helpers'
 
 type MethodMetadata = {
   requireAuth?: boolean
   requireRoles?: string[]
   requireFeatures?: string[]
+  rateLimit?: RateLimitConfig
 }
 
 type HandlerContext = {
@@ -38,6 +42,17 @@ function extractMethodMetadata(metadata: unknown, method: HttpMethod): MethodMet
   }
   if (Array.isArray(source.requireFeatures)) {
     normalized.requireFeatures = source.requireFeatures.filter((feature): feature is string => typeof feature === 'string' && feature.length > 0)
+  }
+  if (source.rateLimit && typeof source.rateLimit === 'object') {
+    const rl = source.rateLimit as Record<string, unknown>
+    if (typeof rl.points === 'number' && typeof rl.duration === 'number') {
+      normalized.rateLimit = {
+        points: rl.points,
+        duration: rl.duration,
+        blockDuration: typeof rl.blockDuration === 'number' ? rl.blockDuration : undefined,
+        keyPrefix: typeof rl.keyPrefix === 'string' ? rl.keyPrefix : undefined,
+      }
+    }
   }
   return normalized
 }
@@ -201,6 +216,22 @@ async function handleRequest(
   const methodMetadata = extractMethodMetadata(api.metadata, method)
   const authError = await checkAuthorization(methodMetadata, auth, req)
   if (authError) return authError
+
+  if (methodMetadata?.rateLimit) {
+    const rateLimiterService = getCachedRateLimiterService()
+    if (rateLimiterService) {
+      const clientIp = getClientIp(req, rateLimiterService.trustProxyDepth)
+      if (clientIp) {
+        const rateLimitError = await checkRateLimit(
+          rateLimiterService,
+          methodMetadata.rateLimit,
+          clientIp,
+          t(RATE_LIMIT_ERROR_KEY, RATE_LIMIT_ERROR_FALLBACK),
+        )
+        if (rateLimitError) return rateLimitError
+      }
+    }
+  }
 
   const handlerContext: HandlerContext = { params: api.params, auth }
   return await runWithCacheTenant(auth?.tenantId ?? null, () => api.handler(req, handlerContext))

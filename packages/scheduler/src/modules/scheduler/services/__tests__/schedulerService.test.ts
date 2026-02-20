@@ -1,6 +1,6 @@
 import { SchedulerService, type ScheduleRegistration } from '../schedulerService'
 import type { EntityManager } from '@mikro-orm/core'
-import { ScheduledJob } from '../../data/entities'
+import { ScheduledJob } from '../../data/entities.js'
 import type { BullMQSchedulerService } from '../bullmqSchedulerService'
 
 describe('SchedulerService', () => {

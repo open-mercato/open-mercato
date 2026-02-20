@@ -1,5 +1,5 @@
 import type { EntityManager } from '@mikro-orm/core'
-import { ScheduledJob } from '../data/entities'
+import { ScheduledJob } from '../data/entities.js'
 import { recalculateNextRun } from '../lib/nextRunCalculator'
 import { parseCronExpression } from '../lib/cronParser'
 import { parseInterval } from '../lib/intervalParser'

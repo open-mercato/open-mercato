@@ -215,6 +215,13 @@ Key variables you may want to override:
 
 **Port conflicts:**
 - If port 3000 is already in use, override it: `APP_PORT=3001 docker compose -f docker-compose.fullapp.dev.yml up`
+- If Postgres auth/connect errors appear during local commands (`yarn generate`, `yarn db:generate`) and `localhost:5432` is occupied by another local PostgreSQL instance, start Docker Postgres on another port and use the same port in `DATABASE_URL`:
+  ```bash
+  POSTGRES_PORT=55432 docker compose up -d postgres
+  ```
+  ```env
+  DATABASE_URL=postgresql://postgres:postgres@localhost:55432/open-mercato
+  ```
 
 **Slow file watching on Windows/WSL 2:**
 - Store the repository inside the WSL 2 filesystem (`\\wsl$\Ubuntu\home\...`) rather than on the Windows filesystem (`/mnt/c/...`) for significantly better I/O performance.
