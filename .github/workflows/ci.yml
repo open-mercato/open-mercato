@@ -3,9 +3,6 @@ permissions:
   contents: read
 
 on:
-  push:
-    branches:
-      - develop
   pull_request:
     branches:
       - main
