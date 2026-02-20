@@ -18,10 +18,6 @@ export const metadata = {
   DELETE: { requireAuth: true, requireFeatures: ['entities.records.manage'] },
 }
 
-function parseBool(v: string | null, d = false) {
-  return parseBooleanWithDefault(v ?? undefined, d)
-}
-
 const DEFAULT_EXPORT_PAGE_SIZE = 1000
 
 const listRecordsQuerySchema = z
@@ -60,15 +56,15 @@ export async function GET(req: Request) {
 
   const requestedExport = normalizeExportFormat(url.searchParams.get('format'))
   const exportScopeRaw = (url.searchParams.get('exportScope') || url.searchParams.get('export_scope') || '').toLowerCase()
-  const exportFullRequested = requestedExport != null && (exportScopeRaw === 'full' || parseBool(url.searchParams.get('full'), false))
-  const exportAll = parseBool(url.searchParams.get('all'), false)
+  const exportFullRequested = requestedExport != null && (exportScopeRaw === 'full' || parseBooleanWithDefault(url.searchParams.get('full'), false))
+  const exportAll = parseBooleanWithDefault(url.searchParams.get('all'), false)
   const noPagination = exportAll || requestedExport != null
   const page = noPagination ? 1 : Math.max(parseInt(url.searchParams.get('page') || '1', 10) || 1, 1)
   const basePageSize = Math.min(Math.max(parseInt(url.searchParams.get('pageSize') || '50', 10) || 50, 1), 100)
   const pageSize = noPagination ? Math.max(basePageSize, DEFAULT_EXPORT_PAGE_SIZE) : basePageSize
   const sortField = url.searchParams.get('sortField') || 'id'
   const sortDir = (url.searchParams.get('sortDir') || 'asc').toLowerCase() === 'desc' ? 'desc' : 'asc'
-  const withDeleted = parseBool(url.searchParams.get('withDeleted'), false)
+  const withDeleted = parseBooleanWithDefault(url.searchParams.get('withDeleted'), false)
 
   const qpEntries: Array<[string, string]> = []
   for (const [key, val] of url.searchParams.entries()) {
