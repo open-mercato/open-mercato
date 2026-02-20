@@ -312,6 +312,7 @@ export type ResourcesResourceFormProps = {
   isLoading?: boolean
   loadingMessage?: string
   formConfig: ResourcesResourceFormConfig
+  extraActions?: React.ReactNode
 }
 
 export function ResourcesResourceForm(props: ResourcesResourceFormProps) {
@@ -328,6 +329,7 @@ export function ResourcesResourceForm(props: ResourcesResourceFormProps) {
     isLoading,
     loadingMessage,
     formConfig,
+    extraActions,
   } = props
   const t = useT()
   const recordId = typeof initialValues?.id === 'string' ? initialValues.id : null
@@ -365,6 +367,7 @@ export function ResourcesResourceForm(props: ResourcesResourceFormProps) {
       onDelete={onDelete}
       isLoading={isLoading}
       loadingMessage={loadingMessage}
+      extraActions={extraActions}
     />
   )
 }

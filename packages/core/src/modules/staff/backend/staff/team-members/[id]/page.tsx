@@ -15,6 +15,7 @@ import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { createTranslatorWithFallback } from '@open-mercato/shared/lib/i18n/translate'
 import { AvailabilityRulesEditor } from '@open-mercato/core/modules/planner/components/AvailabilityRulesEditor'
 import { buildMemberScheduleItems } from '@open-mercato/core/modules/staff/lib/memberSchedule'
+import { TranslationsAction } from '@open-mercato/core/modules/translations/components/TranslationsAction'
 import { TeamMemberForm, buildTeamMemberPayload, type TeamMemberFormValues } from '@open-mercato/core/modules/staff/components/TeamMemberForm'
 import { NotesSection } from '@open-mercato/ui/backend/detail'
 import { ActivitiesSection, type SectionAction } from '@open-mercato/ui/backend/detail'
@@ -352,6 +353,9 @@ export default function StaffTeamMemberDetailPage({ params }: { params?: { id?: 
                 </p>
               </div>
             </div>
+            <TranslationsAction
+              config={memberId ? { entityType: 'staff:staff_team_member', recordId: memberId, baseValues: memberRecord ?? undefined } : null}
+            />
           </div>
 
           <div className="border-b">

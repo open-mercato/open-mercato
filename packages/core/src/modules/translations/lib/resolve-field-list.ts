@@ -24,8 +24,10 @@ export function resolveFieldList(
 
   const registered = getTranslatableFields(entityType)
   const fields: ResolvedField[] = []
+  let hasExplicitList = false
 
   if (registered) {
+    hasExplicitList = true
     for (const key of registered) {
       fields.push({
         key,
@@ -54,13 +56,15 @@ export function resolveFieldList(
     }
   }
 
-  for (const def of customFieldDefs) {
-    const key = typeof def.key === 'string' ? def.key.trim() : ''
-    if (!key) continue
-    if (def.kind !== 'text' && def.kind !== 'multiline' && def.kind !== 'richtext') continue
-    if (fields.some((f) => f.key === key)) continue
-    const label = typeof def.label === 'string' && def.label.trim().length ? def.label : formatFieldLabel(key)
-    fields.push({ key, label, multiline: def.kind === 'multiline' || def.kind === 'richtext' })
+  if (!hasExplicitList) {
+    for (const def of customFieldDefs) {
+      const key = typeof def.key === 'string' ? def.key.trim() : ''
+      if (!key) continue
+      if (def.kind !== 'text' && def.kind !== 'multiline' && def.kind !== 'richtext') continue
+      if (fields.some((f) => f.key === key)) continue
+      const label = typeof def.label === 'string' && def.label.trim().length ? def.label : formatFieldLabel(key)
+      fields.push({ key, label, multiline: def.kind === 'multiline' || def.kind === 'richtext' })
+    }
   }
 
   return fields

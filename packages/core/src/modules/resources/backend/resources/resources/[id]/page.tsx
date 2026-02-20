@@ -17,6 +17,7 @@ import { RESOURCES_RESOURCE_FIELDSET_DEFAULT } from '@open-mercato/core/modules/
 import type { AvailabilityScheduleItemBuilder } from '@open-mercato/core/modules/planner/components/AvailabilityRulesEditor'
 import { AvailabilityRulesEditor } from '@open-mercato/core/modules/planner/components/AvailabilityRulesEditor'
 import { ResourcesResourceForm, useResourcesResourceFormConfig } from '@open-mercato/core/modules/resources/components/ResourceCrudForm'
+import { TranslationsAction } from '@open-mercato/core/modules/translations/components/TranslationsAction'
 import { renderDictionaryColor, renderDictionaryIcon, ICON_SUGGESTIONS } from '@open-mercato/core/modules/dictionaries/components/dictionaryAppearance'
 import { createResourceNotesAdapter } from '@open-mercato/core/modules/resources/components/detail/notesAdapter'
 import { createResourceActivitiesAdapter } from '@open-mercato/core/modules/resources/components/detail/activitiesAdapter'
@@ -594,6 +595,11 @@ export default function ResourcesResourceDetailPage({ params }: { params?: { id?
                   onDelete={handleDelete}
                   isLoading={!initialValues}
                   loadingMessage={t('resources.resources.form.loading', 'Loading resource...')}
+                  extraActions={
+                    <TranslationsAction
+                      config={resourceId ? { entityType: 'resources:resources_resource', recordId: resourceId, baseValues: initialValues ?? undefined } : null}
+                    />
+                  }
                 />
               </div>
             </>

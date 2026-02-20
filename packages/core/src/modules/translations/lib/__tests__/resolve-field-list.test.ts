@@ -112,10 +112,10 @@ describe('resolveFieldList', () => {
     })
   })
 
-  describe('custom field defs augmentation', () => {
-    it('appends text custom fields', () => {
-      registerTranslatableFields({ 'test:with_cf': ['title'] })
-      const result = resolveFieldList('test:with_cf', undefined, [
+  describe('custom field defs augmentation (auto-detect path only)', () => {
+    it('appends text custom fields when no registered fields', () => {
+      mockedGetEntityFields.mockReturnValue({ field1: 'title' })
+      const result = resolveFieldList('unknown:cf_text', undefined, [
         { key: 'custom_note', kind: 'text', label: 'Custom Note' },
       ])
       expect(result).toHaveLength(2)
@@ -123,24 +123,24 @@ describe('resolveFieldList', () => {
     })
 
     it('appends multiline custom fields as multiline', () => {
-      registerTranslatableFields({ 'test:with_multiline_cf': ['title'] })
-      const result = resolveFieldList('test:with_multiline_cf', undefined, [
+      mockedGetEntityFields.mockReturnValue({ field1: 'title' })
+      const result = resolveFieldList('unknown:cf_multiline', undefined, [
         { key: 'long_text', kind: 'multiline' },
       ])
       expect(result[1].multiline).toBe(true)
     })
 
     it('appends richtext custom fields as multiline', () => {
-      registerTranslatableFields({ 'test:with_richtext_cf': ['title'] })
-      const result = resolveFieldList('test:with_richtext_cf', undefined, [
+      mockedGetEntityFields.mockReturnValue({ field1: 'title' })
+      const result = resolveFieldList('unknown:cf_richtext', undefined, [
         { key: 'rich_content', kind: 'richtext' },
       ])
       expect(result[1].multiline).toBe(true)
     })
 
     it('skips non-text kinds (number, boolean, etc.)', () => {
-      registerTranslatableFields({ 'test:skip_cf': ['title'] })
-      const result = resolveFieldList('test:skip_cf', undefined, [
+      mockedGetEntityFields.mockReturnValue({ field1: 'title' })
+      const result = resolveFieldList('unknown:cf_skip', undefined, [
         { key: 'quantity', kind: 'number' },
         { key: 'is_active', kind: 'boolean' },
         { key: 'created_at', kind: 'date' },
@@ -149,28 +149,37 @@ describe('resolveFieldList', () => {
     })
 
     it('does not duplicate fields already in the list', () => {
-      registerTranslatableFields({ 'test:no_dup_cf': ['title'] })
-      const result = resolveFieldList('test:no_dup_cf', undefined, [
+      mockedGetEntityFields.mockReturnValue({ field1: 'title' })
+      const result = resolveFieldList('unknown:cf_nodup', undefined, [
         { key: 'title', kind: 'text' },
       ])
       expect(result).toHaveLength(1)
     })
 
     it('uses formatFieldLabel when custom field has no label', () => {
-      registerTranslatableFields({ 'test:cf_no_label': ['title'] })
-      const result = resolveFieldList('test:cf_no_label', undefined, [
+      mockedGetEntityFields.mockReturnValue({ field1: 'title' })
+      const result = resolveFieldList('unknown:cf_nolabel', undefined, [
         { key: 'product_note', kind: 'text' },
       ])
       expect(result[1].label).toBe('Product Note')
     })
 
     it('skips custom fields with empty key', () => {
-      registerTranslatableFields({ 'test:cf_empty_key': ['title'] })
-      const result = resolveFieldList('test:cf_empty_key', undefined, [
+      mockedGetEntityFields.mockReturnValue({ field1: 'title' })
+      const result = resolveFieldList('unknown:cf_emptykey', undefined, [
         { key: '', kind: 'text' },
         { key: '  ', kind: 'text' },
       ])
       expect(result).toHaveLength(1)
+    })
+
+    it('does NOT append custom fields when registered fields exist', () => {
+      registerTranslatableFields({ 'test:cf_registered': ['title'] })
+      const result = resolveFieldList('test:cf_registered', undefined, [
+        { key: 'custom_note', kind: 'text', label: 'Custom Note' },
+      ])
+      expect(result).toHaveLength(1)
+      expect(result[0].key).toBe('title')
     })
   })
 })

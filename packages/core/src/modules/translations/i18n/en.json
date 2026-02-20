@@ -1,4 +1,6 @@
 {
+  "translations.action.dialogTitle": "Manage translations",
+  "translations.action.title": "Translations",
   "translations.config.nav.title": "Translations",
   "translations.locales.add": "Add",
   "translations.locales.addPlaceholder": "e.g. fr, it, ja...",
