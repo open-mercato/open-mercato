@@ -5,6 +5,7 @@ import { User, LogOut, Bell, Moon, Sun, Globe, Key, Check } from 'lucide-react'
 import { useT, useLocale } from '@open-mercato/shared/lib/i18n/context'
 import { locales, type Locale } from '@open-mercato/shared/lib/i18n/config'
 import { useTheme } from '@open-mercato/ui/theme'
+import { Button } from '../primitives/button'
 import { IconButton } from '../primitives/icon-button'
 
 export type ProfileDropdownProps = {
@@ -162,9 +163,11 @@ export function ProfileDropdown({
 
           {/* Theme Toggle */}
           {mounted && (
-            <button
+            <Button
               type="button"
-              className={`${menuItemClass} justify-between`}
+              variant="ghost"
+              size="sm"
+              className="w-full justify-between"
               role="menuitem"
               onClick={handleThemeToggle}
             >
@@ -175,14 +178,16 @@ export function ProfileDropdown({
               <div className={`w-8 h-4 rounded-full transition-colors ${isDark ? 'bg-primary' : 'bg-muted'} relative`}>
                 <div className={`absolute top-0.5 w-3 h-3 rounded-full bg-background shadow transition-transform ${isDark ? 'translate-x-4' : 'translate-x-0.5'}`} />
               </div>
-            </button>
+            </Button>
           )}
 
           {/* Language Selector */}
           <div className="relative">
-            <button
+            <Button
               type="button"
-              className={`${menuItemClass} justify-between`}
+              variant="ghost"
+              size="sm"
+              className="w-full justify-between"
               role="menuitem"
               onClick={() => setLanguageOpen(!languageOpen)}
               aria-expanded={languageOpen}
@@ -194,23 +199,23 @@ export function ProfileDropdown({
               <span className="text-xs text-muted-foreground">
                 {localeLabels[currentLocale]}
               </span>
-            </button>
+            </Button>
 
             {/* Language submenu - inline below */}
             {languageOpen && (
               <div className="mt-1 ml-6 space-y-0.5 border-l pl-2">
                 {locales.map((locale) => (
-                  <button
+                  <Button
                     key={locale}
                     type="button"
-                    className={`w-full text-left text-sm px-2 py-1.5 rounded hover:bg-accent inline-flex items-center justify-between gap-2 ${
-                      locale === currentLocale ? 'text-primary font-medium' : ''
-                    }`}
+                    variant="ghost"
+                    size="sm"
+                    className={`w-full justify-start gap-2 ${locale === currentLocale ? 'text-primary font-medium' : ''}`}
                     onClick={() => handleLocaleChange(locale)}
                   >
                     <span>{localeLabels[locale]}</span>
                     {locale === currentLocale && <Check className="size-3.5" />}
-                  </button>
+                  </Button>
                 ))}
               </div>
             )}
@@ -220,14 +225,16 @@ export function ProfileDropdown({
 
           {/* Sign Out */}
           <form action="/api/auth/logout" method="POST">
-            <button
-              className={menuItemClass}
+            <Button
+              variant="ghost"
+              size="sm"
+              className="w-full justify-start"
               type="submit"
               role="menuitem"
             >
               <LogOut className="size-4" />
               <span>{t('ui.userMenu.logout', 'Sign Out')}</span>
-            </button>
+            </Button>
           </form>
         </div>
       )}

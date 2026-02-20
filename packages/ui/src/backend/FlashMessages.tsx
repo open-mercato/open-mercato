@@ -1,5 +1,7 @@
 "use client"
 import * as React from 'react'
+import { X } from 'lucide-react'
+import { IconButton } from '../primitives/icon-button'
 
 export type FlashKind = 'success' | 'error' | 'warning' | 'info'
 
@@ -130,13 +132,16 @@ function FlashMessagesInner() {
       <div className={`pointer-events-auto rounded px-3 py-2 text-white shadow-md ${color}`}>
         <div className="flex items-center justify-between gap-2">
           <div className="text-sm">{msg}</div>
-          <button
+          <IconButton
             type="button"
-            className="text-sm text-white/90 transition hover:text-white"
+            variant="ghost"
+            size="sm"
+            className="text-white/90 hover:text-white hover:bg-white/10"
             onClick={() => setMsg(null)}
+            aria-label="Close"
           >
-            ×
-          </button>
+            <X size={16} />
+          </IconButton>
         </div>
       </div>
     </div>

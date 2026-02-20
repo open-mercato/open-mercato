@@ -144,12 +144,14 @@ export function ActionsDropdown({ items, label, size = 'sm' }: ActionsDropdownPr
           {items.map((item) => {
             const Icon = item.icon
             return (
-              <button
+              <Button
                 key={item.id}
                 type="button"
+                variant="ghost"
+                size="sm"
+                className="w-full justify-start"
                 role="menuitem"
                 disabled={item.disabled}
-                className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-sm cursor-pointer hover:bg-accent disabled:opacity-50 disabled:pointer-events-none"
                 onClick={() => {
                   setOpen(false)
                   item.onSelect()
@@ -163,7 +165,7 @@ export function ActionsDropdown({ items, label, size = 'sm' }: ActionsDropdownPr
                   <span className="size-4" />
                 )}
                 {item.label}
-              </button>
+              </Button>
             )
           })}
         </div>,
