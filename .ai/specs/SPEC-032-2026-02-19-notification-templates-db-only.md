@@ -1,3 +1,7 @@
+# SPEC-032: Notification Templates (DB-Only)
+
+## TLDR
+
 **Key Points:**
 - We introduce a unified template model for multiple channels, without hardcoding a specific channel in the core.
 - Data is stored in two tables: `notification_templates` (header/template metadata) and `notification_templates_blocks` (block tree).
