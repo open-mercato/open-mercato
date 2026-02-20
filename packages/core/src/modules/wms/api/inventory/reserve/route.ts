@@ -1,9 +1,13 @@
 import { z } from 'zod'
 import type { NextRequest } from 'next/server'
+import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { parseScopedCommandInput } from '../../../lib/utils'
 import { reservationCreateSchema } from '../../../data/validators'
-import { createWmsCrudOpenApi, defaultOkResponseSchema } from '../../../lib/openapi'
+
+const reserveResponseSchema = z.object({
+  reservation_id: z.string().uuid(),
+})
 
 export const metadata = {
   POST: { requireAuth: true, requireFeatures: ['wms.manage_inventory'] },
@@ -32,13 +36,17 @@ export async function POST(
   return Response.json(result, { status: 201 })
 }
 
-export const openApi = createWmsCrudOpenApi({
-  resourceName: 'InventoryReservation',
-  pluralName: 'Inventory Reservations',
-  querySchema: z.object({}),
-  listResponseSchema: defaultOkResponseSchema,
-  create: {
-    schema: reservationCreateSchema,
-    description: 'Reserves inventory using FIFO/LIFO/FEFO strategy based on product profile.',
+export const openApi: OpenApiRouteDoc = {
+  tag: 'WMS',
+  summary: 'Reserve inventory',
+  methods: {
+    POST: {
+      summary: 'Create inventory reservation',
+      description: 'Reserves inventory using FIFO/LIFO/FEFO strategy based on product profile.',
+      requestBody: { schema: reservationCreateSchema, description: 'Reservation parameters' },
+      responses: [
+        { status: 201, description: 'Reservation created', schema: reserveResponseSchema },
+      ],
+    },
   },
-})
+}

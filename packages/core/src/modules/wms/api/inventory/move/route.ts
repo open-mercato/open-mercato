@@ -1,9 +1,15 @@
 import { z } from 'zod'
 import type { NextRequest } from 'next/server'
+import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { parseScopedCommandInput } from '../../../lib/utils'
 import { inventoryMoveSchema } from '../../../data/validators'
-import { createWmsCrudOpenApi, defaultOkResponseSchema } from '../../../lib/openapi'
+
+const moveResponseSchema = z.object({
+  movement_id: z.string().uuid(),
+  source_balance_id: z.string().uuid(),
+  dest_balance_id: z.string().uuid(),
+})
 
 export const metadata = {
   POST: { requireAuth: true, requireFeatures: ['wms.manage_inventory'] },
@@ -32,13 +38,17 @@ export async function POST(
   return Response.json(result, { status: 200 })
 }
 
-export const openApi = createWmsCrudOpenApi({
-  resourceName: 'InventoryMove',
-  pluralName: 'Inventory Moves',
-  querySchema: z.object({}),
-  listResponseSchema: defaultOkResponseSchema,
-  create: {
-    schema: inventoryMoveSchema,
-    description: 'Moves inventory from one location to another within the same warehouse.',
+export const openApi: OpenApiRouteDoc = {
+  tag: 'WMS',
+  summary: 'Move inventory between locations',
+  methods: {
+    POST: {
+      summary: 'Move inventory',
+      description: 'Moves inventory from one location to another within the same warehouse.',
+      requestBody: { schema: inventoryMoveSchema, description: 'Move parameters' },
+      responses: [
+        { status: 200, description: 'Move result', schema: moveResponseSchema },
+      ],
+    },
   },
-})
+}

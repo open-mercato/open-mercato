@@ -1,9 +1,14 @@
 import { z } from 'zod'
 import type { NextRequest } from 'next/server'
+import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { parseScopedCommandInput } from '../../../lib/utils'
 import { inventoryReleaseBaseSchema } from '../../../data/validators'
-import { createWmsCrudOpenApi, defaultOkResponseSchema } from '../../../lib/openapi'
+
+const releaseResponseSchema = z.object({
+  reservation_id: z.string().uuid(),
+  status: z.string(),
+})
 
 export const metadata = {
   POST: { requireAuth: true, requireFeatures: ['wms.manage_inventory'] },
@@ -32,19 +37,17 @@ export async function POST(
   return Response.json(result, { status: 200 })
 }
 
-export const openApi = createWmsCrudOpenApi({
-  resourceName: 'InventoryRelease',
-  pluralName: 'Inventory Releases',
-  querySchema: z.object({}),
-  listResponseSchema: defaultOkResponseSchema,
-  create: {
-    schema: z.object({
-      reservation_id: z.string().uuid().optional(),
-      warehouse_id: z.string().uuid().optional(),
-      catalog_variant_id: z.string().uuid().optional(),
-      source_type: z.enum(['order', 'transfer', 'manual']).optional(),
-      source_id: z.string().uuid().optional(),
-    }),
-    description: 'Releases an active inventory reservation, restoring available quantity.',
+export const openApi: OpenApiRouteDoc = {
+  tag: 'WMS',
+  summary: 'Release inventory reservation',
+  methods: {
+    POST: {
+      summary: 'Release reservation',
+      description: 'Releases an active inventory reservation, restoring available quantity.',
+      requestBody: { schema: inventoryReleaseBaseSchema, description: 'Release parameters' },
+      responses: [
+        { status: 200, description: 'Reservation released', schema: releaseResponseSchema },
+      ],
+    },
   },
-})
+}

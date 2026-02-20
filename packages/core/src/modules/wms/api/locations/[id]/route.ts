@@ -1,10 +1,14 @@
 import { z } from 'zod'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { NextRequest } from 'next/server'
+import type { DataEngine } from '@open-mercato/shared/lib/data/engine'
+import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { WarehouseLocation } from '../../../data/entities'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
-import { createWmsCrudOpenApi, defaultOkResponseSchema } from '../../../lib/openapi'
+import { emitCrudSideEffects } from '@open-mercato/shared/lib/commands/helpers'
 import { locationUpdateSchema } from '../../../data/validators'
+import { locationCrudEvents, locationIndexer } from '../../../commands/locations'
+import { defaultOkResponseSchema } from '../../../lib/openapi'
 
 const paramsSchema = z.object({ id: z.string().uuid() })
 
@@ -12,6 +16,36 @@ export const metadata = {
   GET: { requireAuth: true, requireFeatures: ['wms.view'] },
   PUT: { requireAuth: true, requireFeatures: ['wms.manage_warehouses'] },
   DELETE: { requireAuth: true, requireFeatures: ['wms.manage_warehouses'] },
+}
+
+const locationDetailSchema = z.object({
+  id: z.string().uuid(),
+  warehouseId: z.string().uuid(),
+  code: z.string(),
+  type: z.string(),
+  parentId: z.string().uuid().nullable(),
+  isActive: z.boolean(),
+  capacityUnits: z.number().nullable(),
+  capacityWeight: z.number().nullable(),
+  constraints: z.record(z.string(), z.unknown()).nullable(),
+  createdAt: z.string(),
+  updatedAt: z.string(),
+})
+
+function serializeLocation(record: WarehouseLocation) {
+  return {
+    id: record.id,
+    warehouseId: record.warehouseId,
+    code: record.code,
+    type: record.type,
+    parentId: record.parentId,
+    isActive: record.isActive,
+    capacityUnits: record.capacityUnits,
+    capacityWeight: record.capacityWeight,
+    constraints: record.constraints,
+    createdAt: record.createdAt?.toISOString(),
+    updatedAt: record.updatedAt?.toISOString(),
+  }
 }
 
 export async function GET(
@@ -35,19 +69,7 @@ export async function GET(
     throw new CrudHttpError(404, { error: 'Location not found' })
   }
 
-  return Response.json({
-    id: record.id,
-    warehouseId: record.warehouseId,
-    code: record.code,
-    type: record.type,
-    parentId: record.parentId,
-    isActive: record.isActive,
-    capacityUnits: record.capacityUnits,
-    capacityWeight: record.capacityWeight,
-    constraints: record.constraints,
-    createdAt: record.createdAt?.toISOString(),
-    updatedAt: record.updatedAt?.toISOString(),
-  })
+  return Response.json(serializeLocation(record))
 }
 
 export async function PUT(
@@ -57,6 +79,7 @@ export async function PUT(
   const { id } = paramsSchema.parse(params)
   const body = await request.json()
   const em = container.resolve<EntityManager>('em')
+  const dataEngine = container.resolve<DataEngine>('dataEngine')
   const auth = container.resolve<any>('auth')
   const tenantId = auth?.tenantId
   const organizationId = auth?.organizationId
@@ -84,6 +107,15 @@ export async function PUT(
 
   await em.flush()
 
+  await emitCrudSideEffects({
+    dataEngine,
+    action: 'updated',
+    entity: record,
+    identifiers: { id: record.id, tenantId: record.tenantId, organizationId: record.organizationId },
+    events: locationCrudEvents,
+    indexer: locationIndexer,
+  })
+
   return Response.json({ ok: true, id: record.id })
 }
 
@@ -93,6 +125,7 @@ export async function DELETE(
 ) {
   const { id } = paramsSchema.parse(params)
   const em = container.resolve<EntityManager>('em')
+  const dataEngine = container.resolve<DataEngine>('dataEngine')
   const auth = container.resolve<any>('auth')
   const tenantId = auth?.tenantId
   const organizationId = auth?.organizationId
@@ -111,33 +144,55 @@ export async function DELETE(
   record.deletedAt = new Date()
   await em.flush()
 
+  await emitCrudSideEffects({
+    dataEngine,
+    action: 'deleted',
+    entity: record,
+    identifiers: { id: record.id, tenantId: record.tenantId, organizationId: record.organizationId },
+    events: locationCrudEvents,
+    indexer: locationIndexer,
+  })
+
   return Response.json({ ok: true })
 }
 
-export const openApi = createWmsCrudOpenApi({
-  resourceName: 'WarehouseLocation',
-  pluralName: 'Warehouse Locations',
-  querySchema: paramsSchema,
-  listResponseSchema: z.object({
-    id: z.string().uuid(),
-    warehouseId: z.string().uuid(),
-    code: z.string(),
-    type: z.string(),
-    parentId: z.string().uuid().nullable(),
-    isActive: z.boolean(),
-    capacityUnits: z.number().nullable(),
-    capacityWeight: z.number().nullable(),
-    constraints: z.record(z.string(), z.unknown()).nullable(),
-    createdAt: z.string(),
-    updatedAt: z.string(),
-  }),
-  update: {
-    schema: locationUpdateSchema,
-    responseSchema: defaultOkResponseSchema,
-    description: 'Updates a warehouse location by id.',
+const errorSchema = z.object({ error: z.string() })
+
+export const openApi: OpenApiRouteDoc = {
+  tag: 'WMS',
+  summary: 'Warehouse location detail operations',
+  pathParams: paramsSchema,
+  methods: {
+    GET: {
+      summary: 'Get location by ID',
+      description: 'Returns a single warehouse location by its UUID.',
+      responses: [
+        { status: 200, description: 'Location detail', schema: locationDetailSchema },
+      ],
+      errors: [
+        { status: 404, description: 'Location not found', schema: errorSchema },
+      ],
+    },
+    PUT: {
+      summary: 'Update location',
+      description: 'Updates a warehouse location by its UUID.',
+      requestBody: { schema: locationUpdateSchema, description: 'Location fields to update' },
+      responses: [
+        { status: 200, description: 'Update successful', schema: defaultOkResponseSchema },
+      ],
+      errors: [
+        { status: 404, description: 'Location not found', schema: errorSchema },
+      ],
+    },
+    DELETE: {
+      summary: 'Delete location',
+      description: 'Soft-deletes a warehouse location by its UUID.',
+      responses: [
+        { status: 200, description: 'Delete successful', schema: defaultOkResponseSchema },
+      ],
+      errors: [
+        { status: 404, description: 'Location not found', schema: errorSchema },
+      ],
+    },
   },
-  del: {
-    responseSchema: defaultOkResponseSchema,
-    description: 'Soft-deletes a warehouse location by id.',
-  },
-})
+}
