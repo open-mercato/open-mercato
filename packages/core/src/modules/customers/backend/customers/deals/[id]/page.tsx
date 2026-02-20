@@ -61,7 +61,7 @@ type DealDetailPayload = {
 }
 
 const CRUD_FOCUSABLE_SELECTOR =
-  '[data-crud-focus-target], input:not([type="hidden"]):not([disabled]), textarea:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1")]'
+  '[data-crud-focus-target], input:not([type="hidden"]):not([disabled]), textarea:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])'
 
 function formatCurrency(amount: string | null, currency: string | null): string | null {
   if (!amount) return null
