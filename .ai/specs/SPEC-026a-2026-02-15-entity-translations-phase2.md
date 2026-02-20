@@ -557,8 +557,8 @@ This is explicitly out of scope for SPEC-026a.
 ## Verification
 
 1. **TranslationManager standalone** — navigate to `/backend/config/translations`, select entity, select locale, edit translations, save and reload to confirm persistence
-2. **TranslationManager widget** — edit a product at `/backend/catalog/products/[id]`, see translation widget in column 2, add German translation, save, reload
-3. **Widget on create page** — create a new product, translation widget should not appear (no record ID yet)
+2. **TranslationManager action** — edit a product at `/backend/catalog/products/[id]`, see translation action in form header, open drawer, add German translation, save, reload
+3. **Action on create page** — create a new product, translation action should not appear (no record ID yet)
 4. **Search index** — create product with German translation, verify `entity_indexes.doc` contains `l10n:de:title` key
 5. **Search tokens** — verify `search_tokens` has rows with `field = 'l10n:de:title'`
 6. **Reindex on translation update** — update a translation via API, verify entity index is updated automatically
@@ -570,6 +570,12 @@ This is explicitly out of scope for SPEC-026a.
 ---
 
 ## Changelog
+
+### 2026-02-20 (v2)
+- CrudForm integration updated to support `crud-form:*:header` injection spots for translation actions
+- Translation access in entity edit forms moved to a header action button that opens Translation Manager in a right-side drawer (history-style UX)
+- Translation injection table now resolves translatable entity types from the runtime registry (`getTranslatableFieldsRegistry`) instead of hardcoded module imports
+- Fixes issue #618: translation UI access now scales to all entities registered via `translations.ts`
 
 ### 2026-02-15 (v1)
 - Initial SPEC-026a for Phase 2
