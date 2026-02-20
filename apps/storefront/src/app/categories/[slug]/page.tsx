@@ -56,9 +56,9 @@ export default async function CategoryPage({
         )}
       </div>
 
-      {data.children.length > 0 && (
+      {(data.children ?? []).length > 0 && (
         <div className="mb-8 flex flex-wrap gap-2">
-          {data.children.map((child) => (
+          {(data.children ?? []).map((child) => (
             <Link
               key={child.id}
               href={child.slug ? `/categories/${child.slug}` : `/?categoryId=${child.id}`}

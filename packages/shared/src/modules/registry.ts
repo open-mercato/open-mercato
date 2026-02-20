@@ -81,6 +81,7 @@ export type ModuleApiLegacy = {
   method: HttpMethod
   path: string
   handler: ApiHandler
+  metadata?: Record<string, unknown>
   docs?: OpenApiMethodDoc
 }
 
@@ -247,7 +248,7 @@ export function findApi(modules: Module[], method: HttpMethod, pathname: string)
       } else {
         const al = a as ModuleApiLegacy
         if (al.method === method && al.path === pathname) {
-          return { handler: al.handler, params: {} }
+          return { handler: al.handler, params: {}, metadata: al.metadata }
         }
       }
     }

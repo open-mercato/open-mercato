@@ -15,7 +15,7 @@ import { ErrorMessage } from './ErrorMessage'
 import { LoadingMessage } from './LoadingMessage'
 import { TabEmptyState } from './TabEmptyState'
 import { useConfirmDialog } from '../confirm-dialog'
-
+import { formatDateTime } from '@open-mercato/shared/lib/time'
 type Translator = (key: string, fallback?: string, params?: Record<string, string | number>) => string
 
 export type SectionAction = {
@@ -96,12 +96,7 @@ function generateTempId() {
   return `tmp_${Math.random().toString(36).slice(2)}`
 }
 
-function formatDateTime(value?: string | null): string | null {
-  if (!value) return null
-  const date = new Date(value)
-  if (Number.isNaN(date.getTime())) return null
-  return date.toLocaleString()
-}
+
 
 type TimelineItemHeaderProps = {
   title: React.ReactNode

@@ -4,7 +4,7 @@ import type {
   FlushEventArgs 
 } from '@mikro-orm/core'
 import type { AwilixContainer } from 'awilix'
-import { ScheduledJob } from '../data/entities'
+import { ScheduledJob } from '../data/entities.js'
 import type { BullMQSchedulerService } from '../services/bullmqSchedulerService'
 
 /**

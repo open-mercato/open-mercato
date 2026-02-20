@@ -1,7 +1,7 @@
 "use client"
 
 import * as React from 'react'
-import { Plus, Pencil, Trash2, RefreshCw } from 'lucide-react'
+import { Plus, Pencil, Trash2, RefreshCw, Languages } from 'lucide-react'
 import { Button } from '@open-mercato/ui/primitives/button'
 import {
   Dialog,
@@ -25,6 +25,10 @@ import {
   useDictionaryEntries,
 } from './hooks/useDictionaryEntries'
 import type { DictionaryEntryRecord } from './hooks/useDictionaryEntries'
+import {
+  DialogDescription,
+} from '@open-mercato/ui/primitives/dialog'
+import { TranslationManager } from '@open-mercato/core/modules/translations/components/TranslationManager'
 
 type Entry = DictionaryEntryRecord
 
@@ -65,6 +69,7 @@ export function DictionaryEntriesEditor({ dictionaryId, dictionaryName, readOnly
     icon: null,
   }))
   const [errors, setErrors] = React.useState<{ value?: string; label?: string }>({})
+  const [translateEntry, setTranslateEntry] = React.useState<Entry | null>(null)
   const appearance = useAppearanceState(formState.icon, formState.color)
 
   const resetForm = React.useCallback(() => {
@@ -271,6 +276,15 @@ export function DictionaryEntriesEditor({ dictionaryId, dictionaryName, readOnly
                   type="button"
                   variant="ghost"
                   size="icon"
+                  onClick={() => setTranslateEntry(entry)}
+                  title={t('dictionaries.config.entries.actions.translate', 'Translate')}
+                >
+                  <Languages className="h-4 w-4" />
+                </Button>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
                   onClick={() => handleDelete(entry)}
                   disabled={isDeleting}
                 >
@@ -424,6 +438,25 @@ export function DictionaryEntriesEditor({ dictionaryId, dictionaryName, readOnly
               {t('dictionaries.config.entries.dialog.save', 'Save')}
             </Button>
           </DialogFooter>
+        </DialogContent>
+      </Dialog>
+      <Dialog open={!!translateEntry} onOpenChange={(open) => { if (!open) setTranslateEntry(null) }}>
+        <DialogContent className="max-w-2xl max-h-[80vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>{t('translations.manager.translateEntry', 'Translate: {{label}}', { label: translateEntry?.label ?? '' })}</DialogTitle>
+            <DialogDescription>
+              {t('translations.manager.translateEntryDescription', 'Manage translations for this dictionary entry.')}
+            </DialogDescription>
+          </DialogHeader>
+          {translateEntry?.id && (
+            <TranslationManager
+              mode="embedded"
+              entityType="dictionaries:dictionary_entry"
+              recordId={translateEntry.id}
+              baseValues={{ label: translateEntry.label }}
+              translatableFields={['label']}
+            />
+          )}
         </DialogContent>
       </Dialog>
       {ConfirmDialogElement}
