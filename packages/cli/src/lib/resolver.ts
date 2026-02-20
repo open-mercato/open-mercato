@@ -30,6 +30,7 @@ export interface PackageResolver {
 const ENTERPRISE_MODULE_TOGGLE_ENV = 'OM_ENABLE_ENTERPRISE_MODULES'
 const ENTERPRISE_OPTIONAL_MODULES: ModuleEntry[] = [
   { id: 'record_locks', from: '@open-mercato/enterprise' },
+  { id: 'system_status_overlays', from: '@open-mercato/enterprise' },
 ]
 
 function pkgDirFor(rootDir: string, from?: string, isMonorepo = true): string {

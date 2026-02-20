@@ -1,0 +1,13 @@
+{
+  "system_status_overlays": {
+    "enterpriseInfo": {
+      "title": "Edycja i wersja",
+      "description": "To srodowisko uruchamia edycje Enterprise.",
+      "editionBadge": "Enterprise",
+      "editionLabel": "Edycja",
+      "editionValue": "Enterprise",
+      "versionLabel": "Wersja"
+    }
+  }
+}
+

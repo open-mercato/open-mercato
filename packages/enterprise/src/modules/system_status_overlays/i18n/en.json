@@ -1,0 +1,13 @@
+{
+  "system_status_overlays": {
+    "enterpriseInfo": {
+      "title": "Edition and version",
+      "description": "This environment is running the Enterprise edition.",
+      "editionBadge": "Enterprise",
+      "editionLabel": "Edition",
+      "editionValue": "Enterprise",
+      "versionLabel": "Version"
+    }
+  }
+}
+

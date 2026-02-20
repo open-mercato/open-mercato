@@ -24,6 +24,7 @@
     "banner": {
       "locked_by_other": "Dieser Datensatz ist derzeit von einem anderen Benutzer gesperrt.",
       "optimistic_notice": "Ein anderer Benutzer bearbeitet diesen Datensatz. Beim Speichern können Konflikte auftreten.",
+      "same_user_session": "Dieser Datensatz ist bereits in einer anderen Sitzung geöffnet.",
       "mine": "Sie bearbeiten diesen Datensatz gerade.",
       "take_over": "Bearbeitung ubernehmen",
       "take_over_pending": "Wird ubernommen..."

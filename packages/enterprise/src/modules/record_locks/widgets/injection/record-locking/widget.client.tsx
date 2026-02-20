@@ -123,6 +123,7 @@ export default function RecordLockingWidget({
         formId,
         resourceKind,
         resourceId,
+        acquired: payload.acquired ?? false,
         lock: payload.lock ?? null,
         currentUserId: payload.currentUserId ?? null,
         heartbeatSeconds: payload.heartbeatSeconds ?? 15,
@@ -199,6 +200,7 @@ export default function RecordLockingWidget({
     }
     const payload = acquire.result ?? {}
     setRecordLockFormState(formId, {
+      acquired: payload.acquired ?? false,
       lock: payload.lock ?? null,
       currentUserId: payload.currentUserId ?? null,
       allowForceUnlock: payload.allowForceUnlock ?? false,
@@ -236,7 +238,7 @@ export default function RecordLockingWidget({
     flash(t('record_locks.conflict.accept_mine', 'Keep my changes'), 'info')
   }, [formId, state?.conflict, t])
 
-  if (!state?.lock || mine) {
+  if (!state?.lock || (mine && state.acquired !== false)) {
     return (
       <Dialog open={Boolean(state?.conflict)} onOpenChange={(open) => {
         if (open) return
@@ -279,19 +281,26 @@ export default function RecordLockingWidget({
     )
   }
 
-  const actorLabel = state.lock.lockedByName || state.lock.lockedByEmail || state.lock.lockedByUserId
+  const actorName = state.lock.lockedByName?.trim() || null
+  const actorEmail = state.lock.lockedByEmail?.trim() || null
+  const actorIdentity = actorName && actorEmail
+    ? `${actorName} (${actorEmail})`
+    : actorName || actorEmail || state.lock.lockedByUserId
   const ipLabel = state.lock.lockedByIp ? ` (${state.lock.lockedByIp})` : ''
+  const showSameUserSessionBanner = mine && state.acquired === false
 
   return (
     <>
       <div className="rounded-md border border-blue-300/40 bg-blue-100/70 px-4 py-3 text-sm text-blue-900">
         <div className="font-medium">
-          {t('record_locks.banner.optimistic_notice', 'Another user is editing this record. Conflicts may occur on save.')}
+          {showSameUserSessionBanner
+            ? t('record_locks.banner.same_user_session', 'This record is already open in another session.')
+            : t('record_locks.banner.optimistic_notice', 'Another user is editing this record. Conflicts may occur on save.')}
         </div>
         <div className="mt-1 text-xs">
-          {actorLabel}{ipLabel}
+          {actorIdentity}{ipLabel}
         </div>
-        {state.allowForceUnlock ? (
+        {state.allowForceUnlock && !showSameUserSessionBanner ? (
           <div className="mt-2">
             <Button size="sm" variant="outline" onClick={handleTakeOver}>
               {t('record_locks.banner.take_over', 'Take over editing')}

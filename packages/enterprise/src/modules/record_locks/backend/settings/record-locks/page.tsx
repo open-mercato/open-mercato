@@ -11,6 +11,7 @@ import { Label } from '@open-mercato/ui/primitives/label'
 import { Notice } from '@open-mercato/ui/primitives/Notice'
 import { Switch } from '@open-mercato/ui/primitives/switch'
 import { Spinner } from '@open-mercato/ui/primitives/spinner'
+import { E } from '@open-mercato/core/generated-shims/entities.ids.generated'
 
 type RecordLockSettings = {
   enabled: boolean
@@ -32,13 +33,23 @@ const DEFAULT_SETTINGS: RecordLockSettings = {
   notifyOnConflict: true,
 }
 
-const RECORD_LOCK_RESOURCE_SUGGESTIONS = [
+const RECORD_LOCK_RESOURCE_ALIASES = [
   'customers.person',
   'customers.company',
   'customers.deal',
   'sales.quote',
   'sales.order',
 ]
+
+const RECORD_LOCK_RESOURCE_SUGGESTIONS = Array.from(
+  new Set([
+    ...Object.values(E)
+      .flatMap((moduleEntities) => Object.values(moduleEntities))
+      .filter((entityId): entityId is string => typeof entityId === 'string' && entityId.includes(':'))
+      .map((entityId) => entityId.replace(':', '.')),
+    ...RECORD_LOCK_RESOURCE_ALIASES,
+  ]),
+).sort((left, right) => left.localeCompare(right))
 
 export default function RecordLockingSettingsPage() {
   const t = useT()

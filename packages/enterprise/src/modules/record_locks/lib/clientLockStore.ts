@@ -36,6 +36,7 @@ export type RecordLockFormState = {
   formId: string
   resourceKind: string
   resourceId: string
+  acquired?: boolean
   currentUserId?: string | null
   allowForceUnlock?: boolean
   heartbeatSeconds?: number

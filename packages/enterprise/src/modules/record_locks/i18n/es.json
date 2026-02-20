@@ -24,6 +24,7 @@
     "banner": {
       "locked_by_other": "Este registro está bloqueado por otro usuario.",
       "optimistic_notice": "Otro usuario está editando este registro. Puede haber conflictos al guardar.",
+      "same_user_session": "Este registro ya está abierto en otra sesión.",
       "mine": "Actualmente estás editando este registro.",
       "take_over": "Tomar control de la edicion",
       "take_over_pending": "Tomando control..."
