@@ -660,15 +660,15 @@ export function AppShell({ productName, email, groups, rightHeaderSlot, children
 
             return (
               <div key={section.id}>
-                <button
-                  type="button"
+                <Button
+                  variant="muted"
                   onClick={() => toggleGroup(sectionKey)}
-                  className={`w-full ${compact ? 'px-0 justify-center' : 'px-2 justify-between'} flex items-center text-xs uppercase text-muted-foreground/90 py-2`}
+                  className={`w-full ${compact ? 'px-0 justify-center' : 'px-2 justify-between'} flex text-xs uppercase text-muted-foreground/90 py-2`}
                   aria-expanded={open}
                 >
                   {!compact && <span>{sectionLabel}</span>}
                   {!compact && <Chevron open={open} />}
-                </button>
+                </Button>
                 {open && (
                   <div className={`flex flex-col ${compact ? 'items-center' : ''} gap-1 ${!compact ? 'pl-1' : ''}`}>
                     {sortedItems.map((item) => {
@@ -965,15 +965,15 @@ export function AppShell({ productName, email, groups, rightHeaderSlot, children
                       if (visibleItems.length === 0) return null
                       return (
                         <div key={groupId}>
-                          <button
-                            type="button"
+                          <Button
+                            variant="muted"
                             onClick={() => toggleGroup(groupId)}
-                            className={`w-full ${compact ? 'px-0 justify-center' : 'px-2 justify-between'} flex items-center text-xs uppercase text-muted-foreground/90 py-2`}
+                            className={`w-full ${compact ? 'px-0 justify-center' : 'px-2 justify-between'} flex text-xs uppercase text-muted-foreground/90 py-2`}
                             aria-expanded={open}
                           >
                             {!compact && <span>{g.name}</span>}
                             {!compact && <Chevron open={open} />}
-                          </button>
+                          </Button>
                           {open && (
                             <div className={`flex flex-col ${compact ? 'items-center' : ''} gap-1 ${!compact ? 'pl-1' : ''}`}>
                               {visibleItems.map((i) => {
@@ -1119,10 +1119,10 @@ export function AppShell({ productName, email, groups, rightHeaderSlot, children
         <header className="border-b bg-background/60 px-3 lg:px-4 py-2 lg:py-3 flex items-center justify-between gap-2">
           <div className="flex items-center gap-2 min-w-0">
             {/* Mobile menu button */}
-            <button type="button" className="lg:hidden rounded border px-2 py-1" aria-label={t('appShell.openMenu')} onClick={() => setMobileOpen(true)}>
+            <IconButton variant="outline" size="sm" className="lg:hidden" aria-label={t('appShell.openMenu')} onClick={() => setMobileOpen(true)}>
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M3 6h18M3 12h18M3 18h18"/></svg>
-            </button>
-            {/* Desktop collapse toggle — NEW */}
+            </IconButton>
+            {/* Desktop collapse toggle */}
             <IconButton
               variant="outline"
               size="sm"
@@ -1214,7 +1214,7 @@ export function AppShell({ productName, email, groups, rightHeaderSlot, children
                 <Image src="/open-mercato.svg" alt={resolvedProductName} width={28} height={28} className="rounded" />
                 {resolvedProductName}
               </Link>
-              <button className="rounded border px-2 py-1" onClick={() => setMobileOpen(false)} aria-label={t('appShell.closeMenu')}>✕</button>
+              <IconButton variant="outline" size="sm" onClick={() => setMobileOpen(false)} aria-label={t('appShell.closeMenu')}>✕</IconButton>
             </div>
             {mobileSidebarSlot && (
               <div className="shrink-0 border-b px-3 py-2">
