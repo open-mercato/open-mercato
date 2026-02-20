@@ -8,7 +8,7 @@ type Rec = { id: string; organizationId: string; tenantId: string; title?: strin
 let db: Record<string, Rec>
 let idSeq = 1
 let commandBus: { execute: jest.Mock }
-let recordLockService: { validateMutation: jest.Mock; releaseAfterMutation: jest.Mock } | null
+let crudMutationGuardService: { validateMutation: jest.Mock; afterMutationSuccess: jest.Mock } | null
 
 const em = {
   create: (_cls: any, data: any) => ({ ...data, id: `id-${idSeq++}` }),
@@ -95,7 +95,7 @@ jest.mock('@open-mercato/shared/lib/di/container', () => ({
       dataEngine: mockDataEngine,
       accessLogService,
       commandBus,
-      recordLockService,
+      crudMutationGuardService,
     } as any)[name],
   })
 }))
@@ -126,7 +126,7 @@ describe('CRUD Factory', () => {
     commandBus = {
       execute: jest.fn(async () => ({ result: {}, logEntry: { id: 'log-1' } })),
     }
-    recordLockService = null
+    crudMutationGuardService = null
   })
 
   const querySchema = z.object({
@@ -306,13 +306,13 @@ describe('CRUD Factory', () => {
     expect(db[created.id].deletedAt).toBeInstanceOf(Date)
   })
 
-  it('PUT lock validation uses route resource identity instead of spoofed lock headers', async () => {
-    recordLockService = {
+  it('PUT mutation guard uses route resource identity instead of spoofed lock headers', async () => {
+    crudMutationGuardService = {
       validateMutation: jest.fn().mockResolvedValue({
         ok: true,
-        shouldReleaseOnSuccess: false,
+        shouldRunAfterSuccess: false,
       }),
-      releaseAfterMutation: jest.fn().mockResolvedValue(undefined),
+      afterMutationSuccess: jest.fn().mockResolvedValue(undefined),
     }
 
     const created = em.create(Todo, {
@@ -328,20 +328,17 @@ describe('CRUD Factory', () => {
       body: JSON.stringify({ id: created.id, title: 'X2' }),
       headers: {
         'content-type': 'application/json',
-        'x-om-record-lock-kind': 'spoof.kind',
-        'x-om-record-lock-resource-id': 'spoof-id',
+        'x-om-spoof-kind': 'spoof.kind',
+        'x-om-spoof-id': 'spoof-id',
       },
     }))
 
     expect(res.status).toBe(200)
-    expect(recordLockService.validateMutation).toHaveBeenCalledTimes(1)
-    expect(recordLockService.validateMutation).toHaveBeenCalledWith(expect.objectContaining({
+    expect(crudMutationGuardService.validateMutation).toHaveBeenCalledTimes(1)
+    expect(crudMutationGuardService.validateMutation).toHaveBeenCalledWith(expect.objectContaining({
       resourceKind: 'example.todo',
       resourceId: created.id,
-      headers: expect.objectContaining({
-        resourceKind: 'spoof.kind',
-        resourceId: 'spoof-id',
-      }),
+      requestHeaders: expect.any(Headers),
     }))
   })
 

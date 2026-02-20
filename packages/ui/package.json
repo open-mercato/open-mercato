@@ -70,10 +70,6 @@
       "types": "./src/backend/notifications/index.ts",
       "default": "./dist/backend/notifications/index.js"
     },
-    "./backend/record-locking": {
-      "types": "./src/backend/record-locking/index.ts",
-      "default": "./dist/backend/record-locking/index.js"
-    },
     "./backend/version-history": {
       "types": "./src/backend/version-history/index.ts",
       "default": "./dist/backend/version-history/index.js"

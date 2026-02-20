@@ -71,8 +71,7 @@ function maybeWarnEnterpriseLicense(data: BootstrapData): void {
   const enterpriseModulesEnabled = parseBooleanWithDefault(process.env.OM_ENABLE_ENTERPRISE_MODULES, false)
   if (!enterpriseModulesEnabled) return
 
-  const hasEnterpriseRecordLocks = data.modules.some((module) => module.id === 'record_locks')
-  if (!hasEnterpriseRecordLocks) return
+  if (!Array.isArray(data.modules) || data.modules.length === 0) return
 
   _enterpriseLicenseWarningShown = true
   console.warn(
