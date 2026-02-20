@@ -25,6 +25,14 @@ export interface CheckAuthRateLimitResult {
  */
 export async function checkAuthRateLimit(options: CheckAuthRateLimitOptions): Promise<CheckAuthRateLimitResult> {
   try {
+    const isIntegrationTestMode = process.env.OM_TEST_MODE === '1' && process.env.OM_TEST_AUTH_RATE_LIMIT_MODE === 'opt-in'
+    if (isIntegrationTestMode) {
+      const rateLimitHeader = options.req.headers.get('x-om-test-rate-limit')
+      if (rateLimitHeader !== 'on') {
+        return { error: null, compoundKey: null }
+      }
+    }
+
     const rateLimiterService = getCachedRateLimiterService()
     if (!rateLimiterService) return { error: null, compoundKey: null }
 

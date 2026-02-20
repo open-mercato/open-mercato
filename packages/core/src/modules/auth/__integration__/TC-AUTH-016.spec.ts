@@ -12,6 +12,8 @@ import { DEFAULT_CREDENTIALS } from '@open-mercato/core/modules/core/__integrati
  * Each test uses a unique email to avoid cross-test compound key pollution.
  */
 test.describe('TC-AUTH-016: Rate Limiting on Authentication Endpoints', () => {
+  const rateLimitHeaders = { 'x-om-test-rate-limit': 'on' };
+
   test('login rate limit — returns 429 after exceeding compound limit', async ({ request }) => {
     const email = `ratelimit-login-${Date.now()}@test.invalid`;
     const attempts = 6; // compound limit is 5
@@ -21,7 +23,7 @@ test.describe('TC-AUTH-016: Rate Limiting on Authentication Endpoints', () => {
       lastResponse = await postForm(request, '/api/auth/login', {
         email,
         password: 'wrong-password',
-      });
+      }, { headers: rateLimitHeaders });
     }
 
     expect(lastResponse!.status()).toBe(429);
@@ -44,14 +46,14 @@ test.describe('TC-AUTH-016: Rate Limiting on Authentication Endpoints', () => {
       await postForm(request, '/api/auth/login', {
         email: emailA,
         password: 'wrong-password',
-      });
+      }, { headers: rateLimitHeaders });
     }
 
     // email-B should still be allowed (its own compound bucket is fresh)
     const responseB = await postForm(request, '/api/auth/login', {
       email: emailB,
       password: 'wrong-password',
-    });
+    }, { headers: rateLimitHeaders });
 
     // email-B should get 401 (invalid credentials), not 429
     expect(responseB.status()).not.toBe(429);
@@ -65,7 +67,7 @@ test.describe('TC-AUTH-016: Rate Limiting on Authentication Endpoints', () => {
     for (let i = 0; i < attempts; i++) {
       lastResponse = await postForm(request, '/api/auth/reset', {
         email,
-      });
+      }, { headers: rateLimitHeaders });
     }
 
     expect(lastResponse!.status()).toBe(429);
@@ -87,21 +89,21 @@ test.describe('TC-AUTH-016: Rate Limiting on Authentication Endpoints', () => {
       await postForm(request, '/api/auth/login', {
         email,
         password: 'wrong-password',
-      });
+      }, { headers: rateLimitHeaders });
     }
 
     // Successful login should reset the compound counter
     const successResponse = await postForm(request, '/api/auth/login', {
       email,
       password,
-    });
+    }, { headers: rateLimitHeaders });
     expect(successResponse.status()).toBe(200);
 
     // After reset, another failed attempt should NOT be 429
     const postResetResponse = await postForm(request, '/api/auth/login', {
       email,
       password: 'wrong-password',
-    });
+    }, { headers: rateLimitHeaders });
     expect(postResetResponse.status()).not.toBe(429);
   });
 });

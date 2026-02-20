@@ -2446,6 +2446,7 @@ export async function startEphemeralEnvironment(options: EphemeralRuntimeOptions
       JWT_SECRET: 'om-ephemeral-integration-jwt-secret',
       NODE_ENV: 'test',
       OM_TEST_MODE: '1',
+      OM_TEST_AUTH_RATE_LIMIT_MODE: 'opt-in',
       OM_DISABLE_EMAIL_DELIVERY: '1',
       ENABLE_CRUD_API_CACHE: 'true',
       CI: 'true',
