@@ -42,3 +42,12 @@ export async function resolveRecordLocksApiContext(req: Request): Promise<Record
 export function jsonError(error: string, status = 400, extras?: Record<string, unknown>) {
   return NextResponse.json({ error, ...(extras ?? {}) }, { status })
 }
+
+export function resolveRequestIp(request: Request): string | null {
+  const direct = request.headers.get('x-real-ip')?.trim()
+  if (direct) return direct
+  const forwarded = request.headers.get('x-forwarded-for')?.trim()
+  if (!forwarded) return null
+  const first = forwarded.split(',')[0]?.trim()
+  return first || null
+}

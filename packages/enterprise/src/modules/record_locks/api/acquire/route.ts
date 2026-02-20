@@ -5,7 +5,28 @@ import {
   recordLockAcquireSchema,
   recordLockErrorSchema,
 } from '../../data/validators'
-import { resolveRecordLocksApiContext } from '../utils'
+import { resolveRecordLocksApiContext, resolveRequestIp } from '../utils'
+import type { EntityManager } from '@mikro-orm/postgresql'
+import { User } from '@open-mercato/core/modules/auth/data/entities'
+
+type LockWithActor = {
+  lockedByUserId: string
+  lockedByName?: string | null
+  lockedByEmail?: string | null
+}
+
+async function enrichLockActor(
+  em: EntityManager,
+  lock: LockWithActor | null | undefined,
+): Promise<LockWithActor | null> {
+  if (!lock) return null
+  const actor = await em.findOne(User, { id: lock.lockedByUserId, deletedAt: null })
+  return {
+    ...lock,
+    lockedByName: actor?.name ?? null,
+    lockedByEmail: actor?.email ?? null,
+  }
+}
 
 export const metadata = {
   POST: { requireAuth: true, requireFeatures: ['record_locks.view'] },
@@ -27,21 +48,31 @@ export async function POST(req: Request) {
     tenantId: ctxOrResponse.auth.tenantId,
     organizationId: ctxOrResponse.organizationId,
     userId: ctxOrResponse.auth.sub,
+    lockedByIp: resolveRequestIp(req),
   })
 
+  const em = ctxOrResponse.container.resolve<EntityManager>('em').fork()
+
   if (!result.ok) {
+    const lock = await enrichLockActor(em, result.lock as LockWithActor | null)
     return NextResponse.json(
       {
         error: result.error,
         code: result.code,
         allowForceUnlock: result.allowForceUnlock,
-        lock: result.lock,
+        currentUserId: ctxOrResponse.auth.sub,
+        lock,
       },
       { status: result.status },
     )
   }
 
-  return NextResponse.json(result)
+  const lock = await enrichLockActor(em, result.lock as LockWithActor | null)
+  return NextResponse.json({
+    ...result,
+    currentUserId: ctxOrResponse.auth.sub,
+    lock,
+  })
 }
 
 export const openApi: OpenApiRouteDoc = {

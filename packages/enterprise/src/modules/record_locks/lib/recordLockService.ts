@@ -46,7 +46,9 @@ export type RecordLockResource = {
   resourceId: string
 }
 
-export type RecordLockAcquireInput = RecordLockScope & RecordLockResource
+export type RecordLockAcquireInput = RecordLockScope & RecordLockResource & {
+  lockedByIp?: string | null
+}
 
 export type RecordLockHeartbeatInput = RecordLockScope & RecordLockResource & {
   token: string
@@ -93,6 +95,7 @@ export type RecordLockView = {
   strategy: RecordLockStrategy
   status: RecordLockStatus
   lockedByUserId: string
+  lockedByIp: string | null
   baseActionLogId: string | null
   lockedAt: string
   lastHeartbeatAt: string
@@ -407,6 +410,7 @@ export class RecordLockService {
 
     if (active && active.lockedByUserId === input.userId) {
       active.strategy = settings.strategy
+      active.lockedByIp = input.lockedByIp ?? active.lockedByIp ?? null
       active.lastHeartbeatAt = now
       active.expiresAt = new Date(now.getTime() + settings.timeoutSeconds * 1000)
       active.baseActionLogId = latest?.id ?? active.baseActionLogId ?? null
@@ -432,6 +436,7 @@ export class RecordLockService {
       strategy: settings.strategy,
       status: ACTIVE_LOCK_STATUS,
       lockedByUserId: input.userId,
+      lockedByIp: input.lockedByIp ?? null,
       baseActionLogId: latest?.id ?? null,
       lockedAt: now,
       lastHeartbeatAt: now,
@@ -474,6 +479,7 @@ export class RecordLockService {
       }
 
       competing.strategy = settings.strategy
+      competing.lockedByIp = input.lockedByIp ?? competing.lockedByIp ?? null
       competing.lastHeartbeatAt = now
       competing.expiresAt = new Date(now.getTime() + settings.timeoutSeconds * 1000)
       competing.baseActionLogId = latest?.id ?? competing.baseActionLogId ?? null
@@ -556,11 +562,9 @@ export class RecordLockService {
       }
     }
 
-    if (!input.token) {
-      return { ok: true, released: false, conflictResolved }
-    }
-
-    const lock = await this.findOwnedLockByToken(input)
+    const lock = input.token
+      ? await this.findOwnedLockByToken(input)
+      : await this.findOwnedActiveLock(input)
     if (!lock) return { ok: true, released: false, conflictResolved }
 
     const now = new Date()
@@ -642,8 +646,7 @@ export class RecordLockService {
     const shouldReleaseOnSuccess = Boolean(
       active
       && active.lockedByUserId === input.userId
-      && parsedHeaders.token
-      && active.token === parsedHeaders.token,
+      && (!parsedHeaders.token || active.token === parsedHeaders.token),
     )
 
     if (settings.strategy === 'pessimistic') {
@@ -658,7 +661,7 @@ export class RecordLockService {
       }
 
       if (active && active.lockedByUserId === input.userId) {
-        if (!parsedHeaders.token || active.token !== parsedHeaders.token) {
+        if (parsedHeaders.token && active.token !== parsedHeaders.token) {
           return {
             ok: false,
             status: 423,
@@ -763,6 +766,26 @@ export class RecordLockService {
     if (!releaseResult.released) return
   }
 
+  async resolveConflictById(input: {
+    conflictId: string
+    tenantId: string
+    organizationId?: string | null
+    userId: string
+    resolution: 'accept_incoming' | 'accept_mine' | 'merged'
+  }): Promise<boolean> {
+    const conflict = await this.em.findOne(RecordLockConflict, {
+      id: input.conflictId,
+      tenantId: input.tenantId,
+      organizationId: normalizeScopeOrganization(input.organizationId),
+      deletedAt: null,
+    })
+    if (!conflict || conflict.status !== 'pending' || conflict.conflictActorUserId !== input.userId) {
+      return false
+    }
+    await this.resolveConflict(conflict, input.resolution, input.userId)
+    return true
+  }
+
   private normalizeMutationHeaders(headers: Partial<RecordLockMutationHeaders>): Partial<RecordLockMutationHeaders> {
     const parsed = recordLockMutationHeaderSchema.partial().safeParse(headers)
     if (!parsed.success) return {}
@@ -845,6 +868,19 @@ export class RecordLockService {
     return this.em.findOne(RecordLock, where)
   }
 
+  private async findOwnedActiveLock(
+    input: Pick<RecordLockScope, 'tenantId' | 'organizationId' | 'userId'> & RecordLockResource,
+  ): Promise<RecordLock | null> {
+    const where: FilterQuery<RecordLock> = {
+      ...this.buildScopeWhere(input),
+      resourceKind: input.resourceKind,
+      resourceId: input.resourceId,
+      lockedByUserId: input.userId,
+      status: ACTIVE_LOCK_STATUS,
+    }
+    return this.em.findOne(RecordLock, where)
+  }
+
   private markLockReleased(
     lock: RecordLock,
     params: {
@@ -887,6 +923,7 @@ export class RecordLockService {
       strategy: lock.strategy,
       status: lock.status,
       lockedByUserId: lock.lockedByUserId,
+      lockedByIp: lock.lockedByIp ?? null,
       baseActionLogId: lock.baseActionLogId,
       lockedAt: normalizeDate(lock.lockedAt),
       lastHeartbeatAt: normalizeDate(lock.lastHeartbeatAt),

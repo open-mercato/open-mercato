@@ -53,11 +53,15 @@
       },
       "conflict_detected": {
         "title": "Edit conflict detected",
-        "body": "Your save conflicted with a more recent change."
+        "body": "Your save conflicted with a more recent change. Changed fields: {changedFields}."
       },
       "conflict_resolved": {
         "title": "Conflict resolved",
         "body": "A record conflict has been resolved."
+      },
+      "actions": {
+        "accept_incoming": "Apply incoming",
+        "accept_mine": "Reject incoming"
       }
     }
   }

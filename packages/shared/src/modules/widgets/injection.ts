@@ -86,6 +86,7 @@ export type WidgetBeforeSaveResult =
       ok?: boolean
       message?: string
       fieldErrors?: Record<string, string>
+      requestHeaders?: Record<string, string>
     }
 
 /**

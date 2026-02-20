@@ -1,5 +1,7 @@
 import { buildNotificationFromType } from '@open-mercato/core/modules/notifications/lib/notificationBuilder'
 import { resolveNotificationService } from '@open-mercato/core/modules/notifications/lib/notificationService'
+import type { EntityManager } from '@mikro-orm/postgresql'
+import { ActionLog } from '@open-mercato/core/modules/audit_logs/data/entities'
 import {
   isConflictNotificationEnabled,
   resolveRecordLockNotificationType,
@@ -35,6 +37,14 @@ export default async function handle(payload: Payload, ctx: ResolverContext) {
   if (!notificationsEnabled) return
 
   try {
+    const em = (ctx.resolve('em') as EntityManager).fork()
+    const incomingLog = payload.incomingActionLogId
+      ? await em.findOne(ActionLog, { id: payload.incomingActionLogId, deletedAt: null })
+      : null
+    const changedFields = incomingLog?.changesJson && typeof incomingLog.changesJson === 'object'
+      ? Object.keys(incomingLog.changesJson).slice(0, 12).join(', ')
+      : ''
+
     const notificationService = resolveNotificationService(ctx)
     const typeDef = resolveRecordLockNotificationType('record_locks.conflict.detected')
     if (!typeDef) return
@@ -43,6 +53,7 @@ export default async function handle(payload: Payload, ctx: ResolverContext) {
       recipientUserId: payload.conflictActorUserId,
       bodyVariables: {
         resourceKind: payload.resourceKind,
+        changedFields: changedFields || '-',
       },
       sourceEntityType: 'record_locks:conflict',
       sourceEntityId: payload.conflictId,

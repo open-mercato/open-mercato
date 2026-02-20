@@ -18,7 +18,21 @@ export const notificationTypes: NotificationTypeDefinition[] = [
     bodyKey: 'record_locks.notifications.conflict_detected.body',
     icon: 'git-compare-arrows',
     severity: 'warning',
-    actions: [],
+    actions: [
+      {
+        id: 'accept_incoming',
+        labelKey: 'record_locks.notifications.actions.accept_incoming',
+        variant: 'outline',
+        commandId: 'record_locks.conflict.accept_incoming',
+      },
+      {
+        id: 'accept_mine',
+        labelKey: 'record_locks.notifications.actions.accept_mine',
+        variant: 'default',
+        commandId: 'record_locks.conflict.accept_mine',
+      },
+    ],
+    primaryActionId: 'accept_mine',
     expiresAfterHours: 48,
   },
   {

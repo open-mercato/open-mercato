@@ -53,6 +53,7 @@ import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { TagsInput } from './inputs/TagsInput'
 import { ComboboxInput } from './inputs/ComboboxInput'
 import { mapCrudServerErrorToFormErrors, parseServerMessage } from './utils/serverErrors'
+import { withScopedApiRequestHeaders } from './utils/apiCall'
 import type { CustomFieldDefLike } from '@open-mercato/shared/modules/entities/validation'
 import type { MDEditorProps as UiWMDEditorProps } from '@uiw/react-md-editor'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '../primitives/dialog'
@@ -1075,6 +1076,7 @@ export function CrudForm<TValues extends Record<string, unknown>>({
     }
 
     // Trigger onBeforeSave event for injection widgets
+    let injectionRequestHeaders: Record<string, string> | undefined
     if (resolvedInjectionSpotId) {
       try {
         const result = await triggerInjectionEvent('onBeforeSave', parsedValues, injectionContext)
@@ -1087,6 +1089,7 @@ export function CrudForm<TValues extends Record<string, unknown>>({
           setPending(false)
           return
         }
+        injectionRequestHeaders = result.requestHeaders
       } catch (err) {
         console.error('[CrudForm] Error in onBeforeSave:', err)
         flash(t('ui.forms.flash.saveBlocked', 'Save blocked by validation'), 'error')
@@ -1110,7 +1113,13 @@ export function CrudForm<TValues extends Record<string, unknown>>({
     }
     
     try {
-      await onSubmit?.(parsedValues)
+      if (injectionRequestHeaders && Object.keys(injectionRequestHeaders).length > 0) {
+        await withScopedApiRequestHeaders(injectionRequestHeaders, async () => {
+          await onSubmit?.(parsedValues)
+        })
+      } else {
+        await onSubmit?.(parsedValues)
+      }
       
       // Trigger onAfterSave event for injection widgets
       if (resolvedInjectionSpotId) {

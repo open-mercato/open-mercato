@@ -46,6 +46,9 @@ export class RecordLock {
   @Property({ name: 'locked_by_user_id', type: 'uuid' })
   lockedByUserId!: string
 
+  @Property({ name: 'locked_by_ip', type: 'text', nullable: true })
+  lockedByIp: string | null = null
+
   @Property({ name: 'base_action_log_id', type: 'uuid', nullable: true })
   baseActionLogId: string | null = null
 

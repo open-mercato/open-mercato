@@ -183,8 +183,10 @@ export function useInjectionSpotEvents<TContext = unknown, TData = unknown>(spot
       event: keyof WidgetInjectionEventHandlers<TContext, TData>,
       data: TData,
       context: TContext
-    ): Promise<{ ok: boolean; message?: string; fieldErrors?: Record<string, string> }> => {
-      const normalizeBeforeSave = (result: WidgetBeforeSaveResult): { ok: boolean; message?: string; fieldErrors?: Record<string, string> } => {
+    ): Promise<{ ok: boolean; message?: string; fieldErrors?: Record<string, string>; requestHeaders?: Record<string, string> }> => {
+      const normalizeBeforeSave = (
+        result: WidgetBeforeSaveResult,
+      ): { ok: boolean; message?: string; fieldErrors?: Record<string, string>; requestHeaders?: Record<string, string> } => {
         if (result === false) return { ok: false }
         if (result === true || typeof result === 'undefined') return { ok: true }
         if (result && typeof result === 'object') {
@@ -196,7 +198,13 @@ export function useInjectionSpotEvents<TContext = unknown, TData = unknown>(spot
                   Object.entries(result.fieldErrors).map(([key, value]) => [key, String(value)]),
                 )
               : undefined
-          return { ok, message, fieldErrors }
+          const requestHeaders =
+            result.requestHeaders && typeof result.requestHeaders === 'object'
+              ? Object.fromEntries(
+                  Object.entries(result.requestHeaders).map(([key, value]) => [key, String(value)]),
+                )
+              : undefined
+          return { ok, message, fieldErrors, requestHeaders }
         }
         return { ok: true }
       }

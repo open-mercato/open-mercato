@@ -53,11 +53,15 @@
       },
       "conflict_detected": {
         "title": "Wykryto konflikt edycji",
-        "body": "Twój zapis wszedł w konflikt z nowszą zmianą."
+        "body": "Twój zapis wszedł w konflikt z nowszą zmianą. Zmienione pola: {changedFields}."
       },
       "conflict_resolved": {
         "title": "Konflikt rozwiązany",
         "body": "Konflikt rekordu został rozwiązany."
+      },
+      "actions": {
+        "accept_incoming": "Zastosuj przychodzące",
+        "accept_mine": "Odrzuć przychodzące"
       }
     }
   }
