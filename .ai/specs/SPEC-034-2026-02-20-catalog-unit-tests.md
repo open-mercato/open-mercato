@@ -1,4 +1,4 @@
-# SPEC-030: Catalog Module Unit & UI Unit Tests
+# SPEC-034: Catalog Module Test Coverage
 
 **Date:** 2026-02-20
 **Status:** Draft
@@ -10,52 +10,68 @@
 ## TLDR
 
 **Key Points:**
-- Add comprehensive unit tests and UI unit tests for all new catalog UIs introduced in PR #142
-- Cover pure logic functions (form helpers, normalizers, combinators) and interactive component behaviors (data tables, editors, form sections)
+
+- Increase catalog module test coverage from ~57% to near 100% through unit tests and integration tests
+- Unit tests cover pure logic functions and component interactions (Jest)
+- Integration tests cover uncovered API routes and UI flows (Playwright)
 
 **Scope:**
-- 3 pure logic test files (~70 test cases, zero mocking)
-- 8 component interaction test files (~92 test cases, jsdom + React Testing Library)
-- Total: 11 new test files, ~162 test cases
+
+- Phase 1: 3 pure logic test files (~70 unit test cases, zero mocking)
+- Phase 2: 8 component interaction test files (~92 unit test cases, jsdom)
+- Phase 3: ~10 new integration test files covering uncovered API routes and UI flows (Playwright)
+- Phase 4: New fixture helpers for integration test setup/teardown
 
 **Concerns:**
-- Heavy mock setup required for component tests due to external dependencies (React Query, i18n, API layer)
+
+- Integration tests require a running app instance (ephemeral or local)
+- Heavy mock setup required for Phase 2 component tests
 
 ## Overview
 
-PR #142 introduced significant catalog UI features: product CRUD pages, variant management, category hierarchy, price kind configuration, media management, and metadata editing. The catalog module has 14 existing test files, but only 3 cover UI components — and those are limited to shallow render-only assertions. This spec defines the test coverage needed to ensure correctness and prevent regressions.
+PR #142 introduced significant catalog UI features: product CRUD pages, variant management, category hierarchy, price kind configuration, media management, and metadata editing. Current integration test coverage sits at ~57% (measured via `yarn test:integration:coverage`). 12 integration tests exist (TC-CAT-001 through TC-CAT-012) but they only cover happy paths — validation, error handling, and several API routes (offers, prices, option schemas) have zero coverage. Unit tests for pure form logic are also missing entirely.
 
-> **Market Reference**: Studied Medusa.js and Saleor catalog test suites. Adopted their pattern of testing form helpers as pure functions separately from component rendering tests. Rejected their approach of testing full page components (too brittle with server-side dependencies) — we rely on Playwright integration tests for page-level coverage instead.
+> **Market Reference**: Studied Medusa.js and Saleor catalog test suites. Adopted their pattern of testing form helpers as pure functions separately from component rendering. For integration tests, adopted Saleor's approach of API-based fixture setup with UI-based flow verification.
 
 ## Problem Statement
 
-1. **Low UI test coverage**: The catalog module has 14 test files but only 3 cover UI components (`catalogComponentsRender.test.tsx`, `ProductImageCell.test.tsx`, `ProductsDataTable.test.tsx`) — the rest cover API routes, commands, pricing, and services. The UI tests are limited to basic render assertions with no interaction coverage.
-2. **Untested pure logic**: `productForm.ts` exports 12+ pure functions used by both create and edit flows. Zero unit tests cover these.
-3. **No interaction testing**: Existing tests only verify that components render without crashing. No tests for user interactions (add/remove entries, form field changes, dialog flows, confirmation dialogs).
-4. **Regression risk**: Future changes to catalog UIs have no safety net beyond integration tests, which are slower and more expensive to run.
+1. **57% integration coverage**: 12 tests exist but only cover happy paths. Validation errors, edge cases, and error handling are mostly untested.
+2. **Uncovered API routes**: Offers (full CRUD), Prices (update/delete), Categories (edit/delete), Option Schemas (update/delete), Product Media, and Dictionaries have zero integration test coverage.
+3. **Uncovered UI flows**: Category editing/deletion, media management, advanced product filtering, and option schema management have no end-to-end tests.
+4. **Untested pure logic**: `productForm.ts` exports 12+ pure functions used by create and edit flows. Zero unit tests cover these.
+5. **No component interaction testing**: Existing unit tests only verify that components render without crashing. No tests for user interactions.
 
 ## Proposed Solution
 
-Add unit tests in two phases, prioritized by value and implementation effort:
+Add tests in four phases, ordered by value:
 
-1. **Phase 1 — Pure Logic Tests**: Test all exported functions from `productForm.ts`, `variantForm.ts`, and `categoryTree.ts` as plain TypeScript. Zero React rendering, zero mocking. Highest value per line of test code.
-
-2. **Phase 2 — Component Interaction Tests**: Test interactive behaviors of 8 catalog components using React Testing Library with the established mock patterns from `catalogComponentsRender.test.tsx`.
+1. **Phase 1 — Pure Logic Unit Tests**: Test all exported functions from `productForm.ts`, `variantForm.ts`, and `categoryTree.ts`. Zero mocking, runs in milliseconds.
+2. **Phase 2 — Component Interaction Unit Tests**: Test interactive behaviors of 8 catalog components using React Testing Library.
+3. **Phase 3 — Integration Tests**: Implement ~10 new Playwright tests covering uncovered API routes and UI flows. Target: bring integration coverage from ~57% to near 100%.
+4. **Phase 4 — Fixture Helpers**: Add missing fixture helpers for categories, variants, offers, and price kinds.
 
 ### Design Decisions
 
 | Decision | Rationale |
-|----------|-----------|
-| Skip backend page tests | Pages are CrudForm wrappers — correctness covered by integration tests TC-CAT-001 through TC-CAT-012 |
-| Skip `optionSchemaClient.ts` | Thin API client wrapper, low value for unit testing |
-| Dedicated test files per component | Existing `catalogComponentsRender.test.tsx` provides breadth; new files add depth |
-| Reuse existing mock setup | Follow patterns from `catalogComponentsRender.test.tsx` and `ProductsDataTable.test.tsx` |
+| --- | --- |
+| Unit tests first, integration tests second | Unit tests catch logic bugs instantly; integration tests catch workflow bugs |
+| Skip backend page unit tests | Pages are CrudForm wrappers — correctness covered by integration tests |
+| API-based fixture setup for integration tests | More stable than UI-based setup, follows established pattern from TC-CAT-004+ |
+| New TC numbers start at TC-CAT-013 | Continues from existing TC-CAT-012 |
+
+### Alternatives Considered
+
+| Alternative | Why Rejected |
+| --- | --- |
+| Integration tests only | Pure logic tests catch dimension/weight/pricing normalization bugs that are invisible to Playwright |
+| Unit tests only | Does not address the 57% integration coverage gap that Piotr flagged |
 
 ## User Stories / Use Cases
 
 - **Developer** wants to **refactor product form logic** so that **unit tests catch regressions before integration tests run**
-- **Developer** wants to **add a new price kind display mode** so that **`normalizePriceKindSummary` tests validate the new mode is handled**
+- **QA engineer** wants to **run `yarn test:integration:coverage`** so that **catalog module shows near 100% coverage**
 - **CI pipeline** wants to **run fast unit tests on every PR** so that **broken catalog UIs are caught in seconds, not minutes**
+- **Developer** wants to **add a new offer type** so that **integration tests verify the full create-edit-delete lifecycle**
 
 ## Architecture
 
@@ -67,11 +83,28 @@ N/A — No entity or schema changes.
 
 ## API Contracts
 
-N/A — No API changes.
+N/A — No API changes. Integration tests verify existing API contracts:
+
+**Currently covered:**
+
+- `POST/GET /api/catalog/products` (TC-CAT-001, TC-CAT-012)
+- `PATCH /api/catalog/products/[id]` (TC-CAT-003)
+- `DELETE /api/catalog/products` (TC-CAT-004)
+- `POST/PATCH /api/catalog/variants` (TC-CAT-005, TC-CAT-006)
+- `POST /api/catalog/categories` (TC-CAT-007, TC-CAT-008)
+- `POST/DELETE /api/catalog/price-kinds` (TC-CAT-010)
+
+**To be covered in Phase 3:**
+
+- `PUT/DELETE /api/catalog/categories` (edit, delete)
+- `GET/POST/PUT/DELETE /api/catalog/offers` (full CRUD)
+- `GET/PUT/DELETE /api/catalog/prices` (list, update, delete)
+- `PUT/DELETE /api/catalog/option-schemas` (update, delete)
+- `GET /api/catalog/product-media` (list)
 
 ## Internationalization (i18n)
 
-N/A — Tests use mock translation function: `useT: () => (key, fallback) => fallback ?? key`.
+N/A — Unit tests use mock translation function. Integration tests use the running app's locale.
 
 ## UI/UX
 
@@ -79,7 +112,8 @@ N/A — No UI changes. Tests verify existing UI behavior.
 
 ## Configuration
 
-N/A — Uses existing Jest configuration from `packages/core/jest.config.cjs` (node environment for `.ts`, jsdom for `.tsx`).
+- **Unit tests**: Existing Jest configuration from `packages/core/jest.config.cjs`
+- **Integration tests**: Existing Playwright configuration from `.ai/qa/tests/playwright.config.ts` (timeout: 20s, retries: 1, workers: 1)
 
 ## Migration & Compatibility
 
@@ -87,9 +121,9 @@ N/A — No database or API changes. Test files are additive.
 
 ## Implementation Plan
 
-### Phase 1: Pure Logic Tests (Zero Mocking)
+### Phase 1: Pure Logic Unit Tests (Zero Mocking)
 
-**Goal:** Cover all pure functions exported from form helper modules. These tests run in Node.js without jsdom, have no external dependencies, and execute in milliseconds.
+**Goal:** Cover all pure functions exported from form helper modules. Runs in Node.js without jsdom, no external dependencies, executes in milliseconds.
 
 #### Step 1.1: `productForm.test.ts`
 
@@ -98,7 +132,7 @@ N/A — No database or API changes. Test files are additive.
 **Functions to test (~50 test cases):**
 
 | Function | Key Test Cases |
-|----------|---------------|
+| --- | --- |
 | `buildOptionValuesKey` | Empty/undefined input, single key, multiple keys sorted alphabetically, undefined values coerced to empty |
 | `haveSameOptionValues` | Identical records, undefined vs empty, different keys, different values, superset keys |
 | `normalizeProductDimensions` | null/undefined/non-object → null, empty object → null, valid numeric fields, negative values stripped, string numbers coerced, unit trimming, partial dimensions |
@@ -121,7 +155,7 @@ N/A — No database or API changes. Test files are additive.
 **Functions to test (~15 test cases):**
 
 | Function | Key Test Cases |
-|----------|---------------|
+| --- | --- |
 | `normalizeOptionSchema` | Non-array → empty, null → empty, valid entries mapped, null/non-object entries skipped, empty label values filtered |
 | `buildVariantMetadata` | Valid object shallow-copied, null → empty object, undefined → empty object |
 | `createVariantInitialValues` | Matches VARIANT_BASE_VALUES shape, unique mediaDraftId |
@@ -134,154 +168,258 @@ N/A — No database or API changes. Test files are additive.
 **Functions to test (~5 test cases):**
 
 | Function | Key Test Cases |
-|----------|---------------|
-| `formatCategoryTreeLabel` | depth 0 → plain name, depth 1 → "↳ name", depth 2 → "\u00A0\u00A0↳ name", depth 3 → "\u00A0\u00A0\u00A0\u00A0↳ name", negative depth → plain name |
+| --- | --- |
+| `formatCategoryTreeLabel` | depth 0 → plain name, depth 1 → "↳ name", depth 2 → indented "↳ name", negative depth → plain name |
 
-### Phase 2: Component Interaction Tests
+### Phase 2: Component Interaction Unit Tests
 
 **Goal:** Test user interactions beyond basic rendering. All tests use `@jest-environment jsdom` pragma and follow mock patterns from existing catalog tests.
 
 **Shared mock setup** (reused across all Phase 2 files):
+
 - `@open-mercato/shared/lib/i18n/context` → `useT` returns fallback-or-key translator
 - `@open-mercato/ui/backend/utils/apiCall` → `apiCall`, `readApiResultOrThrow` as `jest.fn()`
 - `@open-mercato/ui/primitives/*` → Simple DOM element wrappers
 - `next/link` → `<a>` element
 - `@tanstack/react-query` → Controlled `useQuery`/`useQueryClient` mocks
 
-#### Step 2.1: `MetadataEditor.test.tsx`
+#### Step 2.1: `MetadataEditor.test.tsx` (~15 test cases)
 
-**File:** `packages/core/src/modules/catalog/components/products/__tests__/MetadataEditor.test.tsx`
+Expand/collapse toggle, add/remove/edit entries, value type parsing (boolean, number, JSON), empty state, embedded mode, custom title.
 
-**Test cases (~15):**
-- Expand/collapse toggle via button click
-- Add entry appends new key-value pair via onChange
-- Remove entry removes specific key via onChange
-- Edit key input fires onChange with renamed key
-- Edit value input fires onChange with updated value
-- Value parsing: `"true"` → boolean, `"42"` → number, `"hello"` → string, `'{"a":1}'` → parsed JSON
-- Empty state shows "No metadata" when expanded with no entries
-- Renders initial entries from value prop correctly
-- Embedded mode omits wrapper border
-- Custom title and description props render
+#### Step 2.2: `CategorySlugFieldSync.test.tsx` (~8 test cases)
 
-#### Step 2.2: `CategorySlugFieldSync.test.tsx`
+Auto-sync on name change, manual override stops sync, clear re-enables sync, empty name clears slug.
 
-**File:** `packages/core/src/modules/catalog/components/categories/__tests__/CategorySlugFieldSync.test.tsx`
+#### Step 2.3: `CategorySelect.test.tsx` (~10 test cases)
 
-**Test cases (~8):**
-- Auto-sync: name change updates slug via setValue
-- Manual override: editing slug to different value stops auto-sync
-- Clear re-enables: clearing slug re-enables auto-sync from name
-- Empty name clears slug when auto-mode is active
-- No unnecessary setValue calls when slug already matches
-- Preserves manually set slug on subsequent name changes
+Renders nodes, empty/custom empty option, value change, fetch on mount, loading/error states, disabled prop.
 
-#### Step 2.3: `CategorySelect.test.tsx`
+#### Step 2.4: `VariantBuilder.test.tsx` (~15 test cases)
 
-**File:** `packages/core/src/modules/catalog/components/categories/__tests__/CategorySelect.test.tsx`
+BasicsSection (inputs, switches, errors), OptionValuesSection (empty/select changes), DimensionsSection, PricesSection (price inputs, tax select, empty state), MediaSection.
 
-**Test cases (~10):**
-- Renders provided nodes as select options
-- Includes "Root level" empty option by default
-- Custom emptyOptionLabel renders
-- No empty option when includeEmptyOption=false
-- Selecting option calls onChange with value
-- Selecting empty option calls onChange with null
-- Fetch on mount when no nodes and fetchOnMount=true
-- No fetch when nodes provided
-- Disabled prop disables select element
-- Inactive categories show "(inactive)" suffix
+#### Step 2.5: `ProductMediaManager.test.tsx` (~12 test cases)
 
-#### Step 2.4: `VariantBuilder.test.tsx`
+Empty state, media grid rendering, default badge, set default, remove media, file size formatting.
 
-**File:** `packages/core/src/modules/catalog/components/products/__tests__/VariantBuilder.test.tsx`
+#### Step 2.6: `PriceKindSettings.test.tsx` (~12 test cases)
 
-**Test cases (~15):**
-- **BasicsSection:** Renders name/SKU/barcode inputs, onChange calls setValue, default/active switch toggles, error messages display
-- **OptionValuesSection:** Returns null when no optionDefinitions, renders select per option, changing select calls setValue
-- **DimensionsSection:** Renders dimension and weight inputs
-- **PricesSection:** Renders price input per price kind, empty state message, tax rate select, currency/displayMode labels
-- **MediaSection:** Renders ProductMediaManager with correct entity ID
+Load data, create/edit/delete dialog flow, validation, search filter, Cmd+Enter shortcut, disabled code in edit mode.
 
-#### Step 2.5: `ProductMediaManager.test.tsx`
+#### Step 2.7: `CategoriesDataTable.test.tsx` (~10 test cases)
 
-**File:** `packages/core/src/modules/catalog/components/products/__tests__/ProductMediaManager.test.tsx`
+Render rows, feature-gated create button, search, delete with confirmation, tree indentation.
 
-**Test cases (~12):**
-- Empty state shows "No media uploaded yet"
-- Renders image thumbnails for each item
-- Default badge shown on matching defaultMediaId item
-- Set default: star button click calls onDefaultChange
-- Remove media: trash button calls apiCall(DELETE) then onItemsChange
-- Remove default media also calls onDefaultChange with null/first remaining
-- File size formatting renders correctly
-- Choose files button present
+#### Step 2.8: `ProductCategorizeSection.test.tsx` (~10 test cases)
 
-#### Step 2.6: `PriceKindSettings.test.tsx`
+Three TagsInput fields, correct values, onChange handlers, error display.
 
-**File:** `packages/core/src/modules/catalog/components/__tests__/PriceKindSettings.test.tsx`
+### Phase 3: Integration Tests (Playwright)
 
-**Test cases (~12):**
-- Loads and renders price kinds on mount
-- Search input filters displayed items
-- "Add price kind" opens dialog with empty form
-- "Edit" row action opens dialog pre-filled with entry data
-- Create submission sends POST to correct endpoint
-- Edit submission sends PUT with entry id
-- Validation: submit without code/title shows error
-- Delete with confirmation dialog
-- Cancel closes dialog and resets form
-- Cmd+Enter keyboard shortcut triggers submit
-- Disabled code field in edit mode
-- Error handling shows flash on API failure
+**Goal:** Cover uncovered API routes and UI flows. Bring integration coverage from ~57% to near 100%. All tests follow the established patterns from TC-CAT-001 through TC-CAT-012.
 
-#### Step 2.7: `CategoriesDataTable.test.tsx`
+**Conventions:**
 
-**File:** `packages/core/src/modules/catalog/components/categories/__tests__/CategoriesDataTable.test.tsx`
+- Files in `packages/core/src/modules/catalog/__integration__/`
+- API-based fixture setup, cleanup in `finally` blocks
+- Unique test data via `Date.now()` suffixes
+- Login via `login(page, 'admin')` helper
+- Source scenario linked in file header comment
 
-**Test cases (~10):**
-- Renders title and data rows from useQuery
-- Feature check controls Create button visibility
-- Search re-fetches with search param
-- Delete with confirmation calls apiCallOrThrow DELETE
-- Tree indentation for depth > 0
-- Row actions only render when canManage is true
-- Loading state passes to DataTable
+#### Current Coverage Gaps
 
-#### Step 2.8: `ProductCategorizeSection.test.tsx`
+| API Route | Current Status | Gap |
+| --- | --- | --- |
+| `PUT /api/catalog/categories` | Not tested | No category edit test |
+| `DELETE /api/catalog/categories` | Not tested | No category delete test |
+| `GET/POST/PUT/DELETE /api/catalog/offers` | Not tested | No offer tests at all |
+| `GET/PUT/DELETE /api/catalog/prices` | Partially tested | Only creation via variant form |
+| `PUT/DELETE /api/catalog/option-schemas` | Not tested | No option schema lifecycle test |
+| `GET /api/catalog/product-media` | Not tested | No media listing test |
+| Duplicate SKU validation | Scenario defined, not tested | TC-CAT-002 only tests missing title |
+| Advanced filtering | Scenario defined, not tested | TC-CAT-012 only tests name/SKU search |
+| Soft-delete verification | Scenario defined, not tested | TC-CAT-004 only tests UI dialog |
 
-**File:** `packages/core/src/modules/catalog/components/products/__tests__/ProductCategorizeSection.test.tsx`
+#### Step 3.1: TC-CAT-013 — Category Edit and Delete
 
-**Test cases (~10):**
-- Renders three TagsInput sections (categories, channels, tags)
-- Passes correct values from form values
-- Category onChange calls setValue('categoryIds', ...)
-- Channel onChange calls setValue('channelIds', ...)
-- Tags onChange calls setValue('tags', ...)
-- Error display for each field when errors present
-- Help text renders for each section
+**File:** `packages/core/src/modules/catalog/__integration__/TC-CAT-013.spec.ts`
+
+**Tests:**
+
+- Create category via API fixture → navigate to edit page → update name → save → verify updated in list
+- Create category via API fixture → delete via row action → confirm → verify removed from list
+- Attempt to delete category with children → verify prevention or cascade behavior
+
+**API coverage:** `PUT /api/catalog/categories`, `DELETE /api/catalog/categories`
+
+#### Step 3.2: TC-CAT-014 — Offer CRUD Lifecycle
+
+**File:** `packages/core/src/modules/catalog/__integration__/TC-CAT-014.spec.ts`
+
+**Tests:**
+
+- Create offer via API → verify in list
+- Update offer title/dates → verify changes persist
+- Delete offer → verify removed from list
+- Create offer with invalid date range → verify validation error
+
+**API coverage:** `GET/POST/PUT/DELETE /api/catalog/offers`
+
+#### Step 3.3: TC-CAT-015 — Price Management
+
+**File:** `packages/core/src/modules/catalog/__integration__/TC-CAT-015.spec.ts`
+
+**Tests:**
+
+- Create product + variant via API → add price via API → verify price listed
+- Update price amount → verify updated value
+- Delete price → verify removed
+- Create price with zero amount → verify allowed
+- Create price with negative amount → verify validation
+
+**API coverage:** `GET/PUT/DELETE /api/catalog/prices`
+
+#### Step 3.4: TC-CAT-016 — Option Schema Management
+
+**File:** `packages/core/src/modules/catalog/__integration__/TC-CAT-016.spec.ts`
+
+**Tests:**
+
+- Create option schema via API → verify in list
+- Update schema name and options → verify changes persist
+- Delete option schema → verify removed
+- Attempt to delete schema referenced by products → verify prevention
+
+**API coverage:** `PUT/DELETE /api/catalog/option-schemas`
+
+#### Step 3.5: TC-CAT-017 — Advanced Product Filtering
+
+**File:** `packages/core/src/modules/catalog/__integration__/TC-CAT-017.spec.ts`
+
+**Tests:**
+
+- Create products in different categories → filter by category → verify correct results
+- Create products with different tags → filter by tag → verify correct results
+- Create active and inactive products → filter by status → verify correct results
+- Combine category + status filters → verify intersection
+
+**API coverage:** `GET /api/catalog/products` with filter params
+
+#### Step 3.6: TC-CAT-018 — Duplicate SKU Validation
+
+**File:** `packages/core/src/modules/catalog/__integration__/TC-CAT-018.spec.ts`
+
+**Tests:**
+
+- Create product with SKU via API → attempt create with same SKU → verify validation error
+- Create variant with SKU → attempt create another variant with same SKU → verify error
+
+**API coverage:** `POST /api/catalog/products` (validation), `POST /api/catalog/variants` (validation)
+
+#### Step 3.7: TC-CAT-019 — Product Soft-Delete Verification
+
+**File:** `packages/core/src/modules/catalog/__integration__/TC-CAT-019.spec.ts`
+
+**Tests:**
+
+- Create product with variants via API → delete product → verify product absent from list
+- Verify variants are also soft-deleted (not visible in variant list)
+- Verify product still accessible via direct API call with `includeDeleted` param (if supported)
+
+**API coverage:** `DELETE /api/catalog/products` (cascade verification)
+
+#### Step 3.8: TC-CAT-020 — Product Media Management
+
+**File:** `packages/core/src/modules/catalog/__integration__/TC-CAT-020.spec.ts`
+
+**Tests:**
+
+- Create product → upload image via UI → verify media appears in gallery
+- Set image as default → verify default badge
+- Remove image → verify removed from gallery
+- Verify `GET /api/catalog/product-media` returns correct items
+
+**API coverage:** `GET /api/catalog/product-media`
+
+#### Step 3.9: TC-CAT-021 — Product with Multiple Variants
+
+**File:** `packages/core/src/modules/catalog/__integration__/TC-CAT-021.spec.ts`
+
+**Tests:**
+
+- Create product → add 3 variants with different SKUs and prices → verify all listed
+- Edit second variant price → verify only that variant updated
+- Delete one variant → verify remaining variants intact
+
+**API coverage:** Full variant lifecycle with multiple variants
+
+#### Step 3.10: TC-CAT-022 — Pricing Edge Cases
+
+**File:** `packages/core/src/modules/catalog/__integration__/TC-CAT-022.spec.ts`
+
+**Tests:**
+
+- Create price with very high value (999999.99) → verify precision
+- Create price with many decimal places → verify rounding behavior
+- Create price kind with different display modes → verify correct formatting
+- Duplicate price kind code → verify validation error
+
+**API coverage:** `POST /api/catalog/prices` (edge cases), `POST /api/catalog/price-kinds` (validation)
+
+### Phase 4: Fixture Helpers
+
+**Goal:** Reduce boilerplate in integration tests by adding missing fixture helpers.
+
+**File:** `packages/core/src/modules/core/__integration__/helpers/catalogFixtures.ts` (extend existing)
+
+**New helpers:**
+
+| Helper | Purpose |
+| --- | --- |
+| `createCategoryFixture(request, token, { name, parentId? })` | API-based category creation |
+| `deleteCategoryIfExists(request, token, categoryId)` | Idempotent category cleanup |
+| `createVariantFixture(request, token, productId, { name, sku })` | API-based variant creation |
+| `deleteVariantIfExists(request, token, productId, variantId)` | Idempotent variant cleanup |
+| `createOfferFixture(request, token, { title, productId, channelId })` | API-based offer creation |
+| `deleteOfferIfExists(request, token, offerId)` | Idempotent offer cleanup |
+| `createPriceKindFixture(request, token, { code, title })` | API-based price kind creation |
+| `deletePriceKindIfExists(request, token, priceKindId)` | Idempotent price kind cleanup |
 
 ### File Manifest
 
 | File | Action | Purpose |
-|------|--------|---------|
-| `packages/core/src/modules/catalog/components/products/__tests__/productForm.test.ts` | Create | Pure logic tests for all productForm.ts exports |
-| `packages/core/src/modules/catalog/components/products/__tests__/variantForm.test.ts` | Create | Pure logic tests for variantForm.ts exports |
-| `packages/core/src/modules/catalog/lib/__tests__/categoryTree.test.ts` | Create | Pure logic tests for formatCategoryTreeLabel |
-| `packages/core/src/modules/catalog/components/products/__tests__/MetadataEditor.test.tsx` | Create | Interaction tests for MetadataEditor |
-| `packages/core/src/modules/catalog/components/categories/__tests__/CategorySlugFieldSync.test.tsx` | Create | Interaction tests for CategorySlugFieldSync |
-| `packages/core/src/modules/catalog/components/categories/__tests__/CategorySelect.test.tsx` | Create | Interaction tests for CategorySelect |
-| `packages/core/src/modules/catalog/components/products/__tests__/VariantBuilder.test.tsx` | Create | Interaction tests for VariantBuilder sections |
-| `packages/core/src/modules/catalog/components/products/__tests__/ProductMediaManager.test.tsx` | Create | Interaction tests for ProductMediaManager |
-| `packages/core/src/modules/catalog/components/__tests__/PriceKindSettings.test.tsx` | Create | Interaction tests for PriceKindSettings |
-| `packages/core/src/modules/catalog/components/categories/__tests__/CategoriesDataTable.test.tsx` | Create | Interaction tests for CategoriesDataTable |
-| `packages/core/src/modules/catalog/components/products/__tests__/ProductCategorizeSection.test.tsx` | Create | Interaction tests for ProductCategorizeSection |
+| --- | --- | --- |
+| `catalog/components/products/__tests__/productForm.test.ts` | Create | Pure logic tests |
+| `catalog/components/products/__tests__/variantForm.test.ts` | Create | Pure logic tests |
+| `catalog/lib/__tests__/categoryTree.test.ts` | Create | Pure logic tests |
+| `catalog/components/products/__tests__/MetadataEditor.test.tsx` | Create | Component interaction tests |
+| `catalog/components/categories/__tests__/CategorySlugFieldSync.test.tsx` | Create | Component interaction tests |
+| `catalog/components/categories/__tests__/CategorySelect.test.tsx` | Create | Component interaction tests |
+| `catalog/components/products/__tests__/VariantBuilder.test.tsx` | Create | Component interaction tests |
+| `catalog/components/products/__tests__/ProductMediaManager.test.tsx` | Create | Component interaction tests |
+| `catalog/components/__tests__/PriceKindSettings.test.tsx` | Create | Component interaction tests |
+| `catalog/components/categories/__tests__/CategoriesDataTable.test.tsx` | Create | Component interaction tests |
+| `catalog/components/products/__tests__/ProductCategorizeSection.test.tsx` | Create | Component interaction tests |
+| `catalog/__integration__/TC-CAT-013.spec.ts` | Create | Category edit and delete |
+| `catalog/__integration__/TC-CAT-014.spec.ts` | Create | Offer CRUD lifecycle |
+| `catalog/__integration__/TC-CAT-015.spec.ts` | Create | Price management |
+| `catalog/__integration__/TC-CAT-016.spec.ts` | Create | Option schema management |
+| `catalog/__integration__/TC-CAT-017.spec.ts` | Create | Advanced product filtering |
+| `catalog/__integration__/TC-CAT-018.spec.ts` | Create | Duplicate SKU validation |
+| `catalog/__integration__/TC-CAT-019.spec.ts` | Create | Product soft-delete verification |
+| `catalog/__integration__/TC-CAT-020.spec.ts` | Create | Product media management |
+| `catalog/__integration__/TC-CAT-021.spec.ts` | Create | Multiple variants lifecycle |
+| `catalog/__integration__/TC-CAT-022.spec.ts` | Create | Pricing edge cases |
+| `core/__integration__/helpers/catalogFixtures.ts` | Modify | Add new fixture helpers |
+
+All paths relative to `packages/core/src/modules/`.
 
 ### Testing Strategy
 
-- **Phase 1 tests**: Run with `npx jest packages/core/src/modules/catalog/components/products/__tests__/productForm.test.ts` (no jsdom needed)
-- **Phase 2 tests**: Run with `npx jest packages/core/src/modules/catalog/components/` (jsdom environment via pragma)
-- **Full suite**: `yarn test -- --filter=@open-mercato/core`
+- **Phase 1 & 2**: `yarn test -- --filter=@open-mercato/core`
+- **Phase 3**: `yarn test:integration` (requires running app or ephemeral environment)
+- **Coverage check**: `yarn test:integration:coverage` (target: near 100% for catalog module)
 - **Type check**: `yarn typecheck`
 - **Lint**: `yarn lint`
 
@@ -289,42 +427,64 @@ N/A — No database or API changes. Test files are additive.
 
 ### Test Reliability
 
-#### Mock Drift
-- **Scenario**: Component APIs change but test mocks retain stale shapes, causing false positives (tests pass but component is broken)
-- **Severity**: Medium
-- **Affected area**: All Phase 2 component tests
-- **Mitigation**: Tests import real types from source modules for mock data shapes. TypeScript compilation catches shape mismatches.
-- **Residual risk**: Mocked UI primitives (Button, Input, Dialog) may diverge from real component behavior. Acceptable because integration tests cover real rendering.
+#### Mock Drift (Unit Tests)
 
-#### Flaky Async Tests
-- **Scenario**: `waitFor` timeouts or race conditions in component tests that rely on mock async responses
+- **Scenario**: Component APIs change but test mocks retain stale shapes, causing false positives
+- **Severity**: Medium
+- **Affected area**: Phase 2 component tests
+- **Mitigation**: Tests import real types from source modules. TypeScript compilation catches shape mismatches.
+- **Residual risk**: Mocked UI primitives may diverge from real behavior. Acceptable because integration tests cover real rendering.
+
+#### Flaky Async Tests (Unit Tests)
+
+- **Scenario**: `waitFor` timeouts or race conditions in component tests
 - **Severity**: Low
 - **Affected area**: Phase 2 tests using `mockResolvedValueOnce`
-- **Mitigation**: Use deterministic mock return values. Avoid real timers. Follow established patterns from `ProductsDataTable.test.tsx`.
+- **Mitigation**: Use deterministic mock return values. Follow established patterns from `ProductsDataTable.test.tsx`.
 - **Residual risk**: Minimal — existing catalog tests prove the pattern is stable.
 
-#### createLocalId Non-Determinism
-- **Scenario**: Functions using `Math.random()` via `createLocalId()` produce non-deterministic IDs, making exact equality assertions fragile
+#### createLocalId Non-Determinism (Unit Tests)
+
+- **Scenario**: Functions using `Math.random()` via `createLocalId()` produce non-deterministic IDs
 - **Severity**: Low
-- **Affected area**: Phase 1 tests for `createVariantDraft`, `createInitialProductFormValues`, `buildOptionSchemaDefinition`
-- **Mitigation**: Assert on structure and properties, not exact ID values. Use `expect.any(String)` for generated IDs.
+- **Affected area**: Phase 1 tests for `createVariantDraft`, `buildOptionSchemaDefinition`
+- **Mitigation**: Assert on structure, not exact ID values. Use `expect.any(String)`.
 - **Residual risk**: None.
+
+#### Integration Test Environment Stability
+
+- **Scenario**: Integration tests fail due to app startup issues, database state, or port conflicts
+- **Severity**: Medium
+- **Affected area**: All Phase 3 tests
+- **Mitigation**: Use ephemeral environment (`yarn test:integration:ephemeral`). API-based fixture setup with cleanup in `finally` blocks. Unique test data via `Date.now()`.
+- **Residual risk**: Shared database state between tests if cleanup fails. Mitigated by unique naming.
+
+#### Selector Fragility (Integration Tests)
+
+- **Scenario**: UI element selectors break when component markup changes
+- **Severity**: Medium
+- **Affected area**: Phase 3 UI-based tests
+- **Mitigation**: Use stable Playwright locators (`getByRole`, `getByLabel`, `getByText`). Avoid CSS selectors.
+- **Residual risk**: Some tests may need `.first()` chaining for ambiguous labels. Document these as known fragile points.
 
 ### Data Integrity Failures
 
-N/A — Tests do not modify any persistent state.
+N/A — Unit tests do not modify persistent state. Integration tests create and clean up their own data.
 
 ### Cascading Failures & Side Effects
 
-N/A — Tests are isolated via Jest and have no side effects.
+N/A — Unit tests are isolated. Integration tests use isolated fixture data.
 
 ### Tenant & Data Isolation Risks
 
-N/A — Tests do not access any tenant-scoped data.
+- **Scenario**: Integration tests create data visible to other tests
+- **Severity**: Low
+- **Mitigation**: Unique `Date.now()` suffixes on all test data. Cleanup in `finally` blocks. Single worker execution.
+- **Residual risk**: Orphaned test data if cleanup fails. Acceptable in ephemeral environments.
 
 ### Migration & Deployment Risks
 
-N/A — No database or API changes. Test files are additive and cannot break production.
+N/A — No database or API changes. Test files are additive.
 
 ### Operational Risks
 
@@ -333,6 +493,7 @@ N/A — Tests run in CI only. No runtime operational impact.
 ## Final Compliance Report — 2026-02-20
 
 ### AGENTS.md Files Reviewed
+
 - `AGENTS.md` (root)
 - `packages/core/AGENTS.md`
 - `packages/core/src/modules/catalog/AGENTS.md`
@@ -343,27 +504,31 @@ N/A — Tests run in CI only. No runtime operational impact.
 ### Compliance Matrix
 
 | Rule Source | Rule | Status | Notes |
-|-------------|------|--------|-------|
+| --- | --- | --- | --- |
 | root AGENTS.md | No `any` types | Compliant | Tests use typed mocks with `jest.Mock` casts |
 | root AGENTS.md | Validate inputs with zod | Compliant | `productFormSchema` tests validate zod behavior |
-| root AGENTS.md | Use `apiCall`/`readApiResultOrThrow` | Compliant | Tests mock these correctly |
+| root AGENTS.md | Use `apiCall`/`readApiResultOrThrow` | Compliant | Unit tests mock these; integration tests use real app |
 | root AGENTS.md | i18n: `useT()` client-side | Compliant | All component tests mock `useT` |
-| root AGENTS.md | Test files in `__tests__/` | Compliant | All files placed in `__tests__/` directories |
-| packages/core/AGENTS.md | Test naming: `*.test.ts`/`*.test.tsx` | Compliant | All files follow convention |
+| root AGENTS.md | Test files in `__tests__/` | Compliant | Unit tests in `__tests__/`, integration in `__integration__/` |
+| packages/core/AGENTS.md | Test naming conventions | Compliant | `*.test.ts`/`*.test.tsx` for unit, `TC-CAT-*.spec.ts` for integration |
 | catalog/AGENTS.md | Use `selectBestPrice` for pricing | N/A | Tests mock pricing, don't implement it |
-| .ai/qa/AGENTS.md | Integration tests self-contained | N/A | This spec covers unit tests only |
+| .ai/qa/AGENTS.md | Integration tests self-contained | Compliant | All Phase 3 tests create own fixtures and clean up |
+| .ai/qa/AGENTS.md | No hardcoded record IDs | Compliant | All tests use dynamic IDs from fixture creation |
+| .ai/qa/AGENTS.md | Cleanup in finally blocks | Compliant | All fixture-based tests use `finally` for teardown |
+| .ai/qa/AGENTS.md | No per-test timeout/retry overrides | Compliant | Relies on global Playwright config |
 
 ### Internal Consistency Check
 
 | Check | Status | Notes |
-|-------|--------|-------|
-| Data models match API contracts | N/A | No data models or API contracts in this spec |
+| --- | --- | --- |
+| Data models match API contracts | N/A | No data models or API changes |
 | API contracts match UI/UX section | N/A | No API or UI changes |
 | Risks cover all write operations | N/A | No write operations |
 | Commands defined for all mutations | N/A | No mutations |
 | Cache strategy covers all read APIs | N/A | No cache changes |
-| Test file manifest matches implementation plan | Pass | All 11 files listed in both sections |
-| Phase ordering is incrementally deliverable | Pass | Phase 1 has zero dependencies; Phase 2 reuses established patterns |
+| Test file manifest matches implementation plan | Pass | All 22 files listed in both sections |
+| Phase ordering is incrementally deliverable | Pass | Each phase is independently shippable |
+| Integration tests cover all uncovered API routes | Pass | Phase 3 covers offers, prices, categories edit/delete, option schemas, media |
 
 ### Non-Compliant Items
 
@@ -376,4 +541,16 @@ None.
 ## Changelog
 
 ### 2026-02-20
-- Initial specification
+
+- Initial specification (unit tests only)
+
+### 2026-02-20 (v2)
+
+- Renamed from SPEC-030 to SPEC-034 (SPEC-030 through SPEC-033 taken in upstream)
+- Added Phase 3: Integration Tests (10 new Playwright test files, TC-CAT-013 through TC-CAT-022)
+- Added Phase 4: Fixture Helpers (extend catalogFixtures.ts)
+- Updated title from "Unit & UI Unit Tests" to "Test Coverage"
+- Updated TLDR, Problem Statement, and Proposed Solution to reflect integration test scope
+- Added API Contracts section documenting current vs. to-be-covered routes
+- Added integration-specific risks (environment stability, selector fragility, tenant isolation)
+- Updated compliance matrix with `.ai/qa/AGENTS.md` rules
