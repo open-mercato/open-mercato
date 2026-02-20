@@ -49,17 +49,28 @@ function resolveResourceKind(context: CrudInjectionContext): string | null {
   if (!entityId || !entityId.includes(':')) return null
   const [moduleId, rawEntity] = entityId.split(':')
   const entity = rawEntity ?? ''
-  if (moduleId === 'customers') {
-    if (entity.includes('deal')) return 'customers.deal'
-    if (entity.includes('person')) return 'customers.person'
-    if (entity.includes('company')) return 'customers.company'
+  const normalizedModuleId = moduleId.trim()
+  const normalizedEntity = entity.trim()
+  if (!normalizedModuleId || !normalizedEntity) return null
+
+  const singularModuleId = normalizedModuleId.endsWith('s')
+    ? normalizedModuleId.slice(0, -1)
+    : normalizedModuleId
+
+  const stripPrefixes = [
+    `${normalizedModuleId}_`,
+    `${singularModuleId}_`,
+  ]
+
+  let finalEntity = normalizedEntity
+  for (const prefix of stripPrefixes) {
+    if (finalEntity.startsWith(prefix)) {
+      finalEntity = finalEntity.slice(prefix.length)
+      break
+    }
   }
-  if (moduleId === 'sales') {
-    if (entity.includes('quote')) return 'sales.quote'
-    if (entity.includes('order')) return 'sales.order'
-  }
-  const normalized = entity.replace(new RegExp(`^${moduleId}_`), '')
-  return normalized ? `${moduleId}.${normalized}` : null
+
+  return finalEntity ? `${normalizedModuleId}.${finalEntity}` : null
 }
 
 function resolveResourceId(context: CrudInjectionContext, data: unknown): string | null {
