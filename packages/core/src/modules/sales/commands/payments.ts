@@ -564,21 +564,27 @@ const updatePaymentCommand: CommandHandler<
   },
   async execute(rawInput, ctx) {
     const input = paymentUpdateSchema.parse(rawInput ?? {})
-    ensureTenantScope(ctx, input.tenantId)
-    ensureOrganizationScope(ctx, input.organizationId)
     const em = (ctx.container.resolve('em') as EntityManager).fork()
     const { translate } = await resolveTranslations()
+    const scopeSeed = assertFound(
+      await em.findOne(SalesPayment, { id: input.id }),
+      'sales.payments.not_found'
+    )
+    const resolvedTenantId = input.tenantId ?? scopeSeed.tenantId
+    const resolvedOrganizationId = input.organizationId ?? scopeSeed.organizationId
+    ensureTenantScope(ctx, resolvedTenantId)
+    ensureOrganizationScope(ctx, resolvedOrganizationId)
     const payment = assertFound(
       await findOneWithDecryption(
         em,
         SalesPayment,
         { id: input.id },
         { populate: ['order'] },
-        { tenantId: input.tenantId, organizationId: input.organizationId },
+        { tenantId: resolvedTenantId, organizationId: resolvedOrganizationId },
       ),
       'sales.payments.not_found'
     )
-    ensureSameScope(payment, input.organizationId, input.tenantId)
+    ensureSameScope(payment, resolvedOrganizationId, resolvedTenantId)
     const previousOrder = payment.order as SalesOrder | null
     if (input.orderId !== undefined) {
       if (!input.orderId) {
@@ -588,7 +594,7 @@ const updatePaymentCommand: CommandHandler<
           await em.findOne(SalesOrder, { id: input.orderId }),
           'sales.payments.order_not_found'
         )
-        ensureSameScope(order, input.organizationId, input.tenantId)
+        ensureSameScope(order, resolvedOrganizationId, resolvedTenantId)
         if (
           order.currencyCode &&
           input.currencyCode &&
@@ -609,7 +615,7 @@ const updatePaymentCommand: CommandHandler<
           await em.findOne(SalesPaymentMethod, { id: input.paymentMethodId }),
           'sales.payments.method_not_found'
         )
-        ensureSameScope(method, input.organizationId, input.tenantId)
+        ensureSameScope(method, resolvedOrganizationId, resolvedTenantId)
         payment.paymentMethod = method
       }
     }

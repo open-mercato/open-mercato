@@ -7,6 +7,12 @@ import { registerCoreInjectionWidgets, registerCoreInjectionTables } from '@open
 import { registerInjectionWidgets } from '@open-mercato/ui/backend/injection/widgetRegistry'
 import { dashboardWidgetEntries } from '@/.mercato/generated/dashboard-widgets.generated'
 import { registerDashboardWidgets } from '@open-mercato/ui/backend/dashboard/widgetRegistry'
+import { messageTypes } from '@/.mercato/generated/message-types.generated'
+import { messageObjectTypes } from '@/.mercato/generated/message-objects.generated'
+import {
+  registerMessageObjectTypeUiComponents,
+  registerMessageTypeUiComponents,
+} from '@open-mercato/core/modules/messages/components/typeUiRegistry'
 
 let _clientBootstrapped = false
 
@@ -21,6 +27,10 @@ function clientBootstrap() {
 
   // Register dashboard widgets
   registerDashboardWidgets(dashboardWidgetEntries)
+
+  // Register message UI components declared by message type definitions
+  registerMessageTypeUiComponents(messageTypes)
+  registerMessageObjectTypeUiComponents(messageObjectTypes)
 }
 
 export function ClientBootstrapProvider({ children }: { children: React.ReactNode }) {
