@@ -28,6 +28,7 @@ export const enabledModules: ModuleEntry[] = [
   { id: 'currencies', from: '@open-mercato/core' },
   { id: 'planner', from: '@open-mercato/core'},
   { id: 'resources', from: '@open-mercato/core'},
+  { id: 'wms', from: '@open-mercato/core' },
   { id: 'staff', from: '@open-mercato/core'},  
   { id: 'events', from: '@open-mercato/events' },
   { id: 'notifications', from: '@open-mercato/core' },
