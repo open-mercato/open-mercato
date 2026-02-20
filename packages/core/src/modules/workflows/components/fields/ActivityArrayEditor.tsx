@@ -10,6 +10,7 @@ import { Label } from '@open-mercato/ui/primitives/label'
 import { ChevronDown, Plus, Trash2 } from 'lucide-react'
 import { JsonBuilder } from '@open-mercato/ui/backend/JsonBuilder'
 import type { CrudCustomFieldRenderProps } from '@open-mercato/ui/backend/CrudForm'
+import { useT } from '@open-mercato/shared/lib/i18n/context'
 
 /**
  * Activity definition structure
