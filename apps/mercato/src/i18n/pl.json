@@ -9,6 +9,7 @@
   "api.errors.invalidPayload": "Nieprawidłowa ładunek.",
   "api.errors.notFound": "Nie znaleziono",
   "api.errors.unauthorized": "Nieautoryzowany",
+  "api.errors.rateLimit": "Zbyt wiele zapytań. Spróbuj ponownie później.",
   "api_docs.nav.title": "Dokumentacja API",
   "app.exampleAdmin": "Panel przykładowy",
   "app.exampleBlogPost": "Przykładowy wpis na blogu",

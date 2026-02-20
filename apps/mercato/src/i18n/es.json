@@ -9,6 +9,7 @@
   "api.errors.invalidPayload": "Carga no válida.",
   "api.errors.notFound": "No encontrado",
   "api.errors.unauthorized": "No autorizado",
+  "api.errors.rateLimit": "Demasiadas solicitudes. Inténtelo de nuevo más tarde.",
   "api_docs.nav.title": "Documentación API",
   "app.exampleAdmin": "Administración de ejemplo",
   "app.exampleBlogPost": "Entrada de blog de ejemplo",
