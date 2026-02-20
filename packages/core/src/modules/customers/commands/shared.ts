@@ -3,7 +3,7 @@ import { CustomerDeal, CustomerEntity, CustomerTag, CustomerTagAssignment, Custo
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import type { CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
 import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
-export { ensureOrganizationScope } from '@open-mercato/shared/lib/commands/scope'
+export { ensureOrganizationScope, ensureSameScope } from '@open-mercato/shared/lib/commands/scope'
 export { extractUndoPayload } from '@open-mercato/shared/lib/commands/undo'
 
 export function normalizeDictionaryColor(input: unknown): string | null {
@@ -46,16 +46,6 @@ export async function requireCustomerEntity(
     throw new CrudHttpError(400, { error: 'Invalid entity type' })
   }
   return entity
-}
-
-export function ensureSameScope(
-  entity: Pick<CustomerEntity, 'organizationId' | 'tenantId'>,
-  organizationId: string,
-  tenantId: string
-): void {
-  if (entity.organizationId !== organizationId || entity.tenantId !== tenantId) {
-    throw new CrudHttpError(403, { error: 'Cross-tenant relation forbidden' })
-  }
 }
 
 export async function syncEntityTags(

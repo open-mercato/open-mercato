@@ -9,7 +9,7 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import type { CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
-export { ensureOrganizationScope } from '@open-mercato/shared/lib/commands/scope'
+export { ensureOrganizationScope, ensureSameScope } from '@open-mercato/shared/lib/commands/scope'
 export { extractUndoPayload } from '@open-mercato/shared/lib/commands/undo'
 import { env } from 'process'
 
@@ -64,16 +64,6 @@ export function ensureTenantScope(ctx: CommandRuntimeContext, tenantId: string):
   if (currentTenant && currentTenant !== tenantId) {
     logScopeViolation(ctx, 'tenant', tenantId, currentTenant)
     throw new CrudHttpError(403, { error: 'Forbidden' })
-  }
-}
-
-export function ensureSameScope(
-  entity: Pick<{ organizationId: string; tenantId: string }, 'organizationId' | 'tenantId'>,
-  organizationId: string,
-  tenantId: string
-): void {
-  if (entity.organizationId !== organizationId || entity.tenantId !== tenantId) {
-    throw new CrudHttpError(403, { error: 'Cross-tenant relation forbidden' })
   }
 }
 

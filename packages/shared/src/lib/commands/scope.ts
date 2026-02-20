@@ -57,3 +57,13 @@ export function ensureOrganizationScope(ctx: CommandRuntimeContext, organization
     throw new CrudHttpError(403, { error: 'Forbidden' })
   }
 }
+
+export function ensureSameScope(
+  entity: Pick<{ organizationId: string; tenantId: string }, 'organizationId' | 'tenantId'>,
+  organizationId: string,
+  tenantId: string
+): void {
+  if (entity.organizationId !== organizationId || entity.tenantId !== tenantId) {
+    throw new CrudHttpError(403, { error: 'Cross-tenant relation forbidden' })
+  }
+}
