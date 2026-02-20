@@ -1,7 +1,7 @@
 {
   "progress.title": "Progress",
-  "progress.activeCount": "{count, plural, one {# operation running} other {# operations running}}",
-  "progress.recentlyCompleted": "{count, plural, one {# operation completed} other {# operations completed}}",
+  "progress.activeCount": "{count} operations running",
+  "progress.recentlyCompleted": "{count} operations completed",
   "progress.eta.seconds": "{count}s remaining",
   "progress.eta.minutes": "{count}m remaining",
   "progress.eta.hoursMinutes": "{hours}h {minutes}m remaining",
