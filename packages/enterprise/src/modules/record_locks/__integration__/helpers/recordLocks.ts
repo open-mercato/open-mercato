@@ -26,6 +26,12 @@ export type RecordLockMutationHeaders = {
 export type NotificationItem = {
   id: string;
   type: string;
+  status?: 'unread' | 'read' | 'actioned' | 'dismissed';
+  actions?: Array<{
+    id: string;
+    label?: string;
+    labelKey?: string;
+  }>;
   sourceEntityId?: string | null;
   bodyVariables?: Record<string, string>;
 };
@@ -329,6 +335,25 @@ export async function waitForNotification(
   }
 
   throw new Error(`Notification ${type} not found within ${timeoutMs}ms`);
+}
+
+export async function executeNotificationAction(
+  request: APIRequestContext,
+  token: string,
+  notificationId: string,
+  actionId: string,
+  payload?: Record<string, unknown>,
+): Promise<ApiCallResult<{ ok?: boolean; result?: unknown; href?: string }>> {
+  return requestJson<{ ok?: boolean; result?: unknown; href?: string }>(
+    request,
+    'POST',
+    `/api/notifications/${encodeURIComponent(notificationId)}/action`,
+    token,
+    {
+      actionId,
+      ...(payload ? { payload } : {}),
+    },
+  );
 }
 
 export async function cleanupCompany(
