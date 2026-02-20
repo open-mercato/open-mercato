@@ -15,3 +15,8 @@ export function parseBooleanWithDefault(raw: string | null | undefined, fallback
   const parsed = parseBooleanToken(raw)
   return parsed === null ? fallback : parsed
 }
+
+export function parseBooleanFlag(raw?: string): boolean | undefined {
+  const parsed = parseBooleanToken(raw)
+  return parsed === null ? undefined : parsed
+}
