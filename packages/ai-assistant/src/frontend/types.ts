@@ -1,3 +1,22 @@
+// AI Form Bridge types for bidirectional AI-form communication
+
+export interface AiFormSuggestionSection {
+  sectionId: string
+  value: unknown
+  explanation: string
+  mode?: 'replace' | 'append' | 'modify'
+}
+
+export interface AiFormSuggestion {
+  type: 'form-suggestion'
+  sections: AiFormSuggestionSection[]
+}
+
+export interface AiFormRegistration {
+  formType: string
+  getFormState: () => Record<string, unknown> | null
+}
+
 // Dock position for AI chat panel
 export type DockPosition = 'floating' | 'right' | 'left' | 'bottom'
 

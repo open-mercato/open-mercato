@@ -89,9 +89,10 @@ export async function POST(req: NextRequest) {
 
   try {
     const body = await req.json()
-    const { messages, sessionId, answerQuestion } = body as {
+    const { messages, sessionId, answerQuestion, formState } = body as {
       messages?: Array<{ role: string; content: string }>
       sessionId?: string
+      formState?: Record<string, unknown>
       // For answering a question
       answerQuestion?: {
         questionId: string
@@ -195,6 +196,11 @@ export async function POST(req: NextRequest) {
     // If we have a session token, prepend explicit instructions for the AI to include it in tool calls
     if (sessionToken) {
       messageToSend += `[Session Authorization: ${sessionToken}. Include "_sessionToken": "${sessionToken}" in EVERY tool call.]\n\n`
+    }
+
+    // If the page has registered form state via the AI Form Bridge, include it as context
+    if (formState && typeof formState === 'object') {
+      messageToSend += `[FORM_STATE: ${JSON.stringify(formState)}]\n\n`
     }
 
     messageToSend += lastUserMessage

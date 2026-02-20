@@ -11,6 +11,7 @@ import { Button } from '@open-mercato/ui/primitives/button'
 import { apiFetch } from '@open-mercato/ui/backend/utils/api'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { useOrganizationScopeDetail } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
+import { useAiFormBridge, AiSuggestionBanner } from '@open-mercato/ai-assistant/frontend'
 import {
   businessRuleFormSchema,
   createFormGroups,
@@ -59,6 +60,18 @@ export default function EditBusinessRulePage() {
     return null
   }, [rule])
 
+  // Track current form values for AI bridge (updated via ref from CrudForm wrappers)
+  const formValuesRef = React.useRef<Record<string, unknown>>({
+    conditionExpression: null,
+    successActions: null,
+    failureActions: null,
+  })
+
+  const bridge = useAiFormBridge({
+    formType: 'business_rules',
+    getFormState: () => formValuesRef.current,
+  })
+
   const handleSubmit = async (values: BusinessRuleFormValues) => {
     // Use tenant/org from the loaded rule if available, otherwise from context
     const effectiveTenantId = rule?.tenantId || tenantId
@@ -90,9 +103,35 @@ export default function EditBusinessRulePage() {
 
   const fields = React.useMemo(() => createFieldDefinitions(t), [t])
 
+  const renderSuggestionBanner = React.useCallback(
+    (sectionId: string, currentValue: unknown, setValue: (value: unknown) => void) => {
+      // Keep form values ref in sync for AI bridge
+      formValuesRef.current[sectionId] = currentValue
+
+      const section = bridge.getSuggestionSection(sectionId)
+      const isGenerating = bridge.isSectionGenerating(sectionId)
+      if (!section && !isGenerating) return null
+
+      return (
+        <AiSuggestionBanner
+          section={section}
+          currentValue={currentValue}
+          onAccept={(value) => {
+            bridge.acceptSection(sectionId)
+            setValue(value)
+          }}
+          onReject={() => bridge.rejectSection(sectionId)}
+          isStale={bridge.isSectionStale(sectionId, currentValue)}
+          isGenerating={isGenerating}
+        />
+      )
+    },
+    [bridge]
+  )
+
   const formGroups = React.useMemo(
-    () => createFormGroups(t, ConditionBuilder, ActionBuilder),
-    [t]
+    () => createFormGroups(t, ConditionBuilder, ActionBuilder, renderSuggestionBanner),
+    [t, renderSuggestionBanner]
   )
 
   if (isLoading) {

@@ -1,8 +1,8 @@
 'use client'
 
 import * as React from 'react'
-import { createContext, useContext, useState, useEffect } from 'react'
-import type { PageContext, SelectedEntity } from '../../types'
+import { createContext, useContext, useState, useEffect, useRef, useCallback } from 'react'
+import type { PageContext, SelectedEntity, AiFormRegistration } from '../../types'
 import { usePageContext } from '../../hooks/usePageContext'
 import { useCommandPalette } from '../../hooks/useCommandPalette'
 
@@ -25,6 +25,7 @@ export function CommandPaletteProvider({
 }: CommandPaletteProviderProps) {
   const pageContext = usePageContext({ tenantId, organizationId })
   const [selectedEntities, setSelectedEntities] = useState<SelectedEntity[]>([])
+  const formRegistrationRef = useRef<AiFormRegistration | null>(null)
 
   // Listen for DataTable selection events
   useEffect(() => {
@@ -38,10 +39,37 @@ export function CommandPaletteProvider({
     }
   }, [])
 
+  // Listen for AI form bridge registration/unregistration
+  useEffect(() => {
+    const handleRegister = (event: CustomEvent<AiFormRegistration>) => {
+      formRegistrationRef.current = event.detail
+    }
+    const handleUnregister = () => {
+      formRegistrationRef.current = null
+    }
+
+    window.addEventListener('om:ai-form-register', handleRegister as EventListener)
+    window.addEventListener('om:ai-form-unregister', handleUnregister as EventListener)
+    return () => {
+      window.removeEventListener('om:ai-form-register', handleRegister as EventListener)
+      window.removeEventListener('om:ai-form-unregister', handleUnregister as EventListener)
+    }
+  }, [])
+
+  // Stable getter that reads the latest form state from the registered form
+  const getFormState = useCallback(() => {
+    const registration = formRegistrationRef.current
+    if (!registration) return null
+    const state = registration.getFormState()
+    if (!state) return null
+    return { formType: registration.formType, ...state }
+  }, [])
+
   const commandPalette = useCommandPalette({
     pageContext,
     selectedEntities,
     disableKeyboardShortcut,
+    getFormState,
   })
 
   return (
