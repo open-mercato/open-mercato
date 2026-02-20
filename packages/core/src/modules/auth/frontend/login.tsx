@@ -280,7 +280,7 @@ export default function LoginPage() {
                   {tenantLoading
                     ? translate('auth.login.tenantLoading', 'Loading tenant details...')
                     : translate('auth.login.tenantBanner', "You're logging in to {tenant} tenant.", {
-                        tenant: tenantName || tenantId,
+                        tenant: tenantName || tenzantId,
                       })}
                 </div>
                 <Button type="button" variant="outline" size="sm" className="mt-2 border-emerald-300 text-emerald-900" onClick={handleClearTenant}>
@@ -306,9 +306,9 @@ export default function LoginPage() {
               <input type="checkbox" name="remember" className="accent-foreground" />
               <span>{translate('auth.login.rememberMe', 'Remember me')}</span>
             </label>
-            <button disabled={submitting} className="h-10 rounded-md bg-foreground text-background mt-2 hover:opacity-90 transition disabled:opacity-60">
+            <Button type="submit" className="mt-2 w-full" disabled={submitting}>
               {submitting ? translate('auth.login.loading', 'Loading...') : translate('auth.signIn', 'Sign in')}
-            </button>
+            </Button>
             <div className="text-xs text-muted-foreground mt-2">
               <Link className="underline" href="/reset">
                 {translate('auth.login.forgotPassword', 'Forgot password?')}

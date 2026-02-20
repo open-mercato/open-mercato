@@ -1595,23 +1595,32 @@ export function AvailabilityRulesEditor({
                     <div className="space-y-4">
                       <div className="space-y-2">
                         <div role="tablist" aria-label={listLabels.applyScopeLabel} className="inline-flex rounded-lg border bg-muted p-1 text-xs">
-                          <button
+                          <Button
                             type="button"
                             role="tab"
                             aria-selected={editorScope === 'date'}
-                            onClick={() => setEditorScope('date')}
-                            className={`rounded-md px-3 py-1.5 text-sm font-medium transition ${
+                            variant="ghost"
+                            size="sm"
+                            className={`h-auto rounded-md px-3 py-1.5 font-medium ${
                               editorScope === 'date'
                                 ? 'bg-background text-foreground shadow-sm'
                                 : 'text-muted-foreground hover:text-foreground'
                             }`}
+                            onClick={() => setEditorScope('date')}
                           >
                             {listLabels.applyScopeDate}
-                          </button>
-                          <button
+                          </Button>
+                          <Button
                             type="button"
                             role="tab"
                             aria-selected={editorScope === 'weekday'}
+                            variant="ghost"
+                            size="sm"
+                            className={`h-auto rounded-md px-3 py-1.5 font-medium ${
+                              editorScope === 'weekday'
+                                ? 'bg-background text-foreground shadow-sm'
+                                : 'text-muted-foreground hover:text-foreground'
+                            }`}
                             onClick={() => {
                               setEditorScope('weekday')
                               setEditorUnavailable(false)
@@ -1619,14 +1628,9 @@ export function AvailabilityRulesEditor({
                               setEditorReasonEntryId(null)
                               setEditorReasonValue('')
                             }}
-                            className={`rounded-md px-3 py-1.5 text-sm font-medium transition ${
-                              editorScope === 'weekday'
-                                ? 'bg-background text-foreground shadow-sm'
-                                : 'text-muted-foreground hover:text-foreground'
-                            }`}
                           >
                             {listLabels.editAllLabel}
-                          </button>
+                          </Button>
                         </div>
                       </div>
 

@@ -360,7 +360,7 @@ export function DashboardScreen() {
           )}
           {canConfigure && (
             <Button variant={editing ? 'secondary' : 'outline'} onClick={toggleEditing}>
-              <Settings2 className="h-4 w-4" />s
+              <Settings2 className="h-4 w-4" />
               <span>{editing ? t('dashboard.action.done') : t('dashboard.action.customize')}</span>
             </Button>
           )}

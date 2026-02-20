@@ -481,20 +481,22 @@ export default function ResourcesResourceDetailPage({ params }: { params?: { id?
           <div className="border-b">
             <nav className="flex flex-wrap items-center gap-5 text-sm" aria-label={t('resources.resources.tabs.label', 'Resource sections')}>
               {tabs.map((tab) => (
-                <button
+                <Button
                   key={tab.id}
                   type="button"
                   role="tab"
                   aria-selected={activeTab === tab.id}
-                  onClick={() => setActiveTab(tab.id as 'details' | 'availability')}
-                  className={`relative -mb-px border-b-2 px-0 py-2 text-sm font-medium transition-colors ${
+                  variant="ghost"
+                  size="sm"
+                  className={`relative -mb-px h-auto rounded-none border-b-2 px-0 py-2 font-medium ${
                     activeTab === tab.id
                       ? 'border-primary text-foreground'
                       : 'border-transparent text-muted-foreground hover:text-foreground'
                   }`}
+                  onClick={() => setActiveTab(tab.id as 'details' | 'availability')}
                 >
                   {tab.label}
-                </button>
+                </Button>
               ))}
             </nav>
           </div>
@@ -505,18 +507,20 @@ export default function ResourcesResourceDetailPage({ params }: { params?: { id?
                 <div className="flex flex-wrap items-center justify-between gap-3">
                   <div className="flex gap-2">
                     {detailTabs.map((tab) => (
-                      <button
+                      <Button
                         key={tab.id}
                         type="button"
-                        onClick={() => setActiveDetailTab(tab.id)}
-                        className={`relative -mb-px border-b-2 px-0 py-1 text-sm font-medium transition-colors ${
+                        variant="ghost"
+                        size="sm"
+                        className={`relative -mb-px h-auto rounded-none border-b-2 px-0 py-1 font-medium ${
                           activeDetailTab === tab.id
                             ? 'border-primary text-foreground'
                             : 'border-transparent text-muted-foreground hover:text-foreground'
                         }`}
+                        onClick={() => setActiveDetailTab(tab.id)}
                       >
                         {tab.label}
-                      </button>
+                      </Button>
                     ))}
                   </div>
                   {sectionAction ? (
