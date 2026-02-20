@@ -73,10 +73,7 @@ export function ensureSameTenant(entity: Pick<{ tenantId: string }, 'tenantId'>,
   }
 }
 
-export function assertFound<T>(value: T | null | undefined, message: string): T {
-  if (!value) throw new CrudHttpError(404, { error: message })
-  return value
-}
+export { assertFound } from '@open-mercato/shared/lib/crud/errors'
 
 export function cloneJson<T>(value: T): T {
   if (value === null || value === undefined) return value

@@ -2,6 +2,7 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import { CustomerDeal, CustomerEntity, CustomerTag, CustomerTagAssignment, CustomerDictionaryEntry, type CustomerEntityKind } from '../data/entities'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import type { CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
+import { ensureOrganizationScope, ensureSameScope } from '@open-mercato/shared/lib/commands/scope'
 import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 export { ensureOrganizationScope, ensureSameScope } from '@open-mercato/shared/lib/commands/scope'
 export { extractUndoPayload } from '@open-mercato/shared/lib/commands/undo'
@@ -29,10 +30,7 @@ export function ensureTenantScope(ctx: CommandRuntimeContext, tenantId: string):
   }
 }
 
-export function assertRecordFound<T>(record: T | null | undefined, message: string): T {
-  if (!record) throw new CrudHttpError(404, { error: message })
-  return record
-}
+export { assertFound } from '@open-mercato/shared/lib/crud/errors'
 
 export async function requireCustomerEntity(
   em: EntityManager,
