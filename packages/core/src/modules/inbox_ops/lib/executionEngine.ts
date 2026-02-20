@@ -9,6 +9,7 @@ import { InboxProposal, InboxProposalAction, InboxDiscrepancy } from '../data/en
 import type { InboxActionStatus, InboxActionType, InboxProposalStatus } from '../data/entities'
 import {
   createContactPayloadSchema,
+  createProductPayloadSchema,
   draftReplyPayloadSchema,
   linkContactPayloadSchema,
   logActivityPayloadSchema,
@@ -16,6 +17,7 @@ import {
   updateOrderPayloadSchema,
   updateShipmentPayloadSchema,
   type CreateContactPayload,
+  type CreateProductPayload,
   type DraftReplyPayload,
   type LinkContactPayload,
   type LogActivityPayload,
@@ -24,6 +26,7 @@ import {
   type UpdateShipmentPayload,
 } from '../data/validators'
 import { REQUIRED_FEATURES_MAP } from './constants'
+import { formatZodErrors } from './validation'
 
 interface CommonEntityFields {
   tenantId?: string
@@ -36,7 +39,7 @@ export interface CrossModuleEntities {
   CustomerEntity: EntityClass<CommonEntityFields & { id: string; kind: string; displayName: string; primaryEmail?: string | null }>
   SalesOrder: EntityClass<CommonEntityFields & { id: string; orderNumber: string; currencyCode: string; comments?: string | null; customerReference?: string | null }>
   SalesShipment: EntityClass<CommonEntityFields & { id: string; order: unknown }>
-  SalesChannel: EntityClass<CommonEntityFields & { id: string; name: string; metadata?: Record<string, unknown> | null }>
+  SalesChannel: EntityClass<CommonEntityFields & { id: string; name: string; currencyCode?: string; metadata?: Record<string, unknown> | null }>
   Dictionary: EntityClass<CommonEntityFields & { id: string; key: string }>
   DictionaryEntry: EntityClass<CommonEntityFields & { id: string; label: string; value: string; normalizedValue?: string | null; dictionary: unknown }>
 }
@@ -312,65 +315,86 @@ export async function acceptAllActions(
   return { results, stoppedOnFailure }
 }
 
+/**
+ * Normalize LLM-generated payloads before validation.
+ * Fixes common issues: case-sensitive enums, missing fields that can be resolved.
+ */
+async function normalizePayload(
+  action: InboxProposalAction,
+  ctx: ExecutionContext,
+): Promise<Record<string, unknown>> {
+  const payload = { ...(action.payload as Record<string, unknown>) }
+
+  // Lowercase contact type fields (LLM often outputs "Person" / "Company")
+  if (typeof payload.type === 'string') {
+    payload.type = payload.type.toLowerCase()
+  }
+  if (typeof payload.contactType === 'string') {
+    payload.contactType = payload.contactType.toLowerCase()
+  }
+
+  // Resolve missing currencyCode for order/quote payloads from channel
+  if (action.actionType === 'create_order' || action.actionType === 'create_quote') {
+    if (!payload.currencyCode) {
+      const channelId = typeof payload.channelId === 'string' ? payload.channelId : null
+      const resolved = await resolveChannelCurrency(ctx, channelId)
+      if (resolved) payload.currencyCode = resolved
+    }
+  }
+
+  return payload
+}
+
 async function executeByType(
   action: InboxProposalAction,
   ctx: ExecutionContext,
 ): Promise<TypeExecutionResult> {
+  const payload = await normalizePayload(action, ctx)
+
   switch (action.actionType) {
     case 'create_order': {
-      const parsed = orderPayloadSchema.safeParse(action.payload)
-      if (!parsed.success) {
-        throw new ExecutionError('Invalid create_order payload', 400)
-      }
+      const parsed = orderPayloadSchema.safeParse(payload)
+      if (!parsed.success) throw new ExecutionError(`Invalid create_order payload: ${formatZodErrors(parsed.error)}`, 400)
       return executeCreateDocumentAction(action, parsed.data, ctx, 'order')
     }
     case 'create_quote': {
-      const parsed = orderPayloadSchema.safeParse(action.payload)
-      if (!parsed.success) {
-        throw new ExecutionError('Invalid create_quote payload', 400)
-      }
+      const parsed = orderPayloadSchema.safeParse(payload)
+      if (!parsed.success) throw new ExecutionError(`Invalid create_quote payload: ${formatZodErrors(parsed.error)}`, 400)
       return executeCreateDocumentAction(action, parsed.data, ctx, 'quote')
     }
     case 'update_order': {
-      const parsed = updateOrderPayloadSchema.safeParse(action.payload)
-      if (!parsed.success) {
-        throw new ExecutionError('Invalid update_order payload', 400)
-      }
+      const parsed = updateOrderPayloadSchema.safeParse(payload)
+      if (!parsed.success) throw new ExecutionError(`Invalid update_order payload: ${formatZodErrors(parsed.error)}`, 400)
       return executeUpdateOrderAction(parsed.data, ctx)
     }
     case 'update_shipment': {
-      const parsed = updateShipmentPayloadSchema.safeParse(action.payload)
-      if (!parsed.success) {
-        throw new ExecutionError('Invalid update_shipment payload', 400)
-      }
+      const parsed = updateShipmentPayloadSchema.safeParse(payload)
+      if (!parsed.success) throw new ExecutionError(`Invalid update_shipment payload: ${formatZodErrors(parsed.error)}`, 400)
       return executeUpdateShipmentAction(parsed.data, ctx)
     }
     case 'create_contact': {
-      const parsed = createContactPayloadSchema.safeParse(action.payload)
-      if (!parsed.success) {
-        throw new ExecutionError('Invalid create_contact payload', 400)
-      }
+      const parsed = createContactPayloadSchema.safeParse(payload)
+      if (!parsed.success) throw new ExecutionError(`Invalid create_contact payload: ${formatZodErrors(parsed.error)}`, 400)
       return executeCreateContactAction(parsed.data, ctx)
     }
+    case 'create_product': {
+      const parsed = createProductPayloadSchema.safeParse(payload)
+      if (!parsed.success) throw new ExecutionError(`Invalid create_product payload: ${formatZodErrors(parsed.error)}`, 400)
+      return executeCreateProductAction(action, parsed.data, ctx)
+    }
     case 'link_contact': {
-      const parsed = linkContactPayloadSchema.safeParse(action.payload)
-      if (!parsed.success) {
-        throw new ExecutionError('Invalid link_contact payload', 400)
-      }
+      const parsed = linkContactPayloadSchema.safeParse(payload)
+      if (!parsed.success) throw new ExecutionError(`Invalid link_contact payload: ${formatZodErrors(parsed.error)}`, 400)
       return executeLinkContactAction(parsed.data)
     }
     case 'log_activity': {
-      const parsed = logActivityPayloadSchema.safeParse(action.payload)
-      if (!parsed.success) {
-        throw new ExecutionError('Invalid log_activity payload', 400)
-      }
+      const parsed = logActivityPayloadSchema.safeParse(payload)
+      if (!parsed.success) throw new ExecutionError(`Invalid log_activity payload: ${formatZodErrors(parsed.error)}`, 400)
       return executeLogActivityAction(parsed.data, ctx)
     }
     case 'draft_reply': {
-      const parsed = draftReplyPayloadSchema.safeParse(action.payload)
-      if (!parsed.success) {
-        throw new ExecutionError('Invalid draft_reply payload', 400)
-      }
+      const parsed = draftReplyPayloadSchema.safeParse(payload)
+      if (!parsed.success) throw new ExecutionError(`Invalid draft_reply payload: ${formatZodErrors(parsed.error)}`, 400)
       return executeDraftReplyAction(action, parsed.data, ctx)
     }
     default:
@@ -384,6 +408,15 @@ async function executeCreateDocumentAction(
   ctx: ExecutionContext,
   kind: 'order' | 'quote',
 ): Promise<TypeExecutionResult> {
+  // Resolve channelId if not provided
+  let resolvedChannelId: string | undefined = payload.channelId
+  if (!resolvedChannelId) {
+    resolvedChannelId = (await resolveFirstChannelId(ctx)) ?? undefined
+    if (!resolvedChannelId) {
+      throw new ExecutionError('No sales channel available. Create a channel first or set channelId in the payload.', 400)
+    }
+  }
+
   const currencyCode = payload.currencyCode.trim().toUpperCase()
   const lines = payload.lineItems.map((line, index) => {
     const quantity = parseNumberToken(line.quantity, `lineItems[${index}].quantity`)
@@ -426,7 +459,7 @@ async function executeCreateDocumentAction(
     tenantId: ctx.tenantId,
     customerEntityId: payload.customerEntityId,
     customerReference: payload.customerReference,
-    channelId: payload.channelId,
+    channelId: resolvedChannelId,
     currencyCode,
     taxRateId: payload.taxRateId,
     comments: payload.notes,
@@ -441,7 +474,7 @@ async function executeCreateDocumentAction(
   }
 
   const effectiveKind = kind === 'order'
-    ? await resolveEffectiveDocumentKind(ctx, payload.channelId)
+    ? await resolveEffectiveDocumentKind(ctx, resolvedChannelId)
     : kind
 
   if (effectiveKind === 'order') {
@@ -681,6 +714,121 @@ async function executeCreateContactAction(
   return {
     createdEntityId: result.entityId,
     createdEntityType: 'customer_person',
+  }
+}
+
+async function executeCreateProductAction(
+  action: InboxProposalAction,
+  payload: CreateProductPayload,
+  ctx: ExecutionContext,
+): Promise<TypeExecutionResult> {
+  const createInput: Record<string, unknown> = {
+    organizationId: ctx.organizationId,
+    tenantId: ctx.tenantId,
+    title: payload.title,
+    productType: 'simple',
+    isActive: true,
+  }
+
+  if (payload.sku) createInput.sku = payload.sku
+  if (payload.description) createInput.description = payload.description
+  if (payload.currencyCode) createInput.primaryCurrencyCode = payload.currencyCode
+
+  const result = await executeCommand<Record<string, unknown>, { productId?: string }>(
+    ctx,
+    'catalog.products.create',
+    createInput,
+  )
+
+  if (!result.productId) {
+    throw new ExecutionError('Product creation did not return a product ID', 500)
+  }
+
+  await resolveProductDiscrepanciesInProposal(ctx.em, action.proposalId, payload.title, result.productId, {
+    tenantId: ctx.tenantId,
+    organizationId: ctx.organizationId,
+  })
+
+  return {
+    createdEntityId: result.productId,
+    createdEntityType: 'catalog_product',
+  }
+}
+
+async function resolveProductDiscrepanciesInProposal(
+  em: EntityManager,
+  proposalId: string,
+  productTitle: string,
+  productId: string,
+  scope: { tenantId: string; organizationId: string },
+): Promise<void> {
+  const discrepancies = await findWithDecryption(
+    em,
+    InboxDiscrepancy,
+    {
+      proposalId,
+      type: 'product_not_found',
+      resolved: false,
+      tenantId: scope.tenantId,
+      organizationId: scope.organizationId,
+    },
+    undefined,
+    scope,
+  )
+
+  const normalizedTitle = productTitle.toLowerCase().trim()
+  const matchingDiscrepancies = discrepancies.filter((d) => {
+    const foundValue = (d.foundValue || '').toLowerCase().trim()
+    return foundValue === normalizedTitle
+  })
+
+  for (const discrepancy of matchingDiscrepancies) {
+    discrepancy.resolved = true
+
+    if (discrepancy.actionId) {
+      await updateLineItemProductId(em, discrepancy.actionId, normalizedTitle, productId, scope)
+    }
+  }
+
+  if (matchingDiscrepancies.length > 0) {
+    await em.flush()
+  }
+}
+
+async function updateLineItemProductId(
+  em: EntityManager,
+  actionId: string,
+  productName: string,
+  productId: string,
+  scope: { tenantId: string; organizationId: string },
+): Promise<void> {
+  const action = await findOneWithDecryption(
+    em,
+    InboxProposalAction,
+    { id: actionId, deletedAt: null },
+    undefined,
+    scope,
+  )
+  if (!action) return
+
+  const payload = action.payload as Record<string, unknown>
+  const lineItems = Array.isArray(payload?.lineItems)
+    ? (payload.lineItems as Record<string, unknown>[])
+    : []
+
+  let updated = false
+  for (const item of lineItems) {
+    if (item.productId) continue
+    const itemName = (typeof item.productName === 'string' ? item.productName : '').toLowerCase().trim()
+    if (itemName === productName) {
+      item.productId = productId
+      updated = true
+      break
+    }
+  }
+
+  if (updated) {
+    action.payload = { ...payload, lineItems }
   }
 }
 
@@ -990,6 +1138,55 @@ async function resolveEffectiveDocumentKind(
     return 'quote'
   }
   return 'order'
+}
+
+async function resolveFirstChannelId(ctx: ExecutionContext): Promise<string | null> {
+  const SalesChannelClass = ctx.entities?.SalesChannel
+  if (!SalesChannelClass) return null
+
+  try {
+    const channel = await findOneWithDecryption(
+      ctx.em,
+      SalesChannelClass,
+      {
+        tenantId: ctx.tenantId,
+        organizationId: ctx.organizationId,
+        deletedAt: null,
+      },
+      { orderBy: { name: 'ASC' } },
+      { tenantId: ctx.tenantId, organizationId: ctx.organizationId },
+    )
+    return channel?.id ?? null
+  } catch {
+    return null
+  }
+}
+
+async function resolveChannelCurrency(
+  ctx: ExecutionContext,
+  channelId: string | null,
+): Promise<string | null> {
+  const SalesChannelClass = ctx.entities?.SalesChannel
+  if (!SalesChannelClass) return null
+
+  try {
+    const where: Record<string, unknown> = {
+      tenantId: ctx.tenantId,
+      organizationId: ctx.organizationId,
+      deletedAt: null,
+    }
+    if (channelId) where.id = channelId
+    const channel = await findOneWithDecryption(
+      ctx.em,
+      SalesChannelClass,
+      where,
+      channelId ? undefined : { orderBy: { name: 'ASC' } },
+      { tenantId: ctx.tenantId, organizationId: ctx.organizationId },
+    )
+    return channel?.currencyCode ?? null
+  } catch {
+    return null
+  }
 }
 
 function normalizeDictionaryToken(value: string): string {

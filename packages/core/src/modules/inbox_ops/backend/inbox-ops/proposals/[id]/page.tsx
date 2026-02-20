@@ -28,6 +28,7 @@ import {
   UserPlus,
   Link2,
   Activity,
+  ShoppingBag,
 } from 'lucide-react'
 import {
   Dialog,
@@ -98,6 +99,7 @@ const ACTION_TYPE_ICONS: Record<string, React.ElementType> = {
   update_order: Package,
   update_shipment: Truck,
   create_contact: UserPlus,
+  create_product: ShoppingBag,
   link_contact: Link2,
   log_activity: Activity,
   draft_reply: MessageSquare,
@@ -111,6 +113,7 @@ function useActionTypeLabels(): Record<string, string> {
     update_order: t('inbox_ops.action_type.update_order', 'Update Order'),
     update_shipment: t('inbox_ops.action_type.update_shipment', 'Update Shipment'),
     create_contact: t('inbox_ops.action_type.create_contact', 'Create Contact'),
+    create_product: t('inbox_ops.action_type.create_product', 'Create Product'),
     link_contact: t('inbox_ops.action_type.link_contact', 'Link Contact'),
     log_activity: t('inbox_ops.action_type.log_activity', 'Log Activity'),
     draft_reply: t('inbox_ops.action_type.draft_reply', 'Draft Reply'),
@@ -192,6 +195,7 @@ function ActionCard({
   const label = actionTypeLabels[action.actionType] || action.actionType
 
   const actionDiscrepancies = discrepancies.filter((d) => d.actionId === action.id && !d.resolved)
+  const hasBlockingDiscrepancies = actionDiscrepancies.some((d) => d.severity === 'error')
 
   if (action.status === 'executed') {
     return (
@@ -276,7 +280,15 @@ function ActionCard({
         <span className="text-sm font-medium">{label}</span>
         <ConfidenceBadge value={action.confidence} />
       </div>
-      <p className="text-sm text-foreground/80 mb-3">{action.description}</p>
+      <p className="text-sm text-foreground/80 mb-2">{action.description}</p>
+
+      {(action.actionType === 'create_order' || action.actionType === 'create_quote') && (
+        <OrderPreview payload={action.payload} />
+      )}
+
+      {action.actionType === 'create_product' && (
+        <ProductPreview payload={action.payload} />
+      )}
 
       {actionDiscrepancies.length > 0 && (
         <div className="mb-3 space-y-1">
@@ -301,14 +313,17 @@ function ActionCard({
       )}
 
       <div className="flex items-center gap-2">
-        <Button
-          size="sm"
-          className="h-11 md:h-9"
-          onClick={() => onAccept(action.id)}
-        >
-          <CheckCircle className="h-4 w-4 mr-1" />
-          {t('inbox_ops.action.accept', 'Accept')}
-        </Button>
+        <div title={hasBlockingDiscrepancies ? t('inbox_ops.action.accept_blocked', 'Resolve errors before accepting') : undefined}>
+          <Button
+            size="sm"
+            className="h-11 md:h-9"
+            onClick={() => onAccept(action.id)}
+            disabled={hasBlockingDiscrepancies}
+          >
+            <CheckCircle className="h-4 w-4 mr-1" />
+            {t('inbox_ops.action.accept', 'Accept')}
+          </Button>
+        </div>
         <Button
           variant="outline"
           size="sm"
@@ -394,14 +409,6 @@ function EditActionDialog({
     setPayload((prev) => ({ ...prev, [key]: value }))
   }
 
-  const updateNestedField = (parentKey: string, index: number, field: string, value: unknown) => {
-    setPayload((prev) => {
-      const arr = [...((prev[parentKey] as unknown[]) || [])]
-      arr[index] = { ...(arr[index] as Record<string, unknown>), [field]: value }
-      return { ...prev, [parentKey]: arr }
-    })
-  }
-
   const label = actionTypeLabels[action.actionType] || action.actionType
   const hasTypedEditor = [
     'create_order', 'create_quote', 'update_order', 'update_shipment', 'create_contact', 'link_contact', 'log_activity', 'draft_reply',
@@ -418,9 +425,6 @@ function EditActionDialog({
         <div className="space-y-4 overflow-y-auto max-h-[60vh] py-2">
           {hasTypedEditor && !jsonMode && (
             <>
-              {(action.actionType === 'create_order' || action.actionType === 'create_quote') && (
-                <OrderPayloadEditor payload={payload} updateField={updateField} updateNestedField={updateNestedField} />
-              )}
               {action.actionType === 'update_order' && (
                 <UpdateOrderPayloadEditor payload={payload} updateField={updateField} />
               )}
@@ -495,76 +499,97 @@ function EditActionDialog({
   )
 }
 
-function OrderPayloadEditor({
-  payload,
-  updateField,
-  updateNestedField,
-}: {
-  payload: Record<string, unknown>
-  updateField: (key: string, value: unknown) => void
-  updateNestedField: (parentKey: string, index: number, field: string, value: unknown) => void
-}) {
+function OrderPreview({ payload }: { payload: Record<string, unknown> }) {
   const t = useT()
   const lineItems = (payload.lineItems as Record<string, unknown>[]) || []
+  const customerName = (payload.customerName as string) || ''
+  const currencyCode = (payload.currencyCode as string) || ''
+  const notes = (payload.notes as string) || ''
+  const deliveryDate = (payload.requestedDeliveryDate as string) || ''
 
   return (
-    <div className="space-y-3">
-      <div className="grid grid-cols-2 gap-3">
-        <div>
-          <Label>{t('inbox_ops.edit_dialog.customer_name', 'Customer Name')}</Label>
-          <Input value={(payload.customerName as string) || ''} onChange={(event) => updateField('customerName', event.target.value)} />
+    <div className="mt-2 space-y-2 text-xs">
+      {customerName && (
+        <div className="flex gap-1">
+          <span className="text-muted-foreground">{t('inbox_ops.preview.customer', 'Customer')}:</span>
+          <span>{customerName}</span>
+          {typeof payload.customerEmail === 'string' && <span className="text-muted-foreground">({payload.customerEmail})</span>}
         </div>
-        <div>
-          <Label>{t('inbox_ops.edit_dialog.customer_email', 'Customer Email')}</Label>
-          <Input value={(payload.customerEmail as string) || ''} onChange={(event) => updateField('customerEmail', event.target.value)} />
+      )}
+      {lineItems.length > 0 && (
+        <div className="border rounded overflow-hidden">
+          <table className="w-full text-xs">
+            <thead>
+              <tr className="bg-muted/50">
+                <th className="text-left px-2 py-1 font-medium">{t('inbox_ops.preview.product', 'Product')}</th>
+                <th className="text-right px-2 py-1 font-medium">{t('inbox_ops.preview.qty', 'Qty')}</th>
+                <th className="text-right px-2 py-1 font-medium">{t('inbox_ops.preview.price', 'Price')}</th>
+              </tr>
+            </thead>
+            <tbody>
+              {lineItems.map((item, index) => (
+                <tr key={index} className="border-t">
+                  <td className="px-2 py-1">{(item.productName as string) || '—'}</td>
+                  <td className="px-2 py-1 text-right">{String(item.quantity ?? '')}</td>
+                  <td className="px-2 py-1 text-right">{item.unitPrice ? `${item.unitPrice} ${currencyCode}` : '—'}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
         </div>
-      </div>
-      <div className="grid grid-cols-2 gap-3">
-        <div>
-          <Label>{t('inbox_ops.edit_dialog.channel_id', 'Channel ID')}</Label>
-          <Input value={(payload.channelId as string) || ''} onChange={(event) => updateField('channelId', event.target.value)} />
-        </div>
-        <div>
-          <Label>{t('inbox_ops.edit_dialog.currency', 'Currency')}</Label>
-          <Input value={(payload.currencyCode as string) || ''} maxLength={3} onChange={(event) => updateField('currencyCode', event.target.value)} />
-        </div>
-      </div>
-      <div className="grid grid-cols-2 gap-3">
-        <div>
-          <Label>{t('inbox_ops.edit_dialog.delivery_date', 'Delivery Date')}</Label>
-          <Input value={(payload.requestedDeliveryDate as string) || ''} onChange={(event) => updateField('requestedDeliveryDate', event.target.value)} placeholder="YYYY-MM-DD" />
-        </div>
-        <div>
-          <Label>{t('inbox_ops.edit_dialog.customer_reference', 'Customer Reference')}</Label>
-          <Input value={(payload.customerReference as string) || ''} onChange={(event) => updateField('customerReference', event.target.value)} />
-        </div>
-      </div>
-      <div>
-        <Label>{t('inbox_ops.edit_dialog.notes', 'Notes')}</Label>
-        <Textarea value={(payload.notes as string) || ''} onChange={(event) => updateField('notes', event.target.value)} rows={2} />
-      </div>
-
-      <div>
-        <Label className="mb-1 block">{t('inbox_ops.edit_dialog.line_items', 'Line Items')}</Label>
-        <div className="space-y-2">
-          {lineItems.map((item, index) => (
-            <div key={index} className="border rounded p-2 space-y-2">
-              <div className="grid grid-cols-3 gap-2">
-                <div>
-                  <Label className="text-xs">{t('inbox_ops.edit_dialog.product', 'Product')}</Label>
-                  <Input className="h-8 text-sm" value={(item.productName as string) || ''} onChange={(event) => updateNestedField('lineItems', index, 'productName', event.target.value)} />
-                </div>
-                <div>
-                  <Label className="text-xs">{t('inbox_ops.edit_dialog.quantity', 'Quantity')}</Label>
-                  <Input className="h-8 text-sm" value={(item.quantity as string) || ''} onChange={(event) => updateNestedField('lineItems', index, 'quantity', event.target.value)} />
-                </div>
-                <div>
-                  <Label className="text-xs">{t('inbox_ops.edit_dialog.unit_price', 'Unit Price')}</Label>
-                  <Input className="h-8 text-sm" value={(item.unitPrice as string) || ''} onChange={(event) => updateNestedField('lineItems', index, 'unitPrice', event.target.value)} />
-                </div>
-              </div>
+      )}
+      {(deliveryDate || notes) && (
+        <div className="flex flex-wrap gap-3">
+          {deliveryDate && (
+            <div className="flex gap-1">
+              <span className="text-muted-foreground">{t('inbox_ops.preview.delivery', 'Delivery')}:</span>
+              <span>{deliveryDate}</span>
             </div>
-          ))}
+          )}
+          {notes && (
+            <div className="flex gap-1">
+              <span className="text-muted-foreground">{t('inbox_ops.preview.notes', 'Notes')}:</span>
+              <span className="truncate max-w-[200px]">{notes}</span>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
+function ProductPreview({ payload }: { payload: Record<string, unknown> }) {
+  const t = useT()
+  const title = (payload.title as string) || ''
+  const sku = (payload.sku as string) || ''
+  const unitPrice = (payload.unitPrice as string) || ''
+  const currencyCode = (payload.currencyCode as string) || ''
+  const kind = (payload.kind as string) || 'product'
+
+  return (
+    <div className="mt-2 space-y-1 text-xs">
+      {title && (
+        <div className="flex gap-1">
+          <span className="text-muted-foreground">{t('inbox_ops.preview.product_title', 'Title')}:</span>
+          <span className="font-medium">{title}</span>
+        </div>
+      )}
+      <div className="flex flex-wrap gap-3">
+        {sku && (
+          <div className="flex gap-1">
+            <span className="text-muted-foreground">{t('inbox_ops.preview.sku', 'SKU')}:</span>
+            <span>{sku}</span>
+          </div>
+        )}
+        {unitPrice && (
+          <div className="flex gap-1">
+            <span className="text-muted-foreground">{t('inbox_ops.preview.price', 'Price')}:</span>
+            <span>{unitPrice}{currencyCode ? ` ${currencyCode}` : ''}</span>
+          </div>
+        )}
+        <div className="flex gap-1">
+          <span className="text-muted-foreground">{t('inbox_ops.edit_dialog.kind', 'Kind')}:</span>
+          <span>{kind}</span>
         </div>
       </div>
     </div>
@@ -924,6 +949,39 @@ export default function ProposalDetailPage({ params }: { params?: { id?: string 
   const [editingAction, setEditingAction] = React.useState<ActionDetail | null>(null)
   const [sendingReplyId, setSendingReplyId] = React.useState<string | null>(null)
 
+  const handleEditAction = React.useCallback((action: ActionDetail) => {
+    if (action.actionType === 'create_order' || action.actionType === 'create_quote') {
+      const kind = action.actionType === 'create_order' ? 'order' : 'quote'
+      try {
+        sessionStorage.setItem(
+          'inbox_ops.orderDraft',
+          JSON.stringify({
+            actionId: action.id,
+            proposalId: action.proposalId,
+            payload: action.payload,
+          }),
+        )
+      } catch { /* sessionStorage unavailable */ }
+      router.push(`/backend/sales/documents/create?kind=${kind}&fromInboxAction=${encodeURIComponent(action.id)}`)
+      return
+    }
+    if (action.actionType === 'create_product') {
+      try {
+        sessionStorage.setItem(
+          'inbox_ops.productDraft',
+          JSON.stringify({
+            actionId: action.id,
+            proposalId: action.proposalId,
+            payload: action.payload,
+          }),
+        )
+      } catch { /* sessionStorage unavailable */ }
+      router.push(`/backend/catalog/products/create?fromInboxAction=${encodeURIComponent(action.id)}`)
+      return
+    }
+    setEditingAction(action)
+  }, [router])
+
   const loadData = React.useCallback(async () => {
     if (!proposalId) return
     setIsLoading(true)
@@ -957,7 +1015,7 @@ export default function ProposalDetailPage({ params }: { params?: { id?: string 
       flash(result?.result?.error || t('inbox_ops.flash.action_execute_failed', 'Failed to execute action'), 'error')
     }
     setIsProcessing(false)
-  }, [proposalId, loadData])
+  }, [proposalId, loadData, t])
 
   const handleRejectAction = React.useCallback(async (actionId: string) => {
     setIsProcessing(true)
@@ -1217,7 +1275,7 @@ export default function ProposalDetailPage({ params }: { params?: { id?: string 
                             onAccept={handleAcceptAction}
                             onReject={handleRejectAction}
                             onRetry={handleAcceptAction}
-                            onEdit={setEditingAction}
+                            onEdit={handleEditAction}
                           />
                           {action.actionType === 'draft_reply' && (action.status === 'executed' || action.status === 'accepted') && (
                             <div className="mt-2 pl-7">

@@ -9,9 +9,11 @@ import { matchContacts } from '../lib/contactMatcher'
 import { buildExtractionSystemPrompt, buildExtractionUserPrompt } from '../lib/extractionPrompt'
 import { REQUIRED_FEATURES_MAP } from '../lib/constants'
 import { fetchCatalogProductsForExtraction } from '../lib/catalogLookup'
+import { enrichOrderPayload } from '../lib/payloadEnrichment'
 import { validatePrices } from '../lib/priceValidator'
 import { extractParticipantsFromThread } from '../lib/emailParser'
 import { runExtractionWithConfiguredProvider } from '../lib/llmProvider'
+import { safeParsePayloadJson } from '../lib/validation'
 import { emitInboxOpsEvent } from '../events'
 
 export const metadata = {
@@ -37,6 +39,7 @@ interface ExtractionEntityClasses {
   catalogProduct?: EntityClass<{ id: string; name: string; sku?: string | null; tenantId?: string; organizationId?: string; deletedAt?: Date | null }>
   catalogProductPrice?: EntityClass<{ product?: unknown; unitPriceNet?: string | null; unitPriceGross?: string | null; currencyCode?: string | null; tenantId?: string; organizationId?: string; deletedAt?: Date | null; createdAt?: Date }>
   salesOrder?: EntityClass<{ id: string; orderNumber: string; customerReference?: string | null; tenantId?: string; organizationId?: string; deletedAt?: Date | null }>
+  salesChannel?: EntityClass<{ id: string; name: string; currencyCode?: string; tenantId?: string; organizationId?: string; deletedAt?: Date | null }>
 }
 
 interface DiscrepancyInput {
@@ -54,6 +57,7 @@ function resolveEntityClasses(ctx: ResolverContext): ExtractionEntityClasses {
   try { classes.catalogProduct = ctx.resolve('CatalogProduct') } catch { /* module not available */ }
   try { classes.catalogProductPrice = ctx.resolve('CatalogProductPrice') } catch { /* module not available */ }
   try { classes.salesOrder = ctx.resolve('SalesOrder') } catch { /* module not available */ }
+  try { classes.salesChannel = ctx.resolve('SalesChannel') } catch { /* module not available */ }
   return classes
 }
 
@@ -183,11 +187,9 @@ export default async function handle(payload: EmailReceivedPayload, ctx: Resolve
 
     // Step 4: Validate prices for order/quote actions
     const orderActions = extractionResult.proposedActions
-      .map((action, index) => {
-        let actionPayload: Record<string, unknown> = {}
-        try { actionPayload = typeof action.payloadJson === 'string' ? JSON.parse(action.payloadJson) : {} } catch { /* ignore */ }
-        return { ...action, payload: actionPayload, index }
-      })
+      .map((action, index) => ({
+        ...action, payload: safeParsePayloadJson(action.payloadJson), index,
+      }))
       .filter((a) => a.actionType === 'create_order' || a.actionType === 'create_quote')
 
     const priceDiscrepancies = await validatePrices(em, orderActions, scope,
@@ -213,6 +215,73 @@ export default async function handle(payload: EmailReceivedPayload, ctx: Resolve
     // Step 6: Detect partial forward
     const possiblyIncomplete = extractionResult.possiblyIncomplete || detectPartialForward(email)
 
+    // Step 6b: Normalize + enrich order/quote payloads
+    for (const action of extractionResult.proposedActions) {
+      if (action.actionType === 'create_order' || action.actionType === 'create_quote') {
+        const parsedPayload = safeParsePayloadJson(action.payloadJson)
+
+        normalizeOrderPayloadFields(parsedPayload)
+
+        const enriched = await enrichOrderPayload(parsedPayload, {
+          em,
+          scope,
+          contactMatches,
+          catalogProducts,
+          senderEmail: email.forwardedByAddress,
+          salesChannelClass: entityClasses.salesChannel,
+        })
+
+        action.payloadJson = JSON.stringify(enriched)
+      }
+    }
+
+    // Step 6c: Detect unresolved products and auto-generate create_product actions
+    const productNotFoundDiscrepancies: DiscrepancyInput[] = []
+    const autoProductActions: { actionType: 'create_product'; description: string; confidence: number; requiredFeature: string; payloadJson: string }[] = []
+    const seenProductNames = new Set<string>()
+
+    for (const [actionIndex, action] of extractionResult.proposedActions.entries()) {
+      if (action.actionType !== 'create_order' && action.actionType !== 'create_quote') continue
+      const parsedPayload = safeParsePayloadJson(action.payloadJson)
+      const lineItems = Array.isArray(parsedPayload.lineItems)
+        ? (parsedPayload.lineItems as Record<string, unknown>[])
+        : []
+      for (const item of lineItems) {
+        if (!item.productId) {
+          const productName = typeof item.productName === 'string'
+            ? item.productName
+            : (typeof item.description === 'string' ? item.description : 'Unknown')
+          productNotFoundDiscrepancies.push({
+            actionIndex,
+            type: 'product_not_found',
+            severity: 'error',
+            description: `Product "${productName}" could not be matched to any catalog product`,
+            foundValue: productName,
+          })
+          const nameKey = productName.toLowerCase().trim()
+          if (nameKey && nameKey !== 'unknown' && !seenProductNames.has(nameKey)) {
+            seenProductNames.add(nameKey)
+            const sku = typeof item.sku === 'string' ? item.sku : undefined
+            const unitPrice = typeof item.unitPrice === 'string' ? item.unitPrice : undefined
+            const currencyCode = typeof parsedPayload.currencyCode === 'string' ? parsedPayload.currencyCode : undefined
+            autoProductActions.push({
+              actionType: 'create_product',
+              description: `Create catalog product "${productName}"`,
+              confidence: 0.9,
+              requiredFeature: REQUIRED_FEATURES_MAP.create_product,
+              payloadJson: JSON.stringify({
+                title: productName,
+                ...(sku && { sku }),
+                ...(unitPrice && { unitPrice }),
+                ...(currencyCode && { currencyCode }),
+                kind: 'product',
+              }),
+            })
+          }
+        }
+      }
+    }
+
     // Step 7: Create proposal + actions + discrepancies atomically
     const proposalId = randomUUID()
     const proposal = em.create(InboxProposal, {
@@ -231,15 +300,18 @@ export default async function handle(payload: EmailReceivedPayload, ctx: Resolve
     })
     em.persist(proposal)
 
-    // Create actions
+    // Step 6d: Auto-generate create_contact actions for unmatched participants
+    const autoContactActions = buildContactActionsForUnmatchedParticipants(
+      contactMatches,
+      extractionResult.proposedActions,
+      email.toAddress,
+    )
+
+    // Create actions — contact & product creation actions go first so they're executed before orders
+    const combinedProposedActions = [...autoContactActions, ...autoProductActions, ...extractionResult.proposedActions]
     const allActions = [
-      ...extractionResult.proposedActions.map((action, index) => {
-        let parsedPayload: Record<string, unknown> = {}
-        try {
-          parsedPayload = typeof action.payloadJson === 'string' ? JSON.parse(action.payloadJson) : {}
-        } catch {
-          parsedPayload = {}
-        }
+      ...combinedProposedActions.map((action, index) => {
+        const parsedPayload = safeParsePayloadJson(action.payloadJson)
         return em.create(InboxProposalAction, {
           id: randomUUID(),
           proposalId: proposalId,
@@ -258,7 +330,7 @@ export default async function handle(payload: EmailReceivedPayload, ctx: Resolve
         em.create(InboxProposalAction, {
           id: randomUUID(),
           proposalId: proposalId,
-          sortOrder: extractionResult.proposedActions.length + index,
+          sortOrder: combinedProposedActions.length + index,
           actionType: 'draft_reply',
           description: `Draft reply to ${reply.toName || reply.to}: ${reply.subject}`,
           payload: {
@@ -292,17 +364,60 @@ export default async function handle(payload: EmailReceivedPayload, ctx: Resolve
       ...duplicateOrderDiscrepancies.map((d) =>
         createDiscrepancy(em, proposalId, allActions, d, scope),
       ),
+      ...productNotFoundDiscrepancies.map((d) =>
+        createDiscrepancy(em, proposalId, allActions, d, scope),
+      ),
     ]
 
-    // Flag unmatched contacts as discrepancies
+    // Flag unmatched contacts as discrepancies (from header-based matches + LLM-discovered participants)
+    const contactDiscrepancyEmails = new Set<string>()
     for (const match of contactMatches) {
       if (!match.match && match.participant.email) {
+        const emailLower = match.participant.email.toLowerCase()
+        contactDiscrepancyEmails.add(emailLower)
         allDiscrepancies.push(
           createDiscrepancy(em, proposalId, allActions, {
             type: 'unknown_contact',
             severity: 'warning',
             description: `No matching contact found for ${match.participant.name} (${match.participant.email})`,
             foundValue: match.participant.email,
+          }, scope),
+        )
+      }
+    }
+    for (const participant of enrichedParticipants) {
+      if (participant.matchedContactId) continue
+      const emailLower = (participant.email || '').toLowerCase()
+      if (!emailLower || contactDiscrepancyEmails.has(emailLower)) continue
+      contactDiscrepancyEmails.add(emailLower)
+      allDiscrepancies.push(
+        createDiscrepancy(em, proposalId, allActions, {
+          type: 'unknown_contact',
+          severity: 'warning',
+          description: `No matching contact found for ${participant.name} (${participant.email})`,
+          foundValue: participant.email,
+        }, scope),
+      )
+    }
+
+    // Flag draft_reply actions that target unmatched contacts (blocks accept)
+    const matchedEmails = new Set(
+      contactMatches
+        .filter((m) => m.match?.contactId)
+        .map((m) => m.participant.email.toLowerCase()),
+    )
+    for (const [actionIndex, action] of allActions.entries()) {
+      if (action.actionType !== 'draft_reply') continue
+      const payload = action.payload as Record<string, unknown> | null
+      const toEmail = typeof payload?.to === 'string' ? payload.to.trim().toLowerCase() : ''
+      if (toEmail && !matchedEmails.has(toEmail)) {
+        allDiscrepancies.push(
+          createDiscrepancy(em, proposalId, allActions, {
+            actionIndex,
+            type: 'unknown_contact',
+            severity: 'error',
+            description: `Draft reply target "${toEmail}" has no matching contact. Create the contact first.`,
+            foundValue: toEmail,
           }, scope),
         )
       }
@@ -355,6 +470,63 @@ export default async function handle(payload: EmailReceivedPayload, ctx: Resolve
 
     console.error('[inbox_ops:extraction-worker] Extraction failed:', err)
   }
+}
+
+function normalizeOrderPayloadFields(payload: Record<string, unknown>): void {
+  const lineItems = Array.isArray(payload.lineItems)
+    ? (payload.lineItems as Record<string, unknown>[])
+    : []
+  for (const item of lineItems) {
+    if (!item.productName && typeof item.description === 'string') {
+      item.productName = item.description
+    }
+    if (typeof item.quantity === 'number') {
+      item.quantity = String(item.quantity)
+    }
+    if (typeof item.unitPrice === 'number') {
+      item.unitPrice = String(item.unitPrice)
+    }
+  }
+}
+
+function buildContactActionsForUnmatchedParticipants(
+  contactMatches: { participant: { name: string; email: string }; match?: { contactId: string } | null }[],
+  existingActions: { actionType: string; payloadJson: string }[],
+  inboxAddress: string,
+): { actionType: 'create_contact'; description: string; confidence: number; requiredFeature: string; payloadJson: string }[] {
+  const alreadyProposed = new Set(
+    existingActions
+      .filter((a) => a.actionType === 'create_contact')
+      .map((a) => {
+        const p = safeParsePayloadJson(a.payloadJson)
+        return typeof p.email === 'string' ? p.email.toLowerCase() : ''
+      })
+      .filter(Boolean),
+  )
+
+  const inboxLower = (inboxAddress || '').toLowerCase()
+  const systemPatterns = ['noreply', 'no-reply', 'donotreply', 'mailer-daemon', 'postmaster']
+
+  return contactMatches
+    .filter((m) => {
+      if (m.match?.contactId) return false
+      const emailLower = m.participant.email.toLowerCase()
+      if (alreadyProposed.has(emailLower)) return false
+      if (emailLower === inboxLower) return false
+      return !systemPatterns.some((p) => emailLower.includes(p))
+    })
+    .map((m) => ({
+      actionType: 'create_contact' as const,
+      description: `Create contact for ${m.participant.name} (${m.participant.email})`,
+      confidence: 0.9,
+      requiredFeature: REQUIRED_FEATURES_MAP.create_contact,
+      payloadJson: JSON.stringify({
+        type: 'person',
+        name: m.participant.name,
+        email: m.participant.email,
+        source: 'inbox_ops',
+      }),
+    }))
 }
 
 async function detectDuplicateOrders(

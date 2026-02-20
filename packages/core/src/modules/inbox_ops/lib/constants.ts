@@ -6,6 +6,7 @@ export const REQUIRED_FEATURES_MAP: Record<InboxActionType, string> = {
   update_order: 'sales.orders.manage',
   update_shipment: 'sales.shipments.manage',
   create_contact: 'customers.people.manage',
+  create_product: 'catalog.products.manage',
   link_contact: 'customers.people.manage',
   log_activity: 'customers.activities.manage',
   draft_reply: 'inbox_ops.replies.send',

@@ -40,6 +40,7 @@ export type InboxActionType =
   | 'update_order'
   | 'update_shipment'
   | 'create_contact'
+  | 'create_product'
   | 'link_contact'
   | 'log_activity'
   | 'draft_reply'

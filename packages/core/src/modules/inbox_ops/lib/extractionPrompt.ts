@@ -42,12 +42,27 @@ ${Object.entries(REQUIRED_FEATURES_MAP).map(([actionType, feature]) => `- ${acti
 - Return data only in the requested JSON schema shape.
 </safety>
 
+<payload_schemas>
+create_order / create_quote payload:
+{ customerName: string, customerEmail?: string, customerEntityId?: uuid, channelId?: uuid, currencyCode: string (3-letter ISO), taxRateId?: uuid, lineItems: [{ productName: string (REQUIRED), productId?: uuid, variantId?: uuid, sku?: string, quantity: string, unitPrice?: string, kind?: "product"|"service", description?: string }], requestedDeliveryDate?: string, notes?: string, customerReference?: string }
+
+create_contact payload:
+{ type: "person"|"company", name: string, email?: string, phone?: string, companyName?: string, role?: string, source: "inbox_ops" }
+
+create_product payload:
+{ title: string, sku?: string, unitPrice?: string, currencyCode?: string (3-letter ISO), kind?: "product"|"service", description?: string }
+
+draft_reply payload:
+{ to: string (email), toName?: string, subject: string, body: string, context?: string }
+</payload_schemas>
+
 <rules>
 - Extract only details explicitly stated or strongly implied in the thread.
 - Do not fabricate values; omit values that are not present.
-- For create_order: include channelId, currencyCode, customerName, and lineItems with quantities.
+- ALWAYS propose a create_order or create_quote action when the customer confirms they want to proceed, even if some product names are uncertain or not in the catalog. Use the best product name available; the system will flag unmatched products as discrepancies. Do NOT replace an order with a draft_reply asking for clarification — propose both if needed.
+- For create_order / create_quote: each line item MUST have "productName" (the product name goes here, NOT in "description"). Include currencyCode and customerName.
 - For update_shipment: use statusLabel text only.
-- For create_contact: set source to "inbox_ops".
+- For create_contact: set source to "inbox_ops", type must be lowercase "person" or "company".
 - For draft_reply: include ERP context when available.
 - Set requiredFeature on each action from the mapping above.
 - Set confidence in [0.0, 1.0].

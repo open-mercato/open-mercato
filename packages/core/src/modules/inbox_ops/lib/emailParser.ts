@@ -236,6 +236,10 @@ export function extractParticipantsFromThread(
   const seen = new Set<string>()
   const participants: { name: string; email: string; role: string }[] = []
 
+  // Pre-seed with the inbox's own address so it's excluded from participants
+  const inboxAddress = (email.toAddress || '').toLowerCase()
+  if (inboxAddress) seen.add(inboxAddress)
+
   const addParticipant = (name: string, addr: string, role: string) => {
     const key = addr.toLowerCase()
     if (!key || seen.has(key)) return

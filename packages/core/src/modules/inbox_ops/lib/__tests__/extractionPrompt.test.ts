@@ -102,19 +102,20 @@ describe('buildExtractionUserPrompt', () => {
 })
 
 describe('REQUIRED_FEATURES_MAP', () => {
-  it('maps all 8 action types to required features', () => {
+  it('maps all 9 action types to required features', () => {
     const expectedMappings: Record<string, string> = {
       create_order: 'sales.orders.manage',
       create_quote: 'sales.quotes.manage',
       update_order: 'sales.orders.manage',
       update_shipment: 'sales.shipments.manage',
       create_contact: 'customers.people.manage',
+      create_product: 'catalog.products.manage',
       link_contact: 'customers.people.manage',
       log_activity: 'customers.activities.manage',
       draft_reply: 'inbox_ops.replies.send',
     }
 
-    expect(Object.keys(REQUIRED_FEATURES_MAP)).toHaveLength(8)
+    expect(Object.keys(REQUIRED_FEATURES_MAP)).toHaveLength(9)
 
     for (const [actionType, feature] of Object.entries(expectedMappings)) {
       expect(REQUIRED_FEATURES_MAP[actionType as keyof typeof REQUIRED_FEATURES_MAP]).toBe(feature)

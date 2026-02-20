@@ -266,7 +266,7 @@ describe('extractionWorker', () => {
         'inbox_ops.proposal.created',
         expect.objectContaining({
           emailId: 'email-1',
-          actionCount: 1,
+          actionCount: 2,
         }),
       )
     })

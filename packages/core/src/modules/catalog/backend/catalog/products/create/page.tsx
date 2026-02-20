@@ -2,7 +2,7 @@
 
 import * as React from 'react'
 import dynamic from 'next/dynamic'
-import { useRouter } from 'next/navigation'
+import { useRouter, useSearchParams } from 'next/navigation'
 import type { ZodType } from 'zod'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { CrudForm, type CrudFormGroup, type CrudFormGroupComponentProps } from '@open-mercato/ui/backend/CrudForm'
@@ -118,12 +118,44 @@ function resolveBooleanFlag(value: unknown): boolean {
 }
 
 
+interface InboxProductDraft {
+  actionId: string
+  proposalId: string
+  payload: Record<string, unknown>
+}
+
+function readInboxProductDraft(): InboxProductDraft | null {
+  try {
+    const raw = sessionStorage.getItem('inbox_ops.productDraft')
+    if (!raw) return null
+    const parsed = JSON.parse(raw) as InboxProductDraft
+    if (!parsed.actionId || !parsed.proposalId || !parsed.payload) return null
+    return parsed
+  } catch {
+    return null
+  }
+}
+
 export default function CreateCatalogProductPage() {
   const t = useT()
   const router = useRouter()
+  const searchParams = useSearchParams()
+  const fromInboxAction = searchParams.get('fromInboxAction')
+
+  const inboxDraft = React.useMemo<InboxProductDraft | null>(() => {
+    if (!fromInboxAction) return null
+    return readInboxProductDraft()
+  }, [fromInboxAction])
+
   const initialValuesRef = React.useRef<ProductFormValues | null>(null)
   if (!initialValuesRef.current) {
-    initialValuesRef.current = createInitialProductFormValues()
+    const initial = createInitialProductFormValues()
+    if (inboxDraft?.payload) {
+      const p = inboxDraft.payload
+      if (typeof p.title === 'string' && p.title.trim()) initial.title = p.title.trim()
+      if (typeof p.description === 'string' && p.description.trim()) initial.description = p.description.trim()
+    }
+    initialValuesRef.current = initial
   }
   const [priceKinds, setPriceKinds] = React.useState<PriceKindSummary[]>([])
   const [taxRates, setTaxRates] = React.useState<TaxRateSummary[]>([])
@@ -433,8 +465,32 @@ export default function CreateCatalogProductPage() {
                 }
               }
 
+              if (inboxDraft) {
+                try {
+                  sessionStorage.removeItem('inbox_ops.productDraft')
+                } catch { /* ignore */ }
+                try {
+                  await apiCall(
+                    `/api/inbox_ops/proposals/${inboxDraft.proposalId}/actions/${inboxDraft.actionId}/complete`,
+                    {
+                      method: 'PATCH',
+                      body: JSON.stringify({
+                        createdEntityId: productId,
+                        createdEntityType: 'catalog_product',
+                      }),
+                    },
+                  )
+                } catch {
+                  flash(t('inbox_ops.flash.complete_failed', 'Product created but failed to update inbox action status.'), 'warning')
+                }
+              }
+
               flash(t('catalog.products.create.success', 'Product created.'), 'success')
-              router.push('/backend/catalog/products')
+              if (inboxDraft) {
+                router.push(`/backend/inbox-ops/proposals/${encodeURIComponent(inboxDraft.proposalId)}`)
+              } else {
+                router.push('/backend/catalog/products')
+              }
             } catch (err) {
               await cleanupFailedProduct(cleanupState.productId, cleanupState.variantIds)
               throw err

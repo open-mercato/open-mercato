@@ -1,6 +1,10 @@
 import { z } from 'zod'
 
 const uuid = () => z.string().uuid()
+const coerceNumericString = z.preprocess(
+  (val) => (typeof val === 'number' ? String(val) : val),
+  z.string().regex(/^\d+(\.\d+)?$/),
+)
 
 // ---------------------------------------------------------------------------
 // Action Payload Schemas
@@ -10,7 +14,7 @@ export const orderPayloadSchema = z.object({
   customerEntityId: uuid().optional(),
   customerName: z.string().trim().min(1).max(300),
   customerEmail: z.string().trim().email().max(320).optional(),
-  channelId: uuid(),
+  channelId: uuid().optional(),
   currencyCode: z.string().trim().length(3),
   taxRateId: uuid().optional(),
   lineItems: z.array(z.object({
@@ -18,8 +22,8 @@ export const orderPayloadSchema = z.object({
     productId: uuid().optional(),
     variantId: uuid().optional(),
     sku: z.string().trim().max(100).optional(),
-    quantity: z.string().regex(/^\d+(\.\d+)?$/),
-    unitPrice: z.string().regex(/^\d+(\.\d+)?$/).optional(),
+    quantity: coerceNumericString,
+    unitPrice: coerceNumericString.optional(),
     catalogPrice: z.string().optional(),
     kind: z.enum(['product', 'service']).default('product'),
     description: z.string().trim().max(2000).optional(),
@@ -65,8 +69,13 @@ export const updateShipmentPayloadSchema = z
     message: 'order_reference_required',
   })
 
+const lowercaseContactType = z.preprocess(
+  (val) => (typeof val === 'string' ? val.toLowerCase() : val),
+  z.enum(['person', 'company']),
+)
+
 export const createContactPayloadSchema = z.object({
-  type: z.enum(['person', 'company']),
+  type: lowercaseContactType,
   name: z.string().trim().min(1).max(300),
   email: z.string().trim().email().max(320).optional(),
   phone: z.string().trim().max(50).optional(),
@@ -78,13 +87,22 @@ export const createContactPayloadSchema = z.object({
 export const linkContactPayloadSchema = z.object({
   emailAddress: z.string().trim().email().max(320),
   contactId: uuid(),
-  contactType: z.enum(['person', 'company']),
+  contactType: lowercaseContactType,
   contactName: z.string().trim().min(1).max(300),
+})
+
+export const createProductPayloadSchema = z.object({
+  title: z.string().trim().min(1).max(255),
+  sku: z.string().trim().max(100).optional(),
+  unitPrice: coerceNumericString.optional(),
+  currencyCode: z.string().trim().length(3).optional(),
+  kind: z.enum(['product', 'service']).default('product'),
+  description: z.string().trim().max(4000).optional(),
 })
 
 export const logActivityPayloadSchema = z.object({
   contactId: uuid().optional(),
-  contactType: z.enum(['person', 'company']),
+  contactType: lowercaseContactType,
   contactName: z.string().trim().min(1).max(300),
   activityType: z.enum(['email', 'call', 'meeting', 'note']),
   subject: z.string().trim().min(1).max(200),
@@ -119,6 +137,7 @@ export const extractedActionSchema = z.object({
     'update_order',
     'update_shipment',
     'create_contact',
+    'create_product',
     'link_contact',
     'log_activity',
     'draft_reply',
@@ -169,6 +188,7 @@ export type OrderPayload = z.infer<typeof orderPayloadSchema>
 export type UpdateOrderPayload = z.infer<typeof updateOrderPayloadSchema>
 export type UpdateShipmentPayload = z.infer<typeof updateShipmentPayloadSchema>
 export type CreateContactPayload = z.infer<typeof createContactPayloadSchema>
+export type CreateProductPayload = z.infer<typeof createProductPayloadSchema>
 export type LinkContactPayload = z.infer<typeof linkContactPayloadSchema>
 export type LogActivityPayload = z.infer<typeof logActivityPayloadSchema>
 export type DraftReplyPayload = z.infer<typeof draftReplyPayloadSchema>
@@ -200,6 +220,7 @@ const ACTION_PAYLOAD_SCHEMAS: Record<string, z.ZodType> = {
   update_order: updateOrderPayloadSchema,
   update_shipment: updateShipmentPayloadSchema,
   create_contact: createContactPayloadSchema,
+  create_product: createProductPayloadSchema,
   link_contact: linkContactPayloadSchema,
   log_activity: logActivityPayloadSchema,
   draft_reply: draftReplyPayloadSchema,
