@@ -1,4 +1,4 @@
-# SPEC-030: Omnibus Price Tracking
+# SPEC-033: Omnibus Price Tracking
 
 ## TLDR
 
