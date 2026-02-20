@@ -345,6 +345,61 @@ function decryptWithOldKey(
   return decryptWithAesGcm(payload, dek.key)
 }
 
+function resolveProperty(meta: any, field: string): { columnName: string | null; prop: any | null } {
+  if (!meta?.properties) return { columnName: null, prop: null }
+  const candidates = [
+    field,
+    field.replace(/_([a-z])/g, (_, c) => c.toUpperCase()),
+    field.replace(/([A-Z])/g, '_$1').toLowerCase(),
+  ]
+  for (const candidate of candidates) {
+    const prop = meta.properties[candidate]
+    const fieldName =
+      prop?.fieldName ??
+      (Array.isArray(prop?.fieldNames) && prop.fieldNames.length ? prop.fieldNames[0] : undefined)
+    if (typeof fieldName === 'string' && fieldName.length) return { columnName: fieldName, prop }
+    if (prop?.name) return { columnName: prop.name, prop }
+  }
+  return { columnName: null, prop: null }
+}
+
+function buildEntityMetaRegistry(em: any): Map<string, any> {
+  const registry = em?.getMetadata?.()
+  const allMetaRaw = typeof registry?.getAll === 'function' ? registry.getAll() : []
+  const allMeta = Array.isArray(allMetaRaw) ? allMetaRaw : Object.values(allMetaRaw ?? {})
+  const metaByEntityId = new Map<string, any>()
+  for (const meta of allMeta) {
+    const resolved = resolveEntityIdFromMetadata(meta)
+    if (resolved) metaByEntityId.set(resolved, meta)
+  }
+  return metaByEntityId
+}
+
+interface EncryptionMapMeta {
+  entityId: string
+  meta: any
+  fields: Array<{ field: string; hashField?: string | null }>
+  tenantId: string
+}
+
+function resolveMapMeta(
+  map: EncryptionMap,
+  metaByEntityId: Map<string, any>,
+  warn: (msg: string) => void = () => {},
+): EncryptionMapMeta | null {
+  const entityId = String(map.entityId)
+  const meta = metaByEntityId.get(entityId)
+  if (!meta) {
+    warn(`Skipping ${entityId}: metadata not found.`)
+    return null
+  }
+  const fields = Array.isArray(map.fieldsJson) ? map.fieldsJson : []
+  if (!fields.length) return null
+  const tenantId = map.tenantId ? String(map.tenantId) : null
+  if (!tenantId) return null
+  return { entityId, meta, fields, tenantId }
+}
+
 const rotateEncryptionKey: ModuleCli = {
   command: 'rotate-encryption-key',
   async run(rest) {
@@ -407,14 +462,7 @@ const rotateEncryptionKey: ModuleCli = {
       return parts.length === 4 && parts[3] === 'v1'
     }
 
-    const registry = em?.getMetadata?.()
-    const allMetaRaw = typeof registry?.getAll === 'function' ? registry.getAll() : []
-    const allMeta = Array.isArray(allMetaRaw) ? allMetaRaw : Object.values(allMetaRaw ?? {})
-    const metaByEntityId = new Map<string, any>()
-    for (const meta of allMeta) {
-      const resolved = resolveEntityIdFromMetadata(meta)
-      if (resolved) metaByEntityId.set(resolved, meta)
-    }
+    const metaByEntityId = buildEntityMetaRegistry(em)
 
     const where: any = { deletedAt: null }
     if (tenantIdArg) where.tenantId = tenantIdArg
@@ -423,24 +471,6 @@ const rotateEncryptionKey: ModuleCli = {
     if (!maps.length) {
       console.log('No encryption maps found for the selected scope.')
       return
-    }
-
-    const resolveProperty = (meta: any, field: string): { columnName: string | null; prop: any | null } => {
-      if (!meta?.properties) return { columnName: null, prop: null }
-      const candidates = [
-        field,
-        field.replace(/_([a-z])/g, (_, c) => c.toUpperCase()),
-        field.replace(/([A-Z])/g, '_$1').toLowerCase(),
-      ]
-      for (const candidate of candidates) {
-        const prop = meta.properties[candidate]
-        const fieldName =
-          prop?.fieldName ??
-          (Array.isArray(prop?.fieldNames) && prop.fieldNames.length ? prop.fieldNames[0] : undefined)
-        if (typeof fieldName === 'string' && fieldName.length) return { columnName: fieldName, prop }
-        if (prop?.name) return { columnName: prop.name, prop }
-      }
-      return { columnName: null, prop: null }
     }
 
     const formatValueForColumn = (prop: any, value: unknown): unknown => {
@@ -570,16 +600,9 @@ const rotateEncryptionKey: ModuleCli = {
 
     let total = 0
     for (const map of maps) {
-      const entityId = String(map.entityId)
-      const meta = metaByEntityId.get(entityId)
-      if (!meta) {
-        console.warn(`Skipping ${entityId}: metadata not found.`)
-        continue
-      }
-      const fields = Array.isArray(map.fieldsJson) ? map.fieldsJson : []
-      if (!fields.length) continue
-      const tenantId = map.tenantId ? String(map.tenantId) : null
-      if (!tenantId) continue
+      const mapMeta = resolveMapMeta(map, metaByEntityId, console.warn)
+      if (!mapMeta) continue
+      const { entityId, meta, fields, tenantId } = mapMeta
       const scopes = await resolveScopes(tenantId, map.organizationId ? String(map.organizationId) : null)
       for (const scope of scopes) {
         const updated = await processScope(entityId, meta, fields, scope)
@@ -644,32 +667,7 @@ const decryptDatabase: ModuleCli = {
       return
     }
 
-    const registry = em?.getMetadata?.()
-    const allMetaRaw = typeof registry?.getAll === 'function' ? registry.getAll() : []
-    const allMeta = Array.isArray(allMetaRaw) ? allMetaRaw : Object.values(allMetaRaw ?? {})
-    const metaByEntityId = new Map<string, any>()
-    for (const meta of allMeta) {
-      const resolved = resolveEntityIdFromMetadata(meta)
-      if (resolved) metaByEntityId.set(resolved, meta)
-    }
-
-    const resolvePropertyDecrypt = (meta: any, field: string): { columnName: string | null; prop: any | null } => {
-      if (!meta?.properties) return { columnName: null, prop: null }
-      const candidates = [
-        field,
-        field.replace(/_([a-z])/g, (_, c) => c.toUpperCase()),
-        field.replace(/([A-Z])/g, '_$1').toLowerCase(),
-      ]
-      for (const candidate of candidates) {
-        const prop = meta.properties[candidate]
-        const fieldName =
-          prop?.fieldName ??
-          (Array.isArray(prop?.fieldNames) && prop.fieldNames.length ? prop.fieldNames[0] : undefined)
-        if (typeof fieldName === 'string' && fieldName.length) return { columnName: fieldName, prop }
-        if (prop?.name) return { columnName: prop.name, prop }
-      }
-      return { columnName: null, prop: null }
-    }
+    const metaByEntityId = buildEntityMetaRegistry(em)
 
     const resolveDecryptScopes = async (
       tenantId: string,
@@ -714,13 +712,9 @@ const decryptDatabase: ModuleCli = {
       let encryptedCandidatesSampled = 0
       let malformedPayloadCountSampled = 0
       for (const map of maps) {
-        const entityId = String(map.entityId)
-        const meta = metaByEntityId.get(entityId)
-        if (!meta) continue
-        const fields = Array.isArray(map.fieldsJson) ? map.fieldsJson : []
-        if (!fields.length) continue
-        const tenantId = map.tenantId ? String(map.tenantId) : null
-        if (!tenantId) continue
+        const mapMeta = resolveMapMeta(map, metaByEntityId)
+        if (!mapMeta) continue
+        const { entityId, meta, fields, tenantId } = mapMeta
         const dek = await getDek(tenantId).catch(() => null)
         if (!dek) continue
         const scopes = await resolveDecryptScopes(tenantId, map.organizationId ? String(map.organizationId) : null)
@@ -730,7 +724,7 @@ const decryptDatabase: ModuleCli = {
         const schema = meta?.schema
         const qualifiedTable = schema ? `"${schema}"."${tableName}"` : `"${tableName}"`
         const fieldCols = fields.flatMap((f: any) => {
-          const r = resolvePropertyDecrypt(meta, f.field)
+          const r = resolveProperty(meta, f.field)
           return r.columnName ? [r.columnName] : []
         })
         const colList = Array.from(new Set([pk, ...fieldCols]))
@@ -742,7 +736,7 @@ const decryptDatabase: ModuleCli = {
           for (const row of Array.isArray(sampleRows) ? sampleRows : []) {
             let rowHasEncrypted = false
             for (const fieldRule of fields) {
-              const resolved = resolvePropertyDecrypt(meta, fieldRule.field)
+              const resolved = resolveProperty(meta, fieldRule.field)
               const col = resolved?.columnName
               if (!col) continue
               const rawValue = row[col]
@@ -779,16 +773,9 @@ const decryptDatabase: ModuleCli = {
     let totalEntitiesProcessed = 0
 
     for (const map of maps) {
-      const entityId = String(map.entityId)
-      const meta = metaByEntityId.get(entityId)
-      if (!meta) {
-        console.warn(`Skipping ${entityId}: metadata not found.`)
-        continue
-      }
-      const fields = Array.isArray(map.fieldsJson) ? map.fieldsJson : []
-      if (!fields.length) continue
-      const tenantId = map.tenantId ? String(map.tenantId) : null
-      if (!tenantId) continue
+      const mapMeta = resolveMapMeta(map, metaByEntityId, console.warn)
+      if (!mapMeta) continue
+      const { entityId, meta, fields, tenantId } = mapMeta
       const dek = await getDek(tenantId)
       if (!dek) {
         console.warn(`No DEK available for tenant ${tenantId}; skipping ${entityId}.`)
@@ -803,7 +790,7 @@ const decryptDatabase: ModuleCli = {
       const schema = meta?.schema
       const qualifiedTable = schema ? `"${schema}"."${tableName}"` : `"${tableName}"`
       const fieldCols = fields.flatMap((f: any) => {
-        const r = resolvePropertyDecrypt(meta, f.field)
+        const r = resolveProperty(meta, f.field)
         return r.columnName ? [r.columnName] : []
       })
       const colList = Array.from(new Set([pk, ...fieldCols]))
@@ -841,7 +828,7 @@ const decryptDatabase: ModuleCli = {
               let rowDecrypted = false
 
               for (const fieldRule of fields) {
-                const resolved = resolvePropertyDecrypt(meta, fieldRule.field)
+                const resolved = resolveProperty(meta, fieldRule.field)
                 const col = resolved?.columnName
                 if (!col) continue
                 const rawValue = row[col]
@@ -878,7 +865,7 @@ const decryptDatabase: ModuleCli = {
               if (rowDecrypted) {
                 for (const fieldRule of fields) {
                   if (!fieldRule.hashField) continue
-                  const resolvedHash = resolvePropertyDecrypt(meta, fieldRule.hashField)
+                  const resolvedHash = resolveProperty(meta, fieldRule.hashField)
                   const hashCol = resolvedHash?.columnName
                   if (!hashCol) {
                     const skippedKey = `${tableName}:${fieldRule.hashField}`

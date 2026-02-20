@@ -54,6 +54,12 @@ export function encryptWithAesGcm(value: string, dekBase64: string): EncryptionP
   return { value: payload, raw: payload, version: 'v1' }
 }
 
+function runAesGcmDecrypt(dek: Buffer, iv: Buffer, ciphertext: Buffer, tag: Buffer): string {
+  const decipher = crypto.createDecipheriv('aes-256-gcm', dek, iv)
+  decipher.setAuthTag(tag)
+  return Buffer.concat([decipher.update(ciphertext), decipher.final()]).toString('utf8')
+}
+
 export function decryptWithAesGcm(payload: string, dekBase64: string): string | null {
   if (!payload) return null
   const parts = payload.split(':')
@@ -65,11 +71,9 @@ export function decryptWithAesGcm(payload: string, dekBase64: string): string | 
   const ciphertext = Buffer.from(ciphertextB64, 'base64')
   const tag = Buffer.from(tagB64, 'base64')
   try {
-    const decipher = crypto.createDecipheriv('aes-256-gcm', dek, iv)
-    decipher.setAuthTag(tag)
-    const decrypted = Buffer.concat([decipher.update(ciphertext), decipher.final()]).toString('utf8')
+    const result = runAesGcmDecrypt(dek, iv, ciphertext, tag)
     logDebug('decrypt', { iv: ivB64, tag: tagB64 })
-    return decrypted
+    return result
   } catch (err) {
     logDebug('decrypt_error', { message: (err as Error)?.message || String(err) })
     return null
@@ -115,9 +119,7 @@ export function decryptWithAesGcmStrict(payload: string, dekBase64: string): str
     )
   }
   try {
-    const decipher = crypto.createDecipheriv('aes-256-gcm', dek, iv)
-    decipher.setAuthTag(tag)
-    return Buffer.concat([decipher.update(ciphertext), decipher.final()]).toString('utf8')
+    return runAesGcmDecrypt(dek, iv, ciphertext, tag)
   } catch {
     throw new TenantDataEncryptionError(
       TenantDataEncryptionErrorCode.AUTH_FAILED,
