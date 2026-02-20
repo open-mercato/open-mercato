@@ -46,6 +46,7 @@ export async function GET(req: Request) {
     })
     return res
   } catch (err) {
+    console.error('[SSO Initiate] Error:', err)
     void emitSsoEvent('sso.login.failed', {
       reason: err instanceof Error ? err.message : 'initiate_failed',
     }).catch(() => undefined)

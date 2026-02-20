@@ -64,6 +64,13 @@ services:
       ADMIN_EMAIL: ${ADMIN_EMAIL:-admin@example.com}
       OM_INIT_SUPERADMIN_EMAIL: ${OM_INIT_SUPERADMIN_EMAIL:-}
       OM_INIT_SUPERADMIN_PASSWORD: ${OM_INIT_SUPERADMIN_PASSWORD:-password}
+      SSO_DEV_SEED: ${SSO_DEV_SEED:-true}
+      SSO_DEV_ISSUER: ${SSO_DEV_ISSUER:-https://testom-bnsrts.us1.zitadel.cloud}
+      SSO_DEV_CLIENT_ID: ${SSO_DEV_CLIENT_ID:-360840875070313317}
+      SSO_DEV_CLIENT_SECRET: ${SSO_DEV_CLIENT_SECRET:-OzlhvCdbiuEuihYpFs7jqfQIVzj8kbCB0ygmwrd76pjYjUVhfURsRwgZW2m4Hlk6}
+      SSO_DEV_ALLOWED_DOMAINS: ${SSO_DEV_ALLOWED_DOMAINS:-om.com}
+      SSO_DEBUG_CLAIMS: "true"
+      SSO_FORCE_ROLE_ON_LOGIN: admin
     depends_on:
       postgres:
         condition: service_healthy
