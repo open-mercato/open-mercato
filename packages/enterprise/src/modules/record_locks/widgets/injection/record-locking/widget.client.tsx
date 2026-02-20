@@ -14,7 +14,7 @@ import {
   subscribeRecordLockFormState,
   type RecordLockUiConflict,
   type RecordLockUiView,
-} from '../../../lib/clientLockStore'
+} from '@open-mercato/enterprise/modules/record_locks/lib/clientLockStore'
 
 type CrudInjectionContext = {
   formId: string

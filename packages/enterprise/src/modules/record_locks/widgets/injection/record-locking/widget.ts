@@ -1,6 +1,6 @@
 import type { InjectionWidgetModule } from '@open-mercato/shared/modules/widgets/injection'
 import RecordLockingWidget, { validateBeforeSave } from './widget.client'
-import { getRecordLockFormState, setRecordLockFormState } from '../../../lib/clientLockStore'
+import { getRecordLockFormState, setRecordLockFormState } from '@open-mercato/enterprise/modules/record_locks/lib/clientLockStore'
 
 type CrudInjectionContext = {
   formId: string
