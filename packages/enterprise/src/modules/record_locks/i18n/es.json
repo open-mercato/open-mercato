@@ -53,11 +53,15 @@
       },
       "conflict_detected": {
         "title": "Conflicto de edición detectado",
-        "body": "Tu guardado entró en conflicto con un cambio más reciente."
+        "body": "Tu guardado entró en conflicto con un cambio más reciente. Campos modificados: {changedFields}."
       },
       "conflict_resolved": {
         "title": "Conflicto resuelto",
         "body": "Se resolvió un conflicto de registro."
+      },
+      "actions": {
+        "accept_incoming": "Aplicar entrantes",
+        "accept_mine": "Rechazar entrantes"
       }
     }
   }

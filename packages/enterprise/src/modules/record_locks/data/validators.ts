@@ -91,6 +91,7 @@ export const recordLockApiLockSchema = z.object({
 
 export const recordLockAcquireResponseSchema = z.object({
   ok: z.literal(true),
+  currentUserId: z.string().uuid().optional(),
   enabled: z.boolean(),
   resourceEnabled: z.boolean(),
   strategy: z.enum(['optimistic', 'pessimistic']),

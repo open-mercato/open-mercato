@@ -53,11 +53,15 @@
       },
       "conflict_detected": {
         "title": "Bearbeitungskonflikt erkannt",
-        "body": "Ihre Speicherung stand im Konflikt mit einer neueren Änderung."
+        "body": "Ihre Speicherung stand im Konflikt mit einer neueren Änderung. Geänderte Felder: {changedFields}."
       },
       "conflict_resolved": {
         "title": "Konflikt gelöst",
         "body": "Ein Datensatzkonflikt wurde gelöst."
+      },
+      "actions": {
+        "accept_incoming": "Eingehende anwenden",
+        "accept_mine": "Eingehende ablehnen"
       }
     }
   }

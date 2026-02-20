@@ -1,9 +1,28 @@
 import { POST } from '@open-mercato/enterprise/modules/record_locks/api/acquire/route'
-import { resolveRecordLocksApiContext } from '@open-mercato/enterprise/modules/record_locks/api/utils'
+import { resolveRecordLocksApiContext, resolveRequestIp } from '@open-mercato/enterprise/modules/record_locks/api/utils'
 
 jest.mock('@open-mercato/enterprise/modules/record_locks/api/utils', () => ({
   resolveRecordLocksApiContext: jest.fn(),
+  resolveRequestIp: jest.fn(() => '127.0.0.1'),
 }))
+
+function makeContext(overrides: Record<string, unknown> = {}) {
+  return {
+    auth: {
+      sub: '10000000-0000-4000-8000-000000000001',
+      tenantId: '20000000-0000-4000-8000-000000000001',
+    },
+    organizationId: '30000000-0000-4000-8000-000000000001',
+    container: {
+      resolve: () => ({
+        fork: () => ({
+          findOne: async () => null,
+        }),
+      }),
+    },
+    ...overrides,
+  }
+}
 
 function makeRequest(body: unknown) {
   return new Request('http://localhost/api/record_locks/acquire', {
@@ -19,14 +38,9 @@ describe('record_locks acquire route', () => {
   })
 
   test('returns 400 for invalid payload', async () => {
-    ;(resolveRecordLocksApiContext as jest.Mock).mockResolvedValue({
-      auth: {
-        sub: '10000000-0000-4000-8000-000000000001',
-        tenantId: '20000000-0000-4000-8000-000000000001',
-      },
-      organizationId: '30000000-0000-4000-8000-000000000001',
+    ;(resolveRecordLocksApiContext as jest.Mock).mockResolvedValue(makeContext({
       recordLockService: { acquire: jest.fn() },
-    })
+    }))
 
     const response = await POST(makeRequest({}))
     expect(response.status).toBe(400)
@@ -42,14 +56,9 @@ describe('record_locks acquire route', () => {
       lock: null,
     })
 
-    ;(resolveRecordLocksApiContext as jest.Mock).mockResolvedValue({
-      auth: {
-        sub: '10000000-0000-4000-8000-000000000001',
-        tenantId: '20000000-0000-4000-8000-000000000001',
-      },
-      organizationId: '30000000-0000-4000-8000-000000000001',
+    ;(resolveRecordLocksApiContext as jest.Mock).mockResolvedValue(makeContext({
       recordLockService: { acquire },
-    })
+    }))
 
     const response = await POST(
       makeRequest({
@@ -65,6 +74,7 @@ describe('record_locks acquire route', () => {
       error: 'Record is currently locked by another user',
       allowForceUnlock: false,
     })
+    expect(resolveRequestIp).toHaveBeenCalled()
   })
 
   test('returns successful acquire response', async () => {
@@ -80,14 +90,9 @@ describe('record_locks acquire route', () => {
       lock: null,
     })
 
-    ;(resolveRecordLocksApiContext as jest.Mock).mockResolvedValue({
-      auth: {
-        sub: '10000000-0000-4000-8000-000000000001',
-        tenantId: '20000000-0000-4000-8000-000000000001',
-      },
-      organizationId: '30000000-0000-4000-8000-000000000001',
+    ;(resolveRecordLocksApiContext as jest.Mock).mockResolvedValue(makeContext({
       recordLockService: { acquire },
-    })
+    }))
 
     const response = await POST(
       makeRequest({
