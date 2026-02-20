@@ -4,7 +4,7 @@ import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import type { CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
 import { ensureOrganizationScope, ensureSameScope } from '@open-mercato/shared/lib/commands/scope'
 import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
-export { ensureOrganizationScope, ensureSameScope } from '@open-mercato/shared/lib/commands/scope'
+export { ensureOrganizationScope, ensureSameScope, ensureTenantScope } from '@open-mercato/shared/lib/commands/scope'
 export { extractUndoPayload } from '@open-mercato/shared/lib/commands/undo'
 
 export function normalizeDictionaryColor(input: unknown): string | null {
@@ -21,13 +21,6 @@ export function normalizeDictionaryIcon(input: unknown): string | null {
   const trimmed = input.trim()
   if (!trimmed) return null
   return trimmed.slice(0, 48)
-}
-
-export function ensureTenantScope(ctx: CommandRuntimeContext, tenantId: string): void {
-  const currentTenant = ctx.auth?.tenantId ?? null
-  if (currentTenant && currentTenant !== tenantId) {
-    throw new CrudHttpError(403, { error: 'Forbidden' })
-  }
 }
 
 export { assertFound } from '@open-mercato/shared/lib/crud/errors'

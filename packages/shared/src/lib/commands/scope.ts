@@ -45,6 +45,49 @@ function logScopeViolation(
   }
 }
 
+function logTenantScopeViolation(
+  ctx: CommandRuntimeContext,
+  expectedTenantId: string,
+  actualTenantId: string | null
+): void {
+  try {
+    const requestInfo =
+      ctx.request && typeof ctx.request === 'object'
+        ? {
+            method: (ctx.request as Request).method ?? undefined,
+            url: (ctx.request as Request).url ?? undefined,
+          }
+        : null
+    const scope = ctx.organizationScope
+      ? {
+          selectedId: ctx.organizationScope.selectedId ?? null,
+          tenantId: ctx.organizationScope.tenantId ?? null,
+          allowedIdsCount: Array.isArray(ctx.organizationScope.allowedIds)
+            ? ctx.organizationScope.allowedIds.length
+            : null,
+          filterIdsCount: Array.isArray(ctx.organizationScope.filterIds)
+            ? ctx.organizationScope.filterIds.length
+            : null,
+        }
+      : null
+    if (env.NODE_ENV !== 'test') {
+      console.warn('[scope] Forbidden tenant scope mismatch detected', {
+        expectedTenantId,
+        actualTenantId,
+        userId: ctx.auth?.sub ?? null,
+        actorTenantId: ctx.auth?.tenantId ?? null,
+        actorOrganizationId: ctx.auth?.orgId ?? null,
+        selectedOrganizationId: ctx.selectedOrganizationId ?? null,
+        organizationIdsCount: Array.isArray(ctx.organizationIds) ? ctx.organizationIds.length : null,
+        scope,
+        request: requestInfo,
+      })
+    }
+  } catch {
+    // best-effort logging
+  }
+}
+
 export function ensureOrganizationScope(ctx: CommandRuntimeContext, organizationId: string): void {
   // Superadmins with global org access can operate on any organization's records
   if (ctx.auth?.isSuperAdmin === true || ctx.organizationScope?.allowedIds === null) {
@@ -54,6 +97,14 @@ export function ensureOrganizationScope(ctx: CommandRuntimeContext, organization
   const currentOrg = ctx.selectedOrganizationId ?? ctx.auth?.orgId ?? null
   if (currentOrg && currentOrg !== organizationId) {
     logScopeViolation(ctx, organizationId, currentOrg)
+    throw new CrudHttpError(403, { error: 'Forbidden' })
+  }
+}
+
+export function ensureTenantScope(ctx: CommandRuntimeContext, tenantId: string): void {
+  const currentTenant = ctx.auth?.tenantId ?? null
+  if (currentTenant && currentTenant !== tenantId) {
+    logTenantScopeViolation(ctx, tenantId, currentTenant)
     throw new CrudHttpError(403, { error: 'Forbidden' })
   }
 }

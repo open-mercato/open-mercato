@@ -2,15 +2,8 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import type { CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
 export { assertFound } from '@open-mercato/shared/lib/crud/errors'
-export { ensureOrganizationScope, ensureSameScope } from '@open-mercato/shared/lib/commands/scope'
+export { ensureOrganizationScope, ensureSameScope, ensureTenantScope } from '@open-mercato/shared/lib/commands/scope'
 export { extractUndoPayload } from '@open-mercato/shared/lib/commands/undo'
-
-export function ensureTenantScope(ctx: CommandRuntimeContext, tenantId: string): void {
-  const currentTenant = ctx.auth?.tenantId ?? null
-  if (currentTenant && currentTenant !== tenantId) {
-    throw new CrudHttpError(403, { error: 'Forbidden' })
-  }
-}
 
 export function cloneJson<T>(value: T): T {
   if (value === null || value === undefined) return value
