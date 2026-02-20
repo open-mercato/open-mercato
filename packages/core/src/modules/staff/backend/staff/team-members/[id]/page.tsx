@@ -532,16 +532,22 @@ export default function StaffTeamMemberDetailPage({ params }: { params?: { id?: 
                 </div>
               </div>
 
-              <TeamMemberForm
-                title={t('staff.teamMembers.form.editTitle', 'Edit team member')}
-                backHref="/backend/staff/team-members"
-                cancelHref="/backend/staff/team-members"
-                initialValues={resolvedInitialValues}
-                onSubmit={handleSubmit}
-                onDelete={handleDelete}
-                isLoading={!initialValues}
-                loadingMessage={t('staff.teamMembers.form.loading', 'Loading team member...')}
-              />
+              <div className="rounded-lg border bg-card p-4">
+                <h2 className="mb-4 text-sm font-semibold uppercase text-muted-foreground">
+                  {t('staff.teamMembers.detail.formTitle', 'Member settings')}
+                </h2>
+                <TeamMemberForm
+                  embedded
+                  title={t('staff.teamMembers.form.editTitle', 'Edit team member')}
+                  backHref="/backend/staff/team-members"
+                  cancelHref="/backend/staff/team-members"
+                  initialValues={resolvedInitialValues}
+                  onSubmit={handleSubmit}
+                  onDelete={handleDelete}
+                  isLoading={!initialValues}
+                  loadingMessage={t('staff.teamMembers.form.loading', 'Loading team member...')}
+                />
+              </div>
             </>
           ) : activePanel === 'availability' ? (
             <AvailabilityRulesEditor

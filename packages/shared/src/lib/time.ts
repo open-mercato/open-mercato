@@ -1,3 +1,10 @@
+
+export function formatDateTime(value?: string | null): string | null {
+  if (!value) return null
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return null
+  return date.toLocaleString()
+}
 export type RelativeTimeTranslator = (
   key: string,
   fallback?: string,
@@ -30,15 +37,23 @@ export function formatRelativeTime(
       ? new Intl.RelativeTimeFormat(options?.locale, { numeric: 'auto' })
       : null
 
-  const format = (unit: RelativeTimeUnit, divisor: number) => {
-    const valueToFormat = Math.round(diffSeconds / divisor)
-    if (rtf) return rtf.format(valueToFormat, unit)
+const format = (unit: RelativeTimeUnit, divisor: number) => {
+  const valueToFormat = Math.round(diffSeconds / divisor)
+  const isPast = diffSeconds < 0
 
-    const fallbackSuffix = valueToFormat <= 0 ? 'ago' : 'from now'
-    const suffixKey = valueToFormat <= 0 ? 'time.relative.ago' : 'time.relative.fromNow'
-    const suffix = translate ? translate(suffixKey, fallbackSuffix) : fallbackSuffix
+  if (translate) {
+    const suffixKey = isPast ? 'time.relative.ago' : 'time.relative.fromNow'
+    const fallbackSuffix = isPast ? 'ago' : 'from now'
+    const suffix = translate(suffixKey, fallbackSuffix)
     const magnitude = Math.abs(valueToFormat)
     return `${magnitude} ${unit}${magnitude === 1 ? '' : 's'} ${suffix}`
+  }
+
+  if (rtf) return rtf.format(valueToFormat, unit)
+
+  const fallbackSuffix = isPast ? 'ago' : 'from now'
+  const magnitude = Math.abs(valueToFormat)
+  return `${magnitude} ${unit}${magnitude === 1 ? '' : 's'} ${fallbackSuffix}`
   }
 
   if (absSeconds < 45) return format('second', 1)

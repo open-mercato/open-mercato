@@ -32,6 +32,7 @@ export type TeamMemberFormProps = {
   submitLabel?: string
   backHref: string
   cancelHref: string
+  embedded?: boolean
   initialValues: TeamMemberFormValues
   onSubmit: (values: TeamMemberFormValues) => Promise<void>
   onDelete?: () => Promise<void>
@@ -103,6 +104,7 @@ export function TeamMemberForm(props: TeamMemberFormProps) {
     submitLabel,
     backHref,
     cancelHref,
+    embedded = false,
     initialValues,
     onSubmit,
     onDelete,
@@ -492,6 +494,7 @@ export function TeamMemberForm(props: TeamMemberFormProps) {
 
   return (
     <CrudForm<TeamMemberFormValues>
+      embedded={embedded}
       title={title}
       backHref={backHref}
       cancelHref={cancelHref}

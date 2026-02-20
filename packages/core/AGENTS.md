@@ -179,6 +179,21 @@ MUST use `as const` — provides compile-time safety; undeclared events trigger 
 
 Run `npm run modules:prepare` after creating/modifying `events.ts` files.
 
+## Translatable Fields
+
+Declare translatable fields in the module's `translations.ts` at the module root (like `events.ts`). The generator auto-discovers these files and aggregates them into `translations-fields.generated.ts`.
+
+```typescript
+// src/modules/<module>/translations.ts
+export const translatableFields: Record<string, string[]> = {
+  '<module>:<entity>': ['title', 'description'],
+}
+```
+
+When a module defines `translations.ts`, all its entity types automatically get the Translation Manager widget injected into their CrudForm edit pages.
+
+Run `npm run modules:prepare` after creating/modifying `translations.ts` files.
+
 ### Event Subscribers
 
 React to events by creating subscriber files in `subscribers/`:

@@ -1,7 +1,7 @@
 "use client"
 
 import * as React from 'react'
-import { Cog, GripVertical, Pencil, Plus, Trash2 } from 'lucide-react'
+import { Cog, GripVertical, Languages, Pencil, Plus, Trash2 } from 'lucide-react'
 import { CUSTOM_FIELD_KINDS } from '@open-mercato/shared/modules/entities/kinds'
 import { FieldRegistry } from '../fields/registry'
 import { slugify } from '@open-mercato/shared/lib/slugify'
@@ -50,6 +50,7 @@ export type FieldDefinitionsEditorProps = {
   onDefinitionChange: (index: number, next: FieldDefinition) => void
   onRestoreField?: (key: string) => void
   onReorder?: (from: number, to: number) => void
+  onTranslate?: (definition: FieldDefinition, index: number) => void
   listRef?: React.Ref<HTMLDivElement>
   listProps?: React.HTMLAttributes<HTMLDivElement>
   singleFieldsetPerRecord?: boolean
@@ -155,6 +156,7 @@ export function FieldDefinitionsEditor({
   onDefinitionChange,
   onRestoreField,
   onReorder,
+  onTranslate,
   listRef,
   listProps,
   translate,
@@ -441,6 +443,7 @@ export function FieldDefinitionsEditor({
             availableGroups={groupOptions}
             onRegisterGroup={registerGroup}
             onRemoveGroup={removeGroup}
+            onTranslate={onTranslate ? () => onTranslate(definition, index) : undefined}
             translate={t}
           />
         </div>
@@ -489,6 +492,7 @@ type FieldDefinitionCardProps = {
   availableGroups?: FieldsetGroup[]
   onRegisterGroup?: (fieldsetCode: string, group: FieldsetGroup) => void
   onRemoveGroup?: (fieldsetCode: string, groupCode: string) => void
+  onTranslate?: () => void
   translate?: (key: string, fallback: string) => string
 }
 
@@ -504,6 +508,7 @@ const FieldDefinitionCard = React.memo(function FieldDefinitionCard({
   availableGroups = [],
   onRegisterGroup,
   onRemoveGroup,
+  onTranslate,
   translate,
 }: FieldDefinitionCardProps) {
   const [local, setLocal] = React.useState<FieldDefinition>(definition)
@@ -715,6 +720,11 @@ const FieldDefinitionCard = React.memo(function FieldDefinitionCard({
           <label className="inline-flex items-center gap-2 text-sm">
             <input type="checkbox" checked={local.isActive !== false} onChange={(event) => { apply({ isActive: event.target.checked }, true) }} /> Active
           </label>
+          {onTranslate && (
+            <button type="button" onClick={onTranslate} className="px-2 py-1 border rounded hover:bg-muted" aria-label="Translate field">
+              <Languages className="h-4 w-4" />
+            </button>
+          )}
           <button type="button" onClick={onRemove} className="px-2 py-1 border rounded hover:bg-muted" aria-label="Remove field">
             <Trash2 className="h-4 w-4" />
           </button>
