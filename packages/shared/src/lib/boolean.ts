@@ -20,3 +20,9 @@ export function parseBooleanFlag(raw?: string): boolean | undefined {
   const parsed = parseBooleanToken(raw)
   return parsed === null ? undefined : parsed
 }
+
+export function parseBooleanFromUnknown(value: unknown): boolean | null {
+  if (typeof value === 'boolean') return value
+  if (typeof value === 'string') return parseBooleanToken(value)
+  return null
+}
