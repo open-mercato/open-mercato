@@ -10,13 +10,8 @@ export { getCliModules, hasCliModules, registerCliModules }
 import { parseBooleanToken } from '@open-mercato/shared/lib/boolean'
 import { getRedisUrl } from '@open-mercato/shared/lib/redis/connection'
 import { resolveInitDerivedSecrets } from './lib/init-secrets'
-import {
-  runEphemeralAppForQa,
-  runIntegrationCoverageReport,
-  runIntegrationSpecCoverageReport,
-  runIntegrationTestsInEphemeralEnvironment,
-  runInteractiveIntegrationInEphemeralEnvironment,
-} from './lib/testing/integration'
+// Lazy-imported to avoid pulling in `testcontainers` (devDependency) at startup
+const lazyIntegration = () => import('./lib/testing/integration')
 import type { ChildProcess } from 'node:child_process'
 import path from 'node:path'
 import fs from 'node:fs'
@@ -1219,31 +1214,31 @@ export async function run(argv = process.argv) {
       {
         command: 'integration',
         run: async (args: string[]) => {
-          await runIntegrationTestsInEphemeralEnvironment(args)
+          await (await lazyIntegration()).runIntegrationTestsInEphemeralEnvironment(args)
         },
       },
       {
         command: 'ephemeral',
         run: async (args: string[]) => {
-          await runEphemeralAppForQa(args)
+          await (await lazyIntegration()).runEphemeralAppForQa(args)
         },
       },
       {
         command: 'interactive',
         run: async (args: string[]) => {
-          await runInteractiveIntegrationInEphemeralEnvironment(args)
+          await (await lazyIntegration()).runInteractiveIntegrationInEphemeralEnvironment(args)
         },
       },
       {
         command: 'coverage',
         run: async (args: string[]) => {
-          await runIntegrationCoverageReport(args)
+          await (await lazyIntegration()).runIntegrationCoverageReport(args)
         },
       },
       {
         command: 'spec-coverage',
         run: async (args: string[]) => {
-          await runIntegrationSpecCoverageReport(args)
+          await (await lazyIntegration()).runIntegrationSpecCoverageReport(args)
         },
       },
     ],
