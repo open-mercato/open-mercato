@@ -138,7 +138,7 @@ function FlashMessagesInner() {
             size="sm"
             className="text-white/90 hover:text-white hover:bg-white/10"
             onClick={() => setMsg(null)}
-            aria-label="Close"
+            aria-label="Dismiss"
           >
             <X size={16} />
           </IconButton>
