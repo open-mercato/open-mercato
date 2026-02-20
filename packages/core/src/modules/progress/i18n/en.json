@@ -1,0 +1,19 @@
+{
+  "progress.title": "Progress",
+  "progress.activeCount": "{count, plural, one {# operation running} other {# operations running}}",
+  "progress.recentlyCompleted": "{count, plural, one {# operation completed} other {# operations completed}}",
+  "progress.eta.seconds": "{count}s remaining",
+  "progress.eta.minutes": "{count}m remaining",
+  "progress.eta.hoursMinutes": "{hours}h {minutes}m remaining",
+  "progress.status.pending": "Pending",
+  "progress.status.running": "Running",
+  "progress.status.completed": "Completed",
+  "progress.status.failed": "Failed",
+  "progress.status.cancelled": "Cancelled",
+  "progress.actions.cancel": "Cancel",
+  "progress.actions.retry": "Retry",
+  "progress.actions.dismiss": "Dismiss",
+  "progress.errors.notFound": "Job not found",
+  "progress.errors.cannotCancel": "This job cannot be cancelled",
+  "progress.errors.alreadyFinished": "Job has already finished"
+}
