@@ -28,6 +28,7 @@ const testModules: Module[] = [
   { id: 'planner', setup: { defaultRoleFeatures: { admin: ['planner.*'], employee: ['planner.view'] } } },
   { id: 'resources', setup: { defaultRoleFeatures: { admin: ['resources.*'] } } },
   { id: 'staff', setup: { defaultRoleFeatures: { admin: ['staff.*', 'staff.leave_requests.manage'], employee: ['staff.leave_requests.send', 'staff.my_availability.view', 'staff.my_availability.manage', 'staff.my_leave_requests.view', 'staff.my_leave_requests.send'] } } },
+  { id: 'translations', setup: { defaultRoleFeatures: { admin: ['translations.*'], employee: ['translations.view', 'translations.manage'] } } },
   { id: 'example', setup: { defaultRoleFeatures: { admin: ['example.*'], employee: ['example.*', 'example.widgets.*'] } } },
 ]
 registerModules(testModules)
@@ -118,6 +119,7 @@ describe('auth CLI setup seeds ACLs', () => {
       'api_keys.*',
       'perspectives.use',
       'perspectives.role_defaults',
+      'translations.*',
     ]))
     expect(adminAcl?.featuresJson).not.toContain('directory.organizations.*')
 
@@ -139,6 +141,8 @@ describe('auth CLI setup seeds ACLs', () => {
       'dashboards.configure',
       'audit_logs.undo_self',
       'perspectives.use',
+      'translations.view',
+      'translations.manage',
     ]))
   })
 })
