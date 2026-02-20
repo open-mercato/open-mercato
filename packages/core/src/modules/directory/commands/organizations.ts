@@ -24,6 +24,7 @@ import {
   buildChanges,
 } from '@open-mercato/shared/lib/commands/helpers'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
+import { toOptionalString } from '@open-mercato/shared/lib/string/coerce'
 
 export const organizationCrudEvents: CrudEventsConfig = {
   module: 'directory',
@@ -760,12 +761,6 @@ function setUndoMeta(entity: Organization, meta: Partial<OrganizationUndoMeta>) 
 registerCommand(createOrganizationCommand)
 registerCommand(updateOrganizationCommand)
 registerCommand(deleteOrganizationCommand)
-
-function toOptionalString(value: unknown): string | null {
-  if (typeof value === 'string' && value.trim()) return value
-  if (typeof value === 'number' || typeof value === 'bigint') return String(value)
-  return null
-}
 
 function setInternalTenantId(entity: Organization, tenantId: string) {
   Reflect.set(entity, '__tenantId', tenantId)
