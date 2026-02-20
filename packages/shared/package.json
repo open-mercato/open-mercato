@@ -76,6 +76,9 @@
       "default": "./dist/*/*/*/*.js"
     }
   },
+  "dependencies": {
+    "rate-limiter-flexible": "^9.0.0"
+  },
   "devDependencies": {
     "@types/jest": "^30.0.0",
     "jest": "^30.2.0",
