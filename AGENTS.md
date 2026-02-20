@@ -157,6 +157,7 @@ All paths use `src/modules/<module>/` as shorthand. See `packages/core/AGENTS.md
 | `ce.ts` | `entities` | Custom entities / custom field sets |
 | `search.ts` | `searchConfig` | Search indexing configuration |
 | `events.ts` | `eventsConfig` | Typed event declarations |
+| `translations.ts` | `translatableFields` | Translatable field declarations per entity |
 | `notifications.ts` | `notificationTypes` | Notification type definitions |
 | `notifications.client.ts` | — | Client-side notification renderers |
 | `ai-tools.ts` | `aiTools` | MCP AI tool definitions |
@@ -174,6 +175,7 @@ All paths use `src/modules/<module>/` as shorthand. See `packages/core/AGENTS.md
 - setup.ts: always declare `defaultRoleFeatures` when adding features to `acl.ts`
 - Custom fields: use `collectCustomFieldValues()` from `@open-mercato/ui/backend/utils/customFieldValues`
 - Events: use `createModuleEvents()` with `as const` for typed emit
+- Translations: when adding entities with user-facing text fields (title, name, description, label), create `translations.ts` at module root declaring translatable fields. Run `yarn generate` after adding.
 - Widget injection: declare in `widgets/injection/`, map via `injection-table.ts`
 - Generated files: `apps/mercato/.mercato/generated/` — never edit manually
 - Run `npm run modules:prepare` after adding/modifying module files
