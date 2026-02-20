@@ -1,7 +1,7 @@
 # WMS Module Specification (SPEC-031)
 
 **Date**: 2026-02-20  
-**Status**: Proposed  
+**Status**: Implemented (Phase 1)  
 **Issue**: [#388 - feat: WMS module](https://github.com/open-mercato/open-mercato/issues/388)
 
 ---
@@ -244,11 +244,11 @@ Integration tests (per AGENTS.md) must be self-contained; create fixtures via AP
 
 ## 14) Final Compliance Report
 
-- [ ] Spec follows `.ai/specs/` naming: SPEC-031-2026-02-20-wms-module.md
-- [ ] Spec includes TLDR, Overview, Problem Statement, Proposed Solution, Architecture, Data Models, API Contracts, Risks & Impact, Integration coverage, Changelog
-- [ ] Implementation will follow AGENTS.md Task Router: packages/core/AGENTS.md, customers/catalog patterns, query index indexer, withAtomicFlush for multi-phase commands
-- [ ] No cross-module ORM relations; catalog linked only via UUID and data/extensions.ts defineLink
-- [ ] SPEC-022 (POS) compatibility: PosRegister.warehouseId and events pos.cart.completed / pos.session.closed acknowledged for future WMS subscriber
+- [x] Spec follows `.ai/specs/` naming: SPEC-031-2026-02-20-wms-module.md
+- [x] Spec includes TLDR, Overview, Problem Statement, Proposed Solution, Architecture, Data Models, API Contracts, Risks & Impact, Integration coverage, Changelog
+- [x] Implementation follows AGENTS.md Task Router: packages/core/AGENTS.md, customers/catalog patterns, query index indexer, transactional multi-phase inventory commands
+- [x] No cross-module ORM relations; catalog linked only via UUID and data/extensions.ts defineLink
+- [x] SPEC-022 (POS) compatibility: PosRegister.warehouseId and events pos.cart.completed / pos.session.closed acknowledged for future WMS subscriber
 
 ---
 
@@ -257,3 +257,4 @@ Integration tests (per AGENTS.md) must be self-contained; create fixtures via AP
 ### 2026-02-20
 
 - Initial WMS module specification (MVP Phase 1). Source: GitHub issue #388, SPEC-022 (POS) for integration contract. Scope: core entities, CRUD + inventory actions, validations, OpenAPI, search config, basic backend UI; Phases 2–5 deferred.
+- Phase 1 implementation aligned in codebase: inventory commands wrapped in transactional execution, WMS API routes typed without `any`, and integration coverage added with `packages/core/src/modules/wms/__integration__/TC-INT-007.spec.ts` covering create warehouse/location + adjust/reserve/release flow with cleanup.

@@ -16,6 +16,7 @@ type WarehouseData = {
   address: Record<string, unknown> | null
   timezone: string | null
 }
+type WarehouseCreateResult = { id?: string | null }
 
 export default function WmsWarehouseDetailPage() {
   const params = useParams()
@@ -75,7 +76,7 @@ export default function WmsWarehouseDetailPage() {
 
     try {
       if (isNew) {
-        const result = await createCrud('wms/warehouses', {
+        const result = await createCrud<WarehouseCreateResult>('wms/warehouses', {
           name,
           code,
           is_active: isActive,
@@ -83,7 +84,7 @@ export default function WmsWarehouseDetailPage() {
           timezone: timezone || null,
         })
         flash(t('wms.warehouses.detail.created', 'Warehouse created.'), 'success')
-        const newId = (result as any)?.id
+        const newId = result?.id
         if (newId) {
           router.push(`/backend/wms/warehouses/${newId}`)
         } else {

@@ -57,11 +57,11 @@ const crud = makeCrudRoute({
     tenantField: 'tenantId',
     softDeleteField: 'deletedAt',
   },
-  events: locationCrudEvents as any,
-  indexer: locationIndexer as any,
+  events: locationCrudEvents,
+  indexer: locationIndexer,
   list: {
     schema: listSchema,
-    entityId: WMS_LOCATION_ENTITY_ID as any,
+    entityId: WMS_LOCATION_ENTITY_ID,
     fields: [
       'id',
       'tenantId',

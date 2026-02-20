@@ -41,7 +41,7 @@ const crud = makeCrudRoute({
   },
   list: {
     schema: listSchema,
-    entityId: WMS_BALANCE_ENTITY_ID as any,
+    entityId: WMS_BALANCE_ENTITY_ID,
     fields: [
       'id',
       'tenantId',

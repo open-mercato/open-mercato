@@ -2,6 +2,7 @@ import { z } from 'zod'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { NextRequest } from 'next/server'
 import type { DataEngine } from '@open-mercato/shared/lib/data/engine'
+import type { AppContainer } from '@open-mercato/shared/lib/di/container'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { WarehouseLocation } from '../../../data/entities'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
@@ -11,6 +12,7 @@ import { locationCrudEvents, locationIndexer } from '../../../commands/locations
 import { defaultOkResponseSchema } from '../../../lib/openapi'
 
 const paramsSchema = z.object({ id: z.string().uuid() })
+type AuthScope = { tenantId?: string; organizationId?: string } | null
 
 export const metadata = {
   GET: { requireAuth: true, requireFeatures: ['wms.view'] },
@@ -50,11 +52,11 @@ function serializeLocation(record: WarehouseLocation) {
 
 export async function GET(
   request: NextRequest,
-  { params, container }: { params: { id: string }; container: any },
+  { params, container }: { params: { id: string }; container: AppContainer },
 ) {
   const { id } = paramsSchema.parse(params)
   const em = container.resolve<EntityManager>('em')
-  const auth = container.resolve<any>('auth')
+  const auth = container.resolve<AuthScope>('auth')
   const tenantId = auth?.tenantId
   const organizationId = auth?.organizationId
 
@@ -74,13 +76,13 @@ export async function GET(
 
 export async function PUT(
   request: NextRequest,
-  { params, container }: { params: { id: string }; container: any },
+  { params, container }: { params: { id: string }; container: AppContainer },
 ) {
   const { id } = paramsSchema.parse(params)
   const body = await request.json()
   const em = container.resolve<EntityManager>('em')
   const dataEngine = container.resolve<DataEngine>('dataEngine')
-  const auth = container.resolve<any>('auth')
+  const auth = container.resolve<AuthScope>('auth')
   const tenantId = auth?.tenantId
   const organizationId = auth?.organizationId
 
@@ -121,12 +123,12 @@ export async function PUT(
 
 export async function DELETE(
   request: NextRequest,
-  { params, container }: { params: { id: string }; container: any },
+  { params, container }: { params: { id: string }; container: AppContainer },
 ) {
   const { id } = paramsSchema.parse(params)
   const em = container.resolve<EntityManager>('em')
   const dataEngine = container.resolve<DataEngine>('dataEngine')
-  const auth = container.resolve<any>('auth')
+  const auth = container.resolve<AuthScope>('auth')
   const tenantId = auth?.tenantId
   const organizationId = auth?.organizationId
 

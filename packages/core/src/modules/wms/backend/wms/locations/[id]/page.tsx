@@ -23,6 +23,7 @@ type LocationData = {
 }
 
 type WarehouseOption = { id: string; name: string; code: string }
+type LocationCreateResult = { id?: string | null }
 
 export default function WmsLocationDetailPage() {
   const params = useParams()
@@ -107,9 +108,9 @@ export default function WmsLocationDetailPage() {
 
     try {
       if (isNew) {
-        const result = await createCrud('wms/locations', payload)
+        const result = await createCrud<LocationCreateResult>('wms/locations', payload)
         flash(t('wms.locations.detail.created', 'Location created.'), 'success')
-        const newId = (result as any)?.id
+        const newId = result?.id
         if (newId) {
           router.push(`/backend/wms/locations/${newId}`)
         } else {

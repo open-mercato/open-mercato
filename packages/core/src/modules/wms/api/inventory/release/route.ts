@@ -1,6 +1,8 @@
 import { z } from 'zod'
 import type { NextRequest } from 'next/server'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
+import type { CommandBus } from '@open-mercato/shared/lib/commands'
+import type { AppContainer } from '@open-mercato/shared/lib/di/container'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { parseScopedCommandInput } from '../../../lib/utils'
 import { inventoryReleaseBaseSchema } from '../../../data/validators'
@@ -16,11 +18,11 @@ export const metadata = {
 
 export async function POST(
   request: NextRequest,
-  { container }: { container: any },
+  { container }: { container: AppContainer },
 ) {
   const body = await request.json()
   const { translate } = await resolveTranslations()
-  const commandBus = container.resolve<any>('commandBus')
+  const commandBus = container.resolve<CommandBus>('commandBus')
 
   const schemaWithScope = inventoryReleaseBaseSchema.merge(
     z.object({ tenantId: z.string().uuid(), organizationId: z.string().uuid().optional() })
