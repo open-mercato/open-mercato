@@ -231,15 +231,17 @@ export default function DealDetailPage({ params }: { params?: { id?: string } })
         }
         if (Object.keys(custom).length) payload.customFields = custom
 
-        await apiCallOrThrow(
-          '/api/customers/deals',
-          {
-            method: 'PUT',
-            headers: { 'content-type': 'application/json' },
-            body: JSON.stringify(payload),
-          },
-          { errorMessage: t('customers.deals.detail.saveError', 'Failed to update deal.') },
-        )
+        await runLockedMutation(async () => {
+          await apiCallOrThrow(
+            '/api/customers/deals',
+            {
+              method: 'PUT',
+              headers: { 'content-type': 'application/json' },
+              body: JSON.stringify(payload),
+            },
+            { errorMessage: t('customers.deals.detail.saveError', 'Failed to update deal.') },
+          )
+        })
         flash(t('customers.deals.detail.saveSuccess', 'Deal updated.'), 'success')
         setReloadToken((token) => token + 1)
       } catch (err) {
@@ -253,7 +255,7 @@ export default function DealDetailPage({ params }: { params?: { id?: string } })
         setIsSaving(false)
       }
     },
-    [data, isSaving, t],
+    [data, isSaving, runLockedMutation, t],
   )
 
   const handleDelete = React.useCallback(async () => {

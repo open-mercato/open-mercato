@@ -95,16 +95,23 @@ function isEnterpriseModulesEnabled(): boolean {
 
 function applyEnterpriseModuleOverrides(modules: ModuleEntry[]): ModuleEntry[] {
   const withoutEnterpriseOptionalModules = modules.filter(
-    (entry) => !ENTERPRISE_OPTIONAL_MODULES.some((enterpriseModule) => enterpriseModule.id === entry.id),
+    (entry) => !ENTERPRISE_OPTIONAL_MODULES.some(
+      (enterpriseModule) => enterpriseModule.id === entry.id && entry.from !== '@app',
+    ),
   )
 
   if (!isEnterpriseModulesEnabled()) {
     return withoutEnterpriseOptionalModules
   }
 
+  const existingModuleIds = new Set(withoutEnterpriseOptionalModules.map((entry) => entry.id))
+  const missingEnterpriseModules = ENTERPRISE_OPTIONAL_MODULES.filter(
+    (enterpriseModule) => !existingModuleIds.has(enterpriseModule.id),
+  )
+
   return [
     ...withoutEnterpriseOptionalModules,
-    ...ENTERPRISE_OPTIONAL_MODULES,
+    ...missingEnterpriseModules,
   ]
 }
 
