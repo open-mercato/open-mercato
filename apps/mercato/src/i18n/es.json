@@ -8,6 +8,7 @@
   "api.errors.invalidLocale": "Idioma no válido",
   "api.errors.invalidPayload": "Carga no válida.",
   "api.errors.notFound": "No encontrado",
+  "api.errors.rateLimit": "Demasiadas solicitudes. Inténtelo de nuevo más tarde.",
   "api.errors.unauthorized": "No autorizado",
   "api_docs.nav.title": "Documentación API",
   "app.exampleAdmin": "Administración de ejemplo",

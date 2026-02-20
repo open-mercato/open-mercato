@@ -1,6 +1,6 @@
 {
   "name": "open-mercato",
-  "version": "0.4.3",
+  "version": "0.4.4",
   "private": true,
   "packageManager": "yarn@4.12.0",
   "engines": {
@@ -120,6 +120,8 @@
     "pg": "8.16.3",
     "zod": "4.1.13",
     "lodash-es": "4.17.23",
-    "ai": "6.0.44"
+    "ai": "6.0.44",
+    "qs": "6.14.2",
+    "tar": "7.5.9"
   }
 }

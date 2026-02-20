@@ -9,6 +9,8 @@ module.exports = {
     '^#generated/(.*)$': '<rootDir>/generated/$1',
     '^@open-mercato/core/generated/(.*)$': '<rootDir>/generated/$1',
     '^@open-mercato/core/(.*)$': '<rootDir>/src/$1',
+    '^react-markdown$': '<rootDir>/jest.mocks/react-markdown.js',
+    '^remark-gfm$': '<rootDir>/jest.mocks/remark-gfm.js',
   },
   transform: {
     '^.+\\.(t|j)sx?$': [

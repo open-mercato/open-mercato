@@ -140,7 +140,6 @@ type OfferSnapshot = {
   defaultMediaId: string | null
   defaultMediaUrl: string | null
   metadata: Record<string, unknown> | null
-  localizedContent: Record<string, unknown> | null
   isActive: boolean
   channelName: string | null
   channelCode: string | null
@@ -1630,7 +1629,6 @@ function readOfferSnapshots(record: Record<string, unknown>): OfferSnapshot[] {
       defaultMediaId: getString(offer.defaultMediaId) ?? getString(offer.default_media_id),
       defaultMediaUrl: getString(offer.defaultMediaUrl) ?? getString(offer.default_media_url),
       metadata: isRecord(offer.metadata) ? (offer.metadata as Record<string, unknown>) : null,
-      localizedContent: isRecord(offer.localizedContent) ? (offer.localizedContent as Record<string, unknown>) : null,
       isActive: offer.isActive !== false,
       channelName: getString(offer.channelName) ?? getString(offer.channel_name),
       channelCode: getString(offer.channelCode) ?? getString(offer.channel_code),
@@ -1671,7 +1669,6 @@ type OfferPayload = {
   defaultMediaId?: string | null
   defaultMediaUrl?: string | null
   metadata?: Record<string, unknown> | null
-  localizedContent?: Record<string, unknown> | null
   isActive?: boolean
 }
 
@@ -1701,7 +1698,6 @@ function buildOfferPayloads(params: {
       defaultMediaId: existing?.defaultMediaId ?? fallback.defaultMediaId ?? null,
       defaultMediaUrl: existing?.defaultMediaUrl ?? fallback.defaultMediaUrl ?? null,
       metadata: existing?.metadata ?? undefined,
-      localizedContent: existing?.localizedContent ?? undefined,
       isActive: existing?.isActive ?? true,
     })
   }
@@ -1720,7 +1716,6 @@ function mergeOfferSnapshots(current: OfferSnapshot[], payloads: OfferPayload[])
       defaultMediaId: entry.defaultMediaId ?? previous?.defaultMediaId ?? null,
       defaultMediaUrl: entry.defaultMediaUrl ?? previous?.defaultMediaUrl ?? null,
       metadata: entry.metadata ?? previous?.metadata ?? null,
-      localizedContent: entry.localizedContent ?? previous?.localizedContent ?? null,
       isActive: entry.isActive ?? previous?.isActive ?? true,
       channelName: previous?.channelName ?? null,
       channelCode: previous?.channelCode ?? null,
