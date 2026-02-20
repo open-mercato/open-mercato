@@ -137,7 +137,7 @@ export function TranslationManager({
     enabled: !isEmbedded && !!entityType && !!recordId && !!listUrl,
     queryFn: async () => {
       const res = await apiCall<{ items: Array<Record<string, unknown>> }>(
-        `${listUrl}?id=${encodeURIComponent(recordId)}&pageSize=1`,
+        `${listUrl}?id=${encodeURIComponent(recordId)}&ids=${encodeURIComponent(recordId)}&pageSize=1`,
       )
       if (!res.ok) return null
       const items = res.result?.items
@@ -261,11 +261,10 @@ export function TranslationManager({
   }
 
   const getBaseValue = (fieldKey: string): string => {
-    if (baseValues && fieldKey in baseValues) {
-      const val = baseValues[fieldKey]
-      return typeof val === 'string' ? val : ''
-    }
-    return ''
+    if (!baseValues) return ''
+    const candidate = fieldKey in baseValues ? baseValues[fieldKey] : baseValues[`cf_${fieldKey}`]
+    if (candidate === undefined || candidate === null) return ''
+    return typeof candidate === 'string' ? candidate : String(candidate)
   }
 
   const renderRecordPicker = () => {
