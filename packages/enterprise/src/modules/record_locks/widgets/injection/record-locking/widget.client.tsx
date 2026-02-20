@@ -130,6 +130,27 @@ export default function RecordLockingWidget({
       })
       const payload = call.result ?? {}
       if (!active) return
+      if (!call.ok) {
+        const defaultMessage = call.status === 403
+          ? t('api.errors.forbidden', 'Forbidden')
+          : t('record_locks.errors.acquire_failed', 'Failed to load record lock status.')
+        const message = typeof payload.error === 'string' && payload.error.trim().length
+          ? payload.error
+          : defaultMessage
+        flash(message, 'error')
+        setRecordLockFormState(formId, {
+          formId,
+          resourceKind,
+          resourceId,
+          acquired: false,
+          lock: null,
+          currentUserId: payload.currentUserId ?? null,
+          heartbeatSeconds: payload.heartbeatSeconds ?? 15,
+          latestActionLogId: payload.latestActionLogId ?? null,
+          allowForceUnlock: payload.allowForceUnlock ?? false,
+        })
+        return
+      }
       setRecordLockFormState(formId, {
         formId,
         resourceKind,

@@ -1,7 +1,7 @@
 import * as esbuild from 'esbuild'
 import { glob } from 'glob'
-import { readFileSync, writeFileSync, existsSync } from 'node:fs'
-import { dirname, join } from 'node:path'
+import { readFileSync, writeFileSync, existsSync, mkdirSync, copyFileSync } from 'node:fs'
+import { dirname, join, relative } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
@@ -16,6 +16,8 @@ if (entryPoints.length === 0) {
   console.error('No entry points found!')
   process.exit(1)
 }
+
+console.log(`Found ${entryPoints.length} entry points`)
 
 const addJsExtension = {
   name: 'add-js-extension',
@@ -56,9 +58,11 @@ const addJsExtension = {
   },
 }
 
+const outdir = join(__dirname, 'dist')
+
 await esbuild.build({
   entryPoints,
-  outdir: 'dist',
+  outdir,
   outbase: join(__dirname, 'src'),
   format: 'esm',
   platform: 'node',
@@ -67,5 +71,18 @@ await esbuild.build({
   jsx: 'automatic',
   plugins: [addJsExtension],
 })
+
+// Copy JSON files from src to dist (esbuild doesn't handle non-entry JSON files)
+const jsonFiles = await glob('src/**/*.json', {
+  cwd: __dirname,
+  ignore: ['**/node_modules/**'],
+  absolute: true,
+})
+for (const jsonFile of jsonFiles) {
+  const relativePath = relative(join(__dirname, 'src'), jsonFile)
+  const destPath = join(outdir, relativePath)
+  mkdirSync(dirname(destPath), { recursive: true })
+  copyFileSync(jsonFile, destPath)
+}
 
 console.log('enterprise package built successfully')

@@ -72,6 +72,15 @@
           "nullable": false,
           "mappedType": "uuid"
         },
+        "locked_by_ip": {
+          "name": "locked_by_ip",
+          "type": "text",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": true,
+          "mappedType": "text"
+        },
         "base_action_log_id": {
           "name": "base_action_log_id",
           "type": "uuid",
@@ -191,6 +200,24 @@
       "name": "record_locks",
       "schema": "public",
       "indexes": [
+        {
+          "keyName": "record_locks_active_scope_tenant_unique",
+          "columnNames": [],
+          "composite": false,
+          "constraint": false,
+          "primary": false,
+          "unique": false,
+          "expression": "create unique index \"record_locks_active_scope_tenant_unique\" on \"record_locks\" (\"tenant_id\", \"resource_kind\", \"resource_id\") where deleted_at is null and status = 'active' and organization_id is null"
+        },
+        {
+          "keyName": "record_locks_active_scope_org_unique",
+          "columnNames": [],
+          "composite": false,
+          "constraint": false,
+          "primary": false,
+          "unique": false,
+          "expression": "create unique index \"record_locks_active_scope_org_unique\" on \"record_locks\" (\"tenant_id\", \"organization_id\", \"resource_kind\", \"resource_id\") where deleted_at is null and status = 'active' and organization_id is not null"
+        },
         {
           "keyName": "record_locks_expiry_status_idx",
           "columnNames": [

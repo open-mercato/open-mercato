@@ -9,7 +9,7 @@ import { registerAnalyticsModuleConfigs } from '../../modules/analytics'
 import { parseBooleanWithDefault } from '../boolean'
 
 let _bootstrapped = false
-let _enterpriseLicenseWarningShown = false
+const ENTERPRISE_WARNING_GLOBAL_KEY = '__openMercatoEnterpriseLicenseWarningShown__'
 
 // Store the async registration promise so callers can await it if needed
 let _asyncRegistrationPromise: Promise<void> | null = null
@@ -67,13 +67,13 @@ export function createBootstrap(data: BootstrapData, options: BootstrapOptions =
 }
 
 function maybeWarnEnterpriseLicense(data: BootstrapData): void {
-  if (_enterpriseLicenseWarningShown) return
+  if ((globalThis as Record<string, unknown>)[ENTERPRISE_WARNING_GLOBAL_KEY] === true) return
   const enterpriseModulesEnabled = parseBooleanWithDefault(process.env.OM_ENABLE_ENTERPRISE_MODULES, false)
   if (!enterpriseModulesEnabled) return
 
   if (!Array.isArray(data.modules) || data.modules.length === 0) return
 
-  _enterpriseLicenseWarningShown = true
+  ;(globalThis as Record<string, unknown>)[ENTERPRISE_WARNING_GLOBAL_KEY] = true
   console.warn(
     '[enterprise] Enterprise modules are enabled. Developer preview is free, but production usage requires a commercial enterprise license. See: https://github.com/open-mercato/open-mercato/blob/main/packages/enterprise/README.md',
   )
@@ -127,5 +127,5 @@ export function isBootstrapped(): boolean {
  */
 export function resetBootstrapState(): void {
   _bootstrapped = false
-  _enterpriseLicenseWarningShown = false
+  ;(globalThis as Record<string, unknown>)[ENTERPRISE_WARNING_GLOBAL_KEY] = false
 }
