@@ -17,6 +17,7 @@
   "dictionaries.config.dialog.save": "Guardar",
   "dictionaries.config.entries.actions.add": "Agregar entrada",
   "dictionaries.config.entries.actions.refresh": "Actualizar",
+  "dictionaries.config.entries.actions.translate": "Traducir",
   "dictionaries.config.entries.appearance.none": "Ninguna",
   "dictionaries.config.entries.columns.actions": "Acciones",
   "dictionaries.config.entries.columns.appearance": "Apariencia",

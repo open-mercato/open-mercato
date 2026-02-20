@@ -1,7 +1,6 @@
 'use client'
 
 import { useState } from 'react'
-import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Badge } from '@open-mercato/ui/primitives/badge'
@@ -10,6 +9,7 @@ import { Label } from '@open-mercato/ui/primitives/label'
 import { ChevronDown, Plus, Trash2 } from 'lucide-react'
 import { JsonBuilder } from '@open-mercato/ui/backend/JsonBuilder'
 import type { CrudCustomFieldRenderProps } from '@open-mercato/ui/backend/CrudForm'
+import { useT } from '@open-mercato/shared/lib/i18n/context'
 
 /**
  * Activity definition structure

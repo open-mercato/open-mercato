@@ -10,7 +10,6 @@ import {
   Unique,
 } from '@mikro-orm/core'
 import type {
-  CatalogOfferLocalizedContent,
   CatalogPriceDisplayMode,
   CatalogProductOptionSchema,
   CatalogProductRelationType,
@@ -451,9 +450,6 @@ export class CatalogOffer {
 
   @Property({ name: 'default_media_url', type: 'text', nullable: true })
   defaultMediaUrl?: string | null
-
-  @Property({ name: 'localized_content', type: 'jsonb', nullable: true })
-  localizedContent?: CatalogOfferLocalizedContent | null
 
   @Property({ name: 'metadata', type: 'jsonb', nullable: true })
   metadata?: Record<string, unknown> | null

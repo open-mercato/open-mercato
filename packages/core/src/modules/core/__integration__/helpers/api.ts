@@ -59,3 +59,20 @@ export async function apiRequest(
   };
   return request.fetch(url, { method, headers, data: options.data });
 }
+
+export async function postForm(
+  request: APIRequestContext,
+  path: string,
+  data: Record<string, string>,
+  options?: { headers?: Record<string, string> },
+) {
+  const form = new URLSearchParams();
+  for (const [key, value] of Object.entries(data)) form.set(key, value);
+  return request.post(`${BASE_URL}${path}`, {
+    headers: {
+      'content-type': 'application/x-www-form-urlencoded',
+      ...(options?.headers ?? {}),
+    },
+    data: form.toString(),
+  });
+}

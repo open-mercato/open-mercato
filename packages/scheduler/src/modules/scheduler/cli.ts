@@ -1,7 +1,7 @@
 import type { ModuleCli } from '@open-mercato/shared/modules/registry'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { EntityManager } from '@mikro-orm/core'
-import { ScheduledJob } from './data/entities'
+import { ScheduledJob } from './data/entities.js'
 import { parseBooleanToken } from '@open-mercato/shared/lib/boolean'
 
 function parseArgs(rest: string[]): Record<string, string> {

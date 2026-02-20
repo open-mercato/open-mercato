@@ -1,4 +1,4 @@
-# SPEC-030: Units of Measure and Product Conversions (Catalog + Sales Core)
+# SPEC-034: Units of Measure and Product Conversions (Catalog + Sales Core)
 
 **Date**: 2026-02-18
 **Status**: Proposed

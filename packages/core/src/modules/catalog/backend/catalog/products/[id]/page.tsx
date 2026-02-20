@@ -186,7 +186,6 @@ type OfferSnapshot = {
   defaultMediaId: string | null;
   defaultMediaUrl: string | null;
   metadata: Record<string, unknown> | null;
-  localizedContent: Record<string, unknown> | null;
   isActive: boolean;
   channelName: string | null;
   channelCode: string | null;
@@ -2616,9 +2615,6 @@ function readOfferSnapshots(record: Record<string, unknown>): OfferSnapshot[] {
       metadata: isRecord(offer.metadata)
         ? (offer.metadata as Record<string, unknown>)
         : null,
-      localizedContent: isRecord(offer.localizedContent)
-        ? (offer.localizedContent as Record<string, unknown>)
-        : null,
       isActive: offer.isActive !== false,
       channelName:
         getString(offer.channelName) ?? getString(offer.channel_name),
@@ -2663,7 +2659,6 @@ type OfferPayload = {
   defaultMediaId?: string | null;
   defaultMediaUrl?: string | null;
   metadata?: Record<string, unknown> | null;
-  localizedContent?: Record<string, unknown> | null;
   isActive?: boolean;
 };
 
@@ -2698,7 +2693,6 @@ function buildOfferPayloads(params: {
       defaultMediaUrl:
         existing?.defaultMediaUrl ?? fallback.defaultMediaUrl ?? null,
       metadata: existing?.metadata ?? undefined,
-      localizedContent: existing?.localizedContent ?? undefined,
       isActive: existing?.isActive ?? true,
     });
   }
@@ -2723,8 +2717,6 @@ function mergeOfferSnapshots(
       defaultMediaUrl:
         entry.defaultMediaUrl ?? previous?.defaultMediaUrl ?? null,
       metadata: entry.metadata ?? previous?.metadata ?? null,
-      localizedContent:
-        entry.localizedContent ?? previous?.localizedContent ?? null,
       isActive: entry.isActive ?? previous?.isActive ?? true,
       channelName: previous?.channelName ?? null,
       channelCode: previous?.channelCode ?? null,

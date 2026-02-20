@@ -52,7 +52,6 @@ import {
   type ProductUpdateInput,
 } from "../data/validators";
 import type {
-  CatalogOfferLocalizedContent,
   CatalogProductOptionSchema,
   CatalogProductType,
 } from "../data/types";
@@ -362,7 +361,6 @@ type OfferSnapshot = {
   description: string | null;
   defaultMediaId: string | null;
   defaultMediaUrl: string | null;
-  localizedContent: CatalogOfferLocalizedContent | null;
   metadata: Record<string, unknown> | null;
   isActive: boolean;
 };
@@ -710,12 +708,6 @@ async function assignOptionSchemaTemplate(
   return template;
 }
 
-function cloneOfferContent(
-  value: CatalogOfferLocalizedContent | null | undefined,
-): CatalogOfferLocalizedContent | null {
-  return value ? cloneJson(value) : null;
-}
-
 function serializeOffer(record: CatalogOffer): OfferSnapshot {
   return {
     id: record.id,
@@ -724,7 +716,6 @@ function serializeOffer(record: CatalogOffer): OfferSnapshot {
     description: record.description ?? null,
     defaultMediaId: record.defaultMediaId ?? null,
     defaultMediaUrl: record.defaultMediaUrl ?? null,
-    localizedContent: cloneOfferContent(record.localizedContent ?? null),
     metadata: record.metadata ? cloneJson(record.metadata) : null,
     isActive: record.isActive,
   };
@@ -776,7 +767,6 @@ async function restoreOffersFromSnapshot(
     target.description = snap.description ?? null;
     target.defaultMediaId = snap.defaultMediaId ?? null;
     target.defaultMediaUrl = snap.defaultMediaUrl ?? null;
-    target.localizedContent = cloneOfferContent(snap.localizedContent);
     target.metadata = snap.metadata ? cloneJson(snap.metadata) : null;
     target.isActive = snap.isActive;
     keepIds.add(target.id);
@@ -812,7 +802,6 @@ async function syncOffers(
       input.defaultMediaUrl.trim().length
         ? input.defaultMediaUrl.trim()
         : null,
-    localizedContent: cloneOfferContent(input.localizedContent ?? null),
     metadata: input.metadata ? cloneJson(input.metadata) : null,
     isActive: input.isActive !== false,
   }));
@@ -853,7 +842,6 @@ async function syncOffers(
     target.description = input.description ?? null;
     target.defaultMediaId = input.defaultMediaId ?? null;
     target.defaultMediaUrl = input.defaultMediaUrl ?? null;
-    target.localizedContent = cloneOfferContent(input.localizedContent);
     target.metadata = input.metadata ? cloneJson(input.metadata) : null;
     target.isActive = input.isActive !== false;
     claimed.add(target.id);

@@ -1,6 +1,6 @@
 import { BullMQSchedulerService } from '../bullmqSchedulerService'
 import type { EntityManager } from '@mikro-orm/core'
-import { ScheduledJob } from '../../data/entities'
+import { ScheduledJob } from '../../data/entities.js'
 
 // Mock BullMQ module
 const mockQueue = {
