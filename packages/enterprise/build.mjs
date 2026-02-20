@@ -59,6 +59,7 @@ const addJsExtension = {
 await esbuild.build({
   entryPoints,
   outdir: 'dist',
+  outbase: join(__dirname, 'src'),
   format: 'esm',
   platform: 'node',
   target: 'node18',
