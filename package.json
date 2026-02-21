@@ -13,7 +13,7 @@
   "scripts": {
     "dev": "yarn build:packages && yarn watch:packages & sleep 3 && yarn dev:app",
     "dev:greenfield": "test -f apps/mercato/.env || cp apps/mercato/.env.example apps/mercato/.env && yarn build:packages && yarn generate && yarn initialize -- --reinstall && yarn dev",
-    "dev:ephemeral": "tsx scripts/dev-ephemeral.ts",
+    "dev:ephemeral": "node --import tsx scripts/dev-ephemeral.ts",
     "dev:app": "turbo run dev --filter=@open-mercato/app",
     "watch:packages": "turbo run watch --filter='./packages/*' --parallel",
     "build": "yarn build:packages && yarn generate && yarn build:packages && yarn build:app",

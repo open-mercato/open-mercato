@@ -36,7 +36,7 @@ const preferredPort = Number.parseInt(process.env.DEV_EPHEMERAL_PREFERRED_PORT ?
 const minimumEphemeralPort = 5000
 const maximumPort = 65535
 const randomPortAttempts = 100
-const startupTimeoutMs = 120000
+const startupTimeoutMs = 180000
 const readinessProbeIntervalMs = 1000
 const probeTimeoutMs = 1500
 
@@ -293,7 +293,13 @@ async function startDevServer(port: number): Promise<number> {
       console.log(`[dev:ephemeral] Browser auto-open failed. Open this URL manually: ${backendUrl}`)
     }
   } else {
-    console.log(`[dev:ephemeral] Runtime did not become reachable within ${startupTimeoutMs / 1000}s. Continue watching logs above.`)
+    console.log(`[dev:ephemeral] Runtime did not become reachable within ${startupTimeoutMs / 1000}s. Attempting browser open anyway...`)
+    const browserOpened = await openUrlInBrowser(backendUrl)
+    if (browserOpened) {
+      console.log(`[dev:ephemeral] Opened browser at ${backendUrl}`)
+    } else {
+      console.log(`[dev:ephemeral] Browser auto-open failed. Open this URL manually: ${backendUrl}`)
+    }
   }
 
   const forwardSignal = (signal: NodeJS.Signals): void => {
