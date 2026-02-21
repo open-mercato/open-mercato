@@ -226,6 +226,7 @@ All paths use `src/modules/<module>/` as shorthand. See `packages/core/AGENTS.md
 
 ```bash
 yarn dev                  # Start development server
+yarn dev:ephemeral        # Start dev on a free port, open browser, and register instance in .ai/dev-ephemeral-envs.json
 yarn build                # Build everything
 yarn build:packages       # Build packages only
 yarn lint                 # Lint all packages
@@ -238,3 +239,10 @@ yarn dev:greenfield       # Fresh dev environment setup
 yarn test:integration     # Run integration tests (Playwright, headless)
 yarn test:integration:report  # View HTML test report
 ```
+
+## Ephemeral Dev Runtime for Agents
+
+- Prefer `yarn dev:ephemeral` when running tests from worktrees or parallel LLM sessions.
+- Reuse running app URLs from `.ai/dev-ephemeral-envs.json` before starting new runtimes.
+- If an entry from `.ai/dev-ephemeral-envs.json` is not responding, remove it before selecting a target URL.
+- Only fallback to `.ai/qa/ephemeral-env.json` (container ephemeral runtime) when no reusable dev ephemeral instance exists.

@@ -1,0 +1,60 @@
+---
+title: yarn dev:ephemeral
+sidebar_label: yarn dev:ephemeral
+description: Starts a development runtime on an automatically selected free port for parallel worktrees.
+---
+
+`yarn dev:ephemeral` starts Open Mercato development mode on a free local port, prints the URL, and opens `/backend` in your browser when the app is reachable.
+
+The command performs these steps automatically:
+
+1. Validates Node.js `24.x` (fails early with fix instructions when incompatible).
+2. Creates `apps/mercato/.env` from `apps/mercato/.env.example` only when missing.
+3. Runs `yarn install`.
+4. Selects a free port (prefers `3000` when available).
+5. Starts `yarn dev` with `PORT=<selected-port>`.
+6. Waits for readiness, opens the browser, and records the running instance in `.ai/dev-ephemeral-envs.json`.
+
+## Usage
+
+```bash
+yarn dev:ephemeral
+```
+
+## Runtime Output
+
+When setup finishes, the command prints:
+
+- `Ephemeral URL: http://127.0.0.1:<port>`
+- `Backend URL: http://127.0.0.1:<port>/backend`
+- `Opened browser at http://127.0.0.1:<port>/backend`
+
+Use that URL for browser testing or MCP tooling.
+
+## Dev Instance Registry
+
+`yarn dev:ephemeral` writes active instances to `.ai/dev-ephemeral-envs.json`.
+
+- Every launch validates existing entries and removes stale/non-responsive instances.
+- New instances are added with pid, port, base URL, backend URL, worktree cwd, and timestamp.
+- Entries are removed automatically when the related dev process exits.
+
+## Parallel Instances
+
+Run the command from multiple worktrees to keep isolated app processes on different ports:
+
+```bash
+# In worktree A
+yarn dev:ephemeral
+
+# In worktree B
+yarn dev:ephemeral
+```
+
+Each process auto-selects its own free port.
+
+## Optional Environment
+
+| Variable | Description |
+| --- | --- |
+| `DEV_EPHEMERAL_PREFERRED_PORT` | Preferred first port to try before falling back to a random free port. Default: `3000`. |

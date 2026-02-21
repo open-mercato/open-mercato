@@ -155,6 +155,11 @@ const sidebars: SidebarsConfig = {
         },
         {
           type: "category",
+          label: "Development Runtime",
+          items: ["cli/dev-ephemeral"],
+        },
+        {
+          type: "category",
           label: "Auth Module",
           items: [
             "cli/auth-seed-roles",

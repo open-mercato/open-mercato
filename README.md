@@ -246,6 +246,12 @@ For a fresh greenfield boot (build packages, generate registries, reinstall modu
 yarn dev:greenfield
 ```
 
+For a worktree-friendly dev runtime on an automatically selected free port (with Node 24 check, dependency install, `.env` bootstrap, browser auto-open, and instance registry in `.ai/dev-ephemeral-envs.json`), run:
+
+```bash
+yarn dev:ephemeral
+```
+
 Navigate to `http://localhost:3000/backend` and sign in with the default credentials printed by `yarn initialize`.
 
 Full installation guide (including prerequisites, Docker setup, and cloud deployment): [docs.openmercato.com/installation/setup](https://docs.openmercato.com/installation/setup)
