@@ -2,7 +2,7 @@
 
 **Date**: 2026-02-21  
 **Status**: Proposed  
-**Extends**: SPEC-029, SPEC-030  
+**Extends**: SPEC-029, SPEC-029a  
 **Related Issues**: #289, #288
 
 ---

@@ -1,4 +1,4 @@
-# SPEC-030: Ecommerce Cart, Checkout & Per-Channel Catalog Filtering
+# SPEC-029a: Ecommerce Cart, Checkout & Per-Channel Catalog Filtering
 
 **Date**: 2026-02-18
 **Status**: Implemented
