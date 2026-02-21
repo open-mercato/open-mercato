@@ -24,7 +24,7 @@ async function resolveConflict(
   return { ok: resolved }
 }
 
-registerCommand<ResolveConflictInput, { ok: boolean }>({
+registerCommand({
   id: 'record_locks.conflict.accept_incoming',
   async execute(input, ctx) {
     return resolveConflict((input ?? {}) as ResolveConflictInput, 'accept_incoming', ctx)
