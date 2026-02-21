@@ -17,6 +17,7 @@ type SystemStatusVariableDefinition = {
   descriptionKey: string
   docUrl: string | null
   defaultValue: string | null
+  valueTransform?: (raw: string | undefined) => string | undefined
 }
 
 const CATEGORY_ORDER: SystemStatusCategoryKey[] = [
@@ -59,6 +60,47 @@ const CATEGORY_METADATA: Record<
 }
 
 const SYSTEM_STATUS_DOC_BASE = 'https://docs.openmercato.com/docs/framework/operations/system-status'
+
+function maskConnectionCredentials(raw: string | undefined): string | undefined {
+  if (typeof raw !== 'string') return raw
+  const trimmed = raw.trim()
+  if (!trimmed) return trimmed
+
+  const maskAuthorityLikeCredentials = (value: string): string => {
+    const schemeIndex = value.indexOf('://')
+    if (schemeIndex < 0) return value
+
+    const userInfoStart = schemeIndex + 3
+    const queryIndex = value.indexOf('?', userInfoStart)
+    const fragmentIndex = value.indexOf('#', userInfoStart)
+    const searchEnd =
+      queryIndex >= 0 && fragmentIndex >= 0
+        ? Math.min(queryIndex, fragmentIndex)
+        : queryIndex >= 0
+          ? queryIndex
+          : fragmentIndex >= 0
+            ? fragmentIndex
+            : value.length
+
+    const authorityLikeSegment = value.slice(userInfoStart, searchEnd)
+    const lastAtIndex = authorityLikeSegment.lastIndexOf('@')
+    if (lastAtIndex < 0) return value
+
+    return `${value.slice(0, userInfoStart)}${authorityLikeSegment.slice(lastAtIndex + 1)}${value.slice(searchEnd)}`
+  }
+
+  try {
+    const parsed = new URL(trimmed)
+    if (!parsed.username && !parsed.password) {
+      return trimmed
+    }
+    parsed.username = ''
+    parsed.password = ''
+    return parsed.toString()
+  } catch {
+    return maskAuthorityLikeCredentials(trimmed)
+  }
+}
 
 export const SYSTEM_STATUS_VARIABLES: SystemStatusVariableDefinition[] = [
   {
@@ -132,6 +174,16 @@ export const SYSTEM_STATUS_VARIABLES: SystemStatusVariableDefinition[] = [
     descriptionKey: 'configs.systemStatus.variables.passwordMinLength.description',
     docUrl: `${SYSTEM_STATUS_DOC_BASE}#om_password_min_length`,
     defaultValue: '6',
+  },
+  {
+    key: 'DATABASE_URL',
+    category: 'security',
+    kind: 'string',
+    labelKey: 'configs.systemStatus.variables.databaseUrl.label',
+    descriptionKey: 'configs.systemStatus.variables.databaseUrl.description',
+    docUrl: null,
+    defaultValue: null,
+    valueTransform: maskConnectionCredentials,
   },
   {
     key: 'OM_PASSWORD_REQUIRE_DIGIT',
@@ -262,7 +314,7 @@ function analyzeStringValue(raw: string | undefined): AnalyzedValue {
 }
 
 function toItem(definition: SystemStatusVariableDefinition, env: Record<string, string | undefined>): SystemStatusItem {
-  const raw = env[definition.key]
+  const raw = definition.valueTransform ? definition.valueTransform(env[definition.key]) : env[definition.key]
   const analyzed = definition.kind === 'boolean' ? analyzeBooleanValue(raw) : analyzeStringValue(raw)
   return {
     key: definition.key,

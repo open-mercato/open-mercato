@@ -39,6 +39,7 @@ test.describe('TC-ADMIN-009: View System Status Dashboard', () => {
 
     // Verify specific env var cards exist
     await expect(page.getByRole('heading', { name: 'Cache strategy', level: 4 })).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Database URL', level: 4 })).toBeVisible();
     await expect(page.getByRole('heading', { name: 'Password min length', level: 4 })).toBeVisible();
 
     // Verify the page is accessible via Settings sidebar

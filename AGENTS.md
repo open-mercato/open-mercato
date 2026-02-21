@@ -46,6 +46,7 @@ IMPORTANT: Before any research or coding, match the task to the root `AGENTS.md`
 | Adding onboarding wizard steps, tenant setup hooks (`onTenantCreated`/`seedDefaults`), welcome/invitation emails | `packages/onboarding/AGENTS.md` |
 | Adding static content pages (privacy policies, terms, legal pages) | `packages/content/AGENTS.md` |
 | Testing standalone apps with Verdaccio, publishing packages, canary releases, template scaffolding | `packages/create-app/AGENTS.md` |
+| Contributing to enterprise/commercial code, enterprise overlays, or cross-package enterprise integrations | `packages/enterprise/AGENTS.md` |
 | **Testing** | |
 | Integration testing, creating/running Playwright tests, converting markdown test cases to TypeScript, CI test pipeline | `.ai/qa/AGENTS.md` + `.ai/skills/integration-tests/SKILL.md` |
 | **Other** | |
@@ -190,6 +191,9 @@ All paths use `src/modules/<module>/` as shorthand. See `packages/core/AGENTS.md
 -   Use DI (Awilix) to inject services; avoid `new`-ing directly
 -   Modules must remain isomorphic and independent
 -   When extending another module's data, add a separate extension entity and declare a link in `data/extensions.ts`
+-   By default, do not add general/open-source contributions to `packages/enterprise`
+-   Modify `packages/enterprise` only on explicit user request and only after explicitly confirming the user has coordinated with Open Mercato Core Team and settled IP transfer for enterprise contributions
+-   Keep enterprise optional: non-enterprise packages/apps must not gain compile-time/runtime dependencies on `@open-mercato/enterprise`
 
 ### Data & Security
 
@@ -226,6 +230,7 @@ All paths use `src/modules/<module>/` as shorthand. See `packages/core/AGENTS.md
 
 ```bash
 yarn dev                  # Start development server
+yarn dev:ephemeral        # Start dev on a free port, open browser, and register instance in .ai/dev-ephemeral-envs.json
 yarn build                # Build everything
 yarn build:packages       # Build packages only
 yarn lint                 # Lint all packages
@@ -238,3 +243,10 @@ yarn dev:greenfield       # Fresh dev environment setup
 yarn test:integration     # Run integration tests (Playwright, headless)
 yarn test:integration:report  # View HTML test report
 ```
+
+## Ephemeral Dev Runtime for Agents
+
+- Prefer `yarn dev:ephemeral` when running tests from worktrees or parallel LLM sessions.
+- Reuse running app URLs from `.ai/dev-ephemeral-envs.json` before starting new runtimes.
+- If an entry from `.ai/dev-ephemeral-envs.json` is not responding, remove it before selecting a target URL.
+- Only fallback to `.ai/qa/ephemeral-env.json` (container ephemeral runtime) when no reusable dev ephemeral instance exists.
