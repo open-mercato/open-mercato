@@ -102,7 +102,9 @@ export function CompanyHighlights({
             containerClassName="max-w-full"
           />
         }
-        onDelete={onDelete}
+        onDelete={() => {
+          onDelete()
+        }}
         isDeleting={isDeleting}
         deleteLabel={t('customers.companies.detail.actions.delete', 'Delete company')}
       />

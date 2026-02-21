@@ -1,5 +1,7 @@
 import path from 'node:path'
 import fs from 'node:fs'
+import { createRequire } from 'node:module'
+import ts from 'typescript'
 
 export type ModuleEntry = {
   id: string
@@ -47,6 +49,8 @@ function pkgDirFor(rootDir: string, from?: string, isMonorepo = true): string {
   return path.resolve(rootDir, 'packages/core/src/modules')
 }
 
+const nodeRequire = createRequire(path.join(process.cwd(), '__resolver-loader__.cjs'))
+
 function pkgRootFor(rootDir: string, from?: string, isMonorepo = true): string {
   if (!isMonorepo) {
     const pkgName = from || '@open-mercato/core'
@@ -83,24 +87,74 @@ function parseModulesFromSource(source: string): ModuleEntry[] {
   return modules
 }
 
+function readEnabledModulesFromConfig(cfgPath: string): ModuleEntry[] {
+  const source = fs.readFileSync(cfgPath, 'utf8')
+  const transpiled = ts.transpileModule(source, {
+    fileName: cfgPath,
+    compilerOptions: {
+      module: ts.ModuleKind.CommonJS,
+      target: ts.ScriptTarget.ES2022,
+    },
+  })
+
+  const moduleObject: { exports: Record<string, unknown> } = { exports: {} }
+  const exportsObject: Record<string, unknown> = moduleObject.exports
+  const cfgDir = path.dirname(cfgPath)
+  const localRequire = (specifier: string) => {
+    if (specifier.startsWith('.')) {
+      const resolved = path.resolve(cfgDir, specifier)
+      return nodeRequire(resolved)
+    }
+    return nodeRequire(specifier)
+  }
+
+  const evaluator = new Function(
+    'require',
+    'module',
+    'exports',
+    'process',
+    '__dirname',
+    '__filename',
+    transpiled.outputText,
+  )
+
+  evaluator(localRequire, moduleObject, exportsObject, process, cfgDir, cfgPath)
+  const loaded = moduleObject.exports.enabledModules
+  if (!Array.isArray(loaded)) return []
+
+  return loaded.flatMap((entry) => {
+    if (!entry || typeof entry !== 'object') return []
+    const candidate = entry as { id?: unknown; from?: unknown }
+    if (typeof candidate.id !== 'string') return []
+    return [{ id: candidate.id, from: typeof candidate.from === 'string' ? candidate.from : '@open-mercato/core' }]
+  })
+}
+
 function loadEnabledModulesFromConfig(appDir: string): ModuleEntry[] {
   const cfgPath = path.resolve(appDir, 'src/modules.ts')
   if (fs.existsSync(cfgPath)) {
     try {
+      const loadedModules = readEnabledModulesFromConfig(cfgPath)
+      if (loadedModules.length > 0) return loadedModules
       const source = fs.readFileSync(cfgPath, 'utf8')
-      const list = parseModulesFromSource(source)
-      if (list.length) return list
-    } catch {
-      // Fall through to fallback
+      const parsedModules = parseModulesFromSource(source)
+      if (parsedModules.length > 0) return parsedModules
+    } catch (error) {
+      console.warn(
+        '[resolver] Failed to read enabled modules from src/modules.ts, falling back to src/modules scan:',
+        error,
+      )
     }
   }
   // Fallback: scan src/modules/* to keep backward compatibility
   const modulesRoot = path.resolve(appDir, 'src/modules')
   if (!fs.existsSync(modulesRoot)) return []
-  return fs
+  const scannedModules = fs
     .readdirSync(modulesRoot, { withFileTypes: true })
     .filter((e) => e.isDirectory() && !e.name.startsWith('.'))
     .map((e) => ({ id: e.name, from: '@app' as const }))
+
+  return scannedModules
 }
 
 function discoverPackagesInMonorepo(rootDir: string): PackageInfo[] {

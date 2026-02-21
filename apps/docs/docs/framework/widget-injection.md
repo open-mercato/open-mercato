@@ -37,6 +37,7 @@ src/modules/<module>/
 - **CRUD forms**: `crud-form:<entityId>` (automatically derived from `entityId`/`entityIds` passed to `CrudForm`). Widgets can request `placement.kind: 'group'` to render as a side-card and `column: 2` to appear in the right column.
 - **Data tables**: `data-table:<tableId>` (or pass `injectionSpotId` to `DataTable`). Header/footer child spots: `:header`, `:footer`.
 - **Admin layout wrapper**: `admin.page:<path-handle>:before|after` from `PageInjectionBoundary` (wraps every backend page).
+- **Global backend mutations**: `backend-mutation:global` (mounted once in `AppShell`, available on backend pages regardless of whether they use `CrudForm`).
 
 ## Creating an Injection Widget
 
@@ -266,6 +267,43 @@ function MyCustomForm() {
   return <form onSubmit={handleSave}>...</form>
 }
 ```
+
+### Global Mutation Hook for Non-CrudForm Screens
+
+For backend pages that do not use `CrudForm` (for example custom detail screens), use the global mutation spot and emit the generic mutation error event.
+
+```typescript
+import { useInjectionSpotEvents } from '@open-mercato/ui/backend/injection/InjectionSpot'
+import {
+  GLOBAL_MUTATION_INJECTION_SPOT_ID,
+  dispatchBackendMutationError,
+} from '@open-mercato/ui/backend/injection/mutationEvents'
+import { withScopedApiRequestHeaders } from '@open-mercato/ui/backend/utils/apiCall'
+
+const { triggerEvent } = useInjectionSpotEvents(GLOBAL_MUTATION_INJECTION_SPOT_ID)
+
+async function runMutation(operation: () => Promise<unknown>, payload: Record<string, unknown>, context: Record<string, unknown>) {
+  const beforeSave = await triggerEvent('onBeforeSave', payload, context)
+  if (!beforeSave.ok) {
+    dispatchBackendMutationError({ contextId: context.formId as string, error: beforeSave.details ?? beforeSave })
+    throw new Error(beforeSave.message ?? 'Save blocked by validation')
+  }
+
+  try {
+    const result =
+      beforeSave.requestHeaders && Object.keys(beforeSave.requestHeaders).length > 0
+        ? await withScopedApiRequestHeaders(beforeSave.requestHeaders, operation)
+        : await operation()
+    await triggerEvent('onAfterSave', payload, context)
+    return result
+  } catch (error) {
+    dispatchBackendMutationError({ contextId: context.formId as string, error })
+    throw error
+  }
+}
+```
+
+This keeps API helpers generic while still enabling module-level behaviors such as conflict dialogs, validation, or save guards.
 
 ### Directly Rendering an Injection Spot
 

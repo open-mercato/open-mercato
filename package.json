@@ -24,7 +24,7 @@
     "start": "turbo run start --filter=@open-mercato/app",
     "generate": "turbo run generate --filter=@open-mercato/app",
     "reinstall": "turbo run reinstall --filter=@open-mercato/app",
-    "db:generate": "turbo run db:generate --filter=@open-mercato/app",
+    "db:generate": "yarn workspace @open-mercato/app db:generate",
     "db:migrate": "turbo run db:migrate --filter=@open-mercato/app",
     "db:greenfield": "turbo run db:greenfield --filter=@open-mercato/app",
     "initialize": "turbo run initialize --filter=@open-mercato/app",

@@ -1,4 +1,8 @@
-jest.mock('next/navigation', () => ({ useRouter: () => ({ push: () => {} }) }))
+jest.mock('next/navigation', () => ({
+  useRouter: () => ({ push: () => {} }),
+  usePathname: () => '/backend/test',
+  useSearchParams: () => new URLSearchParams(),
+}))
 jest.mock('remark-gfm', () => ({ __esModule: true, default: {} }))
 jest.mock('@uiw/react-md-editor', () => ({ __esModule: true, default: () => null }))
 

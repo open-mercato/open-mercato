@@ -810,3 +810,9 @@ Clicking a version entry navigates to the detail view within the same panel usin
 
 ### 2026-02-04
 - Added reusable `VersionHistoryAction` component and `FormHeader` `utilityActions` slot for detail pages
+
+### 2026-02-17 Addendum (Record Locking Alignment)
+- Historical body intentionally preserved (append-only update).
+- `record_locks` conflict diff generation reuses `action_logs` snapshots (`snapshot_before`, `snapshot_after`, `changes_json`) instead of storing duplicate snapshots in lock tables.
+- No new version-history endpoint was introduced; integration continues through `GET /api/audit_logs/audit-logs/actions`.
+- Existing related-history behavior (`includeRelated`, `parentResourceKind`, `parentResourceId`) remains unchanged.

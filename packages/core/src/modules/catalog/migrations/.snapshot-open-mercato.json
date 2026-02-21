@@ -636,7 +636,6 @@
             "id"
           ],
           "referencedTableName": "public.catalog_product_option_schemas",
-          "createForeignKeyConstraint": true,
           "deleteRule": "set null",
           "updateRule": "cascade"
         }
@@ -726,15 +725,6 @@
           "primary": false,
           "nullable": true,
           "mappedType": "text"
-        },
-        "localized_content": {
-          "name": "localized_content",
-          "type": "jsonb",
-          "unsigned": false,
-          "autoincrement": false,
-          "primary": false,
-          "nullable": true,
-          "mappedType": "json"
         },
         "metadata": {
           "name": "metadata",
@@ -836,7 +826,6 @@
             "id"
           ],
           "referencedTableName": "public.catalog_products",
-          "createForeignKeyConstraint": true,
           "deleteRule": "cascade",
           "updateRule": "cascade"
         }
@@ -1185,7 +1174,6 @@
             "id"
           ],
           "referencedTableName": "public.catalog_products",
-          "createForeignKeyConstraint": true,
           "deleteRule": "cascade",
           "updateRule": "cascade"
         },
@@ -1199,7 +1187,6 @@
             "id"
           ],
           "referencedTableName": "public.catalog_product_categories",
-          "createForeignKeyConstraint": true,
           "deleteRule": "cascade",
           "updateRule": "cascade"
         }
@@ -1433,7 +1420,6 @@
             "id"
           ],
           "referencedTableName": "public.catalog_products",
-          "createForeignKeyConstraint": true,
           "deleteRule": "cascade",
           "updateRule": "cascade"
         },
@@ -1447,7 +1433,6 @@
             "id"
           ],
           "referencedTableName": "public.catalog_product_tags",
-          "createForeignKeyConstraint": true,
           "deleteRule": "cascade",
           "updateRule": "cascade"
         }
@@ -1706,7 +1691,6 @@
             "id"
           ],
           "referencedTableName": "public.catalog_products",
-          "createForeignKeyConstraint": true,
           "updateRule": "cascade"
         }
       },
@@ -2005,7 +1989,6 @@
             "id"
           ],
           "referencedTableName": "public.catalog_product_variants",
-          "createForeignKeyConstraint": true,
           "deleteRule": "set null",
           "updateRule": "cascade"
         },
@@ -2019,7 +2002,6 @@
             "id"
           ],
           "referencedTableName": "public.catalog_products",
-          "createForeignKeyConstraint": true,
           "deleteRule": "set null",
           "updateRule": "cascade"
         },
@@ -2033,7 +2015,6 @@
             "id"
           ],
           "referencedTableName": "public.catalog_product_offers",
-          "createForeignKeyConstraint": true,
           "deleteRule": "set null",
           "updateRule": "cascade"
         },
@@ -2047,7 +2028,6 @@
             "id"
           ],
           "referencedTableName": "public.catalog_price_kinds",
-          "createForeignKeyConstraint": true,
           "deleteRule": "restrict",
           "updateRule": "cascade"
         }
@@ -2251,7 +2231,6 @@
             "id"
           ],
           "referencedTableName": "public.catalog_product_variants",
-          "createForeignKeyConstraint": true,
           "deleteRule": "cascade",
           "updateRule": "cascade"
         },
@@ -2265,7 +2244,6 @@
             "id"
           ],
           "referencedTableName": "public.catalog_product_variants",
-          "createForeignKeyConstraint": true,
           "deleteRule": "cascade",
           "updateRule": "cascade"
         },
@@ -2279,7 +2257,6 @@
             "id"
           ],
           "referencedTableName": "public.catalog_products",
-          "createForeignKeyConstraint": true,
           "deleteRule": "cascade",
           "updateRule": "cascade"
         }

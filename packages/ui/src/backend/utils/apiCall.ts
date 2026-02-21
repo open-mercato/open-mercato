@@ -16,12 +16,48 @@ export type ApiCallResult<TReturn> = {
   cacheStatus: 'hit' | 'miss' | null
 }
 
+const scopedRequestHeadersStack: Array<Record<string, string>> = []
+
+function mergeHeaders(base: HeadersInit | undefined, extra: Record<string, string>): HeadersInit {
+  if (!base) return extra
+  if (typeof Headers !== 'undefined' && base instanceof Headers) {
+    const merged = new Headers(base)
+    Object.entries(extra).forEach(([key, value]) => merged.set(key, value))
+    return merged
+  }
+  if (Array.isArray(base)) {
+    return [...base, ...Object.entries(extra)]
+  }
+  return { ...(base as Record<string, string>), ...extra }
+}
+
+function resolveScopedRequestHeaders(): Record<string, string> | null {
+  if (!scopedRequestHeadersStack.length) return null
+  return scopedRequestHeadersStack.reduce<Record<string, string>>((acc, next) => ({ ...acc, ...next }), {})
+}
+
+export async function withScopedApiRequestHeaders<T>(
+  headers: Record<string, string>,
+  run: () => Promise<T>,
+): Promise<T> {
+  scopedRequestHeadersStack.push(headers)
+  try {
+    return await run()
+  } finally {
+    scopedRequestHeadersStack.pop()
+  }
+}
+
 export async function apiCall<TReturn = Record<string, unknown>>(
   input: RequestInfo | URL,
   init?: RequestInit,
   options?: ApiCallOptions<TReturn>,
 ): Promise<ApiCallResult<TReturn>> {
-  const response = await apiFetch(input, init)
+  const scopedHeaders = resolveScopedRequestHeaders()
+  const requestInit = scopedHeaders
+    ? { ...(init ?? {}), headers: mergeHeaders(init?.headers, scopedHeaders) }
+    : init
+  const response = await apiFetch(input, requestInit)
   const parser = options?.parse
   const fallback = options?.fallback ?? null
   let result: TReturn | null = null

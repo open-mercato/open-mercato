@@ -7,7 +7,7 @@ import { Button } from '../primitives/button'
 import { IconButton } from '../primitives/icon-button'
 import { Separator } from '../primitives/separator'
 import { FlashMessages } from './FlashMessages'
-import { usePathname } from 'next/navigation'
+import { usePathname, useSearchParams } from 'next/navigation'
 import { apiCall } from './utils/apiCall'
 import { LastOperationBanner } from './operations/LastOperationBanner'
 import { UpgradeActionBanner } from './upgrades/UpgradeActionBanner'
@@ -15,6 +15,8 @@ import { PartialIndexBanner } from './indexes/PartialIndexBanner'
 import { useLocale, useT } from '@open-mercato/shared/lib/i18n/context'
 import { slugifySidebarId } from '@open-mercato/shared/modules/navigation/sidebarPreferences'
 import type { SectionNavGroup } from './section-page/types'
+import { InjectionSpot } from './injection/InjectionSpot'
+import { GLOBAL_MUTATION_INJECTION_SPOT_ID } from './injection/mutationEvents'
 
 export type AppShellProps = {
   productName?: string
@@ -148,6 +150,7 @@ function Chevron({ open }: { open: boolean }) {
 
 export function AppShell({ productName, email, groups, rightHeaderSlot, children, sidebarCollapsedDefault = false, currentTitle, breadcrumb, adminNavApi, version, settingsSectionTitle, settingsPathPrefixes = [], settingsSections, profileSections, profileSectionTitle, profilePathPrefixes = [], mobileSidebarSlot }: AppShellProps) {
   const pathname = usePathname()
+  const searchParams = useSearchParams()
   const t = useT()
   const locale = useLocale()
   const resolvedProductName = productName ?? t('appShell.productName')
@@ -1185,6 +1188,14 @@ export function AppShell({ productName, email, groups, rightHeaderSlot, children
           <PartialIndexBanner />
           <UpgradeActionBanner />
           <LastOperationBanner />
+          <InjectionSpot
+            spotId={GLOBAL_MUTATION_INJECTION_SPOT_ID}
+            context={{
+              path: pathname ?? '',
+              query: searchParams?.toString() ?? '',
+            }}
+          />
+          <div id="om-top-banners" className="mb-3 space-y-2" />
           {children}
         </main>
         <footer className="border-t bg-background/80 backdrop-blur supports-[backdrop-filter]:bg-background/50 px-4 py-3 flex flex-wrap items-center justify-end gap-4">

@@ -57,6 +57,7 @@ Use this structure for every review:
 - [ ] `apiCall` used instead of raw `fetch`
 - [ ] ACL features mirrored in `setup.ts` `defaultRoleFeatures`
 - [ ] Behavior changes covered by unit and/or integration tests (or explicitly justified as not applicable)
+- [ ] No empty `catch` blocks (all catches must handle, log, rethrow, or explicitly document intentional ignore)
 ```
 
 Omit empty severity sections. Mark passing checklist items with `[x]` and failing with `[ ]` plus explanation.
@@ -138,6 +139,7 @@ These are the highest-impact rules. For the full checklist, see `references/revi
 ### Code Quality (Medium)
 
 - **No `any` types** — use zod + `z.infer`, narrow with runtime checks
+- **No empty `catch` blocks** — catch blocks MUST handle, log, rethrow, or include explicit rationale for intentional ignore
 - **No one-letter variable names**
 - **No inline comments** — code should be self-documenting
 - **Boolean parsing**: use `parseBooleanToken`/`parseBooleanWithDefault` from `@open-mercato/shared/lib/boolean`

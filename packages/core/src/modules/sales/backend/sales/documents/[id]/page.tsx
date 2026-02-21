@@ -26,7 +26,7 @@ import { FormHeader, type ActionItem } from '@open-mercato/ui/backend/forms'
 import { VersionHistoryAction } from '@open-mercato/ui/backend/version-history'
 import Link from 'next/link'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
-import { apiCall, apiCallOrThrow, readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
+import { apiCall, apiCallOrThrow, readApiResultOrThrow, withScopedApiRequestHeaders } from '@open-mercato/ui/backend/utils/apiCall'
 import { collectCustomFieldValues } from '@open-mercato/ui/backend/utils/customFieldValues'
 import { mapCrudServerErrorToFormErrors } from '@open-mercato/ui/backend/utils/serverErrors'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
@@ -59,7 +59,11 @@ import {
 import type { CommentSummary, SectionAction } from '@open-mercato/ui/backend/detail'
 import { ICON_SUGGESTIONS } from '@open-mercato/core/modules/customers/lib/dictionaries'
 import { readMarkdownPreferenceCookie, writeMarkdownPreferenceCookie } from '@open-mercato/core/modules/customers/lib/markdownPreference'
-import { InjectionSpot, useInjectionWidgets } from '@open-mercato/ui/backend/injection/InjectionSpot'
+import { InjectionSpot, useInjectionSpotEvents, useInjectionWidgets } from '@open-mercato/ui/backend/injection/InjectionSpot'
+import {
+  GLOBAL_MUTATION_INJECTION_SPOT_ID,
+  dispatchBackendMutationError,
+} from '@open-mercato/ui/backend/injection/mutationEvents'
 
 function CurrencyInlineEditor({
   label,
@@ -1891,6 +1895,59 @@ export default function SalesDocumentDetailPage({
   const [statusLoading, setStatusLoading] = React.useState(false)
   const statusOptionsRef = React.useRef<Map<string, StatusOption>>(new Map())
   const [adjustmentRows, setAdjustmentRows] = React.useState<AdjustmentRowData[]>([])
+  const mutationContextId = React.useMemo(
+    () => (record?.id ? `sales-document:${kind}:${record.id}` : `sales-document:${kind}:pending`),
+    [kind, record?.id],
+  )
+  const detailsInjectionSpotId = React.useMemo(() => `sales.document.detail.${kind}:details`, [kind])
+  const detailInjectionContext = React.useMemo(
+    () => ({
+      kind,
+      record,
+      formId: mutationContextId,
+      resourceKind: `sales.${kind}`,
+      resourceId: record?.id ?? undefined,
+    }),
+    [kind, mutationContextId, record],
+  )
+  const { triggerEvent: triggerDetailsInjectionEvent } = useInjectionSpotEvents(GLOBAL_MUTATION_INJECTION_SPOT_ID)
+  const emitMutationSaveError = React.useCallback(
+    (error: unknown) => {
+      dispatchBackendMutationError({
+        contextId: mutationContextId,
+        formId: mutationContextId,
+        error,
+      })
+    },
+    [mutationContextId],
+  )
+  const runMutation = React.useCallback(
+    async <T,>(operation: () => Promise<T>, mutationPayload?: Record<string, unknown>): Promise<T> => {
+      const payload = mutationPayload ?? {}
+      const beforeSave = await triggerDetailsInjectionEvent('onBeforeSave', payload, detailInjectionContext)
+      if (!beforeSave.ok) {
+        emitMutationSaveError(beforeSave.details ?? beforeSave)
+        throw new Error(beforeSave.message || t('ui.forms.flash.saveBlocked', 'Save blocked by validation'))
+      }
+
+      try {
+        const result =
+          beforeSave.requestHeaders && Object.keys(beforeSave.requestHeaders).length > 0
+            ? await withScopedApiRequestHeaders(beforeSave.requestHeaders, operation)
+            : await operation()
+        try {
+          await triggerDetailsInjectionEvent('onAfterSave', payload, detailInjectionContext)
+        } catch (err) {
+          console.error('[SalesDocumentDetailPage] Error in onAfterSave injection event:', err)
+        }
+        return result
+      } catch (error) {
+        emitMutationSaveError(error)
+        throw error
+      }
+    },
+    [detailInjectionContext, emitMutationSaveError, t, triggerDetailsInjectionEvent],
+  )
   const clearCustomerError = React.useCallback(() => setCustomerError(null), [])
   const { data: currencyDictionary } = useCurrencyDictionary()
   const scopeVersion = useOrganizationScopeVersion()
@@ -2924,17 +2981,22 @@ export default function SalesDocumentDetailPage({
         throw new Error(t('sales.documents.detail.updateError', 'Failed to update document.'))
       }
       const endpoint = kind === 'order' ? '/api/sales/orders' : '/api/sales/quotes'
-      return apiCallOrThrow<DocumentUpdateResult>(
-        endpoint,
-        {
-          method: 'PUT',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ id: record.id, ...patch }),
-        },
-        { errorMessage: t('sales.documents.detail.updateError', 'Failed to update document.') }
+      const mutation = { id: record.id, ...patch }
+      return runMutation(
+        () =>
+          apiCallOrThrow<DocumentUpdateResult>(
+            endpoint,
+            {
+              method: 'PUT',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify(mutation),
+            },
+            { errorMessage: t('sales.documents.detail.updateError', 'Failed to update document.') }
+          ),
+        mutation,
       )
     },
-    [kind, record, t]
+    [kind, record, runMutation, t]
   )
 
   const handleUpdateCurrency = React.useCallback(
@@ -3561,47 +3623,50 @@ export default function SalesDocumentDetailPage({
     if (!record || kind !== 'quote') return
     setConverting(true)
     try {
-      const call = await apiCallOrThrow<{ orderId?: string }>(
-        '/api/sales/quotes/convert',
-        {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ quoteId: record.id }),
-        },
-        { errorMessage: t('sales.documents.detail.convertError', 'Failed to convert quote.') },
-      )
-      const orderId = call.result?.orderId ?? record.id
-      flash(t('sales.documents.detail.convertSuccess', 'Quote converted to order.'), 'success')
-      router.replace(`/backend/sales/orders/${orderId}`)
+      await runMutation(async () => {
+        const call = await apiCallOrThrow<{ orderId?: string }>(
+          '/api/sales/quotes/convert',
+          {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ quoteId: record.id }),
+          },
+          { errorMessage: t('sales.documents.detail.convertError', 'Failed to convert quote.') },
+        )
+        const orderId = call.result?.orderId ?? record.id
+        flash(t('sales.documents.detail.convertSuccess', 'Quote converted to order.'), 'success')
+        router.replace(`/backend/sales/orders/${orderId}`)
+      }, { quoteId: record.id })
     } catch (err) {
       console.error('sales.documents.convert', err)
       flash(t('sales.documents.detail.convertError', 'Failed to convert quote.'), 'error')
     } finally {
       setConverting(false)
     }
-  }, [kind, record, router, t])
+  }, [kind, record, router, runMutation, t])
 
   const handleSendQuote = React.useCallback(async () => {
     if (!record || kind !== 'quote') return
     setSending(true)
     try {
-      await apiCallOrThrow('/api/sales/quotes/send', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ quoteId: record.id, validForDays }),
-      })
-      flash(t('sales.quotes.send.success', 'Quote sent.'), 'success')
-      setSendOpen(false)
-      // Reload the document to reflect status changes.
-      const updated = await fetchDocumentByKind(record.id, 'quote')
-      if (updated) setRecord(updated)
+      await runMutation(async () => {
+        await apiCallOrThrow('/api/sales/quotes/send', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ quoteId: record.id, validForDays }),
+        })
+        flash(t('sales.quotes.send.success', 'Quote sent.'), 'success')
+        setSendOpen(false)
+        const updated = await fetchDocumentByKind(record.id, 'quote')
+        if (updated) setRecord(updated)
+      }, { quoteId: record.id, validForDays })
     } catch (err) {
       console.error('sales.quotes.send', err)
       flash(t('sales.quotes.send.failed', 'Failed to send quote.'), 'error')
     } finally {
       setSending(false)
     }
-  }, [fetchDocumentByKind, flash, kind, record, t, validForDays])
+  }, [fetchDocumentByKind, kind, record, runMutation, t, validForDays])
 
   const handleDelete = React.useCallback(async () => {
     if (!record) return
@@ -3612,20 +3677,25 @@ export default function SalesDocumentDetailPage({
     if (!ok) return
     setDeleting(true)
     const endpoint = kind === 'order' ? '/api/sales/orders' : '/api/sales/quotes'
-    const call = await apiCall(endpoint, {
-      method: 'DELETE',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ id: record.id }),
-    })
-    if (call.ok) {
+    try {
+      await runMutation(async () => {
+        await apiCallOrThrow(endpoint, {
+          method: 'DELETE',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ id: record.id }),
+        }, {
+          errorMessage: t('sales.documents.detail.deleteFailed', 'Could not delete document.'),
+        })
+      }, { id: record.id })
       flash(t('sales.documents.detail.deleted', 'Document deleted.'), 'success')
       const listPath = kind === 'order' ? '/backend/sales/orders' : '/backend/sales/quotes'
       router.push(listPath)
-    } else {
+    } catch (err) {
+      console.error('sales.documents.delete', err)
       flash(t('sales.documents.detail.deleteFailed', 'Could not delete document.'), 'error')
     }
     setDeleting(false)
-  }, [kind, record, router, t])
+  }, [kind, record, router, runMutation, t])
 
   const detailFields = React.useMemo(() => {
     const fields: DetailFieldConfig[] = [
@@ -3832,11 +3902,9 @@ export default function SalesDocumentDetailPage({
     []
   )
 
-  const injectionContext = React.useMemo(() => ({ kind, record }), [kind, record])
   const tabInjectionSpotId = React.useMemo(() => `sales.document.detail.${kind}:tabs`, [kind])
-  const detailsInjectionSpotId = React.useMemo(() => `sales.document.detail.${kind}:details`, [kind])
   const { widgets: injectedTabWidgets } = useInjectionWidgets(tabInjectionSpotId, {
-    context: injectionContext,
+    context: detailInjectionContext,
     triggerOnLoad: true,
   })
   const injectedTabs = React.useMemo(
@@ -3849,7 +3917,7 @@ export default function SalesDocumentDetailPage({
           const priority = typeof widget.placement?.priority === 'number' ? widget.placement.priority : 0
           const render = () => (
             <widget.module.Widget
-              context={injectionContext}
+              context={detailInjectionContext}
               data={record}
               onDataChange={(next) => setRecord(next as unknown as DocumentRecord)}
             />
@@ -3857,7 +3925,7 @@ export default function SalesDocumentDetailPage({
           return { id, label, priority, render }
         })
         .sort((a, b) => b.priority - a.priority),
-    [injectedTabWidgets, injectionContext, record, setRecord],
+    [detailInjectionContext, injectedTabWidgets, record, setRecord],
   )
   const injectedTabMap = React.useMemo(() => new Map(injectedTabs.map((tab) => [tab.id, tab.render])), [injectedTabs])
 
@@ -4196,15 +4264,17 @@ export default function SalesDocumentDetailPage({
       }
       const endpoint = kind === 'order' ? '/api/sales/orders' : '/api/sales/quotes'
       try {
-        await apiCallOrThrow(
-          endpoint,
-          {
-            method: 'PUT',
-            headers: { 'content-type': 'application/json' },
-            body: JSON.stringify({ id: record.id, customFields: customPayload }),
-          },
-          { errorMessage: t('sales.documents.detail.inlineError', 'Unable to update document.') },
-        )
+        await runMutation(async () => {
+          await apiCallOrThrow(
+            endpoint,
+            {
+              method: 'PUT',
+              headers: { 'content-type': 'application/json' },
+              body: JSON.stringify({ id: record.id, customFields: customPayload }),
+            },
+            { errorMessage: t('sales.documents.detail.inlineError', 'Unable to update document.') },
+          )
+        }, { id: record.id, customFields: customPayload })
       } catch (err) {
         const { message: helperMessage, fieldErrors } = mapCrudServerErrorToFormErrors(err)
         const mappedErrors = fieldErrors
@@ -4231,7 +4301,7 @@ export default function SalesDocumentDetailPage({
       )
       flash(t('ui.forms.flash.saveSuccess', 'Saved successfully.'), 'success')
     },
-    [kind, record, t],
+    [kind, record, runMutation, t],
   )
 
   const loadTagOptions = React.useCallback(
@@ -4303,20 +4373,22 @@ export default function SalesDocumentDetailPage({
       if (!record) return
       const endpoint = kind === 'order' ? '/api/sales/orders' : '/api/sales/quotes'
       const tagIds = Array.from(new Set(next.map((tag) => tag.id)))
-      await apiCallOrThrow(
-        endpoint,
-        {
-          method: 'PUT',
-          headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({ id: record.id, tags: tagIds }),
-        },
-        { errorMessage: t('sales.documents.detail.tags.updateError', 'Failed to update tags.') },
-      )
+      await runMutation(async () => {
+        await apiCallOrThrow(
+          endpoint,
+          {
+            method: 'PUT',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ id: record.id, tags: tagIds }),
+          },
+          { errorMessage: t('sales.documents.detail.tags.updateError', 'Failed to update tags.') },
+        )
+      }, { id: record.id, tags: tagIds })
       setRecord((prev) => (prev ? { ...prev, tags: next } : prev))
       setTags(next)
       flash(t('sales.documents.detail.tags.success', 'Tags updated.'), 'success')
     },
-    [kind, record, t],
+    [kind, record, runMutation, t],
   )
 
   if (loading) {
@@ -4449,7 +4521,6 @@ export default function SalesDocumentDetailPage({
           isDeleting={deleting}
           deleteLabel={t('sales.documents.detail.delete', 'Delete')}
         />
-
         <div className="grid gap-4 md:grid-cols-4">
           <div className="md:col-span-3">
             <CustomerInlineEditor
@@ -4666,7 +4737,7 @@ export default function SalesDocumentDetailPage({
           <DetailFieldsSection fields={detailFields} />
           <InjectionSpot
             spotId={detailsInjectionSpotId}
-            context={injectionContext}
+            context={detailInjectionContext}
             data={record}
             onDataChange={(next) => setRecord(next as unknown as DocumentRecord)}
           />

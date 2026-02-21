@@ -19,6 +19,12 @@ import fs from 'node:fs'
 
 let envLoaded = false
 
+export function padByCodePointWidth(value: string, targetWidth: number): string {
+  const valueWidth = [...value].length
+  if (valueWidth >= targetWidth) return value
+  return `${value}${' '.repeat(targetWidth - valueWidth)}`
+}
+
 async function ensureEnvLoaded() {
   if (envLoaded) return
   envLoaded = true
@@ -480,7 +486,6 @@ export async function run(argv = process.argv) {
       pushUser('Superadmin', '👑', email, password)
       pushUser('Admin', '🧰', adminEmailDerived, adminPasswordOverride ?? password)
       pushUser('Employee', '👷', employeeEmailDerived, employeePasswordOverride ?? password)
-
       // Simplified success message: we know which users were created
       console.log('🎉 App initialization complete!\n')
       console.log('╔══════════════════════════════════════════════════════════════╗')
@@ -492,7 +497,7 @@ export async function run(argv = process.argv) {
       console.log('║  Users created:                                              ║')
       for (const entry of createdUsers) {
         const label = `${entry.icon} ${entry.label}:`
-        const labelPad = label.padEnd(13)
+        const labelPad = padByCodePointWidth(label, 13)
         const entryPassword = createdPasswords.get(entry.email.toLowerCase()) ?? password
         console.log(`║    ${labelPad}${entry.email.padEnd(42)} ║`)
         console.log(`║       Password: ${entryPassword.padEnd(44)} ║`)
