@@ -83,3 +83,62 @@ export const storeChannelBindingUpdateSchema = z.object({
 
 export type StoreChannelBindingCreateInput = z.infer<typeof storeChannelBindingCreateSchema>
 export type StoreChannelBindingUpdateInput = z.infer<typeof storeChannelBindingUpdateSchema>
+
+// ---------------------------------------------------------------------------
+// Storefront Checkout Session
+// ---------------------------------------------------------------------------
+
+export const checkoutSessionCreateSchema = z.object({
+  cartToken: z.string().uuid(),
+  locale: z.string().optional(),
+})
+
+export const checkoutSessionStateSchema = z.enum([
+  'cart',
+  'customer',
+  'shipping',
+  'review',
+  'placing_order',
+  'completed',
+  'failed',
+  'expired',
+  'cancelled',
+])
+
+export const checkoutSessionStatusSchema = z.enum([
+  'active',
+  'completed',
+  'failed',
+  'expired',
+  'cancelled',
+])
+
+export const checkoutTransitionActionSchema = z.enum([
+  'set_customer',
+  'set_shipping',
+  'review',
+  'place_order',
+  'cancel',
+])
+
+export const checkoutCustomerInfoSchema = z.object({
+  name: z.string().min(1),
+  email: z.string().email(),
+  phone: z.string().optional(),
+  address: z.string().optional(),
+})
+
+export const checkoutShippingInfoSchema = z.object({
+  line1: z.string().min(1),
+  line2: z.string().optional(),
+  city: z.string().optional(),
+  region: z.string().optional(),
+  postalCode: z.string().optional(),
+  country: z.string().optional(),
+})
+
+export const checkoutTransitionSchema = z.object({
+  action: checkoutTransitionActionSchema,
+  idempotencyKey: z.string().min(8).max(255).optional(),
+  payload: z.record(z.string(), z.unknown()).optional(),
+})

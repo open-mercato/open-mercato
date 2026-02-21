@@ -1,19 +1,21 @@
 import { NextResponse } from 'next/server'
 import { z } from 'zod'
+import { randomUUID } from 'crypto'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { EntityManager } from '@mikro-orm/postgresql'
-import { CommandBus } from '@open-mercato/shared/lib/commands'
-import type { CommandRuntimeContext } from '@open-mercato/shared/lib/commands/types'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
-import { CatalogOffer } from '@open-mercato/core/modules/catalog/data/entities'
 import { resolveStoreFromRequest } from '../../../../lib/storeContext'
 import { isStorefrontReady, STOREFRONT_NOT_READY_ERROR } from '../../../../lib/storefrontReadiness'
 import {
   resolveCartByToken,
-  loadCartLines,
   resolveCartToken,
 } from '../../../../lib/storefrontCart'
 import { emitEcommerceEvent } from '../../../../events'
+import {
+  createCheckoutSession,
+  findActiveCheckoutSessionByCart,
+} from '../../../../lib/storefrontCheckoutSessions'
+import { placeOrderFromCart } from '../../../../lib/storefrontCheckoutOrder'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 
 export const metadata = {
@@ -36,22 +38,6 @@ const checkoutQuerySchema = z.object({
   cartToken: z.string().uuid().optional(),
   locale: z.string().optional(),
 })
-
-const createOrderResultSchema = z.object({
-  orderId: z.string().uuid(),
-})
-
-const currencyCodeSchema = z
-  .string()
-  .trim()
-  .toUpperCase()
-  .regex(/^[A-Z]{3}$/, { message: 'Invalid currency code' })
-
-function normalizeCurrencyCode(value: string | null | undefined): string | null {
-  if (typeof value !== 'string') return null
-  const parsed = currencyCodeSchema.safeParse(value)
-  return parsed.success ? parsed.data : null
-}
 
 export async function POST(req: Request) {
   try {
@@ -77,8 +63,6 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: STOREFRONT_NOT_READY_ERROR }, { status: 404 })
     }
 
-    const salesChannelId = storeCtx.channelBinding!.salesChannelId
-
     const rawBody = await req.json().catch(() => null)
     const parsed = checkoutBodySchema.safeParse(rawBody)
     if (!parsed.success) {
@@ -99,132 +83,38 @@ export async function POST(req: Request) {
     if (!cart) {
       return NextResponse.json({ error: 'Cart not found' }, { status: 404 })
     }
-
-    const cartLines = await loadCartLines(em, cart.id, organizationId, tid)
-    if (cartLines.length === 0) {
-      return NextResponse.json({ error: 'Cart is empty' }, { status: 400 })
-    }
-    const productIds = Array.from(
-      new Set(cartLines.map((line) => line.productId).filter((id): id is string => !!id)),
-    )
-    const offeredProductIds = new Set(
-      (
-        await em.find(
-          CatalogOffer,
-          {
-            organizationId,
-            tenantId: tid,
-            channelId: salesChannelId,
-            product: { $in: productIds },
-            isActive: true,
-            deletedAt: null,
-          },
-          { fields: ['product'] },
-        )
-      )
-        .map((offer) =>
-          typeof offer.product === 'string' ? offer.product : offer.product?.id ?? null,
-        )
-        .filter((id): id is string => !!id),
-    )
-    const unavailableProducts = productIds.filter((id) => !offeredProductIds.has(id))
-    if (unavailableProducts.length > 0) {
-      return NextResponse.json(
-        {
-          error: 'Cart contains products unavailable in this storefront',
-          details: unavailableProducts,
-        },
-        { status: 400 },
-      )
-    }
-
-    const orderCurrencyCode = normalizeCurrencyCode(cart.currencyCode)
-    if (!orderCurrencyCode) {
-      return NextResponse.json(
-        { error: 'Invalid cart currency code configuration' },
-        { status: 400 },
-      )
-    }
-    const lineCurrencyCodes = cartLines.map((line) =>
-      normalizeCurrencyCode(line.currencyCode ?? orderCurrencyCode),
-    )
-    const invalidCurrencyIndex = lineCurrencyCodes.findIndex((value) => value === null)
-    if (invalidCurrencyIndex >= 0) {
-      return NextResponse.json(
-        { error: `Invalid currency code on cart line ${invalidCurrencyIndex + 1}` },
-        { status: 400 },
-      )
-    }
-    const resolvedLineCurrencyCodes = lineCurrencyCodes as string[]
+    const activeSession =
+      (await findActiveCheckoutSessionByCart(em, cart.id, organizationId, tid)) ??
+      (await createCheckoutSession(
+        em,
+        storeCtx,
+        cart.id,
+        cart.token,
+        new Date(Date.now() + 2 * 60 * 60 * 1000),
+      ))
 
     const { customerInfo } = parsed.data
+    activeSession.customerInfo = customerInfo
+    activeSession.workflowState = 'placing_order'
+    activeSession.idempotencyKey = req.headers.get('x-idempotency-key') ?? randomUUID()
+    activeSession.version += 1
+    await em.flush()
 
-    const commandBus = container.resolve('commandBus') as CommandBus
-    const ctx: CommandRuntimeContext = {
+    const commandBus = container.resolve('commandBus')
+    const { orderId } = await placeOrderFromCart(
+      req,
+      em,
+      commandBus,
       container,
-      auth: null,
-      organizationScope: null,
-      selectedOrganizationId: organizationId,
-      organizationIds: [organizationId],
-      request: req,
-    }
+      storeCtx,
+      cart,
+      customerInfo,
+    )
 
-    const { result } = await commandBus.execute<
-      unknown,
-      { orderId: string }
-    >('sales.orders.create', {
-      input: {
-        organizationId,
-        tenantId: tid,
-        currencyCode: orderCurrencyCode,
-        channelId: salesChannelId,
-        placedAt: new Date(),
-        customerSnapshot: {
-          customer: {
-            displayName: customerInfo.name,
-            primaryEmail: customerInfo.email,
-            primaryPhone: customerInfo.phone ?? null,
-          },
-          shippingAddress: customerInfo.address ?? null,
-        },
-        metadata: {
-          sourceCartId: cart.id,
-          sourceStoreId: storeCtx.store.id,
-        },
-        lines: cartLines.map((line, i) => ({
-          currencyCode: resolvedLineCurrencyCodes[i],
-          kind: 'product' as const,
-          productId: line.productId ?? undefined,
-          productVariantId: line.variantId ?? undefined,
-          name: line.titleSnapshot ?? undefined,
-          quantity: line.quantity,
-          unitPriceNet: line.unitPriceNet ?? 0,
-          unitPriceGross: line.unitPriceGross ?? 0,
-          lineNumber: i + 1,
-          catalogSnapshot: {
-            sku: line.skuSnapshot ?? null,
-            imageUrl: line.imageUrlSnapshot ?? null,
-          },
-        })),
-      },
-      ctx,
-    })
-
-    const normalizedResult = createOrderResultSchema.safeParse(result)
-    if (!normalizedResult.success) {
-      console.error('[ecommerce:checkout] Invalid sales.orders.create result', {
-        issues: normalizedResult.error.issues,
-        result,
-      })
-      return NextResponse.json(
-        { error: 'Invalid order creation response from sales module' },
-        { status: 500 },
-      )
-    }
-    const orderId = normalizedResult.data.orderId
-
-    cart.status = 'converted'
-    cart.convertedOrderId = orderId
+    activeSession.status = 'completed'
+    activeSession.workflowState = 'completed'
+    activeSession.placedOrderId = orderId
+    activeSession.version += 1
     await em.flush()
 
     try {
@@ -265,7 +155,7 @@ export const openApi: OpenApiRouteDoc = {
   methods: {
     POST: {
       summary: 'Checkout cart',
-      description: 'Convert the cart to a SalesOrder via the command bus. Validates channel binding, creates order with guest customer snapshot, marks the cart as converted, and emits ecommerce.cart.converted event.',
+      description: 'Legacy adapter endpoint for one-shot checkout. Internally creates/updates checkout session and places order.',
       query: z.object({
         storeSlug: z.string().optional(),
         tenantId: z.string().uuid().optional(),

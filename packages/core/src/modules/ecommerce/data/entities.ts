@@ -136,6 +136,22 @@ export class EcommerceStoreChannelBinding {
 }
 
 export type EcommerceCartStatus = 'active' | 'converted' | 'abandoned'
+export type EcommerceCheckoutSessionStatus =
+  | 'active'
+  | 'completed'
+  | 'failed'
+  | 'expired'
+  | 'cancelled'
+export type EcommerceCheckoutWorkflowState =
+  | 'cart'
+  | 'customer'
+  | 'shipping'
+  | 'review'
+  | 'placing_order'
+  | 'completed'
+  | 'failed'
+  | 'expired'
+  | 'cancelled'
 
 @Entity({ tableName: 'ecommerce_carts' })
 @Index({ name: 'ecommerce_carts_org_tenant_store_idx', properties: ['tenantId', 'storeId'] })
@@ -235,4 +251,74 @@ export class EcommerceCartLine {
 
   @Property({ name: 'updated_at', type: Date, defaultRaw: 'now()', onUpdate: () => new Date() })
   updatedAt!: Date
+}
+
+@Entity({ tableName: 'ecommerce_checkout_sessions' })
+@Index({
+  name: 'ecommerce_checkout_sessions_tenant_org_store_status_idx',
+  properties: ['tenantId', 'organizationId', 'storeId', 'status'],
+})
+@Index({ name: 'ecommerce_checkout_sessions_cart_status_idx', properties: ['cartId', 'status'] })
+export class EcommerceCheckoutSession {
+  [OptionalProps]?: 'createdAt' | 'updatedAt' | 'version' | 'workflowName' | 'workflowState' | 'status'
+
+  @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
+  id!: string
+
+  @Property({ name: 'organization_id', type: 'uuid' })
+  organizationId!: string
+
+  @Property({ name: 'tenant_id', type: 'uuid' })
+  tenantId!: string
+
+  @Property({ name: 'store_id', type: 'uuid' })
+  storeId!: string
+
+  @Property({ name: 'cart_id', type: 'uuid' })
+  cartId!: string
+
+  @Property({ name: 'cart_token', type: 'uuid' })
+  cartToken!: string
+
+  @Property({ name: 'workflow_name', type: 'text', default: 'ecommerce.checkout.v1' })
+  workflowName!: string
+
+  @Property({ name: 'workflow_state', type: 'text', default: 'cart' })
+  workflowState!: EcommerceCheckoutWorkflowState
+
+  @Property({ name: 'status', type: 'text', default: 'active' })
+  status!: EcommerceCheckoutSessionStatus
+
+  @Property({ type: 'integer', default: 1 })
+  version!: number
+
+  @Property({ name: 'customer_info', type: 'jsonb', nullable: true })
+  customerInfo?: Record<string, unknown> | null
+
+  @Property({ name: 'shipping_info', type: 'jsonb', nullable: true })
+  shippingInfo?: Record<string, unknown> | null
+
+  @Property({ name: 'billing_info', type: 'jsonb', nullable: true })
+  billingInfo?: Record<string, unknown> | null
+
+  @Property({ type: 'jsonb', nullable: true })
+  metadata?: Record<string, unknown> | null
+
+  @Property({ name: 'idempotency_key', type: 'text', nullable: true })
+  idempotencyKey?: string | null
+
+  @Property({ name: 'placed_order_id', type: 'uuid', nullable: true })
+  placedOrderId?: string | null
+
+  @Property({ name: 'expires_at', type: Date })
+  expiresAt!: Date
+
+  @Property({ name: 'created_at', type: Date, defaultRaw: 'now()' })
+  createdAt!: Date
+
+  @Property({ name: 'updated_at', type: Date, defaultRaw: 'now()', onUpdate: () => new Date() })
+  updatedAt!: Date
+
+  @Property({ name: 'deleted_at', type: Date, nullable: true })
+  deletedAt?: Date | null
 }
