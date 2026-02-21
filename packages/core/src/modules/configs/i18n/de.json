@@ -77,6 +77,8 @@
   "configs.systemStatus.variables.cacheStrategy.label": "Cache-Strategie",
   "configs.systemStatus.variables.cacheTtl.description": "Standard-Cache-Gültigkeitsdauer in Millisekunden.",
   "configs.systemStatus.variables.cacheTtl.label": "Cache-TTL",
+  "configs.systemStatus.variables.databaseUrl.description": "Datenbank-Verbindungszeichenfolge mit entfernten Anmeldedaten.",
+  "configs.systemStatus.variables.databaseUrl.label": "Datenbank-URL",
   "configs.systemStatus.variables.enableCrudApiCache.description": "CRUD-API-Antwort-Cache-Schicht aktivieren.",
   "configs.systemStatus.variables.enableCrudApiCache.label": "CRUD-API-Cache",
   "configs.systemStatus.variables.entitiesBackcompatEav.description": "Benutzerdefinierte Entitätsschreibvorgänge in die Legacy-EAV-Tabellen spiegeln.",

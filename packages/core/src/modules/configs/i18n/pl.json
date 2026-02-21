@@ -77,6 +77,8 @@
   "configs.systemStatus.variables.cacheStrategy.label": "Strategia cache",
   "configs.systemStatus.variables.cacheTtl.description": "Domyślny czas życia cache w milisekundach.",
   "configs.systemStatus.variables.cacheTtl.label": "TTL cache",
+  "configs.systemStatus.variables.databaseUrl.description": "Łańcuch połączenia z bazą danych z usuniętymi danymi uwierzytelniającymi.",
+  "configs.systemStatus.variables.databaseUrl.label": "URL bazy danych",
   "configs.systemStatus.variables.enableCrudApiCache.description": "Włącza warstwę buforowania odpowiedzi API CRUD.",
   "configs.systemStatus.variables.enableCrudApiCache.label": "Cache API CRUD",
   "configs.systemStatus.variables.entitiesBackcompatEav.description": "Odbija zapisy niestandardowych encji do legacy tabel EAV.",
