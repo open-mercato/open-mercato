@@ -248,7 +248,6 @@
             "id"
           ],
           "referencedTableName": "public.tenants",
-          "createForeignKeyConstraint": true,
           "updateRule": "cascade"
         }
       },

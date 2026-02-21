@@ -308,7 +308,6 @@
             "id"
           ],
           "referencedTableName": "public.dictionaries",
-          "createForeignKeyConstraint": true,
           "updateRule": "cascade"
         }
       },

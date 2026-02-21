@@ -15,6 +15,7 @@ export const enabledModules: ModuleEntry[] = [
   { id: 'audit_logs', from: '@open-mercato/core' },
   { id: 'attachments', from: '@open-mercato/core' },
   { id: 'catalog', from: '@open-mercato/core' },
+  { id: 'ecommerce', from: '@open-mercato/core' },
   { id: 'sales', from: '@open-mercato/core' },
   { id: 'api_keys', from: '@open-mercato/core' },
   { id: 'dictionaries', from: '@open-mercato/core' },
