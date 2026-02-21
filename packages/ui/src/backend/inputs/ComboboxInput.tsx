@@ -249,7 +249,7 @@ export function ComboboxInput({
                 variant="ghost"
                 size="sm"
                 className={[
-                  'w-full justify-start font-normal text-left flex flex-col items-start px-3 py-2',
+                  'w-full h-auto justify-start font-normal text-left flex flex-col items-start px-3 py-2',
                   index === selectedIndex ? 'bg-accent' : '',
                 ]
                   .filter(Boolean)
@@ -260,7 +260,7 @@ export function ComboboxInput({
               >
                 <span className="font-medium">{option.label}</span>
                 {option.description ? (
-                  <span className="text-xs text-muted-foreground">{option.description}</span>
+                  <span className="text-xs text-muted-foreground mt-0">{option.description}</span>
                 ) : null}
               </Button>
             ))
