@@ -57,6 +57,21 @@ describe('extractRecordId', () => {
         other: 'a1b2c3d4e5f6789012345678',
       })).toBe('explicit-id')
     })
+
+    it('prefers recordId over id and all other params', () => {
+      expect(extractRecordId({
+        id: 'fallback-id',
+        recordId: 'explicit-record-id',
+        variantId: 'a1b2c3d4e5f6789012345678',
+      })).toBe('explicit-record-id')
+    })
+
+    it('prefers the most specific *Id param when multiple UUID-like params exist', () => {
+      expect(extractRecordId({
+        productId: '11111111-1111-1111-1111-111111111111',
+        variantId: '22222222-2222-2222-2222-222222222222',
+      })).toBe('22222222-2222-2222-2222-222222222222')
+    })
   })
 
   describe('edge cases', () => {

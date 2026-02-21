@@ -24,8 +24,10 @@ export function resolveFieldList(
 
   const registered = getTranslatableFields(entityType)
   const fields: ResolvedField[] = []
+  let hasExplicitList = false
 
   if (registered) {
+    hasExplicitList = true
     for (const key of registered) {
       fields.push({
         key,
@@ -53,6 +55,8 @@ export function resolveFieldList(
       }
     }
   }
+
+  if (hasExplicitList) return fields
 
   for (const def of customFieldDefs) {
     const key = typeof def.key === 'string' ? def.key.trim() : ''

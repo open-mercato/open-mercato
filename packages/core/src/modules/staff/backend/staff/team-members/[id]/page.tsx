@@ -31,6 +31,7 @@ import {
 import { JobHistorySection } from '@open-mercato/core/modules/staff/components/detail/JobHistorySection'
 import type { DictionarySelectLabels } from '@open-mercato/core/modules/dictionaries/components/DictionaryEntrySelect'
 import { Plus } from 'lucide-react'
+import { TranslationDrawerAction } from '@open-mercato/core/modules/translations/components/TranslationDrawerAction'
 
 const isTestEnv = typeof process !== 'undefined' && process.env.NODE_ENV === 'test'
 const MARKDOWN_CLASSNAME =
@@ -352,6 +353,13 @@ export default function StaffTeamMemberDetailPage({ params }: { params?: { id?: 
                 </p>
               </div>
             </div>
+            <TranslationDrawerAction
+              config={memberId ? {
+                entityType: 'staff:staff_team_member',
+                recordId: memberId,
+                baseValues: memberRecord ?? undefined,
+              } : null}
+            />
           </div>
 
           <div className="border-b">
