@@ -376,6 +376,61 @@ describe('RecordLockService.validateMutation', () => {
     )
   })
 
+  test('auto-resolves detected conflict when keep-mine intent is provided without conflict id', async () => {
+    const { service } = createService()
+    const serviceAny = service as any
+
+    serviceAny.findActiveLock = jest.fn().mockResolvedValue(
+      buildLock({ lockedByUserId: '40000000-0000-4000-8000-000000000001' }),
+    )
+    serviceAny.findLatestActionLog = jest.fn().mockResolvedValue({
+      id: '81000000-0000-4000-8000-000000000001',
+      actorUserId: '90000000-0000-4000-8000-000000000001',
+      createdAt: new Date('2026-02-17T10:05:00.000Z'),
+    })
+    serviceAny.findConflictById = jest.fn().mockResolvedValue(null)
+    serviceAny.createConflict = jest.fn().mockResolvedValue({
+      id: 'a0000000-0000-4000-8000-000000000011',
+      resourceKind: 'sales.quote',
+      resourceId: '20000000-0000-4000-8000-000000000001',
+      status: 'pending',
+      resolution: null,
+      baseActionLogId: '50000000-0000-4000-8000-000000000001',
+      incomingActionLogId: '81000000-0000-4000-8000-000000000001',
+      conflictActorUserId: '40000000-0000-4000-8000-000000000001',
+      incomingActorUserId: '90000000-0000-4000-8000-000000000001',
+      tenantId: '60000000-0000-4000-8000-000000000001',
+      organizationId: '70000000-0000-4000-8000-000000000001',
+    })
+    serviceAny.resolveConflict = jest.fn().mockResolvedValue(undefined)
+
+    const result = await service.validateMutation({
+      tenantId: '60000000-0000-4000-8000-000000000001',
+      organizationId: '70000000-0000-4000-8000-000000000001',
+      userId: '40000000-0000-4000-8000-000000000001',
+      resourceKind: 'sales.quote',
+      resourceId: '20000000-0000-4000-8000-000000000001',
+      method: 'PUT',
+      headers: {
+        token: '30000000-0000-4000-8000-000000000001',
+        baseLogId: '50000000-0000-4000-8000-000000000001',
+        resolution: 'accept_mine',
+      },
+      mutationPayload: {
+        id: '20000000-0000-4000-8000-000000000001',
+        displayName: 'Acme Mine',
+      },
+    })
+
+    expect(result.ok).toBe(true)
+    expect(serviceAny.createConflict).toHaveBeenCalledTimes(1)
+    expect(serviceAny.resolveConflict).toHaveBeenCalledWith(
+      expect.objectContaining({ id: 'a0000000-0000-4000-8000-000000000011' }),
+      'accept_mine',
+      '40000000-0000-4000-8000-000000000001',
+    )
+  })
+
   test('returns 409 when conflict resolution is attempted by a different user', async () => {
     const { service } = createService()
     const serviceAny = service as any

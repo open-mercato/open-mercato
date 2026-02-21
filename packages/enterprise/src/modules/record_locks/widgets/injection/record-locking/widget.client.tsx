@@ -423,7 +423,11 @@ export default function RecordLockingWidget({
   const conflictDialog = (
     <Dialog open={Boolean(state?.conflict)} onOpenChange={(open) => {
       if (open) return
-      setRecordLockFormState(formId, { conflict: null })
+      setRecordLockFormState(formId, {
+        conflict: null,
+        pendingConflictId: null,
+        pendingResolution: 'normal',
+      })
     }}>
       <DialogContent>
         <DialogHeader>
@@ -585,14 +589,15 @@ export async function validateBeforeSave(
   })
   const payload = call.result ?? { ok: false }
   if (payload.ok) {
+    const nextResolution = resolution === 'normal' ? 'normal' : resolution
     setRecordLockFormState(formId, {
       resourceKind,
       resourceId,
       latestActionLogId: payload.latestActionLogId ?? state?.latestActionLogId ?? null,
       lock: payload.lock ?? state?.lock ?? null,
       conflict: null,
-      pendingConflictId: null,
-      pendingResolution: 'normal',
+      pendingConflictId: nextResolution === 'normal' ? null : (conflictId ?? state?.pendingConflictId ?? null),
+      pendingResolution: nextResolution,
     })
     return payload
   }
@@ -600,9 +605,9 @@ export async function validateBeforeSave(
     resourceKind,
     resourceId,
     lock: payload.lock ?? state?.lock ?? null,
-    conflict: payload.conflict ?? null,
-    pendingConflictId: payload.conflict?.id ?? null,
-    pendingResolution: 'normal',
+    conflict: payload.conflict ?? state?.conflict ?? null,
+    pendingConflictId: payload.conflict?.id ?? conflictId ?? state?.pendingConflictId ?? null,
+    pendingResolution: resolution === 'normal' ? 'normal' : resolution,
   })
   return payload
 }

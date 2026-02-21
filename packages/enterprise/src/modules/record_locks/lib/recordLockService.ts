@@ -739,6 +739,10 @@ export class RecordLockService {
     }
 
     const parsedHeaders = this.normalizeMutationHeaders(input.headers)
+    const keepMineResolution = parsedHeaders.resolution === 'accept_mine' || parsedHeaders.resolution === 'merged'
+      ? parsedHeaders.resolution
+      : null
+    const hasKeepMineIntent = keepMineResolution !== null
     const now = new Date()
     const active = await this.findActiveLock(input, now)
     const latest = await this.findLatestActionLogWithScopeFallback(input)
@@ -852,6 +856,27 @@ export class RecordLockService {
       const isConflictingWrite = hasConflictingBaseLog || hasConflictingWriteAfterLockStart
 
       if (isConflictingWrite) {
+        if (keepMineResolution && canOverrideIncoming) {
+          const autoResolvedConflict = await this.createConflict({
+            scope: input,
+            baseActionLogId,
+            incomingActionLogId: latest?.id ?? null,
+            conflictActorUserId: input.userId,
+            incomingActorUserId: latest?.actorUserId ?? null,
+          })
+          await this.resolveConflict(autoResolvedConflict, keepMineResolution, input.userId)
+
+          return {
+            ok: true,
+            enabled: settings.enabled,
+            resourceEnabled: true,
+            strategy: settings.strategy,
+            shouldReleaseOnSuccess,
+            lock: active ? this.toLockView(active, false) : null,
+            latestActionLogId: latest?.id ?? null,
+          }
+        }
+
         const conflict = await this.createConflict({
           scope: input,
           baseActionLogId,
