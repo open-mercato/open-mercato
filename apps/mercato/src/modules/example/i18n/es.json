@@ -7,6 +7,7 @@
   "example.moduleTitle": "Módulo de ejemplo",
   "example.nav.group": "Ejemplo",
   "example.publicPage": "Página pública de ejemplo.",
+  "example.salesTodos.tabLabel": "Tareas (ejemplo)",
   "example.todos.create.title": "Crear tarea",
   "example.todos.edit.title": "Editar tarea",
   "example.todos.form.create.submit": "Crear tarea",
