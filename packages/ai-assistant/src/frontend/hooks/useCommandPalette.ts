@@ -30,6 +30,7 @@ interface UseCommandPaletteOptions {
   pageContext: PageContext | null
   selectedEntities?: SelectedEntity[]
   disableKeyboardShortcut?: boolean
+  getFormState?: () => Record<string, unknown> | null
 }
 
 function generateId(): string {
@@ -84,7 +85,7 @@ function getToolPrompt(tool: ToolInfo): string {
 }
 
 export function useCommandPalette(options: UseCommandPaletteOptions) {
-  const { pageContext, selectedEntities = [], disableKeyboardShortcut = false } = options
+  const { pageContext, selectedEntities = [], disableKeyboardShortcut = false, getFormState } = options
 
   // Check if AI assistant is enabled (for Cmd+J shortcut)
   const { isEnabled: isAiAssistantEnabled } = useAiAssistantVisibility()
@@ -547,6 +548,7 @@ export function useCommandPalette(options: UseCommandPaletteOptions) {
         const controller = new AbortController()
         currentStreamController.current = controller
 
+        const formState = getFormState?.() ?? null
         const response = await fetch('/api/ai_assistant/chat', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -556,6 +558,7 @@ export function useCommandPalette(options: UseCommandPaletteOptions) {
             authContext: initialContext,
             availableEntities: availableEntities?.map(e => e.entityId),
             mode: 'agentic',
+            ...(formState ? { formState } : {}),
           }),
           signal: controller.signal,
         })
@@ -656,6 +659,33 @@ export function useCommandPalette(options: UseCommandPaletteOptions) {
                     ])
                   }
                   // Safe tools: no action needed, server handled execution and AI interprets results
+
+                  // Detect business rules suggestion tools → set generating state
+                  if (toolName === 'business_rules_suggest_conditions') {
+                    window.dispatchEvent(new CustomEvent('om:ai-form-generating', {
+                      detail: { generating: true, sectionIds: ['conditionExpression'] },
+                    }))
+                  } else if (toolName === 'business_rules_suggest_actions') {
+                    const target = (toolArgs as Record<string, unknown>)?.actionTarget
+                    const sectionId = target === 'failure' ? 'failureActions' : 'successActions'
+                    window.dispatchEvent(new CustomEvent('om:ai-form-generating', {
+                      detail: { generating: true, sectionIds: [sectionId] },
+                    }))
+                  }
+                } else if (event.type === 'tool-result') {
+                  // Check if the tool result is a form suggestion
+                  const result = event.result as Record<string, unknown> | undefined
+                  if (result && result.type === 'form-suggestion' && Array.isArray(result.sections)) {
+                    // Validate sections before dispatching
+                    const validSections = (result.sections as Record<string, unknown>[]).filter(
+                      (s) => s && typeof s.sectionId === 'string' && s.sectionId.length > 0 && 'value' in s
+                    )
+                    if (validSections.length > 0) {
+                      window.dispatchEvent(
+                        new CustomEvent('om:ai-form-suggestion', { detail: { ...result, sections: validSections } })
+                      )
+                    }
+                  }
                 } else if (event.type === 'debug') {
                   // Handle debug events for agent status updates
                   const debugEvent = event as { partType?: string; data?: Record<string, unknown> }
@@ -672,6 +702,7 @@ export function useCommandPalette(options: UseCommandPaletteOptions) {
                 } else if (event.type === 'error') {
                   console.error('[startAgenticChat] Error event:', event.error)
                   setAgentStatus({ type: 'idle' })
+                  window.dispatchEvent(new CustomEvent('om:ai-form-generating', { detail: { generating: false } }))
                 } else if (event.type === 'done') {
                   setIsThinking(false)
                   setAgentStatus({ type: 'idle' })
@@ -680,6 +711,8 @@ export function useCommandPalette(options: UseCommandPaletteOptions) {
                   if (event.sessionId) {
                     updateOpencodeSessionId(event.sessionId)
                   }
+                  // Clear any form generating state
+                  window.dispatchEvent(new CustomEvent('om:ai-form-generating', { detail: { generating: false } }))
                 } else if (event.type === 'question') {
                   // OpenCode is asking for confirmation
                   const question = event.question as OpenCodeQuestion
@@ -740,7 +773,7 @@ export function useCommandPalette(options: UseCommandPaletteOptions) {
         setAgentStatus({ type: 'idle' })
       }
     },
-    [pageContext, initialContext, availableEntities, executeToolApi, addDebugEvent, updateOpencodeSessionId]
+    [pageContext, initialContext, availableEntities, executeToolApi, addDebugEvent, updateOpencodeSessionId, getFormState]
   )
 
   // Start general chat (no specific tool)
@@ -978,6 +1011,7 @@ export function useCommandPalette(options: UseCommandPaletteOptions) {
         currentStreamController.current = controller
 
         // Send to chat API with OpenCode session for context persistence
+        const formState = getFormState?.() ?? null
         const response = await fetch('/api/ai_assistant/chat', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -987,6 +1021,7 @@ export function useCommandPalette(options: UseCommandPaletteOptions) {
               content: m.content,
             })),
             sessionId: opencodeSessionIdRef.current,
+            ...(formState ? { formState } : {}),
           }),
           signal: controller.signal,
         })
@@ -1078,10 +1113,13 @@ export function useCommandPalette(options: UseCommandPaletteOptions) {
                   if (event.sessionId) {
                     updateOpencodeSessionId(event.sessionId)
                   }
+                  // Clear any form generating state
+                  window.dispatchEvent(new CustomEvent('om:ai-form-generating', { detail: { generating: false } }))
                 } else if (event.type === 'error') {
                   // Handle error event
                   setIsThinking(false)
                   setAgentStatus({ type: 'idle' })
+                  window.dispatchEvent(new CustomEvent('om:ai-form-generating', { detail: { generating: false } }))
                   setMessages((prev) => [
                     ...prev,
                     {
@@ -1107,6 +1145,33 @@ export function useCommandPalette(options: UseCommandPaletteOptions) {
                     ])
                   }
                   // Safe tools: no action needed, server handled execution
+
+                  // Detect business rules suggestion tools → set generating state
+                  if (toolName === 'business_rules_suggest_conditions') {
+                    window.dispatchEvent(new CustomEvent('om:ai-form-generating', {
+                      detail: { generating: true, sectionIds: ['conditionExpression'] },
+                    }))
+                  } else if (toolName === 'business_rules_suggest_actions') {
+                    const target = (toolArgs as Record<string, unknown>)?.actionTarget
+                    const sectionId = target === 'failure' ? 'failureActions' : 'successActions'
+                    window.dispatchEvent(new CustomEvent('om:ai-form-generating', {
+                      detail: { generating: true, sectionIds: [sectionId] },
+                    }))
+                  }
+                } else if (event.type === 'tool-result') {
+                  // Check if the tool result is a form suggestion
+                  const result = event.result as Record<string, unknown> | undefined
+                  if (result && result.type === 'form-suggestion' && Array.isArray(result.sections)) {
+                    // Validate sections before dispatching
+                    const validSections = (result.sections as Record<string, unknown>[]).filter(
+                      (s) => s && typeof s.sectionId === 'string' && s.sectionId.length > 0 && 'value' in s
+                    )
+                    if (validSections.length > 0) {
+                      window.dispatchEvent(
+                        new CustomEvent('om:ai-form-suggestion', { detail: { ...result, sections: validSections } })
+                      )
+                    }
+                  }
                 } else if (event.type === 'question') {
                   // OpenCode is asking for confirmation
                   const question = event.question as OpenCodeQuestion
@@ -1218,7 +1283,7 @@ export function useCommandPalette(options: UseCommandPaletteOptions) {
         setAgentStatus({ type: 'idle' })
       }
     },
-    [messages, addDebugEvent, updateOpencodeSessionId]
+    [messages, addDebugEvent, updateOpencodeSessionId, getFormState]
   )
 
   // Main submit handler - starts agentic chat or continues existing session

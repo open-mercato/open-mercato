@@ -10,10 +10,13 @@ export { AiChatButton } from './components/AiChatButton'
 export { AiChatHeaderButton } from './components/AiChatHeaderButton'
 export { AiAssistantIntegration } from './components/AiAssistantIntegration'
 export { DockableChat } from './components/DockableChat'
+export { AiSuggestionBanner } from './components/AiSuggestionBanner'
+export { AiSuggestionDiff } from './components/AiSuggestionDiff'
 
 // Hooks
 export {
   useCommandPalette,
+  useAiFormBridge,
   useMcpTools,
   usePageContext,
   useRecentActions,
@@ -35,6 +38,9 @@ export type {
   CommandPaletteContextValue,
   DockPosition,
   DockState,
+  AiFormSuggestion,
+  AiFormSuggestionSection,
+  AiFormRegistration,
 } from './types'
 
 // Utils
