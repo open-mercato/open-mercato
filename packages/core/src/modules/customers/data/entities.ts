@@ -278,6 +278,12 @@ export class CustomerDeal {
   @Property({ name: 'pipeline_stage', type: 'text', nullable: true })
   pipelineStage?: string | null
 
+  @Property({ name: 'pipeline_id', type: 'uuid', nullable: true })
+  pipelineId?: string | null
+
+  @Property({ name: 'pipeline_stage_id', type: 'uuid', nullable: true })
+  pipelineStageId?: string | null
+
   @Property({ name: 'value_amount', type: 'numeric', precision: 14, scale: 2, nullable: true })
   valueAmount?: string | null
 
@@ -676,4 +682,62 @@ export class CustomerTodoLink {
 
   @ManyToOne(() => CustomerEntity, { fieldName: 'entity_id' })
   entity!: CustomerEntity
+}
+
+@Entity({ tableName: 'customer_pipelines' })
+@Index({ name: 'customer_pipelines_org_tenant_idx', properties: ['organizationId', 'tenantId'] })
+export class CustomerPipeline {
+  [OptionalProps]?: 'isDefault' | 'createdAt' | 'updatedAt'
+
+  @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
+  id!: string
+
+  @Property({ name: 'organization_id', type: 'uuid' })
+  organizationId!: string
+
+  @Property({ name: 'tenant_id', type: 'uuid' })
+  tenantId!: string
+
+  @Property({ type: 'text' })
+  name!: string
+
+  @Property({ name: 'is_default', type: 'boolean', default: false })
+  isDefault: boolean = false
+
+  @Property({ name: 'created_at', type: Date, onCreate: () => new Date() })
+  createdAt: Date = new Date()
+
+  @Property({ name: 'updated_at', type: Date, onUpdate: () => new Date() })
+  updatedAt: Date = new Date()
+}
+
+@Entity({ tableName: 'customer_pipeline_stages' })
+@Index({ name: 'customer_pipeline_stages_org_tenant_idx', properties: ['organizationId', 'tenantId'] })
+@Index({ name: 'customer_pipeline_stages_pipeline_position_idx', properties: ['pipelineId', 'position'] })
+export class CustomerPipelineStage {
+  [OptionalProps]?: 'position' | 'createdAt' | 'updatedAt'
+
+  @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
+  id!: string
+
+  @Property({ name: 'organization_id', type: 'uuid' })
+  organizationId!: string
+
+  @Property({ name: 'tenant_id', type: 'uuid' })
+  tenantId!: string
+
+  @Property({ name: 'pipeline_id', type: 'uuid' })
+  pipelineId!: string
+
+  @Property({ type: 'text' })
+  name!: string
+
+  @Property({ type: 'int', default: 0 })
+  position: number = 0
+
+  @Property({ name: 'created_at', type: Date, onCreate: () => new Date() })
+  createdAt: Date = new Date()
+
+  @Property({ name: 'updated_at', type: Date, onUpdate: () => new Date() })
+  updatedAt: Date = new Date()
 }
