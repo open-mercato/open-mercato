@@ -10,6 +10,7 @@ const events = [
   { id: 'ecommerce.store_channel_binding.created', label: 'Store Channel Binding Created', entity: 'store_channel_binding', category: 'crud' },
   { id: 'ecommerce.store_channel_binding.updated', label: 'Store Channel Binding Updated', entity: 'store_channel_binding', category: 'crud' },
   { id: 'ecommerce.store_channel_binding.deleted', label: 'Store Channel Binding Deleted', entity: 'store_channel_binding', category: 'crud' },
+  { id: 'ecommerce.cart.converted', label: 'Cart Converted', entity: 'cart', category: 'lifecycle' },
 ] as const
 
 export const eventsConfig = createModuleEvents({

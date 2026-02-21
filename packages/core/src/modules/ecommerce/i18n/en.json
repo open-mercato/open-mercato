@@ -69,6 +69,14 @@
       "binding_required": "Binding ID is required",
       "binding_not_found": "Channel binding not found",
       "host_already_exists": "This hostname is already registered"
+    },
+    "notifications": {
+      "storefront_order": {
+        "created": {
+          "title": "New storefront order",
+          "body": "Order {{orderId}} was placed from storefront {{storeId}}."
+        }
+      }
     }
   }
 }

@@ -69,6 +69,14 @@
       "binding_required": "Wymagane ID powiązania",
       "binding_not_found": "Nie znaleziono powiązania kanału",
       "host_already_exists": "Ta nazwa hosta jest już zarejestrowana"
+    },
+    "notifications": {
+      "storefront_order": {
+        "created": {
+          "title": "Nowe zamówienie ze storefrontu",
+          "body": "Zamówienie {{orderId}} zostało złożone ze storefrontu {{storeId}}."
+        }
+      }
     }
   }
 }
