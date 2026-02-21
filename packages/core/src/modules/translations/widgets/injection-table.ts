@@ -2,6 +2,7 @@ import type { ModuleInjectionTable } from '@open-mercato/shared/modules/widgets/
 import { translatableFields as catalogFields } from '../../catalog/translations'
 import { translatableFields as dictionaryFields } from '../../dictionaries/translations'
 import { translatableFields as entitiesFields } from '../../entities/translations'
+import { translatableFields as resourcesFields } from '../../resources/translations'
 
 const WIDGET_ID = 'translations.injection.translation-manager'
 
@@ -9,6 +10,7 @@ const allFields: Record<string, string[]> = {
   ...catalogFields,
   ...dictionaryFields,
   ...entitiesFields,
+  ...resourcesFields,
 }
 
 const ENTRY_TEMPLATE = {

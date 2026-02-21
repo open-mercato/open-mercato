@@ -40,7 +40,7 @@ test.describe('TC-INT-006: Embedded Settings Headings on Resource and Team Membe
       await page.goto(`/backend/resources/resources/${encodeURIComponent(resourceId ?? '')}`);
       await expect(page.getByRole('heading', { name: 'Resource settings' })).toBeVisible();
       await expect(page.getByText('Name *', { exact: true })).toBeVisible();
-      await expect(page.getByRole('button', { name: 'Save' })).toBeVisible();
+      await expect(page.getByRole('button', { name: 'Save', exact: true })).toBeVisible();
       await expect(page.getByText('Edit resource', { exact: true })).toHaveCount(0);
 
       await page.goto(`/backend/staff/team-members/${encodeURIComponent(teamMemberId ?? '')}`);

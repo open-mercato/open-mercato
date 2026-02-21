@@ -12,10 +12,27 @@ import { extractRecordId } from '../../../lib/extract-record-id'
 type WidgetContext = { entityId?: string }
 type WidgetData = Record<string, unknown> & { id?: string | number }
 
+function useTranslationAccess(): boolean {
+  const [hasAccess, setHasAccess] = React.useState(false)
+  React.useEffect(() => {
+    let mounted = true
+    // Use the original fetch to bypass the global apiFetch wrapper
+    // that redirects to login on 403. This lets us gracefully hide the widget
+    // when the user lacks translations.view instead of crashing the page.
+    const nativeFetch = ((window as any).__omOriginalFetch as typeof fetch) || fetch
+    nativeFetch('/api/translations/locales', { credentials: 'include' })
+      .then((res) => { if (mounted) setHasAccess(res.ok) })
+      .catch(() => { if (mounted) setHasAccess(false) })
+    return () => { mounted = false }
+  }, [])
+  return hasAccess
+}
+
 export default function TranslationWidget({ context, data }: InjectionWidgetComponentProps<WidgetContext, WidgetData>) {
   const entityType = context?.entityId
   const params = useParams()
   const t = useT()
+  const hasAccess = useTranslationAccess()
 
   const recordId = React.useMemo(() => {
     if (data?.id) return String(data.id)
@@ -23,7 +40,7 @@ export default function TranslationWidget({ context, data }: InjectionWidgetComp
     return undefined
   }, [data?.id, params])
 
-  if (!entityType || !recordId) return null
+  if (!entityType || !recordId || !hasAccess) return null
 
   return (
     <div className="space-y-3">
