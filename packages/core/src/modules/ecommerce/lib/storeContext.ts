@@ -74,7 +74,10 @@ function buildStoreContext(
 }
 
 async function resolveChannelBinding(em: EntityManager, storeId: string): Promise<EcommerceStoreChannelBinding | null> {
-  return em.findOne(EcommerceStoreChannelBinding, { storeId, isDefault: true, deletedAt: null })
+  return (
+    (await em.findOne(EcommerceStoreChannelBinding, { storeId, isDefault: true, deletedAt: null })) ??
+    em.findOne(EcommerceStoreChannelBinding, { storeId, deletedAt: null })
+  )
 }
 
 export async function resolveStoreByHost(
