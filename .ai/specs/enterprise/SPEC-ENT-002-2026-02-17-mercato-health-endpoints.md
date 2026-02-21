@@ -20,7 +20,7 @@ The primary purpose of this feature is to enable stable infrastructure deploymen
   - `GET /api/health/live` returns plain `ok` with HTTP `200`
   - `GET /api/health/ready` returns readiness status based on service connectivity checks
 - `live` must be dependency-free and constant-time.
-- `ready` must validate core runtime dependencies (database, cache) and report configured external dependencies (queue Redis, search, KMS) with explicit check status.
+- `ready` must validate all enabled runtime dependencies and report each with explicit check status.
 
 **Scope:**
 - New enterprise module API routes exposed by Enterprise Edition
@@ -29,7 +29,7 @@ The primary purpose of this feature is to enable stable infrastructure deploymen
 
 **Concerns:**
 - False negatives from transient external dependencies could flap readiness
-- Need clear required-vs-optional check semantics to avoid accidental traffic drain
+- Enabling too many checks without tuning timeouts could slow readiness response
 
 > **Market Reference**: Kubernetes probe semantics (`livenessProbe` vs `readinessProbe`) and Spring Boot Actuator health groups.  
 > **Adopted**: strict split between "process alive" and "dependency readiness".  
@@ -57,22 +57,22 @@ Design goals:
 - No auth required for probes
 - Small deterministic response payloads
 - Fast failure with bounded per-check timeout
-- Distinguish required checks (`database`, `cache`) from optional checks (`queueRedis`, `searchFulltext`, `kms`)
+- All checks run or skip based solely on `HEALTH_READY_CHECK_<KEY>_ENABLED` env flag
 
 ### Design Decisions
 | Decision | Rationale |
 |----------|-----------|
 | Separate `live` and `ready` routes | Matches platform standards and avoids mixed semantics |
 | Keep route implementation in `packages/enterprise/src/modules/health` | Feature is Enterprise Edition functionality and should be discoverable via module auto-loading |
-| Required checks drive HTTP code | `503` only when required checks fail |
-| Optional checks reported but not traffic-blocking by default | Avoid unnecessary downtime while still exposing dependency health |
+| Any enabled failed check drives HTTP code | `503` when any enabled check fails |
+| Checks enabled/disabled via env only | No required/optional distinction — all checks are equal; behaviour controlled purely by `ENABLED` flag |
 
 ### Alternatives Considered
 | Alternative | Why Rejected |
 |-------------|-------------|
 | Reuse `/api/configs/system-status` | Auth-protected, operator-oriented, not probe-safe |
 | One `/api/health` endpoint with mixed payload | Ambiguous semantics for infra tools |
-| Fail readiness on any external degradation | Too strict for optional/fallback-enabled dependencies |
+| Fail readiness only on core dependency degradation | All enabled checks are equal — operators choose which to enable |
 
 ## User Stories / Use Cases
 - As platform infrastructure, I want a liveness endpoint returning `200` quickly so restart policies can detect crashed processes.
@@ -86,158 +86,163 @@ Design goals:
 
 1. `GET /api/health/ready`
 2. Route calls readiness evaluator
-3. Evaluator runs checks with timeout budget and captures status/latency/error per check
+3. Evaluator runs all enabled checks in parallel with timeout budget, captures status/latency/error per check
 4. Response returns:
-   - HTTP `200` when all required checks pass
-   - HTTP `503` when any required check fails
+   - HTTP `200` when all enabled checks pass
+   - HTTP `503` when any enabled check fails
    - JSON body with per-check results
 
 ### Check Matrix
-| Check | Required | Mechanism |
-|------|--------|--------|
-| `database` | Yes | Resolve request container + execute lightweight DB probe (`SELECT 1`) via `EntityManager` connection |
-| `cache` | Yes | Resolve `cache` strategy and execute `stats()` (or equivalent lightweight call) |
-| `queueRedis` | Conditional | When `QUEUE_STRATEGY=async` (or equivalent), probe Redis connectivity used by queue strategy |
-| `searchFulltext` | Conditional | When fulltext driver is configured, invoke strategy availability/health check |
-| `kms` | Conditional | When tenant encryption is enabled, evaluate `kmsService.isHealthy()` |
+| Check | Mechanism |
+|------|--------|
+| `database` | Execute lightweight DB probe (`SELECT 1`) via `EntityManager` connection |
+| `cache` | Execute `stats()` (or equivalent lightweight call) via resolved `cache` strategy |
+| `queueRedis` | Probe Redis connectivity used by queue strategy |
+| `searchFulltext` | Invoke fulltext strategy availability/health check |
+| `kms` | Evaluate `kmsService.isHealthy()` |
+
+Whether each check runs and whether its failure blocks traffic (HTTP 503) is controlled exclusively by env variables — see Configuration.
 
 ### Detailed Service List For `ready`
 1. `database` (PostgreSQL via MikroORM)
-- Required: yes
-- Why: Open Mercato cannot serve business APIs without DB access
 - Check: run `SELECT 1` through request-scoped `EntityManager`/connection
 - Timeout target: 500 ms
-- On failure: mark `fail`, return HTTP `503`
 - Env control:
   - `HEALTH_READY_CHECK_DATABASE_ENABLED=true|false` (default `true`)
+  - `HEALTH_READY_CHECK_DATABASE_TIMEOUT_MS` (default `500`)
 
 2. `cache` (resolved DI cache strategy: memory/sqlite/redis/jsonfile)
-- Required: yes
-- Why: app bootstraps and many read paths expect cache abstraction to be available
 - Check: resolve `cache` from DI and run `stats()` (or `has`/`get` noop probe)
 - Timeout target: 300 ms
-- On failure: mark `fail`, return HTTP `503`
 - Env control:
   - `HEALTH_READY_CHECK_CACHE_ENABLED=true|false` (default `true`)
+  - `HEALTH_READY_CHECK_CACHE_TIMEOUT_MS` (default `300`)
 
-3. `cacheRedisBackend` (only when `CACHE_STRATEGY=redis`)
-- Required: no
-- Why: distinguish generic cache abstraction health from actual Redis backend connectivity
+3. `cacheRedisBackend`
 - Check: perform lightweight Redis-backed cache operation through cache service
 - Timeout target: 300 ms
-- On failure: mark `degraded` (unless deployment policy promotes it to required)
 - Env control:
-  - `HEALTH_READY_CHECK_CACHE_REDIS_BACKEND_ENABLED=true|false` (default `auto`)
+  - `HEALTH_READY_CHECK_CACHE_REDIS_BACKEND_ENABLED=true|false` (default `false`)
+  - `HEALTH_READY_CHECK_CACHE_REDIS_BACKEND_TIMEOUT_MS` (default `300`)
 
-4. `queueRedis` (only when `QUEUE_STRATEGY=async`)
-- Required: no (default); recommended required in queue-heavy deployments
-- Why: async events/workers depend on Redis queue infrastructure
+4. `queueRedis`
 - Check: create lightweight queue client probe (`getJobCounts` on dedicated health queue or minimal Redis ping through queue stack)
 - Timeout target: 500 ms
-- On failure: mark `degraded` by default; optionally `fail` via policy flag
 - Env control:
-  - `HEALTH_READY_CHECK_QUEUE_REDIS_ENABLED=true|false` (default `auto`)
+  - `HEALTH_READY_CHECK_QUEUE_REDIS_ENABLED=true|false` (default `false`)
+  - `HEALTH_READY_CHECK_QUEUE_REDIS_TIMEOUT_MS` (default `500`)
 
-5. `searchFulltext` (only when fulltext strategy/driver is configured)
-- Required: no
-- Why: search is auxiliary for most core CRUD operations
+5. `searchFulltext`
 - Check: resolve fulltext strategy and call `isAvailable()` / driver health
 - Timeout target: 500 ms
-- On failure: mark `degraded`
 - Env control:
-  - `HEALTH_READY_CHECK_SEARCH_FULLTEXT_ENABLED=true|false` (default `auto`)
+  - `HEALTH_READY_CHECK_SEARCH_FULLTEXT_ENABLED=true|false` (default `false`)
+  - `HEALTH_READY_CHECK_SEARCH_FULLTEXT_TIMEOUT_MS` (default `500`)
 
-6. `searchVector` (only when vector search is enabled in runtime config)
-- Required: no
-- Why: semantic search is optional capability
+6. `searchVector`
 - Check: resolve vector strategy/provider availability without indexing work
 - Timeout target: 500 ms
-- On failure: mark `degraded`
 - Env control:
-  - `HEALTH_READY_CHECK_SEARCH_VECTOR_ENABLED=true|false` (default `auto`)
+  - `HEALTH_READY_CHECK_SEARCH_VECTOR_ENABLED=true|false` (default `false`)
+  - `HEALTH_READY_CHECK_SEARCH_VECTOR_TIMEOUT_MS` (default `500`)
 
-7. `kms` (only when tenant data encryption is enabled)
-- Required: no (default)
-- Why: KMS affects encryption key lifecycle; existing runtime can run with fallback/noop modes depending on env
+7. `kms`
 - Check: resolve `kmsService` and evaluate `isHealthy()`
 - Timeout target: 200 ms
-- On failure: mark `degraded` with explicit message (`vault unavailable`, `fallback active`, etc.)
 - Env control:
-  - `HEALTH_READY_CHECK_KMS_ENABLED=true|false` (default `auto`)
+  - `HEALTH_READY_CHECK_KMS_ENABLED=true|false` (default `false`)
+  - `HEALTH_READY_CHECK_KMS_TIMEOUT_MS` (default `200`)
 
-8. `emailDelivery` (only when onboarding/notification email delivery is enabled)
-- Required: no
-- Why: email outages should not usually remove instance from traffic
+8. `emailDelivery`
 - Check: validate provider configuration and run provider-specific lightweight connectivity test when supported
 - Timeout target: 700 ms
-- On failure: mark `degraded`
 - Env control:
-  - `HEALTH_READY_CHECK_EMAIL_DELIVERY_ENABLED=true|false` (default `auto`)
+  - `HEALTH_READY_CHECK_EMAIL_DELIVERY_ENABLED=true|false` (default `false`)
+  - `HEALTH_READY_CHECK_EMAIL_DELIVERY_TIMEOUT_MS` (default `700`)
 
-9. `externalAiProviders` (only when AI assistant features are enabled and configured)
-- Required: no
-- Why: AI tooling is additive, not required for baseline ERP operations
+9. `externalAiProviders`
 - Check: provider client lightweight status/auth check, no billable inference call
 - Timeout target: 700 ms
-- On failure: mark `degraded`
 - Env control:
-  - `HEALTH_READY_CHECK_EXTERNAL_AI_PROVIDERS_ENABLED=true|false` (default `auto`)
+  - `HEALTH_READY_CHECK_EXTERNAL_AI_PROVIDERS_ENABLED=true|false` (default `false`)
+  - `HEALTH_READY_CHECK_EXTERNAL_AI_PROVIDERS_TIMEOUT_MS` (default `700`)
 
-### Required-by-Default Checks
-- `database`
-- `cache`
+### Env-Controlled Defaults
+Each check has a code-level default for `enabled`. This default can be overridden via env variable — no code changes needed. The table below lists the shipped defaults:
 
-### Optional-by-Default Checks
-- `cacheRedisBackend`
-- `queueRedis`
-- `searchFulltext`
-- `searchVector`
-- `kms`
-- `emailDelivery`
-- `externalAiProviders`
+| Check | `ENABLED` default |
+|-------|-------------------|
+| `database` | `true` |
+| `cache` | `true` |
+| `cacheRedisBackend` | `false` |
+| `queueRedis` | `false` |
+| `searchFulltext` | `false` |
+| `searchVector` | `false` |
+| `kms` | `false` |
+| `emailDelivery` | `false` |
+| `externalAiProviders` | `false` |
 
-### Requiredness Rule
-- Requiredness is static in code/spec:
-  - Required: `database`, `cache`
-  - Optional: all other checks
-- Env variables only control whether a check runs (`enabled`/`disabled`).
+`ENABLED` accepts only `true` or `false`. No `auto` mode exists.
 
 ## Configuration
 Readiness checks MUST be configurable via env so deployments can define which services are health-critical.
 
 ### Env Model
-1. Per-check enable/disable flag:
+1. Per-check enable flag:
 - `HEALTH_READY_CHECK_<CHECK_KEY>_ENABLED=true|false`
-- `auto` behavior means enabled only when the related subsystem is configured.
+- Accepted values: `true` or `false` only. Unset behaves as the code-level default.
+- When `false`, the check is skipped and reported with `status: skip`.
+
+2. Global timeout (total readiness budget):
+- `HEALTH_READY_TOTAL_TIMEOUT_MS` — hard wall-clock deadline for the entire readiness run (default: `1500`).
+
+3. Per-check timeout overrides:
+- `HEALTH_READY_CHECK_<CHECK_KEY>_TIMEOUT_MS` — overrides the in-code default for that check.
+- Example: `HEALTH_READY_CHECK_DATABASE_TIMEOUT_MS=500`, `HEALTH_READY_CHECK_CACHE_TIMEOUT_MS=300`.
+- Effective per-check timeout is `min(envOverride ?? codeDefault, remainingGlobalBudget)`.
+
+4. Optional result TTL cache:
+- `HEALTH_READY_CACHE_TTL_MS` — when set, the orchestrator returns a cached `ReadinessResponse` if the last result is younger than this value (in milliseconds). Reduces dependency load at high probe frequency. Disabled by default (unset).
 
 ### Precedence Rules
 1. If `*_ENABLED=false`, check is always skipped.
 2. If `*_ENABLED=true`, check always runs.
-3. If `*_ENABLED` is unset, `auto` rules determine run/skip.
-4. Requiredness does not change via env:
-- `database` and `cache` remain required.
-- Other checks remain optional.
+3. If `*_ENABLED` is unset, the code-level default applies.
+4. Timeout precedence: env override → code default → remaining global budget (whichever is smallest wins).
 
 ### Deployment Notes
-- Production teams can tune readiness strictness without redeploying code.
-- Recommended baseline: keep `database` and `cache` required.
-- Promote `queueRedis` to required when async queue/event processing is mission-critical.
+- Production teams can enable or disable any check without redeploying code.
+- To enable an additional check: set `HEALTH_READY_CHECK_QUEUE_REDIS_ENABLED=true`.
+- To disable a default-enabled check: set `HEALTH_READY_CHECK_DATABASE_ENABLED=false` (use with caution).
+- Set `HEALTH_READY_CACHE_TTL_MS=2000` to protect dependencies under high-frequency Kubernetes liveness polling.
 
 ### Readiness Status Rules
 - Overall `readyStatus`:
-  - `ok`: all required checks pass, optional checks pass/skip
-  - `degraded`: all required checks pass, at least one optional check fails
-  - `fail`: any required check fails
+  - `ok`: all enabled checks pass or are skipped
+  - `fail`: any enabled check fails
 - HTTP status:
-  - `200` for `ok` and `degraded`
+  - `200` for `ok`
   - `503` for `fail`
 
 ### Orchestration Pattern (Strategy)
 Readiness checks are orchestrated via Strategy Pattern:
 1. Each service check implements one strategy interface.
 2. Orchestrator constructor registers all available strategies.
-3. Orchestrator executes them in a loop, one by one.
+3. Orchestrator executes all enabled checks **in parallel** with per-check and global timeouts.
 4. Results are aggregated into final readiness payload/status.
+
+#### Parallel Execution with Timeouts
+The orchestrator enforces two layers of timeout protection:
+
+- **Per-check timeout**: each strategy runs inside a `Promise.race` against its own deadline. Computed as `min(perCheckDefault, remainingGlobalBudget)`.
+- **Global deadline**: a single `HEALTH_READY_TOTAL_TIMEOUT_MS` deadline wraps all checks. Checks still running when the deadline fires are immediately marked `fail` with `"global timeout exceeded"`.
+
+Execution steps:
+1. Compute `deadline = Date.now() + HEALTH_READY_TOTAL_TIMEOUT_MS`.
+2. Launch all enabled checks concurrently (`Promise.allSettled` or equivalent).
+3. Each check resolves within its per-check timeout or returns `fail`.
+4. `Promise.race` between all-settled and global deadline marks any remaining in-flight checks as `fail`.
+5. Aggregate results and compute final status.
 
 #### Strategy Interface (Example)
 ```ts
@@ -245,7 +250,6 @@ export type HealthCheckStatus = 'ok' | 'fail' | 'skip'
 
 export type HealthCheckResult = {
   name: string
-  required: boolean
   status: HealthCheckStatus
   latencyMs: number
   message: string | null
@@ -253,8 +257,8 @@ export type HealthCheckResult = {
 
 export interface ReadyCheckStrategy {
   readonly checkKey: string
-  readonly required: boolean
   isEnabled(): boolean
+  resolveTimeoutMs(): number
   run(): Promise<HealthCheckResult>
 }
 ```
@@ -264,14 +268,23 @@ export interface ReadyCheckStrategy {
 export abstract class BaseReadyCheckStrategy implements ReadyCheckStrategy {
   constructor(
     public readonly checkKey: string,
-    public readonly required: boolean,
+    private readonly defaultEnabled: boolean,
+    private readonly defaultTimeoutMs: number,
   ) {}
 
   isEnabled(): boolean {
     const envKey = `HEALTH_READY_CHECK_${this.checkKey.toUpperCase()}_ENABLED`
     const raw = process.env[envKey]
-    if (raw === undefined || raw === null || raw === '') return true
+    if (raw === undefined || raw === null || raw === '') return this.defaultEnabled
     return raw.toLowerCase() === 'true'
+  }
+
+  resolveTimeoutMs(): number {
+    const envKey = `HEALTH_READY_CHECK_${this.checkKey.toUpperCase()}_TIMEOUT_MS`
+    const raw = process.env[envKey]
+    if (raw === undefined || raw === null || raw === '') return this.defaultTimeoutMs
+    const parsed = parseInt(raw, 10)
+    return Number.isFinite(parsed) && parsed > 0 ? parsed : this.defaultTimeoutMs
   }
 
   abstract run(): Promise<HealthCheckResult>
@@ -282,44 +295,70 @@ export abstract class BaseReadyCheckStrategy implements ReadyCheckStrategy {
 ```ts
 export class DatabaseReadyCheckStrategy extends BaseReadyCheckStrategy {
   constructor(private readonly em: EntityManager) {
-    super('database', true)
+    // defaults: enabled=true, timeout=500ms
+    super('database', true, 500)
   }
 
   async run(): Promise<HealthCheckResult> {
     const startedAt = Date.now()
     try {
       await this.em.getConnection().execute('select 1')
-      return { name: this.checkKey, required: this.required, status: 'ok', latencyMs: Date.now() - startedAt, message: null }
-    } catch (error) {
-      return { name: this.checkKey, required: this.required, status: 'fail', latencyMs: Date.now() - startedAt, message: 'database unavailable' }
+      return { name: this.checkKey, status: 'ok', latencyMs: Date.now() - startedAt, message: null }
+    } catch {
+      return { name: this.checkKey, status: 'fail', latencyMs: Date.now() - startedAt, message: 'database unavailable' }
     }
   }
 }
 
 export class CacheReadyCheckStrategy extends BaseReadyCheckStrategy {
   constructor(private readonly cache: CacheStrategy) {
-    super('cache', true)
+    // defaults: enabled=true, timeout=300ms
+    super('cache', true, 300)
   }
 
   async run(): Promise<HealthCheckResult> {
     const startedAt = Date.now()
     try {
       await this.cache.stats()
-      return { name: this.checkKey, required: this.required, status: 'ok', latencyMs: Date.now() - startedAt, message: null }
+      return { name: this.checkKey, status: 'ok', latencyMs: Date.now() - startedAt, message: null }
     } catch {
-      return { name: this.checkKey, required: this.required, status: 'fail', latencyMs: Date.now() - startedAt, message: 'cache unavailable' }
+      return { name: this.checkKey, status: 'fail', latencyMs: Date.now() - startedAt, message: 'cache unavailable' }
     }
   }
 }
 ```
 
-#### Orchestrator (Register In Constructor + Loop Execution)
+#### Orchestrator (Parallel Execution with Global Deadline)
 ```ts
 export type ReadinessResponse = {
-  status: 'ok' | 'degraded' | 'fail'
+  status: 'ok' | 'fail'
   timestamp: string
   durationMs: number
   checks: HealthCheckResult[]
+}
+
+const DEFAULT_TOTAL_TIMEOUT_MS = 1500
+
+function resolveGlobalTimeoutMs(): number {
+  const raw = process.env['HEALTH_READY_TOTAL_TIMEOUT_MS']
+  if (!raw) return DEFAULT_TOTAL_TIMEOUT_MS
+  const parsed = parseInt(raw, 10)
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : DEFAULT_TOTAL_TIMEOUT_MS
+}
+
+function withTimeout(promise: Promise<HealthCheckResult>, timeoutMs: number, strategy: ReadyCheckStrategy): Promise<HealthCheckResult> {
+  const startedAt = Date.now()
+  return Promise.race([
+    promise,
+    new Promise<HealthCheckResult>((resolve) =>
+      setTimeout(() => resolve({
+        name: strategy.checkKey,
+        status: 'fail',
+        latencyMs: Date.now() - startedAt,
+        message: 'check timeout exceeded',
+      }), timeoutMs),
+    ),
+  ])
 }
 
 export class ReadinessOrchestrator {
@@ -335,7 +374,6 @@ export class ReadinessOrchestrator {
     emailDeliveryStrategy?: ReadyCheckStrategy
     externalAiProvidersStrategy?: ReadyCheckStrategy
   }) {
-    // Register all available strategies once in constructor
     this.strategies = [
       new DatabaseReadyCheckStrategy(deps.em),
       new CacheReadyCheckStrategy(deps.cache),
@@ -350,14 +388,16 @@ export class ReadinessOrchestrator {
 
   async run(): Promise<ReadinessResponse> {
     const startedAt = Date.now()
-    const checks: HealthCheckResult[] = []
+    const totalTimeoutMs = resolveGlobalTimeoutMs()
+    const deadline = startedAt + totalTimeoutMs
 
-    // Invoke strategies one by one in a loop
+    const skipped: HealthCheckResult[] = []
+    const pending: Array<{ strategy: ReadyCheckStrategy; promise: Promise<HealthCheckResult> }> = []
+
     for (const strategy of this.strategies) {
       if (!strategy.isEnabled()) {
-        checks.push({
+        skipped.push({
           name: strategy.checkKey,
-          required: strategy.required,
           status: 'skip',
           latencyMs: 0,
           message: 'disabled by env',
@@ -365,12 +405,37 @@ export class ReadinessOrchestrator {
         continue
       }
 
-      checks.push(await strategy.run())
+      const remaining = deadline - Date.now()
+      const perCheckTimeout = Math.min(strategy.resolveTimeoutMs(), Math.max(remaining, 0))
+      pending.push({ strategy, promise: withTimeout(strategy.run(), perCheckTimeout, strategy) })
     }
 
-    const hasRequiredFail = checks.some((c) => c.required && c.status === 'fail')
-    const hasOptionalFail = checks.some((c) => !c.required && c.status === 'fail')
-    const status: ReadinessResponse['status'] = hasRequiredFail ? 'fail' : hasOptionalFail ? 'degraded' : 'ok'
+    // Race all checks against the global deadline
+    const globalTimeoutResult = new Promise<null>((resolve) =>
+      setTimeout(() => resolve(null), Math.max(deadline - Date.now(), 0)),
+    )
+
+    const settled = await Promise.race([
+      Promise.all(pending.map((p) => p.promise)),
+      globalTimeoutResult,
+    ])
+
+    let resolved: HealthCheckResult[]
+    if (settled === null) {
+      // Global deadline fired — mark any unresolved checks as failed
+      resolved = pending.map(({ strategy }) => ({
+        name: strategy.checkKey,
+        status: 'fail' as const,
+        latencyMs: Date.now() - startedAt,
+        message: 'global timeout exceeded',
+      }))
+    } else {
+      resolved = settled
+    }
+
+    const checks = [...skipped, ...resolved]
+    const hasFail = checks.some((c) => c.status === 'fail')
+    const status: ReadinessResponse['status'] = hasFail ? 'fail' : 'ok'
 
     return {
       status,
@@ -407,13 +472,12 @@ In-memory response contracts:
 
 ### `HealthCheckResult` (Singular)
 - `name`: `'database' | 'cache' | 'queueRedis' | 'searchFulltext' | 'kms'`
-- `required`: boolean
 - `status`: `'ok' | 'fail' | 'skip'`
 - `latencyMs`: number
 - `message`: string | null
 
 ### `ReadinessResponse` (Singular)
-- `status`: `'ok' | 'degraded' | 'fail'`
+- `status`: `'ok' | 'fail'`
 - `timestamp`: ISO string
 - `durationMs`: number
 - `checks`: `HealthCheckResult[]`
@@ -433,8 +497,8 @@ In-memory response contracts:
 - Auth: none
 - Request body: none
 - Response:
-  - `200 application/json` when required checks pass (including degraded optional checks)
-  - `503 application/json` when required checks fail
+  - `200 application/json` when all enabled checks pass
+  - `503 application/json` when any enabled check fails
 
 Example `200`:
 ```json
@@ -443,9 +507,9 @@ Example `200`:
   "timestamp": "2026-02-17T12:00:00.000Z",
   "durationMs": 18,
   "checks": [
-    { "name": "database", "required": true, "status": "ok", "latencyMs": 7, "message": null },
-    { "name": "cache", "required": true, "status": "ok", "latencyMs": 2, "message": null },
-    { "name": "queueRedis", "required": false, "status": "skip", "latencyMs": 0, "message": "QUEUE_STRATEGY is local" }
+    { "name": "database", "status": "ok", "latencyMs": 7, "message": null },
+    { "name": "cache", "status": "ok", "latencyMs": 2, "message": null },
+    { "name": "queueRedis", "status": "skip", "latencyMs": 0, "message": "disabled by env" }
   ]
 }
 ```
@@ -457,8 +521,8 @@ Example `503`:
   "timestamp": "2026-02-17T12:00:00.000Z",
   "durationMs": 120,
   "checks": [
-    { "name": "database", "required": true, "status": "fail", "latencyMs": 100, "message": "timeout" },
-    { "name": "cache", "required": true, "status": "ok", "latencyMs": 3, "message": null }
+    { "name": "database", "status": "fail", "latencyMs": 100, "message": "database unavailable" },
+    { "name": "cache", "status": "ok", "latencyMs": 3, "message": null }
   ]
 }
 ```
@@ -502,10 +566,14 @@ Example `503`:
   - `GET /api/health/live` and `GET /api/health/ready` contract
   - readiness response schema (`ok` / `degraded` / `fail`)
   - per-check env flags (`HEALTH_READY_CHECK_<CHECK_KEY>_ENABLED`)
+  - timeout env flags (`HEALTH_READY_TOTAL_TIMEOUT_MS`, `HEALTH_READY_CHECK_<CHECK_KEY>_TIMEOUT_MS`, `HEALTH_READY_CACHE_TTL_MS`)
   - deployment probe examples (Kubernetes and/or container runtime)
 
 ### Integration Coverage (Required)
 - `GET /api/health/live` returns `200` + body `ok`
-- `GET /api/health/ready` returns `200` when DB/cache checks pass
-- `GET /api/health/ready` returns `503` when DB check fails (mocked/controlled failure path)
-- `GET /api/health/ready` keeps `200` with `status=degraded` when only optional checks fail
+- `GET /api/health/ready` returns `200` with `status=ok` when all enabled checks pass
+- `GET /api/health/ready` returns `503` with `status=fail` when any enabled check fails (mocked/controlled failure path)
+- `GET /api/health/ready` skips a check with `status=skip` when its `ENABLED` flag is `false`
+- `GET /api/health/ready` responds within `HEALTH_READY_TOTAL_TIMEOUT_MS` even when a check hangs (global deadline enforced)
+- `GET /api/health/ready` marks a timed-out check as `fail` with `"global timeout exceeded"` or `"check timeout exceeded"` in `message`
+- `GET /api/health/ready` returns a cached result within `HEALTH_READY_CACHE_TTL_MS` when TTL cache is enabled (verified via response `timestamp` unchanged)
