@@ -77,6 +77,14 @@
           "body": "Zamówienie {{orderId}} zostało złożone ze storefrontu {{storeId}}."
         }
       }
+    },
+    "search": {
+      "badge": {
+        "store": "Sklep"
+      },
+      "status": {
+        "inactive": "Nieaktywny"
+      }
     }
   }
 }

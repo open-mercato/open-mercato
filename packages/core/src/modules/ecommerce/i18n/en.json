@@ -77,6 +77,14 @@
           "body": "Order {{orderId}} was placed from storefront {{storeId}}."
         }
       }
+    },
+    "search": {
+      "badge": {
+        "store": "Store"
+      },
+      "status": {
+        "inactive": "Inactive"
+      }
     }
   }
 }
