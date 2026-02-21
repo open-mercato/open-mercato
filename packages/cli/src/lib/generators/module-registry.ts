@@ -1571,7 +1571,6 @@ export default modules
 
   const structureChecksum = calculateStructureChecksum([
     ...Array.from(trackedRoots),
-    ...getModuleRegistryChecksumInputs(),
   ])
 
   const checksum = { content: calculateChecksum(output), structure: structureChecksum }
