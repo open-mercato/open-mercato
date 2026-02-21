@@ -47,6 +47,15 @@ export function createRecordLockCrudMutationGuardService(
     },
 
     async afterMutationSuccess(input) {
+      await recordLockService.emitIncomingChangesNotificationAfterMutation({
+        tenantId: input.tenantId,
+        organizationId: input.organizationId ?? null,
+        userId: input.userId,
+        resourceKind: input.resourceKind,
+        resourceId: input.resourceId,
+        method: input.method,
+      })
+
       const headers = readRecordLockHeaders(input.requestHeaders)
       await recordLockService.releaseAfterMutation({
         tenantId: input.tenantId,

@@ -65,9 +65,14 @@
         "title": "Konflikt gelöst",
         "body": "Ein Datensatzkonflikt wurde gelöst."
       },
+      "incoming_changes": {
+        "title": "Eingehende Änderungen verfügbar",
+        "body": "Dieser Datensatz wurde von einem anderen Benutzer aktualisiert. Geänderte Felder: {changedFields}."
+      },
       "actions": {
         "accept_incoming": "Eingehende anwenden",
-        "accept_mine": "Eingehende ablehnen"
+        "accept_mine": "Eingehende ablehnen",
+        "see_incoming_changes": "Eingehende Änderungen anzeigen"
       }
     }
   }

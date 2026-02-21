@@ -65,9 +65,14 @@
         "title": "Konflikt rozwiązany",
         "body": "Konflikt rekordu został rozwiązany."
       },
+      "incoming_changes": {
+        "title": "Dostępne są zmiany przychodzące",
+        "body": "Ten rekord został zaktualizowany przez innego użytkownika. Zmienione pola: {changedFields}."
+      },
       "actions": {
         "accept_incoming": "Zastosuj przychodzące",
-        "accept_mine": "Odrzuć przychodzące"
+        "accept_mine": "Odrzuć przychodzące",
+        "see_incoming_changes": "Zobacz zmiany przychodzące"
       }
     }
   }

@@ -1,6 +1,7 @@
 'use client'
 
 import * as React from 'react'
+import Link from 'next/link'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { apiCall, apiCallOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
@@ -256,8 +257,11 @@ export default function RecordLockingSettingsPage() {
         <p className="text-xs text-muted-foreground">
           {t(
             'record_locks.settings.allow_incoming_override_hint',
-            'Users still need the record_locks.override_incoming feature to keep their version during conflicts.',
-          )}
+            'Users still need the record_locks.override_incoming feature in their role or user ACL to keep their version during conflicts.'
+          )}{' '}
+          <Link href="/backend/users" className="underline underline-offset-2 hover:text-foreground">
+            {t('record_locks.settings.allow_incoming_override_permissions_link', 'Check permissions')}
+          </Link>
         </p>
 
         <div className="flex items-center justify-between gap-4">

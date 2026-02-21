@@ -65,9 +65,14 @@
         "title": "Conflicto resuelto",
         "body": "Se resolvió un conflicto de registro."
       },
+      "incoming_changes": {
+        "title": "Hay cambios entrantes disponibles",
+        "body": "Otro usuario actualizó este registro. Campos modificados: {changedFields}."
+      },
       "actions": {
         "accept_incoming": "Aplicar entrantes",
-        "accept_mine": "Rechazar entrantes"
+        "accept_mine": "Rechazar entrantes",
+        "see_incoming_changes": "Ver cambios entrantes"
       }
     }
   }

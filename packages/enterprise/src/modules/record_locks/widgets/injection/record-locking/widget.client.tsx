@@ -266,8 +266,10 @@ export default function RecordLockingWidget({
 
   const mine = Boolean(
     state?.lock
-    && state.currentUserId
-    && state.lock.lockedByUserId === state.currentUserId
+    && (
+      state.acquired === true
+      || (state.currentUserId && state.lock.lockedByUserId === state.currentUserId)
+    )
   )
 
   React.useEffect(() => {
@@ -405,6 +407,14 @@ export default function RecordLockingWidget({
               mineLabel={mineValueLabel}
               emptyLabel={emptyValueLabel}
             />
+            {(state?.conflict?.changes?.length ?? 0) === 0 ? (
+              <Notice compact variant="info">
+                {t(
+                  'record_locks.conflict.no_field_details',
+                  'Field-level conflict details are unavailable for this record. Choose a resolution to continue.'
+                )}
+              </Notice>
+            ) : null}
             {showOverrideBlockedNotice ? (
               <Notice compact variant="warning">
                 {t(
@@ -439,21 +449,35 @@ export default function RecordLockingWidget({
     : actorName || actorEmail || state.lock.lockedByUserId
   const ipAddress = formatIpAddress(state.lock.lockedByIp, t)
   const ipLabel = ipAddress ? ` (${ipAddress})` : ''
+  const actorDetails = actorIdentity ? `${actorIdentity}${ipLabel}` : ipAddress
   const showSameUserSessionBanner = mine && state.acquired === false
+  const bannerMessageRaw = showSameUserSessionBanner
+    ? t('record_locks.banner.same_user_session', 'This record is already open in another session.')
+    : t('record_locks.banner.optimistic_notice', 'Another user is editing this record. Conflicts may occur on save.')
+  const bannerMessage = typeof bannerMessageRaw === 'string' && bannerMessageRaw.trim().length > 0
+    ? bannerMessageRaw
+    : showSameUserSessionBanner
+      ? 'This record is already open in another session.'
+      : 'Another user is editing this record. Conflicts may occur on save.'
 
   const lockBanner = (
-    <div className="rounded-lg border border-amber-300/70 bg-amber-50 px-4 py-3 text-sm text-amber-950 shadow-sm dark:border-amber-300/35 dark:bg-amber-300/12 dark:text-amber-50">
+    <div className="rounded-lg border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-900 shadow-sm">
       <div className="font-medium">
-        {showSameUserSessionBanner
-          ? t('record_locks.banner.same_user_session', 'This record is already open in another session.')
-          : t('record_locks.banner.optimistic_notice', 'Another user is editing this record. Conflicts may occur on save.')}
+        {bannerMessage}
       </div>
-      <div className="mt-1 text-xs opacity-90">
-        {actorIdentity}{ipLabel}
-      </div>
+      {actorDetails ? (
+        <div className="mt-1 text-xs text-amber-900/90">
+          {actorDetails}
+        </div>
+      ) : null}
       {state.allowForceUnlock && !showSameUserSessionBanner ? (
         <div className="mt-2">
-          <Button size="sm" variant="outline" onClick={handleTakeOver}>
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={handleTakeOver}
+            className="border-amber-300 bg-amber-50 text-amber-900 hover:bg-amber-100 hover:text-amber-900"
+          >
             {t('record_locks.banner.take_over', 'Take over editing')}
           </Button>
         </div>
@@ -484,6 +508,14 @@ export default function RecordLockingWidget({
               mineLabel={mineValueLabel}
               emptyLabel={emptyValueLabel}
             />
+            {(state?.conflict?.changes?.length ?? 0) === 0 ? (
+              <Notice compact variant="info">
+                {t(
+                  'record_locks.conflict.no_field_details',
+                  'Field-level conflict details are unavailable for this record. Choose a resolution to continue.'
+                )}
+              </Notice>
+            ) : null}
             {showOverrideBlockedNotice ? (
               <Notice compact variant="warning">
                 {t(

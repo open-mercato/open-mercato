@@ -17,7 +17,8 @@
       "enabled_resources_hint": "Pick from suggestions or type a custom resource kind.",
       "allow_force_unlock": "Allow force unlock",
       "allow_incoming_override": "Allow overriding incoming changes",
-      "allow_incoming_override_hint": "Users still need the record_locks.override_incoming feature to keep their version during conflicts.",
+      "allow_incoming_override_hint": "Users still need the record_locks.override_incoming feature in their role or user ACL to keep their version during conflicts.",
+      "allow_incoming_override_permissions_link": "Check permissions",
       "notify_on_conflict": "Notify on conflict",
       "save": "Save settings",
       "saved": "Settings saved",
@@ -48,6 +49,7 @@
       "mine_value": "Your value",
       "keep_editing": "Keep editing",
       "override_blocked_notice": "You cannot keep your version because you do not have permission to override incoming changes.",
+      "no_field_details": "Field-level conflict details are unavailable for this record. Choose a resolution to continue.",
       "empty_value": "(empty)",
       "cancel": "Cancel",
       "accept_incoming_failed": "Could not accept incoming changes. Refresh and try again."
@@ -65,9 +67,14 @@
         "title": "Conflict resolved",
         "body": "A record conflict has been resolved."
       },
+      "incoming_changes": {
+        "title": "Incoming changes available",
+        "body": "This record was updated by another user. Changed fields: {changedFields}."
+      },
       "actions": {
         "accept_incoming": "Apply incoming",
-        "accept_mine": "Reject incoming"
+        "accept_mine": "Reject incoming",
+        "see_incoming_changes": "See incoming changes"
       }
     }
   }

@@ -316,6 +316,24 @@ function normalizeConflictValue(value: unknown): unknown {
   return value === undefined ? null : value
 }
 
+function formatChangedFieldLabel(rawField: string): string {
+  const trimmedField = rawField.trim()
+  const withoutNamespace = trimmedField.includes('::') ? (trimmedField.split('::').pop() ?? trimmedField) : trimmedField
+  const withoutPrefix = withoutNamespace.includes('.') ? (withoutNamespace.split('.').pop() ?? withoutNamespace) : withoutNamespace
+  const words = withoutPrefix
+    .replace(/([a-z0-9])([A-Z])/g, '$1 $2')
+    .replace(/[._-]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .split(' ')
+    .filter(Boolean)
+
+  if (!words.length) return trimmedField
+  return words
+    .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
+    .join(' ')
+}
+
 export function readRecordLockHeaders(headers: Headers): ParsedRecordLockHeaders {
   const raw = {
     resourceKind: trimToNull(headers.get('x-om-record-lock-kind')) ?? undefined,
@@ -774,6 +792,46 @@ export class RecordLockService {
     if (!releaseResult.released) return
   }
 
+  async emitIncomingChangesNotificationAfterMutation(input: {
+    tenantId: string
+    organizationId?: string | null
+    userId: string
+    resourceKind: string
+    resourceId: string
+    method: 'PUT' | 'DELETE'
+  }): Promise<void> {
+    if (input.method !== 'PUT') return
+    const settings = await this.getSettings()
+    if (!settings.notifyOnConflict || !isRecordLockingEnabledForResource(settings, input.resourceKind)) return
+
+    const now = new Date()
+    const active = await this.findActiveLock(input, now)
+    if (!active) return
+    if (active.lockedByUserId === input.userId) return
+
+    const latest = await this.findLatestActionLog(input)
+    if (!latest || latest.actorUserId !== input.userId) return
+
+    const changedFields = isRecordValue(latest.changesJson)
+      ? Object.keys(latest.changesJson)
+          .filter((field) => !shouldSkipConflictField(field))
+          .slice(0, 12)
+          .map(formatChangedFieldLabel)
+          .join(', ')
+      : ''
+
+    await emitRecordLocksEvent('record_locks.incoming_changes.available', {
+      resourceKind: input.resourceKind,
+      resourceId: input.resourceId,
+      tenantId: input.tenantId,
+      organizationId: normalizeScopeOrganization(input.organizationId),
+      incomingActorUserId: input.userId,
+      incomingActionLogId: latest.id,
+      recipientUserIds: [active.lockedByUserId],
+      changedFields: changedFields || '-',
+    })
+  }
+
   async resolveConflictById(input: {
     conflictId: string
     tenantId: string
@@ -1065,9 +1123,12 @@ export class RecordLockService {
   ): Promise<ActionLog | null> {
     if (!logId) return null
 
-    const resolved = this.actionLogService
+    let resolved = this.actionLogService
       ? await this.actionLogService.findById(logId)
-      : await this.em.findOne(ActionLog, { id: logId, deletedAt: null })
+      : null
+    if (!resolved) {
+      resolved = await this.em.findOne(ActionLog, { id: logId, deletedAt: null })
+    }
     if (!resolved || resolved.deletedAt) return null
 
     if (resolved.tenantId !== scope.tenantId) return null
