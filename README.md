@@ -226,6 +226,12 @@ This is a quickest way to get Open Mercato up and running on your localhost / se
 
 **Prerequisites:** Yarn 4+
 
+Quick single-line starter (ephemeral dev on a free port):
+
+```bash
+yarn dev:ephemeral
+```
+
 ```bash
 git clone https://github.com/open-mercato/open-mercato.git
 cd open-mercato
@@ -246,7 +252,7 @@ For a fresh greenfield boot (build packages, generate registries, reinstall modu
 yarn dev:greenfield
 ```
 
-For a worktree-friendly dev runtime on an automatically selected free port (with Node 24 check, dependency install, `.env` bootstrap, generator prep, browser auto-open, and instance registry in `.ai/dev-ephemeral-envs.json`), run:
+For a worktree-friendly dev runtime with a dedicated ephemeral PostgreSQL database and an automatically selected free app port (with Node 24 check, dependency install, package build, `.env` bootstrap, generator prep, browser auto-open, and instance registry in `.ai/dev-ephemeral-envs.json`), run:
 
 ```bash
 yarn dev:ephemeral

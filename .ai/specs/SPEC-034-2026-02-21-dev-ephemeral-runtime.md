@@ -1,7 +1,7 @@
 # SPEC-034: Dev Ephemeral Runtime Command
 
 ## TLDR
-Add `yarn dev:ephemeral` as a one-command, worktree-friendly development launcher that validates Node 24, bootstraps `.env` only when missing, runs `yarn install`, runs generators, selects a free local port, starts the app on that port, prints the URL for testing, opens the browser automatically, and tracks running instances in `.ai/dev-ephemeral-envs.json`.
+Add `yarn dev:ephemeral` as a one-command, worktree-friendly development launcher that validates Node 24, bootstraps `.env` only when missing, runs `yarn install`, builds packages, runs generators, starts a dedicated ephemeral PostgreSQL container, initializes against that DB, selects a free local app port, starts the app on that port, prints the URL for testing, opens the browser automatically, and tracks running instances in `.ai/dev-ephemeral-envs.json`.
 
 ## Overview
 This change introduces a new root-level developer workflow for running multiple Open Mercato development instances in parallel across worktrees without manual port management.
@@ -25,17 +25,20 @@ Add `yarn dev:ephemeral` that performs deterministic preflight and runtime boot:
 - Reuse if present.
 - Copy from `apps/mercato/.env.example` if absent.
 3. Run `yarn install`.
-4. Run `yarn generate` so required `.mercato/generated` files are present.
-5. Resolve runtime port:
+4. Run `yarn build:packages` so compiled CLI generators are current.
+5. Run `yarn generate` so required `.mercato/generated` files are present.
+6. Start ephemeral PostgreSQL container and resolve unique `DATABASE_URL`.
+7. Run `yarn initialize -- --reinstall` against ephemeral `DATABASE_URL`.
+8. Resolve runtime port:
 - Use `DEV_EPHEMERAL_PREFERRED_PORT` only when explicitly set and within `5000-65535`.
 - Otherwise pick a random free port in `5000-65535`.
 - If random attempts fail, allocate a free fallback port and enforce `>=5000`.
-6. Start `yarn dev` with `PORT=<resolved-port>`.
-7. Print explicit URL(s) for QA/testing.
-8. Wait for readiness and open browser at `/backend`.
-9. Maintain `.ai/dev-ephemeral-envs.json`:
+9. Start `yarn dev:app` with `PORT=<resolved-port>` and ephemeral `DATABASE_URL`.
+10. Print explicit URL(s) for QA/testing.
+11. Wait for readiness and open browser at `/backend`.
+12. Maintain `.ai/dev-ephemeral-envs.json`:
 - Prune stale/non-responsive instances at startup.
-- Register current process instance with pid + URL metadata.
+- Register current process instance with pid + URL metadata + postgres container metadata.
 - Remove current instance on process exit.
 
 ## Architecture
@@ -61,6 +64,7 @@ Files touched by runtime behavior:
 - Reads: `apps/mercato/.env.example`
 - Writes if missing: `apps/mercato/.env`
 - Reads/Writes: `.ai/dev-ephemeral-envs.json`
+- Runtime dependency: local Docker daemon for ephemeral PostgreSQL container lifecycle
 - No migrations.
 
 ## API Contracts
@@ -76,7 +80,9 @@ This feature is command/runtime orchestration, not a new API module. Coverage fo
   - Fails with guidance on Node < 24
   - Creates `.env` only when missing
   - Installs dependencies
+  - Builds packages before generation
   - Generates module registry files
+  - Starts isolated ephemeral PostgreSQL and initializes against it
   - Selects free port
   - Removes non-responsive entries from `.ai/dev-ephemeral-envs.json`
   - Registers and unregisters current runtime in `.ai/dev-ephemeral-envs.json`
@@ -121,3 +127,4 @@ This feature is command/runtime orchestration, not a new API module. Coverage fo
 - 2026-02-21: Added `dev:ephemeral` command with Node24 preflight, `.env` bootstrap-if-missing, dependency installation, free-port startup, and URL output. Updated docs and README.
 - 2026-02-21: Extended `dev:ephemeral` with generator pre-step, browser auto-open, and `.ai/dev-ephemeral-envs.json` lifecycle (stale pruning + register/unregister). Updated `.ai/skills/integration-tests/SKILL.md`, `.ai/qa/AGENTS.md`, and root `AGENTS.md` to reuse dev ephemeral instances for testing.
 - 2026-02-21: Removed DRY duplication between `dev:ephemeral` and integration ephemeral runtime by extracting shared Node24 + port/runtime probe helpers into `packages/cli/src/lib/testing/runtime-utils.ts`.
+- 2026-02-21: Upgraded `dev:ephemeral` to start a dedicated ephemeral PostgreSQL Docker container per run, initialize app state against that DB, inject `DATABASE_URL` into dev runtime, and clean container state on shutdown/stale-entry pruning.

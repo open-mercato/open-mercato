@@ -19,11 +19,28 @@ type DevEphemeralInstance = {
   backendUrl: string
   cwd: string
   startedAt: string
+  postgresContainerId: string
+  postgresPort: number
+  databaseUrl: string
 }
 
 type DevEphemeralState = {
   version: 1
   instances: DevEphemeralInstance[]
+}
+
+type EphemeralPostgresHandle = {
+  containerId: string
+  containerName: string
+  databaseName: string
+  postgresPort: number
+  databaseUrl: string
+}
+
+type CommandResult = {
+  code: number
+  stdout: string
+  stderr: string
 }
 
 const scriptDirectory = path.dirname(fileURLToPath(import.meta.url))
@@ -39,6 +56,11 @@ const randomPortAttempts = 100
 const startupTimeoutMs = 180000
 const readinessProbeIntervalMs = 1000
 const probeTimeoutMs = 1500
+const dockerImage = process.env.DEV_EPHEMERAL_POSTGRES_IMAGE ?? 'postgres:16'
+const postgresUser = process.env.DEV_EPHEMERAL_POSTGRES_USER ?? 'postgres'
+const postgresPassword = process.env.DEV_EPHEMERAL_POSTGRES_PASSWORD ?? 'postgres'
+const postgresPortInContainer = '5432'
+const postgresReadyTimeoutMs = 60000
 
 async function fileExists(filePath: string): Promise<boolean> {
   try {
@@ -76,6 +98,37 @@ function runCommand(command: string, args: string[], options: { env?: NodeJS.Pro
         return
       }
       resolve(code ?? 1)
+    })
+  })
+}
+
+function runCommandCapture(command: string, args: string[], options: { env?: NodeJS.ProcessEnv } = {}): Promise<CommandResult> {
+  return new Promise((resolve, reject) => {
+    const child = spawn(command, args, {
+      cwd: projectRootDirectory,
+      stdio: ['ignore', 'pipe', 'pipe'],
+      env: process.env,
+      shell: false,
+      ...options,
+    })
+
+    let stdout = ''
+    let stderr = ''
+
+    child.stdout?.on('data', (chunk) => {
+      stdout += chunk.toString()
+    })
+    child.stderr?.on('data', (chunk) => {
+      stderr += chunk.toString()
+    })
+
+    child.on('error', reject)
+    child.on('exit', (code, signal) => {
+      if (signal) {
+        reject(new Error(`${command} terminated by signal ${signal}. ${stderr}`.trim()))
+        return
+      }
+      resolve({ code: code ?? 1, stdout, stderr })
     })
   })
 }
@@ -154,6 +207,103 @@ function isProcessRunning(pid: number): boolean {
   }
 }
 
+async function assertDockerRuntimeAvailable(): Promise<void> {
+  const result = await runCommandCapture('docker', ['info'])
+  if (result.code === 0) {
+    return
+  }
+
+  const normalizedError = result.stderr.trim()
+  let guidance = 'Container runtime is unavailable. Start Docker Desktop (or another Docker-compatible runtime) and retry.'
+  if (normalizedError.includes('Cannot connect to the Docker daemon')) {
+    guidance = 'Docker CLI is installed but daemon is not running. Start Docker Desktop and retry.'
+  }
+
+  throw new Error(`Cannot start ephemeral PostgreSQL. ${guidance} ${normalizedError}`.trim())
+}
+
+async function stopPostgresContainer(containerId: string): Promise<void> {
+  if (!containerId) return
+  await runCommandCapture('docker', ['rm', '-f', containerId]).catch(() => null)
+}
+
+async function resolveDockerPublishedPort(containerId: string): Promise<number> {
+  const result = await runCommandCapture('docker', ['port', containerId, `${postgresPortInContainer}/tcp`])
+  if (result.code !== 0) {
+    throw new Error(`Unable to resolve mapped PostgreSQL port for container ${containerId}. ${result.stderr}`.trim())
+  }
+
+  const match = result.stdout.trim().match(/:(\d+)\s*$/)
+  if (!match) {
+    throw new Error(`Unexpected docker port output: ${result.stdout.trim()}`)
+  }
+
+  return Number.parseInt(match[1] ?? '0', 10)
+}
+
+async function waitForPostgresReady(containerId: string, databaseName: string): Promise<void> {
+  const deadline = Date.now() + postgresReadyTimeoutMs
+  while (Date.now() < deadline) {
+    const result = await runCommandCapture('docker', ['exec', containerId, 'pg_isready', '-U', postgresUser, '-d', databaseName])
+    if (result.code === 0) {
+      return
+    }
+    await new Promise((resolve) => setTimeout(resolve, 1000))
+  }
+
+  throw new Error(`Timed out waiting for ephemeral PostgreSQL container ${containerId} to become ready.`)
+}
+
+async function startEphemeralPostgres(): Promise<EphemeralPostgresHandle> {
+  await assertDockerRuntimeAvailable()
+
+  const uniqueSuffix = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`
+  const containerName = `open-mercato-dev-ephemeral-${uniqueSuffix}`
+  const databaseName = `om_dev_ephemeral_${uniqueSuffix.replace(/[^a-z0-9_]/gi, '_')}`
+
+  const runResult = await runCommandCapture('docker', [
+    'run',
+    '-d',
+    '--rm',
+    '--name',
+    containerName,
+    '-e',
+    `POSTGRES_USER=${postgresUser}`,
+    '-e',
+    `POSTGRES_PASSWORD=${postgresPassword}`,
+    '-e',
+    `POSTGRES_DB=${databaseName}`,
+    '-p',
+    `127.0.0.1::${postgresPortInContainer}`,
+    dockerImage,
+  ])
+
+  if (runResult.code !== 0) {
+    throw new Error(`Failed to start ephemeral PostgreSQL container. ${runResult.stderr}`.trim())
+  }
+
+  const containerId = runResult.stdout.trim()
+
+  try {
+    const postgresPort = await resolveDockerPublishedPort(containerId)
+    await waitForPostgresReady(containerId, databaseName)
+    const databaseUrl = `postgresql://${postgresUser}:${postgresPassword}@127.0.0.1:${postgresPort}/${databaseName}`
+
+    console.log(`[dev:ephemeral] Started ephemeral PostgreSQL container ${containerName} on 127.0.0.1:${postgresPort}`)
+
+    return {
+      containerId,
+      containerName,
+      databaseName,
+      postgresPort,
+      databaseUrl,
+    }
+  } catch (error) {
+    await stopPostgresContainer(containerId)
+    throw error
+  }
+}
+
 async function pruneStaleDevInstances(): Promise<void> {
   const state = await readDevInstancesState()
   const retainedInstances: DevEphemeralInstance[] = []
@@ -169,6 +319,9 @@ async function pruneStaleDevInstances(): Promise<void> {
     const instanceBaseUrl = typeof instance.baseUrl === 'string' ? instance.baseUrl : ''
     if (!instanceBaseUrl) {
       removedCount += 1
+      if (instance.postgresContainerId) {
+        await stopPostgresContainer(instance.postgresContainerId)
+      }
       continue
     }
 
@@ -180,6 +333,9 @@ async function pruneStaleDevInstances(): Promise<void> {
       continue
     }
 
+    if (instance.postgresContainerId) {
+      await stopPostgresContainer(instance.postgresContainerId)
+    }
     removedCount += 1
   }
 
@@ -251,15 +407,19 @@ async function waitForDevServerReady(baseUrl: string): Promise<boolean> {
   return false
 }
 
-async function startDevServer(port: number): Promise<number> {
+async function startDevServer(port: number, postgres: EphemeralPostgresHandle): Promise<number> {
   const baseUrl = `http://127.0.0.1:${port}`
   const backendUrl = `${baseUrl}/backend`
   const devEnvironment = {
     ...process.env,
     PORT: String(port),
+    DATABASE_URL: postgres.databaseUrl,
+    APP_URL: baseUrl,
+    NEXT_PUBLIC_APP_URL: baseUrl,
   }
 
-  const devCommand = spawn('yarn', ['dev'], {
+  // Use app-only dev runtime to avoid watch:packages race conditions in ephemeral startup.
+  const devCommand = spawn('yarn', ['dev:app'], {
     cwd: projectRootDirectory,
     stdio: 'inherit',
     env: devEnvironment,
@@ -278,11 +438,15 @@ async function startDevServer(port: number): Promise<number> {
     backendUrl,
     cwd: process.cwd(),
     startedAt: new Date().toISOString(),
+    postgresContainerId: postgres.containerId,
+    postgresPort: postgres.postgresPort,
+    databaseUrl: postgres.databaseUrl,
   }
 
   await registerCurrentDevInstance(instanceState)
   console.log(`[dev:ephemeral] Ephemeral URL: ${baseUrl}`)
   console.log(`[dev:ephemeral] Backend URL: ${backendUrl}`)
+  console.log(`[dev:ephemeral] Ephemeral PostgreSQL URL: ${postgres.databaseUrl}`)
 
   const serverReady = await waitForDevServerReady(baseUrl)
   if (serverReady) {
@@ -314,11 +478,13 @@ async function startDevServer(port: number): Promise<number> {
   return new Promise((resolve, reject) => {
     devCommand.on('error', async (error) => {
       await unregisterCurrentDevInstance(devCommand.pid as number)
+      await stopPostgresContainer(postgres.containerId)
       reject(error)
     })
 
     devCommand.on('exit', async (code, _signal) => {
       await unregisterCurrentDevInstance(devCommand.pid as number)
+      await stopPostgresContainer(postgres.containerId)
       resolve(code ?? 1)
     })
   })
@@ -341,6 +507,13 @@ async function main(): Promise<void> {
       return
     }
 
+    console.log('[dev:ephemeral] Building packages...')
+    const buildPackagesExitCode = await runCommand('yarn', ['build:packages'])
+    if (buildPackagesExitCode !== 0) {
+      process.exit(buildPackagesExitCode)
+      return
+    }
+
     console.log('[dev:ephemeral] Preparing generated module files...')
     const generateExitCode = await runCommand('yarn', ['generate'])
     if (generateExitCode !== 0) {
@@ -351,8 +524,25 @@ async function main(): Promise<void> {
     await pruneStaleDevInstances()
 
     const port = await resolvePort()
+    const postgres = await startEphemeralPostgres()
+    const baseUrl = `http://127.0.0.1:${port}`
+
+    console.log('[dev:ephemeral] Initializing app against ephemeral PostgreSQL...')
+    const initEnvironment = {
+      ...process.env,
+      DATABASE_URL: postgres.databaseUrl,
+      APP_URL: baseUrl,
+      NEXT_PUBLIC_APP_URL: baseUrl,
+    }
+    const initializeExitCode = await runCommand('yarn', ['initialize', '--', '--reinstall'], { env: initEnvironment })
+    if (initializeExitCode !== 0) {
+      await stopPostgresContainer(postgres.containerId)
+      process.exit(initializeExitCode)
+      return
+    }
+
     console.log(`[dev:ephemeral] Starting development runtime on http://127.0.0.1:${port}/backend`)
-    const exitCode = await startDevServer(port)
+    const exitCode = await startDevServer(port, postgres)
     process.exit(exitCode)
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error)

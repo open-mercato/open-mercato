@@ -37,3 +37,23 @@ Centralize shared command utilities like undo extraction in `packages/shared/src
 **Rule**: Any change to shared bootstrap/layout shell behavior in `apps/mercato/src/app/**` must include a sync review and required updates in matching `packages/create-app/template/src/app/**` and dependent template components.
 
 **Applies to**: Root layout, backend layout, global providers, header/sidebar wiring, and related template-only wrapper components.
+
+## Build packages before running generators in fresh worktrees
+
+**Context**: Running `yarn generate` in a fresh/dirty worktree used stale `packages/cli/dist` generator output, which emitted imports like `./entities/<slug>/index.js` into `.mercato/generated/entity-fields-registry.ts`.
+
+**Problem**: Generated files then referenced modules that did not exist (`index.ts` present, `.js` missing), causing repeated Next.js `Module not found` loops and noisy dev-watch failures.
+
+**Rule**: For bootstrap commands (especially ephemeral/dev automation), always run `yarn build:packages` before `yarn generate` so generator runtime (`packages/cli/dist`) matches current source.
+
+**Applies to**: `dev:ephemeral`, greenfield/bootstrap scripts, and any automated flow that calls `yarn generate` in potentially stale environments.
+
+## Never assume localhost:3000 in ephemeral workflows
+
+**Context**: Ephemeral runs can bind to random free ports, while other local processes may still occupy `3000`.
+
+**Problem**: Opening or probing default `3000` can point to the wrong app instance and create misleading debugging signals.
+
+**Rule**: Always use the resolved runtime URL from command output/state files (`.ai/dev-ephemeral-envs.json` or `.ai/qa/ephemeral-env.json`) for browser navigation, MCP usage, and health checks.
+
+**Applies to**: Dev ephemeral startup, integration-test environment reuse, and manual QA instructions.
