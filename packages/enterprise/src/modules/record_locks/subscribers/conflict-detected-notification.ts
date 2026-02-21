@@ -30,6 +30,24 @@ type ResolverContext = {
   resolve: <T = unknown>(name: string) => T
 }
 
+function formatChangedFieldLabel(rawField: string): string {
+  const trimmedField = rawField.trim()
+  const withoutNamespace = trimmedField.includes('::') ? (trimmedField.split('::').pop() ?? trimmedField) : trimmedField
+  const withoutPrefix = withoutNamespace.includes('.') ? (withoutNamespace.split('.').pop() ?? withoutNamespace) : withoutNamespace
+  const words = withoutPrefix
+    .replace(/([a-z0-9])([A-Z])/g, '$1 $2')
+    .replace(/[._-]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .split(' ')
+    .filter(Boolean)
+
+  if (!words.length) return trimmedField
+  return words
+    .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
+    .join(' ')
+}
+
 export default async function handle(payload: Payload, ctx: ResolverContext) {
   if (!payload.conflictActorUserId) return
 
@@ -42,7 +60,7 @@ export default async function handle(payload: Payload, ctx: ResolverContext) {
       ? await em.findOne(ActionLog, { id: payload.incomingActionLogId, deletedAt: null })
       : null
     const changedFields = incomingLog?.changesJson && typeof incomingLog.changesJson === 'object'
-      ? Object.keys(incomingLog.changesJson).slice(0, 12).join(', ')
+      ? Object.keys(incomingLog.changesJson).slice(0, 12).map(formatChangedFieldLabel).join(', ')
       : ''
 
     const notificationService = resolveNotificationService(ctx)

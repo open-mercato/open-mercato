@@ -27,13 +27,13 @@ async function resolveConflict(
 registerCommand<ResolveConflictInput, { ok: boolean }>({
   id: 'record_locks.conflict.accept_incoming',
   async execute(input, ctx) {
-    return resolveConflict(input, 'accept_incoming', ctx)
+    return resolveConflict((input ?? {}) as ResolveConflictInput, 'accept_incoming', ctx)
   },
 })
 
-registerCommand<ResolveConflictInput, { ok: boolean }>({
+registerCommand({
   id: 'record_locks.conflict.accept_mine',
   async execute(input, ctx) {
-    return resolveConflict(input, 'accept_mine', ctx)
+    return resolveConflict((input ?? {}) as ResolveConflictInput, 'accept_mine', ctx)
   },
 })

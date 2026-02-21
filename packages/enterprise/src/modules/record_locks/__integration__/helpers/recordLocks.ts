@@ -11,6 +11,7 @@ export type RecordLockSettings = {
   heartbeatSeconds: number;
   enabledResources: string[];
   allowForceUnlock: boolean;
+  allowIncomingOverride?: boolean;
   notifyOnConflict: boolean;
 };
 

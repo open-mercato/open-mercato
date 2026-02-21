@@ -16,6 +16,8 @@
       "enabled_resources_placeholder": "Ressourcentyp eingeben und Enter drucken",
       "enabled_resources_hint": "Aus Vorschlagen wahlen oder einen benutzerdefinierten Ressourcentyp eingeben.",
       "allow_force_unlock": "Erzwungenes Entsperren erlauben",
+      "allow_incoming_override": "Überschreiben eingehender Änderungen erlauben",
+      "allow_incoming_override_hint": "Benutzer benötigen weiterhin das Feature record_locks.override_incoming, um bei Konflikten ihre Version zu behalten.",
       "notify_on_conflict": "Bei Konflikt benachrichtigen",
       "save": "Einstellungen speichern",
       "saved": "Einstellungen gespeichert",
@@ -26,6 +28,7 @@
       "optimistic_notice": "Ein anderer Benutzer bearbeitet diesen Datensatz. Beim Speichern können Konflikte auftreten.",
       "same_user_session": "Dieser Datensatz ist bereits in einer anderen Sitzung geöffnet.",
       "mine": "Sie bearbeiten diesen Datensatz gerade.",
+      "local_machine": "lokaler Rechner",
       "take_over": "Bearbeitung ubernehmen",
       "take_over_pending": "Wird ubernommen..."
     },
@@ -43,6 +46,8 @@
       "display_value": "Angezeigter Wert",
       "incoming_value": "Eingehender Wert",
       "mine_value": "Ihr Wert",
+      "keep_editing": "Weiter bearbeiten",
+      "override_blocked_notice": "Sie können Ihre Version nicht behalten, da Ihnen die Berechtigung zum Überschreiben eingehender Änderungen fehlt.",
       "empty_value": "(leer)",
       "cancel": "Abbrechen",
       "accept_incoming_failed": "Eingehende Änderungen konnten nicht übernommen werden. Aktualisieren Sie und versuchen Sie es erneut."

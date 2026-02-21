@@ -4,6 +4,7 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import type { ModuleConfigService } from '@open-mercato/core/modules/configs/lib/module-config-service'
 import { ActionLog } from '@open-mercato/core/modules/audit_logs/data/entities'
 import type { ActionLogService } from '@open-mercato/core/modules/audit_logs/services/actionLogService'
+import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
 import { emitRecordLocksEvent } from '../events'
 import {
   RecordLock,
@@ -83,6 +84,8 @@ export type RecordLockConflictPayload = {
   resourceId: string
   baseActionLogId: string | null
   incomingActionLogId: string | null
+  allowIncomingOverride: boolean
+  canOverrideIncoming: boolean
   resolutionOptions: Array<'accept_mine'>
   changes: RecordLockConflictChange[]
 }
@@ -160,6 +163,7 @@ export type RecordLockServiceDeps = {
   em: EntityManager
   moduleConfigService?: ModuleConfigService | null
   actionLogService?: ActionLogService | null
+  rbacService?: RbacService | null
 }
 
 export type ParsedRecordLockHeaders = Partial<RecordLockMutationHeaders>
@@ -334,10 +338,13 @@ export class RecordLockService {
 
   private readonly actionLogService: ActionLogService | null
 
+  private readonly rbacService: RbacService | null
+
   constructor(deps: RecordLockServiceDeps) {
     this.em = deps.em
     this.moduleConfigService = deps.moduleConfigService ?? null
     this.actionLogService = deps.actionLogService ?? null
+    this.rbacService = deps.rbacService ?? null
   }
 
   async getSettings(): Promise<RecordLockSettings> {
@@ -626,6 +633,7 @@ export class RecordLockService {
   async validateMutation(input: RecordLockMutationValidationInput): Promise<RecordLockValidationResult> {
     const settings = await this.getSettings()
     const resourceEnabled = isRecordLockingEnabledForResource(settings, input.resourceKind)
+    const canOverrideIncoming = await this.canUserOverrideIncoming(input, settings)
 
     if (!resourceEnabled) {
       return {
@@ -692,14 +700,14 @@ export class RecordLockService {
         && existingConflict.conflictActorUserId === input.userId
 
       if (parsedHeaders.resolution === 'accept_mine' || parsedHeaders.resolution === 'merged') {
-        if (!canResolveExistingConflict) {
+        if (!canResolveExistingConflict || !canOverrideIncoming) {
           return {
             ok: false,
             status: 409,
             error: 'Record conflict requires resolution before saving',
             code: 'record_lock_conflict',
             lock: active ? this.toLockView(active, false) : null,
-            conflict: await this.toConflictPayload(existingConflict, input.mutationPayload ?? null),
+            conflict: await this.toConflictPayload(existingConflict, input.mutationPayload ?? null, settings.allowIncomingOverride, canOverrideIncoming),
           }
         }
         await this.resolveConflict(existingConflict, parsedHeaders.resolution, input.userId)
@@ -710,7 +718,7 @@ export class RecordLockService {
           error: 'Record conflict requires resolution before saving',
           code: 'record_lock_conflict',
           lock: active ? this.toLockView(active, false) : null,
-          conflict: await this.toConflictPayload(existingConflict, input.mutationPayload ?? null),
+          conflict: await this.toConflictPayload(existingConflict, input.mutationPayload ?? null, settings.allowIncomingOverride, canOverrideIncoming),
         }
       }
     }
@@ -742,7 +750,7 @@ export class RecordLockService {
           error: 'Record conflict detected',
           code: 'record_lock_conflict',
           lock: active ? this.toLockView(active, false) : null,
-          conflict: await this.toConflictPayload(conflict, input.mutationPayload ?? null),
+          conflict: await this.toConflictPayload(conflict, input.mutationPayload ?? null, settings.allowIncomingOverride, canOverrideIncoming),
         }
       }
     }
@@ -773,6 +781,8 @@ export class RecordLockService {
     userId: string
     resolution: 'accept_incoming' | 'accept_mine' | 'merged'
   }): Promise<boolean> {
+    const settings = await this.getSettings()
+    const canOverrideIncoming = await this.canUserOverrideIncoming(input, settings)
     const conflict = await this.em.findOne(RecordLockConflict, {
       id: input.conflictId,
       tenantId: input.tenantId,
@@ -782,8 +792,32 @@ export class RecordLockService {
     if (!conflict || conflict.status !== 'pending' || conflict.conflictActorUserId !== input.userId) {
       return false
     }
+    if ((input.resolution === 'accept_mine' || input.resolution === 'merged') && !canOverrideIncoming) {
+      return false
+    }
     await this.resolveConflict(conflict, input.resolution, input.userId)
     return true
+  }
+
+  private async canUserOverrideIncoming(
+    input: Pick<RecordLockScope, 'tenantId' | 'organizationId' | 'userId'>,
+    settings: RecordLockSettings,
+  ): Promise<boolean> {
+    if (!settings.allowIncomingOverride) return false
+    if (!this.rbacService) return false
+
+    try {
+      return await this.rbacService.userHasAllFeatures(
+        input.userId,
+        ['record_locks.override_incoming'],
+        {
+          tenantId: input.tenantId,
+          organizationId: normalizeScopeOrganization(input.organizationId),
+        },
+      )
+    } catch {
+      return false
+    }
   }
 
   private normalizeMutationHeaders(headers: Partial<RecordLockMutationHeaders>): Partial<RecordLockMutationHeaders> {
@@ -1197,6 +1231,8 @@ export class RecordLockService {
   private async toConflictPayload(
     conflict: RecordLockConflict,
     mutationPayload: Record<string, unknown> | null,
+    allowIncomingOverride: boolean,
+    canOverrideIncoming: boolean,
   ): Promise<RecordLockConflictPayload> {
     const changes = await this.buildConflictChanges(conflict, mutationPayload)
     return {
@@ -1205,7 +1241,9 @@ export class RecordLockService {
       resourceId: conflict.resourceId,
       baseActionLogId: conflict.baseActionLogId,
       incomingActionLogId: conflict.incomingActionLogId,
-      resolutionOptions: ['accept_mine'],
+      allowIncomingOverride,
+      canOverrideIncoming,
+      resolutionOptions: canOverrideIncoming ? ['accept_mine'] : [],
       changes,
     }
   }

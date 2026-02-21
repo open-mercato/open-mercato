@@ -16,6 +16,8 @@
       "enabled_resources_placeholder": "Dodaj resource kind i naciśnij Enter",
       "enabled_resources_hint": "Wybierz z podpowiedzi albo wpisz własny resource kind.",
       "allow_force_unlock": "Zezwalaj na wymuszone odblokowanie",
+      "allow_incoming_override": "Zezwalaj na nadpisanie zmian przychodzących",
+      "allow_incoming_override_hint": "Użytkownik nadal musi mieć uprawnienie record_locks.override_incoming, aby zachować swoją wersję przy konflikcie.",
       "notify_on_conflict": "Powiadamiaj o konfliktach",
       "save": "Zapisz ustawienia",
       "saved": "Ustawienia zapisane",
@@ -26,6 +28,7 @@
       "optimistic_notice": "Inny użytkownik edytuje ten rekord. Podczas zapisu może wystąpić konflikt.",
       "same_user_session": "Ten rekord jest już otwarty w innej sesji.",
       "mine": "Aktualnie edytujesz ten rekord.",
+      "local_machine": "lokalna maszyna",
       "take_over": "Przejmij edycję",
       "take_over_pending": "Przejmowanie..."
     },
@@ -43,6 +46,8 @@
       "display_value": "Wartość wyświetlana",
       "incoming_value": "Wartość przychodząca",
       "mine_value": "Twoja wartość",
+      "keep_editing": "Kontynuuj edycję",
+      "override_blocked_notice": "Nie możesz zachować swojej wersji, ponieważ nie masz uprawnienia do nadpisywania zmian przychodzących.",
       "empty_value": "(puste)",
       "cancel": "Anuluj",
       "accept_incoming_failed": "Nie udało się zaakceptować wersji przychodzącej. Odśwież i spróbuj ponownie."

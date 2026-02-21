@@ -8,12 +8,14 @@ const DEFAULT_SETTINGS: RecordLockSettings = {
   heartbeatSeconds: 30,
   enabledResources: ['sales.quote'],
   allowForceUnlock: true,
+  allowIncomingOverride: true,
   notifyOnConflict: true,
 }
 
 function createService(
   settings: RecordLockSettings = DEFAULT_SETTINGS,
   actionLogService?: { findById: (id: string) => Promise<unknown> } | null,
+  options?: { canOverrideIncoming?: boolean },
 ) {
   const em = {
     findOne: jest.fn(),
@@ -28,15 +30,21 @@ function createService(
     setValue: jest.fn(),
   } as any
 
+  const rbacService = {
+    userHasAllFeatures: jest.fn().mockResolvedValue(options?.canOverrideIncoming ?? true),
+  } as any
+
   return {
     service: new RecordLockService({
       em,
       moduleConfigService,
       actionLogService: (actionLogService as any) ?? null,
+      rbacService,
     }),
     em,
     moduleConfigService,
     actionLogService,
+    rbacService,
   }
 }
 

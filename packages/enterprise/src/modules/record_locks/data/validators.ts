@@ -130,6 +130,8 @@ export const recordLockErrorSchema = z.object({
     resourceId: z.string(),
     baseActionLogId: z.string().uuid().nullable(),
     incomingActionLogId: z.string().uuid().nullable(),
+    allowIncomingOverride: z.boolean().default(true),
+    canOverrideIncoming: z.boolean().default(false),
     resolutionOptions: z.array(z.enum(['accept_mine'])).default(['accept_mine']),
     changes: z.array(
       z.object({

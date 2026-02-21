@@ -30,6 +30,9 @@ export const enabledModules: ModuleEntry[] = [
   { id: 'resources', from: '@open-mercato/core' },
   { id: 'staff', from: '@open-mercato/core' },
   { id: 'events', from: '@open-mercato/events' },
+  // Enterprise modules are gated by OM_ENABLE_ENTERPRISE_MODULES during module generation.
+  { id: 'record_locks', from: '@open-mercato/enterprise' },
+  { id: 'system_status_overlays', from: '@open-mercato/enterprise' },
   { id: 'scheduler', from: '@open-mercato/scheduler' },
   { id: 'ai_assistant', from: '@open-mercato/ai-assistant' },
 ]

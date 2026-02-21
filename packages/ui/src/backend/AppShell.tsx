@@ -1168,6 +1168,7 @@ export function AppShell({ productName, email, groups, rightHeaderSlot, children
           <PartialIndexBanner />
           <UpgradeActionBanner />
           <LastOperationBanner />
+          <div id="om-top-banners" className="mb-3 space-y-2" />
           {children}
         </main>
         <footer className="border-t bg-background/80 backdrop-blur supports-[backdrop-filter]:bg-background/50 px-4 py-3 flex flex-wrap items-center justify-end gap-4">

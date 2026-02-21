@@ -9,6 +9,7 @@ export const recordLockSettingsSchema = z.object({
   heartbeatSeconds: z.number().int().min(5).max(300).default(30),
   enabledResources: z.array(z.string().trim().min(1)).default([]),
   allowForceUnlock: z.boolean().default(true),
+  allowIncomingOverride: z.boolean().default(true),
   notifyOnConflict: z.boolean().default(true),
 })
 
@@ -22,6 +23,7 @@ export const DEFAULT_RECORD_LOCK_SETTINGS: RecordLockSettings = {
   heartbeatSeconds: 30,
   enabledResources: ['*'],
   allowForceUnlock: true,
+  allowIncomingOverride: true,
   notifyOnConflict: true,
 }
 

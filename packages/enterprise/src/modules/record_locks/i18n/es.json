@@ -16,6 +16,8 @@
       "enabled_resources_placeholder": "Agrega resource kind y presiona Enter",
       "enabled_resources_hint": "Elige sugerencias o escribe un resource kind personalizado.",
       "allow_force_unlock": "Permitir desbloqueo forzado",
+      "allow_incoming_override": "Permitir sobrescribir cambios entrantes",
+      "allow_incoming_override_hint": "Los usuarios aún necesitan el permiso record_locks.override_incoming para conservar su versión durante conflictos.",
       "notify_on_conflict": "Notificar en conflictos",
       "save": "Guardar configuración",
       "saved": "Configuración guardada",
@@ -26,6 +28,7 @@
       "optimistic_notice": "Otro usuario está editando este registro. Puede haber conflictos al guardar.",
       "same_user_session": "Este registro ya está abierto en otra sesión.",
       "mine": "Actualmente estás editando este registro.",
+      "local_machine": "equipo local",
       "take_over": "Tomar control de la edicion",
       "take_over_pending": "Tomando control..."
     },
@@ -43,6 +46,8 @@
       "display_value": "Valor mostrado",
       "incoming_value": "Valor entrante",
       "mine_value": "Tu valor",
+      "keep_editing": "Seguir editando",
+      "override_blocked_notice": "No puedes conservar tu versión porque no tienes permiso para sobrescribir cambios entrantes.",
       "empty_value": "(vacio)",
       "cancel": "Cancelar",
       "accept_incoming_failed": "No se pudo aceptar la versión entrante. Actualiza y vuelve a intentarlo."

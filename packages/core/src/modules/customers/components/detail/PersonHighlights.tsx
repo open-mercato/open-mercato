@@ -1,6 +1,7 @@
 "use client"
 
 import * as React from 'react'
+import { useRouter } from 'next/navigation'
 import { Building2, Loader2, Pencil, X } from 'lucide-react'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { FormHeader } from '@open-mercato/ui/backend/forms'
@@ -71,6 +72,7 @@ export function PersonHighlights({
   isDeleting,
   onCompanySave,
 }: PersonHighlightsProps) {
+  const router = useRouter()
   const t = useT()
   const runMutation = React.useCallback(async (operation: () => Promise<void>) => operation(), [])
   const [editingCompany, setEditingCompany] = React.useState(false)

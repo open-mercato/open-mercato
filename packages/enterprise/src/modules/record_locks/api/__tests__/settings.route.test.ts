@@ -26,6 +26,7 @@ describe('record_locks settings route', () => {
       heartbeatSeconds: 30,
       enabledResources: [],
       allowForceUnlock: true,
+      allowIncomingOverride: true,
       notifyOnConflict: true,
     }
 
@@ -58,6 +59,7 @@ describe('record_locks settings route', () => {
       heartbeatSeconds: 30,
       enabledResources: ['sales.quote'],
       allowForceUnlock: true,
+      allowIncomingOverride: true,
       notifyOnConflict: true,
     }
 
@@ -70,6 +72,14 @@ describe('record_locks settings route', () => {
     expect(response.status).toBe(200)
     const body = await response.json()
     expect(body).toEqual({ settings })
-    expect(saveSettings).toHaveBeenCalledWith(settings)
+    expect(saveSettings).toHaveBeenCalledWith(expect.objectContaining({
+      enabled: true,
+      strategy: 'pessimistic',
+      timeoutSeconds: 600,
+      heartbeatSeconds: 30,
+      enabledResources: ['sales.quote'],
+      allowForceUnlock: true,
+      notifyOnConflict: true,
+    }))
   })
 })

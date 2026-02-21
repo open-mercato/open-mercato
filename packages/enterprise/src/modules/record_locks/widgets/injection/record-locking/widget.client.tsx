@@ -1,10 +1,12 @@
 "use client"
 
 import * as React from 'react'
+import { createPortal } from 'react-dom'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@open-mercato/ui/primitives/dialog'
+import { Notice } from '@open-mercato/ui/primitives/Notice'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import type { InjectionWidgetComponentProps } from '@open-mercato/shared/modules/widgets/injection'
 import {
@@ -41,6 +43,94 @@ type ValidateResponse = {
   latestActionLogId?: string | null
   lock?: RecordLockUiView | null
   conflict?: RecordLockUiConflict | null
+}
+
+type ConflictChange = NonNullable<RecordLockUiConflict['changes']>[number]
+
+function formatIpAddress(ip: string | null | undefined, t: ReturnType<typeof useT>): string | null {
+  if (!ip) return null
+  const normalized = ip.trim().toLowerCase()
+  if (!normalized) return null
+  if (normalized === '::1' || normalized === '127.0.0.1' || normalized === 'localhost') {
+    return t('record_locks.banner.local_machine', 'local machine')
+  }
+  return ip
+}
+
+function formatFieldLabel(rawField: string): string {
+  const trimmedField = rawField.trim()
+  const withoutNamespace = trimmedField.includes('::') ? (trimmedField.split('::').pop() ?? trimmedField) : trimmedField
+  const withoutPrefix = withoutNamespace.includes('.') ? (withoutNamespace.split('.').pop() ?? withoutNamespace) : withoutNamespace
+  const words = withoutPrefix
+    .replace(/([a-z0-9])([A-Z])/g, '$1 $2')
+    .replace(/[._-]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .split(' ')
+    .filter(Boolean)
+
+  if (!words.length) return trimmedField
+  return words
+    .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
+    .join(' ')
+}
+
+function formatConflictValue(value: unknown, emptyLabel: string): string {
+  if (value == null) return emptyLabel
+  const text = String(value).trim()
+  return text.length ? text : emptyLabel
+}
+
+function ConflictFieldComparisonRow({
+  change,
+  incomingLabel,
+  mineLabel,
+  emptyLabel,
+}: {
+  change: ConflictChange
+  incomingLabel: string
+  mineLabel: string
+  emptyLabel: string
+}) {
+  return (
+    <div className="border-b last:border-b-0 px-3 py-2">
+      <div className="font-medium">{formatFieldLabel(change.field)}</div>
+      <div className="text-xs text-muted-foreground">
+        {incomingLabel}: {formatConflictValue(change.incomingValue, emptyLabel)}
+      </div>
+      <div className="text-xs text-muted-foreground">
+        {mineLabel}: {formatConflictValue(change.mineValue, emptyLabel)}
+      </div>
+    </div>
+  )
+}
+
+function ConflictFieldComparisonList({
+  changes,
+  incomingLabel,
+  mineLabel,
+  emptyLabel,
+}: {
+  changes: ConflictChange[]
+  incomingLabel: string
+  mineLabel: string
+  emptyLabel: string
+}) {
+  if (!changes.length) return null
+
+  return (
+    <div className="max-h-[280px] overflow-auto rounded border">
+      {changes.map((change) => (
+        <ConflictFieldComparisonRow
+          key={change.field}
+          change={change}
+          incomingLabel={incomingLabel}
+          mineLabel={mineLabel}
+          emptyLabel={emptyLabel}
+        />
+      ))}
+    </div>
+  )
 }
 
 function resolveResourceKind(context: CrudInjectionContext): string | null {
@@ -111,6 +201,11 @@ export default function RecordLockingWidget({
   const formId = context.formId
   const [, forceRender] = React.useReducer((value) => value + 1, 0)
   const state = getRecordLockFormState(formId)
+  const [mounted, setMounted] = React.useState(false)
+
+  React.useEffect(() => {
+    setMounted(true)
+  }, [])
 
   React.useEffect(() => subscribeRecordLockFormState(formId, () => forceRender()), [formId])
 
@@ -270,6 +365,26 @@ export default function RecordLockingWidget({
     flash(t('record_locks.conflict.accept_mine', 'Keep my changes'), 'info')
   }, [formId, state?.conflict, t])
 
+  const handleKeepEditing = React.useCallback(() => {
+    if (!state?.conflict) return
+    setRecordLockFormState(formId, {
+      conflict: null,
+      pendingResolution: 'normal',
+    })
+  }, [formId, state?.conflict])
+
+  const incomingValueLabel = t('record_locks.conflict.incoming_value', 'Incoming value')
+  const mineValueLabel = t('record_locks.conflict.mine_value', 'Your value')
+  const emptyValueLabel = t('record_locks.conflict.empty_value', '(empty)')
+  const canOverrideIncoming = Boolean(
+    state?.conflict?.canOverrideIncoming
+    && state?.conflict?.resolutionOptions?.includes('accept_mine'),
+  )
+  const showOverrideBlockedNotice = Boolean(
+    state?.conflict?.allowIncomingOverride
+    && !state?.conflict?.canOverrideIncoming,
+  )
+
   if (!state?.lock || (mine && state.acquired !== false)) {
     return (
       <Dialog open={Boolean(state?.conflict)} onOpenChange={(open) => {
@@ -284,27 +399,31 @@ export default function RecordLockingWidget({
             <p className="text-muted-foreground">
               {t('record_locks.conflict.description', 'The record was changed by another user after you started editing.')}
             </p>
-            {state?.conflict?.changes?.length ? (
-              <div className="max-h-[280px] overflow-auto rounded border">
-                {state.conflict.changes.map((change) => (
-                  <div key={change.field} className="border-b last:border-b-0 px-3 py-2">
-                    <div className="font-medium">{change.field}</div>
-                    <div className="text-xs text-muted-foreground">
-                      {t('record_locks.conflict.incoming_value', 'Incoming value')}: {String(change.incomingValue ?? t('record_locks.conflict.empty_value', '(empty)'))}
-                    </div>
-                    <div className="text-xs text-muted-foreground">
-                      {t('record_locks.conflict.mine_value', 'Your value')}: {String(change.mineValue ?? t('record_locks.conflict.empty_value', '(empty)'))}
-                    </div>
-                  </div>
-                ))}
-              </div>
+            <ConflictFieldComparisonList
+              changes={state?.conflict?.changes ?? []}
+              incomingLabel={incomingValueLabel}
+              mineLabel={mineValueLabel}
+              emptyLabel={emptyValueLabel}
+            />
+            {showOverrideBlockedNotice ? (
+              <Notice compact variant="warning">
+                {t(
+                  'record_locks.conflict.override_blocked_notice',
+                  'You cannot keep your version because you do not have permission to override incoming changes.',
+                )}
+              </Notice>
             ) : null}
             <div className="flex justify-end gap-2">
               <Button variant="outline" onClick={handleAcceptIncoming}>
                 {t('record_locks.conflict.accept_incoming', 'Accept incoming')}
               </Button>
-              <Button onClick={handleKeepMine}>
-                {t('record_locks.conflict.accept_mine', 'Keep my changes')}
+              {canOverrideIncoming ? (
+                <Button onClick={handleKeepMine}>
+                  {t('record_locks.conflict.accept_mine', 'Keep my changes')}
+                </Button>
+              ) : null}
+              <Button variant="ghost" onClick={handleKeepEditing}>
+                {t('record_locks.conflict.keep_editing', 'Keep editing')}
               </Button>
             </div>
           </div>
@@ -318,28 +437,35 @@ export default function RecordLockingWidget({
   const actorIdentity = actorName && actorEmail
     ? `${actorName} (${actorEmail})`
     : actorName || actorEmail || state.lock.lockedByUserId
-  const ipLabel = state.lock.lockedByIp ? ` (${state.lock.lockedByIp})` : ''
+  const ipAddress = formatIpAddress(state.lock.lockedByIp, t)
+  const ipLabel = ipAddress ? ` (${ipAddress})` : ''
   const showSameUserSessionBanner = mine && state.acquired === false
+
+  const lockBanner = (
+    <div className="rounded-lg border border-amber-300/70 bg-amber-50 px-4 py-3 text-sm text-amber-950 shadow-sm dark:border-amber-300/35 dark:bg-amber-300/12 dark:text-amber-50">
+      <div className="font-medium">
+        {showSameUserSessionBanner
+          ? t('record_locks.banner.same_user_session', 'This record is already open in another session.')
+          : t('record_locks.banner.optimistic_notice', 'Another user is editing this record. Conflicts may occur on save.')}
+      </div>
+      <div className="mt-1 text-xs opacity-90">
+        {actorIdentity}{ipLabel}
+      </div>
+      {state.allowForceUnlock && !showSameUserSessionBanner ? (
+        <div className="mt-2">
+          <Button size="sm" variant="outline" onClick={handleTakeOver}>
+            {t('record_locks.banner.take_over', 'Take over editing')}
+          </Button>
+        </div>
+      ) : null}
+    </div>
+  )
+
+  const topBannerTarget = mounted ? document.getElementById('om-top-banners') : null
 
   return (
     <>
-      <div className="rounded-md border border-blue-300/40 bg-blue-100/70 px-4 py-3 text-sm text-blue-900">
-        <div className="font-medium">
-          {showSameUserSessionBanner
-            ? t('record_locks.banner.same_user_session', 'This record is already open in another session.')
-            : t('record_locks.banner.optimistic_notice', 'Another user is editing this record. Conflicts may occur on save.')}
-        </div>
-        <div className="mt-1 text-xs">
-          {actorIdentity}{ipLabel}
-        </div>
-        {state.allowForceUnlock && !showSameUserSessionBanner ? (
-          <div className="mt-2">
-            <Button size="sm" variant="outline" onClick={handleTakeOver}>
-              {t('record_locks.banner.take_over', 'Take over editing')}
-            </Button>
-          </div>
-        ) : null}
-      </div>
+      {topBannerTarget ? createPortal(lockBanner, topBannerTarget) : lockBanner}
       <Dialog open={Boolean(state?.conflict)} onOpenChange={(open) => {
         if (open) return
         setRecordLockFormState(formId, { conflict: null })
@@ -352,27 +478,31 @@ export default function RecordLockingWidget({
             <p className="text-muted-foreground">
               {t('record_locks.conflict.description', 'The record was changed by another user after you started editing.')}
             </p>
-            {state?.conflict?.changes?.length ? (
-              <div className="max-h-[280px] overflow-auto rounded border">
-                {state.conflict.changes.map((change) => (
-                  <div key={change.field} className="border-b last:border-b-0 px-3 py-2">
-                    <div className="font-medium">{change.field}</div>
-                    <div className="text-xs text-muted-foreground">
-                      {t('record_locks.conflict.incoming_value', 'Incoming value')}: {String(change.incomingValue ?? t('record_locks.conflict.empty_value', '(empty)'))}
-                    </div>
-                    <div className="text-xs text-muted-foreground">
-                      {t('record_locks.conflict.mine_value', 'Your value')}: {String(change.mineValue ?? t('record_locks.conflict.empty_value', '(empty)'))}
-                    </div>
-                  </div>
-                ))}
-              </div>
+            <ConflictFieldComparisonList
+              changes={state?.conflict?.changes ?? []}
+              incomingLabel={incomingValueLabel}
+              mineLabel={mineValueLabel}
+              emptyLabel={emptyValueLabel}
+            />
+            {showOverrideBlockedNotice ? (
+              <Notice compact variant="warning">
+                {t(
+                  'record_locks.conflict.override_blocked_notice',
+                  'You cannot keep your version because you do not have permission to override incoming changes.',
+                )}
+              </Notice>
             ) : null}
             <div className="flex justify-end gap-2">
               <Button variant="outline" onClick={handleAcceptIncoming}>
                 {t('record_locks.conflict.accept_incoming', 'Accept incoming')}
               </Button>
-              <Button onClick={handleKeepMine}>
-                {t('record_locks.conflict.accept_mine', 'Keep my changes')}
+              {canOverrideIncoming ? (
+                <Button onClick={handleKeepMine}>
+                  {t('record_locks.conflict.accept_mine', 'Keep my changes')}
+                </Button>
+              ) : null}
+              <Button variant="ghost" onClick={handleKeepEditing}>
+                {t('record_locks.conflict.keep_editing', 'Keep editing')}
               </Button>
             </div>
           </div>

@@ -35,6 +35,7 @@ export const setup: ModuleSetupConfig = {
     await em.flush()
   },
   defaultRoleFeatures: {
+    superadmin: ['record_locks.*'],
     admin: ['record_locks.*'],
     employee: ['record_locks.view'],
   },

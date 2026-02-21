@@ -16,6 +16,8 @@
       "enabled_resources_placeholder": "Add resource kind and press Enter",
       "enabled_resources_hint": "Pick from suggestions or type a custom resource kind.",
       "allow_force_unlock": "Allow force unlock",
+      "allow_incoming_override": "Allow overriding incoming changes",
+      "allow_incoming_override_hint": "Users still need the record_locks.override_incoming feature to keep their version during conflicts.",
       "notify_on_conflict": "Notify on conflict",
       "save": "Save settings",
       "saved": "Settings saved",
@@ -26,6 +28,7 @@
       "optimistic_notice": "Another user is editing this record. Conflicts may occur on save.",
       "same_user_session": "This record is already open in another session.",
       "mine": "You are currently editing this record.",
+      "local_machine": "local machine",
       "take_over": "Take over editing",
       "take_over_pending": "Taking over..."
     },
@@ -43,6 +46,8 @@
       "display_value": "Display value",
       "incoming_value": "Incoming value",
       "mine_value": "Your value",
+      "keep_editing": "Keep editing",
+      "override_blocked_notice": "You cannot keep your version because you do not have permission to override incoming changes.",
       "empty_value": "(empty)",
       "cancel": "Cancel",
       "accept_incoming_failed": "Could not accept incoming changes. Refresh and try again."

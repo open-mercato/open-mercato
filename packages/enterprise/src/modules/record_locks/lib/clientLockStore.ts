@@ -23,6 +23,8 @@ export type RecordLockUiConflict = {
   resourceId: string
   baseActionLogId: string | null
   incomingActionLogId: string | null
+  allowIncomingOverride: boolean
+  canOverrideIncoming: boolean
   resolutionOptions: Array<'accept_mine'>
   changes: Array<{
     field: string

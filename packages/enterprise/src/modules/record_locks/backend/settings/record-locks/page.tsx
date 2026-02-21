@@ -20,6 +20,7 @@ type RecordLockSettings = {
   heartbeatSeconds: number
   enabledResources: string[]
   allowForceUnlock: boolean
+  allowIncomingOverride: boolean
   notifyOnConflict: boolean
 }
 
@@ -30,6 +31,7 @@ const DEFAULT_SETTINGS: RecordLockSettings = {
   heartbeatSeconds: 30,
   enabledResources: [],
   allowForceUnlock: true,
+  allowIncomingOverride: true,
   notifyOnConflict: true,
 }
 
@@ -43,10 +45,12 @@ const RECORD_LOCK_RESOURCE_ALIASES = [
 
 const RECORD_LOCK_RESOURCE_SUGGESTIONS = Array.from(
   new Set([
-    ...Object.values(E)
-      .flatMap((moduleEntities) => Object.values(moduleEntities))
-      .filter((entityId): entityId is string => typeof entityId === 'string' && entityId.includes(':'))
-      .map((entityId) => entityId.replace(':', '.')),
+    ...Object.values(E).flatMap((moduleEntities) =>
+      Object.values(moduleEntities).flatMap((entityId) => {
+        if (typeof entityId !== 'string' || !entityId.includes(':')) return []
+        return [entityId.replace(':', '.')]
+      })
+    ),
     ...RECORD_LOCK_RESOURCE_ALIASES,
   ]),
 ).sort((left, right) => left.localeCompare(right))
@@ -238,6 +242,23 @@ export default function RecordLockingSettingsPage() {
             onCheckedChange={(checked) => setSettings((prev) => ({ ...prev, allowForceUnlock: checked }))}
           />
         </div>
+
+        <div className="flex items-center justify-between gap-4">
+          <Label htmlFor="record-lock-allow-incoming-override">
+            {t('record_locks.settings.allow_incoming_override', 'Allow overriding incoming changes')}
+          </Label>
+          <Switch
+            id="record-lock-allow-incoming-override"
+            checked={settings.allowIncomingOverride}
+            onCheckedChange={(checked) => setSettings((prev) => ({ ...prev, allowIncomingOverride: checked }))}
+          />
+        </div>
+        <p className="text-xs text-muted-foreground">
+          {t(
+            'record_locks.settings.allow_incoming_override_hint',
+            'Users still need the record_locks.override_incoming feature to keep their version during conflicts.',
+          )}
+        </p>
 
         <div className="flex items-center justify-between gap-4">
           <Label htmlFor="record-lock-notify-conflict">{t('record_locks.settings.notify_on_conflict', 'Notify on conflict')}</Label>
