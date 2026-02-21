@@ -359,18 +359,22 @@ export default function CustomerCompanyDetailPage({ params }: { params?: { id?: 
   const saveCompany = React.useCallback(
     async (patch: Record<string, unknown>, apply: (prev: CompanyOverview) => CompanyOverview) => {
       if (!data) return
-      await apiCallOrThrow(
-        '/api/customers/companies',
-        {
-          method: 'PUT',
-          headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({ id: data.company.id, ...patch }),
-        },
-        { errorMessage: t('customers.companies.detail.inline.error', 'Unable to update company.') },
+      const payload = { id: data.company.id, ...patch }
+      await runMutation(
+        () => apiCallOrThrow(
+          '/api/customers/companies',
+          {
+            method: 'PUT',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify(payload),
+          },
+          { errorMessage: t('customers.companies.detail.inline.error', 'Unable to update company.') },
+        ),
+        payload,
       )
       setData((prev) => (prev ? apply(prev) : prev))
     },
-    [data, t],
+    [data, runMutation, t],
   )
 
   const updateDisplayName = React.useCallback(
@@ -445,18 +449,22 @@ export default function CustomerCompanyDetailPage({ params }: { params?: { id?: 
         if (showFlash) flash(t('ui.forms.flash.saveSuccess', 'Saved successfully.'), 'success')
         return
       }
+      const payload = {
+        id: data.company.id,
+        customFields: customPayload,
+      }
       try {
-        await apiCallOrThrow(
-          '/api/customers/companies',
-          {
-            method: 'PUT',
-            headers: { 'content-type': 'application/json' },
-            body: JSON.stringify({
-              id: data.company.id,
-              customFields: customPayload,
-            }),
-          },
-          { errorMessage: t('customers.companies.detail.inline.error', 'Unable to update company.') },
+        await runMutation(
+          () => apiCallOrThrow(
+            '/api/customers/companies',
+            {
+              method: 'PUT',
+              headers: { 'content-type': 'application/json' },
+              body: JSON.stringify(payload),
+            },
+            { errorMessage: t('customers.companies.detail.inline.error', 'Unable to update company.') },
+          ),
+          payload,
         )
       } catch (err) {
         const { message: helperMessage, fieldErrors } = mapCrudServerErrorToFormErrors(err)
@@ -484,7 +492,7 @@ export default function CustomerCompanyDetailPage({ params }: { params?: { id?: 
       })
       if (showFlash) flash(t('ui.forms.flash.saveSuccess', 'Saved successfully.'), 'success')
     },
-    [data, t],
+    [data, runMutation, t],
   )
 
   const handleAnnualRevenueChange = React.useCallback(
@@ -547,9 +555,9 @@ export default function CustomerCompanyDetailPage({ params }: { params?: { id?: 
 
   const handleCustomFieldsSubmit = React.useCallback(
     async (values: Record<string, unknown>) => {
-      await runMutation(() => submitCustomFields(values))
+      await submitCustomFields(values)
     },
-    [runMutation, submitCustomFields],
+    [submitCustomFields],
   )
 
   const handleNotesLoadingChange = React.useCallback(() => {}, [])
@@ -616,7 +624,7 @@ export default function CustomerCompanyDetailPage({ params }: { params?: { id?: 
       placeholder: t('customers.companies.form.displayName.placeholder', 'Enter company name'),
       emptyLabel: t('customers.companies.detail.noValue', 'Not provided'),
       validator: validators.displayName,
-      onSave: (value) => runMutation(() => updateDisplayName(value)),
+      onSave: updateDisplayName,
     },
     {
       key: 'legalName',
@@ -625,7 +633,7 @@ export default function CustomerCompanyDetailPage({ params }: { params?: { id?: 
       value: profile?.legalName ?? null,
       placeholder: t('customers.companies.detail.fields.legalNamePlaceholder', 'Add legal name'),
       emptyLabel: t('customers.companies.detail.noValue', 'Not provided'),
-      onSave: (value) => runMutation(() => updateProfileField('legalName', value)),
+      onSave: (value) => updateProfileField('legalName', value),
     },
     {
       key: 'brandName',
@@ -634,7 +642,7 @@ export default function CustomerCompanyDetailPage({ params }: { params?: { id?: 
       value: profile?.brandName ?? null,
       placeholder: t('customers.companies.detail.fields.brandNamePlaceholder', 'Add brand name'),
       emptyLabel: t('customers.companies.detail.noValue', 'Not provided'),
-      onSave: (value) => runMutation(() => updateProfileField('brandName', value)),
+      onSave: (value) => updateProfileField('brandName', value),
     },
     {
       key: 'description',
@@ -647,13 +655,13 @@ export default function CustomerCompanyDetailPage({ params }: { params?: { id?: 
       renderDisplay: renderMultilineMarkdownDisplay,
       onSave: async (next) => {
         const send = typeof next === 'string' ? next : ''
-        await runMutation(() => saveCompany(
+        await saveCompany(
           { description: send },
           (prev) => ({
             ...prev,
             company: { ...prev.company, description: next && next.length ? next : null },
           })
-        ))
+        )
       },
     },
     {
@@ -667,7 +675,7 @@ export default function CustomerCompanyDetailPage({ params }: { params?: { id?: 
           value={company.lifecycleStage ?? null}
           emptyLabel={t('customers.companies.detail.noValue', 'Not provided')}
           kind="lifecycle-stages"
-          onSave={(next) => runMutation(() => updateCompanyField('lifecycleStage', next))}
+          onSave={(next) => updateCompanyField('lifecycleStage', next)}
           selectClassName="h-9 w-full rounded border px-3 text-sm"
           variant="muted"
           activateOnClick
@@ -685,7 +693,7 @@ export default function CustomerCompanyDetailPage({ params }: { params?: { id?: 
           value={company.source ?? null}
           emptyLabel={t('customers.companies.detail.noValue', 'Not provided')}
           kind="sources"
-          onSave={(next) => runMutation(() => updateCompanyField('source', next))}
+          onSave={(next) => updateCompanyField('source', next)}
           selectClassName="h-9 w-full rounded border px-3 text-sm"
           variant="muted"
           activateOnClick
@@ -699,7 +707,7 @@ export default function CustomerCompanyDetailPage({ params }: { params?: { id?: 
       value: profile?.domain ?? null,
       placeholder: t('customers.companies.detail.fields.domainPlaceholder', 'example.com'),
       emptyLabel: t('customers.companies.detail.noValue', 'Not provided'),
-      onSave: (value) => runMutation(() => updateProfileField('domain', value)),
+      onSave: (value) => updateProfileField('domain', value),
     },
     {
       key: 'industry',
@@ -712,7 +720,7 @@ export default function CustomerCompanyDetailPage({ params }: { params?: { id?: 
           value={profile?.industry ?? null}
           emptyLabel={t('customers.companies.detail.noValue', 'Not provided')}
           kind="industries"
-          onSave={(next) => runMutation(() => updateProfileField('industry', next))}
+          onSave={(next) => updateProfileField('industry', next)}
           selectClassName="h-9 w-full rounded border px-3 text-sm"
           variant="muted"
           activateOnClick
@@ -726,7 +734,7 @@ export default function CustomerCompanyDetailPage({ params }: { params?: { id?: 
       value: profile?.sizeBucket ?? null,
       placeholder: t('customers.companies.detail.fields.sizeBucketPlaceholder', 'Add size bucket'),
       emptyLabel: t('customers.companies.detail.noValue', 'Not provided'),
-      onSave: (value) => runMutation(() => updateProfileField('sizeBucket', value)),
+      onSave: (value) => updateProfileField('sizeBucket', value),
     },
     {
       key: 'annualRevenue',
@@ -740,7 +748,7 @@ export default function CustomerCompanyDetailPage({ params }: { params?: { id?: 
           currency={annualRevenueCurrency}
           emptyLabel={t('customers.companies.detail.noValue', 'Not provided')}
           validator={validators.annualRevenue}
-          onSave={(next) => runMutation(() => handleAnnualRevenueChange(next))}
+          onSave={handleAnnualRevenueChange}
         />
       ),
     },
@@ -753,7 +761,7 @@ export default function CustomerCompanyDetailPage({ params }: { params?: { id?: 
       emptyLabel: t('customers.companies.detail.noValue', 'Not provided'),
       inputType: 'url',
       validator: validators.website,
-      onSave: (value) => runMutation(() => updateProfileField('websiteUrl', value)),
+      onSave: (value) => updateProfileField('websiteUrl', value),
     },
   ]
 

@@ -824,9 +824,15 @@ export default function RecordLockingWidget({
         })
       }
 
-      const buildFallbackConflict = (currentState: RecordLockFormState) => ({
+      const buildFallbackConflict = (currentState: RecordLockFormState) => {
+        const preferredConflictId = isUuid(currentState.pendingConflictId)
+          ? currentState.pendingConflictId
+          : isUuid(currentState.conflict?.id)
+            ? currentState.conflict.id
+            : 'unresolved'
+        return ({
           conflict: {
-            id: 'unresolved',
+            id: preferredConflictId,
             resourceKind: currentState.resourceKind ?? '',
             resourceId: currentState.resourceId ?? '',
           baseActionLogId: currentState.latestActionLogId ?? null,
@@ -839,6 +845,7 @@ export default function RecordLockingWidget({
         lock: currentState.lock ?? undefined,
         latestActionLogId: currentState.latestActionLogId ?? null,
       })
+      }
 
       const detail = (event as CustomEvent<CrudSaveErrorEventDetail>).detail
       if (!detail) return
@@ -878,7 +885,11 @@ export default function RecordLockingWidget({
               }),
             })
             const validationPayload = validationCall.result
-            if (!validationPayload?.ok && (validationPayload.code === 'record_lock_conflict' || validationPayload.status === 409)) {
+            if (
+              validationPayload
+              && !validationPayload.ok
+              && (validationPayload.code === 'record_lock_conflict' || validationPayload.status === 409)
+            ) {
               applyConflictPayload({
                 conflict: validationPayload.conflict ?? buildFallbackConflict(currentState).conflict,
                 lock: validationPayload.lock ?? currentState.lock ?? undefined,
@@ -980,34 +991,62 @@ export default function RecordLockingWidget({
 
   const handleKeepMine = React.useCallback(() => {
     if (!state?.conflict) return
-    setRecordLockFormState(formId, {
-      pendingResolution: 'accept_mine',
-      pendingConflictId: state.conflict.id,
-    })
-    window.setTimeout(async () => {
-      const submitted = submitCrudForm(formId)
-      if (submitted) return
-      const retried = await Promise.resolve(context.retryLastMutation?.()).catch(() => false)
-      if (!retried) {
+    const applyAcceptMine = async () => {
+      let conflictId: string | null = isUuid(state.conflict?.id) ? state.conflict.id : null
+      if (!conflictId) {
+        const validation = await validateBeforeSave({}, context)
+        conflictId = isUuid(validation.conflict?.id) ? validation.conflict.id : null
+      }
+      if (!conflictId) {
         flash(
           t(
-            'record_locks.conflict.retry_save_after_accept_mine',
-            'Click save again to apply your changes.',
+            'record_locks.conflict.refresh_required',
+            'Could not confirm conflict details. Save again to refresh conflict data.',
           ),
-          'info',
+          'error',
         )
+        return
       }
-    }, 0)
-  }, [context.retryLastMutation, formId, state?.conflict, t])
+      setRecordLockFormState(formId, {
+        pendingResolution: 'accept_mine',
+        pendingConflictId: conflictId,
+      })
+      window.setTimeout(async () => {
+        const submitted = submitCrudForm(formId)
+        if (submitted) return
+        const retried = await Promise.resolve(context.retryLastMutation?.()).catch(() => false)
+        if (!retried) {
+          flash(
+            t(
+              'record_locks.conflict.retry_save_after_accept_mine',
+              'Click save again to apply your changes.',
+            ),
+            'info',
+          )
+        }
+      }, 0)
+    }
+    void applyAcceptMine()
+  }, [context, context.retryLastMutation, formId, state?.conflict, t])
 
   const handleKeepEditing = React.useCallback(() => {
     if (!state?.conflict) return
+    const conflictId = isUuid(state.conflict.id) ? state.conflict.id : null
     setRecordLockFormState(formId, {
       conflict: null,
-      pendingConflictId: null,
-      pendingResolution: 'normal',
+      pendingConflictId: conflictId,
+      pendingResolution: conflictId ? 'merged' : 'normal',
     })
-  }, [formId, state?.conflict])
+    if (!conflictId) {
+      flash(
+        t(
+          'record_locks.conflict.refresh_required',
+          'Could not confirm conflict details. Save again to refresh conflict data.',
+        ),
+        'info',
+      )
+    }
+  }, [formId, state?.conflict, t])
 
   const noneLabel = t('audit_logs.common.none')
   const conflictChangeRows = React.useMemo<ChangeRow[]>(
@@ -1030,11 +1069,7 @@ export default function RecordLockingWidget({
   const conflictDialog = (
     <Dialog open={Boolean(state?.conflict)} onOpenChange={(open) => {
       if (open) return
-      setRecordLockFormState(formId, {
-        conflict: null,
-        pendingConflictId: null,
-        pendingResolution: 'normal',
-      })
+      handleKeepEditing()
     }}>
       <DialogContent>
         <DialogHeader>
@@ -1069,15 +1104,38 @@ export default function RecordLockingWidget({
           ) : null}
           <div className="-mx-6 -mb-6 mt-4 border-t bg-background/95 px-6 py-3 backdrop-blur supports-[backdrop-filter]:bg-background/80">
             <div className="flex flex-wrap justify-end gap-2">
-            <Button variant="outline" onClick={handleAcceptIncoming}>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={(event) => {
+                event.preventDefault()
+                event.stopPropagation()
+                void handleAcceptIncoming()
+              }}
+            >
               {t('record_locks.conflict.accept_incoming', 'Accept incoming')}
             </Button>
             {canKeepMyChanges ? (
-              <Button onClick={handleKeepMine}>
+              <Button
+                type="button"
+                onClick={(event) => {
+                  event.preventDefault()
+                  event.stopPropagation()
+                  void handleKeepMine()
+                }}
+              >
                 {t('record_locks.conflict.accept_mine', 'Keep my changes')}
               </Button>
             ) : null}
-            <Button variant="ghost" onClick={handleKeepEditing}>
+            <Button
+              type="button"
+              variant="ghost"
+              onClick={(event) => {
+                event.preventDefault()
+                event.stopPropagation()
+                handleKeepEditing()
+              }}
+            >
               {t('record_locks.conflict.keep_editing', 'Keep editing')}
             </Button>
             </div>
@@ -1143,6 +1201,7 @@ export default function RecordLockingWidget({
       <div className="mt-2 flex gap-2">
       {state.allowForceUnlock && !mine ? (
         <Button
+          type="button"
           size="sm"
           variant="outline"
           onClick={handleTakeOver}
@@ -1154,6 +1213,7 @@ export default function RecordLockingWidget({
       {showLockContentionBanner ? (
         <div className="mt-2">
           <Button
+            type="button"
             size="sm"
             variant="outline"
             onClick={() => setShowLockContentionBanner(false)}
