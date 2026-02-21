@@ -33,12 +33,6 @@ function normalizeOrgScope(organizationId: string | null | undefined): string | 
   return organizationId ?? null
 }
 
-function isNotificationsPrimaryKeyViolation(error: unknown): boolean {
-  if (!error || typeof error !== 'object') return false
-  const candidate = error as { code?: unknown; constraint?: unknown }
-  return candidate.code === '23505' && candidate.constraint === 'notifications_pkey'
-}
-
 function applyNotificationContent(
   notification: Notification,
   input: NotificationContentInput,
@@ -169,21 +163,12 @@ export function createNotificationService(deps: NotificationServiceDeps): Notifi
   return {
     async create(input, ctx) {
       const { recipientUserId, ...content } = input
-      const createOnce = async () => {
-        const writeEm = rootEm.fork()
-        return writeEm.transactional(async (tx) => {
-          const entity = await createOrRefreshNotification(tx, content, recipientUserId, ctx)
-          await tx.flush()
-          return entity
-        })
-      }
-      let notification: Notification
-      try {
-        notification = await createOnce()
-      } catch (error) {
-        if (!isNotificationsPrimaryKeyViolation(error)) throw error
-        notification = await createOnce()
-      }
+      const writeEm = rootEm.fork()
+      const notification = await writeEm.transactional(async (tx) => {
+        const entity = await createOrRefreshNotification(tx, content, recipientUserId, ctx)
+        await tx.flush()
+        return entity
+      })
 
       await emitNotificationCreated(eventBus, notification, ctx)
 

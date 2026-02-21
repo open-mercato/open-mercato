@@ -1339,35 +1339,86 @@ export class RecordLockService {
     conflictActorUserId: string
     incomingActorUserId: string | null
   }): Promise<RecordLockConflict> {
-    const conflict = this.em.create(RecordLockConflict, {
-      resourceKind: input.scope.resourceKind,
-      resourceId: input.scope.resourceId,
-      status: 'pending',
-      resolution: null,
-      baseActionLogId: input.baseActionLogId,
-      incomingActionLogId: input.incomingActionLogId,
-      conflictActorUserId: input.conflictActorUserId,
-      incomingActorUserId: input.incomingActorUserId,
+    const dedupeKey = [
+      'record_locks',
+      'conflict',
+      input.scope.tenantId,
+      normalizeScopeOrganization(input.scope.organizationId) ?? 'global',
+      input.scope.resourceKind,
+      input.scope.resourceId,
+      input.conflictActorUserId,
+      input.baseActionLogId ?? 'none',
+      input.incomingActionLogId ?? 'none',
+    ].join(':')
+
+    const result = await this.em.transactional(async (tx) => {
+      try {
+        const knex = getKnex(tx as EntityManager)
+        await knex.raw('select pg_advisory_xact_lock(hashtext(?))', [dedupeKey])
+      } catch {
+        // Best-effort lock; fallback to find-first behavior below.
+      }
+
+      const existing = await this.findPendingConflictByFingerprint(tx as EntityManager, input)
+      if (existing) {
+        return { conflict: existing, created: false as const }
+      }
+
+      const conflict = tx.create(RecordLockConflict, {
+        resourceKind: input.scope.resourceKind,
+        resourceId: input.scope.resourceId,
+        status: 'pending',
+        resolution: null,
+        baseActionLogId: input.baseActionLogId,
+        incomingActionLogId: input.incomingActionLogId,
+        conflictActorUserId: input.conflictActorUserId,
+        incomingActorUserId: input.incomingActorUserId,
+        tenantId: input.scope.tenantId,
+        organizationId: normalizeScopeOrganization(input.scope.organizationId),
+      })
+
+      tx.persist(conflict)
+      await tx.flush()
+      return { conflict, created: true as const }
+    })
+
+    if (result.created) {
+      await emitRecordLocksEvent('record_locks.conflict.detected', {
+        conflictId: result.conflict.id,
+        resourceKind: result.conflict.resourceKind,
+        resourceId: result.conflict.resourceId,
+        tenantId: result.conflict.tenantId,
+        organizationId: result.conflict.organizationId,
+        conflictActorUserId: result.conflict.conflictActorUserId,
+        incomingActorUserId: result.conflict.incomingActorUserId,
+        baseActionLogId: result.conflict.baseActionLogId,
+        incomingActionLogId: result.conflict.incomingActionLogId,
+      })
+    }
+
+    return result.conflict
+  }
+
+  private findPendingConflictByFingerprint(
+    em: EntityManager,
+    input: {
+      scope: Pick<RecordLockScope, 'tenantId' | 'organizationId'> & RecordLockResource
+      baseActionLogId: string | null
+      incomingActionLogId: string | null
+      conflictActorUserId: string
+    },
+  ): Promise<RecordLockConflict | null> {
+    return em.findOne(RecordLockConflict, {
       tenantId: input.scope.tenantId,
       organizationId: normalizeScopeOrganization(input.scope.organizationId),
-    })
-
-    this.em.persist(conflict)
-    await this.em.flush()
-
-    await emitRecordLocksEvent('record_locks.conflict.detected', {
-      conflictId: conflict.id,
-      resourceKind: conflict.resourceKind,
-      resourceId: conflict.resourceId,
-      tenantId: conflict.tenantId,
-      organizationId: conflict.organizationId,
-      conflictActorUserId: conflict.conflictActorUserId,
-      incomingActorUserId: conflict.incomingActorUserId,
-      baseActionLogId: conflict.baseActionLogId,
-      incomingActionLogId: conflict.incomingActionLogId,
-    })
-
-    return conflict
+      resourceKind: input.scope.resourceKind,
+      resourceId: input.scope.resourceId,
+      conflictActorUserId: input.conflictActorUserId,
+      status: 'pending',
+      baseActionLogId: input.baseActionLogId,
+      incomingActionLogId: input.incomingActionLogId,
+      deletedAt: null,
+    }, { orderBy: { createdAt: 'desc' } })
   }
 
   private async resolveConflict(

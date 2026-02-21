@@ -28,7 +28,9 @@ function createService(
     create: jest.fn(),
     persist: jest.fn(),
     flush: jest.fn(),
+    transactional: jest.fn(),
   } as any
+  em.transactional.mockImplementation(async (cb: (tx: typeof em) => Promise<unknown>) => cb(em))
 
   const moduleConfigService = {
     getValue: jest.fn().mockResolvedValue(settings),
