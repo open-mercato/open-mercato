@@ -1583,6 +1583,8 @@ export function CrudForm<TValues extends Record<string, unknown>>({
               submit: { formId, pending, label: resolvedSubmitLabel, pendingLabel: savingLabel },
             }}
           />
+        ) : headerExtraActions ? (
+          <div className="flex justify-end gap-2 mb-2">{headerExtraActions}</div>
         ) : null}
         {contentHeader}
         <DataLoader
@@ -1653,6 +1655,8 @@ export function CrudForm<TValues extends Record<string, unknown>>({
             submit: { formId, pending, label: resolvedSubmitLabel, pendingLabel: savingLabel },
           }}
         />
+      ) : headerExtraActions ? (
+        <div className="flex justify-end gap-2 mb-2">{headerExtraActions}</div>
       ) : null}
       {contentHeader}
       <DataLoader

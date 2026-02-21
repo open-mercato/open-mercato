@@ -1,31 +1,28 @@
 "use client"
 
 import * as React from 'react'
-import { useParams } from 'next/navigation'
-import Link from 'next/link'
-import { ExternalLink, Languages, X } from 'lucide-react'
-import type { InjectionWidgetComponentProps } from '@open-mercato/shared/modules/widgets/injection'
-import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { Languages, X } from 'lucide-react'
 import { Button } from '@open-mercato/ui/primitives/button'
-import { TranslationManager } from '../../../components/TranslationManager'
-import { extractRecordId } from '../../../lib/extract-record-id'
+import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { TranslationManager } from './TranslationManager'
 
-type WidgetContext = { entityId?: string; recordId?: string }
-type WidgetData = Record<string, unknown> & { id?: string | number }
+export type TranslationDrawerActionConfig = {
+  entityType: string
+  recordId: string
+  baseValues?: Record<string, unknown>
+}
 
-export default function TranslationWidget({ context, data }: InjectionWidgetComponentProps<WidgetContext, WidgetData>) {
-  const entityType = context?.entityId
-  const params = useParams()
+export type TranslationDrawerActionProps = {
+  config: TranslationDrawerActionConfig | null
+}
+
+export function TranslationDrawerAction({ config }: TranslationDrawerActionProps) {
   const t = useT()
   const [open, setOpen] = React.useState(false)
 
-  const contextRecordId = typeof context?.recordId === 'string' && context.recordId.trim().length > 0
-    ? context.recordId.trim()
-    : undefined
-  const dataRecordId = data?.id === undefined || data.id === null ? undefined : String(data.id)
-  const routeRecordId = params ? extractRecordId(params as Record<string, string | string[]>) : undefined
-  const recordId = contextRecordId ?? dataRecordId ?? routeRecordId
-  const canRender = Boolean(entityType && recordId)
+  const canRender = Boolean(
+    config?.entityType && config?.recordId && String(config.recordId).trim().length > 0,
+  )
 
   React.useEffect(() => {
     if (!open || !canRender) return
@@ -96,29 +93,10 @@ export default function TranslationWidget({ context, data }: InjectionWidgetComp
               <div className="flex-1 overflow-y-auto px-4 py-4">
                 <TranslationManager
                   mode="embedded"
-                  compact
-                  entityType={entityType}
-                  recordId={recordId}
-                  baseValues={data}
+                  entityType={config!.entityType}
+                  recordId={config!.recordId}
+                  baseValues={config!.baseValues}
                 />
-              </div>
-              <div className="flex flex-wrap gap-x-4 gap-y-1 border-t px-4 py-3">
-                <Link
-                  href={`/backend/entities/system/${encodeURIComponent(entityType!)}`}
-                  className="inline-flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors"
-                >
-                  <Languages className="size-3" />
-                  {t('translations.widgets.translationManager.customFieldLabels', 'Custom fields translations')}
-                  <ExternalLink className="size-2.5" />
-                </Link>
-                <Link
-                  href="/backend/config/translations"
-                  className="inline-flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors"
-                >
-                  <Languages className="size-3" />
-                  {t('translations.widgets.translationManager.fullManager', 'Translation manager')}
-                  <ExternalLink className="size-2.5" />
-                </Link>
               </div>
             </div>
           </div>
