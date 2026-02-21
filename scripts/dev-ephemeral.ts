@@ -1,9 +1,30 @@
 import { spawn } from 'node:child_process'
 import { access, copyFile, mkdir, readFile, writeFile } from 'node:fs/promises'
 import { constants as fsConstants } from 'node:fs'
-import { createServer } from 'node:net'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
+import {
+  assertNode24Runtime,
+  getFreePort,
+  getPreferredPort,
+  isPortAvailable,
+  isEndpointResponsive,
+} from '../packages/cli/src/lib/testing/runtime-utils'
+
+type DevEphemeralInstance = {
+  id: string
+  pid: number
+  port: number
+  baseUrl: string
+  backendUrl: string
+  cwd: string
+  startedAt: string
+}
+
+type DevEphemeralState = {
+  version: 1
+  instances: DevEphemeralInstance[]
+}
 
 const scriptDirectory = path.dirname(fileURLToPath(import.meta.url))
 const projectRootDirectory = path.resolve(scriptDirectory, '..')
@@ -11,27 +32,15 @@ const appDirectory = path.join(projectRootDirectory, 'apps', 'mercato')
 const envExamplePath = path.join(appDirectory, '.env.example')
 const envPath = path.join(appDirectory, '.env')
 const devInstancesFilePath = path.join(projectRootDirectory, '.ai', 'dev-ephemeral-envs.json')
-const preferredPort = Number.parseInt(process.env.DEV_EPHEMERAL_PREFERRED_PORT ?? '3000', 10)
+const preferredPort = Number.parseInt(process.env.DEV_EPHEMERAL_PREFERRED_PORT ?? '', 10)
+const minimumEphemeralPort = 5000
+const maximumPort = 65535
+const randomPortAttempts = 100
 const startupTimeoutMs = 120000
 const readinessProbeIntervalMs = 1000
 const probeTimeoutMs = 1500
 
-function assertNode24Runtime() {
-  const majorVersion = Number.parseInt((process.versions.node || '0').split('.')[0] || '0', 10)
-  if (majorVersion >= 24) {
-    return
-  }
-
-  throw new Error(
-    [
-      'Unsupported Node.js runtime for dev ephemeral mode.',
-      `Cause: Detected Node ${process.versions.node}, but this repository requires Node 24.x.`,
-      'What to do: switch your shell to Node 24 (for example `nvm use 24`), reinstall dependencies (`yarn install`), then retry `yarn dev:ephemeral`.',
-    ].join(' '),
-  )
-}
-
-async function fileExists(filePath) {
+async function fileExists(filePath: string): Promise<boolean> {
   try {
     await access(filePath, fsConstants.F_OK)
     return true
@@ -40,7 +49,7 @@ async function fileExists(filePath) {
   }
 }
 
-async function ensureEnvFile() {
+async function ensureEnvFile(): Promise<void> {
   if (await fileExists(envPath)) {
     console.log('[dev:ephemeral] Reusing existing apps/mercato/.env file.')
     return
@@ -50,7 +59,7 @@ async function ensureEnvFile() {
   console.log('[dev:ephemeral] Created apps/mercato/.env from apps/mercato/.env.example.')
 }
 
-function runCommand(command, args, options = {}) {
+function runCommand(command: string, args: string[], options: { env?: NodeJS.ProcessEnv } = {}): Promise<number> {
   return new Promise((resolve, reject) => {
     const child = spawn(command, args, {
       cwd: projectRootDirectory,
@@ -71,102 +80,65 @@ function runCommand(command, args, options = {}) {
   })
 }
 
-async function isPortAvailable(port) {
-  const canBind = (host) => new Promise((resolve) => {
-    const server = createServer()
-    server.once('error', (error) => {
-      const errorCode = error && typeof error === 'object' ? error.code : null
-      if (errorCode === 'EAFNOSUPPORT') {
-        resolve(null)
-        return
-      }
-      resolve(false)
-    })
-    server.listen(port, host, () => {
-      server.close(() => {
-        resolve(true)
-      })
-    })
-  })
-
-  const ipv4Availability = await canBind('127.0.0.1')
-  if (ipv4Availability === false) {
-    return false
+async function resolvePort(): Promise<number> {
+  if (Number.isFinite(preferredPort) && preferredPort >= minimumEphemeralPort && preferredPort <= maximumPort) {
+    return getPreferredPort(preferredPort, 'dev:ephemeral')
   }
 
-  const ipv6Availability = await canBind('::1')
-  if (ipv6Availability === false) {
-    return false
+  if (Number.isFinite(preferredPort) && (preferredPort < minimumEphemeralPort || preferredPort > maximumPort)) {
+    console.log(
+      `[dev:ephemeral] Ignoring DEV_EPHEMERAL_PREFERRED_PORT=${preferredPort}. Value must be between ${minimumEphemeralPort} and ${maximumPort}.`,
+    )
   }
 
-  return ipv4Availability === true || ipv6Availability === true
-}
-
-function getFreePort() {
-  return new Promise((resolve, reject) => {
-    const server = createServer()
-    server.on('error', reject)
-    server.listen(0, '127.0.0.1', () => {
-      const address = server.address()
-      if (!address || typeof address === 'string') {
-        server.close()
-        reject(new Error('Unable to allocate free port.'))
-        return
-      }
-
-      const allocatedPort = address.port
-      server.close((closeError) => {
-        if (closeError) {
-          reject(closeError)
-          return
-        }
-        resolve(allocatedPort)
-      })
-    })
-  })
-}
-
-async function resolvePort() {
-  if (Number.isFinite(preferredPort) && preferredPort > 0 && preferredPort <= 65535 && await isPortAvailable(preferredPort)) {
-    return preferredPort
+  for (let attempt = 0; attempt < randomPortAttempts; attempt += 1) {
+    const candidatePort = Math.floor(Math.random() * (maximumPort - minimumEphemeralPort + 1)) + minimumEphemeralPort
+    if (await isPortAvailable(candidatePort)) {
+      return candidatePort
+    }
   }
 
-  const fallbackPort = await getFreePort()
-  console.log(`[dev:ephemeral] Preferred port ${preferredPort} is not available. Using ${fallbackPort}.`)
-  return fallbackPort
+  for (let attempt = 0; attempt < randomPortAttempts; attempt += 1) {
+    const fallbackPort = await getFreePort()
+    if (fallbackPort >= minimumEphemeralPort) {
+      return fallbackPort
+    }
+  }
+
+  throw new Error(`Unable to allocate a free dev ephemeral port >= ${minimumEphemeralPort}.`)
 }
 
-async function readDevInstancesState() {
+async function readDevInstancesState(): Promise<DevEphemeralState> {
   let rawState = ''
   try {
     rawState = await readFile(devInstancesFilePath, 'utf8')
   } catch (error) {
-    if (error && typeof error === 'object' && error.code === 'ENOENT') {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
       return { version: 1, instances: [] }
     }
     throw error
   }
 
   try {
-    const parsedState = JSON.parse(rawState)
+    const parsedState = JSON.parse(rawState) as Partial<DevEphemeralState>
     if (!parsedState || typeof parsedState !== 'object' || !Array.isArray(parsedState.instances)) {
       return { version: 1, instances: [] }
     }
     return {
       version: 1,
-      instances: parsedState.instances,
+      instances: parsedState.instances as DevEphemeralInstance[],
     }
   } catch {
     return { version: 1, instances: [] }
   }
 }
 
-async function writeDevInstancesState(state) {
+async function writeDevInstancesState(state: DevEphemeralState): Promise<void> {
   await mkdir(path.dirname(devInstancesFilePath), { recursive: true })
   await writeFile(devInstancesFilePath, `${JSON.stringify(state, null, 2)}\n`, 'utf8')
 }
 
-function isProcessRunning(pid) {
+function isProcessRunning(pid: number): boolean {
   if (!Number.isInteger(pid) || pid <= 0) {
     return false
   }
@@ -175,29 +147,16 @@ function isProcessRunning(pid) {
     process.kill(pid, 0)
     return true
   } catch (error) {
-    if (error && typeof error === 'object' && error.code === 'EPERM') {
+    if ((error as NodeJS.ErrnoException).code === 'EPERM') {
       return true
     }
     return false
   }
 }
 
-async function isEndpointResponsive(url) {
-  try {
-    const response = await fetch(url, {
-      method: 'GET',
-      redirect: 'manual',
-      signal: AbortSignal.timeout(probeTimeoutMs),
-    })
-    return response.status > 0
-  } catch {
-    return false
-  }
-}
-
-async function pruneStaleDevInstances() {
+async function pruneStaleDevInstances(): Promise<void> {
   const state = await readDevInstancesState()
-  const retainedInstances = []
+  const retainedInstances: DevEphemeralInstance[] = []
   let removedCount = 0
 
   for (const instance of state.instances) {
@@ -214,7 +173,7 @@ async function pruneStaleDevInstances() {
     }
 
     const processAlive = isProcessRunning(instancePid)
-    const endpointResponsive = await isEndpointResponsive(`${instanceBaseUrl}/backend/login`)
+    const endpointResponsive = await isEndpointResponsive(`${instanceBaseUrl}/backend/login`, probeTimeoutMs)
 
     if (processAlive && endpointResponsive) {
       retainedInstances.push(instance)
@@ -230,14 +189,14 @@ async function pruneStaleDevInstances() {
   }
 }
 
-async function registerCurrentDevInstance(instance) {
+async function registerCurrentDevInstance(instance: DevEphemeralInstance): Promise<void> {
   const state = await readDevInstancesState()
   const nextInstances = state.instances.filter((candidate) => candidate && candidate.pid !== instance.pid)
   nextInstances.push(instance)
   await writeDevInstancesState({ version: 1, instances: nextInstances })
 }
 
-async function unregisterCurrentDevInstance(instancePid) {
+async function unregisterCurrentDevInstance(instancePid: number): Promise<void> {
   const state = await readDevInstancesState()
   const nextInstances = state.instances.filter((candidate) => candidate && candidate.pid !== instancePid)
   if (nextInstances.length !== state.instances.length) {
@@ -245,10 +204,10 @@ async function unregisterCurrentDevInstance(instancePid) {
   }
 }
 
-function openUrlInBrowser(url) {
+function openUrlInBrowser(url: string): Promise<boolean> {
   return new Promise((resolve) => {
     let command = ''
-    let args = []
+    let args: string[] = []
     let useShell = false
 
     if (process.platform === 'darwin') {
@@ -278,10 +237,10 @@ function openUrlInBrowser(url) {
   })
 }
 
-async function waitForDevServerReady(baseUrl) {
+async function waitForDevServerReady(baseUrl: string): Promise<boolean> {
   const deadline = Date.now() + startupTimeoutMs
   while (Date.now() < deadline) {
-    const responsive = await isEndpointResponsive(`${baseUrl}/backend/login`)
+    const responsive = await isEndpointResponsive(`${baseUrl}/backend/login`, probeTimeoutMs)
     if (responsive) {
       return true
     }
@@ -292,7 +251,7 @@ async function waitForDevServerReady(baseUrl) {
   return false
 }
 
-async function startDevServer(port) {
+async function startDevServer(port: number): Promise<number> {
   const baseUrl = `http://127.0.0.1:${port}`
   const backendUrl = `${baseUrl}/backend`
   const devEnvironment = {
@@ -311,7 +270,7 @@ async function startDevServer(port) {
     throw new Error('Failed to start development runtime process.')
   }
 
-  const instanceState = {
+  const instanceState: DevEphemeralInstance = {
     id: `${devCommand.pid}:${new Date().toISOString()}`,
     pid: devCommand.pid,
     port,
@@ -337,7 +296,7 @@ async function startDevServer(port) {
     console.log(`[dev:ephemeral] Runtime did not become reachable within ${startupTimeoutMs / 1000}s. Continue watching logs above.`)
   }
 
-  const forwardSignal = (signal) => {
+  const forwardSignal = (signal: NodeJS.Signals): void => {
     if (!devCommand.killed) {
       devCommand.kill(signal)
     }
@@ -348,26 +307,24 @@ async function startDevServer(port) {
 
   return new Promise((resolve, reject) => {
     devCommand.on('error', async (error) => {
-      await unregisterCurrentDevInstance(devCommand.pid)
+      await unregisterCurrentDevInstance(devCommand.pid as number)
       reject(error)
     })
 
-    devCommand.on('exit', async (code, signal) => {
-      await unregisterCurrentDevInstance(devCommand.pid)
-
-      if (signal) {
-        resolve(128)
-        return
-      }
-
+    devCommand.on('exit', async (code, _signal) => {
+      await unregisterCurrentDevInstance(devCommand.pid as number)
       resolve(code ?? 1)
     })
   })
 }
 
-async function main() {
+async function main(): Promise<void> {
   try {
-    assertNode24Runtime()
+    assertNode24Runtime({
+      context: 'dev ephemeral mode',
+      retryCommand: 'yarn dev:ephemeral',
+    })
+
     await mkdir(path.dirname(envPath), { recursive: true })
     await ensureEnvFile()
 

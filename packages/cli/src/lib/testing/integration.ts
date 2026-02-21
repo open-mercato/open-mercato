@@ -1,6 +1,5 @@
 import { GenericContainer } from 'testcontainers'
 import { spawn, type ChildProcess, type StdioOptions } from 'node:child_process'
-import { createServer } from 'node:net'
 import { mkdir, readdir, readFile, rm, stat, writeFile } from 'node:fs/promises'
 import { createHash } from 'node:crypto'
 import path from 'node:path'
@@ -8,6 +7,7 @@ import { createInterface, type Interface } from 'node:readline/promises'
 import { stdin as input, stdout as output } from 'node:process'
 import { createResolver } from '../resolver'
 import { discoverIntegrationSpecFiles as discoverIntegrationSpecFilesShared } from './integration-discovery'
+import { assertNode24Runtime, getFreePort, getPreferredPort } from './runtime-utils'
 
 type EphemeralRuntimeOptions = {
   verbose: boolean
@@ -654,20 +654,6 @@ async function assertContainerRuntimeAvailable(): Promise<void> {
   )
 }
 
-function assertNode24Runtime(): void {
-  const major = Number.parseInt(process.versions.node.split('.')[0] ?? '0', 10)
-  if (major >= 24) {
-    return
-  }
-  throw new Error(
-    [
-      'Unsupported Node.js runtime for ephemeral integration tests.',
-      `Cause: Detected Node ${process.versions.node}, but this repository requires Node 24.x.`,
-      'What to do: switch your shell to Node 24 (for example `nvm use 24`), reinstall dependencies (`yarn install`), then retry `yarn test:integration:ephemeral`.',
-    ].join(' '),
-  )
-}
-
 function getProcessExitPromise(command: ChildProcess): Promise<number | null> {
   return new Promise((resolve, reject) => {
     command.on('error', reject)
@@ -968,69 +954,6 @@ export async function shouldRebuildBuildArtifacts(
   options: BuildCacheOptions = {},
 ): Promise<boolean> {
   return !(await shouldReuseBuildArtifacts(ttlSeconds, logPrefix, options))
-}
-
-async function getFreePort(): Promise<number> {
-  return new Promise((resolve, reject) => {
-    const server = createServer()
-    server.on('error', reject)
-    server.listen(0, '127.0.0.1', () => {
-      const address = server.address()
-      if (!address || typeof address === 'string') {
-        server.close()
-        reject(new Error('Unable to allocate free port'))
-        return
-      }
-      const port = address.port
-      server.close((closeError) => {
-        if (closeError) {
-          reject(closeError)
-          return
-        }
-        resolve(port)
-      })
-    })
-  })
-}
-
-async function isPortAvailable(port: number): Promise<boolean> {
-  const canBind = (host: string): Promise<boolean | null> => new Promise((resolve) => {
-    const server = createServer()
-    server.once('error', (error) => {
-      const errorCode = (error as NodeJS.ErrnoException).code
-      if (errorCode === 'EAFNOSUPPORT') {
-        resolve(null)
-        return
-      }
-      resolve(false)
-    })
-    server.listen(port, host, () => {
-      server.close(() => {
-        resolve(true)
-      })
-    })
-  })
-
-  const ipv4Availability = await canBind('127.0.0.1')
-  if (ipv4Availability === false) {
-    return false
-  }
-
-  const ipv6Availability = await canBind('::1')
-  if (ipv6Availability === false) {
-    return false
-  }
-
-  return ipv4Availability === true || ipv6Availability === true
-}
-
-async function getPreferredPort(preferredPort: number): Promise<number> {
-  if (await isPortAvailable(preferredPort)) {
-    return preferredPort
-  }
-  const fallbackPort = await getFreePort()
-  console.log(`[ephemeral] Port ${preferredPort} is busy, using fallback port ${fallbackPort}.`)
-  return fallbackPort
 }
 
 export async function writeEphemeralEnvironmentState(input: {
@@ -2389,7 +2312,10 @@ async function promptAfterRun(
 }
 
 export async function startEphemeralEnvironment(options: EphemeralRuntimeOptions): Promise<EphemeralEnvironmentHandle> {
-  assertNode24Runtime()
+  assertNode24Runtime({
+    context: 'ephemeral integration tests',
+    retryCommand: 'yarn test:integration:ephemeral',
+  })
   await assertContainerRuntimeAvailable()
   const setupLock = await acquireEphemeralEnvironmentLock(options.logPrefix)
   try {
@@ -2413,7 +2339,7 @@ export async function startEphemeralEnvironment(options: EphemeralRuntimeOptions
     })
     const applicationPort = shouldUseIsolatedPort
       ? await getFreePort()
-      : await getPreferredPort(DEFAULT_EPHEMERAL_APP_PORT)
+      : await getPreferredPort(DEFAULT_EPHEMERAL_APP_PORT, 'ephemeral')
     if (options.reuseExisting === false) {
       console.log(
         `[${options.logPrefix}] Starting a fresh ephemeral instance on isolated port ${applicationPort} because --no-reuse-env is enabled.`,

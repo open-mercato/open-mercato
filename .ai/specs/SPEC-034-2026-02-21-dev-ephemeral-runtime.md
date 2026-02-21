@@ -6,7 +6,7 @@ Add `yarn dev:ephemeral` as a one-command, worktree-friendly development launche
 ## Overview
 This change introduces a new root-level developer workflow for running multiple Open Mercato development instances in parallel across worktrees without manual port management.
 
-The command is implemented as a Node script (`scripts/dev-ephemeral.mjs`) and exposed via `package.json` as `dev:ephemeral`.
+The command is implemented as a TypeScript script (`scripts/dev-ephemeral.ts`) and exposed via `package.json` as `dev:ephemeral`.
 
 ## Problem Statement
 Current local development assumes a mostly fixed port workflow (`yarn dev` on `localhost:3000`), which creates friction for parallel worktree sessions and LLM-assisted development where multiple app instances are needed at once.
@@ -39,9 +39,9 @@ Add `yarn dev:ephemeral` that performs deterministic preflight and runtime boot:
 
 ## Architecture
 ### Runtime Components
-- `scripts/dev-ephemeral.mjs`
+- `scripts/dev-ephemeral.ts`
 - Root script entry in `package.json`:
-  - `"dev:ephemeral": "node scripts/dev-ephemeral.mjs"`
+  - `"dev:ephemeral": "tsx scripts/dev-ephemeral.ts"`
 
 ### Port Strategy
 - Reuses integration ephemeral port-selection pattern semantics:
@@ -119,3 +119,4 @@ This feature is command/runtime orchestration, not a new API module. Coverage fo
 ## Changelog
 - 2026-02-21: Added `dev:ephemeral` command with Node24 preflight, `.env` bootstrap-if-missing, dependency installation, free-port startup, and URL output. Updated docs and README.
 - 2026-02-21: Extended `dev:ephemeral` with generator pre-step, browser auto-open, and `.ai/dev-ephemeral-envs.json` lifecycle (stale pruning + register/unregister). Updated `.ai/skills/integration-tests/SKILL.md`, `.ai/qa/AGENTS.md`, and root `AGENTS.md` to reuse dev ephemeral instances for testing.
+- 2026-02-21: Removed DRY duplication between `dev:ephemeral` and integration ephemeral runtime by extracting shared Node24 + port/runtime probe helpers into `packages/cli/src/lib/testing/runtime-utils.ts`.
