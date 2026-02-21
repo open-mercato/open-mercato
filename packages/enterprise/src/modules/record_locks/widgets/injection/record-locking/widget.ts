@@ -3,11 +3,17 @@ import RecordLockingWidget, { validateBeforeSave } from './widget.client'
 import { getRecordLockFormState, setRecordLockFormState } from '@open-mercato/enterprise/modules/record_locks/lib/clientLockStore'
 
 type CrudInjectionContext = {
-  formId: string
+  formId?: string
   entityId?: string
   resourceKind?: string
   resourceId?: string
   recordId?: string
+  path?: string
+  query?: string
+  kind?: string
+  personId?: string
+  companyId?: string
+  dealId?: string
 }
 
 const widget: InjectionWidgetModule<CrudInjectionContext, Record<string, unknown>> = {
@@ -23,7 +29,30 @@ const widget: InjectionWidgetModule<CrudInjectionContext, Record<string, unknown
   eventHandlers: {
     async onBeforeSave(data, context) {
       const validation = await validateBeforeSave(data ?? {}, context)
+      if (!context.formId) {
+        if (!validation.ok) {
+          return {
+            ok: false,
+            message: 'Record conflict detected',
+            details: {
+              code: 'record_lock_conflict',
+              lock: validation.lock ?? null,
+              conflict: validation.conflict ?? null,
+              latestActionLogId: validation.latestActionLogId ?? null,
+            },
+          }
+        }
+        return { ok: true }
+      }
       if (!validation.ok) {
+        const state = getRecordLockFormState(context.formId)
+        setRecordLockFormState(context.formId, {
+          conflict: validation.conflict ?? state?.conflict ?? null,
+          pendingConflictId: validation.conflict?.id ?? state?.pendingConflictId ?? null,
+          pendingResolution: 'normal',
+          lock: validation.lock ?? state?.lock ?? null,
+          latestActionLogId: validation.latestActionLogId ?? state?.latestActionLogId ?? null,
+        })
         return {
           ok: false,
           message: 'Record conflict detected',
@@ -57,6 +86,7 @@ const widget: InjectionWidgetModule<CrudInjectionContext, Record<string, unknown
       }
     },
     async onAfterSave(_data, context) {
+      if (!context.formId) return
       setRecordLockFormState(context.formId, {
         acquired: false,
         lock: null,

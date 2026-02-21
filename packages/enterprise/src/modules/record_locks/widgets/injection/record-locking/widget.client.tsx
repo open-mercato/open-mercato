@@ -26,11 +26,17 @@ import {
 } from '@open-mercato/enterprise/modules/record_locks/lib/clientLockStore'
 
 type CrudInjectionContext = {
-  formId: string
+  formId?: string
   entityId?: string
   resourceKind?: string
   resourceId?: string
   recordId?: string
+  path?: string
+  query?: string
+  kind?: string
+  personId?: string
+  companyId?: string
+  dealId?: string
 }
 
 type AcquireResponse = {
@@ -132,42 +138,112 @@ function submitCrudForm(formId: string): boolean {
 
 function resolveResourceKind(context: CrudInjectionContext): string | null {
   if (context.resourceKind && context.resourceKind.trim()) return context.resourceKind
+  if (context.kind === 'order') return 'sales.order'
+  if (context.kind === 'quote') return 'sales.quote'
+  if (context.personId) return 'customers.person'
+  if (context.companyId) return 'customers.company'
+  if (context.dealId) return 'customers.deal'
   const entityId = context.entityId
-  if (!entityId || !entityId.includes(':')) return null
-  const [moduleId, rawEntity] = entityId.split(':')
-  const entity = rawEntity ?? ''
-  const normalizedModuleId = moduleId.trim()
-  const normalizedEntity = entity.trim()
-  if (!normalizedModuleId || !normalizedEntity) return null
+  if (entityId && entityId.includes(':')) {
+    const [moduleId, rawEntity] = entityId.split(':')
+    const entity = rawEntity ?? ''
+    const normalizedModuleId = moduleId.trim()
+    const normalizedEntity = entity.trim()
+    if (normalizedModuleId && normalizedEntity) {
+      const singularModuleId = normalizedModuleId.endsWith('s')
+        ? normalizedModuleId.slice(0, -1)
+        : normalizedModuleId
 
-  const singularModuleId = normalizedModuleId.endsWith('s')
-    ? normalizedModuleId.slice(0, -1)
-    : normalizedModuleId
+      const stripPrefixes = [
+        `${normalizedModuleId}_`,
+        `${singularModuleId}_`,
+      ]
 
-  const stripPrefixes = [
-    `${normalizedModuleId}_`,
-    `${singularModuleId}_`,
-  ]
+      let finalEntity = normalizedEntity
+      for (const prefix of stripPrefixes) {
+        if (finalEntity.startsWith(prefix)) {
+          finalEntity = finalEntity.slice(prefix.length)
+          break
+        }
+      }
 
-  let finalEntity = normalizedEntity
-  for (const prefix of stripPrefixes) {
-    if (finalEntity.startsWith(prefix)) {
-      finalEntity = finalEntity.slice(prefix.length)
-      break
+      if (finalEntity) return `${normalizedModuleId}.${finalEntity}`
     }
   }
 
-  return finalEntity ? `${normalizedModuleId}.${finalEntity}` : null
+  const path = context.path ?? ''
+  if (path.startsWith('/backend/customers/people/')) return 'customers.person'
+  if (path.startsWith('/backend/customers/companies/')) return 'customers.company'
+  if (path.startsWith('/backend/customers/deals/')) return 'customers.deal'
+  if (path.startsWith('/backend/sales/orders/')) return 'sales.order'
+  if (path.startsWith('/backend/sales/quotes/')) return 'sales.quote'
+  if (path.startsWith('/backend/sales/documents/')) {
+    const query = context.query ?? ''
+    const params = new URLSearchParams(query)
+    const kind = params.get('kind')
+    if (kind === 'order') return 'sales.order'
+    if (kind === 'quote') return 'sales.quote'
+  }
+
+  return null
 }
 
 function resolveResourceId(context: CrudInjectionContext, data: unknown): string | null {
   if (context.resourceId && context.resourceId.trim()) return context.resourceId
   if (context.recordId && context.recordId.trim()) return context.recordId
+  if (context.personId && context.personId.trim()) return context.personId
+  if (context.companyId && context.companyId.trim()) return context.companyId
+  if (context.dealId && context.dealId.trim()) return context.dealId
   if (data && typeof data === 'object' && 'id' in data) {
     const id = (data as { id?: unknown }).id
     if (typeof id === 'string' && id.trim()) return id
   }
+  if (data && typeof data === 'object') {
+    const nestedPersonId = (data as { person?: { id?: unknown } }).person?.id
+    if (typeof nestedPersonId === 'string' && nestedPersonId.trim()) return nestedPersonId
+    const nestedCompanyId = (data as { company?: { id?: unknown } }).company?.id
+    if (typeof nestedCompanyId === 'string' && nestedCompanyId.trim()) return nestedCompanyId
+    const nestedDealId = (data as { deal?: { id?: unknown } }).deal?.id
+    if (typeof nestedDealId === 'string' && nestedDealId.trim()) return nestedDealId
+  }
+  const path = context.path ?? ''
+  const parts = path.split('/').filter((part) => part.length > 0)
+  const candidates = [
+    ['backend', 'customers', 'people'],
+    ['backend', 'customers', 'companies'],
+    ['backend', 'customers', 'deals'],
+    ['backend', 'sales', 'orders'],
+    ['backend', 'sales', 'quotes'],
+    ['backend', 'sales', 'documents'],
+  ] as const
+  for (const prefix of candidates) {
+    const matchesPrefix = prefix.every((segment, index) => parts[index] === segment)
+    if (!matchesPrefix || parts.length <= prefix.length) continue
+    const rawId = parts[prefix.length] ?? ''
+    if (!rawId) continue
+    try {
+      const decoded = decodeURIComponent(rawId).trim()
+      if (decoded.length > 0) return decoded
+    } catch {
+      const trimmed = rawId.trim()
+      if (trimmed.length > 0) return trimmed
+    }
+  }
   return null
+}
+
+function resolveFormId(
+  context: CrudInjectionContext,
+  resourceKind: string | null,
+  resourceId: string | null,
+): string {
+  if (context.formId && context.formId.trim().length > 0) return context.formId
+  if (resourceKind && resourceId) return `record-lock:${resourceKind}:${resourceId}`
+  if (context.path && context.path.trim().length > 0) {
+    const query = context.query?.trim()
+    return `record-lock:${context.path}${query ? `?${query}` : ''}`
+  }
+  return 'record-lock:global'
 }
 
 async function releaseLock(state: {
@@ -228,7 +304,10 @@ export default function RecordLockingWidget({
   const searchParams = useSearchParams()
   const resourceKind = React.useMemo(() => resolveResourceKind(context), [context])
   const resourceId = React.useMemo(() => resolveResourceId(context, data), [context, data])
-  const formId = context.formId
+  const formId = React.useMemo(
+    () => resolveFormId(context, resourceKind, resourceId),
+    [context, resourceId, resourceKind],
+  )
   const [, forceRender] = React.useReducer((value) => value + 1, 0)
   const state = getRecordLockFormState(formId)
   const [mounted, setMounted] = React.useState(false)
@@ -762,10 +841,12 @@ export async function validateBeforeSave(
   data: Record<string, unknown>,
   context: CrudInjectionContext,
 ): Promise<ValidateResponse> {
-  const formId = context.formId
+  const contextResourceKind = resolveResourceKind(context)
+  const contextResourceId = resolveResourceId(context, data)
+  const formId = resolveFormId(context, contextResourceKind, contextResourceId)
   const state = getRecordLockFormState(formId)
-  const resourceKind = state?.resourceKind || resolveResourceKind(context)
-  const resourceId = state?.resourceId || resolveResourceId(context, data)
+  const resourceKind = state?.resourceKind || contextResourceKind
+  const resourceId = state?.resourceId || contextResourceId
   if (!resourceKind || !resourceId) {
     return { ok: true }
   }

@@ -350,7 +350,7 @@ export async function generateModuleRegistry(options: ModuleRegistryOptions): Pr
         const importStmt = `import * as ${importName} from '${importPath}'`
         notificationClientImports.push(importStmt)
         notificationClientTypes.push(
-          `{ moduleId: '${modId}', types: (${importName}.default ?? ${importName}.notificationTypes ?? ${importName}.types ?? []) }`
+          `{ moduleId: '${modId}', types: (${importName}.default ?? []) }`
         )
       }
     }
