@@ -1081,6 +1081,18 @@ export function CrudForm<TValues extends Record<string, unknown>>({
       try {
         const result = await triggerInjectionEvent('onBeforeSave', parsedValues, injectionContext)
         if (!result.ok) {
+          try {
+            if (typeof window !== 'undefined') {
+              window.dispatchEvent(new CustomEvent('om:crud-save-error', {
+                detail: {
+                  formId,
+                  error: result.details ?? result,
+                },
+              }))
+            }
+          } catch {
+            // ignore event dispatch failures
+          }
           if (result.fieldErrors && Object.keys(result.fieldErrors).length) {
             setErrors(result.fieldErrors)
           }

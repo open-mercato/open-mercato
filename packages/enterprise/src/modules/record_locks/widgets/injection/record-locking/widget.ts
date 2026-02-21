@@ -27,6 +27,12 @@ const widget: InjectionWidgetModule<CrudInjectionContext, Record<string, unknown
         return {
           ok: false,
           message: 'Record conflict detected',
+          details: {
+            code: 'record_lock_conflict',
+            lock: validation.lock ?? null,
+            conflict: validation.conflict ?? null,
+            latestActionLogId: validation.latestActionLogId ?? null,
+          },
         }
       }
       const state = getRecordLockFormState(context.formId)

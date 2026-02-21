@@ -87,6 +87,7 @@ export type WidgetBeforeSaveResult =
       message?: string
       fieldErrors?: Record<string, string>
       requestHeaders?: Record<string, string>
+      details?: unknown
     }
 
 /**
