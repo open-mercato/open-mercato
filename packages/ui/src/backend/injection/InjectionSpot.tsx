@@ -209,6 +209,9 @@ export function useInjectionSpotEvents<TContext = unknown, TData = unknown>(spot
         return { ok: true }
       }
 
+      const mergedRequestHeaders: Record<string, string> = {}
+      let hasRequestHeaders = false
+
       for (const widget of widgets) {
         const handler = widget.module.eventHandlers?.[event]
         if (handler) {
@@ -219,6 +222,10 @@ export function useInjectionSpotEvents<TContext = unknown, TData = unknown>(spot
               if (!normalized.ok) {
                 console.log(`[useInjectionSpotEvents] Widget ${widget.widgetId} prevented ${event}`)
                 return normalized
+              }
+              if (normalized.requestHeaders && Object.keys(normalized.requestHeaders).length > 0) {
+                Object.assign(mergedRequestHeaders, normalized.requestHeaders)
+                hasRequestHeaders = true
               }
             }
           } catch (err) {
@@ -234,6 +241,9 @@ export function useInjectionSpotEvents<TContext = unknown, TData = unknown>(spot
             }
           }
         }
+      }
+      if (event === 'onBeforeSave' && hasRequestHeaders) {
+        return { ok: true, requestHeaders: mergedRequestHeaders }
       }
       return { ok: true }
     },

@@ -7,7 +7,7 @@ import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Spinner } from '@open-mercato/ui/primitives/spinner'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
-import { apiCallOrThrow, readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
+import { apiCallOrThrow, readApiResultOrThrow, withScopedApiRequestHeaders } from '@open-mercato/ui/backend/utils/apiCall'
 import { collectCustomFieldValues } from '@open-mercato/ui/backend/utils/customFieldValues'
 import { mapCrudServerErrorToFormErrors } from '@open-mercato/ui/backend/utils/serverErrors'
 import { E } from '#generated/entities.ids.generated'
@@ -45,8 +45,12 @@ import { renderDictionaryColor, renderDictionaryIcon } from '@open-mercato/core/
 import { ICON_SUGGESTIONS } from '../../../../lib/dictionaries'
 import { createCustomerNotesAdapter } from '../../../../components/detail/notesAdapter'
 import { readMarkdownPreferenceCookie, writeMarkdownPreferenceCookie } from '../../../../lib/markdownPreference'
-import { InjectionSpot, useInjectionWidgets } from '@open-mercato/ui/backend/injection/InjectionSpot'
+import { InjectionSpot, useInjectionSpotEvents, useInjectionWidgets } from '@open-mercato/ui/backend/injection/InjectionSpot'
 import { DetailTabsLayout } from '../../../../components/detail/DetailTabsLayout'
+import {
+  GLOBAL_MUTATION_INJECTION_SPOT_ID,
+  dispatchBackendMutationError,
+} from '@open-mercato/ui/backend/injection/mutationEvents'
 
 type PersonOverview = {
   person: {
@@ -161,10 +165,83 @@ export default function CustomerPersonDetailPage({ params }: { params?: { id?: s
   }), [t])
 
   const personId = data?.person?.id ?? null
-  const injectionContext = React.useMemo(
-    () => ({ personId, data }),
-    [data, personId],
+  const lastMutationRef = React.useRef<{
+    operation: () => Promise<unknown>
+    payload: Record<string, unknown>
+  } | null>(null)
+  const runMutationRef = React.useRef<
+    (operation: () => Promise<unknown>, mutationPayload?: Record<string, unknown>) => Promise<unknown>
+  >(async (operation) => operation())
+  const retryLastMutation = React.useCallback(async () => {
+    const lastMutation = lastMutationRef.current
+    if (!lastMutation) return false
+    try {
+      await runMutationRef.current(lastMutation.operation, lastMutation.payload)
+      return true
+    } catch {
+      return false
+    }
+  }, [])
+  const mutationContextId = React.useMemo(
+    () => (personId ? `customer-person:${personId}` : `customer-person:${id ?? 'pending'}`),
+    [id, personId],
   )
+  const injectionContext = React.useMemo(
+    () => ({
+      formId: mutationContextId,
+      personId,
+      resourceKind: 'customers.person',
+      resourceId: personId ?? (id ?? undefined),
+      data,
+      retryLastMutation,
+    }),
+    [data, id, mutationContextId, personId, retryLastMutation],
+  )
+  const mutationInjectionContext = injectionContext
+  const { triggerEvent: triggerMutationInjectionEvent } = useInjectionSpotEvents(GLOBAL_MUTATION_INJECTION_SPOT_ID)
+  const emitMutationSaveError = React.useCallback(
+    (error: unknown) => {
+      dispatchBackendMutationError({
+        contextId: mutationContextId,
+        formId: mutationContextId,
+        error,
+      })
+    },
+    [mutationContextId],
+  )
+  const runMutation = React.useCallback(
+    async <T,>(operation: () => Promise<T>, mutationPayload?: Record<string, unknown>): Promise<T> => {
+      const payload = mutationPayload ?? {}
+      lastMutationRef.current = {
+        operation: operation as () => Promise<unknown>,
+        payload,
+      }
+      const beforeSave = await triggerMutationInjectionEvent('onBeforeSave', payload, mutationInjectionContext)
+      if (!beforeSave.ok) {
+        emitMutationSaveError(beforeSave.details ?? beforeSave)
+        throw new Error(beforeSave.message || t('ui.forms.flash.saveBlocked', 'Save blocked by validation'))
+      }
+      try {
+        const result =
+          beforeSave.requestHeaders && Object.keys(beforeSave.requestHeaders).length > 0
+            ? await withScopedApiRequestHeaders(beforeSave.requestHeaders, operation)
+            : await operation()
+        try {
+          await triggerMutationInjectionEvent('onAfterSave', payload, mutationInjectionContext)
+        } catch (afterSaveError) {
+          console.error('[CustomerPersonDetailPage] Error in onAfterSave injection event:', afterSaveError)
+        }
+        return result
+      } catch (error) {
+        emitMutationSaveError(error)
+        throw error
+      }
+    },
+    [emitMutationSaveError, mutationInjectionContext, t, triggerMutationInjectionEvent],
+  )
+  React.useEffect(() => {
+    runMutationRef.current = (operation, mutationPayload) => runMutation(operation as () => Promise<unknown>, mutationPayload)
+  }, [runMutation])
   const { widgets: injectedTabWidgets } = useInjectionWidgets('customers.person.detail:tabs', {
     context: injectionContext,
     triggerOnLoad: true,
@@ -276,18 +353,22 @@ export default function CustomerPersonDetailPage({ params }: { params?: { id?: s
   const savePerson = React.useCallback(
     async (patch: Record<string, unknown>, apply: (prev: PersonOverview) => PersonOverview) => {
       if (!data) return
-      await apiCallOrThrow(
-        '/api/customers/people',
-        {
-          method: 'PUT',
-          headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({ id: data.person.id, ...patch }),
-        },
-        { errorMessage: t('customers.people.detail.inline.error') },
+      const payload = { id: data.person.id, ...patch }
+      await runMutation(
+        () => apiCallOrThrow(
+          '/api/customers/people',
+          {
+            method: 'PUT',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify(payload),
+          },
+          { errorMessage: t('customers.people.detail.inline.error') },
+        ),
+        payload,
       )
       setData((prev) => (prev ? apply(prev) : prev))
     },
-    [data, t]
+    [data, runMutation, t]
   )
 
   const updateDisplayName = React.useCallback(
@@ -376,17 +457,21 @@ export default function CustomerPersonDetailPage({ params }: { params?: { id?: s
         return
       }
       try {
-        await apiCallOrThrow(
-          '/api/customers/people',
-          {
-            method: 'PUT',
-            headers: { 'content-type': 'application/json' },
-            body: JSON.stringify({
-              id: data.person.id,
-              customFields: customPayload,
-            }),
-          },
-          { errorMessage: t('customers.people.detail.inline.error') },
+        const payload = {
+          id: data.person.id,
+          customFields: customPayload,
+        }
+        await runMutation(
+          () => apiCallOrThrow(
+            '/api/customers/people',
+            {
+              method: 'PUT',
+              headers: { 'content-type': 'application/json' },
+              body: JSON.stringify(payload),
+            },
+            { errorMessage: t('customers.people.detail.inline.error') },
+          ),
+          payload,
         )
       } catch (err) {
         const { message: helperMessage, fieldErrors } = mapCrudServerErrorToFormErrors(err)
@@ -410,7 +495,7 @@ export default function CustomerPersonDetailPage({ params }: { params?: { id?: s
       })
         flash(t('ui.forms.flash.saveSuccess'), 'success')
       },
-      [data, t]
+      [data, runMutation, t]
     )
   
     if (isLoading) {

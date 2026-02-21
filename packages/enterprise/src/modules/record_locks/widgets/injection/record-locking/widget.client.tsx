@@ -2,13 +2,14 @@
 
 import * as React from 'react'
 import { createPortal } from 'react-dom'
-import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
+import { apiCall, apiCallOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@open-mercato/ui/primitives/dialog'
 import { Notice } from '@open-mercato/ui/primitives/Notice'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import type { InjectionWidgetComponentProps } from '@open-mercato/shared/modules/widgets/injection'
+import { BACKEND_MUTATION_ERROR_EVENT } from '@open-mercato/ui/backend/injection/mutationEvents'
 import { useSearchParams } from 'next/navigation'
 import { Mail } from 'lucide-react'
 import {
@@ -37,6 +38,23 @@ type CrudInjectionContext = {
   personId?: string
   companyId?: string
   dealId?: string
+  retryLastMutation?: () => Promise<boolean | void> | boolean | void
+}
+
+type RecordLockWidgetOwner = {
+  instanceId: string
+  priority: number
+}
+
+const GLOBAL_RECORD_LOCK_OWNERS_KEY = '__openMercatoRecordLockWidgetOwners__'
+
+function getRecordLockOwnerMap(): Map<string, RecordLockWidgetOwner> {
+  const store = globalThis as Record<string, unknown>
+  const existing = store[GLOBAL_RECORD_LOCK_OWNERS_KEY]
+  if (existing instanceof Map) return existing as Map<string, RecordLockWidgetOwner>
+  const next = new Map<string, RecordLockWidgetOwner>()
+  store[GLOBAL_RECORD_LOCK_OWNERS_KEY] = next
+  return next
 }
 
 type AcquireResponse = {
@@ -53,18 +71,70 @@ type AcquireResponse = {
 
 type ValidateResponse = {
   ok: boolean
+  status?: number
+  code?: string
   latestActionLogId?: string | null
   lock?: RecordLockUiView | null
   conflict?: RecordLockUiConflict | null
 }
 
 type CrudSaveErrorEventDetail = {
+  contextId?: string
   formId?: string
   error?: unknown
 }
 
 function isObjectRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === 'object'
+}
+
+function isUuid(value: string | null | undefined): value is string {
+  if (typeof value !== 'string') return false
+  const trimmed = value.trim()
+  if (!trimmed) return false
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(trimmed)
+}
+
+function createFallbackConflictId(): string {
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+    return crypto.randomUUID()
+  }
+  const random = `${Date.now().toString(16)}${Math.random().toString(16).slice(2, 10)}`.padEnd(32, '0').slice(0, 32)
+  return `${random.slice(0, 8)}-${random.slice(8, 12)}-4${random.slice(13, 16)}-a${random.slice(17, 20)}-${random.slice(20, 32)}`
+}
+
+function extractErrorStatus(error: unknown): number | null {
+  const queue: unknown[] = [error]
+  const visited = new Set<unknown>()
+
+  while (queue.length > 0) {
+    const current = queue.shift()
+    if (!current || visited.has(current)) continue
+    visited.add(current)
+    if (!isObjectRecord(current)) continue
+
+    const status = current.status
+    if (typeof status === 'number' && Number.isFinite(status)) return status
+    if (typeof status === 'string') {
+      const parsed = Number(status)
+      if (Number.isFinite(parsed)) return parsed
+    }
+
+    const statusCode = current.statusCode
+    if (typeof statusCode === 'number' && Number.isFinite(statusCode)) return statusCode
+    if (typeof statusCode === 'string') {
+      const parsed = Number(statusCode)
+      if (Number.isFinite(parsed)) return parsed
+    }
+
+    const nested = ['body', 'response', 'data', 'details', 'error', 'cause']
+    for (const key of nested) {
+      const next = current[key]
+      if (next && !visited.has(next)) queue.push(next)
+    }
+  }
+
+  return null
 }
 
 function extractRecordLockConflictPayload(error: unknown): {
@@ -88,8 +158,72 @@ function extractRecordLockConflictPayload(error: unknown): {
     }
 
     const code = typeof current.code === 'string' ? current.code : null
-    if (code !== 'record_lock_conflict') continue
-    if (!isObjectRecord(current.conflict)) continue
+    const status = extractErrorStatus(current)
+    const hasLockMarkers = (
+      isObjectRecord(current.lock)
+      || isObjectRecord(current.conflict)
+      || typeof current.conflictId === 'string'
+      || typeof current.resourceKind === 'string'
+      || typeof current.resourceId === 'string'
+      || Array.isArray(current.resolutionOptions)
+      || typeof current.allowIncomingOverride === 'boolean'
+      || typeof current.canOverrideIncoming === 'boolean'
+    )
+    const message = typeof current.message === 'string'
+      ? current.message.toLowerCase()
+      : typeof current.error === 'string'
+        ? current.error.toLowerCase()
+        : ''
+    const looksLikeLockConflictMessage = (
+      message.includes('record conflict')
+      || message.includes('record_lock_conflict')
+      || message.includes('conflict detected')
+    )
+    const isRecordLockConflict = (
+      code === 'record_lock_conflict'
+      || (status === 409 && (hasLockMarkers || looksLikeLockConflictMessage))
+    )
+    if (!isRecordLockConflict) continue
+    if (!isObjectRecord(current.conflict)) {
+      const lock = isObjectRecord(current.lock) ? (current.lock as RecordLockUiView) : undefined
+      const fallbackConflictId =
+        (typeof current.conflictId === 'string' && isUuid(current.conflictId)
+          ? current.conflictId
+          : null) ??
+        createFallbackConflictId()
+      const fallbackConflict: RecordLockUiConflict = {
+        id: fallbackConflictId,
+        resourceKind:
+          (typeof current.resourceKind === 'string' && current.resourceKind.trim().length > 0
+            ? current.resourceKind
+            : lock?.resourceKind) ?? '',
+        resourceId:
+          (typeof current.resourceId === 'string' && current.resourceId.trim().length > 0
+            ? current.resourceId
+            : lock?.resourceId) ?? '',
+        baseActionLogId:
+          typeof current.baseActionLogId === 'string' || current.baseActionLogId === null
+            ? current.baseActionLogId
+            : lock?.baseActionLogId ?? null,
+        incomingActionLogId:
+          typeof current.incomingActionLogId === 'string' || current.incomingActionLogId === null
+            ? current.incomingActionLogId
+            : null,
+        allowIncomingOverride: Boolean(current.allowIncomingOverride),
+        canOverrideIncoming: Boolean(current.canOverrideIncoming),
+        resolutionOptions: Array.isArray(current.resolutionOptions) && current.resolutionOptions.includes('accept_mine')
+          ? ['accept_mine']
+          : [],
+        changes: [],
+      }
+      return {
+        conflict: fallbackConflict,
+        lock,
+        latestActionLogId: typeof current.latestActionLogId === 'string' || current.latestActionLogId === null
+          ? current.latestActionLogId
+          : undefined,
+      }
+    }
     return {
       conflict: current.conflict as RecordLockUiConflict,
       lock: isObjectRecord(current.lock) ? (current.lock as RecordLockUiView) : undefined,
@@ -313,11 +447,90 @@ export default function RecordLockingWidget({
   const [mounted, setMounted] = React.useState(false)
   const [showIncomingChangesRequested, setShowIncomingChangesRequested] = React.useState(false)
   const [showLockContentionBanner, setShowLockContentionBanner] = React.useState(false)
+  const instanceId = React.useMemo(
+    () =>
+      `record-lock-widget:${Date.now().toString(36)}:${Math.random().toString(36).slice(2, 10)}`,
+    [],
+  )
+  const ownerPriority = context.formId ? 2 : 1
+  const ownerKey = resourceKind && resourceId ? `${resourceKind}:${resourceId}` : null
+  const [isPrimaryInstance, setIsPrimaryInstance] = React.useState(true)
   const releasePayloadRef = React.useRef<{
     resourceKind: string
     resourceId: string
     token: string
   } | null>(null)
+
+  React.useEffect(() => {
+    if (!ownerKey) {
+      setIsPrimaryInstance(true)
+      return
+    }
+
+    const owners = getRecordLockOwnerMap()
+    const notifyOwnersChanged = () => {
+      if (typeof window === 'undefined') return
+      window.dispatchEvent(
+        new CustomEvent('om:record-lock-owner-changed', {
+          detail: { ownerKey },
+        }),
+      )
+    }
+
+    const claimOwnership = () => {
+      const current = owners.get(ownerKey)
+      if (!current) {
+        owners.set(ownerKey, { instanceId, priority: ownerPriority })
+        setIsPrimaryInstance(true)
+        notifyOwnersChanged()
+        return
+      }
+      if (current.instanceId === instanceId) {
+        setIsPrimaryInstance(true)
+        return
+      }
+      if (ownerPriority > current.priority) {
+        owners.set(ownerKey, { instanceId, priority: ownerPriority })
+        setIsPrimaryInstance(true)
+        notifyOwnersChanged()
+        return
+      }
+      setIsPrimaryInstance(false)
+    }
+
+    claimOwnership()
+    const onOwnersChanged = () => claimOwnership()
+    if (typeof window !== 'undefined') {
+      window.addEventListener('om:record-lock-owner-changed', onOwnersChanged)
+    }
+
+    return () => {
+      if (typeof window !== 'undefined') {
+        window.removeEventListener('om:record-lock-owner-changed', onOwnersChanged)
+      }
+      const current = owners.get(ownerKey)
+      if (current?.instanceId === instanceId) {
+        owners.delete(ownerKey)
+        notifyOwnersChanged()
+      }
+    }
+  }, [instanceId, ownerKey, ownerPriority])
+
+  React.useEffect(() => {
+    if (isPrimaryInstance) return
+    const current = getRecordLockFormState(formId)
+    if (!current?.lock?.token || !current.resourceKind || !current.resourceId) {
+      clearRecordLockFormState(formId)
+      return
+    }
+    void releaseLock({
+      resourceKind: current.resourceKind,
+      resourceId: current.resourceId,
+      token: current.lock.token,
+      reason: 'cancelled',
+    }).catch(() => {})
+    clearRecordLockFormState(formId)
+  }, [formId, isPrimaryInstance])
 
   React.useEffect(() => {
     setMounted(true)
@@ -341,11 +554,13 @@ export default function RecordLockingWidget({
   React.useEffect(() => subscribeRecordLockFormState(formId, () => forceRender()), [formId])
 
   React.useEffect(() => {
+    if (!isPrimaryInstance) return
     if (!resourceKind || !resourceId) return
     setRecordLockFormState(formId, { formId, resourceKind, resourceId })
-  }, [formId, resourceId, resourceKind])
+  }, [formId, isPrimaryInstance, resourceId, resourceKind])
 
   React.useEffect(() => {
+    if (!isPrimaryInstance) return
     if (!resourceKind || !resourceId) return
     let active = true
     const acquire = async () => {
@@ -393,7 +608,7 @@ export default function RecordLockingWidget({
     return () => {
       active = false
     }
-  }, [formId, resourceId, resourceKind])
+  }, [formId, isPrimaryInstance, resourceId, resourceKind])
 
   const mine = Boolean(state?.lock?.token)
   const participants = React.useMemo(() => {
@@ -417,6 +632,7 @@ export default function RecordLockingWidget({
   }, [participants, state?.currentUserId])
 
   React.useEffect(() => {
+    if (!isPrimaryInstance) return
     if (!mine || !state?.lock?.id) return
     let cancelled = false
 
@@ -441,9 +657,10 @@ export default function RecordLockingWidget({
       cancelled = true
       window.clearInterval(interval)
     }
-  }, [mine, state?.lock?.id])
+  }, [isPrimaryInstance, mine, state?.lock?.id])
 
   React.useEffect(() => {
+    if (!isPrimaryInstance) return
     if (!state?.lock?.token || !state.resourceKind || !state.resourceId) return
     const intervalMs = 10_000
     const interval = window.setInterval(() => {
@@ -458,9 +675,10 @@ export default function RecordLockingWidget({
       })
     }, intervalMs)
     return () => window.clearInterval(interval)
-  }, [state?.heartbeatSeconds, state?.lock?.token, state?.resourceId, state?.resourceKind])
+  }, [isPrimaryInstance, state?.heartbeatSeconds, state?.lock?.token, state?.resourceId, state?.resourceKind])
 
   React.useEffect(() => {
+    if (!isPrimaryInstance) return
     if (!state?.resourceKind || !state?.resourceId) return
     let cancelled = false
     const refreshPresence = async () => {
@@ -504,11 +722,13 @@ export default function RecordLockingWidget({
     }
   }, [
     formId,
+    isPrimaryInstance,
     state?.resourceId,
     state?.resourceKind,
   ])
 
   React.useEffect(() => {
+    if (!isPrimaryInstance) return
     if (!showIncomingChangesRequested) return
     if (!state?.resourceKind || !state?.resourceId || !state?.lock) return
     let cancelled = false
@@ -522,9 +742,10 @@ export default function RecordLockingWidget({
     return () => {
       cancelled = true
     }
-  }, [context, showIncomingChangesRequested, state?.lock, state?.resourceId, state?.resourceKind, t])
+  }, [context, isPrimaryInstance, showIncomingChangesRequested, state?.lock, state?.resourceId, state?.resourceKind, t])
 
   React.useEffect(() => {
+    if (!isPrimaryInstance) return
     if (
       state?.resourceKind
       && state?.resourceId
@@ -539,9 +760,10 @@ export default function RecordLockingWidget({
       return
     }
     releasePayloadRef.current = null
-  }, [state?.lock?.token, state?.resourceId, state?.resourceKind])
+  }, [isPrimaryInstance, state?.lock?.token, state?.resourceId, state?.resourceKind])
 
   React.useEffect(() => {
+    if (!isPrimaryInstance) return
     const onPageHide = () => {
       const payload = releasePayloadRef.current
       if (!payload) return
@@ -554,9 +776,10 @@ export default function RecordLockingWidget({
     return () => {
       window.removeEventListener('pagehide', onPageHide)
     }
-  }, [])
+  }, [isPrimaryInstance])
 
   React.useEffect(() => {
+    if (!isPrimaryInstance) return
     return () => {
       const payload = releasePayloadRef.current
       if (payload) {
@@ -567,37 +790,115 @@ export default function RecordLockingWidget({
       }
       clearRecordLockFormState(formId)
     }
-  }, [formId])
+  }, [formId, isPrimaryInstance])
 
   React.useEffect(() => {
+    if (!isPrimaryInstance) return
     const onCrudSaveError = (event: Event) => {
-      const detail = (event as CustomEvent<CrudSaveErrorEventDetail>).detail
-      if (!detail || detail.formId !== formId) return
-      const payload = extractRecordLockConflictPayload(detail.error)
-      if (!payload) return
+      const applyConflictPayload = (payload: {
+        conflict: RecordLockUiConflict
+        lock?: RecordLockUiView | null
+        latestActionLogId?: string | null
+      }) => {
+        const nextPatch: Partial<RecordLockFormState> = {
+          conflict: payload.conflict,
+          pendingConflictId: payload.conflict.id,
+          pendingResolution: 'normal',
+        }
+        if (payload.lock !== undefined) {
+          nextPatch.lock = payload.lock
+        }
+        if (payload.latestActionLogId !== undefined) {
+          nextPatch.latestActionLogId = payload.latestActionLogId
+        }
+        setRecordLockFormState(formId, {
+          ...nextPatch,
+        })
+      }
 
-      const nextPatch: Partial<RecordLockFormState> = {
-        conflict: payload.conflict,
-        pendingConflictId: payload.conflict.id,
-        pendingResolution: 'normal',
-      }
-      if (payload.lock !== undefined) {
-        nextPatch.lock = payload.lock
-      }
-      if (payload.latestActionLogId !== undefined) {
-        nextPatch.latestActionLogId = payload.latestActionLogId
-      }
-
-      setRecordLockFormState(formId, {
-        ...nextPatch,
+      const buildFallbackConflict = (currentState: RecordLockFormState) => ({
+          conflict: {
+            id: createFallbackConflictId(),
+            resourceKind: currentState.resourceKind ?? '',
+            resourceId: currentState.resourceId ?? '',
+          baseActionLogId: currentState.latestActionLogId ?? null,
+          incomingActionLogId: null,
+          allowIncomingOverride: false,
+          canOverrideIncoming: false,
+          resolutionOptions: [],
+          changes: [],
+        } as RecordLockUiConflict,
+        lock: currentState.lock ?? undefined,
+        latestActionLogId: currentState.latestActionLogId ?? null,
       })
+
+      const detail = (event as CustomEvent<CrudSaveErrorEventDetail>).detail
+      if (!detail) return
+      const eventContextId = detail.contextId ?? detail.formId
+      let payload = extractRecordLockConflictPayload(detail.error)
+      const currentState = getRecordLockFormState(formId)
+      const eventTargetsCurrentForm = !eventContextId || eventContextId === formId
+      if (!eventTargetsCurrentForm) {
+        if (!payload || !currentState?.resourceKind || !currentState?.resourceId) return
+        const payloadResourceKind = payload.conflict.resourceKind?.trim() ?? ''
+        const payloadResourceId = payload.conflict.resourceId?.trim() ?? ''
+        if (!payloadResourceKind || !payloadResourceId) return
+        if (payloadResourceKind !== currentState.resourceKind || payloadResourceId !== currentState.resourceId) return
+      }
+      if (!payload) {
+        if (!currentState?.resourceKind || !currentState?.resourceId) return
+        void (async () => {
+          const resolution = currentState.pendingResolution ?? 'normal'
+          const rawConflictId = resolution === 'normal'
+            ? undefined
+            : (currentState.pendingConflictId ?? currentState.conflict?.id ?? undefined)
+          const conflictId = isUuid(rawConflictId) ? rawConflictId : undefined
+
+          try {
+            const validationCall = await apiCall<ValidateResponse>('/api/record_locks/validate', {
+              method: 'POST',
+              headers: { 'content-type': 'application/json' },
+              body: JSON.stringify({
+                resourceKind: currentState.resourceKind,
+                resourceId: currentState.resourceId,
+                method: 'PUT',
+                token: currentState.lock?.token ?? undefined,
+                baseLogId: currentState.latestActionLogId ?? currentState.lock?.baseActionLogId ?? undefined,
+                conflictId,
+                resolution,
+                mutationPayload: {},
+              }),
+            })
+            const validationPayload = validationCall.result
+            if (!validationPayload?.ok && (validationPayload.code === 'record_lock_conflict' || validationPayload.status === 409)) {
+              applyConflictPayload({
+                conflict: validationPayload.conflict ?? buildFallbackConflict(currentState).conflict,
+                lock: validationPayload.lock ?? currentState.lock ?? undefined,
+                latestActionLogId: validationPayload.latestActionLogId ?? currentState.latestActionLogId ?? null,
+              })
+              return
+            }
+          } catch {
+            // ignore probe failures and fallback below
+          }
+
+          if (extractErrorStatus(detail.error) === 409) {
+            applyConflictPayload(buildFallbackConflict(currentState))
+          }
+        })()
+        return
+      }
+
+      applyConflictPayload(payload)
     }
 
+    window.addEventListener(BACKEND_MUTATION_ERROR_EVENT, onCrudSaveError)
     window.addEventListener('om:crud-save-error', onCrudSaveError)
     return () => {
+      window.removeEventListener(BACKEND_MUTATION_ERROR_EVENT, onCrudSaveError)
       window.removeEventListener('om:crud-save-error', onCrudSaveError)
     }
-  }, [formId])
+  }, [formId, isPrimaryInstance])
 
   const handleTakeOver = React.useCallback(async () => {
     if (!state?.resourceKind || !state?.resourceId) return
@@ -638,7 +939,11 @@ export default function RecordLockingWidget({
 
   const handleAcceptIncoming = React.useCallback(async () => {
     if (!state?.conflict || !state?.resourceKind || !state?.resourceId) return
-    await apiCall('/api/record_locks/release', {
+    if (!isUuid(state.conflict.id)) {
+      flash(t('record_locks.conflict.title', 'Conflict detected'), 'error')
+      return
+    }
+    await apiCallOrThrow('/api/record_locks/release', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({
@@ -652,7 +957,7 @@ export default function RecordLockingWidget({
     })
     setRecordLockFormState(formId, { conflict: null, pendingConflictId: null, pendingResolution: 'normal' })
     window.location.reload()
-  }, [formId, state?.conflict, state?.lock?.token, state?.resourceId, state?.resourceKind])
+  }, [formId, state?.conflict, state?.lock?.token, state?.resourceId, state?.resourceKind, t])
 
   const handleKeepMine = React.useCallback(() => {
     if (!state?.conflict) return
@@ -660,10 +965,21 @@ export default function RecordLockingWidget({
       pendingResolution: 'accept_mine',
       pendingConflictId: state.conflict.id,
     })
-    window.setTimeout(() => {
-      submitCrudForm(formId)
+    window.setTimeout(async () => {
+      const submitted = submitCrudForm(formId)
+      if (submitted) return
+      const retried = await Promise.resolve(context.retryLastMutation?.()).catch(() => false)
+      if (!retried) {
+        flash(
+          t(
+            'record_locks.conflict.retry_save_after_accept_mine',
+            'Click save again to apply your changes.',
+          ),
+          'info',
+        )
+      }
     }, 0)
-  }, [formId, state?.conflict])
+  }, [context.retryLastMutation, formId, state?.conflict, t])
 
   const handleKeepEditing = React.useCallback(() => {
     if (!state?.conflict) return
@@ -768,6 +1084,7 @@ export default function RecordLockingWidget({
 
   const topBannerTarget = mounted ? document.getElementById('om-top-banners') : null
 
+  if (!isPrimaryInstance) return null
   if (!state?.lock) return conflictDialog
 
   const defaultPresenceMessage = activeParticipantCount > 1
@@ -851,9 +1168,10 @@ export async function validateBeforeSave(
     return { ok: true }
   }
   const resolution = state?.pendingResolution ?? 'normal'
-  const conflictId = resolution === 'normal'
+  const rawConflictId = resolution === 'normal'
     ? undefined
     : (state?.pendingConflictId ?? state?.conflict?.id ?? undefined)
+  const conflictId = isUuid(rawConflictId) ? rawConflictId : undefined
   const call = await apiCall<ValidateResponse>('/api/record_locks/validate', {
     method: 'POST',
     headers: { 'content-type': 'application/json' },

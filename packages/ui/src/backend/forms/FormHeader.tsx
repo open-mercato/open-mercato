@@ -2,13 +2,11 @@
 
 import * as React from 'react'
 import Link from 'next/link'
-import { usePathname, useSearchParams } from 'next/navigation'
 import { Trash2, Loader2 } from 'lucide-react'
 import { Button } from '../../primitives/button'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { FormActionButtons, type FormActionButtonsProps } from './FormActionButtons'
 import { ActionsDropdown, type ActionItem } from './ActionsDropdown'
-import { InjectionSpot } from '../injection/InjectionSpot'
 
 /** Base props shared by both modes */
 type FormHeaderBaseProps = {
@@ -58,32 +56,13 @@ export type FormHeaderProps = FormHeaderEditProps | FormHeaderDetailProps
 
 export function FormHeader(props: FormHeaderProps) {
   const t = useT()
-  const pathname = usePathname()
-  const searchParams = useSearchParams()
   const resolvedBackLabel = props.backLabel ?? t('ui.navigation.back')
-  const injectionContext = React.useMemo(
-    () => ({
-      path: pathname ?? '',
-      query: searchParams?.toString() ?? '',
-    }),
-    [pathname, searchParams],
-  )
 
   if (props.mode === 'detail') {
-    return (
-      <>
-        <DetailHeader {...props} resolvedBackLabel={resolvedBackLabel} />
-        <InjectionSpot spotId="form-header:detail" context={injectionContext} />
-      </>
-    )
+    return <DetailHeader {...props} resolvedBackLabel={resolvedBackLabel} />
   }
 
-  return (
-    <>
-      <EditHeader {...props} resolvedBackLabel={resolvedBackLabel} />
-      <InjectionSpot spotId="form-header:edit" context={injectionContext} />
-    </>
-  )
+  return <EditHeader {...props} resolvedBackLabel={resolvedBackLabel} />
 }
 
 function EditHeader({

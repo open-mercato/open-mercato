@@ -36,6 +36,12 @@ When another user opens the same record, participants are shown on the record pa
 
 ![Active editors and notifications for a shared record](/screenshots/open-mercato-record-locking-notifications.png)
 
+Record lock UI is injected through a global backend mutation hook (`backend-mutation:global`).  
+This means lock presence, notifications, and conflict dialogs can work on both:
+
+- standard `CrudForm` pages
+- custom backend detail pages that save data without `CrudForm` (for example Customers and Sales custom editors)
+
 ## Conflict handling
 
 When optimistic locking detects incoming changes, users get a field-level comparison and can choose how to proceed:

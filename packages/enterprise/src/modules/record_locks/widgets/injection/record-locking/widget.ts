@@ -2,6 +2,13 @@ import type { InjectionWidgetModule } from '@open-mercato/shared/modules/widgets
 import RecordLockingWidget, { validateBeforeSave } from './widget.client'
 import { getRecordLockFormState, setRecordLockFormState } from '@open-mercato/enterprise/modules/record_locks/lib/clientLockStore'
 
+function isUuid(value: string | null | undefined): value is string {
+  if (typeof value !== 'string') return false
+  const trimmed = value.trim()
+  if (!trimmed) return false
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(trimmed)
+}
+
 type CrudInjectionContext = {
   formId?: string
   entityId?: string
@@ -14,6 +21,7 @@ type CrudInjectionContext = {
   personId?: string
   companyId?: string
   dealId?: string
+  retryLastMutation?: () => Promise<boolean | void> | boolean | void
 }
 
 const widget: InjectionWidgetModule<CrudInjectionContext, Record<string, unknown>> = {
@@ -39,6 +47,17 @@ const widget: InjectionWidgetModule<CrudInjectionContext, Record<string, unknown
               lock: validation.lock ?? null,
               conflict: validation.conflict ?? null,
               latestActionLogId: validation.latestActionLogId ?? null,
+            },
+          }
+        }
+        if (validation.lock?.resourceKind && validation.lock?.resourceId) {
+          return {
+            ok: true,
+            requestHeaders: {
+              'x-om-record-lock-kind': validation.lock.resourceKind,
+              'x-om-record-lock-resource-id': validation.lock.resourceId,
+              ...(validation.lock?.token ? { 'x-om-record-lock-token': validation.lock.token } : {}),
+              ...(validation.latestActionLogId ? { 'x-om-record-lock-base-log-id': validation.latestActionLogId } : {}),
             },
           }
         }
@@ -68,9 +87,10 @@ const widget: InjectionWidgetModule<CrudInjectionContext, Record<string, unknown
       if (!state?.resourceKind || !state?.resourceId) return { ok: true }
       const shouldSendResolution = Boolean(state.pendingResolution && state.pendingResolution !== 'normal')
       const shouldSendConflictId = shouldSendResolution || Boolean(state.conflict?.id)
-      const conflictIdHeader = shouldSendConflictId
-        ? (state.pendingConflictId ?? state.conflict?.id)
+      const rawConflictId = shouldSendConflictId
+        ? (state.pendingConflictId ?? state.conflict?.id ?? undefined)
         : undefined
+      const conflictIdHeader = isUuid(rawConflictId) ? rawConflictId : undefined
       return {
         ok: true,
         requestHeaders: {

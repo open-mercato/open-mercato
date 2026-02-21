@@ -60,6 +60,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from '../primitives/
 import { FieldDefinitionsManager, type FieldDefinitionsManagerHandle } from './custom-fields/FieldDefinitionsManager'
 import { useConfirmDialog } from './confirm-dialog'
 import { useInjectionSpotEvents, InjectionSpot, useInjectionWidgets } from './injection/InjectionSpot'
+import { dispatchBackendMutationError } from './injection/mutationEvents'
 import { VersionHistoryAction } from './version-history/VersionHistoryAction'
 
 // Stable empty options array to avoid creating a new [] every render
@@ -1083,6 +1084,11 @@ export function CrudForm<TValues extends Record<string, unknown>>({
         if (!result.ok) {
           try {
             if (typeof window !== 'undefined') {
+              dispatchBackendMutationError({
+                contextId: formId,
+                formId,
+                error: result.details ?? result,
+              })
               window.dispatchEvent(new CustomEvent('om:crud-save-error', {
                 detail: {
                   formId,
@@ -1146,6 +1152,11 @@ export function CrudForm<TValues extends Record<string, unknown>>({
     } catch (err: unknown) {
       try {
         if (typeof window !== 'undefined') {
+          dispatchBackendMutationError({
+            contextId: formId,
+            formId,
+            error: err,
+          })
           window.dispatchEvent(new CustomEvent('om:crud-save-error', {
             detail: {
               formId,

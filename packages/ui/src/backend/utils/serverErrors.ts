@@ -241,6 +241,18 @@ export function parseServerMessage(input: string): string {
   return trimmed
 }
 
+function buildHttpError(
+  message: string,
+  extras?: Record<string, unknown>,
+): Error & Record<string, unknown> {
+  const error = new Error(message) as Error & Record<string, unknown>
+  if (!extras) return error
+  for (const [key, value] of Object.entries(extras)) {
+    error[key] = value
+  }
+  return error
+}
+
 export async function raiseCrudError(res: Response, fallbackMessage?: string): Promise<never> {
   let raw: string | null = null
   try {
@@ -261,16 +273,15 @@ export async function raiseCrudError(res: Response, fallbackMessage?: string): P
           ? data.message.trim()
           : fallbackMessage ?? `Request failed (${res.status})`
     const message = parseServerMessage(rawMessage)
-    throw {
+    throw buildHttpError(message, {
       ...data,
       status: res.status,
-      message,
       raw: trimmed ?? null,
-    }
+    })
   }
 
   const message = parseServerMessage(fallbackMessage ?? `Request failed (${res.status})`)
-  throw { message, status: res.status, raw: trimmed ?? null }
+  throw buildHttpError(message, { status: res.status, raw: trimmed ?? null })
 }
 
 export type CrudFormError = Error & {
