@@ -120,6 +120,7 @@ export const checkoutTransitionActionSchema = z.enum([
   'place_order',
   'cancel',
 ])
+export type CheckoutTransitionAction = z.infer<typeof checkoutTransitionActionSchema>
 
 export const checkoutCustomerInfoSchema = z.object({
   name: z.string().min(1),

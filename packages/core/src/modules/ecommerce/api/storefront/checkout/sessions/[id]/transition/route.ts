@@ -5,25 +5,25 @@ import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { CommandBus } from '@open-mercato/shared/lib/commands'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
-import { resolveStoreFromRequest } from '../../../../../../../lib/storeContext'
-import { isStorefrontReady, STOREFRONT_NOT_READY_ERROR } from '../../../../../../../lib/storefrontReadiness'
+import { resolveStoreFromRequest } from '../../../../../../lib/storeContext'
+import { isStorefrontReady, STOREFRONT_NOT_READY_ERROR } from '../../../../../../lib/storefrontReadiness'
 import {
   checkoutCustomerInfoSchema,
   checkoutShippingInfoSchema,
   checkoutTransitionSchema,
-} from '../../../../../../../data/validators'
+} from '../../../../../../data/validators'
 import {
   findCheckoutSessionById,
   formatCheckoutSessionDto,
   getAllowedCheckoutActions,
   isSessionExpired,
-} from '../../../../../../../lib/storefrontCheckoutSessions'
-import { resolveCartByToken } from '../../../../../../../lib/storefrontCart'
-import { placeOrderFromCart } from '../../../../../../../lib/storefrontCheckoutOrder'
+} from '../../../../../../lib/storefrontCheckoutSessions'
+import { resolveCartByToken } from '../../../../../../lib/storefrontCart'
+import { placeOrderFromCart } from '../../../../../../lib/storefrontCheckoutOrder'
 import {
   applyCheckoutWorkflowAction,
   setCheckoutWorkflowTerminalState,
-} from '../../../../../../../lib/storefrontCheckoutWorkflow'
+} from '../../../../../../lib/storefrontCheckoutWorkflow'
 
 export const metadata = {
   POST: { requireAuth: false },

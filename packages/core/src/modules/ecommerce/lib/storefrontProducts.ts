@@ -73,6 +73,8 @@ type PricingContext = {
   date: Date
 }
 
+type OfferLocalizedContent = Record<string, { title?: string; description?: string }>
+
 function buildPricingContext(storeCtx: StoreContext): PricingContext {
   return {
     channelId: storeCtx.channelBinding?.salesChannelId ?? null,
@@ -81,20 +83,29 @@ function buildPricingContext(storeCtx: StoreContext): PricingContext {
   }
 }
 
+function readOfferLocalizedContent(offer: CatalogOffer | null): OfferLocalizedContent | null {
+  const metadata = offer?.metadata
+  if (!metadata || typeof metadata !== 'object' || Array.isArray(metadata)) return null
+  const localizedContent = (metadata as Record<string, unknown>).localizedContent
+  if (!localizedContent || typeof localizedContent !== 'object' || Array.isArray(localizedContent)) return null
+  return localizedContent as OfferLocalizedContent
+}
+
 function resolveLocalizedTitle(
   product: { title: string },
   offer: CatalogOffer | null,
   locale: string,
 ): string {
-  if (offer?.localizedContent) {
-    const locContent = offer.localizedContent[locale]
+  const localizedContent = readOfferLocalizedContent(offer)
+  if (localizedContent) {
+    const locContent = localizedContent[locale]
     if (locContent?.title) return locContent.title
     const lang = locale.split('-')[0]
-    const fallbackKey = Object.keys(offer.localizedContent).find((k) => k.startsWith(lang))
-    if (fallbackKey && offer.localizedContent[fallbackKey]?.title) {
-      return offer.localizedContent[fallbackKey].title!
+    const fallbackKey = Object.keys(localizedContent).find((k) => k.startsWith(lang))
+    if (fallbackKey && localizedContent[fallbackKey]?.title) {
+      return localizedContent[fallbackKey].title!
     }
-    if (offer.title) return offer.title
+    if (offer?.title) return offer.title
   }
   return product.title
 }
@@ -104,8 +115,9 @@ function resolveLocalizedSubtitle(
   offer: CatalogOffer | null,
   locale: string,
 ): string | null {
-  if (offer?.localizedContent) {
-    const locContent = offer.localizedContent[locale]
+  const localizedContent = readOfferLocalizedContent(offer)
+  if (localizedContent) {
+    const locContent = localizedContent[locale]
     if (locContent?.description) return locContent.description
   }
   return product.subtitle ?? null

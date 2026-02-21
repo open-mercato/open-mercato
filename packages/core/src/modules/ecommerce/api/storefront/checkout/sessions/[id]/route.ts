@@ -3,14 +3,14 @@ import { z } from 'zod'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
-import { resolveStoreFromRequest } from '../../../../../../lib/storeContext'
-import { isStorefrontReady, STOREFRONT_NOT_READY_ERROR } from '../../../../../../lib/storefrontReadiness'
+import { resolveStoreFromRequest } from '../../../../../lib/storeContext'
+import { isStorefrontReady, STOREFRONT_NOT_READY_ERROR } from '../../../../../lib/storefrontReadiness'
 import {
   findCheckoutSessionById,
   formatCheckoutSessionDto,
   isSessionExpired,
-} from '../../../../../../lib/storefrontCheckoutSessions'
-import { ensureCheckoutWorkflowInstance } from '../../../../../../lib/storefrontCheckoutWorkflow'
+} from '../../../../../lib/storefrontCheckoutSessions'
+import { ensureCheckoutWorkflowInstance } from '../../../../../lib/storefrontCheckoutWorkflow'
 
 export const metadata = {
   GET: { requireAuth: false },

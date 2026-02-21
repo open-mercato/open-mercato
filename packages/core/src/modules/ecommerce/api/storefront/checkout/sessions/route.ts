@@ -3,19 +3,19 @@ import { z } from 'zod'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
-import { resolveStoreFromRequest } from '../../../../../lib/storeContext'
-import { isStorefrontReady, STOREFRONT_NOT_READY_ERROR } from '../../../../../lib/storefrontReadiness'
-import { resolveCartByToken } from '../../../../../lib/storefrontCart'
+import { resolveStoreFromRequest } from '../../../../lib/storeContext'
+import { isStorefrontReady, STOREFRONT_NOT_READY_ERROR } from '../../../../lib/storefrontReadiness'
+import { resolveCartByToken } from '../../../../lib/storefrontCart'
 import {
   checkoutSessionCreateSchema,
-} from '../../../../../data/validators'
+} from '../../../../data/validators'
 import {
   createCheckoutSession,
   findActiveCheckoutSessionByCart,
   formatCheckoutSessionDto,
   isSessionExpired,
-} from '../../../../../lib/storefrontCheckoutSessions'
-import { ensureCheckoutWorkflowInstance } from '../../../../../lib/storefrontCheckoutWorkflow'
+} from '../../../../lib/storefrontCheckoutSessions'
+import { ensureCheckoutWorkflowInstance } from '../../../../lib/storefrontCheckoutWorkflow'
 
 export const metadata = {
   POST: { requireAuth: false },
