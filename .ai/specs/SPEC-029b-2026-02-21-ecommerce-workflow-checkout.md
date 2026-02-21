@@ -276,6 +276,13 @@ Not fully solved yet (separate phases):
 3. How long should session TTL be per vertical?
 4. Should checkout session allow cart mutation after entering `review`?
 
+## Changelog
+
+### 2026-02-21
+- Added concrete runtime integration approach: checkout session transitions are executed via `workflows` engine (`startWorkflow` + `executeTransition`) instead of only local branching.
+- Added per-session workflow instance binding (`metadata.workflowInstanceId`) and tenant-scoped workflow definition bootstrap (`ecommerce_checkout_v1`).
+- Clarified that `place_order` uses two-phase transition flow: `review -> placing_order`, then `placing_order -> completed|failed` based on sales command outcome.
+
 ---
 
 ## Changelog

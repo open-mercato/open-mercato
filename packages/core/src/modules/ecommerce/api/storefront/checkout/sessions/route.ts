@@ -15,6 +15,7 @@ import {
   formatCheckoutSessionDto,
   isSessionExpired,
 } from '../../../../../lib/storefrontCheckoutSessions'
+import { ensureCheckoutWorkflowInstance } from '../../../../../lib/storefrontCheckoutWorkflow'
 
 export const metadata = {
   POST: { requireAuth: false },
@@ -85,6 +86,7 @@ export async function POST(req: Request) {
         existing.version += 1
         await em.flush()
       } else {
+        await ensureCheckoutWorkflowInstance(em, existing)
         return NextResponse.json({ session: formatCheckoutSessionDto(existing) })
       }
     }
@@ -97,6 +99,7 @@ export async function POST(req: Request) {
       cart.token,
       expiresAt,
     )
+    await ensureCheckoutWorkflowInstance(em, session)
 
     return NextResponse.json({ session: formatCheckoutSessionDto(session) }, { status: 201 })
   } catch (error) {

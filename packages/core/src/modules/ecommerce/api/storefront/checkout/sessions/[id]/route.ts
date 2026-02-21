@@ -10,6 +10,7 @@ import {
   formatCheckoutSessionDto,
   isSessionExpired,
 } from '../../../../../../lib/storefrontCheckoutSessions'
+import { ensureCheckoutWorkflowInstance } from '../../../../../../lib/storefrontCheckoutWorkflow'
 
 export const metadata = {
   GET: { requireAuth: false },
@@ -82,6 +83,8 @@ export async function GET(req: Request, { params }: RouteContext) {
       session.workflowState = 'expired'
       session.version += 1
       await em.flush()
+    } else if (session.status === 'active') {
+      await ensureCheckoutWorkflowInstance(em, session)
     }
 
     return NextResponse.json({ session: formatCheckoutSessionDto(session) })

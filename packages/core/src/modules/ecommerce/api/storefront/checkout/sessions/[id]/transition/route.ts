@@ -20,6 +20,10 @@ import {
 } from '../../../../../../../lib/storefrontCheckoutSessions'
 import { resolveCartByToken } from '../../../../../../../lib/storefrontCart'
 import { placeOrderFromCart } from '../../../../../../../lib/storefrontCheckoutOrder'
+import {
+  applyCheckoutWorkflowAction,
+  setCheckoutWorkflowTerminalState,
+} from '../../../../../../../lib/storefrontCheckoutWorkflow'
 
 export const metadata = {
   POST: { requireAuth: false },
@@ -116,8 +120,6 @@ export async function POST(req: Request, { params }: RouteContext) {
       )
     }
 
-    // NOTE: This route currently applies transitions directly on EcommerceCheckoutSession.
-    // It is the integration seam for replacing these branches with workflows.executeTransition.
     if (action === 'set_customer') {
       const parsed = checkoutCustomerInfoSchema.safeParse(payload ?? {})
       if (!parsed.success) {
@@ -127,7 +129,16 @@ export async function POST(req: Request, { params }: RouteContext) {
         )
       }
       session.customerInfo = parsed.data
-      session.workflowState = 'customer'
+      const workflowResult = await applyCheckoutWorkflowAction(
+        em,
+        container,
+        session,
+        action,
+        { customerInfo: parsed.data },
+      )
+      if (!workflowResult.ok) {
+        return NextResponse.json({ error: workflowResult.error }, { status: 409 })
+      }
       session.version += 1
       await em.flush()
       return NextResponse.json({ session: formatCheckoutSessionDto(session) })
@@ -142,7 +153,16 @@ export async function POST(req: Request, { params }: RouteContext) {
         )
       }
       session.shippingInfo = parsed.data
-      session.workflowState = 'shipping'
+      const workflowResult = await applyCheckoutWorkflowAction(
+        em,
+        container,
+        session,
+        action,
+        { shippingInfo: parsed.data },
+      )
+      if (!workflowResult.ok) {
+        return NextResponse.json({ error: workflowResult.error }, { status: 409 })
+      }
       session.version += 1
       await em.flush()
       return NextResponse.json({ session: formatCheckoutSessionDto(session) })
@@ -152,7 +172,16 @@ export async function POST(req: Request, { params }: RouteContext) {
       if (!session.customerInfo) {
         return NextResponse.json({ error: 'Customer info is required before review' }, { status: 409 })
       }
-      session.workflowState = 'review'
+      const workflowResult = await applyCheckoutWorkflowAction(
+        em,
+        container,
+        session,
+        action,
+        { customerInfo: session.customerInfo, shippingInfo: session.shippingInfo ?? null },
+      )
+      if (!workflowResult.ok) {
+        return NextResponse.json({ error: workflowResult.error }, { status: 409 })
+      }
       session.version += 1
       await em.flush()
       return NextResponse.json({ session: formatCheckoutSessionDto(session) })
@@ -160,7 +189,15 @@ export async function POST(req: Request, { params }: RouteContext) {
 
     if (action === 'cancel') {
       session.status = 'cancelled'
-      session.workflowState = 'cancelled'
+      const workflowResult = await applyCheckoutWorkflowAction(
+        em,
+        container,
+        session,
+        action,
+      )
+      if (!workflowResult.ok) {
+        return NextResponse.json({ error: workflowResult.error }, { status: 409 })
+      }
       session.version += 1
       await em.flush()
       return NextResponse.json({ session: formatCheckoutSessionDto(session) })
@@ -195,7 +232,16 @@ export async function POST(req: Request, { params }: RouteContext) {
       return NextResponse.json({ error: 'Cart not found' }, { status: 404 })
     }
 
-    session.workflowState = 'placing_order'
+    const placingOrderTransition = await applyCheckoutWorkflowAction(
+      em,
+      container,
+      session,
+      'place_order',
+      { customerInfo: session.customerInfo, shippingInfo: session.shippingInfo ?? null },
+    )
+    if (!placingOrderTransition.ok) {
+      return NextResponse.json({ error: placingOrderTransition.error }, { status: 409 })
+    }
     session.idempotencyKey = idempotencyKey
     session.version += 1
     await em.flush()
@@ -213,7 +259,15 @@ export async function POST(req: Request, { params }: RouteContext) {
       )
 
       session.status = 'completed'
-      session.workflowState = 'completed'
+      const completedTransition = await setCheckoutWorkflowTerminalState(
+        em,
+        container,
+        session,
+        'completed',
+      )
+      if (!completedTransition.ok) {
+        return NextResponse.json({ error: completedTransition.error }, { status: 409 })
+      }
       session.placedOrderId = orderId
       session.version += 1
       await em.flush()
@@ -224,7 +278,15 @@ export async function POST(req: Request, { params }: RouteContext) {
       })
     } catch (error) {
       session.status = 'failed'
-      session.workflowState = 'failed'
+      const failedTransition = await setCheckoutWorkflowTerminalState(
+        em,
+        container,
+        session,
+        'failed',
+      )
+      if (!failedTransition.ok) {
+        return NextResponse.json({ error: failedTransition.error }, { status: 409 })
+      }
       session.version += 1
       await em.flush()
       if (error instanceof CrudHttpError) {
