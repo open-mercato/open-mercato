@@ -1,13 +1,8 @@
 {
-  "system_status_overlays": {
-    "enterpriseInfo": {
-      "title": "Edicion y version",
-      "description": "Este entorno ejecuta la edicion Enterprise.",
-      "editionBadge": "Enterprise",
-      "editionLabel": "Edicion",
-      "editionValue": "Enterprise",
-      "versionLabel": "Version"
-    }
-  }
+  "system_status_overlays.enterpriseInfo.description": "Este entorno ejecuta la edicion Enterprise.",
+  "system_status_overlays.enterpriseInfo.editionBadge": "Enterprise",
+  "system_status_overlays.enterpriseInfo.editionLabel": "Edicion",
+  "system_status_overlays.enterpriseInfo.editionValue": "Enterprise",
+  "system_status_overlays.enterpriseInfo.title": "Edicion y version",
+  "system_status_overlays.enterpriseInfo.versionLabel": "Version"
 }
-

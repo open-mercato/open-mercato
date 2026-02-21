@@ -862,49 +862,9 @@ export default function RecordLockingWidget({
       }
       if (!payload) {
         if (!currentState?.resourceKind || !currentState?.resourceId) return
-        void (async () => {
-          const resolution = currentState.pendingResolution ?? 'normal'
-          const rawConflictId = resolution === 'normal'
-            ? undefined
-            : (currentState.pendingConflictId ?? currentState.conflict?.id ?? undefined)
-          const conflictId = isUuid(rawConflictId) ? rawConflictId : undefined
-
-          try {
-            const validationCall = await apiCall<ValidateResponse>('/api/record_locks/validate', {
-              method: 'POST',
-              headers: { 'content-type': 'application/json' },
-              body: JSON.stringify({
-                resourceKind: currentState.resourceKind,
-                resourceId: currentState.resourceId,
-                method: 'PUT',
-                token: currentState.lock?.token ?? undefined,
-                baseLogId: currentState.latestActionLogId ?? currentState.lock?.baseActionLogId ?? undefined,
-                conflictId,
-                resolution,
-                mutationPayload: {},
-              }),
-            })
-            const validationPayload = validationCall.result
-            if (
-              validationPayload
-              && !validationPayload.ok
-              && (validationPayload.code === 'record_lock_conflict' || validationPayload.status === 409)
-            ) {
-              applyConflictPayload({
-                conflict: validationPayload.conflict ?? buildFallbackConflict(currentState).conflict,
-                lock: validationPayload.lock ?? currentState.lock ?? undefined,
-                latestActionLogId: validationPayload.latestActionLogId ?? currentState.latestActionLogId ?? null,
-              })
-              return
-            }
-          } catch {
-            // ignore probe failures and fallback below
-          }
-
-          if (extractErrorStatus(detail.error) === 409) {
-            applyConflictPayload(buildFallbackConflict(currentState))
-          }
-        })()
+        if (extractErrorStatus(detail.error) === 409) {
+          applyConflictPayload(buildFallbackConflict(currentState))
+        }
         return
       }
 
@@ -1031,22 +991,12 @@ export default function RecordLockingWidget({
 
   const handleKeepEditing = React.useCallback(() => {
     if (!state?.conflict) return
-    const conflictId = isUuid(state.conflict.id) ? state.conflict.id : null
     setRecordLockFormState(formId, {
       conflict: null,
-      pendingConflictId: conflictId,
-      pendingResolution: conflictId ? 'merged' : 'normal',
+      pendingConflictId: null,
+      pendingResolution: 'normal',
     })
-    if (!conflictId) {
-      flash(
-        t(
-          'record_locks.conflict.refresh_required',
-          'Could not confirm conflict details. Save again to refresh conflict data.',
-        ),
-        'info',
-      )
-    }
-  }, [formId, state?.conflict, t])
+  }, [formId, state?.conflict])
 
   const noneLabel = t('audit_logs.common.none')
   const conflictChangeRows = React.useMemo<ChangeRow[]>(
@@ -1248,8 +1198,12 @@ export async function validateBeforeSave(
   if (!resourceKind || !resourceId) {
     return { ok: true }
   }
-  const resolution = state?.pendingResolution ?? 'normal'
-  const rawConflictId = resolution === 'normal'
+  const hasResolvableConflict = Boolean(state?.conflict?.id && isUuid(state.conflict.id))
+  const requestedResolution = state?.pendingResolution ?? 'normal'
+  const resolution = requestedResolution !== 'normal' && !hasResolvableConflict
+    ? 'normal'
+    : requestedResolution
+  const rawConflictId = resolution === 'normal' || !hasResolvableConflict
     ? undefined
     : (state?.pendingConflictId ?? state?.conflict?.id ?? undefined)
   const conflictId = isUuid(rawConflictId) ? rawConflictId : undefined

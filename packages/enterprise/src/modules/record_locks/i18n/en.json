@@ -1,99 +1,71 @@
 {
-  "record_locks": {
-    "title": "Record locking",
-    "settings": {
-      "title": "Record locking",
-      "description": "Configure optimistic/pessimistic locking and conflict handling.",
-      "enabled": "Enable record locking",
-      "strategy": "Strategy",
-      "strategy_optimistic": "Optimistic",
-      "strategy_pessimistic": "Pessimistic",
-      "strategy_help_optimistic": "Multiple users can edit at the same time; conflicts are checked on save.",
-      "strategy_help_pessimistic": "First editor acquires the lock and blocks concurrent edits until release.",
-      "timeout_seconds": "Lock timeout (seconds)",
-      "heartbeat_seconds": "Heartbeat interval (seconds)",
-      "enabled_resources": "Enabled resources",
-      "enabled_resources_placeholder": "Add resource kind and press Enter",
-      "enabled_resources_hint": "Pick from suggestions or type a custom resource kind.",
-      "allow_force_unlock": "Allow force unlock",
-      "allow_incoming_override": "Allow overriding incoming changes",
-      "allow_incoming_override_hint": "Users still need the record_locks.override_incoming feature in their role or user ACL to keep their version during conflicts.",
-      "allow_incoming_override_permissions_link": "Check permissions",
-      "notify_on_conflict": "Notify on conflict",
-      "save": "Save settings",
-      "saved": "Settings saved",
-      "save_error": "Failed to save settings"
-    },
-    "banner": {
-      "locked_by_other": "This record is currently locked by another user.",
-      "optimistic_notice": "Another user is editing this record. Conflicts may occur on save.",
-      "participants_notice": "Multiple users are currently on this record.",
-      "contention_notice": "Another user opened this record while you are editing it. Conflicts may occur on save.",
-      "same_user_session": "This record is already open in another session.",
-      "mine": "You are currently editing this record.",
-      "active_users_label": "Active users",
-      "local_machine": "local machine",
-      "take_over": "Take over editing",
-      "take_over_pending": "Taking over..."
-    },
-    "errors": {
-      "acquire_failed": "Failed to load record lock status.",
-      "force_release_failed": "Failed to take over editing.",
-      "force_release_unavailable": "Force release is unavailable because takeover is disabled or the lock is no longer active."
-    },
-    "conflict": {
-      "title": "Conflict detected",
-      "description": "The record was changed by another user after you started editing.",
-      "accept_incoming": "Accept incoming",
-      "accept_mine": "Keep my changes",
-      "field": "Field",
-      "display_value": "Display value",
-      "incoming_value": "Incoming value",
-      "mine_value": "Your value",
-      "incoming_label": "Incoming",
-      "current_label": "Current",
-      "keep_editing": "Keep editing",
-      "override_blocked_notice": "You cannot keep your version because you do not have permission to override incoming changes.",
-      "no_field_details": "Field-level conflict details are unavailable for this record. Choose a resolution to continue.",
-      "empty_value": "(empty)",
-      "cancel": "Cancel",
-      "accept_incoming_failed": "Could not accept incoming changes. Refresh and try again."
-    },
-    "notifications": {
-      "participant_joined": {
-        "title": "New participant joined",
-        "body": "Another user opened this record while you are editing it."
-      },
-      "participant_left": {
-        "title": "Participant left",
-        "body": "A user left this record (heartbeat expired)."
-      },
-      "lock_contended": {
-        "title": "Another user opened your record",
-        "body": "Another user opened a record you are currently editing. Conflicts may occur on save."
-      },
-      "lock_force_released": {
-        "title": "Your lock was force released",
-        "body": "Another user force released your lock on a record."
-      },
-      "conflict_detected": {
-        "title": "Edit conflict detected",
-        "body": "Your save conflicted with a more recent change. Changed fields: {changedFields}."
-      },
-      "conflict_resolved": {
-        "title": "Conflict resolved",
-        "body": "A record conflict has been resolved."
-      },
-      "incoming_changes": {
-        "title": "Incoming changes available",
-        "body": "This record was updated by another user. Changed fields: {changedFields}."
-      },
-      "actions": {
-        "accept_incoming": "Apply incoming",
-        "accept_mine": "Reject incoming",
-        "see_incoming_changes": "See incoming changes",
-        "see_lock_contention": "Open record"
-      }
-    }
-  }
+  "record_locks.banner.active_users_label": "Active users",
+  "record_locks.banner.contention_notice": "Another user opened this record while you are editing it. Conflicts may occur on save.",
+  "record_locks.banner.local_machine": "local machine",
+  "record_locks.banner.locked_by_other": "This record is currently locked by another user.",
+  "record_locks.banner.mine": "You are currently editing this record.",
+  "record_locks.banner.optimistic_notice": "Another user is editing this record. Conflicts may occur on save.",
+  "record_locks.banner.participants_notice": "Multiple users are currently on this record.",
+  "record_locks.banner.same_user_session": "This record is already open in another session.",
+  "record_locks.banner.take_over": "Take over editing",
+  "record_locks.banner.take_over_pending": "Taking over...",
+  "record_locks.conflict.accept_incoming": "Accept incoming",
+  "record_locks.conflict.accept_incoming_failed": "Could not accept incoming changes. Refresh and try again.",
+  "record_locks.conflict.accept_mine": "Keep my changes",
+  "record_locks.conflict.cancel": "Cancel",
+  "record_locks.conflict.current_label": "Current",
+  "record_locks.conflict.description": "The record was changed by another user after you started editing.",
+  "record_locks.conflict.display_value": "Display value",
+  "record_locks.conflict.empty_value": "(empty)",
+  "record_locks.conflict.field": "Field",
+  "record_locks.conflict.incoming_label": "Incoming",
+  "record_locks.conflict.incoming_value": "Incoming value",
+  "record_locks.conflict.keep_editing": "Keep editing",
+  "record_locks.conflict.mine_value": "Your value",
+  "record_locks.conflict.no_field_details": "Field-level conflict details are unavailable for this record. Choose a resolution to continue.",
+  "record_locks.conflict.override_blocked_notice": "You cannot keep your version because you do not have permission to override incoming changes.",
+  "record_locks.conflict.title": "Conflict detected",
+  "record_locks.errors.acquire_failed": "Failed to load record lock status.",
+  "record_locks.errors.force_release_failed": "Failed to take over editing.",
+  "record_locks.errors.force_release_unavailable": "Force release is unavailable because takeover is disabled or the lock is no longer active.",
+  "record_locks.notifications.actions.accept_incoming": "Apply incoming",
+  "record_locks.notifications.actions.accept_mine": "Reject incoming",
+  "record_locks.notifications.actions.see_incoming_changes": "See incoming changes",
+  "record_locks.notifications.actions.see_lock_contention": "Open record",
+  "record_locks.notifications.conflict_detected.body": "Your save conflicted with a more recent change. Changed fields: {changedFields}.",
+  "record_locks.notifications.conflict_detected.title": "Edit conflict detected",
+  "record_locks.notifications.conflict_resolved.body": "A record conflict has been resolved.",
+  "record_locks.notifications.conflict_resolved.title": "Conflict resolved",
+  "record_locks.notifications.incoming_changes.body": "This record was updated by another user. Changed fields: {changedFields}.",
+  "record_locks.notifications.incoming_changes.title": "Incoming changes available",
+  "record_locks.notifications.lock_contended.body": "Another user opened a record you are currently editing. Conflicts may occur on save.",
+  "record_locks.notifications.lock_contended.title": "Another user opened your record",
+  "record_locks.notifications.lock_force_released.body": "Another user force released your lock on a record.",
+  "record_locks.notifications.lock_force_released.title": "Your lock was force released",
+  "record_locks.notifications.participant_joined.body": "Another user opened this record while you are editing it.",
+  "record_locks.notifications.participant_joined.title": "New participant joined",
+  "record_locks.notifications.participant_left.body": "A user left this record (heartbeat expired).",
+  "record_locks.notifications.participant_left.title": "Participant left",
+  "record_locks.settings.allow_force_unlock": "Allow force unlock",
+  "record_locks.settings.allow_incoming_override": "Allow overriding incoming changes",
+  "record_locks.settings.allow_incoming_override_hint": "Users still need the record_locks.override_incoming feature in their role or user ACL to keep their version during conflicts.",
+  "record_locks.settings.allow_incoming_override_permissions_link": "Check permissions",
+  "record_locks.settings.description": "Configure optimistic/pessimistic locking and conflict handling.",
+  "record_locks.settings.enabled": "Enable record locking",
+  "record_locks.settings.enabled_resources": "Enabled resources",
+  "record_locks.settings.enabled_resources_hint": "Pick from suggestions or type a custom resource kind.",
+  "record_locks.settings.enabled_resources_placeholder": "Add resource kind and press Enter",
+  "record_locks.settings.heartbeat_seconds": "Heartbeat interval (seconds)",
+  "record_locks.settings.notify_on_conflict": "Notify on conflict",
+  "record_locks.settings.save": "Save settings",
+  "record_locks.settings.save_error": "Failed to save settings",
+  "record_locks.settings.saved": "Settings saved",
+  "record_locks.settings.strategy": "Strategy",
+  "record_locks.settings.strategy_help_optimistic": "Multiple users can edit at the same time; conflicts are checked on save.",
+  "record_locks.settings.strategy_help_pessimistic": "First editor acquires the lock and blocks concurrent edits until release.",
+  "record_locks.settings.strategy_optimistic": "Optimistic",
+  "record_locks.settings.strategy_pessimistic": "Pessimistic",
+  "record_locks.settings.timeout_seconds": "Lock timeout (seconds)",
+  "record_locks.settings.title": "Record locking",
+  "record_locks.title": "Record locking"
 }

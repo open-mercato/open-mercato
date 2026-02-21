@@ -85,8 +85,9 @@ const widget: InjectionWidgetModule<CrudInjectionContext, Record<string, unknown
       }
       const state = getRecordLockFormState(context.formId)
       if (!state?.resourceKind || !state?.resourceId) return { ok: true }
-      const shouldSendResolution = Boolean(state.pendingResolution && state.pendingResolution !== 'normal')
-      const shouldSendConflictId = shouldSendResolution || Boolean(state.conflict?.id)
+      const hasResolvableConflict = Boolean(state.conflict?.id && isUuid(state.conflict.id))
+      const shouldSendResolution = hasResolvableConflict && Boolean(state.pendingResolution && state.pendingResolution !== 'normal')
+      const shouldSendConflictId = hasResolvableConflict
       const rawConflictId = shouldSendConflictId
         ? (state.pendingConflictId ?? state.conflict?.id ?? undefined)
         : undefined
