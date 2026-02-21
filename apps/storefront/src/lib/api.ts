@@ -5,6 +5,8 @@ import type {
   CategoryNode,
   CategoryDetail,
   CartDto,
+  CheckoutSession,
+  CheckoutTransitionAction,
 } from './types'
 
 const API_BASE = process.env.NEXT_PUBLIC_STOREFRONT_API_URL ?? ''
@@ -153,51 +155,79 @@ export async function checkout(
   cartToken: string,
   customerInfo: { name: string; email: string; phone?: string; address?: string },
 ): Promise<{ orderId: string }> {
-  type CheckoutSessionResponse = { session: { id: string } }
-  type CheckoutTransitionResponse = { orderId?: string }
+  const session = await createCheckoutSession(cartToken, cartToken)
+  await transitionCheckoutSession(session.id, 'set_customer', customerInfo, undefined, cartToken)
+  await transitionCheckoutSession(session.id, 'review', undefined, undefined, cartToken)
+  const placed = await transitionCheckoutSession(
+    session.id,
+    'place_order',
+    undefined,
+    createIdempotencyKey(),
+    cartToken,
+  )
 
-  const idempotencyKey =
-    typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
-      ? crypto.randomUUID()
-      : `checkout-${Date.now()}-${Math.random().toString(16).slice(2)}`
-
-  try {
-    const created = await storefrontPost<CheckoutSessionResponse>(
-      '/checkout/sessions',
-      { cartToken },
-      cartToken,
-    )
-
-    await storefrontPost<CheckoutTransitionResponse>(
-      `/checkout/sessions/${created.session.id}/transition`,
-      { action: 'set_customer', payload: customerInfo },
-      cartToken,
-    )
-
-    await storefrontPost<CheckoutTransitionResponse>(
-      `/checkout/sessions/${created.session.id}/transition`,
-      { action: 'review' },
-      cartToken,
-    )
-
-    const placed = await storefrontPost<CheckoutTransitionResponse>(
-      `/checkout/sessions/${created.session.id}/transition`,
-      { action: 'place_order', idempotencyKey },
-      cartToken,
-    )
-
-    if (!placed.orderId) {
-      throw new StorefrontApiError(500, 'Missing orderId in place_order response')
-    }
-    return { orderId: placed.orderId }
-  } catch {
-    // Backward-compatible fallback while legacy adapter endpoint still exists.
-    return storefrontPost<{ orderId: string }>(
-      '/cart/checkout',
-      { cartToken, customerInfo },
-      cartToken,
-    )
+  if (!placed.orderId) {
+    throw new StorefrontApiError(500, 'Missing orderId in place_order response')
   }
+  return { orderId: placed.orderId }
+}
+
+function createIdempotencyKey(): string {
+  return typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
+    ? crypto.randomUUID()
+    : `checkout-${Date.now()}-${Math.random().toString(16).slice(2)}`
+}
+
+export async function createCheckoutSession(
+  cartToken: string,
+  headerToken?: string | null,
+): Promise<CheckoutSession> {
+  const data = await storefrontPost<{ session: CheckoutSession }>(
+    '/checkout/sessions',
+    { cartToken },
+    headerToken ?? cartToken,
+  )
+  return data.session
+}
+
+export async function getCheckoutSession(
+  sessionId: string,
+  cartToken?: string | null,
+): Promise<CheckoutSession> {
+  const data = await storefrontFetch<{ session: CheckoutSession }>(
+    `/checkout/sessions/${sessionId}`,
+    undefined,
+    true,
+  )
+  if (!data?.session) {
+    throw new StorefrontApiError(404, 'Checkout session not found')
+  }
+  return data.session
+}
+
+export async function transitionCheckoutSession(
+  sessionId: string,
+  action: CheckoutTransitionAction,
+  payload?: Record<string, unknown>,
+  idempotencyKey?: string,
+  cartToken?: string | null,
+): Promise<{ session: CheckoutSession; orderId?: string }> {
+  return storefrontPost<{ session: CheckoutSession; orderId?: string }>(
+    `/checkout/sessions/${sessionId}/transition`,
+    {
+      action,
+      payload,
+      idempotencyKey,
+    },
+    cartToken,
+  )
+}
+
+export async function cancelCheckoutSession(
+  sessionId: string,
+  cartToken?: string | null,
+): Promise<{ session: CheckoutSession; orderId?: string }> {
+  return transitionCheckoutSession(sessionId, 'cancel', undefined, undefined, cartToken)
 }
 
 export async function fetchStoreContext(): Promise<StorefrontContext | null> {

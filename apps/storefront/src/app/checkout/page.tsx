@@ -5,7 +5,12 @@ import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { ArrowLeft } from 'lucide-react'
 import { useCart } from '@/lib/CartContext'
-import { checkout } from '@/lib/api'
+import {
+  createCheckoutSession,
+  transitionCheckoutSession,
+  cancelCheckoutSession,
+} from '@/lib/api'
+import type { CheckoutSession } from '@/lib/types'
 
 function formatPrice(amount: string | null, currencyCode: string, locale?: string) {
   if (!amount) return null
@@ -28,7 +33,52 @@ export default function CheckoutPage() {
   const [phone, setPhone] = React.useState('')
   const [address, setAddress] = React.useState('')
   const [isSubmitting, setIsSubmitting] = React.useState(false)
+  const [isSessionLoading, setIsSessionLoading] = React.useState(false)
   const [error, setError] = React.useState<string | null>(null)
+  const [session, setSession] = React.useState<CheckoutSession | null>(null)
+
+  React.useEffect(() => {
+    let cancelled = false
+    async function bootstrapSession() {
+      if (!cartToken || !cart || cart.lines.length === 0) return
+      setIsSessionLoading(true)
+      try {
+        const created = await createCheckoutSession(cartToken, cartToken)
+        if (cancelled) return
+        setSession(created)
+
+        const existingCustomer = created.customerInfo ?? {}
+        setName((existingCustomer.name as string | undefined) ?? '')
+        setEmail((existingCustomer.email as string | undefined) ?? '')
+        setPhone((existingCustomer.phone as string | undefined) ?? '')
+        setAddress((existingCustomer.address as string | undefined) ?? '')
+      } catch (err) {
+        if (!cancelled) {
+          setError(readErrorMessage(err))
+        }
+      } finally {
+        if (!cancelled) setIsSessionLoading(false)
+      }
+    }
+    bootstrapSession()
+    return () => {
+      cancelled = true
+    }
+  }, [cartToken, cart?.id, cart?.lines.length])
+
+  function readErrorMessage(err: unknown): string {
+    const defaultMessage = 'Failed to process checkout. Please try again.'
+    if (!err || typeof err !== 'object') return defaultMessage
+    const maybeError = err as Error
+    const raw = typeof maybeError.message === 'string' ? maybeError.message : ''
+    if (!raw) return defaultMessage
+    try {
+      const parsed = JSON.parse(raw) as { error?: string }
+      return parsed.error ?? defaultMessage
+    } catch {
+      return raw
+    }
+  }
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
@@ -38,16 +88,64 @@ export default function CheckoutPage() {
     setError(null)
 
     try {
-      const result = await checkout(cartToken, {
-        name: name.trim(),
-        email: email.trim(),
-        phone: phone.trim() || undefined,
-        address: address.trim() || undefined,
-      })
+      const ensuredSession = session ?? (await createCheckoutSession(cartToken, cartToken))
+      setSession(ensuredSession)
+
+      const setCustomerResult = await transitionCheckoutSession(
+        ensuredSession.id,
+        'set_customer',
+        {
+          name: name.trim(),
+          email: email.trim(),
+          phone: phone.trim() || undefined,
+          address: address.trim() || undefined,
+        },
+        undefined,
+        cartToken,
+      )
+      setSession(setCustomerResult.session)
+
+      const reviewResult = await transitionCheckoutSession(
+        ensuredSession.id,
+        'review',
+        undefined,
+        undefined,
+        cartToken,
+      )
+      setSession(reviewResult.session)
+
+      const placeResult = await transitionCheckoutSession(
+        ensuredSession.id,
+        'place_order',
+        undefined,
+        (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function')
+          ? crypto.randomUUID()
+          : `${Date.now()}-${Math.random().toString(16).slice(2)}`,
+        cartToken,
+      )
+      setSession(placeResult.session)
+      const orderId = placeResult.orderId ?? placeResult.session.placedOrderId
+      if (!orderId) {
+        throw new Error('Checkout completed without order id')
+      }
       clearCart()
-      router.push(`/order-confirmation?orderId=${result.orderId}`)
-    } catch {
-      setError('Failed to place order. Please try again.')
+      router.push(`/order-confirmation?orderId=${orderId}`)
+    } catch (err: unknown) {
+      setError(readErrorMessage(err))
+      setIsSubmitting(false)
+    }
+  }
+
+  async function handleCancelSession() {
+    if (!session || !cartToken) return
+    setIsSubmitting(true)
+    setError(null)
+    try {
+      const result = await cancelCheckoutSession(session.id, cartToken)
+      setSession(result.session)
+    } catch (err) {
+      setError(readErrorMessage(err))
+    } finally {
       setIsSubmitting(false)
     }
   }
@@ -142,13 +240,34 @@ export default function CheckoutPage() {
             <p className="text-sm text-red-600">{error}</p>
           )}
 
+          {session && (
+            <div className="rounded border border-gray-200 bg-gray-50 px-3 py-2 text-xs text-gray-600">
+              <div>
+                Session state: <span className="font-medium text-gray-900">{session.workflowState}</span>
+              </div>
+              <div>
+                Session status: <span className="font-medium text-gray-900">{session.status}</span>
+              </div>
+            </div>
+          )}
+
           <button
             type="submit"
-            disabled={isSubmitting}
+            disabled={isSubmitting || isSessionLoading}
             className="w-full rounded bg-gray-900 py-3 text-sm font-medium text-white hover:bg-gray-800 transition-colors disabled:bg-gray-400 disabled:cursor-not-allowed"
           >
-            {isSubmitting ? 'Placing Order…' : 'Place Order'}
+            {isSubmitting ? 'Placing Order…' : isSessionLoading ? 'Preparing checkout…' : 'Place Order'}
           </button>
+          {session?.status === 'active' && (
+            <button
+              type="button"
+              onClick={handleCancelSession}
+              disabled={isSubmitting}
+              className="w-full rounded border border-gray-300 py-3 text-sm font-medium text-gray-700 hover:bg-gray-50 transition-colors disabled:opacity-50"
+            >
+              Cancel Checkout Session
+            </button>
+          )}
         </form>
 
         {/* Order Summary */}

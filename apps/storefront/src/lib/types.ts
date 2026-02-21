@@ -204,3 +204,47 @@ export type CartDto = {
   itemCount: number
   subtotalGross: string | null
 }
+
+export type CheckoutWorkflowState =
+  | 'cart'
+  | 'customer'
+  | 'shipping'
+  | 'review'
+  | 'placing_order'
+  | 'completed'
+  | 'failed'
+  | 'expired'
+  | 'cancelled'
+
+export type CheckoutSessionStatus =
+  | 'active'
+  | 'completed'
+  | 'failed'
+  | 'expired'
+  | 'cancelled'
+
+export type CheckoutSession = {
+  id: string
+  cartId: string
+  cartToken: string
+  workflowName: string
+  workflowState: CheckoutWorkflowState
+  status: CheckoutSessionStatus
+  version: number
+  customerInfo: Record<string, unknown> | null
+  shippingInfo: Record<string, unknown> | null
+  billingInfo: Record<string, unknown> | null
+  metadata: Record<string, unknown> | null
+  placedOrderId: string | null
+  expiresAt: string
+  createdAt: string
+  updatedAt: string
+  allowedActions: string[]
+}
+
+export type CheckoutTransitionAction =
+  | 'set_customer'
+  | 'set_shipping'
+  | 'review'
+  | 'place_order'
+  | 'cancel'
