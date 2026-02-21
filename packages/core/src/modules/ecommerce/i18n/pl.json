@@ -85,6 +85,14 @@
       "status": {
         "inactive": "Nieaktywny"
       }
+    },
+    "widgets": {
+      "storefrontSource": {
+        "groupLabel": "Źródło storefront",
+        "title": "Storefront",
+        "storeId": "Sklep",
+        "cartId": "Koszyk"
+      }
     }
   }
 }

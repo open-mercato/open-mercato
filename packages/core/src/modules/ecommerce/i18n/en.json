@@ -85,6 +85,14 @@
       "status": {
         "inactive": "Inactive"
       }
+    },
+    "widgets": {
+      "storefrontSource": {
+        "groupLabel": "Storefront source",
+        "title": "Storefront",
+        "storeId": "Store",
+        "cartId": "Cart"
+      }
     }
   }
 }
