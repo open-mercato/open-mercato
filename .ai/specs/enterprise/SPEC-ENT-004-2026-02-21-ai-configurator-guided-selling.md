@@ -71,6 +71,18 @@ Open Mercato must prioritize:
 2. deterministic tool gating over LLM freedom,
 3. context provenance and auditability as first-class features.
 
+### 3.5 Capability Matrix (high-level benchmark)
+
+| Vendor | Guided Quiz/Finder | Conversational AI | Merchandising Controls | Enterprise Context Security Signals | Notes |
+| --- | --- | --- | --- | --- | --- |
+| Zoovu | Strong (Advisor/Guided Selling) | Strong (Zoe) | Strong | Medium (public docs emphasize product-data grounding) | Strong for product-advisor UX and data enrichment |
+| Bloomreach | Strong | Strong (Clarity) | Strong | Medium/Strong (MCP channel positioning, enterprise platform controls) | Strong channel expansion narrative |
+| Dynamic Yield | Strong (Product Finder templates) | Medium | Strong | Medium | Strong experimentation + personalization tooling |
+| Constructor | Strong (Quizzes) | Strong (AI Shopping Agent) | Strong | Medium | Strong clickstream-driven discovery stack |
+| Algolia | Medium (Recommend, search UX widgets) | Medium (depends on implementation) | Medium/Strong | Medium | Strong developer-oriented recommendation/search primitives |
+| Nosto | Medium/Strong | Medium | Strong (filters/rules/segments) | Medium | Strong merchandising and recommendation controls |
+| Coveo | Medium | Strong (Generative Answering) | Strong | Strong (public messaging: secure/traceable enterprise answering) | Strong enterprise knowledge/discovery posture |
+
 ---
 
 ## 4) Proposed Solution
@@ -348,13 +360,22 @@ Acceptance:
 
 ## 15) References (research inputs)
 
-1. Zoovu site and Advisor Studio docs
-2. Bloomreach Conversational Shopping/Clarity pages and docs
-3. Dynamic Yield Product Finder documentation
-4. Constructor quizzes docs
-5. Algolia Recommend docs
-6. Nosto recommendations docs
-7. Coveo Relevance Generative Answering docs
+1. Zoovu Advisor Studio: https://zoovu.com/advisor-studio
+2. Zoovu Advisor Studio docs: https://docs.zoovu.com/advisor-studio/overview
+3. Zoovu Guided Selling Assistant: https://zoovu.com/guided-selling-assistant
+4. Bloomreach Clarity docs: https://documentation.bloomreach.com/clarity/docs/get-started-with-bloomreach-clarity
+5. Bloomreach Conversational Shopping use case: https://www.bloomreach.com/fr/use-cases/conversational-shopping
+6. Bloomreach Loomi Connect (MCP announcement): https://www.bloomreach.com/en/news/2026/bloomreach-announces-loomi-connect/
+7. Dynamic Yield Product Finder template: https://www.dynamicyield.com/template/product-finder/
+8. Dynamic Yield Experience Search configuration: https://support.dynamicyield.com/hc/en-us/articles/28835909424029-Configure-Experience-Search
+9. Constructor Quizzes solution: https://constructor.com/solutions/quizzes
+10. Constructor facet-based quiz docs: https://docs.constructor.com/docs/using-the-constructor-dashboard-quizzes-create-a-facet-based-quiz
+11. Constructor AI Shopping Assistant: https://constructor.com/solutions/ai-shopping-assistant
+12. Algolia Recommend overview: https://www.algolia.com/doc/guides/algolia-recommend/overview
+13. Algolia Recommend (Shopify integration): https://www.algolia.com/doc/integration/shopify/building-search-ui/recommend/
+14. Nosto Product Recommendations: https://www.nosto.com/products/product-recommendations/
+15. Nosto Recommendation Filters docs: https://help.nosto.com/en/articles/586449-recommendation-filters
+16. Coveo Generative Answering for Commerce: https://www.coveo.com/en/company/news-releases/2023/generative-answering-commerce
 
 ---
 
@@ -362,3 +383,4 @@ Acceptance:
 
 ### 2026-02-21
 - Initial enterprise specification for AI Configurator module with strict context governance, policy engine, and guided-selling benchmark insights.
+- Added explicit benchmark matrix and direct source links for Zoovu and comparable enterprise configurator/discovery platforms.
