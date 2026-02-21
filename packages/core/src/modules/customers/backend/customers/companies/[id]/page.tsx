@@ -520,13 +520,16 @@ export default function CustomerCompanyDetailPage({ params }: { params?: { id?: 
     if (!confirmed) return
     setIsDeleting(true)
     try {
-      await apiCallOrThrow(
-        `/api/customers/companies?id=${encodeURIComponent(currentCompanyId)}`,
-        {
-          method: 'DELETE',
-          headers: { 'content-type': 'application/json' },
-        },
-        { errorMessage: t('customers.companies.list.deleteError', 'Failed to delete company.') },
+      await runMutation(
+        () => apiCallOrThrow(
+          `/api/customers/companies?id=${encodeURIComponent(currentCompanyId)}`,
+          {
+            method: 'DELETE',
+            headers: { 'content-type': 'application/json' },
+          },
+          { errorMessage: t('customers.companies.list.deleteError', 'Failed to delete company.') },
+        ),
+        { id: currentCompanyId },
       )
       flash(t('customers.companies.list.deleteSuccess', 'Company deleted.'), 'success')
       router.push('/backend/customers/companies')
@@ -536,7 +539,7 @@ export default function CustomerCompanyDetailPage({ params }: { params?: { id?: 
     } finally {
       setIsDeleting(false)
     }
-  }, [confirm, currentCompanyId, companyName, router, t])
+  }, [companyName, confirm, currentCompanyId, router, runMutation, t])
 
   const handleTagsChange = React.useCallback((nextTags: TagOption[]) => {
     setData((prev) => (prev ? { ...prev, tags: nextTags } : prev))

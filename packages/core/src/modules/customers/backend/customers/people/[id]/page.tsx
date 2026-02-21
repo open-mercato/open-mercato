@@ -418,13 +418,16 @@ export default function CustomerPersonDetailPage({ params }: { params?: { id?: s
     if (!confirmed) return
     setIsDeleting(true)
     try {
-      await apiCallOrThrow(
-        `/api/customers/people?id=${encodeURIComponent(personId)}`,
-        {
-          method: 'DELETE',
-          headers: { 'content-type': 'application/json' },
-        },
-        { errorMessage: t('customers.people.list.deleteError') },
+      await runMutation(
+        () => apiCallOrThrow(
+          `/api/customers/people?id=${encodeURIComponent(personId)}`,
+          {
+            method: 'DELETE',
+            headers: { 'content-type': 'application/json' },
+          },
+          { errorMessage: t('customers.people.list.deleteError') },
+        ),
+        { id: personId },
       )
       flash(t('customers.people.list.deleteSuccess'), 'success')
       router.push('/backend/customers/people')
@@ -434,7 +437,7 @@ export default function CustomerPersonDetailPage({ params }: { params?: { id?: s
     } finally {
       setIsDeleting(false)
     }
-  }, [confirm, personId, personName, router, t])
+  }, [confirm, personId, personName, router, runMutation, t])
 
   const handleTagsChange = React.useCallback((nextTags: TagOption[]) => {
     setData((prev) => (prev ? { ...prev, tags: nextTags } : prev))

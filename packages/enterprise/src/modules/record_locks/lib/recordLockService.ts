@@ -1016,7 +1016,9 @@ export class RecordLockService {
 
     const recipientUserIds = new Set<string>()
     for (const lock of activeLocks) {
-      recipientUserIds.add(lock.lockedByUserId)
+      if (lock.lockedByUserId !== input.userId) {
+        recipientUserIds.add(lock.lockedByUserId)
+      }
     }
     if (!recipientUserIds.size) {
       const fallbackWindowMs = Math.max((settings.timeoutSeconds ?? 300) * 1000, 60_000)
@@ -1030,7 +1032,9 @@ export class RecordLockService {
       }, { orderBy: { updatedAt: 'desc' }, limit: 50 })
 
       for (const lock of (Array.isArray(recentLocks) ? recentLocks : [])) {
-        recipientUserIds.add(lock.lockedByUserId)
+        if (lock.lockedByUserId !== input.userId) {
+          recipientUserIds.add(lock.lockedByUserId)
+        }
       }
     }
     if (!recipientUserIds.size) return

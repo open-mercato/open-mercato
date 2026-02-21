@@ -95,14 +95,6 @@ function isUuid(value: string | null | undefined): value is string {
   return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(trimmed)
 }
 
-function createFallbackConflictId(): string {
-  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
-    return crypto.randomUUID()
-  }
-  const random = `${Date.now().toString(16)}${Math.random().toString(16).slice(2, 10)}`.padEnd(32, '0').slice(0, 32)
-  return `${random.slice(0, 8)}-${random.slice(8, 12)}-4${random.slice(13, 16)}-a${random.slice(17, 20)}-${random.slice(20, 32)}`
-}
-
 function extractErrorStatus(error: unknown): number | null {
   const queue: unknown[] = [error]
   const visited = new Set<unknown>()
@@ -186,11 +178,9 @@ function extractRecordLockConflictPayload(error: unknown): {
     if (!isRecordLockConflict) continue
     if (!isObjectRecord(current.conflict)) {
       const lock = isObjectRecord(current.lock) ? (current.lock as RecordLockUiView) : undefined
-      const fallbackConflictId =
-        (typeof current.conflictId === 'string' && isUuid(current.conflictId)
-          ? current.conflictId
-          : null) ??
-        createFallbackConflictId()
+      const fallbackConflictId = typeof current.conflictId === 'string' && isUuid(current.conflictId)
+        ? current.conflictId
+        : 'unresolved'
       const fallbackConflict: RecordLockUiConflict = {
         id: fallbackConflictId,
         resourceKind:
@@ -427,7 +417,9 @@ function releaseLockWithKeepalive(state: {
     body: payload,
     keepalive: true,
     credentials: 'include',
-  }).catch(() => {})
+  }).catch((error) => {
+    console.warn('[RecordLockingWidget] Failed to release lock with keepalive fallback', error)
+  })
 }
 
 export default function RecordLockingWidget({
@@ -528,7 +520,9 @@ export default function RecordLockingWidget({
       resourceId: current.resourceId,
       token: current.lock.token,
       reason: 'cancelled',
-    }).catch(() => {})
+    }).catch((error) => {
+      console.warn('[RecordLockingWidget] Failed to release lock while demoting owner', error)
+    })
     clearRecordLockFormState(formId)
   }, [formId, isPrimaryInstance])
 
@@ -584,7 +578,7 @@ export default function RecordLockingWidget({
           resourceKind,
           resourceId,
           acquired: false,
-          lock: null,
+          lock: payload.lock ?? null,
           currentUserId: payload.currentUserId ?? null,
           heartbeatSeconds: payload.heartbeatSeconds ?? 15,
           latestActionLogId: payload.latestActionLogId ?? null,
@@ -690,8 +684,22 @@ export default function RecordLockingWidget({
           resourceId: state.resourceId,
         }),
       })
-      if (cancelled || !call.ok) return
       const payload = call.result ?? {}
+      if (cancelled) return
+      if (!call.ok) {
+        const currentState = getRecordLockFormState(formId)
+        setRecordLockFormState(formId, {
+          resourceKind: state.resourceKind,
+          resourceId: state.resourceId,
+          acquired: false,
+          lock: payload.lock ?? null,
+          currentUserId: payload.currentUserId ?? currentState?.currentUserId ?? null,
+          heartbeatSeconds: payload.heartbeatSeconds ?? currentState?.heartbeatSeconds ?? 15,
+          latestActionLogId: payload.latestActionLogId ?? currentState?.latestActionLogId ?? null,
+          allowForceUnlock: payload.allowForceUnlock ?? false,
+        })
+        return
+      }
       const currentState = getRecordLockFormState(formId)
       const previousToken = currentState?.lock?.token ?? null
       const nextToken = payload.lock?.token ?? null
@@ -818,7 +826,7 @@ export default function RecordLockingWidget({
 
       const buildFallbackConflict = (currentState: RecordLockFormState) => ({
           conflict: {
-            id: createFallbackConflictId(),
+            id: 'unresolved',
             resourceKind: currentState.resourceKind ?? '',
             resourceId: currentState.resourceId ?? '',
           baseActionLogId: currentState.latestActionLogId ?? null,
@@ -939,9 +947,20 @@ export default function RecordLockingWidget({
 
   const handleAcceptIncoming = React.useCallback(async () => {
     if (!state?.conflict || !state?.resourceKind || !state?.resourceId) return
-    if (!isUuid(state.conflict.id)) {
-      flash(t('record_locks.conflict.title', 'Conflict detected'), 'error')
-      return
+    let conflictId: string | undefined = isUuid(state.conflict.id) ? state.conflict.id : undefined
+    if (!conflictId) {
+      const validation = await validateBeforeSave({}, context)
+      conflictId = isUuid(validation.conflict?.id) ? validation.conflict.id : undefined
+      if (!conflictId) {
+        flash(
+          t(
+            'record_locks.conflict.refresh_required',
+            'Could not confirm conflict details. Save again to refresh conflict data.',
+          ),
+          'error',
+        )
+        return
+      }
     }
     await apiCallOrThrow('/api/record_locks/release', {
       method: 'POST',
@@ -951,13 +970,13 @@ export default function RecordLockingWidget({
         resourceId: state.resourceId,
         token: state.lock?.token ?? undefined,
         reason: 'conflict_resolved',
-        conflictId: state.conflict.id,
+        conflictId,
         resolution: 'accept_incoming',
       }),
     })
     setRecordLockFormState(formId, { conflict: null, pendingConflictId: null, pendingResolution: 'normal' })
     window.location.reload()
-  }, [formId, state?.conflict, state?.lock?.token, state?.resourceId, state?.resourceKind, t])
+  }, [context, formId, state?.conflict, state?.lock?.token, state?.resourceId, state?.resourceKind, t])
 
   const handleKeepMine = React.useCallback(() => {
     if (!state?.conflict) return
@@ -1090,9 +1109,11 @@ export default function RecordLockingWidget({
   const defaultPresenceMessage = activeParticipantCount > 1
     ? `${activeParticipantCount} users are currently on this record.`
     : 'This record is currently locked by another user.'
-  const bannerMessageRaw = mine
-    ? t('record_locks.banner.participants_notice', 'Multiple users are currently on this record.')
-    : t('record_locks.banner.optimistic_notice', defaultPresenceMessage)
+  const bannerMessageRaw = !mine
+    ? t('record_locks.banner.locked_by_other', 'This record is currently locked by another user.')
+    : showLockContentionBanner
+      ? t('record_locks.banner.contention_notice', 'Another user opened this record while you are editing it. Conflicts may occur on save.')
+      : t('record_locks.banner.participants_notice', 'Multiple users are currently on this record.')
   const bannerMessage = typeof bannerMessageRaw === 'string' && bannerMessageRaw.trim().length > 0
     ? bannerMessageRaw
     : defaultPresenceMessage
