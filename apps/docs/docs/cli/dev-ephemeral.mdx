@@ -12,7 +12,7 @@ The command performs these steps automatically:
 2. Creates `apps/mercato/.env` from `apps/mercato/.env.example` only when missing.
 3. Runs `yarn install`.
 4. Runs `yarn generate` to prepare `.mercato/generated` files.
-5. Selects a free port (prefers `3000` when available).
+5. Selects a random free port in the `5000-65535` range.
 6. Starts `yarn dev` with `PORT=<selected-port>`.
 7. Waits for readiness, opens the browser, and records the running instance in `.ai/dev-ephemeral-envs.json`.
 
@@ -58,4 +58,4 @@ Each process auto-selects its own free port.
 
 | Variable | Description |
 | --- | --- |
-| `DEV_EPHEMERAL_PREFERRED_PORT` | Preferred first port to try before falling back to a random free port. Default: `3000`. |
+| `DEV_EPHEMERAL_PREFERRED_PORT` | Optional fixed port override. Must be in `5000-65535`; otherwise it is ignored and a random free port is used. |

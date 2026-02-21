@@ -27,8 +27,9 @@ Add `yarn dev:ephemeral` that performs deterministic preflight and runtime boot:
 3. Run `yarn install`.
 4. Run `yarn generate` so required `.mercato/generated` files are present.
 5. Resolve runtime port:
-- Try preferred port `3000` (or `DEV_EPHEMERAL_PREFERRED_PORT` if set).
-- If unavailable, allocate a free fallback port.
+- Use `DEV_EPHEMERAL_PREFERRED_PORT` only when explicitly set and within `5000-65535`.
+- Otherwise pick a random free port in `5000-65535`.
+- If random attempts fail, allocate a free fallback port and enforce `>=5000`.
 6. Start `yarn dev` with `PORT=<resolved-port>`.
 7. Print explicit URL(s) for QA/testing.
 8. Wait for readiness and open browser at `/backend`.
