@@ -3,7 +3,7 @@
 import * as React from 'react'
 import Link from 'next/link'
 import { Plus, Settings } from 'lucide-react'
-import { Button } from '@open-mercato/ui/primitives/button'
+import { Button } from '../../primitives/button'
 import { Input } from '@open-mercato/ui/primitives/input'
 import {
   Dialog,
@@ -15,6 +15,7 @@ import {
   DialogTrigger,
 } from '@open-mercato/ui/primitives/dialog'
 import { buildCountryOptions } from '@open-mercato/shared/lib/location/countries'
+import { cn } from '@open-mercato/shared/lib/utils'
 import type { AddressFormatStrategy } from './addressFormat'
 
 type Translator = (key: string, fallback?: string, params?: Record<string, string | number>) => string
@@ -409,9 +410,9 @@ export function AddressEditor<C = unknown>({
         />
         <Dialog open={countryDialogOpen} onOpenChange={setCountryDialogOpen}>
           <DialogTrigger asChild>
-            <button type="button" className={inputClass('country')} disabled={disabled}>
+            <Button type="button" variant="ghost" className={cn(inputClass('country'), 'cursor-pointer')} disabled={disabled}>
               {selectedCountry?.label ?? label('fields.country', 'Country')}
-            </button>
+            </Button>
           </DialogTrigger>
           <DialogContent className="sm:max-w-lg">
             <DialogHeader>
@@ -428,9 +429,10 @@ export function AddressEditor<C = unknown>({
                 <ul className="divide-y divide-border/50">
                   {filteredCountryOptions.map((option) => (
                     <li key={option.code}>
-                      <button
-                        type="button"
-                        className="flex w-full items-center justify-between px-3 py-2 text-left text-sm hover:bg-muted"
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="w-full justify-between font-normal rounded-none"
                         onClick={() => {
                           update('country', option.code)
                           setCountryDialogOpen(false)
@@ -438,7 +440,7 @@ export function AddressEditor<C = unknown>({
                       >
                         <span>{option.label}</span>
                         <span className="text-xs text-muted-foreground">{option.code}</span>
-                      </button>
+                      </Button>
                     </li>
                   ))}
                 </ul>

@@ -2,6 +2,8 @@
 import * as React from 'react'
 import { createPortal } from 'react-dom'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { IconButton } from '../primitives/icon-button'
+import { Button } from '../primitives/button'
 
 export type RowActionItem = {
   id?: string
@@ -91,17 +93,17 @@ export function RowActions({ items = [] }: { items?: RowActionItem[] }) {
       onPointerEnter={handlePointerEnter}
       onPointerLeave={handlePointerLeave}
     >
-      <button
+      <IconButton
         ref={btnRef}
         type="button"
-        className="h-8 w-8 inline-flex items-center justify-center rounded hover:bg-accent"
+        variant="ghost"
         aria-haspopup="menu"
         aria-expanded={open}
         onClick={(e) => { e.stopPropagation(); setOpen((v) => !v); requestAnimationFrame(updatePosition) }}
       >
         <span aria-hidden="true">⋯</span>
         <span className="sr-only">{t('ui.rowActions.openActions', 'Open actions')}</span>
-      </button>
+      </IconButton>
       {open && anchorRect && createPortal(
         <div
           ref={menuRef}
@@ -130,10 +132,12 @@ export function RowActions({ items = [] }: { items?: RowActionItem[] }) {
                 {it.label}
               </a>
             ) : (
-              <button
+              <Button
                 key={idx}
                 type="button"
-                className={`block w-full text-left px-2 py-1 text-sm rounded hover:bg-accent ${it.destructive ? 'text-red-600' : ''}`}
+                variant="ghost"
+                size="sm"
+                className={`w-full justify-start rounded-none font-normal ${it.destructive ? 'text-red-600' : ''}`}
                 role="menuitem"
                 onClick={(event) => {
                   event.stopPropagation()
@@ -142,7 +146,7 @@ export function RowActions({ items = [] }: { items?: RowActionItem[] }) {
                 }}
               >
                 {it.label}
-              </button>
+              </Button>
             )
           ))}
         </div>,
