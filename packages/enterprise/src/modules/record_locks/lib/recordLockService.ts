@@ -39,6 +39,7 @@ const ACTIVE_SCOPE_UNIQUE_CONSTRAINTS = new Set([
   'record_locks_active_scope_user_tenant_unique',
 ])
 const LOCK_CONTENTION_EVENT_TTL_MS = 15_000
+const PARTICIPANT_REJOIN_AFTER_SAVE_SUPPRESS_MS = 20_000
 const lockContentionEventThrottle = new Map<string, number>()
 const LOCK_CLEANUP_INTERVAL_MS = 5 * 60 * 1000
 const LOCK_RETENTION_MS = 3 * 24 * 60 * 60 * 1000
@@ -516,7 +517,6 @@ export class RecordLockService {
       ownedActiveLock.lockedByIp = input.lockedByIp ?? ownedActiveLock.lockedByIp ?? null
       ownedActiveLock.lastHeartbeatAt = now
       ownedActiveLock.expiresAt = new Date(now.getTime() + settings.timeoutSeconds * 1000)
-      ownedActiveLock.baseActionLogId = latest?.id ?? ownedActiveLock.baseActionLogId ?? null
       await this.em.flush()
 
       activeLocks = await this.findActiveLocks(input, now)
@@ -591,7 +591,6 @@ export class RecordLockService {
       existingOwned.lockedByIp = input.lockedByIp ?? existingOwned.lockedByIp ?? null
       existingOwned.lastHeartbeatAt = now
       existingOwned.expiresAt = new Date(now.getTime() + settings.timeoutSeconds * 1000)
-      existingOwned.baseActionLogId = latest?.id ?? existingOwned.baseActionLogId ?? null
       await this.em.flush()
       createdNewLock = false
     }
@@ -632,18 +631,28 @@ export class RecordLockService {
       const recipientUserIds = activeAfterAcquire
         .filter((item) => item.lockedByUserId !== input.userId)
         .map((item) => item.lockedByUserId)
-
-      await emitRecordLocksEvent('record_locks.participant.joined', {
-        lockId: ownedAfterAcquire.id,
-        resourceKind: ownedAfterAcquire.resourceKind,
-        resourceId: ownedAfterAcquire.resourceId,
-        tenantId: ownedAfterAcquire.tenantId,
-        organizationId: ownedAfterAcquire.organizationId,
-        joinedUserId: input.userId,
-        joinedIp: ownedAfterAcquire.lockedByIp ?? null,
-        recipientUserIds,
-        activeParticipantCount: activeAfterAcquire.length,
+      const shouldSuppressJoinNotification = await this.hasRecentSavedRelease({
+        tenantId: input.tenantId,
+        organizationId: input.organizationId,
+        userId: input.userId,
+        resourceKind: input.resourceKind,
+        resourceId: input.resourceId,
+        now,
       })
+
+      if (!shouldSuppressJoinNotification) {
+        await emitRecordLocksEvent('record_locks.participant.joined', {
+          lockId: ownedAfterAcquire.id,
+          resourceKind: ownedAfterAcquire.resourceKind,
+          resourceId: ownedAfterAcquire.resourceId,
+          tenantId: ownedAfterAcquire.tenantId,
+          organizationId: ownedAfterAcquire.organizationId,
+          joinedUserId: input.userId,
+          joinedIp: ownedAfterAcquire.lockedByIp ?? null,
+          recipientUserIds,
+          activeParticipantCount: activeAfterAcquire.length,
+        })
+      }
     }
 
     return {
@@ -1279,6 +1288,45 @@ export class RecordLockService {
       status: ACTIVE_LOCK_STATUS,
     }
     return this.em.findOne(RecordLock, where)
+  }
+
+  private async hasRecentSavedRelease(input: {
+    tenantId: string
+    organizationId?: string | null
+    userId: string
+    resourceKind: string
+    resourceId: string
+    now: Date
+  }): Promise<boolean> {
+    const cutoff = new Date(input.now.getTime() - PARTICIPANT_REJOIN_AFTER_SAVE_SUPPRESS_MS)
+    const where: FilterQuery<RecordLock> = {
+      tenantId: input.tenantId,
+      resourceKind: input.resourceKind,
+      resourceId: input.resourceId,
+      lockedByUserId: input.userId,
+      status: 'released',
+      releaseReason: 'saved',
+      deletedAt: null,
+      releasedAt: { $gte: cutoff },
+    }
+    if (input.organizationId !== undefined) {
+      where.organizationId = normalizeScopeOrganization(input.organizationId)
+    }
+
+    const scoped = await this.em.findOne(RecordLock, where, { orderBy: { releasedAt: 'desc' } })
+    if (scoped) return true
+    if (input.organizationId === undefined) return false
+
+    return Boolean(await this.em.findOne(RecordLock, {
+      tenantId: input.tenantId,
+      resourceKind: input.resourceKind,
+      resourceId: input.resourceId,
+      lockedByUserId: input.userId,
+      status: 'released',
+      releaseReason: 'saved',
+      deletedAt: null,
+      releasedAt: { $gte: cutoff },
+    }, { orderBy: { releasedAt: 'desc' } }))
   }
 
   private markLockReleased(

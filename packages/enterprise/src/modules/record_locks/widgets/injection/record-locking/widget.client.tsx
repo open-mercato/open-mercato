@@ -20,6 +20,7 @@ import {
   getRecordLockFormState,
   setRecordLockFormState,
   subscribeRecordLockFormState,
+  type RecordLockFormState,
   type RecordLockUiConflict,
   type RecordLockUiView,
 } from '@open-mercato/enterprise/modules/record_locks/lib/clientLockStore'
@@ -49,6 +50,50 @@ type ValidateResponse = {
   latestActionLogId?: string | null
   lock?: RecordLockUiView | null
   conflict?: RecordLockUiConflict | null
+}
+
+type CrudSaveErrorEventDetail = {
+  formId?: string
+  error?: unknown
+}
+
+function isObjectRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === 'object'
+}
+
+function extractRecordLockConflictPayload(error: unknown): {
+  conflict: RecordLockUiConflict
+  lock?: RecordLockUiView | null
+  latestActionLogId?: string | null
+} | null {
+  const queue: unknown[] = [error]
+  const visited = new Set<unknown>()
+
+  while (queue.length > 0) {
+    const current = queue.shift()
+    if (!current || visited.has(current)) continue
+    visited.add(current)
+    if (!isObjectRecord(current)) continue
+
+    const nested = ['body', 'response', 'data', 'details', 'error']
+    for (const key of nested) {
+      const next = current[key]
+      if (next && !visited.has(next)) queue.push(next)
+    }
+
+    const code = typeof current.code === 'string' ? current.code : null
+    if (code !== 'record_lock_conflict') continue
+    if (!isObjectRecord(current.conflict)) continue
+    return {
+      conflict: current.conflict as RecordLockUiConflict,
+      lock: isObjectRecord(current.lock) ? (current.lock as RecordLockUiView) : undefined,
+      latestActionLogId: typeof current.latestActionLogId === 'string' || current.latestActionLogId === null
+        ? current.latestActionLogId
+        : undefined,
+    }
+  }
+
+  return null
 }
 
 function clearIncomingChangesQueryFlag() {
@@ -350,6 +395,14 @@ export default function RecordLockingWidget({
       })
       if (cancelled || !call.ok) return
       const payload = call.result ?? {}
+      const currentState = getRecordLockFormState(formId)
+      const previousToken = currentState?.lock?.token ?? null
+      const nextToken = payload.lock?.token ?? null
+      const isSameSession = Boolean(previousToken && nextToken && previousToken === nextToken)
+      const nextLatestActionLogId = isSameSession
+        ? (currentState?.latestActionLogId ?? null)
+        : (payload.latestActionLogId ?? currentState?.latestActionLogId ?? null)
+
       setRecordLockFormState(formId, {
         resourceKind: state.resourceKind,
         resourceId: state.resourceId,
@@ -357,7 +410,7 @@ export default function RecordLockingWidget({
         lock: payload.lock ?? null,
         currentUserId: payload.currentUserId ?? null,
         heartbeatSeconds: payload.heartbeatSeconds ?? 15,
-        latestActionLogId: payload.latestActionLogId ?? null,
+        latestActionLogId: nextLatestActionLogId,
         allowForceUnlock: payload.allowForceUnlock ?? false,
       })
     }
@@ -437,6 +490,36 @@ export default function RecordLockingWidget({
     }
   }, [formId])
 
+  React.useEffect(() => {
+    const onCrudSaveError = (event: Event) => {
+      const detail = (event as CustomEvent<CrudSaveErrorEventDetail>).detail
+      if (!detail || detail.formId !== formId) return
+      const payload = extractRecordLockConflictPayload(detail.error)
+      if (!payload) return
+
+      const nextPatch: Partial<RecordLockFormState> = {
+        conflict: payload.conflict,
+        pendingConflictId: payload.conflict.id,
+        pendingResolution: 'normal',
+      }
+      if (payload.lock !== undefined) {
+        nextPatch.lock = payload.lock
+      }
+      if (payload.latestActionLogId !== undefined) {
+        nextPatch.latestActionLogId = payload.latestActionLogId
+      }
+
+      setRecordLockFormState(formId, {
+        ...nextPatch,
+      })
+    }
+
+    window.addEventListener('om:crud-save-error', onCrudSaveError)
+    return () => {
+      window.removeEventListener('om:crud-save-error', onCrudSaveError)
+    }
+  }, [formId])
+
   const handleTakeOver = React.useCallback(async () => {
     if (!state?.resourceKind || !state?.resourceId) return
     const call = await apiCall<AcquireResponse>('/api/record_locks/force-release', {
@@ -497,7 +580,6 @@ export default function RecordLockingWidget({
     setRecordLockFormState(formId, {
       pendingResolution: 'accept_mine',
       pendingConflictId: state.conflict.id,
-      conflict: null,
     })
     window.setTimeout(() => {
       submitCrudForm(formId)
@@ -708,12 +790,13 @@ export async function validateBeforeSave(
   const payload = call.result ?? { ok: false }
   if (payload.ok) {
     const nextResolution = resolution === 'normal' ? 'normal' : resolution
+    const preserveConflictUntilSuccessfulSave = nextResolution !== 'normal'
     setRecordLockFormState(formId, {
       resourceKind,
       resourceId,
       latestActionLogId: payload.latestActionLogId ?? state?.latestActionLogId ?? null,
       lock: payload.lock ?? state?.lock ?? null,
-      conflict: null,
+      conflict: preserveConflictUntilSuccessfulSave ? (state?.conflict ?? null) : null,
       pendingConflictId: nextResolution === 'normal' ? null : (conflictId ?? state?.pendingConflictId ?? null),
       pendingResolution: nextResolution,
     })

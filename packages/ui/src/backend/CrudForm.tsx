@@ -1132,6 +1132,18 @@ export function CrudForm<TValues extends Record<string, unknown>>({
       
       if (successRedirect) router.push(successRedirect)
     } catch (err: unknown) {
+      try {
+        if (typeof window !== 'undefined') {
+          window.dispatchEvent(new CustomEvent('om:crud-save-error', {
+            detail: {
+              formId,
+              error: err,
+            },
+          }))
+        }
+      } catch {
+        // ignore event dispatch failures
+      }
       const { message: helperMessage, fieldErrors: serverFieldErrors } = mapCrudServerErrorToFormErrors(err, { customEntity })
       const combinedFieldErrors = serverFieldErrors ?? {}
       const hasFieldErrors = Object.keys(combinedFieldErrors).length > 0
