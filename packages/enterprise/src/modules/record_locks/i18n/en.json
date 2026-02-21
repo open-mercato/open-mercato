@@ -55,6 +55,10 @@
       "accept_incoming_failed": "Could not accept incoming changes. Refresh and try again."
     },
     "notifications": {
+      "lock_contended": {
+        "title": "Another user opened your record",
+        "body": "Another user opened a record you are currently editing. Conflicts may occur on save."
+      },
       "lock_force_released": {
         "title": "Your lock was force released",
         "body": "Another user force released your lock on a record."

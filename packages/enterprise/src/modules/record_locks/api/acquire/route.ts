@@ -8,6 +8,7 @@ import {
 import { resolveRecordLocksApiContext, resolveRequestIp } from '../utils'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { User } from '@open-mercato/core/modules/auth/data/entities'
+import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
 
 type LockWithActor = {
   lockedByUserId: string
@@ -32,6 +33,24 @@ export const metadata = {
   POST: { requireAuth: true, requireFeatures: ['record_locks.view'] },
 }
 
+async function resolveCanForceRelease(
+  ctx: Exclude<Awaited<ReturnType<typeof resolveRecordLocksApiContext>>, Response>,
+): Promise<boolean> {
+  try {
+    const rbacService = ctx.container.resolve<RbacService>('rbacService')
+    return await rbacService.userHasAllFeatures(
+      ctx.auth.sub,
+      ['record_locks.force_release'],
+      {
+        tenantId: ctx.auth.tenantId,
+        organizationId: ctx.organizationId ?? null,
+      },
+    )
+  } catch {
+    return false
+  }
+}
+
 export async function POST(req: Request) {
   const ctxOrResponse = await resolveRecordLocksApiContext(req)
   if (ctxOrResponse instanceof Response) return ctxOrResponse
@@ -52,6 +71,10 @@ export async function POST(req: Request) {
   })
 
   const em = ctxOrResponse.container.resolve<EntityManager>('em').fork()
+  const canForceRelease = result.allowForceUnlock
+    ? await resolveCanForceRelease(ctxOrResponse)
+    : false
+  const allowForceUnlock = result.allowForceUnlock && canForceRelease
 
   if (!result.ok) {
     const lock = await enrichLockActor(em, result.lock as LockWithActor | null)
@@ -59,7 +82,7 @@ export async function POST(req: Request) {
       {
         error: result.error,
         code: result.code,
-        allowForceUnlock: result.allowForceUnlock,
+        allowForceUnlock,
         currentUserId: ctxOrResponse.auth.sub,
         lock,
       },
@@ -70,6 +93,7 @@ export async function POST(req: Request) {
   const lock = await enrichLockActor(em, result.lock as LockWithActor | null)
   return NextResponse.json({
     ...result,
+    allowForceUnlock,
     currentUserId: ctxOrResponse.auth.sub,
     lock,
   })

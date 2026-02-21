@@ -32,6 +32,7 @@ const widget: InjectionWidgetModule<CrudInjectionContext, Record<string, unknown
       }
       const state = getRecordLockFormState(context.formId)
       if (!state?.resourceKind || !state?.resourceId) return { ok: true }
+      const conflictIdHeader = state.pendingConflictId ?? state.conflict?.id
       return {
         ok: true,
         requestHeaders: {
@@ -42,7 +43,7 @@ const widget: InjectionWidgetModule<CrudInjectionContext, Record<string, unknown
           ...(state.pendingResolution && state.pendingResolution !== 'normal'
             ? { 'x-om-record-lock-resolution': state.pendingResolution }
             : {}),
-          ...(state.conflict?.id ? { 'x-om-record-lock-conflict-id': state.conflict.id } : {}),
+          ...(conflictIdHeader ? { 'x-om-record-lock-conflict-id': conflictIdHeader } : {}),
         },
       }
     },
@@ -69,6 +70,7 @@ const widget: InjectionWidgetModule<CrudInjectionContext, Record<string, unknown
         lock: null,
         latestActionLogId: null,
         conflict: null,
+        pendingConflictId: null,
         pendingResolution: 'normal',
       })
     },

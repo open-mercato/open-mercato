@@ -53,6 +53,10 @@
       "accept_incoming_failed": "Eingehende Änderungen konnten nicht übernommen werden. Aktualisieren Sie und versuchen Sie es erneut."
     },
     "notifications": {
+      "lock_contended": {
+        "title": "Ein anderer Benutzer hat Ihren Datensatz geöffnet",
+        "body": "Ein anderer Benutzer hat einen Datensatz geöffnet, den Sie gerade bearbeiten. Beim Speichern können Konflikte auftreten."
+      },
       "lock_force_released": {
         "title": "Ihre Sperre wurde erzwungen aufgehoben",
         "body": "Ein anderer Benutzer hat Ihre Datensatzsperre erzwungen aufgehoben."

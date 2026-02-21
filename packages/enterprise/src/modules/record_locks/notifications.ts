@@ -2,6 +2,23 @@ import type { NotificationTypeDefinition } from '@open-mercato/shared/modules/no
 
 export const notificationTypes: NotificationTypeDefinition[] = [
   {
+    type: 'record_locks.lock.contended',
+    module: 'record_locks',
+    titleKey: 'record_locks.notifications.lock_contended.title',
+    bodyKey: 'record_locks.notifications.lock_contended.body',
+    icon: 'users',
+    severity: 'warning',
+    actions: [
+      {
+        id: 'see_lock_contention',
+        labelKey: 'record_locks.notifications.actions.see_lock_contention',
+        variant: 'default',
+      },
+    ],
+    primaryActionId: 'see_lock_contention',
+    expiresAfterHours: 48,
+  },
+  {
     type: 'record_locks.lock.force_released',
     module: 'record_locks',
     titleKey: 'record_locks.notifications.lock_force_released.title',

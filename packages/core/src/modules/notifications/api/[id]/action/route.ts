@@ -7,6 +7,16 @@ export const metadata = {
   POST: { requireAuth: true },
 }
 
+function appendQueryParam(href: string, key: string, value: string): string {
+  const [pathWithQuery, hashFragment] = href.split('#', 2)
+  const [pathname, queryString] = pathWithQuery.split('?', 2)
+  const params = new URLSearchParams(queryString ?? '')
+  params.set(key, value)
+  const nextQuery = params.toString()
+  const nextPath = nextQuery ? `${pathname}?${nextQuery}` : pathname
+  return hashFragment ? `${nextPath}#${hashFragment}` : nextPath
+}
+
 export async function POST(req: Request, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params
   const { service, scope } = await resolveNotificationContext(req)
@@ -19,7 +29,21 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
 
     const action = notification.actionData?.actions?.find((a) => a.id === input.actionId)
     const hrefFromAction = action?.href?.replace('{sourceEntityId}', notification.sourceEntityId ?? '')
-    const href = hrefFromAction || notification.linkHref || undefined
+    let href = hrefFromAction || notification.linkHref || undefined
+    if (
+      href
+      && notification.type === 'record_locks.incoming_changes.available'
+      && input.actionId === 'see_incoming_changes'
+    ) {
+      href = appendQueryParam(href, 'showIncomingChanges', '1')
+    }
+    if (
+      href
+      && notification.type === 'record_locks.lock.contended'
+      && input.actionId === 'see_lock_contention'
+    ) {
+      href = appendQueryParam(href, 'showLockContention', '1')
+    }
 
     return Response.json({
       ok: true,

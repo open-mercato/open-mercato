@@ -45,6 +45,7 @@ export type RecordLockFormState = {
   latestActionLogId?: string | null
   lock?: RecordLockUiView | null
   conflict?: RecordLockUiConflict | null
+  pendingConflictId?: string | null
   pendingResolution?: 'normal' | 'accept_mine' | 'merged'
 }
 

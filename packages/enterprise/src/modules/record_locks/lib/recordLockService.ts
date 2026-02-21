@@ -409,6 +409,15 @@ export class RecordLockService {
 
     if (active && active.lockedByUserId !== input.userId) {
       const lock = this.toLockView(active, false)
+      await emitRecordLocksEvent('record_locks.lock.contended', {
+        lockId: active.id,
+        resourceKind: active.resourceKind,
+        resourceId: active.resourceId,
+        tenantId: active.tenantId,
+        organizationId: active.organizationId,
+        lockedByUserId: active.lockedByUserId,
+        attemptedByUserId: input.userId,
+      })
       if (settings.strategy === 'pessimistic') {
         return {
           ok: false,
@@ -479,6 +488,15 @@ export class RecordLockService {
       if (!competing) throw error
       if (competing.lockedByUserId !== input.userId) {
         const lockView = this.toLockView(competing, false)
+        await emitRecordLocksEvent('record_locks.lock.contended', {
+          lockId: competing.id,
+          resourceKind: competing.resourceKind,
+          resourceId: competing.resourceId,
+          tenantId: competing.tenantId,
+          organizationId: competing.organizationId,
+          lockedByUserId: competing.lockedByUserId,
+          attemptedByUserId: input.userId,
+        })
         if (settings.strategy === 'pessimistic') {
           return {
             ok: false,
@@ -749,8 +767,6 @@ export class RecordLockService {
         latest?.id
         && baseActionLogId
         && latest.id !== baseActionLogId
-        && latest.actorUserId
-        && latest.actorUserId !== input.userId,
       )
 
       if (isConflictingWrite) {
@@ -810,15 +826,14 @@ export class RecordLockService {
     if (active.lockedByUserId === input.userId) return
 
     const latest = await this.findLatestActionLog(input)
-    if (!latest || latest.actorUserId !== input.userId) return
+    const incomingLog = latest?.actorUserId === input.userId
+      ? latest
+      : await this.findLatestActionLogByActor(input, input.userId)
+    if (!incomingLog) return
+    if (active.baseActionLogId && incomingLog.id === active.baseActionLogId) return
+    if (incomingLog.createdAt < active.lockedAt) return
 
-    const changedFields = isRecordValue(latest.changesJson)
-      ? Object.keys(latest.changesJson)
-          .filter((field) => !shouldSkipConflictField(field))
-          .slice(0, 12)
-          .map(formatChangedFieldLabel)
-          .join(', ')
-      : ''
+    const changedFields = this.summarizeChangedFieldsFromActionLog(incomingLog)
 
     await emitRecordLocksEvent('record_locks.incoming_changes.available', {
       resourceKind: input.resourceKind,
@@ -826,7 +841,7 @@ export class RecordLockService {
       tenantId: input.tenantId,
       organizationId: normalizeScopeOrganization(input.organizationId),
       incomingActorUserId: input.userId,
-      incomingActionLogId: latest.id,
+      incomingActionLogId: incomingLog.id,
       recipientUserIds: [active.lockedByUserId],
       changedFields: changedFields || '-',
     })
@@ -1004,6 +1019,52 @@ export class RecordLockService {
     }
 
     return this.em.findOne(ActionLog, where, { orderBy: { createdAt: 'desc' } })
+  }
+
+  private async findLatestActionLogByActor(
+    input: Pick<RecordLockScope, 'tenantId' | 'organizationId'> & RecordLockResource,
+    actorUserId: string,
+  ): Promise<ActionLog | null> {
+    const where: FilterQuery<ActionLog> = {
+      tenantId: input.tenantId,
+      resourceKind: input.resourceKind,
+      resourceId: input.resourceId,
+      actorUserId,
+      deletedAt: null,
+    }
+
+    if (input.organizationId !== undefined) {
+      where.organizationId = normalizeScopeOrganization(input.organizationId)
+    }
+
+    return this.em.findOne(ActionLog, where, { orderBy: { createdAt: 'desc' } })
+  }
+
+  private summarizeChangedFieldsFromActionLog(log: ActionLog | null): string {
+    if (!log) return ''
+
+    if (isRecordValue(log.changesJson)) {
+      const fromChanges = Object.keys(log.changesJson)
+        .filter((field) => !shouldSkipConflictField(field))
+        .slice(0, 12)
+        .map(formatChangedFieldLabel)
+        .join(', ')
+      if (fromChanges) return fromChanges
+    }
+
+    const before = isRecordValue(log.snapshotBefore) ? log.snapshotBefore : null
+    const after = isRecordValue(log.snapshotAfter) ? log.snapshotAfter : null
+    if (!before || !after) return ''
+
+    const diffPaths = new Set<string>()
+    this.collectSnapshotDiffPaths(before, after, null, diffPaths, new Set<unknown>())
+
+    return Array.from(diffPaths)
+      .filter((field) => !shouldSkipConflictField(field))
+      .sort((left, right) => left.localeCompare(right))
+      .slice(0, 12)
+      .map(formatChangedFieldLabel)
+      .join(', ')
   }
 
   private toLockView(lock: RecordLock, includeToken: boolean): RecordLockView {

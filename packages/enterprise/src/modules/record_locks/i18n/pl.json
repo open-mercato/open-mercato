@@ -53,6 +53,10 @@
       "accept_incoming_failed": "Nie udało się zaakceptować wersji przychodzącej. Odśwież i spróbuj ponownie."
     },
     "notifications": {
+      "lock_contended": {
+        "title": "Inny użytkownik otworzył Twój rekord",
+        "body": "Inny użytkownik otworzył rekord, który aktualnie edytujesz. Przy zapisie może wystąpić konflikt."
+      },
       "lock_force_released": {
         "title": "Twoja blokada została przymusowo zwolniona",
         "body": "Inny użytkownik przymusowo zwolnił Twoją blokadę rekordu."

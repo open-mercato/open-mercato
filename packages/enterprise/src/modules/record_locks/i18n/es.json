@@ -53,6 +53,10 @@
       "accept_incoming_failed": "No se pudo aceptar la versión entrante. Actualiza y vuelve a intentarlo."
     },
     "notifications": {
+      "lock_contended": {
+        "title": "Otro usuario abrió tu registro",
+        "body": "Otro usuario abrió un registro que estás editando actualmente. Puede haber conflictos al guardar."
+      },
       "lock_force_released": {
         "title": "Tu bloqueo fue liberado por la fuerza",
         "body": "Otro usuario liberó por la fuerza tu bloqueo de registro."

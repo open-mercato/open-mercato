@@ -13,6 +13,8 @@ type ResolverContext = {
 }
 
 const RESOURCE_PATHS: Record<string, string> = {
+  'catalog.product': '/backend/catalog/products',
+  'catalog.product_variant': '/backend/catalog/products',
   'customers.person': '/backend/customers/people',
   'customers.company': '/backend/customers/companies',
   'customers.deal': '/backend/customers/deals',

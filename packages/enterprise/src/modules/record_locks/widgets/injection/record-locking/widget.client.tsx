@@ -49,6 +49,60 @@ type ValidateResponse = {
   conflict?: RecordLockUiConflict | null
 }
 
+function hasIncomingChangesQueryFlag(): boolean {
+  if (typeof window === 'undefined') return false
+  try {
+    const params = new URLSearchParams(window.location.search)
+    return params.get('showIncomingChanges') === '1'
+  } catch {
+    return false
+  }
+}
+
+function hasLockContentionQueryFlag(): boolean {
+  if (typeof window === 'undefined') return false
+  try {
+    const params = new URLSearchParams(window.location.search)
+    return params.get('showLockContention') === '1'
+  } catch {
+    return false
+  }
+}
+
+function clearIncomingChangesQueryFlag() {
+  if (typeof window === 'undefined') return
+  try {
+    const url = new URL(window.location.href)
+    if (url.searchParams.get('showIncomingChanges') !== '1') return
+    url.searchParams.delete('showIncomingChanges')
+    const nextUrl = `${url.pathname}${url.search}${url.hash}`
+    window.history.replaceState(window.history.state, '', nextUrl)
+  } catch {
+    // ignore URL parse failures
+  }
+}
+
+function clearLockContentionQueryFlag() {
+  if (typeof window === 'undefined') return
+  try {
+    const url = new URL(window.location.href)
+    if (url.searchParams.get('showLockContention') !== '1') return
+    url.searchParams.delete('showLockContention')
+    const nextUrl = `${url.pathname}${url.search}${url.hash}`
+    window.history.replaceState(window.history.state, '', nextUrl)
+  } catch {
+    // ignore URL parse failures
+  }
+}
+
+function submitCrudForm(formId: string): boolean {
+  if (typeof document === 'undefined') return false
+  const form = document.getElementById(formId)
+  if (!(form instanceof HTMLFormElement)) return false
+  form.requestSubmit()
+  return true
+}
+
 function formatIpAddress(ip: string | null | undefined, t: ReturnType<typeof useT>): string | null {
   if (!ip) return null
   const normalized = ip.trim().toLowerCase()
@@ -128,9 +182,15 @@ export default function RecordLockingWidget({
   const [, forceRender] = React.useReducer((value) => value + 1, 0)
   const state = getRecordLockFormState(formId)
   const [mounted, setMounted] = React.useState(false)
+  const [showIncomingChangesRequested, setShowIncomingChangesRequested] = React.useState(false)
+  const [showLockContentionBanner, setShowLockContentionBanner] = React.useState(false)
 
   React.useEffect(() => {
     setMounted(true)
+    setShowIncomingChangesRequested(hasIncomingChangesQueryFlag())
+    setShowLockContentionBanner(hasLockContentionQueryFlag())
+    clearIncomingChangesQueryFlag()
+    clearLockContentionQueryFlag()
   }, [])
 
   React.useEffect(() => subscribeRecordLockFormState(formId, () => forceRender()), [formId])
@@ -216,6 +276,22 @@ export default function RecordLockingWidget({
   }, [mine, state?.heartbeatSeconds, state?.lock?.token, state?.resourceId, state?.resourceKind])
 
   React.useEffect(() => {
+    if (!showIncomingChangesRequested) return
+    if (!state?.resourceKind || !state?.resourceId || !state?.lock) return
+    let cancelled = false
+    const openIncomingChangesDialog = async () => {
+      clearIncomingChangesQueryFlag()
+      setShowIncomingChangesRequested(false)
+      await validateBeforeSave({}, context)
+      if (cancelled) return
+    }
+    void openIncomingChangesDialog()
+    return () => {
+      cancelled = true
+    }
+  }, [context, showIncomingChangesRequested, state?.lock, state?.resourceId, state?.resourceKind, t])
+
+  React.useEffect(() => {
     return () => {
       const current = getRecordLockFormState(formId)
       if (current?.lock?.token && current.resourceKind && current.resourceId) {
@@ -262,6 +338,7 @@ export default function RecordLockingWidget({
       latestActionLogId: payload.latestActionLogId ?? null,
       heartbeatSeconds: payload.heartbeatSeconds ?? 15,
       conflict: null,
+      pendingConflictId: null,
       pendingResolution: 'normal',
     })
   }, [formId, state?.resourceId, state?.resourceKind, t])
@@ -280,7 +357,7 @@ export default function RecordLockingWidget({
         resolution: 'accept_incoming',
       }),
     })
-    setRecordLockFormState(formId, { conflict: null, pendingResolution: 'normal' })
+    setRecordLockFormState(formId, { conflict: null, pendingConflictId: null, pendingResolution: 'normal' })
     window.location.reload()
   }, [formId, state?.conflict, state?.lock?.token, state?.resourceId, state?.resourceKind])
 
@@ -288,15 +365,19 @@ export default function RecordLockingWidget({
     if (!state?.conflict) return
     setRecordLockFormState(formId, {
       pendingResolution: 'accept_mine',
+      pendingConflictId: state.conflict.id,
       conflict: null,
     })
-    flash(t('record_locks.conflict.accept_mine', 'Keep my changes'), 'info')
-  }, [formId, state?.conflict, t])
+    window.setTimeout(() => {
+      submitCrudForm(formId)
+    }, 0)
+  }, [formId, state?.conflict])
 
   const handleKeepEditing = React.useCallback(() => {
     if (!state?.conflict) return
     setRecordLockFormState(formId, {
       conflict: null,
+      pendingConflictId: null,
       pendingResolution: 'normal',
     })
   }, [formId, state?.conflict])
@@ -367,8 +448,36 @@ export default function RecordLockingWidget({
     </Dialog>
   )
 
-  if (!state?.lock || (mine && state.acquired !== false)) {
-    return conflictDialog
+  const ownerContentionBanner = mine && showLockContentionBanner ? (
+    <div className="rounded-lg border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-900 shadow-sm">
+      <div className="font-medium">
+        {t(
+          'record_locks.banner.contention_notice',
+          'Another user opened this record while you are editing it. Conflicts may occur on save.',
+        )}
+      </div>
+      <div className="mt-2">
+        <Button
+          size="sm"
+          variant="outline"
+          onClick={() => setShowLockContentionBanner(false)}
+          className="border-amber-300 bg-amber-50 text-amber-900 hover:bg-amber-100 hover:text-amber-900"
+        >
+          {t('common.close', 'Close')}
+        </Button>
+      </div>
+    </div>
+  ) : null
+  const topBannerTarget = mounted ? document.getElementById('om-top-banners') : null
+
+  if (!state?.lock || mine) {
+    if (!ownerContentionBanner) return conflictDialog
+    return (
+      <>
+        {topBannerTarget ? createPortal(ownerContentionBanner, topBannerTarget) : ownerContentionBanner}
+        {conflictDialog}
+      </>
+    )
   }
 
   const actorName = state.lock.lockedByName?.trim() || null
@@ -379,15 +488,10 @@ export default function RecordLockingWidget({
   const ipAddress = formatIpAddress(state.lock.lockedByIp, t)
   const ipLabel = ipAddress ? ` (${ipAddress})` : ''
   const actorDetails = actorIdentity ? `${actorIdentity}${ipLabel}` : ipAddress
-  const showSameUserSessionBanner = mine && state.acquired === false
-  const bannerMessageRaw = showSameUserSessionBanner
-    ? t('record_locks.banner.same_user_session', 'This record is already open in another session.')
-    : t('record_locks.banner.optimistic_notice', 'Another user is editing this record. Conflicts may occur on save.')
+  const bannerMessageRaw = t('record_locks.banner.optimistic_notice', 'Another user is editing this record. Conflicts may occur on save.')
   const bannerMessage = typeof bannerMessageRaw === 'string' && bannerMessageRaw.trim().length > 0
     ? bannerMessageRaw
-    : showSameUserSessionBanner
-      ? 'This record is already open in another session.'
-      : 'Another user is editing this record. Conflicts may occur on save.'
+    : 'Another user is editing this record. Conflicts may occur on save.'
 
   const lockBanner = (
     <div className="rounded-lg border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-900 shadow-sm">
@@ -399,7 +503,7 @@ export default function RecordLockingWidget({
           {actorDetails}
         </div>
       ) : null}
-      {state.allowForceUnlock && !showSameUserSessionBanner ? (
+      {state.allowForceUnlock ? (
         <div className="mt-2">
           <Button
             size="sm"
@@ -413,8 +517,6 @@ export default function RecordLockingWidget({
       ) : null}
     </div>
   )
-
-  const topBannerTarget = mounted ? document.getElementById('om-top-banners') : null
 
   return (
     <>
@@ -436,7 +538,9 @@ export async function validateBeforeSave(
     return { ok: true }
   }
   const resolution = state?.pendingResolution ?? 'normal'
-  const conflictId = resolution === 'normal' ? undefined : state?.conflict?.id
+  const conflictId = resolution === 'normal'
+    ? undefined
+    : (state?.pendingConflictId ?? state?.conflict?.id ?? undefined)
   const call = await apiCall<ValidateResponse>('/api/record_locks/validate', {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
@@ -459,6 +563,7 @@ export async function validateBeforeSave(
       latestActionLogId: payload.latestActionLogId ?? state?.latestActionLogId ?? null,
       lock: payload.lock ?? state?.lock ?? null,
       conflict: null,
+      pendingConflictId: null,
       pendingResolution: 'normal',
     })
     return payload
@@ -468,6 +573,7 @@ export async function validateBeforeSave(
     resourceId,
     lock: payload.lock ?? state?.lock ?? null,
     conflict: payload.conflict ?? null,
+    pendingConflictId: payload.conflict?.id ?? null,
     pendingResolution: 'normal',
   })
   return payload

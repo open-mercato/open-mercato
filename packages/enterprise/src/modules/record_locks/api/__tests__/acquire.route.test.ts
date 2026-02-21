@@ -7,6 +7,15 @@ jest.mock('@open-mercato/enterprise/modules/record_locks/api/utils', () => ({
 }))
 
 function makeContext(overrides: Record<string, unknown> = {}) {
+  const emInstance = {
+    fork: () => ({
+      findOne: async () => null,
+    }),
+  }
+  const rbacServiceInstance = {
+    userHasAllFeatures: jest.fn().mockResolvedValue(true),
+  }
+
   return {
     auth: {
       sub: '10000000-0000-4000-8000-000000000001',
@@ -14,11 +23,11 @@ function makeContext(overrides: Record<string, unknown> = {}) {
     },
     organizationId: '30000000-0000-4000-8000-000000000001',
     container: {
-      resolve: () => ({
-        fork: () => ({
-          findOne: async () => null,
-        }),
-      }),
+      resolve: (key: string) => {
+        if (key === 'em') return emInstance
+        if (key === 'rbacService') return rbacServiceInstance
+        return null
+      },
     },
     ...overrides,
   }
@@ -109,5 +118,58 @@ describe('record_locks acquire route', () => {
       strategy: 'optimistic',
       allowForceUnlock: true,
     })
+  })
+
+  test('hides force unlock when user lacks force-release feature', async () => {
+    const acquire = jest.fn().mockResolvedValue({
+      ok: true,
+      enabled: true,
+      resourceEnabled: true,
+      strategy: 'optimistic',
+      allowForceUnlock: true,
+      heartbeatSeconds: 30,
+      acquired: false,
+      latestActionLogId: null,
+      lock: null,
+    })
+    const rbacService = {
+      userHasAllFeatures: jest.fn().mockResolvedValue(false),
+    }
+
+    ;(resolveRecordLocksApiContext as jest.Mock).mockResolvedValue(makeContext({
+      recordLockService: { acquire },
+      container: {
+        resolve: (key: string) => {
+          if (key === 'rbacService') return rbacService
+          if (key === 'em') {
+            return {
+              fork: () => ({
+                findOne: async () => null,
+              }),
+            }
+          }
+          return null
+        },
+      },
+    }))
+
+    const response = await POST(
+      makeRequest({
+        resourceKind: 'sales.quote',
+        resourceId: '40000000-0000-4000-8000-000000000001',
+      }),
+    )
+
+    expect(response.status).toBe(200)
+    const body = await response.json()
+    expect(body.allowForceUnlock).toBe(false)
+    expect(rbacService.userHasAllFeatures).toHaveBeenCalledWith(
+      '10000000-0000-4000-8000-000000000001',
+      ['record_locks.force_release'],
+      {
+        tenantId: '20000000-0000-4000-8000-000000000001',
+        organizationId: '30000000-0000-4000-8000-000000000001',
+      },
+    )
   })
 })

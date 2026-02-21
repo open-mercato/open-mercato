@@ -29,7 +29,7 @@ export function createRecordLockCrudMutationGuardService(
       if (result.ok) {
         return {
           ok: true,
-          shouldRunAfterSuccess: result.shouldReleaseOnSuccess,
+          shouldRunAfterSuccess: result.resourceEnabled,
           metadata: null,
         }
       }
