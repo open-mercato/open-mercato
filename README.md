@@ -246,7 +246,7 @@ For a fresh greenfield boot (build packages, generate registries, reinstall modu
 yarn dev:greenfield
 ```
 
-For a worktree-friendly dev runtime on an automatically selected free port (with Node 24 check, dependency install, `.env` bootstrap, browser auto-open, and instance registry in `.ai/dev-ephemeral-envs.json`), run:
+For a worktree-friendly dev runtime on an automatically selected free port (with Node 24 check, dependency install, `.env` bootstrap, generator prep, browser auto-open, and instance registry in `.ai/dev-ephemeral-envs.json`), run:
 
 ```bash
 yarn dev:ephemeral

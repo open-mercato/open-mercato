@@ -378,6 +378,13 @@ async function main() {
       return
     }
 
+    console.log('[dev:ephemeral] Preparing generated module files...')
+    const generateExitCode = await runCommand('yarn', ['generate'])
+    if (generateExitCode !== 0) {
+      process.exit(generateExitCode)
+      return
+    }
+
     await pruneStaleDevInstances()
 
     const port = await resolvePort()

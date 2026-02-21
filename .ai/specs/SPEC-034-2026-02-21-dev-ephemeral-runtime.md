@@ -1,7 +1,7 @@
 # SPEC-034: Dev Ephemeral Runtime Command
 
 ## TLDR
-Add `yarn dev:ephemeral` as a one-command, worktree-friendly development launcher that validates Node 24, bootstraps `.env` only when missing, runs `yarn install`, selects a free local port, starts the app on that port, prints the URL for testing, opens the browser automatically, and tracks running instances in `.ai/dev-ephemeral-envs.json`.
+Add `yarn dev:ephemeral` as a one-command, worktree-friendly development launcher that validates Node 24, bootstraps `.env` only when missing, runs `yarn install`, runs generators, selects a free local port, starts the app on that port, prints the URL for testing, opens the browser automatically, and tracks running instances in `.ai/dev-ephemeral-envs.json`.
 
 ## Overview
 This change introduces a new root-level developer workflow for running multiple Open Mercato development instances in parallel across worktrees without manual port management.
@@ -25,13 +25,14 @@ Add `yarn dev:ephemeral` that performs deterministic preflight and runtime boot:
 - Reuse if present.
 - Copy from `apps/mercato/.env.example` if absent.
 3. Run `yarn install`.
-4. Resolve runtime port:
+4. Run `yarn generate` so required `.mercato/generated` files are present.
+5. Resolve runtime port:
 - Try preferred port `3000` (or `DEV_EPHEMERAL_PREFERRED_PORT` if set).
 - If unavailable, allocate a free fallback port.
-5. Start `yarn dev` with `PORT=<resolved-port>`.
-6. Print explicit URL(s) for QA/testing.
-7. Wait for readiness and open browser at `/backend`.
-8. Maintain `.ai/dev-ephemeral-envs.json`:
+6. Start `yarn dev` with `PORT=<resolved-port>`.
+7. Print explicit URL(s) for QA/testing.
+8. Wait for readiness and open browser at `/backend`.
+9. Maintain `.ai/dev-ephemeral-envs.json`:
 - Prune stale/non-responsive instances at startup.
 - Register current process instance with pid + URL metadata.
 - Remove current instance on process exit.
@@ -74,6 +75,7 @@ This feature is command/runtime orchestration, not a new API module. Coverage fo
   - Fails with guidance on Node < 24
   - Creates `.env` only when missing
   - Installs dependencies
+  - Generates module registry files
   - Selects free port
   - Removes non-responsive entries from `.ai/dev-ephemeral-envs.json`
   - Registers and unregisters current runtime in `.ai/dev-ephemeral-envs.json`
@@ -116,4 +118,4 @@ This feature is command/runtime orchestration, not a new API module. Coverage fo
 
 ## Changelog
 - 2026-02-21: Added `dev:ephemeral` command with Node24 preflight, `.env` bootstrap-if-missing, dependency installation, free-port startup, and URL output. Updated docs and README.
-- 2026-02-21: Extended `dev:ephemeral` with browser auto-open and `.ai/dev-ephemeral-envs.json` lifecycle (stale pruning + register/unregister). Updated `.ai/skills/integration-tests/SKILL.md`, `.ai/qa/AGENTS.md`, and root `AGENTS.md` to reuse dev ephemeral instances for testing.
+- 2026-02-21: Extended `dev:ephemeral` with generator pre-step, browser auto-open, and `.ai/dev-ephemeral-envs.json` lifecycle (stale pruning + register/unregister). Updated `.ai/skills/integration-tests/SKILL.md`, `.ai/qa/AGENTS.md`, and root `AGENTS.md` to reuse dev ephemeral instances for testing.
