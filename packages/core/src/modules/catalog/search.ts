@@ -277,6 +277,26 @@ export const searchConfig: SearchModuleConfig = {
         appendLine(lines, 'SKU', record.sku)
         appendLine(lines, 'Handle', record.handle)
         appendLine(lines, 'Product type', record.product_type ?? record.productType)
+        appendLine(lines, 'Base unit', record.default_unit ?? record.defaultUnit)
+        appendLine(lines, 'Default sales unit', record.default_sales_unit ?? record.defaultSalesUnit)
+        appendLine(
+          lines,
+          'Default sales quantity',
+          record.default_sales_unit_quantity ?? record.defaultSalesUnitQuantity,
+        )
+        appendLine(lines, 'UoM rounding mode', record.uom_rounding_mode ?? record.uomRoundingMode)
+        appendLine(lines, 'UoM rounding scale', record.uom_rounding_scale ?? record.uomRoundingScale)
+        appendLine(lines, 'Unit price enabled', record.unit_price_enabled ?? record.unitPriceEnabled)
+        appendLine(
+          lines,
+          'Unit price reference unit',
+          record.unit_price_reference_unit ?? record.unitPriceReferenceUnit,
+        )
+        appendLine(
+          lines,
+          'Unit price base quantity',
+          record.unit_price_base_quantity ?? record.unitPriceBaseQuantity,
+        )
         return buildIndexSource(ctx, buildProductPresenter(translate, record), lines)
       },
       formatResult: async (ctx) => {
@@ -285,7 +305,17 @@ export const searchConfig: SearchModuleConfig = {
       },
       resolveUrl: async (ctx) => buildProductUrl(readRecordText(ctx.record, 'id')),
       fieldPolicy: {
-        searchable: ['title', 'subtitle', 'description', 'sku', 'handle', 'product_type'],
+        searchable: [
+          'title',
+          'subtitle',
+          'description',
+          'sku',
+          'handle',
+          'product_type',
+          'default_unit',
+          'default_sales_unit',
+          'unit_price_reference_unit',
+        ],
         excluded: ['metadata', 'dimensions', 'tax_rate_id'],
       },
     },

@@ -481,6 +481,9 @@ export const searchConfig: SearchModuleConfig = {
         appendLine(lines, 'Description', record.description)
         appendLine(lines, 'Kind', record.kind)
         appendLine(lines, 'Quantity', record.quantity)
+        appendLine(lines, 'Quantity unit', record.quantity_unit ?? record.quantityUnit)
+        appendLine(lines, 'Normalized quantity', record.normalized_quantity ?? record.normalizedQuantity)
+        appendLine(lines, 'Normalized unit', record.normalized_unit ?? record.normalizedUnit)
         appendLine(lines, 'Status', record.status)
         return buildIndexSource(ctx, buildOrderLinePresenter(translate, record), lines)
       },
@@ -502,6 +505,9 @@ export const searchConfig: SearchModuleConfig = {
         appendLine(lines, 'Description', record.description)
         appendLine(lines, 'Kind', record.kind)
         appendLine(lines, 'Quantity', record.quantity)
+        appendLine(lines, 'Quantity unit', record.quantity_unit ?? record.quantityUnit)
+        appendLine(lines, 'Normalized quantity', record.normalized_quantity ?? record.normalizedQuantity)
+        appendLine(lines, 'Normalized unit', record.normalized_unit ?? record.normalizedUnit)
         appendLine(lines, 'Status', record.status)
         return buildIndexSource(ctx, buildQuoteLinePresenter(translate, record), lines)
       },
@@ -620,6 +626,9 @@ export const searchConfig: SearchModuleConfig = {
         appendLine(lines, 'Description', record.description)
         appendLine(lines, 'Kind', record.kind)
         appendLine(lines, 'Quantity', record.quantity)
+        appendLine(lines, 'Quantity unit', record.quantity_unit ?? record.quantityUnit)
+        appendLine(lines, 'Normalized quantity', record.normalized_quantity ?? record.normalizedQuantity)
+        appendLine(lines, 'Normalized unit', record.normalized_unit ?? record.normalizedUnit)
         return buildIndexSource(ctx, buildInvoiceLinePresenter(translate, record), lines)
       },
       formatResult: async (ctx) => {
@@ -659,6 +668,9 @@ export const searchConfig: SearchModuleConfig = {
         appendLine(lines, 'Description', record.description)
         appendLine(lines, 'Kind', record.kind)
         appendLine(lines, 'Quantity', record.quantity)
+        appendLine(lines, 'Quantity unit', record.quantity_unit ?? record.quantityUnit)
+        appendLine(lines, 'Normalized quantity', record.normalized_quantity ?? record.normalizedQuantity)
+        appendLine(lines, 'Normalized unit', record.normalized_unit ?? record.normalizedUnit)
         return buildIndexSource(ctx, buildCreditMemoLinePresenter(translate, record), lines)
       },
       formatResult: async (ctx) => {

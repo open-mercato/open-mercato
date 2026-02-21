@@ -1310,6 +1310,9 @@ export async function seedSalesExamples(
         comment: line.comment ?? null,
         quantity: line.quantity,
         quantityUnit: line.quantityUnit ?? null,
+        normalizedQuantity: line.quantity,
+        normalizedUnit: line.quantityUnit ?? null,
+        uomSnapshot: null,
         currencyCode,
         unitPriceNet,
         unitPriceGross,
@@ -1398,6 +1401,12 @@ export async function seedSalesExamples(
         comment: source.comment,
         quantity: toAmount(source.quantity),
         quantityUnit: source.quantityUnit ?? null,
+        normalizedQuantity: toAmount(source.normalizedQuantity ?? source.quantity),
+        normalizedUnit: source.normalizedUnit ?? source.quantityUnit ?? null,
+        uomSnapshot:
+          source.uomSnapshot && typeof source.uomSnapshot === 'object'
+            ? toSnapshot(source.uomSnapshot as Record<string, unknown>)
+            : null,
         currencyCode: source.currencyCode,
         unitPriceNet: toAmount(source.unitPriceNet ?? 0),
         unitPriceGross: toAmount(source.unitPriceGross ?? source.unitPriceNet ?? 0),
@@ -1520,6 +1529,9 @@ export async function seedSalesExamples(
         comment: line.comment ?? null,
         quantity: line.quantity,
         quantityUnit: line.quantityUnit ?? null,
+        normalizedQuantity: line.quantity,
+        normalizedUnit: line.quantityUnit ?? null,
+        uomSnapshot: null,
         currencyCode,
         unitPriceNet,
         unitPriceGross,
@@ -1617,6 +1629,12 @@ export async function seedSalesExamples(
         comment: source.comment,
         quantity: toAmount(source.quantity),
         quantityUnit: source.quantityUnit ?? null,
+        normalizedQuantity: toAmount(source.normalizedQuantity ?? source.quantity),
+        normalizedUnit: source.normalizedUnit ?? source.quantityUnit ?? null,
+        uomSnapshot:
+          source.uomSnapshot && typeof source.uomSnapshot === 'object'
+            ? toSnapshot(source.uomSnapshot as Record<string, unknown>)
+            : null,
         reservedQuantity: '0',
         fulfilledQuantity: '0',
         invoicedQuantity: '0',
