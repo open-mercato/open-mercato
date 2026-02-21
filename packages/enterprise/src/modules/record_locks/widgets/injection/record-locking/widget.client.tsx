@@ -10,6 +10,10 @@ import { Notice } from '@open-mercato/ui/primitives/Notice'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import type { InjectionWidgetComponentProps } from '@open-mercato/shared/modules/widgets/injection'
 import {
+  ChangedFieldsTable,
+  type ChangeRow,
+} from '@open-mercato/core/modules/audit_logs/lib/display-helpers'
+import {
   clearRecordLockFormState,
   getRecordLockFormState,
   setRecordLockFormState,
@@ -45,8 +49,6 @@ type ValidateResponse = {
   conflict?: RecordLockUiConflict | null
 }
 
-type ConflictChange = NonNullable<RecordLockUiConflict['changes']>[number]
-
 function formatIpAddress(ip: string | null | undefined, t: ReturnType<typeof useT>): string | null {
   if (!ip) return null
   const normalized = ip.trim().toLowerCase()
@@ -55,82 +57,6 @@ function formatIpAddress(ip: string | null | undefined, t: ReturnType<typeof use
     return t('record_locks.banner.local_machine', 'local machine')
   }
   return ip
-}
-
-function formatFieldLabel(rawField: string): string {
-  const trimmedField = rawField.trim()
-  const withoutNamespace = trimmedField.includes('::') ? (trimmedField.split('::').pop() ?? trimmedField) : trimmedField
-  const withoutPrefix = withoutNamespace.includes('.') ? (withoutNamespace.split('.').pop() ?? withoutNamespace) : withoutNamespace
-  const words = withoutPrefix
-    .replace(/([a-z0-9])([A-Z])/g, '$1 $2')
-    .replace(/[._-]+/g, ' ')
-    .replace(/\s+/g, ' ')
-    .trim()
-    .split(' ')
-    .filter(Boolean)
-
-  if (!words.length) return trimmedField
-  return words
-    .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
-    .join(' ')
-}
-
-function formatConflictValue(value: unknown, emptyLabel: string): string {
-  if (value == null) return emptyLabel
-  const text = String(value).trim()
-  return text.length ? text : emptyLabel
-}
-
-function ConflictFieldComparisonRow({
-  change,
-  incomingLabel,
-  mineLabel,
-  emptyLabel,
-}: {
-  change: ConflictChange
-  incomingLabel: string
-  mineLabel: string
-  emptyLabel: string
-}) {
-  return (
-    <div className="border-b last:border-b-0 px-3 py-2">
-      <div className="font-medium">{formatFieldLabel(change.field)}</div>
-      <div className="text-xs text-muted-foreground">
-        {incomingLabel}: {formatConflictValue(change.incomingValue, emptyLabel)}
-      </div>
-      <div className="text-xs text-muted-foreground">
-        {mineLabel}: {formatConflictValue(change.mineValue, emptyLabel)}
-      </div>
-    </div>
-  )
-}
-
-function ConflictFieldComparisonList({
-  changes,
-  incomingLabel,
-  mineLabel,
-  emptyLabel,
-}: {
-  changes: ConflictChange[]
-  incomingLabel: string
-  mineLabel: string
-  emptyLabel: string
-}) {
-  if (!changes.length) return null
-
-  return (
-    <div className="max-h-[280px] overflow-auto rounded border">
-      {changes.map((change) => (
-        <ConflictFieldComparisonRow
-          key={change.field}
-          change={change}
-          incomingLabel={incomingLabel}
-          mineLabel={mineLabel}
-          emptyLabel={emptyLabel}
-        />
-      ))}
-    </div>
-  )
 }
 
 function resolveResourceKind(context: CrudInjectionContext): string | null {
@@ -375,71 +301,74 @@ export default function RecordLockingWidget({
     })
   }, [formId, state?.conflict])
 
-  const incomingValueLabel = t('record_locks.conflict.incoming_value', 'Incoming value')
-  const mineValueLabel = t('record_locks.conflict.mine_value', 'Your value')
-  const emptyValueLabel = t('record_locks.conflict.empty_value', '(empty)')
-  const canOverrideIncoming = Boolean(
-    state?.conflict?.canOverrideIncoming
+  const noneLabel = t('audit_logs.common.none')
+  const conflictChangeRows = React.useMemo<ChangeRow[]>(
+    () => (state?.conflict?.changes ?? []).map((change) => ({
+      field: change.field,
+      from: change.incomingValue,
+      to: change.mineValue,
+    })),
+    [state?.conflict?.changes],
+  )
+  const canKeepMyChanges = Boolean(
+    state?.conflict?.allowIncomingOverride
+    && state?.conflict?.canOverrideIncoming === true
     && state?.conflict?.resolutionOptions?.includes('accept_mine'),
   )
   const showOverrideBlockedNotice = Boolean(
     state?.conflict?.allowIncomingOverride
     && !state?.conflict?.canOverrideIncoming,
   )
+  const conflictDialog = (
+    <Dialog open={Boolean(state?.conflict)} onOpenChange={(open) => {
+      if (open) return
+      setRecordLockFormState(formId, { conflict: null })
+    }}>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>{t('record_locks.conflict.title', 'Conflict detected')}</DialogTitle>
+        </DialogHeader>
+        <div className="space-y-3 text-sm">
+          <p className="text-muted-foreground">
+            {t('record_locks.conflict.description', 'The record was changed by another user after you started editing.')}
+          </p>
+          <ChangedFieldsTable changeRows={conflictChangeRows} noneLabel={noneLabel} t={t} />
+          {(state?.conflict?.changes?.length ?? 0) === 0 ? (
+            <Notice compact variant="info">
+              {t(
+                'record_locks.conflict.no_field_details',
+                'Field-level conflict details are unavailable for this record. Choose a resolution to continue.'
+              )}
+            </Notice>
+          ) : null}
+          {showOverrideBlockedNotice ? (
+            <Notice compact variant="warning">
+              {t(
+                'record_locks.conflict.override_blocked_notice',
+                'You cannot keep your version because you do not have permission to override incoming changes.',
+              )}
+            </Notice>
+          ) : null}
+          <div className="flex justify-end gap-2">
+            <Button variant="outline" onClick={handleAcceptIncoming}>
+              {t('record_locks.conflict.accept_incoming', 'Accept incoming')}
+            </Button>
+            {canKeepMyChanges ? (
+              <Button onClick={handleKeepMine}>
+                {t('record_locks.conflict.accept_mine', 'Keep my changes')}
+              </Button>
+            ) : null}
+            <Button variant="ghost" onClick={handleKeepEditing}>
+              {t('record_locks.conflict.keep_editing', 'Keep editing')}
+            </Button>
+          </div>
+        </div>
+      </DialogContent>
+    </Dialog>
+  )
 
   if (!state?.lock || (mine && state.acquired !== false)) {
-    return (
-      <Dialog open={Boolean(state?.conflict)} onOpenChange={(open) => {
-        if (open) return
-        setRecordLockFormState(formId, { conflict: null })
-      }}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>{t('record_locks.conflict.title', 'Conflict detected')}</DialogTitle>
-          </DialogHeader>
-          <div className="space-y-3 text-sm">
-            <p className="text-muted-foreground">
-              {t('record_locks.conflict.description', 'The record was changed by another user after you started editing.')}
-            </p>
-            <ConflictFieldComparisonList
-              changes={state?.conflict?.changes ?? []}
-              incomingLabel={incomingValueLabel}
-              mineLabel={mineValueLabel}
-              emptyLabel={emptyValueLabel}
-            />
-            {(state?.conflict?.changes?.length ?? 0) === 0 ? (
-              <Notice compact variant="info">
-                {t(
-                  'record_locks.conflict.no_field_details',
-                  'Field-level conflict details are unavailable for this record. Choose a resolution to continue.'
-                )}
-              </Notice>
-            ) : null}
-            {showOverrideBlockedNotice ? (
-              <Notice compact variant="warning">
-                {t(
-                  'record_locks.conflict.override_blocked_notice',
-                  'You cannot keep your version because you do not have permission to override incoming changes.',
-                )}
-              </Notice>
-            ) : null}
-            <div className="flex justify-end gap-2">
-              <Button variant="outline" onClick={handleAcceptIncoming}>
-                {t('record_locks.conflict.accept_incoming', 'Accept incoming')}
-              </Button>
-              {canOverrideIncoming ? (
-                <Button onClick={handleKeepMine}>
-                  {t('record_locks.conflict.accept_mine', 'Keep my changes')}
-                </Button>
-              ) : null}
-              <Button variant="ghost" onClick={handleKeepEditing}>
-                {t('record_locks.conflict.keep_editing', 'Keep editing')}
-              </Button>
-            </div>
-          </div>
-        </DialogContent>
-      </Dialog>
-    )
+    return conflictDialog
   }
 
   const actorName = state.lock.lockedByName?.trim() || null
@@ -490,56 +419,7 @@ export default function RecordLockingWidget({
   return (
     <>
       {topBannerTarget ? createPortal(lockBanner, topBannerTarget) : lockBanner}
-      <Dialog open={Boolean(state?.conflict)} onOpenChange={(open) => {
-        if (open) return
-        setRecordLockFormState(formId, { conflict: null })
-      }}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>{t('record_locks.conflict.title', 'Conflict detected')}</DialogTitle>
-          </DialogHeader>
-          <div className="space-y-3 text-sm">
-            <p className="text-muted-foreground">
-              {t('record_locks.conflict.description', 'The record was changed by another user after you started editing.')}
-            </p>
-            <ConflictFieldComparisonList
-              changes={state?.conflict?.changes ?? []}
-              incomingLabel={incomingValueLabel}
-              mineLabel={mineValueLabel}
-              emptyLabel={emptyValueLabel}
-            />
-            {(state?.conflict?.changes?.length ?? 0) === 0 ? (
-              <Notice compact variant="info">
-                {t(
-                  'record_locks.conflict.no_field_details',
-                  'Field-level conflict details are unavailable for this record. Choose a resolution to continue.'
-                )}
-              </Notice>
-            ) : null}
-            {showOverrideBlockedNotice ? (
-              <Notice compact variant="warning">
-                {t(
-                  'record_locks.conflict.override_blocked_notice',
-                  'You cannot keep your version because you do not have permission to override incoming changes.',
-                )}
-              </Notice>
-            ) : null}
-            <div className="flex justify-end gap-2">
-              <Button variant="outline" onClick={handleAcceptIncoming}>
-                {t('record_locks.conflict.accept_incoming', 'Accept incoming')}
-              </Button>
-              {canOverrideIncoming ? (
-                <Button onClick={handleKeepMine}>
-                  {t('record_locks.conflict.accept_mine', 'Keep my changes')}
-                </Button>
-              ) : null}
-              <Button variant="ghost" onClick={handleKeepEditing}>
-                {t('record_locks.conflict.keep_editing', 'Keep editing')}
-              </Button>
-            </div>
-          </div>
-        </DialogContent>
-      </Dialog>
+      {conflictDialog}
     </>
   )
 }
