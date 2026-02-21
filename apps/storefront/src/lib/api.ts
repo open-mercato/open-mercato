@@ -153,11 +153,51 @@ export async function checkout(
   cartToken: string,
   customerInfo: { name: string; email: string; phone?: string; address?: string },
 ): Promise<{ orderId: string }> {
-  return storefrontPost<{ orderId: string }>(
-    '/cart/checkout',
-    { cartToken, customerInfo },
-    cartToken,
-  )
+  type CheckoutSessionResponse = { session: { id: string } }
+  type CheckoutTransitionResponse = { orderId?: string }
+
+  const idempotencyKey =
+    typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
+      ? crypto.randomUUID()
+      : `checkout-${Date.now()}-${Math.random().toString(16).slice(2)}`
+
+  try {
+    const created = await storefrontPost<CheckoutSessionResponse>(
+      '/checkout/sessions',
+      { cartToken },
+      cartToken,
+    )
+
+    await storefrontPost<CheckoutTransitionResponse>(
+      `/checkout/sessions/${created.session.id}/transition`,
+      { action: 'set_customer', payload: customerInfo },
+      cartToken,
+    )
+
+    await storefrontPost<CheckoutTransitionResponse>(
+      `/checkout/sessions/${created.session.id}/transition`,
+      { action: 'review' },
+      cartToken,
+    )
+
+    const placed = await storefrontPost<CheckoutTransitionResponse>(
+      `/checkout/sessions/${created.session.id}/transition`,
+      { action: 'place_order', idempotencyKey },
+      cartToken,
+    )
+
+    if (!placed.orderId) {
+      throw new StorefrontApiError(500, 'Missing orderId in place_order response')
+    }
+    return { orderId: placed.orderId }
+  } catch {
+    // Backward-compatible fallback while legacy adapter endpoint still exists.
+    return storefrontPost<{ orderId: string }>(
+      '/cart/checkout',
+      { cartToken, customerInfo },
+      cartToken,
+    )
+  }
 }
 
 export async function fetchStoreContext(): Promise<StorefrontContext | null> {
