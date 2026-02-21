@@ -35,6 +35,8 @@ const ACTIVE_SCOPE_UNIQUE_CONSTRAINTS = new Set([
   'record_locks_active_scope_org_unique',
   'record_locks_active_scope_tenant_unique',
 ])
+const LOCK_CONTENTION_EVENT_TTL_MS = 15_000
+const lockContentionEventThrottle = new Map<string, number>()
 
 export type RecordLockScope = {
   tenantId: string
@@ -181,6 +183,41 @@ function trimToNull(value: string | null | undefined): string | null {
 function normalizeScopeOrganization(value: string | null | undefined): string | null {
   const trimmed = trimToNull(value)
   return trimmed ?? null
+}
+
+function shouldEmitLockContentionEvent(input: {
+  tenantId: string
+  organizationId?: string | null
+  resourceKind: string
+  resourceId: string
+  lockedByUserId: string
+  attemptedByUserId: string
+}): boolean {
+  if (process.env.NODE_ENV === 'test') return true
+  const now = Date.now()
+  const key = [
+    input.tenantId,
+    normalizeScopeOrganization(input.organizationId) ?? 'global',
+    input.resourceKind,
+    input.resourceId,
+    input.lockedByUserId,
+    input.attemptedByUserId,
+  ].join('|')
+
+  const lastEmittedAt = lockContentionEventThrottle.get(key)
+  if (typeof lastEmittedAt === 'number' && now - lastEmittedAt < LOCK_CONTENTION_EVENT_TTL_MS) {
+    return false
+  }
+
+  lockContentionEventThrottle.set(key, now)
+
+  for (const [cachedKey, cachedAt] of lockContentionEventThrottle.entries()) {
+    if (now - cachedAt > LOCK_CONTENTION_EVENT_TTL_MS) {
+      lockContentionEventThrottle.delete(cachedKey)
+    }
+  }
+
+  return true
 }
 
 function isActiveLockScopeUniqueViolation(error: unknown): boolean {
@@ -387,7 +424,7 @@ export class RecordLockService {
 
   async acquire(input: RecordLockAcquireInput): Promise<RecordLockAcquireResult | RecordLockAcquireFailure> {
     const settings = await this.getSettings()
-    const latest = await this.findLatestActionLog(input)
+    const latest = await this.findLatestActionLogWithScopeFallback(input)
     const resourceEnabled = isRecordLockingEnabledForResource(settings, input.resourceKind)
 
     if (!resourceEnabled) {
@@ -409,15 +446,24 @@ export class RecordLockService {
 
     if (active && active.lockedByUserId !== input.userId) {
       const lock = this.toLockView(active, false)
-      await emitRecordLocksEvent('record_locks.lock.contended', {
-        lockId: active.id,
-        resourceKind: active.resourceKind,
-        resourceId: active.resourceId,
+      if (shouldEmitLockContentionEvent({
         tenantId: active.tenantId,
         organizationId: active.organizationId,
+        resourceKind: active.resourceKind,
+        resourceId: active.resourceId,
         lockedByUserId: active.lockedByUserId,
         attemptedByUserId: input.userId,
-      })
+      })) {
+        await emitRecordLocksEvent('record_locks.lock.contended', {
+          lockId: active.id,
+          resourceKind: active.resourceKind,
+          resourceId: active.resourceId,
+          tenantId: active.tenantId,
+          organizationId: active.organizationId,
+          lockedByUserId: active.lockedByUserId,
+          attemptedByUserId: input.userId,
+        })
+      }
       if (settings.strategy === 'pessimistic') {
         return {
           ok: false,
@@ -488,15 +534,24 @@ export class RecordLockService {
       if (!competing) throw error
       if (competing.lockedByUserId !== input.userId) {
         const lockView = this.toLockView(competing, false)
-        await emitRecordLocksEvent('record_locks.lock.contended', {
-          lockId: competing.id,
-          resourceKind: competing.resourceKind,
-          resourceId: competing.resourceId,
+        if (shouldEmitLockContentionEvent({
           tenantId: competing.tenantId,
           organizationId: competing.organizationId,
+          resourceKind: competing.resourceKind,
+          resourceId: competing.resourceId,
           lockedByUserId: competing.lockedByUserId,
           attemptedByUserId: input.userId,
-        })
+        })) {
+          await emitRecordLocksEvent('record_locks.lock.contended', {
+            lockId: competing.id,
+            resourceKind: competing.resourceKind,
+            resourceId: competing.resourceId,
+            tenantId: competing.tenantId,
+            organizationId: competing.organizationId,
+            lockedByUserId: competing.lockedByUserId,
+            attemptedByUserId: input.userId,
+          })
+        }
         if (settings.strategy === 'pessimistic') {
           return {
             ok: false,
@@ -686,7 +741,7 @@ export class RecordLockService {
     const parsedHeaders = this.normalizeMutationHeaders(input.headers)
     const now = new Date()
     const active = await this.findActiveLock(input, now)
-    const latest = await this.findLatestActionLog(input)
+    const latest = await this.findLatestActionLogWithScopeFallback(input)
     const shouldReleaseOnSuccess = Boolean(
       active
       && active.lockedByUserId === input.userId
@@ -736,7 +791,11 @@ export class RecordLockService {
         && existingConflict.conflictActorUserId === input.userId
 
       if (parsedHeaders.resolution === 'accept_mine' || parsedHeaders.resolution === 'merged') {
-        if (!canResolveExistingConflict || !canOverrideIncoming) {
+        const isAlreadyResolvedByRequester = existingConflict.conflictActorUserId === input.userId
+          && existingConflict.status !== 'pending'
+          && existingConflict.resolution === parsedHeaders.resolution
+
+        if (!canResolveExistingConflict && !isAlreadyResolvedByRequester) {
           return {
             ok: false,
             status: 409,
@@ -746,7 +805,19 @@ export class RecordLockService {
             conflict: await this.toConflictPayload(existingConflict, input.mutationPayload ?? null, settings.allowIncomingOverride, canOverrideIncoming),
           }
         }
-        await this.resolveConflict(existingConflict, parsedHeaders.resolution, input.userId)
+        if (!canOverrideIncoming) {
+          return {
+            ok: false,
+            status: 409,
+            error: 'Record conflict requires resolution before saving',
+            code: 'record_lock_conflict',
+            lock: active ? this.toLockView(active, false) : null,
+            conflict: await this.toConflictPayload(existingConflict, input.mutationPayload ?? null, settings.allowIncomingOverride, canOverrideIncoming),
+          }
+        }
+        if (canResolveExistingConflict) {
+          await this.resolveConflict(existingConflict, parsedHeaders.resolution, input.userId)
+        }
       } else {
         return {
           ok: false,
@@ -759,15 +830,26 @@ export class RecordLockService {
       }
     }
 
-    if (parsedHeaders.resolution === 'normal') {
+    if (!existingConflict) {
       const baseActionLogId = parsedHeaders.baseLogId
         ?? (active && active.lockedByUserId === input.userId ? active.baseActionLogId : null)
 
-      const isConflictingWrite = Boolean(
+      const hasConflictingBaseLog = Boolean(
         latest?.id
         && baseActionLogId
         && latest.id !== baseActionLogId
       )
+      const hasConflictingWriteAfterLockStart = Boolean(
+        latest?.id
+        && !baseActionLogId
+        && active
+        && active.lockedByUserId === input.userId
+        && latest.createdAt instanceof Date
+        && active.lockedAt instanceof Date
+        && latest.createdAt.getTime() > active.lockedAt.getTime()
+        && latest.actorUserId !== input.userId
+      )
+      const isConflictingWrite = hasConflictingBaseLog || hasConflictingWriteAfterLockStart
 
       if (isConflictingWrite) {
         const conflict = await this.createConflict({
@@ -821,19 +903,67 @@ export class RecordLockService {
     if (!settings.notifyOnConflict || !isRecordLockingEnabledForResource(settings, input.resourceKind)) return
 
     const now = new Date()
-    const active = await this.findActiveLock(input, now)
-    if (!active) return
-    if (active.lockedByUserId === input.userId) return
+    let candidateLocks = await this.em.find(RecordLock, {
+      ...this.buildScopeWhere(input),
+      resourceKind: input.resourceKind,
+      resourceId: input.resourceId,
+      status: ACTIVE_LOCK_STATUS,
+    }, { orderBy: { updatedAt: 'desc' } })
+    if ((!Array.isArray(candidateLocks) || candidateLocks.length === 0) && input.organizationId === null) {
+      candidateLocks = await this.em.find(RecordLock, {
+        tenantId: input.tenantId,
+        deletedAt: null,
+        resourceKind: input.resourceKind,
+        resourceId: input.resourceId,
+        status: ACTIVE_LOCK_STATUS,
+      }, { orderBy: { updatedAt: 'desc' } })
+    }
+    const activeLocks = Array.isArray(candidateLocks) ? candidateLocks : []
+    if (!activeLocks.length) return
 
-    const latest = await this.findLatestActionLog(input)
-    const incomingLog = latest?.actorUserId === input.userId
+    let hasExpiredLocks = false
+    const recipientUserIds = new Set<string>()
+    for (const lock of activeLocks) {
+      if (lock.expiresAt <= now) {
+        this.markLockReleased(lock, {
+          status: 'expired',
+          reason: 'expired',
+          releasedByUserId: lock.lockedByUserId,
+          now,
+        })
+        hasExpiredLocks = true
+        continue
+      }
+      if (lock.lockedByUserId !== input.userId) {
+        recipientUserIds.add(lock.lockedByUserId)
+      }
+    }
+    if (hasExpiredLocks) await this.em.flush()
+    if (!recipientUserIds.size) return
+
+    let latest = await this.findLatestActionLog(input)
+    if (!latest && input.organizationId === null) {
+      latest = await this.findLatestActionLog({
+        tenantId: input.tenantId,
+        resourceKind: input.resourceKind,
+        resourceId: input.resourceId,
+      })
+    }
+    let actorLog = latest?.actorUserId === input.userId
       ? latest
       : await this.findLatestActionLogByActor(input, input.userId)
-    if (!incomingLog) return
-    if (active.baseActionLogId && incomingLog.id === active.baseActionLogId) return
-    if (incomingLog.createdAt < active.lockedAt) return
+    if (!actorLog && input.organizationId === null) {
+      actorLog = await this.findLatestActionLogByActor({
+        tenantId: input.tenantId,
+        resourceKind: input.resourceKind,
+        resourceId: input.resourceId,
+      }, input.userId)
+    }
+    const incomingLog = actorLog ?? latest
 
-    const changedFields = this.summarizeChangedFieldsFromActionLog(incomingLog)
+    const changedFields = incomingLog
+      ? this.summarizeChangedFieldsFromActionLog(incomingLog)
+      : ''
 
     await emitRecordLocksEvent('record_locks.incoming_changes.available', {
       resourceKind: input.resourceKind,
@@ -841,8 +971,8 @@ export class RecordLockService {
       tenantId: input.tenantId,
       organizationId: normalizeScopeOrganization(input.organizationId),
       incomingActorUserId: input.userId,
-      incomingActionLogId: incomingLog.id,
-      recipientUserIds: [active.lockedByUserId],
+      incomingActionLogId: incomingLog?.id ?? null,
+      recipientUserIds: Array.from(recipientUserIds),
       changedFields: changedFields || '-',
     })
   }
@@ -1021,6 +1151,20 @@ export class RecordLockService {
     return this.em.findOne(ActionLog, where, { orderBy: { createdAt: 'desc' } })
   }
 
+  private async findLatestActionLogWithScopeFallback(
+    input: Pick<RecordLockScope, 'tenantId' | 'organizationId'> & RecordLockResource,
+  ): Promise<ActionLog | null> {
+    const scoped = await this.findLatestActionLog(input)
+    if (scoped) return scoped
+    if (input.organizationId !== null) return null
+
+    return this.findLatestActionLog({
+      tenantId: input.tenantId,
+      resourceKind: input.resourceKind,
+      resourceId: input.resourceId,
+    })
+  }
+
   private async findLatestActionLogByActor(
     input: Pick<RecordLockScope, 'tenantId' | 'organizationId'> & RecordLockResource,
     actorUserId: string,
@@ -1175,7 +1319,16 @@ export class RecordLockService {
       where.organizationId = normalizeScopeOrganization(scope.organizationId)
     }
 
-    return this.em.findOne(RecordLockConflict, where)
+    const scoped = await this.em.findOne(RecordLockConflict, where)
+    if (scoped || scope.organizationId === undefined) return scoped
+
+    return this.em.findOne(RecordLockConflict, {
+      id: conflictId,
+      tenantId: scope.tenantId,
+      resourceKind: scope.resourceKind,
+      resourceId: scope.resourceId,
+      deletedAt: null,
+    })
   }
 
   private async findActionLogById(

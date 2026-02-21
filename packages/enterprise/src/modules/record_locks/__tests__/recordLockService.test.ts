@@ -279,6 +279,58 @@ describe('RecordLockService.validateMutation', () => {
     expect(serviceAny.createConflict).toHaveBeenCalledTimes(1)
   })
 
+  test('returns 409 conflict when base log is missing but newer incoming log exists after lock start', async () => {
+    const { service } = createService()
+    const serviceAny = service as any
+
+    serviceAny.findActiveLock = jest.fn().mockResolvedValue(
+      buildLock({
+        baseActionLogId: null,
+        lockedAt: new Date('2026-02-17T10:00:00.000Z'),
+        lockedByUserId: '40000000-0000-4000-8000-000000000001',
+      }),
+    )
+    serviceAny.findLatestActionLog = jest.fn().mockResolvedValue({
+      id: '81000000-0000-4000-8000-000000000001',
+      actorUserId: '90000000-0000-4000-8000-000000000001',
+      createdAt: new Date('2026-02-17T10:05:00.000Z'),
+    })
+    serviceAny.createConflict = jest.fn().mockResolvedValue({
+      id: 'a0000000-0000-4000-8000-000000000010',
+      resourceKind: 'sales.quote',
+      resourceId: '20000000-0000-4000-8000-000000000001',
+      baseActionLogId: null,
+      incomingActionLogId: '81000000-0000-4000-8000-000000000001',
+      conflictActorUserId: '40000000-0000-4000-8000-000000000001',
+      incomingActorUserId: '90000000-0000-4000-8000-000000000001',
+      tenantId: '60000000-0000-4000-8000-000000000001',
+      organizationId: '70000000-0000-4000-8000-000000000001',
+    })
+
+    const result = await service.validateMutation({
+      tenantId: '60000000-0000-4000-8000-000000000001',
+      organizationId: '70000000-0000-4000-8000-000000000001',
+      userId: '40000000-0000-4000-8000-000000000001',
+      resourceKind: 'sales.quote',
+      resourceId: '20000000-0000-4000-8000-000000000001',
+      method: 'PUT',
+      headers: {
+        token: '30000000-0000-4000-8000-000000000001',
+        resolution: 'normal',
+      },
+      mutationPayload: {
+        id: '20000000-0000-4000-8000-000000000001',
+        dimensions: { width: 10, height: 20 },
+      },
+    })
+
+    expect(result.ok).toBe(false)
+    if (result.ok) throw new Error('Expected conflict result')
+    expect(result.status).toBe(409)
+    expect(result.code).toBe('record_lock_conflict')
+    expect(serviceAny.createConflict).toHaveBeenCalledTimes(1)
+  })
+
   test('resolves existing conflict when resolution header is accept_mine', async () => {
     const { service } = createService()
     const serviceAny = service as any
@@ -586,15 +638,16 @@ describe('RecordLockService.emitIncomingChangesNotificationAfterMutation', () =>
   })
 
   test('emits incoming-changes event using actor fallback log when latest log belongs to another actor', async () => {
-    const { service } = createService(DEFAULT_SETTINGS)
+    const { service, em } = createService(DEFAULT_SETTINGS)
     const serviceAny = service as any
-    serviceAny.findActiveLock = jest.fn().mockResolvedValue(
+    em.find.mockResolvedValue([
       buildLock({
         lockedByUserId: '40000000-0000-4000-8000-000000000001',
         lockedAt: new Date('2026-02-17T10:00:00.000Z'),
         baseActionLogId: '50000000-0000-4000-8000-000000000001',
+        expiresAt: new Date('2099-02-17T10:05:00.000Z'),
       }),
-    )
+    ])
     serviceAny.findLatestActionLog = jest.fn().mockResolvedValue({
       id: '80000000-0000-4000-8000-000000000099',
       actorUserId: '90000000-0000-4000-8000-000000000099',
@@ -626,6 +679,134 @@ describe('RecordLockService.emitIncomingChangesNotificationAfterMutation', () =>
         incomingActionLogId: '80000000-0000-4000-8000-000000000001',
         recipientUserIds: ['40000000-0000-4000-8000-000000000001'],
         changedFields: expect.stringContaining('Display Name'),
+      }),
+    )
+  })
+
+  test('emits incoming-changes event using latest log when actor lookup is unavailable', async () => {
+    const { service, em } = createService(DEFAULT_SETTINGS)
+    const serviceAny = service as any
+    em.find.mockResolvedValue([
+      buildLock({
+        lockedByUserId: '40000000-0000-4000-8000-000000000001',
+        lockedAt: new Date('2026-02-17T10:00:00.000Z'),
+        baseActionLogId: '50000000-0000-4000-8000-000000000001',
+        expiresAt: new Date('2099-02-17T10:05:00.000Z'),
+      }),
+    ])
+    serviceAny.findLatestActionLog = jest.fn().mockResolvedValue({
+      id: '80000000-0000-4000-8000-000000000777',
+      actorUserId: '90000000-0000-4000-8000-000000000777',
+      changesJson: {
+        'entity.displayName': { from: 'Acme Before', to: 'Acme Incoming' },
+      },
+      createdAt: new Date('2026-02-17T10:03:00.000Z'),
+    })
+    serviceAny.findLatestActionLogByActor = jest.fn().mockResolvedValue(null)
+
+    await service.emitIncomingChangesNotificationAfterMutation({
+      tenantId: '60000000-0000-4000-8000-000000000001',
+      organizationId: '70000000-0000-4000-8000-000000000001',
+      userId: '90000000-0000-4000-8000-000000000001',
+      resourceKind: 'sales.quote',
+      resourceId: '20000000-0000-4000-8000-000000000001',
+      method: 'PUT',
+    })
+
+    expect(emitRecordLocksEvent).toHaveBeenCalledWith(
+      'record_locks.incoming_changes.available',
+      expect.objectContaining({
+        incomingActorUserId: '90000000-0000-4000-8000-000000000001',
+        incomingActionLogId: '80000000-0000-4000-8000-000000000777',
+        recipientUserIds: ['40000000-0000-4000-8000-000000000001'],
+      }),
+    )
+  })
+
+  test('emits incoming-changes event even when action log cannot be resolved', async () => {
+    const { service, em } = createService(DEFAULT_SETTINGS)
+    const serviceAny = service as any
+
+    em.find.mockResolvedValue([
+      buildLock({
+        lockedByUserId: '40000000-0000-4000-8000-000000000001',
+        expiresAt: new Date('2099-02-17T10:05:00.000Z'),
+      }),
+    ])
+    serviceAny.findLatestActionLog = jest.fn().mockResolvedValue(null)
+    serviceAny.findLatestActionLogByActor = jest.fn().mockResolvedValue(null)
+
+    await service.emitIncomingChangesNotificationAfterMutation({
+      tenantId: '60000000-0000-4000-8000-000000000001',
+      organizationId: '70000000-0000-4000-8000-000000000001',
+      userId: '90000000-0000-4000-8000-000000000001',
+      resourceKind: 'sales.quote',
+      resourceId: '20000000-0000-4000-8000-000000000001',
+      method: 'PUT',
+    })
+
+    expect(emitRecordLocksEvent).toHaveBeenCalledWith(
+      'record_locks.incoming_changes.available',
+      expect.objectContaining({
+        incomingActorUserId: '90000000-0000-4000-8000-000000000001',
+        incomingActionLogId: null,
+        recipientUserIds: ['40000000-0000-4000-8000-000000000001'],
+        changedFields: '-',
+      }),
+    )
+  })
+
+  test('emits incoming-changes event when org-scoped lock is found only via null-scope fallback', async () => {
+    const { service, em } = createService(DEFAULT_SETTINGS)
+    const serviceAny = service as any
+
+    em.find
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([
+        buildLock({
+          lockedByUserId: '40000000-0000-4000-8000-000000000001',
+          organizationId: '70000000-0000-4000-8000-000000000099',
+          expiresAt: new Date('2099-02-17T10:05:00.000Z'),
+        }),
+      ])
+
+    serviceAny.findLatestActionLog = jest
+      .fn()
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce({
+        id: '80000000-0000-4000-8000-000000000555',
+        actorUserId: '90000000-0000-4000-8000-000000000001',
+        changesJson: {
+          'entity.displayName': { from: 'Acme Before', to: 'Acme Incoming' },
+        },
+        createdAt: new Date('2026-02-17T10:04:00.000Z'),
+      })
+    serviceAny.findLatestActionLogByActor = jest
+      .fn()
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce({
+        id: '80000000-0000-4000-8000-000000000555',
+        actorUserId: '90000000-0000-4000-8000-000000000001',
+        changesJson: {
+          'entity.displayName': { from: 'Acme Before', to: 'Acme Incoming' },
+        },
+        createdAt: new Date('2026-02-17T10:04:00.000Z'),
+      })
+
+    await service.emitIncomingChangesNotificationAfterMutation({
+      tenantId: '60000000-0000-4000-8000-000000000001',
+      organizationId: null,
+      userId: '90000000-0000-4000-8000-000000000001',
+      resourceKind: 'sales.quote',
+      resourceId: '20000000-0000-4000-8000-000000000001',
+      method: 'PUT',
+    })
+
+    expect(emitRecordLocksEvent).toHaveBeenCalledWith(
+      'record_locks.incoming_changes.available',
+      expect.objectContaining({
+        recipientUserIds: ['40000000-0000-4000-8000-000000000001'],
+        incomingActionLogId: '80000000-0000-4000-8000-000000000555',
       }),
     )
   })

@@ -26,6 +26,7 @@
     "banner": {
       "locked_by_other": "Este registro está bloqueado por otro usuario.",
       "optimistic_notice": "Otro usuario está editando este registro. Puede haber conflictos al guardar.",
+      "contention_notice": "Otro usuario abrió este registro mientras lo estás editando. Puede haber conflictos al guardar.",
       "same_user_session": "Este registro ya está abierto en otra sesión.",
       "mine": "Actualmente estás editando este registro.",
       "local_machine": "equipo local",
@@ -46,6 +47,8 @@
       "display_value": "Valor mostrado",
       "incoming_value": "Valor entrante",
       "mine_value": "Tu valor",
+      "incoming_label": "Entrante",
+      "current_label": "Actual",
       "keep_editing": "Seguir editando",
       "override_blocked_notice": "No puedes conservar tu versión porque no tienes permiso para sobrescribir cambios entrantes.",
       "empty_value": "(vacio)",
@@ -76,7 +79,8 @@
       "actions": {
         "accept_incoming": "Aplicar entrantes",
         "accept_mine": "Rechazar entrantes",
-        "see_incoming_changes": "Ver cambios entrantes"
+        "see_incoming_changes": "Ver cambios entrantes",
+        "see_lock_contention": "Abrir registro"
       }
     }
   }

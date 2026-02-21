@@ -9,6 +9,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@open-mercato/
 import { Notice } from '@open-mercato/ui/primitives/Notice'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import type { InjectionWidgetComponentProps } from '@open-mercato/shared/modules/widgets/injection'
+import { useSearchParams } from 'next/navigation'
 import {
   ChangedFieldsTable,
   type ChangeRow,
@@ -47,26 +48,6 @@ type ValidateResponse = {
   latestActionLogId?: string | null
   lock?: RecordLockUiView | null
   conflict?: RecordLockUiConflict | null
-}
-
-function hasIncomingChangesQueryFlag(): boolean {
-  if (typeof window === 'undefined') return false
-  try {
-    const params = new URLSearchParams(window.location.search)
-    return params.get('showIncomingChanges') === '1'
-  } catch {
-    return false
-  }
-}
-
-function hasLockContentionQueryFlag(): boolean {
-  if (typeof window === 'undefined') return false
-  try {
-    const params = new URLSearchParams(window.location.search)
-    return params.get('showLockContention') === '1'
-  } catch {
-    return false
-  }
 }
 
 function clearIncomingChangesQueryFlag() {
@@ -176,6 +157,7 @@ export default function RecordLockingWidget({
   data,
 }: InjectionWidgetComponentProps<CrudInjectionContext, Record<string, unknown>>) {
   const t = useT()
+  const searchParams = useSearchParams()
   const resourceKind = React.useMemo(() => resolveResourceKind(context), [context])
   const resourceId = React.useMemo(() => resolveResourceId(context, data), [context, data])
   const formId = context.formId
@@ -187,11 +169,22 @@ export default function RecordLockingWidget({
 
   React.useEffect(() => {
     setMounted(true)
-    setShowIncomingChangesRequested(hasIncomingChangesQueryFlag())
-    setShowLockContentionBanner(hasLockContentionQueryFlag())
-    clearIncomingChangesQueryFlag()
-    clearLockContentionQueryFlag()
   }, [])
+
+  React.useEffect(() => {
+    const showIncomingChanges = searchParams?.get('showIncomingChanges') === '1'
+    const showLockContention = searchParams?.get('showLockContention') === '1'
+
+    if (showIncomingChanges) {
+      setShowIncomingChangesRequested(true)
+      clearIncomingChangesQueryFlag()
+    }
+
+    if (showLockContention) {
+      setShowLockContentionBanner(true)
+      clearLockContentionQueryFlag()
+    }
+  }, [searchParams])
 
   React.useEffect(() => subscribeRecordLockFormState(formId, () => forceRender()), [formId])
 
@@ -257,6 +250,33 @@ export default function RecordLockingWidget({
       || (state.currentUserId && state.lock.lockedByUserId === state.currentUserId)
     )
   )
+
+  React.useEffect(() => {
+    if (!mine || !state?.lock?.id) return
+    let cancelled = false
+
+    const syncContentionBanner = async () => {
+      const call = await apiCall<{ items?: Array<{ sourceEntityId?: string | null; type?: string }> }>(
+        '/api/notifications?status=unread&type=record_locks.lock.contended&pageSize=20'
+      )
+      if (cancelled) return
+      const items = Array.isArray(call.result?.items) ? call.result.items : []
+      const hasUnreadContention = items.some((item) => item.sourceEntityId === state.lock?.id)
+      if (hasUnreadContention) {
+        setShowLockContentionBanner(true)
+      }
+    }
+
+    void syncContentionBanner()
+    const interval = window.setInterval(() => {
+      void syncContentionBanner()
+    }, 5000)
+
+    return () => {
+      cancelled = true
+      window.clearInterval(interval)
+    }
+  }, [mine, state?.lock?.id])
 
   React.useEffect(() => {
     if (!state?.lock?.token || !mine || !state.resourceKind || !state.resourceId) return
@@ -413,7 +433,13 @@ export default function RecordLockingWidget({
           <p className="text-muted-foreground">
             {t('record_locks.conflict.description', 'The record was changed by another user after you started editing.')}
           </p>
-          <ChangedFieldsTable changeRows={conflictChangeRows} noneLabel={noneLabel} t={t} />
+          <ChangedFieldsTable
+            changeRows={conflictChangeRows}
+            noneLabel={noneLabel}
+            t={t}
+            beforeLabel={t('record_locks.conflict.incoming_label', 'Incoming')}
+            afterLabel={t('record_locks.conflict.current_label', 'Current')}
+          />
           {(state?.conflict?.changes?.length ?? 0) === 0 ? (
             <Notice compact variant="info">
               {t(
@@ -430,7 +456,8 @@ export default function RecordLockingWidget({
               )}
             </Notice>
           ) : null}
-          <div className="flex justify-end gap-2">
+          <div className="-mx-6 -mb-6 mt-4 border-t bg-background/95 px-6 py-3 backdrop-blur supports-[backdrop-filter]:bg-background/80">
+            <div className="flex flex-wrap justify-end gap-2">
             <Button variant="outline" onClick={handleAcceptIncoming}>
               {t('record_locks.conflict.accept_incoming', 'Accept incoming')}
             </Button>
@@ -442,6 +469,7 @@ export default function RecordLockingWidget({
             <Button variant="ghost" onClick={handleKeepEditing}>
               {t('record_locks.conflict.keep_editing', 'Keep editing')}
             </Button>
+            </div>
           </div>
         </div>
       </DialogContent>

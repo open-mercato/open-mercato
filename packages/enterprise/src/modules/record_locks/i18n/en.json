@@ -27,6 +27,7 @@
     "banner": {
       "locked_by_other": "This record is currently locked by another user.",
       "optimistic_notice": "Another user is editing this record. Conflicts may occur on save.",
+      "contention_notice": "Another user opened this record while you are editing it. Conflicts may occur on save.",
       "same_user_session": "This record is already open in another session.",
       "mine": "You are currently editing this record.",
       "local_machine": "local machine",
@@ -47,6 +48,8 @@
       "display_value": "Display value",
       "incoming_value": "Incoming value",
       "mine_value": "Your value",
+      "incoming_label": "Incoming",
+      "current_label": "Current",
       "keep_editing": "Keep editing",
       "override_blocked_notice": "You cannot keep your version because you do not have permission to override incoming changes.",
       "no_field_details": "Field-level conflict details are unavailable for this record. Choose a resolution to continue.",
@@ -78,7 +81,8 @@
       "actions": {
         "accept_incoming": "Apply incoming",
         "accept_mine": "Reject incoming",
-        "see_incoming_changes": "See incoming changes"
+        "see_incoming_changes": "See incoming changes",
+        "see_lock_contention": "Open record"
       }
     }
   }

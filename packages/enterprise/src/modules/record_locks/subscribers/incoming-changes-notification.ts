@@ -1,7 +1,6 @@
 import { buildNotificationFromType } from '@open-mercato/core/modules/notifications/lib/notificationBuilder'
 import { resolveNotificationService } from '@open-mercato/core/modules/notifications/lib/notificationService'
 import {
-  isConflictNotificationEnabled,
   resolveRecordLockNotificationType,
   resolveRecordResourceLink,
 } from '../lib/notificationHelpers'
@@ -33,9 +32,6 @@ export default async function handle(payload: Payload, ctx: ResolverContext) {
     : []
   if (!recipientUserIds.length) return
 
-  const notificationsEnabled = await isConflictNotificationEnabled(ctx)
-  if (!notificationsEnabled) return
-
   const notificationService = resolveNotificationService(ctx)
   const typeDef = resolveRecordLockNotificationType('record_locks.incoming_changes.available')
   if (!typeDef) return
@@ -57,6 +53,9 @@ export default async function handle(payload: Payload, ctx: ResolverContext) {
       sourceEntityType: 'record_locks:incoming_change',
       sourceEntityId: payload.incomingActionLogId ?? undefined,
       linkHref,
+      groupKey: payload.incomingActionLogId
+        ? `record_locks.incoming_changes:${payload.incomingActionLogId}`
+        : `record_locks.incoming_changes:${payload.resourceKind}:${payload.resourceId}`,
     })
 
     await notificationService.create(notificationInput, {

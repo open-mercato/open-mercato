@@ -26,6 +26,7 @@
     "banner": {
       "locked_by_other": "Ten rekord jest obecnie zablokowany przez innego użytkownika.",
       "optimistic_notice": "Inny użytkownik edytuje ten rekord. Podczas zapisu może wystąpić konflikt.",
+      "contention_notice": "Inny użytkownik otworzył ten rekord, gdy go edytujesz. Przy zapisie może wystąpić konflikt.",
       "same_user_session": "Ten rekord jest już otwarty w innej sesji.",
       "mine": "Aktualnie edytujesz ten rekord.",
       "local_machine": "lokalna maszyna",
@@ -46,6 +47,8 @@
       "display_value": "Wartość wyświetlana",
       "incoming_value": "Wartość przychodząca",
       "mine_value": "Twoja wartość",
+      "incoming_label": "Przychodzące",
+      "current_label": "Aktualne",
       "keep_editing": "Kontynuuj edycję",
       "override_blocked_notice": "Nie możesz zachować swojej wersji, ponieważ nie masz uprawnienia do nadpisywania zmian przychodzących.",
       "empty_value": "(puste)",
@@ -76,7 +79,8 @@
       "actions": {
         "accept_incoming": "Zastosuj przychodzące",
         "accept_mine": "Odrzuć przychodzące",
-        "see_incoming_changes": "Zobacz zmiany przychodzące"
+        "see_incoming_changes": "Zobacz zmiany przychodzące",
+        "see_lock_contention": "Otwórz rekord"
       }
     }
   }

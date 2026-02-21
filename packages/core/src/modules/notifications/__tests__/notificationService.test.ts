@@ -23,15 +23,18 @@ const baseCtx = {
 const buildEm = () => {
   const em = {
     fork: jest.fn(),
+    transactional: jest.fn(),
     create: jest.fn(),
     persistAndFlush: jest.fn(),
     flush: jest.fn(),
+    findOne: jest.fn(),
     findOneOrFail: jest.fn(),
     count: jest.fn(),
     find: jest.fn(),
     getConnection: jest.fn(),
   }
   em.fork.mockReturnValue(em)
+  em.transactional.mockImplementation(async (cb: (tx: typeof em) => Promise<unknown>) => cb(em))
   em.getConnection.mockReturnValue({
     getKnex: () => ({}),
   })
@@ -65,6 +68,43 @@ describe('notification service', () => {
         recipientUserId: baseNotificationInput.recipientUserId,
         tenantId: baseCtx.tenantId,
       })
+    )
+  })
+
+  it('reuses grouped notification instead of creating duplicates', async () => {
+    const em = buildEm()
+    const eventBus = { emit: jest.fn().mockResolvedValue(undefined) }
+    const existing = {
+      id: 'note-existing',
+      recipientUserId: baseNotificationInput.recipientUserId,
+      tenantId: baseCtx.tenantId,
+      organizationId: null,
+      type: 'system',
+      groupKey: 'system:record:1',
+      status: 'read',
+      createdAt: new Date('2026-02-21T09:00:00.000Z'),
+    } as Notification
+
+    em.findOne.mockResolvedValue(existing)
+
+    const service = createNotificationService({ em, eventBus })
+
+    const notification = await service.create({
+      ...baseNotificationInput,
+      body: 'Updated body',
+      groupKey: 'system:record:1',
+    }, baseCtx)
+
+    expect(notification.id).toBe('note-existing')
+    expect(em.create).not.toHaveBeenCalled()
+    expect(notification.status).toBe('unread')
+    expect(notification.body).toBe('Updated body')
+    expect(em.persistAndFlush).toHaveBeenCalledWith(notification)
+    expect(eventBus.emit).toHaveBeenCalledWith(
+      NOTIFICATION_EVENTS.CREATED,
+      expect.objectContaining({
+        notificationId: 'note-existing',
+      }),
     )
   })
 

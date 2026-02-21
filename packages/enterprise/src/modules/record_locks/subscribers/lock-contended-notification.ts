@@ -39,6 +39,7 @@ export default async function handle(payload: Payload, ctx: ResolverContext) {
       sourceEntityType: 'record_locks:lock',
       sourceEntityId: payload.lockId,
       linkHref: resolveRecordResourceLink(payload.resourceKind, payload.resourceId),
+      groupKey: `record_locks.lock.contended:${payload.lockId}`,
     })
 
     await notificationService.create(notificationInput, {

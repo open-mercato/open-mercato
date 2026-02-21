@@ -26,6 +26,7 @@
     "banner": {
       "locked_by_other": "Dieser Datensatz ist derzeit von einem anderen Benutzer gesperrt.",
       "optimistic_notice": "Ein anderer Benutzer bearbeitet diesen Datensatz. Beim Speichern können Konflikte auftreten.",
+      "contention_notice": "Ein anderer Benutzer hat diesen Datensatz geöffnet, während Sie ihn bearbeiten. Beim Speichern können Konflikte auftreten.",
       "same_user_session": "Dieser Datensatz ist bereits in einer anderen Sitzung geöffnet.",
       "mine": "Sie bearbeiten diesen Datensatz gerade.",
       "local_machine": "lokaler Rechner",
@@ -46,6 +47,8 @@
       "display_value": "Angezeigter Wert",
       "incoming_value": "Eingehender Wert",
       "mine_value": "Ihr Wert",
+      "incoming_label": "Eingehend",
+      "current_label": "Aktuell",
       "keep_editing": "Weiter bearbeiten",
       "override_blocked_notice": "Sie können Ihre Version nicht behalten, da Ihnen die Berechtigung zum Überschreiben eingehender Änderungen fehlt.",
       "empty_value": "(leer)",
@@ -76,7 +79,8 @@
       "actions": {
         "accept_incoming": "Eingehende anwenden",
         "accept_mine": "Eingehende ablehnen",
-        "see_incoming_changes": "Eingehende Änderungen anzeigen"
+        "see_incoming_changes": "Eingehende Änderungen anzeigen",
+        "see_lock_contention": "Datensatz öffnen"
       }
     }
   }
