@@ -1,8 +1,4 @@
 import type { GeneratorResult } from '../../utils'
-import type { PackageResolver } from '../../resolver'
-import fs from 'node:fs'
-import os from 'node:os'
-import path from 'node:path'
 
 // Note: Some generators import ESM-only packages (like openapi-typescript)
 // which don't work well with Jest's CommonJS environment.
@@ -182,48 +178,6 @@ describe('generator file output patterns', () => {
       expect(expectedPath).toContain('search.generated.ts')
     })
 
-    it('should invalidate modules checksum when enterprise toggle env changes', async () => {
-      const { generateModuleRegistry } = await import('../module-registry')
-      const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'module-registry-env-'))
-      const outputDir = path.join(tempDir, '.mercato', 'generated')
-      fs.mkdirSync(outputDir, { recursive: true })
-
-      const resolver: PackageResolver = {
-        getOutputDir: () => outputDir,
-        loadEnabledModules: () => [],
-        getModulePaths: () => ({ appBase: '', pkgBase: '' }),
-        getModuleImportBase: () => ({ appBase: '', pkgBase: '' }),
-        isMonorepo: () => false,
-        getRootDir: () => tempDir,
-        getAppDir: () => tempDir,
-        getModulesConfigPath: () => path.join(tempDir, 'src/modules.ts'),
-        discoverPackages: () => [],
-        getPackageOutputDir: () => outputDir,
-        getPackageRoot: () => tempDir,
-      }
-
-      const originalEnv = process.env.OM_ENABLE_ENTERPRISE_MODULES
-      process.env.OM_ENABLE_ENTERPRISE_MODULES = 'false'
-      await generateModuleRegistry({ resolver, quiet: true })
-      const firstChecksum = JSON.parse(
-        fs.readFileSync(path.join(outputDir, 'modules.generated.checksum'), 'utf8'),
-      ) as { content: string; structure: string }
-
-      process.env.OM_ENABLE_ENTERPRISE_MODULES = 'true'
-      const result = await generateModuleRegistry({ resolver, quiet: true })
-      const secondChecksum = JSON.parse(
-        fs.readFileSync(path.join(outputDir, 'modules.generated.checksum'), 'utf8'),
-      ) as { content: string; structure: string }
-
-      if (originalEnv === undefined) {
-        delete process.env.OM_ENABLE_ENTERPRISE_MODULES
-      } else {
-        process.env.OM_ENABLE_ENTERPRISE_MODULES = originalEnv
-      }
-
-      expect(secondChecksum.structure).not.toBe(firstChecksum.structure)
-      expect(result.filesWritten).toContain(path.join(outputDir, 'modules.generated.ts'))
-    })
   })
 
   describe('module-entities generator', () => {

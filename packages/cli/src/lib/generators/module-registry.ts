@@ -27,12 +27,6 @@ type DashboardWidgetEntry = {
   importPath: string
 }
 
-const MODULE_REGISTRY_ENV_KEYS = ['OM_ENABLE_ENTERPRISE_MODULES'] as const
-
-function getModuleRegistryChecksumInputs(): string[] {
-  return MODULE_REGISTRY_ENV_KEYS.map((key) => `env:${key}=${process.env[key] ?? ''}`)
-}
-
 function scanDashboardWidgets(options: {
   modId: string
   roots: { appBase: string; pkgBase: string }
@@ -1031,7 +1025,6 @@ export function getNotificationType(type: string): NotificationTypeDefinition | 
 
   const structureChecksum = calculateStructureChecksum([
     ...Array.from(trackedRoots),
-    ...getModuleRegistryChecksumInputs(),
   ])
 
   const modulesChecksum = { content: calculateChecksum(output), structure: structureChecksum }

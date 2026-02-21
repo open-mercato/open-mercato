@@ -1,5 +1,3 @@
-import { parseBooleanWithDefault } from '@open-mercato/shared/lib/boolean'
-
 const APP_BOOTSTRAP_EVENT = 'application.bootstrap.completed'
 const ENTERPRISE_WARNING_GLOBAL_KEY = '__openMercatoEnterpriseLicenseWarningShown__'
 
@@ -11,8 +9,6 @@ export const metadata = {
 
 export default async function handle() {
   if ((globalThis as Record<string, unknown>)[ENTERPRISE_WARNING_GLOBAL_KEY] === true) return
-  const enterpriseModulesEnabled = parseBooleanWithDefault(process.env.OM_ENABLE_ENTERPRISE_MODULES, false)
-  if (!enterpriseModulesEnabled) return
 
   ;(globalThis as Record<string, unknown>)[ENTERPRISE_WARNING_GLOBAL_KEY] = true
   console.warn(

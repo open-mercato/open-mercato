@@ -1,6 +1,7 @@
 import path from 'node:path'
 import fs from 'node:fs'
-import { parseBooleanWithDefault } from '@open-mercato/shared/lib/boolean'
+import { createRequire } from 'node:module'
+import ts from 'typescript'
 
 export type ModuleEntry = {
   id: string
@@ -27,12 +28,6 @@ export interface PackageResolver {
   getPackageRoot(from?: string): string
 }
 
-const ENTERPRISE_MODULE_TOGGLE_ENV = 'OM_ENABLE_ENTERPRISE_MODULES'
-const ENTERPRISE_OPTIONAL_MODULES: ModuleEntry[] = [
-  { id: 'record_locks', from: '@open-mercato/enterprise' },
-  { id: 'system_status_overlays', from: '@open-mercato/enterprise' },
-]
-
 function pkgDirFor(rootDir: string, from?: string, isMonorepo = true): string {
   if (!isMonorepo) {
     // Production mode: look in node_modules
@@ -53,6 +48,8 @@ function pkgDirFor(rootDir: string, from?: string, isMonorepo = true): string {
   // Fallback to core modules path
   return path.resolve(rootDir, 'packages/core/src/modules')
 }
+
+const nodeRequire = createRequire(path.join(process.cwd(), '__resolver-loader__.cjs'))
 
 function pkgRootFor(rootDir: string, from?: string, isMonorepo = true): string {
   if (!isMonorepo) {
@@ -90,41 +87,63 @@ function parseModulesFromSource(source: string): ModuleEntry[] {
   return modules
 }
 
-function isEnterpriseModulesEnabled(): boolean {
-  return parseBooleanWithDefault(process.env[ENTERPRISE_MODULE_TOGGLE_ENV], false)
-}
+function readEnabledModulesFromConfig(cfgPath: string): ModuleEntry[] {
+  const source = fs.readFileSync(cfgPath, 'utf8')
+  const transpiled = ts.transpileModule(source, {
+    fileName: cfgPath,
+    compilerOptions: {
+      module: ts.ModuleKind.CommonJS,
+      target: ts.ScriptTarget.ES2022,
+    },
+  })
 
-function applyEnterpriseModuleOverrides(modules: ModuleEntry[]): ModuleEntry[] {
-  const withoutEnterpriseOptionalModules = modules.filter(
-    (entry) => !ENTERPRISE_OPTIONAL_MODULES.some(
-      (enterpriseModule) => enterpriseModule.id === entry.id && entry.from !== '@app',
-    ),
-  )
-
-  if (!isEnterpriseModulesEnabled()) {
-    return withoutEnterpriseOptionalModules
+  const moduleObject: { exports: Record<string, unknown> } = { exports: {} }
+  const exportsObject: Record<string, unknown> = moduleObject.exports
+  const cfgDir = path.dirname(cfgPath)
+  const localRequire = (specifier: string) => {
+    if (specifier.startsWith('.')) {
+      const resolved = path.resolve(cfgDir, specifier)
+      return nodeRequire(resolved)
+    }
+    return nodeRequire(specifier)
   }
 
-  const existingModuleIds = new Set(withoutEnterpriseOptionalModules.map((entry) => entry.id))
-  const missingEnterpriseModules = ENTERPRISE_OPTIONAL_MODULES.filter(
-    (enterpriseModule) => !existingModuleIds.has(enterpriseModule.id),
+  const evaluator = new Function(
+    'require',
+    'module',
+    'exports',
+    'process',
+    '__dirname',
+    '__filename',
+    transpiled.outputText,
   )
 
-  return [
-    ...withoutEnterpriseOptionalModules,
-    ...missingEnterpriseModules,
-  ]
+  evaluator(localRequire, moduleObject, exportsObject, process, cfgDir, cfgPath)
+  const loaded = moduleObject.exports.enabledModules
+  if (!Array.isArray(loaded)) return []
+
+  return loaded.flatMap((entry) => {
+    if (!entry || typeof entry !== 'object') return []
+    const candidate = entry as { id?: unknown; from?: unknown }
+    if (typeof candidate.id !== 'string') return []
+    return [{ id: candidate.id, from: typeof candidate.from === 'string' ? candidate.from : '@open-mercato/core' }]
+  })
 }
 
 function loadEnabledModulesFromConfig(appDir: string): ModuleEntry[] {
   const cfgPath = path.resolve(appDir, 'src/modules.ts')
   if (fs.existsSync(cfgPath)) {
     try {
+      const loadedModules = readEnabledModulesFromConfig(cfgPath)
+      if (loadedModules.length > 0) return loadedModules
       const source = fs.readFileSync(cfgPath, 'utf8')
-      const list = parseModulesFromSource(source)
-      if (list.length) return applyEnterpriseModuleOverrides(list)
-    } catch {
-      // Fall through to fallback
+      const parsedModules = parseModulesFromSource(source)
+      if (parsedModules.length > 0) return parsedModules
+    } catch (error) {
+      console.warn(
+        '[resolver] Failed to read enabled modules from src/modules.ts, falling back to src/modules scan:',
+        error,
+      )
     }
   }
   // Fallback: scan src/modules/* to keep backward compatibility
@@ -135,7 +154,7 @@ function loadEnabledModulesFromConfig(appDir: string): ModuleEntry[] {
     .filter((e) => e.isDirectory() && !e.name.startsWith('.'))
     .map((e) => ({ id: e.name, from: '@app' as const }))
 
-  return applyEnterpriseModuleOverrides(scannedModules)
+  return scannedModules
 }
 
 function discoverPackagesInMonorepo(rootDir: string): PackageInfo[] {
