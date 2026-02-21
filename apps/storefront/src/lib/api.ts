@@ -9,7 +9,10 @@ import type {
   CheckoutTransitionAction,
 } from './types'
 
-const API_BASE = process.env.NEXT_PUBLIC_STOREFRONT_API_URL ?? ''
+const API_BASE =
+  process.env.STOREFRONT_API_URL ??
+  process.env.NEXT_PUBLIC_STOREFRONT_API_URL ??
+  ''
 const STORE_SLUG = process.env.NEXT_PUBLIC_STOREFRONT_SLUG ?? ''
 
 class StorefrontApiError extends Error {
