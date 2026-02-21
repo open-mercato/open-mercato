@@ -16,6 +16,11 @@ import {
   findActiveCheckoutSessionByCart,
 } from '../../../../lib/storefrontCheckoutSessions'
 import { placeOrderFromCart } from '../../../../lib/storefrontCheckoutOrder'
+import {
+  applyCheckoutWorkflowAction,
+  ensureCheckoutWorkflowInstance,
+  setCheckoutWorkflowTerminalState,
+} from '../../../../lib/storefrontCheckoutWorkflow'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 
 export const metadata = {
@@ -92,49 +97,103 @@ export async function POST(req: Request) {
         cart.token,
         new Date(Date.now() + 2 * 60 * 60 * 1000),
       ))
+    await ensureCheckoutWorkflowInstance(em, activeSession)
 
     const { customerInfo } = parsed.data
     activeSession.customerInfo = customerInfo
-    activeSession.workflowState = 'placing_order'
+    const customerTransition = await applyCheckoutWorkflowAction(
+      em,
+      container,
+      activeSession,
+      'set_customer',
+      { customerInfo },
+    )
+    if (!customerTransition.ok) {
+      return NextResponse.json({ error: customerTransition.error }, { status: 409 })
+    }
+    const reviewTransition = await applyCheckoutWorkflowAction(
+      em,
+      container,
+      activeSession,
+      'review',
+      { customerInfo, shippingInfo: activeSession.shippingInfo ?? null },
+    )
+    if (!reviewTransition.ok) {
+      return NextResponse.json({ error: reviewTransition.error }, { status: 409 })
+    }
+    const placingOrderTransition = await applyCheckoutWorkflowAction(
+      em,
+      container,
+      activeSession,
+      'place_order',
+      { customerInfo, shippingInfo: activeSession.shippingInfo ?? null },
+    )
+    if (!placingOrderTransition.ok) {
+      return NextResponse.json({ error: placingOrderTransition.error }, { status: 409 })
+    }
     activeSession.idempotencyKey = req.headers.get('x-idempotency-key') ?? randomUUID()
     activeSession.version += 1
     await em.flush()
 
-    const commandBus = container.resolve('commandBus')
-    const { orderId } = await placeOrderFromCart(
-      req,
-      em,
-      commandBus,
-      container,
-      storeCtx,
-      cart,
-      customerInfo,
-    )
-
-    activeSession.status = 'completed'
-    activeSession.workflowState = 'completed'
-    activeSession.placedOrderId = orderId
-    activeSession.version += 1
-    await em.flush()
-
     try {
-      await emitEcommerceEvent('ecommerce.cart.converted', {
-        id: cart.id,
-        organizationId,
-        tenantId: tid,
-        orderId,
-        storeId: storeCtx.store.id,
-      })
-    } catch (eventErr) {
-      // Checkout should succeed even if notification/event side effects fail.
-      console.error('[ecommerce:checkout] Failed to emit ecommerce.cart.converted', {
-        error: eventErr,
-        orderId,
-        cartId: cart.id,
-      })
-    }
+      const commandBus = container.resolve('commandBus')
+      const { orderId } = await placeOrderFromCart(
+        req,
+        em,
+        commandBus,
+        container,
+        storeCtx,
+        cart,
+        customerInfo,
+      )
 
-    return NextResponse.json({ orderId })
+      activeSession.status = 'completed'
+      const completedTransition = await setCheckoutWorkflowTerminalState(
+        em,
+        container,
+        activeSession,
+        'completed',
+      )
+      if (!completedTransition.ok) {
+        return NextResponse.json({ error: completedTransition.error }, { status: 409 })
+      }
+      activeSession.placedOrderId = orderId
+      activeSession.version += 1
+      await em.flush()
+
+      try {
+        await emitEcommerceEvent('ecommerce.cart.converted', {
+          id: cart.id,
+          organizationId,
+          tenantId: tid,
+          orderId,
+          storeId: storeCtx.store.id,
+        })
+      } catch (eventErr) {
+        // Checkout should succeed even if notification/event side effects fail.
+        console.error('[ecommerce:checkout] Failed to emit ecommerce.cart.converted', {
+          error: eventErr,
+          orderId,
+          cartId: cart.id,
+        })
+      }
+
+      return NextResponse.json({ orderId })
+    } catch (err: unknown) {
+      activeSession.status = 'failed'
+      const failedTransition = await setCheckoutWorkflowTerminalState(
+        em,
+        container,
+        activeSession,
+        'failed',
+      )
+      if (!failedTransition.ok) {
+        return NextResponse.json({ error: failedTransition.error }, { status: 409 })
+      }
+      activeSession.version += 1
+      await em.flush()
+      throw err
+    }
   } catch (err: unknown) {
     if (err instanceof CrudHttpError) {
       return NextResponse.json(
