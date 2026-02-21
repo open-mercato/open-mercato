@@ -152,6 +152,7 @@ describe('generateModuleRegistry with module subsets', () => {
       'acl.ts',
       'setup.ts',
       'ce.ts',
+      'translations.ts',
       'data/extensions.ts',
       'data/fields.ts',
     ])
@@ -168,6 +169,9 @@ describe('generateModuleRegistry with module subsets', () => {
     expect(output).toContain('entityExtensions:')
     expect(output).toContain('customFieldSets:')
     expect(output).toContain('setup:')
+
+    const transFields = readGenerated(tmpDir, 'translations-fields.generated.ts')!
+    expect(transFields).toContain('config_mod')
   })
 
   it('generates correct output when full module is later disabled', async () => {
@@ -375,6 +379,7 @@ describe('all generated files are valid with varying subsets', () => {
       'ai-tools.generated.ts',
       'events.generated.ts',
       'analytics.generated.ts',
+      'translations-fields.generated.ts',
     ]
     for (const file of expectedFiles) {
       const content = readGenerated(tmpDir, file)
@@ -403,6 +408,17 @@ describe('all generated files are valid with varying subsets', () => {
 
     const events = readGenerated(tmpDir, 'events.generated.ts')!
     expect(events).toContain('const entriesRaw: EventConfigEntry[] = [\n]')
+  })
+
+  it('translations-fields.generated.ts has empty entries when no module provides translations.ts', async () => {
+    scaffoldModule(tmpDir, 'no_trans', 'pkg', ['acl.ts'])
+    const resolver = createMockResolver(tmpDir, [
+      { id: 'no_trans', from: '@open-mercato/core' },
+    ])
+    await generateModuleRegistry({ resolver, quiet: true })
+
+    const transFields = readGenerated(tmpDir, 'translations-fields.generated.ts')!
+    expect(transFields).not.toContain('no_trans')
   })
 
   it('ai-tools.generated.ts is empty when no module provides ai-tools.ts', async () => {

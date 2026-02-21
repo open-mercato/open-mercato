@@ -309,7 +309,7 @@ describe('resolveModuleFile', () => {
     const conventionFiles = [
       'acl.ts', 'ce.ts', 'search.ts', 'notifications.ts',
       'ai-tools.ts', 'events.ts', 'analytics.ts', 'setup.ts',
-      'data/extensions.ts', 'data/fields.ts',
+      'translations.ts', 'data/extensions.ts', 'data/fields.ts',
     ]
     for (const file of conventionFiles) {
       touch(file, 'pkg')
