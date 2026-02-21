@@ -6,6 +6,7 @@ import { addDays, differenceInCalendarDays, endOfDay, endOfMonth, endOfWeek, for
 import { enUS } from 'date-fns/locale/en-US'
 import type { ScheduleItem, ScheduleRange, ScheduleSlot, ScheduleViewMode } from './types'
 import { ScheduleToolbar } from './ScheduleToolbar'
+import { Button } from '../../primitives/button'
 import { expandRecurringItems } from './recurrence'
 
 type CalendarEvent = {
@@ -175,16 +176,18 @@ export function ScheduleView({
                 <div className="flex items-center justify-between gap-2">
                   <span className="truncate text-xs font-medium">{resource.title}</span>
                   {hasLink ? (
-                    <button
+                    <Button
                       type="button"
-                      className="text-[11px] font-medium underline-offset-2 hover:underline"
+                      variant="link"
+                      size="sm"
+                      className="h-auto p-0 text-[11px]"
                       onClick={(clickEvent) => {
                         clickEvent.stopPropagation()
                         onItemClick?.(resource)
                       }}
                     >
                       {resource.linkLabel}
-                    </button>
+                    </Button>
                   ) : null}
                 </div>
               )

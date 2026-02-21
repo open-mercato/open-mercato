@@ -533,15 +533,17 @@ function ExportMenu({ config, sections }: { config: DataTableExportConfig; secti
               </div>
               <div className="mt-2 space-y-1 px-2 pb-1">
                 {section.formats.map((format) => (
-                  <button
+                  <Button
                     key={`${section.key}-${format}`}
                     type="button"
-                    className="block w-full rounded px-2 py-1 text-left text-sm hover:bg-accent"
+                    variant="ghost"
+                    size="sm"
+                    className="w-full justify-start font-normal"
                     onClick={() => void handleSelect(section, format)}
                     disabled={section.disabled}
                   >
                     {EXPORT_LABELS[format]}
-                  </button>
+                  </Button>
                 ))}
               </div>
             </div>
@@ -1568,16 +1570,16 @@ export function DataTable<T>({
                   return (
                     <TableHead key={header.id} className={responsiveClass(priority, columnMeta?.hidden)}>
                       {header.isPlaceholder ? null : (
-                        <button
-                          type="button"
-                          className={`inline-flex items-center gap-1 ${sortable && header.column.getCanSort?.() ? 'cursor-pointer select-none' : ''}`}
+                        <Button
+                          variant="ghost"
+                          className={`h-auto p-0 font-medium ${sortable && header.column.getCanSort?.() ? 'cursor-pointer select-none' : ''}`}
                           onClick={() => sortable && header.column.toggleSorting?.(header.column.getIsSorted() === 'asc')}
                         >
                           {flexRender(header.column.columnDef.header, header.getContext())}
                           {sortable && header.column.getIsSorted?.() ? (
                             <span className="text-xs text-muted-foreground">{header.column.getIsSorted() === 'asc' ? '▲' : '▼'}</span>
                           ) : null}
-                        </button>
+                        </Button>
                       )}
                     </TableHead>
                   )
