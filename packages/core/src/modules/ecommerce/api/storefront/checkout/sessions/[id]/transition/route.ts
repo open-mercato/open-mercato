@@ -116,6 +116,8 @@ export async function POST(req: Request, { params }: RouteContext) {
       )
     }
 
+    // NOTE: This route currently applies transitions directly on EcommerceCheckoutSession.
+    // It is the integration seam for replacing these branches with workflows.executeTransition.
     if (action === 'set_customer') {
       const parsed = checkoutCustomerInfoSchema.safeParse(payload ?? {})
       if (!parsed.success) {
