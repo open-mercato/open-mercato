@@ -113,6 +113,18 @@ export async function reindexEntity(
 
   const knex = (em as any).getConnection().getKnex() as Knex
   const table = resolveEntityTableName(em, entityType)
+  const tableExists = await knex.schema.hasTable(table)
+  if (!tableExists) {
+    console.warn(
+      `[query_index] Skipping reindex for ${entityType}: table "${table}" does not exist`,
+    )
+    return {
+      processed: 0,
+      total: 0,
+      tenantScopes: [],
+      scopes: [],
+    }
+  }
   if (entityType === 'query_index:search_token' || table === 'search_tokens') {
     return {
       processed: 0,
