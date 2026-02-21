@@ -2,7 +2,7 @@
 
 import * as React from 'react'
 import { Upload, Trash2, File, FileText, FileSpreadsheet, FileArchive, FileAudio, FileVideo, FileCode } from 'lucide-react'
-import { Button } from '@open-mercato/ui/primitives/button'
+import { Button } from '../../primitives/button'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { cn } from '@open-mercato/shared/lib/utils'
@@ -346,7 +346,7 @@ export function AttachmentsSection({
                 key={item.id}
                 type="button"
                 onClick={() => openMetadataDialog(item)}
-                className="group flex flex-col overflow-hidden rounded-lg border bg-card text-left transition-shadow hover:shadow-sm"
+                className="group flex flex-col overflow-hidden rounded-lg border bg-card text-left cursor-pointer transition-shadow hover:shadow-sm"
               >
                 <div className="relative aspect-[4/3] bg-muted">
                   {showThumbnail ? (

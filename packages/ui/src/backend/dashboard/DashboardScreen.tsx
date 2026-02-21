@@ -2,6 +2,7 @@
 
 import * as React from 'react'
 import { Button } from '@open-mercato/ui/primitives/button'
+import { IconButton } from '@open-mercato/ui/primitives/icon-button'
 import { Spinner } from '@open-mercato/ui/primitives/spinner'
 import { ErrorNotice } from '@open-mercato/ui/primitives/ErrorNotice'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
@@ -359,7 +360,7 @@ export function DashboardScreen() {
             </div>
           )}
           {canConfigure && (
-            <Button variant={editing ? 'secondary' : 'outline'} onClick={toggleEditing}>
+            <Button variant={editing ? 'secondary' : 'outline'} size="sm" onClick={toggleEditing}>
               <Settings2 className="h-4 w-4" />
               <span>{editing ? t('dashboard.action.done') : t('dashboard.action.customize')}</span>
             </Button>
@@ -642,40 +643,39 @@ function DashboardWidgetCard({
           {editing && <GripVertical className="h-4 w-4 text-muted-foreground" />}
           <div>
             <div className="text-sm font-medium leading-none">{title}</div>
-            {description ? <div className="text-xs text-muted-foreground">{description}</div> : null}
+            {description ? <div className="mt-1 text-xs text-muted-foreground">{description}</div> : null}
           </div>
         </div>
         <div className="flex items-center gap-1">
           {!editing && meta.supportsRefresh && (
-            <Button
+            <IconButton
               variant="ghost"
-              size="icon"
+              size="sm"
               disabled={refreshing || loading || !!loadError}
               onClick={triggerRefresh}
               aria-label={t('dashboard.widget.refresh')}
             >
               {refreshing ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
-              <span className="sr-only">{t('dashboard.widget.refresh')}</span>
-            </Button>
+            </IconButton>
           )}
           {editing && (
             <>
-              <Button
-                variant={activeSettings ? 'secondary' : 'ghost'}
-                size="icon"
+              <IconButton
+                variant={activeSettings ? 'outline' : 'ghost'}
+                size="sm"
                 onClick={onToggleSettings}
                 aria-label={activeSettings ? t('dashboard.widget.closeSettings') : t('dashboard.widget.editSettings')}
               >
                 {activeSettings ? <X className="h-4 w-4" /> : <Settings2 className="h-4 w-4" />}
-              </Button>
-              <Button
+              </IconButton>
+              <IconButton
                 variant="ghost"
-                size="icon"
+                size="sm"
                 onClick={onRemove}
                 aria-label={t('dashboard.widget.remove')}
               >
                 <Trash2 className="h-4 w-4" />
-              </Button>
+              </IconButton>
             </>
           )}
         </div>
