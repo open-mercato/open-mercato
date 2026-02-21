@@ -1,6 +1,7 @@
 import { test, expect } from '@playwright/test';
 import { login, DEFAULT_CREDENTIALS } from '../helpers/auth';
 import { apiRequest, getAuthToken } from '../helpers/api';
+import { readJsonSafe } from '@open-mercato/core/modules/core/__integration__/helpers/crmFixtures';
 
 type DashboardLayoutItem = {
   id: string;
@@ -34,14 +35,6 @@ type UsersListResponse = {
 };
 
 const BRANCH_WIDGET_IDS = ['sales.dashboard.newOrders', 'sales.dashboard.newQuotes'] as const;
-
-type JsonReadableResponse = {
-  json: () => Promise<unknown>;
-};
-
-async function readJsonSafe<T>(response: JsonReadableResponse): Promise<T | null> {
-  return response.json().catch(() => null) as Promise<T | null>;
-}
 
 /**
  * TC-ADMIN-011: User Widget Override And Dashboard Enablement

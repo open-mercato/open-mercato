@@ -32,7 +32,7 @@ import {
   ensureOrganizationScope,
   ensureTenantScope,
   extractUndoPayload,
-  assertRecordFound,
+  assertFound,
   syncEntityTags,
   loadEntityTagIds,
   ensureDictionaryEntry,
@@ -587,7 +587,7 @@ const updatePersonCommand: CommandHandler<PersonUpdateInput, { entityId: string 
     const { parsed, custom } = parseWithCustomFields(personUpdateSchema, rawInput)
     const em = (ctx.container.resolve('em') as EntityManager).fork()
     const entity = await em.findOne(CustomerEntity, { id: parsed.id, deletedAt: null })
-    const record = assertRecordFound(entity, 'Person not found')
+    const record = assertFound(entity, 'Person not found')
     ensureTenantScope(ctx, record.tenantId)
     ensureOrganizationScope(ctx, record.organizationId)
     const profile = await em.findOne(CustomerPersonProfile, { entity: record })
@@ -847,7 +847,7 @@ const deletePersonCommand: CommandHandler<{ body?: Record<string, unknown>; quer
       const em = (ctx.container.resolve('em') as EntityManager).fork()
       const snapshot = await loadPersonSnapshot(em, id)
       const entity = await em.findOne(CustomerEntity, { id, deletedAt: null })
-      const record = assertRecordFound(entity, 'Person not found')
+      const record = assertFound(entity, 'Person not found')
       ensureTenantScope(ctx, record.tenantId)
       ensureOrganizationScope(ctx, record.organizationId)
       const profile = await em.findOne(CustomerPersonProfile, { entity: record })

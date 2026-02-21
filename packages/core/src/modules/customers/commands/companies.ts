@@ -33,7 +33,7 @@ import {
   ensureOrganizationScope,
   ensureTenantScope,
   extractUndoPayload,
-  assertRecordFound,
+  assertFound,
   syncEntityTags,
   loadEntityTagIds,
   emitQueryIndexDeleteEvents,
@@ -457,7 +457,7 @@ const updateCompanyCommand: CommandHandler<CompanyUpdateInput, { entityId: strin
     const { parsed, custom } = parseWithCustomFields(companyUpdateSchema, rawInput)
     const em = (ctx.container.resolve('em') as EntityManager).fork()
     const entity = await em.findOne(CustomerEntity, { id: parsed.id, deletedAt: null })
-    const record = assertRecordFound(entity, 'Company not found')
+    const record = assertFound(entity, 'Company not found')
     ensureTenantScope(ctx, record.tenantId)
     ensureOrganizationScope(ctx, record.organizationId)
     const profile = await em.findOne(CustomerCompanyProfile, { entity: record })
@@ -694,7 +694,7 @@ const deleteCompanyCommand: CommandHandler<{ body?: Record<string, unknown>; que
       const em = (ctx.container.resolve('em') as EntityManager).fork()
       const snapshot = await loadCompanySnapshot(em, id)
       const entity = await em.findOne(CustomerEntity, { id, deletedAt: null })
-      const record = assertRecordFound(entity, 'Company not found')
+      const record = assertFound(entity, 'Company not found')
       ensureTenantScope(ctx, record.tenantId)
       ensureOrganizationScope(ctx, record.organizationId)
       const profile = await em.findOne(CustomerCompanyProfile, { entity: record })

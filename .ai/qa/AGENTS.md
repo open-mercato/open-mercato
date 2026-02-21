@@ -63,7 +63,7 @@ Use shared helpers directly from `@open-mercato/core/modules/core/__integration_
 | `@open-mercato/core/modules/core/__integration__/helpers/api` | `getAuthToken`, `apiRequest` | Authenticated API setup and raw API calls in integration tests |
 | `@open-mercato/core/modules/core/__integration__/helpers/authUi` | `createUserViaUi` | Auth module UI flows for user creation/edit smoke coverage |
 | `@open-mercato/core/modules/core/__integration__/helpers/catalogFixtures` | `createProductFixture`, `deleteCatalogProductIfExists` | Catalog fixture lifecycle for setup/cleanup |
-| `@open-mercato/core/modules/core/__integration__/helpers/crmFixtures` | `createCompanyFixture`, `createPersonFixture`, `createDealFixture`, `deleteEntityIfExists` | Customers/CRM fixture creation and cleanup |
+| `@open-mercato/core/modules/core/__integration__/helpers/crmFixtures` | `createCompanyFixture`, `createPersonFixture`, `createDealFixture`, `deleteEntityIfExists`, `readJsonSafe` | Customers/CRM fixture creation and cleanup; `readJsonSafe` for parsing Playwright APIResponse body to JSON |
 | `@open-mercato/core/modules/core/__integration__/helpers/salesFixtures` | `createSalesQuoteFixture`, `createSalesOrderFixture`, `createOrderLineFixture`, `deleteSalesEntityIfExists` | Sales API fixture lifecycle |
 | `@open-mercato/core/modules/core/__integration__/helpers/salesUi` | `createSalesDocument`, `addCustomLine`, `updateLineQuantity`, `deleteLine`, `addAdjustment`, `addPayment`, `addShipment`, `readGrandTotalGross` | Sales document UI interactions and totals assertions |
 | `packages/create-app/template/src/modules/auth/__integration__/helpers/auth.ts` | `login` | Template-local helper for generated apps (kept local to template) |

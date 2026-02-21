@@ -3,11 +3,11 @@ import { apiRequest } from './api';
 
 type JsonRecord = Record<string, unknown>;
 
-async function readJsonSafe(response: APIResponse): Promise<unknown> {
+export async function readJsonSafe<T = unknown>(response: APIResponse): Promise<T | null> {
   const raw = await response.text();
   if (!raw) return null;
   try {
-    return JSON.parse(raw) as unknown;
+    return JSON.parse(raw) as T;
   } catch {
     return null;
   }
