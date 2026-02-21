@@ -110,7 +110,7 @@ export function ScheduleGrid({ items, range, timezone, onItemClick, onSlotClick,
                       key={item.id}
                       type="button"
                       className={cn(
-                        'flex w-full flex-col gap-2 rounded-lg border px-3 py-2 text-left text-xs transition hover:shadow-sm',
+                        'flex w-full cursor-pointer flex-col gap-2 rounded-lg border px-3 py-2 text-left text-xs transition hover:shadow-sm',
                         getKindStyles(item.kind)
                       )}
                       onClick={() => onItemClick?.(item)}

@@ -1,6 +1,7 @@
 "use client"
 
 import * as React from 'react'
+import { Button } from '@open-mercato/ui/primitives/button'
 import { Spinner } from '@open-mercato/ui/primitives/spinner'
 import { readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
@@ -165,13 +166,9 @@ export function SystemStatusPanel() {
         <div className="rounded border border-red-200 bg-red-50 p-3 text-sm text-red-700">
           {state.error}
         </div>
-        <button
-          type="button"
-          className="inline-flex items-center justify-center gap-2 rounded-md border px-4 py-2 text-sm font-medium transition hover:bg-accent"
-          onClick={() => loadSnapshot().catch(() => {})}
-        >
+        <Button type="button" variant="outline" onClick={() => loadSnapshot().catch(() => {})}>
           {t('configs.systemStatus.retry', 'Retry')}
-        </button>
+        </Button>
       </section>
     )
   }
