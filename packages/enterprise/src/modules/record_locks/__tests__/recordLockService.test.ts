@@ -497,19 +497,30 @@ describe('RecordLockService.acquire', () => {
     jest.clearAllMocks()
   })
 
-  test('emits lock-contended event when active lock belongs to another user', async () => {
-    const { service } = createService({
+  test('allows optimistic participant join when another user is already active', async () => {
+    const { service, em } = createService({
       ...DEFAULT_SETTINGS,
       strategy: 'optimistic',
     })
     const serviceAny = service as any
 
     serviceAny.findLatestActionLog = jest.fn().mockResolvedValue(null)
-    serviceAny.findActiveLock = jest.fn().mockResolvedValue(buildLock({
+    const competingLock = buildLock({
       strategy: 'optimistic',
       id: '10000000-0000-4000-8000-000000000099',
       lockedByUserId: '40000000-0000-4000-8000-000000000099',
-    }))
+    })
+    const joinedLock = buildLock({
+      strategy: 'optimistic',
+      id: '10000000-0000-4000-8000-000000000088',
+      lockedByUserId: '40000000-0000-4000-8000-000000000001',
+      token: '30000000-0000-4000-8000-000000000088',
+    })
+    em.find
+      .mockResolvedValueOnce([competingLock])
+      .mockResolvedValueOnce([competingLock, joinedLock])
+    em.create.mockReturnValue(joinedLock)
+    em.flush.mockResolvedValue(undefined)
 
     const result = await service.acquire({
       tenantId: '60000000-0000-4000-8000-000000000001',
@@ -521,14 +532,12 @@ describe('RecordLockService.acquire', () => {
 
     expect(result.ok).toBe(true)
     if (!result.ok) throw new Error('Expected successful result')
-    expect(result.acquired).toBe(false)
-    expect(result.lock?.lockedByUserId).toBe('40000000-0000-4000-8000-000000000099')
+    expect(result.acquired).toBe(true)
+    expect(result.lock).toBeTruthy()
     expect(emitRecordLocksEvent).toHaveBeenCalledWith(
-      'record_locks.lock.contended',
+      'record_locks.participant.joined',
       expect.objectContaining({
-        lockId: '10000000-0000-4000-8000-000000000099',
-        lockedByUserId: '40000000-0000-4000-8000-000000000099',
-        attemptedByUserId: '40000000-0000-4000-8000-000000000001',
+        joinedUserId: '40000000-0000-4000-8000-000000000001',
       }),
     )
   })

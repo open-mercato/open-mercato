@@ -1,26 +1,21 @@
 import { buildNotificationFromType } from '@open-mercato/core/modules/notifications/lib/notificationBuilder'
 import { resolveNotificationService } from '@open-mercato/core/modules/notifications/lib/notificationService'
-import {
-  resolveRecordLockNotificationType,
-  resolveRecordResourceLink,
-} from '../lib/notificationHelpers'
+import { resolveRecordLockNotificationType, resolveRecordResourceLink } from '../lib/notificationHelpers'
 
 export const metadata = {
-  event: 'record_locks.incoming_changes.available',
+  event: 'record_locks.participant.left',
   persistent: true,
-  id: 'record_locks:incoming-changes-notification',
+  id: 'record_locks:participant-left-notification',
 }
 
 type Payload = {
+  lockId: string
   resourceKind: string
   resourceId: string
   tenantId: string
   organizationId?: string | null
+  leftUserId: string
   recipientUserIds?: string[]
-  incomingActorUserId?: string | null
-  incomingActionLogId?: string | null
-  changedFields?: string | null
-  changedRowsJson?: string | null
 }
 
 type ResolverContext = {
@@ -34,28 +29,22 @@ export default async function handle(payload: Payload, ctx: ResolverContext) {
   if (!recipientUserIds.length) return
 
   const notificationService = resolveNotificationService(ctx)
-  const typeDef = resolveRecordLockNotificationType('record_locks.incoming_changes.available')
+  const typeDef = resolveRecordLockNotificationType('record_locks.participant.left')
   if (!typeDef) return
 
   const linkHref = resolveRecordResourceLink(payload.resourceKind, payload.resourceId)
-  const changedFields = typeof payload.changedFields === 'string' && payload.changedFields.trim().length > 0
-    ? payload.changedFields
-    : '-'
-
   for (const recipientUserId of recipientUserIds) {
+    if (recipientUserId === payload.leftUserId) continue
+
     const notificationInput = buildNotificationFromType(typeDef, {
       recipientUserId,
       bodyVariables: {
         resourceKind: payload.resourceKind,
-        changedFields,
-        changedRowsJson: typeof payload.changedRowsJson === 'string' ? payload.changedRowsJson : '',
       },
-      sourceEntityType: 'record_locks:incoming_change',
-      sourceEntityId: payload.incomingActionLogId ?? undefined,
+      sourceEntityType: 'record_locks:lock',
+      sourceEntityId: payload.lockId,
       linkHref,
-      groupKey: payload.incomingActionLogId
-        ? `record_locks.incoming_changes:${payload.incomingActionLogId}`
-        : `record_locks.incoming_changes:${payload.resourceKind}:${payload.resourceId}`,
+      groupKey: `record_locks.participant.left:${payload.lockId}:${payload.leftUserId}`,
     })
 
     await notificationService.create(notificationInput, {

@@ -27,9 +27,11 @@
     "banner": {
       "locked_by_other": "This record is currently locked by another user.",
       "optimistic_notice": "Another user is editing this record. Conflicts may occur on save.",
+      "participants_notice": "Multiple users are currently on this record.",
       "contention_notice": "Another user opened this record while you are editing it. Conflicts may occur on save.",
       "same_user_session": "This record is already open in another session.",
       "mine": "You are currently editing this record.",
+      "active_users_label": "Active users",
       "local_machine": "local machine",
       "take_over": "Take over editing",
       "take_over_pending": "Taking over..."
@@ -58,6 +60,14 @@
       "accept_incoming_failed": "Could not accept incoming changes. Refresh and try again."
     },
     "notifications": {
+      "participant_joined": {
+        "title": "New participant joined",
+        "body": "Another user opened this record while you are editing it."
+      },
+      "participant_left": {
+        "title": "Participant left",
+        "body": "A user left this record (heartbeat expired)."
+      },
       "lock_contended": {
         "title": "Another user opened your record",
         "body": "Another user opened a record you are currently editing. Conflicts may occur on save."

@@ -12,12 +12,12 @@ import {
 } from './helpers/recordLocks';
 
 /**
- * TC-LOCK-006: Lock payload exposes editor identity and IP for viewer banner
+ * TC-LOCK-006: Lock payload exposes participant ring with redacted email only
  */
-test.describe('TC-LOCK-006: Lock payload exposes editor identity and IP for viewer banner', () => {
+test.describe('TC-LOCK-006: Lock payload exposes participant ring with redacted email only', () => {
   test.describe.configure({ timeout: 90_000 });
 
-  test('should return lock owner identity and ip when another user views the same record', async ({ request }) => {
+  test('should return participant queue data with masked email when another user views the same record', async ({ request }) => {
     const superadminToken = await getAuthToken(request, 'superadmin');
     const adminToken = await getAuthToken(request, 'admin');
     const superadminScopeCookie = buildScopeCookieFromToken(superadminToken);
@@ -61,24 +61,36 @@ test.describe('TC-LOCK-006: Lock payload exposes editor identity and IP for view
         companyId,
       );
       expect(viewerAcquire.status).toBe(200);
-      expect(viewerAcquire.body?.acquired).toBe(false);
+      expect(viewerAcquire.body?.acquired).toBe(true);
 
       const lock = (viewerAcquire.body?.lock as {
         lockedByUserId?: string;
         lockedByName?: string | null;
         lockedByEmail?: string | null;
         lockedByIp?: string | null;
+        activeParticipantCount?: number;
+        participants?: Array<{
+          userId?: string;
+          lockedByName?: string | null;
+          lockedByEmail?: string | null;
+          lockedByIp?: string | null;
+        }>;
       } | null | undefined) ?? null;
 
       expect(lock).toBeTruthy();
-      expect(lock?.lockedByUserId).toBeTruthy();
-      expect(lock?.lockedByIp).toBe(ownerIp);
-      expect(Boolean(lock?.lockedByName || lock?.lockedByEmail)).toBe(true);
-
+      expect(lock?.activeParticipantCount).toBeGreaterThanOrEqual(2);
+      expect(lock?.lockedByIp ?? null).toBeNull();
+      expect(lock?.lockedByName ?? null).toBeNull();
+      expect(lock?.lockedByEmail ?? null).toMatch(/^[a-z0-9]{1,2}\*\*@[a-z0-9]{1,4}\*\*\.[a-z0-9.]+$/);
       const viewerId =
         (viewerAcquire.body as { currentUserId?: string | null } | null)?.currentUserId ?? null;
       expect(viewerId).toBeTruthy();
-      expect(viewerId).not.toBe(lock?.lockedByUserId ?? null);
+      const otherParticipants = (lock?.participants ?? []).filter((entry) => entry.userId !== viewerId);
+      const ownerParticipant = otherParticipants.find((entry) => entry.userId);
+      expect(ownerParticipant?.lockedByIp).toBeUndefined();
+      expect(ownerParticipant?.lockedByName).toBeUndefined();
+      expect(ownerParticipant?.lockedByEmail ?? null).toMatch(/^[a-z0-9]{1,2}\*\*@[a-z0-9]{1,4}\*\*\.[a-z0-9.]+$/);
+      expect(otherParticipants.length).toBeGreaterThanOrEqual(1);
     } finally {
       if (ownerLockToken && companyId) {
         await releaseRecordLock(

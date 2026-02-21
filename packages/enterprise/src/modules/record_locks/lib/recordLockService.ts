@@ -35,6 +35,8 @@ const ACTIVE_LOCK_STATUS: RecordLockStatus = 'active'
 const ACTIVE_SCOPE_UNIQUE_CONSTRAINTS = new Set([
   'record_locks_active_scope_org_unique',
   'record_locks_active_scope_tenant_unique',
+  'record_locks_active_scope_user_org_unique',
+  'record_locks_active_scope_user_tenant_unique',
 ])
 const LOCK_CONTENTION_EVENT_TTL_MS = 15_000
 const lockContentionEventThrottle = new Map<string, number>()
@@ -108,6 +110,16 @@ export type RecordLockView = {
   lockedByUserId: string
   lockedByIp: string | null
   baseActionLogId: string | null
+  lockedAt: string
+  lastHeartbeatAt: string
+  expiresAt: string
+  participants: RecordLockParticipantView[]
+  activeParticipantCount: number
+}
+
+export type RecordLockParticipantView = {
+  userId: string
+  lockedByIp: string | null
   lockedAt: string
   lastHeartbeatAt: string
   expiresAt: string
@@ -363,6 +375,18 @@ function normalizeConflictValue(value: unknown): unknown {
   return value === undefined ? null : value
 }
 
+function formatNotificationValue(value: unknown): string {
+  if (value === null || value === undefined) return '-'
+  if (typeof value === 'string') return value
+  if (typeof value === 'number' || typeof value === 'boolean') return String(value)
+  if (value instanceof Date) return value.toISOString()
+  try {
+    return JSON.stringify(value)
+  } catch {
+    return String(value)
+  }
+}
+
 function formatChangedFieldLabel(rawField: string): string {
   const trimmedField = rawField.trim()
   const withoutNamespace = trimmedField.includes('::') ? (trimmedField.split('::').pop() ?? trimmedField) : trimmedField
@@ -453,60 +477,49 @@ export class RecordLockService {
     }
 
     const now = new Date()
-    const active = await this.findActiveLock(input, now)
+    let activeLocks = await this.findActiveLocks(input, now)
+    const ownedActiveLock = activeLocks.find((lock) => lock.lockedByUserId === input.userId) ?? null
+    const competingActiveLock = activeLocks.find((lock) => lock.lockedByUserId !== input.userId) ?? null
 
-    if (active && active.lockedByUserId !== input.userId) {
-      const lock = this.toLockView(active, false)
+    if (settings.strategy === 'pessimistic' && !ownedActiveLock && competingActiveLock) {
+      const lockView = this.toLockView(competingActiveLock, false, activeLocks)
       if (shouldEmitLockContentionEvent({
-        tenantId: active.tenantId,
-        organizationId: active.organizationId,
-        resourceKind: active.resourceKind,
-        resourceId: active.resourceId,
-        lockedByUserId: active.lockedByUserId,
+        tenantId: competingActiveLock.tenantId,
+        organizationId: competingActiveLock.organizationId,
+        resourceKind: competingActiveLock.resourceKind,
+        resourceId: competingActiveLock.resourceId,
+        lockedByUserId: competingActiveLock.lockedByUserId,
         attemptedByUserId: input.userId,
       })) {
         await emitRecordLocksEvent('record_locks.lock.contended', {
-          lockId: active.id,
-          resourceKind: active.resourceKind,
-          resourceId: active.resourceId,
-          tenantId: active.tenantId,
-          organizationId: active.organizationId,
-          lockedByUserId: active.lockedByUserId,
+          lockId: competingActiveLock.id,
+          resourceKind: competingActiveLock.resourceKind,
+          resourceId: competingActiveLock.resourceId,
+          tenantId: competingActiveLock.tenantId,
+          organizationId: competingActiveLock.organizationId,
+          lockedByUserId: competingActiveLock.lockedByUserId,
           attemptedByUserId: input.userId,
         })
       }
-      if (settings.strategy === 'pessimistic') {
-        return {
-          ok: false,
-          status: 423,
-          error: 'Record is currently locked by another user',
-          code: 'record_locked',
-          allowForceUnlock: settings.allowForceUnlock,
-          lock,
-        }
-      }
-
       return {
-        ok: true,
-        enabled: settings.enabled,
-        resourceEnabled: true,
-        strategy: settings.strategy,
+        ok: false,
+        status: 423,
+        error: 'Record is currently locked by another user',
+        code: 'record_locked',
         allowForceUnlock: settings.allowForceUnlock,
-        heartbeatSeconds: settings.heartbeatSeconds,
-        acquired: false,
-        latestActionLogId: latest?.id ?? null,
-        lock,
+        lock: lockView,
       }
     }
 
-    if (active && active.lockedByUserId === input.userId) {
-      active.strategy = settings.strategy
-      active.lockedByIp = input.lockedByIp ?? active.lockedByIp ?? null
-      active.lastHeartbeatAt = now
-      active.expiresAt = new Date(now.getTime() + settings.timeoutSeconds * 1000)
-      active.baseActionLogId = latest?.id ?? active.baseActionLogId ?? null
+    if (ownedActiveLock) {
+      ownedActiveLock.strategy = settings.strategy
+      ownedActiveLock.lockedByIp = input.lockedByIp ?? ownedActiveLock.lockedByIp ?? null
+      ownedActiveLock.lastHeartbeatAt = now
+      ownedActiveLock.expiresAt = new Date(now.getTime() + settings.timeoutSeconds * 1000)
+      ownedActiveLock.baseActionLogId = latest?.id ?? ownedActiveLock.baseActionLogId ?? null
       await this.em.flush()
 
+      activeLocks = await this.findActiveLocks(input, now)
       return {
         ok: true,
         enabled: settings.enabled,
@@ -516,7 +529,7 @@ export class RecordLockService {
         heartbeatSeconds: settings.heartbeatSeconds,
         acquired: false,
         latestActionLogId: latest?.id ?? null,
-        lock: this.toLockView(active, true),
+        lock: this.toLockView(ownedActiveLock, true, activeLocks),
       }
     }
 
@@ -537,63 +550,59 @@ export class RecordLockService {
     })
 
     this.em.persist(lock)
+    let createdNewLock = true
     try {
       await this.em.flush()
     } catch (error) {
       if (!isActiveLockScopeUniqueViolation(error)) throw error
-      const competing = await this.findActiveLock(input, now)
-      if (!competing) throw error
-      if (competing.lockedByUserId !== input.userId) {
-        const lockView = this.toLockView(competing, false)
+      const locksAfterCollision = await this.findActiveLocks(input, now)
+      const competingAfterCollision = locksAfterCollision.find((item) => item.lockedByUserId !== input.userId) ?? null
+      if (settings.strategy === 'pessimistic' && competingAfterCollision) {
         if (shouldEmitLockContentionEvent({
-          tenantId: competing.tenantId,
-          organizationId: competing.organizationId,
-          resourceKind: competing.resourceKind,
-          resourceId: competing.resourceId,
-          lockedByUserId: competing.lockedByUserId,
+          tenantId: competingAfterCollision.tenantId,
+          organizationId: competingAfterCollision.organizationId,
+          resourceKind: competingAfterCollision.resourceKind,
+          resourceId: competingAfterCollision.resourceId,
+          lockedByUserId: competingAfterCollision.lockedByUserId,
           attemptedByUserId: input.userId,
         })) {
           await emitRecordLocksEvent('record_locks.lock.contended', {
-            lockId: competing.id,
-            resourceKind: competing.resourceKind,
-            resourceId: competing.resourceId,
-            tenantId: competing.tenantId,
-            organizationId: competing.organizationId,
-            lockedByUserId: competing.lockedByUserId,
+            lockId: competingAfterCollision.id,
+            resourceKind: competingAfterCollision.resourceKind,
+            resourceId: competingAfterCollision.resourceId,
+            tenantId: competingAfterCollision.tenantId,
+            organizationId: competingAfterCollision.organizationId,
+            lockedByUserId: competingAfterCollision.lockedByUserId,
             attemptedByUserId: input.userId,
           })
         }
-        if (settings.strategy === 'pessimistic') {
-          return {
-            ok: false,
-            status: 423,
-            error: 'Record is currently locked by another user',
-            code: 'record_locked',
-            allowForceUnlock: settings.allowForceUnlock,
-            lock: lockView,
-          }
-        }
-
         return {
-          ok: true,
-          enabled: settings.enabled,
-          resourceEnabled: true,
-          strategy: settings.strategy,
+          ok: false,
+          status: 423,
+          error: 'Record is currently locked by another user',
+          code: 'record_locked',
           allowForceUnlock: settings.allowForceUnlock,
-          heartbeatSeconds: settings.heartbeatSeconds,
-          acquired: false,
-          latestActionLogId: latest?.id ?? null,
-          lock: lockView,
+          lock: this.toLockView(competingAfterCollision, false, locksAfterCollision),
         }
       }
-
-      competing.strategy = settings.strategy
-      competing.lockedByIp = input.lockedByIp ?? competing.lockedByIp ?? null
-      competing.lastHeartbeatAt = now
-      competing.expiresAt = new Date(now.getTime() + settings.timeoutSeconds * 1000)
-      competing.baseActionLogId = latest?.id ?? competing.baseActionLogId ?? null
+      const existingOwned = await this.findOwnedActiveLock(input)
+      if (!existingOwned) throw error
+      existingOwned.strategy = settings.strategy
+      existingOwned.lockedByIp = input.lockedByIp ?? existingOwned.lockedByIp ?? null
+      existingOwned.lastHeartbeatAt = now
+      existingOwned.expiresAt = new Date(now.getTime() + settings.timeoutSeconds * 1000)
+      existingOwned.baseActionLogId = latest?.id ?? existingOwned.baseActionLogId ?? null
       await this.em.flush()
+      createdNewLock = false
+    }
 
+    const activeAfterAcquire = await this.findActiveLocks(input, now)
+    const ownedAfterAcquire = activeAfterAcquire.find((item) => item.lockedByUserId === input.userId)
+      ?? await this.findOwnedActiveLock(input)
+      ?? lock
+      ?? null
+    if (!ownedAfterAcquire) {
+      const fallbackLock = activeAfterAcquire[0] ?? null
       return {
         ok: true,
         enabled: settings.enabled,
@@ -603,20 +612,39 @@ export class RecordLockService {
         heartbeatSeconds: settings.heartbeatSeconds,
         acquired: false,
         latestActionLogId: latest?.id ?? null,
-        lock: this.toLockView(competing, true),
+        lock: fallbackLock ? this.toLockView(fallbackLock, false, activeAfterAcquire) : null,
       }
     }
 
-    await emitRecordLocksEvent('record_locks.lock.acquired', {
-      lockId: lock.id,
-      resourceKind: lock.resourceKind,
-      resourceId: lock.resourceId,
-      tenantId: lock.tenantId,
-      organizationId: lock.organizationId,
-      lockedByUserId: lock.lockedByUserId,
-      strategy: lock.strategy,
-      baseActionLogId: lock.baseActionLogId,
-    })
+    if (createdNewLock) {
+      await emitRecordLocksEvent('record_locks.lock.acquired', {
+        lockId: ownedAfterAcquire.id,
+        resourceKind: ownedAfterAcquire.resourceKind,
+        resourceId: ownedAfterAcquire.resourceId,
+        tenantId: ownedAfterAcquire.tenantId,
+        organizationId: ownedAfterAcquire.organizationId,
+        lockedByUserId: ownedAfterAcquire.lockedByUserId,
+        strategy: ownedAfterAcquire.strategy,
+        baseActionLogId: ownedAfterAcquire.baseActionLogId,
+        activeParticipantCount: activeAfterAcquire.length,
+      })
+
+      const recipientUserIds = activeAfterAcquire
+        .filter((item) => item.lockedByUserId !== input.userId)
+        .map((item) => item.lockedByUserId)
+
+      await emitRecordLocksEvent('record_locks.participant.joined', {
+        lockId: ownedAfterAcquire.id,
+        resourceKind: ownedAfterAcquire.resourceKind,
+        resourceId: ownedAfterAcquire.resourceId,
+        tenantId: ownedAfterAcquire.tenantId,
+        organizationId: ownedAfterAcquire.organizationId,
+        joinedUserId: input.userId,
+        joinedIp: ownedAfterAcquire.lockedByIp ?? null,
+        recipientUserIds,
+        activeParticipantCount: activeAfterAcquire.length,
+      })
+    }
 
     return {
       ok: true,
@@ -625,9 +653,9 @@ export class RecordLockService {
       strategy: settings.strategy,
       allowForceUnlock: settings.allowForceUnlock,
       heartbeatSeconds: settings.heartbeatSeconds,
-      acquired: true,
+      acquired: createdNewLock,
       latestActionLogId: latest?.id ?? null,
-      lock: this.toLockView(lock, true),
+      lock: this.toLockView(ownedAfterAcquire, true, activeAfterAcquire),
     }
   }
 
@@ -696,6 +724,27 @@ export class RecordLockService {
       reason: lock.releaseReason,
     })
 
+    if (lock.releaseReason === 'unmount') {
+      const remainingActiveLocks = await this.findActiveLocks(input, now)
+      const recipientUserIds = remainingActiveLocks
+        .map((activeLock) => activeLock.lockedByUserId)
+        .filter((userId) => userId !== lock.lockedByUserId)
+
+      if (recipientUserIds.length) {
+        await emitRecordLocksEvent('record_locks.participant.left', {
+          lockId: lock.id,
+          resourceKind: lock.resourceKind,
+          resourceId: lock.resourceId,
+          tenantId: lock.tenantId,
+          organizationId: lock.organizationId,
+          leftUserId: lock.lockedByUserId,
+          reason: 'unmount',
+          recipientUserIds,
+          activeParticipantCount: remainingActiveLocks.length,
+        })
+      }
+    }
+
     return { ok: true, released: true, conflictResolved }
   }
 
@@ -707,7 +756,8 @@ export class RecordLockService {
     }
 
     const now = new Date()
-    const lock = await this.findActiveLock(input, now)
+    const activeLocks = this.sortLocksByJoinOrder(await this.findActiveLocks(input, now))
+    const lock = activeLocks[0] ?? null
     if (!lock) return { ok: true, released: false, lock: null }
 
     this.markLockReleased(lock, {
@@ -729,7 +779,9 @@ export class RecordLockService {
       reason: input.reason ?? null,
     })
 
-    return { ok: true, released: true, lock: this.toLockView(lock, false) }
+    const remainingLocks = this.sortLocksByJoinOrder(activeLocks.filter((item) => item.id !== lock.id))
+    const nextInQueue = remainingLocks[0] ?? null
+    return { ok: true, released: true, lock: nextInQueue ? this.toLockView(nextInQueue, false, remainingLocks) : null }
   }
 
   async validateMutation(input: RecordLockMutationValidationInput): Promise<RecordLockValidationResult> {
@@ -756,33 +808,34 @@ export class RecordLockService {
       : null
     const hasKeepMineIntent = keepMineResolution !== null
     const now = new Date()
-    const active = await this.findActiveLock(input, now)
+    const activeLocks = await this.findActiveLocks(input, now)
+    const ownedActiveLock = activeLocks.find((lock) => lock.lockedByUserId === input.userId) ?? null
+    const competingLock = activeLocks.find((lock) => lock.lockedByUserId !== input.userId) ?? null
     const latest = await this.findLatestActionLogWithScopeFallback(input)
     const shouldReleaseOnSuccess = Boolean(
-      active
-      && active.lockedByUserId === input.userId
-      && (!parsedHeaders.token || active.token === parsedHeaders.token),
+      ownedActiveLock
+      && (!parsedHeaders.token || ownedActiveLock.token === parsedHeaders.token),
     )
 
     if (settings.strategy === 'pessimistic') {
-      if (active && active.lockedByUserId !== input.userId) {
+      if (competingLock && !ownedActiveLock) {
         return {
           ok: false,
           status: 423,
           error: 'Record is currently locked by another user',
           code: 'record_locked',
-          lock: this.toLockView(active, false),
+          lock: this.toLockView(competingLock, false, activeLocks),
         }
       }
 
-      if (active && active.lockedByUserId === input.userId) {
-        if (parsedHeaders.token && active.token !== parsedHeaders.token) {
+      if (ownedActiveLock) {
+        if (parsedHeaders.token && ownedActiveLock.token !== parsedHeaders.token) {
           return {
             ok: false,
             status: 423,
             error: 'Valid lock token is required for this mutation',
             code: 'record_locked',
-            lock: this.toLockView(active, false),
+            lock: this.toLockView(ownedActiveLock, false, activeLocks),
           }
         }
       }
@@ -793,7 +846,7 @@ export class RecordLockService {
         resourceEnabled: true,
         strategy: settings.strategy,
         shouldReleaseOnSuccess,
-        lock: active ? this.toLockView(active, false) : null,
+        lock: ownedActiveLock ? this.toLockView(ownedActiveLock, false, activeLocks) : null,
         latestActionLogId: latest?.id ?? null,
       }
     }
@@ -817,7 +870,7 @@ export class RecordLockService {
             status: 409,
             error: 'Record conflict requires resolution before saving',
             code: 'record_lock_conflict',
-            lock: active ? this.toLockView(active, false) : null,
+            lock: ownedActiveLock ? this.toLockView(ownedActiveLock, false, activeLocks) : null,
             conflict: await this.toConflictPayload(existingConflict, input.mutationPayload ?? null, settings.allowIncomingOverride, canOverrideIncoming),
           }
         }
@@ -827,7 +880,7 @@ export class RecordLockService {
             status: 409,
             error: 'Record conflict requires resolution before saving',
             code: 'record_lock_conflict',
-            lock: active ? this.toLockView(active, false) : null,
+            lock: ownedActiveLock ? this.toLockView(ownedActiveLock, false, activeLocks) : null,
             conflict: await this.toConflictPayload(existingConflict, input.mutationPayload ?? null, settings.allowIncomingOverride, canOverrideIncoming),
           }
         }
@@ -840,7 +893,7 @@ export class RecordLockService {
           status: 409,
           error: 'Record conflict requires resolution before saving',
           code: 'record_lock_conflict',
-          lock: active ? this.toLockView(active, false) : null,
+          lock: ownedActiveLock ? this.toLockView(ownedActiveLock, false, activeLocks) : null,
           conflict: await this.toConflictPayload(existingConflict, input.mutationPayload ?? null, settings.allowIncomingOverride, canOverrideIncoming),
         }
       }
@@ -848,7 +901,7 @@ export class RecordLockService {
 
     if (!existingConflict) {
       const baseActionLogId = parsedHeaders.baseLogId
-        ?? (active && active.lockedByUserId === input.userId ? active.baseActionLogId : null)
+        ?? (ownedActiveLock ? ownedActiveLock.baseActionLogId : null)
 
       const hasConflictingBaseLog = Boolean(
         latest?.id
@@ -858,11 +911,10 @@ export class RecordLockService {
       const hasConflictingWriteAfterLockStart = Boolean(
         latest?.id
         && !baseActionLogId
-        && active
-        && active.lockedByUserId === input.userId
+        && ownedActiveLock
         && latest.createdAt instanceof Date
-        && active.lockedAt instanceof Date
-        && latest.createdAt.getTime() > active.lockedAt.getTime()
+        && ownedActiveLock.lockedAt instanceof Date
+        && latest.createdAt.getTime() > ownedActiveLock.lockedAt.getTime()
         && latest.actorUserId !== input.userId
       )
       const isConflictingWrite = hasConflictingBaseLog || hasConflictingWriteAfterLockStart
@@ -884,7 +936,7 @@ export class RecordLockService {
             resourceEnabled: true,
             strategy: settings.strategy,
             shouldReleaseOnSuccess,
-            lock: active ? this.toLockView(active, false) : null,
+            lock: ownedActiveLock ? this.toLockView(ownedActiveLock, false, activeLocks) : null,
             latestActionLogId: latest?.id ?? null,
           }
         }
@@ -902,7 +954,7 @@ export class RecordLockService {
           status: 409,
           error: 'Record conflict detected',
           code: 'record_lock_conflict',
-          lock: active ? this.toLockView(active, false) : null,
+          lock: ownedActiveLock ? this.toLockView(ownedActiveLock, false, activeLocks) : null,
           conflict: await this.toConflictPayload(conflict, input.mutationPayload ?? null, settings.allowIncomingOverride, canOverrideIncoming),
         }
       }
@@ -914,7 +966,7 @@ export class RecordLockService {
       resourceEnabled: true,
       strategy: settings.strategy,
       shouldReleaseOnSuccess,
-      lock: active ? this.toLockView(active, false) : null,
+      lock: ownedActiveLock ? this.toLockView(ownedActiveLock, false, activeLocks) : null,
       latestActionLogId: latest?.id ?? null,
     }
   }
@@ -940,41 +992,23 @@ export class RecordLockService {
     if (!settings.notifyOnConflict || !isRecordLockingEnabledForResource(settings, input.resourceKind)) return
 
     const now = new Date()
-    let candidateLocks = await this.em.find(RecordLock, {
-      ...this.buildScopeWhere(input),
-      resourceKind: input.resourceKind,
-      resourceId: input.resourceId,
-      status: ACTIVE_LOCK_STATUS,
-    }, { orderBy: { updatedAt: 'desc' } })
-    if (!Array.isArray(candidateLocks) || candidateLocks.length === 0) {
-      candidateLocks = await this.em.find(RecordLock, {
+    let activeLocks = await this.findActiveLocks(input, now)
+    if (!activeLocks.length) {
+      const fallbackWhere: FilterQuery<RecordLock> = {
         tenantId: input.tenantId,
         deletedAt: null,
         resourceKind: input.resourceKind,
         resourceId: input.resourceId,
         status: ACTIVE_LOCK_STATUS,
-      }, { orderBy: { updatedAt: 'desc' } })
+      }
+      const fallbackLocks = await this.em.find(RecordLock, fallbackWhere, { orderBy: { updatedAt: 'desc' } })
+      activeLocks = Array.isArray(fallbackLocks) ? fallbackLocks : []
     }
-    const activeLocks = Array.isArray(candidateLocks) ? candidateLocks : []
 
-    let hasExpiredLocks = false
     const recipientUserIds = new Set<string>()
     for (const lock of activeLocks) {
-      if (lock.expiresAt <= now) {
-        this.markLockReleased(lock, {
-          status: 'expired',
-          reason: 'expired',
-          releasedByUserId: lock.lockedByUserId,
-          now,
-        })
-        hasExpiredLocks = true
-        continue
-      }
-      if (lock.lockedByUserId !== input.userId) {
-        recipientUserIds.add(lock.lockedByUserId)
-      }
+      recipientUserIds.add(lock.lockedByUserId)
     }
-    if (hasExpiredLocks) await this.em.flush()
     if (!recipientUserIds.size) {
       const fallbackWindowMs = Math.max((settings.timeoutSeconds ?? 300) * 1000, 60_000)
       const fallbackSince = new Date(now.getTime() - fallbackWindowMs)
@@ -987,9 +1021,7 @@ export class RecordLockService {
       }, { orderBy: { updatedAt: 'desc' }, limit: 50 })
 
       for (const lock of (Array.isArray(recentLocks) ? recentLocks : [])) {
-        if (lock.lockedByUserId !== input.userId) {
-          recipientUserIds.add(lock.lockedByUserId)
-        }
+        recipientUserIds.add(lock.lockedByUserId)
       }
     }
     if (!recipientUserIds.size) return
@@ -1017,6 +1049,8 @@ export class RecordLockService {
     const changedFields = incomingLog
       ? this.summarizeChangedFieldsFromActionLog(incomingLog)
       : ''
+    const changedRows = this.buildIncomingChangeRowsFromActionLog(incomingLog)
+    const changedRowsJson = changedRows.length ? JSON.stringify(changedRows) : ''
 
     await emitRecordLocksEvent('record_locks.incoming_changes.available', {
       resourceKind: input.resourceKind,
@@ -1027,6 +1061,7 @@ export class RecordLockService {
       incomingActionLogId: incomingLog?.id ?? null,
       recipientUserIds: Array.from(recipientUserIds),
       changedFields: changedFields || '-',
+      changedRowsJson,
     })
   }
 
@@ -1154,10 +1189,18 @@ export class RecordLockService {
     return where
   }
 
-  private async findActiveLock(
+  private async findActiveLocks(
     input: Pick<RecordLockScope, 'tenantId' | 'organizationId'> & RecordLockResource,
     now: Date,
-  ): Promise<RecordLock | null> {
+  ): Promise<RecordLock[]> {
+    const legacyFinder = (this as unknown as {
+      findActiveLock?: (args: Pick<RecordLockScope, 'tenantId' | 'organizationId'> & RecordLockResource, at: Date) => Promise<RecordLock | null>
+    }).findActiveLock
+    if (typeof legacyFinder === 'function') {
+      const legacyResult = await legacyFinder(input, now)
+      return legacyResult ? [legacyResult] : []
+    }
+
     const where: FilterQuery<RecordLock> = {
       ...this.buildScopeWhere(input),
       resourceKind: input.resourceKind,
@@ -1166,10 +1209,11 @@ export class RecordLockService {
     }
 
     const locks = await this.em.find(RecordLock, where, { orderBy: { updatedAt: 'desc' } })
-    if (!locks.length) return null
+    if (!Array.isArray(locks) || !locks.length) return []
 
-    let active: RecordLock | null = null
     let dirty = false
+    const active: RecordLock[] = []
+    const expiredLocks: RecordLock[] = []
 
     for (const lock of locks) {
       if (lock.expiresAt <= now) {
@@ -1180,15 +1224,30 @@ export class RecordLockService {
           now,
         })
         dirty = true
+        expiredLocks.push(lock)
         continue
       }
 
-      if (!active) {
-        active = lock
-      }
+      active.push(lock)
     }
 
     if (dirty) await this.em.flush()
+    if (expiredLocks.length) {
+      const recipientUserIds = active.map((lock) => lock.lockedByUserId)
+      for (const expiredLock of expiredLocks) {
+        await emitRecordLocksEvent('record_locks.participant.left', {
+          lockId: expiredLock.id,
+          resourceKind: expiredLock.resourceKind,
+          resourceId: expiredLock.resourceId,
+          tenantId: expiredLock.tenantId,
+          organizationId: expiredLock.organizationId,
+          leftUserId: expiredLock.lockedByUserId,
+          reason: 'expired',
+          recipientUserIds,
+          activeParticipantCount: active.length,
+        })
+      }
+    }
     return active
   }
 
@@ -1315,7 +1374,62 @@ export class RecordLockService {
       .join(', ')
   }
 
-  private toLockView(lock: RecordLock, includeToken: boolean): RecordLockView {
+  private buildIncomingChangeRowsFromActionLog(log: ActionLog | null): Array<{
+    field: string
+    incoming: string
+    current: string
+  }> {
+    if (!log || !isRecordValue(log.changesJson)) return []
+
+    const rows: Array<{ field: string; incoming: string; current: string }> = []
+    for (const [rawField, rawChange] of Object.entries(log.changesJson)) {
+      if (rows.length >= 12) break
+      if (shouldSkipConflictField(rawField)) continue
+
+      const change = isRecordValue(rawChange) ? rawChange : {}
+      const incoming = Object.prototype.hasOwnProperty.call(change, 'to')
+        ? formatNotificationValue(change.to)
+        : '-'
+      const current = Object.prototype.hasOwnProperty.call(change, 'from')
+        ? formatNotificationValue(change.from)
+        : '-'
+
+      rows.push({
+        field: formatChangedFieldLabel(rawField),
+        incoming,
+        current,
+      })
+    }
+
+    return rows
+  }
+
+  private toParticipantView(lock: RecordLock): RecordLockParticipantView {
+    return {
+      userId: lock.lockedByUserId,
+      lockedByIp: lock.lockedByIp ?? null,
+      lockedAt: normalizeDate(lock.lockedAt),
+      lastHeartbeatAt: normalizeDate(lock.lastHeartbeatAt),
+      expiresAt: normalizeDate(lock.expiresAt),
+    }
+  }
+
+  private sortLocksByJoinOrder(locks: RecordLock[]): RecordLock[] {
+    return [...locks].sort((left, right) => {
+      const leftLockedAt = left.lockedAt instanceof Date ? left.lockedAt.getTime() : 0
+      const rightLockedAt = right.lockedAt instanceof Date ? right.lockedAt.getTime() : 0
+      if (leftLockedAt !== rightLockedAt) return leftLockedAt - rightLockedAt
+
+      const leftCreatedAt = left.createdAt instanceof Date ? left.createdAt.getTime() : 0
+      const rightCreatedAt = right.createdAt instanceof Date ? right.createdAt.getTime() : 0
+      if (leftCreatedAt !== rightCreatedAt) return leftCreatedAt - rightCreatedAt
+
+      return left.id.localeCompare(right.id)
+    })
+  }
+
+  private toLockView(lock: RecordLock, includeToken: boolean, activeLocks: RecordLock[] = [lock]): RecordLockView {
+    const participants = activeLocks.map((item) => this.toParticipantView(item))
     return {
       id: lock.id,
       resourceKind: lock.resourceKind,
@@ -1329,6 +1443,8 @@ export class RecordLockService {
       lockedAt: normalizeDate(lock.lockedAt),
       lastHeartbeatAt: normalizeDate(lock.lastHeartbeatAt),
       expiresAt: normalizeDate(lock.expiresAt),
+      participants,
+      activeParticipantCount: participants.length,
     }
   }
 

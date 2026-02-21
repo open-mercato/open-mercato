@@ -13,14 +13,14 @@ export type RecordLockConflictResolution = 'accept_incoming' | 'accept_mine' | '
 @Index({ name: 'record_locks_owner_status_idx', properties: ['tenantId', 'lockedByUserId', 'status'] })
 @Index({ name: 'record_locks_expiry_status_idx', properties: ['tenantId', 'expiresAt', 'status'] })
 @Index({
-  name: 'record_locks_active_scope_org_unique',
+  name: 'record_locks_active_scope_user_org_unique',
   expression:
-    `create unique index "record_locks_active_scope_org_unique" on "record_locks" ("tenant_id", "organization_id", "resource_kind", "resource_id") where deleted_at is null and status = 'active' and organization_id is not null`,
+    `create unique index "record_locks_active_scope_user_org_unique" on "record_locks" ("tenant_id", "organization_id", "resource_kind", "resource_id", "locked_by_user_id") where deleted_at is null and status = 'active' and organization_id is not null`,
 })
 @Index({
-  name: 'record_locks_active_scope_tenant_unique',
+  name: 'record_locks_active_scope_user_tenant_unique',
   expression:
-    `create unique index "record_locks_active_scope_tenant_unique" on "record_locks" ("tenant_id", "resource_kind", "resource_id") where deleted_at is null and status = 'active' and organization_id is null`,
+    `create unique index "record_locks_active_scope_user_tenant_unique" on "record_locks" ("tenant_id", "resource_kind", "resource_id", "locked_by_user_id") where deleted_at is null and status = 'active' and organization_id is null`,
 })
 export class RecordLock {
   [OptionalProps]?: 'createdAt' | 'updatedAt' | 'deletedAt' | 'releasedAt' | 'releasedByUserId' | 'releaseReason'

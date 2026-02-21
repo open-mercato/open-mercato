@@ -26,9 +26,11 @@
     "banner": {
       "locked_by_other": "Ten rekord jest obecnie zablokowany przez innego użytkownika.",
       "optimistic_notice": "Inny użytkownik edytuje ten rekord. Podczas zapisu może wystąpić konflikt.",
+      "participants_notice": "Na tym rekordzie pracuje jednocześnie więcej osób.",
       "contention_notice": "Inny użytkownik otworzył ten rekord, gdy go edytujesz. Przy zapisie może wystąpić konflikt.",
       "same_user_session": "Ten rekord jest już otwarty w innej sesji.",
       "mine": "Aktualnie edytujesz ten rekord.",
+      "active_users_label": "Aktywni użytkownicy",
       "local_machine": "lokalna maszyna",
       "take_over": "Przejmij edycję",
       "take_over_pending": "Przejmowanie..."
@@ -56,6 +58,14 @@
       "accept_incoming_failed": "Nie udało się zaakceptować wersji przychodzącej. Odśwież i spróbuj ponownie."
     },
     "notifications": {
+      "participant_joined": {
+        "title": "Nowa osoba dołączyła",
+        "body": "Inny użytkownik otworzył ten rekord."
+      },
+      "participant_left": {
+        "title": "Użytkownik opuścił rekord",
+        "body": "Użytkownik opuścił rekord (heartbeat wygasł)."
+      },
       "lock_contended": {
         "title": "Inny użytkownik otworzył Twój rekord",
         "body": "Inny użytkownik otworzył rekord, który aktualnie edytujesz. Przy zapisie może wystąpić konflikt."

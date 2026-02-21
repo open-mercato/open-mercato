@@ -87,6 +87,16 @@ export const recordLockApiLockSchema = z.object({
   lockedAt: z.string(),
   lastHeartbeatAt: z.string(),
   expiresAt: z.string(),
+  activeParticipantCount: z.number().int().nonnegative().default(0),
+  participants: z.array(z.object({
+    userId: z.string().uuid(),
+    lockedByName: z.string().nullable().optional(),
+    lockedByEmail: z.string().nullable().optional(),
+    lockedByIp: z.string().nullable().optional(),
+    lockedAt: z.string(),
+    lastHeartbeatAt: z.string(),
+    expiresAt: z.string(),
+  })).default([]),
 })
 
 export const recordLockAcquireResponseSchema = z.object({

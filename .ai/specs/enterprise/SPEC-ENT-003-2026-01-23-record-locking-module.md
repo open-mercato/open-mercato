@@ -7,6 +7,7 @@
 The Record Locking module provides optimistic and pessimistic locking mechanisms for records being edited, with conflict detection, resolution UI, and merge capabilities. It prevents data loss when multiple users edit the same record simultaneously.
 
 **Key Features:**
+- **Participant Presence Ring** - In optimistic mode multiple users can stay active on the same record at the same time
 - **Pessimistic Locking** - Completely blocks other users from editing a locked record
 - **Optimistic Locking** - Allows concurrent edits but detects conflicts on save
 - **Auto-release** - Locks automatically expire after configurable timeout
@@ -2672,3 +2673,21 @@ This is an append-only correction aligned with the current implementation on `fe
 - Force release path: `TC-LOCK-005`.
 - Lock payload identity/IP contract: `TC-LOCK-006`.
 - Notification action contract and changed fields payload: `TC-LOCK-007`.
+
+## Addendum (2026-02-21): Multi-participant optimistic presence model
+
+1. Active lock cardinality
+- Optimistic mode now allows multiple active lock rows per record (one active row per user+record scope).
+- Pessimistic mode remains exclusive and returns `423 record_locked` when another active participant exists.
+
+2. Lock payload contract
+- Acquire/validate lock payloads include participant list and participant count so every participant can see ring state.
+- When exactly one other participant is present, payload includes identity fields (name/login/IP) for display.
+
+3. Notification fanout updates
+- New event `record_locks.participant.joined` notifies all active participants when a new participant opens the record.
+- Incoming change notification fanout now targets all active participants on the record (including actor session).
+
+4. Server-side release authority
+- Client-side `onAfterSave` release call is removed from widget integration.
+- Lock release after successful mutation is kept server-side via mutation guard flow.

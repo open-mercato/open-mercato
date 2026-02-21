@@ -2,20 +2,33 @@ import type { NotificationTypeDefinition } from '@open-mercato/shared/modules/no
 
 export const notificationTypes: NotificationTypeDefinition[] = [
   {
+    type: 'record_locks.participant.joined',
+    module: 'record_locks',
+    titleKey: 'record_locks.notifications.participant_joined.title',
+    bodyKey: 'record_locks.notifications.participant_joined.body',
+    icon: 'users',
+    severity: 'info',
+    actions: [],
+    expiresAfterHours: 24,
+  },
+  {
+    type: 'record_locks.participant.left',
+    module: 'record_locks',
+    titleKey: 'record_locks.notifications.participant_left.title',
+    bodyKey: 'record_locks.notifications.participant_left.body',
+    icon: 'user-minus',
+    severity: 'info',
+    actions: [],
+    expiresAfterHours: 24,
+  },
+  {
     type: 'record_locks.lock.contended',
     module: 'record_locks',
     titleKey: 'record_locks.notifications.lock_contended.title',
     bodyKey: 'record_locks.notifications.lock_contended.body',
     icon: 'users',
     severity: 'warning',
-    actions: [
-      {
-        id: 'see_lock_contention',
-        labelKey: 'record_locks.notifications.actions.see_lock_contention',
-        variant: 'default',
-      },
-    ],
-    primaryActionId: 'see_lock_contention',
+    actions: [],
     expiresAfterHours: 48,
   },
   {
@@ -45,14 +58,7 @@ export const notificationTypes: NotificationTypeDefinition[] = [
     bodyKey: 'record_locks.notifications.incoming_changes.body',
     icon: 'git-pull-request-arrow',
     severity: 'info',
-    actions: [
-      {
-        id: 'see_incoming_changes',
-        labelKey: 'record_locks.notifications.actions.see_incoming_changes',
-        variant: 'default',
-      },
-    ],
-    primaryActionId: 'see_incoming_changes',
+    actions: [],
     expiresAfterHours: 48,
   },
   {

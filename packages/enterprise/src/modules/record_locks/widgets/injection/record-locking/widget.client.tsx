@@ -10,6 +10,7 @@ import { Notice } from '@open-mercato/ui/primitives/Notice'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import type { InjectionWidgetComponentProps } from '@open-mercato/shared/modules/widgets/injection'
 import { useSearchParams } from 'next/navigation'
+import { Mail } from 'lucide-react'
 import {
   ChangedFieldsTable,
   type ChangeRow,
@@ -84,16 +85,6 @@ function submitCrudForm(formId: string): boolean {
   return true
 }
 
-function formatIpAddress(ip: string | null | undefined, t: ReturnType<typeof useT>): string | null {
-  if (!ip) return null
-  const normalized = ip.trim().toLowerCase()
-  if (!normalized) return null
-  if (normalized === '::1' || normalized === '127.0.0.1' || normalized === 'localhost') {
-    return t('record_locks.banner.local_machine', 'local machine')
-  }
-  return ip
-}
-
 function resolveResourceKind(context: CrudInjectionContext): string | null {
   if (context.resourceKind && context.resourceKind.trim()) return context.resourceKind
   const entityId = context.entityId
@@ -152,6 +143,38 @@ async function releaseLock(state: {
   })
 }
 
+function releaseLockWithKeepalive(state: {
+  resourceKind: string
+  resourceId: string
+  token?: string | null
+  reason?: 'saved' | 'cancelled' | 'unmount'
+}) {
+  const payload = JSON.stringify({
+    resourceKind: state.resourceKind,
+    resourceId: state.resourceId,
+    token: state.token ?? undefined,
+    reason: state.reason ?? 'unmount',
+  })
+
+  try {
+    if (typeof navigator !== 'undefined' && typeof navigator.sendBeacon === 'function') {
+      const blob = new Blob([payload], { type: 'application/json' })
+      const sent = navigator.sendBeacon('/api/record_locks/release', blob)
+      if (sent) return
+    }
+  } catch {
+    // ignore and fallback to fetch
+  }
+
+  void fetch('/api/record_locks/release', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: payload,
+    keepalive: true,
+    credentials: 'include',
+  }).catch(() => {})
+}
+
 export default function RecordLockingWidget({
   context,
   data,
@@ -166,6 +189,11 @@ export default function RecordLockingWidget({
   const [mounted, setMounted] = React.useState(false)
   const [showIncomingChangesRequested, setShowIncomingChangesRequested] = React.useState(false)
   const [showLockContentionBanner, setShowLockContentionBanner] = React.useState(false)
+  const releasePayloadRef = React.useRef<{
+    resourceKind: string
+    resourceId: string
+    token: string
+  } | null>(null)
 
   React.useEffect(() => {
     setMounted(true)
@@ -243,13 +271,26 @@ export default function RecordLockingWidget({
     }
   }, [formId, resourceId, resourceKind])
 
-  const mine = Boolean(
-    state?.lock
-    && (
-      state.acquired === true
-      || (state.currentUserId && state.lock.lockedByUserId === state.currentUserId)
-    )
-  )
+  const mine = Boolean(state?.lock?.token)
+  const participants = React.useMemo(() => {
+    if (!state?.lock) return []
+    const fromPayload = Array.isArray(state.lock.participants) ? state.lock.participants : []
+    if (fromPayload.length) return fromPayload
+    return [{
+      userId: state.lock.lockedByUserId,
+      lockedByName: state.lock.lockedByName,
+      lockedByEmail: state.lock.lockedByEmail,
+      lockedByIp: state.lock.lockedByIp,
+      lockedAt: state.lock.lockedAt,
+      lastHeartbeatAt: state.lock.lastHeartbeatAt,
+      expiresAt: state.lock.expiresAt,
+    }]
+  }, [state?.lock])
+  const activeParticipantCount = state?.lock?.activeParticipantCount ?? participants.length
+  const otherParticipants = React.useMemo(() => {
+    if (!state?.currentUserId) return participants
+    return participants.filter((participant) => participant.userId !== state.currentUserId)
+  }, [participants, state?.currentUserId])
 
   React.useEffect(() => {
     if (!mine || !state?.lock?.id) return
@@ -279,8 +320,8 @@ export default function RecordLockingWidget({
   }, [mine, state?.lock?.id])
 
   React.useEffect(() => {
-    if (!state?.lock?.token || !mine || !state.resourceKind || !state.resourceId) return
-    const intervalMs = Math.max((state.heartbeatSeconds ?? 15) * 1000, 5000)
+    if (!state?.lock?.token || !state.resourceKind || !state.resourceId) return
+    const intervalMs = 10_000
     const interval = window.setInterval(() => {
       void apiCall('/api/record_locks/heartbeat', {
         method: 'POST',
@@ -293,7 +334,47 @@ export default function RecordLockingWidget({
       })
     }, intervalMs)
     return () => window.clearInterval(interval)
-  }, [mine, state?.heartbeatSeconds, state?.lock?.token, state?.resourceId, state?.resourceKind])
+  }, [state?.heartbeatSeconds, state?.lock?.token, state?.resourceId, state?.resourceKind])
+
+  React.useEffect(() => {
+    if (!state?.resourceKind || !state?.resourceId) return
+    let cancelled = false
+    const refreshPresence = async () => {
+      const call = await apiCall<AcquireResponse>('/api/record_locks/acquire', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          resourceKind: state.resourceKind,
+          resourceId: state.resourceId,
+        }),
+      })
+      if (cancelled || !call.ok) return
+      const payload = call.result ?? {}
+      setRecordLockFormState(formId, {
+        resourceKind: state.resourceKind,
+        resourceId: state.resourceId,
+        acquired: payload.acquired ?? false,
+        lock: payload.lock ?? null,
+        currentUserId: payload.currentUserId ?? null,
+        heartbeatSeconds: payload.heartbeatSeconds ?? 15,
+        latestActionLogId: payload.latestActionLogId ?? null,
+        allowForceUnlock: payload.allowForceUnlock ?? false,
+      })
+    }
+
+    const interval = window.setInterval(() => {
+      void refreshPresence()
+    }, 4000)
+
+    return () => {
+      cancelled = true
+      window.clearInterval(interval)
+    }
+  }, [
+    formId,
+    state?.resourceId,
+    state?.resourceKind,
+  ])
 
   React.useEffect(() => {
     if (!showIncomingChangesRequested) return
@@ -312,7 +393,46 @@ export default function RecordLockingWidget({
   }, [context, showIncomingChangesRequested, state?.lock, state?.resourceId, state?.resourceKind, t])
 
   React.useEffect(() => {
+    if (
+      state?.resourceKind
+      && state?.resourceId
+      && typeof state.lock?.token === 'string'
+      && state.lock.token.trim().length > 0
+    ) {
+      releasePayloadRef.current = {
+        resourceKind: state.resourceKind,
+        resourceId: state.resourceId,
+        token: state.lock.token,
+      }
+      return
+    }
+    releasePayloadRef.current = null
+  }, [state?.lock?.token, state?.resourceId, state?.resourceKind])
+
+  React.useEffect(() => {
+    const onPageHide = () => {
+      const payload = releasePayloadRef.current
+      if (!payload) return
+      releaseLockWithKeepalive({
+        ...payload,
+        reason: 'unmount',
+      })
+    }
+    window.addEventListener('pagehide', onPageHide)
     return () => {
+      window.removeEventListener('pagehide', onPageHide)
+    }
+  }, [])
+
+  React.useEffect(() => {
+    return () => {
+      const payload = releasePayloadRef.current
+      if (payload) {
+        void releaseLock({
+          ...payload,
+          reason: 'unmount',
+        })
+      }
       clearRecordLockFormState(formId)
     }
   }, [formId])
@@ -471,79 +591,86 @@ export default function RecordLockingWidget({
     </Dialog>
   )
 
-  const ownerContentionBanner = mine && showLockContentionBanner ? (
-    <div className="rounded-lg border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-900 shadow-sm">
-      <div className="font-medium">
-        {t(
-          'record_locks.banner.contention_notice',
-          'Another user opened this record while you are editing it. Conflicts may occur on save.',
-        )}
-      </div>
-      <div className="mt-2">
-        <Button
-          size="sm"
-          variant="outline"
-          onClick={() => setShowLockContentionBanner(false)}
-          className="border-amber-300 bg-amber-50 text-amber-900 hover:bg-amber-100 hover:text-amber-900"
-        >
-          {t('common.close', 'Close')}
-        </Button>
-      </div>
-    </div>
-  ) : null
+  const participantEmails = React.useMemo(() => {
+    return otherParticipants
+      .map((participant) => participant.lockedByEmail?.trim() ?? '')
+      .filter((email, index, all) => email.length > 0 && all.indexOf(email) === index)
+      .slice(0, 4)
+  }, [otherParticipants])
+
+  React.useEffect(() => {
+    if (!showLockContentionBanner) return
+    if (!mine) return
+    if (activeParticipantCount > 1) return
+    setShowLockContentionBanner(false)
+  }, [activeParticipantCount, mine, showLockContentionBanner])
+
   const topBannerTarget = mounted ? document.getElementById('om-top-banners') : null
 
-  if (!state?.lock || mine) {
-    if (!ownerContentionBanner) return conflictDialog
-    return (
-      <>
-        {topBannerTarget ? createPortal(ownerContentionBanner, topBannerTarget) : ownerContentionBanner}
-        {conflictDialog}
-      </>
-    )
-  }
+  if (!state?.lock) return conflictDialog
 
-  const actorName = state.lock.lockedByName?.trim() || null
-  const actorEmail = state.lock.lockedByEmail?.trim() || null
-  const actorIdentity = actorName && actorEmail
-    ? `${actorName} (${actorEmail})`
-    : actorName || actorEmail || state.lock.lockedByUserId
-  const ipAddress = formatIpAddress(state.lock.lockedByIp, t)
-  const ipLabel = ipAddress ? ` (${ipAddress})` : ''
-  const actorDetails = actorIdentity ? `${actorIdentity}${ipLabel}` : ipAddress
-  const bannerMessageRaw = t('record_locks.banner.optimistic_notice', 'Another user is editing this record. Conflicts may occur on save.')
+  const defaultPresenceMessage = activeParticipantCount > 1
+    ? `${activeParticipantCount} users are currently on this record.`
+    : 'This record is currently locked by another user.'
+  const bannerMessageRaw = mine
+    ? t('record_locks.banner.participants_notice', 'Multiple users are currently on this record.')
+    : t('record_locks.banner.optimistic_notice', defaultPresenceMessage)
   const bannerMessage = typeof bannerMessageRaw === 'string' && bannerMessageRaw.trim().length > 0
     ? bannerMessageRaw
-    : 'Another user is editing this record. Conflicts may occur on save.'
+    : defaultPresenceMessage
+  const shouldShowPresenceBanner = Boolean(
+    showLockContentionBanner
+    || activeParticipantCount > 1
+    || !mine,
+  )
 
-  const lockBanner = (
+  const lockBanner = shouldShowPresenceBanner ? (
     <div className="rounded-lg border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-900 shadow-sm">
       <div className="font-medium">
         {bannerMessage}
       </div>
-      {actorDetails ? (
-        <div className="mt-1 text-xs text-amber-900/90">
-          {actorDetails}
-        </div>
+      <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-amber-900/90">
+        <span>{`${t('record_locks.banner.active_users_label', 'Active users')}: ${activeParticipantCount}`}</span>
+        {participantEmails.map((email) => (
+          <span
+            key={email}
+            className="inline-flex items-center gap-1 rounded-full border border-amber-300 bg-amber-100 px-2 py-0.5 text-[11px] font-medium text-amber-900"
+          >
+            <Mail className="h-3 w-3" />
+            <span>{email}</span>
+          </span>
+        ))}
+      </div>
+      <div className="mt-2 flex gap-2">
+      {state.allowForceUnlock && !mine ? (
+        <Button
+          size="sm"
+          variant="outline"
+          onClick={handleTakeOver}
+          className="border-amber-300 bg-amber-50 text-amber-900 hover:bg-amber-100 hover:text-amber-900"
+        >
+          {t('record_locks.banner.take_over', 'Take over editing')}
+        </Button>
       ) : null}
-      {state.allowForceUnlock ? (
+      {showLockContentionBanner ? (
         <div className="mt-2">
           <Button
             size="sm"
             variant="outline"
-            onClick={handleTakeOver}
+            onClick={() => setShowLockContentionBanner(false)}
             className="border-amber-300 bg-amber-50 text-amber-900 hover:bg-amber-100 hover:text-amber-900"
           >
-            {t('record_locks.banner.take_over', 'Take over editing')}
+            {t('common.close', 'Close')}
           </Button>
         </div>
       ) : null}
+      </div>
     </div>
-  )
+  ) : null
 
   return (
     <>
-      {topBannerTarget ? createPortal(lockBanner, topBannerTarget) : lockBanner}
+      {lockBanner ? (topBannerTarget ? createPortal(lockBanner, topBannerTarget) : lockBanner) : null}
       {conflictDialog}
     </>
   )

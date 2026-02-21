@@ -15,6 +15,16 @@ export type RecordLockUiView = {
   lockedAt: string
   lastHeartbeatAt: string
   expiresAt: string
+  activeParticipantCount?: number
+  participants?: Array<{
+    userId: string
+    lockedByName?: string | null
+    lockedByEmail?: string | null
+    lockedByIp?: string | null
+    lockedAt: string
+    lastHeartbeatAt: string
+    expiresAt: string
+  }>
 }
 
 export type RecordLockUiConflict = {

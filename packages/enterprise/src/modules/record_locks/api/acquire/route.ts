@@ -10,22 +10,79 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import { User } from '@open-mercato/core/modules/auth/data/entities'
 import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
 
-type LockWithActor = {
-  lockedByUserId: string
+type LockPayload = {
+  lockedByUserId?: string
+  lockedByIp?: string | null
   lockedByName?: string | null
   lockedByEmail?: string | null
+  participants?: Array<{
+    userId: string
+    lockedByIp?: string | null
+    lockedByName?: string | null
+    lockedByEmail?: string | null
+    lockedAt: string
+    lastHeartbeatAt: string
+    expiresAt: string
+  }>
+  activeParticipantCount?: number
 }
 
-async function enrichLockActor(
+function maskEmail(email: string | null | undefined): string | null {
+  if (typeof email !== 'string') return null
+  const normalized = email.trim().toLowerCase()
+  const atIndex = normalized.indexOf('@')
+  if (atIndex <= 0 || atIndex === normalized.length - 1) return null
+  const local = normalized.slice(0, atIndex)
+  const domain = normalized.slice(atIndex + 1)
+  const dotIndex = domain.indexOf('.')
+  if (dotIndex <= 0 || dotIndex === domain.length - 1) return null
+  const domainName = domain.slice(0, dotIndex)
+  const domainSuffix = domain.slice(dotIndex)
+  const localPrefix = local.slice(0, Math.min(2, local.length))
+  const domainPrefix = domainName.slice(0, Math.min(4, domainName.length))
+  return `${localPrefix}**@${domainPrefix}**${domainSuffix}`
+}
+
+async function redactPersonalData(
   em: EntityManager,
-  lock: LockWithActor | null | undefined,
-): Promise<LockWithActor | null> {
+  lock: LockPayload | null | undefined,
+): Promise<LockPayload | null> {
   if (!lock) return null
-  const actor = await em.findOne(User, { id: lock.lockedByUserId, deletedAt: null })
+  const userIds = new Set<string>()
+  if (typeof lock.lockedByUserId === 'string' && lock.lockedByUserId.trim().length > 0) {
+    userIds.add(lock.lockedByUserId)
+  }
+  for (const participant of lock.participants ?? []) {
+    if (typeof participant.userId === 'string' && participant.userId.trim().length > 0) {
+      userIds.add(participant.userId)
+    }
+  }
+
+  const users = userIds.size
+    ? await em.find(User, { id: { $in: Array.from(userIds) }, deletedAt: null })
+    : []
+  const userById = new Map(users.map((user) => [user.id, user]))
+
+  const participants = (lock.participants ?? []).map((participant) => {
+    const { lockedByIp, lockedByName, lockedByEmail, ...rest } = participant
+    const maskedEmail = maskEmail(userById.get(participant.userId)?.email ?? null)
+    return {
+      ...rest,
+      ...(maskedEmail ? { lockedByEmail: maskedEmail } : {}),
+    }
+  })
+
+  const { lockedByIp, lockedByName, lockedByEmail, lockedByUserId, ...rest } = lock
+  const maskedOwnerEmail = maskEmail(
+    lockedByUserId ? (userById.get(lockedByUserId)?.email ?? null) : null,
+  )
   return {
-    ...lock,
-    lockedByName: actor?.name ?? null,
-    lockedByEmail: actor?.email ?? null,
+    ...rest,
+    lockedByIp: null,
+    lockedByName: null,
+    lockedByEmail: maskedOwnerEmail,
+    participants,
+    activeParticipantCount: lock.activeParticipantCount ?? participants.length,
   }
 }
 
@@ -77,7 +134,7 @@ export async function POST(req: Request) {
   const allowForceUnlock = result.allowForceUnlock && canForceRelease
 
   if (!result.ok) {
-    const lock = await enrichLockActor(em, result.lock as LockWithActor | null)
+    const lock = await redactPersonalData(em, result.lock as LockPayload | null)
     return NextResponse.json(
       {
         error: result.error,
@@ -90,7 +147,7 @@ export async function POST(req: Request) {
     )
   }
 
-  const lock = await enrichLockActor(em, result.lock as LockWithActor | null)
+  const lock = await redactPersonalData(em, result.lock as LockPayload | null)
   return NextResponse.json({
     ...result,
     allowForceUnlock,
