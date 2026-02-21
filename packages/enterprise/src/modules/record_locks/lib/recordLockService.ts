@@ -1,6 +1,7 @@
 import { randomUUID } from 'crypto'
 import { UniqueConstraintViolationException, type FilterQuery } from '@mikro-orm/core'
 import type { EntityManager } from '@mikro-orm/postgresql'
+import type { Knex } from 'knex'
 import type { ModuleConfigService } from '@open-mercato/core/modules/configs/lib/module-config-service'
 import { ActionLog } from '@open-mercato/core/modules/audit_logs/data/entities'
 import type { ActionLogService } from '@open-mercato/core/modules/audit_logs/services/actionLogService'
@@ -37,6 +38,11 @@ const ACTIVE_SCOPE_UNIQUE_CONSTRAINTS = new Set([
 ])
 const LOCK_CONTENTION_EVENT_TTL_MS = 15_000
 const lockContentionEventThrottle = new Map<string, number>()
+const LOCK_CLEANUP_INTERVAL_MS = 5 * 60 * 1000
+const LOCK_RETENTION_MS = 3 * 24 * 60 * 60 * 1000
+const RESOLVED_CONFLICT_RETENTION_MS = 7 * 24 * 60 * 60 * 1000
+const PENDING_CONFLICT_RETENTION_MS = 24 * 60 * 60 * 1000
+const lockCleanupStateByTenant = new Map<string, { lastRunAt: number; inFlight: boolean }>()
 
 export type RecordLockScope = {
   tenantId: string
@@ -240,6 +246,10 @@ function isActiveLockScopeUniqueViolation(error: unknown): boolean {
   return false
 }
 
+function getKnex(em: EntityManager): Knex {
+  return (em.getConnection() as unknown as { getKnex: () => Knex }).getKnex()
+}
+
 const SKIPPED_CONFLICT_FIELDS = new Set([
   'updatedAt',
   'updated_at',
@@ -423,6 +433,7 @@ export class RecordLockService {
   }
 
   async acquire(input: RecordLockAcquireInput): Promise<RecordLockAcquireResult | RecordLockAcquireFailure> {
+    this.scheduleCleanup(input.tenantId)
     const settings = await this.getSettings()
     const latest = await this.findLatestActionLogWithScopeFallback(input)
     const resourceEnabled = isRecordLockingEnabledForResource(settings, input.resourceKind)
@@ -722,6 +733,7 @@ export class RecordLockService {
   }
 
   async validateMutation(input: RecordLockMutationValidationInput): Promise<RecordLockValidationResult> {
+    this.scheduleCleanup(input.tenantId)
     const settings = await this.getSettings()
     const resourceEnabled = isRecordLockingEnabledForResource(settings, input.resourceKind)
     const canOverrideIncoming = await this.canUserOverrideIncoming(input, settings)
@@ -1061,6 +1073,57 @@ export class RecordLockService {
       )
     } catch {
       return false
+    }
+  }
+
+  private scheduleCleanup(tenantId: string): void {
+    const now = Date.now()
+    const state = lockCleanupStateByTenant.get(tenantId) ?? { lastRunAt: 0, inFlight: false }
+    if (state.inFlight) return
+    if (now - state.lastRunAt < LOCK_CLEANUP_INTERVAL_MS) return
+
+    state.inFlight = true
+    state.lastRunAt = now
+    lockCleanupStateByTenant.set(tenantId, state)
+
+    void this.cleanupHistoricalRecords(tenantId).finally(() => {
+      const current = lockCleanupStateByTenant.get(tenantId)
+      if (!current) return
+      current.inFlight = false
+      lockCleanupStateByTenant.set(tenantId, current)
+    })
+  }
+
+  private async cleanupHistoricalRecords(tenantId: string): Promise<void> {
+    try {
+      const knex = getKnex(this.em)
+      const now = Date.now()
+      const lockCutoff = new Date(now - LOCK_RETENTION_MS)
+      const resolvedConflictCutoff = new Date(now - RESOLVED_CONFLICT_RETENTION_MS)
+      const pendingConflictCutoff = new Date(now - PENDING_CONFLICT_RETENTION_MS)
+
+      await knex('record_locks')
+        .where({ tenant_id: tenantId })
+        .whereNull('deleted_at')
+        .whereNot('status', ACTIVE_LOCK_STATUS)
+        .andWhere('updated_at', '<', lockCutoff)
+        .delete()
+
+      await knex('record_lock_conflicts')
+        .where({ tenant_id: tenantId })
+        .whereNull('deleted_at')
+        .andWhere((query) => {
+          query
+            .where((pending) => {
+              pending.where('status', 'pending').andWhere('created_at', '<', pendingConflictCutoff)
+            })
+            .orWhere((resolved) => {
+              resolved.whereNot('status', 'pending').andWhere('updated_at', '<', resolvedConflictCutoff)
+            })
+        })
+        .delete()
+    } catch {
+      // Best-effort cleanup must never fail lock workflows.
     }
   }
 

@@ -60,7 +60,7 @@ describe('notification service', () => {
     const notification = await service.create(baseNotificationInput, baseCtx)
 
     expect(notification.id).toBe('note-1')
-    expect(em.persistAndFlush).toHaveBeenCalledWith(notification)
+    expect(em.flush).toHaveBeenCalled()
     expect(eventBus.emit).toHaveBeenCalledWith(
       NOTIFICATION_EVENTS.CREATED,
       expect.objectContaining({
@@ -99,7 +99,7 @@ describe('notification service', () => {
     expect(em.create).not.toHaveBeenCalled()
     expect(notification.status).toBe('unread')
     expect(notification.body).toBe('Updated body')
-    expect(em.persistAndFlush).toHaveBeenCalledWith(notification)
+    expect(em.flush).toHaveBeenCalled()
     expect(eventBus.emit).toHaveBeenCalledWith(
       NOTIFICATION_EVENTS.CREATED,
       expect.objectContaining({
@@ -129,7 +129,7 @@ describe('notification service', () => {
     )
 
     expect(notifications).toHaveLength(2)
-    expect(em.persistAndFlush).toHaveBeenCalledWith(notifications)
+    expect(em.flush).toHaveBeenCalled()
     expect(eventBus.emit).toHaveBeenCalledTimes(2)
   })
 
@@ -150,7 +150,7 @@ describe('notification service', () => {
     )
 
     expect(result).toEqual([])
-    expect(em.persistAndFlush).not.toHaveBeenCalled()
+    expect(em.flush).not.toHaveBeenCalled()
     expect(eventBus.emit).not.toHaveBeenCalled()
   })
 

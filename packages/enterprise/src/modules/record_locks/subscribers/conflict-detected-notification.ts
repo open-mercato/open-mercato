@@ -76,6 +76,7 @@ export default async function handle(payload: Payload, ctx: ResolverContext) {
       sourceEntityType: 'record_locks:conflict',
       sourceEntityId: payload.conflictId,
       linkHref: resolveRecordResourceLink(payload.resourceKind, payload.resourceId),
+      groupKey: `record_locks.conflict.detected:${payload.conflictId}`,
     })
 
     await notificationService.create(notificationInput, {
