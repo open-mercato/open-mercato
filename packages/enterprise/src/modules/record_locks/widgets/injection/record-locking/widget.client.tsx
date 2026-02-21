@@ -314,7 +314,8 @@ export default function RecordLockingWidget({
   React.useEffect(() => {
     return () => {
       const current = getRecordLockFormState(formId)
-      if (current?.lock?.token && current.resourceKind && current.resourceId) {
+      const shouldReleaseOnUnmount = current?.lock?.strategy === 'pessimistic'
+      if (shouldReleaseOnUnmount && current?.lock?.token && current.resourceKind && current.resourceId) {
         void releaseLock({
           resourceKind: current.resourceKind,
           resourceId: current.resourceId,

@@ -934,7 +934,7 @@ export class RecordLockService {
       resourceId: input.resourceId,
       status: ACTIVE_LOCK_STATUS,
     }, { orderBy: { updatedAt: 'desc' } })
-    if ((!Array.isArray(candidateLocks) || candidateLocks.length === 0) && input.organizationId === null) {
+    if (!Array.isArray(candidateLocks) || candidateLocks.length === 0) {
       candidateLocks = await this.em.find(RecordLock, {
         tenantId: input.tenantId,
         deletedAt: null,
@@ -944,7 +944,6 @@ export class RecordLockService {
       }, { orderBy: { updatedAt: 'desc' } })
     }
     const activeLocks = Array.isArray(candidateLocks) ? candidateLocks : []
-    if (!activeLocks.length) return
 
     let hasExpiredLocks = false
     const recipientUserIds = new Set<string>()
@@ -964,10 +963,27 @@ export class RecordLockService {
       }
     }
     if (hasExpiredLocks) await this.em.flush()
+    if (!recipientUserIds.size) {
+      const fallbackWindowMs = Math.max((settings.timeoutSeconds ?? 300) * 1000, 60_000)
+      const fallbackSince = new Date(now.getTime() - fallbackWindowMs)
+      const recentLocks = await this.em.find(RecordLock, {
+        tenantId: input.tenantId,
+        deletedAt: null,
+        resourceKind: input.resourceKind,
+        resourceId: input.resourceId,
+        updatedAt: { $gte: fallbackSince },
+      }, { orderBy: { updatedAt: 'desc' }, limit: 50 })
+
+      for (const lock of (Array.isArray(recentLocks) ? recentLocks : [])) {
+        if (lock.lockedByUserId !== input.userId) {
+          recipientUserIds.add(lock.lockedByUserId)
+        }
+      }
+    }
     if (!recipientUserIds.size) return
 
     let latest = await this.findLatestActionLog(input)
-    if (!latest && input.organizationId === null) {
+    if (!latest) {
       latest = await this.findLatestActionLog({
         tenantId: input.tenantId,
         resourceKind: input.resourceKind,
@@ -977,7 +993,7 @@ export class RecordLockService {
     let actorLog = latest?.actorUserId === input.userId
       ? latest
       : await this.findLatestActionLogByActor(input, input.userId)
-    if (!actorLog && input.organizationId === null) {
+    if (!actorLog) {
       actorLog = await this.findLatestActionLogByActor({
         tenantId: input.tenantId,
         resourceKind: input.resourceKind,

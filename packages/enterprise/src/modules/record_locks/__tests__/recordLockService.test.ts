@@ -865,4 +865,110 @@ describe('RecordLockService.emitIncomingChangesNotificationAfterMutation', () =>
       }),
     )
   })
+
+  test('emits incoming-changes event when scoped query misses lock but tenant-scope fallback finds it', async () => {
+    const { service, em } = createService(DEFAULT_SETTINGS)
+    const serviceAny = service as any
+
+    em.find
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([
+        buildLock({
+          lockedByUserId: '40000000-0000-4000-8000-000000000001',
+          organizationId: '70000000-0000-4000-8000-000000000001',
+          expiresAt: new Date('2099-02-17T10:05:00.000Z'),
+        }),
+      ])
+
+    serviceAny.findLatestActionLog = jest
+      .fn()
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce({
+        id: '80000000-0000-4000-8000-000000000556',
+        actorUserId: '90000000-0000-4000-8000-000000000001',
+        changesJson: {
+          'entity.displayName': { from: 'Acme Before', to: 'Acme Incoming' },
+        },
+        createdAt: new Date('2026-02-17T10:04:00.000Z'),
+      })
+    serviceAny.findLatestActionLogByActor = jest
+      .fn()
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce({
+        id: '80000000-0000-4000-8000-000000000556',
+        actorUserId: '90000000-0000-4000-8000-000000000001',
+        changesJson: {
+          'entity.displayName': { from: 'Acme Before', to: 'Acme Incoming' },
+        },
+        createdAt: new Date('2026-02-17T10:04:00.000Z'),
+      })
+
+    await service.emitIncomingChangesNotificationAfterMutation({
+      tenantId: '60000000-0000-4000-8000-000000000001',
+      organizationId: '70000000-0000-4000-8000-000000000777',
+      userId: '90000000-0000-4000-8000-000000000001',
+      resourceKind: 'sales.quote',
+      resourceId: '20000000-0000-4000-8000-000000000001',
+      method: 'PUT',
+    })
+
+    expect(emitRecordLocksEvent).toHaveBeenCalledWith(
+      'record_locks.incoming_changes.available',
+      expect.objectContaining({
+        recipientUserIds: ['40000000-0000-4000-8000-000000000001'],
+        incomingActionLogId: '80000000-0000-4000-8000-000000000556',
+      }),
+    )
+  })
+
+  test('emits incoming-changes event for recent lock owner when active lock list is empty', async () => {
+    const { service, em } = createService(DEFAULT_SETTINGS)
+    const serviceAny = service as any
+
+    em.find
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([
+        buildLock({
+          status: 'released',
+          lockedByUserId: '40000000-0000-4000-8000-000000000001',
+          updatedAt: new Date('2026-02-17T10:04:30.000Z'),
+          expiresAt: new Date('2099-02-17T10:04:00.000Z'),
+        }),
+      ])
+
+    serviceAny.findLatestActionLog = jest.fn().mockResolvedValue({
+      id: '80000000-0000-4000-8000-000000000557',
+      actorUserId: '90000000-0000-4000-8000-000000000001',
+      changesJson: {
+        'entity.displayName': { from: 'Acme Before', to: 'Acme Incoming' },
+      },
+      createdAt: new Date('2026-02-17T10:05:00.000Z'),
+    })
+    serviceAny.findLatestActionLogByActor = jest.fn().mockResolvedValue({
+      id: '80000000-0000-4000-8000-000000000557',
+      actorUserId: '90000000-0000-4000-8000-000000000001',
+      changesJson: {
+        'entity.displayName': { from: 'Acme Before', to: 'Acme Incoming' },
+      },
+      createdAt: new Date('2026-02-17T10:05:00.000Z'),
+    })
+
+    await service.emitIncomingChangesNotificationAfterMutation({
+      tenantId: '60000000-0000-4000-8000-000000000001',
+      organizationId: '70000000-0000-4000-8000-000000000001',
+      userId: '90000000-0000-4000-8000-000000000001',
+      resourceKind: 'sales.quote',
+      resourceId: '20000000-0000-4000-8000-000000000001',
+      method: 'PUT',
+    })
+
+    expect(emitRecordLocksEvent).toHaveBeenCalledWith(
+      'record_locks.incoming_changes.available',
+      expect.objectContaining({
+        recipientUserIds: ['40000000-0000-4000-8000-000000000001'],
+        incomingActionLogId: '80000000-0000-4000-8000-000000000557',
+      }),
+    )
+  })
 })
