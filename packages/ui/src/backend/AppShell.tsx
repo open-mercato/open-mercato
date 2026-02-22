@@ -16,7 +16,14 @@ import { useLocale, useT } from '@open-mercato/shared/lib/i18n/context'
 import { slugifySidebarId } from '@open-mercato/shared/modules/navigation/sidebarPreferences'
 import type { SectionNavGroup } from './section-page/types'
 import { InjectionSpot } from './injection/InjectionSpot'
-import { GLOBAL_MUTATION_INJECTION_SPOT_ID } from './injection/mutationEvents'
+import { LEGACY_GLOBAL_MUTATION_INJECTION_SPOT_ID } from './injection/mutationEvents'
+import {
+  BACKEND_LAYOUT_FOOTER_INJECTION_SPOT_ID,
+  BACKEND_LAYOUT_TOP_INJECTION_SPOT_ID,
+  BACKEND_RECORD_CURRENT_INJECTION_SPOT_ID,
+  BACKEND_SIDEBAR_FOOTER_INJECTION_SPOT_ID,
+  BACKEND_SIDEBAR_TOP_INJECTION_SPOT_ID,
+} from './injection/spotIds'
 
 export type AppShellProps = {
   productName?: string
@@ -175,6 +182,13 @@ export function AppShell({ productName, email, groups, rightHeaderSlot, children
   const [headerBreadcrumb, setHeaderBreadcrumb] = React.useState<Breadcrumb | undefined>(breadcrumb)
   const effectiveCollapsed = customizing ? false : collapsed
   const expandedSidebarWidth = customizing ? '320px' : '240px'
+  const injectionContext = React.useMemo(
+    () => ({
+      path: pathname ?? '',
+      query: searchParams?.toString() ?? '',
+    }),
+    [pathname, searchParams],
+  )
 
   const isOnSettingsPath = React.useMemo(() => {
     if (!pathname) return false
@@ -733,6 +747,7 @@ export function AppShell({ productName, email, groups, rightHeaderSlot, children
     }
 
     const isMobileVariant = !!hideHeader
+    const shouldRenderSidebarInjectionSpots = !isMobileVariant
     const baseGroupsForDefaults = originalNavRef.current ?? navGroups
     const baseGroupMap = new Map<string, SidebarGroup>()
     for (const group of baseGroupsForDefaults) {
@@ -930,6 +945,12 @@ export function AppShell({ productName, email, groups, rightHeaderSlot, children
             </Link>
           </div>
         )}
+        {shouldRenderSidebarInjectionSpots ? (
+          <InjectionSpot
+            spotId={BACKEND_SIDEBAR_TOP_INJECTION_SPOT_ID}
+            context={injectionContext}
+          />
+        ) : null}
         <div className="flex flex-1 flex-col gap-3 overflow-y-auto pr-1">
           {customizing ? (
             customizationEditor
@@ -1100,6 +1121,12 @@ export function AppShell({ productName, email, groups, rightHeaderSlot, children
           )}
           </>
         )}
+        {shouldRenderSidebarInjectionSpots ? (
+          <InjectionSpot
+            spotId={BACKEND_SIDEBAR_FOOTER_INJECTION_SPOT_ID}
+            context={injectionContext}
+          />
+        ) : null}
       </div>
     )
   }
@@ -1184,19 +1211,19 @@ export function AppShell({ productName, email, groups, rightHeaderSlot, children
           </div>
         </header>
         <main className="flex-1 p-4 lg:p-6">
+          <InjectionSpot spotId={BACKEND_LAYOUT_TOP_INJECTION_SPOT_ID} context={injectionContext} />
           <FlashMessages />
           <PartialIndexBanner />
           <UpgradeActionBanner />
           <LastOperationBanner />
+          <InjectionSpot spotId={BACKEND_RECORD_CURRENT_INJECTION_SPOT_ID} context={injectionContext} />
           <InjectionSpot
-            spotId={GLOBAL_MUTATION_INJECTION_SPOT_ID}
-            context={{
-              path: pathname ?? '',
-              query: searchParams?.toString() ?? '',
-            }}
+            spotId={LEGACY_GLOBAL_MUTATION_INJECTION_SPOT_ID}
+            context={injectionContext}
           />
           <div id="om-top-banners" className="mb-3 space-y-2" />
           {children}
+          <InjectionSpot spotId={BACKEND_LAYOUT_FOOTER_INJECTION_SPOT_ID} context={injectionContext} />
         </main>
         <footer className="border-t bg-background/80 backdrop-blur supports-[backdrop-filter]:bg-background/50 px-4 py-3 flex flex-wrap items-center justify-end gap-4">
           {version ? (

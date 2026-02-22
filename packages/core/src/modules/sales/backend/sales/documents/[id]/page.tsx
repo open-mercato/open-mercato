@@ -26,7 +26,7 @@ import { FormHeader, type ActionItem } from '@open-mercato/ui/backend/forms'
 import { VersionHistoryAction } from '@open-mercato/ui/backend/version-history'
 import Link from 'next/link'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
-import { apiCall, apiCallOrThrow, readApiResultOrThrow, withScopedApiRequestHeaders } from '@open-mercato/ui/backend/utils/apiCall'
+import { apiCall, apiCallOrThrow, readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 import { collectCustomFieldValues } from '@open-mercato/ui/backend/utils/customFieldValues'
 import { mapCrudServerErrorToFormErrors } from '@open-mercato/ui/backend/utils/serverErrors'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
@@ -59,11 +59,8 @@ import {
 import type { CommentSummary, SectionAction } from '@open-mercato/ui/backend/detail'
 import { ICON_SUGGESTIONS } from '@open-mercato/core/modules/customers/lib/dictionaries'
 import { readMarkdownPreferenceCookie, writeMarkdownPreferenceCookie } from '@open-mercato/core/modules/customers/lib/markdownPreference'
-import { InjectionSpot, useInjectionSpotEvents, useInjectionWidgets } from '@open-mercato/ui/backend/injection/InjectionSpot'
-import {
-  GLOBAL_MUTATION_INJECTION_SPOT_ID,
-  dispatchBackendMutationError,
-} from '@open-mercato/ui/backend/injection/mutationEvents'
+import { InjectionSpot, useInjectionWidgets } from '@open-mercato/ui/backend/injection/InjectionSpot'
+import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuardedMutation'
 
 function CurrencyInlineEditor({
   label,
@@ -1910,43 +1907,25 @@ export default function SalesDocumentDetailPage({
     }),
     [kind, mutationContextId, record],
   )
-  const { triggerEvent: triggerDetailsInjectionEvent } = useInjectionSpotEvents(GLOBAL_MUTATION_INJECTION_SPOT_ID)
-  const emitMutationSaveError = React.useCallback(
-    (error: unknown) => {
-      dispatchBackendMutationError({
-        contextId: mutationContextId,
-        formId: mutationContextId,
-        error,
+  const { runMutation } = useGuardedMutation<{
+    kind: SalesDocumentKind
+    record: DocumentRecord | null
+    formId: string
+    resourceKind: string
+    resourceId?: string
+  }>({
+    contextId: mutationContextId,
+    blockedMessage: t('ui.forms.flash.saveBlocked', 'Save blocked by validation'),
+  })
+  const runMutationWithContext = React.useCallback(
+    async <T,>(operation: () => Promise<T>, mutationPayload?: Record<string, unknown>): Promise<T> => {
+      return runMutation({
+        operation,
+        mutationPayload,
+        context: detailInjectionContext,
       })
     },
-    [mutationContextId],
-  )
-  const runMutation = React.useCallback(
-    async <T,>(operation: () => Promise<T>, mutationPayload?: Record<string, unknown>): Promise<T> => {
-      const payload = mutationPayload ?? {}
-      const beforeSave = await triggerDetailsInjectionEvent('onBeforeSave', payload, detailInjectionContext)
-      if (!beforeSave.ok) {
-        emitMutationSaveError(beforeSave.details ?? beforeSave)
-        throw new Error(beforeSave.message || t('ui.forms.flash.saveBlocked', 'Save blocked by validation'))
-      }
-
-      try {
-        const result =
-          beforeSave.requestHeaders && Object.keys(beforeSave.requestHeaders).length > 0
-            ? await withScopedApiRequestHeaders(beforeSave.requestHeaders, operation)
-            : await operation()
-        try {
-          await triggerDetailsInjectionEvent('onAfterSave', payload, detailInjectionContext)
-        } catch (err) {
-          console.error('[SalesDocumentDetailPage] Error in onAfterSave injection event:', err)
-        }
-        return result
-      } catch (error) {
-        emitMutationSaveError(error)
-        throw error
-      }
-    },
-    [detailInjectionContext, emitMutationSaveError, t, triggerDetailsInjectionEvent],
+    [detailInjectionContext, runMutation],
   )
   const clearCustomerError = React.useCallback(() => setCustomerError(null), [])
   const { data: currencyDictionary } = useCurrencyDictionary()
@@ -2982,7 +2961,7 @@ export default function SalesDocumentDetailPage({
       }
       const endpoint = kind === 'order' ? '/api/sales/orders' : '/api/sales/quotes'
       const mutation = { id: record.id, ...patch }
-      return runMutation(
+      return runMutationWithContext(
         () =>
           apiCallOrThrow<DocumentUpdateResult>(
             endpoint,
@@ -2996,7 +2975,7 @@ export default function SalesDocumentDetailPage({
         mutation,
       )
     },
-    [kind, record, runMutation, t]
+    [kind, record, runMutationWithContext, t]
   )
 
   const handleUpdateCurrency = React.useCallback(
@@ -3623,7 +3602,7 @@ export default function SalesDocumentDetailPage({
     if (!record || kind !== 'quote') return
     setConverting(true)
     try {
-      await runMutation(async () => {
+      await runMutationWithContext(async () => {
         const call = await apiCallOrThrow<{ orderId?: string }>(
           '/api/sales/quotes/convert',
           {
@@ -3643,13 +3622,13 @@ export default function SalesDocumentDetailPage({
     } finally {
       setConverting(false)
     }
-  }, [kind, record, router, runMutation, t])
+  }, [kind, record, router, runMutationWithContext, t])
 
   const handleSendQuote = React.useCallback(async () => {
     if (!record || kind !== 'quote') return
     setSending(true)
     try {
-      await runMutation(async () => {
+      await runMutationWithContext(async () => {
         await apiCallOrThrow('/api/sales/quotes/send', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -3666,7 +3645,7 @@ export default function SalesDocumentDetailPage({
     } finally {
       setSending(false)
     }
-  }, [fetchDocumentByKind, kind, record, runMutation, t, validForDays])
+  }, [fetchDocumentByKind, kind, record, runMutationWithContext, t, validForDays])
 
   const handleDelete = React.useCallback(async () => {
     if (!record) return
@@ -3678,7 +3657,7 @@ export default function SalesDocumentDetailPage({
     setDeleting(true)
     const endpoint = kind === 'order' ? '/api/sales/orders' : '/api/sales/quotes'
     try {
-      await runMutation(async () => {
+      await runMutationWithContext(async () => {
         await apiCallOrThrow(endpoint, {
           method: 'DELETE',
           headers: { 'Content-Type': 'application/json' },
@@ -3695,7 +3674,7 @@ export default function SalesDocumentDetailPage({
       flash(t('sales.documents.detail.deleteFailed', 'Could not delete document.'), 'error')
     }
     setDeleting(false)
-  }, [kind, record, router, runMutation, t])
+  }, [kind, record, router, runMutationWithContext, t])
 
   const detailFields = React.useMemo(() => {
     const fields: DetailFieldConfig[] = [
@@ -4264,7 +4243,7 @@ export default function SalesDocumentDetailPage({
       }
       const endpoint = kind === 'order' ? '/api/sales/orders' : '/api/sales/quotes'
       try {
-        await runMutation(async () => {
+        await runMutationWithContext(async () => {
           await apiCallOrThrow(
             endpoint,
             {
@@ -4301,7 +4280,7 @@ export default function SalesDocumentDetailPage({
       )
       flash(t('ui.forms.flash.saveSuccess', 'Saved successfully.'), 'success')
     },
-    [kind, record, runMutation, t],
+    [kind, record, runMutationWithContext, t],
   )
 
   const loadTagOptions = React.useCallback(
@@ -4373,7 +4352,7 @@ export default function SalesDocumentDetailPage({
       if (!record) return
       const endpoint = kind === 'order' ? '/api/sales/orders' : '/api/sales/quotes'
       const tagIds = Array.from(new Set(next.map((tag) => tag.id)))
-      await runMutation(async () => {
+      await runMutationWithContext(async () => {
         await apiCallOrThrow(
           endpoint,
           {
@@ -4388,7 +4367,7 @@ export default function SalesDocumentDetailPage({
       setTags(next)
       flash(t('sales.documents.detail.tags.success', 'Tags updated.'), 'success')
     },
-    [kind, record, runMutation, t],
+    [kind, record, runMutationWithContext, t],
   )
 
   if (loading) {

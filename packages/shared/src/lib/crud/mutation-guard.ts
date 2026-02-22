@@ -22,7 +22,8 @@ export type CrudMutationGuardValidateInput = {
   userId: string
   resourceKind: string
   resourceId: string
-  method: 'PUT' | 'DELETE'
+  operation: 'create' | 'update' | 'delete' | 'custom'
+  requestMethod: string
   requestHeaders: Headers
   mutationPayload?: Record<string, unknown> | null
 }
@@ -33,7 +34,8 @@ export type CrudMutationGuardAfterSuccessInput = {
   userId: string
   resourceKind: string
   resourceId: string
-  method: 'PUT' | 'DELETE'
+  operation: 'create' | 'update' | 'delete' | 'custom'
+  requestMethod: string
   requestHeaders: Headers
   metadata?: Record<string, unknown> | null
 }
@@ -70,5 +72,15 @@ export async function runCrudMutationGuardAfterSuccess(
 ): Promise<void> {
   const service = resolveCrudMutationGuardService(container)
   if (!service) return
-  await service.afterMutationSuccess(input)
+  try {
+    await service.afterMutationSuccess(input)
+  } catch (error) {
+    console.error('[crud-mutation-guard] after-success hook failed', {
+      resourceKind: input.resourceKind,
+      resourceId: input.resourceId,
+      operation: input.operation,
+      requestMethod: input.requestMethod,
+      error: error instanceof Error ? error.message : String(error),
+    })
+  }
 }

@@ -42,6 +42,16 @@ export const notificationTypes: NotificationTypeDefinition[] = [
     expiresAfterHours: 48,
   },
   {
+    type: 'record_locks.record.deleted',
+    module: 'record_locks',
+    titleKey: 'record_locks.notifications.record_deleted.title',
+    bodyKey: 'record_locks.notifications.record_deleted.body',
+    icon: 'trash-2',
+    severity: 'warning',
+    actions: [],
+    expiresAfterHours: 48,
+  },
+  {
     type: 'record_locks.conflict.detected',
     module: 'record_locks',
     titleKey: 'record_locks.notifications.conflict_detected.title',

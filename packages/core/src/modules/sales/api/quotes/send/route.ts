@@ -91,7 +91,8 @@ export async function POST(req: Request) {
       userId: ctx.auth?.sub ?? '',
       resourceKind: 'sales.quote',
       resourceId: input.quoteId,
-      method: 'PUT',
+      operation: 'update',
+      requestMethod: req.method,
       requestHeaders: req.headers,
     })
     if (mutationGuardValidation) {
@@ -169,7 +170,8 @@ export async function POST(req: Request) {
         userId: ctx.auth?.sub ?? '',
         resourceKind: 'sales.quote',
         resourceId: input.quoteId,
-        method: 'PUT',
+        operation: 'update',
+        requestMethod: req.method,
         requestHeaders: req.headers,
         metadata: mutationGuardValidation.metadata ?? null,
       })

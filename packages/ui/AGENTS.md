@@ -98,10 +98,9 @@ import { IconButton } from '@open-mercato/ui/primitives/icon-button'
 ## CrudForm Guidelines
 
 - Use `CrudForm` as the default for create/edit flows and for dialog forms.
-- If a backend page cannot use `CrudForm`, wire save flows through the global mutation injection hook:
-  - use `useInjectionSpotEvents(GLOBAL_MUTATION_INJECTION_SPOT_ID)` from `@open-mercato/ui/backend/injection/InjectionSpot` + `@open-mercato/ui/backend/injection/mutationEvents`
-  - run `onBeforeSave` before mutation, apply `requestHeaders` via `withScopedApiRequestHeaders`, then run `onAfterSave`
-  - on failure, emit `dispatchBackendMutationError({ contextId, error })` so global modules (for example conflict dialogs) work consistently
+- If a backend page cannot use `CrudForm`, use `useGuardedMutation` from `@open-mercato/ui/backend/injection/useGuardedMutation` for every write operation (`POST`/`PUT`/`PATCH`/`DELETE`).
+- Always call writes through `runMutation({ operation, context, mutationPayload })` so global injection modules (for example record-lock conflict handling) can run `onBeforeSave`/`onAfterSave`, apply scoped request headers, and receive mutation errors consistently.
+- Use manual `useInjectionSpotEvents(GLOBAL_MUTATION_INJECTION_SPOT_ID)` wiring only when you need behavior that `useGuardedMutation` does not support.
 - Keep `CrudForm` implementations reusable: extract shared field/group builders and submit handlers into module-level helpers when multiple pages or dialogs need the same shape.
 - Drive validation with a Zod schema and surface field errors via `createCrudFormError`.
 - Keep `fields` and `groups` in memoized helpers (see customers person form config).

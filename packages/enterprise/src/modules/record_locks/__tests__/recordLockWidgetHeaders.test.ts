@@ -109,4 +109,19 @@ describe('record lock widget resolution headers', () => {
     const second = await widget.eventHandlers.onBeforeSave({}, { formId } as any)
     expect(second.ok).toBe(false)
   })
+
+  test('blocks save when record was deleted by another user', async () => {
+    setRecordLockFormState(formId, {
+      formId,
+      resourceKind: 'customers.deal',
+      resourceId: 'b0000000-0000-4000-8000-000000000001',
+      recordDeleted: true,
+    })
+
+    const result = await widget.eventHandlers.onBeforeSave({}, { formId } as any)
+    expect(result.ok).toBe(false)
+    if (result.ok) throw new Error('Expected blocked save result')
+    expect(result.message).toContain('deleted')
+    expect(mockedValidateBeforeSave).not.toHaveBeenCalled()
+  })
 })

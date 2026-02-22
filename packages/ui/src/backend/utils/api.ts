@@ -5,29 +5,9 @@ import { flash } from '../FlashMessages'
 import { deserializeOperationMetadata } from '@open-mercato/shared/lib/commands/operationMetadata'
 import { pushOperation } from '../operations/store'
 import { pushPartialIndexWarning } from '../indexes/store'
+import { createScopedHeaderStack } from './scopedHeaderStack'
 
-const scopedHeaderStack: Array<Record<string, string>> = []
-
-function normalizeScopedHeaders(input: Record<string, string>): Record<string, string> {
-  const normalized: Record<string, string> = {}
-  for (const [key, value] of Object.entries(input)) {
-    const trimmedKey = key.trim()
-    if (!trimmedKey) continue
-    const trimmedValue = typeof value === 'string' ? value.trim() : ''
-    if (!trimmedValue) continue
-    normalized[trimmedKey] = trimmedValue
-  }
-  return normalized
-}
-
-function resolveScopedHeaders(): Record<string, string> {
-  if (!scopedHeaderStack.length) return {}
-  const merged: Record<string, string> = {}
-  for (const item of scopedHeaderStack) {
-    Object.assign(merged, item)
-  }
-  return merged
-}
+const scopedHeaders = createScopedHeaderStack()
 
 function mergeHeaders(base: HeadersInit | undefined, scoped: Record<string, string>): Headers {
   const headers = new Headers(base ?? {})
@@ -39,14 +19,7 @@ function mergeHeaders(base: HeadersInit | undefined, scoped: Record<string, stri
 }
 
 export async function withScopedApiHeaders<T>(headers: Record<string, string>, run: () => Promise<T>): Promise<T> {
-  const normalized = normalizeScopedHeaders(headers)
-  scopedHeaderStack.push(normalized)
-  try {
-    return await run()
-  } finally {
-    const idx = scopedHeaderStack.lastIndexOf(normalized)
-    if (idx >= 0) scopedHeaderStack.splice(idx, 1)
-  }
+  return scopedHeaders.withScopedHeaders(headers, run)
 }
 
 export class UnauthorizedError extends Error {
@@ -112,9 +85,9 @@ export async function apiFetch(input: RequestInfo | URL, init?: RequestInit): Pr
   const baseFetch: FetchType = (typeof window !== 'undefined' && (window as any).__omOriginalFetch)
     ? ((window as any).__omOriginalFetch as FetchType)
     : fetch;
-  const scopedHeaders = resolveScopedHeaders()
-  const mergedInit = Object.keys(scopedHeaders).length
-    ? { ...(init ?? {}), headers: mergeHeaders(init?.headers, scopedHeaders) }
+  const scoped = scopedHeaders.resolveScopedHeaders()
+  const mergedInit = Object.keys(scoped).length
+    ? { ...(init ?? {}), headers: mergeHeaders(init?.headers, scoped) }
     : init
   const res = await baseFetch(input, mergedInit);
   const onLoginPage = typeof window !== 'undefined' && window.location.pathname.startsWith('/login')

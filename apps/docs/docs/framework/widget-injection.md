@@ -36,8 +36,11 @@ src/modules/<module>/
 
 - **CRUD forms**: `crud-form:<entityId>` (automatically derived from `entityId`/`entityIds` passed to `CrudForm`). Widgets can request `placement.kind: 'group'` to render as a side-card and `column: 2` to appear in the right column.
 - **Data tables**: `data-table:<tableId>` (or pass `injectionSpotId` to `DataTable`). Header/footer child spots: `:header`, `:footer`.
+- **Backend record context**: `backend:record:current` (mounted once per backend page with `{ path, query }` context).
+- **Backend layout**: `backend:layout:top`, `backend:layout:footer` (top and bottom of the main backend content area).
+- **Backend sidebar**: `backend:sidebar:top`, `backend:sidebar:footer` (desktop sidebar top/bottom areas in `AppShell`).
 - **Admin layout wrapper**: `admin.page:<path-handle>:before|after` from `PageInjectionBoundary` (wraps every backend page).
-- **Global backend mutations**: `backend-mutation:global` (mounted once in `AppShell`, available on backend pages regardless of whether they use `CrudForm`).
+- **Global backend mutations**: `GLOBAL_MUTATION_INJECTION_SPOT_ID` resolves to `backend:record:current` for non-`CrudForm` save hooks. `backend-mutation:global` is still mounted in `AppShell` as a legacy compatibility slot.
 
 ## Creating an Injection Widget
 

@@ -1078,6 +1078,68 @@ export class RecordLockService {
     })
   }
 
+  async emitRecordDeletedNotificationAfterMutation(input: {
+    tenantId: string
+    organizationId?: string | null
+    userId: string
+    resourceKind: string
+    resourceId: string
+    method: 'PUT' | 'DELETE'
+  }): Promise<void> {
+    if (input.method !== 'DELETE') return
+    const settings = await this.getSettings()
+    if (!isRecordLockingEnabledForResource(settings, input.resourceKind)) return
+
+    const now = new Date()
+    let activeLocks = await this.findActiveLocks(input, now)
+    if (!activeLocks.length) {
+      const fallbackWhere: FilterQuery<RecordLock> = {
+        tenantId: input.tenantId,
+        deletedAt: null,
+        resourceKind: input.resourceKind,
+        resourceId: input.resourceId,
+        status: ACTIVE_LOCK_STATUS,
+      }
+      const fallbackLocks = await this.em.find(RecordLock, fallbackWhere, { orderBy: { updatedAt: 'desc' } })
+      activeLocks = Array.isArray(fallbackLocks) ? fallbackLocks : []
+    }
+
+    const recipientUserIds = new Set<string>()
+    for (const lock of activeLocks) {
+      if (lock.lockedByUserId !== input.userId) {
+        recipientUserIds.add(lock.lockedByUserId)
+      }
+    }
+
+    if (!recipientUserIds.size) {
+      const fallbackWindowMs = Math.max((settings.timeoutSeconds ?? 300) * 1000, 60_000)
+      const fallbackSince = new Date(now.getTime() - fallbackWindowMs)
+      const recentLocks = await this.em.find(RecordLock, {
+        tenantId: input.tenantId,
+        deletedAt: null,
+        resourceKind: input.resourceKind,
+        resourceId: input.resourceId,
+        updatedAt: { $gte: fallbackSince },
+      }, { orderBy: { updatedAt: 'desc' }, limit: 50 })
+
+      for (const lock of (Array.isArray(recentLocks) ? recentLocks : [])) {
+        if (lock.lockedByUserId !== input.userId) {
+          recipientUserIds.add(lock.lockedByUserId)
+        }
+      }
+    }
+    if (!recipientUserIds.size) return
+
+    await emitRecordLocksEvent('record_locks.record.deleted', {
+      resourceKind: input.resourceKind,
+      resourceId: input.resourceId,
+      tenantId: input.tenantId,
+      organizationId: normalizeScopeOrganization(input.organizationId),
+      deletedByUserId: input.userId,
+      recipientUserIds: Array.from(recipientUserIds),
+    })
+  }
+
   async resolveConflictById(input: {
     conflictId: string
     tenantId: string

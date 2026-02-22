@@ -226,6 +226,49 @@ function extractRecordLockConflictPayload(error: unknown): {
   return null
 }
 
+function isRecordDeletedError(error: unknown): boolean {
+  const queue: unknown[] = [error]
+  const visited = new Set<unknown>()
+
+  while (queue.length > 0) {
+    const current = queue.shift()
+    if (!current || visited.has(current)) continue
+    visited.add(current)
+    if (!isObjectRecord(current)) continue
+
+    const status = extractErrorStatus(current)
+    const code = typeof current.code === 'string' ? current.code.toLowerCase() : ''
+    const message = typeof current.message === 'string'
+      ? current.message.toLowerCase()
+      : typeof current.error === 'string'
+        ? current.error.toLowerCase()
+        : ''
+
+    const matchesCode = (
+      code === 'record_not_found'
+      || code === 'not_found'
+      || code === 'record_deleted'
+    )
+    const matchesMessage = (
+      message.includes('not found')
+      || message.includes('was deleted')
+      || message.includes('record deleted')
+    )
+
+    if (status === 404 || matchesCode || matchesMessage) {
+      return true
+    }
+
+    const nested = ['body', 'response', 'data', 'details', 'error', 'cause']
+    for (const key of nested) {
+      const next = current[key]
+      if (next && !visited.has(next)) queue.push(next)
+    }
+  }
+
+  return false
+}
+
 function clearIncomingChangesQueryFlag() {
   if (typeof window === 'undefined') return
   try {
@@ -669,6 +712,54 @@ export default function RecordLockingWidget({
 
   React.useEffect(() => {
     if (!isPrimaryInstance) return
+    if (!state?.resourceKind || !state?.resourceId) return
+    if (state.recordDeleted === true) return
+    let cancelled = false
+
+    const syncRecordDeletedState = async () => {
+      const call = await apiCall<{
+        items?: Array<{
+          sourceEntityId?: string | null
+          bodyVariables?: Record<string, string> | null
+        }>
+      }>('/api/notifications?status=unread&type=record_locks.record.deleted&pageSize=20')
+      if (cancelled) return
+      const items = Array.isArray(call.result?.items) ? call.result.items : []
+      const hasUnreadRecordDeleted = items.some((item) => {
+        const matchesResourceId = item.sourceEntityId === state.resourceId
+        if (!matchesResourceId) return false
+        const kindFromBody = typeof item.bodyVariables?.resourceKind === 'string'
+          ? item.bodyVariables.resourceKind.trim()
+          : ''
+        if (!kindFromBody) return true
+        return kindFromBody === state.resourceKind
+      })
+      if (!hasUnreadRecordDeleted) return
+      setIsConflictDialogOpen(true)
+      setRecordLockFormState(formId, {
+        recordDeleted: true,
+        acquired: false,
+        lock: null,
+        conflict: null,
+        pendingConflictId: null,
+        pendingResolution: 'normal',
+        pendingResolutionArmed: false,
+      })
+    }
+
+    void syncRecordDeletedState()
+    const interval = window.setInterval(() => {
+      void syncRecordDeletedState()
+    }, 5000)
+
+    return () => {
+      cancelled = true
+      window.clearInterval(interval)
+    }
+  }, [formId, isPrimaryInstance, state?.recordDeleted, state?.resourceId, state?.resourceKind])
+
+  React.useEffect(() => {
+    if (!isPrimaryInstance) return
     if (!state?.lock?.token || !state.resourceKind || !state.resourceId) return
     const intervalMs = 10_000
     const interval = window.setInterval(() => {
@@ -886,8 +977,21 @@ export default function RecordLockingWidget({
         if (!payloadResourceKind || !payloadResourceId) return
         if (payloadResourceKind !== currentState.resourceKind || payloadResourceId !== currentState.resourceId) return
       }
-      if (!payload) {
+        if (!payload) {
         if (!currentState?.resourceKind || !currentState?.resourceId) return
+        if (isRecordDeletedError(detail.error)) {
+          setIsConflictDialogOpen(true)
+          setRecordLockFormState(formId, {
+            recordDeleted: true,
+            acquired: false,
+            lock: null,
+            conflict: null,
+            pendingConflictId: null,
+            pendingResolution: 'normal',
+            pendingResolutionArmed: false,
+          })
+          return
+        }
         if (extractErrorStatus(detail.error) === 409) {
           applyConflictPayload(buildFallbackConflict(currentState))
         }
@@ -1048,13 +1152,18 @@ export default function RecordLockingWidget({
     && state?.conflict?.canOverrideIncoming === true
     && state?.conflict?.resolutionOptions?.includes('accept_mine'),
   )
+  const isRecordDeleted = state?.recordDeleted === true
   const showOverrideBlockedNotice = Boolean(
     state?.conflict?.allowIncomingOverride
     && !state?.conflict?.canOverrideIncoming,
   )
   const conflictDialog = (
-    <Dialog open={Boolean(state?.conflict) && isConflictDialogOpen} onOpenChange={(open) => {
+    <Dialog open={Boolean(state?.conflict || isRecordDeleted) && isConflictDialogOpen} onOpenChange={(open) => {
       if (open) {
+        setIsConflictDialogOpen(true)
+        return
+      }
+      if (isRecordDeleted) {
         setIsConflictDialogOpen(true)
         return
       }
@@ -1062,12 +1171,22 @@ export default function RecordLockingWidget({
     }}>
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>{t('record_locks.conflict.title', 'Conflict detected')}</DialogTitle>
+          <DialogTitle>
+            {isRecordDeleted
+              ? t('record_locks.conflict.record_deleted_title', 'Record was deleted')
+              : t('record_locks.conflict.title', 'Conflict detected')}
+          </DialogTitle>
         </DialogHeader>
         <div className="space-y-3 text-sm">
           <p className="text-muted-foreground">
-            {t('record_locks.conflict.description', 'The record was changed by another user after you started editing.')}
+            {isRecordDeleted
+              ? t(
+                'record_locks.conflict.record_deleted_description',
+                'This record was deleted by another user while you were editing. Saving is blocked to avoid unexpected results.',
+              )
+              : t('record_locks.conflict.description', 'The record was changed by another user after you started editing.')}
           </p>
+          {!isRecordDeleted ? (
           <ChangedFieldsTable
             changeRows={conflictChangeRows}
             noneLabel={noneLabel}
@@ -1075,13 +1194,16 @@ export default function RecordLockingWidget({
             beforeLabel={t('record_locks.conflict.incoming_label', 'Incoming')}
             afterLabel={t('record_locks.conflict.current_label', 'Current')}
           />
+          ) : null}
           {(state?.conflict?.changes?.length ?? 0) === 0 ? (
+            !isRecordDeleted ? (
             <Notice compact variant="info">
               {t(
                 'record_locks.conflict.no_field_details',
                 'Field-level conflict details are unavailable for this record. Choose a resolution to continue.'
               )}
             </Notice>
+            ) : null
           ) : null}
           {showOverrideBlockedNotice ? (
             <Notice compact variant="warning">
@@ -1093,6 +1215,8 @@ export default function RecordLockingWidget({
           ) : null}
           <div className="-mx-6 -mb-6 mt-4 border-t bg-background/95 px-6 py-3 backdrop-blur supports-[backdrop-filter]:bg-background/80">
             <div className="flex flex-wrap justify-end gap-2">
+            {isRecordDeleted ? null : (
+              <>
             <Button
               type="button"
               variant="outline"
@@ -1127,6 +1251,8 @@ export default function RecordLockingWidget({
             >
               {t('record_locks.conflict.keep_editing', 'Keep editing')}
             </Button>
+              </>
+            )}
             </div>
           </div>
         </div>

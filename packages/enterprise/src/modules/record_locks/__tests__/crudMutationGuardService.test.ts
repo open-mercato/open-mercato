@@ -24,7 +24,8 @@ describe('createRecordLockCrudMutationGuardService', () => {
       userId: 'user-2',
       resourceKind: 'catalog.product',
       resourceId: 'product-1',
-      method: 'PUT',
+      operation: 'update',
+      requestMethod: 'PUT',
       requestHeaders: new Headers(),
       mutationPayload: { id: 'product-1', title: 'Updated title' },
     })
@@ -56,7 +57,8 @@ describe('createRecordLockCrudMutationGuardService', () => {
       userId: 'user-2',
       resourceKind: 'catalog.product',
       resourceId: 'product-1',
-      method: 'PUT',
+      operation: 'update',
+      requestMethod: 'PUT',
       requestHeaders: new Headers(),
       mutationPayload: { id: 'product-1', title: 'Updated title' },
     })
@@ -64,5 +66,41 @@ describe('createRecordLockCrudMutationGuardService', () => {
     expect(validation.ok).toBe(true)
     if (!validation.ok) throw new Error('Expected successful validation')
     expect(validation.shouldRunAfterSuccess).toBe(false)
+  })
+
+  test('emits record-deleted notification hook after delete mutation success', async () => {
+    const recordLockService = {
+      validateMutation: jest.fn().mockResolvedValue({
+        ok: true,
+        enabled: true,
+        resourceEnabled: true,
+        strategy: 'optimistic',
+        shouldReleaseOnSuccess: true,
+        lock: null,
+        latestActionLogId: null,
+      }),
+      emitIncomingChangesNotificationAfterMutation: jest.fn().mockResolvedValue(undefined),
+      emitRecordDeletedNotificationAfterMutation: jest.fn().mockResolvedValue(undefined),
+      releaseAfterMutation: jest.fn().mockResolvedValue(undefined),
+    } as unknown as RecordLockService
+
+    const service = createRecordLockCrudMutationGuardService(recordLockService)
+    await service.afterMutationSuccess({
+      tenantId: 'tenant-1',
+      organizationId: 'org-1',
+      userId: 'user-2',
+      resourceKind: 'catalog.product',
+      resourceId: 'product-1',
+      operation: 'delete',
+      requestMethod: 'DELETE',
+      requestHeaders: new Headers(),
+    })
+
+    expect(recordLockService.emitIncomingChangesNotificationAfterMutation).toHaveBeenCalledWith(
+      expect.objectContaining({ method: 'DELETE' }),
+    )
+    expect(recordLockService.emitRecordDeletedNotificationAfterMutation).toHaveBeenCalledWith(
+      expect.objectContaining({ method: 'DELETE' }),
+    )
   })
 })

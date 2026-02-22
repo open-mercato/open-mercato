@@ -38,6 +38,17 @@ const widget: InjectionWidgetModule<CrudInjectionContext, Record<string, unknown
     async onBeforeSave(data, context) {
       if (context.formId) {
         const currentState = getRecordLockFormState(context.formId)
+        if (currentState?.recordDeleted) {
+          return {
+            ok: false,
+            message: 'Record was deleted by another user',
+            details: {
+              code: 'record_deleted',
+              resourceKind: currentState.resourceKind ?? null,
+              resourceId: currentState.resourceId ?? null,
+            },
+          }
+        }
         const hasSelectedConflictResolution = Boolean(
           currentState?.pendingResolutionArmed === true
           && currentState.pendingResolution
@@ -138,6 +149,7 @@ const widget: InjectionWidgetModule<CrudInjectionContext, Record<string, unknown
     async onAfterSave(_data, context) {
       if (!context.formId) return
       setRecordLockFormState(context.formId, {
+        recordDeleted: false,
         acquired: false,
         lock: null,
         latestActionLogId: null,

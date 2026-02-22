@@ -1436,7 +1436,8 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
             userId: ctx.auth.sub,
             resourceKind,
             resourceId: candidateId,
-            method: 'PUT',
+            operation: 'update',
+            requestMethod: request.method,
             requestHeaders: request.headers,
             mutationPayload: input && typeof input === 'object'
               ? (input as Record<string, unknown>)
@@ -1473,7 +1474,8 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
             userId: ctx.auth.sub,
             resourceKind,
             resourceId: candidateId,
-            method: 'PUT',
+            operation: 'update',
+            requestMethod: request.method,
             requestHeaders: request.headers,
             metadata: mutationGuardValidation.metadata ?? null,
           })
@@ -1501,7 +1503,8 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
             userId: ctx.auth.sub,
             resourceKind,
             resourceId: id,
-            method: 'PUT',
+            operation: 'update',
+            requestMethod: request.method,
             requestHeaders: request.headers,
             mutationPayload: input && typeof input === 'object'
               ? (input as Record<string, unknown>)
@@ -1572,13 +1575,14 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
         await runCrudMutationGuardAfterSuccess(ctx.container, {
           tenantId: ctx.auth.tenantId,
           organizationId: scopeOrganizationId,
-          userId: ctx.auth.sub,
-          resourceKind,
-          resourceId: id,
-          method: 'PUT',
-          requestHeaders: request.headers,
-          metadata: mutationGuardValidation.metadata ?? null,
-        })
+            userId: ctx.auth.sub,
+            resourceKind,
+            resourceId: id,
+            operation: 'update',
+            requestMethod: request.method,
+            requestHeaders: request.headers,
+            metadata: mutationGuardValidation.metadata ?? null,
+          })
       }
       const payload = updateConfig.response ? updateConfig.response(entity) : { success: true }
       return json(payload)
@@ -1627,7 +1631,8 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
             userId: ctx.auth.sub,
             resourceKind,
             resourceId: candidateId,
-            method: 'DELETE',
+            operation: 'delete',
+            requestMethod: request.method,
             requestHeaders: request.headers,
           })
           if (mutationGuardValidation) {
@@ -1661,7 +1666,8 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
             userId: ctx.auth.sub,
             resourceKind,
             resourceId: candidateId,
-            method: 'DELETE',
+            operation: 'delete',
+            requestMethod: request.method,
             requestHeaders: request.headers,
             metadata: mutationGuardValidation.metadata ?? null,
           })
@@ -1685,7 +1691,8 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
             userId: ctx.auth.sub,
             resourceKind,
             resourceId: id,
-            method: 'DELETE',
+            operation: 'delete',
+            requestMethod: request.method,
             requestHeaders: request.headers,
           })
         : null
@@ -1738,13 +1745,14 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
         await runCrudMutationGuardAfterSuccess(ctx.container, {
           tenantId: ctx.auth.tenantId,
           organizationId: scopeOrganizationId,
-          userId: ctx.auth.sub,
-          resourceKind,
-          resourceId: id,
-          method: 'DELETE',
-          requestHeaders: request.headers,
-          metadata: mutationGuardValidation.metadata ?? null,
-        })
+            userId: ctx.auth.sub,
+            resourceKind,
+            resourceId: id,
+            operation: 'delete',
+            requestMethod: request.method,
+            requestHeaders: request.headers,
+            metadata: mutationGuardValidation.metadata ?? null,
+          })
       }
       const payload = opts.del?.response ? opts.del.response(id) : { success: true }
       return json(payload)

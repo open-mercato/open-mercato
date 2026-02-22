@@ -10,6 +10,11 @@ export type RecordLockCrudMutationGuardService = {
   afterMutationSuccess: (input: CrudMutationGuardAfterSuccessInput) => Promise<void>
 }
 
+function resolveRecordLockMutationMethod(operation: CrudMutationGuardValidateInput['operation']): 'PUT' | 'DELETE' {
+  if (operation === 'delete') return 'DELETE'
+  return 'PUT'
+}
+
 export function createRecordLockCrudMutationGuardService(
   recordLockService: RecordLockService,
 ): RecordLockCrudMutationGuardService {
@@ -21,7 +26,7 @@ export function createRecordLockCrudMutationGuardService(
         userId: input.userId,
         resourceKind: input.resourceKind,
         resourceId: input.resourceId,
-        method: input.method,
+        method: resolveRecordLockMutationMethod(input.operation),
         headers: readRecordLockHeaders(input.requestHeaders),
         mutationPayload: input.mutationPayload ?? null,
       })
@@ -53,7 +58,15 @@ export function createRecordLockCrudMutationGuardService(
         userId: input.userId,
         resourceKind: input.resourceKind,
         resourceId: input.resourceId,
-        method: input.method,
+        method: resolveRecordLockMutationMethod(input.operation),
+      })
+      await recordLockService.emitRecordDeletedNotificationAfterMutation({
+        tenantId: input.tenantId,
+        organizationId: input.organizationId ?? null,
+        userId: input.userId,
+        resourceKind: input.resourceKind,
+        resourceId: input.resourceId,
+        method: resolveRecordLockMutationMethod(input.operation),
       })
 
       const headers = readRecordLockHeaders(input.requestHeaders)

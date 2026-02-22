@@ -124,11 +124,25 @@ describe('AppShell', () => {
     expect(screen.getByText('Users List')).toBeInTheDocument()
     expect(screen.getAllByText('Terms')[0]).toBeInTheDocument()
     expect(screen.getByTestId('flash-messages')).toBeInTheDocument()
+    expect(screen.getByTestId('injection-spot:backend:layout:top')).toBeInTheDocument()
+    expect(screen.getByTestId('injection-spot:backend:record:current')).toBeInTheDocument()
+    expect(screen.getByTestId('injection-spot:backend:layout:footer')).toBeInTheDocument()
+    expect(screen.getByTestId('injection-spot:backend:sidebar:top')).toBeInTheDocument()
+    expect(screen.getByTestId('injection-spot:backend:sidebar:footer')).toBeInTheDocument()
     expect(screen.getByTestId('injection-spot:backend-mutation:global')).toBeInTheDocument()
     expect(screen.getByText('Child content')).toBeInTheDocument()
     expect(mockInjectionSpot).toHaveBeenCalledWith(
       expect.objectContaining({
         spotId: 'backend-mutation:global',
+        context: {
+          path: '/backend/users',
+          query: 'tab=profile',
+        },
+      }),
+    )
+    expect(mockInjectionSpot).toHaveBeenCalledWith(
+      expect.objectContaining({
+        spotId: 'backend:record:current',
         context: {
           path: '/backend/users',
           query: 'tab=profile',

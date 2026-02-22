@@ -1,2693 +1,679 @@
-# SPEC-ENT-003: Enterprise Record Locking Module Specification
+# SPEC-ENT-003: Enterprise Record Locking Module
 
-> Moved from `../SPEC-005-2026-01-23-record-locking-module.md` on 2026-02-20.
+- Date: 2026-01-23
+- Status: Implemented (rewritten for implementation parity on 2026-02-22)
+- Scope: Enterprise
+- Package: `packages/enterprise/src/modules/record_locks/`
+
+## TLDR
+
+**Key Points:**
+- Enterprise record locking provides optimistic and pessimistic mutation protection with participant presence, conflict detection/resolution, force release, and notification/event integration.
+- The module prevents unsafe concurrent edits for tenant- and organization-scoped records through a dedicated service, HTTP API, UI injection widget, and a generic mutation guard adapter.
+
+**Scope:**
+- Server APIs under `/api/record_locks/*` for lock lifecycle management
+- `RecordLockService` with dual-strategy conflict logic based on audit action logs
+- UI injection widget mounted into backend record, mutation, and CRUD form spots
+- Integration with the shared generic mutation guard contract (`crudMutationGuardService`) documented in `SPEC-035`
+- 10 typed module events and 8 notification types with persistent subscribers
+- Command pattern support for conflict resolution (`accept_incoming`, `accept_mine`)
 
 ## Overview
 
-The Record Locking module provides optimistic and pessimistic locking mechanisms for records being edited, with conflict detection, resolution UI, and merge capabilities. It prevents data loss when multiple users edit the same record simultaneously.
-
-**Key Features:**
-- **Participant Presence Ring** - In optimistic mode multiple users can stay active on the same record at the same time
-- **Pessimistic Locking** - Completely blocks other users from editing a locked record
-- **Optimistic Locking** - Allows concurrent edits but detects conflicts on save
-- **Auto-release** - Locks automatically expire after configurable timeout
-- **Force Unlock** - Admins can forcibly release locks
-- **Conflict Resolution UI** - Side-by-side diff view with merge options
-- **Notifications** - Both users notified of conflicts and merge results
-
-**Package Location:** `packages/core/src/modules/record_locks/`
-
----
-
-## Use Cases
-
-| ID | Actor | Use Case | Description | Priority |
-|----|-------|----------|-------------|----------|
-| RL1 | User | Acquire lock | User opens record for editing, lock is acquired | High |
-| RL2 | User | Release lock | User closes form or saves, lock is released | High |
-| RL3 | System | Auto-release lock | Lock expires after timeout | High |
-| RL4 | Admin | Force unlock | Admin releases another user's lock | High |
-| RL5 | User | View lock status | User sees who is editing the record | High |
-| RL6 | User | Blocked from editing | In pessimistic mode, user cannot edit locked record | High |
-| RL7 | User | Detect conflict | In optimistic mode, conflict detected on save | High |
-| RL8 | User | Accept incoming | User discards their changes, accepts other's version | High |
-| RL9 | User | Accept mine | User overwrites with their changes (creates new version) | High |
-| RL10 | User | Combine changes | User opens merge UI to manually combine changes | High |
-| RL11 | User | View diff | User sees side-by-side comparison of versions | High |
-| RL12 | User | Receive notification | User notified when their edit conflicts or is merged | High |
-| RL13 | Admin | Configure mode | Admin sets optimistic/pessimistic mode globally | Medium |
-| RL14 | Admin | Configure timeout | Admin sets lock timeout duration | Medium |
-| RL15 | User | Extend lock | User activity extends the lock timeout | Medium |
-| RL16 | User | Request lock release | User requests current editor to release lock | Low |
-
----
-
-## Configuration
-
-### Environment Variables
-
-```bash
-# Default lock timeout in seconds (default: 300 = 5 minutes)
-RECORD_LOCK_TIMEOUT_SECONDS=300
-
-# Lock heartbeat interval in seconds (default: 30)
-RECORD_LOCK_HEARTBEAT_SECONDS=30
-
-# Default locking strategy: 'optimistic' or 'pessimistic' (default: optimistic)
-RECORD_LOCK_STRATEGY=optimistic
-```
-
-### App Config (UI Configurable)
-
-```typescript
-// packages/core/src/modules/record_locks/lib/config.ts
-import { z } from 'zod'
-
-export const recordLockConfigSchema = z.object({
-  // Locking strategy
-  strategy: z.enum(['optimistic', 'pessimistic']).default('optimistic'),
-  
-  // Lock timeout in seconds
-  timeoutSeconds: z.number().min(60).max(3600).default(300),
-  
-  // Heartbeat interval in seconds
-  heartbeatSeconds: z.number().min(10).max(120).default(30),
-  
-  // Allow users to request lock release
-  allowLockRequests: z.boolean().default(true),
-  
-  // Auto-merge trivial conflicts (non-overlapping field changes)
-  autoMergeTrivial: z.boolean().default(false),
-  
-  // Entities excluded from locking (by entity ID)
-  excludedEntities: z.array(z.string()).default([]),
-  
-  // Features requiring lock (if empty, all CRUD forms use locking)
-  enabledEntities: z.array(z.string()).optional(),
-})
-
-export type RecordLockConfig = z.infer<typeof recordLockConfigSchema>
-
-export const DEFAULT_CONFIG: RecordLockConfig = {
-  strategy: 'optimistic',
-  timeoutSeconds: 300,
-  heartbeatSeconds: 30,
-  allowLockRequests: true,
-  autoMergeTrivial: false,
-  excludedEntities: [],
-}
-```
-
-### Config Registration
-
-```typescript
-// packages/core/src/modules/record_locks/config-section.ts
-import type { ConfigSection } from '@open-mercato/shared/lib/config/types'
-import { recordLockConfigSchema } from './lib/config'
-
-export const configSection: ConfigSection = {
-  id: 'record_locks',
-  labelKey: 'recordLocks.config.title',
-  icon: 'lock',
-  schema: recordLockConfigSchema,
-  defaultValue: {
-    strategy: 'optimistic',
-    timeoutSeconds: 300,
-    heartbeatSeconds: 30,
-    allowLockRequests: true,
-    autoMergeTrivial: false,
-    excludedEntities: [],
-  },
-}
-```
+The module prevents unsafe concurrent edits for tenant- and organization-scoped records.
+
+It supports:
+- **Pessimistic mode**: block competing edits (`423 record_locked`)
+- **Optimistic mode**: allow parallel editing and detect stale-base conflicts (`409 record_lock_conflict`)
+- **Participant ring**: multiple active participants on a resource with presence tracking
+- **Conflict resolution**: `accept_incoming`, `accept_mine`, `merged` (server supports all three; UI currently exposes `accept_incoming` and `accept_mine`)
+- **Conflict and participation notifications** through module events, persistent subscribers, and in-app notification renderers
+- **Background cleanup** of expired locks and stale conflicts with configurable retention
+
+## Problem Statement
+
+Without record-level mutation coordination:
+- Users overwrite each other silently in optimistic workflows
+- Critical records cannot be safely protected in high-contention contexts
+- Admins have no controlled takeover mechanism during abandoned sessions
+- Teams lack user-visible collaboration signals (active participants, incoming changes)
+- Deleted records leave stale lock holders with no awareness of the deletion
+
+## Proposed Solution
+
+Use a dedicated enterprise module with four layers:
+1. **Core lock/conflict service** (`RecordLockService`) with lock lifecycle, conflict reasoning, and background cleanup.
+2. **HTTP API endpoints** for acquire/validate/heartbeat/release/force-release/settings.
+3. **UI widget injection** for lock state banners, conflict dialog, participant presence, and save-header propagation.
+4. **Generic mutation guard adapter** registered as `crudMutationGuardService` to apply the same checks in CRUD and custom mutation routes.
+
+The generic mutation guard contract itself is framework-level (OSS) and documented in `.ai/specs/SPEC-035-2026-02-22-mutation-guard-mechanism.md`. This spec documents the enterprise adapter implementation.
+
+## Architecture
+
+### Module Surfaces
+
+| File | Purpose |
+|------|---------|
+| `index.ts` | Module metadata, imports `commands/conflicts` initialization |
+| `di.ts` | DI registration: `recordLockService`, `crudMutationGuardService` |
+| `acl.ts` | Feature declarations |
+| `setup.ts` | Tenant initialization + default role mapping |
+| `events.ts` | 10 typed event declarations via `createModuleEvents` |
+| `notifications.ts` | 8 server-side notification type definitions |
+| `notifications.client.ts` | Client-side notification renderers (custom `IncomingChangesRenderer`) |
+| `commands/conflicts.ts` | Command pattern: `record_locks.conflict.accept_incoming`, `record_locks.conflict.accept_mine` |
+| `api/*` | HTTP API routes (6 endpoints) |
+| `widgets/injection/*` | Widget injection with `onBeforeSave`/`onAfterSave` hooks |
+| `widgets/injection-table.ts` | Spot-to-widget mapping |
+| `widgets/notifications/IncomingChangesRenderer.tsx` | Custom notification renderer |
+| `backend/settings/record-locks/page.tsx` | Settings management UI |
+| `data/entities.ts` | MikroORM entities: `RecordLock`, `RecordLockConflict` |
+| `data/validators.ts` | Zod validation schemas for API inputs and responses |
+| `lib/config.ts` | Settings schema, defaults, resource enablement logic |
+| `lib/recordLockService.ts` | Core business logic (~1915 lines) |
+| `lib/crudMutationGuardService.ts` | Mutation guard adapter |
+| `lib/clientLockStore.ts` | Client-side in-memory state management |
+| `lib/notificationHelpers.ts` | Resource link resolution, notification utilities |
+| `subscribers/*.ts` | 8 persistent event subscribers |
+| `i18n/*.json` | Translations (en, de, es, pl — 76 keys each) |
+
+### ACL Features
+
+| Feature ID | Description | Default Roles |
+|------------|-------------|---------------|
+| `record_locks.view` | View and use record locking | superadmin, admin, employee |
+| `record_locks.manage` | Manage record locking settings | superadmin, admin |
+| `record_locks.force_release` | Force release locks owned by other users | superadmin, admin |
+| `record_locks.override_incoming` | Override incoming conflict changes | superadmin, admin |
+
+### Settings Resolution
+
+`RecordLockService.getSettings()` reads module config (`record_locks/settings` via `ModuleConfigService`) and normalizes values through `normalizeRecordLockSettings()`.
+
+**Defaults** (defined in `lib/config.ts`):
+- `enabled: true`
+- `strategy: 'optimistic'`
+- `timeoutSeconds: 300`
+- `heartbeatSeconds: 30`
+- `enabledResources: ['*']`
+- `allowForceUnlock: true`
+- `allowIncomingOverride: true`
+- `notifyOnConflict: true`
+
+**Resource enablement logic** (`isRecordLockingEnabledForResource`):
+- Disabled globally → no locking
+- Empty `enabledResources` → all resources enabled
+- `'*'` → all resources enabled
+- `'module.*'` → prefix match (e.g., `'customers.*'` matches `'customers.person'`)
+- Exact resource match supported
+
+**Persistence**: Settings stored in `ModuleConfig` entity with `moduleId: 'record_locks'`, `name: 'settings'`.
+
+**Tenant initialization** (`setup.ts`): `onTenantCreated` hook creates default settings if none exist, or merges `enabledResources` into existing empty config.
+
+### Lock Lifecycle
+
+#### Acquire
+
+`POST /api/record_locks/acquire` calls `recordLockService.acquire`:
+
+1. Schedules background cleanup if threshold exceeded
+2. Checks if locking enabled for resource; returns `ok: true`, `resourceEnabled: false` if disabled
+3. Finds all non-expired active locks for the resource (auto-marks expired locks, emits `participant.left` for each)
+4. **Pessimistic contention**: if competing lock from different user, emits `record_locks.lock.contended` (throttled) and returns `423 record_locked`
+5. **Re-acquire**: same user refreshes heartbeat/expiry, returns `acquired: false`
+6. **New lock**: creates lock row with unique UUID token and `baseActionLogId` from latest action log
+7. Handles unique constraint collisions (race condition: user acquires own lock again, or pessimistic contention detected)
+
+**Post-acquisition events** (only if new lock created):
+- `record_locks.lock.acquired` with active participant count
+- `record_locks.participant.joined` to other participants (suppressed if same user re-joins within 20s of a `'saved'` release — `PARTICIPANT_REJOIN_AFTER_SAVE_SUPPRESS_MS`)
+
+#### Heartbeat
+
+`POST /api/record_locks/heartbeat`:
+- Refreshes `lastHeartbeatAt` and `expiresAt`
+- If lock expired, marks status `'expired'`
+- Returns `{ ok: true, expiresAt }` or `{ ok: true, expiresAt: null }` if expired
+
+#### Release
+
+`POST /api/record_locks/release`:
+
+**Release reasons** (allowed via API): `'saved'`, `'cancelled'`, `'unmount'`, `'conflict_resolved'`
+
+**Flow:**
+1. Check resource enabled
+2. If `reason === 'conflict_resolved'` with `conflictId` and `resolution === 'accept_incoming'`: resolve conflict first
+3. Find lock by token (if provided) or by user ownership
+4. Mark released with status/reason/`releasedByUserId`/timestamp
+5. Emit `record_locks.lock.released`
+6. If `releaseReason === 'unmount'`: emit `record_locks.participant.left` to remaining active participants with count
 
----
+#### Force Release
 
-## Database Schema
+`POST /api/record_locks/force-release`:
+
+- Requires feature `record_locks.force_release`
+- Gated by setting `allowForceUnlock`
+- Finds all active locks, sorts by join order (`lockedAt`, then `createdAt`, then `id`)
+- Releases oldest lock (queue head) with status `'force_released'`, reason `'force'`
+- Emits `record_locks.lock.force_released` with optional reason string
+- Returns next-in-queue lock (if any) or `null`
+- Route returns `409 record_force_release_unavailable` when nothing releasable
+
+### Mutation Validation Logic
+
+`recordLockService.validateMutation` powers API preflight (`/api/record_locks/validate`) and the generic guard adapter.
+
+#### Pessimistic
 
-### Entity: `RecordLock`
+- Competing lock without ownership → `423 record_locked`
+- Owned lock with mismatched token → `423 record_locked`
+- Otherwise success with `shouldReleaseOnSuccess = true` if owned lock
 
-**Table:** `record_locks`
+#### Optimistic
+
+1. Parse mutation headers (baseLogId, resolution, conflictId)
+2. **Existing conflict check**: if `conflictId` provided and pending conflict exists:
+   - If user is conflict actor and provides `accept_mine`/`merged` with override permission → auto-resolve, return success
+   - If already resolved by same user with same resolution → allow
+   - Otherwise → return `409 record_lock_conflict` with conflict payload
+3. **New conflict detection** via action log comparison:
+   - `hasConflictingBaseLog`: latest action log ID differs from provided `baseLogId`
+   - `hasConflictingWriteAfterLockStart`: write from different user after lock started, no `baseLogId` provided
+   - Combined: `isConflictingWrite = hasConflictingBaseLog || hasConflictingWriteAfterLockStart`
+4. On conflict:
+   - If user provides `accept_mine`/`merged` and can override → auto-resolve, return success
+   - Otherwise → create conflict (with advisory lock deduplication), return `409 record_lock_conflict`
 
-```typescript
-// packages/core/src/modules/record_locks/data/entities.ts
-import { Entity, PrimaryKey, Property, Index, OptionalProps, Unique } from '@mikro-orm/core'
+**Conflict payload includes:**
+- Conflict id, resource ids, base/incoming action log ids
+- `allowIncomingOverride` (from settings)
+- `canOverrideIncoming` (settings + RBAC `record_locks.override_incoming`)
+- `resolutionOptions`: `['accept_mine']` when user can override, otherwise empty
+- Field-level changes (up to 25), built from `changesJson` and/or snapshot diffs
+
+**Ignored metadata fields** in conflict diff: `updatedAt`, `createdAt`, `deletedAt` (plus 3 others in `SKIPPED_CONFLICT_FIELDS` set).
+
+### Resolution Paths
+
+- **`accept_incoming`**:
+  - Via release endpoint: `reason='conflict_resolved'`, `conflictId`, `resolution='accept_incoming'`
+  - Via command: `record_locks.conflict.accept_incoming` (input: `{ id }`)
+- **`accept_mine`**:
+  - Via mutation validation header: `x-om-record-lock-resolution: accept_mine`
+  - Via command: `record_locks.conflict.accept_mine` (input: `{ id }`)
+  - Requires: `allowIncomingOverride` setting AND `record_locks.override_incoming` RBAC feature
+- **`merged`**:
+  - Via mutation validation header: `x-om-record-lock-resolution: merged`
+  - Same authorization as `accept_mine`
+
+Conflict resolution updates conflict row (`status → resolved_*`, `resolution`, `resolvedByUserId`, `resolvedAt`) and emits `record_locks.conflict.resolved`.
+
+### Generic Mutation Guard Integration
+
+**Adapter**: `packages/enterprise/src/modules/record_locks/lib/crudMutationGuardService.ts`
 
-export type LockStatus = 'active' | 'expired' | 'released' | 'force_released'
+Registered as DI token `crudMutationGuardService` via factory `createRecordLockCrudMutationGuardService(recordLockService)`.
+
+**`validateMutation`**:
+- Reads record lock headers from request via `readRecordLockHeaders(input.requestHeaders)`
+- Maps operation (`'delete'` → `'DELETE'`, else → `'PUT'`) and delegates to `recordLockService.validateMutation`
+- Returns validation result; `shouldRunAfterSuccess = result.resourceEnabled`
+
+**`afterMutationSuccess`**:
+- Always runs for resource-enabled routes and does (in order):
+  1. `emitIncomingChangesNotificationAfterMutation` (PUT operations only, gated by `notifyOnConflict` setting)
+  2. `emitRecordDeletedNotificationAfterMutation` (DELETE operations only)
+  3. `releaseAfterMutation(... reason: 'saved')`
 
-@Entity({ tableName: 'record_locks' })
-@Unique({ name: 'record_locks_entity_record_unique', properties: ['entityType', 'recordId', 'tenantId'] })
-@Index({ name: 'record_locks_user_idx', properties: ['lockedByUserId', 'status'] })
-@Index({ name: 'record_locks_expires_idx', properties: ['expiresAt', 'status'] })
-export class RecordLock {
-  [OptionalProps]?: 'status' | 'createdAt' | 'updatedAt'
+**Incoming changes notification** (`emitIncomingChangesNotificationAfterMutation`):
+- Discovers recipients: active lock participants (excluding mutator), with fallback to recent locks within timeout window
+- Extracts changed field names from latest action log (`changesJson` or snapshots, limit 12)
+- Builds change rows (`{ field, incoming, current }`, limit 12) from `changesJson`
+- Emits `record_locks.incoming_changes.available`
+
+**Record deleted notification** (`emitRecordDeletedNotificationAfterMutation`):
+- Same recipient discovery as incoming changes
+- Emits `record_locks.record.deleted` with `deletedByUserId` and `recipientUserIds`
+
+**Current non-CRUD custom routes wired to shared guard:**
+- `POST /api/sales/quotes/convert` (`resourceKind: 'sales.quote'`, `operation: 'update'`)
+- `POST /api/sales/quotes/send` (`resourceKind: 'sales.quote'`, `operation: 'update'`)
+
+See `SPEC-035` for the generic guard contract, CRUD factory integration, and fail-safe behavior.
+
+### Events
+
+10 typed events declared via `createModuleEvents` in `events.ts`:
+
+| Event ID | Label | Entity | Category |
+|----------|-------|--------|----------|
+| `record_locks.lock.acquired` | Record Lock Acquired | lock | crud |
+| `record_locks.participant.joined` | Record Lock Participant Joined | lock | lifecycle |
+| `record_locks.participant.left` | Record Lock Participant Left | lock | lifecycle |
+| `record_locks.lock.contended` | Record Lock Contended | lock | lifecycle |
+| `record_locks.lock.released` | Record Lock Released | lock | crud |
+| `record_locks.lock.force_released` | Record Lock Force Released | lock | crud |
+| `record_locks.record.deleted` | Locked Record Deleted | record | crud |
+| `record_locks.conflict.detected` | Record Lock Conflict Detected | conflict | crud |
+| `record_locks.conflict.resolved` | Record Lock Conflict Resolved | conflict | crud |
+| `record_locks.incoming_changes.available` | Incoming Changes Available | change | lifecycle |
+
+Exports: `emitRecordLocksEvent` function and `RecordLocksEventId` type.
 
-  @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
-  id!: string
+### Notifications and Subscribers
+
+#### Notification Types
+
+8 notification types defined in `notifications.ts`:
+
+| Type | Icon | Severity | Expiry |
+|------|------|----------|--------|
+| `record_locks.participant.joined` | `users` | info | 24h |
+| `record_locks.participant.left` | `user-minus` | info | 24h |
+| `record_locks.lock.contended` | `users` | warning | 48h |
+| `record_locks.lock.force_released` | `unlock` | warning | 48h |
+| `record_locks.record.deleted` | `trash-2` | warning | 48h |
+| `record_locks.conflict.detected` | `git-compare-arrows` | warning | 48h |
+| `record_locks.incoming_changes.available` | `git-pull-request-arrow` | info | 48h |
+| `record_locks.conflict.resolved` | `check-circle` | info | 48h |
 
-  // What is locked
-  @Property({ name: 'entity_type', type: 'text' })
-  entityType!: string // e.g., 'customers:person', 'sales:order'
+All types define `actions: []` (no actionable notification buttons).
 
-  @Property({ name: 'record_id', type: 'uuid' })
-  recordId!: string
+`notifications.client.ts` wraps server types and injects custom `IncomingChangesRenderer` for `record_locks.incoming_changes.available` (renders a field-level change table with columns: Field, Incoming, Current).
 
-  // Who locked it
-  @Property({ name: 'locked_by_user_id', type: 'uuid' })
-  lockedByUserId!: string
+#### Subscribers
+
+All subscribers are persistent (`persistent: true`) and map events to in-app notifications:
 
-  // Lock timing
-  @Property({ name: 'locked_at', type: Date })
-  lockedAt!: Date
+| Subscriber ID | Event | Recipients | Special Logic |
+|---------------|-------|------------|---------------|
+| `record_locks:participant-joined-notification` | `participant.joined` | Other participants (excludes joiner) | Group key: `{lockId}:{joinedUserId}` |
+| `record_locks:participant-left-notification` | `participant.left` | Remaining participants (excludes leaver) | Group key: `{lockId}:{leftUserId}` |
+| `record_locks:lock-contended-notification` | `lock.contended` | Lock owner only | Skips self-contention |
+| `record_locks:lock-force-released-notification` | `lock.force_released` | Original lock holder | Skips self-release |
+| `record_locks:record-deleted-notification` | `record.deleted` | Other participants (excludes deleter) | `sourceEntityType: 'record_locks:record'` |
+| `record_locks:conflict-detected-notification` | `conflict.detected` | Conflict actor | Checks `isConflictNotificationEnabled()` gate; extracts changed fields from action log (limit 12) |
+| `record_locks:conflict-resolved-notification` | `conflict.resolved` | Incoming actor | Checks `isConflictNotificationEnabled()` gate; defaults resolution to `'accept_mine'` if null |
+| `record_locks:incoming-changes-notification` | `incoming_changes.available` | All lock participants (including incoming actor) | Passes `changedRowsJson` string; group key: `{incomingActionLogId}` fallback `{resourceKind}:{resourceId}` |
 
-  @Property({ name: 'expires_at', type: Date })
-  expiresAt!: Date
-
-  @Property({ name: 'last_heartbeat_at', type: Date })
-  lastHeartbeatAt!: Date
-
-  // Status
-  @Property({ name: 'status', type: 'text' })
-  status: LockStatus = 'active'
-
-  @Property({ name: 'released_at', type: Date, nullable: true })
-  releasedAt?: Date | null
-
-  @Property({ name: 'released_by_user_id', type: 'uuid', nullable: true })
-  releasedByUserId?: string | null
-
-  @Property({ name: 'release_reason', type: 'text', nullable: true })
-  releaseReason?: string | null // 'saved', 'cancelled', 'expired', 'force', 'conflict_resolved'
-
-  // Snapshot of record at lock time (for conflict detection)
-  @Property({ name: 'initial_snapshot', type: 'json', nullable: true })
-  initialSnapshot?: Record<string, unknown> | null
-
-  // Version number for optimistic locking
-  @Property({ name: 'version', type: 'int', default: 1 })
-  version: number = 1
-
-  // Multi-tenant
-  @Property({ name: 'tenant_id', type: 'uuid' })
-  tenantId!: string
-
-  @Property({ name: 'organization_id', type: 'uuid', nullable: true })
-  organizationId?: string | null
-
-  @Property({ name: 'created_at', type: Date, onCreate: () => new Date() })
-  createdAt: Date = new Date()
-
-  @Property({ name: 'updated_at', type: Date, onUpdate: () => new Date() })
-  updatedAt: Date = new Date()
-}
-```
-
-### Entity: `RecordConflict`
-
-**Table:** `record_conflicts`
-
-Records conflict events for audit and resolution tracking.
-
-```typescript
-export type ConflictStatus = 'pending' | 'resolved_accept_incoming' | 'resolved_accept_mine' | 'resolved_merged' | 'auto_merged'
-export type ConflictResolution = 'accept_incoming' | 'accept_mine' | 'merged'
-
-@Entity({ tableName: 'record_conflicts' })
-@Index({ name: 'record_conflicts_entity_idx', properties: ['entityType', 'recordId'] })
-@Index({ name: 'record_conflicts_users_idx', properties: ['originalUserId', 'conflictingUserId'] })
-@Index({ name: 'record_conflicts_status_idx', properties: ['status', 'createdAt'] })
-export class RecordConflict {
-  [OptionalProps]?: 'status' | 'createdAt'
-
-  @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
-  id!: string
-
-  // What had conflict
-  @Property({ name: 'entity_type', type: 'text' })
-  entityType!: string
-
-  @Property({ name: 'record_id', type: 'uuid' })
-  recordId!: string
-
-  // Users involved
-  @Property({ name: 'original_user_id', type: 'uuid' })
-  originalUserId!: string // User who saved first
-
-  @Property({ name: 'conflicting_user_id', type: 'uuid' })
-  conflictingUserId!: string // User who got the conflict
-
-  // Snapshots for comparison
-  @Property({ name: 'base_snapshot', type: 'json' })
-  baseSnapshot!: Record<string, unknown> // Original state when both started editing
-
-  @Property({ name: 'incoming_snapshot', type: 'json' })
-  incomingSnapshot!: Record<string, unknown> // What was saved by originalUser
-
-  @Property({ name: 'conflicting_snapshot', type: 'json' })
-  conflictingSnapshot!: Record<string, unknown> // What conflictingUser tried to save
-
-  // Diff analysis
-  @Property({ name: 'incoming_changes', type: 'json' })
-  incomingChanges!: FieldChange[] // Changes from base -> incoming
-
-  @Property({ name: 'conflicting_changes', type: 'json' })
-  conflictingChanges!: FieldChange[] // Changes from base -> conflicting
-
-  @Property({ name: 'overlapping_fields', type: 'json' })
-  overlappingFields!: string[] // Fields changed by both users
-
-  // Resolution
-  @Property({ name: 'status', type: 'text' })
-  status: ConflictStatus = 'pending'
-
-  @Property({ name: 'resolution', type: 'text', nullable: true })
-  resolution?: ConflictResolution | null
-
-  @Property({ name: 'resolved_at', type: Date, nullable: true })
-  resolvedAt?: Date | null
-
-  @Property({ name: 'resolved_by_user_id', type: 'uuid', nullable: true })
-  resolvedByUserId?: string | null
-
-  @Property({ name: 'merged_snapshot', type: 'json', nullable: true })
-  mergedSnapshot?: Record<string, unknown> | null // Final merged result
-
-  @Property({ name: 'merge_decisions', type: 'json', nullable: true })
-  mergeDecisions?: MergeDecision[] | null // Per-field decisions made
-
-  // Multi-tenant
-  @Property({ name: 'tenant_id', type: 'uuid' })
-  tenantId!: string
-
-  @Property({ name: 'organization_id', type: 'uuid', nullable: true })
-  organizationId?: string | null
-
-  @Property({ name: 'created_at', type: Date, onCreate: () => new Date() })
-  createdAt: Date = new Date()
-}
-
-// Field change tracking
-export type FieldChange = {
-  field: string
-  path: string // JSONPath for nested fields
-  oldValue: unknown
-  newValue: unknown
-  type: 'added' | 'modified' | 'removed'
-}
-
-// Merge decision per field
-export type MergeDecision = {
-  field: string
-  path: string
-  decision: 'accept_incoming' | 'accept_mine' | 'custom'
-  customValue?: unknown
-  decidedAt: string // ISO date
-}
-```
-
-### SQL Migration
-
-```sql
--- packages/core/src/modules/record_locks/migrations/Migration_CreateRecordLocks.ts
-
--- Record locks table
-CREATE TABLE record_locks (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  
-  -- What is locked
-  entity_type TEXT NOT NULL,
-  record_id UUID NOT NULL,
-  
-  -- Who locked
-  locked_by_user_id UUID NOT NULL,
-  
-  -- Timing
-  locked_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-  expires_at TIMESTAMPTZ NOT NULL,
-  last_heartbeat_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-  
-  -- Status
-  status TEXT NOT NULL DEFAULT 'active',
-  released_at TIMESTAMPTZ,
-  released_by_user_id UUID,
-  release_reason TEXT,
-  
-  -- Snapshot for conflict detection
-  initial_snapshot JSONB,
-  version INTEGER NOT NULL DEFAULT 1,
-  
-  -- Multi-tenant
-  tenant_id UUID NOT NULL,
-  organization_id UUID,
-  
-  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-  updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-  
-  UNIQUE(entity_type, record_id, tenant_id) -- Only one active lock per record
-);
-
-CREATE INDEX record_locks_user_idx ON record_locks(locked_by_user_id, status);
-CREATE INDEX record_locks_expires_idx ON record_locks(expires_at, status) WHERE status = 'active';
-
--- Conflict tracking table
-CREATE TABLE record_conflicts (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  
-  -- What had conflict
-  entity_type TEXT NOT NULL,
-  record_id UUID NOT NULL,
-  
-  -- Users involved
-  original_user_id UUID NOT NULL,
-  conflicting_user_id UUID NOT NULL,
-  
-  -- Snapshots
-  base_snapshot JSONB NOT NULL,
-  incoming_snapshot JSONB NOT NULL,
-  conflicting_snapshot JSONB NOT NULL,
-  
-  -- Diff analysis
-  incoming_changes JSONB NOT NULL DEFAULT '[]',
-  conflicting_changes JSONB NOT NULL DEFAULT '[]',
-  overlapping_fields JSONB NOT NULL DEFAULT '[]',
-  
-  -- Resolution
-  status TEXT NOT NULL DEFAULT 'pending',
-  resolution TEXT,
-  resolved_at TIMESTAMPTZ,
-  resolved_by_user_id UUID,
-  merged_snapshot JSONB,
-  merge_decisions JSONB,
-  
-  -- Multi-tenant
-  tenant_id UUID NOT NULL,
-  organization_id UUID,
-  
-  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
-);
-
-CREATE INDEX record_conflicts_entity_idx ON record_conflicts(entity_type, record_id);
-CREATE INDEX record_conflicts_users_idx ON record_conflicts(original_user_id, conflicting_user_id);
-CREATE INDEX record_conflicts_status_idx ON record_conflicts(status, created_at);
-```
-
----
-
-## Locking Service
-
-### Lock Management
-
-```typescript
-// packages/core/src/modules/record_locks/lib/lockService.ts
-import type { EntityManager } from '@mikro-orm/core'
-import type { EventBus } from '@open-mercato/events'
-import { RecordLock, RecordConflict } from '../data/entities'
-import { getRecordLockConfig } from './config'
-import { computeFieldChanges, findOverlappingFields } from './diff'
-
-export type AcquireLockResult = 
-  | { success: true; lock: RecordLock }
-  | { success: false; reason: 'already_locked'; lockedBy: { userId: string; userName?: string; lockedAt: Date; expiresAt: Date } }
-  | { success: false; reason: 'excluded_entity' }
-
-export type SaveResult =
-  | { success: true; saved: true }
-  | { success: false; reason: 'conflict'; conflict: RecordConflict }
-  | { success: false; reason: 'lock_expired' }
-  | { success: false; reason: 'not_locked' }
-
-export interface RecordLockService {
-  /**
-   * Acquire a lock on a record for editing
-   */
-  acquireLock(params: {
-    entityType: string
-    recordId: string
-    userId: string
-    initialSnapshot: Record<string, unknown>
-    tenantId: string
-    organizationId?: string | null
-  }): Promise<AcquireLockResult>
-
-  /**
-   * Release a lock (on save or cancel)
-   */
-  releaseLock(params: {
-    entityType: string
-    recordId: string
-    userId: string
-    reason: 'saved' | 'cancelled' | 'conflict_resolved'
-    tenantId: string
-  }): Promise<void>
-
-  /**
-   * Force release a lock (admin only)
-   */
-  forceReleaseLock(params: {
-    entityType: string
-    recordId: string
-    adminUserId: string
-    tenantId: string
-  }): Promise<void>
-
-  /**
-   * Send heartbeat to keep lock alive
-   */
-  heartbeat(params: {
-    entityType: string
-    recordId: string
-    userId: string
-    tenantId: string
-  }): Promise<{ extended: boolean; expiresAt: Date }>
-
-  /**
-   * Check lock status for a record
-   */
-  getLockStatus(params: {
-    entityType: string
-    recordId: string
-    tenantId: string
-  }): Promise<{ locked: boolean; lock?: RecordLock; lockedByUser?: { id: string; name?: string } }>
-
-  /**
-   * Validate save (check for conflicts in optimistic mode)
-   */
-  validateSave(params: {
-    entityType: string
-    recordId: string
-    userId: string
-    currentSnapshot: Record<string, unknown>
-    newData: Record<string, unknown>
-    tenantId: string
-    organizationId?: string | null
-  }): Promise<SaveResult>
-
-  /**
-   * Get pending conflicts for a user
-   */
-  getPendingConflicts(params: {
-    userId: string
-    tenantId: string
-  }): Promise<RecordConflict[]>
-
-  /**
-   * Resolve a conflict
-   */
-  resolveConflict(params: {
-    conflictId: string
-    resolution: 'accept_incoming' | 'accept_mine' | 'merged'
-    mergedData?: Record<string, unknown>
-    mergeDecisions?: MergeDecision[]
-    userId: string
-    tenantId: string
-  }): Promise<{ success: boolean; savedData: Record<string, unknown> }>
-
-  /**
-   * Cleanup expired locks
-   */
-  cleanupExpiredLocks(): Promise<number>
-}
-
-export function createRecordLockService(
-  em: EntityManager,
-  eventBus: EventBus,
-): RecordLockService {
-  
-  async function acquireLock(params: {
-    entityType: string
-    recordId: string
-    userId: string
-    initialSnapshot: Record<string, unknown>
-    tenantId: string
-    organizationId?: string | null
-  }): Promise<AcquireLockResult> {
-    const config = await getRecordLockConfig(params.tenantId)
-    
-    // Check if entity is excluded
-    if (config.excludedEntities.includes(params.entityType)) {
-      return { success: false, reason: 'excluded_entity' }
-    }
-    
-    // Check for existing active lock
-    const existingLock = await em.findOne(RecordLock, {
-      entityType: params.entityType,
-      recordId: params.recordId,
-      tenantId: params.tenantId,
-      status: 'active',
-      expiresAt: { $gt: new Date() },
-    })
-    
-    if (existingLock) {
-      // Same user can re-acquire
-      if (existingLock.lockedByUserId === params.userId) {
-        existingLock.lastHeartbeatAt = new Date()
-        existingLock.expiresAt = new Date(Date.now() + config.timeoutSeconds * 1000)
-        await em.flush()
-        return { success: true, lock: existingLock }
-      }
-      
-      // Different user - locked
-      return {
-        success: false,
-        reason: 'already_locked',
-        lockedBy: {
-          userId: existingLock.lockedByUserId,
-          lockedAt: existingLock.lockedAt,
-          expiresAt: existingLock.expiresAt,
-        },
-      }
-    }
-    
-    // Expire any stale locks
-    await em.nativeUpdate(RecordLock, {
-      entityType: params.entityType,
-      recordId: params.recordId,
-      tenantId: params.tenantId,
-      status: 'active',
-      expiresAt: { $lte: new Date() },
-    }, {
-      status: 'expired',
-      releasedAt: new Date(),
-      releaseReason: 'expired',
-    })
-    
-    // Create new lock
-    const now = new Date()
-    const lock = em.create(RecordLock, {
-      entityType: params.entityType,
-      recordId: params.recordId,
-      lockedByUserId: params.userId,
-      lockedAt: now,
-      expiresAt: new Date(now.getTime() + config.timeoutSeconds * 1000),
-      lastHeartbeatAt: now,
-      status: 'active',
-      initialSnapshot: params.initialSnapshot,
-      tenantId: params.tenantId,
-      organizationId: params.organizationId,
-    })
-    
-    await em.persistAndFlush(lock)
-    
-    await eventBus.emit('record_locks.acquired', {
-      lockId: lock.id,
-      entityType: params.entityType,
-      recordId: params.recordId,
-      userId: params.userId,
-      tenantId: params.tenantId,
-    })
-    
-    return { success: true, lock }
-  }
-  
-  async function releaseLock(params: {
-    entityType: string
-    recordId: string
-    userId: string
-    reason: 'saved' | 'cancelled' | 'conflict_resolved'
-    tenantId: string
-  }): Promise<void> {
-    const lock = await em.findOne(RecordLock, {
-      entityType: params.entityType,
-      recordId: params.recordId,
-      lockedByUserId: params.userId,
-      tenantId: params.tenantId,
-      status: 'active',
-    })
-    
-    if (lock) {
-      lock.status = 'released'
-      lock.releasedAt = new Date()
-      lock.releasedByUserId = params.userId
-      lock.releaseReason = params.reason
-      await em.flush()
-      
-      await eventBus.emit('record_locks.released', {
-        lockId: lock.id,
-        entityType: params.entityType,
-        recordId: params.recordId,
-        userId: params.userId,
-        reason: params.reason,
-        tenantId: params.tenantId,
-      })
-    }
-  }
-  
-  async function forceReleaseLock(params: {
-    entityType: string
-    recordId: string
-    adminUserId: string
-    tenantId: string
-  }): Promise<void> {
-    const lock = await em.findOne(RecordLock, {
-      entityType: params.entityType,
-      recordId: params.recordId,
-      tenantId: params.tenantId,
-      status: 'active',
-    })
-    
-    if (lock) {
-      const originalUserId = lock.lockedByUserId
-      
-      lock.status = 'force_released'
-      lock.releasedAt = new Date()
-      lock.releasedByUserId = params.adminUserId
-      lock.releaseReason = 'force'
-      await em.flush()
-      
-      // Notify the user whose lock was released
-      await eventBus.emit('record_locks.force_released', {
-        lockId: lock.id,
-        entityType: params.entityType,
-        recordId: params.recordId,
-        originalUserId,
-        adminUserId: params.adminUserId,
-        tenantId: params.tenantId,
-      }, { persistent: true })
-    }
-  }
-  
-  async function heartbeat(params: {
-    entityType: string
-    recordId: string
-    userId: string
-    tenantId: string
-  }): Promise<{ extended: boolean; expiresAt: Date }> {
-    const config = await getRecordLockConfig(params.tenantId)
-    
-    const lock = await em.findOne(RecordLock, {
-      entityType: params.entityType,
-      recordId: params.recordId,
-      lockedByUserId: params.userId,
-      tenantId: params.tenantId,
-      status: 'active',
-    })
-    
-    if (!lock) {
-      return { extended: false, expiresAt: new Date() }
-    }
-    
-    lock.lastHeartbeatAt = new Date()
-    lock.expiresAt = new Date(Date.now() + config.timeoutSeconds * 1000)
-    await em.flush()
-    
-    return { extended: true, expiresAt: lock.expiresAt }
-  }
-  
-  async function getLockStatus(params: {
-    entityType: string
-    recordId: string
-    tenantId: string
-  }): Promise<{ locked: boolean; lock?: RecordLock; lockedByUser?: { id: string; name?: string } }> {
-    const lock = await em.findOne(RecordLock, {
-      entityType: params.entityType,
-      recordId: params.recordId,
-      tenantId: params.tenantId,
-      status: 'active',
-      expiresAt: { $gt: new Date() },
-    })
-    
-    if (!lock) {
-      return { locked: false }
-    }
-    
-    // TODO: Fetch user name from user service
-    return {
-      locked: true,
-      lock,
-      lockedByUser: { id: lock.lockedByUserId },
-    }
-  }
-  
-  async function validateSave(params: {
-    entityType: string
-    recordId: string
-    userId: string
-    currentSnapshot: Record<string, unknown>
-    newData: Record<string, unknown>
-    tenantId: string
-    organizationId?: string | null
-  }): Promise<SaveResult> {
-    const config = await getRecordLockConfig(params.tenantId)
-    
-    // In pessimistic mode, lock must be active
-    if (config.strategy === 'pessimistic') {
-      const lock = await em.findOne(RecordLock, {
-        entityType: params.entityType,
-        recordId: params.recordId,
-        lockedByUserId: params.userId,
-        tenantId: params.tenantId,
-        status: 'active',
-        expiresAt: { $gt: new Date() },
-      })
-      
-      if (!lock) {
-        return { success: false, reason: 'not_locked' }
-      }
-      
-      return { success: true, saved: true }
-    }
-    
-    // Optimistic mode - check for version conflicts
-    const lock = await em.findOne(RecordLock, {
-      entityType: params.entityType,
-      recordId: params.recordId,
-      lockedByUserId: params.userId,
-      tenantId: params.tenantId,
-    })
-    
-    // Check if record was modified since we started editing
-    const baseSnapshot = lock?.initialSnapshot || params.currentSnapshot
-    
-    // Get the actual current state from the database
-    // This requires entity-specific fetch - simplified here
-    const actualCurrentState = params.currentSnapshot
-    
-    // Compare base snapshot with actual current state
-    const incomingChanges = computeFieldChanges(baseSnapshot, actualCurrentState)
-    
-    if (incomingChanges.length === 0) {
-      // No changes by others - safe to save
-      return { success: true, saved: true }
-    }
-    
-    // There were changes - compute our changes
-    const myChanges = computeFieldChanges(baseSnapshot, params.newData)
-    const overlappingFields = findOverlappingFields(incomingChanges, myChanges)
-    
-    // If no overlapping fields and autoMergeTrivial is enabled
-    if (overlappingFields.length === 0 && config.autoMergeTrivial) {
-      // Auto-merge: apply both changes
-      const mergedData = { ...actualCurrentState, ...params.newData }
-      // Record the auto-merge
-      const conflict = em.create(RecordConflict, {
-        entityType: params.entityType,
-        recordId: params.recordId,
-        originalUserId: lock?.lockedByUserId || params.userId,
-        conflictingUserId: params.userId,
-        baseSnapshot,
-        incomingSnapshot: actualCurrentState,
-        conflictingSnapshot: params.newData,
-        incomingChanges,
-        conflictingChanges: myChanges,
-        overlappingFields: [],
-        status: 'auto_merged',
-        resolution: 'merged',
-        resolvedAt: new Date(),
-        resolvedByUserId: params.userId,
-        mergedSnapshot: mergedData,
-        tenantId: params.tenantId,
-        organizationId: params.organizationId,
-      })
-      await em.persistAndFlush(conflict)
-      
-      return { success: true, saved: true }
-    }
-    
-    // Create conflict record
-    const conflict = em.create(RecordConflict, {
-      entityType: params.entityType,
-      recordId: params.recordId,
-      originalUserId: lock?.lockedByUserId || params.userId,
-      conflictingUserId: params.userId,
-      baseSnapshot,
-      incomingSnapshot: actualCurrentState,
-      conflictingSnapshot: params.newData,
-      incomingChanges,
-      conflictingChanges: myChanges,
-      overlappingFields,
-      status: 'pending',
-      tenantId: params.tenantId,
-      organizationId: params.organizationId,
-    })
-    
-    await em.persistAndFlush(conflict)
-    
-    // Notify both users
-    await eventBus.emit('record_locks.conflict_detected', {
-      conflictId: conflict.id,
-      entityType: params.entityType,
-      recordId: params.recordId,
-      originalUserId: conflict.originalUserId,
-      conflictingUserId: conflict.conflictingUserId,
-      overlappingFields,
-      tenantId: params.tenantId,
-    }, { persistent: true })
-    
-    return { success: false, reason: 'conflict', conflict }
-  }
-  
-  async function getPendingConflicts(params: {
-    userId: string
-    tenantId: string
-  }): Promise<RecordConflict[]> {
-    return em.find(RecordConflict, {
-      conflictingUserId: params.userId,
-      tenantId: params.tenantId,
-      status: 'pending',
-    }, {
-      orderBy: { createdAt: 'DESC' },
-    })
-  }
-  
-  async function resolveConflict(params: {
-    conflictId: string
-    resolution: 'accept_incoming' | 'accept_mine' | 'merged'
-    mergedData?: Record<string, unknown>
-    mergeDecisions?: MergeDecision[]
-    userId: string
-    tenantId: string
-  }): Promise<{ success: boolean; savedData: Record<string, unknown> }> {
-    const conflict = await em.findOne(RecordConflict, {
-      id: params.conflictId,
-      tenantId: params.tenantId,
-      status: 'pending',
-    })
-    
-    if (!conflict) {
-      throw new Error('Conflict not found or already resolved')
-    }
-    
-    let savedData: Record<string, unknown>
-    
-    switch (params.resolution) {
-      case 'accept_incoming':
-        savedData = conflict.incomingSnapshot
-        conflict.status = 'resolved_accept_incoming'
-        break
-        
-      case 'accept_mine':
-        savedData = conflict.conflictingSnapshot
-        conflict.status = 'resolved_accept_mine'
-        break
-        
-      case 'merged':
-        if (!params.mergedData) {
-          throw new Error('mergedData required for merge resolution')
-        }
-        savedData = params.mergedData
-        conflict.status = 'resolved_merged'
-        conflict.mergedSnapshot = params.mergedData
-        conflict.mergeDecisions = params.mergeDecisions || null
-        break
-        
-      default:
-        throw new Error('Invalid resolution')
-    }
-    
-    conflict.resolution = params.resolution
-    conflict.resolvedAt = new Date()
-    conflict.resolvedByUserId = params.userId
-    
-    await em.flush()
-    
-    // Notify both users of resolution
-    await eventBus.emit('record_locks.conflict_resolved', {
-      conflictId: conflict.id,
-      entityType: conflict.entityType,
-      recordId: conflict.recordId,
-      resolution: params.resolution,
-      originalUserId: conflict.originalUserId,
-      conflictingUserId: conflict.conflictingUserId,
-      resolvedByUserId: params.userId,
-      tenantId: params.tenantId,
-    }, { persistent: true })
-    
-    return { success: true, savedData }
-  }
-  
-  async function cleanupExpiredLocks(): Promise<number> {
-    const result = await em.nativeUpdate(RecordLock, {
-      status: 'active',
-      expiresAt: { $lte: new Date() },
-    }, {
-      status: 'expired',
-      releasedAt: new Date(),
-      releaseReason: 'expired',
-    })
-    
-    return result as number
-  }
-  
-  return {
-    acquireLock,
-    releaseLock,
-    forceReleaseLock,
-    heartbeat,
-    getLockStatus,
-    validateSave,
-    getPendingConflicts,
-    resolveConflict,
-    cleanupExpiredLocks,
-  }
-}
-```
-
-### Diff Utilities
-
-```typescript
-// packages/core/src/modules/record_locks/lib/diff.ts
-import type { FieldChange } from '../data/entities'
-
-/**
- * Compute field-level changes between two snapshots
- */
-export function computeFieldChanges(
-  base: Record<string, unknown>,
-  current: Record<string, unknown>,
-  prefix: string = ''
-): FieldChange[] {
-  const changes: FieldChange[] = []
-  const allKeys = new Set([...Object.keys(base), ...Object.keys(current)])
-  
-  for (const key of allKeys) {
-    const path = prefix ? `${prefix}.${key}` : key
-    const oldValue = base[key]
-    const newValue = current[key]
-    
-    if (oldValue === undefined && newValue !== undefined) {
-      changes.push({ field: key, path, oldValue: undefined, newValue, type: 'added' })
-    } else if (oldValue !== undefined && newValue === undefined) {
-      changes.push({ field: key, path, oldValue, newValue: undefined, type: 'removed' })
-    } else if (!deepEqual(oldValue, newValue)) {
-      if (isObject(oldValue) && isObject(newValue)) {
-        // Recurse for nested objects
-        changes.push(...computeFieldChanges(oldValue as Record<string, unknown>, newValue as Record<string, unknown>, path))
-      } else {
-        changes.push({ field: key, path, oldValue, newValue, type: 'modified' })
-      }
-    }
-  }
-  
-  return changes
-}
-
-/**
- * Find fields that were changed by both users
- */
-export function findOverlappingFields(
-  incomingChanges: FieldChange[],
-  conflictingChanges: FieldChange[],
-): string[] {
-  const incomingPaths = new Set(incomingChanges.map(c => c.path))
-  return conflictingChanges
-    .filter(c => incomingPaths.has(c.path))
-    .map(c => c.path)
-}
-
-/**
- * Apply merge decisions to create final data
- */
-export function applyMergeDecisions(
-  base: Record<string, unknown>,
-  incoming: Record<string, unknown>,
-  mine: Record<string, unknown>,
-  decisions: Array<{ path: string; decision: 'accept_incoming' | 'accept_mine' | 'custom'; customValue?: unknown }>
-): Record<string, unknown> {
-  // Start with incoming as base (it was saved first)
-  const result = JSON.parse(JSON.stringify(incoming)) as Record<string, unknown>
-  
-  for (const decision of decisions) {
-    switch (decision.decision) {
-      case 'accept_mine':
-        setValueAtPath(result, decision.path, getValueAtPath(mine, decision.path))
-        break
-      case 'accept_incoming':
-        // Already in result
-        break
-      case 'custom':
-        setValueAtPath(result, decision.path, decision.customValue)
-        break
-    }
-  }
-  
-  return result
-}
-
-function deepEqual(a: unknown, b: unknown): boolean {
-  if (a === b) return true
-  if (typeof a !== typeof b) return false
-  if (a === null || b === null) return a === b
-  if (Array.isArray(a) && Array.isArray(b)) {
-    if (a.length !== b.length) return false
-    return a.every((v, i) => deepEqual(v, b[i]))
-  }
-  if (typeof a === 'object' && typeof b === 'object') {
-    const keysA = Object.keys(a)
-    const keysB = Object.keys(b)
-    if (keysA.length !== keysB.length) return false
-    return keysA.every(k => deepEqual((a as any)[k], (b as any)[k]))
-  }
-  return false
-}
-
-function isObject(val: unknown): val is Record<string, unknown> {
-  return typeof val === 'object' && val !== null && !Array.isArray(val)
-}
-
-function getValueAtPath(obj: Record<string, unknown>, path: string): unknown {
-  return path.split('.').reduce((acc: any, key) => acc?.[key], obj)
-}
-
-function setValueAtPath(obj: Record<string, unknown>, path: string, value: unknown): void {
-  const parts = path.split('.')
-  const last = parts.pop()!
-  const target = parts.reduce((acc: any, key) => {
-    if (!acc[key]) acc[key] = {}
-    return acc[key]
-  }, obj)
-  target[last] = value
-}
-```
-
----
-
-## API Endpoints
-
-### Route: `/api/record-locks/acquire`
-
-```typescript
-// packages/core/src/modules/record_locks/api/acquire/route.ts
-import { resolveRequestContext } from '@open-mercato/shared/lib/api/context'
-import { json } from '@open-mercato/shared/lib/api/response'
-import { z } from 'zod'
-
-const acquireSchema = z.object({
-  entityType: z.string().min(1),
-  recordId: z.string().uuid(),
-  initialSnapshot: z.record(z.unknown()),
-})
-
-export async function POST(req: Request) {
-  const { ctx } = await resolveRequestContext(req)
-  const lockService = ctx.container.resolve('recordLockService')
-  const userId = ctx.auth?.sub!
-  const tenantId = ctx.auth?.tenantId!
-  const organizationId = ctx.selectedOrganizationId
-  
-  const body = await req.json()
-  const input = acquireSchema.parse(body)
-  
-  const result = await lockService.acquireLock({
-    entityType: input.entityType,
-    recordId: input.recordId,
-    userId,
-    initialSnapshot: input.initialSnapshot,
-    tenantId,
-    organizationId,
-  })
-  
-  if (result.success) {
-    return json({
-      acquired: true,
-      lock: {
-        id: result.lock.id,
-        expiresAt: result.lock.expiresAt,
-        version: result.lock.version,
-      },
-    })
-  }
-  
-  if (result.reason === 'already_locked') {
-    // Fetch user name
-    const userService = ctx.container.resolve('userService') as any
-    const lockedByUser = await userService.findById(result.lockedBy.userId)
-    
-    return json({
-      acquired: false,
-      reason: 'already_locked',
-      lockedBy: {
-        userId: result.lockedBy.userId,
-        userName: lockedByUser?.name || 'Unknown User',
-        lockedAt: result.lockedBy.lockedAt,
-        expiresAt: result.lockedBy.expiresAt,
-      },
-    }, { status: 409 })
-  }
-  
-  return json({
-    acquired: false,
-    reason: result.reason,
-  }, { status: 400 })
-}
-
-export const metadata = {
-  POST: { requireAuth: true },
-}
-```
-
-### Route: `/api/record-locks/release`
-
-```typescript
-// packages/core/src/modules/record_locks/api/release/route.ts
-import { resolveRequestContext } from '@open-mercato/shared/lib/api/context'
-import { json } from '@open-mercato/shared/lib/api/response'
-import { z } from 'zod'
-
-const releaseSchema = z.object({
-  entityType: z.string().min(1),
-  recordId: z.string().uuid(),
-  reason: z.enum(['saved', 'cancelled', 'conflict_resolved']),
-})
-
-export async function POST(req: Request) {
-  const { ctx } = await resolveRequestContext(req)
-  const lockService = ctx.container.resolve('recordLockService')
-  const userId = ctx.auth?.sub!
-  const tenantId = ctx.auth?.tenantId!
-  
-  const body = await req.json()
-  const input = releaseSchema.parse(body)
-  
-  await lockService.releaseLock({
-    entityType: input.entityType,
-    recordId: input.recordId,
-    userId,
-    reason: input.reason,
-    tenantId,
-  })
-  
-  return json({ released: true })
-}
-
-export const metadata = {
-  POST: { requireAuth: true },
-}
-```
-
-### Route: `/api/record-locks/force-release`
-
-```typescript
-// packages/core/src/modules/record_locks/api/force-release/route.ts
-import { resolveRequestContext } from '@open-mercato/shared/lib/api/context'
-import { json } from '@open-mercato/shared/lib/api/response'
-import { z } from 'zod'
-
-const forceReleaseSchema = z.object({
-  entityType: z.string().min(1),
-  recordId: z.string().uuid(),
-})
-
-export async function POST(req: Request) {
-  const { ctx } = await resolveRequestContext(req)
-  const lockService = ctx.container.resolve('recordLockService')
-  const adminUserId = ctx.auth?.sub!
-  const tenantId = ctx.auth?.tenantId!
-  
-  const body = await req.json()
-  const input = forceReleaseSchema.parse(body)
-  
-  await lockService.forceReleaseLock({
-    entityType: input.entityType,
-    recordId: input.recordId,
-    adminUserId,
-    tenantId,
-  })
-  
-  return json({ released: true })
-}
-
-export const metadata = {
-  POST: { requireAuth: true, requireFeatures: ['record_locks.manage'] },
-}
-```
-
-### Route: `/api/record-locks/heartbeat`
-
-```typescript
-// packages/core/src/modules/record_locks/api/heartbeat/route.ts
-import { resolveRequestContext } from '@open-mercato/shared/lib/api/context'
-import { json } from '@open-mercato/shared/lib/api/response'
-import { z } from 'zod'
-
-const heartbeatSchema = z.object({
-  entityType: z.string().min(1),
-  recordId: z.string().uuid(),
-})
-
-export async function POST(req: Request) {
-  const { ctx } = await resolveRequestContext(req)
-  const lockService = ctx.container.resolve('recordLockService')
-  const userId = ctx.auth?.sub!
-  const tenantId = ctx.auth?.tenantId!
-  
-  const body = await req.json()
-  const input = heartbeatSchema.parse(body)
-  
-  const result = await lockService.heartbeat({
-    entityType: input.entityType,
-    recordId: input.recordId,
-    userId,
-    tenantId,
-  })
-  
-  return json(result)
-}
-
-export const metadata = {
-  POST: { requireAuth: true },
-}
-```
-
-### Route: `/api/record-locks/status`
-
-```typescript
-// packages/core/src/modules/record_locks/api/status/route.ts
-import { resolveRequestContext } from '@open-mercato/shared/lib/api/context'
-import { json } from '@open-mercato/shared/lib/api/response'
-import { z } from 'zod'
-
-const statusQuerySchema = z.object({
-  entityType: z.string().min(1),
-  recordId: z.string().uuid(),
-})
-
-export async function GET(req: Request) {
-  const { ctx } = await resolveRequestContext(req)
-  const lockService = ctx.container.resolve('recordLockService')
-  const tenantId = ctx.auth?.tenantId!
-  
-  const url = new URL(req.url)
-  const input = statusQuerySchema.parse(Object.fromEntries(url.searchParams))
-  
-  const result = await lockService.getLockStatus({
-    entityType: input.entityType,
-    recordId: input.recordId,
-    tenantId,
-  })
-  
-  if (result.locked && result.lock) {
-    const userService = ctx.container.resolve('userService') as any
-    const lockedByUser = await userService.findById(result.lock.lockedByUserId)
-    
-    return json({
-      locked: true,
-      lockedBy: {
-        userId: result.lock.lockedByUserId,
-        userName: lockedByUser?.name || 'Unknown User',
-        lockedAt: result.lock.lockedAt,
-        expiresAt: result.lock.expiresAt,
-      },
-      isMyLock: result.lock.lockedByUserId === ctx.auth?.sub,
-    })
-  }
-  
-  return json({ locked: false })
-}
-
-export const metadata = {
-  GET: { requireAuth: true },
-}
-```
-
-### Route: `/api/record-locks/validate-save`
-
-```typescript
-// packages/core/src/modules/record_locks/api/validate-save/route.ts
-import { resolveRequestContext } from '@open-mercato/shared/lib/api/context'
-import { json } from '@open-mercato/shared/lib/api/response'
-import { z } from 'zod'
-
-const validateSaveSchema = z.object({
-  entityType: z.string().min(1),
-  recordId: z.string().uuid(),
-  currentSnapshot: z.record(z.unknown()),
-  newData: z.record(z.unknown()),
-})
-
-export async function POST(req: Request) {
-  const { ctx } = await resolveRequestContext(req)
-  const lockService = ctx.container.resolve('recordLockService')
-  const userId = ctx.auth?.sub!
-  const tenantId = ctx.auth?.tenantId!
-  const organizationId = ctx.selectedOrganizationId
-  
-  const body = await req.json()
-  const input = validateSaveSchema.parse(body)
-  
-  const result = await lockService.validateSave({
-    entityType: input.entityType,
-    recordId: input.recordId,
-    userId,
-    currentSnapshot: input.currentSnapshot,
-    newData: input.newData,
-    tenantId,
-    organizationId,
-  })
-  
-  if (result.success) {
-    return json({ valid: true })
-  }
-  
-  if (result.reason === 'conflict') {
-    return json({
-      valid: false,
-      reason: 'conflict',
-      conflict: {
-        id: result.conflict.id,
-        baseSnapshot: result.conflict.baseSnapshot,
-        incomingSnapshot: result.conflict.incomingSnapshot,
-        conflictingSnapshot: result.conflict.conflictingSnapshot,
-        incomingChanges: result.conflict.incomingChanges,
-        conflictingChanges: result.conflict.conflictingChanges,
-        overlappingFields: result.conflict.overlappingFields,
-      },
-    }, { status: 409 })
-  }
-  
-  return json({
-    valid: false,
-    reason: result.reason,
-  }, { status: 400 })
-}
-
-export const metadata = {
-  POST: { requireAuth: true },
-}
-```
-
-### Route: `/api/record-locks/conflicts`
-
-```typescript
-// packages/core/src/modules/record_locks/api/conflicts/route.ts
-import { resolveRequestContext } from '@open-mercato/shared/lib/api/context'
-import { json } from '@open-mercato/shared/lib/api/response'
-
-export async function GET(req: Request) {
-  const { ctx } = await resolveRequestContext(req)
-  const lockService = ctx.container.resolve('recordLockService')
-  const userId = ctx.auth?.sub!
-  const tenantId = ctx.auth?.tenantId!
-  
-  const conflicts = await lockService.getPendingConflicts({
-    userId,
-    tenantId,
-  })
-  
-  return json({ conflicts })
-}
-
-export const metadata = {
-  GET: { requireAuth: true },
-}
-```
-
-### Route: `/api/record-locks/conflicts/[id]/resolve`
-
-```typescript
-// packages/core/src/modules/record_locks/api/conflicts/[id]/resolve/route.ts
-import { resolveRequestContext } from '@open-mercato/shared/lib/api/context'
-import { json } from '@open-mercato/shared/lib/api/response'
-import { z } from 'zod'
-
-const resolveSchema = z.object({
-  resolution: z.enum(['accept_incoming', 'accept_mine', 'merged']),
-  mergedData: z.record(z.unknown()).optional(),
-  mergeDecisions: z.array(z.object({
-    path: z.string(),
-    decision: z.enum(['accept_incoming', 'accept_mine', 'custom']),
-    customValue: z.unknown().optional(),
-  })).optional(),
-})
-
-export async function POST(req: Request, { params }: { params: { id: string } }) {
-  const { ctx } = await resolveRequestContext(req)
-  const lockService = ctx.container.resolve('recordLockService')
-  const userId = ctx.auth?.sub!
-  const tenantId = ctx.auth?.tenantId!
-  
-  const body = await req.json()
-  const input = resolveSchema.parse(body)
-  
-  const result = await lockService.resolveConflict({
-    conflictId: params.id,
-    resolution: input.resolution,
-    mergedData: input.mergedData,
-    mergeDecisions: input.mergeDecisions?.map(d => ({
-      ...d,
-      field: d.path.split('.').pop() || d.path,
-      decidedAt: new Date().toISOString(),
-    })),
-    userId,
-    tenantId,
-  })
-  
-  return json(result)
-}
-
-export const metadata = {
-  POST: { requireAuth: true },
-}
-```
-
----
-
-## UI Components
-
-### Lock Status Banner
-
-```typescript
-// packages/core/src/modules/record_locks/components/LockStatusBanner.tsx
-'use client'
-
-import * as React from 'react'
-import { Lock, Unlock, AlertTriangle, Clock } from 'lucide-react'
-import { Button } from '@open-mercato/ui/primitives/button'
-import { Alert, AlertDescription, AlertTitle } from '@open-mercato/ui/primitives/alert'
-import { useT } from '@open-mercato/shared/lib/i18n/context'
-import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
-import { flash } from '@open-mercato/ui/backend/FlashMessages'
-import { formatDistanceToNow } from 'date-fns'
-
-export type LockStatusBannerProps = {
-  entityType: string
-  recordId: string
-  initialSnapshot: Record<string, unknown>
-  onLockAcquired?: (lockId: string, expiresAt: Date) => void
-  onLockDenied?: (lockedBy: { userId: string; userName: string; expiresAt: Date }) => void
-  onLockReleased?: () => void
-  onForceRelease?: () => void
-  canForceRelease?: boolean // Admin permission
-  strategy: 'optimistic' | 'pessimistic'
-}
-
-export function LockStatusBanner({
-  entityType,
-  recordId,
-  initialSnapshot,
-  onLockAcquired,
-  onLockDenied,
-  onLockReleased,
-  onForceRelease,
-  canForceRelease = false,
-  strategy,
-}: LockStatusBannerProps) {
-  const t = useT()
-  const [lockStatus, setLockStatus] = React.useState<{
-    locked: boolean
-    isMyLock?: boolean
-    lockedBy?: { userId: string; userName: string; lockedAt: Date; expiresAt: Date }
-    expiresAt?: Date
-  } | null>(null)
-  const [acquiring, setAcquiring] = React.useState(false)
-  const heartbeatRef = React.useRef<NodeJS.Timeout | null>(null)
-  
-  // Acquire lock on mount
-  React.useEffect(() => {
-    acquireLock()
-    
-    return () => {
-      if (heartbeatRef.current) {
-        clearInterval(heartbeatRef.current)
-      }
-      // Release lock on unmount
-      releaseLock('cancelled')
-    }
-  }, [entityType, recordId])
-  
-  async function acquireLock() {
-    setAcquiring(true)
-    try {
-      const result = await apiCall<{
-        acquired: boolean
-        lock?: { id: string; expiresAt: string }
-        lockedBy?: { userId: string; userName: string; lockedAt: string; expiresAt: string }
-      }>('/api/record-locks/acquire', {
-        method: 'POST',
-        body: JSON.stringify({ entityType, recordId, initialSnapshot }),
-      })
-      
-      if (result.ok && result.result?.acquired) {
-        setLockStatus({
-          locked: true,
-          isMyLock: true,
-          expiresAt: new Date(result.result.lock!.expiresAt),
-        })
-        onLockAcquired?.(result.result.lock!.id, new Date(result.result.lock!.expiresAt))
-        
-        // Start heartbeat
-        startHeartbeat()
-      } else if (result.result?.lockedBy) {
-        setLockStatus({
-          locked: true,
-          isMyLock: false,
-          lockedBy: {
-            ...result.result.lockedBy,
-            lockedAt: new Date(result.result.lockedBy.lockedAt),
-            expiresAt: new Date(result.result.lockedBy.expiresAt),
-          },
-        })
-        onLockDenied?.(result.result.lockedBy as any)
-      }
-    } catch (error) {
-      console.error('Failed to acquire lock:', error)
-    } finally {
-      setAcquiring(false)
-    }
-  }
-  
-  function startHeartbeat() {
-    // Heartbeat every 30 seconds
-    heartbeatRef.current = setInterval(async () => {
-      try {
-        const result = await apiCall<{ extended: boolean; expiresAt: string }>(
-          '/api/record-locks/heartbeat',
-          {
-            method: 'POST',
-            body: JSON.stringify({ entityType, recordId }),
-          }
-        )
-        
-        if (result.ok && result.result?.extended) {
-          setLockStatus(prev => prev ? {
-            ...prev,
-            expiresAt: new Date(result.result!.expiresAt),
-          } : null)
-        }
-      } catch (error) {
-        console.error('Heartbeat failed:', error)
-      }
-    }, 30000)
-  }
-  
-  async function releaseLock(reason: 'saved' | 'cancelled') {
-    try {
-      await apiCall('/api/record-locks/release', {
-        method: 'POST',
-        body: JSON.stringify({ entityType, recordId, reason }),
-      })
-      onLockReleased?.()
-    } catch (error) {
-      console.error('Failed to release lock:', error)
-    }
-  }
-  
-  async function handleForceRelease() {
-    if (!confirm(t('recordLocks.confirmForceRelease'))) return
-    
-    try {
-      await apiCall('/api/record-locks/force-release', {
-        method: 'POST',
-        body: JSON.stringify({ entityType, recordId }),
-      })
-      flash(t('recordLocks.lockForceReleased'), 'success')
-      onForceRelease?.()
-      // Try to acquire the lock now
-      await acquireLock()
-    } catch (error) {
-      flash(t('recordLocks.forceReleaseFailed'), 'error')
-    }
-  }
-  
-  if (acquiring) {
-    return (
-      <Alert className="mb-4">
-        <Clock className="h-4 w-4 animate-spin" />
-        <AlertTitle>{t('recordLocks.acquiringLock')}</AlertTitle>
-      </Alert>
-    )
-  }
-  
-  if (!lockStatus) return null
-  
-  // I have the lock
-  if (lockStatus.isMyLock) {
-    return (
-      <Alert className="mb-4 border-green-200 bg-green-50">
-        <Lock className="h-4 w-4 text-green-600" />
-        <AlertTitle className="text-green-800">{t('recordLocks.youHaveLock')}</AlertTitle>
-        <AlertDescription className="text-green-700">
-          {t('recordLocks.lockExpiresIn', {
-            time: formatDistanceToNow(lockStatus.expiresAt!),
-          })}
-        </AlertDescription>
-      </Alert>
-    )
-  }
-  
-  // Someone else has the lock
-  if (strategy === 'pessimistic') {
-    return (
-      <Alert variant="destructive" className="mb-4">
-        <AlertTriangle className="h-4 w-4" />
-        <AlertTitle>{t('recordLocks.recordLocked')}</AlertTitle>
-        <AlertDescription>
-          {t('recordLocks.lockedByUser', {
-            userName: lockStatus.lockedBy?.userName,
-            time: formatDistanceToNow(lockStatus.lockedBy!.lockedAt, { addSuffix: true }),
-          })}
-          {lockStatus.lockedBy?.expiresAt && (
-            <span className="block mt-1 text-sm">
-              {t('recordLocks.lockExpiresIn', {
-                time: formatDistanceToNow(lockStatus.lockedBy.expiresAt),
-              })}
-            </span>
-          )}
-        </AlertDescription>
-        {canForceRelease && (
-          <Button
-            variant="destructive"
-            size="sm"
-            className="mt-2"
-            onClick={handleForceRelease}
-          >
-            <Unlock className="mr-1 h-4 w-4" />
-            {t('recordLocks.forceRelease')}
-          </Button>
-        )}
-      </Alert>
-    )
-  }
-  
-  // Optimistic mode - show warning but allow editing
-  return (
-    <Alert className="mb-4 border-amber-200 bg-amber-50">
-      <AlertTriangle className="h-4 w-4 text-amber-600" />
-      <AlertTitle className="text-amber-800">{t('recordLocks.beingEdited')}</AlertTitle>
-      <AlertDescription className="text-amber-700">
-        {t('recordLocks.beingEditedByUser', {
-          userName: lockStatus.lockedBy?.userName,
-        })}
-        <span className="block mt-1 text-sm">
-          {t('recordLocks.conflictMayOccur')}
-        </span>
-      </AlertDescription>
-    </Alert>
-  )
-}
-```
-
-### Conflict Resolution Dialog
-
-```typescript
-// packages/core/src/modules/record_locks/components/ConflictResolutionDialog.tsx
-'use client'
-
-import * as React from 'react'
-import { AlertTriangle, Check, X, GitMerge, ArrowLeft, ArrowRight } from 'lucide-react'
-import { Button } from '@open-mercato/ui/primitives/button'
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@open-mercato/ui/primitives/dialog'
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@open-mercato/ui/primitives/tabs'
-import { Badge } from '@open-mercato/ui/primitives/badge'
-import { ScrollArea } from '@open-mercato/ui/primitives/scroll-area'
-import { useT } from '@open-mercato/shared/lib/i18n/context'
-import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
-import { flash } from '@open-mercato/ui/backend/FlashMessages'
-import type { FieldChange } from '../data/entities'
-
-export type ConflictData = {
-  id: string
-  baseSnapshot: Record<string, unknown>
-  incomingSnapshot: Record<string, unknown>
-  conflictingSnapshot: Record<string, unknown>
-  incomingChanges: FieldChange[]
-  conflictingChanges: FieldChange[]
-  overlappingFields: string[]
-}
-
-export type ConflictResolutionDialogProps = {
-  open: boolean
-  onOpenChange: (open: boolean) => void
-  conflict: ConflictData
-  entityLabel: string
-  onResolved: (resolution: 'accept_incoming' | 'accept_mine' | 'merged', savedData: Record<string, unknown>) => void
-}
-
-export function ConflictResolutionDialog({
-  open,
-  onOpenChange,
-  conflict,
-  entityLabel,
-  onResolved,
-}: ConflictResolutionDialogProps) {
-  const t = useT()
-  const [activeTab, setActiveTab] = React.useState<'quick' | 'merge'>('quick')
-  const [mergeDecisions, setMergeDecisions] = React.useState<Map<string, 'accept_incoming' | 'accept_mine' | 'custom'>>(
-    new Map()
-  )
-  const [customValues, setCustomValues] = React.useState<Map<string, unknown>>(new Map())
-  const [resolving, setResolving] = React.useState(false)
-  
-  // Initialize merge decisions with incoming values
-  React.useEffect(() => {
-    const initial = new Map<string, 'accept_incoming' | 'accept_mine' | 'custom'>()
-    for (const field of conflict.overlappingFields) {
-      initial.set(field, 'accept_incoming')
-    }
-    setMergeDecisions(initial)
-  }, [conflict.overlappingFields])
-  
-  async function handleResolve(resolution: 'accept_incoming' | 'accept_mine' | 'merged') {
-    setResolving(true)
-    try {
-      let mergedData: Record<string, unknown> | undefined
-      let decisions: Array<{ path: string; decision: string; customValue?: unknown }> | undefined
-      
-      if (resolution === 'merged') {
-        // Build merged data from decisions
-        mergedData = JSON.parse(JSON.stringify(conflict.incomingSnapshot))
-        decisions = []
-        
-        for (const [path, decision] of mergeDecisions.entries()) {
-          if (decision === 'accept_mine') {
-            setNestedValue(mergedData, path, getNestedValue(conflict.conflictingSnapshot, path))
-          } else if (decision === 'custom') {
-            setNestedValue(mergedData, path, customValues.get(path))
-          }
-          decisions.push({
-            path,
-            decision,
-            customValue: decision === 'custom' ? customValues.get(path) : undefined,
-          })
-        }
-      }
-      
-      const result = await apiCall<{ success: boolean; savedData: Record<string, unknown> }>(
-        `/api/record-locks/conflicts/${conflict.id}/resolve`,
-        {
-          method: 'POST',
-          body: JSON.stringify({ resolution, mergedData, mergeDecisions: decisions }),
-        }
-      )
-      
-      if (result.ok && result.result?.success) {
-        flash(t('recordLocks.conflictResolved'), 'success')
-        onResolved(resolution, result.result.savedData)
-        onOpenChange(false)
-      } else {
-        flash(t('recordLocks.resolveFailed'), 'error')
-      }
-    } catch (error) {
-      flash(t('recordLocks.resolveFailed'), 'error')
-    } finally {
-      setResolving(false)
-    }
-  }
-  
-  return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-4xl max-h-[90vh]">
-        <DialogHeader>
-          <DialogTitle className="flex items-center gap-2">
-            <AlertTriangle className="h-5 w-5 text-amber-500" />
-            {t('recordLocks.conflictDetected', { entity: entityLabel })}
-          </DialogTitle>
-        </DialogHeader>
-        
-        <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as 'quick' | 'merge')}>
-          <TabsList className="grid w-full grid-cols-2">
-            <TabsTrigger value="quick">{t('recordLocks.quickActions')}</TabsTrigger>
-            <TabsTrigger value="merge">
-              {t('recordLocks.combineChanges')}
-              {conflict.overlappingFields.length > 0 && (
-                <Badge variant="secondary" className="ml-2">
-                  {conflict.overlappingFields.length}
-                </Badge>
-              )}
-            </TabsTrigger>
-          </TabsList>
-          
-          <TabsContent value="quick" className="space-y-4 py-4">
-            <div className="grid grid-cols-2 gap-4">
-              {/* Accept Incoming */}
-              <div className="border rounded-lg p-4 space-y-3">
-                <div className="flex items-center gap-2 text-lg font-medium">
-                  <ArrowLeft className="h-5 w-5 text-blue-500" />
-                  {t('recordLocks.acceptIncoming')}
-                </div>
-                <p className="text-sm text-muted-foreground">
-                  {t('recordLocks.acceptIncomingDesc')}
-                </p>
-                <div className="text-sm">
-                  <strong>{t('recordLocks.changesFromOther')}:</strong>
-                  <ul className="mt-1 space-y-1">
-                    {conflict.incomingChanges.slice(0, 5).map(change => (
-                      <li key={change.path} className="text-muted-foreground">
-                        • {change.path}: {formatValue(change.oldValue)} → {formatValue(change.newValue)}
-                      </li>
-                    ))}
-                    {conflict.incomingChanges.length > 5 && (
-                      <li className="text-muted-foreground">
-                        ... {t('recordLocks.andMore', { count: conflict.incomingChanges.length - 5 })}
-                      </li>
-                    )}
-                  </ul>
-                </div>
-                <Button
-                  className="w-full"
-                  variant="outline"
-                  onClick={() => handleResolve('accept_incoming')}
-                  disabled={resolving}
-                >
-                  <Check className="mr-1 h-4 w-4" />
-                  {t('recordLocks.useThisVersion')}
-                </Button>
-              </div>
-              
-              {/* Accept Mine */}
-              <div className="border rounded-lg p-4 space-y-3">
-                <div className="flex items-center gap-2 text-lg font-medium">
-                  <ArrowRight className="h-5 w-5 text-green-500" />
-                  {t('recordLocks.acceptMine')}
-                </div>
-                <p className="text-sm text-muted-foreground">
-                  {t('recordLocks.acceptMineDesc')}
-                </p>
-                <div className="text-sm">
-                  <strong>{t('recordLocks.myChanges')}:</strong>
-                  <ul className="mt-1 space-y-1">
-                    {conflict.conflictingChanges.slice(0, 5).map(change => (
-                      <li key={change.path} className="text-muted-foreground">
-                        • {change.path}: {formatValue(change.oldValue)} → {formatValue(change.newValue)}
-                      </li>
-                    ))}
-                    {conflict.conflictingChanges.length > 5 && (
-                      <li className="text-muted-foreground">
-                        ... {t('recordLocks.andMore', { count: conflict.conflictingChanges.length - 5 })}
-                      </li>
-                    )}
-                  </ul>
-                </div>
-                <Button
-                  className="w-full"
-                  variant="outline"
-                  onClick={() => handleResolve('accept_mine')}
-                  disabled={resolving}
-                >
-                  <Check className="mr-1 h-4 w-4" />
-                  {t('recordLocks.useThisVersion')}
-                </Button>
-              </div>
-            </div>
-          </TabsContent>
-          
-          <TabsContent value="merge" className="py-4">
-            <div className="space-y-4">
-              <p className="text-sm text-muted-foreground">
-                {t('recordLocks.mergeInstructions')}
-              </p>
-              
-              <ScrollArea className="h-[400px] border rounded-lg">
-                <div className="divide-y">
-                  {conflict.overlappingFields.map(fieldPath => {
-                    const incomingChange = conflict.incomingChanges.find(c => c.path === fieldPath)
-                    const myChange = conflict.conflictingChanges.find(c => c.path === fieldPath)
-                    const decision = mergeDecisions.get(fieldPath) || 'accept_incoming'
-                    
-                    return (
-                      <div key={fieldPath} className="p-4 space-y-3">
-                        <div className="font-medium text-sm flex items-center gap-2">
-                          <Badge variant="outline">{fieldPath}</Badge>
-                          {decision === 'accept_incoming' && (
-                            <Badge className="bg-blue-100 text-blue-800">Incoming</Badge>
-                          )}
-                          {decision === 'accept_mine' && (
-                            <Badge className="bg-green-100 text-green-800">Mine</Badge>
-                          )}
-                          {decision === 'custom' && (
-                            <Badge className="bg-purple-100 text-purple-800">Custom</Badge>
-                          )}
-                        </div>
-                        
-                        <div className="grid grid-cols-2 gap-4 text-sm">
-                          {/* Incoming value */}
-                          <button
-                            type="button"
-                            className={`p-3 rounded border text-left transition-colors ${
-                              decision === 'accept_incoming'
-                                ? 'border-blue-500 bg-blue-50'
-                                : 'border-gray-200 hover:border-blue-300'
-                            }`}
-                            onClick={() => setMergeDecisions(prev => new Map(prev).set(fieldPath, 'accept_incoming'))}
-                          >
-                            <div className="font-medium text-blue-700 mb-1">
-                              {t('recordLocks.incomingValue')}
-                            </div>
-                            <div className="text-gray-600 font-mono text-xs break-all">
-                              {formatValue(incomingChange?.newValue)}
-                            </div>
-                          </button>
-                          
-                          {/* My value */}
-                          <button
-                            type="button"
-                            className={`p-3 rounded border text-left transition-colors ${
-                              decision === 'accept_mine'
-                                ? 'border-green-500 bg-green-50'
-                                : 'border-gray-200 hover:border-green-300'
-                            }`}
-                            onClick={() => setMergeDecisions(prev => new Map(prev).set(fieldPath, 'accept_mine'))}
-                          >
-                            <div className="font-medium text-green-700 mb-1">
-                              {t('recordLocks.myValue')}
-                            </div>
-                            <div className="text-gray-600 font-mono text-xs break-all">
-                              {formatValue(myChange?.newValue)}
-                            </div>
-                          </button>
-                        </div>
-                        
-                        <div className="text-xs text-muted-foreground">
-                          {t('recordLocks.originalValue')}: {formatValue(incomingChange?.oldValue)}
-                        </div>
-                      </div>
-                    )
-                  })}
-                </div>
-              </ScrollArea>
-              
-              <Button
-                className="w-full"
-                onClick={() => handleResolve('merged')}
-                disabled={resolving}
-              >
-                <GitMerge className="mr-1 h-4 w-4" />
-                {t('recordLocks.applyMerge')}
-              </Button>
-            </div>
-          </TabsContent>
-        </Tabs>
-        
-        <DialogFooter>
-          <Button variant="outline" onClick={() => onOpenChange(false)} disabled={resolving}>
-            {t('common.cancel')}
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
-  )
-}
-
-function formatValue(value: unknown): string {
-  if (value === null || value === undefined) return '(empty)'
-  if (typeof value === 'object') return JSON.stringify(value)
-  return String(value)
-}
-
-function getNestedValue(obj: Record<string, unknown>, path: string): unknown {
-  return path.split('.').reduce((acc: any, key) => acc?.[key], obj)
-}
-
-function setNestedValue(obj: Record<string, unknown>, path: string, value: unknown): void {
-  const parts = path.split('.')
-  const last = parts.pop()!
-  const target = parts.reduce((acc: any, key) => {
-    if (!acc[key]) acc[key] = {}
-    return acc[key]
-  }, obj)
-  target[last] = value
-}
-```
-
-### Hook: useRecordLock
-
-```typescript
-// packages/core/src/modules/record_locks/hooks/useRecordLock.ts
-'use client'
-
-import * as React from 'react'
-import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
-import type { ConflictData } from '../components/ConflictResolutionDialog'
-
-export type UseRecordLockOptions = {
-  entityType: string
-  recordId: string
-  initialSnapshot: Record<string, unknown>
-  enabled?: boolean
-  onConflict?: (conflict: ConflictData) => void
-}
-
-export type UseRecordLockResult = {
-  isLocked: boolean
-  isMyLock: boolean
-  lockError: string | null
-  lockedBy: { userId: string; userName: string; expiresAt: Date } | null
-  expiresAt: Date | null
-  conflict: ConflictData | null
-  acquireLock: () => Promise<boolean>
-  releaseLock: (reason: 'saved' | 'cancelled') => Promise<void>
-  validateSave: (newData: Record<string, unknown>) => Promise<{ valid: boolean; conflict?: ConflictData }>
-  clearConflict: () => void
-}
-
-export function useRecordLock({
-  entityType,
-  recordId,
-  initialSnapshot,
-  enabled = true,
-  onConflict,
-}: UseRecordLockOptions): UseRecordLockResult {
-  const [state, setState] = React.useState<{
-    isLocked: boolean
-    isMyLock: boolean
-    lockError: string | null
-    lockedBy: { userId: string; userName: string; expiresAt: Date } | null
-    expiresAt: Date | null
-    conflict: ConflictData | null
-  }>({
-    isLocked: false,
-    isMyLock: false,
-    lockError: null,
-    lockedBy: null,
-    expiresAt: null,
-    conflict: null,
-  })
-  
-  const heartbeatRef = React.useRef<NodeJS.Timeout | null>(null)
-  
-  const acquireLock = React.useCallback(async (): Promise<boolean> => {
-    if (!enabled) return true
-    
-    try {
-      const result = await apiCall<{
-        acquired: boolean
-        lock?: { id: string; expiresAt: string }
-        lockedBy?: { userId: string; userName: string; lockedAt: string; expiresAt: string }
-        reason?: string
-      }>('/api/record-locks/acquire', {
-        method: 'POST',
-        body: JSON.stringify({ entityType, recordId, initialSnapshot }),
-      })
-      
-      if (result.ok && result.result?.acquired) {
-        setState(prev => ({
-          ...prev,
-          isLocked: true,
-          isMyLock: true,
-          expiresAt: new Date(result.result!.lock!.expiresAt),
-          lockError: null,
-        }))
-        
-        // Start heartbeat
-        heartbeatRef.current = setInterval(async () => {
-          await apiCall('/api/record-locks/heartbeat', {
-            method: 'POST',
-            body: JSON.stringify({ entityType, recordId }),
-          })
-        }, 30000)
-        
-        return true
-      }
-      
-      if (result.result?.lockedBy) {
-        setState(prev => ({
-          ...prev,
-          isLocked: true,
-          isMyLock: false,
-          lockedBy: {
-            userId: result.result!.lockedBy!.userId,
-            userName: result.result!.lockedBy!.userName,
-            expiresAt: new Date(result.result!.lockedBy!.expiresAt),
-          },
-        }))
-      }
-      
-      return false
-    } catch (error) {
-      setState(prev => ({
-        ...prev,
-        lockError: 'Failed to acquire lock',
-      }))
-      return false
-    }
-  }, [enabled, entityType, recordId, initialSnapshot])
-  
-  const releaseLock = React.useCallback(async (reason: 'saved' | 'cancelled'): Promise<void> => {
-    if (heartbeatRef.current) {
-      clearInterval(heartbeatRef.current)
-      heartbeatRef.current = null
-    }
-    
-    try {
-      await apiCall('/api/record-locks/release', {
-        method: 'POST',
-        body: JSON.stringify({ entityType, recordId, reason }),
-      })
-    } catch (error) {
-      console.error('Failed to release lock:', error)
-    }
-    
-    setState(prev => ({
-      ...prev,
-      isLocked: false,
-      isMyLock: false,
-      expiresAt: null,
-    }))
-  }, [entityType, recordId])
-  
-  const validateSave = React.useCallback(async (newData: Record<string, unknown>): Promise<{
-    valid: boolean
-    conflict?: ConflictData
-  }> => {
-    try {
-      const result = await apiCall<{
-        valid: boolean
-        conflict?: ConflictData
-      }>('/api/record-locks/validate-save', {
-        method: 'POST',
-        body: JSON.stringify({
-          entityType,
-          recordId,
-          currentSnapshot: initialSnapshot,
-          newData,
-        }),
-      })
-      
-      if (result.ok && result.result?.valid) {
-        return { valid: true }
-      }
-      
-      if (result.result?.conflict) {
-        setState(prev => ({ ...prev, conflict: result.result!.conflict! }))
-        onConflict?.(result.result.conflict)
-        return { valid: false, conflict: result.result.conflict }
-      }
-      
-      return { valid: false }
-    } catch (error) {
-      return { valid: false }
-    }
-  }, [entityType, recordId, initialSnapshot, onConflict])
-  
-  const clearConflict = React.useCallback(() => {
-    setState(prev => ({ ...prev, conflict: null }))
-  }, [])
-  
-  // Cleanup on unmount
-  React.useEffect(() => {
-    return () => {
-      if (heartbeatRef.current) {
-        clearInterval(heartbeatRef.current)
-      }
-    }
-  }, [])
-  
-  return {
-    ...state,
-    acquireLock,
-    releaseLock,
-    validateSave,
-    clearConflict,
-  }
-}
-```
-
----
-
-## Events
-
-```typescript
-// packages/core/src/modules/record_locks/lib/events.ts
-export const RECORD_LOCK_EVENTS = {
-  ACQUIRED: 'record_locks.acquired',
-  RELEASED: 'record_locks.released',
-  FORCE_RELEASED: 'record_locks.force_released',
-  EXPIRED: 'record_locks.expired',
-  CONFLICT_DETECTED: 'record_locks.conflict_detected',
-  CONFLICT_RESOLVED: 'record_locks.conflict_resolved',
-} as const
-
-export type LockAcquiredPayload = {
-  lockId: string
-  entityType: string
-  recordId: string
-  userId: string
-  tenantId: string
-}
-
-export type LockReleasedPayload = {
-  lockId: string
-  entityType: string
-  recordId: string
-  userId: string
-  reason: 'saved' | 'cancelled' | 'conflict_resolved'
-  tenantId: string
-}
-
-export type LockForceReleasedPayload = {
-  lockId: string
-  entityType: string
-  recordId: string
-  originalUserId: string
-  adminUserId: string
-  tenantId: string
-}
-
-export type ConflictDetectedPayload = {
-  conflictId: string
-  entityType: string
-  recordId: string
-  originalUserId: string
-  conflictingUserId: string
-  overlappingFields: string[]
-  tenantId: string
-}
-
-export type ConflictResolvedPayload = {
-  conflictId: string
-  entityType: string
-  recordId: string
-  resolution: 'accept_incoming' | 'accept_mine' | 'merged'
-  originalUserId: string
-  conflictingUserId: string
-  resolvedByUserId: string
-  tenantId: string
-}
-```
-
----
-
-## Notifications Integration
-
-### Subscriber: Notify on Force Release
-
-```typescript
-// packages/core/src/modules/record_locks/subscribers/notify-force-release.ts
-import { createQueue } from '@open-mercato/queue'
-import type { LockForceReleasedPayload } from '../lib/events'
-
-export const metadata = {
-  event: 'record_locks.force_released',
-  id: 'record_locks:notify-force-release',
-  persistent: true,
-}
-
-export default async function handle(
-  payload: LockForceReleasedPayload,
-  ctx: { resolve: <T>(name: string) => T }
-): Promise<void> {
-  const notifQueue = createQueue('notifications', 'async')
-  
-  await notifQueue.enqueue({
-    type: 'create',
-    input: {
-      recipientUserId: payload.originalUserId,
-      type: 'record_locks.force_released',
-      title: 'Your edit lock was released',
-      body: 'An administrator released your lock on a record you were editing',
-      icon: 'unlock',
-      severity: 'warning',
-      sourceModule: 'record_locks',
-      sourceEntityType: payload.entityType,
-      sourceEntityId: payload.recordId,
-    },
-    tenantId: payload.tenantId,
-  })
-}
-```
-
-### Subscriber: Notify on Conflict
-
-```typescript
-// packages/core/src/modules/record_locks/subscribers/notify-conflict.ts
-import { createQueue } from '@open-mercato/queue'
-import type { ConflictDetectedPayload } from '../lib/events'
-
-export const metadata = {
-  event: 'record_locks.conflict_detected',
-  id: 'record_locks:notify-conflict',
-  persistent: true,
-}
-
-export default async function handle(
-  payload: ConflictDetectedPayload,
-  ctx: { resolve: <T>(name: string) => T }
-): Promise<void> {
-  const notifQueue = createQueue('notifications', 'async')
-  
-  // Notify the conflicting user (who tried to save)
-  await notifQueue.enqueue({
-    type: 'create',
-    input: {
-      recipientUserId: payload.conflictingUserId,
-      type: 'record_locks.conflict_detected',
-      title: 'Edit conflict detected',
-      body: 'Your changes conflict with changes made by another user. Please resolve the conflict.',
-      icon: 'git-branch',
-      severity: 'warning',
-      sourceModule: 'record_locks',
-      sourceEntityType: 'record_conflict',
-      sourceEntityId: payload.conflictId,
-      linkHref: `/backend/conflicts/${payload.conflictId}`,
-      actionData: {
-        actions: [
-          { id: 'resolve', label: 'Resolve Conflict', variant: 'default', href: `/backend/conflicts/${payload.conflictId}` },
-        ],
-      },
-    },
-    tenantId: payload.tenantId,
-  })
-  
-  // Also notify the original user
-  await notifQueue.enqueue({
-    type: 'create',
-    input: {
-      recipientUserId: payload.originalUserId,
-      type: 'record_locks.conflict_with_your_edit',
-      title: 'Someone edited the same record',
-      body: 'Another user tried to save changes to a record you recently edited. They will resolve the conflict.',
-      icon: 'git-branch',
-      severity: 'info',
-      sourceModule: 'record_locks',
-      sourceEntityType: payload.entityType,
-      sourceEntityId: payload.recordId,
-    },
-    tenantId: payload.tenantId,
-  })
-}
-```
-
-### Subscriber: Notify on Resolution
-
-```typescript
-// packages/core/src/modules/record_locks/subscribers/notify-resolution.ts
-import { createQueue } from '@open-mercato/queue'
-import type { ConflictResolvedPayload } from '../lib/events'
-
-export const metadata = {
-  event: 'record_locks.conflict_resolved',
-  id: 'record_locks:notify-resolution',
-  persistent: true,
-}
-
-export default async function handle(
-  payload: ConflictResolvedPayload,
-  ctx: { resolve: <T>(name: string) => T }
-): Promise<void> {
-  const notifQueue = createQueue('notifications', 'async')
-  
-  const resolutionLabels = {
-    accept_incoming: 'accepted the other version',
-    accept_mine: 'kept their version',
-    merged: 'merged both versions',
-  }
-  
-  // Notify both users
-  const userIds = [payload.originalUserId, payload.conflictingUserId]
-  
-  for (const userId of userIds) {
-    const isResolver = userId === payload.resolvedByUserId
-    
-    await notifQueue.enqueue({
-      type: 'create',
-      input: {
-        recipientUserId: userId,
-        type: 'record_locks.conflict_resolved',
-        title: isResolver ? 'Conflict resolved' : 'Edit conflict was resolved',
-        body: isResolver
-          ? `You ${resolutionLabels[payload.resolution]}`
-          : `The other user ${resolutionLabels[payload.resolution]}`,
-        icon: 'check-circle',
-        severity: 'success',
-        sourceModule: 'record_locks',
-        sourceEntityType: payload.entityType,
-        sourceEntityId: payload.recordId,
-      },
-      tenantId: payload.tenantId,
-    })
-  }
-}
-```
-
----
-
-## Workers
-
-### Worker: Cleanup Expired Locks
-
-```typescript
-// packages/core/src/modules/record_locks/workers/cleanup.worker.ts
-import type { QueuedJob, JobContext, WorkerMeta } from '@open-mercato/queue'
-import type { EntityManager } from '@mikro-orm/core'
-
-export const CLEANUP_QUEUE_NAME = 'record-locks-cleanup'
-
-export const metadata: WorkerMeta = {
-  queue: CLEANUP_QUEUE_NAME,
-  id: 'record_locks:cleanup',
-  concurrency: 1,
-}
-
-type HandlerContext = { resolve: <T = unknown>(name: string) => T }
-
-export default async function handle(
-  job: QueuedJob<{ runAt: string }>,
-  ctx: JobContext & HandlerContext
-): Promise<void> {
-  const lockService = ctx.resolve('recordLockService') as any
-  const count = await lockService.cleanupExpiredLocks()
-  
-  if (count > 0) {
-    console.log(`[record_locks:cleanup] Expired ${count} locks`)
-  }
-}
-```
-
----
-
-## ACL (Features)
-
-```typescript
-// packages/core/src/modules/record_locks/acl.ts
-export const features = [
-  'record_locks.view',    // View lock status
-  'record_locks.manage',  // Force release locks, configure settings
-]
-```
-
----
-
-## i18n Keys
-
-```json
-// packages/core/src/modules/record_locks/i18n/en.json
-{
-  "recordLocks": {
-    "config": {
-      "title": "Record Locking",
-      "strategy": "Locking Strategy",
-      "strategyOptimistic": "Optimistic (allow concurrent edits, detect conflicts)",
-      "strategyPessimistic": "Pessimistic (block editing when locked)",
-      "timeout": "Lock Timeout (seconds)",
-      "heartbeat": "Heartbeat Interval (seconds)",
-      "allowLockRequests": "Allow users to request lock release",
-      "autoMergeTrivial": "Auto-merge non-overlapping changes"
-    },
-    "acquiringLock": "Acquiring edit lock...",
-    "youHaveLock": "You are editing this record",
-    "lockExpiresIn": "Lock expires in {time}",
-    "recordLocked": "Record is locked",
-    "lockedByUser": "This record is being edited by {userName} (started {time})",
-    "beingEdited": "Currently being edited",
-    "beingEditedByUser": "{userName} is also editing this record",
-    "conflictMayOccur": "If you save, a conflict may occur if they save first.",
-    "forceRelease": "Force Release Lock",
-    "confirmForceRelease": "Are you sure you want to force release this lock? The other user may lose unsaved changes.",
-    "lockForceReleased": "Lock has been released",
-    "forceReleaseFailed": "Failed to release lock",
-    "conflictDetected": "Conflict detected on {entity}",
-    "quickActions": "Quick Actions",
-    "combineChanges": "Combine Changes",
-    "acceptIncoming": "Accept Incoming",
-    "acceptIncomingDesc": "Discard your changes and use the version saved by the other user",
-    "acceptMine": "Accept Mine",
-    "acceptMineDesc": "Overwrite with your changes (the other user's changes will be lost)",
-    "changesFromOther": "Their changes",
-    "myChanges": "My changes",
-    "andMore": "and {count} more",
-    "useThisVersion": "Use This Version",
-    "mergeInstructions": "Choose which version to keep for each conflicting field:",
-    "incomingValue": "Their Value",
-    "myValue": "My Value",
-    "originalValue": "Original",
-    "applyMerge": "Apply Merged Changes",
-    "conflictResolved": "Conflict resolved successfully",
-    "resolveFailed": "Failed to resolve conflict"
-  }
-}
-```
-
----
-
-## DI Registration
-
-```typescript
-// packages/core/src/modules/record_locks/di.ts
-import type { AwilixContainer } from 'awilix'
-import { asFunction } from 'awilix'
-import { createRecordLockService } from './lib/lockService'
-
-export function register(container: AwilixContainer): void {
-  container.register({
-    recordLockService: asFunction(({ em, eventBus }) =>
-      createRecordLockService(em, eventBus)
-    ).scoped(),
-  })
-}
-```
-
----
-
-## Integration with CrudForm
-
-### CrudForm Enhancement
-
-```typescript
-// Example integration in CrudForm
-import { useRecordLock } from '@open-mercato/core/modules/record_locks/hooks/useRecordLock'
-import { LockStatusBanner } from '@open-mercato/core/modules/record_locks/components/LockStatusBanner'
-import { ConflictResolutionDialog } from '@open-mercato/core/modules/record_locks/components/ConflictResolutionDialog'
-
-// Inside CrudForm component:
-const {
-  isLocked,
-  isMyLock,
-  lockedBy,
-  conflict,
-  acquireLock,
-  releaseLock,
-  validateSave,
-  clearConflict,
-} = useRecordLock({
-  entityType: `${module}:${entity}`,
-  recordId: record?.id,
-  initialSnapshot: record,
-  enabled: mode === 'edit' && lockingEnabled,
-  onConflict: setShowConflictDialog,
-})
-
-// Before save:
-async function handleSubmit(data) {
-  // Validate for conflicts
-  const { valid, conflict } = await validateSave(data)
-  
-  if (!valid && conflict) {
-    setShowConflictDialog(true)
-    return
-  }
-  
-  // Proceed with save...
-  await saveCrud(data)
-  await releaseLock('saved')
-}
-
-// In render:
-<>
-  <LockStatusBanner
-    entityType={entityType}
-    recordId={record.id}
-    initialSnapshot={record}
-    strategy={lockConfig.strategy}
-    canForceRelease={hasFeature('record_locks.manage')}
-  />
-  
-  {conflict && (
-    <ConflictResolutionDialog
-      open={showConflictDialog}
-      onOpenChange={setShowConflictDialog}
-      conflict={conflict}
-      entityLabel={entityLabel}
-      onResolved={(resolution, savedData) => {
-        clearConflict()
-        // Refresh form with saved data
-        reset(savedData)
-      }}
-    />
-  )}
-  
-  {/* Form disabled in pessimistic mode when locked by another */}
-  <fieldset disabled={lockConfig.strategy === 'pessimistic' && isLocked && !isMyLock}>
-    {/* Form fields */}
-  </fieldset>
-</>
-```
-
----
-
-## Test Scenarios
-
-| Scenario | Given | When | Then |
-|----------|-------|------|------|
-| Acquire lock | User opens edit form | Form loads | Lock acquired, banner shows "editing" |
-| Lock denied (pessimistic) | Another user has lock, pessimistic mode | User opens same record | Form disabled, shows who is editing |
-| Lock denied (optimistic) | Another user has lock, optimistic mode | User opens same record | Warning shown but form enabled |
-| Heartbeat extends | User is editing | 30 seconds pass | Heartbeat sent, lock extended |
-| Lock expires | User stops interacting | Timeout passes | Lock status changes to expired |
-| Force release | Admin clicks force release | POST /api/record-locks/force-release | Lock released, original user notified |
-| No conflict | User A saves, User B saves different fields | User B submits | Both changes saved (auto-merge if enabled) |
-| Conflict detected | User A and B change same field | User B submits after A | Conflict dialog shown to B |
-| Accept incoming | User in conflict dialog | Clicks "Accept Incoming" | A's version kept, B notified |
-| Accept mine | User in conflict dialog | Clicks "Accept Mine" | B's version kept, A notified |
-| Merge changes | User in conflict dialog | Selects per-field, clicks Merge | Combined version saved, both notified |
-| Cleanup job | Expired locks exist | Cleanup worker runs | Expired locks marked as expired |
-| Config change | Admin changes strategy | Saves config | New strategy applies to new locks |
-
----
-
-## Addendum (2026-02-17): Accept Incoming Contract and Snapshot Reuse
-
-This is an append-only correction aligned with the current implementation on `feat/005_record_locking`.
-
-1. Conflict snapshot source of truth
-- Conflict diff payloads are derived from existing `action_logs` snapshots and changes (`base_action_log_id`, `incoming_action_log_id`, `snapshot_before`, `snapshot_after`, `changes_json`).
-- `record_lock_conflicts` stores references to action logs and resolution state; it does not persist duplicated full snapshots.
-
-2. Deterministic `accept_incoming` path
-- `accept_incoming` is resolved through an explicit release flow:
-  - `POST /api/record_locks/release` with `reason: "conflict_resolved"`, `conflictId`, `resolution: "accept_incoming"`.
-- UI must call this contract directly (no hard page reload fallback).
-
-3. Conflict response options
-- `resolutionOptions` in conflict payload now reflects mutation-path options only: `['accept_mine']`.
-- `accept_incoming` remains available via explicit release+resolve path above.
-
-4. Coverage added for this contract
-- Core: `packages/core/src/modules/record_locks/__tests__/recordLockService.test.ts`.
-- API: `packages/core/src/modules/record_locks/api/__tests__/release.route.test.ts`.
-- UI: `packages/ui/src/backend/record-locking/__tests__/RecordConflictDialog.test.tsx`, `packages/ui/src/backend/__tests__/CrudForm.record-lock.test.tsx`.
-- Integration: `packages/core/src/modules/record_locks/__integration__/TC-LOCK-002.spec.ts`.
-
-## Addendum (2026-02-20): Enterprise path and coverage alignment
-
-1. Canonical enterprise HTTP paths
-- Runtime enterprise record-lock API paths use underscore form:
-  - `/api/record_locks/acquire`
-  - `/api/record_locks/release`
-  - `/api/record_locks/heartbeat`
-  - `/api/record_locks/force-release`
-  - `/api/record_locks/validate`
-- Any historical hyphenated examples in this document (`/api/record-locks/*`) are legacy references only and MUST NOT be used for new integration tests.
-
-2. Integration suite source of truth
-- Record-lock integration tests now live in:
-  - `packages/enterprise/src/modules/record_locks/__integration__/TC-LOCK-001.spec.ts`
-  - `packages/enterprise/src/modules/record_locks/__integration__/TC-LOCK-002.spec.ts`
-  - `packages/enterprise/src/modules/record_locks/__integration__/TC-LOCK-003.spec.ts`
-  - `packages/enterprise/src/modules/record_locks/__integration__/TC-LOCK-004.spec.ts`
-  - `packages/enterprise/src/modules/record_locks/__integration__/TC-LOCK-005.spec.ts`
-  - `packages/enterprise/src/modules/record_locks/__integration__/TC-LOCK-006.spec.ts`
-  - `packages/enterprise/src/modules/record_locks/__integration__/TC-LOCK-007.spec.ts`
-
-3. Scenario mapping for integration authoring
-- Pessimistic lock block + post-release success: `TC-LOCK-001`.
-- Optimistic conflict resolution paths: `TC-LOCK-002` (`accept_incoming`), `TC-LOCK-003` (`accept_mine`), `TC-LOCK-004` (`merged`).
-- Force release path: `TC-LOCK-005`.
-- Lock payload identity/IP contract: `TC-LOCK-006`.
-- Notification action contract and changed fields payload: `TC-LOCK-007`.
-
-## Addendum (2026-02-21): Multi-participant optimistic presence model
-
-1. Active lock cardinality
-- Optimistic mode now allows multiple active lock rows per record (one active row per user+record scope).
-- Pessimistic mode remains exclusive and returns `423 record_locked` when another active participant exists.
-
-2. Lock payload contract
-- Acquire/validate lock payloads include participant list and participant count so every participant can see ring state.
-- When exactly one other participant is present, payload includes identity fields (name/login/IP) for display.
-
-3. Notification fanout updates
-- New event `record_locks.participant.joined` notifies all active participants when a new participant opens the record.
-- Incoming change notification fanout now targets all active participants on the record (including actor session).
-
-4. Server-side release authority
-- Client-side `onAfterSave` release call is removed from widget integration.
-- Lock release after successful mutation is kept server-side via mutation guard flow.
+### UI Integration
+
+#### Injection Table
+
+| Spot ID | Priority | Kind |
+|---------|----------|------|
+| `backend:record:current` | 600 | stack |
+| `backend-mutation:global` | 500 | stack |
+| `crud-form:*` | 400 | stack |
+
+Widget ID: `record_locks.injection.crud-form-locking`
+
+#### Widget Server Config (`widget.ts`)
+
+Metadata:
+- `id: 'record_locks.injection.crud-form-locking'`
+- `features: ['record_locks.view']`
+- `priority: 400`
+
+Event handlers:
+- **`onBeforeSave(data, context)`**: Validates lock state (checks for `recordDeleted`, unresolved conflict, calls `validateBeforeSave()`), returns request headers with lock metadata
+- **`onAfterSave(data, context)`**: Clears lock form state
+
+#### Widget Client Component (`widget.client.tsx` — ~1393 lines)
+
+**Multi-instance coordination**: Multiple widget instances on the same page are coordinated via a global owner map (`__openMercatoRecordLockWidgetOwners__`). Higher priority instances (formId-based = priority 2 > context-based = priority 1) claim ownership. Non-primary instances release locks and clear state. Ownership changes broadcast via `om:record-lock-owner-changed` custom event.
+
+**Lifecycle effects:**
+1. Lock acquisition on mount via `POST /api/record_locks/acquire`
+2. Heartbeat polling every 10 seconds via `POST /api/record_locks/heartbeat`
+3. Presence refresh every 4 seconds via re-acquire (updates participant count, latest action log ID)
+4. Lock contention banner via unread notification polling
+5. Incoming changes sync triggered by `showIncomingChanges=1` query parameter
+6. Mutation error handling: listens to `BACKEND_MUTATION_ERROR_EVENT` and `om:crud-save-error`, extracts conflict payload, opens conflict dialog
+7. Lock release on unmount: `navigator.sendBeacon()` on `pagehide` event, async release fallback on component unmount (both with `reason: 'unmount'`)
+
+**User actions:**
+- **Take over**: force-release + re-acquire
+- **Accept incoming**: validate → release with `resolution: 'accept_incoming'` + `conflictId` → reload page
+- **Keep mine**: validate → set `pendingResolution: 'accept_mine'`, `pendingResolutionArmed: true` → retry mutation (next save includes resolution header)
+- **Keep editing**: close dialog without resolution
+
+**Mutation header propagation** (set by `onBeforeSave`):
+- `x-om-record-lock-kind` — resource kind
+- `x-om-record-lock-resource-id` — record UUID
+- `x-om-record-lock-token` — lock ownership token
+- `x-om-record-lock-base-log-id` — latest action log ID for conflict detection
+- `x-om-record-lock-resolution` — `'normal'`, `'accept_mine'`, or `'merged'` (when armed)
+- `x-om-record-lock-conflict-id` — conflict UUID (when resolving)
+
+Headers are scoped via `withScopedApiRequestHeaders()` from `@open-mercato/ui/backend/utils/apiCall` and propagated through `apiCall` to server-side routes.
+
+#### Settings Page
+
+- Path: `/backend/settings/record-locks`
+- Feature gate: `record_locks.manage`
+- Fields: enable toggle, strategy dropdown, timeout (30-3600s), heartbeat (5-300s), enabled resources (tags input with entity registry suggestions), force unlock toggle, incoming override toggle, notify on conflict toggle
+- Reads/writes via `GET/POST /api/record_locks/settings`
+
+### Consumer Pages Using `useGuardedMutation`
+
+Backend detail pages wrap mutations through the `useGuardedMutation` hook:
+
+| Page | Context ID Pattern | Resource Kind |
+|------|--------------------|---------------|
+| `/backend/customers/people/[id]` | `customer-person:{id}` | `customers.person` |
+| `/backend/customers/companies/[id]` | `customer-company:{id}` | `customers.company` |
+| `/backend/sales/documents/[id]` | (document-specific) | `sales.quote` / `sales.order` |
+
+### Throttling and Deduplication
+
+| Mechanism | Key Pattern | TTL/Interval |
+|-----------|-------------|--------------|
+| Lock contention event throttle | `tenantId\|orgId\|resourceKind\|resourceId\|lockedByUserId\|attemptedByUserId` | 15s |
+| Participant rejoin suppression | Checks recent `'saved'` release within window | 20s |
+| Conflict advisory lock deduplication | `record_locks:conflict:tenantId:orgId:resourceKind:resourceId:actorUserId:baseLogId:incomingLogId` | Transaction-scoped |
+| Background cleanup scheduling | Per-tenant debounce | 5 min minimum |
+
+### Background Cleanup
+
+`cleanupHistoricalRecords()` runs on a per-tenant debounced schedule (minimum 5 min between runs):
+
+| Record Type | Retention | Condition |
+|-------------|-----------|-----------|
+| Released/expired/force-released locks | 3 days | Status is not `'active'` |
+| Resolved conflicts | 7 days | Status starts with `'resolved_'` |
+| Pending conflicts | 1 day | Status is `'pending'` |
+
+## Data Models
+
+### `record_locks`
+
+Table: `record_locks`
+
+| Column | Type | Notes |
+|--------|------|-------|
+| `id` | UUID, PK | |
+| `resource_kind` | text | Resource type identifier |
+| `resource_id` | text | Resource UUID |
+| `token` | text, unique | Lock ownership token |
+| `strategy` | enum | `'optimistic'` / `'pessimistic'`, default `'optimistic'` |
+| `status` | enum | `'active'` / `'released'` / `'expired'` / `'force_released'`, default `'active'` |
+| `locked_by_user_id` | UUID, FK | Lock holder |
+| `locked_by_ip` | text, nullable | Client IP |
+| `base_action_log_id` | UUID, FK, nullable | Action log at lock time |
+| `locked_at` | timestamp | Acquisition time |
+| `last_heartbeat_at` | timestamp | Last heartbeat |
+| `expires_at` | timestamp | Lock expiration |
+| `released_at` | timestamp, nullable | Release time |
+| `released_by_user_id` | UUID, FK, nullable | Releasing user |
+| `release_reason` | text, nullable | `'saved'` / `'cancelled'` / `'unmount'` / `'expired'` / `'force'` / `'conflict_resolved'` |
+| `tenant_id` | UUID, FK | Tenant scoping |
+| `organization_id` | UUID, FK, nullable | Organization scoping |
+| `created_at` | timestamp | |
+| `updated_at` | timestamp | |
+| `deleted_at` | timestamp, nullable | Soft delete |
+
+**Indexes:**
+- `record_locks_resource_status_idx`: `(tenant_id, resource_kind, resource_id, status)`
+- `record_locks_owner_status_idx`: `(tenant_id, locked_by_user_id, status)`
+- `record_locks_expiry_status_idx`: `(tenant_id, expires_at, status)`
+- `record_locks_active_scope_user_org_unique`: partial unique on `(resource_kind, resource_id, locked_by_user_id, organization_id)` where active
+- `record_locks_active_scope_user_tenant_unique`: partial unique on `(resource_kind, resource_id, locked_by_user_id, tenant_id)` where active
+
+### `record_lock_conflicts`
+
+Table: `record_lock_conflicts`
+
+| Column | Type | Notes |
+|--------|------|-------|
+| `id` | UUID, PK | |
+| `resource_kind` | text | |
+| `resource_id` | text | |
+| `status` | enum | `'pending'` / `'resolved_accept_incoming'` / `'resolved_accept_mine'` / `'resolved_merged'` |
+| `resolution` | enum, nullable | `'accept_incoming'` / `'accept_mine'` / `'merged'` |
+| `base_action_log_id` | UUID, FK, nullable | Base state action log |
+| `incoming_action_log_id` | UUID, FK, nullable | Incoming change action log |
+| `conflict_actor_user_id` | UUID, FK | User attempting to save |
+| `incoming_actor_user_id` | UUID, FK, nullable | User who made incoming change |
+| `resolved_by_user_id` | UUID, FK, nullable | |
+| `resolved_at` | timestamp, nullable | |
+| `tenant_id` | UUID, FK | |
+| `organization_id` | UUID, FK, nullable | |
+| `created_at` | timestamp | |
+| `updated_at` | timestamp | |
+| `deleted_at` | timestamp, nullable | |
+
+**Indexes:**
+- `record_lock_conflicts_resource_idx`: `(tenant_id, resource_kind, resource_id, status, created_at)`
+- `record_lock_conflicts_users_idx`: `(tenant_id, conflict_actor_user_id, incoming_actor_user_id, created_at)`
+
+### Module Settings (`ModuleConfig`)
+
+Stored under `moduleId: 'record_locks'`, `name: 'settings'`:
+
+| Field | Type | Default |
+|-------|------|---------|
+| `enabled` | boolean | `true` |
+| `strategy` | `'optimistic'` / `'pessimistic'` | `'optimistic'` |
+| `timeoutSeconds` | number (30-3600) | `300` |
+| `heartbeatSeconds` | number (5-300) | `30` |
+| `enabledResources` | string[] | `['*']` |
+| `allowForceUnlock` | boolean | `true` |
+| `allowIncomingOverride` | boolean | `true` |
+| `notifyOnConflict` | boolean | `true` |
+
+## API Contracts
+
+### Endpoints
+
+| Endpoint | Method | Feature Gate | Notes |
+|----------|--------|--------------|-------|
+| `/api/record_locks/acquire` | POST | `record_locks.view` | Acquire or join lock queue/presence |
+| `/api/record_locks/heartbeat` | POST | `record_locks.view` | Refresh active lock |
+| `/api/record_locks/release` | POST | `record_locks.view` | Release lock or resolve conflict (`accept_incoming`) |
+| `/api/record_locks/force-release` | POST | `record_locks.force_release` | Force release active owner lock |
+| `/api/record_locks/validate` | POST | `record_locks.view` | Preflight mutation validation |
+| `/api/record_locks/settings` | GET | `record_locks.manage` | Read module settings |
+| `/api/record_locks/settings` | POST | `record_locks.manage` | Update module settings |
+
+### Mutation Header Contract
+
+Used by guarded mutations (set by widget `onBeforeSave`, read by service `readRecordLockHeaders`):
+
+| Header | Required | Values |
+|--------|----------|--------|
+| `x-om-record-lock-kind` | yes | Resource kind string |
+| `x-om-record-lock-resource-id` | yes | Resource UUID |
+| `x-om-record-lock-token` | no | Lock ownership token |
+| `x-om-record-lock-base-log-id` | no | Action log UUID for conflict baseline |
+| `x-om-record-lock-resolution` | no | `'normal'` / `'accept_mine'` / `'merged'` |
+| `x-om-record-lock-conflict-id` | no | Conflict UUID being resolved |
+
+### Error/Result Codes
+
+| Scenario | HTTP Status | Code |
+|----------|-------------|------|
+| Lock contention (pessimistic) | `423` | `record_locked` |
+| Optimistic conflict | `409` | `record_lock_conflict` |
+| Force release unavailable | `409` | `record_force_release_unavailable` |
+
+### PII Redaction Behavior
+
+Acquire and validate routes redact personally identifying lock-owner details:
+- `lockedByIp`: set to `null`
+- `lockedByName`: removed entirely
+- `lockedByEmail`: masked to `xx**@yyyy**.<domain>` format (first 2 chars of local part, first 4 chars of domain part)
+- Participant IPs, names, and emails: same redaction applied
+
+Force release capability checked via `rbacService.userHasAllFeatures(['record_locks.force_release'])` and included in acquire response as `allowForceUnlock`.
+
+### Resource Link Resolution
+
+`notificationHelpers.ts` maps resource kinds to backend edit page URLs:
+
+| Resource Kind | URL Pattern |
+|---------------|-------------|
+| `catalog.product` | `/backend/catalog/products/{id}` |
+| `catalog.product_variant` | `/backend/catalog/products/{id}` |
+| `customers.person` | `/backend/customers/people/{id}` |
+| `customers.company` | `/backend/customers/companies/{id}` |
+| `customers.deal` | `/backend/customers/deals/{id}` |
+| `sales.quote` | `/backend/sales/documents/{id}` |
+| `sales.order` | `/backend/sales/documents/{id}` |
+
+## Integration Coverage
+
+### API Coverage
+
+1. Acquire and competing access (`/acquire`) in optimistic/pessimistic strategies.
+2. Heartbeat refresh and expiry handling (`/heartbeat`).
+3. Release flows including conflict-resolved accept-incoming (`/release`).
+4. Force release takeover behavior (`/force-release`).
+5. Mutation preflight conflict payloads (`/validate`).
+6. Settings read/write (`/settings`).
+7. Guard propagation to CRUD writes (`PUT`/`DELETE` via `makeCrudRoute`) and custom sales mutation routes.
+
+### Key UI Path Coverage
+
+1. `/backend/settings/record-locks` — settings management.
+2. `/backend/customers/people/[id]` — lock banner and conflict handling via `useGuardedMutation` + widget injection.
+3. `/backend/customers/companies/[id]` — lock banner/conflict flow.
+4. `/backend/sales/documents/[id]` — custom mutation lock validation path (convert, send).
+
+### Automated Test Coverage
+
+**Integration tests** (Playwright):
+- `packages/enterprise/src/modules/record_locks/__integration__/TC-LOCK-001.spec.ts`
+- `packages/enterprise/src/modules/record_locks/__integration__/TC-LOCK-002.spec.ts`
+- `packages/enterprise/src/modules/record_locks/__integration__/TC-LOCK-003.spec.ts`
+- `packages/enterprise/src/modules/record_locks/__integration__/TC-LOCK-004.spec.ts`
+- `packages/enterprise/src/modules/record_locks/__integration__/TC-LOCK-005.spec.ts`
+- `packages/enterprise/src/modules/record_locks/__integration__/TC-LOCK-006.spec.ts`
+- `packages/enterprise/src/modules/record_locks/__integration__/TC-LOCK-007.spec.ts`
+
+**Unit/service tests**:
+- `__tests__/config.test.ts` — configuration parsing and resource enablement
+- `__tests__/recordLockService.test.ts` — lock acquisition, heartbeat, release, conflict logic
+- `__tests__/crudMutationGuardService.test.ts` — mutation guard validation and after-success hooks
+- `__tests__/recordLockWidgetHeaders.test.ts` — header extraction and validation
+
+**API route tests**:
+- `api/__tests__/acquire.route.test.ts`
+- `api/__tests__/release.route.test.ts`
+- `api/__tests__/settings.route.test.ts`
+
+## Risks & Impact Review
+
+#### Stale Lock Accumulation
+- **Scenario**: Clients crash and never release locks.
+- **Severity**: Medium
+- **Affected area**: Lock contention and user experience
+- **Mitigation**: Heartbeat expiry, unmount keepalive release (`navigator.sendBeacon`), background cleanup scheduling (5 min debounce), retention policy (3 days for released locks)
+- **Residual risk**: Low-medium during prolonged network partitions
+
+#### False Conflict Detection
+- **Scenario**: Base log mismatch or sparse snapshots produce noisy conflicts.
+- **Severity**: Medium
+- **Affected area**: Optimistic save UX
+- **Mitigation**: Multi-source diff strategy (`changesJson` + snapshots + payload), ignored metadata fields (`SKIPPED_CONFLICT_FIELDS`), deterministic conflict rows via advisory lock deduplication, conflict field limit (25)
+- **Residual risk**: Medium for complex nested payloads
+
+#### Unauthorized Keep-Mine Overrides
+- **Scenario**: User tries to override incoming changes without permission.
+- **Severity**: High
+- **Affected area**: Data integrity in collaborative editing
+- **Mitigation**: Dual gate (`allowIncomingOverride` setting + `record_locks.override_incoming` RBAC feature); both checked in `canUserOverrideIncoming()`
+- **Residual risk**: Low
+
+#### Notification Flood Under High Contention
+- **Scenario**: Many join/contention/conflict events generate heavy notification volume.
+- **Severity**: Medium
+- **Affected area**: Notification channel noise and storage growth
+- **Mitigation**: Contention event throttling (15s window), participant rejoin suppression (20s window), grouped notification keys, conflict notification toggle (`notifyOnConflict` setting), changed field limits (12 for notifications)
+- **Residual risk**: Medium
+
+#### Force Release Operational Misuse
+- **Scenario**: Privileged users repeatedly take over active edits.
+- **Severity**: Medium
+- **Affected area**: Collaboration workflow trust
+- **Mitigation**: Explicit feature gate (`record_locks.force_release`), settings gate (`allowForceUnlock`), event + notification audit trail, force-released user notified
+- **Residual risk**: Medium
+
+#### Pending Conflict Accumulation
+- **Scenario**: Users trigger conflicts but never resolve them, accumulating `pending` rows.
+- **Severity**: Low
+- **Affected area**: Database storage growth
+- **Mitigation**: Background cleanup with 1-day retention for pending conflicts
+- **Residual risk**: Low
+
+## Final Compliance Report — 2026-02-22
+
+### AGENTS.md Files Reviewed
+- `AGENTS.md` (root)
+- `.ai/specs/AGENTS.md`
+- `packages/enterprise/AGENTS.md`
+- `packages/core/AGENTS.md`
+- `packages/shared/AGENTS.md`
+- `packages/ui/AGENTS.md`
+- `packages/ui/src/backend/AGENTS.md`
+
+### Compliance Matrix
+
+| Rule Source | Rule | Status | Notes |
+|-------------|------|--------|-------|
+| `AGENTS.md` | No direct ORM relationships between modules | Compliant | Uses FK IDs (`locked_by_user_id`, `base_action_log_id`, etc.) without ORM relations |
+| `AGENTS.md` | Always filter by `organization_id` for tenant-scoped entities | Compliant | Service builds scoped queries with `tenantId` and `organizationId`; scope fallback logic included |
+| `AGENTS.md` | Validate all inputs with zod | Compliant | All route payloads validated in `data/validators.ts`; mutation headers validated via `recordLockMutationHeaderSchema` |
+| `AGENTS.md` | Use DI (Awilix) to inject services | Compliant | `di.ts` registers `recordLockService` and `crudMutationGuardService` |
+| `AGENTS.md` | Modules must remain isomorphic and independent | Compliant | Module uses events for cross-module communication; no direct imports of other module services |
+| `AGENTS.md` | Event IDs: `module.entity.action` (singular entity, past tense) | Compliant | All 10 events follow convention |
+| `packages/core/AGENTS.md` | API routes MUST export `openApi` | Compliant | All 6 route files export `openApi` with feature gates |
+| `packages/core/AGENTS.md` | Events: use `createModuleEvents()` with `as const` | Compliant | `events.ts` uses `createModuleEvents` |
+| `packages/core/AGENTS.md` | Notifications: define types in `notifications.ts` | Compliant | 8 notification types declared |
+| `packages/core/AGENTS.md` | Widget injection: declare in `widgets/injection/`, map via `injection-table.ts` | Compliant | Widget in `widgets/injection/record-locking/`, mapped in `injection-table.ts` |
+| `packages/shared/AGENTS.md` | Shared MUST NOT include domain-specific logic | Compliant | Generic guard contract in shared; enterprise adapter in enterprise package |
+| `.ai/specs/AGENTS.md` | Include required spec sections | Compliant | All required sections present |
+| `AGENTS.md` | Spec must list integration coverage for affected API and key UI paths | Compliant | Explicit API and UI coverage sections provided |
+
+### Internal Consistency Check
+
+| Check | Status | Notes |
+|-------|--------|-------|
+| Data models match API contracts | Pass | Entity fields map to endpoint payloads; settings schema matches config |
+| API contracts match architecture flows | Pass | Acquire/validate/release/force-release/heartbeat/settings logic aligned |
+| Risks cover primary write operations | Pass | Lock lifecycle, conflict resolution, force-release, cleanup risks included |
+| Event and notification mappings align with code | Pass | 10 events, 8 notification types, 8 subscribers all documented |
+| Guard integration matches runtime behavior | Pass | Adapter + shared guard invocation documented; CRUD factory and custom routes covered |
+| Subscriber behavior matches event payloads | Pass | All subscriber IDs, events, recipient logic, and gating documented |
+| UI widget lifecycle matches client implementation | Pass | Mount/heartbeat/presence/release/conflict flows documented |
+| Throttling and deduplication mechanisms documented | Pass | 4 mechanisms with keys and TTLs specified |
+
+### Non-Compliant Items
+- None.
+
+### Verdict
+Fully compliant. Approved.
+
+## Changelog
+
+### 2026-02-22
+- Rewrote `SPEC-ENT-003` from scratch for parity with current implementation.
+- Added comprehensive event table (10 events) with entity and category.
+- Added notification types table (8 types) with icons, severity, and expiry.
+- Added subscriber table (8 subscribers) with IDs, recipient logic, and gating.
+- Added throttling/deduplication mechanisms table (4 mechanisms).
+- Added background cleanup section with retention policies.
+- Added consumer pages table showing `useGuardedMutation` usage.
+- Added resource link resolution table for notification helpers.
+- Added PII redaction behavior details (email masking format).
+- Added multi-instance widget coordination via owner map.
+- Documented all mutation header propagation through scoped header stack.
+- Added pending conflict accumulation risk.
+- Referenced `SPEC-035` for generic mutation guard contract.
+- Expanded compliance matrix with additional AGENTS.md files reviewed.
+- Expanded internal consistency check with subscriber, UI, and throttling verification.

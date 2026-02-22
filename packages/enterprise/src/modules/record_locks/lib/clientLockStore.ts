@@ -48,6 +48,7 @@ export type RecordLockFormState = {
   formId: string
   resourceKind: string
   resourceId: string
+  recordDeleted?: boolean
   acquired?: boolean
   currentUserId?: string | null
   allowForceUnlock?: boolean

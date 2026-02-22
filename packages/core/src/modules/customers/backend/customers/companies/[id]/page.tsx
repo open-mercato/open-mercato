@@ -8,7 +8,7 @@ import { Button } from '@open-mercato/ui/primitives/button'
 import { Separator } from '@open-mercato/ui/primitives/separator'
 import { Spinner } from '@open-mercato/ui/primitives/spinner'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
-import { apiCallOrThrow, readApiResultOrThrow, withScopedApiRequestHeaders } from '@open-mercato/ui/backend/utils/apiCall'
+import { apiCallOrThrow, readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 import { collectCustomFieldValues } from '@open-mercato/ui/backend/utils/customFieldValues'
 import { mapCrudServerErrorToFormErrors } from '@open-mercato/ui/backend/utils/serverErrors'
 import { E } from '#generated/entities.ids.generated'
@@ -46,12 +46,9 @@ import { renderDictionaryColor, renderDictionaryIcon } from '@open-mercato/core/
 import { ICON_SUGGESTIONS } from '../../../../lib/dictionaries'
 import { createCustomerNotesAdapter } from '../../../../components/detail/notesAdapter'
 import { readMarkdownPreferenceCookie, writeMarkdownPreferenceCookie } from '../../../../lib/markdownPreference'
-import { InjectionSpot, useInjectionSpotEvents, useInjectionWidgets } from '@open-mercato/ui/backend/injection/InjectionSpot'
+import { InjectionSpot, useInjectionWidgets } from '@open-mercato/ui/backend/injection/InjectionSpot'
 import { DetailTabsLayout } from '../../../../components/detail/DetailTabsLayout'
-import {
-  GLOBAL_MUTATION_INJECTION_SPOT_ID,
-  dispatchBackendMutationError,
-} from '@open-mercato/ui/backend/injection/mutationEvents'
+import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuardedMutation'
 
 type CompanyOverview = {
   company: {
@@ -153,27 +150,21 @@ export default function CustomerCompanyDetailPage({ params }: { params?: { id?: 
         : activeTab === 'people'
           ? t('customers.companies.detail.people.loading', 'Loading people…')
         : t('customers.companies.detail.sectionLoading', 'Loading…')
-  const lastMutationRef = React.useRef<{
-    operation: () => Promise<unknown>
-    payload: Record<string, unknown>
-  } | null>(null)
-  const runMutationRef = React.useRef<
-    (operation: () => Promise<unknown>, mutationPayload?: Record<string, unknown>) => Promise<unknown>
-  >(async (operation) => operation())
-  const retryLastMutation = React.useCallback(async () => {
-    const lastMutation = lastMutationRef.current
-    if (!lastMutation) return false
-    try {
-      await runMutationRef.current(lastMutation.operation, lastMutation.payload)
-      return true
-    } catch {
-      return false
-    }
-  }, [])
   const mutationContextId = React.useMemo(
     () => (currentCompanyId ? `customer-company:${currentCompanyId}` : `customer-company:${id ?? 'pending'}`),
     [currentCompanyId, id],
   )
+  const { runMutation, retryLastMutation } = useGuardedMutation<{
+    formId: string
+    companyId?: string | null
+    resourceKind: string
+    resourceId?: string
+    data: CompanyOverview | null
+    retryLastMutation: () => Promise<boolean>
+  }>({
+    contextId: mutationContextId,
+    blockedMessage: t('ui.forms.flash.saveBlocked', 'Save blocked by validation'),
+  })
   const injectionContext = React.useMemo(
     () => ({
       formId: mutationContextId,
@@ -185,51 +176,16 @@ export default function CustomerCompanyDetailPage({ params }: { params?: { id?: 
     }),
     [currentCompanyId, data, id, mutationContextId, retryLastMutation],
   )
-  const mutationInjectionContext = injectionContext
-  const { triggerEvent: triggerMutationInjectionEvent } = useInjectionSpotEvents(GLOBAL_MUTATION_INJECTION_SPOT_ID)
-  const emitMutationSaveError = React.useCallback(
-    (error: unknown) => {
-      dispatchBackendMutationError({
-        contextId: mutationContextId,
-        formId: mutationContextId,
-        error,
+  const runMutationWithContext = React.useCallback(
+    async <T,>(operation: () => Promise<T>, mutationPayload?: Record<string, unknown>): Promise<T> => {
+      return runMutation({
+        operation,
+        mutationPayload,
+        context: injectionContext,
       })
     },
-    [mutationContextId],
+    [injectionContext, runMutation],
   )
-  const runMutation = React.useCallback(
-    async <T,>(operation: () => Promise<T>, mutationPayload?: Record<string, unknown>): Promise<T> => {
-      const payload = mutationPayload ?? {}
-      lastMutationRef.current = {
-        operation: operation as () => Promise<unknown>,
-        payload,
-      }
-      const beforeSave = await triggerMutationInjectionEvent('onBeforeSave', payload, mutationInjectionContext)
-      if (!beforeSave.ok) {
-        emitMutationSaveError(beforeSave.details ?? beforeSave)
-        throw new Error(beforeSave.message || t('ui.forms.flash.saveBlocked', 'Save blocked by validation'))
-      }
-      try {
-        const result =
-          beforeSave.requestHeaders && Object.keys(beforeSave.requestHeaders).length > 0
-            ? await withScopedApiRequestHeaders(beforeSave.requestHeaders, operation)
-            : await operation()
-        try {
-          await triggerMutationInjectionEvent('onAfterSave', payload, mutationInjectionContext)
-        } catch (afterSaveError) {
-          console.error('[CustomerCompanyDetailPage] Error in onAfterSave injection event:', afterSaveError)
-        }
-        return result
-      } catch (error) {
-        emitMutationSaveError(error)
-        throw error
-      }
-    },
-    [emitMutationSaveError, mutationInjectionContext, t, triggerMutationInjectionEvent],
-  )
-  React.useEffect(() => {
-    runMutationRef.current = (operation, mutationPayload) => runMutation(operation as () => Promise<unknown>, mutationPayload)
-  }, [runMutation])
 
   const handleSectionActionChange = React.useCallback((action: SectionAction | null) => {
     setSectionAction(action)
@@ -360,7 +316,7 @@ export default function CustomerCompanyDetailPage({ params }: { params?: { id?: 
     async (patch: Record<string, unknown>, apply: (prev: CompanyOverview) => CompanyOverview) => {
       if (!data) return
       const payload = { id: data.company.id, ...patch }
-      await runMutation(
+      await runMutationWithContext(
         () => apiCallOrThrow(
           '/api/customers/companies',
           {
@@ -374,7 +330,7 @@ export default function CustomerCompanyDetailPage({ params }: { params?: { id?: 
       )
       setData((prev) => (prev ? apply(prev) : prev))
     },
-    [data, runMutation, t],
+    [data, runMutationWithContext, t],
   )
 
   const updateDisplayName = React.useCallback(
@@ -454,7 +410,7 @@ export default function CustomerCompanyDetailPage({ params }: { params?: { id?: 
         customFields: customPayload,
       }
       try {
-        await runMutation(
+        await runMutationWithContext(
           () => apiCallOrThrow(
             '/api/customers/companies',
             {
@@ -492,7 +448,7 @@ export default function CustomerCompanyDetailPage({ params }: { params?: { id?: 
       })
       if (showFlash) flash(t('ui.forms.flash.saveSuccess', 'Saved successfully.'), 'success')
     },
-    [data, runMutation, t],
+    [data, runMutationWithContext, t],
   )
 
   const handleAnnualRevenueChange = React.useCallback(
@@ -528,7 +484,7 @@ export default function CustomerCompanyDetailPage({ params }: { params?: { id?: 
     if (!confirmed) return
     setIsDeleting(true)
     try {
-      await runMutation(
+      await runMutationWithContext(
         () => apiCallOrThrow(
           `/api/customers/companies?id=${encodeURIComponent(currentCompanyId)}`,
           {
@@ -547,7 +503,7 @@ export default function CustomerCompanyDetailPage({ params }: { params?: { id?: 
     } finally {
       setIsDeleting(false)
     }
-  }, [companyName, confirm, currentCompanyId, router, runMutation, t])
+  }, [companyName, confirm, currentCompanyId, router, runMutationWithContext, t])
 
   const handleTagsChange = React.useCallback((nextTags: TagOption[]) => {
     setData((prev) => (prev ? { ...prev, tags: nextTags } : prev))

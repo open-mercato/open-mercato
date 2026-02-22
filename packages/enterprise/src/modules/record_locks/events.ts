@@ -7,6 +7,7 @@ const events = [
   { id: 'record_locks.lock.contended', label: 'Record Lock Contended', entity: 'lock', category: 'lifecycle' },
   { id: 'record_locks.lock.released', label: 'Record Lock Released', entity: 'lock', category: 'crud' },
   { id: 'record_locks.lock.force_released', label: 'Record Lock Force Released', entity: 'lock', category: 'crud' },
+  { id: 'record_locks.record.deleted', label: 'Locked Record Deleted', entity: 'record', category: 'crud' },
   { id: 'record_locks.conflict.detected', label: 'Record Lock Conflict Detected', entity: 'conflict', category: 'crud' },
   { id: 'record_locks.conflict.resolved', label: 'Record Lock Conflict Resolved', entity: 'conflict', category: 'crud' },
   { id: 'record_locks.incoming_changes.available', label: 'Incoming Changes Available', entity: 'change', category: 'lifecycle' },
