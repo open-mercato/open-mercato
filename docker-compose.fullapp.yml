@@ -70,7 +70,7 @@ services:
       SSO_DEV_CLIENT_SECRET: ${SSO_DEV_CLIENT_SECRET:-OzlhvCdbiuEuihYpFs7jqfQIVzj8kbCB0ygmwrd76pjYjUVhfURsRwgZW2m4Hlk6}
       SSO_DEV_ALLOWED_DOMAINS: ${SSO_DEV_ALLOWED_DOMAINS:-om.com}
       SSO_DEBUG_CLAIMS: "true"
-      SSO_FORCE_ROLE_ON_LOGIN: admin
+      SSO_FORCE_ROLE_ON_LOGIN: employee
     depends_on:
       postgres:
         condition: service_healthy
