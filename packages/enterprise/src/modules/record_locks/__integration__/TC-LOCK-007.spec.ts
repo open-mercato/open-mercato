@@ -5,7 +5,6 @@ import {
   acquireRecordLock,
   buildScopeCookieFromToken,
   cleanupCompany,
-  executeNotificationAction,
   getCompanyDisplayName,
   getRecordLockSettings,
   releaseRecordLock,
@@ -123,26 +122,24 @@ test.describe('TC-LOCK-007: Conflict notification changed fields and apply/rejec
 
       expect(conflict.notification.bodyVariables?.changedFields?.toLowerCase()).toContain('display');
       const actionIds = (conflict.notification.actions ?? []).map((item) => item.id);
-      expect(actionIds).toContain('accept_incoming');
-      expect(actionIds).toContain('accept_mine');
+      expect(actionIds).toEqual([]);
 
-      const actionResult = await executeNotificationAction(
+      const releaseResult = await releaseRecordLock(
         request,
         superadminToken,
-        conflict.notification.id,
-        'accept_incoming',
+        'customers.company',
+        companyId,
+        conflict.ownerLockToken,
+        'conflict_resolved',
+        {
+          conflictId: conflict.conflictId,
+          resolution: 'accept_incoming',
+        },
+        superadminScopeHeaders,
       );
-      expect(actionResult.status).toBe(200);
-      expect(actionResult.body?.ok).toBe(true);
-      expect((actionResult.body?.result as { ok?: boolean } | undefined)?.ok).toBe(true);
-
-      const actionedNotification = await waitForNotification(
-        request,
-        superadminToken,
-        'record_locks.conflict.detected',
-        (item) => item.id === conflict.notification.id && item.status === 'actioned',
-      );
-      expect(actionedNotification.status).toBe('actioned');
+      expect(releaseResult.status).toBe(200);
+      expect(releaseResult.body?.ok).toBe(true);
+      expect((releaseResult.body as { conflictResolved?: boolean } | null)?.conflictResolved).toBe(true);
 
       const finalName = await getCompanyDisplayName(request, adminToken, companyId);
       expect(finalName).toBe(conflict.incomingName);
@@ -204,24 +201,26 @@ test.describe('TC-LOCK-007: Conflict notification changed fields and apply/rejec
         superadminScopeHeaders,
       );
       ownerLockToken = conflict.ownerLockToken;
+      const keepMineName = `QA TC-LOCK-007 Keep Mine ${Date.now()}`;
 
-      const actionResult = await executeNotificationAction(
+      const updateResult = await updateCompany(
         request,
         superadminToken,
-        conflict.notification.id,
-        'accept_mine',
+        companyId,
+        keepMineName,
+        {
+          token: conflict.ownerLockToken,
+          baseLogId: conflict.baseLogId,
+          resolution: 'accept_mine',
+          conflictId: conflict.conflictId,
+        },
+        superadminScopeHeaders,
       );
-      expect(actionResult.status).toBe(200);
-      expect(actionResult.body?.ok).toBe(true);
-      expect((actionResult.body?.result as { ok?: boolean } | undefined)?.ok).toBe(true);
+      expect(updateResult.status).toBe(200);
+      expect(updateResult.body?.ok).toBe(true);
 
-      const actionedNotification = await waitForNotification(
-        request,
-        superadminToken,
-        'record_locks.conflict.detected',
-        (item) => item.id === conflict.notification.id && item.status === 'actioned',
-      );
-      expect(actionedNotification.status).toBe('actioned');
+      const finalName = await getCompanyDisplayName(request, adminToken, companyId);
+      expect(finalName).toBe(keepMineName);
 
       await waitForNotification(
         request,
