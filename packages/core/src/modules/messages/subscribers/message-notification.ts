@@ -12,7 +12,7 @@ import { Message } from '../data/entities'
 import { notificationTypes } from '../notifications'
 
 export const metadata = {
-  event: 'messages.sent',
+  event: 'messages.message.sent',
   persistent: true,
   id: 'messages:queue-email-delivery',
 }

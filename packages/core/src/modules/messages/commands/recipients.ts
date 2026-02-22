@@ -111,7 +111,7 @@ const markReadCommand: CommandHandler<unknown, { ok: true }> = {
       recipient.status = 'read'
       recipient.readAt = new Date()
       await em.flush()
-      await emitRecipientMutationEvent('messages.read', input)
+      await emitRecipientMutationEvent('messages.message.read', input)
     }
     return { ok: true }
   },
@@ -156,7 +156,7 @@ const markUnreadCommand: CommandHandler<unknown, { ok: true }> = {
       recipient.status = 'unread'
       recipient.readAt = null
       await em.flush()
-      await emitRecipientMutationEvent('messages.unread', input)
+      await emitRecipientMutationEvent('messages.message.marked_unread', input)
     }
     return { ok: true }
   },
@@ -201,7 +201,7 @@ const archiveRecipientCommand: CommandHandler<unknown, { ok: true }> = {
       recipient.archivedAt = new Date()
       recipient.status = 'archived'
       await em.flush()
-      await emitRecipientMutationEvent('messages.archived', input)
+      await emitRecipientMutationEvent('messages.message.archived', input)
     }
     return { ok: true }
   },
@@ -246,7 +246,7 @@ const unarchiveRecipientCommand: CommandHandler<unknown, { ok: true }> = {
       recipient.archivedAt = null
       recipient.status = recipient.readAt ? 'read' : 'unread'
       await em.flush()
-      await emitRecipientMutationEvent('messages.unarchived', input)
+      await emitRecipientMutationEvent('messages.message.unarchived', input)
     }
     return { ok: true }
   },
