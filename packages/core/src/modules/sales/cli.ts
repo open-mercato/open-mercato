@@ -12,9 +12,6 @@ const logger = cliLogger.forModule('sales')
 function parseArgs(rest: string[]) {
   const { args } = parseCliArgs(rest, { string: ['tenant', 'org', 'count'] })
   return args as Record<string, string>
-    }
-  }
-  return args
 }
 
 const seedTaxRatesCommand: ModuleCli = {

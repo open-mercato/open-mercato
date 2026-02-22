@@ -15,17 +15,6 @@ const logger = cliLogger.forModule('catalog')
 function parseArgs(rest: string[]) {
   const { args } = parseCliArgs(rest, { string: ['tenant', 'org', 'scope', 'channel'] })
   return args as Record<string, string>
-    if (!part) continue
-    if (part.startsWith('--')) {
-      const [rawKey, rawValue] = part.slice(2).split('=')
-      if (rawValue !== undefined) args[rawKey] = rawValue
-      else if (rest[i + 1] && !rest[i + 1]!.startsWith('--')) {
-        args[rawKey] = rest[i + 1]!
-        i += 1
-      }
-    }
-  }
-  return args
 }
 
 const seedUnitsCommand: ModuleCli = {

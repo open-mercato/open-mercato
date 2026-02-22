@@ -1169,7 +1169,7 @@ function resolveCurrencyCodes(): string[] {
     uniqueSupported.push(code)
   }
   if (!uniqueSupported.length) {
-    logger.warn(('[customers.cli] Intl.supportedValuesOf("currency")) unavailable; seeding minimal currency list.')
+    logger.warn('[customers.cli] Intl.supportedValuesOf("currency") unavailable; seeding minimal currency list.')
     return normalizedPriority
   }
   uniqueSupported.sort()
@@ -2506,7 +2506,7 @@ async function seedCustomerStressTest(
   options.onProgress?.({ completed: total, total })
   const elapsedMs = Math.max(1, Date.now() - startedAt)
   const recordsPerSecond = toCreate > 0 ? (toCreate / elapsedMs) * 1000 : 0
-  logger.info(()
+  logger.info(
     `⚡ Stress test seeding throughput: ${toCreate.toLocaleString()} records in ${(elapsedMs / 1000).toFixed(
       1
     )}s (${recordsPerSecond.toFixed(1)} records/s${includeExtras ? '' : ' - lite mode'})`
