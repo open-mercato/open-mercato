@@ -1,18 +1,18 @@
 # SSO Implementation Milestones
 
 **Date:** 2026-02-19
-**Updated:** 2026-02-20
+**Updated:** 2026-02-22
 **Spec:** `.ai/specs/enterprise/SPEC-ENT-002-2026-02-19-sso-directory-sync.md`
 **Strategy:** One PR per milestone, merged to `develop` incrementally
-**Dev IdP:** Keycloak (local Docker) for all phases; cross-validate with Entra ID + Google Workspace in final milestones
+**Dev IdP:** Zitadel (free cloud instance) for all phases; cross-validate with Entra ID + Google Workspace in final milestones
 
 ---
 
 ## What We're Building
 
-A fully working enterprise SSO module supporting **OIDC only** (SAML deferred) and SCIM 2.0, with three identity providers: Keycloak, Microsoft Entra ID, and Google Workspace. Each milestone delivers a shippable increment.
+A fully working enterprise SSO module supporting **OIDC only** (SAML deferred) and SCIM 2.0, with three identity providers: Zitadel, Microsoft Entra ID, and Google Workspace. Each milestone delivers a shippable increment.
 
-**Protocol decision:** OIDC covers ~90% of real enterprise use cases. Entra ID, Google Workspace, Okta, and Keycloak all support OIDC natively. SAML is deferred — the pluggable provider architecture accommodates adding it later without touching OIDC code, when a specific customer demands it and their IdP has no OIDC endpoint.
+**Protocol decision:** OIDC covers ~90% of real enterprise use cases. Entra ID, Google Workspace, Okta, and Zitadel all support OIDC natively. SAML is deferred — the pluggable provider architecture accommodates adding it later without touching OIDC code, when a specific customer demands it and their IdP has no OIDC endpoint.
 
 ---
 
@@ -24,10 +24,10 @@ A fully working enterprise SSO module supporting **OIDC only** (SAML deferred) a
 
 ## Milestones
 
-### Milestone 1: Module Scaffold + OIDC Login with Keycloak
+### Milestone 1: Module Scaffold + OIDC Login with Zitadel
 
 **PR:** `feat(sso): module scaffold and OIDC login flow`
-**Goal:** A user can log in to Open Mercato via Keycloak OIDC. No admin UI yet — config seeded via setup/migration.
+**Goal:** A user can log in to Open Mercato via Zitadel OIDC. No admin UI yet — config seeded via setup/migration.
 
 **Deliverables:**
 - [ ] Module scaffold at `packages/enterprise/src/modules/sso/` (index.ts, acl.ts, setup.ts, di.ts, events.ts)
@@ -38,12 +38,12 @@ A fully working enterprise SSO module supporting **OIDC only** (SAML deferred) a
 - [ ] API routes: `POST /api/sso/hrd` (basic: lookup by org), `GET /api/sso/initiate`, `POST /api/sso/callback/oidc`
 - [ ] OIDC flow state management (encrypted cookie for `state` + `nonce`)
 - [ ] Session issuance after SSO callback (JWT + session cookie via existing auth primitives)
-- [ ] Seed a test SSO config for Keycloak in dev environment
-- [ ] Docker Compose service for Keycloak (or documented `docker run` command)
-- [ ] Integration test: OIDC login end-to-end with Keycloak
+- [ ] Seed a test SSO config for Zitadel in dev environment (using free cloud instance credentials via env vars)
+- [ ] Document Zitadel project/application setup (where to find client ID, issuer URL, redirect URIs)
+- [ ] Integration test: OIDC login end-to-end with Zitadel
 
 **Acceptance criteria:**
-- User enters email → HRD detects SSO → redirected to Keycloak → authenticates → redirected back → JWT issued → logged in
+- User enters email → HRD detects SSO → redirected to Zitadel → authenticates → redirected back → JWT issued → logged in
 - Existing password login still works for orgs without SSO
 - New user JIT-provisioned on first SSO login (no password, assigned default role)
 - Existing user linked by email on first SSO login
@@ -68,9 +68,9 @@ A fully working enterprise SSO module supporting **OIDC only** (SAML deferred) a
 - [ ] Validators (zod schemas for config CRUD)
 
 **Acceptance criteria:**
-- Admin creates an OIDC config for Keycloak via the setup wizard
+- Admin creates an OIDC config for Zitadel via the setup wizard
 - Admin tests the connection (initiates a test login)
-- Admin activates the config → HRD starts routing users to Keycloak
+- Admin activates the config → HRD starts routing users to Zitadel
 - Admin adds/removes allowed email domains
 - Non-admin users cannot access SSO config pages
 
@@ -104,7 +104,7 @@ A fully working enterprise SSO module supporting **OIDC only** (SAML deferred) a
 
 ---
 
-### Milestone 4: SCIM 2.0 Provisioning with Keycloak
+### Milestone 4: SCIM 2.0 Provisioning with Zitadel
 
 **PR:** `feat(sso): SCIM 2.0 provisioning endpoint`
 **Goal:** IdP can push user lifecycle changes (create, update, deactivate) and group membership via SCIM.
@@ -130,11 +130,11 @@ A fully working enterprise SSO module supporting **OIDC only** (SAML deferred) a
 - [ ] Integration test: SCIM create/update/deactivate user, group sync
 
 **Acceptance criteria:**
-- Admin generates SCIM token in UI, configures Keycloak SCIM extension to push to Open Mercato
-- Keycloak creates user → user appears in Open Mercato with SSO identity
-- Keycloak updates user name → reflected in Open Mercato
-- Keycloak deactivates user → user soft-deleted, active sessions revoked
-- Keycloak group membership change → user roles updated in Open Mercato
+- Admin generates SCIM token in UI, configures Zitadel to push to Open Mercato SCIM endpoint
+- Zitadel creates user → user appears in Open Mercato with SSO identity
+- Zitadel updates user name → reflected in Open Mercato
+- Zitadel deactivates user → user soft-deleted, active sessions revoked
+- Zitadel group membership change → user roles updated in Open Mercato
 - All SCIM operations logged in provisioning log
 - Invalid/expired SCIM tokens rejected with 401
 
@@ -182,7 +182,7 @@ A fully working enterprise SSO module supporting **OIDC only** (SAML deferred) a
 
 **Acceptance criteria:**
 - Google Workspace OIDC login works end-to-end
-- All three IdPs (Keycloak, Entra ID, Google) verified working
+- All three IdPs (Zitadel, Entra ID, Google) verified working
 - Notifications sent for key SSO events
 - All UI strings translated (en + pl)
 - Security audit passed — no CSRF or replay vulnerabilities
@@ -194,7 +194,7 @@ A fully working enterprise SSO module supporting **OIDC only** (SAML deferred) a
 
 1. **OIDC-only for v1** — covers all targeted IdPs; SAML deferred until a specific customer demands it on a legacy IdP with no OIDC endpoint
 2. **Spec phases as milestone axis** — follow SPEC-ENT-002 phases, one PR per milestone
-3. **Keycloak first** — all protocol work developed and tested locally against Keycloak Docker
+3. **Zitadel first** — all protocol work developed and tested against the free Zitadel cloud instance
 4. **Cross-IdP validation last** — Entra ID and Google Workspace are validation milestones, not development milestones
 5. **SCIM paths** — use `/api/sso/scim/v2/...` (module-prefixed) to comply with auto-discovery; IdP clients configured with this base URL
 6. **OIDC state in encrypted cookie** — no Redis/DB needed for flow state
@@ -202,7 +202,7 @@ A fully working enterprise SSO module supporting **OIDC only** (SAML deferred) a
 
 ## Resolved Questions
 
-1. **SAML support:** Deferred. All three target IdPs (Entra ID, Google Workspace, Keycloak) support OIDC. The pluggable `SsoProtocolProvider` interface means SAML can be added as a second implementation without touching OIDC code. Revisit when a customer demands it.
+1. **SAML support:** Deferred. All three target IdPs (Entra ID, Google Workspace, Zitadel) support OIDC. The pluggable `SsoProtocolProvider` interface means SAML can be added as a second implementation without touching OIDC code. Revisit when a customer demands it.
 2. **Google Directory Sync:** JIT-only is acceptable for v1. Google Workspace users are created on first SSO login. No pull-based Directory API sync in scope — can be added as a future milestone if needed.
 3. **Entra ID test tenant:** Need to create a free Azure account + Entra ID tenant before Milestone 5. Document the setup steps in the Entra ID setup guide.
-4. **Keycloak SCIM:** Use the `keycloak-scim` extension in the Docker setup for SCIM development and testing. Document the extension installation as a prerequisite for the dev environment.
+4. **Zitadel SCIM:** Zitadel supports SCIM 2.0 natively (no extension needed). Use the free cloud instance for SCIM development and testing. Document how to enable and configure SCIM in the Zitadel console.

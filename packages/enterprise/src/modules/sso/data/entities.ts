@@ -1,7 +1,7 @@
 import { Entity, PrimaryKey, Property, Unique, Index } from '@mikro-orm/core'
 
 @Entity({ tableName: 'sso_configs' })
-@Unique({ properties: ['organizationId'], name: 'sso_configs_organization_id_unique' })
+// Unique index on organization_id (partial: WHERE deleted_at IS NULL) — managed by migration
 export class SsoConfig {
   @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
   id!: string
@@ -11,6 +11,9 @@ export class SsoConfig {
 
   @Property({ name: 'organization_id', type: 'uuid' })
   organizationId!: string
+
+  @Property({ type: 'text', nullable: true })
+  name?: string | null
 
   @Property({ type: 'text' })
   protocol!: string

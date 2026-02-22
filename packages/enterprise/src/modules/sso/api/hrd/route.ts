@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
-import { SsoService } from '../../services/ssoService'
+import { HrdService } from '../../services/hrdService'
 import { hrdRequestSchema } from '../../data/validators'
 
 export async function POST(req: Request) {
@@ -14,8 +14,8 @@ export async function POST(req: Request) {
     }
 
     const container = await createRequestContainer()
-    const ssoService = container.resolve<SsoService>('ssoService')
-    const config = await ssoService.findConfigByEmail(parsed.data.email)
+    const hrdService = container.resolve<HrdService>('hrdService')
+    const config = await hrdService.findActiveConfigByEmailDomain(parsed.data.email)
 
     if (!config) {
       return NextResponse.json({ hasSso: false })
