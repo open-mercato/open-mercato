@@ -459,20 +459,27 @@ const replyMessageCommand: CommandHandler<unknown, { id: string; externalEmail: 
     const messageType = getMessageTypeOrDefault(original.type)
     if (messageType.allowReply === false) throw new Error('Reply is not allowed for this message type')
 
-    const originalRecipients = await em.find(MessageRecipient, { messageId: original.id, deletedAt: null })
-    const recipientIds = new Set<string>()
-    if (input.replyAll) {
-      if (original.senderUserId !== input.userId) recipientIds.add(original.senderUserId)
-      for (const recipient of originalRecipients) {
-        if (recipient.recipientUserId !== input.userId) recipientIds.add(recipient.recipientUserId)
-      }
-    } else if (original.senderUserId !== input.userId) {
-      recipientIds.add(original.senderUserId)
-    } else {
-      for (const recipient of originalRecipients) {
-        if (recipient.recipientUserId !== input.userId) {
-          recipientIds.add(recipient.recipientUserId)
-          break
+    const recipientIds = new Set(
+      (input.recipients ?? [])
+        .map((recipient) => recipient.userId)
+        .filter((recipientUserId) => recipientUserId !== input.userId),
+    )
+
+    if (recipientIds.size === 0) {
+      const originalRecipients = await em.find(MessageRecipient, { messageId: original.id, deletedAt: null })
+      if (input.replyAll) {
+        if (original.senderUserId !== input.userId) recipientIds.add(original.senderUserId)
+        for (const recipient of originalRecipients) {
+          if (recipient.recipientUserId !== input.userId) recipientIds.add(recipient.recipientUserId)
+        }
+      } else if (original.senderUserId !== input.userId) {
+        recipientIds.add(original.senderUserId)
+      } else {
+        for (const recipient of originalRecipients) {
+          if (recipient.recipientUserId !== input.userId) {
+            recipientIds.add(recipient.recipientUserId)
+            break
+          }
         }
       }
     }

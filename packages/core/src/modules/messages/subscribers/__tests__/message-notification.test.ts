@@ -5,6 +5,7 @@ const createQueueMock = jest.fn(() => ({ enqueue: enqueueMock }))
 const createBatchMock = jest.fn(async () => [])
 const resolveNotificationServiceMock = jest.fn(() => ({ createBatch: createBatchMock }))
 const buildBatchNotificationFromTypeMock = jest.fn(() => ({ type: 'messages.new' }))
+const findOneWithDecryptionMock = jest.fn()
 
 jest.mock('@open-mercato/queue', () => ({
   createQueue: (...args: unknown[]) => createQueueMock(...args),
@@ -18,14 +19,20 @@ jest.mock('@open-mercato/core/modules/notifications/lib/notificationBuilder', ()
 jest.mock('@open-mercato/core/modules/messages/notifications', () => ({
   notificationTypes: [{ type: 'messages.new', module: 'messages', titleKey: 'messages.notifications.new.title' }],
 }))
+jest.mock('@open-mercato/shared/lib/encryption/find', () => ({
+  findOneWithDecryption: (...args: unknown[]) => findOneWithDecryptionMock(...args),
+}))
 
 describe('messages sent subscriber', () => {
   const queueStrategy = process.env.QUEUE_STRATEGY
-  const ctx = { resolve: jest.fn() }
+  const ctx = { resolve: jest.fn(() => ({ fork: () => ({}) })) }
 
   beforeEach(() => {
     jest.clearAllMocks()
     delete process.env.QUEUE_STRATEGY
+    findOneWithDecryptionMock
+      .mockResolvedValueOnce({ subject: 'Subject line' })
+      .mockResolvedValueOnce({ name: 'Sender User', email: 'sender@example.com' })
   })
 
   afterAll(() => {
@@ -69,6 +76,8 @@ describe('messages sent subscriber', () => {
       expect.objectContaining({
         recipientUserIds: ['u1', 'u2'],
         sourceEntityId: 'message-1',
+        titleVariables: { title: 'Subject line', from: 'Sender User' },
+        bodyVariables: { title: 'Subject line', from: 'Sender User' },
       }),
     )
     expect(createBatchMock).toHaveBeenCalledWith(

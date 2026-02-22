@@ -163,6 +163,19 @@ export async function searchMessages(page: Page, searchValue: string): Promise<v
   await page.waitForTimeout(1200);
 }
 
+function escapeRegex(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+export function messageRowBySubject(page: Page, subject: string): Locator {
+  return page.getByRole('row', { name: new RegExp(escapeRegex(subject), 'i') }).first();
+}
+
+export async function selectMessageFolder(page: Page, folderLabel: 'Inbox' | 'Sent' | 'Drafts' | 'Archived' | 'All'): Promise<void> {
+  await page.getByRole('button', { name: /Folder:/i }).click();
+  await page.getByRole('menuitemradio', { name: new RegExp(`^${escapeRegex(folderLabel)}$`, 'i') }).click();
+}
+
 export async function deleteMessageIfExists(
   request: APIRequestContext,
   token: string | null | undefined,

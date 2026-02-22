@@ -1,6 +1,6 @@
 import { expect, test } from '@playwright/test';
 import { login } from '@open-mercato/core/modules/core/__integration__/helpers/auth';
-import { composeInternalMessage, deleteMessageIfExists, searchMessages } from './helpers';
+import { composeInternalMessage, deleteMessageIfExists, messageRowBySubject, searchMessages } from './helpers';
 
 /**
  * TC-MSG-002: Inbox Open Mark Read And Mark Unread
@@ -21,7 +21,7 @@ test.describe('TC-MSG-002: Inbox Open Mark Read And Mark Unread', () => {
       await login(page, 'employee');
       await page.goto('/backend/messages');
       await searchMessages(page, fixture.subject);
-      await page.getByRole('row', { name: new RegExp(fixture.subject, 'i') }).first().click();
+      await messageRowBySubject(page, fixture.subject).click();
 
       await expect(page).toHaveURL(new RegExp(`/backend/messages/${messageId}$`, 'i'));
       await expect(page.getByRole('button', { name: 'Mark unread' })).toBeVisible();
@@ -30,13 +30,9 @@ test.describe('TC-MSG-002: Inbox Open Mark Read And Mark Unread', () => {
 
       await page.goto('/backend/messages');
       await searchMessages(page, fixture.subject);
-
-      // Check that message is visible and has unread indicator
-      const messageRow = page.getByRole('row', { name: new RegExp(fixture.subject, 'i') }).first();
+      const messageRow = messageRowBySubject(page, fixture.subject);
       await expect(messageRow).toBeVisible();
-
-      // Check for unread status indicator (blue dot with "Unread" title)
-      await expect(messageRow.locator('[title="Unread"]')).toBeVisible();
+      await expect(messageRow.locator('span.font-semibold').filter({ hasText: fixture.subject })).toBeVisible();
     } finally {
       await deleteMessageIfExists(request, adminToken, messageId);
     }

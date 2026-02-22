@@ -150,6 +150,8 @@ export async function GET(req: Request, { params }: { params: { id: string } }) 
   return Response.json({
     id: message.id,
     type: message.type,
+    isDraft: message.isDraft,
+    canEditDraft: message.isDraft && message.senderUserId === scope.userId,
     visibility: message.visibility,
     sourceEntityType: message.sourceEntityType,
     sourceEntityId: message.sourceEntityId,
@@ -210,6 +212,7 @@ export async function GET(req: Request, { params }: { params: { id: string } }) 
         senderName: threadSenderName,
         senderEmail: sender?.email ?? null,
         body: threadMessage.body,
+        bodyFormat: threadMessage.bodyFormat,
         sentAt: threadMessage.sentAt,
       }
     }),

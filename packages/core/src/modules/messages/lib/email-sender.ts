@@ -1,3 +1,4 @@
+import * as React from 'react'
 import crypto from 'node:crypto'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { sendEmail } from '@open-mercato/shared/lib/email/send'
@@ -51,6 +52,28 @@ function generateAccessToken(): string {
 
 function resolveObjectLabels(objects: MessageObject[]): string[] {
   return objects.map((item) => `${item.entityModule}.${item.entityType} (${item.entityId})`)
+}
+
+async function renderMarkdownEmailBody(body: string) {
+  const ReactMarkdownModule = await import('react-markdown')
+  const remarkGfmModule = await import('remark-gfm')
+  const ReactMarkdown =
+    (ReactMarkdownModule.default ?? ReactMarkdownModule) as React.ComponentType<{
+      remarkPlugins?: unknown
+      children?: React.ReactNode
+    }>
+  const remarkGfmPlugin = remarkGfmModule.default ?? remarkGfmModule
+  const { renderToStaticMarkup } = await import('react-dom/server')
+
+  return renderToStaticMarkup(
+    React.createElement(ReactMarkdown, { remarkPlugins: [remarkGfmPlugin] }, body),
+  )
+}
+
+async function buildEmailBodyHtml(message: Message): Promise<string | undefined> {
+  if (message.bodyFormat !== 'markdown') return undefined
+  if (!message.body) return undefined
+  return renderMarkdownEmailBody(message.body)
 }
 
 async function buildEmailCopy(sentAt: Date) {
@@ -109,6 +132,7 @@ export async function sendMessageEmailToRecipient(params: {
     logDebug('APP_URL missing - email link omitted', { messageId: message.id })
   }
   const copy = await buildEmailCopy(message.sentAt ?? new Date())
+  const bodyHtml = await buildEmailBodyHtml(message)
   logDebug('Sending recipient email via Resend', {
     messageId: message.id,
     recipientUserId,
@@ -124,6 +148,7 @@ export async function sendMessageEmailToRecipient(params: {
     react: MessageEmail({
       subject: message.subject,
       body: message.body,
+      bodyHtml,
       senderName: buildSenderLabel(sender),
       sentAtLabel: copy.sentAtLabel,
       viewUrl,
@@ -143,6 +168,7 @@ export async function sendMessageEmailToExternal(params: {
 }): Promise<void> {
   const { message, email, sender, objects, attachments } = params
   const copy = await buildEmailCopy(message.sentAt ?? new Date())
+  const bodyHtml = await buildEmailBodyHtml(message)
   logDebug('Sending external email via Resend', {
     messageId: message.id,
     email,
@@ -156,6 +182,7 @@ export async function sendMessageEmailToExternal(params: {
     react: MessageEmail({
       subject: message.subject,
       body: message.body,
+      bodyHtml,
       senderName: buildSenderLabel(sender),
       sentAtLabel: copy.sentAtLabel,
       viewUrl: null,

@@ -190,10 +190,21 @@ export const forwardMessageSchema = z.object({
 export const replyMessageSchema = z.object({
   body: z.string().min(1).max(50000),
   bodyFormat: z.enum(['text', 'markdown']).optional().default('text'),
+  recipients: z.array(messageRecipientSchema).max(100).optional(),
   attachmentIds: z.array(z.string().uuid()).optional(),
   attachmentRecordId: z.string().min(1).max(255).optional(),
   replyAll: z.boolean().optional().default(false),
   sendViaEmail: z.boolean().optional().default(false),
+}).superRefine((value, ctx) => {
+  if (!value.recipients) return
+  const duplicateRecipientIds = collectDuplicateRecipientIds(value.recipients)
+  if (duplicateRecipientIds.length > 0) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['recipients'],
+      message: 'recipient user ids must be unique',
+    })
+  }
 })
 
 export const executeActionSchema = z.object({

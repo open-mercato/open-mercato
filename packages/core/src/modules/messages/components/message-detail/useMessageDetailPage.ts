@@ -24,6 +24,7 @@ export function useMessageDetailPage(id: string) {
 
   const [replyOpen, setReplyOpen] = React.useState(false)
   const [forwardOpen, setForwardOpen] = React.useState(false)
+  const [editOpen, setEditOpen] = React.useState(false)
   const [updatingState, setUpdatingState] = React.useState(false)
   const [executingActionId, setExecutingActionId] = React.useState<string | null>(null)
   const [pendingActionConfirmation, setPendingActionConfirmation] = React.useState<PendingActionConfirmation | null>(null)
@@ -265,6 +266,8 @@ export function useMessageDetailPage(id: string) {
     setReplyOpen,
     forwardOpen,
     setForwardOpen,
+    editOpen,
+    setEditOpen,
     updatingState,
     executingActionId,
     pendingActionConfirmation,

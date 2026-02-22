@@ -72,9 +72,11 @@ describe('messages /api/messages/token/[token]', () => {
   it('returns message payload after successful token consume command', async () => {
     const message = {
       id: 'message-1',
+      type: 'default',
       subject: 'Subject',
       body: 'Body',
       bodyFormat: 'text',
+      priority: 'normal',
       senderUserId: 'sender-1',
       sentAt: new Date('2026-02-15T10:00:00.000Z'),
       deletedAt: null,
@@ -105,6 +107,7 @@ describe('messages /api/messages/token/[token]', () => {
     expect(body).toEqual(
       expect.objectContaining({
         id: 'message-1',
+        type: 'default',
         subject: 'Subject',
         requiresAuth: true,
         recipientUserId: 'user-1',

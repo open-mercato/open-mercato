@@ -1,6 +1,6 @@
 import { expect, test } from '@playwright/test';
 import { login } from '@open-mercato/core/modules/core/__integration__/helpers/auth';
-import { composeInternalMessage, deleteMessageIfExists, searchMessages } from './helpers';
+import { composeInternalMessage, deleteMessageIfExists, messageRowBySubject, searchMessages, selectMessageFolder } from './helpers';
 
 /**
  * TC-MSG-005: Archive And Unarchive Message
@@ -14,29 +14,30 @@ test.describe('TC-MSG-005: Archive And Unarchive Message', () => {
     try {
       const fixture = await composeInternalMessage(request, {
         subject: `QA TC-MSG-005 ${Date.now()}`,
+        recipientRole: 'admin',
       });
       messageId = fixture.messageId;
       adminToken = fixture.senderToken;
 
-      await login(page, 'employee');
+      await login(page, 'admin');
       await page.goto(`/backend/messages/${fixture.messageId}`);
 
       await page.getByRole('button', { name: 'Archive' }).click();
       await expect(page.getByRole('button', { name: 'Unarchive' })).toBeVisible();
 
       await page.goto('/backend/messages');
-      await page.getByRole('button', { name: 'Archived' }).click();
+      await selectMessageFolder(page, 'Archived');
       await searchMessages(page, fixture.subject);
-      await expect(page.getByRole('row', { name: new RegExp(fixture.subject, 'i') }).first()).toBeVisible();
+      await expect(messageRowBySubject(page, fixture.subject)).toBeVisible();
 
-      await page.getByRole('row', { name: new RegExp(fixture.subject, 'i') }).first().click();
+      await messageRowBySubject(page, fixture.subject).click();
       await page.getByRole('button', { name: 'Unarchive' }).click();
       await expect(page.getByRole('button', { name: 'Archive' })).toBeVisible();
 
       await page.goto('/backend/messages');
-      await page.getByRole('button', { name: 'Inbox' }).click();
+      await selectMessageFolder(page, 'Inbox');
       await searchMessages(page, fixture.subject);
-      await expect(page.getByRole('row', { name: new RegExp(fixture.subject, 'i') }).first()).toBeVisible();
+      await expect(messageRowBySubject(page, fixture.subject)).toBeVisible();
     } finally {
       await deleteMessageIfExists(request, adminToken, messageId);
     }

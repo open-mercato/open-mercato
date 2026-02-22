@@ -57,11 +57,17 @@ export async function GET(_req: Request, { params }: { params: { token: string }
 
   return Response.json({
     id: message.id,
+    type: message.type,
     subject: message.subject,
     body: message.body,
     bodyFormat: message.bodyFormat,
+    priority: message.priority,
     senderUserId: message.senderUserId,
     sentAt: message.sentAt,
+    actionData: message.actionData,
+    actionTaken: message.actionTaken,
+    actionTakenAt: message.actionTakenAt,
+    actionTakenByUserId: message.actionTakenByUserId,
     objects: objects.map((item) => ({
       id: item.id,
       entityModule: item.entityModule,
@@ -70,6 +76,7 @@ export async function GET(_req: Request, { params }: { params: { token: string }
       actionRequired: item.actionRequired,
       actionType: item.actionType,
       actionLabel: item.actionLabel,
+      snapshot: item.entitySnapshot,
     })),
     requiresAuth: objects.some((item) => item.actionRequired),
     recipientUserId: commandResult.recipientUserId,

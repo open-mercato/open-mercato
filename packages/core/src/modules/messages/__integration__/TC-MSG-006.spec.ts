@@ -1,6 +1,6 @@
 import { expect, test } from '@playwright/test';
 import { login } from '@open-mercato/core/modules/core/__integration__/helpers/auth';
-import { composeInternalMessage, deleteMessageIfExists, searchMessages } from './helpers';
+import { composeInternalMessage, deleteMessageIfExists, messageRowBySubject, searchMessages } from './helpers';
 
 /**
  * TC-MSG-006: Execute Message Action And Lock State
@@ -14,6 +14,7 @@ test.describe('TC-MSG-006: Execute Message Action And Lock State', () => {
     try {
       const fixture = await composeInternalMessage(request, {
         subject: `QA TC-MSG-006 ${Date.now()}`,
+        recipientRole: 'admin',
         actionData: {
           actions: [
             { id: 'approve', label: 'Approve', href: '/backend/messages', isTerminal: true },
@@ -24,7 +25,7 @@ test.describe('TC-MSG-006: Execute Message Action And Lock State', () => {
       messageId = fixture.messageId;
       adminToken = fixture.senderToken;
 
-      await login(page, 'employee');
+      await login(page, 'admin');
       await page.goto(`/backend/messages/${fixture.messageId}`);
 
       await expect(page.getByRole('heading', { name: 'Actions' })).toBeVisible();
@@ -32,7 +33,7 @@ test.describe('TC-MSG-006: Execute Message Action And Lock State', () => {
 
       await expect(page).toHaveURL(/\/backend\/messages$/i);
       await searchMessages(page, fixture.subject);
-      await page.getByRole('row', { name: new RegExp(fixture.subject, 'i') }).first().click();
+      await messageRowBySubject(page, fixture.subject).click();
 
       const actionTaken = page.getByText(/Action taken:/i).first();
       try {

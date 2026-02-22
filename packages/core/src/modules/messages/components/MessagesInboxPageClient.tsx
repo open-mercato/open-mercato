@@ -9,10 +9,10 @@ import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
 import { DataTable } from '@open-mercato/ui/backend/DataTable'
 import type { FilterDef, FilterValues } from '@open-mercato/ui/backend/FilterBar'
-import { RowActions } from '@open-mercato/ui/backend/RowActions'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
+import { Archive, ChevronDown, FilePenLine, Inbox, Layers, Send } from 'lucide-react'
 import { resolveMessageListItemComponent } from './typeUiRegistry'
 import { DefaultMessageListItem } from './DefaultMessageListItem'
 
@@ -85,38 +85,18 @@ function toErrorMessage(payload: unknown): string | null {
   return null
 }
 
-function formatDateTime(value: string | null | undefined): string {
-  if (!value) return '—'
-  const date = new Date(value)
-  if (Number.isNaN(date.getTime())) return '—'
-  return date.toLocaleString()
-}
-
-function statusToLabel(status: string, t: ReturnType<typeof useT>): string {
-  switch (status) {
-    case 'unread':
-      return t('messages.status.unread', 'Unread')
-    case 'read':
-      return t('messages.status.read', 'Read')
-    case 'archived':
-      return t('messages.status.archived', 'Archived')
-    case 'draft':
-      return t('messages.status.draft', 'Draft')
-    default:
-      return status
-  }
-}
-
 export function MessagesInboxPageClient() {
   const router = useRouter()
   const t = useT()
   const scopeVersion = useOrganizationScopeVersion()
 
   const [folder, setFolder] = React.useState<MessageFolder>('inbox')
+  const [folderMenuOpen, setFolderMenuOpen] = React.useState(false)
   const [search, setSearch] = React.useState('')
   const [filterValues, setFilterValues] = React.useState<FilterValues>({})
   const [page, setPage] = React.useState(1)
   const pageSize = 20
+  const folderMenuRef = React.useRef<HTMLDivElement | null>(null)
 
   const listQuery = useQuery({
     queryKey: [
@@ -344,7 +324,9 @@ export function MessagesInboxPageClient() {
               sentAt: item.sentAt ? new Date(item.sentAt) : null,
               senderName: item.senderName || item.senderEmail || item.senderUserId,
               hasObjects: item.hasObjects,
+              objectCount: item.objectCount,
               hasAttachments: item.hasAttachments,
+              attachmentCount: item.attachmentCount,
               hasActions: item.hasActions,
               actionTaken: item.actionTaken ?? null,
               unread: item.status === 'unread',
@@ -354,15 +336,38 @@ export function MessagesInboxPageClient() {
         )
       },
     },
-  ], [listItemComponentKeyByType, messageTypeLabelMap, router])
+  ], [listItemComponentKeyByType, messageTypeLabelMap, router, t])
 
-  const folderTabs: Array<{ id: MessageFolder; label: string }> = [
-    { id: 'inbox', label: t('messages.folder.inbox', 'Inbox') },
-    { id: 'sent', label: t('messages.folder.sent', 'Sent') },
-    { id: 'drafts', label: t('messages.folder.drafts', 'Drafts') },
-    { id: 'archived', label: t('messages.folder.archived', 'Archived') },
-    { id: 'all', label: t('messages.folder.all', 'All') },
-  ]
+  const folderOptions = React.useMemo(() => [
+    { id: 'inbox' as const, label: t('messages.folder.inbox', 'Inbox'), icon: Inbox },
+    { id: 'sent' as const, label: t('messages.folder.sent', 'Sent'), icon: Send },
+    { id: 'drafts' as const, label: t('messages.folder.drafts', 'Drafts'), icon: FilePenLine },
+    { id: 'archived' as const, label: t('messages.folder.archived', 'Archived'), icon: Archive },
+    { id: 'all' as const, label: t('messages.folder.all', 'All'), icon: Layers },
+  ], [t])
+
+  const activeFolderOption = folderOptions.find((option) => option.id === folder) ?? folderOptions[0]
+  const ActiveFolderIcon = activeFolderOption.icon
+
+  React.useEffect(() => {
+    if (!folderMenuOpen) return
+    const handleClickOutside = (event: MouseEvent) => {
+      if (!folderMenuRef.current) return
+      const target = event.target
+      if (target instanceof Node && !folderMenuRef.current.contains(target)) {
+        setFolderMenuOpen(false)
+      }
+    }
+    const handleEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setFolderMenuOpen(false)
+    }
+    document.addEventListener('mousedown', handleClickOutside)
+    document.addEventListener('keydown', handleEscape)
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside)
+      document.removeEventListener('keydown', handleEscape)
+    }
+  }, [folderMenuOpen])
 
   const rows = listQuery.data?.items ?? []
   const total = listQuery.data?.total ?? 0
@@ -370,23 +375,6 @@ export function MessagesInboxPageClient() {
 
   return (
     <div className="space-y-4">
-      <div className="flex flex-wrap items-center gap-2">
-        {folderTabs.map((tab) => (
-          <Button
-            key={tab.id}
-            type="button"
-            size="sm"
-            variant={folder === tab.id ? 'default' : 'outline'}
-            onClick={() => {
-              setFolder(tab.id)
-              setPage(1)
-            }}
-          >
-            {tab.label}
-          </Button>
-        ))}
-      </div>
-
       <DataTable
         title={t('messages.title', 'Messages')}
         columns={columns}
@@ -416,9 +404,55 @@ export function MessagesInboxPageClient() {
           onPageChange: setPage,
         }}
         actions={
-          <Button asChild>
-            <Link href="/backend/messages/compose">{t('messages.compose', 'Compose message')}</Link>
-          </Button>
+          <div className="flex flex-wrap items-center gap-2">
+            <div className="relative" ref={folderMenuRef}>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="gap-2"
+                aria-expanded={folderMenuOpen}
+                aria-haspopup="menu"
+                onClick={() => setFolderMenuOpen((value) => !value)}
+              >
+                <ActiveFolderIcon className="h-4 w-4" aria-hidden />
+                <span>{t('messages.folder.selector', 'Folder')}:</span>
+                <span>{activeFolderOption.label}</span>
+                <ChevronDown className="h-4 w-4 opacity-70" aria-hidden />
+              </Button>
+              {folderMenuOpen ? (
+                <div
+                  className="absolute right-0 z-20 mt-1 min-w-52 rounded-md border bg-background p-1 shadow"
+                  role="menu"
+                >
+                  {folderOptions.map((option) => {
+                    const Icon = option.icon
+                    const isActive = option.id === folder
+                    return (
+                      <button
+                        key={option.id}
+                        type="button"
+                        role="menuitemradio"
+                        aria-checked={isActive}
+                        className={`flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-sm hover:bg-accent ${isActive ? 'bg-accent/60' : ''}`}
+                        onClick={() => {
+                          setFolder(option.id)
+                          setPage(1)
+                          setFolderMenuOpen(false)
+                        }}
+                      >
+                        <Icon className="h-4 w-4" aria-hidden />
+                        <span>{option.label}</span>
+                      </button>
+                    )
+                  })}
+                </div>
+              ) : null}
+            </div>
+            <Button asChild>
+              <Link href="/backend/messages/compose">{t('messages.compose', 'Compose message')}</Link>
+            </Button>
+          </div>
         }
         onRowClick={(row) => {
           router.push(`/backend/messages/${row.id}`)
