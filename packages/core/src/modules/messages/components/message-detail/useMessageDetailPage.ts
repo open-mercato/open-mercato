@@ -2,7 +2,7 @@
 
 import * as React from 'react'
 import { useRouter } from 'next/navigation'
-import { useQuery } from '@tanstack/react-query'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
 import type { MessageActionsProps, MessageContentProps } from '@open-mercato/shared/modules/messages/types'
@@ -21,6 +21,12 @@ export function useMessageDetailPage(id: string) {
   const t = useT()
   const router = useRouter()
   const scopeVersion = useOrganizationScopeVersion()
+  const queryClient = useQueryClient()
+
+  const detailQueryKey = React.useMemo(
+    () => ['messages', 'detail', id, scopeVersion],
+    [id, scopeVersion],
+  )
 
   const [replyOpen, setReplyOpen] = React.useState(false)
   const [forwardOpen, setForwardOpen] = React.useState(false)
@@ -31,7 +37,7 @@ export function useMessageDetailPage(id: string) {
   const [deleteConfirmationOpen, setDeleteConfirmationOpen] = React.useState(false)
 
   const detailQuery = useQuery({
-    queryKey: ['messages', 'detail', id, scopeVersion],
+    queryKey: detailQueryKey,
     queryFn: async () => {
       const call = await apiCall<MessageDetail>(`/api/messages/${encodeURIComponent(id)}`)
       if (!call.ok || !call.result) {
@@ -66,7 +72,31 @@ export function useMessageDetailPage(id: string) {
 
   const attachments = attachmentsQuery.data
 
-  const requestAndRefresh = React.useCallback(async (url: string, method: 'PUT' | 'DELETE') => {
+  const refreshDetailWithoutAutoMarkRead = React.useCallback(async () => {
+    const call = await apiCall<MessageDetail>(
+      `/api/messages/${encodeURIComponent(id)}?skipMarkRead=1`,
+    )
+
+    if (!call.ok || !call.result) {
+      throw new Error(
+        toErrorMessage(call.result)
+        ?? t('messages.errors.stateChangeFailed', 'Failed to update message state.'),
+      )
+    }
+
+    queryClient.setQueryData(detailQueryKey, call.result)
+    return call.result
+  }, [detailQueryKey, id, queryClient, t])
+
+  type RequestAndRefreshOptions = {
+    skipDetailAutoMarkRead?: boolean
+  }
+
+  const requestAndRefresh = React.useCallback(async (
+    url: string,
+    method: 'PUT' | 'DELETE',
+    options?: RequestAndRefreshOptions,
+  ) => {
     setUpdatingState(true)
     try {
       const call = await apiCall<{ ok?: boolean }>(url, { method })
@@ -76,7 +106,11 @@ export function useMessageDetailPage(id: string) {
           ?? t('messages.errors.stateChangeFailed', 'Failed to update message state.'),
         )
       }
-      await detailQuery.refetch()
+      if (options?.skipDetailAutoMarkRead) {
+        await refreshDetailWithoutAutoMarkRead()
+      } else {
+        await detailQuery.refetch()
+      }
     } catch (err) {
       flash(
         err instanceof Error
@@ -87,7 +121,7 @@ export function useMessageDetailPage(id: string) {
     } finally {
       setUpdatingState(false)
     }
-  }, [detailQuery, t])
+  }, [detailQuery, detailQueryKey, refreshDetailWithoutAutoMarkRead, t])
 
   const handleDelete = React.useCallback(async () => {
     setUpdatingState(true)
