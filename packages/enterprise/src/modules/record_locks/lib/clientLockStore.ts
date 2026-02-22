@@ -57,6 +57,7 @@ export type RecordLockFormState = {
   conflict?: RecordLockUiConflict | null
   pendingConflictId?: string | null
   pendingResolution?: 'normal' | 'accept_mine' | 'merged'
+  pendingResolutionArmed?: boolean
 }
 
 const stateByFormId = new Map<string, RecordLockFormState>()

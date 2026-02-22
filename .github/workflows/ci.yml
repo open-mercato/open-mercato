@@ -56,6 +56,8 @@ jobs:
 
   ephemeral-integration:
     runs-on: ubuntu-latest
+    env:
+      OM_ENABLE_ENTERPRISE_MODULES: 'true'
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4

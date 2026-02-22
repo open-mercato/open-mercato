@@ -439,6 +439,7 @@ export default function RecordLockingWidget({
   const [mounted, setMounted] = React.useState(false)
   const [showIncomingChangesRequested, setShowIncomingChangesRequested] = React.useState(false)
   const [showLockContentionBanner, setShowLockContentionBanner] = React.useState(false)
+  const [isConflictDialogOpen, setIsConflictDialogOpen] = React.useState(false)
   const instanceId = React.useMemo(
     () =>
       `record-lock-widget:${Date.now().toString(36)}:${Math.random().toString(36).slice(2, 10)}`,
@@ -452,6 +453,7 @@ export default function RecordLockingWidget({
     resourceId: string
     token: string
   } | null>(null)
+  const keepMineRetryVersionRef = React.useRef(0)
 
   React.useEffect(() => {
     if (!ownerKey) {
@@ -546,6 +548,18 @@ export default function RecordLockingWidget({
   }, [searchParams])
 
   React.useEffect(() => subscribeRecordLockFormState(formId, () => forceRender()), [formId])
+
+  React.useEffect(() => {
+    if (!state?.conflict) {
+      setIsConflictDialogOpen(false)
+      return
+    }
+    setIsConflictDialogOpen(true)
+  }, [
+    state?.conflict?.id,
+    state?.conflict?.incomingActionLogId,
+    state?.conflict?.baseActionLogId,
+  ])
 
   React.useEffect(() => {
     if (!isPrimaryInstance) return
@@ -673,6 +687,13 @@ export default function RecordLockingWidget({
 
   React.useEffect(() => {
     if (!isPrimaryInstance) return
+    const hasUnresolvedConflict = Boolean(state?.conflict)
+      && !(
+        state?.pendingResolutionArmed === true
+        && typeof state?.pendingResolution === 'string'
+        && state.pendingResolution !== 'normal'
+      )
+    if (hasUnresolvedConflict) return
     if (!state?.resourceKind || !state?.resourceId) return
     let cancelled = false
     const refreshPresence = async () => {
@@ -731,6 +752,9 @@ export default function RecordLockingWidget({
   }, [
     formId,
     isPrimaryInstance,
+    state?.conflict,
+    state?.pendingResolution,
+    state?.pendingResolutionArmed,
     state?.resourceId,
     state?.resourceKind,
   ])
@@ -808,10 +832,12 @@ export default function RecordLockingWidget({
         lock?: RecordLockUiView | null
         latestActionLogId?: string | null
       }) => {
+        setIsConflictDialogOpen(true)
         const nextPatch: Partial<RecordLockFormState> = {
           conflict: payload.conflict,
           pendingConflictId: payload.conflict.id,
           pendingResolution: 'normal',
+          pendingResolutionArmed: false,
         }
         if (payload.lock !== undefined) {
           nextPatch.lock = payload.lock
@@ -880,6 +906,7 @@ export default function RecordLockingWidget({
   }, [formId, isPrimaryInstance])
 
   const handleTakeOver = React.useCallback(async () => {
+    keepMineRetryVersionRef.current += 1
     if (!state?.resourceKind || !state?.resourceId) return
     const call = await apiCall<AcquireResponse>('/api/record_locks/force-release', {
       method: 'POST',
@@ -913,10 +940,12 @@ export default function RecordLockingWidget({
       conflict: null,
       pendingConflictId: null,
       pendingResolution: 'normal',
+      pendingResolutionArmed: false,
     })
   }, [formId, state?.resourceId, state?.resourceKind, t])
 
   const handleAcceptIncoming = React.useCallback(async () => {
+    keepMineRetryVersionRef.current += 1
     if (!state?.conflict || !state?.resourceKind || !state?.resourceId) return
     let conflictId: string | undefined = isUuid(state.conflict.id) ? state.conflict.id : undefined
     if (!conflictId) {
@@ -945,13 +974,20 @@ export default function RecordLockingWidget({
         resolution: 'accept_incoming',
       }),
     })
-    setRecordLockFormState(formId, { conflict: null, pendingConflictId: null, pendingResolution: 'normal' })
+    setRecordLockFormState(formId, {
+      conflict: null,
+      pendingConflictId: null,
+      pendingResolution: 'normal',
+      pendingResolutionArmed: false,
+    })
     window.location.reload()
   }, [context, formId, state?.conflict, state?.lock?.token, state?.resourceId, state?.resourceKind, t])
 
   const handleKeepMine = React.useCallback(() => {
     if (!state?.conflict) return
     const applyAcceptMine = async () => {
+      const keepMineRetryVersion = keepMineRetryVersionRef.current + 1
+      keepMineRetryVersionRef.current = keepMineRetryVersion
       let conflictId: string | null = isUuid(state.conflict?.id) ? state.conflict.id : null
       if (!conflictId) {
         const validation = await validateBeforeSave({}, context)
@@ -970,8 +1006,12 @@ export default function RecordLockingWidget({
       setRecordLockFormState(formId, {
         pendingResolution: 'accept_mine',
         pendingConflictId: conflictId,
+        pendingResolutionArmed: true,
       })
       window.setTimeout(async () => {
+        if (keepMineRetryVersionRef.current !== keepMineRetryVersion) return
+        const currentState = getRecordLockFormState(formId)
+        if (currentState?.pendingResolution !== 'accept_mine') return
         const submitted = submitCrudForm(formId)
         if (submitted) return
         const retried = await Promise.resolve(context.retryLastMutation?.()).catch(() => false)
@@ -990,13 +1030,9 @@ export default function RecordLockingWidget({
   }, [context, context.retryLastMutation, formId, state?.conflict, t])
 
   const handleKeepEditing = React.useCallback(() => {
-    if (!state?.conflict) return
-    setRecordLockFormState(formId, {
-      conflict: null,
-      pendingConflictId: null,
-      pendingResolution: 'normal',
-    })
-  }, [formId, state?.conflict])
+    keepMineRetryVersionRef.current += 1
+    setIsConflictDialogOpen(false)
+  }, [])
 
   const noneLabel = t('audit_logs.common.none')
   const conflictChangeRows = React.useMemo<ChangeRow[]>(
@@ -1017,9 +1053,12 @@ export default function RecordLockingWidget({
     && !state?.conflict?.canOverrideIncoming,
   )
   const conflictDialog = (
-    <Dialog open={Boolean(state?.conflict)} onOpenChange={(open) => {
-      if (open) return
-      handleKeepEditing()
+    <Dialog open={Boolean(state?.conflict) && isConflictDialogOpen} onOpenChange={(open) => {
+      if (open) {
+        setIsConflictDialogOpen(true)
+        return
+      }
+      setIsConflictDialogOpen(false)
     }}>
       <DialogContent>
         <DialogHeader>
@@ -1198,6 +1237,21 @@ export async function validateBeforeSave(
   if (!resourceKind || !resourceId) {
     return { ok: true }
   }
+  const hasSelectedConflictResolution = Boolean(
+    state?.pendingResolutionArmed === true
+    && typeof state?.pendingResolution === 'string'
+    && state.pendingResolution !== 'normal',
+  )
+  if (state?.conflict && !hasSelectedConflictResolution) {
+    return {
+      ok: false,
+      status: 409,
+      code: 'record_lock_conflict',
+      lock: state.lock ?? null,
+      conflict: state.conflict,
+      latestActionLogId: state.latestActionLogId ?? null,
+    }
+  }
   const hasResolvableConflict = Boolean(state?.conflict?.id && isUuid(state.conflict.id))
   const requestedResolution = state?.pendingResolution ?? 'normal'
   const resolution = requestedResolution !== 'normal' && !hasResolvableConflict
@@ -1233,6 +1287,7 @@ export async function validateBeforeSave(
       conflict: preserveConflictUntilSuccessfulSave ? (state?.conflict ?? null) : null,
       pendingConflictId: nextResolution === 'normal' ? null : (conflictId ?? state?.pendingConflictId ?? null),
       pendingResolution: nextResolution,
+      pendingResolutionArmed: nextResolution === 'normal' ? false : Boolean(state?.pendingResolutionArmed),
     })
     return payload
   }
@@ -1243,6 +1298,7 @@ export async function validateBeforeSave(
     conflict: payload.conflict ?? state?.conflict ?? null,
     pendingConflictId: payload.conflict?.id ?? conflictId ?? state?.pendingConflictId ?? null,
     pendingResolution: resolution === 'normal' ? 'normal' : resolution,
+    pendingResolutionArmed: resolution === 'normal' ? false : Boolean(state?.pendingResolutionArmed),
   })
   return payload
 }

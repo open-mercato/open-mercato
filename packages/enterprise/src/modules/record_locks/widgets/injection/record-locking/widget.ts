@@ -36,6 +36,26 @@ const widget: InjectionWidgetModule<CrudInjectionContext, Record<string, unknown
   Widget: RecordLockingWidget,
   eventHandlers: {
     async onBeforeSave(data, context) {
+      if (context.formId) {
+        const currentState = getRecordLockFormState(context.formId)
+        const hasSelectedConflictResolution = Boolean(
+          currentState?.pendingResolutionArmed === true
+          && currentState.pendingResolution
+          && currentState.pendingResolution !== 'normal',
+        )
+        if (currentState?.conflict && !hasSelectedConflictResolution) {
+          return {
+            ok: false,
+            message: 'Record conflict detected',
+            details: {
+              code: 'record_lock_conflict',
+              lock: currentState.lock ?? null,
+              conflict: currentState.conflict,
+              latestActionLogId: currentState.latestActionLogId ?? null,
+            },
+          }
+        }
+      }
       const validation = await validateBeforeSave(data ?? {}, context)
       if (!context.formId) {
         if (!validation.ok) {
@@ -69,6 +89,7 @@ const widget: InjectionWidgetModule<CrudInjectionContext, Record<string, unknown
           conflict: validation.conflict ?? state?.conflict ?? null,
           pendingConflictId: validation.conflict?.id ?? state?.pendingConflictId ?? null,
           pendingResolution: 'normal',
+          pendingResolutionArmed: false,
           lock: validation.lock ?? state?.lock ?? null,
           latestActionLogId: validation.latestActionLogId ?? state?.latestActionLogId ?? null,
         })
@@ -86,12 +107,20 @@ const widget: InjectionWidgetModule<CrudInjectionContext, Record<string, unknown
       const state = getRecordLockFormState(context.formId)
       if (!state?.resourceKind || !state?.resourceId) return { ok: true }
       const hasResolvableConflict = Boolean(state.conflict?.id && isUuid(state.conflict.id))
-      const shouldSendResolution = hasResolvableConflict && Boolean(state.pendingResolution && state.pendingResolution !== 'normal')
+      const shouldSendResolution = hasResolvableConflict
+        && state.pendingResolutionArmed === true
+        && Boolean(state.pendingResolution && state.pendingResolution !== 'normal')
       const shouldSendConflictId = hasResolvableConflict
       const rawConflictId = shouldSendConflictId
         ? (state.pendingConflictId ?? state.conflict?.id ?? undefined)
         : undefined
       const conflictIdHeader = isUuid(rawConflictId) ? rawConflictId : undefined
+      if (shouldSendResolution) {
+        setRecordLockFormState(context.formId, {
+          pendingResolution: 'normal',
+          pendingResolutionArmed: false,
+        })
+      }
       return {
         ok: true,
         requestHeaders: {
@@ -115,6 +144,7 @@ const widget: InjectionWidgetModule<CrudInjectionContext, Record<string, unknown
         conflict: null,
         pendingConflictId: null,
         pendingResolution: 'normal',
+        pendingResolutionArmed: false,
       })
     },
   },
