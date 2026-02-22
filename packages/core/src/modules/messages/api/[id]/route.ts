@@ -34,6 +34,9 @@ type MessageObjectPreviewPayload = {
 export async function GET(req: Request, { params }: { params: { id: string } }) {
   const { ctx, scope } = await resolveMessageContext(req)
   const em = ctx.container.resolve('em') as EntityManager
+  const url = new URL(req.url)
+  const skipMarkReadParam = url.searchParams.get('skipMarkRead')
+  const skipMarkRead = skipMarkReadParam === '1'
 
   const message = await em.findOne(Message, {
     id: params.id,
@@ -62,7 +65,7 @@ export async function GET(req: Request, { params }: { params: { id: string } }) 
     return Response.json({ error: 'Access denied' }, { status: 403 })
   }
 
-  if (recipient && recipient.status === 'unread') {
+  if (!skipMarkRead && recipient && recipient.status === 'unread') {
     const commandBus = ctx.container.resolve('commandBus') as CommandBus
     await commandBus.execute('messages.recipients.mark_read', {
       input: {

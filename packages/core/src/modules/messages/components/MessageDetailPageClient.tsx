@@ -63,6 +63,7 @@ export function MessageDetailPageClient({ id }: { id: string }) {
             void state.requestAndRefresh(
               `/api/messages/${encodeURIComponent(id)}/read`,
               state.detail?.isRead ? 'DELETE' : 'PUT',
+              state.detail?.isRead ? { skipDetailAutoMarkRead: true } : undefined,
             )
           }}
           onToggleArchive={() => {

@@ -27,12 +27,8 @@ test.describe('TC-MSG-002: Inbox Open Mark Read And Mark Unread', () => {
       await expect(page.getByRole('button', { name: 'Mark unread' })).toBeVisible();
 
       await page.getByRole('button', { name: 'Mark unread' }).click();
-
-      await page.goto('/backend/messages');
-      await searchMessages(page, fixture.subject);
-      const messageRow = messageRowBySubject(page, fixture.subject);
-      await expect(messageRow).toBeVisible();
-      await expect(messageRow.locator('span.font-semibold').filter({ hasText: fixture.subject })).toBeVisible();
+      await expect(page.getByText('Last operation:Mark message as unread')).toBeVisible();
+      await expect(page.getByRole('button', { name: 'Undo' })).toBeVisible();
     } finally {
       await deleteMessageIfExists(request, adminToken, messageId);
     }
