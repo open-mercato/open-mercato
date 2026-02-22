@@ -281,7 +281,7 @@ const executeActionCommand: CommandHandler<
         },
       })
       await emitMessagesEvent(
-        'messages.action.taken',
+        'messages.message.action_taken',
         {
           messageId: message.id,
           actionId: action.id,

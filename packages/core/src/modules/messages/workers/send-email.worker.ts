@@ -42,7 +42,7 @@ type HandlerContext = {
 
 async function emitEmailDeliveryEvent(
   ctx: HandlerContext,
-  eventId: 'messages.email.sent' | 'messages.email.failed',
+  eventId: 'messages.message.email_sent' | 'messages.message.email_failed',
   payload: {
     messageId: string
     target: 'recipient' | 'external'
@@ -212,7 +212,7 @@ export default async function handle(
         objects,
         attachments,
       })
-      await emitEmailDeliveryEvent(ctx, 'messages.email.sent', {
+      await emitEmailDeliveryEvent(ctx, 'messages.message.email_sent', {
         messageId: message.id,
         target: 'external',
         email: payload.email,
@@ -227,7 +227,7 @@ export default async function handle(
         externalClaimTimestamp,
         errorMessage,
       )
-      await emitEmailDeliveryEvent(ctx, 'messages.email.failed', {
+      await emitEmailDeliveryEvent(ctx, 'messages.message.email_failed', {
         messageId: message.id,
         target: 'external',
         email: payload.email,
@@ -291,7 +291,7 @@ export default async function handle(
       objects,
       attachments,
     })
-    await emitEmailDeliveryEvent(ctx, 'messages.email.sent', {
+    await emitEmailDeliveryEvent(ctx, 'messages.message.email_sent', {
       messageId: message.id,
       target: 'recipient',
       recipientUserId: payload.recipientUserId,
@@ -307,7 +307,7 @@ export default async function handle(
       recipientClaimTimestamp,
       errorMessage,
     )
-    await emitEmailDeliveryEvent(ctx, 'messages.email.failed', {
+    await emitEmailDeliveryEvent(ctx, 'messages.message.email_failed', {
       messageId: message.id,
       target: 'recipient',
       recipientUserId: payload.recipientUserId,

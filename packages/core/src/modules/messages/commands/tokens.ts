@@ -57,7 +57,7 @@ const consumeTokenCommand: CommandHandler<unknown, { messageId: string; recipien
     await em.flush()
     if (becameRead) {
       await emitMessagesEvent(
-        'messages.read',
+        'messages.message.read',
         {
           messageId: message.id,
           recipientUserId: accessToken.recipientUserId,

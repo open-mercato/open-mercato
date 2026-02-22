@@ -39,7 +39,7 @@ type ContainerWithResolve = {
 }
 
 async function emitMessageSentEvent(_container: ContainerWithResolve, payload: MessageSentEventPayload) {
-  await emitMessagesEvent('messages.sent', payload, { persistent: true })
+  await emitMessagesEvent('messages.message.sent', payload, { persistent: true })
 }
 
 async function emitMessageDeletedEvent(_container: ContainerWithResolve, payload: {
@@ -49,7 +49,7 @@ async function emitMessageDeletedEvent(_container: ContainerWithResolve, payload
   tenantId: string
   organizationId: string | null
 }) {
-  await emitMessagesEvent('messages.deleted', payload, { persistent: true })
+  await emitMessagesEvent('messages.message.deleted', payload, { persistent: true })
 }
 
 const scopeSchema = z.object({
