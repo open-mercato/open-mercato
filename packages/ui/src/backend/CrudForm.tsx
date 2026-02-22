@@ -52,6 +52,8 @@ import { buildFormFieldsFromCustomFields, buildFormFieldFromCustomFieldDef } fro
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { TagsInput } from './inputs/TagsInput'
 import { ComboboxInput } from './inputs/ComboboxInput'
+import { DateTimePicker } from './inputs/DateTimePicker'
+import { TimePicker } from './inputs/TimePicker'
 import { mapCrudServerErrorToFormErrors, parseServerMessage } from './utils/serverErrors'
 import type { CustomFieldDefLike } from '@open-mercato/shared/modules/entities/validation'
 import type { MDEditorProps as UiWMDEditorProps } from '@uiw/react-md-editor'
@@ -87,6 +89,8 @@ export type CrudBuiltinField = CrudFieldBase & {
     | 'number'
     | 'date'
     | 'datetime-local'
+    | 'datetime'
+    | 'time'
     | 'tags'
     | 'richtext'
     | 'relation'
@@ -103,6 +107,11 @@ export type CrudBuiltinField = CrudFieldBase & {
   suggestions?: string[]
   // for combobox fields; allow custom values or restrict to suggestions only
   allowCustomValues?: boolean
+  // for datetime/time fields
+  minuteStep?: number
+  minDate?: Date
+  maxDate?: Date
+  displayFormat?: string
 }
 
 export type CrudCustomFieldRenderProps = {
@@ -2314,6 +2323,27 @@ const FieldControl = React.memo(function FieldControlImpl({
           autoFocus={autoFocusField}
           data-crud-focus-target=""
           disabled={disabled}
+        />
+      )}
+      {field.type === 'datetime' && (
+        <DateTimePicker
+          value={typeof value === 'string' && value ? new Date(value) : value instanceof Date ? value : null}
+          onChange={(date) => setValue(field.id, date ? date.toISOString() : undefined)}
+          disabled={disabled}
+          placeholder={placeholder}
+          minuteStep={builtin?.minuteStep}
+          minDate={builtin?.minDate}
+          maxDate={builtin?.maxDate}
+          displayFormat={builtin?.displayFormat}
+        />
+      )}
+      {field.type === 'time' && (
+        <TimePicker
+          value={typeof value === 'string' ? value : null}
+          onChange={(time) => setValue(field.id, time ?? undefined)}
+          disabled={disabled}
+          placeholder={placeholder}
+          minuteStep={builtin?.minuteStep}
         />
       )}
       {field.type === 'textarea' && (

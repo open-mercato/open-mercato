@@ -377,5 +377,14 @@
   "upgrades.v035.loading": "Updating role…",
   "upgrades.v035.success": "Admin role updated with Business Rules access.",
   "upgrades.runFailed": "We could not run this upgrade action.",
-  "upgrades.loading": "Loading upgrade…"
+  "upgrades.loading": "Loading upgrade…",
+  "ui.datePicker.placeholder": "Pick a date",
+  "ui.dateTimePicker.clearButton": "Clear",
+  "ui.dateTimePicker.placeholder": "Pick date and time",
+  "ui.dateTimePicker.timeLabel": "Time",
+  "ui.dateTimePicker.todayButton": "Today",
+  "ui.timePicker.hourLabel": "Hour",
+  "ui.timePicker.minuteLabel": "Minute",
+  "ui.timePicker.nowButton": "Now",
+  "ui.timePicker.placeholder": "Pick a time"
 }
