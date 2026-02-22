@@ -52,8 +52,11 @@ import { buildFormFieldsFromCustomFields, buildFormFieldFromCustomFieldDef } fro
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { TagsInput } from './inputs/TagsInput'
 import { ComboboxInput } from './inputs/ComboboxInput'
+import { format, parseISO } from 'date-fns'
+import type { Locale } from 'date-fns'
 import { DateTimePicker } from './inputs/DateTimePicker'
 import { TimePicker } from './inputs/TimePicker'
+import { DatePicker } from './inputs/DatePicker'
 import { mapCrudServerErrorToFormErrors, parseServerMessage } from './utils/serverErrors'
 import type { CustomFieldDefLike } from '@open-mercato/shared/modules/entities/validation'
 import type { MDEditorProps as UiWMDEditorProps } from '@uiw/react-md-editor'
@@ -76,6 +79,7 @@ export type CrudFieldBase = {
   required?: boolean
   layout?: 'full' | 'half' | 'third'
   disabled?: boolean
+  readOnly?: boolean
 }
 
 export type CrudFieldOption = { value: string; label: string }
@@ -88,6 +92,7 @@ export type CrudBuiltinField = CrudFieldBase & {
     | 'select'
     | 'number'
     | 'date'
+    | 'datepicker'
     | 'datetime-local'
     | 'datetime'
     | 'time'
@@ -112,6 +117,8 @@ export type CrudBuiltinField = CrudFieldBase & {
   minDate?: Date
   maxDate?: Date
   displayFormat?: string
+  closeOnSelect?: boolean
+  locale?: Locale
 }
 
 export type CrudCustomFieldRenderProps = {
@@ -2265,6 +2272,7 @@ const FieldControl = React.memo(function FieldControlImpl({
   const builtin = field.type === 'custom' ? null : field
   const hasLoader = typeof builtin?.loadOptions === 'function'
   const disabled = Boolean(field.disabled)
+  const readOnly = Boolean(field.readOnly)
   const autoFocusField = autoFocus && !disabled
 
   React.useEffect(() => {
@@ -2325,16 +2333,32 @@ const FieldControl = React.memo(function FieldControlImpl({
           disabled={disabled}
         />
       )}
+      {field.type === 'datepicker' && (
+        <DatePicker
+          value={typeof value === 'string' && value ? parseISO(value) : value instanceof Date ? value : null}
+          onChange={(date) => setValue(field.id, date ? format(date, 'yyyy-MM-dd') : undefined)}
+          disabled={disabled}
+          readOnly={readOnly}
+          placeholder={placeholder}
+          minDate={builtin?.minDate}
+          maxDate={builtin?.maxDate}
+          displayFormat={builtin?.displayFormat}
+          closeOnSelect={builtin?.closeOnSelect}
+          locale={builtin?.locale}
+        />
+      )}
       {field.type === 'datetime' && (
         <DateTimePicker
           value={typeof value === 'string' && value ? new Date(value) : value instanceof Date ? value : null}
           onChange={(date) => setValue(field.id, date ? date.toISOString() : undefined)}
           disabled={disabled}
+          readOnly={readOnly}
           placeholder={placeholder}
           minuteStep={builtin?.minuteStep}
           minDate={builtin?.minDate}
           maxDate={builtin?.maxDate}
           displayFormat={builtin?.displayFormat}
+          locale={builtin?.locale}
         />
       )}
       {field.type === 'time' && (
@@ -2342,6 +2366,7 @@ const FieldControl = React.memo(function FieldControlImpl({
           value={typeof value === 'string' ? value : null}
           onChange={(time) => setValue(field.id, time ?? undefined)}
           disabled={disabled}
+          readOnly={readOnly}
           placeholder={placeholder}
           minuteStep={builtin?.minuteStep}
         />

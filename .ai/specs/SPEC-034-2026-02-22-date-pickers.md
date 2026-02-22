@@ -1,7 +1,7 @@
-# SPEC-034: DateTimePicker & TimePicker UI Components
+# SPEC-034: DatePicker, DateTimePicker & TimePicker UI Components
 
 **Created:** 2026-02-22
-**Status:** Implemented (Phase 1–3 complete — components available in `@open-mercato/ui`; no migration; existing modules continue to use raw `datetime-local`/`time` inputs)
+**Status:** Partially Implemented — Phase 1–3 complete (DateTimePicker, TimePicker, TimeInput, Popover, Calendar); **DatePicker pending (Phase 4)**
 **Package:** `packages/ui`
 **Location:** `packages/ui/src/primitives/` and `packages/ui/src/backend/inputs/`
 
@@ -10,15 +10,18 @@
 ## TLDR
 
 **Key Points:**
-- Add reusable `DateTimePicker` and `TimePicker` components to `packages/ui` so every module *can* use a polished, accessible date+time selection experience instead of raw `<input type="datetime-local">` / `<input type="time">`.
+- Add reusable `DatePicker`, `DateTimePicker`, and `TimePicker` components to `packages/ui` so every module *can* use a polished, accessible date/date+time/time selection experience instead of raw `<input type="date">` / `<input type="datetime-local">` / `<input type="time">`.
 - Components are **available for opt-in use** but **not used anywhere yet**. This spec does not introduce usage in any module.
+- `minDate` / `maxDate` support available on both `DatePicker` and `DateTimePicker` — common business requirement (e.g. "no date more than 1 year ahead").
 
 **Scope:**
-- New primitive: `Popover` (Radix UI — required foundation for calendar dropdown)
-- New primitive: `Calendar` (based on `react-day-picker` + `date-fns`)
-- New input component: `DateTimePicker` (date calendar + time selectors in a popover)
-- New input component: `TimePicker` (standalone hour:minute selector)
-- CrudForm integration: `type: 'datetime'` and `type: 'time'` field types
+- New primitive: `Popover` (Radix UI — required foundation for calendar dropdown) ✅ implemented
+- New primitive: `Calendar` (based on `react-day-picker` + `date-fns`) ✅ implemented
+- New input component: `DatePicker` (date-only calendar in a popover, no time) ⏳ pending Phase 4
+- New input component: `DateTimePicker` (date calendar + time selectors in a popover) ✅ implemented
+- New input component: `TimePicker` (standalone hour:minute selector) ✅ implemented
+- CrudForm integration: `type: 'datetime'` and `type: 'time'` field types ✅ implemented
+- CrudForm integration: `type: 'datepicker'` field type ⏳ pending Phase 4
 - Migration of existing raw inputs — **out of scope** for this spec; components ready for future opt-in when desired
 - i18n support (locale-aware date formatting, translatable labels)
 
@@ -28,16 +31,19 @@
 
 **Integration coverage**
 - UI: CrudForm supports `type: 'datetime'` / `type: 'time'` (opt-in; exchange-rates and other forms still use `datetime-local`)
+- UI: CrudForm will support `type: 'datepicker'` after Phase 4
 - UI: DateTimePicker, TimePicker, TimeInput available in `@open-mercato/ui/backend/inputs` — not yet used in ActivitiesSection, ActivityForm, AvailabilitySchedule, InlineEditors, AvailabilityRulesEditor, CurrencyFetchingConfig
-- Integration tests: TC-DTP-001/002/003 — add when migration is performed (not in scope for this spec)
+- Integration tests: TC-DTP-001/002/003/004 — add when migration is performed (not in scope for this spec)
 
 ---
 
 ## Overview
 
-The codebase currently relies on native HTML `<input type="datetime-local">` and `<input type="time">` elements for all date+time selection. These are used in at least 12 locations across 6 modules (customers, planner, currencies, sales, activities/ActivitiesSection, workflows). Each usage is independently styled, lacks consistent UX, and provides a browser-native widget that varies wildly across operating systems and browsers.
+The codebase currently relies on native HTML `<input type="date">`, `<input type="datetime-local">`, and `<input type="time">` elements for all date/time selection. These are used in at least 14 locations across 6 modules (customers, planner, currencies, sales, activities/ActivitiesSection, workflows). Each usage is independently styled, lacks consistent UX, and provides a browser-native widget that varies wildly across operating systems and browsers.
 
-This spec introduces two shared input components — `DateTimePicker` and `TimePicker` — as part of the `@open-mercato/ui` package, following the same pattern as existing reusable inputs (`ComboboxInput`, `TagsInput`, `LookupSelect`).
+This spec introduces three shared input components — `DatePicker`, `DateTimePicker`, and `TimePicker` — as part of the `@open-mercato/ui` package, following the same pattern as existing reusable inputs (`ComboboxInput`, `TagsInput`, `LookupSelect`).
+
+A key requirement surfaced during planning: both `DatePicker` and `DateTimePicker` must support optional `minDate` / `maxDate` constraints. This covers common real-world needs such as "no date more than one year ahead" (delivery planning, contract expiry, subscription renewal) or "no date before today" (scheduling future-only events).
 
 > **Market Reference**: **shadcn/ui** (the project's design system foundation) provides a well-established `DatePicker` pattern using `react-day-picker` + Radix `Popover`. We adopt this pattern and extend it with an inline time selector (hour:minute spinners below the calendar). **Ant Design's DatePicker** offers a combined calendar+time panel — we adopt the combined panel idea but keep it simpler (no second-level precision, no range mode in MVP). **MUI DateTimePicker** uses a mobile-friendly approach with separate date/time steps — rejected as over-complex for an admin-focused app.
 
@@ -53,9 +59,8 @@ This spec introduces two shared input components — `DateTimePicker` and `TimeP
 
 ## Non-Goals
 
-- **Date range picker** — only single datetime/time selection in MVP
+- **Date range picker** — only single date/datetime/time selection in MVP
 - **Second-level precision** — HH:MM only, no seconds
-- **Standalone DatePicker (date-only)** — in MVP, date selection is part of DateTimePicker; separate date-only component deferred
 - **Mobile-optimized date/time stepper** — admin-focused app; desktop popover is sufficient
 - **Migration of existing forms** — not part of this spec; no module introduces usage of the new components
 
@@ -88,12 +93,14 @@ This spec introduces two shared input components — `DateTimePicker` and `TimeP
 
 Add a layered set of components, bottom-up:
 
-1. **Popover primitive** (`packages/ui/src/primitives/popover.tsx`) — thin Radix UI wrapper, reusable beyond date pickers
-2. **Calendar primitive** (`packages/ui/src/primitives/calendar.tsx`) — `react-day-picker` with Tailwind styling
-3. **TimeInput component** (`packages/ui/src/backend/inputs/TimeInput.tsx`) — controlled hour:minute input with spinners
-4. **DateTimePicker component** (`packages/ui/src/backend/inputs/DateTimePicker.tsx`) — popover with calendar + time input
-5. **TimePicker component** (`packages/ui/src/backend/inputs/TimePicker.tsx`) — popover with only time input
-6. **CrudForm integration** — new `type: 'datetime'` and `type: 'time'` that render the new components
+1. **Popover primitive** (`packages/ui/src/primitives/popover.tsx`) — thin Radix UI wrapper, reusable beyond date pickers ✅
+2. **Calendar primitive** (`packages/ui/src/primitives/calendar.tsx`) — `react-day-picker` with Tailwind styling ✅
+3. **TimeInput component** (`packages/ui/src/backend/inputs/TimeInput.tsx`) — controlled hour:minute input with spinners ✅
+4. **DateTimePicker component** (`packages/ui/src/backend/inputs/DateTimePicker.tsx`) — popover with calendar + time input ✅
+5. **TimePicker component** (`packages/ui/src/backend/inputs/TimePicker.tsx`) — popover with only time input ✅
+6. **CrudForm integration** — new `type: 'datetime'` and `type: 'time'` that render the new components ✅
+7. **DatePicker component** (`packages/ui/src/backend/inputs/DatePicker.tsx`) — popover with calendar only, no time ⏳
+8. **CrudForm integration** — new `type: 'datepicker'` that renders `DatePicker` ⏳
 
 ### Design Decisions
 
@@ -103,9 +110,12 @@ Add a layered set of components, bottom-up:
 | Use Radix `Popover` for dropdown | Already using Radix ecosystem (`dialog`, `tooltip`, `checkbox`, `label`, `slot`). Consistent with project conventions. Built-in focus management and accessibility. |
 | Minute precision only (no seconds) | Admin CRM/ERP use case doesn't need second-level precision. Keeps UI simple. All existing `datetime-local` usages already format to `HH:MM`. |
 | Scrollable select for hours/minutes (not clock dial) | Clock dials are harder to use with keyboard, harder to implement accessibly, and uncommon in admin apps. Scroll selects are faster for known values. |
+| Separate `DatePicker` from `DateTimePicker` | Many modules need date-only selection (e.g. delivery date, contract date, subscription end). Combining date+time in those cases is UX noise. Keeps components composable. |
 | Separate `TimePicker` from `DateTimePicker` | Some modules (planner, currencies) need time-only input. Keeps components composable. |
-| Popover trigger shows formatted value | Display `Feb 22, 2026 14:30` (locale-aware) instead of raw ISO string. Better UX than native `datetime-local`. |
-| `displayFormat` derived from locale | When `displayFormat` is omitted, day-first locales (pl, de, fr, es, etc.) use `d MMM yyyy HH:mm`; others use `MMM d, yyyy HH:mm`. Overridable via prop. |
+| `type: 'datepicker'` for CrudForm (not reusing `'date'`) | `type: 'date'` already exists and renders a raw `<input type="date">`. Adding a new type mirrors the `datetime-local` → `datetime` precedent: old native type stays for backward compat; new polished picker gets its own type name. |
+| `minDate` / `maxDate` on both `DatePicker` and `DateTimePicker` | Core business requirement. Not all date fields are unrestricted — e.g. "max 1 year ahead" for renewals. Implemented via react-day-picker `disabled` matcher which greys out (but still shows) out-of-range days. |
+| Popover trigger shows formatted value | Display `Feb 22, 2026` or `Feb 22, 2026 14:30` (locale-aware) instead of raw ISO string. Better UX than native inputs. |
+| `displayFormat` derived from locale | When `displayFormat` is omitted, day-first locales (pl, de, fr, es, etc.) use `d MMM yyyy` / `d MMM yyyy HH:mm`; others use `MMM d, yyyy` / `MMM d, yyyy HH:mm`. Overridable via prop. |
 | `TimeInput` defaults via `useT()` | When `hourLabel`/`minuteLabel` are omitted, `TimeInput` uses `useT('ui.timePicker.hourLabel', 'Hour')` so standalone usage is i18n-ready. |
 | `date-fns` for formatting/parsing | Already a dependency in `packages/ui`. No new date library needed. |
 
@@ -122,11 +132,13 @@ Add a layered set of components, bottom-up:
 
 ## User Stories / Use Cases
 
+- **Admin** wants to **set a delivery or contract date (date only, no time)** so that **they can pick a day without being forced to enter a time**.
 - **Admin** wants to **set an activity's occurred-at date and time** so that **the activity is recorded with precise timing**.
 - **Admin** wants to **pick a currency sync time** so that **exchange rates refresh at the right hour daily**.
 - **Admin** wants to **set availability windows with start/end times** so that **the planner shows correct booking slots**.
 - **Admin** wants to **enter an exchange rate date+time** so that **rates are tracked to the correct moment**.
-- **Developer** wants to **use `type: 'datetime'` in CrudForm fields** (when migration is performed) so that **they get a polished picker without custom component wiring**.
+- **Admin** wants to **be prevented from picking a date more than 1 year ahead** (e.g. subscription renewal) so that **invalid dates are blocked at the UI level**.
+- **Developer** wants to **use `type: 'datepicker'` / `type: 'datetime'` / `type: 'time'` in CrudForm fields** so that **they get a polished picker without custom component wiring**.
 
 ---
 
@@ -139,17 +151,21 @@ Popover (primitive, Radix)
 ├── Calendar (primitive, react-day-picker)
 ├── TimeInput (input, hour:minute spinners)
 │
+├── DatePicker (input)      →  Popover + Calendar only
 ├── DateTimePicker (input)  →  Popover + Calendar + TimeInput
 ├── TimePicker (input)      →  Popover + TimeInput
 │
-└── CrudForm integration    →  type: 'datetime' → DateTimePicker
-                            →  type: 'time'     → TimePicker
+└── CrudForm integration    →  type: 'datepicker' → DatePicker
+                            →  type: 'datetime'   → DateTimePicker
+                            →  type: 'time'       → TimePicker
 ```
 
 ### Data Flow
 
+- **DatePicker**: Accepts and emits `Date | null`. Date portion only — time is ignored (set to midnight or preserved from existing value).
 - **DateTimePicker**: Accepts and emits `Date | null`. Internally manages separate date (from Calendar) and time (from TimeInput) state, merging on change.
 - **TimePicker**: Accepts and emits `string | null` in `HH:MM` format. `null` represents empty/no time selected (e.g., after Clear).
+- **CrudForm `datepicker`**: Stores value as a date-only string (`2026-02-22`). On read, uses `parseISO(value)` from `date-fns` to convert to `Date` — **not** `new Date(value)`, which would interpret the string as UTC midnight and shift the date in UTC+ timezones.
 - **CrudForm `datetime`**: Stores value as UTC ISO string (`2026-02-22T12:30:00.000Z`). Converts to/from `Date` for the picker — see timezone contract below.
 - **CrudForm `time`**: Stores value as `HH:MM` string, or `undefined` when cleared.
 
@@ -226,6 +242,8 @@ The `locale` prop on `DateTimePicker` is optional (`Locale | undefined`). Module
 
 ```
 ui.datePicker.placeholder          = "Pick a date"
+ui.datePicker.todayButton          = "Today"
+ui.datePicker.clearButton          = "Clear"
 ui.dateTimePicker.placeholder      = "Pick date and time"
 ui.dateTimePicker.timeLabel        = "Time"
 ui.dateTimePicker.todayButton      = "Today"
@@ -236,7 +254,9 @@ ui.timePicker.minuteLabel          = "Minute"
 ui.timePicker.nowButton            = "Now"
 ```
 
-These keys MUST be added to all supported locale files.
+Keys marked with `ui.datePicker.*` are **new** (Phase 4) — `ui.datePicker.placeholder` was pre-declared in Phase 2 i18n files; `ui.datePicker.todayButton` and `ui.datePicker.clearButton` are new and MUST be added in Phase 4.
+
+These keys MUST be present in all supported locale files.
 
 **Locale file paths:**
 - `apps/mercato/src/i18n/{en,pl,de,es}.json`
@@ -245,6 +265,29 @@ These keys MUST be added to all supported locale files.
 ---
 
 ## UI/UX
+
+### DatePicker Layout
+
+```
+┌─────────────────────────────────────┐
+│  📅  Feb 22, 2026              ▼   │  ← Trigger button (popover)
+└─────────────────────────────────────┘
+         │
+         ▼
+┌─────────────────────────────────────┐
+│  ◀  February 2026  ▶               │
+│  Mo Tu We Th Fr Sa Su               │
+│                          1  2       │
+│   3  4  5  6  7  8  9              │
+│  10 11 12 13 14 15 16              │
+│  17 18 19 20 21 [22] 23            │  ← Calendar grid (no time section)
+│  24 25 26 27 28                     │
+│─────────────────────────────────────│
+│  [Today]              [Clear]       │  ← Quick actions
+└─────────────────────────────────────┘
+```
+
+Identical to `DateTimePicker` but without the time (Hour:Minute) section. Selecting a day immediately provides a value — the popover can close on day selection (controlled via `closeOnSelect` prop, default `true`).
 
 ### DateTimePicker Layout
 
@@ -300,10 +343,11 @@ For use without popover (e.g., in planner availability windows where multiple ti
 | State | Behavior |
 |-------|----------|
 | **Empty** | Show placeholder text, no value |
-| **Selected** | Show formatted date+time in trigger |
+| **Selected** | Show formatted date or date+time in trigger |
 | **Disabled** | Grayed out, no popover on click |
 | **Error** | Red border on trigger (via standard form error styling) |
 | **Read-only** | Show value, no interaction |
+| **Out-of-range day** | Day rendered but disabled (greyed) when before `minDate` or after `maxDate` |
 
 ### Accessibility (a11y)
 
@@ -388,6 +432,29 @@ export function Calendar({ className, classNames, ...props }: CalendarProps) {
 }
 ```
 
+### DatePicker
+
+```typescript
+// packages/ui/src/backend/inputs/DatePicker.tsx
+export type DatePickerProps = {
+  value?: Date | null
+  onChange: (date: Date | null) => void
+  placeholder?: string
+  disabled?: boolean
+  readOnly?: boolean
+  className?: string
+  locale?: Locale         // date-fns locale
+  displayFormat?: string  // date-fns format pattern; when omitted, derived from locale (day-first: 'd MMM yyyy', else 'MMM d, yyyy')
+  showTodayButton?: boolean
+  showClearButton?: boolean
+  closeOnSelect?: boolean // default true — close popover immediately on day click
+  minDate?: Date          // days before this are disabled (greyed out, not selectable)
+  maxDate?: Date          // days after this are disabled (greyed out, not selectable)
+}
+```
+
+**Value contract**: `DatePicker` accepts and emits `Date | null`. The time portion of the `Date` object is set to midnight local time (`00:00:00.000`) when a new day is selected. Callers that store date-only strings should format via `date-fns` `format(date, 'yyyy-MM-dd')`. When `closeOnSelect` is `true` (default), the popover closes as soon as the user clicks a day cell, matching standard date-picker UX.
+
 ### DateTimePicker
 
 ```typescript
@@ -444,16 +511,20 @@ export type TimeInputProps = {
 ### CrudForm Integration
 
 ```typescript
-// New types added to CrudBuiltinField.type union:
-type: 'datetime'        // renders DateTimePicker
-    | 'time'            // renders TimePicker
+// Types added / to be added to CrudBuiltinField.type union:
+type: 'datepicker'      // renders DatePicker (Phase 4)
+    | 'datetime'        // renders DateTimePicker (✅ implemented)
+    | 'time'            // renders TimePicker (✅ implemented)
 
 // Additional field options:
 minuteStep?: number     // passed to DateTimePicker / TimePicker
-minDate?: Date          // passed to DateTimePicker
-maxDate?: Date          // passed to DateTimePicker
-displayFormat?: string  // passed to DateTimePicker (date-fns format pattern)
+minDate?: Date          // passed to DatePicker / DateTimePicker
+maxDate?: Date          // passed to DatePicker / DateTimePicker
+displayFormat?: string  // passed to DatePicker / DateTimePicker (date-fns format pattern)
+closeOnSelect?: boolean // passed to DatePicker (default true)
 ```
+
+**Value serialization for `datepicker`**: CrudForm stores the value as a date-only string `'YYYY-MM-DD'` via `format(date, 'yyyy-MM-dd')` (from `date-fns`). On read, `parseISO(value)` from `date-fns` converts back to a `Date` — `parseISO` treats date-only strings as local midnight, avoiding the UTC-midnight shift that `new Date('2026-02-22')` would cause in UTC+ timezones (e.g. UTC+2 would display 21 Feb instead of 22 Feb).
 
 ---
 
@@ -491,7 +562,8 @@ The `popover` color token is expected to exist in `globals.css` (standard shadcn
 ### Backward Compatibility
 
 - `CrudForm` `type: 'datetime-local'` continues to work unchanged (renders raw `<input>` as before)
-- New `type: 'datetime'` is opt-in — no module uses it yet; migration deferred
+- `CrudForm` `type: 'date'` continues to work unchanged (renders raw `<input type="date">` as before)
+- New `type: 'datetime'`, `type: 'time'`, `type: 'datepicker'` are all opt-in — no module uses them yet; migration deferred
 - No breaking changes to existing APIs or data formats
 
 ### Future Migration Reference (Out of Scope)
@@ -509,8 +581,8 @@ These files currently use raw `<input type="datetime-local">` or `<input type="t
 | `packages/core/src/modules/currencies/components/CurrencyFetchingConfig.tsx` | `<input type="time">` | `TimePicker` or `TimeInput` |
 | `packages/core/src/modules/currencies/backend/exchange-rates/create/page.tsx` | CrudForm `datetime-local` | CrudForm `datetime` |
 | `packages/core/src/modules/currencies/backend/exchange-rates/[id]/page.tsx` | CrudForm `datetime-local` | CrudForm `datetime` |
-| `packages/core/src/modules/sales/widgets/dashboard/new-quotes/widget.client.tsx` | `openNativeDatePicker` hack | `DateTimePicker` (or leave as date-only if time not needed) |
-| `packages/core/src/modules/sales/widgets/dashboard/new-orders/widget.client.tsx` | `openNativeDatePicker` hack | `DateTimePicker` (or leave as date-only if time not needed) |
+| `packages/core/src/modules/sales/widgets/dashboard/new-quotes/widget.client.tsx` | `openNativeDatePicker` hack | `DatePicker` (date-only) |
+| `packages/core/src/modules/sales/widgets/dashboard/new-orders/widget.client.tsx` | `openNativeDatePicker` hack | `DatePicker` (date-only) |
 
 ---
 
@@ -552,6 +624,30 @@ These files currently use raw `<input type="datetime-local">` or `<input type="t
 5. Handle value conversion: CrudForm stores ISO string, DateTimePicker expects `Date`
 6. Verify: CrudForm renders datetime and time fields correctly
 
+**Status: ✅ Complete**
+
+---
+
+### Phase 4: DatePicker Component
+
+**Goal:** Build `DatePicker` — a date-only picker reusing the `Calendar` primitive, without the time section.
+
+1. Create `packages/ui/src/backend/inputs/DatePicker.tsx`
+   - Props: `value`, `onChange`, `placeholder`, `disabled`, `readOnly`, `className`, `locale`, `displayFormat`, `showTodayButton`, `showClearButton`, `closeOnSelect`, `minDate`, `maxDate`
+   - Value: `Date | null`; on day select, time is set to midnight local (`00:00:00.000`)
+   - `closeOnSelect` (default `true`): close popover immediately after day click
+   - `minDate` / `maxDate`: pass as `disabled` matcher to `<Calendar>`
+   - Display format derived from locale: `d MMM yyyy` for day-first locales (pl, de, fr, es, it, pt, nl, ru, cs, sk, hu, ro), `MMM d, yyyy` otherwise
+   - Today / Clear buttons, same pattern as `DateTimePicker`
+   - `data-crud-focus-target=""` on trigger button
+2. Add `ui.datePicker.todayButton` and `ui.datePicker.clearButton` keys to all locale files (en, pl, de, es) in `apps/mercato/src/i18n/` and `packages/create-app/template/src/i18n/`
+3. Export `DatePicker` from `packages/ui/src/backend/inputs/index.ts`
+4. Add `'datepicker'` to `CrudBuiltinField.type` union in `CrudForm.tsx`
+   - Add `closeOnSelect?: boolean` to `CrudBuiltinField`
+   - Add render branch: `type === 'datepicker'` → `DatePicker`
+   - Value conversion: CrudForm stores `'YYYY-MM-DD'` string via `format(date, 'yyyy-MM-dd')`; on read, `parseISO(value)` from `date-fns` converts back to `Date` (avoids UTC-midnight shift that `new Date(value)` causes in UTC+ timezones)
+5. Verify: `DatePicker` renders and behaves correctly; `type: 'datepicker'` works in CrudForm; `type: 'date'` (raw input) is unchanged
+
 ### Appendix: Future Migration Reference (Out of Scope)
 
 When migration is desired in the future, target files:
@@ -569,33 +665,36 @@ When migration is desired in the future, target files:
 
 ### File Manifest
 
-| File | Action | Purpose |
-|------|--------|---------|
-| `packages/ui/package.json` | Modify | Add `@radix-ui/react-popover ^1.1.6`, `react-day-picker ^9.6.4` |
-| `packages/ui/src/primitives/popover.tsx` | Create | Popover primitive (Radix wrapper) |
-| `packages/ui/src/primitives/calendar.tsx` | Create | Calendar primitive (react-day-picker v9 wrapper) |
-| `packages/ui/src/backend/inputs/TimeInput.tsx` | Create | Inline hour:minute input with spinners |
-| `packages/ui/src/backend/inputs/DateTimePicker.tsx` | Create | Date+Time picker with popover |
-| `packages/ui/src/backend/inputs/TimePicker.tsx` | Create | Time-only picker with popover |
-| `packages/ui/src/backend/inputs/index.ts` | Modify | Export new components |
-| `packages/ui/src/backend/CrudForm.tsx` | Modify | Add `datetime` and `time` field types + `minuteStep`/`minDate`/`maxDate`/`displayFormat` props |
-| Various module files (see Future Migration Reference) | — | Not in scope; no migration in this spec |
-| `packages/ui/src/backend/inputs/__tests__/TimeInput.test.tsx` | Create | Unit tests: rendering, keyboard nav, boundary wrap, minuteStep, clamp, NaN guard |
-| `packages/ui/src/backend/inputs/__tests__/DateTimePicker.logic.test.ts` | Create | Unit tests: extractTime, applyTimeToDate, ISO round-trip (Timezone Contract) |
-| `packages/ui/src/backend/inputs/__tests__/TimePicker.test.tsx` | Create | Unit tests: Clear/Now buttons, display, button visibility toggles |
-| `packages/ui/src/backend/__tests__/CrudForm.datetime.test.tsx` | Create | Unit tests: datetime/time field rendering, value conversion, backward compat |
-| `apps/mercato/src/i18n/en.json` | Modify | Add `ui.datePicker.*`, `ui.dateTimePicker.*`, `ui.timePicker.*` keys (English) |
-| `apps/mercato/src/i18n/pl.json` | Modify | Same keys (Polish) |
-| `apps/mercato/src/i18n/de.json` | Modify | Same keys (German) |
-| `apps/mercato/src/i18n/es.json` | Modify | Same keys (Spanish) |
-| `packages/create-app/template/src/i18n/en.json` | Modify | Mirror all i18n keys for scaffolded apps (template sync) |
-| `packages/create-app/template/src/i18n/pl.json` | Modify | Mirror (Polish) |
-| `packages/create-app/template/src/i18n/de.json` | Modify | Mirror (German) |
-| `packages/create-app/template/src/i18n/es.json` | Modify | Mirror (Spanish) |
+| File | Action | Phase | Purpose |
+|------|--------|-------|---------|
+| `.ai/specs/SPEC-001-2026-01-21-ui-reusable-components.md` | Modify | 1 ✅ | Add Popover, Calendar, DatePicker, DateTimePicker, TimePicker, TimeInput to UI components catalog |
+| `packages/ui/package.json` | Modify | 1 ✅ | Add `@radix-ui/react-popover ^1.1.6`, `react-day-picker ^9.6.4` |
+| `packages/ui/src/primitives/popover.tsx` | Create | 1 ✅ | Popover primitive (Radix wrapper) |
+| `packages/ui/src/primitives/calendar.tsx` | Create | 1 ✅ | Calendar primitive (react-day-picker v9 wrapper) |
+| `packages/ui/src/backend/inputs/TimeInput.tsx` | Create | 2 ✅ | Inline hour:minute input with spinners |
+| `packages/ui/src/backend/inputs/DateTimePicker.tsx` | Create | 2 ✅ | Date+Time picker with popover |
+| `packages/ui/src/backend/inputs/TimePicker.tsx` | Create | 2 ✅ | Time-only picker with popover |
+| `packages/ui/src/backend/inputs/DatePicker.tsx` | Create | 4 ⏳ | Date-only picker with popover |
+| `packages/ui/src/backend/inputs/index.ts` | Modify | 2+4 | Export new components |
+| `packages/ui/src/backend/CrudForm.tsx` | Modify | 3+4 | Add `datetime`, `time` (✅), `datepicker` (⏳) field types |
+| Various module files (see Future Migration Reference) | — | — | Not in scope; no migration in this spec |
+| `packages/ui/src/backend/inputs/__tests__/TimeInput.test.tsx` | Create | ⏳ | Unit tests: rendering, keyboard nav, boundary wrap, minuteStep, clamp, NaN guard |
+| `packages/ui/src/backend/inputs/__tests__/DatePicker.test.tsx` | Create | ⏳ | Unit tests: day selection, closeOnSelect, minDate/maxDate disabling, Today/Clear, display format |
+| `packages/ui/src/backend/inputs/__tests__/DateTimePicker.logic.test.ts` | Create | ⏳ | Unit tests: extractTime, applyTimeToDate, ISO round-trip (Timezone Contract) |
+| `packages/ui/src/backend/inputs/__tests__/TimePicker.test.tsx` | Create | ⏳ | Unit tests: Clear/Now buttons, display, button visibility toggles |
+| `packages/ui/src/backend/__tests__/CrudForm.datetime.test.tsx` | Create | ⏳ | Unit tests: datepicker/datetime/time field rendering, value conversion, backward compat |
+| `apps/mercato/src/i18n/en.json` | Modify | 2 ✅ + 4 ⏳ | Add `ui.datePicker.*`, `ui.dateTimePicker.*`, `ui.timePicker.*` keys (English) |
+| `apps/mercato/src/i18n/pl.json` | Modify | 2 ✅ + 4 ⏳ | Same keys (Polish) |
+| `apps/mercato/src/i18n/de.json` | Modify | 2 ✅ + 4 ⏳ | Same keys (German) |
+| `apps/mercato/src/i18n/es.json` | Modify | 2 ✅ + 4 ⏳ | Same keys (Spanish) |
+| `packages/create-app/template/src/i18n/en.json` | Modify | 2 ✅ + 4 ⏳ | Mirror all i18n keys for scaffolded apps (template sync) |
+| `packages/create-app/template/src/i18n/pl.json` | Modify | 2 ✅ + 4 ⏳ | Mirror (Polish) |
+| `packages/create-app/template/src/i18n/de.json` | Modify | 2 ✅ + 4 ⏳ | Mirror (German) |
+| `packages/create-app/template/src/i18n/es.json` | Modify | 2 ✅ + 4 ⏳ | Mirror (Spanish) |
 
 ### Testing Strategy
 
-**Rationale for deferred tests:** No module uses the new components yet. **Integration tests** require at least one real usage (e.g. exchange-rates form with `type: 'datetime'`) — without migration, there is nothing to test end-to-end. **Unit tests** do not require usage (they render components in isolation); they are planned but not yet implemented due to scope prioritization.
+**Rationale for deferred tests:** No module uses the new components yet. **Integration tests** require at least one real usage — without migration, there is nothing to test end-to-end. **Unit tests** do not require usage (they render components in isolation); they are planned but not yet implemented due to scope prioritization.
 
 **Unit tests** (Jest + Testing Library, in `packages/ui/src/`):
 
@@ -604,13 +703,14 @@ Unit tests for the new components are **planned but not yet implemented**. When 
 | File | Coverage |
 |------|----------|
 | `src/backend/inputs/__tests__/TimeInput.test.tsx` | Rendering, hour/minute ArrowUp/Down with boundary wrap, `minuteStep` stepping and snapping, clamp on direct numeric input, NaN guard, disabled state |
+| `src/backend/inputs/__tests__/DatePicker.test.tsx` | Placeholder vs value display, day selection emits `Date` at midnight, `closeOnSelect` closes popover, `minDate`/`maxDate` disables out-of-range cells, Today sets today's date, Clear emits `null`, `showTodayButton`/`showClearButton` toggles |
 | `src/backend/inputs/__tests__/DateTimePicker.logic.test.ts` | `extractTime` (pad, midnight, end-of-day), `applyTimeToDate` (date preservation, seconds zeroed, immutability), ISO round-trip (SPEC-034 Timezone Contract), `extractTime + applyTimeToDate` composition (day select preserves time) |
 | `src/backend/inputs/__tests__/TimePicker.test.tsx` | Placeholder vs value display, Clear emits `null`, Now emits valid `HH:MM`, `showNowButton`/`showClearButton` toggles, TimeInput integration |
-| `src/backend/__tests__/CrudForm.datetime.test.tsx` | `type: 'datetime'` renders DateTimePicker, `type: 'time'` renders TimePicker, ISO→Date conversion, HH:MM passthrough, `type: 'datetime-local'` backward compatibility |
+| `src/backend/__tests__/CrudForm.datetime.test.tsx` | `type: 'datepicker'` renders DatePicker, `type: 'datetime'` renders DateTimePicker, `type: 'time'` renders TimePicker, ISO→Date conversion, `YYYY-MM-DD` passthrough for datepicker, `type: 'datetime-local'` backward compatibility, `type: 'date'` backward compatibility |
 
 **Integration tests** (Playwright, in `.ai/qa/`):
 
-*Add TC-DTP-001/002/003 when migration is performed (out of scope for this spec).*
+*Add TC-DTP-001/002/003/004 when migration is performed (out of scope for this spec).*
 
 **TC-DTP-001 — CrudForm datetime submit**
 ```typescript
@@ -670,7 +770,22 @@ test('TC-DTP-003: DateTimePicker in activity form — date and time persist afte
 })
 ```
 
-> Integration tests TC-DTP-001/002/003 apply when modules use the new components. Exchange-rates and other forms currently use `datetime-local`.
+**TC-DTP-004 — DatePicker date-only selection**
+```typescript
+// Scenario: CrudForm field type: 'datepicker' — pick a date, verify YYYY-MM-DD string stored
+test('TC-DTP-004: DatePicker emits and stores YYYY-MM-DD string correctly', async ({ page }) => {
+  // Navigate to a form using type: 'datepicker'
+  await page.getByRole('button', { name: /pick a date/i }).click()
+  await page.getByRole('gridcell', { name: '20' }).click()
+  // Popover should close immediately (closeOnSelect=true)
+  await expect(page.locator('[role="dialog"]')).not.toBeVisible()
+  // Trigger should show formatted date
+  const trigger = page.getByRole('button', { name: /20/ })
+  await expect(trigger).toBeVisible()
+})
+```
+
+> Integration tests TC-DTP-001/002/003/004 apply when modules use the new components. Exchange-rates and other forms currently use `datetime-local`.
 
 **Visual regression**: verify calendar renders correctly across light/dark themes (manual or Chromatic if added).
 
@@ -678,11 +793,12 @@ test('TC-DTP-003: DateTimePicker in activity form — date and time persist afte
 
 ## Success Metrics
 
-1. **Components available** — DateTimePicker, TimePicker, TimeInput, Popover, Calendar in `@open-mercato/ui`; CrudForm supports `type: 'datetime'` and `type: 'time'`
-2. **Existing modules** continue to use raw `datetime-local`/`time` inputs; no migration in this spec
+1. **Components available** — DatePicker, DateTimePicker, TimePicker, TimeInput, Popover, Calendar in `@open-mercato/ui`; CrudForm supports `type: 'datepicker'`, `type: 'datetime'`, and `type: 'time'`
+2. **Existing modules** continue to use raw `datetime-local`/`time`/`date` inputs; no migration in this spec
 3. **Build passes** with no TypeScript errors
-4. **No visual regressions** — picker matches design system (Tailwind, theme tokens) when used
-5. **Integration tests** — add TC-DTP-001/002/003 when migration is performed (out of scope)
+4. **No visual regressions** — pickers match design system (Tailwind, theme tokens) when used
+5. **`minDate`/`maxDate` enforced** — out-of-range days are disabled (greyed) on both `DatePicker` and `DateTimePicker`
+6. **Integration tests** — add TC-DTP-001/002/003/004 when migration is performed (out of scope)
 
 ---
 
@@ -868,6 +984,7 @@ Post-implementation code review. All findings assigned severity per the standard
 | ID | Severity | Finding | Status |
 |----|----------|---------|--------|
 | H1 | High | No unit test coverage for new components or CrudForm integration | Open — integration tests require usage (none); unit tests planned, see Testing Strategy |
+| H2 | High | DatePicker component not yet implemented (Phase 4 pending) | Open — scope extended per stakeholder feedback; Phase 4 plan documented |
 | M1 | Medium | Duplicate font classes in `calendar.tsx` `day_button` | N/A — only `font-normal` used |
 | M2 | Medium | `data-crud-focus-target` on `datetime` and `time` CrudForm blocks | Addressed |
 | M3 | Medium | `handleTimeChange` when no date selected | Addressed — returns early |
@@ -884,3 +1001,4 @@ Post-implementation code review. All findings assigned severity per the standard
 | Date | Summary |
 |------|---------|
 | 2026-02-22 | Phase 1–3 implementation. Added Popover, Calendar, TimeInput, DateTimePicker, TimePicker. CrudForm integration for `datetime` and `time`. Migration out of scope — components available but not used in any module. |
+| 2026-02-22 | Spec extended: added DatePicker component (Phase 4). Scope now covers date-only picker with `minDate`/`maxDate`, `closeOnSelect`, locale-aware display format, and CrudForm `type: 'datepicker'`. Title updated to "DatePicker, DateTimePicker & TimePicker". Rationale for `minDate`/`maxDate` requirement documented. TC-DTP-004 integration test template added. |

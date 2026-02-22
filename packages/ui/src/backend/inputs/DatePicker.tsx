@@ -1,16 +1,15 @@
 "use client"
 
 import * as React from 'react'
-import { format } from 'date-fns'
+import { format, parseISO } from 'date-fns'
 import type { Locale } from 'date-fns'
 import { CalendarIcon } from 'lucide-react'
 import { cn } from '@open-mercato/shared/lib/utils'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { Popover, PopoverContent, PopoverTrigger } from '../../primitives/popover'
 import { Calendar } from '../../primitives/calendar'
-import { TimeInput } from './TimeInput'
 
-export type DateTimePickerProps = {
+export type DatePickerProps = {
   value?: Date | null
   onChange: (date: Date | null) => void
   placeholder?: string
@@ -19,9 +18,9 @@ export type DateTimePickerProps = {
   className?: string
   locale?: Locale
   displayFormat?: string
-  minuteStep?: number
   showTodayButton?: boolean
   showClearButton?: boolean
+  closeOnSelect?: boolean
   minDate?: Date
   maxDate?: Date
 }
@@ -31,30 +30,12 @@ const DAY_FIRST_LOCALE_CODES = new Set([
 ])
 
 function deriveDisplayFormat(locale?: Locale): string {
-  if (!locale) return 'MMM d, yyyy HH:mm'
+  if (!locale) return 'MMM d, yyyy'
   const code = locale.code?.split('-')[0]?.toLowerCase() ?? ''
-  return DAY_FIRST_LOCALE_CODES.has(code) ? 'd MMM yyyy HH:mm' : 'MMM d, yyyy HH:mm'
+  return DAY_FIRST_LOCALE_CODES.has(code) ? 'd MMM yyyy' : 'MMM d, yyyy'
 }
 
-function extractTime(date: Date): string {
-  const hour = String(date.getHours()).padStart(2, '0')
-  const minute = String(date.getMinutes()).padStart(2, '0')
-  return `${hour}:${minute}`
-}
-
-function applyTimeToDate(base: Date, time: string): Date {
-  const parts = time.split(':')
-  const hour = parseInt(parts[0] ?? '0', 10)
-  const minute = parseInt(parts[1] ?? '0', 10)
-  const next = new Date(base)
-  next.setHours(isNaN(hour) ? 0 : hour)
-  next.setMinutes(isNaN(minute) ? 0 : minute)
-  next.setSeconds(0)
-  next.setMilliseconds(0)
-  return next
-}
-
-export function DateTimePicker({
+export function DatePicker({
   value,
   onChange,
   placeholder,
@@ -63,20 +44,19 @@ export function DateTimePicker({
   className,
   locale,
   displayFormat,
-  minuteStep = 1,
   showTodayButton = true,
   showClearButton = true,
+  closeOnSelect = true,
   minDate,
   maxDate,
-}: DateTimePickerProps) {
+}: DatePickerProps) {
   const t = useT()
   const [open, setOpen] = React.useState(false)
 
   const resolvedFormat = displayFormat ?? deriveDisplayFormat(locale)
-  const placeholderText = placeholder ?? t('ui.dateTimePicker.placeholder', 'Pick date and time')
-  const timeLabelText = t('ui.dateTimePicker.timeLabel', 'Time')
-  const todayText = t('ui.dateTimePicker.todayButton', 'Today')
-  const clearText = t('ui.dateTimePicker.clearButton', 'Clear')
+  const placeholderText = placeholder ?? t('ui.datePicker.placeholder', 'Pick a date')
+  const todayText = t('ui.datePicker.todayButton', 'Today')
+  const clearText = t('ui.datePicker.clearButton', 'Clear')
 
   const formattedValue = React.useMemo(() => {
     if (!value) return null
@@ -90,27 +70,20 @@ export function DateTimePicker({
   const handleDaySelect = React.useCallback(
     (day: Date | undefined) => {
       if (!day) return
-      const currentTime = value ? extractTime(value) : '00:00'
-      onChange(applyTimeToDate(day, currentTime))
+      const next = new Date(day)
+      next.setHours(0, 0, 0, 0)
+      onChange(next)
+      if (closeOnSelect) setOpen(false)
     },
-    [onChange, value]
-  )
-
-  const handleTimeChange = React.useCallback(
-    (time: string) => {
-      const base = value ?? null
-      if (!base) return
-      onChange(applyTimeToDate(base, time))
-    },
-    [onChange, value]
+    [onChange, closeOnSelect]
   )
 
   const handleToday = React.useCallback(() => {
-    const now = new Date()
-    const currentTime = value ? extractTime(value) : extractTime(now)
-    onChange(applyTimeToDate(now, currentTime))
+    const today = new Date()
+    today.setHours(0, 0, 0, 0)
+    onChange(today)
     setOpen(false)
-  }, [onChange, value])
+  }, [onChange])
 
   const handleClear = React.useCallback(() => {
     onChange(null)
@@ -161,38 +134,28 @@ export function DateTimePicker({
           disabled={disabledMatcher}
           initialFocus
         />
-        <div className="border-t px-3 py-2 space-y-2">
-          <div className="flex items-center gap-2">
-            <span className="text-sm text-muted-foreground shrink-0">{timeLabelText}:</span>
-            <TimeInput
-              value={value ? extractTime(value) : undefined}
-              onChange={handleTimeChange}
-              minuteStep={minuteStep}
-            />
+        {(showTodayButton || showClearButton) && (
+          <div className="flex items-center justify-between gap-2 border-t px-3 py-2">
+            {showTodayButton && (
+              <button
+                type="button"
+                onClick={handleToday}
+                className="text-sm text-primary hover:underline focus:outline-none"
+              >
+                {todayText}
+              </button>
+            )}
+            {showClearButton && (
+              <button
+                type="button"
+                onClick={handleClear}
+                className="text-sm text-muted-foreground hover:text-foreground hover:underline focus:outline-none ml-auto"
+              >
+                {clearText}
+              </button>
+            )}
           </div>
-          {(showTodayButton || showClearButton) && (
-            <div className="flex items-center justify-between gap-2">
-              {showTodayButton && (
-                <button
-                  type="button"
-                  onClick={handleToday}
-                  className="text-sm text-primary hover:underline focus:outline-none"
-                >
-                  {todayText}
-                </button>
-              )}
-              {showClearButton && (
-                <button
-                  type="button"
-                  onClick={handleClear}
-                  className="text-sm text-muted-foreground hover:text-foreground hover:underline focus:outline-none ml-auto"
-                >
-                  {clearText}
-                </button>
-              )}
-            </div>
-          )}
-        </div>
+        )}
       </PopoverContent>
     </Popover>
   )

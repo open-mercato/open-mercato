@@ -379,6 +379,8 @@
   "upgrades.runFailed": "We could not run this upgrade action.",
   "upgrades.loading": "Loading upgrade…",
   "ui.datePicker.placeholder": "Pick a date",
+  "ui.datePicker.todayButton": "Today",
+  "ui.datePicker.clearButton": "Clear",
   "ui.dateTimePicker.clearButton": "Clear",
   "ui.dateTimePicker.placeholder": "Pick date and time",
   "ui.dateTimePicker.timeLabel": "Time",
@@ -386,5 +388,6 @@
   "ui.timePicker.hourLabel": "Hour",
   "ui.timePicker.minuteLabel": "Minute",
   "ui.timePicker.nowButton": "Now",
+  "ui.timePicker.clearButton": "Clear",
   "ui.timePicker.placeholder": "Pick a time"
 }

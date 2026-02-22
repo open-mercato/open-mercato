@@ -42,7 +42,7 @@ export function TimePicker({
 
   const placeholderText = placeholder ?? t('ui.timePicker.placeholder', 'Pick a time')
   const nowText = t('ui.timePicker.nowButton', 'Now')
-  const clearText = t('ui.dateTimePicker.clearButton', 'Clear')
+  const clearText = t('ui.timePicker.clearButton', 'Clear')
 
   const handleTimeChange = React.useCallback(
     (time: string) => {
