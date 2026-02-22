@@ -1,5 +1,5 @@
 "use client"
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import Image from 'next/image'
 import Link from 'next/link'
 import { useRouter, useSearchParams } from 'next/navigation'
@@ -13,6 +13,8 @@ import { clearAllOperations } from '@open-mercato/ui/backend/operations/store'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { X } from 'lucide-react'
 import { Notice } from '@open-mercato/ui/primitives/Notice'
+import { InjectionSpot } from '@open-mercato/ui/backend/injection/InjectionSpot'
+import type { AuthOverride, LoginFormWidgetContext } from './login-injection'
 
 const loginTenantKey = 'om_login_tenant'
 const loginTenantCookieMaxAge = 60 * 60 * 24 * 14
@@ -86,24 +88,13 @@ export default function LoginPage() {
   const translatedFeatures = requiredFeatures.map((feature) => translate(`features.${feature}`, feature))
   const [error, setError] = useState<string | null>(null)
   const [submitting, setSubmitting] = useState(false)
-  const [ssoConfigId, setSsoConfigId] = useState<string | null>(null)
-  const [ssoChecking, setSsoChecking] = useState(false)
+  const [authOverride, setAuthOverride] = useState<AuthOverride | null>(null)
+  const [email, setEmail] = useState('')
   const [tenantId, setTenantId] = useState<string | null>(null)
   const [tenantName, setTenantName] = useState<string | null>(null)
   const [tenantLoading, setTenantLoading] = useState(false)
   const [tenantInvalid, setTenantInvalid] = useState<string | null>(null)
   const showTenantInvalid = tenantId != null && tenantInvalid === tenantId
-
-  useEffect(() => {
-    const errorParam = searchParams.get('error')
-    if (errorParam === 'sso_failed') {
-      setError(translate('auth.login.errors.ssoFailed', 'SSO login failed. Please try again.'))
-    } else if (errorParam === 'sso_missing_config') {
-      setError(translate('auth.login.errors.ssoMissingConfig', 'SSO is not configured for this account.'))
-    } else if (errorParam === 'sso_email_not_verified') {
-      setError(translate('auth.login.errors.ssoEmailNotVerified', 'Your email address is not verified by the identity provider. Please verify your email and try again.'))
-    }
-  }, [searchParams, translate])
 
   useEffect(() => {
     const tenantParam = (searchParams.get('tenant') || '').trim()
@@ -161,22 +152,6 @@ export default function LoginPage() {
     }
   }, [tenantId, translate])
 
-  async function checkSso(email: string) {
-    if (!email || !email.includes('@')) return
-    setSsoChecking(true)
-    try {
-      const res = await apiCall<{ hasSso: boolean; configId?: string }>(
-        '/api/sso/hrd',
-        { method: 'POST', body: JSON.stringify({ email }), headers: { 'Content-Type': 'application/json' } },
-      )
-      setSsoConfigId(res.result?.hasSso && res.result.configId ? res.result.configId : null)
-    } catch {
-      setSsoConfigId(null)
-    } finally {
-      setSsoChecking(false)
-    }
-  }
-
   function handleClearTenant() {
     window.localStorage.removeItem(loginTenantKey)
     clearTenantCookie()
@@ -193,9 +168,8 @@ export default function LoginPage() {
   async function onSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault()
     setError(null)
-    if (ssoConfigId) {
-      const returnUrl = searchParams.get('returnUrl') || '/backend'
-      window.location.href = `/api/sso/initiate?configId=${encodeURIComponent(ssoConfigId)}&returnUrl=${encodeURIComponent(returnUrl)}`
+    if (authOverride) {
+      authOverride.onSubmit()
       return
     }
     setSubmitting(true)
@@ -269,6 +243,14 @@ export default function LoginPage() {
     }
   }
 
+  const loginFormContext = useMemo<LoginFormWidgetContext>(() => ({
+    email,
+    tenantId,
+    searchParams,
+    setAuthOverride,
+    setError,
+  }), [email, tenantId, searchParams])
+
   return (
     <div className="min-h-svh flex items-center justify-center p-4">
       <Card className="w-full max-w-sm">
@@ -336,37 +318,39 @@ export default function LoginPage() {
                 type="email"
                 required
                 aria-invalid={!!error}
-                onBlur={(e) => checkSso(e.target.value)}
+                onBlur={(e) => setEmail(e.target.value)}
               />
             </div>
-            {ssoConfigId ? (
-              <div className="rounded-md border border-blue-200 bg-blue-50 px-3 py-2 text-center text-xs text-blue-800">
-                {translate('auth.login.ssoEnabled', 'SSO is enabled for this account')}
-              </div>
-            ) : (
+            <InjectionSpot<LoginFormWidgetContext>
+              spotId="auth.login:form"
+              context={loginFormContext}
+            />
+            {authOverride?.hidePassword ? null : (
               <div className="grid gap-1">
                 <Label htmlFor="password">{t('auth.password')}</Label>
-                <Input id="password" name="password" type="password" required={!ssoConfigId} aria-invalid={!!error} />
+                <Input id="password" name="password" type="password" required={!authOverride} aria-invalid={!!error} />
               </div>
             )}
-            {!ssoConfigId && (
+            {!authOverride?.hideRememberMe && !authOverride?.hidePassword && (
               <label className="flex items-center gap-2 text-xs text-muted-foreground">
                 <input type="checkbox" name="remember" className="accent-foreground" />
                 <span>{translate('auth.login.rememberMe', 'Remember me')}</span>
               </label>
             )}
-            <button disabled={submitting || ssoChecking} className="h-10 rounded-md bg-foreground text-background mt-2 hover:opacity-90 transition disabled:opacity-60">
-              {submitting || ssoChecking
+            <Button type="submit" disabled={submitting} className="h-10 mt-2">
+              {submitting
                 ? translate('auth.login.loading', 'Loading...')
-                : ssoConfigId
-                  ? translate('auth.login.signInWithSso', 'Continue with SSO')
+                : authOverride
+                  ? authOverride.providerLabel
                   : translate('auth.signIn', 'Sign in')}
-            </button>
-            <div className="text-xs text-muted-foreground mt-2">
-              <Link className="underline" href="/reset">
-                {translate('auth.login.forgotPassword', 'Forgot password?')}
-              </Link>
-            </div>
+            </Button>
+            {!authOverride?.hideForgotPassword && (
+              <div className="text-xs text-muted-foreground mt-2">
+                <Link className="underline" href="/reset">
+                  {translate('auth.login.forgotPassword', 'Forgot password?')}
+                </Link>
+              </div>
+            )}
           </form>
         </CardContent>
       </Card>

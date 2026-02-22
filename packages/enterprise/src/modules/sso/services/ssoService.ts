@@ -126,7 +126,6 @@ export class SsoService {
       email: user.email,
       roles,
     })
-    console.log('[SSO] JWT payload:', JSON.stringify({ sub: String(user.id), tenantId: tenantId || null, orgId: user.organizationId ? String(user.organizationId) : null, email: user.email, roles }))
 
     await this.authService.updateLastLoginAt(user)
 
