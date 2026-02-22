@@ -159,6 +159,18 @@ const widget: InjectionWidgetModule<CrudInjectionContext, Record<string, unknown
         pendingResolutionArmed: false,
       })
     },
+    async onBeforeDelete(data, context) {
+      return (await widget.eventHandlers?.onBeforeSave?.(data, context)) ?? { ok: true }
+    },
+    async onDelete(_data, _context) {
+      return
+    },
+    async onAfterDelete(data, context) {
+      await widget.eventHandlers?.onAfterSave?.(data, context)
+    },
+    async onDeleteError(_data, _context, _error) {
+      return
+    },
   },
 }
 

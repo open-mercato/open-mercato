@@ -421,23 +421,127 @@ export function CrudForm<TValues extends Record<string, unknown>>({
   // Unified delete handler with confirmation
   const handleDelete = React.useCallback(async () => {
     if (!onDelete) return
+    const deletePayload = values as TValues
     try {
       const confirmed = await confirm({
         title: deleteConfirmMessage,
         variant: 'destructive',
       })
       if (!confirmed) return
-      await onDelete()
+
+      let injectionRequestHeaders: Record<string, string> | undefined
+      if (resolvedInjectionSpotId) {
+        try {
+          const result = await triggerInjectionEvent('onBeforeDelete', deletePayload, injectionContext)
+          if (!result.ok) {
+            try {
+              if (typeof window !== 'undefined') {
+                dispatchBackendMutationError({
+                  contextId: formId,
+                  formId,
+                  error: result.details ?? result,
+                })
+                window.dispatchEvent(new CustomEvent('om:crud-save-error', {
+                  detail: {
+                    formId,
+                    error: result.details ?? result,
+                  },
+                }))
+              }
+            } catch {
+              // ignore event dispatch failures
+            }
+            if (result.fieldErrors && Object.keys(result.fieldErrors).length) {
+              setErrors(result.fieldErrors)
+            }
+            const message = result.message || t('ui.forms.flash.saveBlocked', 'Save blocked by validation')
+            flash(message, 'error')
+            return
+          }
+          injectionRequestHeaders = result.requestHeaders
+        } catch (err) {
+          console.error('[CrudForm] Error in onBeforeDelete:', err)
+          flash(t('ui.forms.flash.saveBlocked', 'Save blocked by validation'), 'error')
+          return
+        }
+      }
+
+      setPending(true)
+      if (resolvedInjectionSpotId) {
+        try {
+          await triggerInjectionEvent('onDelete', deletePayload, injectionContext)
+        } catch (err) {
+          console.error('[CrudForm] Error in onDelete:', err)
+          flash(t('ui.forms.flash.saveBlocked', 'Save blocked by validation'), 'error')
+          return
+        }
+      }
+
+      if (injectionRequestHeaders && Object.keys(injectionRequestHeaders).length > 0) {
+        await withScopedApiRequestHeaders(injectionRequestHeaders, async () => {
+          await onDelete()
+        })
+      } else {
+        await onDelete()
+      }
+
+      if (resolvedInjectionSpotId) {
+        try {
+          await triggerInjectionEvent('onAfterDelete', deletePayload, injectionContext)
+        } catch (err) {
+          console.error('[CrudForm] Error in onAfterDelete:', err)
+        }
+      }
       try { flash(deleteSuccessMessage, 'success') } catch {}
       // Redirect if requested by caller
       if (typeof deleteRedirect === 'string' && deleteRedirect) {
         router.push(deleteRedirect)
       }
     } catch (err) {
+      if (resolvedInjectionSpotId) {
+        try {
+          await triggerInjectionEvent('onDeleteError', deletePayload, injectionContext, { error: err })
+        } catch (hookError) {
+          console.error('[CrudForm] Error in onDeleteError:', hookError)
+        }
+      }
+      try {
+        if (typeof window !== 'undefined') {
+          dispatchBackendMutationError({
+            contextId: formId,
+            formId,
+            error: err,
+          })
+          window.dispatchEvent(new CustomEvent('om:crud-save-error', {
+            detail: {
+              formId,
+              error: err,
+            },
+          }))
+        }
+      } catch {
+        // ignore event dispatch failures
+      }
       const message = err instanceof Error && err.message ? err.message : deleteErrorMessage
       try { flash(message, 'error') } catch {}
+    } finally {
+      setPending(false)
     }
-  }, [confirm, onDelete, deleteRedirect, router, deleteConfirmMessage, deleteSuccessMessage, deleteErrorMessage])
+  }, [
+    confirm,
+    deleteConfirmMessage,
+    deleteErrorMessage,
+    deleteRedirect,
+    deleteSuccessMessage,
+    formId,
+    injectionContext,
+    onDelete,
+    resolvedInjectionSpotId,
+    router,
+    t,
+    triggerInjectionEvent,
+    values,
+  ])
   
   // Determine whether this form is creating a new record (no `id` yet)
   const isNewRecord = React.useMemo(() => {
