@@ -1897,6 +1897,17 @@ export default function SalesDocumentDetailPage({
     [kind, record?.id],
   )
   const detailsInjectionSpotId = React.useMemo(() => `sales.document.detail.${kind}:details`, [kind])
+  const { runMutation, retryLastMutation } = useGuardedMutation<{
+    kind: SalesDocumentKind
+    record: DocumentRecord | null
+    formId: string
+    resourceKind: string
+    resourceId?: string
+    retryLastMutation: () => Promise<boolean>
+  }>({
+    contextId: mutationContextId,
+    blockedMessage: t('ui.forms.flash.saveBlocked', 'Save blocked by validation'),
+  })
   const detailInjectionContext = React.useMemo(
     () => ({
       kind,
@@ -1904,19 +1915,10 @@ export default function SalesDocumentDetailPage({
       formId: mutationContextId,
       resourceKind: `sales.${kind}`,
       resourceId: record?.id ?? undefined,
+      retryLastMutation,
     }),
-    [kind, mutationContextId, record],
+    [kind, mutationContextId, record, retryLastMutation],
   )
-  const { runMutation } = useGuardedMutation<{
-    kind: SalesDocumentKind
-    record: DocumentRecord | null
-    formId: string
-    resourceKind: string
-    resourceId?: string
-  }>({
-    contextId: mutationContextId,
-    blockedMessage: t('ui.forms.flash.saveBlocked', 'Save blocked by validation'),
-  })
   const runMutationWithContext = React.useCallback(
     async <T,>(operation: () => Promise<T>, mutationPayload?: Record<string, unknown>): Promise<T> => {
       return runMutation({

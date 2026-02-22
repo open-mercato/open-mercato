@@ -54,6 +54,7 @@ Use this structure for every review:
 - [ ] No cross-module ORM relationships
 - [ ] Encryption helpers used instead of raw `em.find`
 - [ ] Forms use `CrudForm`, tables use `DataTable`
+- [ ] Non-`CrudForm` backend writes use `useGuardedMutation(...).runMutation(...)` with `retryLastMutation` in context
 - [ ] `apiCall` used instead of raw `fetch`
 - [ ] ACL features mirrored in `setup.ts` `defaultRoleFeatures`
 - [ ] Behavior changes covered by unit and/or integration tests (or explicitly justified as not applicable)
@@ -126,6 +127,8 @@ These are the highest-impact rules. For the full checklist, see `references/revi
 ### UI & HTTP (Medium/High)
 
 - Forms: `CrudForm` — never custom form implementations
+- If a backend page cannot use `CrudForm`, every write (`POST`/`PUT`/`PATCH`/`DELETE`) MUST go through `useGuardedMutation(...).runMutation(...)`
+- `useGuardedMutation` context MUST include `retryLastMutation` so conflict resolution can auto-retry without extra save prompts
 - Tables: `DataTable` — never manual table markup
 - Notifications: `flash()` — never `alert()` or custom toast
 - API calls: `apiCall`/`apiCallOrThrow` — never raw `fetch`
@@ -168,6 +171,7 @@ When reviewing, pay special attention to:
 9. **Setup changes**: Verify `defaultRoleFeatures` matches `acl.ts` features. Hooks MUST be idempotent.
 10. **UI changes**: Verify `CrudForm`/`DataTable` usage, `flash()` for feedback, keyboard shortcuts, loading/error states.
 11. **Behavior changes**: Verify unit and/or integration tests cover new behavior, regressions, and edge cases.
+12. **Mutation guard coverage**: For backend pages with manual save/delete logic (non-`CrudForm`), verify `useGuardedMutation` is wired for all writes and context includes `retryLastMutation`; for custom write API routes, verify `validateCrudMutationGuard` + `runCrudMutationGuardAfterSuccess` are both wired.
 
 ## Lessons Learned
 

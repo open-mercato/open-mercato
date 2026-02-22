@@ -208,6 +208,7 @@ All paths use `src/modules/<module>/` as shorthand. See `packages/core/AGENTS.md
 ### UI & HTTP
 
 -   Use `apiCall`/`apiCallOrThrow`/`readApiResultOrThrow` from `@open-mercato/ui/backend/utils/apiCall` — never use raw `fetch`
+-   If a backend page cannot use `CrudForm`, wrap every write (`POST`/`PUT`/`PATCH`/`DELETE`) in `useGuardedMutation(...).runMutation(...)` and include `retryLastMutation` in the injection context
 -   For CRUD forms: `createCrud`/`updateCrud`/`deleteCrud` (auto-handle `raiseCrudError`)
 -   For local validation errors: throw `createCrudFormError(message, fieldErrors?)` from `@open-mercato/ui/backend/utils/serverErrors`
 -   Read JSON defensively: `readJsonSafe(response, fallback)` — never `.json().catch(() => ...)`

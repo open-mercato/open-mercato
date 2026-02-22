@@ -15,6 +15,7 @@ import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
 import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
 import { NotesSection, type SectionAction } from '@open-mercato/ui/backend/detail'
+import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuardedMutation'
 import { ActivitiesSection } from '../../../../components/detail/ActivitiesSection'
 import { DealForm, type DealFormSubmitPayload } from '../../../../components/detail/DealForm'
 import { useCustomerDictionary } from '../../../../components/detail/hooks/useCustomerDictionary'
@@ -112,6 +113,43 @@ export default function DealDetailPage({ params }: { params?: { id?: string } })
   const [reloadToken, setReloadToken] = React.useState(0)
   const [activeTab, setActiveTab] = React.useState<'notes' | 'activities'>('notes')
   const [sectionAction, setSectionAction] = React.useState<SectionAction | null>(null)
+  const currentDealId = data?.deal?.id ?? null
+  const mutationContextId = React.useMemo(
+    () => (currentDealId ? `customer-deal:${currentDealId}` : `customer-deal:${id || 'pending'}`),
+    [currentDealId, id],
+  )
+  const { runMutation, retryLastMutation } = useGuardedMutation<{
+    formId: string
+    dealId?: string | null
+    resourceKind: string
+    resourceId?: string
+    data: DealDetailPayload | null
+    retryLastMutation: () => Promise<boolean>
+  }>({
+    contextId: mutationContextId,
+    blockedMessage: t('ui.forms.flash.saveBlocked', 'Save blocked by validation'),
+  })
+  const injectionContext = React.useMemo(
+    () => ({
+      formId: mutationContextId,
+      dealId: currentDealId,
+      resourceKind: 'customers.deal',
+      resourceId: currentDealId ?? (id || undefined),
+      data,
+      retryLastMutation,
+    }),
+    [currentDealId, data, id, mutationContextId, retryLastMutation],
+  )
+  const runMutationWithContext = React.useCallback(
+    async <T,>(operation: () => Promise<T>, mutationPayload?: Record<string, unknown>): Promise<T> => {
+      return runMutation({
+        operation,
+        mutationPayload,
+        context: injectionContext,
+      })
+    },
+    [injectionContext, runMutation],
+  )
   const handleNotesLoadingChange = React.useCallback(() => {}, [])
   const handleActivitiesLoadingChange = React.useCallback(() => {}, [])
   const focusDealField = React.useCallback(
@@ -218,14 +256,17 @@ export default function DealDetailPage({ params }: { params?: { id?: string } })
         }
         if (Object.keys(custom).length) payload.customFields = custom
 
-        await apiCallOrThrow(
-          '/api/customers/deals',
-          {
-            method: 'PUT',
-            headers: { 'content-type': 'application/json' },
-            body: JSON.stringify(payload),
-          },
-          { errorMessage: t('customers.deals.detail.saveError', 'Failed to update deal.') },
+        await runMutationWithContext(
+          () => apiCallOrThrow(
+            '/api/customers/deals',
+            {
+              method: 'PUT',
+              headers: { 'content-type': 'application/json' },
+              body: JSON.stringify(payload),
+            },
+            { errorMessage: t('customers.deals.detail.saveError', 'Failed to update deal.') },
+          ),
+          payload,
         )
         flash(t('customers.deals.detail.saveSuccess', 'Deal updated.'), 'success')
         setReloadToken((token) => token + 1)
@@ -240,7 +281,7 @@ export default function DealDetailPage({ params }: { params?: { id?: string } })
         setIsSaving(false)
       }
     },
-    [data, isSaving, t],
+    [data, isSaving, runMutationWithContext, t],
   )
 
   const handleDelete = React.useCallback(async () => {
@@ -256,14 +297,17 @@ export default function DealDetailPage({ params }: { params?: { id?: string } })
 
     setIsDeleting(true)
     try {
-      await apiCallOrThrow(
-        '/api/customers/deals',
-        {
-          method: 'DELETE',
-          headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({ id: data.deal.id }),
-        },
-        { errorMessage: t('customers.deals.detail.deleteError', 'Failed to delete deal.') },
+      await runMutationWithContext(
+        () => apiCallOrThrow(
+          '/api/customers/deals',
+          {
+            method: 'DELETE',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ id: data.deal.id }),
+          },
+          { errorMessage: t('customers.deals.detail.deleteError', 'Failed to delete deal.') },
+        ),
+        { id: data.deal.id },
       )
       flash(t('customers.deals.detail.deleteSuccess', 'Deal deleted.'), 'success')
       router.push('/backend/customers/deals')
@@ -276,7 +320,7 @@ export default function DealDetailPage({ params }: { params?: { id?: string } })
     } finally {
       setIsDeleting(false)
     }
-  }, [confirm, data, isDeleting, router, t])
+  }, [confirm, data, isDeleting, router, runMutationWithContext, t])
 
   React.useEffect(() => {
     setSectionAction(null)
