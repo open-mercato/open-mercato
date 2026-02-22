@@ -1,6 +1,7 @@
 import type { ModuleCli } from '@open-mercato/shared/modules/registry'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { EntityManager } from '@mikro-orm/postgresql'
+import { parseCliArgs, cliLogger } from '@open-mercato/cli/lib/helpers'
 import {
   installExampleCatalogData,
   seedCatalogExamplesForScope,
@@ -9,10 +10,11 @@ import {
   type CatalogSeedScope,
 } from './lib/seeds'
 
+const logger = cliLogger.forModule('catalog')
+
 function parseArgs(rest: string[]) {
-  const args: Record<string, string> = {}
-  for (let i = 0; i < rest.length; i += 1) {
-    const part = rest[i]
+  const { args } = parseCliArgs(rest, { string: ['tenant', 'org', 'scope', 'channel'] })
+  return args as Record<string, string>
     if (!part) continue
     if (part.startsWith('--')) {
       const [rawKey, rawValue] = part.slice(2).split('=')
@@ -33,7 +35,7 @@ const seedUnitsCommand: ModuleCli = {
     const tenantId = String(args.tenantId ?? args.tenant ?? '')
     const organizationId = String(args.organizationId ?? args.org ?? args.orgId ?? '')
     if (!tenantId || !organizationId) {
-      console.error('Usage: mercato catalog seed-units --tenant <tenantId> --org <organizationId>')
+      logger.error('Usage: mercato catalog seed-units --tenant <tenantId> --org <organizationId>')
       return
     }
     const container = await createRequestContainer()
@@ -43,7 +45,7 @@ const seedUnitsCommand: ModuleCli = {
       await em.transactional(async (tem) => {
         await seedCatalogUnits(tem, scope)
       })
-      console.log('📏 Unit dictionary seeded for organization', organizationId)
+      logger.info('📏 Unit dictionary seeded for organization', organizationId)
     } finally {
       const disposable = container as unknown as { dispose?: () => Promise<void> }
       if (typeof disposable.dispose === 'function') {
@@ -60,7 +62,7 @@ const seedPriceKindsCommand: ModuleCli = {
     const tenantId = String(args.tenantId ?? args.tenant ?? '')
     const organizationId = String(args.organizationId ?? args.org ?? args.orgId ?? '')
     if (!tenantId) {
-      console.error('Usage: mercato catalog seed-price-kinds --tenant <tenantId> [--org <organizationId>]')
+      logger.error('Usage: mercato catalog seed-price-kinds --tenant <tenantId> [--org <organizationId>]')
       return
     }
     const container = await createRequestContainer()
@@ -70,7 +72,7 @@ const seedPriceKindsCommand: ModuleCli = {
       await em.transactional(async (tem) => {
         await seedCatalogPriceKinds(tem, scope)
       })
-      console.log(
+      logger.info(
         '🏷️ Price kinds seeded for tenant',
         tenantId,
         organizationId ? `(org: ${organizationId})` : '(org: shared)',
@@ -91,7 +93,7 @@ const seedExamplesCommand: ModuleCli = {
     const tenantId = String(args.tenantId ?? args.tenant ?? '')
     const organizationId = String(args.organizationId ?? args.org ?? args.orgId ?? '')
     if (!tenantId || !organizationId) {
-      console.error('Usage: mercato catalog seed-examples --tenant <tenantId> --org <organizationId>')
+      logger.error('Usage: mercato catalog seed-examples --tenant <tenantId> --org <organizationId>')
       return
     }
     const container = await createRequestContainer()
@@ -109,9 +111,9 @@ const seedExamplesCommand: ModuleCli = {
       }
     }
     if (seeded) {
-      console.log('Catalog example data seeded for organization', organizationId)
+      logger.info('Catalog example data seeded for organization', organizationId)
     } else {
-      console.log('Catalog example data already present; skipping')
+      logger.info('Catalog example data already present; skipping')
     }
   },
 }
@@ -123,7 +125,7 @@ const installExamplesBundle: ModuleCli = {
     const tenantId = String(args.tenantId ?? args.tenant ?? '')
     const organizationId = String(args.organizationId ?? args.org ?? args.orgId ?? '')
     if (!tenantId || !organizationId) {
-      console.error('Usage: mercato catalog seed-examples-bundle --tenant <tenantId> --org <organizationId>')
+      logger.error('Usage: mercato catalog seed-examples-bundle --tenant <tenantId> --org <organizationId>')
       return
     }
     const container = await createRequestContainer()
@@ -134,9 +136,9 @@ const installExamplesBundle: ModuleCli = {
         installExampleCatalogData(container, scope, tem)
       )
       if (seededExamples) {
-        console.log('Catalog example data seeded for organization', organizationId)
+        logger.info('Catalog example data seeded for organization', organizationId)
       } else {
-        console.log('Catalog example data already present; skipping examples')
+        logger.info('Catalog example data already present; skipping examples')
       }
     } finally {
       const disposable = container as unknown as { dispose?: () => Promise<void> }
