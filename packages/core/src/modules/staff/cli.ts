@@ -1,7 +1,11 @@
+import { cliLogger } from '@open-mercato/cli/lib/helpers'
+const logger = cliLogger.forModule('core')
 import type { ModuleCli } from '@open-mercato/shared/modules/registry'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
+const logger = cliLogger.forModule('core')
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { seedStaffActivityTypes, seedStaffAddressTypes, seedStaffTeamExamples, type StaffSeedScope } from './lib/seeds'
+const logger = cliLogger.forModule('core')
 
 function parseArgs(rest: string[]) {
   const args: Record<string, string> = {}
@@ -21,13 +25,14 @@ function parseArgs(rest: string[]) {
 }
 
 const seedExamplesCommand: ModuleCli = {
+const logger = cliLogger.forModule('core')
   command: 'seed-examples',
   async run(rest) {
     const args = parseArgs(rest)
     const tenantId = String(args.tenantId ?? args.tenant ?? '')
     const organizationId = String(args.organizationId ?? args.org ?? args.orgId ?? '')
     if (!tenantId || !organizationId) {
-      console.error('Usage: mercato staff seed-examples --tenant <tenantId> --org <organizationId>')
+      logger.error('Usage: mercato staff seed-examples --tenant <tenantId> --org <organizationId>')
       return
     }
     const container = await createRequestContainer()
@@ -37,7 +42,7 @@ const seedExamplesCommand: ModuleCli = {
       await em.transactional(async (tem) => {
         await seedStaffTeamExamples(tem, scope)
       })
-      console.log('🧩 Staff team examples seeded for organization', organizationId)
+      logger.info('🧩 Staff team examples seeded for organization', organizationId)
     } finally {
       const disposable = container as unknown as { dispose?: () => Promise<void> }
       if (typeof disposable.dispose === 'function') {
@@ -48,13 +53,14 @@ const seedExamplesCommand: ModuleCli = {
 }
 
 const seedActivityTypesCommand: ModuleCli = {
+const logger = cliLogger.forModule('core')
   command: 'seed-activity-types',
   async run(rest) {
     const args = parseArgs(rest)
     const tenantId = String(args.tenantId ?? args.tenant ?? '')
     const organizationId = String(args.organizationId ?? args.org ?? args.orgId ?? '')
     if (!tenantId || !organizationId) {
-      console.error('Usage: mercato staff seed-activity-types --tenant <tenantId> --org <organizationId>')
+      logger.error('Usage: mercato staff seed-activity-types --tenant <tenantId> --org <organizationId>')
       return
     }
     const container = await createRequestContainer()
@@ -64,7 +70,7 @@ const seedActivityTypesCommand: ModuleCli = {
       await em.transactional(async (tem) => {
         await seedStaffActivityTypes(tem, scope)
       })
-      console.log('🗂️  Staff activity types seeded for organization', organizationId)
+      logger.info('🗂️  Staff activity types seeded for organization', organizationId)
     } finally {
       const disposable = container as unknown as { dispose?: () => Promise<void> }
       if (typeof disposable.dispose === 'function') {
@@ -75,13 +81,14 @@ const seedActivityTypesCommand: ModuleCli = {
 }
 
 const seedAddressTypesCommand: ModuleCli = {
+const logger = cliLogger.forModule('core')
   command: 'seed-address-types',
   async run(rest) {
     const args = parseArgs(rest)
     const tenantId = String(args.tenantId ?? args.tenant ?? '')
     const organizationId = String(args.organizationId ?? args.org ?? args.orgId ?? '')
     if (!tenantId || !organizationId) {
-      console.error('Usage: mercato staff seed-address-types --tenant <tenantId> --org <organizationId>')
+      logger.error('Usage: mercato staff seed-address-types --tenant <tenantId> --org <organizationId>')
       return
     }
     const container = await createRequestContainer()
@@ -91,7 +98,7 @@ const seedAddressTypesCommand: ModuleCli = {
       await em.transactional(async (tem) => {
         await seedStaffAddressTypes(tem, scope)
       })
-      console.log('🏠 Staff address types seeded for organization', organizationId)
+      logger.info('🏠 Staff address types seeded for organization', organizationId)
     } finally {
       const disposable = container as unknown as { dispose?: () => Promise<void> }
       if (typeof disposable.dispose === 'function') {
