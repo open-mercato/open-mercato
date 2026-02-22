@@ -57,7 +57,7 @@ export class OidcProvider implements SsoProtocolProvider {
       expectedState: params.expectedState,
       expectedNonce: params.expectedNonce,
     })
-    console.log("[SSO] ", tokens)
+
     const claims = tokens.claims()
     if (!claims) {
       throw new Error('No ID token claims received from IdP')
@@ -74,10 +74,7 @@ export class OidcProvider implements SsoProtocolProvider {
     const emailVerified = mergedClaims.email_verified === true
     const groups = extractIdentityGroups(mergedClaims)
 
-    if (process.env.SSO_DEBUG_CLAIMS === 'true') {
-      console.log('[SSO] OIDC claim keys:', Object.keys(mergedClaims).sort())
-      console.log('[SSO] OIDC mapped groups/roles:', groups ?? [])
-    }
+  
 
     return {
       subject,
