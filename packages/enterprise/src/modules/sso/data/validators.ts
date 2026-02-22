@@ -41,10 +41,56 @@ export const oidcCallbackSchema = z.object({
   state: z.string().min(1),
 })
 
+// --- Admin API schemas ---
+
+export const ssoConfigAdminCreateSchema = z.object({
+  name: z.string().min(1).max(255),
+  organizationId: uuid().optional(),
+  tenantId: uuid().optional(),
+  protocol: z.enum(['oidc', 'saml']),
+  issuer: z.string().url(),
+  clientId: z.string().min(1),
+  clientSecret: z.string().min(1),
+  allowedDomains: z.array(z.string().trim().min(1).max(253)).default([]),
+  jitEnabled: z.boolean().default(true),
+  autoLinkByEmail: z.boolean().default(true),
+  defaultRoleId: uuid().nullable().optional(),
+})
+
+export const ssoConfigAdminUpdateSchema = z.object({
+  name: z.string().min(1).max(255).optional(),
+  protocol: z.enum(['oidc', 'saml']).optional(),
+  issuer: z.string().url().optional(),
+  clientId: z.string().min(1).optional(),
+  clientSecret: z.string().min(1).optional(),
+  jitEnabled: z.boolean().optional(),
+  autoLinkByEmail: z.boolean().optional(),
+  defaultRoleId: uuid().nullable().optional(),
+})
+
+export const ssoConfigListQuerySchema = z.object({
+  page: z.coerce.number().min(1).default(1),
+  pageSize: z.coerce.number().min(1).max(100).default(50),
+  search: z.string().optional(),
+  organizationId: uuid().optional(),
+  tenantId: uuid().optional(),
+})
+
+export const ssoDomainAddSchema = z.object({
+  domain: z.string().trim().min(1).max(253),
+})
+
+export const ssoActivateSchema = z.object({
+  active: z.boolean(),
+})
+
 // --- Type exports ---
 
 export type SsoConfigCreateInput = z.infer<typeof ssoConfigCreateSchema>
 export type SsoConfigUpdateInput = z.infer<typeof ssoConfigUpdateSchema>
+export type SsoConfigAdminCreateInput = z.infer<typeof ssoConfigAdminCreateSchema>
+export type SsoConfigAdminUpdateInput = z.infer<typeof ssoConfigAdminUpdateSchema>
+export type SsoConfigListQuery = z.infer<typeof ssoConfigListQuerySchema>
 export type HrdRequestInput = z.infer<typeof hrdRequestSchema>
 export type SsoInitiateInput = z.infer<typeof ssoInitiateSchema>
 export type OidcCallbackInput = z.infer<typeof oidcCallbackSchema>
