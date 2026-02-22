@@ -2,10 +2,25 @@
 
 import * as React from 'react'
 import Link from 'next/link'
+import type {
+  MessageContentProps,
+  MessageObjectAction,
+} from '@open-mercato/shared/modules/messages/types'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
-import { Spinner } from '@open-mercato/ui/primitives/spinner'
-import { Button } from '@open-mercato/ui/primitives/button'
+import { MarkdownContent } from '@open-mercato/ui/backend/markdown/MarkdownContent'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
+import { Button } from '@open-mercato/ui/primitives/button'
+import { Spinner } from '@open-mercato/ui/primitives/spinner'
+import { MessageRecordObjectDetail } from '../../../../components/MessageRecordObjectDetail'
+import { MessageRecordObjectPreview } from '../../../../components/MessageRecordObjectPreview'
+import {
+  resolveMessageActionsComponent,
+  resolveMessageContentComponent,
+  resolveMessageObjectDetailComponent,
+  resolveMessageObjectPreviewComponent,
+} from '../../../../components/typeUiRegistry'
+import { getMessageObjectType } from '../../../../lib/message-objects-registry'
+import { getMessageTypeOrDefault } from '../../../../lib/message-types-registry'
 
 type TokenMessageObject = {
   id: string
@@ -15,15 +30,37 @@ type TokenMessageObject = {
   actionRequired: boolean
   actionType?: string | null
   actionLabel?: string | null
+  snapshot?: Record<string, unknown> | null
 }
 
 type MessageTokenResponse = {
   id: string
+  type: string
   subject: string
   body: string
   bodyFormat: 'text' | 'markdown'
+  priority: 'low' | 'normal' | 'high' | 'urgent'
   senderUserId: string
   sentAt?: string | null
+  actionData?: {
+    actions: Array<{
+      id: string
+      label: string
+      labelKey?: string
+      variant?: 'default' | 'secondary' | 'destructive' | 'outline' | 'ghost'
+      icon?: string
+      commandId?: string
+      href?: string
+      isTerminal?: boolean
+      confirmRequired?: boolean
+      confirmMessage?: string
+    }>
+    primaryActionId?: string
+    expiresAt?: string
+  } | null
+  actionTaken?: string | null
+  actionTakenAt?: string | null
+  actionTakenByUserId?: string | null
   objects: TokenMessageObject[]
   requiresAuth: boolean
   recipientUserId: string
@@ -57,6 +94,71 @@ function formatDateTime(value: string | null | undefined): string {
   const date = new Date(value)
   if (Number.isNaN(date.getTime())) return '—'
   return date.toLocaleString()
+}
+
+function toObjectActions(
+  objectActions: Array<{
+    id: string
+    labelKey: string
+    variant?: 'default' | 'secondary' | 'destructive' | 'outline'
+    icon?: string
+    commandId?: string
+    href?: string
+    isTerminal?: boolean
+    confirmRequired?: boolean
+    confirmMessage?: string
+  }>,
+): MessageObjectAction[] {
+  return objectActions.map((action) => ({
+    id: action.id,
+    labelKey: action.labelKey,
+    variant: action.variant,
+    icon: action.icon,
+    commandId: action.commandId,
+    href: action.href,
+    isTerminal: action.isTerminal,
+    confirmRequired: action.confirmRequired,
+    confirmMessage: action.confirmMessage,
+  }))
+}
+
+function mergeTokenActions(
+  messageActions: MessageTokenResponse['actionData'],
+  defaultActions: Array<{
+    id: string
+    label: string
+    labelKey?: string
+    variant?: 'default' | 'secondary' | 'destructive' | 'outline' | 'ghost'
+    icon?: string
+    commandId?: string
+    href?: string
+    isTerminal?: boolean
+    confirmRequired?: boolean
+    confirmMessage?: string
+  }> | undefined,
+): MessageTokenResponse['actionData'] {
+  const deduped = new Map<string, NonNullable<MessageTokenResponse['actionData']>['actions'][number]>()
+
+  for (const action of messageActions?.actions ?? []) {
+    const normalizedId = action.id.trim()
+    if (!normalizedId) continue
+    deduped.set(normalizedId, { ...action, id: normalizedId })
+  }
+
+  for (const action of defaultActions ?? []) {
+    const normalizedId = action.id.trim()
+    if (!normalizedId || deduped.has(normalizedId)) continue
+    deduped.set(normalizedId, { ...action, id: normalizedId })
+  }
+
+  const actions = Array.from(deduped.values())
+  if (actions.length === 0 && !messageActions?.expiresAt) return null
+
+  return {
+    actions,
+    primaryActionId: messageActions?.primaryActionId,
+    expiresAt: messageActions?.expiresAt,
+  }
 }
 
 export default function MessageTokenPage({ params }: { params: { token: string } }) {
@@ -101,11 +203,11 @@ export default function MessageTokenPage({ params }: { params: { token: string }
         }
 
         setData(call.result)
-      } catch (err) {
+      } catch (error) {
         if (!mounted) return
         setErrorMessage(
-          err instanceof Error
-            ? err.message
+          error instanceof Error
+            ? error.message
             : t('messages.token.errors.generic', 'Unable to load this message.'),
         )
       } finally {
@@ -157,6 +259,38 @@ export default function MessageTokenPage({ params }: { params: { token: string }
     )
   }
 
+  const messageType = getMessageTypeOrDefault(data.type)
+  const ContentComponent = resolveMessageContentComponent(messageType.ui?.contentComponent)
+  const ActionsComponent = resolveMessageActionsComponent(messageType.ui?.actionsComponent)
+  const resolvedActionData = mergeTokenActions(data.actionData ?? null, messageType.defaultActions)
+
+  const contentProps: MessageContentProps = {
+    message: {
+      id: data.id,
+      type: data.type,
+      subject: data.subject,
+      body: data.body,
+      bodyFormat: data.bodyFormat,
+      priority: data.priority,
+      sentAt: data.sentAt ? new Date(data.sentAt) : null,
+      senderUserId: data.senderUserId,
+      actionData: resolvedActionData,
+      actionTaken: data.actionTaken ?? null,
+      actionTakenAt: data.actionTakenAt ? new Date(data.actionTakenAt) : null,
+    },
+    objects: data.objects.map((objectItem) => ({
+      id: objectItem.id,
+      entityModule: objectItem.entityModule,
+      entityType: objectItem.entityType,
+      entityId: objectItem.entityId,
+      actionRequired: objectItem.actionRequired,
+      snapshot: objectItem.snapshot ?? undefined,
+    })),
+    attachments: [],
+  }
+
+  const tokenActions = resolvedActionData?.actions ?? []
+
   return (
     <main className="mx-auto max-w-3xl space-y-6 p-6">
       <header className="space-y-1">
@@ -166,27 +300,136 @@ export default function MessageTokenPage({ params }: { params: { token: string }
         </p>
       </header>
 
-      <section className="rounded-xl border bg-card p-4 whitespace-pre-wrap text-sm">
-        {data.body}
+      <section className="rounded-xl border bg-card p-4">
+        {ContentComponent ? (
+          <ContentComponent {...contentProps} />
+        ) : (
+          <MarkdownContent
+            body={data.body}
+            format={data.bodyFormat}
+            className="text-sm whitespace-pre-wrap [&>*]:mb-2 [&>*:last-child]:mb-0 [&_ul]:ml-4 [&_ul]:list-disc [&_ol]:ml-4 [&_ol]:list-decimal [&_code]:rounded [&_code]:bg-muted [&_code]:px-1 [&_code]:py-0.5 [&_pre]:rounded-md [&_pre]:bg-muted [&_pre]:p-3 [&_pre]:text-xs"
+          />
+        )}
       </section>
+
+      {tokenActions.length > 0 ? (
+        <section className="space-y-3 rounded-xl border bg-card p-4">
+          <h2 className="text-base font-semibold">{t('messages.actions.title', 'Actions')}</h2>
+          {ActionsComponent ? (
+            <ActionsComponent
+              message={{
+                id: data.id,
+                type: data.type,
+                actionData: resolvedActionData,
+                actionTaken: data.actionTaken ?? null,
+              }}
+              onExecuteAction={async (_actionId) => {
+                return
+              }}
+              isExecuting={false}
+              executingActionId={null}
+            />
+          ) : (
+            <div className="flex flex-wrap gap-2">
+              {tokenActions.map((action) => (
+                <Button
+                  key={action.id}
+                  type="button"
+                  variant={action.variant ?? 'default'}
+                  disabled
+                >
+                  {t(action.labelKey ?? action.label, action.label)}
+                </Button>
+              ))}
+            </div>
+          )}
+        </section>
+      ) : null}
 
       <section className="space-y-2 rounded-xl border bg-card p-4">
         <h2 className="text-base font-semibold">{t('messages.attachedObjects', 'Attached objects')}</h2>
         {data.objects.length === 0 ? (
-          <p className="text-sm text-muted-foreground">{t('messages.token.noObjects', 'No objects attached.')}</p>
+          null
         ) : (
           <div className="space-y-2">
-            {data.objects.map((objectItem) => (
-              <div key={objectItem.id} className="rounded border p-3 text-sm">
-                <p className="font-medium">{objectItem.entityModule}:{objectItem.entityType}</p>
-                <p className="text-xs text-muted-foreground" title={objectItem.entityId}>{objectItem.entityId}</p>
-                {objectItem.actionRequired ? (
-                  <p className="text-xs text-amber-700">
-                    {objectItem.actionLabel || t('messages.composer.objectActionRequired', 'Action required')}
-                  </p>
-                ) : null}
-              </div>
-            ))}
+            {data.objects.map((objectItem) => {
+              const objectType = getMessageObjectType(objectItem.entityModule, objectItem.entityType)
+              const objectActions = toObjectActions(objectType?.actions ?? [])
+              const DetailComponent = resolveMessageObjectDetailComponent(objectItem.entityModule, objectItem.entityType)
+              const PreviewComponent = resolveMessageObjectPreviewComponent(objectItem.entityModule, objectItem.entityType)
+
+              if (DetailComponent) {
+                return (
+                  <DetailComponent
+                    key={objectItem.id}
+                    entityId={objectItem.entityId}
+                    entityModule={objectItem.entityModule}
+                    entityType={objectItem.entityType}
+                    snapshot={objectItem.snapshot ?? undefined}
+                    previewData={undefined}
+                    actionRequired={objectItem.actionRequired}
+                    actionType={objectItem.actionType ?? undefined}
+                    actionLabel={objectItem.actionLabel ?? undefined}
+                    actions={objectActions}
+                    actionTaken={data.actionTaken ?? null}
+                    actionTakenAt={data.actionTakenAt ? new Date(data.actionTakenAt) : null}
+                    actionTakenByUserId={data.actionTakenByUserId ?? null}
+                    onAction={async () => {
+                      return
+                    }}
+                  />
+                )
+              }
+
+              if (PreviewComponent) {
+                return (
+                  <PreviewComponent
+                    key={objectItem.id}
+                    entityId={objectItem.entityId}
+                    entityModule={objectItem.entityModule}
+                    entityType={objectItem.entityType}
+                    snapshot={objectItem.snapshot ?? undefined}
+                    previewData={undefined}
+                    actionRequired={objectItem.actionRequired}
+                    actionType={objectItem.actionType ?? undefined}
+                    actionLabel={objectItem.actionLabel ?? undefined}
+                  />
+                )
+              }
+
+              return objectActions.length > 0 ? (
+                <MessageRecordObjectDetail
+                  key={objectItem.id}
+                  entityId={objectItem.entityId}
+                  entityModule={objectItem.entityModule}
+                  entityType={objectItem.entityType}
+                  snapshot={objectItem.snapshot ?? undefined}
+                  previewData={undefined}
+                  actionRequired={objectItem.actionRequired}
+                  actionType={objectItem.actionType ?? undefined}
+                  actionLabel={objectItem.actionLabel ?? undefined}
+                  actions={objectActions}
+                  actionTaken={data.actionTaken ?? null}
+                  actionTakenAt={data.actionTakenAt ? new Date(data.actionTakenAt) : null}
+                  actionTakenByUserId={data.actionTakenByUserId ?? null}
+                  onAction={async () => {
+                    return
+                  }}
+                />
+              ) : (
+                <MessageRecordObjectPreview
+                  key={objectItem.id}
+                  entityId={objectItem.entityId}
+                  entityModule={objectItem.entityModule}
+                  entityType={objectItem.entityType}
+                  snapshot={objectItem.snapshot ?? undefined}
+                  previewData={undefined}
+                  actionRequired={objectItem.actionRequired}
+                  actionType={objectItem.actionType ?? undefined}
+                  actionLabel={objectItem.actionLabel ?? undefined}
+                />
+              )
+            })}
           </div>
         )}
       </section>

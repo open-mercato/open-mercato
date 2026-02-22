@@ -56,12 +56,15 @@ export const messageThreadItemSchema = z.object({
   senderName: z.string().nullable().optional(),
   senderEmail: z.string().nullable().optional(),
   body: z.string(),
+  bodyFormat: z.enum(['text', 'markdown']).optional(),
   sentAt: z.string().nullable().optional(),
 })
 
 export const messageDetailResponseSchema = z.object({
   id: z.string().uuid(),
   type: z.string(),
+  isDraft: z.boolean(),
+  canEditDraft: z.boolean(),
   visibility: z.enum(['public', 'internal']).nullable().optional(),
   sourceEntityType: z.string().nullable().optional(),
   sourceEntityId: z.string().uuid().nullable().optional(),
@@ -122,11 +125,17 @@ export const messageDetailResponseSchema = z.object({
 
 export const messageTokenResponseSchema = z.object({
   id: z.string().uuid(),
+  type: z.string(),
   subject: z.string(),
   body: z.string(),
   bodyFormat: z.enum(['text', 'markdown']),
+  priority: z.enum(['low', 'normal', 'high', 'urgent']),
   senderUserId: z.string().uuid(),
   sentAt: z.string().nullable().optional(),
+  actionData: messageActionDataSchema.optional().nullable(),
+  actionTaken: z.string().nullable().optional(),
+  actionTakenAt: z.string().nullable().optional(),
+  actionTakenByUserId: z.string().uuid().nullable().optional(),
   objects: z.array(z.object({
     id: z.string().uuid(),
     entityModule: z.string(),
@@ -135,6 +144,7 @@ export const messageTokenResponseSchema = z.object({
     actionRequired: z.boolean(),
     actionType: z.string().nullable().optional(),
     actionLabel: z.string().nullable().optional(),
+    snapshot: z.record(z.string(), z.unknown()).nullable().optional(),
   })),
   requiresAuth: z.boolean(),
   recipientUserId: z.string().uuid(),

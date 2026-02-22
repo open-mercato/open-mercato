@@ -1,16 +1,13 @@
 export { MessageComposer } from './MessageComposer'
-export type { MessageComposerProps, MessageComposerVariant, MessageTypeItem } from './MessageComposer'
-
-export { MessageAttachmentPicker } from './MessageAttachmentPicker'
-export type { MessageAttachmentPickerItem } from './MessageAttachmentPicker'
-
-export { ObjectAttachmentPicker } from './ObjectAttachmentPicker'
 export type {
-  MessageObjectInput,
-  MessageObjectTypeAction,
-  MessageObjectTypeItem,
-  ObjectAttachmentPickerProps,
-} from './ObjectAttachmentPicker'
+  MessageComposerContextObject,
+  MessageComposerProps,
+  MessageComposerVariant,
+  MessageTypeItem,
+} from './MessageComposer'
+
+export { SendEntityMessageDialog } from './SendEntityMessageDialog'
+export type { SendEntityMessageDialogProps } from './SendEntityMessageDialog'
 
 export { MessageObjectRecordPicker } from './MessageObjectRecordPicker'
 export type { MessageObjectRecordPickerProps } from './MessageObjectRecordPicker'

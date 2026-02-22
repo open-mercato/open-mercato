@@ -7,7 +7,6 @@ import type {
   MessageListItemProps,
   ObjectPreviewProps,
   ObjectDetailProps,
-  ObjectPickerComponentProps,
 } from '@open-mercato/shared/modules/messages/types'
 import { getAllMessageTypes } from '../lib/message-types-registry'
 import { getAllMessageObjectTypes } from '../lib/message-objects-registry'
@@ -18,7 +17,6 @@ const contentComponents = new Map<string, ComponentType<MessageContentProps>>()
 const actionsComponents = new Map<string, ComponentType<MessageActionsProps>>()
 const objectDetailComponents = new Map<string, ComponentType<ObjectDetailProps>>()
 const objectPreviewComponents = new Map<string, ComponentType<ObjectPreviewProps>>()
-const objectPickerComponents = new Map<string, ComponentType<ObjectPickerComponentProps>>()
 
 // Register auto-discovered message types from registry
 const registeredMessageTypes = getAllMessageTypes()
@@ -43,9 +41,6 @@ for (const objectType of registeredMessageObjectTypes) {
   }
   if (objectType.DetailComponent) {
     objectDetailComponents.set(key, objectType.DetailComponent)
-  }
-  if (objectType.ObjectPickerComponent) {
-    objectPickerComponents.set(key, objectType.ObjectPickerComponent)
   }
 }
 
@@ -91,14 +86,6 @@ export function registerMessageObjectPreviewComponent(
   objectPreviewComponents.set(getObjectDetailComponentKey(entityModule, entityType), component)
 }
 
-export function registerMessageObjectPickerComponent(
-  entityModule: string,
-  entityType: string,
-  component: ComponentType<ObjectPickerComponentProps>,
-): void {
-  objectPickerComponents.set(getObjectDetailComponentKey(entityModule, entityType), component)
-}
-
 export function registerMessageTypeUiComponents(
   types: import('@open-mercato/shared/modules/messages/types').MessageTypeDefinition[],
 ): void {
@@ -129,9 +116,6 @@ export function registerMessageObjectTypeUiComponents(
     }
     if (type.DetailComponent) {
       registerMessageObjectDetailComponent(type.module, type.entityType, type.DetailComponent)
-    }
-    if (type.ObjectPickerComponent) {
-      registerMessageObjectPickerComponent(type.module, type.entityType, type.ObjectPickerComponent)
     }
   }
 }
@@ -168,12 +152,4 @@ export function resolveMessageObjectPreviewComponent(
   }
   const component = objectPreviewComponents.get(getObjectDetailComponentKey(entityModule, entityType))
   return component ?? objectPreviewComponents.get('messages:default') ?? null
-}
-
-export function resolveMessageObjectPickerComponent(
-  entityModule: string | null | undefined,
-  entityType: string | null | undefined,
-): ComponentType<ObjectPickerComponentProps> | null {
-  if (!entityModule || !entityType) return null
-  return objectPickerComponents.get(getObjectDetailComponentKey(entityModule, entityType)) ?? null
 }

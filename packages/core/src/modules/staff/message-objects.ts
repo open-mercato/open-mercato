@@ -1,6 +1,5 @@
 import type { MessageObjectTypeDefinition } from '@open-mercato/shared/modules/messages/types'
 import { LeaveRequestDetail } from './components/LeaveRequestDetail'
-import { LeaveRequestObjectPicker } from './components/LeaveRequestObjectPicker'
 import { LeaveRequestPreview } from './components/LeaveRequestPreview'
 
 export const messageObjectTypes: MessageObjectTypeDefinition[] = [
@@ -15,7 +14,6 @@ export const messageObjectTypes: MessageObjectTypeDefinition[] = [
     icon: 'calendar-clock',
     PreviewComponent: LeaveRequestPreview,
     DetailComponent: LeaveRequestDetail,
-    ObjectPickerComponent: LeaveRequestObjectPicker,
     actions: [
       {
         id: 'approve',

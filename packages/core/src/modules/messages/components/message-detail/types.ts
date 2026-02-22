@@ -47,6 +47,8 @@ export type MessageAction = {
 export type MessageDetail = {
   id: string
   type: string
+  isDraft: boolean
+  canEditDraft: boolean
   visibility?: 'public' | 'internal' | null
   sourceEntityType?: string | null
   sourceEntityId?: string | null
@@ -90,6 +92,7 @@ export type MessageDetail = {
     senderName?: string | null
     senderEmail?: string | null
     body: string
+    bodyFormat?: 'text' | 'markdown'
     sentAt?: string | null
     objects?: MessageDetailObject[]
   }>

@@ -17,19 +17,21 @@ test.describe('TC-MSG-003: Reply From Message Detail', () => {
     try {
       const fixture = await composeInternalMessage(request, {
         subject: `QA TC-MSG-003 ${Date.now()}`,
+        senderRole: 'superadmin',
+        recipientRole: 'admin',
       });
       originalMessageId = fixture.messageId;
       currentMessageId = fixture.messageId;
       adminToken = fixture.senderToken;
 
-      await login(page, 'employee');
+      await login(page, 'admin');
       await page.goto(`/backend/messages/${fixture.messageId}`);
 
       await page.getByRole('button', { name: 'Reply' }).click();
 
       const dialog = page.getByRole('dialog', { name: 'Reply' });
       await expect(dialog).toBeVisible();
-      await dialog.getByLabel('Reply').fill(replyBody);
+      await dialog.getByPlaceholder('Write your reply...').fill(replyBody);
       await dialog.getByRole('button', { name: 'Reply' }).click();
 
       await expect(page.getByText('Reply sent.').first()).toBeVisible();

@@ -4,6 +4,7 @@ import { useQuery } from '@tanstack/react-query'
 import type { MessageContentProps } from '@open-mercato/shared/modules/messages/types'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
+import { MarkdownContent } from '@open-mercato/ui/backend/markdown/MarkdownContent'
 import { PriorityBadge } from './PriorityBadge'
 
 type MessageConfirmationResult = {
@@ -67,7 +68,13 @@ export function MessageConfirmationContent({ message }: MessageContentProps) {
       <div className="flex items-center justify-between">
         <PriorityBadge priority={message.priority} />
       </div>
-      <div className="text-sm whitespace-pre-wrap">{message.body}</div>
+      <div className="max-h-[60vh] overflow-y-auto pr-1">
+        <MarkdownContent
+          body={message.body}
+          format={message.bodyFormat}
+          className="text-sm whitespace-pre-wrap [&>*]:mb-2 [&>*:last-child]:mb-0 [&_ul]:ml-4 [&_ul]:list-disc [&_ol]:ml-4 [&_ol]:list-decimal [&_code]:rounded [&_code]:bg-muted [&_code]:px-1 [&_code]:py-0.5 [&_pre]:rounded-md [&_pre]:bg-muted [&_pre]:p-3 [&_pre]:text-xs"
+        />
+      </div>
       <div className="rounded border p-3 text-sm">
         <p className="font-medium">
           {confirmation?.confirmed

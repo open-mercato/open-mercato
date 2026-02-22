@@ -58,6 +58,7 @@ export function MessageDetailPageClient({ id }: { id: string }) {
           isArchived={state.isArchived}
           onReply={() => state.setReplyOpen(true)}
           onForward={() => state.setForwardOpen(true)}
+          onEdit={() => state.setEditOpen(true)}
           onToggleRead={() => {
             void state.requestAndRefresh(
               `/api/messages/${encodeURIComponent(id)}/read`,
@@ -106,6 +107,10 @@ export function MessageDetailPageClient({ id }: { id: string }) {
 
       <MessageDetailComposerDialogs
         id={id}
+        detail={state.detail}
+        attachments={state.attachments}
+        editOpen={state.editOpen}
+        setEditOpen={state.setEditOpen}
         replyOpen={state.replyOpen}
         setReplyOpen={state.setReplyOpen}
         forwardOpen={state.forwardOpen}

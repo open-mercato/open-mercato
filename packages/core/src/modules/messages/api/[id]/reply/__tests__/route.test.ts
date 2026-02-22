@@ -66,6 +66,29 @@ describe('messages /api/messages/[id]/reply', () => {
     )
   })
 
+  it('passes explicit recipients to the reply command', async () => {
+    const response = await POST(
+      new Request('http://localhost', {
+        method: 'POST',
+        body: JSON.stringify({
+          body: 'Hello there',
+          recipients: [{ userId: '11111111-1111-4111-8111-111111111111', type: 'to' }],
+        }),
+      }),
+      { params: { id: 'message-1' } },
+    )
+
+    expect(response.status).toBe(201)
+    expect(commandBus.execute).toHaveBeenCalledWith(
+      'messages.messages.reply',
+      expect.objectContaining({
+        input: expect.objectContaining({
+          recipients: [{ userId: '11111111-1111-4111-8111-111111111111', type: 'to' }],
+        }),
+      }),
+    )
+  })
+
   it('returns 403 when sendViaEmail is requested but email feature is unavailable', async () => {
     canUseMessageEmailFeatureMock.mockResolvedValue(false)
 

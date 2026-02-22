@@ -1,6 +1,6 @@
 import { expect, test } from '@playwright/test';
 import { login } from '@open-mercato/core/modules/core/__integration__/helpers/auth';
-import { composeInternalMessage, deleteMessageIfExists, searchMessages } from './helpers';
+import { composeInternalMessage, deleteMessageIfExists, messageRowBySubject, searchMessages, selectMessageFolder } from './helpers';
 
 /**
  * TC-MSG-001: Compose And Send Internal Message
@@ -22,10 +22,10 @@ test.describe('TC-MSG-001: Compose And Send Internal Message', () => {
 
       await login(page, 'admin');
       await page.goto('/backend/messages');
-      await page.getByRole('button', { name: 'Sent' }).first().click();
+      await selectMessageFolder(page, 'Sent');
       await searchMessages(page, subject);
 
-      await expect(page.getByRole('row', { name: new RegExp(subject, 'i') }).first()).toBeVisible();
+      await expect(messageRowBySubject(page, subject)).toBeVisible();
     } finally {
       await deleteMessageIfExists(request, adminToken, messageId);
     }

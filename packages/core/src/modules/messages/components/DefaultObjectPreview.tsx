@@ -18,34 +18,35 @@ export function DefaultObjectPreview({
   const statusColor = previewData?.statusColor || 'default'
 
   return (
-    <div className="flex items-start gap-3 rounded-md border p-3 bg-muted/30">
-      <FileText className="h-5 w-5 text-muted-foreground mt-0.5 flex-shrink-0" />
+    <div className="flex items-center gap-2 rounded-md px-2 py-1.5">
+      <FileText className="h-4 w-4 text-muted-foreground flex-shrink-0" />
       <div className="flex-1 min-w-0">
-        <div className="flex items-center gap-2 flex-wrap">
-          <span className="font-medium text-sm">{title}</span>
+        <div className="flex items-center gap-1.5 flex-wrap">
+          <span className="truncate font-medium text-sm">{title}</span>
+          {subtitle && (
+            <>
+              <span className="text-muted-foreground text-xs">-</span>
+              <span className="truncate text-xs text-muted-foreground">{subtitle}</span>
+            </>
+          )}
           {actionRequired && (
-            <Badge variant="secondary" className="text-xs">
+            <Badge variant="secondary" className="h-5 text-[11px]">
               {actionLabel || 'Action Required'}
             </Badge>
           )}
           {status && (
             <Badge
               variant={statusColor === 'green' ? 'default' : 'outline'}
-              className="text-xs"
+              className="h-5 text-[11px]"
             >
               {status}
             </Badge>
           )}
         </div>
-        {subtitle && (
-          <p className="text-xs text-muted-foreground mt-1 truncate">
-            {subtitle}
-          </p>
-        )}
         {previewData?.metadata && Object.keys(previewData.metadata).length > 0 && (
-          <div className="mt-2 space-y-1">
+          <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-0.5">
             {Object.entries(previewData.metadata).slice(0, 2).map(([key, value]) => (
-              <div key={key} className="flex items-center gap-1 text-xs text-muted-foreground">
+              <div key={key} className="flex min-w-0 items-center gap-1 text-[11px] text-muted-foreground">
                 <span className="font-medium">{key}:</span>
                 <span className="truncate">{value}</span>
               </div>

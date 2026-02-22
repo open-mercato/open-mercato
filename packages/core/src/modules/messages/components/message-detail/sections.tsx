@@ -9,6 +9,11 @@ import type {
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { MessageComposer } from '@open-mercato/ui/backend/messages'
+import { MarkdownContent } from '@open-mercato/ui/backend/markdown/MarkdownContent'
+import {
+  AttachmentVisualPreview,
+  formatAttachmentFileSize,
+} from '@open-mercato/ui/backend/detail/AttachmentVisualPreview'
 import {
   Dialog,
   DialogContent,
@@ -17,6 +22,20 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@open-mercato/ui/primitives/dialog'
+import {
+  buildAttachmentImageUrl,
+  slugifyAttachmentFileName,
+} from '@open-mercato/core/modules/attachments/lib/imageUrls'
+import {
+  Archive,
+  ArchiveRestore,
+  FilePenLine,
+  Forward,
+  Mail,
+  MailOpen,
+  Reply,
+  Trash2,
+} from 'lucide-react'
 import { MessageRecordObjectPreview } from '../MessageRecordObjectPreview'
 import {
   resolveMessageObjectDetailComponent,
@@ -37,6 +56,7 @@ type HeaderSectionProps = {
   isArchived: boolean
   onReply: () => void
   onForward: () => void
+  onEdit: () => void
   onToggleRead: () => void
   onToggleArchive: () => void
   onDelete: () => void
@@ -56,42 +76,65 @@ export function MessageDetailHeaderSection(props: HeaderSectionProps) {
       </div>
 
       <div className="flex flex-wrap gap-2">
-        {props.detail.typeDefinition.allowReply ? (
+        {props.detail.isDraft && props.detail.canEditDraft ? (
+          <Button type="button" variant="outline" onClick={props.onEdit}>
+            <FilePenLine className="mr-1.5 h-4 w-4" aria-hidden />
+            {t('messages.actions.edit', 'Edit')}
+          </Button>
+        ) : null}
+        {!props.detail.isDraft && props.detail.typeDefinition.allowReply ? (
           <Button type="button" variant="outline" onClick={props.onReply}>
+            <Reply className="mr-1.5 h-4 w-4" aria-hidden />
             {t('messages.reply', 'Reply')}
           </Button>
         ) : null}
-        {props.detail.typeDefinition.allowForward ? (
+        {!props.detail.isDraft && props.detail.typeDefinition.allowForward ? (
           <Button type="button" variant="outline" onClick={props.onForward}>
+            <Forward className="mr-1.5 h-4 w-4" aria-hidden />
             {t('messages.forward', 'Forward')}
           </Button>
         ) : null}
-        <Button
-          type="button"
-          variant="outline"
-          disabled={props.updatingState}
-          onClick={props.onToggleRead}
-        >
-          {props.detail.isRead
-            ? t('messages.actions.markUnread', 'Mark unread')
-            : t('messages.actions.markRead', 'Mark read')}
-        </Button>
-        <Button
-          type="button"
-          variant="outline"
-          disabled={props.updatingState}
-          onClick={props.onToggleArchive}
-        >
-          {props.isArchived
-            ? t('messages.actions.unarchive', 'Unarchive')
-            : t('messages.actions.archive', 'Archive')}
-        </Button>
+        {!props.detail.isDraft ? (
+          <Button
+            type="button"
+            variant="outline"
+            disabled={props.updatingState}
+            onClick={props.onToggleRead}
+          >
+            {props.detail.isRead ? (
+              <Mail className="mr-1.5 h-4 w-4" aria-hidden />
+            ) : (
+              <MailOpen className="mr-1.5 h-4 w-4" aria-hidden />
+            )}
+            {props.detail.isRead
+              ? t('messages.actions.markUnread', 'Mark unread')
+              : t('messages.actions.markRead', 'Mark read')}
+          </Button>
+        ) : null}
+        {!props.detail.isDraft ? (
+          <Button
+            type="button"
+            variant="outline"
+            disabled={props.updatingState}
+            onClick={props.onToggleArchive}
+          >
+            {props.isArchived ? (
+              <ArchiveRestore className="mr-1.5 h-4 w-4" aria-hidden />
+            ) : (
+              <Archive className="mr-1.5 h-4 w-4" aria-hidden />
+            )}
+            {props.isArchived
+              ? t('messages.actions.unarchive', 'Unarchive')
+              : t('messages.actions.archive', 'Archive')}
+          </Button>
+        ) : null}
         <Button
           type="button"
           variant="outline"
           disabled={props.updatingState}
           onClick={props.onDelete}
         >
+          <Trash2 className="mr-1.5 h-4 w-4" aria-hidden />
           {t('messages.actions.delete', 'Delete')}
         </Button>
       </div>
@@ -116,7 +159,11 @@ export function MessageDetailBodySection(props: BodySectionProps) {
 
   return (
     <div className="rounded border bg-muted/30 p-3 text-sm whitespace-pre-wrap">
-      {props.detail.body}
+      <MarkdownContent
+        body={props.detail.body}
+        format={props.detail.bodyFormat}
+        className="text-sm whitespace-pre-wrap [&>*]:mb-2 [&>*:last-child]:mb-0 [&_ul]:ml-4 [&_ul]:list-disc [&_ol]:ml-4 [&_ol]:list-decimal [&_code]:rounded [&_code]:bg-muted [&_code]:px-1 [&_code]:py-0.5 [&_pre]:rounded-md [&_pre]:bg-muted [&_pre]:p-3 [&_pre]:text-xs"
+      />
     </div>
   )
 }
@@ -130,13 +177,6 @@ export function MessageDetailMetaSection({ detail }: { detail: MessageDetail }) 
         <div className="space-y-1 rounded border p-3 text-sm">
           <p className="font-medium">{t('messages.externalEmail', 'External email')}</p>
           <p>{detail.externalEmail}</p>
-        </div>
-      ) : null}
-      {detail.sourceEntityType || detail.sourceEntityId ? (
-        <div className="space-y-1 rounded border p-3 text-sm">
-          <p className="font-medium">{t('messages.detail.source', 'Source')}</p>
-          <p>{detail.sourceEntityType || '—'}</p>
-          <p className="text-xs text-muted-foreground">{detail.sourceEntityId || '—'}</p>
         </div>
       ) : null}
     </div>
@@ -327,10 +367,31 @@ export function MessageDetailAttachmentsSection(props: AttachmentsSectionProps) 
             href={attachment.url}
             target="_blank"
             rel="noreferrer"
-            className="flex items-center justify-between rounded border px-3 py-2 text-sm hover:bg-muted"
+            className="flex items-center gap-3 rounded border px-3 py-2 text-sm hover:bg-muted"
           >
-            <span className="truncate">{attachment.fileName}</span>
-            <span className="text-xs text-muted-foreground">{Math.round(attachment.fileSize / 1024)} KB</span>
+            <AttachmentVisualPreview
+              fileName={attachment.fileName}
+              mimeType={attachment.mimeType}
+              thumbnailUrl={
+                attachment.mimeType?.toLowerCase().startsWith('image/')
+                  ? buildAttachmentImageUrl(attachment.id, {
+                    width: 120,
+                    height: 120,
+                    slug: slugifyAttachmentFileName(attachment.fileName),
+                    cropType: 'cover',
+                  })
+                  : null
+              }
+              className="h-11 w-11 shrink-0 overflow-hidden rounded"
+              iconClassName="mb-0 h-4 w-4"
+              labelClassName="text-[10px]"
+            />
+            <div className="min-w-0 flex-1">
+              <p className="truncate">{attachment.fileName}</p>
+              <p className="text-xs text-muted-foreground">
+                {formatAttachmentFileSize(attachment.fileSize)}
+              </p>
+            </div>
           </a>
         ))}
       </div>
@@ -352,7 +413,13 @@ export function MessageDetailThreadSection({ detail }: { detail: MessageDetail }
             <p className="text-xs text-muted-foreground">
               {(threadItem.senderName || threadItem.senderEmail || threadItem.senderUserId)} • {formatDateTime(threadItem.sentAt)}
             </p>
-            <p className="mt-2 whitespace-pre-wrap text-sm">{threadItem.body}</p>
+            <div className="mt-2 max-h-[60vh] overflow-y-auto pr-1">
+              <MarkdownContent
+                body={threadItem.body}
+                format={threadItem.bodyFormat ?? 'text'}
+                className="text-sm whitespace-pre-wrap [&>*]:mb-2 [&>*:last-child]:mb-0 [&_ul]:ml-4 [&_ul]:list-disc [&_ol]:ml-4 [&_ol]:list-decimal [&_code]:rounded [&_code]:bg-muted [&_code]:px-1 [&_code]:py-0.5 [&_pre]:rounded-md [&_pre]:bg-muted [&_pre]:p-3 [&_pre]:text-xs"
+              />
+            </div>
 
             {/* Show attached objects in thread messages */}
             {(threadItem.objects ?? []).length > 0 && (
@@ -390,6 +457,10 @@ export function MessageDetailThreadSection({ detail }: { detail: MessageDetail }
 
 type ComposerDialogsProps = {
   id: string
+  detail: MessageDetail
+  attachments: MessageAttachment[] | undefined
+  editOpen: boolean
+  setEditOpen: (value: boolean) => void
   replyOpen: boolean
   setReplyOpen: (value: boolean) => void
   forwardOpen: boolean
@@ -401,6 +472,31 @@ type ComposerDialogsProps = {
 export function MessageDetailComposerDialogs(props: ComposerDialogsProps) {
   return (
     <>
+      <MessageComposer
+        variant="compose"
+        messageId={props.id}
+        open={props.editOpen && props.detail.isDraft && props.detail.canEditDraft}
+        onOpenChange={props.setEditOpen}
+        defaultValues={{
+          type: props.detail.type,
+          recipients: props.detail.recipients.map((recipient) => recipient.userId),
+          subject: props.detail.subject,
+          body: props.detail.body,
+          bodyFormat: props.detail.bodyFormat,
+          priority: props.detail.priority as 'low' | 'normal' | 'high' | 'urgent',
+          visibility: props.detail.visibility ?? 'internal',
+          sourceEntityType: props.detail.sourceEntityType ?? null,
+          sourceEntityId: props.detail.sourceEntityId ?? null,
+          externalEmail: props.detail.externalEmail ?? null,
+          externalName: props.detail.externalName ?? null,
+          attachmentIds: props.attachments?.map((attachment) => attachment.id) ?? [],
+        }}
+        onSuccess={() => {
+          props.setEditOpen(false)
+          void props.onRefresh()
+        }}
+      />
+
       <MessageComposer
         variant="reply"
         messageId={props.id}

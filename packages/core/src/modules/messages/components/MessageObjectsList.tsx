@@ -44,7 +44,14 @@ export function MessageObjectsList({ objects, compact = false, maxItems }: Messa
         }
 
         return (
-          <div key={obj.id} className={compact ? 'scale-95 origin-left' : ''}>
+          <div
+            key={obj.id}
+            className={
+              compact
+                ? 'rounded-md bg-muted/20 p-1'
+                : 'rounded-md'
+            }
+          >
             <ComponentToUse {...props} />
           </div>
         )
