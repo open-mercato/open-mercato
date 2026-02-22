@@ -78,15 +78,27 @@ test.describe('TC-WF-001: Event Pattern Autocomplete', () => {
       const eventId = await suggestionDescription.textContent()
       expect(eventId).toMatch(/^customers\..+/)
 
-      // --- Selection: clicking a suggestion sets the input to its label ---
-      await customerSuggestion.click()
-      // The displayed value is the human-readable label, not the raw ID
+      // --- Selection: use keyboard navigation to avoid the onBlur 200ms race condition.
+      // Mouse click can trigger onBlur before React re-renders from the click handler,
+      // causing confirmSelection() to fire with the stale typed value 'customers'.
+      // ArrowDown + Enter selects directly from the keydown handler with no blur involved. ---
+      await patternInput.press('ArrowDown')
+      await patternInput.press('Enter')
+
+      // Dropdown should close and input should show the human-readable label, not the raw event ID
+      await expect(customerSuggestion).not.toBeVisible()
       await expect(patternInput).not.toHaveValue('')
       await expect(patternInput).not.toHaveValue('customers')
 
       // --- Submit the trigger with the selected event ---
       await dialog.getByLabel('Name').fill(`QA Trigger ${timestamp}`)
-      await dialog.getByRole('button', { name: 'Create' }).click()
+      const [createResponse] = await Promise.all([
+        page.waitForResponse(
+          (r) => r.url().includes('/api/workflows/triggers') && r.request().method() === 'POST'
+        ),
+        dialog.getByRole('button', { name: 'Create' }).click(),
+      ])
+      expect(createResponse.status()).toBe(201)
       await expect(dialog).toBeHidden()
 
       // The created trigger should appear in the list with the correct event ID
