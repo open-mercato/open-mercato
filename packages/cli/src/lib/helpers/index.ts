@@ -37,6 +37,3 @@ export {
   type LogLevel,
   type LoggerOptions,
 } from './logger.js'
-
-// Re-export from shared if available
-export { createProgressBar } from '@open-mercato/shared/lib/cli/progress.js'
