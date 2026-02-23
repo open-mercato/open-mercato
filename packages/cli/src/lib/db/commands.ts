@@ -44,6 +44,10 @@ function getClientUrl(): string {
   return url
 }
 
+function getSchema(): string | undefined {
+  return process.env.DB_SCHEMA || undefined
+}
+
 function sortModules(mods: ModuleEntry[]): ModuleEntry[] {
   // Sort modules alphabetically since they are now isomorphic
   return mods.slice().sort((a, b) => a.id.localeCompare(b.id))
@@ -173,6 +177,7 @@ export async function dbGenerate(resolver: PackageResolver, options: DbOptions =
     const orm = await MikroORM.init<PostgreSqlDriver>({
       driver: PostgreSqlDriver,
       clientUrl: getClientUrl(),
+      schema: getSchema(),
       loggerFactory: () => createMinimalLogger(),
       dynamicImportProvider,
       entities,
@@ -259,6 +264,7 @@ export async function dbMigrate(resolver: PackageResolver, options: DbOptions = 
     const orm = await MikroORM.init<PostgreSqlDriver>({
       driver: PostgreSqlDriver,
       clientUrl: getClientUrl(),
+      schema: getSchema(),
       loggerFactory: () => createMinimalLogger(),
       dynamicImportProvider,
       entities: entities.length ? entities : [],
@@ -385,6 +391,7 @@ export async function dbGreenfield(resolver: PackageResolver, options: Greenfiel
 
   // Drop per-module MikroORM migration tables to ensure clean slate
   console.log('Dropping per-module migration tables...')
+  const targetSchema = getSchema() || 'public'
   try {
     const { Client } = await import('pg')
     const client = new Client({ connectionString: getClientUrl(), ssl: getSslConfig() })
@@ -396,8 +403,8 @@ export async function dbGreenfield(resolver: PackageResolver, options: Greenfiel
         const sanitizedModId = sanitizeModuleId(modId)
         const tableName = `mikro_orm_migrations_${sanitizedModId}`
         validateTableName(tableName)
-        await client.query(`DROP TABLE IF EXISTS "${tableName}"`)
-        console.log(`   ${modId}: dropped table ${tableName}`)
+        await client.query(`DROP TABLE IF EXISTS "${targetSchema}"."${tableName}"`)
+        console.log(`   ${modId}: dropped table ${targetSchema}.${tableName}`)
       }
       await client.query('COMMIT')
     } catch (e) {
@@ -414,20 +421,20 @@ export async function dbGreenfield(resolver: PackageResolver, options: Greenfiel
   }
 
   // Drop all existing user tables to ensure fresh CREATE-only migrations
-  console.log('Dropping ALL public tables for true greenfield...')
+  console.log(`Dropping ALL tables in schema '${targetSchema}' for true greenfield...`)
   try {
     const { Client } = await import('pg')
     const client = new Client({ connectionString: getClientUrl(), ssl: getSslConfig() })
     await client.connect()
     try {
-      const res = await client.query(`SELECT tablename FROM pg_tables WHERE schemaname = 'public'`)
+      const res = await client.query(`SELECT tablename FROM pg_tables WHERE schemaname = $1`, [targetSchema])
       const tables: string[] = (res.rows || []).map((r: any) => String(r.tablename))
       if (tables.length) {
         await client.query('BEGIN')
         try {
           await client.query("SET session_replication_role = 'replica'")
           for (const t of tables) {
-            await client.query(`DROP TABLE IF EXISTS "${t}" CASCADE`)
+            await client.query(`DROP TABLE IF EXISTS "${targetSchema}"."${t}" CASCADE`)
           }
           await client.query("SET session_replication_role = 'origin'")
           await client.query('COMMIT')
@@ -445,7 +452,7 @@ export async function dbGreenfield(resolver: PackageResolver, options: Greenfiel
       } catch {}
     }
   } catch (e) {
-    console.error('Failed to drop public tables:', (e as any)?.message || e)
+    console.error(`Failed to drop tables in schema '${targetSchema}':`, (e as any)?.message || e)
     throw e
   }
 

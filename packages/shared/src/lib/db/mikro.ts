@@ -30,6 +30,7 @@ export async function getOrm() {
   const entities = getOrmEntities()
   const clientUrl = process.env.DATABASE_URL
   if (!clientUrl) throw new Error('DATABASE_URL is not set')
+  const schema = process.env.DB_SCHEMA || undefined
   
   // Parse connection pool settings from environment
   const poolMin = parseInt(process.env.DB_POOL_MIN || '2')
@@ -58,6 +59,7 @@ export async function getOrm() {
   ormInstance = await MikroORM.init<PostgreSqlDriver>({
     driver: PostgreSqlDriver,
     clientUrl,
+    schema,
     entities,
     debug: false,
     // Connection pooling configuration
