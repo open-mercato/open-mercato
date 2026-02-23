@@ -23,6 +23,10 @@ import {
   defaultOkResponseSchema,
 } from "../openapi";
 import { toUnitLookupKey } from "../../lib/unitCodes";
+import {
+  findWithDecryption,
+  findOneWithDecryption,
+} from "@open-mercato/shared/lib/encryption/find";
 
 const rawBodySchema = z.object({}).passthrough();
 
@@ -76,7 +80,8 @@ async function resolveNormalizedQuantityForFilter(params: {
   if (!params.organizationId || !params.tenantId) return quantity;
   let targetProductId = params.productId;
   if (!targetProductId && params.variantId) {
-    const variant = await params.em.findOne(
+    const variant = await findOneWithDecryption(
+      params.em,
       CatalogProductVariant,
       {
         id: params.variantId,
@@ -94,7 +99,8 @@ async function resolveNormalizedQuantityForFilter(params: {
     }
   }
   if (!targetProductId) return quantity;
-  const product = await params.em.findOne(
+  const product = await findOneWithDecryption(
+    params.em,
     CatalogProduct,
     {
       id: targetProductId,
@@ -107,7 +113,8 @@ async function resolveNormalizedQuantityForFilter(params: {
   if (!product) return quantity;
   const baseUnitKey = toUnitLookupKey(product.defaultUnit);
   if (!baseUnitKey || baseUnitKey === quantityUnitKey) return quantity;
-  const conversions = await params.em.find(
+  const conversions = await findWithDecryption(
+    params.em,
     CatalogProductUnitConversion,
     {
       product: product.id,
@@ -161,6 +168,8 @@ export async function buildPriceFilters(
   return filters;
 }
 
+let cachedNormalizedQuantity: number | null = null;
+
 const crud = makeCrudRoute({
   metadata: routeMetadata,
   orm: {
@@ -210,6 +219,7 @@ const crud = makeCrudRoute({
       updatedAt: FP.updated_at,
     },
     buildFilters: async (query, ctx) => {
+      cachedNormalizedQuantity = null;
       const filters = await buildPriceFilters(query);
       const tenantId = ctx.auth?.tenantId ?? null;
       const organizationId =
@@ -241,6 +251,7 @@ const crud = makeCrudRoute({
           quantity: query.quantity,
           quantityUnit: query.quantityUnit,
         });
+        cachedNormalizedQuantity = normalizedQuantity;
         filters.min_quantity = { $lte: normalizedQuantity };
       }
       return filters;
@@ -265,19 +276,8 @@ const crud = makeCrudRoute({
         query.quantity <= 0
       )
         return;
-      const em = ctx.container.resolve("em") as EntityManager;
-      const tenantId = ctx.auth?.tenantId ?? null;
-      const organizationId =
-        ctx.selectedOrganizationId ?? ctx.auth?.orgId ?? null;
-      const normalizedQuantity = await resolveNormalizedQuantityForFilter({
-        em,
-        organizationId,
-        tenantId,
-        productId: query.productId,
-        variantId: query.variantId,
-        quantity: query.quantity,
-        quantityUnit: query.quantityUnit,
-      });
+      if (cachedNormalizedQuantity === null) return;
+      const normalizedQuantity = cachedNormalizedQuantity;
       payload.items = payload.items.filter((item: unknown) => {
         const record = item as Record<string, unknown>;
         const rawMin = record.min_quantity ?? record.minQuantity;
@@ -294,6 +294,7 @@ const crud = makeCrudRoute({
           (maxQuantity === null || maxQuantity >= normalizedQuantity)
         );
       });
+      payload.total = payload.items.length;
     },
   },
   actions: {

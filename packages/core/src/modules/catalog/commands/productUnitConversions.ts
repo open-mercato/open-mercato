@@ -9,12 +9,17 @@ import {
 import type {
   CrudEventAction,
   CrudEventsConfig,
+  CrudIndexerConfig,
 } from "@open-mercato/shared/lib/crud/types";
 import type { EntityManager } from "@mikro-orm/postgresql";
 import { UniqueConstraintViolationException } from "@mikro-orm/core";
 import { CrudHttpError } from "@open-mercato/shared/lib/crud/errors";
 import { resolveTranslations } from "@open-mercato/shared/lib/i18n/server";
 import type { DataEngine } from "@open-mercato/shared/lib/data/engine";
+import { E } from "#generated/entities.ids.generated";
+import {
+  findOneWithDecryption,
+} from "@open-mercato/shared/lib/encryption/find";
 import { CatalogProduct, CatalogProductUnitConversion } from "../data/entities";
 import {
   productUnitConversionCreateSchema,
@@ -73,6 +78,22 @@ const conversionCrudEvents: CrudEventsConfig<CatalogProductUnitConversion> = {
   }),
 };
 
+const conversionCrudIndexer: CrudIndexerConfig<CatalogProductUnitConversion> = {
+  entityType: E.catalog.catalog_product_unit_conversion,
+  buildUpsertPayload: (ctx) => ({
+    entityType: E.catalog.catalog_product_unit_conversion,
+    recordId: ctx.identifiers.id,
+    tenantId: ctx.identifiers.tenantId,
+    organizationId: ctx.identifiers.organizationId,
+  }),
+  buildDeletePayload: (ctx) => ({
+    entityType: E.catalog.catalog_product_unit_conversion,
+    recordId: ctx.identifiers.id,
+    tenantId: ctx.identifiers.tenantId,
+    organizationId: ctx.identifiers.organizationId,
+  }),
+};
+
 function buildIdentifiers(record: CatalogProductUnitConversion) {
   return {
     id: record.id,
@@ -93,6 +114,7 @@ async function emitConversionCrudChange(opts: {
     entity: conversion,
     identifiers: buildIdentifiers(conversion),
     events: conversionCrudEvents,
+    indexer: conversionCrudIndexer,
   });
 }
 
@@ -108,6 +130,7 @@ async function emitConversionCrudUndoChange(opts: {
     entity: conversion,
     identifiers: buildIdentifiers(conversion),
     events: conversionCrudEvents,
+    indexer: conversionCrudIndexer,
   });
 }
 
@@ -115,7 +138,8 @@ async function loadConversionSnapshot(
   em: EntityManager,
   id: string,
 ): Promise<ProductUnitConversionSnapshot | null> {
-  const record = await em.findOne(
+  const record = await findOneWithDecryption(
+    em,
     CatalogProductUnitConversion,
     { id, deletedAt: null },
     { populate: ["product"] },
@@ -170,7 +194,7 @@ async function ensureDefaultSalesUnitIsNotRemoved(
   if (nextIsActive) return;
   const product =
     typeof record.product === "string"
-      ? await em.findOne(CatalogProduct, {
+      ? await findOneWithDecryption(em, CatalogProduct, {
           id: record.product,
           deletedAt: null,
         })
@@ -298,10 +322,11 @@ const createProductUnitConversionCommand: CommandHandler<
     const after = payload?.after;
     if (!after) return;
     const em = (ctx.container.resolve("em") as EntityManager).fork();
-    const record = await em.findOne(CatalogProductUnitConversion, {
-      id: after.id,
-      deletedAt: null,
-    });
+    const record = await findOneWithDecryption(
+      em,
+      CatalogProductUnitConversion,
+      { id: after.id, deletedAt: null },
+    );
     if (!record) return;
     ensureTenantScope(ctx, record.tenantId);
     ensureOrganizationScope(ctx, record.organizationId);
@@ -334,7 +359,8 @@ const updateProductUnitConversionCommand: CommandHandler<
   async execute(rawInput, ctx) {
     const parsed = productUnitConversionUpdateSchema.parse(rawInput);
     const em = (ctx.container.resolve("em") as EntityManager).fork();
-    const record = await em.findOne(
+    const record = await findOneWithDecryption(
+      em,
       CatalogProductUnitConversion,
       { id: parsed.id, deletedAt: null },
       { populate: ["product"] },
@@ -351,13 +377,22 @@ const updateProductUnitConversionCommand: CommandHandler<
     ensureOrganizationScope(ctx, record.organizationId);
     ensureSameScope(product, record.organizationId, record.tenantId);
 
-    if (parsed.unitCode !== undefined) {
-      const canonicalUnitCode = await resolveCanonicalUnitCode(em, {
-        organizationId: record.organizationId,
-        tenantId: record.tenantId,
-        unitCode: parsed.unitCode,
-      });
-      record.unitCode = canonicalUnitCode;
+    // Resolve all query-dependent values BEFORE applying scalar mutations
+    const resolvedUnitCode =
+      parsed.unitCode !== undefined
+        ? await resolveCanonicalUnitCode(em, {
+            organizationId: record.organizationId,
+            tenantId: record.tenantId,
+            unitCode: parsed.unitCode,
+          })
+        : undefined;
+    if (parsed.isActive !== undefined) {
+      await ensureDefaultSalesUnitIsNotRemoved(em, record, parsed.isActive);
+    }
+
+    // Apply all scalar mutations after queries are complete
+    if (resolvedUnitCode !== undefined) {
+      record.unitCode = resolvedUnitCode;
     }
     if (parsed.toBaseFactor !== undefined) {
       record.toBaseFactor =
@@ -367,7 +402,6 @@ const updateProductUnitConversionCommand: CommandHandler<
       record.sortOrder = parsed.sortOrder;
     }
     if (parsed.isActive !== undefined) {
-      await ensureDefaultSalesUnitIsNotRemoved(em, record, parsed.isActive);
       record.isActive = parsed.isActive;
     }
     if (parsed.metadata !== undefined) {
@@ -432,10 +466,11 @@ const updateProductUnitConversionCommand: CommandHandler<
     const before = payload?.before;
     if (!before) return;
     const em = (ctx.container.resolve("em") as EntityManager).fork();
-    let record = await em.findOne(CatalogProductUnitConversion, {
-      id: before.id,
-      deletedAt: null,
-    });
+    let record = await findOneWithDecryption(
+      em,
+      CatalogProductUnitConversion,
+      { id: before.id, deletedAt: null },
+    );
     if (!record) {
       record = em.create(CatalogProductUnitConversion, {
         id: before.id,
@@ -485,7 +520,8 @@ const deleteProductUnitConversionCommand: CommandHandler<
   async execute(rawInput, ctx) {
     const parsed = productUnitConversionDeleteSchema.parse(rawInput);
     const em = (ctx.container.resolve("em") as EntityManager).fork();
-    const record = await em.findOne(
+    const record = await findOneWithDecryption(
+      em,
       CatalogProductUnitConversion,
       { id: parsed.id, deletedAt: null },
       { populate: ["product"] },
@@ -538,10 +574,11 @@ const deleteProductUnitConversionCommand: CommandHandler<
     const before = payload?.before;
     if (!before) return;
     const em = (ctx.container.resolve("em") as EntityManager).fork();
-    let record = await em.findOne(CatalogProductUnitConversion, {
-      id: before.id,
-      deletedAt: null,
-    });
+    let record = await findOneWithDecryption(
+      em,
+      CatalogProductUnitConversion,
+      { id: before.id, deletedAt: null },
+    );
     if (!record) {
       record = em.create(CatalogProductUnitConversion, {
         id: before.id,
