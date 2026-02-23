@@ -377,5 +377,17 @@
   "upgrades.v035.loading": "Actualizando rol…",
   "upgrades.v035.success": "Rol admin actualizado con acceso a Business Rules.",
   "upgrades.runFailed": "No pudimos ejecutar esta acción de actualización.",
-  "upgrades.loading": "Cargando actualización…"
+  "upgrades.loading": "Cargando actualización…",
+  "ui.datePicker.placeholder": "Seleccionar fecha",
+  "ui.datePicker.todayButton": "Hoy",
+  "ui.datePicker.clearButton": "Limpiar",
+  "ui.dateTimePicker.clearButton": "Limpiar",
+  "ui.dateTimePicker.placeholder": "Seleccionar fecha y hora",
+  "ui.dateTimePicker.timeLabel": "Hora",
+  "ui.dateTimePicker.todayButton": "Hoy",
+  "ui.timePicker.hourLabel": "Hora",
+  "ui.timePicker.minuteLabel": "Minuto",
+  "ui.timePicker.nowButton": "Ahora",
+  "ui.timePicker.clearButton": "Limpiar",
+  "ui.timePicker.placeholder": "Seleccionar hora"
 }

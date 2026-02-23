@@ -37,6 +37,8 @@ Base, reusable UI building blocks:
 | **Notice** | `@open-mercato/ui/primitives/Notice` | Contextual notice/hint with variants (`error`, `info`, `warning`) and optional `compact` mode |
 | **ErrorNotice** | `@open-mercato/ui/primitives/ErrorNotice` | Convenience wrapper around `<Notice variant="error">` with default title/message |
 | **DataLoader** | `@open-mercato/ui/primitives/DataLoader` | Loading state wrapper with spinner and optional skeleton |
+| **Popover** | `@open-mercato/ui/primitives/popover` | Radix popover (Popover, PopoverTrigger, PopoverContent) for dropdowns and overlays |
+| **Calendar** | `@open-mercato/ui/primitives/calendar` | Calendar grid (react-day-picker) for date selection, locale-aware |
 
 ---
 
@@ -83,6 +85,10 @@ Base, reusable UI building blocks:
 | **PhoneNumberField** | `@open-mercato/ui/backend/inputs/PhoneNumberField` | Phone input with formatting | `value`, `onChange`, `checkDuplicate` |
 | **LookupSelect** | `@open-mercato/ui/backend/inputs/LookupSelect` | Async lookup/search select | `value`, `onChange`, `onSearch`, `renderItem` |
 | **SwitchableMarkdownInput** | `@open-mercato/ui/backend/inputs/SwitchableMarkdownInput` | Text/markdown toggle input | `value`, `onChange`, `placeholder` |
+| **DatePicker** | `@open-mercato/ui/backend/inputs/DatePicker` | Date-only picker (popover + calendar), `Date \| null` | `value`, `onChange`, `minDate`, `maxDate`, `closeOnSelect`, `displayFormat` |
+| **DateTimePicker** | `@open-mercato/ui/backend/inputs/DateTimePicker` | Date+time picker (popover + calendar + time spinners), `Date \| null` | `value`, `onChange`, `minDate`, `maxDate`, `minuteStep`, `displayFormat` |
+| **TimePicker** | `@open-mercato/ui/backend/inputs/TimePicker` | Time-only picker (popover + hour:minute spinners), `string \| null` (HH:MM) | `value`, `onChange`, `minuteStep`, `showNowButton` |
+| **TimeInput** | `@open-mercato/ui/backend/inputs/TimeInput` | Inline hour:minute spinners (no popover), for use in availability windows etc. | `value`, `onChange`, `minuteStep`, `hourLabel`, `minuteLabel` |
 
 ### Detail Page Components (`@open-mercato/ui/backend/detail/*`)
 
@@ -375,3 +381,11 @@ const deleted = await deleteCrud('module/items', id)
 6. **Support Cmd/Ctrl+Enter and Escape** - All dialogs should support these keyboard shortcuts
 7. **Use `FormHeader` for page headers** - Edit mode (compact) for CrudForm pages, detail mode (large title + status + Actions dropdown) for view pages. Never build inline header layouts manually.
 8. **Use `FormFooter` for form footers** - Wraps `FormActionButtons` with embedded/dialog awareness. Delete/Cancel/Save are always standalone buttons, never inside a dropdown.
+
+---
+
+## Changelog
+
+| Date | Summary |
+|------|---------|
+| 2026-02-23 | Added Popover, Calendar (primitives); DatePicker, DateTimePicker, TimePicker, TimeInput (inputs). Per [SPEC-034](SPEC-034-2026-02-22-date-pickers.md). |

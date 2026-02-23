@@ -2,6 +2,7 @@
 
 import { apiFetch } from './api'
 import { raiseCrudError, readJsonSafe } from './serverErrors'
+import { createScopedHeaderStack } from './scopedHeaderStack'
 
 export type ApiCallOptions<TReturn> = {
   parse?: (res: Response) => Promise<TReturn | null>
@@ -16,12 +17,38 @@ export type ApiCallResult<TReturn> = {
   cacheStatus: 'hit' | 'miss' | null
 }
 
+const scopedRequestHeaders = createScopedHeaderStack()
+
+function mergeHeaders(base: HeadersInit | undefined, extra: Record<string, string>): HeadersInit {
+  if (!base) return extra
+  if (typeof Headers !== 'undefined' && base instanceof Headers) {
+    const merged = new Headers(base)
+    Object.entries(extra).forEach(([key, value]) => merged.set(key, value))
+    return merged
+  }
+  if (Array.isArray(base)) {
+    return [...base, ...Object.entries(extra)]
+  }
+  return { ...(base as Record<string, string>), ...extra }
+}
+
+export async function withScopedApiRequestHeaders<T>(
+  headers: Record<string, string>,
+  run: () => Promise<T>,
+): Promise<T> {
+  return scopedRequestHeaders.withScopedHeaders(headers, run)
+}
+
 export async function apiCall<TReturn = Record<string, unknown>>(
   input: RequestInfo | URL,
   init?: RequestInit,
   options?: ApiCallOptions<TReturn>,
 ): Promise<ApiCallResult<TReturn>> {
-  const response = await apiFetch(input, init)
+  const scopedHeaders = scopedRequestHeaders.resolveScopedHeaders()
+  const requestInit = Object.keys(scopedHeaders).length > 0
+    ? { ...(init ?? {}), headers: mergeHeaders(init?.headers, scopedHeaders) }
+    : init
+  const response = await apiFetch(input, requestInit)
   const parser = options?.parse
   const fallback = options?.fallback ?? null
   let result: TReturn | null = null

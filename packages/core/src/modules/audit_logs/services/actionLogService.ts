@@ -9,6 +9,7 @@ import {
 } from '@open-mercato/core/modules/audit_logs/data/validators'
 import { TenantDataEncryptionService } from '@open-mercato/shared/lib/encryption/tenantDataEncryptionService'
 import { decryptWithAesGcm } from '@open-mercato/shared/lib/encryption/aes'
+import { toOptionalString } from '@open-mercato/shared/lib/string/coerce'
 
 let validationWarningLogged = false
 let runtimeValidationAvailable: boolean | null = null
@@ -143,8 +144,6 @@ export class ActionLogService {
       }
       return value
     }
-    const toOptionalString = (value: unknown) => (typeof value === 'string' && value.length > 0 ? value : undefined)
-
     const normalizeRecordLike = (value: unknown): ActionLogCreateInput['changes'] => {
       if (value === null) return null
       if (Array.isArray(value)) return value

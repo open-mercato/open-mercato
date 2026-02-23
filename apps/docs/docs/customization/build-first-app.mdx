@@ -32,7 +32,7 @@ Because everything flows through generated metadata, you can safely introduce ne
 
 Every module—core or custom—uses a consistent set of files:
 
-- `index.ts` exports metadata (`id`, `title`, description, version).
+- `index.ts` exports metadata (`name`, `title`, description, version).
 - `acl.ts` exports a `features` array used by RBAC.
 - `di.ts` registers services with the Awilix container.
 - `data/entities.ts` defines MikroORM entities. Optional extensions live beside them in `data/extensions.ts`.

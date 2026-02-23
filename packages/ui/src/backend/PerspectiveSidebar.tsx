@@ -129,7 +129,7 @@ export function PerspectiveSidebar({
       <div className="absolute left-0 top-0 h-full w-full sm:w-[420px] bg-background shadow-xl border-r flex flex-col">
         <div className="flex items-center justify-between p-4 border-b">
           <h2 className="text-base font-semibold">{t('ui.perspectives.title', 'Perspectives')}</h2>
-          <button className="text-sm text-muted-foreground" onClick={() => onOpenChange(false)}>{t('ui.perspectives.close', 'Close')}</button>
+          <Button variant="muted" size="sm" onClick={() => onOpenChange(false)}>{t('ui.perspectives.close', 'Close')}</Button>
         </div>
         <div className="flex-1 overflow-auto divide-y">
           <section className="p-4 space-y-3">

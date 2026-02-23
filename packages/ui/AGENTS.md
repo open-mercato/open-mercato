@@ -8,9 +8,99 @@ This document captures UI usage patterns based on current implementations in the
 - Sales: `packages/core/src/modules/sales/components/documents/SalesDocumentsTable.tsx`, `packages/core/src/modules/sales/components/documents/PaymentsSection.tsx`, `packages/core/src/modules/sales/components/documents/SalesDocumentForm.tsx`
 - Staff (auth users/roles): `packages/core/src/modules/auth/backend/users/page.tsx`, `packages/core/src/modules/auth/backend/users/create/page.tsx`, `packages/core/src/modules/auth/backend/roles/create/page.tsx`
 
+## Button and IconButton Usage
+
+**MUST use `Button` or `IconButton` from `@open-mercato/ui` for every interactive button.** Never use raw `<button>` elements.
+
+### When to Use Which
+
+| Use case | Component | Example |
+|----------|-----------|---------|
+| Button with text label (with or without icon) | `Button` | Save, Cancel, Apply filters |
+| Icon-only button (no visible text) | `IconButton` | Close ✕, Settings ⚙, Trash 🗑 |
+| Button wrapping a `<Link>` | `IconButton asChild` or `Button asChild` | `<IconButton asChild><Link href="...">...</Link></IconButton>` |
+
+### Imports
+
+```typescript
+import { Button } from '@open-mercato/ui/primitives/button'
+import { IconButton } from '@open-mercato/ui/primitives/icon-button'
+```
+
+### MUST Rules
+
+1. **MUST always pass `type="button"` explicitly** on non-submit buttons. Neither `Button` nor `IconButton` sets a default type — HTML defaults to `type="submit"`, which causes accidental form submissions.
+2. **MUST NOT use raw `<button>` elements** anywhere in the codebase. Use `Button` or `IconButton` instead.
+3. **MUST use `IconButton`** (not `Button size="icon"`) for icon-only buttons. `IconButton` has fixed square dimensions optimized for icon-only content.
+4. **MUST add `hover:bg-transparent`** when using `variant="ghost"` for tab-style buttons with underline indicators, to suppress the default hover background.
+5. **MUST add `h-auto`** when using Button/IconButton in compact inline contexts (tag chips, toolbars, inline lists) where the fixed height from size variants would overflow the container.
+
+### Variant Reference
+
+**Button variants**: `default` (primary CTA), `destructive` (danger), `outline` (bordered), `secondary` (subdued), `ghost` (no border/bg), `muted` (dimmed text, ghost-like), `link` (underlined text).
+
+**Button sizes**: `default` (h-9 px-4), `sm` (h-8 px-3), `lg` (h-10 px-6), `icon` (size-9, square).
+
+**IconButton variants**: `outline` (bordered, default), `ghost` (no border/bg).
+
+**IconButton sizes**: `xs` (size-6 / 24px), `sm` (size-7 / 28px), `default` (size-8 / 32px), `lg` (size-9 / 36px).
+
+### Common Patterns
+
+```tsx
+// Sidebar / nav toggle
+<IconButton variant="outline" size="sm" type="button" onClick={toggle} aria-label="Toggle sidebar">
+  <PanelLeft className="size-4" />
+</IconButton>
+
+// Close / dismiss button
+<IconButton variant="ghost" size="sm" type="button" onClick={onClose} aria-label="Close">
+  <X className="size-4" />
+</IconButton>
+
+// Tab navigation (underline style)
+<Button
+  type="button"
+  variant="ghost"
+  size="sm"
+  className={cn(
+    'h-auto rounded-none border-b-2 px-0 py-1 hover:bg-transparent',
+    isActive ? 'border-primary text-foreground' : 'border-transparent text-muted-foreground'
+  )}
+>
+  {label}
+</Button>
+
+// Dropdown menu item
+<Button variant="ghost" size="sm" type="button" className="w-full justify-start" role="menuitem">
+  <Icon className="size-4" /> {label}
+</Button>
+
+// Compact toolbar button (rich text editor)
+<Button variant="ghost" size="sm" type="button" className="h-auto px-2 py-0.5 text-xs">
+  Bold
+</Button>
+
+// Collapsible section header
+<Button variant="muted" type="button" className="w-full justify-between" onClick={toggle}>
+  <span>{sectionLabel}</span>
+  <ChevronDown className={cn('size-4 transition-transform', open && 'rotate-180')} />
+</Button>
+
+// Link-styled icon button (wrapping Next.js Link)
+<IconButton asChild variant="ghost" size="sm">
+  <Link href="/backend/settings">
+    <Settings className="size-4" />
+  </Link>
+</IconButton>
+```
+
 ## CrudForm Guidelines
 
 - Use `CrudForm` as the default for create/edit flows and for dialog forms.
+- If a backend page cannot use `CrudForm`, use `useGuardedMutation` from `@open-mercato/ui/backend/injection/useGuardedMutation` for every write operation (`POST`/`PUT`/`PATCH`/`DELETE`).
+- Always call writes through `runMutation({ operation, context, mutationPayload })` so global injection modules (for example record-lock conflict handling) can run `onBeforeSave`/`onAfterSave`, apply scoped request headers, and receive mutation errors consistently.
+- Use manual `useInjectionSpotEvents(GLOBAL_MUTATION_INJECTION_SPOT_ID)` wiring only when you need behavior that `useGuardedMutation` does not support.
 - Keep `CrudForm` implementations reusable: extract shared field/group builders and submit handlers into module-level helpers when multiple pages or dialogs need the same shape.
 - Drive validation with a Zod schema and surface field errors via `createCrudFormError`.
 - Keep `fields` and `groups` in memoized helpers (see customers person form config).

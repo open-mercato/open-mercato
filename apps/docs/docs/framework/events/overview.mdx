@@ -151,3 +151,45 @@ The [CRUD factory](../api/crud-factory) emits standard events for module entitie
 - `<module>.<entity>.deleted`
 
 Use these to react to lifecycle changes without tightly coupling modules. Mark them persistent to support offline replay.
+
+## Application Lifecycle Events
+
+The app runtime also emits framework-level lifecycle events that modules can subscribe to:
+
+- `application.bootstrap.started`
+- `application.bootstrap.completed`
+- `application.bootstrap.failed`
+- `application.request.received`
+- `application.request.auth_resolved`
+- `application.request.authorization_denied`
+- `application.request.rate_limited`
+- `application.request.not_found`
+- `application.request.completed`
+- `application.request.failed`
+
+Typical payload fields:
+
+- `requestId`: Correlation ID for a single request flow.
+- `method`: HTTP method.
+- `pathname`: Requested API pathname.
+- `status`: HTTP status when available.
+- `userId`: Current authenticated user ID (or `null`).
+- `tenantId`: Current tenant ID (or `null`).
+- `durationMs`: Processing time in milliseconds.
+- `errorMessage`: Failure message on error paths.
+- `source`: Bootstrap event source (for example `apps/mercato`).
+- `emittedAt`: ISO timestamp for bootstrap emissions.
+
+Example subscriber:
+
+```ts
+export const metadata = {
+  event: 'application.request.failed',
+  persistent: false,
+}
+
+export default async function onRequestFailed(payload: any, ctx: { resolve: <T = any>(name: string) => T }) {
+  const logger = ctx.resolve<any>('logger')
+  logger?.error?.('Request failed', payload)
+}
+```
