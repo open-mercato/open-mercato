@@ -23,24 +23,12 @@ export class OpenMercato implements INodeType {
     requestDefaults: {
       baseURL: '={{$credentials.baseUrl}}',
       headers: {
+        Authorization: '={{`ApiKey ${$credentials.apiKey.trim()}`}}',
         Accept: 'application/json',
         'Content-Type': 'application/json'
       }
     },
     properties: [
-      {
-        displayName: 'Auth Header (auto)',
-        name: 'authHeaderAuto',
-        type: 'hidden',
-        default: '={{`ApiKey ${$credentials.apiKey.trim()}`}}',
-        routing: {
-          request: {
-            headers: {
-              Authorization: '={{$value}}'
-            }
-          }
-        }
-      },
       {
         displayName: 'Method',
         name: 'method',
