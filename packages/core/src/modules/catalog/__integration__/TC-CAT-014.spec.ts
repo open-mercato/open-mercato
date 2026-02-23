@@ -56,9 +56,10 @@ test.describe("TC-CAT-014: Legacy unit alias compatibility", () => {
       };
       const row = Array.isArray(listBody.items) ? listBody.items[0] : null;
       expect(row, "Expected created product in list response").toBeTruthy();
-      const defaultUnit = (row as Record<string, unknown> | null)?.default_unit;
-      const defaultSalesUnit = (row as Record<string, unknown> | null)
-        ?.default_sales_unit;
+      const defaultUnit = (row as Record<string, unknown> | null)?.default_unit
+        ?? (row as Record<string, unknown> | null)?.defaultUnit;
+      const defaultSalesUnit = (row as Record<string, unknown> | null)?.default_sales_unit
+        ?? (row as Record<string, unknown> | null)?.defaultSalesUnit;
       expect(defaultUnit, "Legacy default unit should be canonicalized").toBe(
         "pc",
       );

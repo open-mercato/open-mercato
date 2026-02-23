@@ -224,7 +224,7 @@ test.describe('TC-SALES-020b: Document History Widget', () => {
       await expect(filterButton).toBeVisible({ timeout: WIDGET_LOAD_TIMEOUT });
 
       // Wait for at least one timeline entry to be visible
-      await expect(page.locator('.relative.flex.gap-3').first()).toBeVisible({ timeout: WIDGET_LOAD_TIMEOUT });
+      await expect(page.locator('[data-testid="timeline-entry"]').first()).toBeVisible({ timeout: WIDGET_LOAD_TIMEOUT });
       await expect(page.getByText(/No history entries yet/i)).toHaveCount(0);
 
       // --- Verify all 4 filter options are present ---
@@ -250,7 +250,7 @@ test.describe('TC-SALES-020b: Document History Widget', () => {
           `"${label}" filter shows empty state — expected at least one entry`,
         ).toHaveCount(0, { timeout: WIDGET_LOAD_TIMEOUT });
         await expect(
-          page.locator('.relative.flex.gap-3').first(),
+          page.locator('[data-testid="timeline-entry"]').first(),
           `"${label}" filter shows no timeline items`,
         ).toBeVisible({ timeout: WIDGET_LOAD_TIMEOUT });
       };

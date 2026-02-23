@@ -87,12 +87,13 @@ test.describe("TC-SALES-021: Legacy qty alias in quote lines", () => {
       };
       const first = Array.isArray(linesBody.items) ? linesBody.items[0] : null;
       expect(first, "Expected one quote line").toBeTruthy();
-      const quantityUnit = (first as Record<string, unknown> | null)
-        ?.quantity_unit;
-      const normalizedUnit = (first as Record<string, unknown> | null)
-        ?.normalized_unit;
+      const quantityUnit = (first as Record<string, unknown> | null)?.quantity_unit
+        ?? (first as Record<string, unknown> | null)?.quantityUnit;
+      const normalizedUnit = (first as Record<string, unknown> | null)?.normalized_unit
+        ?? (first as Record<string, unknown> | null)?.normalizedUnit;
       const normalizedQuantity = Number(
-        ((first as Record<string, unknown> | null)?.normalized_quantity as
+        (((first as Record<string, unknown> | null)?.normalized_quantity
+          ?? (first as Record<string, unknown> | null)?.normalizedQuantity) as
           | string
           | number
           | undefined) ?? Number.NaN,
