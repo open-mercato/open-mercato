@@ -83,15 +83,12 @@ export async function generateModuleRegistry(options: ModuleRegistryOptions): Pr
   const searchChecksumFile = path.join(outputDir, 'search.generated.checksum')
   const notificationsOutFile = path.join(outputDir, 'notifications.generated.ts')
   const notificationsChecksumFile = path.join(outputDir, 'notifications.generated.checksum')
-<<<<<<< feat/messages-module
   const messageTypesOutFile = path.join(outputDir, 'message-types.generated.ts')
   const messageTypesChecksumFile = path.join(outputDir, 'message-types.generated.checksum')
   const messageObjectsOutFile = path.join(outputDir, 'message-objects.generated.ts')
   const messageObjectsChecksumFile = path.join(outputDir, 'message-objects.generated.checksum')
-=======
   const notificationsClientOutFile = path.join(outputDir, 'notifications.client.generated.ts')
   const notificationsClientChecksumFile = path.join(outputDir, 'notifications.client.generated.checksum')
->>>>>>> develop
   const aiToolsOutFile = path.join(outputDir, 'ai-tools.generated.ts')
   const aiToolsChecksumFile = path.join(outputDir, 'ai-tools.generated.checksum')
   const eventsOutFile = path.join(outputDir, 'events.generated.ts')
@@ -114,15 +111,12 @@ export async function generateModuleRegistry(options: ModuleRegistryOptions): Pr
   const searchImports: string[] = []
   const notificationTypes: string[] = []
   const notificationImports: string[] = []
-<<<<<<< feat/messages-module
   const messageTypeEntries: string[] = []
   const messageTypeImports: string[] = []
   const messageObjectTypeEntries: string[] = []
   const messageObjectTypeImports: string[] = []
-=======
   const notificationClientTypes: string[] = []
   const notificationClientImports: string[] = []
->>>>>>> develop
   const aiToolsConfigs: string[] = []
   const aiToolsImports: string[] = []
   const eventsConfigs: string[] = []
@@ -352,10 +346,9 @@ export async function generateModuleRegistry(options: ModuleRegistryOptions): Pr
       }
     }
 
-<<<<<<< feat/messages-module
-    // Message types: module root message-types.ts
-    {
-      const appFile = path.join(roots.appBase, 'message-types.ts')
+  // Message types: module root message-types.ts
+  {
+    const appFile = path.join(roots.appBase, 'message-types.ts')
       const pkgFile = path.join(roots.pkgBase, 'message-types.ts')
       const hasApp = fs.existsSync(appFile)
       const hasPkg = fs.existsSync(pkgFile)
@@ -366,6 +359,23 @@ export async function generateModuleRegistry(options: ModuleRegistryOptions): Pr
         messageTypeImports.push(importStmt)
         messageTypeEntries.push(
           `{ moduleId: '${modId}', types: ((${importName}.default ?? (${importName} as any).messageTypes ?? (${importName} as any).types ?? []) as MessageTypeDefinition[]) }`
+        )
+      }
+    }
+
+    // Notification client renderers: module root notifications.client.ts
+    {
+      const appFile = path.join(roots.appBase, 'notifications.client.ts')
+      const pkgFile = path.join(roots.pkgBase, 'notifications.client.ts')
+      const hasApp = fs.existsSync(appFile)
+      const hasPkg = fs.existsSync(pkgFile)
+      if (hasApp || hasPkg) {
+        const importName = `NOTIF_CLIENT_${toVar(modId)}_${importId++}`
+        const importPath = hasApp ? `${appImportBase}/notifications.client` : `${imps.pkgBase}/notifications.client`
+        const importStmt = `import * as ${importName} from '${importPath}'`
+        notificationClientImports.push(importStmt)
+        notificationClientTypes.push(
+          `{ moduleId: '${modId}', types: (${importName}.default ?? []) }`
         )
       }
     }
@@ -383,21 +393,6 @@ export async function generateModuleRegistry(options: ModuleRegistryOptions): Pr
         messageObjectTypeImports.push(importStmt)
         messageObjectTypeEntries.push(
           `{ moduleId: '${modId}', types: ((${importName}.default ?? (${importName} as any).messageObjectTypes ?? (${importName} as any).objectTypes ?? (${importName} as any).types ?? []) as MessageObjectTypeDefinition[]) }`
-=======
-    // Notification client renderers: module root notifications.client.ts
-    {
-      const appFile = path.join(roots.appBase, 'notifications.client.ts')
-      const pkgFile = path.join(roots.pkgBase, 'notifications.client.ts')
-      const hasApp = fs.existsSync(appFile)
-      const hasPkg = fs.existsSync(pkgFile)
-      if (hasApp || hasPkg) {
-        const importName = `NOTIF_CLIENT_${toVar(modId)}_${importId++}`
-        const importPath = hasApp ? `${appImportBase}/notifications.client` : `${imps.pkgBase}/notifications.client`
-        const importStmt = `import * as ${importName} from '${importPath}'`
-        notificationClientImports.push(importStmt)
-        notificationClientTypes.push(
-          `{ moduleId: '${modId}', types: (${importName}.default ?? []) }`
->>>>>>> develop
         )
       }
     }
@@ -1310,7 +1305,6 @@ export const allAiTools = aiToolConfigEntries.flatMap(e => e.tools)
   }
   if (!quiet) logGenerationResult(path.relative(process.cwd(), notificationsOutFile), shouldWriteNotifications)
 
-<<<<<<< feat/messages-module
   const messageTypesChecksum = { content: calculateChecksum(messageTypesOutput), structure: structureChecksum }
   const existingMessageTypesChecksum = readChecksumRecord(messageTypesChecksumFile)
   const shouldWriteMessageTypes =
@@ -1340,7 +1334,7 @@ export const allAiTools = aiToolConfigEntries.flatMap(e => e.tools)
     result.filesUnchanged.push(messageObjectsOutFile)
   }
   if (!quiet) logGenerationResult(path.relative(process.cwd(), messageObjectsOutFile), shouldWriteMessageObjects)
-=======
+
   const notificationsClientChecksum = { content: calculateChecksum(notificationsClientOutput), structure: structureChecksum }
   const existingNotificationsClientChecksum = readChecksumRecord(notificationsClientChecksumFile)
   const shouldWriteNotificationsClient =
@@ -1355,7 +1349,6 @@ export const allAiTools = aiToolConfigEntries.flatMap(e => e.tools)
     result.filesUnchanged.push(notificationsClientOutFile)
   }
   if (!quiet) logGenerationResult(path.relative(process.cwd(), notificationsClientOutFile), shouldWriteNotificationsClient)
->>>>>>> develop
 
   const eventsChecksum = { content: calculateChecksum(eventsOutput), structure: structureChecksum }
   const existingEventsChecksum = readChecksumRecord(eventsChecksumFile)
