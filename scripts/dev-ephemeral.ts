@@ -81,6 +81,10 @@ async function ensureEnvFile(): Promise<void> {
   console.log('[dev:ephemeral] Created apps/mercato/.env from apps/mercato/.env.example.')
 }
 
+function getRedactedDatabaseUrl(handle: EphemeralPostgresHandle): string {
+  return `postgres://${postgresUser}:***@127.0.0.1:${handle.postgresPort}/${handle.databaseName}`
+}
+
 function runCommand(command: string, args: string[], options: { env?: NodeJS.ProcessEnv } = {}): Promise<number> {
   return new Promise((resolve, reject) => {
     const child = spawn(command, args, {
@@ -446,7 +450,7 @@ async function startDevServer(port: number, postgres: EphemeralPostgresHandle): 
   await registerCurrentDevInstance(instanceState)
   console.log(`[dev:ephemeral] Ephemeral URL: ${baseUrl}`)
   console.log(`[dev:ephemeral] Backend URL: ${backendUrl}`)
-  console.log(`[dev:ephemeral] Ephemeral PostgreSQL URL: ${postgres.databaseUrl}`)
+  console.log(`[dev:ephemeral] Ephemeral PostgreSQL URL: ${getRedactedDatabaseUrl(postgres)}`)
 
   const serverReady = await waitForDevServerReady(baseUrl)
   if (serverReady) {
