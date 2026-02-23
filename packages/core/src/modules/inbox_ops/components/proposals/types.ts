@@ -1,4 +1,4 @@
-import type { ThreadMessage, ExtractedParticipant, InboxActionType, InboxDiscrepancyType } from '../../../../data/entities'
+import type { ThreadMessage, ExtractedParticipant, InboxActionType, InboxDiscrepancyType } from '../../data/entities'
 
 export type ProposalDetail = {
   id: string

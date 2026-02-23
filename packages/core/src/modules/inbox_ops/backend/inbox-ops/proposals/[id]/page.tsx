@@ -23,9 +23,9 @@ import {
   Languages,
 } from 'lucide-react'
 import type { ProposalTranslationEntry } from '../../../../data/entities'
-import type { ProposalDetail, ActionDetail, DiscrepancyDetail, EmailDetail } from './types'
-import { ActionCard, ConfidenceBadge, useActionTypeLabels } from './ActionCard'
-import { EditActionDialog } from './EditActionDialog'
+import type { ProposalDetail, ActionDetail, DiscrepancyDetail, EmailDetail } from '../../../../components/proposals/types'
+import { ActionCard, ConfidenceBadge, useActionTypeLabels } from '../../../../components/proposals/ActionCard'
+import { EditActionDialog } from '../../../../components/proposals/EditActionDialog'
 
 function EmailThreadViewer({ email }: { email: EmailDetail | null }) {
   const t = useT()
