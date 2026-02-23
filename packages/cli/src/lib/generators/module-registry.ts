@@ -196,11 +196,10 @@ async function processApiRoutes(options: {
     const coreMethodDir = path.join(apiPkg, method.toLowerCase())
     const appMethodDir = path.join(apiApp, method.toLowerCase())
     const methodDir = fs.existsSync(appMethodDir) ? appMethodDir : coreMethodDir
-    const methodIsApp = fs.existsSync(appMethodDir)
     if (!fs.existsSync(methodDir)) continue
     const methodRoots: ModuleRoots = { appBase: methodDir, pkgBase: methodDir }
     const methodConfig = {
-      folder: '.',
+      folder: '',
       include: (name: string) => name.endsWith('.ts') && !/\.(test|spec)\.ts$/.test(name),
     }
     const apiFiles = scanModuleDir(methodRoots, methodConfig)
@@ -267,7 +266,6 @@ async function processWorkers(options: {
     const segs = relPath.split('/')
     const file = segs.pop()!
     const name = file.replace(/\.ts$/, '')
-    const wrkApp = path.join(roots.appBase, 'workers')
     const importPath = `${fromApp ? appImportBase : pkgImportBase}/workers/${[...segs, name].join('/')}`
     if (!(await moduleHasExport(importPath, 'metadata'))) continue
     const importName = `Worker${importIdRef.value++}_${toVar(modId)}_${toVar([...segs, name].join('_') || 'index')}`
@@ -375,6 +373,7 @@ export async function generateModuleRegistry(options: ModuleRegistryOptions): Pr
   const enabled = resolver.loadEnabledModules()
   const imports: string[] = []
   const moduleDecls: string[] = []
+  // Mutable ref so extracted helper functions can increment the shared counter
   const importIdRef = { value: 0 }
   const trackedRoots = new Set<string>()
   const requiresByModule = new Map<string, string[]>()
@@ -1010,6 +1009,7 @@ export async function generateModuleRegistryCli(options: ModuleRegistryOptions):
   const enabled = resolver.loadEnabledModules()
   const imports: string[] = []
   const moduleDecls: string[] = []
+  // Mutable ref so extracted helper functions can increment the shared counter
   const importIdRef = { value: 0 }
   const trackedRoots = new Set<string>()
   const requiresByModule = new Map<string, string[]>()

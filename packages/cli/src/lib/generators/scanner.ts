@@ -118,8 +118,9 @@ export const SCAN_CONFIGS = {
 } as const satisfies Record<string, ScanConfig>
 
 export function scanModuleDir(roots: ModuleRoots, config: ScanConfig): ScannedFile[] {
-  const appDir = path.join(roots.appBase, ...config.folder.split('/'))
-  const pkgDir = path.join(roots.pkgBase, ...config.folder.split('/'))
+  const folderSegments = config.folder ? config.folder.split('/') : []
+  const appDir = path.join(roots.appBase, ...folderSegments)
+  const pkgDir = path.join(roots.pkgBase, ...folderSegments)
   if (!fs.existsSync(appDir) && !fs.existsSync(pkgDir)) return []
 
   const found: string[] = []
