@@ -343,7 +343,7 @@ const lineSharedSchema = z.object({
       grossPerReference: z.string().nullable().optional(),
       netPerReference: z.string().nullable().optional(),
     }).optional(),
-  }).passthrough().nullable().optional(),
+  }).nullable().optional(),
   metadata,
   customFieldSetId: uuid().optional(),
   customFields: z.record(z.string(), z.unknown()).optional(),

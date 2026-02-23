@@ -72,19 +72,20 @@ function resolveUnitPriceReference(
 
   if (!ref || !isPlainObject(ref)) return null;
 
+  const r = ref as Record<string, unknown>;
   const grossPerReference = normalizeNumber(
-    ref.grossPerReference ?? ref.gross_per_reference,
+    r.grossPerReference ?? r.gross_per_reference,
     Number.NaN,
   );
   if (!Number.isFinite(grossPerReference)) return null;
 
   const referenceUnitCode =
-    typeof ref.referenceUnitCode === "string"
-      ? ref.referenceUnitCode
-      : typeof ref.reference_unit_code === "string"
-        ? ref.reference_unit_code
-        : typeof ref.referenceUnit === "string"
-          ? ref.referenceUnit
+    typeof r.referenceUnitCode === "string"
+      ? r.referenceUnitCode
+      : typeof r.reference_unit_code === "string"
+        ? r.reference_unit_code
+        : typeof r.referenceUnit === "string"
+          ? r.referenceUnit
           : null;
   if (!referenceUnitCode) return null;
 

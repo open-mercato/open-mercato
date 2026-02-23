@@ -83,8 +83,8 @@ export async function GET(_req: Request, ctx: { params: { token: string } }) {
         normalizedQuantity: line.normalizedQuantity ?? line.quantity,
         uomSnapshot: line.uomSnapshot
           ? {
-              baseUnitCode: (line.uomSnapshot as Record<string, unknown>).baseUnitCode ?? null,
-              enteredUnitCode: (line.uomSnapshot as Record<string, unknown>).enteredUnitCode ?? null,
+              baseUnitCode: line.uomSnapshot.baseUnitCode ?? null,
+              enteredUnitCode: line.uomSnapshot.enteredUnitCode ?? null,
             }
           : null,
         currencyCode: line.currencyCode,
@@ -97,16 +97,15 @@ export async function GET(_req: Request, ctx: { params: { token: string } }) {
         totalNetAmount: line.totalNetAmount,
         totalGrossAmount: line.totalGrossAmount,
         unitPriceReference: (() => {
-          if (!line.uomSnapshot || typeof line.uomSnapshot !== "object") return null;
-          const ref = (line.uomSnapshot as Record<string, unknown>).unitPriceReference;
-          if (!ref || typeof ref !== "object") return null;
-          const r = ref as Record<string, unknown>;
+          if (!line.uomSnapshot) return null;
+          const ref = line.uomSnapshot.unitPriceReference;
+          if (!ref) return null;
           return {
-            enabled: r.enabled ?? null,
-            referenceUnitCode: r.referenceUnitCode ?? null,
-            baseQuantity: r.baseQuantity ?? null,
-            grossPerReference: r.grossPerReference ?? null,
-            netPerReference: r.netPerReference ?? null,
+            enabled: ref.enabled ?? null,
+            referenceUnitCode: ref.referenceUnitCode ?? null,
+            baseQuantity: ref.baseQuantity ?? null,
+            grossPerReference: ref.grossPerReference ?? null,
+            netPerReference: ref.netPerReference ?? null,
           };
         })(),
       })),
