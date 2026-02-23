@@ -833,7 +833,7 @@ export async function seedCatalogExamples(
   const existingProducts = await em.find(CatalogProduct, {
     tenantId: scope.tenantId,
     organizationId: scope.organizationId,
-    handle: { $in: handles as any },
+    handle: { $in: [...handles] },
   });
   const existingByHandle = new Map(
     existingProducts.map((product) => [product.handle?.toLowerCase(), product]),

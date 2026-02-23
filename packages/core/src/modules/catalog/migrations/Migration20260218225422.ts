@@ -11,7 +11,6 @@ export class Migration20260218225422 extends Migration {
 
     this.addSql(`alter table "catalog_products" add column "default_sales_unit" text null, add column "default_sales_unit_quantity" numeric(18,6) not null default '1', add column "uom_rounding_scale" smallint not null default 4, add column "uom_rounding_mode" text not null default 'half_up', add column "unit_price_enabled" boolean not null default false, add column "unit_price_reference_unit" text null, add column "unit_price_base_quantity" numeric(18,6) null;`);
     this.addSql(`update "catalog_products" set "default_sales_unit" = "default_unit" where "default_sales_unit" is null and "default_unit" is not null;`);
-    this.addSql(`update "catalog_products" set "default_sales_unit_quantity" = '1' where "default_sales_unit_quantity" is null;`);
   }
 
   override async down(): Promise<void> {
