@@ -4,6 +4,7 @@ import type {
   InjectionSpotId,
   InjectionWidgetModule,
   WidgetInjectionEventHandlers,
+  WidgetBeforeDeleteResult,
   WidgetBeforeSaveResult,
 } from '@open-mercato/shared/modules/widgets/injection'
 import { loadInjectionWidgetsForSpot, type LoadedInjectionWidget } from '@open-mercato/shared/modules/widgets/injection-loader'
@@ -14,7 +15,18 @@ export type InjectionSpotProps<TContext = unknown, TData = unknown> = {
   data?: TData
   onDataChange?: (data: TData) => void
   disabled?: boolean
-  onEvent?: (event: 'onLoad' | 'onBeforeSave' | 'onSave' | 'onAfterSave', widgetId: string) => void
+  onEvent?: (
+    event:
+    | 'onLoad'
+    | 'onBeforeSave'
+    | 'onSave'
+    | 'onAfterSave'
+    | 'onBeforeDelete'
+    | 'onDelete'
+    | 'onAfterDelete'
+    | 'onDeleteError',
+    widgetId: string,
+  ) => void
   widgetsOverride?: LoadedWidget[]
 }
 
@@ -182,9 +194,12 @@ export function useInjectionSpotEvents<TContext = unknown, TData = unknown>(spot
     async (
       event: keyof WidgetInjectionEventHandlers<TContext, TData>,
       data: TData,
-      context: TContext
-    ): Promise<{ ok: boolean; message?: string; fieldErrors?: Record<string, string> }> => {
-      const normalizeBeforeSave = (result: WidgetBeforeSaveResult): { ok: boolean; message?: string; fieldErrors?: Record<string, string> } => {
+      context: TContext,
+      meta?: { error?: unknown }
+    ): Promise<{ ok: boolean; message?: string; fieldErrors?: Record<string, string>; requestHeaders?: Record<string, string>; details?: unknown }> => {
+      const normalizeBeforeSave = (
+        result: WidgetBeforeSaveResult,
+      ): { ok: boolean; message?: string; fieldErrors?: Record<string, string>; requestHeaders?: Record<string, string>; details?: unknown } => {
         if (result === false) return { ok: false }
         if (result === true || typeof result === 'undefined') return { ok: true }
         if (result && typeof result === 'object') {
@@ -196,26 +211,82 @@ export function useInjectionSpotEvents<TContext = unknown, TData = unknown>(spot
                   Object.entries(result.fieldErrors).map(([key, value]) => [key, String(value)]),
                 )
               : undefined
-          return { ok, message, fieldErrors }
+          const requestHeaders =
+            result.requestHeaders && typeof result.requestHeaders === 'object'
+              ? Object.fromEntries(
+                  Object.entries(result.requestHeaders).map(([key, value]) => [key, String(value)]),
+                )
+              : undefined
+          return { ok, message, fieldErrors, requestHeaders, details: result.details }
         }
         return { ok: true }
       }
 
+      const normalizeBeforeDelete = (
+        result: WidgetBeforeDeleteResult,
+      ): { ok: boolean; message?: string; fieldErrors?: Record<string, string>; requestHeaders?: Record<string, string>; details?: unknown } => {
+        if (result === false) return { ok: false }
+        if (result === true || typeof result === 'undefined') return { ok: true }
+        if (result && typeof result === 'object') {
+          const ok = typeof result.ok === 'boolean' ? result.ok : true
+          const message = typeof result.message === 'string' ? result.message : undefined
+          const fieldErrors =
+            result.fieldErrors && typeof result.fieldErrors === 'object'
+              ? Object.fromEntries(
+                  Object.entries(result.fieldErrors).map(([key, value]) => [key, String(value)]),
+                )
+              : undefined
+          const requestHeaders =
+            result.requestHeaders && typeof result.requestHeaders === 'object'
+              ? Object.fromEntries(
+                  Object.entries(result.requestHeaders).map(([key, value]) => [key, String(value)]),
+                )
+              : undefined
+          return { ok, message, fieldErrors, requestHeaders, details: result.details }
+        }
+        return { ok: true }
+      }
+
+      const mergedRequestHeaders: Record<string, string> = {}
+      let hasRequestHeaders = false
+
       for (const widget of widgets) {
-        const handler = widget.module.eventHandlers?.[event]
+        const eventHandlers = widget.module.eventHandlers
+        let handler = eventHandlers?.[event]
+        if (!handler && event === 'onBeforeDelete') handler = eventHandlers?.onBeforeSave as typeof handler
+        if (!handler && event === 'onDelete') handler = eventHandlers?.onSave as typeof handler
+        if (!handler && event === 'onAfterDelete') handler = eventHandlers?.onAfterSave as typeof handler
         if (handler) {
           try {
-            const result = await (handler as any)(data, context)
+            const result =
+              event === 'onDeleteError'
+                ? await (handler as any)(data, context, meta?.error)
+                : await (handler as any)(data, context)
             if (event === 'onBeforeSave') {
               const normalized = normalizeBeforeSave(result as WidgetBeforeSaveResult)
               if (!normalized.ok) {
                 console.log(`[useInjectionSpotEvents] Widget ${widget.widgetId} prevented ${event}`)
                 return normalized
               }
+              if (normalized.requestHeaders && Object.keys(normalized.requestHeaders).length > 0) {
+                Object.assign(mergedRequestHeaders, normalized.requestHeaders)
+                hasRequestHeaders = true
+              }
+            }
+            if (event === 'onBeforeDelete') {
+              const normalized = normalizeBeforeDelete(result as WidgetBeforeDeleteResult)
+              if (!normalized.ok) {
+                console.log(`[useInjectionSpotEvents] Widget ${widget.widgetId} prevented ${event}`)
+                return normalized
+              }
+              if (normalized.requestHeaders && Object.keys(normalized.requestHeaders).length > 0) {
+                Object.assign(mergedRequestHeaders, normalized.requestHeaders)
+                hasRequestHeaders = true
+              }
             }
           } catch (err) {
             console.error(`[useInjectionSpotEvents] Error in ${event} for widget ${widget.widgetId}:`, err)
-            if (event === 'onBeforeSave') {
+            if (event === 'onBeforeSave' || event === 'onBeforeDelete') {
               const message =
                 err instanceof Error
                   ? err.message || 'Validation blocked'
@@ -226,6 +297,9 @@ export function useInjectionSpotEvents<TContext = unknown, TData = unknown>(spot
             }
           }
         }
+      }
+      if ((event === 'onBeforeSave' || event === 'onBeforeDelete') && hasRequestHeaders) {
+        return { ok: true, requestHeaders: mergedRequestHeaders }
       }
       return { ok: true }
     },

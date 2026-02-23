@@ -5,6 +5,23 @@ import { flash } from '../FlashMessages'
 import { deserializeOperationMetadata } from '@open-mercato/shared/lib/commands/operationMetadata'
 import { pushOperation } from '../operations/store'
 import { pushPartialIndexWarning } from '../indexes/store'
+import { createScopedHeaderStack } from './scopedHeaderStack'
+
+const scopedHeaders = createScopedHeaderStack()
+
+function mergeHeaders(base: HeadersInit | undefined, scoped: Record<string, string>): Headers {
+  const headers = new Headers(base ?? {})
+  for (const [key, value] of Object.entries(scoped)) {
+    if (headers.has(key)) continue
+    headers.set(key, value)
+  }
+  return headers
+}
+
+export async function withScopedApiHeaders<T>(headers: Record<string, string>, run: () => Promise<T>): Promise<T> {
+  return scopedHeaders.withScopedHeaders(headers, run)
+}
+
 export class UnauthorizedError extends Error {
   readonly status = 401
   constructor(message = 'Unauthorized') {
@@ -68,7 +85,11 @@ export async function apiFetch(input: RequestInfo | URL, init?: RequestInit): Pr
   const baseFetch: FetchType = (typeof window !== 'undefined' && (window as any).__omOriginalFetch)
     ? ((window as any).__omOriginalFetch as FetchType)
     : fetch;
-  const res = await baseFetch(input, init);
+  const scoped = scopedHeaders.resolveScopedHeaders()
+  const mergedInit = Object.keys(scoped).length
+    ? { ...(init ?? {}), headers: mergeHeaders(init?.headers, scoped) }
+    : init
+  const res = await baseFetch(input, mergedInit);
   const onLoginPage = typeof window !== 'undefined' && window.location.pathname.startsWith('/login')
   if (res.status === 401) {
     // Trigger same redirect flow as protected pages
