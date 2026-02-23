@@ -1,7 +1,7 @@
 'use client'
 
 import React from 'react'
-import { useParams, useRouter } from 'next/navigation'
+import { useParams, useRouter, useSearchParams } from 'next/navigation'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { LoadingMessage, ErrorMessage } from '@open-mercato/ui/backend/detail'
@@ -47,6 +47,7 @@ export default function SsoConfigDetailPage() {
     ? params.slug[2]
     : (Array.isArray(params?.id) ? params.id[0] : params?.id as string)
   const router = useRouter()
+  const searchParams = useSearchParams()
   const t = useT()
   const { confirm, ConfirmDialogElement } = useConfirmDialog()
 
@@ -54,6 +55,9 @@ export default function SsoConfigDetailPage() {
   const [isLoading, setIsLoading] = React.useState(true)
   const [error, setError] = React.useState<string | null>(null)
   const [activeTab, setActiveTab] = React.useState<Tab>('general')
+  const [showActivationBanner, setShowActivationBanner] = React.useState(searchParams?.get('created') === '1')
+  const [activationError, setActivationError] = React.useState<string | null>(null)
+  const [isActivating, setIsActivating] = React.useState(false)
 
   // General tab form state
   const [name, setName] = React.useState('')
@@ -117,6 +121,8 @@ export default function SsoConfigDetailPage() {
 
   const handleToggleActivation = async () => {
     if (!config) return
+    setActivationError(null)
+    setIsActivating(true)
     try {
       await apiCallOrThrow(
         `/api/sso/config/${configId}/activate`,
@@ -133,9 +139,19 @@ export default function SsoConfigDetailPage() {
           : t('sso.admin.activated', 'SSO configuration activated'),
         'success',
       )
+      setShowActivationBanner(false)
       fetchConfig()
-    } catch {
-      // handled by apiCallOrThrow
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err)
+      const isNoDomains = message.toLowerCase().includes('no allowed domains')
+      if (isNoDomains) {
+        setActivationError(t('sso.admin.error.noDomainsForActivation', 'Add at least one allowed email domain before activating'))
+        setActiveTab('domains')
+      } else {
+        setActivationError(message)
+      }
+    } finally {
+      setIsActivating(false)
     }
   }
 
@@ -231,6 +247,28 @@ export default function SsoConfigDetailPage() {
     <Page>
       <PageBody>
         <div className="max-w-3xl">
+          {/* Activation banner after creation */}
+          {showActivationBanner && !config.isActive && (
+            <div className="mb-6 rounded-lg border border-blue-200 bg-blue-50 p-4">
+              <p className="text-sm font-medium text-blue-900 mb-3">
+                {t('sso.admin.banner.created', 'Your SSO configuration has been created. Would you like to activate it now?')}
+              </p>
+              {activationError && (
+                <p className="text-sm text-destructive mb-3">{activationError}</p>
+              )}
+              <div className="flex items-center gap-2">
+                <Button size="sm" onClick={handleToggleActivation} disabled={isActivating}>
+                  {isActivating
+                    ? t('common.activating', 'Activating...')
+                    : t('sso.admin.banner.activateNow', 'Activate Now')}
+                </Button>
+                <Button variant="outline" size="sm" onClick={() => setShowActivationBanner(false)}>
+                  {t('sso.admin.banner.notYet', 'Not Yet')}
+                </Button>
+              </div>
+            </div>
+          )}
+
           {/* Header */}
           <div className="flex items-center justify-between mb-6">
             <div>
