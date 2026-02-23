@@ -1,5 +1,6 @@
 import type { EntityManager } from "@mikro-orm/postgresql";
 import { CrudHttpError } from "@open-mercato/shared/lib/crud/errors";
+import { findOneWithDecryption } from "@open-mercato/shared/lib/encryption/find";
 import {
   Dictionary,
   DictionaryEntry,
@@ -13,7 +14,8 @@ export async function resolveUnitDictionary(
   organizationId: string,
   tenantId: string,
 ) {
-  return em.findOne(
+  return findOneWithDecryption(
+    em,
     Dictionary,
     {
       organizationId,
@@ -47,7 +49,7 @@ export async function resolveCanonicalUnitCode(
     throw new CrudHttpError(400, { error: "uom.unit_not_found" });
   }
   const normalized = unitCode.toLowerCase();
-  const entry = await em.findOne(DictionaryEntry, {
+  const entry = await findOneWithDecryption(em, DictionaryEntry, {
     dictionary,
     organizationId: dictionary.organizationId,
     tenantId: dictionary.tenantId,

@@ -116,11 +116,11 @@ describe('catalog command shared helpers', () => {
       const em = { findOne }
 
       await expect(fn(em)).resolves.toBe(entity)
-      if (expectedArgs[1]) {
-        expect(findOne).toHaveBeenCalledWith(expect.any(Function), expectedArgs[0], expectedArgs[1])
-      } else {
-        expect(findOne).toHaveBeenCalledWith(expect.any(Function), expectedArgs[0])
-      }
+      expect(findOne).toHaveBeenCalledWith(
+        expect.any(Function),
+        expectedArgs[0],
+        expectedArgs[1] ?? undefined,
+      )
 
       findOne.mockResolvedValue(null)
       await expect(fn(em)).rejects.toBeInstanceOf(CrudHttpError)

@@ -168,7 +168,7 @@ export async function buildPriceFilters(
   return filters;
 }
 
-let cachedNormalizedQuantity: number | null = null;
+const normalizedQuantityByCtx = new WeakMap<object, number>();
 
 const crud = makeCrudRoute({
   metadata: routeMetadata,
@@ -219,7 +219,6 @@ const crud = makeCrudRoute({
       updatedAt: FP.updated_at,
     },
     buildFilters: async (query, ctx) => {
-      cachedNormalizedQuantity = null;
       const filters = await buildPriceFilters(query);
       const tenantId = ctx.auth?.tenantId ?? null;
       const organizationId =
@@ -251,7 +250,7 @@ const crud = makeCrudRoute({
           quantity: query.quantity,
           quantityUnit: query.quantityUnit,
         });
-        cachedNormalizedQuantity = normalizedQuantity;
+        normalizedQuantityByCtx.set(ctx, normalizedQuantity);
         filters.min_quantity = { $lte: normalizedQuantity };
       }
       return filters;
@@ -276,8 +275,8 @@ const crud = makeCrudRoute({
         query.quantity <= 0
       )
         return;
-      if (cachedNormalizedQuantity === null) return;
-      const normalizedQuantity = cachedNormalizedQuantity;
+      const normalizedQuantity = normalizedQuantityByCtx.get(ctx) ?? null;
+      if (normalizedQuantity === null) return;
       payload.items = payload.items.filter((item: unknown) => {
         const record = item as Record<string, unknown>;
         const rawMin = record.min_quantity ?? record.minQuantity;
