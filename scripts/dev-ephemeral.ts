@@ -9,6 +9,7 @@ import {
   getPreferredPort,
   isPortAvailable,
   isEndpointResponsive,
+  redactPostgresUrl,
 } from '../packages/cli/src/lib/testing/runtime-utils'
 
 type DevEphemeralInstance = {
@@ -21,7 +22,7 @@ type DevEphemeralInstance = {
   startedAt: string
   postgresContainerId: string
   postgresPort: number
-  databaseUrl: string
+  databaseUrlRedacted: string
 }
 
 type DevEphemeralState = {
@@ -79,10 +80,6 @@ async function ensureEnvFile(): Promise<void> {
 
   await copyFile(envExamplePath, envPath)
   console.log('[dev:ephemeral] Created apps/mercato/.env from apps/mercato/.env.example.')
-}
-
-function getRedactedDatabaseUrl(handle: EphemeralPostgresHandle): string {
-  return `postgres://${postgresUser}:***@127.0.0.1:${handle.postgresPort}/${handle.databaseName}`
 }
 
 function runCommand(command: string, args: string[], options: { env?: NodeJS.ProcessEnv } = {}): Promise<number> {
@@ -181,10 +178,21 @@ async function readDevInstancesState(): Promise<DevEphemeralState> {
     if (!parsedState || typeof parsedState !== 'object' || !Array.isArray(parsedState.instances)) {
       return { version: 1, instances: [] }
     }
-    return {
-      version: 1,
-      instances: parsedState.instances as DevEphemeralInstance[],
-    }
+    const instances = parsedState.instances
+      .filter((instance): instance is Record<string, unknown> => Boolean(instance) && typeof instance === 'object')
+      .map((instance) => {
+        const legacyDatabaseUrl = typeof instance.databaseUrl === 'string' ? instance.databaseUrl : ''
+        const databaseUrlRedacted = typeof instance.databaseUrlRedacted === 'string'
+          ? instance.databaseUrlRedacted
+          : legacyDatabaseUrl
+            ? redactPostgresUrl(legacyDatabaseUrl)
+            : ''
+        return {
+          ...instance,
+          databaseUrlRedacted,
+        } as DevEphemeralInstance
+      })
+    return { version: 1, instances }
   } catch {
     return { version: 1, instances: [] }
   }
@@ -444,13 +452,13 @@ async function startDevServer(port: number, postgres: EphemeralPostgresHandle): 
     startedAt: new Date().toISOString(),
     postgresContainerId: postgres.containerId,
     postgresPort: postgres.postgresPort,
-    databaseUrl: postgres.databaseUrl,
+    databaseUrlRedacted: redactPostgresUrl(postgres.databaseUrl),
   }
 
   await registerCurrentDevInstance(instanceState)
   console.log(`[dev:ephemeral] Ephemeral URL: ${baseUrl}`)
   console.log(`[dev:ephemeral] Backend URL: ${backendUrl}`)
-  console.log(`[dev:ephemeral] Ephemeral PostgreSQL URL: ${getRedactedDatabaseUrl(postgres)}`)
+  console.log(`[dev:ephemeral] Ephemeral PostgreSQL URL: ${redactPostgresUrl(postgres.databaseUrl)}`)
 
   const serverReady = await waitForDevServerReady(baseUrl)
   if (serverReady) {

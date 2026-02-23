@@ -96,3 +96,23 @@ export async function isEndpointResponsive(url: string, timeoutMs = 1500): Promi
     return false
   }
 }
+
+export function redactPostgresUrl(url: string): string {
+  const trimmed = url.trim()
+  if (!trimmed) {
+    return trimmed
+  }
+
+  try {
+    const parsed = new URL(trimmed)
+    if (parsed.password) {
+      parsed.password = '***'
+    }
+    if (!parsed.username && parsed.password) {
+      parsed.username = '***'
+    }
+    return parsed.toString()
+  } catch {
+    return trimmed.replace(/(postgres(?:ql)?:\/\/[^:/?#\s]+:)[^@/\s]+@/i, '$1***@')
+  }
+}
