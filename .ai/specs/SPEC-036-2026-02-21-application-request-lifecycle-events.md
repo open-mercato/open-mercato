@@ -1,4 +1,4 @@
-# SPEC-034: Application & Request Lifecycle Events
+# SPEC-036: Application & Request Lifecycle Events
 
 - **Date**: 2026-02-21
 - **Status**: Implemented (backfilled spec)
