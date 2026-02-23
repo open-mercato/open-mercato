@@ -118,8 +118,10 @@ export function NotificationItem({
     setExecuting(actionId)
     try {
       const result = await onExecuteAction(actionId)
-      if (result.href) {
-        router.push(result.href)
+      const resolvedHref = (result.href ?? notification.linkHref ?? undefined)
+        ?.replace('{sourceEntityId}', notification.sourceEntityId ?? '')
+      if (resolvedHref) {
+        router.push(resolvedHref)
       }
     } finally {
       setExecuting(null)

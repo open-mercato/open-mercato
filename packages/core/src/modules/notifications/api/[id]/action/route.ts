@@ -18,7 +18,9 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
     const { notification, result } = await service.executeAction(id, input, scope)
 
     const action = notification.actionData?.actions?.find((a) => a.id === input.actionId)
-    const href = action?.href?.replace('{sourceEntityId}', notification.sourceEntityId ?? '')
+    const replaceSourceEntityId = (href: string | undefined | null) =>
+      href?.replace('{sourceEntityId}', notification.sourceEntityId ?? '')
+    const href = replaceSourceEntityId(action?.href) ?? replaceSourceEntityId(notification.linkHref)
 
     return Response.json({
       ok: true,
