@@ -25,6 +25,28 @@ export type WidgetInjectionEventHandlers<TContext = unknown, TData = unknown> = 
    * Called after save action completes successfully
    */
   onAfterSave?: (data: TData, context: TContext) => void | Promise<void>
+
+  /**
+   * Called before delete action is executed.
+   * Return false or throw to prevent delete. Optionally return an object with
+   * `ok`, `message`, and `fieldErrors` to surface a user-facing reason.
+   */
+  onBeforeDelete?: (data: TData, context: TContext) => WidgetBeforeDeleteResult | Promise<WidgetBeforeDeleteResult>
+
+  /**
+   * Called when delete action is triggered.
+   */
+  onDelete?: (data: TData, context: TContext) => void | Promise<void>
+
+  /**
+   * Called after delete action completes successfully.
+   */
+  onAfterDelete?: (data: TData, context: TContext) => void | Promise<void>
+
+  /**
+   * Called when delete action fails.
+   */
+  onDeleteError?: (data: TData, context: TContext, error: unknown) => void | Promise<void>
 }
 
 /**
@@ -86,7 +108,11 @@ export type WidgetBeforeSaveResult =
       ok?: boolean
       message?: string
       fieldErrors?: Record<string, string>
+      requestHeaders?: Record<string, string>
+      details?: unknown
     }
+
+export type WidgetBeforeDeleteResult = WidgetBeforeSaveResult
 
 /**
  * Complete injection widget module definition

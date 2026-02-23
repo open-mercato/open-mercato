@@ -10,40 +10,48 @@ export async function getAuthToken(
   roleOrEmail: Role | string = 'admin',
   password?: string,
 ): Promise<string> {
-  let email: string;
-  let pass: string;
-  if (roleOrEmail in DEFAULT_CREDENTIALS) {
-    const creds = DEFAULT_CREDENTIALS[roleOrEmail as Role];
-    email = creds.email;
-    pass = password ?? creds.password;
+  const role = roleOrEmail in DEFAULT_CREDENTIALS ? (roleOrEmail as Role) : null;
+  const credentialAttempts: Array<{ email: string; password: string }> = [];
+
+  if (role) {
+    const configured = DEFAULT_CREDENTIALS[role];
+    credentialAttempts.push({ email: configured.email, password: password ?? configured.password });
+    if (!password) {
+      credentialAttempts.push({ email: `${role}@acme.com`, password: 'secret' });
+    }
   } else {
-    email = roleOrEmail;
-    pass = password ?? 'secret';
-  }
-  const form = new URLSearchParams();
-  form.set('email', email);
-  form.set('password', pass);
-
-  const response = await request.post(`${BASE_URL}/api/auth/login`, {
-    headers: {
-      'content-type': 'application/x-www-form-urlencoded',
-    },
-    data: form.toString(),
-  });
-
-  const raw = await response.text();
-  let body: Record<string, unknown> | null = null;
-  try {
-    body = raw ? (JSON.parse(raw) as Record<string, unknown>) : null;
-  } catch {
-    body = null;
+    credentialAttempts.push({ email: roleOrEmail, password: password ?? 'secret' });
   }
 
-  if (!response.ok() || !body || typeof body.token !== 'string' || !body.token) {
-    throw new Error(`Failed to obtain auth token (status ${response.status()})`);
+  let lastStatus = 0;
+
+  for (const attempt of credentialAttempts) {
+    const form = new URLSearchParams();
+    form.set('email', attempt.email);
+    form.set('password', attempt.password);
+
+    const response = await request.post(`${BASE_URL}/api/auth/login`, {
+      headers: {
+        'content-type': 'application/x-www-form-urlencoded',
+      },
+      data: form.toString(),
+    });
+
+    const raw = await response.text();
+    let body: Record<string, unknown> | null = null;
+    try {
+      body = raw ? (JSON.parse(raw) as Record<string, unknown>) : null;
+    } catch {
+      body = null;
+    }
+
+    lastStatus = response.status();
+    if (response.ok() && body && typeof body.token === 'string' && body.token) {
+      return body.token;
+    }
   }
 
-  return body.token;
+  throw new Error(`Failed to obtain auth token (status ${lastStatus})`);
 }
 
 export async function apiRequest(

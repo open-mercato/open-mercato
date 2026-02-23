@@ -1,0 +1,121 @@
+---
+title: mercato entities decrypt-database
+sidebar_label: entities decrypt-database
+description: Decrypts all encrypted field values back to plaintext for a tenant and optionally deactivates the encryption maps.
+---
+
+`yarn mercato entities decrypt-database` reads every active `EncryptionMap` record for the target tenant, fetches the tenant DEK from KMS, and writes the decrypted plaintext back to each mapped column. Hash fields (e.g. `email_hash`) are set to `null` when the corresponding value is decrypted.
+
+:::danger Irreversible operation
+This command writes plaintext to the database. There is no automatic rollback. Take a full database backup before running it. The `--dry-run` and `--check` flags let you preview and verify without writing.
+:::
+
+## Usage
+
+```bash
+yarn mercato entities decrypt-database \
+  --tenant <uuid> \
+  --confirm <uuid> \
+  [--org <uuid>] \
+  [--entity <id>] \
+  [--dry-run] \
+  [--check] \
+  [--deactivate-maps] \
+  [--batch-size <n>] \
+  [--sleep-ms <n>] \
+  [--debug]
+```
+
+Aliases: `--tenantId` for `--tenant`, `--organization`/`--organizationId` for `--org`, `--dry` for `--dry-run`.
+
+## Options
+
+| Option | Description |
+| --- | --- |
+| `--tenant <uuid>` | **Required.** The tenant whose data will be decrypted. |
+| `--confirm <uuid>` | **Required safety gate.** Must exactly match `--tenant`. Prevents accidental multi-tenant runs. Not required with `--check`. |
+| `--org <uuid>` | Limit decryption to one organization within the tenant. |
+| `--entity <id>` | Limit decryption to one entity type (e.g. `customers:person`). |
+| `--dry-run` | Log what would be changed without writing to the database. Implies no transaction commits. |
+| `--check` | Report encryption environment status, active map count, and a sampled estimate of encrypted vs. malformed payloads. Does not write. |
+| `--deactivate-maps` | After decryption, mark all matched `EncryptionMap` rows as inactive (`is_active = false`, `deleted_at = now()`). Requires a replica restart to flush in-process caches. |
+| `--batch-size <n>` | Rows fetched per transaction batch (default `500`). Reduce if batches take longer than ~30 s. |
+| `--sleep-ms <n>` | Milliseconds to pause between batches (default `0`). Use to reduce database load during live traffic. |
+| `--debug` | Print per-batch timing, DEK fingerprints, and top malformed-payload locations. |
+
+## Behavior
+
+1. Validates that `--confirm` matches `--tenant` (safety gate).
+2. Fetches all active `EncryptionMap` records matching the requested scope.
+3. Resolves the tenant DEK from KMS (cached per tenant for the run).
+4. For each entity × organization scope, pages through rows using keyset pagination (`ORDER BY pk LIMIT batch-size`).
+5. For each row, calls `decryptWithAesGcmStrict` on each mapped field:
+   - **Plaintext** (`AUTH_FAILED`): skipped silently — the command is idempotent and safe to re-run.
+   - **Malformed payload** (`MALFORMED_PAYLOAD`): logged as a warning; the field is skipped and counted in the summary.
+   - **KMS / wrong-key / internal error**: the current batch is rolled back and the command aborts.
+6. When at least one field in a row is successfully decrypted, its hash fields are set to `null`.
+7. Each batch runs inside a `BEGIN`/`COMMIT` transaction; a failure rolls back only that batch.
+8. After all maps are processed, prints a summary of rows fetched, updated, hash fields cleared, and any malformed-payload counts.
+
+## Post-decryption steps
+
+After a successful run the following steps are required to complete the transition:
+
+1. Set `TENANT_DATA_ENCRYPTION=false` in your environment / secrets.
+2. Restart all application replicas (in-process encryption caches must be flushed).
+3. Run `yarn mercato query_index reindex --tenant <tenantUuid>` to rebuild search/filter indexes (degraded until complete).
+4. Run `--check` again to confirm no encrypted values remain.
+
+If the run was long and concurrent writes occurred, run the command again before step 3 — it is fully idempotent.
+
+## Examples
+
+Preview decryption for a tenant (no writes):
+
+```bash
+yarn mercato entities decrypt-database --tenant <tenantId> --confirm <tenantId> --dry-run
+```
+
+Check encryption status and sampling estimate before running:
+
+```bash
+yarn mercato entities decrypt-database --tenant <tenantId> --check
+```
+
+Decrypt and deactivate all encryption maps:
+
+```bash
+yarn mercato entities decrypt-database \
+  --tenant <tenantId> \
+  --confirm <tenantId> \
+  --deactivate-maps
+```
+
+Limit to one entity with smaller batches and inter-batch pauses:
+
+```bash
+yarn mercato entities decrypt-database \
+  --tenant <tenantId> \
+  --confirm <tenantId> \
+  --entity customers:person \
+  --batch-size 100 \
+  --sleep-ms 200
+```
+
+## Error codes
+
+| Code | Meaning | Action |
+| --- | --- | --- |
+| `AUTH_FAILED` | Value is plaintext (format mismatch or wrong key) | Skipped silently — safe |
+| `MALFORMED_PAYLOAD` | Base64 decode failed or invalid IV/tag/ciphertext sizes | Logged and skipped; investigate before assuming complete |
+| `KMS_UNAVAILABLE` | DEK could not be fetched from KMS | Batch rolled back; command aborts |
+| `WRONG_KEY` | DEK loaded but decryption failed | Batch rolled back; command aborts |
+| `DECRYPT_INTERNAL` | Unexpected crypto error | Batch rolled back; command aborts |
+
+## Troubleshooting
+
+- **`--confirm` mismatch** – the command prints `--confirm value "…" does not match --tenant "…". Aborting.` and exits without touching data.
+- **No active maps found** – verify the tenant UUID and that `EncryptionMap` rows exist for the scope (`is_active = true`, `deleted_at IS NULL`). Run `yarn mercato entities seed-encryption --tenant <id>` if maps were never seeded.
+- **KMS unavailable** – ensure Vault is reachable or `TENANT_DATA_ENCRYPTION_FALLBACK_KEY` is set. Use `--check` to confirm DEK resolution before the full run.
+- **Batch timing warnings** – if `--debug` reports batches over 30 s, reduce `--batch-size` and add `--sleep-ms` to avoid long-running transactions.
+- **Malformed payloads** – use `--debug` to see which `table:column` locations have the highest count. These fields remain encrypted and must be investigated separately before re-running.

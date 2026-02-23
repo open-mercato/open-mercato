@@ -797,15 +797,6 @@
           "nullable": true,
           "mappedType": "text"
         },
-        "localized_content": {
-          "name": "localized_content",
-          "type": "jsonb",
-          "unsigned": false,
-          "autoincrement": false,
-          "primary": false,
-          "nullable": true,
-          "mappedType": "json"
-        },
         "metadata": {
           "name": "metadata",
           "type": "jsonb",

@@ -106,6 +106,14 @@ const sidebars: SidebarsConfig = {
     },
     {
       type: "category",
+      label: "Enterprise Edition",
+      items: [
+        "enterprise/overview",
+        "enterprise/record-locks",
+      ],
+    },
+    {
+      type: "category",
       label: "REST API",
       items: [
         "api/overview",
@@ -152,6 +160,11 @@ const sidebars: SidebarsConfig = {
             "cli/db-migrate",
             "cli/db-greenfield",
           ],
+        },
+        {
+          type: "category",
+          label: "Development Runtime",
+          items: ["cli/dev-ephemeral"],
         },
         {
           type: "category",

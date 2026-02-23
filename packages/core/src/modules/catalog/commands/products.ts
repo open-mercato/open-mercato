@@ -27,6 +27,7 @@ import {
 } from "@open-mercato/shared/lib/commands/customFieldSnapshots";
 import { E } from "#generated/entities.ids.generated";
 import { slugifyTagLabel } from "@open-mercato/shared/lib/utils";
+import { parseObjectLike } from "@open-mercato/shared/lib/json/parseObjectLike";
 import {
   CatalogOffer,
   CatalogProduct,
@@ -577,8 +578,8 @@ function normalizeDimensionsInput(raw: unknown): {
   depth?: number;
   unit?: string;
 } | null {
-  if (!raw || typeof raw !== "object") return null;
-  const source = raw as Record<string, unknown>;
+  const source = parseObjectLike(raw);
+  if (!source) return null;
   const clean: Record<string, unknown> = {};
   const width = parseNumeric(source.width);
   const height = parseNumeric(source.height);
@@ -604,8 +605,8 @@ function normalizeDimensionsInput(raw: unknown): {
 function normalizeWeightInput(
   raw: unknown,
 ): { value?: number; unit?: string } | null {
-  if (!raw || typeof raw !== "object") return null;
-  const source = raw as Record<string, unknown>;
+  const source = parseObjectLike(raw);
+  if (!source) return null;
   const value = parseNumeric(source.value);
   const unit =
     typeof source.unit === "string" && source.unit.trim().length

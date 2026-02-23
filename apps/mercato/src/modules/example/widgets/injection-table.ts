@@ -18,7 +18,7 @@ export const injectionTable: ModuleInjectionTable = {
     {
       widgetId: 'example.injection.sales-todos',
       kind: 'tab',
-      groupLabel: 'Todos (example)',
+      groupLabel: 'example.salesTodos.tabLabel',
       priority: -10,
     },
   ],
@@ -26,7 +26,7 @@ export const injectionTable: ModuleInjectionTable = {
     {
       widgetId: 'example.injection.sales-todos',
       kind: 'tab',
-      groupLabel: 'Todos (example)',
+      groupLabel: 'example.salesTodos.tabLabel',
       priority: -10,
     },
   ],
