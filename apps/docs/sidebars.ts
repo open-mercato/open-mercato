@@ -314,6 +314,7 @@ const sidebars: SidebarsConfig = {
             "framework/operations/system-status",
           ],
         },
+        "framework/progress/overview",
         {
           type: "category",
           label: "Scheduler",
