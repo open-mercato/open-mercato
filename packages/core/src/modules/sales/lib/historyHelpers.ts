@@ -1,4 +1,5 @@
 import type { ActionLog } from '@open-mercato/core/modules/audit_logs/data/entities'
+import type { SalesNote } from '../data/entities'
 
 export type HistoryEntry = {
   id: string
@@ -78,14 +79,40 @@ export function normalizeActionLogToHistoryEntry(
   }
 }
 
+export function normalizeNoteToHistoryEntry(
+  note: SalesNote,
+  kind: 'order' | 'quote',
+  displayUsers?: Record<string, string>,
+): HistoryEntry {
+  const actorLabel = note.authorUserId
+    ? (displayUsers?.[note.authorUserId] ?? note.authorUserId)
+    : 'system'
+  return {
+    id: note.id,
+    occurredAt: note.createdAt.toISOString(),
+    kind: 'comment',
+    action: note.body,
+    actor: { id: note.authorUserId ?? null, label: actorLabel },
+    source: 'note',
+    metadata: { documentKind: kind },
+  }
+}
+
 export type HistoryBuilderInput = {
   actionLogs: ActionLog[]
+  notes?: SalesNote[]
   kind: 'order' | 'quote'
   displayUsers?: Record<string, string>
 }
 
 export function buildHistoryEntries(input: HistoryBuilderInput): HistoryEntry[] {
-  return input.actionLogs
-    .map((log) => normalizeActionLogToHistoryEntry(log, input.kind, input.displayUsers))
-    .sort((a, b) => new Date(b.occurredAt).getTime() - new Date(a.occurredAt).getTime())
+  const logEntries = input.actionLogs.map((log) =>
+    normalizeActionLogToHistoryEntry(log, input.kind, input.displayUsers)
+  )
+  const noteEntries = (input.notes ?? []).map((note) =>
+    normalizeNoteToHistoryEntry(note, input.kind, input.displayUsers)
+  )
+  return [...logEntries, ...noteEntries].sort(
+    (a, b) => new Date(b.occurredAt).getTime() - new Date(a.occurredAt).getTime()
+  )
 }

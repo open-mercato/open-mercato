@@ -11,6 +11,8 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import type { ActionLog } from '@open-mercato/core/modules/audit_logs/data/entities'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { buildHistoryEntries } from '../../lib/historyHelpers'
+import { SalesNote } from '../../data/entities'
+import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 
 // Spec: SPEC-006-2026-01-23-order-status-history
 
@@ -53,23 +55,44 @@ export async function GET(req: Request) {
     const actionLogService = container.resolve('actionLogService') as ActionLogService
     const em = (container.resolve('em') as EntityManager).fork()
 
-    const logs = await actionLogService.list({
-      tenantId: auth.tenantId,
-      organizationId,
-      resourceKind,
-      resourceId: query.id,
-      limit: query.limit,
-      before: query.before ? new Date(query.before) : undefined,
-      after: query.after ? new Date(query.after) : undefined,
-    }) as ActionLog[]
+    const [logs, notes] = await Promise.all([
+      actionLogService.list({
+        tenantId: auth.tenantId,
+        organizationId,
+        resourceKind,
+        resourceId: query.id,
+        includeRelated: true,
+        limit: query.limit,
+        before: query.before ? new Date(query.before) : undefined,
+        after: query.after ? new Date(query.after) : undefined,
+      }) as Promise<ActionLog[]>,
+      findWithDecryption(
+        em,
+        SalesNote,
+        {
+          contextType: query.kind,
+          contextId: query.id,
+          tenantId: auth.tenantId,
+          organizationId,
+          deletedAt: null,
+        },
+        { orderBy: { createdAt: 'DESC' } },
+        { tenantId: auth.tenantId, organizationId },
+      ),
+    ])
+
+    const allUserIds = [
+      ...logs.map((l) => l.actorUserId).filter((v): v is string => !!v),
+      ...notes.map((n) => n.authorUserId).filter((v): v is string => !!v),
+    ]
 
     const displayMaps = await loadAuditLogDisplayMaps(em, {
-      userIds: logs.map((l) => l.actorUserId).filter((v): v is string => !!v),
+      userIds: allUserIds,
       tenantIds: [],
       organizationIds: [],
     })
 
-    const items = buildHistoryEntries({ actionLogs: logs, kind: query.kind, displayUsers: displayMaps.users })
+    const items = buildHistoryEntries({ actionLogs: logs, notes, kind: query.kind, displayUsers: displayMaps.users })
 
     let nextCursor: string | undefined = undefined
     if (logs.length === query.limit && items.length > 0) {
