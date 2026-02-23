@@ -14,6 +14,7 @@ import type {
   ProductUnitConversionDraft,
 } from "./productForm";
 import { createProductUnitConversionDraft } from "./productForm";
+import { toTrimmedOrNull } from "./productFormUtils";
 
 type UnitDictionaryEntry = {
   id?: string;
@@ -45,11 +46,7 @@ const REFERENCE_UNIT_OPTIONS = [
   { value: "pc", i18nKey: "catalog.products.unitPrice.options.pc", fallback: "1 pc" },
 ] as const;
 
-function normalizeText(value: unknown): string | null {
-  if (typeof value !== "string") return null;
-  const trimmed = value.trim();
-  return trimmed.length ? trimmed : null;
-}
+const normalizeText = toTrimmedOrNull;
 
 function normalizeDecimalInput(value: string): string {
   return value.replace(/,/g, ".");
@@ -267,19 +264,22 @@ export function ProductUomSection({
       : null;
   const unitPriceBaseQuantityNumber = toPositiveNumber(unitPriceBaseQuantity);
 
-  const conversionPreview = conversions
-    .filter(
-      (entry) =>
-        normalizeText(entry.unitCode) && normalizeText(entry.toBaseFactor),
-    )
+  const validConversions = conversions.filter(
+    (entry) =>
+      normalizeText(entry.unitCode) && normalizeText(entry.toBaseFactor),
+  );
+  const conversionPreviewItems = validConversions
     .slice(0, 3)
     .map((entry) => {
       const label = findUnitLabel(entry.unitCode) ?? entry.unitCode;
       const baseLabel = findUnitLabel(defaultUnit) ?? defaultUnit;
       const factor = normalizeText(entry.toBaseFactor) ?? "1";
       return `1 ${label} = ${factor} ${baseLabel || t("catalog.products.uom.baseUnit", "base unit")}`;
-    })
-    .join(" • ");
+    });
+  const conversionPreview =
+    validConversions.length > 3
+      ? `${conversionPreviewItems.join(" • ")} (+${validConversions.length - 3})`
+      : conversionPreviewItems.join(" • ");
 
   return (
     <div
@@ -337,7 +337,7 @@ export function ProductUomSection({
             ))}
           </select>
           {errors.defaultUnit ? (
-            <p className="text-xs text-red-600">{errors.defaultUnit}</p>
+            <p className="text-xs text-destructive">{errors.defaultUnit}</p>
           ) : null}
         </div>
 
@@ -364,7 +364,7 @@ export function ProductUomSection({
             ))}
           </select>
           {errors.defaultSalesUnit ? (
-            <p className="text-xs text-red-600">{errors.defaultSalesUnit}</p>
+            <p className="text-xs text-destructive">{errors.defaultSalesUnit}</p>
           ) : null}
         </div>
 
@@ -420,7 +420,7 @@ export function ProductUomSection({
             </p>
           ) : null}
           {errors.defaultSalesUnitQuantity ? (
-            <p className="text-xs text-red-600">
+            <p className="text-xs text-destructive">
               {errors.defaultSalesUnitQuantity}
             </p>
           ) : null}
@@ -667,8 +667,12 @@ export function ProductUomSection({
                       <ArrowDown className="h-4 w-4" />
                     </Button>
                   </div>
-                  <label className="flex items-center gap-2 px-1 text-xs text-muted-foreground">
+                  <label
+                    htmlFor={`catalog-product-uom-conversion-active-${index}`}
+                    className="flex items-center gap-2 px-1 text-xs text-muted-foreground"
+                  >
                     <Checkbox
+                      id={`catalog-product-uom-conversion-active-${index}`}
                       checked={entry.isActive}
                       onCheckedChange={(checked) =>
                         updateConversion(index, { isActive: checked === true })
