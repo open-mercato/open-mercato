@@ -68,6 +68,8 @@ declare module 'n8n-workflow' {
       name: string
       required?: boolean
     }>
+    authentication?: 'genericCredentialType' | 'none'
+    genericAuthType?: string
     requestDefaults?: {
       baseURL?: string
       headers?: Record<string, string>

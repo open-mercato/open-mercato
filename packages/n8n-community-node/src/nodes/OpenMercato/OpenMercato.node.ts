@@ -20,6 +20,8 @@ export class OpenMercato implements INodeType {
         required: true
       }
     ],
+    authentication: 'genericCredentialType',
+    genericAuthType: 'httpHeaderAuth',
     requestDefaults: {
       baseURL: '={{$credentials.baseUrl}}',
       headers: {
