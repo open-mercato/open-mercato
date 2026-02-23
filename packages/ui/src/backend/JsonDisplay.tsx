@@ -2,7 +2,7 @@
 
 import * as React from 'react'
 import { cn } from '@open-mercato/shared/lib/utils'
-import { Button } from '@open-mercato/ui/primitives/button'
+import { Button } from '../primitives/button'
 import { Check, Copy, ChevronRight, ChevronDown } from 'lucide-react'
 
 type JsonDisplayProps = {
@@ -154,10 +154,12 @@ const JsonNode = React.memo<JsonNodeProps>(({ data, depth, maxInitialDepth, them
 
     return (
       <span>
-        <button
+        <Button
           type="button"
+          variant="ghost"
+          size="sm"
+          className="h-auto px-1 -mx-1"
           onClick={() => setIsExpanded(!isExpanded)}
-          className="inline-flex items-center hover:bg-muted-foreground/10 rounded px-1 -mx-1 transition-colors cursor-pointer"
         >
           {isExpanded ? (
             <ChevronDown className="h-3 w-3 mr-1" />
@@ -167,7 +169,7 @@ const JsonNode = React.memo<JsonNodeProps>(({ data, depth, maxInitialDepth, them
           <span className={themeClasses.punctuation}>
             [{data.length}]
           </span>
-        </button>
+        </Button>
         {isExpanded && (
           <>
             <br />
@@ -204,10 +206,12 @@ const JsonNode = React.memo<JsonNodeProps>(({ data, depth, maxInitialDepth, them
 
     return (
       <span>
-        <button
+        <Button
           type="button"
+          variant="ghost"
+          size="sm"
+          className="h-auto px-1 -mx-1"
           onClick={() => setIsExpanded(!isExpanded)}
-          className="inline-flex items-center hover:bg-muted-foreground/10 rounded px-1 -mx-1 transition-colors cursor-pointer"
         >
           {isExpanded ? (
             <ChevronDown className="h-3 w-3 mr-1" />
@@ -217,7 +221,7 @@ const JsonNode = React.memo<JsonNodeProps>(({ data, depth, maxInitialDepth, them
           <span className={themeClasses.punctuation}>
             {'{'}{entries.length}{'}'}
           </span>
-        </button>
+        </Button>
         {isExpanded && (
           <>
             <br />

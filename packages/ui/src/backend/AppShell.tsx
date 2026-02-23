@@ -2,9 +2,12 @@
 import * as React from 'react'
 import Link from 'next/link'
 import Image from 'next/image'
+import { ChevronUp, ChevronDown } from 'lucide-react'
+import { Button } from '../primitives/button'
+import { IconButton } from '../primitives/icon-button'
 import { Separator } from '../primitives/separator'
 import { FlashMessages } from './FlashMessages'
-import { usePathname } from 'next/navigation'
+import { usePathname, useSearchParams } from 'next/navigation'
 import { apiCall } from './utils/apiCall'
 import { LastOperationBanner } from './operations/LastOperationBanner'
 import { UpgradeActionBanner } from './upgrades/UpgradeActionBanner'
@@ -12,6 +15,15 @@ import { PartialIndexBanner } from './indexes/PartialIndexBanner'
 import { useLocale, useT } from '@open-mercato/shared/lib/i18n/context'
 import { slugifySidebarId } from '@open-mercato/shared/modules/navigation/sidebarPreferences'
 import type { SectionNavGroup } from './section-page/types'
+import { InjectionSpot } from './injection/InjectionSpot'
+import { LEGACY_GLOBAL_MUTATION_INJECTION_SPOT_ID } from './injection/mutationEvents'
+import {
+  BACKEND_LAYOUT_FOOTER_INJECTION_SPOT_ID,
+  BACKEND_LAYOUT_TOP_INJECTION_SPOT_ID,
+  BACKEND_RECORD_CURRENT_INJECTION_SPOT_ID,
+  BACKEND_SIDEBAR_FOOTER_INJECTION_SPOT_ID,
+  BACKEND_SIDEBAR_TOP_INJECTION_SPOT_ID,
+} from './injection/spotIds'
 
 export type AppShellProps = {
   productName?: string
@@ -145,6 +157,7 @@ function Chevron({ open }: { open: boolean }) {
 
 export function AppShell({ productName, email, groups, rightHeaderSlot, children, sidebarCollapsedDefault = false, currentTitle, breadcrumb, adminNavApi, version, settingsSectionTitle, settingsPathPrefixes = [], settingsSections, profileSections, profileSectionTitle, profilePathPrefixes = [], mobileSidebarSlot }: AppShellProps) {
   const pathname = usePathname()
+  const searchParams = useSearchParams()
   const t = useT()
   const locale = useLocale()
   const resolvedProductName = productName ?? t('appShell.productName')
@@ -169,6 +182,13 @@ export function AppShell({ productName, email, groups, rightHeaderSlot, children
   const [headerBreadcrumb, setHeaderBreadcrumb] = React.useState<Breadcrumb | undefined>(breadcrumb)
   const effectiveCollapsed = customizing ? false : collapsed
   const expandedSidebarWidth = customizing ? '320px' : '240px'
+  const injectionContext = React.useMemo(
+    () => ({
+      path: pathname ?? '',
+      query: searchParams?.toString() ?? '',
+    }),
+    [pathname, searchParams],
+  )
 
   const isOnSettingsPath = React.useMemo(() => {
     if (!pathname) return false
@@ -657,15 +677,15 @@ export function AppShell({ productName, email, groups, rightHeaderSlot, children
 
             return (
               <div key={section.id}>
-                <button
-                  type="button"
+                <Button
+                  variant="muted"
                   onClick={() => toggleGroup(sectionKey)}
-                  className={`w-full ${compact ? 'px-0 justify-center' : 'px-2 justify-between'} flex items-center text-xs uppercase text-muted-foreground/90 py-2`}
+                  className={`w-full ${compact ? 'px-0 justify-center' : 'px-2 justify-between'} flex text-xs uppercase text-muted-foreground/90 py-2`}
                   aria-expanded={open}
                 >
                   {!compact && <span>{sectionLabel}</span>}
                   {!compact && <Chevron open={open} />}
-                </button>
+                </Button>
                 {open && (
                   <div className={`flex flex-col ${compact ? 'items-center' : ''} gap-1 ${!compact ? 'pl-1' : ''}`}>
                     {sortedItems.map((item) => {
@@ -727,6 +747,7 @@ export function AppShell({ productName, email, groups, rightHeaderSlot, children
     }
 
     const isMobileVariant = !!hideHeader
+    const shouldRenderSidebarInjectionSpots = !isMobileVariant
     const baseGroupsForDefaults = originalNavRef.current ?? navGroups
     const baseGroupMap = new Map<string, SidebarGroup>()
     for (const group of baseGroupsForDefaults) {
@@ -793,30 +814,30 @@ export function AppShell({ productName, email, groups, rightHeaderSlot, children
           <div className="flex flex-wrap items-center justify-between gap-2">
             <div className="text-sm font-semibold">{t('appShell.sidebarCustomizationHeading')}</div>
             <div className="flex items-center gap-2">
-              <button
-                type="button"
-                className="h-8 rounded border px-3 text-sm"
+              <Button
+                variant="outline"
+                size="sm"
                 onClick={resetCustomization}
                 disabled={savingPreferences}
               >
                 {t('appShell.sidebarCustomizationReset')}
-              </button>
-              <button
-                type="button"
-                className="h-8 rounded border px-3 text-sm"
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
                 onClick={cancelCustomization}
                 disabled={savingPreferences}
               >
                 {t('appShell.sidebarCustomizationCancel')}
-              </button>
-              <button
-                type="button"
-                className="h-8 rounded bg-foreground px-3 text-sm font-medium text-background disabled:opacity-60"
+              </Button>
+              <Button
+                size="sm"
+                className="bg-foreground text-background hover:bg-foreground/90"
                 onClick={saveCustomization}
                 disabled={savingPreferences}
               >
                 {savingPreferences ? t('appShell.sidebarCustomizationSaving') : t('appShell.sidebarCustomizationSave')}
-              </button>
+              </Button>
             </div>
           </div>
           <p className="text-xs text-muted-foreground">{t('appShell.sidebarCustomizationHint', { locale: localeLabel })}</p>
@@ -877,24 +898,26 @@ export function AppShell({ productName, email, groups, rightHeaderSlot, children
                       />
                     </div>
                     <div className="flex items-center gap-1 self-start">
-                      <button
-                        type="button"
-                        className="h-8 w-8 rounded border text-muted-foreground hover:text-foreground disabled:opacity-40"
+                      <IconButton
+                        variant="outline"
+                        size="sm"
+                        className="text-muted-foreground hover:text-foreground"
                         onClick={() => moveGroup(groupId, -1)}
                         disabled={index === 0 || savingPreferences}
                         aria-label={t('appShell.sidebarCustomizationMoveUp')}
                       >
-                        ▲
-                      </button>
-                      <button
-                        type="button"
-                        className="h-8 w-8 rounded border text-muted-foreground hover:text-foreground disabled:opacity-40"
+                        <ChevronUp className="size-4" />
+                      </IconButton>
+                      <IconButton
+                        variant="outline"
+                        size="sm"
+                        className="text-muted-foreground hover:text-foreground"
                         onClick={() => moveGroup(groupId, 1)}
                         disabled={index === orderedGroupIds.length - 1 || savingPreferences}
                         aria-label={t('appShell.sidebarCustomizationMoveDown')}
                       >
-                        ▼
-                      </button>
+                        <ChevronDown className="size-4" />
+                      </IconButton>
                     </div>
                   </div>
                   <div className="flex flex-col gap-2">
@@ -922,6 +945,12 @@ export function AppShell({ productName, email, groups, rightHeaderSlot, children
             </Link>
           </div>
         )}
+        {shouldRenderSidebarInjectionSpots ? (
+          <InjectionSpot
+            spotId={BACKEND_SIDEBAR_TOP_INJECTION_SPOT_ID}
+            context={injectionContext}
+          />
+        ) : null}
         <div className="flex flex-1 flex-col gap-3 overflow-y-auto pr-1">
           {customizing ? (
             customizationEditor
@@ -960,15 +989,15 @@ export function AppShell({ productName, email, groups, rightHeaderSlot, children
                       if (visibleItems.length === 0) return null
                       return (
                         <div key={groupId}>
-                          <button
-                            type="button"
+                          <Button
+                            variant="muted"
                             onClick={() => toggleGroup(groupId)}
-                            className={`w-full ${compact ? 'px-0 justify-center' : 'px-2 justify-between'} flex items-center text-xs uppercase text-muted-foreground/90 py-2`}
+                            className={`w-full ${compact ? 'px-0 justify-center' : 'px-2 justify-between'} flex text-xs uppercase text-muted-foreground/90 py-2`}
                             aria-expanded={open}
                           >
                             {!compact && <span>{g.name}</span>}
                             {!compact && <Chevron open={open} />}
-                          </button>
+                          </Button>
                           {open && (
                             <div className={`flex flex-col ${compact ? 'items-center' : ''} gap-1 ${!compact ? 'pl-1' : ''}`}>
                               {visibleItems.map((i) => {
@@ -1065,21 +1094,39 @@ export function AppShell({ productName, email, groups, rightHeaderSlot, children
           )}
         </div>
         {!customizing && (
-          <button
-            type="button"
-            onClick={startCustomization}
-            className={`mt-auto inline-flex items-center justify-center gap-2 rounded border hover:bg-accent hover:text-accent-foreground disabled:opacity-60 ${
-              compact || isMobileVariant ? 'h-10 w-10 p-0' : 'h-9 px-3 text-sm font-medium'
-            }`}
-            disabled={loadingPreferences}
-            aria-label={t('appShell.customizeSidebar')}
-          >
-            <span className="flex items-center justify-center">{CustomizeIcon}</span>
-            {!(compact || isMobileVariant) && (
-              <span>{loadingPreferences ? t('appShell.sidebarCustomizationLoading') : t('appShell.customizeSidebar')}</span>
-            )}
-          </button>
+          <>
+          {compact || isMobileVariant ? (
+            <IconButton
+              variant="outline"
+              size="lg"
+              className="mt-auto"
+              onClick={startCustomization}
+              disabled={loadingPreferences}
+              aria-label={t('appShell.customizeSidebar')}
+            >
+              {CustomizeIcon}
+            </IconButton>
+          ) : (
+            <Button
+              variant="outline"
+              size="default"
+              className="mt-auto"
+              onClick={startCustomization}
+              disabled={loadingPreferences}
+              aria-label={t('appShell.customizeSidebar')}
+            >
+              {CustomizeIcon}
+              {loadingPreferences ? t('appShell.sidebarCustomizationLoading') : t('appShell.customizeSidebar')}
+            </Button>
+          )}
+          </>
         )}
+        {shouldRenderSidebarInjectionSpots ? (
+          <InjectionSpot
+            spotId={BACKEND_SIDEBAR_FOOTER_INJECTION_SPOT_ID}
+            context={injectionContext}
+          />
+        ) : null}
       </div>
     )
   }
@@ -1102,23 +1149,23 @@ export function AppShell({ productName, email, groups, rightHeaderSlot, children
         <header className="border-b bg-background/60 px-3 lg:px-4 py-2 lg:py-3 flex items-center justify-between gap-2">
           <div className="flex items-center gap-2 min-w-0">
             {/* Mobile menu button */}
-            <button type="button" className="lg:hidden rounded border px-2 py-1" aria-label={t('appShell.openMenu')} onClick={() => setMobileOpen(true)}>
+            <IconButton variant="outline" size="sm" className="lg:hidden" aria-label={t('appShell.openMenu')} onClick={() => setMobileOpen(true)}>
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M3 6h18M3 12h18M3 18h18"/></svg>
-            </button>
+            </IconButton>
             {/* Desktop collapse toggle */}
-            <button
-              type="button"
-              className="hidden lg:inline-flex rounded border px-2 py-1 disabled:opacity-60"
+            <IconButton
+              variant="outline"
+              size="sm"
+              className="hidden lg:inline-flex"
               aria-label={t('appShell.toggleSidebar')}
               onClick={() => setCollapsed((c) => !c)}
               disabled={customizing}
             >
-              {/* Sidebar toggle icon */}
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                 <rect x="3" y="4" width="18" height="16" rx="2"/>
                 <path d="M9 4v16"/>
               </svg>
-            </button>
+            </IconButton>
             {/* Header breadcrumb: always starts with Dashboard */}
             {(() => {
               const dashboardLabel = t('dashboard.title')
@@ -1164,11 +1211,19 @@ export function AppShell({ productName, email, groups, rightHeaderSlot, children
           </div>
         </header>
         <main className="flex-1 p-4 lg:p-6">
+          <InjectionSpot spotId={BACKEND_LAYOUT_TOP_INJECTION_SPOT_ID} context={injectionContext} />
           <FlashMessages />
           <PartialIndexBanner />
           <UpgradeActionBanner />
           <LastOperationBanner />
+          <InjectionSpot spotId={BACKEND_RECORD_CURRENT_INJECTION_SPOT_ID} context={injectionContext} />
+          <InjectionSpot
+            spotId={LEGACY_GLOBAL_MUTATION_INJECTION_SPOT_ID}
+            context={injectionContext}
+          />
+          <div id="om-top-banners" className="mb-3 space-y-2" />
           {children}
+          <InjectionSpot spotId={BACKEND_LAYOUT_FOOTER_INJECTION_SPOT_ID} context={injectionContext} />
         </main>
         <footer className="border-t bg-background/80 backdrop-blur supports-[backdrop-filter]:bg-background/50 px-4 py-3 flex flex-wrap items-center justify-end gap-4">
           {version ? (
@@ -1197,7 +1252,7 @@ export function AppShell({ productName, email, groups, rightHeaderSlot, children
                 <Image src="/open-mercato.svg" alt={resolvedProductName} width={28} height={28} className="rounded" />
                 {resolvedProductName}
               </Link>
-              <button className="rounded border px-2 py-1" onClick={() => setMobileOpen(false)} aria-label={t('appShell.closeMenu')}>✕</button>
+              <IconButton variant="outline" size="sm" onClick={() => setMobileOpen(false)} aria-label={t('appShell.closeMenu')}>✕</IconButton>
             </div>
             {mobileSidebarSlot && (
               <div className="shrink-0 border-b px-3 py-2">
