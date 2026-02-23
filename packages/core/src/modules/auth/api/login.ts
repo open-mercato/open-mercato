@@ -96,15 +96,26 @@ export async function POST(req: Request) {
     tenantId: resolvedTenantId,
     orgId: user.organizationId ? String(user.organizationId) : null,
     email: user.email,
-    roles: userRoleNames
+    roles: userRoleNames,
   })
-  const res = NextResponse.json({ ok: true, token, redirect: '/backend' })
-  res.cookies.set('auth_token', token, { httpOnly: true, path: '/', sameSite: 'lax', secure: process.env.NODE_ENV === 'production', maxAge: 60 * 60 * 8 })
+  const responseBody: { ok: true; token: string; accessToken: string; refreshToken?: string; redirect: string } = {
+    ok: true,
+    token,
+    accessToken: token,
+    redirect: '/backend',
+  }
   if (remember) {
     const days = Number(process.env.REMEMBER_ME_DAYS || '30')
     const expiresAt = new Date(Date.now() + days * 24 * 60 * 60 * 1000)
     const sess = await auth.createSession(user, expiresAt)
-    res.cookies.set('session_token', sess.token, { httpOnly: true, path: '/', sameSite: 'lax', secure: process.env.NODE_ENV === 'production', expires: expiresAt })
+    responseBody.refreshToken = sess.token
+  }
+  const res = NextResponse.json(responseBody)
+  res.cookies.set('auth_token', token, { httpOnly: true, path: '/', sameSite: 'lax', secure: process.env.NODE_ENV === 'production', maxAge: 60 * 60 * 8 })
+  if (remember && responseBody.refreshToken) {
+    const days = Number(process.env.REMEMBER_ME_DAYS || '30')
+    const expiresAt = new Date(Date.now() + days * 24 * 60 * 60 * 1000)
+    res.cookies.set('session_token', responseBody.refreshToken, { httpOnly: true, path: '/', sameSite: 'lax', secure: process.env.NODE_ENV === 'production', expires: expiresAt })
   }
   return res
 }
@@ -116,7 +127,9 @@ const loginRequestSchema = userLoginSchema.extend({
 
 const loginSuccessSchema = z.object({
   ok: z.literal(true),
-  token: z.string().describe('JWT token issued for subsequent API calls'),
+  token: z.string().describe('JWT token issued for subsequent API calls (deprecated, use accessToken)'),
+  accessToken: z.string().describe('JWT access token for API calls'),
+  refreshToken: z.string().optional().describe('Refresh token for obtaining new access tokens (only present when remember=true)'),
   redirect: z.string().nullable().describe('Next location the client should navigate to'),
 })
 
