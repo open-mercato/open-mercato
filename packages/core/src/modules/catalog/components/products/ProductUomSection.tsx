@@ -52,7 +52,7 @@ function normalizeText(value: unknown): string | null {
 }
 
 function normalizeDecimalInput(value: string): string {
-  return value.replace(",", ".");
+  return value.replace(/,/g, ".");
 }
 
 function toPositiveNumber(value: unknown): number | null {
@@ -369,13 +369,14 @@ export function ProductUomSection({
         </div>
 
         <div className="space-y-2 md:col-span-2">
-          <Label>
+          <Label htmlFor="catalog-product-uom-default-sales-quantity">
             {t(
               "catalog.products.uom.defaultSalesQuantityLabel",
               "Default line quantity (in sales unit)",
             )}
           </Label>
           <Input
+            id="catalog-product-uom-default-sales-quantity"
             type="text"
             inputMode="decimal"
             value={defaultSalesQuantity}
@@ -451,10 +452,11 @@ export function ProductUomSection({
           </select>
         </div>
         <div className="space-y-2">
-          <Label>
+          <Label htmlFor="catalog-product-uom-rounding-scale">
             {t("catalog.products.uom.roundingScale", "Rounding scale (decimal places)")}
           </Label>
           <Input
+            id="catalog-product-uom-rounding-scale"
             type="number"
             min={0}
             max={6}
@@ -518,13 +520,14 @@ export function ProductUomSection({
               </select>
             </div>
             <div className="space-y-2">
-              <Label>
+              <Label htmlFor="catalog-product-uom-unit-price-base-quantity">
                 {t(
                   "catalog.products.unitPrice.baseQuantity",
                   "Reference quantity (in base unit)",
                 )}
               </Label>
               <Input
+                id="catalog-product-uom-unit-price-base-quantity"
                 type="text"
                 inputMode="decimal"
                 value={unitPriceBaseQuantity}
@@ -589,10 +592,11 @@ export function ProductUomSection({
                 className="grid gap-3 rounded-md border p-3 md:grid-cols-12"
               >
                 <div className="space-y-1 md:col-span-4">
-                  <Label className="text-xs text-muted-foreground">
+                  <Label htmlFor={`catalog-product-uom-conversion-unit-${index}`} className="text-xs text-muted-foreground">
                     {t("catalog.products.uom.conversionUnit", "Sales unit")}
                   </Label>
                   <select
+                    id={`catalog-product-uom-conversion-unit-${index}`}
                     className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
                     value={entry.unitCode}
                     onChange={(event) =>
@@ -612,13 +616,14 @@ export function ProductUomSection({
                 </div>
 
                 <div className="space-y-1 md:col-span-3">
-                  <Label className="text-xs text-muted-foreground">
+                  <Label htmlFor={`catalog-product-uom-conversion-factor-${index}`} className="text-xs text-muted-foreground">
                     {t(
                       "catalog.products.uom.toBaseFactor",
                       "Base units per 1 sales unit",
                     )}
                   </Label>
                   <Input
+                    id={`catalog-product-uom-conversion-factor-${index}`}
                     type="text"
                     inputMode="decimal"
                     value={entry.toBaseFactor}
@@ -689,16 +694,17 @@ export function ProductUomSection({
                   </Button>
                 </div>
 
-                {entry.unitCode && toPositiveNumber(entry.toBaseFactor) ? (
+                {(() => {
+                  const factor = toPositiveNumber(entry.toBaseFactor);
+                  if (!entry.unitCode || factor === null) return null;
+                  return (
                   <p className="text-xs text-muted-foreground md:col-span-12">
                     {t(
                       "catalog.products.uom.conversionPreview",
                       "1 {{fromUnit}} = {{factor}} {{baseUnit}}",
                       {
                         fromUnit: findUnitLabel(entry.unitCode) ?? entry.unitCode,
-                        factor: formatPreviewNumber(
-                          toPositiveNumber(entry.toBaseFactor) as number,
-                        ),
+                        factor: formatPreviewNumber(factor),
                         baseUnit:
                           findUnitLabel(defaultUnit) ??
                           defaultUnit ??
@@ -706,7 +712,8 @@ export function ProductUomSection({
                       },
                     )}
                   </p>
-                ) : null}
+                  );
+                })()}
               </div>
             ))}
           </div>

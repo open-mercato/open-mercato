@@ -22,7 +22,7 @@ export function toTrimmedOrNull(value: unknown): string | null {
 export function parseNumericInput(value: unknown): number {
   if (typeof value === "number") return value;
   if (typeof value === "string") {
-    const normalized = value.trim().replace(/\s+/g, "").replace(",", ".");
+    const normalized = value.trim().replace(/\s+/g, "").replace(/,/g, ".");
     if (!normalized.length) return Number.NaN;
     return Number(normalized);
   }
