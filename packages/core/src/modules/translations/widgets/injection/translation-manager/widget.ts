@@ -6,7 +6,7 @@ const widget: InjectionWidgetModule<any, any> = {
     id: 'translations.injection.translation-manager',
     title: 'Translation Manager',
     description: 'Manage translations for the current record',
-    features: [],
+    features: ['translations.view'],
     priority: 40,
     enabled: true,
   },

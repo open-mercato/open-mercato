@@ -61,7 +61,7 @@ type DealDetailPayload = {
 }
 
 const CRUD_FOCUSABLE_SELECTOR =
-  '[data-crud-focus-target], input:not([type="hidden"]):not([disabled]), textarea:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1")]'
+  '[data-crud-focus-target], input:not([type="hidden"]):not([disabled]), textarea:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])'
 
 function formatCurrency(amount: string | null, currency: string | null): string | null {
   if (!amount) return null
@@ -423,7 +423,6 @@ export default function DealDetailPage({ params }: { params?: { id?: string } })
             isDeleting={isDeleting}
             deleteLabel={t('ui.actions.delete', 'Delete')}
           />
-
           <div className="grid gap-6 lg:grid-cols-[minmax(0,2fr),minmax(0,1.1fr)]">
             <div className="space-y-6">
               <div className="rounded-lg border bg-card p-4">

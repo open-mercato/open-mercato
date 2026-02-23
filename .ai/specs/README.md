@@ -52,7 +52,7 @@ Files like `AGENTS.md` and `CLAUDE.md` use UPPERCASE names and are not numberedâ
 | [SPEC-002](SPEC-002-2026-01-23-messages-module.md) | 2026-01-23 | Messages Module | Internal messaging and communication system |
 | [SPEC-003](SPEC-003-2026-01-23-notifications-module.md) | 2026-01-23 | Notifications Module | User notification system with multiple channels |
 | [SPEC-004](SPEC-004-2026-01-23-progress-module.md) | 2026-01-23 | Progress Module | Long-running task progress tracking |
-| [SPEC-005](SPEC-005-2026-01-23-record-locking-module.md) | 2026-01-23 | Record Locking Module | Pessimistic locking for concurrent editing |
+| [SPEC-005](SPEC-005-2026-01-23-record-locking-module.md) | 2026-01-23 | Record Locking Module (Moved) | Moved to Enterprise: [`SPEC-ENT-003`](enterprise/SPEC-ENT-003-2026-01-23-record-locking-module.md); this file remains as a pointer |
 | [SPEC-006](SPEC-006-2026-01-23-order-status-history.md) | 2026-01-23 | Order Status History | Sales order status tracking and history |
 | [SPEC-007](SPEC-007-2026-01-26-sidebar-reorganization.md) | 2026-01-26 | Sidebar Reorganization | Backend admin panel navigation improvements |
 | [SPEC-008](SPEC-008-2026-01-27-product-quality-widget.md) | 2026-01-27 | Product Quality Widget | Dashboard widget for tracking products with missing images/descriptions |
@@ -83,6 +83,9 @@ Files like `AGENTS.md` and `CLAUDE.md` use UPPERCASE names and are not numberedâ
 | [SPEC-031](SPEC-031-2026-02-18-decrypt-database-cli.md) | 2026-02-18 | Decrypt Database CLI Command | CLI operation to decrypt encrypted tenant data back to plaintext with strict safety gates and operational guardrails |
 | [SPEC-032](SPEC-032-2026-02-19-notification-templates-db-only.md) | 2026-02-19 | Notification Templates (DB-Only) | DB-only architecture for versioned email/slack notification templates with publish flow, mapping resolver, and tenant-safe runtime fallback policy |
 | [SPEC-033](SPEC-033-2026-02-18-omnibus-price-tracking.md) | 2026-02-18 | Omnibus Price Tracking | EU Omnibus compliance with append-only catalog price history, lowest-price lookback resolution, API exposure, and admin configuration |
+| [SPEC-034](SPEC-034-2026-02-21-dev-ephemeral-runtime.md) | 2026-02-21 | Dev Ephemeral Runtime Command | One-command worktree-friendly ephemeral dev runtime with automatic free-port selection, isolated Postgres, and runtime registry tracking |
+| [SPEC-035](SPEC-035-2026-02-22-mutation-guard-mechanism.md) | 2026-02-22 | Mutation Guard Mechanism | Generic DI-based mutation pre/post guard contract for CRUD and custom mutation routes |
+| [SPEC-036](SPEC-036-2026-02-21-application-request-lifecycle-events.md) | 2026-02-21 | Application & Request Lifecycle Events | Runtime lifecycle event contract for bootstrap and API request handling with best-effort event emission semantics |
 | [SPEC-037](SPEC-037-2026-02-22-integration-test-coverage-quick-wins.md) | 2026-02-22 | Integration Test Coverage Quick Wins | Pure-API integration tests for 6 zero-coverage core modules (currencies, staff, dictionaries, api_keys, audit_logs, directory) |
 
 ## Specification Structure

@@ -11,14 +11,21 @@ async function writeTestFile(projectRoot: string, relativePath: string, content 
 
 describe('integration discovery', () => {
   let tempRoot = ''
+  const previousEnterpriseFlag = process.env.OM_ENABLE_ENTERPRISE_MODULES
 
   beforeEach(async () => {
     tempRoot = await mkdtemp(path.join(os.tmpdir(), 'om-integration-discovery-'))
+    delete process.env.OM_ENABLE_ENTERPRISE_MODULES
   })
 
   afterEach(async () => {
     if (tempRoot) {
       await rm(tempRoot, { recursive: true, force: true })
+    }
+    if (previousEnterpriseFlag === undefined) {
+      delete process.env.OM_ENABLE_ENTERPRISE_MODULES
+    } else {
+      process.env.OM_ENABLE_ENTERPRISE_MODULES = previousEnterpriseFlag
     }
   })
 
@@ -59,7 +66,7 @@ describe('integration discovery', () => {
     ])
   })
 
-  it('includes enterprise overlay tests only when matching base module tests exist', async () => {
+  it('loads enterprise integration tests only when enterprise modules are enabled', async () => {
     await writeTestFile(tempRoot, 'packages/core/src/modules/sales/.gitkeep')
     await writeTestFile(
       tempRoot,
@@ -68,19 +75,26 @@ describe('integration discovery', () => {
     )
     await writeTestFile(
       tempRoot,
-      'packages/enterprise/modules/sales/__integration__/TC-SALES-910.spec.ts',
+      'packages/enterprise/src/modules/sales/__integration__/TC-SALES-910.spec.ts',
       'export {}\n',
     )
     await writeTestFile(
       tempRoot,
-      'packages/enterprise/modules/catalog/__integration__/TC-CAT-910.spec.ts',
+      'packages/enterprise/src/modules/record_locks/__integration__/TC-LOCK-910.spec.ts',
       'export {}\n',
     )
 
-    const discovered = discoverIntegrationSpecFiles(tempRoot, path.join(tempRoot, '.ai', 'qa', 'tests'))
+    let discovered = discoverIntegrationSpecFiles(tempRoot, path.join(tempRoot, '.ai', 'qa', 'tests'))
     expect(discovered.map((entry) => entry.path)).toEqual([
       'packages/core/src/modules/sales/__integration__/TC-SALES-010.spec.ts',
-      'packages/enterprise/modules/sales/__integration__/TC-SALES-910.spec.ts',
+    ])
+
+    process.env.OM_ENABLE_ENTERPRISE_MODULES = 'true'
+    discovered = discoverIntegrationSpecFiles(tempRoot, path.join(tempRoot, '.ai', 'qa', 'tests'))
+    expect(discovered.map((entry) => entry.path)).toEqual([
+      'packages/core/src/modules/sales/__integration__/TC-SALES-010.spec.ts',
+      'packages/enterprise/src/modules/record_locks/__integration__/TC-LOCK-910.spec.ts',
+      'packages/enterprise/src/modules/sales/__integration__/TC-SALES-910.spec.ts',
     ])
   })
 

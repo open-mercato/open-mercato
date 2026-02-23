@@ -376,5 +376,17 @@
   "upgrades.v035.loading": "Rolle wird aktualisiert…",
   "upgrades.v035.success": "Admin-Rolle um Business-Rules-Zugriff ergänzt.",
   "upgrades.runFailed": "Die Upgrade-Aktion konnte nicht ausgeführt werden.",
-  "upgrades.loading": "Upgrade wird geladen…"
+  "upgrades.loading": "Upgrade wird geladen…",
+  "ui.datePicker.placeholder": "Datum wählen",
+  "ui.datePicker.todayButton": "Heute",
+  "ui.datePicker.clearButton": "Löschen",
+  "ui.dateTimePicker.clearButton": "Löschen",
+  "ui.dateTimePicker.placeholder": "Datum und Uhrzeit wählen",
+  "ui.dateTimePicker.timeLabel": "Uhrzeit",
+  "ui.dateTimePicker.todayButton": "Heute",
+  "ui.timePicker.hourLabel": "Stunde",
+  "ui.timePicker.minuteLabel": "Minute",
+  "ui.timePicker.nowButton": "Jetzt",
+  "ui.timePicker.clearButton": "Löschen",
+  "ui.timePicker.placeholder": "Uhrzeit wählen"
 }

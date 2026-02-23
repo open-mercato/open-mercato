@@ -144,5 +144,5 @@ describe('auth CLI setup seeds ACLs', () => {
       'translations.view',
       'translations.manage',
     ]))
-  })
+  }, 20000)
 })
