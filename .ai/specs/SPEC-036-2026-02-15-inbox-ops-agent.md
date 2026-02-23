@@ -1,4 +1,4 @@
-﻿# SPEC-028: InboxOps Agent — Email-to-ERP Action Proposals
+﻿# SPEC-036: InboxOps Agent — Email-to-ERP Action Proposals
 
 **Date**: 2026-02-15
 **Updated**: 2026-02-17

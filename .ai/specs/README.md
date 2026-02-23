@@ -84,6 +84,7 @@ Files like `AGENTS.md` and `CLAUDE.md` use UPPERCASE names and are not numberedâ
 | [SPEC-032](SPEC-032-2026-02-19-notification-templates-db-only.md) | 2026-02-19 | Notification Templates (DB-Only) | DB-only architecture for versioned email/slack notification templates with publish flow, mapping resolver, and tenant-safe runtime fallback policy |
 | [SPEC-033](SPEC-033-2026-02-18-omnibus-price-tracking.md) | 2026-02-18 | Omnibus Price Tracking | EU Omnibus compliance with append-only catalog price history, lowest-price lookback resolution, API exposure, and admin configuration |
 | [SPEC-035](SPEC-035-2026-02-22-mutation-guard-mechanism.md) | 2026-02-22 | Mutation Guard Mechanism | Generic DI-based mutation pre/post guard contract for CRUD and custom mutation routes |
+| [SPEC-036](SPEC-036-2026-02-15-inbox-ops-agent.md) | 2026-02-15 | InboxOps Agent â€” Email-to-ERP Action Proposals | `inbox_ops` module for forwarded email ingestion, LLM-based action proposals, human-in-the-loop review, and command-bus execution |
 
 ## Specification Structure
 
