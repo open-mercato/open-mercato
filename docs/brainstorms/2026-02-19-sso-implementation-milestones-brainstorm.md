@@ -2,6 +2,7 @@
 
 **Date:** 2026-02-19
 **Updated:** 2026-02-22
+**Status:** M1 and M2 completed. M3 (SCIM) is next.
 **Spec:** `.ai/specs/enterprise/SPEC-ENT-002-2026-02-19-sso-directory-sync.md`
 **Strategy:** One PR per milestone, merged to `develop` incrementally
 **Dev IdP:** Zitadel (free cloud instance) for all phases; cross-validate with Entra ID + Google Workspace in final milestones
@@ -24,87 +25,54 @@ A fully working enterprise SSO module supporting **OIDC only** (SAML deferred) a
 
 ## Milestones
 
-### Milestone 1: Module Scaffold + OIDC Login with Zitadel
+### ~~Milestone 1: Module Scaffold + OIDC Login with Zitadel~~ DONE
 
 **PR:** `feat(sso): module scaffold and OIDC login flow`
 **Goal:** A user can log in to Open Mercato via Zitadel OIDC. No admin UI yet — config seeded via setup/migration.
 
-**Deliverables:**
-- [ ] Module scaffold at `packages/enterprise/src/modules/sso/` (index.ts, acl.ts, setup.ts, di.ts, events.ts)
-- [ ] Database entities + migration: `sso_configs`, `sso_identities`
-- [ ] `SsoProviderRegistry` + `OidcProvider` (using `openid-client` v6)
-- [ ] `SsoService` — orchestrates initiate → callback → session
-- [ ] `AccountLinkingService` — lookup by `idp_subject`, then email match, then JIT provision
-- [ ] API routes: `POST /api/sso/hrd` (basic: lookup by org), `GET /api/sso/initiate`, `POST /api/sso/callback/oidc`
-- [ ] OIDC flow state management (encrypted cookie for `state` + `nonce`)
-- [ ] Session issuance after SSO callback (JWT + session cookie via existing auth primitives)
-- [ ] Seed a test SSO config for Zitadel in dev environment (using free cloud instance credentials via env vars)
-- [ ] Document Zitadel project/application setup (where to find client ID, issuer URL, redirect URIs)
-- [ ] Integration test: OIDC login end-to-end with Zitadel
+<details>
+<summary>Deliverables (completed)</summary>
 
-**Acceptance criteria:**
-- User enters email → HRD detects SSO → redirected to Zitadel → authenticates → redirected back → JWT issued → logged in
-- Existing password login still works for orgs without SSO
-- New user JIT-provisioned on first SSO login (no password, assigned default role)
-- Existing user linked by email on first SSO login
+- [x] Module scaffold at `packages/enterprise/src/modules/sso/` (index.ts, acl.ts, setup.ts, di.ts, events.ts)
+- [x] Database entities + migration: `sso_configs`, `sso_identities`
+- [x] `SsoProviderRegistry` + `OidcProvider` (using `openid-client` v6)
+- [x] `SsoService` — orchestrates initiate → callback → session
+- [x] `AccountLinkingService` — lookup by `idp_subject`, then email match, then JIT provision
+- [x] API routes: `POST /api/sso/hrd` (basic: lookup by org), `GET /api/sso/initiate`, `POST /api/sso/callback/oidc`
+- [x] OIDC flow state management (encrypted cookie for `state` + `nonce`)
+- [x] Session issuance after SSO callback (JWT + session cookie via existing auth primitives)
+- [x] Seed a test SSO config for Zitadel in dev environment (using free cloud instance credentials via env vars)
+- [x] Document Zitadel project/application setup (where to find client ID, issuer URL, redirect URIs)
+- [x] Integration test: OIDC login end-to-end with Zitadel
+
+</details>
 
 ---
 
-### Milestone 2: SSO Admin UI + Config Management
+### ~~Milestone 2: SSO Admin UI + Config Management~~ DONE
 
 **PR:** `feat(sso): admin UI for IdP configuration`
 **Goal:** Admins can configure SSO connections through the backend UI instead of seeded data.
 
-**Deliverables:**
-- [ ] SSO config CRUD API: `GET/POST/PUT/DELETE /api/sso/config`
-- [ ] Config activate/deactivate endpoints
-- [ ] Connection test endpoint: `POST /api/sso/config/:id/test`
-- [ ] Domain management API: CRUD `/api/sso/config/:id/domains`
-- [ ] `HrdService` — full email domain lookup via `allowed_domains` GIN index (extends M1's basic org-level HRD with multi-domain routing)
-- [ ] Backend pages: SSO dashboard, IdP config list, OIDC setup wizard (protocol → credentials → domains → test → activate)
-- [ ] IdP detail page with tabs (general, domains, activity)
-- [ ] RBAC features: `sso.config.view`, `sso.config.manage`
-- [ ] Default role features in `setup.ts`
-- [ ] Validators (zod schemas for config CRUD)
+<details>
+<summary>Deliverables (completed)</summary>
 
-**Acceptance criteria:**
-- Admin creates an OIDC config for Zitadel via the setup wizard
-- Admin tests the connection (initiates a test login)
-- Admin activates the config → HRD starts routing users to Zitadel
-- Admin adds/removes allowed email domains
-- Non-admin users cannot access SSO config pages
+- [x] SSO config CRUD API: `GET/POST/PUT/DELETE /api/sso/config`
+- [x] Config activate/deactivate endpoints
+- [x] Connection test endpoint: `POST /api/sso/config/:id/test`
+- [x] Domain management API: CRUD `/api/sso/config/:id/domains`
+- [x] `HrdService` — full email domain lookup via `allowed_domains` GIN index (extends M1's basic org-level HRD with multi-domain routing)
+- [x] Backend pages: SSO dashboard, IdP config list, OIDC setup wizard (protocol → credentials → domains → test → activate)
+- [x] IdP detail page with tabs (general, domains, activity)
+- [x] RBAC features: `sso.config.view`, `sso.config.manage`
+- [x] Default role features in `setup.ts`
+- [x] Validators (zod schemas for config CRUD)
+
+</details>
 
 ---
 
-### Milestone 3: SSO Enforcement + Break-Glass
-
-**PR:** `feat(sso): enforcement policies and break-glass access`
-**Goal:** Admins can require SSO for their organization, blocking password login. Super-admins retain break-glass access.
-
-**Deliverables:**
-- [ ] `SsoEnforcementService` — check `sso_required` flag, evaluate break-glass eligibility
-- [ ] Enforcement API: `GET/PUT /api/sso/enforcement`
-- [ ] Login page HRD integration — UI-level check (HRD call on email blur before showing password field; if SSO required, redirect instead of showing password form)
-- [ ] Password login blocked when `sso_required = true` (returns `{ error: 'sso_required', sso_initiate_url }`)
-- [ ] Super-admin bypass (`isSuperAdmin` flag) — password login still works
-- [ ] Break-glass event: `sso.enforcement.bypassed`
-- [ ] Enforcement admin page in backend UI
-- [ ] SSO identity management API: `GET /api/sso/identities`, `DELETE /api/sso/identities/:id`
-- [ ] Widget injection: SSO identity info on user detail page
-- [ ] Widget injection: SSO status on org settings page
-- [ ] RBAC features: `sso.enforcement.view`, `sso.enforcement.manage`, `sso.identities.view`, `sso.identities.manage`
-- [ ] Integration test: enforcement blocks password login, super-admin bypass works
-
-**Acceptance criteria:**
-- Admin enables `sso_required` → password login blocked for org users
-- Super-admin can still log in with password (break-glass)
-- Non-SSO user sees clear error with SSO redirect link
-- Admin can view/unlink SSO identities from user profiles
-- Enforcement can be toggled off to restore password login
-
----
-
-### Milestone 4: SCIM 2.0 Provisioning with Zitadel
+### Milestone 3: SCIM 2.0 Provisioning with Zitadel
 
 **PR:** `feat(sso): SCIM 2.0 provisioning endpoint`
 **Goal:** IdP can push user lifecycle changes (create, update, deactivate) and group membership via SCIM.
@@ -140,7 +108,7 @@ A fully working enterprise SSO module supporting **OIDC only** (SAML deferred) a
 
 ---
 
-### Milestone 5: Microsoft Entra ID Validation
+### Milestone 4: Microsoft Entra ID Validation
 
 **PR:** `feat(sso): entra id validation and compatibility`
 **Goal:** SSO (OIDC) and SCIM fully working with Microsoft Entra ID.
@@ -163,7 +131,7 @@ A fully working enterprise SSO module supporting **OIDC only** (SAML deferred) a
 
 ---
 
-### Milestone 6: Google Workspace Validation + Final Polish
+### Milestone 5: Google Workspace Validation + Final Polish
 
 **PR:** `feat(sso): google workspace support and production readiness`
 **Goal:** SSO with Google Workspace working. Module is production-ready.
@@ -173,7 +141,7 @@ A fully working enterprise SSO module supporting **OIDC only** (SAML deferred) a
 - [ ] Google-specific handling (no SCIM push — JIT only)
 - [ ] Admin UI: Google-specific setup hints in the wizard
 - [ ] Documentation: Google Workspace setup guide
-- [ ] Email notifications: account linked to SSO, SSO enforcement activated, SCIM user provisioned
+- [ ] Email notifications: account linked to SSO, SCIM user provisioned
 - [ ] i18n: English + Polish translations for all SSO UI strings
 - [ ] MFA integration: configurable `skipMfaForSso` flag (when security module installed)
 - [ ] Security audit: CSRF, replay protection, tenant isolation
@@ -190,6 +158,27 @@ A fully working enterprise SSO module supporting **OIDC only** (SAML deferred) a
 
 ---
 
+---
+
+## Deferred to v1.1+
+
+### SSO Enforcement + Break-Glass (was Milestone 3)
+
+**Deferred reason:** M1 + M2 deliver a fully working, admin-configurable SSO module. Enforcement (mandatory SSO, password blocking) is a policy layer that can be added cleanly on top without reworking existing code. Deferring reduces v1 scope and lets us gather real customer feedback first. Prioritize when an enterprise customer requires mandatory SSO for compliance.
+
+**Scope when implemented:**
+- `SsoEnforcementService` — `sso_required` flag, break-glass eligibility
+- Enforcement API: `GET/PUT /api/sso/enforcement`
+- Login page HRD integration — redirect instead of password form when SSO required
+- Password login blocking + super-admin bypass
+- Break-glass event: `sso.enforcement.bypassed`
+- Enforcement admin page, SSO identity management API
+- Widget injection: SSO identity info on user detail page, SSO status on org settings page
+- RBAC features: `sso.enforcement.view`, `sso.enforcement.manage`, `sso.identities.view`, `sso.identities.manage`
+- Email notification: SSO enforcement activated
+
+---
+
 ## Key Decisions
 
 1. **OIDC-only for v1** — covers all targeted IdPs; SAML deferred until a specific customer demands it on a legacy IdP with no OIDC endpoint
@@ -199,6 +188,7 @@ A fully working enterprise SSO module supporting **OIDC only** (SAML deferred) a
 5. **SCIM paths** — use `/api/sso/scim/v2/...` (module-prefixed) to comply with auto-discovery; IdP clients configured with this base URL
 6. **OIDC state in encrypted cookie** — no Redis/DB needed for flow state
 7. **PR per milestone** — incremental merges to `develop`, module behind enterprise overlay
+8. **Enforcement deferred to v1.1** — v1 ships with optional SSO (M1-M2 done) + SCIM + IdP validation. Enforcement (mandatory SSO, password blocking, break-glass) deferred until customer demand justifies it
 
 ## Resolved Questions
 
