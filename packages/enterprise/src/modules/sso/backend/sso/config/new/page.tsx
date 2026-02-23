@@ -126,7 +126,7 @@ export default function SsoConfigCreateWizard() {
         { errorMessage: t('sso.admin.error.createFailed', 'Failed to create SSO configuration') },
       )
       flash(t('sso.admin.created', 'SSO configuration created'), 'success')
-      router.push(`/backend/sso/config/${call.result?.id}`)
+      router.push(`/backend/sso/config/${call.result?.id}?created=1`)
     } catch {
       // apiCallOrThrow handles the error
     } finally {
