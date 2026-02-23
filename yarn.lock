@@ -19286,6 +19286,17 @@ __metadata:
   languageName: node
   linkType: hard
 
+"n8n-nodes-open-mercato@workspace:packages/n8n-community-node":
+  version: 0.0.0-use.local
+  resolution: "n8n-nodes-open-mercato@workspace:packages/n8n-community-node"
+  dependencies:
+    "@types/node": "npm:^24.10.1"
+    typescript: "npm:^5.9.3"
+  peerDependencies:
+    n8n-workflow: "*"
+  languageName: unknown
+  linkType: soft
+
 "nan@npm:^2.19.0, nan@npm:^2.23.0":
   version: 2.25.0
   resolution: "nan@npm:2.25.0"

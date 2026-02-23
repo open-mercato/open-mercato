@@ -1,0 +1,47 @@
+{
+  "name": "n8n-nodes-open-mercato",
+  "version": "0.1.0",
+  "description": "n8n community node for Open Mercato",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "clean": "rm -rf dist",
+    "lint": "tsc --noEmit",
+    "typecheck": "tsc --noEmit",
+    "test": "node -e \"console.log('No package tests yet')\"",
+    "openapi:generate": "node scripts/generate-openapi.mjs"
+  },
+  "n8n": {
+    "n8nNodesApiVersion": 1,
+    "credentials": [
+      "dist/credentials/OpenMercatoApi.credentials.js"
+    ],
+    "nodes": [
+      "dist/nodes/OpenMercato/OpenMercato.node.js"
+    ]
+  },
+  "keywords": [
+    "n8n-community-node-package",
+    "n8n",
+    "open-mercato",
+    "openapi"
+  ],
+  "author": "Open Mercato",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/open-mercato/open-mercato.git",
+    "directory": "packages/n8n-community-node"
+  },
+  "devDependencies": {
+    "@types/node": "^24.10.1",
+    "typescript": "^5.9.3"
+  },
+  "peerDependencies": {
+    "n8n-workflow": "*"
+  }
+}
