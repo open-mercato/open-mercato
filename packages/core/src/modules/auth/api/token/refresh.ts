@@ -35,10 +35,6 @@ async function extractRefreshToken(req: Request): Promise<string | null> {
   } catch {
     // Body not JSON or empty
   }
-  const authHeader = (req.headers.get('authorization') || '').trim()
-  if (authHeader.toLowerCase().startsWith('refresh ')) {
-    return authHeader.slice(8).trim()
-  }
   return parseCookie(req, 'session_token')
 }
 
@@ -92,11 +88,7 @@ export async function POST(req: Request) {
 }
 
 const refreshRequestSchema = z.object({
-  refreshToken: z
-    .string()
-    .min(32)
-    .optional()
-    .describe('The refresh token obtained from login. If not provided, the Authorization header or cookie is used.'),
+  refreshToken: z.string().min(32).describe('The refresh token obtained from login'),
 })
 
 const refreshSuccessSchema = z.object({
@@ -114,16 +106,15 @@ const refreshMethodDoc: OpenApiMethodDoc = {
   summary: 'Refresh access token',
   description: `Exchanges a valid refresh token for a new access token.
 
-The refresh token can be provided in three ways (checked in order):
+The refresh token can be provided via:
 1. JSON body: \`{ "refreshToken": "..." }\`
-2. Authorization header: \`Authorization: Refresh <token>\`
-3. Cookie: \`session_token\` (fallback for mixed-mode clients)
+2. Cookie: \`session_token\` (fallback for browser/mixed-mode clients)
 
-This endpoint is designed for mobile apps and API clients that cannot use cookie-based authentication.`,
+This endpoint is designed for mobile apps and API clients.`,
   tags: ['Authentication & Accounts'],
   requestBody: {
     schema: refreshRequestSchema,
-    description: 'Optional JSON body with refresh token. If not provided, header or cookie is used.',
+    description: 'JSON body with refresh token',
   },
   responses: [
     {
