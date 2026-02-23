@@ -63,6 +63,8 @@ import {
   emitCatalogQueryIndexEvent,
   randomSuffix,
   toNumericString,
+  getErrorConstraint,
+  getErrorMessage,
 } from "./shared";
 import {
   findWithDecryption,
@@ -1894,26 +1896,19 @@ function resolveProductUniqueConstraint(
   error: unknown,
 ): "handle" | "sku" | null {
   if (!(error instanceof UniqueConstraintViolationException)) return null;
-  const constraint =
-    typeof (error as { constraint?: string }).constraint === "string"
-      ? (error as { constraint?: string }).constraint
-      : null;
+  const constraint = getErrorConstraint(error);
   if (constraint === "catalog_products_handle_scope_unique") return "handle";
   if (constraint === "catalog_products_sku_scope_unique") return "sku";
-  const message =
-    typeof (error as { message?: string }).message === "string"
-      ? (error as { message?: string }).message
-      : "";
-  const normalized = message ? message.toLowerCase() : "";
+  const message = getErrorMessage(error).toLowerCase();
   if (
-    normalized.includes("catalog_products_handle_scope_unique") ||
-    normalized.includes(" handle")
+    message.includes("catalog_products_handle_scope_unique") ||
+    message.includes(" handle")
   ) {
     return "handle";
   }
   if (
-    normalized.includes("catalog_products_sku_scope_unique") ||
-    normalized.includes(" sku")
+    message.includes("catalog_products_sku_scope_unique") ||
+    message.includes(" sku")
   ) {
     return "sku";
   }

@@ -32,6 +32,8 @@ import {
   extractUndoPayload,
   requireProduct,
   toNumericString,
+  getErrorConstraint,
+  getErrorMessage,
 } from "./shared";
 import { toUnitLookupKey } from "../lib/unitCodes";
 import { resolveCanonicalUnitCode } from "../lib/unitResolution";
@@ -189,20 +191,10 @@ async function ensureDefaultSalesUnitIsNotRemoved(
 
 function resolveConversionUniqueConstraint(error: unknown): boolean {
   if (error instanceof UniqueConstraintViolationException) {
-    const constraint =
-      typeof (error as { constraint?: string }).constraint === "string"
-        ? (error as { constraint?: string }).constraint
-        : null;
+    const constraint = getErrorConstraint(error);
     if (constraint === "catalog_product_unit_conversions_unique") return true;
-    const message =
-      typeof (error as { message?: string }).message === "string"
-        ? (error as { message?: string }).message
-        : "";
-    return (
-      message
-        ?.toLowerCase()
-        .includes("catalog_product_unit_conversions_unique") ?? false
-    );
+    const message = getErrorMessage(error);
+    return message.toLowerCase().includes("catalog_product_unit_conversions_unique");
   }
   return false;
 }

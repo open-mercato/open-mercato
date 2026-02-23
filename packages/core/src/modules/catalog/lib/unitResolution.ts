@@ -40,7 +40,7 @@ export async function resolveCanonicalUnitCode(
     params.tenantId,
   );
   if (!dictionary) {
-    throw new CrudHttpError(400, { error: "uom.unit_not_found" });
+    return canonicalizeUnitCode(params.unitCode) ?? params.unitCode;
   }
   const unitCode = canonicalizeUnitCode(params.unitCode);
   if (!unitCode) {

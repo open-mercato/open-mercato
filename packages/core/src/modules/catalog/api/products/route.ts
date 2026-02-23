@@ -259,8 +259,10 @@ export async function buildProductFilters(
       fieldset: customFieldset ?? undefined,
     });
     Object.assign(filters, cfFilters);
-  } catch {
-    // ignore custom field filter errors; fall back to base filters
+  } catch (err) {
+    // Custom field filter parsing may fail for non-existent or misconfigured fields.
+    // Fall back to base filters to avoid blocking the product listing.
+    if (process.env.NODE_ENV === 'development') console.warn('[catalog:products] custom field filter error', err);
   }
   applyRestrictedProducts();
   return filters;
@@ -285,10 +287,6 @@ export function buildPricingContext(
     quantity: Number.isFinite(quantity) && quantity > 0 ? quantity : 1,
     date: Number.isNaN(parsedDate.getTime()) ? new Date() : parsedDate,
   };
-}
-
-function normalizeUnitLookupKey(value: unknown): string | null {
-  return toUnitLookupKey(value);
 }
 
 type ProductListItem = Record<string, unknown> & {
@@ -537,7 +535,7 @@ async function decorateProductsAfterList(
       pricesByProduct.set(productId, entry);
     }
 
-    const requestQuantityUnitKey = normalizeUnitLookupKey(
+    const requestQuantityUnitKey = toUnitLookupKey(
       ctx.query.quantityUnit,
     );
     const conversionsByProduct = new Map<string, Map<string, number>>();
@@ -566,7 +564,7 @@ async function decorateProductsAfterList(
           typeof row.product === "string"
             ? row.product
             : (row.product?.id ?? null);
-        const unitKey = normalizeUnitLookupKey(row.unitCode);
+        const unitKey = toUnitLookupKey(row.unitCode);
         const factor = Number(row.toBaseFactor);
         if (!productId || !unitKey || !Number.isFinite(factor) || factor <= 0)
           continue;
@@ -608,7 +606,7 @@ async function decorateProductsAfterList(
       const priceCandidates = pricesByProduct.get(id) ?? [];
       const normalizedQuantityForPricing = (() => {
         if (!requestQuantityUnitKey) return pricingContext.quantity;
-        const baseUnit = normalizeUnitLookupKey(item.default_unit);
+        const baseUnit = toUnitLookupKey(item.default_unit);
         if (!baseUnit || requestQuantityUnitKey === baseUnit)
           return pricingContext.quantity;
         const productConversions = conversionsByProduct.get(id);

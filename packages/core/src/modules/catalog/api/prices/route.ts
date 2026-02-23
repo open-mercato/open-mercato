@@ -60,10 +60,6 @@ const routeMetadata = {
 
 export const metadata = routeMetadata;
 
-function normalizeUnitLookupKey(value: unknown): string | null {
-  return toUnitLookupKey(value);
-}
-
 async function resolveNormalizedQuantityForFilter(params: {
   em: EntityManager;
   organizationId: string | null;
@@ -74,7 +70,7 @@ async function resolveNormalizedQuantityForFilter(params: {
   quantityUnit?: string;
 }): Promise<number> {
   const quantity = params.quantity;
-  const quantityUnitKey = normalizeUnitLookupKey(params.quantityUnit);
+  const quantityUnitKey = toUnitLookupKey(params.quantityUnit);
   if ((!params.productId && !params.variantId) || !quantityUnitKey)
     return quantity;
   if (!params.organizationId || !params.tenantId) return quantity;
@@ -109,7 +105,7 @@ async function resolveNormalizedQuantityForFilter(params: {
     { fields: ["id", "defaultUnit"] },
   );
   if (!product) return quantity;
-  const baseUnitKey = normalizeUnitLookupKey(product.defaultUnit);
+  const baseUnitKey = toUnitLookupKey(product.defaultUnit);
   if (!baseUnitKey || baseUnitKey === quantityUnitKey) return quantity;
   const conversions = await params.em.find(
     CatalogProductUnitConversion,
@@ -123,7 +119,7 @@ async function resolveNormalizedQuantityForFilter(params: {
     { fields: ["id", "unitCode", "toBaseFactor"] },
   );
   const conversion = conversions.find(
-    (entry) => normalizeUnitLookupKey(entry.unitCode) === quantityUnitKey,
+    (entry) => toUnitLookupKey(entry.unitCode) === quantityUnitKey,
   );
   if (!conversion) return quantity;
   const factor = Number(conversion.toBaseFactor);
@@ -173,6 +169,9 @@ const crud = makeCrudRoute({
     orgField: "organizationId",
     tenantField: "tenantId",
     softDeleteField: null,
+  },
+  indexer: {
+    entityType: E.catalog.catalog_product_price,
   },
   list: {
     schema: listSchema,
@@ -224,8 +223,9 @@ const crud = makeCrudRoute({
           tenantId,
         });
         Object.assign(filters, cfFilters);
-      } catch {
-        // ignore
+      } catch (err) {
+        // Custom field filter parsing may fail for non-existent or misconfigured fields.
+        if (process.env.NODE_ENV === 'development') console.warn('[catalog:prices] custom field filter error', err);
       }
       if (
         typeof query.quantity === "number" &&

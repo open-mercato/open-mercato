@@ -128,6 +128,20 @@ export async function requireOptionSchemaTemplate(
   return schema
 }
 
+export function getErrorConstraint(error: unknown): string | null {
+  const errObj = error as { constraint?: unknown; message?: unknown }
+  if (typeof errObj.constraint === 'string') return errObj.constraint
+  if (typeof errObj.message === 'string') {
+    return null
+  }
+  return null
+}
+
+export function getErrorMessage(error: unknown): string {
+  const errObj = error as { message?: unknown }
+  return typeof errObj.message === 'string' ? errObj.message : ''
+}
+
 export async function emitCatalogQueryIndexEvent(
   ctx: CommandRuntimeContext,
   params: {
