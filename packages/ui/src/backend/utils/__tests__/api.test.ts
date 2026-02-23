@@ -41,18 +41,18 @@ describe('apiFetch', () => {
     jest.spyOn(console, 'warn').mockImplementation(() => undefined)
     jest.useFakeTimers()
     window.history.pushState({}, '', '/backend/sales/documents')
-    ;(window as any).__omOriginalFetch = undefined
+    ;(window as unknown as Record<string, unknown>).__omOriginalFetch = undefined
   })
 
   afterEach(() => {
-    ;(window as any).__omOriginalFetch = undefined
+    ;(window as unknown as Record<string, unknown>).__omOriginalFetch = undefined
     jest.clearAllTimers()
     jest.useRealTimers()
     jest.restoreAllMocks()
   })
 
   it('throws ForbiddenError when backend returns ACL hints', async () => {
-    ;(window as any).__omOriginalFetch = jest.fn(async () =>
+    ;(window as unknown as Record<string, unknown>).__omOriginalFetch = jest.fn(async () =>
       createMockResponse(403, {
         error: 'Forbidden',
         requiredRoles: ['Admin'],
@@ -71,7 +71,7 @@ describe('apiFetch', () => {
       error: 'Forbidden',
       message: 'Access denied without ACL hints',
     })
-    ;(window as any).__omOriginalFetch = jest.fn(async () => response)
+    ;(window as unknown as Record<string, unknown>).__omOriginalFetch = jest.fn(async () => response)
 
     const result = await apiFetch('/api/private')
     expect(result).toBe(response)
@@ -84,7 +84,7 @@ describe('apiFetch', () => {
       error: 'Forbidden',
       requiredRoles: ['Admin'],
     })
-    ;(window as any).__omOriginalFetch = jest.fn(async () => response)
+    ;(window as unknown as Record<string, unknown>).__omOriginalFetch = jest.fn(async () => response)
 
     const result = await apiFetch('/api/private')
     expect(result).toBe(response)
