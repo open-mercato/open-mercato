@@ -8,6 +8,11 @@ import type { CommandBus, CommandRuntimeContext } from '@open-mercato/shared/lib
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
+import {
+  runCrudMutationGuardAfterSuccess,
+  validateCrudMutationGuard,
+  type CrudMutationGuardValidationResult,
+} from '@open-mercato/shared/lib/crud/mutation-guard'
 import { withScopedPayload } from '../../utils'
 
 const convertSchema = z.object({
@@ -22,6 +27,11 @@ export const metadata = {
 
 type RequestContext = {
   ctx: CommandRuntimeContext
+}
+
+function buildMutationGuardErrorResponse(validation: CrudMutationGuardValidationResult): NextResponse | null {
+  if (validation.ok) return null
+  return NextResponse.json(validation.body, { status: validation.status })
 }
 
 async function resolveRequestContext(req: Request): Promise<RequestContext> {
@@ -60,6 +70,20 @@ export async function POST(req: Request) {
     const payload = await req.json().catch(() => ({}))
     const scoped = withScopedPayload(payload ?? {}, ctx, translate)
     const input = convertSchema.parse(scoped)
+    const mutationGuardValidation = await validateCrudMutationGuard(ctx.container, {
+      tenantId: ctx.auth?.tenantId ?? '',
+      organizationId: ctx.selectedOrganizationId ?? ctx.auth?.orgId ?? null,
+      userId: ctx.auth?.sub ?? '',
+      resourceKind: 'sales.quote',
+      resourceId: input.quoteId,
+      operation: 'update',
+      requestMethod: req.method,
+      requestHeaders: req.headers,
+    })
+    if (mutationGuardValidation) {
+      const lockErrorResponse = buildMutationGuardErrorResponse(mutationGuardValidation)
+      if (lockErrorResponse) return lockErrorResponse
+    }
     const commandBus = ctx.container.resolve('commandBus') as CommandBus
     const { result, logEntry } = await commandBus.execute<
       { quoteId: string; orderId?: string; orderNumber?: string },
@@ -86,6 +110,20 @@ export async function POST(req: Request) {
               : new Date().toISOString(),
         })
       )
+    }
+
+    if (mutationGuardValidation?.ok && mutationGuardValidation.shouldRunAfterSuccess) {
+      await runCrudMutationGuardAfterSuccess(ctx.container, {
+        tenantId: ctx.auth?.tenantId ?? '',
+        organizationId: ctx.selectedOrganizationId ?? ctx.auth?.orgId ?? null,
+        userId: ctx.auth?.sub ?? '',
+        resourceKind: 'sales.quote',
+        resourceId: input.quoteId,
+        operation: 'update',
+        requestMethod: req.method,
+        requestHeaders: req.headers,
+        metadata: mutationGuardValidation.metadata ?? null,
+      })
     }
 
     return jsonResponse
@@ -122,6 +160,8 @@ export const openApi: OpenApiRouteDoc = {
         { status: 400, description: 'Invalid payload', schema: z.object({ error: z.string() }) },
         { status: 401, description: 'Unauthorized', schema: z.object({ error: z.string() }) },
         { status: 403, description: 'Forbidden', schema: z.object({ error: z.string() }) },
+        { status: 409, description: 'Conflict detected', schema: z.object({ error: z.string(), code: z.string().optional() }) },
+        { status: 423, description: 'Record locked', schema: z.object({ error: z.string(), code: z.string().optional() }) },
       ],
     },
   },

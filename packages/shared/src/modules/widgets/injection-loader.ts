@@ -27,15 +27,54 @@ type WidgetEntry = ModuleInjectionWidgetEntry & { moduleId: string }
 // Registration pattern for publishable packages
 let _coreInjectionWidgetEntries: ModuleInjectionWidgetEntry[] | null = null
 let _coreInjectionTables: Array<{ moduleId: string; table: ModuleInjectionTable }> | null = null
+const GLOBAL_INJECTION_WIDGETS_KEY = '__openMercatoCoreInjectionWidgetEntries__'
+const GLOBAL_INJECTION_TABLES_KEY = '__openMercatoCoreInjectionTables__'
+
+function readGlobalInjectionWidgets(): ModuleInjectionWidgetEntry[] | null {
+  try {
+    const value = (globalThis as Record<string, unknown>)[GLOBAL_INJECTION_WIDGETS_KEY]
+    return Array.isArray(value) ? (value as ModuleInjectionWidgetEntry[]) : null
+  } catch {
+    return null
+  }
+}
+
+function writeGlobalInjectionWidgets(entries: ModuleInjectionWidgetEntry[]) {
+  try {
+    ;(globalThis as Record<string, unknown>)[GLOBAL_INJECTION_WIDGETS_KEY] = entries
+  } catch {
+    // ignore global assignment failures
+  }
+}
+
+function readGlobalInjectionTables(): Array<{ moduleId: string; table: ModuleInjectionTable }> | null {
+  try {
+    const value = (globalThis as Record<string, unknown>)[GLOBAL_INJECTION_TABLES_KEY]
+    return Array.isArray(value) ? (value as Array<{ moduleId: string; table: ModuleInjectionTable }>) : null
+  } catch {
+    return null
+  }
+}
+
+function writeGlobalInjectionTables(tables: Array<{ moduleId: string; table: ModuleInjectionTable }>) {
+  try {
+    ;(globalThis as Record<string, unknown>)[GLOBAL_INJECTION_TABLES_KEY] = tables
+  } catch {
+    // ignore global assignment failures
+  }
+}
 
 export function registerCoreInjectionWidgets(entries: ModuleInjectionWidgetEntry[]) {
   if (_coreInjectionWidgetEntries !== null && process.env.NODE_ENV === 'development') {
     console.debug('[Bootstrap] Core injection widgets re-registered (this may occur during HMR)')
   }
   _coreInjectionWidgetEntries = entries
+  writeGlobalInjectionWidgets(entries)
 }
 
 export function getCoreInjectionWidgets(): ModuleInjectionWidgetEntry[] {
+  const globalEntries = readGlobalInjectionWidgets()
+  if (globalEntries) return globalEntries
   if (!_coreInjectionWidgetEntries) {
     // On client-side, bootstrap doesn't run - return empty array gracefully
     if (typeof window !== 'undefined') {
@@ -51,9 +90,12 @@ export function registerCoreInjectionTables(tables: Array<{ moduleId: string; ta
     console.debug('[Bootstrap] Core injection tables re-registered (this may occur during HMR)')
   }
   _coreInjectionTables = tables
+  writeGlobalInjectionTables(tables)
 }
 
 export function getCoreInjectionTables(): Array<{ moduleId: string; table: ModuleInjectionTable }> {
+  const globalTables = readGlobalInjectionTables()
+  if (globalTables) return globalTables
   if (!_coreInjectionTables) {
     // On client-side, bootstrap doesn't run - return empty array gracefully
     if (typeof window !== 'undefined') {
@@ -221,7 +263,24 @@ export async function loadInjectionWidgetById(widgetId: string): Promise<LoadedI
 
 export async function loadInjectionWidgetsForSpot(spotId: InjectionSpotId): Promise<LoadedInjectionWidget[]> {
   const table = await loadInjectionTable()
-  const entries = table.get(spotId) ?? []
+  const exactEntries = table.get(spotId) ?? []
+  const wildcardEntries: TableEntry[] = []
+  for (const [candidateSpotId, candidateEntries] of table.entries()) {
+    if (candidateSpotId === spotId) continue
+    if (!candidateSpotId.includes('*')) continue
+    const pattern = new RegExp(`^${candidateSpotId.replace(/[.+?^${}()|[\]\\]/g, '\\$&').replace(/\*/g, '.*')}$`)
+    if (!pattern.test(spotId)) continue
+    wildcardEntries.push(...candidateEntries)
+  }
+  const dedupedEntries = new Map<string, TableEntry>()
+  for (const entry of [...exactEntries, ...wildcardEntries]) {
+    const key = `${entry.moduleId}:${entry.widgetId}`
+    const previous = dedupedEntries.get(key)
+    if (!previous || (entry.priority ?? 0) > (previous.priority ?? 0)) {
+      dedupedEntries.set(key, entry)
+    }
+  }
+  const entries = Array.from(dedupedEntries.values()).sort((a, b) => (b.priority ?? 0) - (a.priority ?? 0))
   const widgets = await Promise.all(
     entries.map(async ({ widgetId, placement, priority }) => {
       const widget = await loadInjectionWidgetById(widgetId)
