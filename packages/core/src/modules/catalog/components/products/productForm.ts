@@ -1,5 +1,6 @@
 import { z } from 'zod'
 import { slugify } from '@open-mercato/shared/lib/slugify'
+import { parseObjectLike } from '@open-mercato/shared/lib/json/parseObjectLike'
 import type { CatalogProductOptionSchema } from '../../data/types'
 import type { ProductMediaItem } from './ProductMediaManager'
 
@@ -210,8 +211,8 @@ const parseNumeric = (input: unknown): number | null => {
 }
 
 export const normalizeProductDimensions = (raw: unknown): ProductDimensions => {
-  if (!raw || typeof raw !== 'object') return null
-  const source = raw as Record<string, unknown>
+  const source = parseObjectLike(raw)
+  if (!source) return null
   const width = parseNumeric(source.width)
   const height = parseNumeric(source.height)
   const depth = parseNumeric(source.depth)
@@ -225,8 +226,8 @@ export const normalizeProductDimensions = (raw: unknown): ProductDimensions => {
 }
 
 export const normalizeProductWeight = (raw: unknown): ProductWeight => {
-  if (!raw || typeof raw !== 'object') return null
-  const source = raw as Record<string, unknown>
+  const source = parseObjectLike(raw)
+  if (!source) return null
   const value = parseNumeric(source.value)
   const unit = typeof source.unit === 'string' && source.unit.trim().length ? source.unit.trim() : null
   if (value === null && !unit) return null

@@ -51,6 +51,9 @@
     "test": "jest --config jest.config.cjs",
     "typecheck": "tsc --noEmit"
   },
+  "engines": {
+    "node": "24.x"
+  },
   "dependencies": {
     "@mikro-orm/core": "^6.6.2",
     "@mikro-orm/migrations": "^6.6.2",

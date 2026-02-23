@@ -1,12 +1,19 @@
 import type { EntityManager } from '@mikro-orm/core'
 import type { Knex } from 'knex'
-import { Notification } from '../data/entities'
+import { Notification, type NotificationStatus } from '../data/entities'
 import type { CreateNotificationInput, CreateBatchNotificationInput, CreateRoleNotificationInput, CreateFeatureNotificationInput, ExecuteActionInput } from '../data/validators'
 import type { NotificationPollData } from '@open-mercato/shared/modules/notifications/types'
 import { NOTIFICATION_EVENTS } from './events'
-import { buildNotificationEntity, emitNotificationCreated, emitNotificationCreatedBatch } from './notificationFactory'
+import {
+  buildNotificationEntity,
+  emitNotificationCreated,
+  emitNotificationCreatedBatch,
+  type NotificationContentInput,
+  type NotificationTenantContext,
+} from './notificationFactory'
 import { toNotificationDto } from './notificationMapper'
 import { getRecipientUserIdsForFeature, getRecipientUserIdsForRole } from './notificationRecipients'
+import { assertSafeNotificationHref, sanitizeNotificationActions } from './safeHref'
 
 const DEBUG = process.env.NOTIFICATIONS_DEBUG === 'true'
 
@@ -18,6 +25,90 @@ function debug(...args: unknown[]): void {
 
 function getKnex(em: EntityManager): Knex {
   return (em.getConnection() as unknown as { getKnex: () => Knex }).getKnex()
+}
+
+const UNIQUE_NOTIFICATION_ACTIVE_STATUSES: NotificationStatus[] = ['unread', 'read', 'actioned']
+
+function normalizeOrgScope(organizationId: string | null | undefined): string | null {
+  return organizationId ?? null
+}
+
+function applyNotificationContent(
+  notification: Notification,
+  input: NotificationContentInput,
+  recipientUserId: string,
+  ctx: NotificationTenantContext,
+) {
+  const actions = sanitizeNotificationActions(input.actions)
+  const linkHref = assertSafeNotificationHref(input.linkHref)
+
+  notification.recipientUserId = recipientUserId
+  notification.type = input.type
+  notification.titleKey = input.titleKey
+  notification.bodyKey = input.bodyKey
+  notification.titleVariables = input.titleVariables
+  notification.bodyVariables = input.bodyVariables
+  notification.title = input.title || input.titleKey || ''
+  notification.body = input.body
+  notification.icon = input.icon
+  notification.severity = input.severity ?? 'info'
+  notification.actionData = actions
+    ? {
+        actions,
+        primaryActionId: input.primaryActionId,
+      }
+    : null
+  notification.sourceModule = input.sourceModule
+  notification.sourceEntityType = input.sourceEntityType
+  notification.sourceEntityId = input.sourceEntityId
+  notification.linkHref = linkHref
+  notification.groupKey = input.groupKey
+  notification.expiresAt = input.expiresAt ? new Date(input.expiresAt) : null
+  notification.tenantId = ctx.tenantId
+  notification.organizationId = normalizeOrgScope(ctx.organizationId)
+  notification.status = 'unread'
+  notification.readAt = null
+  notification.actionedAt = null
+  notification.dismissedAt = null
+  notification.actionTaken = null
+  notification.actionResult = null
+  notification.createdAt = new Date()
+}
+
+async function createOrRefreshNotification(
+  em: EntityManager,
+  input: NotificationContentInput,
+  recipientUserId: string,
+  ctx: NotificationTenantContext,
+): Promise<Notification> {
+  if (input.groupKey && input.groupKey.trim().length > 0) {
+    const orgScope = normalizeOrgScope(ctx.organizationId) ?? 'global'
+    const lockKey = `notifications:${ctx.tenantId}:${orgScope}:${recipientUserId}:${input.type}:${input.groupKey}`
+    try {
+      const knex = getKnex(em)
+      await knex.raw('select pg_advisory_xact_lock(hashtext(?))', [lockKey])
+    } catch {
+      // If advisory locks are unavailable, continue with best-effort dedupe.
+    }
+
+    const existing = await em.findOne(Notification, {
+      recipientUserId,
+      tenantId: ctx.tenantId,
+      organizationId: normalizeOrgScope(ctx.organizationId),
+      type: input.type,
+      groupKey: input.groupKey,
+      status: { $in: UNIQUE_NOTIFICATION_ACTIVE_STATUSES },
+    }, {
+      orderBy: { createdAt: 'desc' },
+    })
+
+    if (existing) {
+      applyNotificationContent(existing, input, recipientUserId, ctx)
+      return existing
+    }
+  }
+
+  return buildNotificationEntity(em, input, recipientUserId, ctx)
 }
 
 export interface NotificationServiceContext {
@@ -71,11 +162,13 @@ export function createNotificationService(deps: NotificationServiceDeps): Notifi
 
   return {
     async create(input, ctx) {
-      const em = rootEm.fork()
       const { recipientUserId, ...content } = input
-      const notification = buildNotificationEntity(em, content, recipientUserId, ctx)
-
-      await em.persistAndFlush(notification)
+      const writeEm = rootEm.fork()
+      const notification = await writeEm.transactional(async (tx) => {
+        const entity = await createOrRefreshNotification(tx, content, recipientUserId, ctx)
+        await tx.flush()
+        return entity
+      })
 
       await emitNotificationCreated(eventBus, notification, ctx)
 
@@ -83,16 +176,18 @@ export function createNotificationService(deps: NotificationServiceDeps): Notifi
     },
 
     async createBatch(input, ctx) {
-      const em = rootEm.fork()
-      const { recipientUserIds, ...content } = input
+      const recipientUserIds = Array.from(new Set(input.recipientUserIds))
+      const { recipientUserIds: _recipientUserIds, ...content } = input
       const notifications: Notification[] = []
+      const writeEm = rootEm.fork()
 
-      for (const recipientUserId of recipientUserIds) {
-        const notification = buildNotificationEntity(em, content, recipientUserId, ctx)
-        notifications.push(notification)
-      }
-
-      await em.persistAndFlush(notifications)
+      await writeEm.transactional(async (tx) => {
+        for (const recipientUserId of recipientUserIds) {
+          const notification = await createOrRefreshNotification(tx, content, recipientUserId, ctx)
+          notifications.push(notification)
+        }
+        await tx.flush()
+      })
 
       await emitNotificationCreatedBatch(eventBus, notifications, ctx)
 
@@ -110,13 +205,16 @@ export function createNotificationService(deps: NotificationServiceDeps): Notifi
 
       const { roleId: _roleId, ...content } = input
       const notifications: Notification[] = []
+      const uniqueRecipientUserIds = Array.from(new Set(recipientUserIds))
+      const writeEm = rootEm.fork()
 
-      for (const recipientUserId of recipientUserIds) {
-        const notification = buildNotificationEntity(em, content, recipientUserId, ctx)
-        notifications.push(notification)
-      }
-
-      await em.persistAndFlush(notifications)
+      await writeEm.transactional(async (tx) => {
+        for (const recipientUserId of uniqueRecipientUserIds) {
+          const notification = await createOrRefreshNotification(tx, content, recipientUserId, ctx)
+          notifications.push(notification)
+        }
+        await tx.flush()
+      })
 
       await emitNotificationCreatedBatch(eventBus, notifications, ctx)
 
@@ -137,13 +235,16 @@ export function createNotificationService(deps: NotificationServiceDeps): Notifi
 
       const { requiredFeature: _requiredFeature, ...content } = input
       const notifications: Notification[] = []
+      const uniqueRecipientUserIds = Array.from(new Set(recipientUserIds))
+      const writeEm = rootEm.fork()
 
-      for (const recipientUserId of recipientUserIds) {
-        const notification = buildNotificationEntity(em, content, recipientUserId, ctx)
-        notifications.push(notification)
-      }
-
-      await em.persistAndFlush(notifications)
+      await writeEm.transactional(async (tx) => {
+        for (const recipientUserId of uniqueRecipientUserIds) {
+          const notification = await createOrRefreshNotification(tx, content, recipientUserId, ctx)
+          notifications.push(notification)
+        }
+        await tx.flush()
+      })
 
       await emitNotificationCreatedBatch(eventBus, notifications, ctx)
 
