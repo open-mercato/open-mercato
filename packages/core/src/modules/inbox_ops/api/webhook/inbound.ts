@@ -1,6 +1,8 @@
 import { NextResponse } from 'next/server'
 import { createHmac, timingSafeEqual } from 'node:crypto'
 import { z } from 'zod'
+import { Webhook } from 'svix'
+import { Resend } from 'resend'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import type { EntityManager } from '@mikro-orm/postgresql'
@@ -48,10 +50,127 @@ function verifyHmacSignature(
   }
 }
 
+function verifySvixSignature(
+  rawBody: string,
+  headers: Record<string, string>,
+  secret: string,
+): boolean {
+  try {
+    const wh = new Webhook(secret)
+    wh.verify(rawBody, {
+      'svix-id': headers['svix-id'],
+      'svix-timestamp': headers['svix-timestamp'],
+      'svix-signature': headers['svix-signature'],
+    })
+    return true
+  } catch {
+    return false
+  }
+}
+
+async function fetchResendEmail(emailId: string): Promise<{
+  from?: string
+  to?: string[]
+  subject?: string
+  text?: string
+  html?: string
+  messageId?: string
+  replyTo?: string
+  inReplyTo?: string
+  references?: string[]
+}> {
+  const apiKey = process.env.RESEND_API_KEY
+  if (!apiKey) throw new Error('RESEND_API_KEY is required to fetch Resend inbound emails')
+
+  const resend = new Resend(apiKey)
+  const { data, error } = await resend.emails.receiving.get(emailId)
+  if (error || !data) {
+    throw new Error(`Failed to fetch Resend email ${emailId}: ${error?.message || 'unknown error'}`)
+  }
+
+  return {
+    from: data.from,
+    to: data.to,
+    subject: data.subject,
+    text: data.text ?? undefined,
+    html: data.html ?? undefined,
+    messageId: data.message_id,
+    replyTo: data.reply_to?.[0] ?? undefined,
+    inReplyTo: data.headers?.['in-reply-to'] ?? undefined,
+    references: data.headers?.['references']?.split(/\s+/).filter(Boolean),
+  }
+}
+
+type VerifiedPayload =
+  | { kind: 'custom'; payload: Record<string, unknown> }
+  | { kind: 'resend'; emailFields: Awaited<ReturnType<typeof fetchResendEmail>>; to: string[] }
+
+async function verifyAndParse(req: Request, rawBody: string): Promise<
+  | { ok: true; data: VerifiedPayload }
+  | { ok: false; response: NextResponse }
+> {
+  const customSig = req.headers.get('x-webhook-signature')
+  const svixId = req.headers.get('svix-id')
+
+  if (customSig) {
+    const webhookSecret = process.env.INBOX_OPS_WEBHOOK_SECRET
+    if (!webhookSecret) {
+      console.error('[inbox_ops:webhook] INBOX_OPS_WEBHOOK_SECRET not configured')
+      return { ok: false, response: NextResponse.json({ error: 'Service unavailable' }, { status: 503 }) }
+    }
+    const timestamp = req.headers.get('x-webhook-timestamp') || ''
+    if (!verifyHmacSignature(rawBody, customSig, timestamp, webhookSecret)) {
+      return { ok: false, response: NextResponse.json({ error: 'Invalid signature' }, { status: 400 }) }
+    }
+    let payload: Record<string, unknown>
+    try {
+      payload = JSON.parse(rawBody)
+    } catch {
+      return { ok: false, response: NextResponse.json({ error: 'Invalid JSON' }, { status: 400 }) }
+    }
+    return { ok: true, data: { kind: 'custom', payload } }
+  }
+
+  if (svixId) {
+    const signingSecret = process.env.RESEND_WEBHOOK_SIGNING_SECRET
+    if (!signingSecret) {
+      console.error('[inbox_ops:webhook] RESEND_WEBHOOK_SIGNING_SECRET not configured')
+      return { ok: false, response: NextResponse.json({ error: 'Service unavailable' }, { status: 503 }) }
+    }
+    const headers: Record<string, string> = {
+      'svix-id': svixId,
+      'svix-timestamp': req.headers.get('svix-timestamp') || '',
+      'svix-signature': req.headers.get('svix-signature') || '',
+    }
+    if (!verifySvixSignature(rawBody, headers, signingSecret)) {
+      return { ok: false, response: NextResponse.json({ error: 'Invalid signature' }, { status: 400 }) }
+    }
+    let envelope: { type?: string; data?: { email_id?: string; from?: string; to?: string[] } }
+    try {
+      envelope = JSON.parse(rawBody)
+    } catch {
+      return { ok: false, response: NextResponse.json({ error: 'Invalid JSON' }, { status: 400 }) }
+    }
+    if (envelope.type !== 'email.received') {
+      return { ok: false, response: NextResponse.json({ ok: true }) }
+    }
+    const emailId = envelope.data?.email_id
+    if (!emailId) {
+      return { ok: false, response: NextResponse.json({ error: 'Missing email_id in Resend payload' }, { status: 400 }) }
+    }
+    const emailFields = await fetchResendEmail(emailId)
+    const to = emailFields.to || envelope.data?.to || []
+    return { ok: true, data: { kind: 'resend', emailFields, to } }
+  }
+
+  return { ok: false, response: NextResponse.json({ error: 'Missing signature headers' }, { status: 400 }) }
+}
+
 export async function POST(req: Request) {
-  const webhookSecret = process.env.INBOX_OPS_WEBHOOK_SECRET
-  if (!webhookSecret) {
-    console.error('[inbox_ops:webhook] INBOX_OPS_WEBHOOK_SECRET not configured')
+  const hasCustomSecret = Boolean(process.env.INBOX_OPS_WEBHOOK_SECRET)
+  const hasResendSecret = Boolean(process.env.RESEND_WEBHOOK_SIGNING_SECRET)
+  if (!hasCustomSecret && !hasResendSecret) {
+    console.error('[inbox_ops:webhook] Neither INBOX_OPS_WEBHOOK_SECRET nor RESEND_WEBHOOK_SIGNING_SECRET is configured')
     return NextResponse.json({ error: 'Service unavailable' }, { status: 503 })
   }
 
@@ -71,21 +190,44 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: 'Payload too large' }, { status: 413 })
   }
 
-  const signature = req.headers.get('x-webhook-signature') || ''
-  const timestamp = req.headers.get('x-webhook-timestamp') || ''
-
-  if (!verifyHmacSignature(rawBody, signature, timestamp, webhookSecret)) {
-    return NextResponse.json({ error: 'Invalid signature' }, { status: 400 })
+  const verified = await verifyAndParse(req, rawBody)
+  if (!verified.ok) {
+    return verified.response
   }
 
-  let payload: Record<string, unknown>
-  try {
-    payload = JSON.parse(rawBody)
-  } catch {
-    return NextResponse.json({ error: 'Invalid JSON' }, { status: 400 })
+  let toAddress: string | null
+  let emailInput: Parameters<typeof parseInboundEmail>[0]
+
+  if (verified.data.kind === 'custom') {
+    const payload = verified.data.payload
+    toAddress = extractToAddress(payload)
+    emailInput = {
+      from: payload.from as string | undefined,
+      to: payload.to as string | string[] | undefined,
+      subject: payload.subject as string | undefined,
+      text: payload.text as string | undefined,
+      html: payload.html as string | undefined,
+      messageId: payload.messageId as string | undefined,
+      replyTo: payload.replyTo as string | undefined,
+      inReplyTo: payload.inReplyTo as string | undefined,
+      references: payload.references as string | string[] | undefined,
+    }
+  } else {
+    const { emailFields, to } = verified.data
+    toAddress = to.length > 0 ? to[0].toLowerCase() : null
+    emailInput = {
+      from: emailFields.from,
+      to: emailFields.to,
+      subject: emailFields.subject,
+      text: emailFields.text,
+      html: emailFields.html,
+      messageId: emailFields.messageId,
+      replyTo: emailFields.replyTo,
+      inReplyTo: emailFields.inReplyTo,
+      references: emailFields.references,
+    }
   }
 
-  const toAddress = extractToAddress(payload)
   if (!toAddress) {
     return NextResponse.json({ error: 'Missing recipient address' }, { status: 400 })
   }
@@ -127,17 +269,7 @@ export async function POST(req: Request) {
     return NextResponse.json({ ok: true })
   }
 
-  const parsed = parseInboundEmail({
-    from: payload.from as string | undefined,
-    to: payload.to as string | string[] | undefined,
-    subject: payload.subject as string | undefined,
-    text: payload.text as string | undefined,
-    html: payload.html as string | undefined,
-    messageId: payload.messageId as string | undefined,
-    replyTo: payload.replyTo as string | undefined,
-    inReplyTo: payload.inReplyTo as string | undefined,
-    references: payload.references as string | string[] | undefined,
-  })
+  const parsed = parseInboundEmail(emailInput)
 
   const isDuplicate = await checkDuplicate(em, settings, parsed.messageId, parsed.contentHash)
   if (isDuplicate) {
@@ -247,7 +379,7 @@ export const openApi: OpenApiRouteDoc = {
   methods: {
     POST: {
       summary: 'Receive forwarded email from provider webhook',
-      description: 'Public endpoint — validated by provider HMAC signature. Rate limited per tenant.',
+      description: 'Public endpoint — validated by provider HMAC signature or Resend/Svix signature. Rate limited per tenant.',
       requestBody: {
         contentType: 'application/json',
         schema: z.object({

@@ -1,7 +1,7 @@
 /** @jest-environment node */
 
 import handle from '../extractionWorker'
-import { InboxEmail, InboxProposal, InboxProposalAction, InboxDiscrepancy } from '../../data/entities'
+import { InboxEmail, InboxProposal, InboxProposalAction, InboxDiscrepancy, InboxSettings } from '../../data/entities'
 
 const mockRunExtraction = jest.fn()
 jest.mock('@open-mercato/core/modules/inbox_ops/lib/llmProvider', () => ({
@@ -68,11 +68,19 @@ const mockEm = {
 }
 
 const MockSalesOrder = class {} as any
+const MockSalesChannel = class {} as any
+const MockCatalogProduct = class {} as any
+const MockCatalogProductPrice = class {} as any
+const MockCustomerEntity = class {} as any
 
 const mockCtx = {
   resolve: jest.fn((token: string) => {
     if (token === 'em') return mockEm
     if (token === 'SalesOrder') return MockSalesOrder
+    if (token === 'SalesChannel') return MockSalesChannel
+    if (token === 'CatalogProduct') return MockCatalogProduct
+    if (token === 'CatalogProductPrice') return MockCatalogProductPrice
+    if (token === 'CustomerEntity') return MockCustomerEntity
     throw new Error(`Unknown DI token: ${token}`)
   }),
 }
@@ -111,7 +119,9 @@ function makeEmail(overrides?: Record<string, unknown>) {
   return {
     id: 'email-1',
     status: 'processing',
-    cleanedText: 'Hello, I would like to order 10 widgets. Best regards, John',
+    rawText: 'Hello, I would like to order 10 widgets. Best regards, John',
+    rawHtml: null,
+    cleanedText: 'Hello, I would like to order 10 widgets.',
     subject: 'Order request',
     tenantId: 'tenant-1',
     organizationId: 'org-1',
@@ -176,6 +186,8 @@ describe('extractionWorker', () => {
       mockFindOneWithDecryption.mockResolvedValueOnce({
         id: 'email-1',
         status: 'processing',
+        rawText: '',
+        rawHtml: null,
         cleanedText: '',
         tenantId: 'tenant-1',
         organizationId: 'org-1',
@@ -266,7 +278,7 @@ describe('extractionWorker', () => {
         'inbox_ops.proposal.created',
         expect.objectContaining({
           emailId: 'email-1',
-          actionCount: 2,
+          actionCount: 3,
         }),
       )
     })
@@ -314,9 +326,9 @@ describe('extractionWorker', () => {
   })
 
   describe('empty text', () => {
-    it('sets email status to failed when cleanedText is empty', async () => {
+    it('sets email status to failed when email has no text content', async () => {
       mockNativeUpdate.mockResolvedValue(1)
-      const email = makeEmail({ cleanedText: '' })
+      const email = makeEmail({ rawText: '', rawHtml: null, cleanedText: '' })
       mockFindOneWithDecryption.mockResolvedValueOnce(email)
 
       await handle(basePayload, mockCtx as any)
@@ -332,6 +344,7 @@ describe('extractionWorker', () => {
       mockNativeUpdate.mockResolvedValue(1)
       const email = makeEmail()
       mockFindOneWithDecryption.mockResolvedValueOnce(email)
+      mockFindOneWithDecryption.mockResolvedValueOnce(null) // InboxSettings
 
       const payloadWithRef = JSON.stringify({
         customerName: 'John Doe',
@@ -412,6 +425,142 @@ describe('extractionWorker', () => {
     })
   })
 
+  describe('discrepancy action association', () => {
+    it('associates product_not_found discrepancy with the order action, not auto-generated contact actions', async () => {
+      mockNativeUpdate.mockResolvedValue(1)
+      const email = makeEmail()
+      mockFindOneWithDecryption.mockResolvedValueOnce(email)
+
+      // Unmatched contact → triggers auto create_contact action (prepended before order)
+      mockMatchContacts.mockResolvedValueOnce([
+        {
+          participant: { name: 'John Doe', email: 'john@example.com', role: 'buyer' },
+          match: null,
+        },
+      ])
+
+      // Catalog has no products → line item won't match → product_not_found discrepancy
+      mockFetchCatalog.mockResolvedValueOnce([])
+
+      mockRunExtraction.mockResolvedValueOnce({
+        object: makeExtractionResult({
+          participants: [
+            { name: 'John Doe', email: 'john@example.com', role: 'buyer' },
+          ],
+          discrepancies: [
+            {
+              actionIndex: 0,
+              type: 'currency_mismatch',
+              severity: 'warning',
+              description: 'EUR vs USD',
+            },
+          ],
+        }),
+        totalTokens: 150,
+        modelWithProvider: 'anthropic:test-model',
+      })
+
+      await handle(basePayload, mockCtx as any)
+
+      // Collect all InboxDiscrepancy create calls
+      const discrepancyCalls = mockCreate.mock.calls
+        .filter(([entity]: [unknown]) => entity === InboxDiscrepancy)
+        .map(([, data]: [unknown, Record<string, unknown>]) => data)
+
+      // product_not_found should point to the order action, not the create_contact
+      const productDiscrepancy = discrepancyCalls.find(
+        (d: Record<string, unknown>) => d.type === 'product_not_found',
+      )
+      expect(productDiscrepancy).toBeDefined()
+
+      // currency_mismatch from LLM (actionIndex: 0) should also point to the order, not contact
+      const currencyDiscrepancy = discrepancyCalls.find(
+        (d: Record<string, unknown>) => d.type === 'currency_mismatch',
+      )
+      expect(currencyDiscrepancy).toBeDefined()
+
+      // The order action creates with actionType 'create_order'
+      const orderActionCall = mockCreate.mock.calls.find(
+        ([entity, data]: [unknown, Record<string, unknown>]) =>
+          entity === InboxProposalAction && data.actionType === 'create_order',
+      )
+      expect(orderActionCall).toBeDefined()
+      const orderActionId = orderActionCall[1].id
+
+      // Both discrepancies should reference the order action's ID
+      if (productDiscrepancy) {
+        expect(productDiscrepancy.actionId).toBe(orderActionId)
+      }
+      if (currencyDiscrepancy) {
+        expect(currencyDiscrepancy.actionId).toBe(orderActionId)
+      }
+    })
+  })
+
+  describe('LLM-discovered participant create_contact', () => {
+    it('generates create_contact action for unmatched participant discovered by LLM but not in email headers', async () => {
+      mockNativeUpdate.mockResolvedValue(1)
+      const email = makeEmail()
+      mockFindOneWithDecryption.mockResolvedValueOnce(email)
+
+      // Header-based contact matching only finds John (the sender)
+      mockMatchContacts.mockResolvedValueOnce([
+        {
+          participant: { name: 'John Doe', email: 'john@example.com', role: 'buyer' },
+          match: { contactId: 'contact-1', contactType: 'person', confidence: 1.0 },
+        },
+      ])
+
+      // LLM discovers an additional participant (Arjun) from the email body
+      mockRunExtraction.mockResolvedValueOnce({
+        object: makeExtractionResult({
+          participants: [
+            { name: 'John Doe', email: 'john@example.com', role: 'buyer' },
+            { name: 'Arjun Patel', email: 'arjun@example.com', role: 'buyer' },
+          ],
+          proposedActions: [
+            {
+              actionType: 'create_order',
+              description: 'Create order',
+              confidence: 0.9,
+              payloadJson: VALID_ORDER_PAYLOAD,
+            },
+          ],
+        }),
+        totalTokens: 150,
+        modelWithProvider: 'anthropic:test-model',
+      })
+
+      await handle(basePayload, mockCtx as any)
+
+      // Should create a create_contact action for Arjun (LLM-discovered, not in headers)
+      const createContactCalls = mockCreate.mock.calls
+        .filter(([entity, data]: [unknown, Record<string, unknown>]) =>
+          entity === InboxProposalAction && data.actionType === 'create_contact',
+        )
+        .map(([, data]: [unknown, Record<string, unknown>]) => data)
+
+      const arjunAction = createContactCalls.find((d: Record<string, unknown>) => {
+        const payload = d.payload as Record<string, unknown>
+        return payload?.email === 'arjun@example.com'
+      })
+
+      expect(arjunAction).toBeDefined()
+      expect((arjunAction!.payload as Record<string, unknown>).name).toBe('Arjun Patel')
+
+      // Should also create an unknown_contact discrepancy for Arjun
+      const discrepancyCalls = mockCreate.mock.calls
+        .filter(([entity]: [unknown]) => entity === InboxDiscrepancy)
+        .map(([, data]: [unknown, Record<string, unknown>]) => data)
+
+      const arjunDiscrepancy = discrepancyCalls.find(
+        (d: Record<string, unknown>) =>
+          d.type === 'unknown_contact' && d.foundValue === 'arjun@example.com',
+      )
+      expect(arjunDiscrepancy).toBeDefined()
+    })
+  })
+
   describe('partial forward detection', () => {
     it('marks proposal as possiblyIncomplete for RE: subject with single thread message', async () => {
       mockNativeUpdate.mockResolvedValue(1)
@@ -444,6 +593,85 @@ describe('extractionWorker', () => {
           possiblyIncomplete: true,
         }),
       )
+    })
+  })
+
+  describe('hallucinated productId clearing', () => {
+    it('generates create_product action when LLM hallucinates a productId not in catalog', async () => {
+      mockNativeUpdate.mockResolvedValue(1)
+      const email = makeEmail()
+      mockFindOneWithDecryption.mockResolvedValueOnce(email)
+
+      // Contact matches: John is known
+      mockMatchContacts.mockResolvedValueOnce([
+        {
+          participant: { name: 'John Doe', email: 'john@example.com', role: 'buyer' },
+          match: { contactId: 'contact-1', contactType: 'person', confidence: 1.0 },
+        },
+      ])
+
+      // Catalog has one product
+      const realProductId = '11111111-1111-1111-1111-111111111111'
+      mockFetchCatalog.mockResolvedValueOnce([
+        { id: realProductId, name: 'Widget', sku: 'WDG-001' },
+      ])
+
+      // LLM returns an order with a hallucinated productId for "Silk Scarf"
+      const hallucinatedProductId = '99999999-9999-9999-9999-999999999999'
+      mockRunExtraction.mockResolvedValueOnce({
+        object: makeExtractionResult({
+          proposedActions: [
+            {
+              actionType: 'create_order',
+              description: 'Create order',
+              confidence: 0.9,
+              payloadJson: JSON.stringify({
+                customerName: 'John Doe',
+                channelId: '123e4567-e89b-4d56-a456-426614174000',
+                currencyCode: 'EUR',
+                lineItems: [
+                  { productName: 'Widget', quantity: '5', productId: realProductId },
+                  { productName: 'Silk Scarf', quantity: '2', productId: hallucinatedProductId },
+                ],
+              }),
+            },
+          ],
+          discrepancies: [
+            {
+              actionIndex: 0,
+              type: 'product_not_found',
+              severity: 'error',
+              description: 'Product "Silk Scarf" not found',
+              foundValue: 'Silk Scarf',
+            },
+          ],
+        }),
+        totalTokens: 200,
+        modelWithProvider: 'anthropic:test-model',
+      })
+
+      await handle(basePayload, mockCtx as any)
+
+      // Should generate a create_product action for Silk Scarf
+      const createProductCalls = mockCreate.mock.calls
+        .filter(([entity, data]: [unknown, Record<string, unknown>]) =>
+          entity === InboxProposalAction && data.actionType === 'create_product',
+        )
+        .map(([, data]: [unknown, Record<string, unknown>]) => data)
+
+      expect(createProductCalls.length).toBe(1)
+      const productPayload = createProductCalls[0].payload as Record<string, unknown>
+      expect(productPayload.title).toBe('Silk Scarf')
+
+      // Should have a product_not_found discrepancy from step 6c (auto-generated)
+      const discrepancyCalls = mockCreate.mock.calls
+        .filter(([entity]: [unknown]) => entity === InboxDiscrepancy)
+        .map(([, data]: [unknown, Record<string, unknown>]) => data)
+
+      const productNotFound = discrepancyCalls.filter(
+        (d: Record<string, unknown>) => d.type === 'product_not_found',
+      )
+      expect(productNotFound.length).toBeGreaterThanOrEqual(1)
     })
   })
 
@@ -481,6 +709,94 @@ describe('extractionWorker', () => {
           }),
           requiredFeature: 'inbox_ops.replies.send',
         }),
+      )
+    })
+  })
+
+  describe('working language', () => {
+    it('defaults workingLanguage to "en" when no InboxSettings found', async () => {
+      mockNativeUpdate.mockResolvedValue(1)
+      const email = makeEmail()
+      // First call returns email, second (InboxSettings) returns null
+      mockFindOneWithDecryption.mockResolvedValueOnce(email)
+      mockFindOneWithDecryption.mockResolvedValueOnce(null)
+
+      mockMatchContacts.mockResolvedValueOnce([])
+      mockRunExtraction.mockResolvedValueOnce({
+        object: makeExtractionResult(),
+        totalTokens: 100,
+        modelWithProvider: 'anthropic:test-model',
+      })
+
+      const { buildExtractionSystemPrompt } = require('@open-mercato/core/modules/inbox_ops/lib/extractionPrompt')
+
+      await handle(basePayload, mockCtx as any)
+
+      expect(buildExtractionSystemPrompt).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.anything(),
+        undefined,
+        'en',
+      )
+
+      expect(mockCreate).toHaveBeenCalledWith(
+        InboxProposal,
+        expect.objectContaining({ workingLanguage: 'en' }),
+      )
+    })
+
+    it('passes workingLanguage from InboxSettings to prompt and proposal', async () => {
+      mockNativeUpdate.mockResolvedValue(1)
+      const email = makeEmail()
+      // First call returns email, second returns settings with German
+      mockFindOneWithDecryption.mockResolvedValueOnce(email)
+      mockFindOneWithDecryption.mockResolvedValueOnce({ workingLanguage: 'de' })
+
+      mockMatchContacts.mockResolvedValueOnce([])
+      mockRunExtraction.mockResolvedValueOnce({
+        object: makeExtractionResult(),
+        totalTokens: 100,
+        modelWithProvider: 'anthropic:test-model',
+      })
+
+      const { buildExtractionSystemPrompt } = require('@open-mercato/core/modules/inbox_ops/lib/extractionPrompt')
+
+      await handle(basePayload, mockCtx as any)
+
+      expect(buildExtractionSystemPrompt).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.anything(),
+        undefined,
+        'de',
+      )
+
+      expect(mockCreate).toHaveBeenCalledWith(
+        InboxProposal,
+        expect.objectContaining({ workingLanguage: 'de' }),
+      )
+    })
+
+    it('queries InboxSettings with correct scope filters', async () => {
+      mockNativeUpdate.mockResolvedValue(1)
+      const email = makeEmail()
+      mockFindOneWithDecryption.mockResolvedValueOnce(email)
+      mockFindOneWithDecryption.mockResolvedValueOnce(null)
+
+      mockMatchContacts.mockResolvedValueOnce([])
+      mockRunExtraction.mockResolvedValueOnce({
+        object: makeExtractionResult(),
+        totalTokens: 100,
+        modelWithProvider: 'anthropic:test-model',
+      })
+
+      await handle(basePayload, mockCtx as any)
+
+      expect(mockFindOneWithDecryption).toHaveBeenCalledWith(
+        mockEm,
+        InboxSettings,
+        { organizationId: 'org-1', tenantId: 'tenant-1', deletedAt: null },
+        undefined,
+        { organizationId: 'org-1', tenantId: 'tenant-1' },
       )
     })
   })

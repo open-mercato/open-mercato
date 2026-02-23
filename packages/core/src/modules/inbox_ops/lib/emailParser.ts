@@ -143,6 +143,52 @@ function parseDateFromBlock(block: string): string {
   return new Date().toISOString()
 }
 
+function parseInlineHeaders(block: string): {
+  from: { name?: string; email: string }
+  to: { name?: string; email: string }[]
+  subject?: string
+  bodyStart: number
+} {
+  const lines = block.split('\n')
+  let from: { name?: string; email: string } = { email: '' }
+  let to: { name?: string; email: string }[] = []
+  let subject: string | undefined
+  let lastHeaderLine = -1
+
+  for (let i = 0; i < lines.length && i < 10; i++) {
+    const line = lines[i]
+    const fromMatch = line.match(/^From:\s*(.+)$/i)
+    if (fromMatch) {
+      from = parseAddressField(fromMatch[1].trim())
+      lastHeaderLine = i
+      continue
+    }
+    const toMatch = line.match(/^To:\s*(.+)$/i)
+    if (toMatch) {
+      to = parseAddressListField(toMatch[1].trim())
+      lastHeaderLine = i
+      continue
+    }
+    const subjectMatch = line.match(/^Subject:\s*(.+)$/i)
+    if (subjectMatch) {
+      subject = subjectMatch[1].trim()
+      lastHeaderLine = i
+      continue
+    }
+    if (line.match(/^Date:\s/i) || line.match(/^CC:\s/i)) {
+      lastHeaderLine = i
+      continue
+    }
+    if (lastHeaderLine >= 0 && line.trim() === '') {
+      lastHeaderLine = i
+      break
+    }
+    if (lastHeaderLine >= 0) break
+  }
+
+  return { from, to, subject, bodyStart: lastHeaderLine + 1 }
+}
+
 function splitThread(text: string): ThreadMessage[] {
   const separator = /(?:^|\n)(?:-{3,}\s*(?:Original Message|Forwarded message)\s*-{3,}|(?:On .+ wrote:))\s*\n/gm
   const parts = text.split(separator).filter((p) => p.trim())
@@ -158,14 +204,30 @@ function splitThread(text: string): ThreadMessage[] {
     }]
   }
 
-  return parts.map((part, index) => ({
-    from: { email: '' },
-    to: [],
-    date: parseDateFromBlock(part),
-    body: normalizeText(part),
-    contentType: 'text' as const,
-    isForwarded: index > 0,
-  }))
+  return parts.map((part, index) => {
+    if (index === 0) {
+      return {
+        from: { email: '' } as { name?: string; email: string },
+        to: [] as { name?: string; email: string }[],
+        date: parseDateFromBlock(part),
+        body: normalizeText(part),
+        contentType: 'text' as const,
+        isForwarded: false,
+      }
+    }
+
+    const headers = parseInlineHeaders(part)
+    const bodyLines = part.split('\n').slice(headers.bodyStart)
+    return {
+      from: headers.from,
+      to: headers.to,
+      subject: headers.subject,
+      date: parseDateFromBlock(part),
+      body: normalizeText(bodyLines.join('\n')),
+      contentType: 'text' as const,
+      isForwarded: true,
+    }
+  })
 }
 
 export function parseInboundEmail(payload: {

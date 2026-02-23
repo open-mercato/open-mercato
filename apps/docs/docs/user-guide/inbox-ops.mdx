@@ -1,0 +1,261 @@
+---
+title: Inbox Ops
+description: Set up the email-to-ERP agent to automatically extract orders, quotes, and contacts from forwarded email threads.
+---
+
+# Inbox Ops
+
+Set up the email-to-ERP agent so your team can forward customer email threads and have Open Mercato automatically extract orders, quotes, contacts, and reply drafts.
+
+## How It Works
+
+1. Your employees email customers from their normal email accounts
+2. When they want Open Mercato to process a conversation, they **forward the thread** to your configured inbox address (e.g. `ops-84f470a7@inbox.yourcompany.com`)
+3. Resend receives the email and delivers it to Open Mercato via a secure webhook
+4. The AI extraction worker parses the thread, matches contacts and products, and creates a **proposal** with actions (create order, create quote, create contact, draft reply, etc.)
+5. A team member reviews the proposal in the admin UI and accepts or rejects each action
+
+## Prerequisites
+
+- A [Resend](https://resend.com) account (free tier works — no custom domain required)
+- An AI provider API key (Anthropic, OpenAI, or Google) for email extraction
+- Your Open Mercato instance must be publicly accessible (or use a tunnel like ngrok for development)
+
+## Step 1: Set Up Your Receiving Domain
+
+Resend needs to receive emails on your behalf. Choose one of two options:
+
+### Option A: Free Resend Domain (fastest, no DNS required)
+
+Every Resend account gets a free managed receiving domain automatically:
+
+1. Go to [Resend Dashboard](https://resend.com/emails) &rarr; **Emails** &rarr; **Receiving** tab
+2. Note your assigned domain — it looks like `<id>.resend.app` (e.g. `eldaaelkia.resend.app`)
+3. Any email sent to `anything@<id>.resend.app` will be received by Resend
+
+No DNS setup, no MX records — it works immediately.
+
+### Option B: Custom Domain (recommended for production)
+
+Use a dedicated subdomain for a branded inbox address:
+
+1. Go to **Resend Dashboard &rarr; Domains** &rarr; **Add Domain** and add an inbound domain, e.g. `inbox.yourcompany.com`
+2. Enable **Receiving** for the domain
+3. Add the **MX record** Resend provides to your DNS:
+   ```
+   inbox.yourcompany.com.  MX  10  inbound.resend.com.
+   ```
+4. Wait for DNS propagation and verify the domain in Resend
+
+:::tip
+Use a dedicated subdomain like `inbox.` or `inbound.` — don't use your main domain to avoid interfering with regular email delivery.
+:::
+
+## Step 2: Set Up the Webhook in Resend
+
+1. Go to [Resend Webhooks](https://resend.com/webhooks) &rarr; **Add Webhook**
+2. Set the endpoint URL to your Open Mercato instance:
+   ```
+   https://your-app.yourcompany.com/api/inbox_ops/webhook/inbound
+   ```
+   :::info Development
+   For local development, use a tunnel URL (e.g. `https://abc123.ngrok-free.app/api/inbox_ops/webhook/inbound`)
+   :::
+3. Select the event: **email.received**
+4. Save and copy the **Signing Secret** — it starts with `whsec_`
+
+## Step 3: Configure Environment Variables
+
+Add these to your `.env` file:
+
+### Required for Resend Webhooks
+
+```env
+# Resend API key (required — used to fetch full email content from Resend)
+RESEND_API_KEY=re_your_api_key_here
+
+# Webhook signing secret from Step 2 (starts with whsec_)
+RESEND_WEBHOOK_SIGNING_SECRET=whsec_your_signing_secret_here
+
+# Your Resend receiving domain from Step 1 (just the domain, no email prefix)
+INBOX_OPS_DOMAIN=eldaaelkia.resend.app
+```
+
+### AI Provider (required — pick one)
+
+The extraction engine needs an AI model to parse emails. Configure whichever provider you prefer:
+
+```env
+# Provider: anthropic, openai, or google
+OPENCODE_PROVIDER=anthropic
+
+# Set the API key for your chosen provider
+ANTHROPIC_API_KEY=sk-ant-api03-...
+# OPENAI_API_KEY=sk-...
+# GOOGLE_GENERATIVE_AI_API_KEY=AI...
+```
+
+### Optional Tuning
+
+```env
+# Override the default LLM model for extraction
+# INBOX_OPS_LLM_MODEL=
+
+# LLM timeout in ms (default: 90000 = 90 seconds)
+# INBOX_OPS_LLM_TIMEOUT_MS=90000
+
+# Confidence threshold: proposals below this go to "needs review" (default: 0.5)
+# INBOX_OPS_CONFIDENCE_THRESHOLD=0.5
+
+# Max email text sent to LLM in bytes (default: 204800 = 200KB)
+# INBOX_OPS_MAX_TEXT_SIZE=204800
+
+# Price mismatch tolerance as decimal fraction (default: 0.05 = 5%)
+# INBOX_OPS_PRICE_MISMATCH_THRESHOLD=0.05
+```
+
+Restart the dev server after updating env vars.
+
+## Step 4: Verify Your Inbox Address
+
+After starting Open Mercato, each tenant automatically gets an inbox address generated during setup. The format is:
+
+```
+ops-<first-8-chars-of-org-id>@<INBOX_OPS_DOMAIN>
+```
+
+For example: `ops-84f470a7@eldaaelkia.resend.app`
+
+To find your address:
+
+- **Admin UI**: Go to **Inbox Ops &rarr; Settings** — the forwarding address is displayed with a copy button
+- **Database**: `SELECT inbox_address FROM inbox_settings WHERE deleted_at IS NULL;`
+
+If the address shows an old domain, update it to match your `INBOX_OPS_DOMAIN`:
+
+```sql
+UPDATE inbox_settings
+SET inbox_address = REPLACE(inbox_address, 'old.domain.com', 'your-id.resend.app')
+WHERE deleted_at IS NULL;
+```
+
+Share this address with your team. They'll forward email threads to it when they want Open Mercato to process them.
+
+## Step 5: Test the Integration
+
+Send a test email to verify everything works end-to-end:
+
+1. From any email account, compose an email that looks like a customer order, e.g.:
+   ```
+   Subject: Re: Order for 50 units of Widget Pro
+
+   Hi,
+
+   Please proceed with our order:
+   - 50x Widget Pro at $12.50 each
+   - 20x Gadget Basic at $8.00 each
+
+   Delivery by March 15 please.
+
+   Best regards,
+   John Smith
+   john@customer.com
+   ```
+2. Forward this email to your inbox address (e.g. `ops-84f470a7@eldaaelkia.resend.app`)
+3. Within a minute, check the **Inbox Ops** section in the admin UI — you should see a new proposal with extracted actions
+
+### How the Webhook Flow Works
+
+1. Email arrives at Resend's servers
+2. Resend sends a webhook (`email.received` event) with Svix signature headers
+3. Open Mercato verifies the Svix signature using your `RESEND_WEBHOOK_SIGNING_SECRET`
+4. The handler fetches the full email content via Resend's API (using `RESEND_API_KEY`)
+5. The email is parsed and queued for AI extraction
+6. A proposal is created with extracted actions
+
+### Troubleshooting
+
+| Symptom | Cause | Fix |
+|---------|-------|-----|
+| No email appears in the inbox log | Webhook not reaching your server | Verify the URL in Resend is correct and your server is publicly accessible. Check Resend webhook logs: Dashboard &rarr; Webhooks &rarr; click your webhook &rarr; Logs |
+| HTTP 503 from webhook | Signing secret not set | Add `RESEND_WEBHOOK_SIGNING_SECRET` to `.env` and restart |
+| HTTP 400 from webhook | Signing secret mismatch | Ensure `RESEND_WEBHOOK_SIGNING_SECRET` matches exactly (including `whsec_` prefix) |
+| "Failed to fetch Resend email" in logs | `RESEND_API_KEY` missing or invalid | Verify `RESEND_API_KEY` is set and has permission to read receiving emails |
+| Email received but stuck in "received" status | AI provider not configured or API key invalid | Check `OPENCODE_PROVIDER` and the corresponding API key |
+| Proposal created but no products matched | Your catalog is empty or product names differ | Add products to the catalog; the system does fuzzy matching on names and SKUs |
+| HTTP 429 from webhook | Rate limit exceeded | Default limits: 10/min, 100/hour, 1000/day per inbox address |
+| Same email not processed twice | Deduplication by message ID or content hash | This is intentional — each unique email is only processed once |
+
+## Security
+
+### How the Webhook Is Protected
+
+The webhook endpoint is protected by multiple layers:
+
+1. **Svix signature verification** — Every Resend webhook request includes `svix-id`, `svix-timestamp`, and `svix-signature` headers. The handler verifies these against your `RESEND_WEBHOOK_SIGNING_SECRET`. Without the secret, requests are rejected.
+
+2. **Replay protection** — Svix signatures include a timestamp; the verification rejects expired signatures.
+
+3. **Rate limiting** — Even valid requests are throttled per inbox address (10/min, 100/hour, 1000/day).
+
+4. **Payload size limit** — Requests larger than 2MB are rejected (HTTP 413).
+
+5. **Deduplication** — Emails with the same message ID or content hash are only processed once, preventing accidental re-processing.
+
+### What About Someone Emailing the Inbox Address Directly?
+
+If someone discovers and emails your inbox address, Resend will legitimately deliver it as a webhook (with a valid signature). The email will be processed.
+
+The inbox address is **obscure by design** — it contains a random slug from your organization ID, making it impractical to guess. For additional protection:
+
+- Only share the inbox address with your team internally
+- Monitor the **Inbox Ops &rarr; Processing Log** for unexpected senders
+- Disable the inbox temporarily via **Inbox Ops &rarr; Settings** if needed (toggle the Active switch)
+
+## User Permissions
+
+Inbox Ops uses feature-based access control:
+
+| Permission | Who gets it by default | What it allows |
+|------------|----------------------|----------------|
+| `inbox_ops.proposals.view` | Admin, Employee | View proposals and their actions |
+| `inbox_ops.proposals.manage` | Admin, Employee | Accept/reject/edit proposal actions |
+| `inbox_ops.settings.manage` | Admin | Change inbox settings (working language, active status) |
+| `inbox_ops.log.view` | Admin | View the email processing log |
+| `inbox_ops.replies.send` | Admin, Employee | Send draft replies via email |
+
+Superadmins have all permissions (`inbox_ops.*`).
+
+### Notifications
+
+When a proposal is created, the system sends in-app and email notifications to users who have the `inbox_ops.proposals.manage` permission. To configure email delivery:
+
+1. Go to **Settings &rarr; Notifications** (`/backend/config/notifications`)
+2. Set the delivery method (email, in-app, or both)
+3. Ensure your user's email address is correct in their profile
+
+## Daily Workflow
+
+Once set up, the typical workflow for your team is:
+
+1. **Employee** receives a customer email (order request, quote inquiry, shipping question)
+2. **Employee** forwards the thread to the inbox address
+3. **Open Mercato** extracts the intent and creates a proposal with actions
+4. **Employee** (or manager) reviews the proposal in the admin UI:
+   - Green actions: ready to execute (matched contacts, valid products, no discrepancies)
+   - Yellow/red actions: have discrepancies that need attention (unknown contact, price mismatch, missing product)
+5. **Employee** accepts good actions, edits or rejects problematic ones
+6. Accepted actions execute automatically (orders created, contacts linked, replies sent)
+
+## Developer Testing
+
+For local development and automated testing, the webhook also supports a custom HMAC-SHA256 mode alongside the Resend/Svix mode. See the test scripts in `scripts/test-inbox-webhook*.sh` for details.
+
+To enable both modes simultaneously, set both secrets:
+
+```env
+INBOX_OPS_WEBHOOK_SECRET=your-hmac-secret      # for test scripts
+RESEND_WEBHOOK_SIGNING_SECRET=whsec_...         # for real Resend webhooks
+```
+
+At least one of these must be configured for the webhook endpoint to be active.

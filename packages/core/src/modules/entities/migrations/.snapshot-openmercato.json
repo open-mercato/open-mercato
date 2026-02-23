@@ -16,26 +16,8 @@
           "default": "gen_random_uuid()",
           "mappedType": "uuid"
         },
-        "proposal_id": {
-          "name": "proposal_id",
-          "type": "uuid",
-          "unsigned": false,
-          "autoincrement": false,
-          "primary": false,
-          "nullable": false,
-          "mappedType": "uuid"
-        },
-        "action_id": {
-          "name": "action_id",
-          "type": "uuid",
-          "unsigned": false,
-          "autoincrement": false,
-          "primary": false,
-          "nullable": true,
-          "mappedType": "uuid"
-        },
-        "type": {
-          "name": "type",
+        "entity_id": {
+          "name": "entity_id",
           "type": "text",
           "unsigned": false,
           "autoincrement": false,
@@ -43,8 +25,8 @@
           "nullable": false,
           "mappedType": "text"
         },
-        "severity": {
-          "name": "severity",
+        "label": {
+          "name": "label",
           "type": "text",
           "unsigned": false,
           "autoincrement": false,
@@ -58,11 +40,11 @@
           "unsigned": false,
           "autoincrement": false,
           "primary": false,
-          "nullable": false,
+          "nullable": true,
           "mappedType": "text"
         },
-        "expected_value": {
-          "name": "expected_value",
+        "label_field": {
+          "name": "label_field",
           "type": "text",
           "unsigned": false,
           "autoincrement": false,
@@ -70,8 +52,8 @@
           "nullable": true,
           "mappedType": "text"
         },
-        "found_value": {
-          "name": "found_value",
+        "default_editor": {
+          "name": "default_editor",
           "type": "text",
           "unsigned": false,
           "autoincrement": false,
@@ -79,8 +61,8 @@
           "nullable": true,
           "mappedType": "text"
         },
-        "resolved": {
-          "name": "resolved",
+        "show_in_sidebar": {
+          "name": "show_in_sidebar",
           "type": "boolean",
           "unsigned": false,
           "autoincrement": false,
@@ -89,22 +71,13 @@
           "default": "false",
           "mappedType": "boolean"
         },
-        "metadata": {
-          "name": "metadata",
-          "type": "jsonb",
-          "unsigned": false,
-          "autoincrement": false,
-          "primary": false,
-          "nullable": true,
-          "mappedType": "json"
-        },
         "organization_id": {
           "name": "organization_id",
           "type": "uuid",
           "unsigned": false,
           "autoincrement": false,
           "primary": false,
-          "nullable": false,
+          "nullable": true,
           "mappedType": "uuid"
         },
         "tenant_id": {
@@ -113,243 +86,8 @@
           "unsigned": false,
           "autoincrement": false,
           "primary": false,
-          "nullable": false,
+          "nullable": true,
           "mappedType": "uuid"
-        },
-        "created_at": {
-          "name": "created_at",
-          "type": "timestamptz",
-          "unsigned": false,
-          "autoincrement": false,
-          "primary": false,
-          "nullable": false,
-          "length": 6,
-          "mappedType": "datetime"
-        },
-        "updated_at": {
-          "name": "updated_at",
-          "type": "timestamptz",
-          "unsigned": false,
-          "autoincrement": false,
-          "primary": false,
-          "nullable": false,
-          "length": 6,
-          "mappedType": "datetime"
-        },
-        "deleted_at": {
-          "name": "deleted_at",
-          "type": "timestamptz",
-          "unsigned": false,
-          "autoincrement": false,
-          "primary": false,
-          "nullable": true,
-          "length": 6,
-          "mappedType": "datetime"
-        }
-      },
-      "name": "inbox_discrepancies",
-      "schema": "public",
-      "indexes": [
-        {
-          "keyName": "inbox_discrepancies_proposal_id_index",
-          "columnNames": [
-            "proposal_id"
-          ],
-          "composite": false,
-          "constraint": false,
-          "primary": false,
-          "unique": false
-        },
-        {
-          "keyName": "inbox_discrepancies_pkey",
-          "columnNames": [
-            "id"
-          ],
-          "composite": false,
-          "constraint": true,
-          "primary": true,
-          "unique": true
-        }
-      ],
-      "checks": [],
-      "foreignKeys": {},
-      "nativeEnums": {}
-    },
-    {
-      "columns": {
-        "id": {
-          "name": "id",
-          "type": "uuid",
-          "unsigned": false,
-          "autoincrement": false,
-          "primary": false,
-          "nullable": false,
-          "default": "gen_random_uuid()",
-          "mappedType": "uuid"
-        },
-        "message_id": {
-          "name": "message_id",
-          "type": "text",
-          "unsigned": false,
-          "autoincrement": false,
-          "primary": false,
-          "nullable": true,
-          "mappedType": "text"
-        },
-        "content_hash": {
-          "name": "content_hash",
-          "type": "text",
-          "unsigned": false,
-          "autoincrement": false,
-          "primary": false,
-          "nullable": true,
-          "mappedType": "text"
-        },
-        "forwarded_by_address": {
-          "name": "forwarded_by_address",
-          "type": "text",
-          "unsigned": false,
-          "autoincrement": false,
-          "primary": false,
-          "nullable": false,
-          "mappedType": "text"
-        },
-        "forwarded_by_name": {
-          "name": "forwarded_by_name",
-          "type": "text",
-          "unsigned": false,
-          "autoincrement": false,
-          "primary": false,
-          "nullable": true,
-          "mappedType": "text"
-        },
-        "to_address": {
-          "name": "to_address",
-          "type": "text",
-          "unsigned": false,
-          "autoincrement": false,
-          "primary": false,
-          "nullable": false,
-          "mappedType": "text"
-        },
-        "subject": {
-          "name": "subject",
-          "type": "text",
-          "unsigned": false,
-          "autoincrement": false,
-          "primary": false,
-          "nullable": false,
-          "mappedType": "text"
-        },
-        "reply_to": {
-          "name": "reply_to",
-          "type": "text",
-          "unsigned": false,
-          "autoincrement": false,
-          "primary": false,
-          "nullable": true,
-          "mappedType": "text"
-        },
-        "in_reply_to": {
-          "name": "in_reply_to",
-          "type": "text",
-          "unsigned": false,
-          "autoincrement": false,
-          "primary": false,
-          "nullable": true,
-          "mappedType": "text"
-        },
-        "references": {
-          "name": "references",
-          "type": "jsonb",
-          "unsigned": false,
-          "autoincrement": false,
-          "primary": false,
-          "nullable": true,
-          "mappedType": "json"
-        },
-        "raw_text": {
-          "name": "raw_text",
-          "type": "text",
-          "unsigned": false,
-          "autoincrement": false,
-          "primary": false,
-          "nullable": true,
-          "mappedType": "text"
-        },
-        "raw_html": {
-          "name": "raw_html",
-          "type": "text",
-          "unsigned": false,
-          "autoincrement": false,
-          "primary": false,
-          "nullable": true,
-          "mappedType": "text"
-        },
-        "cleaned_text": {
-          "name": "cleaned_text",
-          "type": "text",
-          "unsigned": false,
-          "autoincrement": false,
-          "primary": false,
-          "nullable": true,
-          "mappedType": "text"
-        },
-        "thread_messages": {
-          "name": "thread_messages",
-          "type": "jsonb",
-          "unsigned": false,
-          "autoincrement": false,
-          "primary": false,
-          "nullable": true,
-          "mappedType": "json"
-        },
-        "detected_language": {
-          "name": "detected_language",
-          "type": "text",
-          "unsigned": false,
-          "autoincrement": false,
-          "primary": false,
-          "nullable": true,
-          "mappedType": "text"
-        },
-        "attachment_ids": {
-          "name": "attachment_ids",
-          "type": "jsonb",
-          "unsigned": false,
-          "autoincrement": false,
-          "primary": false,
-          "nullable": true,
-          "mappedType": "json"
-        },
-        "received_at": {
-          "name": "received_at",
-          "type": "timestamptz",
-          "unsigned": false,
-          "autoincrement": false,
-          "primary": false,
-          "nullable": false,
-          "length": 6,
-          "mappedType": "datetime"
-        },
-        "status": {
-          "name": "status",
-          "type": "text",
-          "unsigned": false,
-          "autoincrement": false,
-          "primary": false,
-          "nullable": false,
-          "default": "'received'",
-          "mappedType": "text"
-        },
-        "processing_error": {
-          "name": "processing_error",
-          "type": "text",
-          "unsigned": false,
-          "autoincrement": false,
-          "primary": false,
-          "nullable": true,
-          "mappedType": "text"
         },
         "is_active": {
           "name": "is_active",
@@ -361,14 +99,99 @@
           "default": "true",
           "mappedType": "boolean"
         },
-        "metadata": {
-          "name": "metadata",
-          "type": "jsonb",
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamptz",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": false,
+          "length": 6,
+          "mappedType": "datetime"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamptz",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": false,
+          "length": 6,
+          "mappedType": "datetime"
+        },
+        "deleted_at": {
+          "name": "deleted_at",
+          "type": "timestamptz",
           "unsigned": false,
           "autoincrement": false,
           "primary": false,
           "nullable": true,
-          "mappedType": "json"
+          "length": 6,
+          "mappedType": "datetime"
+        }
+      },
+      "name": "custom_entities",
+      "schema": "public",
+      "indexes": [
+        {
+          "keyName": "custom_entities_unique_idx",
+          "columnNames": [
+            "entity_id",
+            "organization_id",
+            "tenant_id"
+          ],
+          "composite": true,
+          "constraint": false,
+          "primary": false,
+          "unique": false,
+          "options": {
+            "unique": true
+          }
+        },
+        {
+          "keyName": "custom_entities_pkey",
+          "columnNames": [
+            "id"
+          ],
+          "composite": false,
+          "constraint": true,
+          "primary": true,
+          "unique": true
+        }
+      ],
+      "checks": [],
+      "foreignKeys": {},
+      "nativeEnums": {}
+    },
+    {
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": false,
+          "default": "gen_random_uuid()",
+          "mappedType": "uuid"
+        },
+        "entity_type": {
+          "name": "entity_type",
+          "type": "text",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": false,
+          "mappedType": "text"
+        },
+        "entity_id": {
+          "name": "entity_id",
+          "type": "text",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": false,
+          "mappedType": "text"
         },
         "organization_id": {
           "name": "organization_id",
@@ -376,7 +199,7 @@
           "unsigned": false,
           "autoincrement": false,
           "primary": false,
-          "nullable": false,
+          "nullable": true,
           "mappedType": "uuid"
         },
         "tenant_id": {
@@ -385,8 +208,17 @@
           "unsigned": false,
           "autoincrement": false,
           "primary": false,
-          "nullable": false,
+          "nullable": true,
           "mappedType": "uuid"
+        },
+        "doc": {
+          "name": "doc",
+          "type": "jsonb",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": false,
+          "mappedType": "json"
         },
         "created_at": {
           "name": "created_at",
@@ -419,76 +251,26 @@
           "mappedType": "datetime"
         }
       },
-      "name": "inbox_emails",
+      "name": "custom_entities_storage",
       "schema": "public",
       "indexes": [
         {
-          "keyName": "inbox_emails_organization_id_tenant_id_received_at_index",
+          "keyName": "custom_entities_storage_unique_idx",
           "columnNames": [
-            "organization_id",
-            "tenant_id",
-            "received_at"
+            "entity_type",
+            "entity_id",
+            "organization_id"
           ],
           "composite": true,
           "constraint": false,
           "primary": false,
-          "unique": false
-        },
-        {
-          "keyName": "inbox_emails_organization_id_tenant_id_status_index",
-          "columnNames": [
-            "organization_id",
-            "tenant_id",
-            "status"
-          ],
-          "composite": true,
-          "constraint": false,
-          "primary": false,
-          "unique": false
-        },
-        {
-          "keyName": "inbox_emails_organization_id_tenant_id_index",
-          "columnNames": [
-            "organization_id",
-            "tenant_id"
-          ],
-          "composite": true,
-          "constraint": false,
-          "primary": false,
-          "unique": false
-        },
-        {
-          "keyName": "inbox_emails_organization_id_tenant_id_content_hash_unique",
-          "columnNames": [
-            "organization_id",
-            "tenant_id",
-            "content_hash"
-          ],
-          "composite": true,
-          "constraint": true,
-          "primary": false,
-          "unique": true,
+          "unique": false,
           "options": {
-            "where": "content_hash IS NOT NULL"
+            "unique": true
           }
         },
         {
-          "keyName": "inbox_emails_organization_id_tenant_id_message_id_unique",
-          "columnNames": [
-            "organization_id",
-            "tenant_id",
-            "message_id"
-          ],
-          "composite": true,
-          "constraint": true,
-          "primary": false,
-          "unique": true,
-          "options": {
-            "where": "message_id IS NOT NULL"
-          }
-        },
-        {
-          "keyName": "inbox_emails_pkey",
+          "keyName": "custom_entities_storage_pkey",
           "columnNames": [
             "id"
           ],
@@ -514,84 +296,92 @@
           "default": "gen_random_uuid()",
           "mappedType": "uuid"
         },
-        "inbox_email_id": {
-          "name": "inbox_email_id",
+        "entity_id": {
+          "name": "entity_id",
+          "type": "text",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": false,
+          "mappedType": "text"
+        },
+        "organization_id": {
+          "name": "organization_id",
           "type": "uuid",
           "unsigned": false,
           "autoincrement": false,
           "primary": false,
-          "nullable": false,
+          "nullable": true,
           "mappedType": "uuid"
         },
-        "summary": {
-          "name": "summary",
-          "type": "text",
-          "unsigned": false,
-          "autoincrement": false,
-          "primary": false,
-          "nullable": false,
-          "mappedType": "text"
-        },
-        "participants": {
-          "name": "participants",
-          "type": "jsonb",
-          "unsigned": false,
-          "autoincrement": false,
-          "primary": false,
-          "nullable": false,
-          "mappedType": "json"
-        },
-        "confidence": {
-          "name": "confidence",
-          "type": "numeric(3,2)",
-          "unsigned": false,
-          "autoincrement": false,
-          "primary": false,
-          "nullable": false,
-          "precision": 3,
-          "scale": 2,
-          "mappedType": "decimal"
-        },
-        "detected_language": {
-          "name": "detected_language",
-          "type": "text",
+        "tenant_id": {
+          "name": "tenant_id",
+          "type": "uuid",
           "unsigned": false,
           "autoincrement": false,
           "primary": false,
           "nullable": true,
-          "mappedType": "text"
+          "mappedType": "uuid"
         },
-        "status": {
-          "name": "status",
+        "key": {
+          "name": "key",
           "type": "text",
           "unsigned": false,
           "autoincrement": false,
           "primary": false,
           "nullable": false,
-          "default": "'pending'",
           "mappedType": "text"
         },
-        "possibly_incomplete": {
-          "name": "possibly_incomplete",
+        "kind": {
+          "name": "kind",
+          "type": "text",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": false,
+          "mappedType": "text"
+        },
+        "config_json": {
+          "name": "config_json",
+          "type": "jsonb",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": true,
+          "mappedType": "json"
+        },
+        "is_active": {
+          "name": "is_active",
           "type": "boolean",
           "unsigned": false,
           "autoincrement": false,
           "primary": false,
           "nullable": false,
-          "default": "false",
+          "default": "true",
           "mappedType": "boolean"
         },
-        "reviewed_by_user_id": {
-          "name": "reviewed_by_user_id",
-          "type": "uuid",
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamptz",
           "unsigned": false,
           "autoincrement": false,
           "primary": false,
-          "nullable": true,
-          "mappedType": "uuid"
+          "nullable": false,
+          "length": 6,
+          "mappedType": "datetime"
         },
-        "reviewed_at": {
-          "name": "reviewed_at",
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamptz",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": false,
+          "length": 6,
+          "mappedType": "datetime"
+        },
+        "deleted_at": {
+          "name": "deleted_at",
           "type": "timestamptz",
           "unsigned": false,
           "autoincrement": false,
@@ -599,9 +389,293 @@
           "nullable": true,
           "length": 6,
           "mappedType": "datetime"
+        }
+      },
+      "name": "custom_field_defs",
+      "schema": "public",
+      "indexes": [
+        {
+          "columnNames": [
+            "key"
+          ],
+          "composite": false,
+          "keyName": "cf_defs_entity_key_idx",
+          "constraint": false,
+          "primary": false,
+          "unique": false
         },
-        "llm_model": {
-          "name": "llm_model",
+        {
+          "keyName": "cf_defs_entity_key_scope_idx",
+          "columnNames": [
+            "entity_id",
+            "key",
+            "tenant_id",
+            "organization_id"
+          ],
+          "composite": true,
+          "constraint": false,
+          "primary": false,
+          "unique": false
+        },
+        {
+          "keyName": "cf_defs_entity_global_idx",
+          "columnNames": [
+            "entity_id"
+          ],
+          "composite": false,
+          "constraint": false,
+          "primary": false,
+          "unique": false
+        },
+        {
+          "keyName": "cf_defs_entity_org_idx",
+          "columnNames": [
+            "entity_id",
+            "organization_id"
+          ],
+          "composite": true,
+          "constraint": false,
+          "primary": false,
+          "unique": false
+        },
+        {
+          "keyName": "cf_defs_entity_tenant_idx",
+          "columnNames": [
+            "entity_id",
+            "tenant_id"
+          ],
+          "composite": true,
+          "constraint": false,
+          "primary": false,
+          "unique": false
+        },
+        {
+          "keyName": "cf_defs_entity_tenant_org_idx",
+          "columnNames": [
+            "entity_id",
+            "tenant_id",
+            "organization_id"
+          ],
+          "composite": true,
+          "constraint": false,
+          "primary": false,
+          "unique": false
+        },
+        {
+          "keyName": "custom_field_defs_pkey",
+          "columnNames": [
+            "id"
+          ],
+          "composite": false,
+          "constraint": true,
+          "primary": true,
+          "unique": true
+        }
+      ],
+      "checks": [],
+      "foreignKeys": {},
+      "nativeEnums": {}
+    },
+    {
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": false,
+          "default": "gen_random_uuid()",
+          "mappedType": "uuid"
+        },
+        "entity_id": {
+          "name": "entity_id",
+          "type": "text",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": false,
+          "mappedType": "text"
+        },
+        "organization_id": {
+          "name": "organization_id",
+          "type": "uuid",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": true,
+          "mappedType": "uuid"
+        },
+        "tenant_id": {
+          "name": "tenant_id",
+          "type": "uuid",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": true,
+          "mappedType": "uuid"
+        },
+        "config_json": {
+          "name": "config_json",
+          "type": "jsonb",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": true,
+          "mappedType": "json"
+        },
+        "is_active": {
+          "name": "is_active",
+          "type": "boolean",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": false,
+          "default": "true",
+          "mappedType": "boolean"
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamptz",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": false,
+          "length": 6,
+          "mappedType": "datetime"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamptz",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": false,
+          "length": 6,
+          "mappedType": "datetime"
+        },
+        "deleted_at": {
+          "name": "deleted_at",
+          "type": "timestamptz",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": true,
+          "length": 6,
+          "mappedType": "datetime"
+        }
+      },
+      "name": "custom_field_entity_configs",
+      "schema": "public",
+      "indexes": [
+        {
+          "keyName": "cf_entity_cfgs_entity_org_idx",
+          "columnNames": [
+            "entity_id",
+            "organization_id"
+          ],
+          "composite": true,
+          "constraint": false,
+          "primary": false,
+          "unique": false
+        },
+        {
+          "keyName": "cf_entity_cfgs_entity_tenant_idx",
+          "columnNames": [
+            "entity_id",
+            "tenant_id"
+          ],
+          "composite": true,
+          "constraint": false,
+          "primary": false,
+          "unique": false
+        },
+        {
+          "keyName": "cf_entity_cfgs_entity_scope_idx",
+          "columnNames": [
+            "entity_id",
+            "tenant_id",
+            "organization_id"
+          ],
+          "composite": true,
+          "constraint": false,
+          "primary": false,
+          "unique": false
+        },
+        {
+          "keyName": "custom_field_entity_configs_pkey",
+          "columnNames": [
+            "id"
+          ],
+          "composite": false,
+          "constraint": true,
+          "primary": true,
+          "unique": true
+        }
+      ],
+      "checks": [],
+      "foreignKeys": {},
+      "nativeEnums": {}
+    },
+    {
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": false,
+          "default": "gen_random_uuid()",
+          "mappedType": "uuid"
+        },
+        "entity_id": {
+          "name": "entity_id",
+          "type": "text",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": false,
+          "mappedType": "text"
+        },
+        "record_id": {
+          "name": "record_id",
+          "type": "text",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": false,
+          "mappedType": "text"
+        },
+        "organization_id": {
+          "name": "organization_id",
+          "type": "uuid",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": true,
+          "mappedType": "uuid"
+        },
+        "tenant_id": {
+          "name": "tenant_id",
+          "type": "uuid",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": true,
+          "mappedType": "uuid"
+        },
+        "field_key": {
+          "name": "field_key",
+          "type": "text",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": false,
+          "mappedType": "text"
+        },
+        "value_text": {
+          "name": "value_text",
           "type": "text",
           "unsigned": false,
           "autoincrement": false,
@@ -609,8 +683,17 @@
           "nullable": true,
           "mappedType": "text"
         },
-        "llm_tokens_used": {
-          "name": "llm_tokens_used",
+        "value_multiline": {
+          "name": "value_multiline",
+          "type": "text",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": true,
+          "mappedType": "text"
+        },
+        "value_int": {
+          "name": "value_int",
           "type": "int",
           "unsigned": false,
           "autoincrement": false,
@@ -618,73 +701,26 @@
           "nullable": true,
           "mappedType": "integer"
         },
-        "working_language": {
-          "name": "working_language",
-          "type": "text",
+        "value_float": {
+          "name": "value_float",
+          "type": "real",
           "unsigned": false,
           "autoincrement": false,
           "primary": false,
           "nullable": true,
-          "mappedType": "text"
+          "mappedType": "float"
         },
-        "translations": {
-          "name": "translations",
-          "type": "jsonb",
-          "unsigned": false,
-          "autoincrement": false,
-          "primary": false,
-          "nullable": true,
-          "mappedType": "json"
-        },
-        "is_active": {
-          "name": "is_active",
+        "value_bool": {
+          "name": "value_bool",
           "type": "boolean",
           "unsigned": false,
           "autoincrement": false,
           "primary": false,
-          "nullable": false,
-          "default": "true",
-          "mappedType": "boolean"
-        },
-        "metadata": {
-          "name": "metadata",
-          "type": "jsonb",
-          "unsigned": false,
-          "autoincrement": false,
-          "primary": false,
           "nullable": true,
-          "mappedType": "json"
-        },
-        "organization_id": {
-          "name": "organization_id",
-          "type": "uuid",
-          "unsigned": false,
-          "autoincrement": false,
-          "primary": false,
-          "nullable": false,
-          "mappedType": "uuid"
-        },
-        "tenant_id": {
-          "name": "tenant_id",
-          "type": "uuid",
-          "unsigned": false,
-          "autoincrement": false,
-          "primary": false,
-          "nullable": false,
-          "mappedType": "uuid"
+          "mappedType": "boolean"
         },
         "created_at": {
           "name": "created_at",
-          "type": "timestamptz",
-          "unsigned": false,
-          "autoincrement": false,
-          "primary": false,
-          "nullable": false,
-          "length": 6,
-          "mappedType": "datetime"
-        },
-        "updated_at": {
-          "name": "updated_at",
           "type": "timestamptz",
           "unsigned": false,
           "autoincrement": false,
@@ -704,35 +740,24 @@
           "mappedType": "datetime"
         }
       },
-      "name": "inbox_proposals",
+      "name": "custom_field_values",
       "schema": "public",
       "indexes": [
         {
-          "keyName": "inbox_proposals_inbox_email_id_index",
           "columnNames": [
-            "inbox_email_id"
+            "field_key"
           ],
           "composite": false,
+          "keyName": "cf_values_entity_record_field_idx",
           "constraint": false,
           "primary": false,
           "unique": false
         },
         {
-          "keyName": "inbox_proposals_organization_id_tenant_id_status_index",
+          "keyName": "cf_values_entity_record_tenant_idx",
           "columnNames": [
-            "organization_id",
-            "tenant_id",
-            "status"
-          ],
-          "composite": true,
-          "constraint": false,
-          "primary": false,
-          "unique": false
-        },
-        {
-          "keyName": "inbox_proposals_organization_id_tenant_id_index",
-          "columnNames": [
-            "organization_id",
+            "entity_id",
+            "record_id",
             "tenant_id"
           ],
           "composite": true,
@@ -741,7 +766,7 @@
           "unique": false
         },
         {
-          "keyName": "inbox_proposals_pkey",
+          "keyName": "custom_field_values_pkey",
           "columnNames": [
             "id"
           ],
@@ -767,144 +792,41 @@
           "default": "gen_random_uuid()",
           "mappedType": "uuid"
         },
-        "proposal_id": {
-          "name": "proposal_id",
+        "entity_id": {
+          "name": "entity_id",
+          "type": "text",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": false,
+          "mappedType": "text"
+        },
+        "tenant_id": {
+          "name": "tenant_id",
           "type": "uuid",
           "unsigned": false,
           "autoincrement": false,
           "primary": false,
-          "nullable": false,
+          "nullable": true,
           "mappedType": "uuid"
         },
-        "sort_order": {
-          "name": "sort_order",
-          "type": "int",
+        "organization_id": {
+          "name": "organization_id",
+          "type": "uuid",
           "unsigned": false,
           "autoincrement": false,
           "primary": false,
-          "nullable": false,
-          "mappedType": "integer"
+          "nullable": true,
+          "mappedType": "uuid"
         },
-        "action_type": {
-          "name": "action_type",
-          "type": "text",
-          "unsigned": false,
-          "autoincrement": false,
-          "primary": false,
-          "nullable": false,
-          "mappedType": "text"
-        },
-        "description": {
-          "name": "description",
-          "type": "text",
-          "unsigned": false,
-          "autoincrement": false,
-          "primary": false,
-          "nullable": false,
-          "mappedType": "text"
-        },
-        "payload": {
-          "name": "payload",
+        "fields_json": {
+          "name": "fields_json",
           "type": "jsonb",
           "unsigned": false,
           "autoincrement": false,
           "primary": false,
-          "nullable": false,
+          "nullable": true,
           "mappedType": "json"
-        },
-        "status": {
-          "name": "status",
-          "type": "text",
-          "unsigned": false,
-          "autoincrement": false,
-          "primary": false,
-          "nullable": false,
-          "default": "'pending'",
-          "mappedType": "text"
-        },
-        "confidence": {
-          "name": "confidence",
-          "type": "numeric(3,2)",
-          "unsigned": false,
-          "autoincrement": false,
-          "primary": false,
-          "nullable": false,
-          "precision": 3,
-          "scale": 2,
-          "mappedType": "decimal"
-        },
-        "required_feature": {
-          "name": "required_feature",
-          "type": "text",
-          "unsigned": false,
-          "autoincrement": false,
-          "primary": false,
-          "nullable": true,
-          "mappedType": "text"
-        },
-        "matched_entity_id": {
-          "name": "matched_entity_id",
-          "type": "uuid",
-          "unsigned": false,
-          "autoincrement": false,
-          "primary": false,
-          "nullable": true,
-          "mappedType": "uuid"
-        },
-        "matched_entity_type": {
-          "name": "matched_entity_type",
-          "type": "text",
-          "unsigned": false,
-          "autoincrement": false,
-          "primary": false,
-          "nullable": true,
-          "mappedType": "text"
-        },
-        "created_entity_id": {
-          "name": "created_entity_id",
-          "type": "uuid",
-          "unsigned": false,
-          "autoincrement": false,
-          "primary": false,
-          "nullable": true,
-          "mappedType": "uuid"
-        },
-        "created_entity_type": {
-          "name": "created_entity_type",
-          "type": "text",
-          "unsigned": false,
-          "autoincrement": false,
-          "primary": false,
-          "nullable": true,
-          "mappedType": "text"
-        },
-        "execution_error": {
-          "name": "execution_error",
-          "type": "text",
-          "unsigned": false,
-          "autoincrement": false,
-          "primary": false,
-          "nullable": true,
-          "mappedType": "text"
-        },
-        "executed_at": {
-          "name": "executed_at",
-          "type": "timestamptz",
-          "unsigned": false,
-          "autoincrement": false,
-          "primary": false,
-          "nullable": true,
-          "length": 6,
-          "mappedType": "datetime"
-        },
-        "executed_by_user_id": {
-          "name": "executed_by_user_id",
-          "type": "uuid",
-          "unsigned": false,
-          "autoincrement": false,
-          "primary": false,
-          "nullable": true,
-          "mappedType": "uuid"
         },
         "is_active": {
           "name": "is_active",
@@ -915,33 +837,6 @@
           "nullable": false,
           "default": "true",
           "mappedType": "boolean"
-        },
-        "metadata": {
-          "name": "metadata",
-          "type": "jsonb",
-          "unsigned": false,
-          "autoincrement": false,
-          "primary": false,
-          "nullable": true,
-          "mappedType": "json"
-        },
-        "organization_id": {
-          "name": "organization_id",
-          "type": "uuid",
-          "unsigned": false,
-          "autoincrement": false,
-          "primary": false,
-          "nullable": false,
-          "mappedType": "uuid"
-        },
-        "tenant_id": {
-          "name": "tenant_id",
-          "type": "uuid",
-          "unsigned": false,
-          "autoincrement": false,
-          "primary": false,
-          "nullable": false,
-          "mappedType": "uuid"
         },
         "created_at": {
           "name": "created_at",
@@ -974,15 +869,15 @@
           "mappedType": "datetime"
         }
       },
-      "name": "inbox_proposal_actions",
+      "name": "encryption_maps",
       "schema": "public",
       "indexes": [
         {
-          "keyName": "inbox_proposal_actions_organization_id_tenant_id_status_index",
+          "keyName": "encryption_maps_entity_scope_idx",
           "columnNames": [
-            "organization_id",
+            "entity_id",
             "tenant_id",
-            "status"
+            "organization_id"
           ],
           "composite": true,
           "constraint": false,
@@ -990,146 +885,7 @@
           "unique": false
         },
         {
-          "keyName": "inbox_proposal_actions_proposal_id_index",
-          "columnNames": [
-            "proposal_id"
-          ],
-          "composite": false,
-          "constraint": false,
-          "primary": false,
-          "unique": false
-        },
-        {
-          "keyName": "inbox_proposal_actions_pkey",
-          "columnNames": [
-            "id"
-          ],
-          "composite": false,
-          "constraint": true,
-          "primary": true,
-          "unique": true
-        }
-      ],
-      "checks": [],
-      "foreignKeys": {},
-      "nativeEnums": {}
-    },
-    {
-      "columns": {
-        "id": {
-          "name": "id",
-          "type": "uuid",
-          "unsigned": false,
-          "autoincrement": false,
-          "primary": false,
-          "nullable": false,
-          "default": "gen_random_uuid()",
-          "mappedType": "uuid"
-        },
-        "inbox_address": {
-          "name": "inbox_address",
-          "type": "text",
-          "unsigned": false,
-          "autoincrement": false,
-          "primary": false,
-          "nullable": false,
-          "mappedType": "text"
-        },
-        "is_active": {
-          "name": "is_active",
-          "type": "boolean",
-          "unsigned": false,
-          "autoincrement": false,
-          "primary": false,
-          "nullable": false,
-          "default": "true",
-          "mappedType": "boolean"
-        },
-        "working_language": {
-          "name": "working_language",
-          "type": "text",
-          "unsigned": false,
-          "autoincrement": false,
-          "primary": false,
-          "nullable": false,
-          "default": "'en'",
-          "mappedType": "text"
-        },
-        "organization_id": {
-          "name": "organization_id",
-          "type": "uuid",
-          "unsigned": false,
-          "autoincrement": false,
-          "primary": false,
-          "nullable": false,
-          "mappedType": "uuid"
-        },
-        "tenant_id": {
-          "name": "tenant_id",
-          "type": "uuid",
-          "unsigned": false,
-          "autoincrement": false,
-          "primary": false,
-          "nullable": false,
-          "mappedType": "uuid"
-        },
-        "created_at": {
-          "name": "created_at",
-          "type": "timestamptz",
-          "unsigned": false,
-          "autoincrement": false,
-          "primary": false,
-          "nullable": false,
-          "length": 6,
-          "mappedType": "datetime"
-        },
-        "updated_at": {
-          "name": "updated_at",
-          "type": "timestamptz",
-          "unsigned": false,
-          "autoincrement": false,
-          "primary": false,
-          "nullable": false,
-          "length": 6,
-          "mappedType": "datetime"
-        },
-        "deleted_at": {
-          "name": "deleted_at",
-          "type": "timestamptz",
-          "unsigned": false,
-          "autoincrement": false,
-          "primary": false,
-          "nullable": true,
-          "length": 6,
-          "mappedType": "datetime"
-        }
-      },
-      "name": "inbox_settings",
-      "schema": "public",
-      "indexes": [
-        {
-          "keyName": "inbox_settings_organization_id_tenant_id_index",
-          "columnNames": [
-            "organization_id",
-            "tenant_id"
-          ],
-          "composite": true,
-          "constraint": false,
-          "primary": false,
-          "unique": false
-        },
-        {
-          "keyName": "inbox_settings_inbox_address_unique",
-          "columnNames": [
-            "inbox_address"
-          ],
-          "composite": false,
-          "constraint": true,
-          "primary": false,
-          "unique": true
-        },
-        {
-          "keyName": "inbox_settings_pkey",
+          "keyName": "encryption_maps_pkey",
           "columnNames": [
             "id"
           ],

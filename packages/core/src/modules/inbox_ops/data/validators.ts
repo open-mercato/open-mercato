@@ -10,6 +10,17 @@ const coerceNumericString = z.preprocess(
 // Action Payload Schemas
 // ---------------------------------------------------------------------------
 
+const addressSchema = z.object({
+  line1: z.string().trim().max(500).optional(),
+  line2: z.string().trim().max(500).optional(),
+  city: z.string().trim().max(200).optional(),
+  state: z.string().trim().max(200).optional(),
+  postalCode: z.string().trim().max(50).optional(),
+  country: z.string().trim().max(200).optional(),
+  company: z.string().trim().max(300).optional(),
+  contactName: z.string().trim().max(300).optional(),
+}).optional()
+
 export const orderPayloadSchema = z.object({
   customerEntityId: uuid().optional(),
   customerName: z.string().trim().min(1).max(300),
@@ -31,6 +42,10 @@ export const orderPayloadSchema = z.object({
   requestedDeliveryDate: z.string().optional(),
   notes: z.string().trim().max(4000).optional(),
   customerReference: z.string().trim().max(200).optional(),
+  shippingAddress: addressSchema,
+  billingAddress: addressSchema,
+  shippingAddressId: uuid().optional(),
+  billingAddressId: uuid().optional(),
 })
 
 export const updateOrderPayloadSchema = z
@@ -192,6 +207,19 @@ export type CreateProductPayload = z.infer<typeof createProductPayloadSchema>
 export type LinkContactPayload = z.infer<typeof linkContactPayloadSchema>
 export type LogActivityPayload = z.infer<typeof logActivityPayloadSchema>
 export type DraftReplyPayload = z.infer<typeof draftReplyPayloadSchema>
+
+// ---------------------------------------------------------------------------
+// Translation / Settings Schemas
+// ---------------------------------------------------------------------------
+
+export const translateProposalSchema = z.object({
+  targetLocale: z.enum(['en', 'de', 'es', 'pl']),
+})
+
+export const updateSettingsSchema = z.object({
+  workingLanguage: z.enum(['en', 'de', 'es', 'pl']).optional(),
+  isActive: z.boolean().optional(),
+})
 
 // ---------------------------------------------------------------------------
 // API Query Schemas

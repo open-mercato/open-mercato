@@ -76,6 +76,33 @@ describe('buildExtractionSystemPrompt', () => {
     expect(result).toContain('create_order')
     expect(result).toContain('draft_reply')
   })
+
+  describe('workingLanguage parameter', () => {
+    it('defaults to English when workingLanguage is not provided', () => {
+      const result = buildExtractionSystemPrompt([], [])
+      expect(result).toContain('in English even if')
+    })
+
+    it('uses German when workingLanguage is "de"', () => {
+      const result = buildExtractionSystemPrompt([], [], undefined, 'de')
+      expect(result).toContain('in German even if')
+    })
+
+    it('uses Spanish when workingLanguage is "es"', () => {
+      const result = buildExtractionSystemPrompt([], [], undefined, 'es')
+      expect(result).toContain('in Spanish even if')
+    })
+
+    it('uses Polish when workingLanguage is "pl"', () => {
+      const result = buildExtractionSystemPrompt([], [], undefined, 'pl')
+      expect(result).toContain('in Polish even if')
+    })
+
+    it('falls back to English for unknown language codes', () => {
+      const result = buildExtractionSystemPrompt([], [], undefined, 'xx')
+      expect(result).toContain('in English even if')
+    })
+  })
 })
 
 describe('buildExtractionUserPrompt', () => {

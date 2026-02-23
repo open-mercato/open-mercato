@@ -8,7 +8,7 @@ import { Button } from '@open-mercato/ui/primitives/button'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { LoadingMessage } from '@open-mercato/ui/backend/detail'
-import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { useT, useLocale } from '@open-mercato/shared/lib/i18n/context'
 import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
 import {
   ArrowLeft,
@@ -29,6 +29,7 @@ import {
   Link2,
   Activity,
   ShoppingBag,
+  Languages,
 } from 'lucide-react'
 import {
   Dialog,
@@ -41,7 +42,7 @@ import {
 import { Input } from '@open-mercato/ui/primitives/input'
 import { Textarea } from '@open-mercato/ui/primitives/textarea'
 import { Label } from '@open-mercato/ui/primitives/label'
-import type { ThreadMessage, ExtractedParticipant, InboxActionType, InboxDiscrepancyType } from '../../../../data/entities'
+import type { ThreadMessage, ExtractedParticipant, InboxActionType, InboxDiscrepancyType, ProposalTranslationEntry } from '../../../../data/entities'
 
 type ProposalDetail = {
   id: string
@@ -51,6 +52,7 @@ type ProposalDetail = {
   participants: ExtractedParticipant[]
   possiblyIncomplete: boolean
   llmModel?: string
+  workingLanguage?: string | null
   createdAt: string
 }
 
@@ -151,7 +153,7 @@ function EmailThreadViewer({ email }: { email: EmailDetail | null }) {
             <div className="flex items-center gap-2 mb-2">
               <div className="flex-1 min-w-0">
                 <div className="text-sm font-medium truncate">
-                  {msg.from?.name || msg.from?.email || 'Unknown'}
+                  {msg.from?.name || msg.from?.email || t('inbox_ops.sender_unknown', 'Unknown')}
                 </div>
                 <div className="text-xs text-muted-foreground truncate">{msg.from?.email}</div>
               </div>
@@ -181,6 +183,7 @@ function ActionCard({
   onReject,
   onRetry,
   onEdit,
+  translatedDescription,
 }: {
   action: ActionDetail
   discrepancies: DiscrepancyDetail[]
@@ -189,6 +192,7 @@ function ActionCard({
   onReject: (id: string) => void
   onRetry: (id: string) => void
   onEdit: (action: ActionDetail) => void
+  translatedDescription?: string
 }) {
   const t = useT()
   const Icon = ACTION_TYPE_ICONS[action.actionType] || Package
@@ -196,6 +200,7 @@ function ActionCard({
 
   const actionDiscrepancies = discrepancies.filter((d) => d.actionId === action.id && !d.resolved)
   const hasBlockingDiscrepancies = actionDiscrepancies.some((d) => d.severity === 'error')
+  const displayDescription = translatedDescription || action.description
 
   if (action.status === 'executed') {
     return (
@@ -204,7 +209,7 @@ function ActionCard({
           <CheckCircle className="h-5 w-5 text-green-600 flex-shrink-0" />
           <span className="text-sm font-medium">{label}</span>
         </div>
-        <p className="text-sm text-muted-foreground">{action.description}</p>
+        <p className="text-sm text-muted-foreground">{displayDescription}</p>
         {action.createdEntityId && (
           <div className="mt-2">
             <span className="text-xs text-green-600">
@@ -224,7 +229,7 @@ function ActionCard({
           <span className="text-sm font-medium line-through">{label}</span>
           <span className="text-xs text-muted-foreground">{t('inbox_ops.status.rejected', 'Rejected')}</span>
         </div>
-        <p className="text-sm text-muted-foreground">{action.description}</p>
+        <p className="text-sm text-muted-foreground">{displayDescription}</p>
       </div>
     )
   }
@@ -237,7 +242,7 @@ function ActionCard({
           <span className="text-sm font-medium">{label}</span>
           <span className="text-xs text-red-600">{t('inbox_ops.extraction_failed', 'Failed')}</span>
         </div>
-        <p className="text-sm text-muted-foreground">{action.description}</p>
+        <p className="text-sm text-muted-foreground">{displayDescription}</p>
         {action.executionError && (
           <p className="text-xs text-red-600 mt-1">{action.executionError}</p>
         )}
@@ -280,7 +285,7 @@ function ActionCard({
         <span className="text-sm font-medium">{label}</span>
         <ConfidenceBadge value={action.confidence} />
       </div>
-      <p className="text-sm text-foreground/80 mb-2">{action.description}</p>
+      <p className="text-sm text-foreground/80 mb-2">{displayDescription}</p>
 
       {(action.actionType === 'create_order' || action.actionType === 'create_quote') && (
         <OrderPreview payload={action.payload} />
@@ -374,7 +379,7 @@ function EditActionDialog({
         finalPayload = JSON.parse(jsonText)
         setJsonError(null)
       } catch {
-        setJsonError('Invalid JSON')
+        setJsonError(t('inbox_ops.edit_dialog.invalid_json', 'Invalid JSON'))
         return
       }
     }
@@ -473,7 +478,7 @@ function EditActionDialog({
                     setPayload(JSON.parse(jsonText))
                     setJsonError(null)
                   } catch {
-                    setJsonError('Invalid JSON')
+                    setJsonError(t('inbox_ops.edit_dialog.invalid_json', 'Invalid JSON'))
                     return
                   }
                 }
@@ -934,6 +939,7 @@ function LogActivityPayloadEditor({
 
 export default function ProposalDetailPage({ params }: { params?: { id?: string } }) {
   const t = useT()
+  const locale = useLocale()
   const router = useRouter()
   const proposalId = params?.id
 
@@ -948,6 +954,10 @@ export default function ProposalDetailPage({ params }: { params?: { id?: string 
   const actionTypeLabels = useActionTypeLabels()
   const [editingAction, setEditingAction] = React.useState<ActionDetail | null>(null)
   const [sendingReplyId, setSendingReplyId] = React.useState<string | null>(null)
+
+  const [translation, setTranslation] = React.useState<ProposalTranslationEntry | null>(null)
+  const [isTranslating, setIsTranslating] = React.useState(false)
+  const [showTranslation, setShowTranslation] = React.useState(false)
 
   const handleEditAction = React.useCallback((action: ActionDetail) => {
     if (action.actionType === 'create_order' || action.actionType === 'create_quote') {
@@ -981,6 +991,22 @@ export default function ProposalDetailPage({ params }: { params?: { id?: string 
     }
     setEditingAction(action)
   }, [router])
+
+  const handleTranslate = React.useCallback(async () => {
+    if (!proposalId) return
+    setIsTranslating(true)
+    const result = await apiCall<{ translation: ProposalTranslationEntry; cached: boolean }>(
+      `/api/inbox_ops/proposals/${proposalId}/translate`,
+      { method: 'POST', body: JSON.stringify({ targetLocale: locale }) },
+    )
+    if (result?.ok && result.result?.translation) {
+      setTranslation(result.result.translation)
+      setShowTranslation(true)
+    } else {
+      flash(t('inbox_ops.translate.failed', 'Translation failed'), 'error')
+    }
+    setIsTranslating(false)
+  }, [proposalId, locale, t])
 
   const loadData = React.useCallback(async () => {
     if (!proposalId) return
@@ -1130,7 +1156,7 @@ export default function ProposalDetailPage({ params }: { params?: { id?: string 
             </Button>
           </Link>
           <div className="min-w-0">
-            <h1 className="text-lg font-semibold truncate">{email?.subject || 'Proposal'}</h1>
+            <h1 className="text-lg font-semibold truncate">{email?.subject || t('inbox_ops.proposal', 'Proposal')}</h1>
             <p className="text-xs text-muted-foreground">
               {email?.forwardedByName || email?.forwardedByAddress} · {email?.receivedAt && new Date(email.receivedAt).toLocaleString()}
             </p>
@@ -1190,8 +1216,30 @@ export default function ProposalDetailPage({ params }: { params?: { id?: string 
               <>
                 {/* Summary */}
                 <div className="border rounded-lg p-3 md:p-4">
-                  <h3 className="font-semibold text-sm mb-2">{t('inbox_ops.summary', 'Summary')}</h3>
-                  <p className="text-sm text-foreground/80 mb-3">{proposal.summary}</p>
+                  <div className="flex items-center justify-between mb-2">
+                    <h3 className="font-semibold text-sm">{t('inbox_ops.summary', 'Summary')}</h3>
+                    {proposal.workingLanguage && proposal.workingLanguage !== locale && (
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="h-8 text-xs"
+                        onClick={showTranslation ? () => setShowTranslation(false) : handleTranslate}
+                        disabled={isTranslating}
+                      >
+                        {isTranslating ? (
+                          <Loader2 className="h-3 w-3 animate-spin mr-1" />
+                        ) : (
+                          <Languages className="h-3 w-3 mr-1" />
+                        )}
+                        {showTranslation
+                          ? t('inbox_ops.translate.show_original', 'Show original')
+                          : t('inbox_ops.translate.translate', 'Translate')}
+                      </Button>
+                    )}
+                  </div>
+                  <p className="text-sm text-foreground/80 mb-3">
+                    {showTranslation && translation ? translation.summary : proposal.summary}
+                  </p>
 
                   <div className="flex items-center gap-4 mb-3">
                     <div>
@@ -1276,6 +1324,7 @@ export default function ProposalDetailPage({ params }: { params?: { id?: string 
                             onReject={handleRejectAction}
                             onRetry={handleAcceptAction}
                             onEdit={handleEditAction}
+                            translatedDescription={showTranslation ? translation?.actions[action.id] : undefined}
                           />
                           {action.actionType === 'draft_reply' && (action.status === 'executed' || action.status === 'accepted') && (
                             <div className="mt-2 pl-7">

@@ -95,6 +95,7 @@ const sidebars: SidebarsConfig = {
             "user-guide/workflows/monitoring",
           ],
         },
+        "user-guide/inbox-ops",
         "user-guide/audit-logs",
         "user-guide/scheduler",
       ],

@@ -146,6 +146,22 @@ export async function executeAction(
     await em.flush()
     const encScope = { tenantId: ctx.tenantId, organizationId: ctx.organizationId }
     await resolveActionDiscrepancies(em, freshAction.id, encScope)
+
+    // After create_contact or link_contact, resolve unknown_contact discrepancies
+    // on ALL other actions in the same proposal that reference the same email
+    if (freshAction.actionType === 'create_contact' || freshAction.actionType === 'link_contact') {
+      const payload = freshAction.payload as Record<string, unknown> | null
+      const contactEmail =
+        typeof payload?.email === 'string' ? payload.email
+          : typeof payload?.emailAddress === 'string' ? payload.emailAddress
+            : null
+      if (contactEmail) {
+        await resolveUnknownContactDiscrepanciesInProposal(
+          em, freshAction.proposalId, contactEmail, encScope,
+        )
+      }
+    }
+
     await recalculateProposalStatus(em, freshAction.proposalId, encScope)
 
     if (ctx.eventBus) {
@@ -317,7 +333,8 @@ export async function acceptAllActions(
 
 /**
  * Normalize LLM-generated payloads before validation.
- * Fixes common issues: case-sensitive enums, missing fields that can be resolved.
+ * Fixes common issues: case-sensitive enums, missing fields that can be resolved,
+ * and alternate field names the LLM might use.
  */
 async function normalizePayload(
   action: InboxProposalAction,
@@ -331,6 +348,27 @@ async function normalizePayload(
   }
   if (typeof payload.contactType === 'string') {
     payload.contactType = payload.contactType.toLowerCase()
+  }
+
+  // Normalize link_contact field names (LLM may use various alternatives for
+  // emailAddress/contactId/contactType/contactName — e.g. from the pre-matched contacts format)
+  if (action.actionType === 'link_contact') {
+    if (!payload.emailAddress) {
+      const alt = payload.email ?? payload.contactEmail
+      if (typeof alt === 'string') payload.emailAddress = alt
+    }
+    if (!payload.contactId) {
+      const alt = payload.id ?? payload.matchedId ?? payload.matchedContactId
+      if (typeof alt === 'string') payload.contactId = alt
+    }
+    if (!payload.contactType) {
+      const alt = payload.type ?? payload.kind ?? payload.matchedType ?? payload.matchedContactType
+      if (typeof alt === 'string') payload.contactType = alt.toLowerCase()
+    }
+    if (!payload.contactName) {
+      const alt = payload.name ?? payload.displayName
+      if (typeof alt === 'string') payload.contactName = alt
+    }
   }
 
   // Resolve missing currencyCode for order/quote payloads from channel
@@ -447,25 +485,51 @@ async function executeCreateDocumentAction(
   })
 
   const metadata = buildSourceMetadata(action.id, action.proposalId)
-  const customerSnapshot: Record<string, unknown> = {
-    displayName: payload.customerName,
-  }
-  if (payload.customerEmail) {
-    customerSnapshot.primaryEmail = payload.customerEmail
+
+  // Resolve customerEntityId: use explicit ID, or look up by email (contact may
+  // have been created by a prior action in the same proposal batch)
+  let resolvedCustomerEntityId = payload.customerEntityId
+  if (!resolvedCustomerEntityId && payload.customerEmail) {
+    resolvedCustomerEntityId = (await resolveCustomerEntityIdByEmail(ctx, payload.customerEmail)) ?? undefined
   }
 
   const createInput: Record<string, unknown> = {
     organizationId: ctx.organizationId,
     tenantId: ctx.tenantId,
-    customerEntityId: payload.customerEntityId,
+    customerEntityId: resolvedCustomerEntityId,
     customerReference: payload.customerReference,
     channelId: resolvedChannelId,
     currencyCode,
     taxRateId: payload.taxRateId,
     comments: payload.notes,
     metadata,
-    customerSnapshot,
     lines,
+  }
+
+  // Only provide a manual customerSnapshot when no entity could be resolved.
+  // When customerEntityId is set, the sales command builds the proper nested
+  // snapshot ({ customer: {...}, contact: {...} }) from the entity itself.
+  if (!resolvedCustomerEntityId) {
+    createInput.customerSnapshot = {
+      displayName: payload.customerName,
+      ...(payload.customerEmail && { primaryEmail: payload.customerEmail }),
+    }
+  }
+
+  // Address resolution: explicit address from email > addressId from CRM enrichment
+  const normalizedBilling = payload.billingAddress
+    ? normalizeAddressSnapshot(payload.billingAddress)
+    : undefined
+  const normalizedShipping = payload.shippingAddress
+    ? normalizeAddressSnapshot(payload.shippingAddress)
+    : undefined
+
+  if (normalizedShipping || normalizedBilling) {
+    createInput.shippingAddressSnapshot = normalizedShipping ?? normalizedBilling
+    createInput.billingAddressSnapshot = normalizedBilling ?? normalizedShipping
+  } else if (payload.billingAddressId || payload.shippingAddressId) {
+    createInput.billingAddressId = payload.billingAddressId ?? payload.shippingAddressId
+    createInput.shippingAddressId = payload.shippingAddressId ?? payload.billingAddressId
   }
 
   const requestedDeliveryAt = parseDateToken(payload.requestedDeliveryDate ?? undefined)
@@ -542,9 +606,23 @@ async function executeUpdateOrderAction(
   }
 
   const quantityChanges = payload.quantityChanges ?? []
+  const orderLines = quantityChanges.length > 0 && quantityChanges.some((qc) => !qc.lineItemId)
+    ? await loadOrderLineItems(ctx, order.id)
+    : []
+
   for (const quantityChange of quantityChanges) {
-    if (!quantityChange.lineItemId) {
-      throw new ExecutionError('Quantity changes require lineItemId for order line updates', 400)
+    let lineItemId = quantityChange.lineItemId
+    if (!lineItemId) {
+      const matched = matchLineItemByName(orderLines, quantityChange.lineItemName)
+      if (matched) {
+        lineItemId = matched
+      } else {
+        const availableNames = orderLines.map((l) => l.name).filter(Boolean).join(', ')
+        throw new ExecutionError(
+          `Cannot resolve line item "${quantityChange.lineItemName}". Available line items: ${availableNames || 'none'}`,
+          400,
+        )
+      }
     }
 
     await executeCommand<{ body: Record<string, unknown> }, { orderId?: string; lineId?: string }>(
@@ -552,7 +630,7 @@ async function executeUpdateOrderAction(
       'sales.orders.lines.upsert',
       {
         body: {
-          id: quantityChange.lineItemId,
+          id: lineItemId,
           orderId: order.id,
           organizationId: ctx.organizationId,
           tenantId: ctx.tenantId,
@@ -579,7 +657,7 @@ async function executeUpdateShipmentAction(
     payload.orderNumber,
   )
 
-  const SalesShipmentClass = ctx.entities?.SalesShipment
+  const SalesShipmentClass = resolveEntityClass(ctx, 'SalesShipment')
   if (!SalesShipmentClass) {
     throw new ExecutionError('Sales module entities not available', 503)
   }
@@ -642,13 +720,15 @@ async function executeCreateContactAction(
   payload: CreateContactPayload,
   ctx: ExecutionContext,
 ): Promise<TypeExecutionResult> {
-  const CustomerEntityClass = ctx.entities?.CustomerEntity
+  const CustomerEntityClass = resolveEntityClass(ctx, 'CustomerEntity')
   if (payload.email && CustomerEntityClass) {
-    const existingContact = await findOneWithDecryption(
+    const emailLower = payload.email.trim().toLowerCase()
+    // Try direct DB lookup first (works when primaryEmail is not encrypted)
+    let existingContact = await findOneWithDecryption(
       ctx.em,
       CustomerEntityClass,
       {
-        primaryEmail: payload.email.trim().toLowerCase(),
+        primaryEmail: emailLower,
         tenantId: ctx.tenantId,
         organizationId: ctx.organizationId,
         deletedAt: null,
@@ -656,6 +736,23 @@ async function executeCreateContactAction(
       undefined,
       { tenantId: ctx.tenantId, organizationId: ctx.organizationId },
     )
+    // Fallback: in-memory email check for encrypted primaryEmail fields
+    if (!existingContact) {
+      const candidates = await findWithDecryption(
+        ctx.em,
+        CustomerEntityClass,
+        {
+          tenantId: ctx.tenantId,
+          organizationId: ctx.organizationId,
+          deletedAt: null,
+        },
+        { limit: 100, orderBy: { createdAt: 'DESC' } },
+        { tenantId: ctx.tenantId, organizationId: ctx.organizationId },
+      )
+      existingContact = candidates.find(
+        (e) => e.primaryEmail && e.primaryEmail.toLowerCase() === emailLower,
+      ) ?? null
+    }
     if (existingContact) {
       const isCompany = existingContact.kind === 'company'
       return {
@@ -714,6 +811,43 @@ async function executeCreateContactAction(
   return {
     createdEntityId: result.entityId,
     createdEntityType: 'customer_person',
+  }
+}
+
+async function resolveUnknownContactDiscrepanciesInProposal(
+  em: EntityManager,
+  proposalId: string,
+  contactEmail: string,
+  scope: { tenantId: string; organizationId: string },
+): Promise<void> {
+  if (!contactEmail) return
+
+  const discrepancies = await findWithDecryption(
+    em,
+    InboxDiscrepancy,
+    {
+      proposalId,
+      type: 'unknown_contact',
+      resolved: false,
+      tenantId: scope.tenantId,
+      organizationId: scope.organizationId,
+    },
+    undefined,
+    scope,
+  )
+
+  const normalizedEmail = contactEmail.trim().toLowerCase()
+  const matching = discrepancies.filter((d) => {
+    const foundValue = (d.foundValue || '').trim().toLowerCase()
+    return foundValue === normalizedEmail
+  })
+
+  for (const d of matching) {
+    d.resolved = true
+  }
+
+  if (matching.length > 0) {
+    await em.flush()
   }
 }
 
@@ -782,15 +916,24 @@ async function resolveProductDiscrepanciesInProposal(
     return foundValue === normalizedTitle
   })
 
+  if (matchingDiscrepancies.length === 0) return
+
+  // Phase 1: flush scalar mutations before any queries to avoid UoW tracking loss (SPEC-018)
   for (const discrepancy of matchingDiscrepancies) {
     discrepancy.resolved = true
+  }
+  await em.flush()
 
-    if (discrepancy.actionId) {
-      await updateLineItemProductId(em, discrepancy.actionId, normalizedTitle, productId, scope)
-    }
+  // Phase 2: update line item product IDs (involves findOneWithDecryption queries)
+  const actionIds = matchingDiscrepancies
+    .map((d) => d.actionId)
+    .filter((id): id is string => !!id)
+
+  for (const actionId of actionIds) {
+    await updateLineItemProductId(em, actionId, normalizedTitle, productId, scope)
   }
 
-  if (matchingDiscrepancies.length > 0) {
+  if (actionIds.length > 0) {
     await em.flush()
   }
 }
@@ -846,7 +989,15 @@ async function executeLogActivityAction(
   ctx: ExecutionContext,
 ): Promise<TypeExecutionResult> {
   if (!payload.contactId) {
-    throw new ExecutionError('log_activity requires contactId', 400)
+    const resolved = await resolveContactIdByNameAndType(ctx, payload.contactName, payload.contactType)
+    if (resolved) {
+      payload = { ...payload, contactId: resolved }
+    } else {
+      throw new ExecutionError(
+        `log_activity requires contactId — could not resolve contact "${payload.contactName}" (${payload.contactType})`,
+        400,
+      )
+    }
   }
 
   const result = await executeCommand<Record<string, unknown>, { activityId?: string }>(
@@ -1002,7 +1153,7 @@ async function resolveOrderByReference(
   orderId?: string,
   orderNumber?: string,
 ): Promise<{ id: string; orderNumber: string; currencyCode: string; comments?: string | null }> {
-  const SalesOrderClass = ctx.entities?.SalesOrder
+  const SalesOrderClass = resolveEntityClass(ctx, 'SalesOrder')
   if (!SalesOrderClass) {
     throw new ExecutionError('Sales module entities not available', 503)
   }
@@ -1037,8 +1188,8 @@ async function resolveShipmentStatusEntryId(
   ctx: ExecutionContext,
   statusLabel: string,
 ): Promise<string | null> {
-  const DictionaryClass = ctx.entities?.Dictionary
-  const DictionaryEntryClass = ctx.entities?.DictionaryEntry
+  const DictionaryClass = resolveEntityClass(ctx, 'Dictionary')
+  const DictionaryEntryClass = resolveEntityClass(ctx, 'DictionaryEntry')
   if (!DictionaryClass || !DictionaryEntryClass) return null
 
   const encryptionScope = { tenantId: ctx.tenantId, organizationId: ctx.organizationId }
@@ -1093,9 +1244,10 @@ async function resolveCustomerEntityIdByEmail(
   const normalized = email.trim().toLowerCase()
   if (!normalized) return null
 
-  const CustomerEntityClass = ctx.entities?.CustomerEntity
+  const CustomerEntityClass = resolveEntityClass(ctx, 'CustomerEntity')
   if (!CustomerEntityClass) return null
 
+  // Try direct DB lookup first (works when primaryEmail is not encrypted)
   const entity = await findOneWithDecryption(
     ctx.em,
     CustomerEntityClass,
@@ -1108,15 +1260,31 @@ async function resolveCustomerEntityIdByEmail(
     undefined,
     { tenantId: ctx.tenantId, organizationId: ctx.organizationId },
   )
+  if (entity) return entity.id
 
-  return entity?.id ?? null
+  // Fallback: in-memory email check for encrypted primaryEmail fields
+  const candidates = await findWithDecryption(
+    ctx.em,
+    CustomerEntityClass,
+    {
+      tenantId: ctx.tenantId,
+      organizationId: ctx.organizationId,
+      deletedAt: null,
+    },
+    { limit: 100, orderBy: { createdAt: 'DESC' } },
+    { tenantId: ctx.tenantId, organizationId: ctx.organizationId },
+  )
+  const match = candidates.find(
+    (e) => e.primaryEmail && e.primaryEmail.toLowerCase() === normalized,
+  )
+  return match?.id ?? null
 }
 
 async function resolveEffectiveDocumentKind(
   ctx: ExecutionContext,
   channelId: string,
 ): Promise<'order' | 'quote'> {
-  const SalesChannelClass = ctx.entities?.SalesChannel
+  const SalesChannelClass = resolveEntityClass(ctx, 'SalesChannel')
   if (!SalesChannelClass) return 'order'
 
   const channel = await findOneWithDecryption(
@@ -1141,7 +1309,7 @@ async function resolveEffectiveDocumentKind(
 }
 
 async function resolveFirstChannelId(ctx: ExecutionContext): Promise<string | null> {
-  const SalesChannelClass = ctx.entities?.SalesChannel
+  const SalesChannelClass = resolveEntityClass(ctx, 'SalesChannel')
   if (!SalesChannelClass) return null
 
   try {
@@ -1162,11 +1330,20 @@ async function resolveFirstChannelId(ctx: ExecutionContext): Promise<string | nu
   }
 }
 
+function resolveEntityClass<K extends keyof CrossModuleEntities>(
+  ctx: ExecutionContext,
+  key: K,
+): CrossModuleEntities[K] | null {
+  const fromEntities = ctx.entities?.[key]
+  if (fromEntities) return fromEntities
+  try { return ctx.container.resolve(key) } catch { return null }
+}
+
 async function resolveChannelCurrency(
   ctx: ExecutionContext,
   channelId: string | null,
 ): Promise<string | null> {
-  const SalesChannelClass = ctx.entities?.SalesChannel
+  const SalesChannelClass = resolveEntityClass(ctx, 'SalesChannel')
   if (!SalesChannelClass) return null
 
   try {
@@ -1187,6 +1364,72 @@ async function resolveChannelCurrency(
   } catch {
     return null
   }
+}
+
+async function resolveContactIdByNameAndType(
+  ctx: ExecutionContext,
+  contactName: string,
+  contactType: string,
+): Promise<string | null> {
+  const CustomerEntityClass = resolveEntityClass(ctx, 'CustomerEntity')
+  if (!CustomerEntityClass) return null
+
+  const normalized = contactName.trim()
+  if (!normalized) return null
+
+  const entity = await findOneWithDecryption(
+    ctx.em,
+    CustomerEntityClass,
+    {
+      displayName: normalized,
+      kind: contactType,
+      tenantId: ctx.tenantId,
+      organizationId: ctx.organizationId,
+      deletedAt: null,
+    },
+    undefined,
+    { tenantId: ctx.tenantId, organizationId: ctx.organizationId },
+  )
+
+  return entity?.id ?? null
+}
+
+interface OrderLineItem {
+  id: string
+  name?: string | null
+}
+
+async function loadOrderLineItems(
+  ctx: ExecutionContext,
+  orderId: string,
+): Promise<OrderLineItem[]> {
+  try {
+    const result = await executeCommand<Record<string, unknown>, { lines?: OrderLineItem[] }>(
+      ctx,
+      'sales.orders.lines.list',
+      { orderId, organizationId: ctx.organizationId, tenantId: ctx.tenantId },
+    )
+    return result.lines ?? []
+  } catch {
+    return []
+  }
+}
+
+function matchLineItemByName(
+  orderLines: OrderLineItem[],
+  lineItemName: string,
+): string | null {
+  const target = lineItemName.trim().toLowerCase()
+  if (!target) return null
+
+  const exact = orderLines.find((l) => (l.name || '').trim().toLowerCase() === target)
+  if (exact) return exact.id
+
+  const partial = orderLines.find((l) => {
+    const name = (l.name || '').trim().toLowerCase()
+    return name.includes(target) || target.includes(name)
+  })
+  return partial?.id ?? null
 }
 
 function normalizeDictionaryToken(value: string): string {
@@ -1214,6 +1457,21 @@ function parseNumberToken(value: string, fieldName: string): number {
     throw new ExecutionError(`Invalid numeric value for ${fieldName}`, 400)
   }
   return parsed
+}
+
+function normalizeAddressSnapshot(
+  address: Record<string, unknown>,
+): Record<string, unknown> {
+  return {
+    addressLine1: address.line1 ?? address.addressLine1 ?? '',
+    addressLine2: address.line2 ?? address.addressLine2 ?? null,
+    companyName: address.company ?? address.companyName ?? null,
+    name: address.contactName ?? address.name ?? null,
+    city: address.city ?? null,
+    region: address.state ?? address.region ?? null,
+    postalCode: address.postalCode ?? null,
+    country: address.country ?? null,
+  }
 }
 
 function parseDateToken(value?: string | null): Date | undefined {

@@ -23,6 +23,15 @@ interface SalesChannelLike {
   deletedAt?: Date | null
 }
 
+interface CustomerAddressLike {
+  id: string
+  isPrimary: boolean
+  tenantId?: string
+  organizationId?: string
+  entity?: { id: string } | string
+  createdAt?: Date
+}
+
 interface EnrichmentContext {
   em: EntityManager
   scope: { tenantId: string; organizationId: string }
@@ -30,13 +39,20 @@ interface EnrichmentContext {
   catalogProducts: CatalogProduct[]
   senderEmail: string
   salesChannelClass?: EntityClass<SalesChannelLike>
+  customerAddressClass?: EntityClass<CustomerAddressLike>
+}
+
+export interface EnrichmentResult {
+  payload: Record<string, unknown>
+  warnings: string[]
 }
 
 export async function enrichOrderPayload(
   payload: Record<string, unknown>,
   ctx: EnrichmentContext,
-): Promise<Record<string, unknown>> {
+): Promise<EnrichmentResult> {
   const enriched = { ...payload }
+  const warnings: string[] = []
 
   // 1. Resolve channelId if missing, and resolve currencyCode from channel
   if (ctx.salesChannelClass) {
@@ -61,10 +77,14 @@ export async function enrichOrderPayload(
         if (!enriched.currencyCode && channel.currencyCode) {
           enriched.currencyCode = channel.currencyCode
         }
+      } else {
+        warnings.push('no_channel_resolved')
       }
     } catch {
-      // Channel resolution is best-effort
+      warnings.push('no_channel_resolved')
     }
+  } else if (!enriched.channelId) {
+    warnings.push('no_channel_resolved')
   }
 
   // 2. Resolve customerEntityId from contact matches
@@ -77,16 +97,49 @@ export async function enrichOrderPayload(
     }
   }
 
-  // 3. Resolve products in line items
+  // 3. Resolve billing/shipping address from CRM when not in email
+  const customerEntityId = typeof enriched.customerEntityId === 'string' ? enriched.customerEntityId : null
+  if (customerEntityId && !enriched.billingAddress && !enriched.billingAddressId && ctx.customerAddressClass) {
+    try {
+      const primaryAddress = await findOneWithDecryption(
+        ctx.em,
+        ctx.customerAddressClass,
+        {
+          entity: customerEntityId,
+          tenantId: ctx.scope.tenantId,
+          organizationId: ctx.scope.organizationId,
+        },
+        { orderBy: { isPrimary: 'DESC', createdAt: 'DESC' } },
+        ctx.scope,
+      )
+      if (primaryAddress) {
+        enriched.billingAddressId = primaryAddress.id
+        if (!enriched.shippingAddress && !enriched.shippingAddressId) {
+          enriched.shippingAddressId = primaryAddress.id
+        }
+      }
+    } catch {
+      // Customer address module not available — skip
+    }
+  }
+
+  // 4. Resolve products in line items
   const lineItems = Array.isArray(enriched.lineItems)
     ? (enriched.lineItems as Record<string, unknown>[])
     : []
 
-  if (lineItems.length > 0 && ctx.catalogProducts.length > 0) {
+  const catalogProductIds = new Set(ctx.catalogProducts.map((p) => p.id))
+
+  if (lineItems.length > 0) {
     for (const item of lineItems) {
+      // Clear hallucinated productIds that don't match any real catalog product
+      if (item.productId && typeof item.productId === 'string' && !catalogProductIds.has(item.productId)) {
+        item.productId = undefined
+      }
+
       if (item.productId) continue
       const productName = typeof item.productName === 'string' ? item.productName.toLowerCase().trim() : ''
-      if (!productName) continue
+      if (!productName || ctx.catalogProducts.length === 0) continue
 
       const match = ctx.catalogProducts.find((p) => {
         const catalogName = p.name.toLowerCase().trim()
@@ -105,7 +158,7 @@ export async function enrichOrderPayload(
     }
   }
 
-  // 4. Coerce numeric fields to strings
+  // 5. Coerce numeric fields to strings
   for (const item of lineItems) {
     if (typeof item.quantity === 'number') {
       item.quantity = String(item.quantity)
@@ -115,5 +168,10 @@ export async function enrichOrderPayload(
     }
   }
 
-  return enriched
+  // 6. Warn if currencyCode is still missing after all enrichment
+  if (!enriched.currencyCode) {
+    warnings.push('no_currency_resolved')
+  }
+
+  return { payload: enriched, warnings }
 }

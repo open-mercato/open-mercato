@@ -5,19 +5,28 @@ import Link from 'next/link'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
+import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { ArrowLeft, Copy, CheckCircle } from 'lucide-react'
 
+const LANGUAGE_OPTIONS = [
+  { value: 'en', label: 'English' },
+  { value: 'de', label: 'Deutsch' },
+  { value: 'es', label: 'Español' },
+  { value: 'pl', label: 'Polski' },
+]
+
 export default function InboxSettingsPage() {
   const t = useT()
-  const [settings, setSettings] = React.useState<{ inboxAddress?: string; isActive?: boolean } | null>(null)
+  const [settings, setSettings] = React.useState<{ inboxAddress?: string; isActive?: boolean; workingLanguage?: string } | null>(null)
   const [isLoading, setIsLoading] = React.useState(true)
   const [copied, setCopied] = React.useState(false)
+  const [isSavingLanguage, setIsSavingLanguage] = React.useState(false)
 
   React.useEffect(() => {
     async function load() {
       setIsLoading(true)
-      const result = await apiCall<{ settings: { inboxAddress?: string; isActive?: boolean } | null }>('/api/inbox_ops/settings')
+      const result = await apiCall<{ settings: { inboxAddress?: string; isActive?: boolean; workingLanguage?: string } | null }>('/api/inbox_ops/settings')
       if (result?.ok && result.result?.settings) setSettings(result.result.settings)
       setIsLoading(false)
     }
@@ -31,6 +40,22 @@ export default function InboxSettingsPage() {
       setTimeout(() => setCopied(false), 2000)
     }
   }, [settings])
+
+  const handleLanguageChange = React.useCallback(async (event: React.ChangeEvent<HTMLSelectElement>) => {
+    const workingLanguage = event.target.value
+    setIsSavingLanguage(true)
+    const result = await apiCall<{ ok: boolean; settings: { workingLanguage: string } }>('/api/inbox_ops/settings', {
+      method: 'PATCH',
+      body: JSON.stringify({ workingLanguage }),
+    })
+    if (result?.ok && result.result?.ok) {
+      setSettings((prev) => prev ? { ...prev, workingLanguage: result.result!.settings.workingLanguage } : prev)
+      flash(t('inbox_ops.settings.language_saved', 'Working language updated'), 'success')
+    } else {
+      flash(t('inbox_ops.settings.language_save_failed', 'Failed to update working language'), 'error')
+    }
+    setIsSavingLanguage(false)
+  }, [t])
 
   return (
     <Page>
@@ -77,6 +102,26 @@ export default function InboxSettingsPage() {
                     {settings.isActive ? t('inbox_ops.settings.active', 'Active') : t('inbox_ops.settings.inactive', 'Inactive')}
                   </span>
                 </div>
+              </div>
+
+              <div>
+                <label htmlFor="working-language" className="text-sm font-medium text-foreground">
+                  {t('inbox_ops.settings.working_language', 'Working Language')}
+                </label>
+                <p className="text-xs text-muted-foreground mt-1">
+                  {t('inbox_ops.settings.working_language_hint', 'AI summaries and action descriptions will be generated in this language')}
+                </p>
+                <select
+                  id="working-language"
+                  className="mt-2 block w-full sm:w-[200px] h-11 md:h-9 rounded-md border border-input bg-background px-3 text-sm"
+                  value={settings.workingLanguage || 'en'}
+                  onChange={handleLanguageChange}
+                  disabled={isSavingLanguage}
+                >
+                  {LANGUAGE_OPTIONS.map((opt) => (
+                    <option key={opt.value} value={opt.value}>{opt.label}</option>
+                  ))}
+                </select>
               </div>
             </div>
           ) : (

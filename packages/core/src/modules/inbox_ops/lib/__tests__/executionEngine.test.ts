@@ -804,6 +804,41 @@ describe('executionEngine', () => {
       expect(mockCommandBus.execute).not.toHaveBeenCalled()
     })
 
+    it('normalizes LLM-style field names (email/id/type/name) to schema-expected names', async () => {
+      const em = createMockEm()
+      em.nativeUpdate.mockResolvedValue(1)
+
+      const freshAction = makeAction({
+        id: 'a-link-llm',
+        actionType: 'link_contact',
+        status: 'processing',
+        payload: {
+          email: 'john@example.com',
+          id: VALID_UUID,
+          type: 'Person',
+          name: 'John Doe',
+        },
+      })
+      mockFindOneWithDecryption.mockResolvedValueOnce(freshAction)
+
+      const action = makeAction({
+        id: 'a-link-llm',
+        actionType: 'link_contact',
+        payload: {
+          email: 'john@example.com',
+          id: VALID_UUID,
+          type: 'Person',
+          name: 'John Doe',
+        },
+      })
+
+      const result = await executeAction(action, makeCtx(em))
+
+      expect(result.success).toBe(true)
+      expect(result.createdEntityId).toBe(VALID_UUID)
+      expect(result.createdEntityType).toBe('customer_person')
+    })
+
     it('returns customer_company for company contact type', async () => {
       const em = createMockEm()
       em.nativeUpdate.mockResolvedValue(1)
@@ -891,7 +926,53 @@ describe('executionEngine', () => {
       )
     })
 
-    it('fails when contactId is missing', async () => {
+    it('resolves contactId by name+type when missing', async () => {
+      const em = createMockEm()
+      em.nativeUpdate.mockResolvedValue(1)
+
+      const freshAction = makeAction({
+        id: 'a-activity-resolve',
+        actionType: 'log_activity',
+        status: 'processing',
+        payload: {
+          contactType: 'person',
+          contactName: 'Jane Doe',
+          activityType: 'note',
+          subject: 'Follow-up',
+          body: 'Resolved contact body',
+        },
+      })
+      mockFindOneWithDecryption
+        .mockResolvedValueOnce(freshAction)
+        .mockResolvedValueOnce({ id: 'resolved-contact-1', kind: 'person', displayName: 'Jane Doe' })
+
+      mockCommandBus.execute.mockResolvedValue({ result: { activityId: 'act-resolved' } })
+
+      const action = makeAction({
+        id: 'a-activity-resolve',
+        actionType: 'log_activity',
+        payload: {
+          contactType: 'person',
+          contactName: 'Jane Doe',
+          activityType: 'note',
+          subject: 'Follow-up',
+          body: 'Resolved contact body',
+        },
+      })
+
+      const result = await executeAction(action, makeCtx(em))
+
+      expect(result.success).toBe(true)
+      expect(result.createdEntityId).toBe('act-resolved')
+      expect(mockCommandBus.execute).toHaveBeenCalledWith(
+        'customers.activities.create',
+        expect.objectContaining({
+          input: expect.objectContaining({ entityId: 'resolved-contact-1' }),
+        }),
+      )
+    })
+
+    it('fails when contactId is missing and cannot be resolved', async () => {
       const em = createMockEm()
       em.nativeUpdate.mockResolvedValue(1)
 
@@ -925,6 +1006,7 @@ describe('executionEngine', () => {
 
       expect(result.success).toBe(false)
       expect(result.error).toContain('contactId')
+      expect(result.error).toContain('Unknown')
     })
   })
 
@@ -1069,6 +1151,254 @@ describe('executionEngine', () => {
         ['customers.people.manage'],
         expect.objectContaining({ tenantId: 'tenant-1' }),
       )
+    })
+  })
+
+  describe('executeAction — create_contact resolves cross-action unknown_contact discrepancies', () => {
+    it('resolves unknown_contact discrepancies on other actions (e.g. draft_reply) for the same email', async () => {
+      const em = createMockEm()
+      em.nativeUpdate.mockResolvedValue(1)
+
+      const freshAction = makeAction({
+        id: 'a-create-contact',
+        proposalId: 'proposal-cross',
+        actionType: 'create_contact',
+        status: 'processing',
+        payload: {
+          type: 'person',
+          name: 'Arjun Patel',
+          email: 'arjun@example.com',
+          source: 'inbox_ops',
+        },
+      })
+
+      // 1. findOneWithDecryption: fresh action
+      mockFindOneWithDecryption.mockResolvedValueOnce(freshAction)
+      // 2. findOneWithDecryption: no existing contact by DB query (triggers in-memory fallback)
+      mockFindOneWithDecryption.mockResolvedValueOnce(null)
+      // 2b. findWithDecryption: in-memory email fallback → no match (triggers create)
+      mockFindWithDecryption.mockResolvedValueOnce([])
+      // 3. command bus: create person
+      mockCommandBus.execute.mockResolvedValueOnce({ result: { entityId: 'new-contact-1' } })
+
+      // After execution: resolveActionDiscrepancies (for the create_contact action itself)
+      // 4. findWithDecryption: discrepancies for this action ID → empty
+      mockFindWithDecryption.mockResolvedValueOnce([])
+
+      // After execution: resolveUnknownContactDiscrepanciesInProposal
+      // 5. findWithDecryption: unknown_contact discrepancies in the proposal
+      const draftReplyDiscrepancy = { id: 'disc-draft', proposalId: 'proposal-cross', type: 'unknown_contact', resolved: false, foundValue: 'arjun@example.com' }
+      const otherDiscrepancy = { id: 'disc-other', proposalId: 'proposal-cross', type: 'unknown_contact', resolved: false, foundValue: 'other@example.com' }
+      mockFindWithDecryption.mockResolvedValueOnce([draftReplyDiscrepancy, otherDiscrepancy])
+
+      // recalculateProposalStatus
+      // 6. findOneWithDecryption: proposal (for recalculate)
+      mockFindOneWithDecryption.mockResolvedValueOnce(null)
+
+      const action = makeAction({
+        id: 'a-create-contact',
+        proposalId: 'proposal-cross',
+        actionType: 'create_contact',
+        payload: {
+          type: 'person',
+          name: 'Arjun Patel',
+          email: 'arjun@example.com',
+          source: 'inbox_ops',
+        },
+      })
+
+      const result = await executeAction(action, makeCtx(em))
+
+      expect(result.success).toBe(true)
+      // The matching discrepancy should be resolved
+      expect(draftReplyDiscrepancy.resolved).toBe(true)
+      // The non-matching discrepancy should NOT be resolved
+      expect(otherDiscrepancy.resolved).toBe(false)
+    })
+
+    it('resolves unknown_contact discrepancies after link_contact using emailAddress field', async () => {
+      const em = createMockEm()
+      em.nativeUpdate.mockResolvedValue(1)
+
+      const freshAction = makeAction({
+        id: 'a-link-cross',
+        proposalId: 'proposal-link-cross',
+        actionType: 'link_contact',
+        status: 'processing',
+        payload: {
+          emailAddress: 'linked@example.com',
+          contactId: VALID_UUID,
+          contactType: 'person',
+          contactName: 'Linked Person',
+        },
+      })
+
+      mockFindOneWithDecryption.mockResolvedValueOnce(freshAction)
+
+      // resolveActionDiscrepancies
+      mockFindWithDecryption.mockResolvedValueOnce([])
+
+      // resolveUnknownContactDiscrepanciesInProposal
+      const discrepancy = { id: 'disc-link', proposalId: 'proposal-link-cross', type: 'unknown_contact', resolved: false, foundValue: 'linked@example.com' }
+      mockFindWithDecryption.mockResolvedValueOnce([discrepancy])
+
+      // recalculateProposalStatus
+      mockFindOneWithDecryption.mockResolvedValueOnce(null)
+
+      const action = makeAction({
+        id: 'a-link-cross',
+        proposalId: 'proposal-link-cross',
+        actionType: 'link_contact',
+        payload: {
+          emailAddress: 'linked@example.com',
+          contactId: VALID_UUID,
+          contactType: 'person',
+          contactName: 'Linked Person',
+        },
+      })
+
+      const result = await executeAction(action, makeCtx(em))
+
+      expect(result.success).toBe(true)
+      expect(discrepancy.resolved).toBe(true)
+    })
+  })
+
+  describe('executeAction — link_contact normalizes matchedId/matchedType from pre-matched contacts format', () => {
+    it('normalizes matchedId to contactId and matchedType to contactType', async () => {
+      const em = createMockEm()
+      em.nativeUpdate.mockResolvedValue(1)
+
+      const freshAction = makeAction({
+        id: 'a-link-matched',
+        actionType: 'link_contact',
+        status: 'processing',
+        payload: {
+          contactEmail: 'hans@example.com',
+          matchedId: VALID_UUID,
+          matchedType: 'Person',
+          displayName: 'Hans Mueller',
+        },
+      })
+      mockFindOneWithDecryption.mockResolvedValueOnce(freshAction)
+
+      const action = makeAction({
+        id: 'a-link-matched',
+        actionType: 'link_contact',
+        payload: {
+          contactEmail: 'hans@example.com',
+          matchedId: VALID_UUID,
+          matchedType: 'Person',
+          displayName: 'Hans Mueller',
+        },
+      })
+
+      const result = await executeAction(action, makeCtx(em))
+
+      expect(result.success).toBe(true)
+      expect(result.createdEntityId).toBe(VALID_UUID)
+      expect(result.createdEntityType).toBe('customer_person')
+    })
+
+    it('normalizes matchedContactId and matchedContactType variants', async () => {
+      const em = createMockEm()
+      em.nativeUpdate.mockResolvedValue(1)
+
+      const freshAction = makeAction({
+        id: 'a-link-matched-2',
+        actionType: 'link_contact',
+        status: 'processing',
+        payload: {
+          email: 'naomi@example.com',
+          matchedContactId: VALID_UUID,
+          matchedContactType: 'person',
+          name: 'Naomi Harris',
+        },
+      })
+      mockFindOneWithDecryption.mockResolvedValueOnce(freshAction)
+
+      const action = makeAction({
+        id: 'a-link-matched-2',
+        actionType: 'link_contact',
+        payload: {
+          email: 'naomi@example.com',
+          matchedContactId: VALID_UUID,
+          matchedContactType: 'person',
+          name: 'Naomi Harris',
+        },
+      })
+
+      const result = await executeAction(action, makeCtx(em))
+
+      expect(result.success).toBe(true)
+      expect(result.createdEntityId).toBe(VALID_UUID)
+    })
+  })
+
+  describe('executeAction — create_order resolves channel from container when entities.SalesChannel is undefined', () => {
+    it('resolves channel from container fallback when entities does not include SalesChannel', async () => {
+      const em = createMockEm()
+      em.nativeUpdate.mockResolvedValue(1)
+
+      const freshAction = makeAction({
+        id: 'a-order-no-channel',
+        status: 'processing',
+        payload: {
+          customerName: 'Test Customer',
+          currencyCode: 'EUR',
+          lineItems: [{ productName: 'Widget', quantity: '10' }],
+        },
+      })
+
+      // findOneWithDecryption: fresh action
+      mockFindOneWithDecryption.mockResolvedValueOnce(freshAction)
+
+      // container.resolve('SalesChannel') fallback
+      const MockSalesChannelFallback = class {} as unknown
+      mockContainer.resolve.mockImplementation((token: string) => {
+        if (token === 'rbacService') return mockRbacService
+        if (token === 'commandBus') return mockCommandBus
+        if (token === 'SalesChannel') return MockSalesChannelFallback
+        return null
+      })
+
+      // findOneWithDecryption: resolveFirstChannelId (finds a channel)
+      mockFindOneWithDecryption.mockResolvedValueOnce({
+        id: 'channel-from-container',
+        name: 'Online Store',
+        metadata: null,
+      })
+      // findOneWithDecryption: resolveEffectiveDocumentKind
+      mockFindOneWithDecryption.mockResolvedValueOnce({
+        id: 'channel-from-container',
+        name: 'Online Store',
+        metadata: {},
+      })
+
+      mockCommandBus.execute.mockResolvedValue({ result: { orderId: 'order-fallback' } })
+
+      const action = makeAction({
+        id: 'a-order-no-channel',
+        payload: {
+          customerName: 'Test Customer',
+          currencyCode: 'EUR',
+          lineItems: [{ productName: 'Widget', quantity: '10' }],
+        },
+      })
+
+      // Pass entities WITHOUT SalesChannel
+      const result = await executeAction(action, makeCtx(em, {
+        entities: {
+          CustomerEntity: MockCustomerEntity,
+          SalesOrder: MockSalesOrder,
+          SalesShipment: MockSalesShipment,
+          Dictionary: MockDictionary,
+          DictionaryEntry: MockDictionaryEntry,
+        },
+      }))
+
+      expect(result.success).toBe(true)
+      expect(result.createdEntityId).toBe('order-fallback')
     })
   })
 

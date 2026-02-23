@@ -23,6 +23,14 @@ export interface ThreadMessage {
   isForwarded: boolean
 }
 
+export interface ProposalTranslationEntry {
+  summary: string
+  actions: Record<string, string>
+  translatedAt: string
+}
+
+export type ProposalTranslations = Record<string, ProposalTranslationEntry>
+
 export interface ExtractedParticipant {
   name: string
   email: string
@@ -63,7 +71,7 @@ export type InboxDiscrepancyType =
 @Index({ properties: ['organizationId', 'tenantId'] })
 @Unique({ properties: ['inboxAddress'] })
 export class InboxSettings {
-  [OptionalProps]?: 'isActive' | 'createdAt' | 'updatedAt' | 'deletedAt'
+  [OptionalProps]?: 'isActive' | 'workingLanguage' | 'createdAt' | 'updatedAt' | 'deletedAt'
 
   @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
   id!: string
@@ -73,6 +81,9 @@ export class InboxSettings {
 
   @Property({ name: 'is_active', type: 'boolean', default: true })
   isActive: boolean = true
+
+  @Property({ name: 'working_language', type: 'text', default: 'en' })
+  workingLanguage: string = 'en'
 
   @Property({ name: 'organization_id', type: 'uuid' })
   organizationId!: string
@@ -197,7 +208,7 @@ export class InboxEmail {
 @Index({ properties: ['organizationId', 'tenantId', 'status'] })
 @Index({ properties: ['inboxEmailId'] })
 export class InboxProposal {
-  [OptionalProps]?: 'status' | 'possiblyIncomplete' | 'isActive' | 'createdAt' | 'updatedAt' | 'deletedAt'
+  [OptionalProps]?: 'status' | 'possiblyIncomplete' | 'workingLanguage' | 'translations' | 'isActive' | 'createdAt' | 'updatedAt' | 'deletedAt'
 
   @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
   id!: string
@@ -234,6 +245,12 @@ export class InboxProposal {
 
   @Property({ name: 'llm_tokens_used', type: 'integer', nullable: true })
   llmTokensUsed?: number | null
+
+  @Property({ name: 'working_language', type: 'text', nullable: true })
+  workingLanguage?: string | null
+
+  @Property({ name: 'translations', type: 'json', nullable: true })
+  translations?: ProposalTranslations | null
 
   @Property({ name: 'is_active', type: 'boolean', default: true })
   isActive: boolean = true

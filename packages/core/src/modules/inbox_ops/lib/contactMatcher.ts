@@ -78,6 +78,7 @@ async function matchSingleContact(
 ): Promise<MatchedContact | null> {
   if (!participant.email && !participant.name) return null
 
+  // 1. Try direct DB lookup by email (works when primaryEmail is not encrypted)
   if (participant.email) {
     const emailMatch = await findOneWithDecryption(
       em,
@@ -102,23 +103,47 @@ async function matchSingleContact(
     }
   }
 
-  if (participant.name && participant.name.length >= 2) {
-    const nameResults = await findWithDecryption(
-      em,
-      entityClass,
-      {
-        deletedAt: null,
-        organizationId: scope.organizationId,
-        tenantId: scope.tenantId,
-      },
-      { limit: 100, orderBy: { createdAt: 'DESC' } },
-      { tenantId: scope.tenantId, organizationId: scope.organizationId },
-    )
+  // 2. Fallback: fetch + decrypt records, then match by email and name in memory.
+  //    This handles encrypted primaryEmail fields where DB WHERE clause cannot match.
+  const hasEmail = Boolean(participant.email)
+  const hasName = participant.name && participant.name.length >= 2
 
+  if (!hasEmail && !hasName) return null
+
+  const decryptedResults = await findWithDecryption(
+    em,
+    entityClass,
+    {
+      deletedAt: null,
+      organizationId: scope.organizationId,
+      tenantId: scope.tenantId,
+    },
+    { limit: 100, orderBy: { createdAt: 'DESC' } },
+    { tenantId: scope.tenantId, organizationId: scope.organizationId },
+  )
+
+  // 2a. Check decrypted emails in memory (handles encrypted primaryEmail)
+  if (hasEmail) {
+    const emailLower = participant.email.toLowerCase()
+    const emailMatch = decryptedResults.find(
+      (entity) => entity.primaryEmail && entity.primaryEmail.toLowerCase() === emailLower,
+    )
+    if (emailMatch) {
+      return {
+        contactId: emailMatch.id,
+        contactType: emailMatch.kind === 'company' ? 'company' : 'person',
+        contactName: emailMatch.displayName || participant.name,
+        confidence: 1.0,
+      }
+    }
+  }
+
+  // 2b. Fuzzy name matching
+  if (hasName) {
     const normalizedSearch = participant.name.toLowerCase().trim()
     let bestMatch: { entity: CustomerEntityLike; score: number } | null = null
 
-    for (const entity of nameResults) {
+    for (const entity of decryptedResults) {
       const displayName = (entity.displayName || '').toLowerCase().trim()
       if (!displayName) continue
 

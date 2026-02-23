@@ -8,6 +8,14 @@ import {
 } from '@open-mercato/shared/lib/ai/opencode-provider'
 import { extractionOutputSchema } from '../data/validators'
 
+// Vercel AI SDK provider factories return LanguageModelV1 but generateObject()
+// expects a narrower LanguageModel union. The types are structurally compatible
+// at runtime; the cast is required until the AI SDK unifies its model types.
+type AiModel = Parameters<typeof generateObject>[0]['model']
+function asAiModel(model: unknown): AiModel {
+  return model as AiModel
+}
+
 export function resolveExtractionProviderId(): OpenCodeProviderId {
   const configuredProvider = process.env.OPENCODE_PROVIDER
   if (configuredProvider && configuredProvider.trim().length > 0) {
@@ -22,23 +30,23 @@ export function resolveExtractionProviderId(): OpenCodeProviderId {
   return resolveOpenCodeProviderId(undefined)
 }
 
-async function createStructuredModel(
+export async function createStructuredModel(
   providerId: OpenCodeProviderId,
   apiKey: string,
   modelId: string,
-): Promise<Parameters<typeof generateObject>[0]['model']> {
+): Promise<AiModel> {
   switch (providerId) {
     case 'anthropic': {
       const { createAnthropic } = await import('@ai-sdk/anthropic')
-      return createAnthropic({ apiKey })(modelId) as unknown as Parameters<typeof generateObject>[0]['model']
+      return asAiModel(createAnthropic({ apiKey })(modelId))
     }
     case 'openai': {
       const { createOpenAI } = await import('@ai-sdk/openai')
-      return createOpenAI({ apiKey })(modelId) as unknown as Parameters<typeof generateObject>[0]['model']
+      return asAiModel(createOpenAI({ apiKey })(modelId))
     }
     case 'google': {
       const { createGoogleGenerativeAI } = await import('@ai-sdk/google')
-      return createGoogleGenerativeAI({ apiKey })(modelId) as unknown as Parameters<typeof generateObject>[0]['model']
+      return asAiModel(createGoogleGenerativeAI({ apiKey })(modelId))
     }
     default:
       throw new Error(`Unsupported provider: ${providerId}`)
