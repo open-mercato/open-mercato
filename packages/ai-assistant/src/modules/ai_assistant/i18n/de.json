@@ -41,5 +41,18 @@
   "ai_assistant.status.executing": "Tools werden ausgeführt...",
   "ai_assistant.status.responding": "Antwort wird erstellt...",
   "ai_assistant.status.thinking": "Denkt nach...",
-  "ai_assistant.status.working": "Arbeitet..."
+  "ai_assistant.status.working": "Arbeitet...",
+  "ai_assistant.form_bridge.suggestion_title": "KI-Vorschlag",
+  "ai_assistant.form_bridge.accept": "Akzeptieren",
+  "ai_assistant.form_bridge.reject": "Ablehnen",
+  "ai_assistant.form_bridge.undo_accept": "Rückgängig",
+  "ai_assistant.form_bridge.preview_diff": "Änderungen anzeigen",
+  "ai_assistant.form_bridge.hide_diff": "Änderungen ausblenden",
+  "ai_assistant.form_bridge.stale_warning": "Das Formular wurde seit der Erstellung dieses Vorschlags geändert",
+  "ai_assistant.form_bridge.generating": "KI generiert einen Vorschlag...",
+  "ai_assistant.form_bridge.accept_shortcut": "Cmd+Enter zum Akzeptieren",
+  "ai_assistant.form_bridge.reject_shortcut": "Escape zum Ablehnen",
+  "ai_assistant.form_bridge.section_conditions": "Bedingungen",
+  "ai_assistant.form_bridge.section_success_actions": "Erfolgsaktionen",
+  "ai_assistant.form_bridge.section_failure_actions": "Fehleraktionen"
 }

@@ -16,10 +16,34 @@ interface PendingSuggestion {
 
 type FormGeneratingEvent = { generating: true; sectionIds: string[] } | { generating: false }
 
+// ---------------------------------------------------------------------------
+// Global form registration registry — avoids useEffect timing issues.
+// Uses window property so CommandPaletteProvider can read it without an import
+// (avoids HMR cascade since the provider wraps the entire app).
+// ---------------------------------------------------------------------------
+
+const GLOBAL_KEY = '__omAiFormRegistration' as const
+
+interface FormRegistrationEntry {
+  formType: string
+  getFormState: () => Record<string, unknown> | null
+}
+
+function setGlobalFormRegistration(reg: FormRegistrationEntry | null): void {
+  if (typeof window !== 'undefined') {
+    ;(window as any)[GLOBAL_KEY] = reg
+  }
+}
+
+function getGlobalFormRegistration(): FormRegistrationEntry | null {
+  if (typeof window === 'undefined') return null
+  return (window as any)[GLOBAL_KEY] ?? null
+}
+
 /**
  * Hook for bidirectional communication between page forms and the AI assistant.
  *
- * 1. Registers the form with the CommandPalette via `om:ai-form-register` CustomEvent
+ * 1. Registers the form via a global registry (immediate) + `om:ai-form-register` event (for listeners)
  * 2. Listens for AI-generated suggestions via `om:ai-form-suggestion` CustomEvent
  * 3. Provides accept/reject callbacks for per-section suggestion handling
  * 4. Tracks stale state: snapshots form values when suggestion arrives, compares to current
@@ -39,18 +63,26 @@ export function useAiFormBridge(options: AiFormBridgeOptions) {
   const [pendingSuggestion, setPendingSuggestion] = useState<PendingSuggestion | null>(null)
   const [generatingSections, setGeneratingSections] = useState<Set<string>>(new Set())
 
-  // Register form state with CommandPalette on mount, unregister on unmount
+  // Register form state globally (immediate, no timing issues) and via event (for listeners)
   useEffect(() => {
     const registration = {
       formType,
       getFormState: () => getFormStateRef.current(),
     }
 
+    // Write to global registry — CommandPaletteProvider reads this directly
+    setGlobalFormRegistration(registration)
+
+    // Also dispatch event for any other listeners
     window.dispatchEvent(
       new CustomEvent('om:ai-form-register', { detail: registration })
     )
 
     return () => {
+      // Only clear if we're still the active registration
+      if (getGlobalFormRegistration()?.formType === formType) {
+        setGlobalFormRegistration(null)
+      }
       window.dispatchEvent(
         new CustomEvent('om:ai-form-unregister', { detail: { formType } })
       )
@@ -86,10 +118,12 @@ export function useAiFormBridge(options: AiFormBridgeOptions) {
   // Listen for generating state events from useCommandPalette
   useEffect(() => {
     const handleGenerating = (event: CustomEvent<FormGeneratingEvent>) => {
-      if (event.detail.generating) {
+      const detail = event.detail
+      if (detail.generating) {
+        const sectionIds = detail.sectionIds
         setGeneratingSections(prev => {
           const next = new Set(prev)
-          for (const id of event.detail.sectionIds) next.add(id)
+          for (const id of sectionIds) next.add(id)
           return next
         })
       } else {

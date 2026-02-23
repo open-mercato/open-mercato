@@ -37,6 +37,11 @@ RESPONSE RULES:
 - Never show technical terms, IDs, JSON, or internal reasoning
 - Present results in clean business language with **bold names** and bullet points
 - Only ask for confirmation before create/update/delete operations
+
+FORM STATE:
+- When a [FORM_STATE]...[/FORM_STATE] block is present, it shows the current state of the form the user has open.
+- Use business_rules_get_form_state to read a structured version of it.
+- Use business_rules_suggest_conditions / business_rules_suggest_actions to propose changes (user will approve in the UI).
 `.trim()
 
 export const metadata = {
@@ -89,10 +94,11 @@ export async function POST(req: NextRequest) {
 
   try {
     const body = await req.json()
-    const { messages, sessionId, answerQuestion, formState } = body as {
+    const { messages, sessionId, answerQuestion, formState, mcpSessionToken } = body as {
       messages?: Array<{ role: string; content: string }>
       sessionId?: string
       formState?: Record<string, unknown>
+      mcpSessionToken?: string
       // For answering a question
       answerQuestion?: {
         questionId: string
@@ -183,6 +189,36 @@ export async function POST(req: NextRequest) {
       }
     }
 
+    // Determine which session token to use for form state push:
+    // - New sessions: use the freshly created sessionToken
+    // - Follow-up messages: use mcpSessionToken sent back from frontend
+    const effectiveToken = sessionToken ?? mcpSessionToken ?? null
+
+    console.log('[AI Chat] Form state push check:', {
+      hasFormState: !!formState,
+      formType: formState && typeof formState === 'object' ? (formState as Record<string, unknown>).formType : null,
+      hasEffectiveToken: !!effectiveToken,
+      tokenSource: sessionToken ? 'new-session' : mcpSessionToken ? 'frontend' : 'none',
+    })
+
+    // Push form state to MCP server (AWAIT — eliminates race condition).
+    // This ensures the form state is stored before OpenCode runs any tools.
+    if (effectiveToken && formState && typeof formState === 'object') {
+      const mcpBaseUrl = process.env.MCP_URL ?? `http://localhost:${process.env.MCP_DEV_PORT ?? '3001'}`
+      try {
+        const res = await fetch(`${mcpBaseUrl}/form-state`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ sessionToken: effectiveToken, formState }),
+        })
+        if (!res.ok) {
+          console.warn('[AI Chat] Failed to push form state:', res.status)
+        }
+      } catch (err) {
+        console.warn('[AI Chat] Failed to push form state to MCP server:', err instanceof Error ? err.message : err)
+      }
+    }
+
     // Build the message to send to OpenCode
     // For NEW sessions: inject system instructions + session token
     // For existing sessions: only inject session token if available
@@ -198,9 +234,10 @@ export async function POST(req: NextRequest) {
       messageToSend += `[Session Authorization: ${sessionToken}. Include "_sessionToken": "${sessionToken}" in EVERY tool call.]\n\n`
     }
 
-    // If the page has registered form state via the AI Form Bridge, include it as context
+    // If the page has registered form state via the AI Form Bridge, include it as structured context.
+    // The AI should use this data directly — no need to call business_rules_get_form_state.
     if (formState && typeof formState === 'object') {
-      messageToSend += `[FORM_STATE: ${JSON.stringify(formState)}]\n\n`
+      messageToSend += `[FORM_STATE — you already have the live form data, use it directly]\n${JSON.stringify(formState, null, 2)}\n[/FORM_STATE]\n\n`
     }
 
     messageToSend += lastUserMessage
@@ -213,7 +250,7 @@ export async function POST(req: NextRequest) {
           console.log('[AI Chat] Emitting session-authorized event')
           await writeSSE({
             type: 'session-authorized',
-            sessionToken: sessionToken.slice(0, 12) + '...',
+            sessionToken,
           })
         }
 

@@ -19,6 +19,7 @@ import {
   isSafeExpression,
   validateRulePayload,
 } from './lib/payload-validation'
+import { isGroupCondition } from './components/utils/conditionValidation'
 import { getDslReference } from './lib/dsl-reference'
 import type { DslReferenceTopic } from './lib/dsl-reference'
 
@@ -35,6 +36,7 @@ type ToolContext = {
   }
   userFeatures: string[]
   isSuperAdmin: boolean
+  formState?: Record<string, unknown>
 }
 
 /**
@@ -65,22 +67,17 @@ Returns { error: 'no_form_state' } if no business rule form is currently open.`,
   inputSchema: z.object({}),
   requiredFeatures: ['business_rules.view'],
   handler: async (_input, ctx) => {
-    // formState is injected into the tool context by the chat route
-    // when a page has registered via useAiFormBridge
-    const formState = (ctx as any).formState
+    const formState = ctx.formState
     if (!formState || formState.formType !== 'business_rules') {
       return {
         error: 'no_form_state',
-        message: 'No business rule form is currently open. Ask the user to open a business rule create or edit page first.',
+        message: 'No business rule form is currently open.',
       }
     }
 
-    return {
-      formType: formState.formType,
-      sections: formState.sections,
-      values: formState.values,
-      metadata: formState.metadata,
-    }
+    // Return the form state as-is — contains formType, conditionExpression,
+    // successActions, failureActions, and any metadata the page provides
+    return formState
   },
 }
 
@@ -113,7 +110,19 @@ Modes:
   }),
   requiredFeatures: ['business_rules.manage'],
   handler: async (input, _ctx) => {
-    const { conditionExpression, mode } = input
+    const { mode } = input
+    // AI agents often pass nested JSON as a string — auto-parse it
+    let conditionExpression = input.conditionExpression
+    if (typeof conditionExpression === 'string') {
+      try {
+        conditionExpression = JSON.parse(conditionExpression)
+      } catch {
+        return {
+          error: 'validation_failed',
+          details: ['conditionExpression must be a JSON object, not a string. Do not stringify it — pass the object directly.'],
+        }
+      }
+    }
 
     if (!conditionExpression) {
       return {
@@ -136,6 +145,15 @@ Modes:
       return {
         error: 'validation_failed',
         details: result.errors ?? [result.error ?? 'Invalid condition expression'],
+      }
+    }
+
+    // Normalize to GroupCondition — ConditionBuilder always expects a group at root level
+    if (!isGroupCondition(conditionExpression)) {
+      console.warn('[business_rules:suggest_conditions] Normalizing SimpleCondition to GroupCondition wrapper')
+      conditionExpression = {
+        operator: 'AND',
+        rules: [conditionExpression],
       }
     }
 
@@ -240,14 +258,24 @@ before presenting it to the user. Returns { valid: true } or { valid: false, err
   handler: async (input, _ctx) => {
     const errors: string[] = []
 
+    // AI agents often pass nested JSON as a string — auto-parse
+    let conditionExpression = input.conditionExpression
+    if (typeof conditionExpression === 'string') {
+      try {
+        conditionExpression = JSON.parse(conditionExpression)
+      } catch {
+        errors.push('conditionExpression must be a JSON object, not a string')
+      }
+    }
+
     // Safety check on condition expression
-    if (input.conditionExpression && !isSafeExpression(input.conditionExpression)) {
+    if (conditionExpression && !isSafeExpression(conditionExpression)) {
       errors.push('Condition expression exceeds safety limits (max depth: 10, max rules per group: 50, max field path length: 200)')
     }
 
     // Use the combined validator
     const result = validateRulePayload({
-      conditionExpression: input.conditionExpression,
+      conditionExpression,
       successActions: input.successActions,
       failureActions: input.failureActions,
     })

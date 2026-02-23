@@ -41,5 +41,18 @@
   "ai_assistant.status.executing": "Wykonywanie narzędzi...",
   "ai_assistant.status.responding": "Odpowiadanie...",
   "ai_assistant.status.thinking": "Myślenie...",
-  "ai_assistant.status.working": "Przetwarzanie..."
+  "ai_assistant.status.working": "Przetwarzanie...",
+  "ai_assistant.form_bridge.suggestion_title": "Sugestia AI",
+  "ai_assistant.form_bridge.accept": "Akceptuj",
+  "ai_assistant.form_bridge.reject": "Odrzuć",
+  "ai_assistant.form_bridge.undo_accept": "Cofnij",
+  "ai_assistant.form_bridge.preview_diff": "Podgląd zmian",
+  "ai_assistant.form_bridge.hide_diff": "Ukryj zmiany",
+  "ai_assistant.form_bridge.stale_warning": "Formularz został zmodyfikowany od wygenerowania tej sugestii",
+  "ai_assistant.form_bridge.generating": "AI generuje sugestię...",
+  "ai_assistant.form_bridge.accept_shortcut": "Cmd+Enter aby zaakceptować",
+  "ai_assistant.form_bridge.reject_shortcut": "Escape aby odrzucić",
+  "ai_assistant.form_bridge.section_conditions": "Warunki",
+  "ai_assistant.form_bridge.section_success_actions": "Akcje po sukcesie",
+  "ai_assistant.form_bridge.section_failure_actions": "Akcje po porażce"
 }

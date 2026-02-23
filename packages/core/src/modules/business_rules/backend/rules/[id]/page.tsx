@@ -69,7 +69,17 @@ export default function EditBusinessRulePage() {
 
   const bridge = useAiFormBridge({
     formType: 'business_rules',
-    getFormState: () => formValuesRef.current,
+    getFormState: () => ({
+      ...formValuesRef.current,
+      metadata: rule ? {
+        ruleId: rule.id,
+        ruleName: rule.name,
+        ruleType: rule.ruleType,
+        entityType: rule.entityType,
+        eventType: rule.eventType,
+        category: rule.category,
+      } : undefined,
+    }),
   })
 
   const handleSubmit = async (values: BusinessRuleFormValues) => {

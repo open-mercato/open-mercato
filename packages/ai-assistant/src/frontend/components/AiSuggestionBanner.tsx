@@ -114,6 +114,7 @@ export function AiSuggestionBanner({
           <span>{t('ai_assistant.form_bridge.suggestion_title')}</span>
         </div>
         <Button
+          type="button"
           variant="outline"
           size="sm"
           onClick={handleUndo}
@@ -158,6 +159,7 @@ export function AiSuggestionBanner({
         {/* Actions */}
         <div className="flex shrink-0 items-center gap-1.5">
           <Button
+            type="button"
             variant="ghost"
             size="sm"
             onClick={() => setShowDiff(!showDiff)}
@@ -176,18 +178,20 @@ export function AiSuggestionBanner({
             )}
           </Button>
           <Button
+            type="button"
             variant="ghost"
             size="sm"
-            onClick={onReject}
+            onClick={() => onReject()}
             className="h-7 gap-1.5 text-xs text-muted-foreground hover:text-destructive"
           >
             <X className="h-3.5 w-3.5" />
             {t('ai_assistant.form_bridge.reject')}
           </Button>
           <Button
+            type="button"
             variant="default"
             size="sm"
-            onClick={handleAccept}
+            onClick={() => handleAccept()}
             className="h-7 gap-1.5 text-xs"
           >
             <Check className="h-3.5 w-3.5" />

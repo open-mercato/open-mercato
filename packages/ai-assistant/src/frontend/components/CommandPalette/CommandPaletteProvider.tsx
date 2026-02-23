@@ -56,9 +56,14 @@ export function CommandPaletteProvider({
     }
   }, [])
 
-  // Stable getter that reads the latest form state from the registered form
+  // Stable getter that reads the latest form state from the registered form.
+  // Primary: global registry on window (set by useAiFormBridge, no timing issues).
+  // Fallback: event-based ref (for edge cases where global is cleared first).
   const getFormState = useCallback(() => {
-    const registration = formRegistrationRef.current
+    const globalReg = typeof window !== 'undefined'
+      ? (window as any).__omAiFormRegistration as AiFormRegistration | undefined
+      : undefined
+    const registration = globalReg ?? formRegistrationRef.current
     if (!registration) return null
     const state = registration.getFormState()
     if (!state) return null
