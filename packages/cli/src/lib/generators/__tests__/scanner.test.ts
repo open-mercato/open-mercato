@@ -228,16 +228,17 @@ describe('scanModuleDir', () => {
   })
 
   describe('empty folder config — scans module root directly', () => {
+    const rootConfig = {
+      folder: '',
+      include: (name: string) => name.endsWith('.ts') && !/\.(test|spec)\.ts$/.test(name),
+    }
+
     it('scans files at the module root when folder is empty string', () => {
       touch('handler.ts', 'pkg')
       touch('utils.ts', 'pkg')
       touch('handler.test.ts', 'pkg')
 
-      const config = {
-        folder: '',
-        include: (name: string) => name.endsWith('.ts') && !/\.(test|spec)\.ts$/.test(name),
-      }
-      const files = scanModuleDir(roots, config)
+      const files = scanModuleDir(roots, rootConfig)
       const paths = files.map((f) => f.relPath)
 
       expect(paths).toContain('handler.ts')
@@ -249,11 +250,7 @@ describe('scanModuleDir', () => {
       touch('handler.ts', 'pkg')
       touch('handler.ts', 'app')
 
-      const config = {
-        folder: '',
-        include: (name: string) => name.endsWith('.ts') && !/\.(test|spec)\.ts$/.test(name),
-      }
-      const files = scanModuleDir(roots, config)
+      const files = scanModuleDir(roots, rootConfig)
 
       expect(files).toHaveLength(1)
       expect(files[0].fromApp).toBe(true)
