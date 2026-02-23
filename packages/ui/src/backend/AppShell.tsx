@@ -680,9 +680,16 @@ export function AppShell({ productName, email, groups, rightHeaderSlot, children
             const renderSectionItem = (item: (typeof section.items)[number], depth = 0): React.ReactNode => {
               const label = item.labelKey ? t(item.labelKey, item.label) : item.label
               const childItems = sortSectionItems(item.children)
-              const hasActiveChild = !!(pathname && childItems.some((child) => pathname.startsWith(child.href)))
-              const showChildren = !!pathname && childItems.length > 0 && pathname.startsWith(item.href)
-              const isActive = pathname === item.href || hasActiveChild
+              const isOnItemBranch = !!pathname && (
+                pathname === item.href ||
+                pathname.startsWith(`${item.href}/`)
+              )
+              const hasActiveChild = !!(pathname && childItems.some((child) => (
+                pathname === child.href ||
+                pathname.startsWith(`${child.href}/`)
+              )))
+              const showChildren = childItems.length > 0 && isOnItemBranch
+              const isActive = isOnItemBranch || hasActiveChild
               const base = compact ? 'w-10 h-10 justify-center' : 'py-1 gap-2'
               const spacingStyle = !compact
                 ? {

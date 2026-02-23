@@ -194,4 +194,44 @@ describe('AppShell', () => {
       )
     })
   })
+
+  it('keeps settings parent item active on descendant routes outside explicit child list', async () => {
+    mockPathname = '/backend/entities/user/example%3Acalendar_entity'
+
+    renderWithProviders(
+      <AppShell
+        email="demo@example.com"
+        groups={groups}
+        settingsPathPrefixes={['/backend/entities/user']}
+        settingsSections={[
+          {
+            id: 'data-designer',
+            label: 'Data Designer',
+            items: [
+              {
+                id: 'user-entities',
+                label: 'User Entities',
+                href: '/backend/entities/user',
+                children: [
+                  {
+                    id: 'calendar-entity',
+                    label: 'Calendar Entity',
+                    href: '/backend/entities/user/example%3Acalendar_entity/records',
+                  },
+                ],
+              },
+            ],
+          },
+        ]}
+      >
+        <div>Settings content</div>
+      </AppShell>,
+      { dict },
+    )
+
+    await waitFor(() => {
+      expect(screen.getByRole('link', { name: 'User Entities' })).toHaveClass('bg-background')
+      expect(screen.getByRole('link', { name: 'Calendar Entity' })).toBeInTheDocument()
+    })
+  })
 })
